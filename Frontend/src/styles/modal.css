@@ -1,0 +1,97 @@
+/**
+ * Shared modal styles — use across Offloading, Shipping Instruction, and other pages.
+ * Structure: .modal-overlay > .modal (with optional .modal--small or .modal--wide)
+ */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--spacing-4);
+}
+
+.modal {
+  background: var(--color-bg-white);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  max-width: 420px;
+  width: 100%;
+  max-height: 90vh;
+  overflow: auto;
+  padding: var(--spacing-4);
+}
+
+.modal--small {
+  max-width: 320px;
+}
+
+.modal--wide {
+  max-width: 720px;
+}
+
+.modal__title {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0 0 var(--spacing-3);
+}
+
+.modal__section {
+  margin-bottom: var(--spacing-3);
+}
+
+.modal__section:last-of-type {
+  margin-bottom: 0;
+}
+
+.modal__label {
+  display: block;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-charcoal);
+  margin-bottom: var(--spacing-1);
+}
+
+.modal__input {
+  width: 100%;
+  padding: var(--spacing-2);
+  font-size: var(--font-size-small);
+  font-family: var(--font-primary);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  box-sizing: border-box;
+}
+
+.modal__textarea {
+  width: 100%;
+  padding: var(--spacing-2);
+  font-size: var(--font-size-small);
+  font-family: var(--font-primary);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 72px;
+}
+
+.modal__tags {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.modal__tag {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-2);
+  margin-top: var(--spacing-4);
+}

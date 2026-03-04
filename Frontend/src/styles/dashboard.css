@@ -1,0 +1,323 @@
+/* Dashboard Command Center */
+
+.dashboard {
+  max-width: 1400px;
+}
+
+/* Weather card: full width, main (left) + forecast (right) */
+.weather-card {
+  margin-bottom: var(--spacing-4);
+}
+
+.weather-card__body {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr;
+  gap: var(--spacing-6);
+  align-items: start;
+}
+
+.weather-card__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  padding-right: var(--spacing-4);
+  border-right: 1px solid var(--color-border-light);
+}
+
+.weather-card__condition {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  font-size: var(--font-size-lg);
+}
+
+.weather-card__temp {
+  font-family: var(--font-heading);
+  font-size: 2rem;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  line-height: 1.2;
+}
+
+.weather-card__meta {
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+.weather-card__docking-note {
+  font-size: var(--font-size-small);
+  color: var(--color-primary);
+  font-weight: var(--font-weight-medium);
+  margin: var(--spacing-2) 0 0;
+  padding: var(--spacing-3);
+  background: rgba(196, 58, 49, 0.08);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--color-primary);
+}
+
+.weather-card__forecast {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.weather-card__forecast-label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-steel);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.weather-card__forecast-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.weather-card__forecast-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: var(--spacing-3);
+  align-items: center;
+  font-size: var(--font-size-small);
+  padding: var(--spacing-2) 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.weather-card__forecast-item:last-child {
+  border-bottom: none;
+}
+
+.weather-card__forecast-day {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-charcoal);
+}
+
+.weather-card__forecast-condition {
+  color: var(--color-text-steel);
+}
+
+.weather-card__forecast-temp {
+  color: var(--color-text-charcoal);
+}
+
+.weather-card__forecast-rain {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-steel);
+}
+
+@media (max-width: 639px) {
+  .weather-card__body {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-4);
+  }
+  .weather-card__main {
+    padding-right: 0;
+    border-right: none;
+    padding-bottom: var(--spacing-4);
+    border-bottom: 1px solid var(--color-border-light);
+  }
+  .weather-card__forecast-item {
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-1);
+  }
+  .weather-card__forecast-condition { grid-column: 2; grid-row: 1; }
+  .weather-card__forecast-temp { grid-column: 1; grid-row: 2; }
+  .weather-card__forecast-rain { grid-column: 2; grid-row: 2; }
+}
+
+/* Metric cards */
+.dashboard-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--spacing-3);
+  margin-bottom: var(--spacing-4);
+}
+
+.metric-card {
+  background: var(--color-bg-white);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-4);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.metric-card__label {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-steel);
+}
+
+.metric-card__value {
+  font-family: var(--font-heading);
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  line-height: 1.2;
+}
+
+.metric-card__value .metric-card__unit {
+  font-family: var(--font-primary);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-normal);
+  color: var(--color-text-steel);
+  margin-left: var(--spacing-1);
+}
+
+.metric-card__type {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-steel);
+}
+
+.metric-card__action {
+  font-size: var(--font-size-xs);
+  color: var(--color-primary);
+  font-weight: var(--font-weight-medium);
+  margin-top: var(--spacing-1);
+}
+
+@media (max-width: 1023px) {
+  .dashboard-metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 639px) {
+  .dashboard-metrics {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Two columns: Active Vessel | Visibility & SLAs */
+.dashboard__two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-4);
+  margin-bottom: var(--spacing-4);
+}
+
+@media (max-width: 1023px) {
+  .dashboard__two-col {
+    grid-template-columns: 1fr;
+  }
+}
+
+.live-lineup .card__title {
+  margin-bottom: var(--spacing-3);
+}
+
+.lineup-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: var(--spacing-2);
+}
+
+@media (max-width: 1023px) {
+  .lineup-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 639px) {
+  .lineup-grid {
+    grid-template-columns: 1fr;
+    overflow-x: auto;
+  }
+}
+
+.lineup-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: var(--spacing-3);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-white);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--duration-fast) var(--easing-default), box-shadow var(--duration-fast) var(--easing-default);
+}
+
+.lineup-cell:hover {
+  border-color: var(--color-border-medium);
+  box-shadow: var(--shadow-sm);
+}
+
+.lineup-cell--selected {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(196, 58, 49, 0.2);
+}
+
+.lineup-cell--occupied {
+  background: var(--color-bg-lighter);
+}
+
+.lineup-cell__name {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-steel);
+  margin-bottom: var(--spacing-1);
+}
+
+.lineup-cell__vessel {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-base);
+  color: var(--color-text-charcoal);
+  margin-bottom: var(--spacing-1);
+}
+
+.lineup-cell__sub {
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+  font-style: italic;
+}
+
+.text-alert { color: var(--color-primary); }
+.text-steel { color: var(--color-text-steel); }
+
+.badge {
+  display: inline-block;
+  padding: var(--spacing-1) var(--spacing-2);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  border-radius: var(--radius-sm);
+  margin-left: var(--spacing-2);
+}
+
+.badge--alert {
+  background: rgba(196, 58, 49, 0.12);
+  color: var(--color-primary);
+}
+
+.badge--high {
+  background: rgba(196, 58, 49, 0.12);
+  color: var(--color-primary);
+}
+
+.pain-points {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+}
+
+.pain-point {
+  padding: var(--spacing-3);
+  border-left: 4px solid var(--color-primary);
+  background: var(--color-bg-lighter);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
+.pain-point--info {
+  border-left-color: var(--color-border-dark);
+}
+
+.pain-point__note {
+  margin-top: var(--spacing-2);
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}

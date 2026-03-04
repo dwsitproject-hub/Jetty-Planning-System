@@ -1,0 +1,110 @@
+/* KPN Downstream Design System - CSS custom properties
+   Source: Assets/design-tokens.json */
+
+:root {
+  /* Colors - primitive */
+  --color-brand-red: #C43A31;
+  --color-brand-red-deep: #9E2C25;
+  --color-text-charcoal: #2B2B2B;
+  --color-text-steel: #6B6B6B;
+  --color-text-white: #FFFFFF;
+  --color-bg-white: #FFFFFF;
+  --color-bg-light: #F4F4F4;
+  --color-bg-lighter: #FAFAFA;
+  --color-border-light: #E0E0E0;
+  --color-border-medium: #C4C4C4;
+  --color-border-dark: #9E9E9E;
+
+  /* Semantic */
+  --color-primary: var(--color-brand-red);
+  --color-primary-foreground: var(--color-text-white);
+  --color-primary-hover: var(--color-brand-red-deep);
+  --color-secondary: var(--color-bg-light);
+  --color-secondary-foreground: var(--color-text-charcoal);
+  --color-secondary-hover: #E8E8E8;
+  --color-destructive: var(--color-brand-red);
+  --color-destructive-foreground: var(--color-text-white);
+
+  /* Typography */
+  --font-primary: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-heading: 'Merriweather', Georgia, serif;
+  --font-size-h1: 40px;
+  --font-size-h2: 32px;
+  --font-size-h3: 24px;
+  --font-size-base: 16px;
+  --font-size-small: 14px;
+  --font-size-xs: 12px;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --line-height-default: 1.5;
+
+  /* Spacing (8pt rhythm) */
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 16px;
+  --spacing-4: 24px;
+  --spacing-5: 32px;
+  --spacing-6: 40px;
+  --spacing-7: 64px;
+
+  /* Border radius */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* Elevation */
+  --shadow-none: none;
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 2px 4px 0 rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 4px 8px 0 rgba(0, 0, 0, 0.10);
+
+  /* Animation */
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --duration-slow: 250ms;
+  --easing-default: ease-out;
+}
+
+/* Base */
+body {
+  margin: 0;
+  font-family: var(--font-primary);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-default);
+  color: var(--color-text-charcoal);
+  background: var(--color-bg-light);
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-heading);
+  font-weight: var(--font-weight-semibold);
+  margin: 0 0 var(--spacing-3);
+  color: var(--color-text-charcoal);
+}
+h1 { font-size: var(--font-size-h1); }
+h2 { font-size: var(--font-size-h2); }
+h3 { font-size: var(--font-size-h3); }
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--easing-default);
+}
+a:hover { color: var(--color-primary-hover); }
+
+/* Utility: alert / pain point */
+.alert {
+  border-left: 4px solid var(--color-primary);
+  background: var(--color-bg-lighter);
+  padding: var(--spacing-3);
+  color: var(--color-text-charcoal);
+}

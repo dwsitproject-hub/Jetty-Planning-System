@@ -1,0 +1,194 @@
+/* Jetty schematic diagram — shared by Dashboard and Allocation */
+
+.jetty-schematic-section .card__title {
+  margin-bottom: var(--spacing-3);
+}
+
+.jetty-schematic-wrap {
+  overflow-x: auto;
+  padding-bottom: var(--spacing-2);
+}
+
+.jetty-schematic {
+  display: flex;
+  flex-direction: row;
+  gap: var(--spacing-2);
+  min-width: 560px;
+}
+
+.jetty-schematic__column {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  flex: 1 1 0;
+  min-width: 0;
+  gap: var(--spacing-2);
+}
+
+.jetty-schematic__slot {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--spacing-2) var(--spacing-3);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-align: left;
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--easing-default), box-shadow var(--duration-fast) var(--easing-default), background var(--duration-fast) var(--easing-default);
+  background: var(--color-bg-lighter);
+  color: var(--color-text-charcoal);
+  min-height: 88px;
+  height: 88px;
+  overflow: hidden;
+}
+
+.jetty-schematic__slot--disch {
+  background: #fefbf0;
+  border-color: #e8d88a;
+  color: var(--color-text-charcoal);
+}
+
+.jetty-schematic__slot--load {
+  background: #f0f8fc;
+  border-color: #9ec9e0;
+  color: var(--color-text-charcoal);
+}
+
+.jetty-schematic__slot--rag-red {
+  border-left-width: 4px;
+  border-left-color: #C43A31;
+  background: #fef9e6;
+}
+
+.jetty-schematic__slot--rag-amber {
+  border-left-width: 4px;
+  border-left-color: #E6a23C;
+  background: #fefbf0;
+}
+
+.jetty-schematic__slot--rag-green {
+  border-left-width: 4px;
+  border-left-color: #2e7d32;
+  background: #f0f8f0;
+}
+
+.jetty-schematic__slot--load.jetty-schematic__slot--rag-red { background: #fef5f5; }
+.jetty-schematic__slot--load.jetty-schematic__slot--rag-amber { background: #fffbf0; }
+.jetty-schematic__slot--load.jetty-schematic__slot--rag-green { background: #f0f8f0; }
+
+.jetty-slot__inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  align-items: flex-start;
+}
+
+.jetty-slot__title {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-small);
+  line-height: 1.2;
+  color: var(--color-text-charcoal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.jetty-slot__meta {
+  font-size: 11px;
+  color: var(--color-text-steel);
+  line-height: 1.3;
+}
+
+.jetty-slot__row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  width: 100%;
+}
+
+.jetty-slot__age {
+  font-size: 11px;
+  color: var(--color-text-steel);
+}
+
+.jetty-slot__rag {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.jetty-slot__rag--red {
+  background: #C43A31;
+  box-shadow: 0 0 0 1px rgba(196, 58, 49, 0.3);
+}
+
+.jetty-slot__rag--amber {
+  background: #E6a23C;
+  box-shadow: 0 0 0 1px rgba(230, 162, 60, 0.3);
+}
+
+.jetty-slot__rag--green {
+  background: #2e7d32;
+  box-shadow: 0 0 0 1px rgba(46, 125, 50, 0.3);
+}
+
+.jetty-slot__eta {
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-charcoal);
+}
+
+.jetty-schematic__slot--vacant {
+  background: var(--color-bg-white);
+  color: var(--color-text-steel);
+  border-style: dashed;
+  text-align: center;
+  justify-content: center;
+  align-items: center;
+}
+
+.jetty-schematic__slot--vacant .jetty-slot__inner {
+  align-items: center;
+}
+
+.jetty-schematic__slot--empty {
+  cursor: default;
+  pointer-events: none;
+  min-height: 88px;
+  height: 88px;
+}
+
+.jetty-schematic__slot--selected {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(196, 58, 49, 0.25);
+}
+
+button.jetty-schematic__slot:hover:not(.jetty-schematic__slot--vacant) {
+  border-color: var(--color-border-dark);
+  box-shadow: var(--shadow-sm);
+}
+
+.jetty-schematic__pipeline-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 48px;
+  min-height: 48px;
+  flex-shrink: 0;
+  background: var(--color-text-charcoal);
+  color: var(--color-text-white);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-base);
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+  cursor: default;
+  width: 100%;
+  box-sizing: border-box;
+}

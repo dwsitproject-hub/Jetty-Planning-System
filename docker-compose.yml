@@ -1,0 +1,12 @@
+# Jetty Planning System (JPS) - Local development & preview
+# Run: docker-compose up --build
+# App: http://localhost:3001
+
+services:
+  jps-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3001:80"
+    container_name: jps-mockup

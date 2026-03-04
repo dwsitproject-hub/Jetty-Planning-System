@@ -1,0 +1,237 @@
+/* Allocation page */
+
+.allocation-page__intro {
+  color: var(--color-text-steel);
+  font-size: var(--font-size-small);
+  margin: 0 0 var(--spacing-4);
+  max-width: 640px;
+}
+
+/* Incoming vessel/barges & berthing plan table: filter, sort, expand (same behaviour as Nomination) */
+.allocation-table__expand-col {
+  width: 36px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.allocation-table__th {
+  padding: var(--spacing-2) var(--spacing-3);
+}
+
+.allocation-table__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  cursor: pointer;
+  text-align: left;
+  transition: color var(--duration-fast) var(--easing-default);
+}
+
+.allocation-table__sort:hover {
+  color: var(--color-primary);
+}
+
+.allocation-table__sort-icon {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-steel);
+}
+
+.allocation-table__filter-row th {
+  padding: var(--spacing-2);
+  background: var(--color-bg-lighter);
+  border-bottom: 1px solid var(--color-border-light);
+  vertical-align: middle;
+}
+
+.allocation-table__filter {
+  width: 100%;
+  padding: var(--spacing-2);
+  font-size: var(--font-size-xs);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-primary);
+  box-sizing: border-box;
+}
+
+.allocation-table__row {
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--easing-default);
+}
+
+.allocation-table__row:hover {
+  background: var(--color-bg-lighter);
+}
+
+.allocation-table__row--expanded {
+  background: var(--color-bg-lighter);
+}
+
+.allocation-table__action-btns {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.allocation-table__action-btns .btn--success {
+  background: #2d7a3e;
+  color: #fff;
+  border-color: #2d7a3e;
+}
+
+.allocation-table__action-btns .btn--success:hover {
+  background: #246b32;
+  border-color: #246b32;
+}
+
+.allocation-table__expand-icon {
+  font-size: 10px;
+  color: var(--color-text-steel);
+}
+
+.allocation-table__jetty-select {
+  padding: var(--spacing-1) var(--spacing-2);
+  font-size: inherit;
+  font-family: var(--font-primary);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-base);
+  cursor: pointer;
+  min-width: 4ch;
+}
+
+.allocation-table__action-col {
+  width: 1%;
+  white-space: nowrap;
+  padding: var(--spacing-2) var(--spacing-3);
+  vertical-align: middle;
+}
+
+.allocation-table__action-btns {
+  display: inline-flex;
+  gap: var(--spacing-2);
+}
+
+/* Docking sequence column: number + up/down buttons */
+.allocation-table__sequence-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.allocation-table__sequence-num {
+  font-weight: var(--font-weight-semibold);
+  min-width: 1.25rem;
+}
+
+.allocation-table__sequence-btns {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.allocation-table__sequence-btn {
+  padding: 2px 6px;
+  min-height: auto;
+  line-height: 1;
+}
+
+.allocation-table__sequence-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.allocation-table__action-col .btn--small {
+  padding: var(--spacing-1) var(--spacing-2);
+  font-size: var(--font-size-xs);
+}
+
+.allocation-table__row--editing {
+  background: var(--color-bg-lighter);
+}
+
+.allocation-table__input {
+  width: 100%;
+  padding: var(--spacing-1) var(--spacing-2);
+  font-size: var(--font-size-small);
+  font-family: var(--font-primary);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  box-sizing: border-box;
+}
+
+.allocation-table__input--datetime {
+  min-width: 11rem;
+}
+
+.allocation-table__input--text {
+  min-width: 8rem;
+}
+
+.allocation-table__detail-row {
+  background: var(--color-bg-lighter);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.allocation-table__detail-cell {
+  padding: var(--spacing-4);
+  vertical-align: top;
+}
+
+.allocation-detail {
+  max-width: 720px;
+}
+
+.allocation-detail__title {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0 0 var(--spacing-2);
+}
+
+.allocation-detail__grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--spacing-2) var(--spacing-4);
+  font-size: var(--font-size-small);
+  margin: 0;
+}
+
+.allocation-detail__grid dt {
+  color: var(--color-text-steel);
+  font-weight: var(--font-weight-medium);
+}
+
+.allocation-detail__grid dd {
+  margin: 0;
+  color: var(--color-text-charcoal);
+}
+
+/* Log arrival update modal form (inside shared .modal) */
+.allocation-arrival-form__section-title {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0 0 var(--spacing-2);
+}
+
+.allocation-arrival-form__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--spacing-3);
+}
+
+.allocation-arrival-form__grid .input-group {
+  margin-bottom: 0;
+}
+
+.allocation-arrival-form__grid .input-group input,
+.allocation-arrival-form__grid .input-group select {
+  max-width: 100%;
+}

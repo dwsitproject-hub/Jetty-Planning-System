@@ -1,0 +1,269 @@
+/* Offloading page — Smart Milestone (4 life stages) */
+
+.offloading-page__intro {
+  color: var(--color-text-steel);
+  font-size: var(--font-size-small);
+  margin: 0 0 var(--spacing-4);
+  max-width: 640px;
+}
+
+/* Vessel context card */
+.offloading-context__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--spacing-4);
+}
+
+.offloading-context__select {
+  min-width: 280px;
+  max-width: 320px;
+}
+
+.offloading-context__meta {
+  display: flex;
+  gap: var(--spacing-4);
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+.offloading-context__meta-item {
+  font-weight: var(--font-weight-medium);
+}
+
+/* 4-stage navigation */
+.offloading-stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-4);
+}
+
+.offloading-stages__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-3) var(--spacing-4);
+  font-family: var(--font-primary);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  background: var(--color-bg-lighter);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--easing-default),
+              border-color var(--duration-fast) var(--easing-default),
+              color var(--duration-fast) var(--easing-default);
+}
+
+.offloading-stages__btn:hover {
+  background: var(--color-bg-white);
+  border-color: var(--color-border-dark);
+}
+
+.offloading-stages__btn--active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-text-white);
+}
+
+.offloading-stages__letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.25);
+  font-weight: var(--font-weight-bold);
+}
+
+.offloading-stages__btn--active .offloading-stages__letter {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.offloading-stages__label {
+  white-space: nowrap;
+}
+
+@media (max-width: 639px) {
+  .offloading-stages__label {
+    display: none;
+  }
+}
+
+/* Stage content */
+.offloading-content {
+  margin-top: 0;
+}
+
+.offloading-content__hint {
+  color: var(--color-text-steel);
+  font-size: var(--font-size-small);
+  margin: 0 0 var(--spacing-3);
+}
+
+.offloading-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--spacing-4);
+  margin-bottom: var(--spacing-4);
+}
+
+.offloading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+}
+
+.offloading-actions .offloading-log-with-time {
+  display: none;
+}
+
+.offloading-actions--wrap {
+  flex-wrap: wrap;
+}
+
+/* Milestone group: label + Log now / Log with time… */
+.offloading-milestone-group {
+  margin-bottom: var(--spacing-4);
+}
+
+.offloading-milestone-group:last-child {
+  margin-bottom: 0;
+}
+
+.offloading-milestone-label {
+  display: block;
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-small);
+  color: var(--color-text-charcoal);
+  margin-bottom: var(--spacing-2);
+}
+
+/* Timesheet activity table (below each milestone stage) */
+.offloading-timesheet {
+  margin-top: var(--spacing-5);
+  padding-top: var(--spacing-4);
+  border-top: 1px solid var(--color-border-light);
+}
+
+.offloading-timesheet__title {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0 0 var(--spacing-3);
+}
+
+.offloading-timesheet__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-small);
+}
+
+.offloading-timesheet__table th,
+.offloading-timesheet__table td {
+  padding: var(--spacing-2) var(--spacing-3);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.offloading-timesheet__table th {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-steel);
+  background: var(--color-bg-lighter);
+}
+
+.offloading-timesheet__table td {
+  color: var(--color-text-charcoal);
+}
+
+.offloading-timesheet__table tbody tr:hover {
+  background: var(--color-bg-lighter);
+}
+
+/* Dynamic palka grid — P/C/S buttons per palka */
+.palka-dynamic-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--spacing-2);
+}
+
+.palka-dynamic-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-lighter);
+}
+
+.palka-dynamic-card__name {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-small);
+  color: var(--color-text-charcoal);
+}
+
+.palka-dynamic-card__actions {
+  display: flex;
+  gap: var(--spacing-2);
+  flex-wrap: wrap;
+}
+
+.palka-dynamic-card__action-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-1);
+}
+
+.palka-dynamic-card__actions .btn--small {
+  padding: var(--spacing-1) var(--spacing-2);
+  font-size: var(--font-size-xs);
+  min-width: 2.5rem;
+}
+
+.palka-dynamic-card__time {
+  font-size: 10px;
+  color: var(--color-text-steel);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  font-family: var(--font-primary);
+}
+
+.palka-dynamic-card__time:hover {
+  color: var(--color-primary);
+}
+
+.palka-dynamic-card__comment {
+  margin-top: var(--spacing-1);
+}
+
+.offloading-comment-input {
+  width: 100%;
+  padding: var(--spacing-2);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-primary);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  box-sizing: border-box;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Modal styles are in shared styles/modal.css */
