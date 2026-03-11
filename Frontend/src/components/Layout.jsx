@@ -4,8 +4,8 @@ import { NavLink, useLocation } from 'react-router-dom'
 const navItems = [
   { path: '/', label: 'Dashboard' },
   { path: '/shipping-instruction', label: 'Shipping Instruction' },
-  { path: '/allocation', label: 'Allocation' },
-  { path: '/docking', label: 'Docking' },
+  { path: '/allocation', label: 'Allocation & Berthing' },
+  { path: '/loading', label: 'Loading' },
   { path: '/unloading', label: 'Unloading' },
   { path: '/quality', label: 'Quality' },
   { path: '/verification', label: 'Verification' },

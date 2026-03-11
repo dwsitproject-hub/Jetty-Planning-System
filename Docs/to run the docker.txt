@@ -1,0 +1,12 @@
+Useful commands
+What you want	Command
+Stop containers	docker-compose down
+Rebuild from scratch (no cache)	docker-compose build --no-cache then docker-compose up
+View logs	docker-compose logs -f
+
+
+From a terminal, run these in the project root (where docker-compose.yml and Dockerfile are), e.g.:
+
+
+cd "c:\Users\04125050828\Documents\Workspace\Cursor\Jetty Planning System"
+docker-compose up --build

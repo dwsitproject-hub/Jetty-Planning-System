@@ -99,10 +99,18 @@
   max-width: 100%;
 }
 
-.jetty-slot__meta {
+.jetty-slot__meta,
+.jetty-slot__line {
   font-size: 11px;
   color: var(--color-text-steel);
   line-height: 1.3;
+}
+
+.jetty-slot__line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .jetty-slot__row {

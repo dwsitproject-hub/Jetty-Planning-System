@@ -20,8 +20,8 @@ export default function Dashboard() {
             <span className="weather-card__condition">{current.condition}</span>
             <span className="weather-card__temp">{current.temperature}°C</span>
             <span className="weather-card__meta">Wind {current.windKmh} km/h · {current.humidity}% humidity</span>
-            {current.dockingImpact && (
-              <p className="weather-card__docking-note" role="alert">{current.dockingNote}</p>
+            {current.berthingImpact && (
+              <p className="weather-card__berthing-note" role="alert">{current.berthingNote}</p>
             )}
           </div>
           <div className="weather-card__forecast">

@@ -1,5 +1,173 @@
 /* Allocation page */
 
+.allocation-visual {
+  margin-bottom: var(--spacing-6);
+}
+
+.allocation-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--color-border-medium);
+  margin-bottom: 0;
+}
+
+.allocation-tabs__tab {
+  padding: var(--spacing-2) var(--spacing-4);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-steel);
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  cursor: pointer;
+  font-family: var(--font-primary);
+  transition: color var(--duration-fast) var(--easing-default), border-color var(--duration-fast) var(--easing-default);
+}
+
+.allocation-tabs__tab:hover {
+  color: var(--color-text-charcoal);
+}
+
+.allocation-tabs__tab--active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+
+.allocation-tabpanel {
+  padding-top: var(--spacing-4);
+}
+
+.allocation-tabpanel[hidden] {
+  display: none;
+}
+
+/* 72-Hour schedule (tab 2) */
+.allocation-schedule {
+  margin-top: 0;
+}
+
+.allocation-schedule__title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0 0 var(--spacing-3);
+}
+
+.allocation-schedule__legend {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-4);
+  margin-bottom: var(--spacing-3);
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+.allocation-schedule__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+}
+
+.allocation-schedule__legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.allocation-schedule__legend-dot--active {
+  background: var(--color-primary);
+}
+
+.allocation-schedule__legend-dot--berthing {
+  background: var(--color-text-charcoal);
+}
+
+.allocation-schedule__legend-dot--expected {
+  background: var(--color-text-steel);
+}
+
+.allocation-schedule__table-wrap {
+  overflow-x: auto;
+}
+
+.allocation-schedule__table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: var(--font-size-small);
+}
+
+.allocation-schedule__th-id,
+.allocation-schedule__cell-id {
+  width: 90px;
+  min-width: 90px;
+  padding: var(--spacing-2) var(--spacing-3);
+  text-align: left;
+  border: 1px solid var(--color-border-light);
+  background: var(--color-bg-subtle, #f5f5f5);
+  vertical-align: middle;
+}
+
+.allocation-schedule__th-slot {
+  min-width: 64px;
+  padding: var(--spacing-2);
+  text-align: center;
+  border: 1px solid var(--color-border-light);
+  background: var(--color-bg-subtle, #f5f5f5);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-steel);
+}
+
+.allocation-schedule__cell {
+  min-width: 64px;
+  padding: var(--spacing-2);
+  border: 1px solid var(--color-border-light);
+  vertical-align: middle;
+}
+
+.allocation-schedule__cell--vessel {
+  padding: var(--spacing-1);
+}
+
+.allocation-schedule__jetty-id {
+  display: block;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+}
+
+.allocation-schedule__jetty-status {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-steel);
+  margin-top: 2px;
+}
+
+.allocation-schedule__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  background: rgba(33, 115, 199, 0.12);
+  color: #2173c7;
+  border: 1px solid rgba(33, 115, 199, 0.3);
+}
+
+.allocation-schedule__pill--expected,
+.allocation-schedule__pill--berthing {
+  background: #fff;
+  color: var(--color-text-charcoal);
+  border: 1px solid var(--color-border-medium);
+}
+
+.allocation-schedule__pill-icon {
+  font-size: 0.9em;
+}
+
 .allocation-page__intro {
   color: var(--color-text-steel);
   font-size: var(--font-size-small);
@@ -7,7 +175,7 @@
   max-width: 640px;
 }
 
-/* Incoming vessel/barges & berthing plan table: filter, sort, expand (same behaviour as Nomination) */
+/* Incoming vessel & berthing plan table: filter, sort, expand (same behaviour as Nomination) */
 .allocation-table__expand-col {
   width: 36px;
   text-align: center;
@@ -118,7 +286,7 @@
   gap: var(--spacing-2);
 }
 
-/* Docking sequence column: number + up/down buttons */
+/* Berthing sequence column: number + up/down buttons */
 .allocation-table__sequence-cell {
   display: inline-flex;
   align-items: center;
@@ -213,12 +381,53 @@
   color: var(--color-text-charcoal);
 }
 
+.allocation-detail__shipping-table-wrap {
+  margin-top: var(--spacing-4);
+}
+
+.allocation-detail__subtitle {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0 0 var(--spacing-2);
+}
+
+.allocation-detail__shipping-table {
+  width: 100%;
+  max-width: 560px;
+  font-size: var(--font-size-small);
+}
+
+.allocation-detail__shipping-table th,
+.allocation-detail__shipping-table td {
+  padding: var(--spacing-2) var(--spacing-3);
+  text-align: left;
+  border: 1px solid var(--color-border-light);
+}
+
+.allocation-detail__shipping-table th {
+  background: var(--color-bg-subtle);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-steel);
+}
+
 /* Log arrival update modal form (inside shared .modal) */
 .allocation-arrival-form__section-title {
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-charcoal);
   margin: 0 0 var(--spacing-2);
+}
+
+.allocation-arrival-form__readonly {
+  margin: 0;
+  font-size: var(--font-size-small);
+  color: var(--color-text-charcoal);
+  padding: var(--spacing-2) 0;
+}
+
+.allocation-arrival-form__readonly--bold {
+  font-weight: var(--font-weight-semibold);
 }
 
 .allocation-arrival-form__grid {
@@ -234,4 +443,791 @@
 .allocation-arrival-form__grid .input-group input,
 .allocation-arrival-form__grid .input-group select {
   max-width: 100%;
+}
+
+/* Vessel detail modal: phase stepper & timing */
+/* Active Vessel Detail modal: same structure as Confirm Berthing */
+.vessel-detail-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+  margin-top: var(--spacing-2);
+}
+
+.vessel-detail-modal__section-title {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0 0 var(--spacing-2);
+}
+
+.phase-stepper {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-1);
+  margin: 0;
+}
+
+.phase-stepper__step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  position: relative;
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: 999px;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+}
+
+.phase-stepper__circle {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.phase-stepper__step--completed .phase-stepper__circle {
+  background: #2563eb;
+  border: 2px solid #1d4ed8;
+}
+
+.phase-stepper__step--completed {
+  background: #dbeafe;
+  border: 1px solid #93c5fd;
+  color: #1e40af;
+}
+
+.phase-stepper__step--in-progress .phase-stepper__circle {
+  background: #f59e0b;
+  border: 2px solid #d97706;
+}
+
+.phase-stepper__step--in-progress {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #b45309;
+}
+
+.phase-stepper__step--not-started .phase-stepper__circle {
+  background: #9ca3af;
+  border: 2px solid #6b7280;
+}
+
+.phase-stepper__step--not-started {
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  color: #6b7280;
+}
+
+.phase-stepper__current-mark {
+  position: absolute;
+  top: -4px;
+  right: -2px;
+  font-size: 12px;
+  line-height: 1;
+  color: #d97706;
+}
+
+.phase-stepper__step-label {
+  white-space: nowrap;
+}
+
+.phase-stepper__step-label--link {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.phase-stepper__step-label--link:hover {
+  text-decoration: none;
+}
+
+.phase-stepper__connector {
+  color: var(--color-text-steel);
+  font-size: var(--font-size-small);
+  margin: 0 var(--spacing-1);
+  flex-shrink: 0;
+}
+
+.vessel-detail-modal__timing {
+  padding-top: 0;
+}
+
+.vessel-detail-modal__dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--spacing-1) var(--spacing-4);
+  margin: 0;
+  font-size: var(--font-size-small);
+}
+
+.vessel-detail-modal__dl dt {
+  color: var(--color-text-steel);
+  font-weight: var(--font-weight-medium);
+}
+
+.vessel-detail-modal__dl dd {
+  margin: 0;
+  color: var(--color-text-charcoal);
+}
+
+.vessel-detail-modal__photos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-3);
+}
+
+.vessel-detail-modal__photo-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-1);
+}
+
+.vessel-detail-modal__photo-img {
+  max-width: 200px;
+  max-height: 150px;
+  object-fit: contain;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+}
+
+.vessel-detail-modal__photo-caption {
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Berthing modal (extended) */
+/* Berthing modal: single-column layout */
+.berthing-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+  margin-top: var(--spacing-2);
+}
+
+.berthing-modal__col-vessel {
+  min-width: 0;
+}
+
+.berthing-modal__col-form {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+
+.berthing-modal__card {
+  padding: var(--spacing-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-light);
+}
+
+.berthing-modal__card--vessel {
+  background: var(--color-bg-subtle);
+}
+
+.berthing-modal__card-title {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0 0 var(--spacing-2);
+  padding-bottom: var(--spacing-2);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.berthing-modal__vessel-dl {
+  margin: 0;
+  font-size: var(--font-size-small);
+}
+
+.berthing-modal__vessel-row {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: var(--spacing-2);
+  align-items: baseline;
+  margin-bottom: var(--spacing-2);
+}
+
+.berthing-modal__vessel-row:last-child {
+  margin-bottom: 0;
+}
+
+.berthing-modal__vessel-dl dt {
+  color: var(--color-text-steel);
+  font-weight: var(--font-weight-medium);
+  margin: 0;
+}
+
+.berthing-modal__vessel-dl dd {
+  margin: 0;
+  color: var(--color-text-charcoal);
+}
+
+.berthing-modal__vessel-dl--bold {
+  font-weight: var(--font-weight-semibold);
+}
+
+.berthing-modal__form-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.berthing-modal__form-section-title {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0 0 var(--spacing-1);
+}
+
+.berthing-modal__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.berthing-modal__label {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-charcoal);
+}
+
+.berthing-modal__input {
+  width: 100%;
+  max-width: 320px;
+  padding: var(--spacing-2) var(--spacing-3);
+  font-size: var(--font-size-small);
+  font-family: var(--font-primary);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+}
+
+.berthing-modal__textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: var(--spacing-2) var(--spacing-3);
+  font-size: var(--font-size-small);
+  font-family: var(--font-primary);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+}
+
+.berthing-modal__file-zone {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 80px;
+  padding: var(--spacing-3);
+  border: 2px dashed var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-subtle);
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--easing-default), background var(--duration-fast) var(--easing-default);
+}
+
+.berthing-modal__file-zone:hover {
+  border-color: var(--color-primary);
+  background: rgba(196, 58, 49, 0.04);
+}
+
+.berthing-modal__file-zone-text {
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+.berthing-modal__file-input {
+  position: absolute;
+  width: 0.1px;
+  height: 0.1px;
+  opacity: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+.berthing-modal__photo-list {
+  list-style: none;
+  margin: var(--spacing-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-3);
+}
+
+.berthing-modal__photo-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-1);
+  padding: var(--spacing-2);
+  background: var(--color-bg-subtle);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-light);
+}
+
+.berthing-modal__photo-thumb {
+  width: 120px;
+  height: 90px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+}
+
+.berthing-modal__photo-name {
+  font-size: var(--font-size-small);
+  color: var(--color-text-charcoal);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.berthing-modal__photo-remove {
+  margin-top: var(--spacing-1);
+}
+
+.berthing-modal__error {
+  margin: 0 var(--spacing-4) var(--spacing-2);
+}
+
+/* Loading page list & detail */
+.allocation-page__intro {
+  color: var(--color-text-steel);
+  margin-bottom: var(--spacing-4);
+  font-size: var(--font-size-small);
+}
+
+.loading-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.loading-list li {
+  margin-bottom: var(--spacing-2);
+}
+
+.loading-list__link {
+  display: block;
+  padding: var(--spacing-3);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-charcoal);
+  text-decoration: none;
+  transition: background var(--duration-fast), border-color var(--duration-fast);
+}
+
+.loading-list__link:hover {
+  background: var(--color-bg-subtle);
+  border-color: var(--color-primary);
+}
+
+.loading-list__name {
+  font-weight: var(--font-weight-semibold);
+  display: block;
+}
+
+.loading-list__meta {
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+.loading-back-link {
+  font-size: var(--font-size-small);
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.loading-back-link:hover {
+  text-decoration: underline;
+}
+
+.loading-step-card--completed .berthing-modal__card-title {
+  color: var(--color-success, #0d6832);
+}
+
+.loading-step-card--in-progress .berthing-modal__card-title {
+  color: var(--color-primary);
+}
+
+.loading-step-placeholder {
+  margin: 0;
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+/* Loading hub: 3 sub-pages (Pre-Checking, Loading, Post-Checking) */
+.loading-hub {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--spacing-3);
+  margin-top: var(--spacing-4);
+}
+
+.loading-hub__card {
+  display: block;
+  padding: var(--spacing-4);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: var(--color-text-charcoal);
+  transition: background var(--duration-fast), border-color var(--duration-fast), box-shadow var(--duration-fast);
+}
+
+.loading-hub__card:hover {
+  background: var(--color-bg-subtle);
+  border-color: var(--color-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.loading-hub__title {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-base);
+  display: block;
+  margin-bottom: var(--spacing-1);
+}
+
+.loading-hub__desc {
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+  display: block;
+}
+
+/* Loading section tabs (stepper) below vessel info */
+.loading-section-tabs {
+  display: flex;
+  gap: 0;
+  margin: 0 0 var(--spacing-4);
+  padding: 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.loading-section-tabs__tab {
+  padding: var(--spacing-2) var(--spacing-4);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-steel);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color var(--duration-fast), border-color var(--duration-fast);
+}
+
+.loading-section-tabs__tab:hover {
+  color: var(--color-primary);
+}
+
+.loading-section-tabs__tab--active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+
+/* Loading step card: normal-width save button */
+.loading-step-card__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+}
+
+.loading-step-card__actions .btn {
+  width: auto;
+}
+
+/* Loading tab (B): vessel & cargo, time log, progress, final result, notes */
+.loading-tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+
+.loading-tab-card {
+  margin: 0;
+}
+
+.loading-tab-dl {
+  display: grid;
+  gap: var(--spacing-2);
+  margin: 0;
+}
+
+.loading-tab-dl__row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: var(--spacing-2);
+  align-items: baseline;
+}
+
+.loading-tab-dl__row dt {
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+  margin: 0;
+}
+
+.loading-tab-dl__row dd {
+  margin: 0;
+  font-size: var(--font-size-small);
+}
+
+.loading-tab-hint {
+  margin: 0 0 var(--spacing-3);
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+.loading-timelog-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.loading-timelog-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  padding: var(--spacing-2) 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.loading-timelog-item:last-child {
+  border-bottom: none;
+}
+
+.loading-timelog-label {
+  flex: 0 0 120px;
+  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-small);
+}
+
+.loading-timelog-value {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  font-size: var(--font-size-small);
+}
+
+.loading-timelog-btn-edit {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  cursor: pointer;
+  font-size: var(--font-size-small);
+  padding: 0;
+  text-decoration: underline;
+}
+
+.loading-timelog-btn-edit:hover {
+  text-decoration: none;
+}
+
+.loading-timelog-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.loading-timelog-input {
+  max-width: 220px;
+}
+
+.loading-tab-progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-4);
+  align-items: flex-start;
+}
+
+.loading-tab-value {
+  font-size: var(--font-size-small);
+}
+
+.loading-tab-value--bold {
+  font-weight: var(--font-weight-semibold);
+}
+
+.loading-notes-list {
+  list-style: none;
+  margin: 0 0 var(--spacing-3);
+  padding: 0;
+}
+
+.loading-note-item {
+  padding: var(--spacing-2);
+  margin-bottom: var(--spacing-1);
+  background: var(--color-bg-subtle);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-small);
+}
+
+.loading-note-time {
+  display: block;
+  color: var(--color-text-steel);
+  margin-bottom: var(--spacing-1);
+}
+
+.loading-note-text {
+  display: block;
+}
+
+.loading-note-add {
+  display: flex;
+  gap: var(--spacing-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.loading-note-add .berthing-modal__input {
+  flex: 1;
+  min-width: 200px;
+}
+
+/* Loading tab: Detail Activity form and table */
+.loading-detail-activity-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  margin-bottom: var(--spacing-4);
+}
+
+.loading-detail-activity-times {
+  display: flex;
+  gap: var(--spacing-4);
+  flex-wrap: wrap;
+}
+
+.loading-detail-activity-times .berthing-modal__input {
+  max-width: 220px;
+}
+
+.loading-detail-activity-table-wrap {
+  overflow-x: auto;
+  margin-top: var(--spacing-2);
+}
+
+.loading-detail-activity-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-small);
+}
+
+.loading-detail-activity-table th,
+.loading-detail-activity-table td {
+  padding: var(--spacing-2) var(--spacing-3);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.loading-detail-activity-table th {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-steel);
+  background: var(--color-bg-subtle);
+}
+
+.loading-detail-activity-table td {
+  vertical-align: top;
+}
+
+.loading-detail-activity-table .loading-detail-activity-empty {
+  color: var(--color-text-steel);
+  font-style: italic;
+  text-align: center;
+  padding: var(--spacing-4);
+}
+
+.loading-detail-activity-table .btn {
+  margin-right: var(--spacing-1);
+}
+
+.berthing-modal__errors {
+  margin: var(--spacing-3) 0 var(--spacing-2);
+  padding: var(--spacing-3);
+  background: rgba(196, 58, 49, 0.08);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-charcoal);
+}
+
+.berthing-modal__errors-title {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  margin: 0 0 var(--spacing-1);
+}
+
+.berthing-modal__errors-list {
+  margin: 0;
+  padding-left: var(--spacing-4);
+  font-size: var(--font-size-small);
+  line-height: 1.5;
+}
+
+/* Success toast (berthing completed) */
+.toast {
+  position: fixed;
+  bottom: var(--spacing-4);
+  right: var(--spacing-4);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-2);
+  max-width: 420px;
+  padding: var(--spacing-3) var(--spacing-4);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  font-size: var(--font-size-small);
+}
+
+.toast--success {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+}
+
+.toast__icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #10b981;
+  color: #fff;
+  border-radius: 50%;
+  font-weight: var(--font-weight-semibold);
+  font-size: 14px;
+}
+
+.toast__message {
+  flex: 1;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.toast__close {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.8;
+  border-radius: var(--radius-sm);
+}
+
+.toast__close:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.06);
 }

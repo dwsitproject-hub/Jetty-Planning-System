@@ -73,12 +73,13 @@ export default function JettySchematic({ berths: berthsProp, selectedBerthId, on
                   topV ? (
                     <span className="jetty-slot__inner">
                       <span className="jetty-slot__title">{topV.vesselName}</span>
-                      <span className="jetty-slot__meta">{topV.product} {formatQtyK(topV.quantity)} · {topV.lastStatus || topV.phaseLabel}</span>
+                      <span className="jetty-slot__line">SI No: {topV.siId ?? '—'}</span>
+                      <span className="jetty-slot__line">Purpose: {topV.purpose ?? (topOp === 'LOAD' ? 'Loading' : 'Unloading')}</span>
+                      <span className="jetty-slot__line">Material: {topV.product ?? topV.commodity ?? '—'}</span>
                       <span className="jetty-slot__row">
-                        <span className="jetty-slot__age">Age: {topV.age ?? '—'}</span>
+                        <span className="jetty-slot__eta">ETA completion: {topV.etaToCompletion ?? '—'}</span>
                         <span className={`jetty-slot__rag jetty-slot__rag--${topV.ragStatus || 'green'}`} title={topV.ragStatus === 'red' ? 'Alert' : topV.ragStatus === 'amber' ? 'Risk' : 'On track'} />
                       </span>
-                      <span className="jetty-slot__eta">ETA completion: {topV.etaToCompletion ?? '—'}</span>
                     </span>
                   ) : (
                     'Vacant'
@@ -92,12 +93,13 @@ export default function JettySchematic({ berths: berthsProp, selectedBerthId, on
                     bottomV ? (
                       <span className="jetty-slot__inner">
                         <span className="jetty-slot__title">{bottomV.vesselName}</span>
-                        <span className="jetty-slot__meta">{bottomV.product} {formatQtyK(bottomV.quantity)} · {bottomV.lastStatus || bottomV.phaseLabel}</span>
+                        <span className="jetty-slot__line">SI No: {bottomV.siId ?? '—'}</span>
+                        <span className="jetty-slot__line">Purpose: {bottomV.purpose ?? (bottomOp === 'LOAD' ? 'Loading' : 'Unloading')}</span>
+                        <span className="jetty-slot__line">Material: {bottomV.product ?? bottomV.commodity ?? '—'}</span>
                         <span className="jetty-slot__row">
-                          <span className="jetty-slot__age">Age: {bottomV.age ?? '—'}</span>
+                          <span className="jetty-slot__eta">ETA completion: {bottomV.etaToCompletion ?? '—'}</span>
                           <span className={`jetty-slot__rag jetty-slot__rag--${bottomV.ragStatus || 'green'}`} title={bottomV.ragStatus === 'red' ? 'Alert' : bottomV.ragStatus === 'amber' ? 'Risk' : 'On track'} />
                         </span>
-                        <span className="jetty-slot__eta">ETA completion: {bottomV.etaToCompletion ?? '—'}</span>
                       </span>
                     ) : (
                       'Vacant'

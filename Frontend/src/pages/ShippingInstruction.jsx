@@ -1,5 +1,6 @@
 import { useState, Fragment, useEffect } from 'react'
-import { nominations as initialList, SURVEYOR_OPTIONS, AGENT_OPTIONS, SHIPPER_OPTIONS, LOADING_PORT_OPTIONS } from '../data/mockData'
+import { useNavigate } from 'react-router-dom'
+import { nominations as initialList, SURVEYOR_OPTIONS, AGENT_OPTIONS, SHIPPER_OPTIONS, LOADING_PORT_OPTIONS, BERTH_IDS } from '../data/mockData'
 import '../styles/shipping-instruction.css'
 
 function formatDate(iso) {
@@ -8,19 +9,103 @@ function formatDate(iso) {
   return d.toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
 }
 
+/** ETA as single date/time for table display */
+function formatEta(n) {
+  const raw = n.etaDateTime || n.etaFrom || n.ETA
+  if (!raw) return '—'
+  const d = new Date(raw)
+  return Number.isNaN(d.getTime()) ? raw : d.toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
+}
+
+/** Action icons — outlined style, consistent size (18×18), use currentColor */
+const IconRequestApproval = () => (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" className="si-action-icon si-action-icon--request" aria-hidden focusable="false">
+    <path d="M4 2h8v10H4V2z" stroke="currentColor" strokeWidth="1.5" fill="none" />
+    <path d="M5 5h6M5 7h4M5 9h5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+    <circle className="si-action-icon__badge" cx="12" cy="11" r="3.25" stroke="currentColor" strokeWidth="1.25" fill="var(--color-bg-white, #fff)" />
+    <path className="si-action-icon__check" d="M11 11l1.5 1.5 2.5-2.5" stroke="var(--color-primary)" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+const IconView = () => (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden focusable="false">
+    <ellipse cx="9" cy="9" rx="5" ry="3" stroke="currentColor" strokeWidth="1.25" fill="none" />
+    <circle cx="9" cy="9" r="1.25" stroke="currentColor" strokeWidth="1.25" fill="none" />
+    <path d="M2 6c2 1.5 4 1.5 6 0M12 6c2 1.5 4 1.5 6 0" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+  </svg>
+)
+/** Stamp-of-approval icon (rubber stamp on checkmark) — for Approve SI action */
+const IconApprove = () => (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden focusable="false">
+    <path d="M5 4h6l2 2v2H5V4z" stroke="currentColor" strokeWidth="1.25" fill="none" strokeLinejoin="round" />
+    <path d="M6 4v4M9 4v4" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round" />
+    <ellipse cx="10" cy="12" rx="3" ry="2" stroke="currentColor" strokeWidth="1.25" fill="none" />
+    <path d="M8.5 12l1.25 1.25 2-2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+
+/** Document with magnifying glass — for View SI document action */
+const IconViewDocument = () => (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden focusable="false">
+    <path d="M4 2h7v12H4a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.25" fill="none" strokeLinejoin="round" />
+    <path d="M5 5h5M5 7h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+    <circle cx="11" cy="11" r="3.5" stroke="currentColor" strokeWidth="1.25" fill="none" />
+    <path d="M13.5 13.5L15 15" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+  </svg>
+)
+
 const COMMODITY_OPTIONS = ['CPO', 'CRUDE PALM OIL', 'POME', 'PKE', 'FAME', 'RBD PO']
 const TERM_OPTIONS = ['FOB', 'CIF', 'CFR']
 
-/** Set to true to show "Create New" (e.g. local/mock); false when data is streamed from other apps (staging/production) */
+/** Set to true to show "Create New SI" (e.g. local/mock); false when data is streamed from other apps (staging/production) */
 const SHOW_CREATE_NEW = false
 
-const SI_COLUMNS = [
-  { key: 'vessel', label: 'Vessel', getValue: (n) => <strong>{n.vesselName || n.vesselId || '—'}</strong>, getSortValue: (n) => (n.vesselName || n.vesselId || '').toLowerCase() },
-  { key: 'eta', label: 'ETA window', getValue: (n) => (n.etaFrom && n.etaTo ? `${n.etaFrom} → ${n.etaTo}` : n.ETA || '—'), getSortValue: (n) => n.etaFrom || n.ETA || '' },
-  { key: 'commodity', label: 'Commodity', getValue: (n) => n.commodity || n.product || '—', getSortValue: (n) => (n.commodity || n.product || '').toLowerCase() },
-  { key: 'qty', label: 'Qty (kg)', getValue: (n) => (n.totalQtyKg ?? n.quantity) != null ? (n.totalQtyKg ?? n.quantity).toLocaleString() : '—', getSortValue: (n) => Number(n.totalQtyKg ?? n.quantity ?? 0) },
-  { key: 'shipper', label: 'Shipper', getValue: (n) => n.shipper || '—', getSortValue: (n) => (n.shipper || '').toLowerCase() },
-  { key: 'received', label: 'Received', getValue: (n) => formatDate(n.receivedAt), getSortValue: (n) => (n.receivedAt || '').toString() },
+const PURPOSE_OPTIONS = [
+  { value: '', label: 'All' },
+  { value: 'Loading', label: 'Loading' },
+  { value: 'Unloading', label: 'Unloading' },
+]
+
+const STATUS_OPTIONS = [
+  { value: '', label: 'All' },
+  { value: 'Draft', label: 'Draft' },
+  { value: 'Submitted', label: 'Submitted' },
+  { value: 'Approved', label: 'Approved' },
+]
+
+/** Display status: Unloading = external (Received/Confirmed); Loading = internal (Draft/Submitted/Approved) */
+function getDisplayStatus(n) {
+  if (!n) return '—'
+  if ((n.purpose || '').toLowerCase() === 'unloading') {
+    if (n.status === 'Submitted') return 'Received'
+    if (n.status === 'Approved') return 'Confirmed'
+    return n.status || 'Received'
+  }
+  return n.status || 'Draft'
+}
+
+/** True if this SI uses internal approval (Loading only) */
+function isInternalApprovalFlow(n) {
+  return (n.purpose || '').toLowerCase() === 'loading'
+}
+
+/** View document is applicable for: Approved Loading SI, or Unloading / External SI */
+function canViewAsDocument(n) {
+  if (!n) return false
+  const purpose = (n.purpose || '').toLowerCase()
+  const status = (n.status || '').toLowerCase()
+  if (purpose === 'unloading') return true
+  if (purpose === 'loading' && status === 'approved') return true
+  return false
+}
+
+/** Sortable table columns for new design (SI ID, Vessel/Agent, Material, Purpose, ETA, Status) */
+const SI_TABLE_COLUMNS = [
+  { key: 'siId', label: 'SI ID', getSortValue: (n) => (n.siId || '').toLowerCase() },
+  { key: 'vessel', label: 'Vessel / Agent', getSortValue: (n) => (n.vesselName || n.vesselId || '').toLowerCase() },
+  { key: 'commodity', label: 'Material', getSortValue: (n) => (n.commodity || n.product || '').toLowerCase() },
+  { key: 'purpose', label: 'Purpose', getSortValue: (n) => (n.purpose || '').toLowerCase() },
+  { key: 'eta', label: 'ETA', getSortValue: (n) => (n.etaDateTime || n.etaFrom || n.ETA || '').toString() },
+  { key: 'status', label: 'Status', getSortValue: (n) => (n.status || '').toLowerCase() },
 ]
 
 const emptyBreakdownRow = () => ({ shipper: '', contractNo: '', poNo: '', qtyKg: '', remarks: '' })
@@ -29,14 +114,26 @@ function nextDocId() {
   return 'doc-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
 }
 
+function nextSiId(list) {
+  const year = new Date().getFullYear()
+  const nums = list.map((n) => { const m = (n.siId || '').match(/SI-\d{4}-(\d+)/); return m ? parseInt(m[1], 10) : 0 })
+  const next = (nums.length ? Math.max(...nums) : 0) + 1
+  return `SI-${year}-${String(next).padStart(4, '0')}`
+}
+
 export default function ShippingInstruction() {
+  const navigate = useNavigate()
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [list, setList] = useState(initialList)
-  const [filters, setFilters] = useState({ vessel: '', eta: '', commodity: '', qty: '', shipper: '', received: '' })
-  const [sortState, setSortState] = useState({ key: 'received', dir: 'desc' })
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filters, setFilters] = useState({ purpose: '', status: '' })
+  const [filtersPanelOpen, setFiltersPanelOpen] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [sortState, setSortState] = useState({ key: 'siId', dir: 'desc' })
   const [expandedId, setExpandedId] = useState(null)
   const [form, setForm] = useState({
     vesselName: '',
+    purpose: 'Unloading',
     etaFrom: '',
     etaTo: '',
     shipper: '',
@@ -46,6 +143,7 @@ export default function ShippingInstruction() {
     totalQtyKg: '',
     surveyor: '',
     agent: '',
+    jetty: '',
     breakdown: [emptyBreakdownRow()],
     qualityFFA: '',
     qualityMI: '',
@@ -90,9 +188,13 @@ export default function ShippingInstruction() {
     const totalQtyKg = Number(form.totalQtyKg) || breakdownTotalKg || 0
     const newSI = {
       id: 'n' + (list.length + 1),
+      siId: nextSiId(list),
+      status: 'Draft',
       vesselName: form.vesselName.trim(),
+      purpose: form.purpose || 'Unloading',
       etaFrom: form.etaFrom || null,
       etaTo: form.etaTo || null,
+      etaDateTime: form.etaFrom ? (form.etaFrom + 'T12:00:00') : null,
       shipper: form.shipper.trim(),
       loadingPort: form.loadingPort.trim(),
       commodity: form.commodity,
@@ -100,6 +202,7 @@ export default function ShippingInstruction() {
       totalQtyKg,
       surveyor: form.surveyor || null,
       agent: form.agent || null,
+      jetty: form.jetty || null,
       breakdown: form.breakdown
         .filter((r) => r.contractNo || r.poNo || r.qtyKg)
         .map((r) => ({
@@ -117,6 +220,7 @@ export default function ShippingInstruction() {
     setList([newSI, ...list])
     setForm({
       vesselName: '',
+      purpose: 'Unloading',
       etaFrom: '',
       etaTo: '',
       shipper: '',
@@ -126,6 +230,7 @@ export default function ShippingInstruction() {
       totalQtyKg: '',
       surveyor: '',
       agent: '',
+      jetty: '',
       breakdown: [emptyBreakdownRow()],
       qualityFFA: '',
       qualityMI: '',
@@ -151,51 +256,175 @@ export default function ShippingInstruction() {
   const handleSort = (key) => setSortState((s) => ({ key, dir: s.key === key && s.dir === 'asc' ? 'desc' : 'asc' }))
 
   const filteredList = list.filter((n) => {
-    const vessel = (n.vesselName || n.vesselId || '').toLowerCase()
-    const eta = (n.etaFrom && n.etaTo ? `${n.etaFrom} ${n.etaTo}` : n.ETA || '').toLowerCase()
-    const commodity = (n.commodity || n.product || '').toLowerCase()
-    const qtyStr = String(n.totalQtyKg ?? n.quantity ?? '')
-    const shipper = (n.shipper || '').toLowerCase()
-    const received = (n.receivedAt || '').toLowerCase()
-    return (
-      (!filters.vessel || vessel.includes(filters.vessel.trim().toLowerCase())) &&
-      (!filters.eta || eta.includes(filters.eta.trim().toLowerCase())) &&
-      (!filters.commodity || commodity.includes(filters.commodity.trim().toLowerCase())) &&
-      (!filters.qty || qtyStr.includes(filters.qty.trim())) &&
-      (!filters.shipper || shipper.includes(filters.shipper.trim().toLowerCase())) &&
-      (!filters.received || received.includes(filters.received.trim().toLowerCase()))
-    )
+    const q = searchQuery.trim().toLowerCase()
+    const matchSearch = !q ||
+      (n.siId || '').toLowerCase().includes(q) ||
+      (n.vesselName || n.vesselId || '').toLowerCase().includes(q) ||
+      (n.agent || '').toLowerCase().includes(q)
+    const purposeMatch = !filters.purpose || (n.purpose || '') === filters.purpose.trim()
+    const statusMatch = !filters.status || (n.status || '') === filters.status.trim()
+    return matchSearch && purposeMatch && statusMatch
   })
 
   const sortedList = [...filteredList].sort((a, b) => {
-    const col = SI_COLUMNS.find((c) => c.key === sortState.key)
+    const col = SI_TABLE_COLUMNS.find((c) => c.key === sortState.key)
     if (!col) return 0
     const va = col.getSortValue(a)
     const vb = col.getSortValue(b)
-    const isNum = typeof va === 'number' && typeof vb === 'number'
-    let cmp = 0
-    if (isNum) cmp = va - vb
-    else cmp = String(va).localeCompare(String(vb), undefined, { numeric: true })
+    const cmp = String(va).localeCompare(String(vb), undefined, { numeric: true })
     return sortState.dir === 'asc' ? cmp : -cmp
   })
 
+  const totalSI = list.length
+  const pendingApproval = list.filter((n) => isInternalApprovalFlow(n) && n.status === 'Submitted').length
+  const now = Date.now()
+  const oneWeek = 7 * 24 * 60 * 60 * 1000
+  const upcomingArrivals = list.filter((n) => {
+    const eta = n.etaDateTime || n.etaFrom
+    if (!eta) return false
+    const t = new Date(eta).getTime()
+    return t >= now && t <= now + oneWeek
+  }).length
+  const approvedThisWeek = list.filter((n) => {
+    if (n.status !== 'Approved' || !n.receivedAt) return false
+    const t = new Date(n.receivedAt).getTime()
+    return t >= now - oneWeek
+  }).length
+
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === sortedList.length) setSelectedIds(new Set())
+    else setSelectedIds(new Set(sortedList.map((n) => n.id)))
+  }
+
+  const handleRequestApproval = (n, e) => {
+    e.stopPropagation()
+    setList((prev) => prev.map((r) => (r.id === n.id ? { ...r, status: 'Submitted' } : r)))
+  }
+
+  const handleExport = () => {
+    const headers = ['SI ID', 'Vessel', 'Agent', 'Material', 'Purpose', 'ETA', 'Status']
+    const rows = sortedList.map((n) => [
+      n.siId || '',
+      n.vesselName || n.vesselId || '',
+      n.agent || '',
+      n.commodity || n.product || '',
+      n.purpose || '',
+      formatEta(n),
+      n.status || '',
+    ])
+    const csv = [headers.join(','), ...rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `shipping-instructions-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="shipping-instruction-page">
-      <h1 className="page-title">Shipping Instruction</h1>
-      <p className="shipping-instruction-page__intro">
-        Create vessel trip and log ETA and quantity. Key in vessel name/barge ID, ETA window, contract/PO, commodity, loading qty, and loading quality.
-      </p>
-
-      {SHOW_CREATE_NEW && (
-        <div className="shipping-instruction-create-bar">
+      <header className="si-page-header">
+        <div className="si-page-header__text">
+          <h1 className="page-title">Shipping Instructions</h1>
+          <p className="si-page-header__subtitle">
+            Manage and monitor all submitted vessel shipping instructions for jetty operations.
+          </p>
+        </div>
+        {SHOW_CREATE_NEW && (
           <button
             type="button"
-            className="btn btn--primary"
+            className="btn btn--primary si-page-header__cta"
             onClick={() => setIsFormOpen(true)}
             aria-expanded={isFormOpen}
           >
-            Create New
+            + Create New SI
           </button>
+        )}
+      </header>
+
+      <div className="si-summary-cards">
+        <div className="si-summary-card">
+          <span className="si-summary-card__icon" aria-hidden>🚢</span>
+          <span className="si-summary-card__value">{totalSI.toLocaleString()}</span>
+          <span className="si-summary-card__label">TOTAL SI</span>
+        </div>
+        <div className="si-summary-card">
+          <span className="si-summary-card__icon" aria-hidden>🕐</span>
+          <span className="si-summary-card__value">{pendingApproval}</span>
+          <span className="si-summary-card__label">PENDING APPROVAL</span>
+        </div>
+        <div className="si-summary-card">
+          <span className="si-summary-card__icon" aria-hidden>🕐</span>
+          <span className="si-summary-card__value">{upcomingArrivals}</span>
+          <span className="si-summary-card__label">UPCOMING ARRIVALS</span>
+        </div>
+        <div className="si-summary-card">
+          <span className="si-summary-card__icon si-summary-card__icon--check" aria-hidden>✓</span>
+          <span className="si-summary-card__value">{approvedThisWeek}</span>
+          <span className="si-summary-card__label">APPROVED THIS WEEK</span>
+        </div>
+      </div>
+
+      <div className="si-toolbar">
+        <input
+          type="search"
+          className="si-toolbar__search"
+          placeholder="Search by SI ID, Vessel, or Agent..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          aria-label="Search shipping instructions"
+        />
+        <div className="si-toolbar__actions">
+          <button
+            type="button"
+            className={`btn btn--secondary si-toolbar__btn ${filtersPanelOpen ? 'si-toolbar__btn--active' : ''}`}
+            onClick={() => setFiltersPanelOpen((o) => !o)}
+            aria-expanded={filtersPanelOpen}
+          >
+            🔽 Filters
+          </button>
+          <button type="button" className="btn btn--secondary si-toolbar__btn" onClick={handleExport}>
+            ⬇ Export
+          </button>
+        </div>
+      </div>
+
+      {filtersPanelOpen && (
+        <div className="si-filters-panel">
+          <div className="si-filters-panel__row">
+            <label className="si-filters-panel__label">Purpose</label>
+            <select
+              className="si-filters-panel__select"
+              value={filters.purpose}
+              onChange={(e) => updateFilter('purpose', e.target.value)}
+            >
+              {PURPOSE_OPTIONS.map((opt) => (
+                <option key={opt.value || 'all'} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="si-filters-panel__row">
+            <label className="si-filters-panel__label">Status</label>
+            <select
+              className="si-filters-panel__select"
+              value={filters.status}
+              onChange={(e) => updateFilter('status', e.target.value)}
+            >
+              {STATUS_OPTIONS.map((opt) => (
+                <option key={opt.value || 'all'} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
       )}
 
@@ -244,6 +473,22 @@ export default function ShippingInstruction() {
                     <select id="term" value={form.term} onChange={(e) => updateForm({ term: e.target.value })}>
                       {TERM_OPTIONS.map((t) => (
                         <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="input-group">
+                    <label htmlFor="purpose">Purpose</label>
+                    <select id="purpose" value={form.purpose} onChange={(e) => updateForm({ purpose: e.target.value })}>
+                      <option value="Unloading">Unloading</option>
+                      <option value="Loading">Loading</option>
+                    </select>
+                  </div>
+                  <div className="input-group">
+                    <label htmlFor="jetty">Jetty</label>
+                    <select id="jetty" value={form.jetty} onChange={(e) => updateForm({ jetty: e.target.value })}>
+                      <option value="">—</option>
+                      {BERTH_IDS.map((jid) => (
+                        <option key={jid} value={jid}>{jid}</option>
                       ))}
                     </select>
                   </div>
@@ -465,8 +710,15 @@ export default function ShippingInstruction() {
           <table className="data-table shipping-instruction-table">
             <thead>
               <tr>
-                <th className="shipping-instruction-table__expand-col"></th>
-                {SI_COLUMNS.map((col) => (
+                <th className="si-table__col-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={sortedList.length > 0 && selectedIds.size === sortedList.length}
+                    onChange={toggleSelectAll}
+                    aria-label="Select all"
+                  />
+                </th>
+                {SI_TABLE_COLUMNS.map((col) => (
                   <th key={col.key} className="shipping-instruction-table__th">
                     <button
                       type="button"
@@ -481,21 +733,7 @@ export default function ShippingInstruction() {
                     </button>
                   </th>
                 ))}
-              </tr>
-              <tr className="shipping-instruction-table__filter-row">
-                <th className="shipping-instruction-table__expand-col"></th>
-                {SI_COLUMNS.map((col) => (
-                  <th key={col.key}>
-                    <input
-                      type="text"
-                      className="shipping-instruction-table__filter"
-                      placeholder={`Filter ${col.label}`}
-                      value={filters[col.key]}
-                      onChange={(e) => updateFilter(col.key, e.target.value)}
-                      aria-label={`Filter by ${col.label}`}
-                    />
-                  </th>
-                ))}
+                <th className="si-table__col-actions">ACTIONS</th>
               </tr>
             </thead>
             <tbody>
@@ -505,22 +743,97 @@ export default function ShippingInstruction() {
                     className={`shipping-instruction-table__row ${expandedId === n.id ? 'shipping-instruction-table__row--expanded' : ''}`}
                     onClick={() => setExpandedId((id) => (id === n.id ? null : n.id))}
                   >
-                    <td className="shipping-instruction-table__expand-col">
-                      <span className="shipping-instruction-table__expand-icon" aria-hidden>
-                        {expandedId === n.id ? '▼' : '▶'}
-                      </span>
+                    <td className="si-table__col-checkbox" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(n.id)}
+                        onChange={() => toggleSelect(n.id)}
+                        aria-label={`Select ${n.siId || n.id}`}
+                      />
                     </td>
-                    {SI_COLUMNS.map((col) => (
-                      <td key={col.key}>{col.getValue(n)}</td>
-                    ))}
+                    <td>{n.siId || '—'}</td>
+                    <td>
+                      <div className="si-table__vessel-agent">
+                        <strong>{n.vesselName || n.vesselId || '—'}</strong>
+                        <span className="si-table__agent">{n.agent || '—'}</span>
+                      </div>
+                    </td>
+                    <td>{n.commodity || n.product || '—'}</td>
+                    <td>{n.purpose || '—'}</td>
+                    <td>{formatEta(n)}</td>
+                    <td>
+                      <span className={`si-status-badge si-status-badge--${(getDisplayStatus(n) || 'draft').toLowerCase().replace(/\s+/g, '-')}`}>
+                        {getDisplayStatus(n)}
+                      </span>
+                      {(n.purpose || '').toLowerCase() === 'unloading' && (
+                        <span className="si-status-badge si-status-badge--external" title="Instruction from external">
+                          External
+                        </span>
+                      )}
+                    </td>
+                    <td className="si-table__col-actions" onClick={(e) => e.stopPropagation()}>
+                      {isInternalApprovalFlow(n) && n.status === 'Draft' && (
+                        <button
+                          type="button"
+                          className="btn btn--primary btn--small si-table__action-btn si-table__action-icon"
+                          onClick={(e) => handleRequestApproval(n, e)}
+                          title="Request Approval"
+                          aria-label="Request Approval"
+                        >
+                          <IconRequestApproval />
+                        </button>
+                      )}
+                      {isInternalApprovalFlow(n) && n.status === 'Submitted' && (n.siId || n.id) && (
+                        <button
+                          type="button"
+                          className="btn btn--primary btn--small si-table__action-btn si-table__action-icon"
+                          onClick={(e) => { e.stopPropagation(); navigate(`/shipping-instruction/approval/${n.siId || n.id}`, { state: { si: n } }) }}
+                          title="Approve SI"
+                          aria-label="Approve SI"
+                        >
+                          <IconApprove />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="btn btn--secondary btn--small si-table__action-btn si-table__action-icon"
+                        onClick={(e) => { e.stopPropagation(); setExpandedId((id) => (id === n.id ? null : n.id)) }}
+                        title="View details"
+                        aria-label="View details"
+                      >
+                        <IconView />
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--secondary btn--small si-table__action-btn si-table__action-icon si-table__action-btn--view-si"
+                        disabled={!canViewAsDocument(n)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (canViewAsDocument(n) && (n.siId || n.id)) {
+                            navigate(`/shipping-instruction/view/${n.siId || n.id}`, { state: { si: n } })
+                          }
+                        }}
+                        title={canViewAsDocument(n) ? 'View SI document' : 'View SI available after approval'}
+                        aria-label={canViewAsDocument(n) ? 'View SI document' : 'View SI available after approval'}
+                      >
+                        <IconViewDocument />
+                      </button>
+                    </td>
                   </tr>
                   {expandedId === n.id && (
                     <tr key={n.id + '-detail'} className="shipping-instruction-table__detail-row">
-                      <td colSpan={SI_COLUMNS.length + 1} className="shipping-instruction-table__detail-cell">
+                      <td colSpan={SI_TABLE_COLUMNS.length + 2} className="shipping-instruction-table__detail-cell">
                         <div className="shipping-instruction-detail">
                           <h4 className="shipping-instruction-detail__title">Full details</h4>
                           <dl className="shipping-instruction-detail__grid">
+                            <dt>SI ID</dt><dd>{n.siId || '—'}</dd>
+                            <dt>Status</dt><dd>{getDisplayStatus(n)}</dd>
+                            {(n.purpose || '').toLowerCase() === 'unloading' && (
+                              <><dt>Source</dt><dd>External</dd></>
+                            )}
                             <dt>Vessel</dt><dd>{n.vesselName || n.vesselId || '—'}</dd>
+                            <dt>Purpose</dt><dd>{n.purpose || '—'}</dd>
+                            <dt>Jetty</dt><dd>{n.jetty || '—'}</dd>
                             <dt>ETA</dt><dd>{n.etaFrom && n.etaTo ? `${n.etaFrom} → ${n.etaTo}` : n.ETA || '—'}</dd>
                             <dt>Commodity</dt><dd>{n.commodity || n.product || '—'}</dd>
                             <dt>Term</dt><dd>{n.term || '—'}</dd>
