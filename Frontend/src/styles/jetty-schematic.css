@@ -47,6 +47,17 @@
   overflow: hidden;
 }
 
+.jetty-schematic__slot-jetty-name {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-steel);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin-bottom: var(--spacing-1);
+  flex-shrink: 0;
+}
+
 .jetty-schematic__slot--disch {
   background: #fefbf0;
   border-color: #e8d88a;

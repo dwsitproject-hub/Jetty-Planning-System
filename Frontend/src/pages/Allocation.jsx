@@ -1,6 +1,6 @@
 import { useState, Fragment, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { allocationPlan as initialPlan, BERTH_IDS, berths, vessels } from '../data/mockData'
+import { allocationPlan as initialPlan, BERTH_IDS, berths, vessels, ALLOCATION_EVENTS, BERTHING_EVENTS, setArrivalNor } from '../data/mockData'
 import JettySchematic from '../components/JettySchematic'
 import { useLoading, getLoadingPhaseIndex } from '../context/LoadingContext'
 import '../styles/allocation.css'
@@ -8,25 +8,27 @@ import '../styles/allocation.css'
 const SLOTS_COUNT = 12
 const SLOT_MS = 6 * 60 * 60 * 1000
 
-const LOADING_PHASES = ['Shipping Instruction', 'Allocation', 'Berthing', 'Survey & Quality Check', 'Loading', 'Final Quality Check', 'Clearance']
-const UNLOADING_PHASES = ['Shipping Instruction', 'Allocation', 'Berthing', 'Survey & Quality Check', 'Unloading', 'Clearance']
+/** Unified flow for both Loading and Unloading */
+const UNIFIED_PHASES = ['Shipping Instruction', 'Allocation', 'Berthing', 'Pre Checking', 'Operational', 'Post Checking', 'Clearance']
 
 const PHASE_ROUTES = {
   'Shipping Instruction': '/shipping-instruction',
   'Allocation': '/allocation',
-  'Berthing': '/berthing',
-  'Survey & Quality Check': '/loading',
-  'Loading': '/loading',
-  'Unloading': '/unloading',
-  'Final Quality Check': '/loading',
+  'Berthing': '/allocation',
+  'Pre Checking': '/loading',
+  'Operational': '/loading',
+  'Post Checking': '/loading',
   'Clearance': '/verification',
 }
 
 function getPhaseLink(label, vesselId, purpose) {
   const base = PHASE_ROUTES[label] || '#'
-  if (vesselId && purpose === 'Loading' && (label === 'Survey & Quality Check' || label === 'Loading' || label === 'Final Quality Check')) {
-    return `${base}/${vesselId}`
+  if (!vesselId) return base
+  if (label === 'Pre Checking' || label === 'Operational' || label === 'Post Checking') {
+    const unloadBase = '/unloading'
+    return purpose === 'Unloading' ? `${unloadBase}${vesselId ? `/${vesselId}` : ''}` : `${base}/${vesselId}`
   }
+  if (label === 'Clearance') return base
   return base
 }
 
@@ -144,7 +146,9 @@ export default function Allocation() {
   const [berthingConfirmRow, setBerthingConfirmRow] = useState(null)
   const [berthingErrors, setBerthingErrors] = useState([])
   const [berthingSelectedJetty, setBerthingSelectedJetty] = useState('')
+  const [berthingPob, setBerthingPob] = useState('')
   const [berthingTb, setBerthingTb] = useState('')
+  const [berthingSob, setBerthingSob] = useState('')
   const [berthingPhotos, setBerthingPhotos] = useState([]) // { id, file, previewUrl }[]
   const [berthingRemarks, setBerthingRemarks] = useState('')
   const [vesselPhotosByVesselId, setVesselPhotosByVesselId] = useState({}) // { [vesselId]: [{ url, name }] }
@@ -162,13 +166,27 @@ export default function Allocation() {
     }
   }, [list])
 
+  const [arrivalNorFiles, setArrivalNorFiles] = useState([]) // [{ name, url }] for NOR document preview
+
   const openArrivalUpdate = (r) => {
     setArrivalUpdateForm({
       ...r,
       etaDateTime: r.etaDateTime || '',
       taDateTime: r.taDateTime || '',
       etbDateTime: r.etbDateTime || '',
+      norTenderedDateTime: r.norTenderedDateTime || '',
+      norAcceptedDateTime: r.norAcceptedDateTime || '',
     })
+    setArrivalNorFiles([])
+  }
+
+  const addArrivalNorFiles = (files) => {
+    if (!files?.length) return
+    const newOnes = Array.from(files).map((file) => ({
+      name: file.name,
+      url: URL.createObjectURL(file),
+    }))
+    setArrivalNorFiles((prev) => [...prev, ...newOnes])
   }
 
   const saveArrivalUpdate = () => {
@@ -180,12 +198,23 @@ export default function Allocation() {
       eta: arrivalUpdateForm.etaDateTime ? formatDateTimeDisplay(arrivalUpdateForm.etaDateTime) : arrivalUpdateForm.eta,
       ta: arrivalUpdateForm.taDateTime ? formatDateTimeDisplay(arrivalUpdateForm.taDateTime) : arrivalUpdateForm.ta,
       etb: arrivalUpdateForm.etbDateTime ? formatDateTimeDisplay(arrivalUpdateForm.etbDateTime) : arrivalUpdateForm.etb,
+      norTenderedDateTime: arrivalUpdateForm.norTenderedDateTime || undefined,
+      norAcceptedDateTime: arrivalUpdateForm.norAcceptedDateTime || undefined,
+      norDocumentNames: arrivalNorFiles.length > 0 ? arrivalNorFiles.map((f) => f.name) : undefined,
     }
     const listWithUpdate = list.map((row) => (row.id === arrivalUpdateForm.id ? updated : row))
     const bySequence = [...listWithUpdate].sort((a, b) => (a.sequence ?? 999) - (b.sequence ?? 999))
     const renumbered = bySequence.map((row, i) => ({ ...row, sequence: i + 1 }))
     setList(renumbered)
+    if (updated.vesselId) {
+      setArrivalNor(updated.vesselId, {
+        norDocumentNames: Array.isArray(updated.norDocumentNames) ? updated.norDocumentNames : (arrivalNorFiles.map((f) => f.name) || []),
+        norTenderedDateTime: updated.norTenderedDateTime || '',
+        norAcceptedDateTime: updated.norAcceptedDateTime || '',
+      })
+    }
     setArrivalUpdateForm(null)
+    setArrivalNorFiles([])
   }
 
   const moveSequenceUp = (r, e) => {
@@ -266,7 +295,9 @@ export default function Allocation() {
     setBerthingErrors([])
     setBerthingConfirmRow(r)
     setBerthingSelectedJetty(getTargetJettyId(r) || '')
+    setBerthingPob(r.pobDateTime || '')
     setBerthingTb(getNowForDateTimeLocal())
+    setBerthingSob(r.sobDateTime || '')
     setBerthingPhotos([])
     setBerthingRemarks(r.remark ?? r.remarks ?? '')
   }
@@ -280,7 +311,9 @@ export default function Allocation() {
     setBerthingConfirmRow(null)
     setBerthingErrors([])
     setBerthingSelectedJetty('')
+    setBerthingPob('')
     setBerthingTb('')
+    setBerthingSob('')
     setBerthingPhotos([])
     setBerthingRemarks('')
   }
@@ -504,8 +537,7 @@ export default function Allocation() {
             {(() => {
               const vessel = vessels[vesselDetailModalVesselId]
               const purpose = (vessel?.purpose ?? '').toString().trim()
-              const isUnloading = purpose === 'Unloading'
-              const phases = isUnloading ? UNLOADING_PHASES : LOADING_PHASES
+              const phases = UNIFIED_PHASES
               const loadingSteps = purpose === 'Loading' ? getLoadingSteps(vesselDetailModalVesselId) : null
               const currentPhaseIndex = purpose === 'Loading' && loadingSteps
                 ? getLoadingPhaseIndex(loadingSteps)
@@ -615,6 +647,27 @@ export default function Allocation() {
                     </dl>
                   </section>
 
+                  <section className="berthing-modal__card">
+                    <h3 className="berthing-modal__card-title">Allocation &amp; Berthing events</h3>
+                    <p className="loading-tab-hint" style={{ marginBottom: 'var(--spacing-2)' }}>
+                      Allocation: VESSEL ARRIVED, DROP ANCHORED, NOR TENDERED. Berthing: POB, ALL FAST, SOB.
+                    </p>
+                    <dl className="berthing-modal__vessel-dl">
+                      {ALLOCATION_EVENTS.map((ev) => (
+                        <div key={ev} className="berthing-modal__vessel-row">
+                          <dt>{ev}</dt>
+                          <dd>—</dd>
+                        </div>
+                      ))}
+                      {BERTHING_EVENTS.map((ev) => (
+                        <div key={ev} className="berthing-modal__vessel-row">
+                          <dt>{ev}</dt>
+                          <dd>—</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+
                   {vesselPhotosByVesselId[vesselDetailModalVesselId]?.length > 0 && (
                     <section className="berthing-modal__card">
                       <h3 className="berthing-modal__card-title">Vessel photos</h3>
@@ -672,6 +725,10 @@ export default function Allocation() {
                       <dd className="berthing-modal__vessel-dl--bold">{berthingConfirmRow.shippingInstruction || '—'}</dd>
                     </div>
                     <div className="berthing-modal__vessel-row">
+                      <dt>Surveyor</dt>
+                      <dd>{berthingConfirmRow.surveyor || '—'}</dd>
+                    </div>
+                    <div className="berthing-modal__vessel-row">
                       <dt>Current jetty</dt>
                       <dd>{getTargetJettyId(berthingConfirmRow) || '—'}</dd>
                     </div>
@@ -704,6 +761,17 @@ export default function Allocation() {
                     </select>
                   </div>
                   <div className="berthing-modal__field">
+                    <label htmlFor="berthing-pob" className="berthing-modal__label">Pilot on Board (POB)</label>
+                    <input
+                      id="berthing-pob"
+                      type="datetime-local"
+                      className="berthing-modal__input"
+                      value={berthingPob}
+                      onChange={(e) => setBerthingPob(e.target.value)}
+                      aria-label="Pilot on Board"
+                    />
+                  </div>
+                  <div className="berthing-modal__field">
                     <label htmlFor="berthing-tb" className="berthing-modal__label">Actual Time of Berthing (TB)</label>
                     <input
                       id="berthing-tb"
@@ -712,6 +780,17 @@ export default function Allocation() {
                       value={berthingTb}
                       onChange={(e) => setBerthingTb(e.target.value)}
                       aria-label="Actual Time of Berthing"
+                    />
+                  </div>
+                  <div className="berthing-modal__field">
+                    <label htmlFor="berthing-sob" className="berthing-modal__label">Surveyor on Board (SOB)</label>
+                    <input
+                      id="berthing-sob"
+                      type="datetime-local"
+                      className="berthing-modal__input"
+                      value={berthingSob}
+                      onChange={(e) => setBerthingSob(e.target.value)}
+                      aria-label="Surveyor on Board"
                     />
                   </div>
                 </section>
@@ -832,7 +911,7 @@ export default function Allocation() {
               </section>
 
               <section className="berthing-modal__form-section">
-                <h3 className="berthing-modal__form-section-title">Details</h3>
+                <h3 className="berthing-modal__form-section-title">Arrival Documents</h3>
                 <div className="berthing-modal__field">
                   <label htmlFor="arrival-noPkk" className="berthing-modal__label">No PKK</label>
                   <input
@@ -843,6 +922,52 @@ export default function Allocation() {
                     onChange={(e) => setArrivalUpdateForm((f) => ({ ...f, noPkk: e.target.value }))}
                     placeholder="e.g. PKK-2026-001"
                   />
+                </div>
+                <div className="berthing-modal__field">
+                  <label htmlFor="arrival-nor-doc" className="berthing-modal__label">Notice of Readiness</label>
+                  <label className="berthing-modal__file-zone" htmlFor="arrival-nor-doc">
+                    <span className="berthing-modal__file-zone-text">
+                      {arrivalNorFiles.length > 0 ? `${arrivalNorFiles.length} file(s) chosen` : 'Choose NOR document'}
+                    </span>
+                    <input
+                      id="arrival-nor-doc"
+                      type="file"
+                      accept=".pdf,image/*"
+                      multiple
+                      onChange={(e) => addArrivalNorFiles(e.target.files)}
+                      className="berthing-modal__file-input"
+                    />
+                  </label>
+                  {arrivalNorFiles.length > 0 && (
+                    <ul className="berthing-modal__file-list" style={{ marginTop: 'var(--spacing-1)', fontSize: 'var(--font-size-small)', color: 'var(--color-text-steel)' }}>
+                      {arrivalNorFiles.map((f, i) => (
+                        <li key={i}>{f.name}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="berthing-modal__field">
+                  <label htmlFor="arrival-nor-tendered" className="berthing-modal__label">NOR Tendered Date &amp; Time</label>
+                  <input
+                    id="arrival-nor-tendered"
+                    type="datetime-local"
+                    className="berthing-modal__input"
+                    value={arrivalUpdateForm.norTenderedDateTime || ''}
+                    onChange={(e) => setArrivalUpdateForm((f) => ({ ...f, norTenderedDateTime: e.target.value }))}
+                  />
+                </div>
+                <div className="berthing-modal__field">
+                  <label htmlFor="arrival-nor-accepted" className="berthing-modal__label">NOR Accepted Date &amp; Time</label>
+                  <input
+                    id="arrival-nor-accepted"
+                    type="datetime-local"
+                    className="berthing-modal__input"
+                    value={arrivalUpdateForm.norAcceptedDateTime || ''}
+                    onChange={(e) => setArrivalUpdateForm((f) => ({ ...f, norAcceptedDateTime: e.target.value }))}
+                  />
+                  <p className="loading-tab-hint" style={{ marginTop: 'var(--spacing-1)', marginBottom: 0 }}>
+                    Starts counting Demurrage SLA.
+                  </p>
                 </div>
               </section>
 

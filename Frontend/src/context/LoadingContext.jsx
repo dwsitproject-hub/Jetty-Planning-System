@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback } from 'react'
-import { initialLoadingStepsByVesselId, initialLoadingOperationByVesselId } from '../data/mockData'
+import { initialLoadingStepsByVesselId, initialLoadingOperationByVesselId, defaultPreCheckingSection, defaultPostCheckingSection } from '../data/mockData'
 
 const defaultSteps = () =>
   Object.fromEntries(
@@ -19,6 +19,8 @@ const LoadingContext = createContext(null)
 export function LoadingProvider({ children }) {
   const [stepsByVesselId, setStepsByVesselId] = useState(defaultSteps)
   const [loadingOpsByVesselId, setLoadingOpsByVesselId] = useState(defaultLoadingOps)
+  const [preCheckingByVesselId, setPreCheckingByVesselId] = useState({})
+  const [postCheckingByVesselId, setPostCheckingByVesselId] = useState({})
 
   const getSteps = useCallback((vesselId) => {
     return stepsByVesselId[vesselId] ?? initialLoadingStepsByVesselId[vesselId] ?? null
@@ -73,6 +75,34 @@ export function LoadingProvider({ children }) {
     })
   }, [])
 
+  const getPreChecking = useCallback((vesselId) => {
+    return preCheckingByVesselId[vesselId] ?? defaultPreCheckingSection()
+  }, [preCheckingByVesselId])
+
+  const setPreCheckingSection = useCallback((vesselId, sectionKey, data) => {
+    setPreCheckingByVesselId((prev) => {
+      const current = prev[vesselId] ?? defaultPreCheckingSection()
+      return {
+        ...prev,
+        [vesselId]: { ...current, [sectionKey]: { ...(current[sectionKey] ?? {}), ...data } },
+      }
+    })
+  }, [])
+
+  const getPostChecking = useCallback((vesselId) => {
+    return postCheckingByVesselId[vesselId] ?? defaultPostCheckingSection()
+  }, [postCheckingByVesselId])
+
+  const setPostCheckingSection = useCallback((vesselId, sectionKey, data) => {
+    setPostCheckingByVesselId((prev) => {
+      const current = prev[vesselId] ?? defaultPostCheckingSection()
+      return {
+        ...prev,
+        [vesselId]: { ...current, [sectionKey]: { ...(current[sectionKey] ?? {}), ...data } },
+      }
+    })
+  }, [])
+
   const value = {
     getSteps,
     setStepData,
@@ -81,6 +111,10 @@ export function LoadingProvider({ children }) {
     addLoadingActivity,
     updateLoadingActivity,
     deleteLoadingActivity,
+    getPreChecking,
+    setPreCheckingSection,
+    getPostChecking,
+    setPostCheckingSection,
   }
   return <LoadingContext.Provider value={value}>{children}</LoadingContext.Provider>
 }
@@ -96,11 +130,15 @@ export function useLoading() {
       addLoadingActivity: () => {},
       updateLoadingActivity: () => {},
       deleteLoadingActivity: () => {},
+      getPreChecking: () => defaultPreCheckingSection(),
+      setPreCheckingSection: () => {},
+      getPostChecking: () => defaultPostCheckingSection(),
+      setPostCheckingSection: () => {},
     }
   return ctx
 }
 
-/** Derive high-level phase index (3=Survey & QC, 4=Loading, 5=Final QC, 6=Clearance) from step status for Active Vessel stepper */
+/** Derive high-level phase index (3=Pre Checking, 4=Operational, 5=Post Checking, 6=Clearance) from step status for Active Vessel stepper */
 export function getLoadingPhaseIndex(steps) {
   if (!steps) return 3
   const completed = (id) => steps[id]?.status === 'completed'

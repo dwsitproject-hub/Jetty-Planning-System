@@ -256,6 +256,9 @@ export const painPointTracker = {
   feedstockActionNote: 'Sufficient for next 48 hours of production.',
 };
 
+/** Dashboard clearance snapshot (mock until shared with Verification page) */
+export const dashboardClearance = { readyToDepart: 3, departed: 5 };
+
 /** Active vessel metrics (Section 2) — keyed by vessel id */
 export const activeVesselMetrics = {
   'v-bg-mulia-vii': [
@@ -523,18 +526,48 @@ export const initialLoadingStepsByVesselId = {
   },
 }
 
-/** Loading Activity Category options for Detail Activity (Loading tab) */
+/** Allocation & Berthing time-log events (from unified flow) */
+export const ALLOCATION_EVENTS = ['VESSEL ARRIVED', 'DROP ANCHORED', 'NOR TENDERED']
+export const BERTHING_EVENTS = ['POB', 'ALL FAST', 'SOB']
+
+/** Loading Activity Category options for Detail Activity (Operational tab) */
 export const LOADING_ACTIVITY_CATEGORIES = [
-  'OPENING HATCH',
-  'HOLD / STOP',
-  'NOR ACCEPTED',
-  'SAMPLING',
-  'SOUNDING',
-  'COMM LOAD',
+  'OPENING H1 & H2',
   'HOSE ON',
+  'COMM LOAD',
   'COMPL LOAD',
-  'HOSE OFF',
+  'OTHER',
 ]
+
+/** Unloading Activity Category options for Detail Activity (Operational tab) */
+export const UNLOADING_ACTIVITY_CATEGORIES = [
+  'OPENING H1 & H2',
+  'HOSE ON',
+  'COMM DISCHARGE',
+  'COMPL DISCHARGE',
+  'OTHER',
+]
+
+/** Berthing events (POB, ALL FAST/TB, SOB) — used by Daily Activities Report; Allocation can be wired to set these on confirm */
+let berthingEventsByVesselId = {}
+export function getBerthingEvents(vesselId) {
+  return berthingEventsByVesselId[vesselId] ?? { pob: '', allFast: '', sob: '' }
+}
+export function setBerthingEvents(vesselId, data) {
+  berthingEventsByVesselId[vesselId] = { ...getBerthingEvents(vesselId), ...data }
+}
+
+/** NOR data from Log Arrival Update (shared so Loading Pre-Checking can show it) */
+let arrivalNorByVesselId = {}
+export function getArrivalNor(vesselId) {
+  const d = arrivalNorByVesselId[vesselId]
+  return d
+    ? { norDocumentNames: d.norDocumentNames || [], norTenderedDateTime: d.norTenderedDateTime || '', norAcceptedDateTime: d.norAcceptedDateTime || '' }
+    : { norDocumentNames: [], norTenderedDateTime: '', norAcceptedDateTime: '' }
+}
+export function setArrivalNor(vesselId, data) {
+  arrivalNorByVesselId[vesselId] = { ...getArrivalNor(vesselId), ...data }
+}
 
 /** Get vessel + jetty + cargo info for Loading tab (from vessels, berths, allocationPlan) */
 export function getLoadingOperationCargo(vesselId) {
@@ -560,6 +593,24 @@ export function getLoadingOperationCargo(vesselId) {
   }
 }
 
+/** Default pre-checking section data (Loading Pre-Checking) */
+export const defaultPreCheckingSection = () => ({
+  keyMeeting: { dateTime: '', documents: [], remark: '' },
+  norAccepted: { norTenderedDateTime: '', norAcceptedDateTime: '', documents: [], remark: '' },
+  tankInspection: { dateTime: '', documents: [], remark: '' },
+  holdInspection: { dateTime: '', documents: [], remark: '' },
+  sampling: { dateTime: '', documents: [], remark: '', records: [] },
+  initialSounding: { dateTime: '', documents: [], result: '' },
+  initialDraftSurvey: { dateTime: '', documents: [], result: '' },
+})
+
+/** Default post-checking section data (Loading Post-Checking) */
+export const defaultPostCheckingSection = () => ({
+  finalTankInspection: { result: '', dateTime: '', documents: [] },
+  finalHoldInspection: { result: '', dateTime: '', documents: [] },
+  finalSounding: { result: '', dateTime: '', documents: [] },
+})
+
 /** Initial loading operation data per vessel (detail activities only) */
 export const initialLoadingOperationByVesselId = {
   'v-mt-metro': {
@@ -570,12 +621,16 @@ export const initialLoadingOperationByVesselId = {
   },
 }
 
-/** Loading operations list (vessels with purpose Loading, for Loading page) */
-export const getLoadingOperations = () => {
+/** At-berth operations list (Loading or Unloading) — filter vessels by purpose */
+export function getAtBerthOperations(purpose) {
+  const p = purpose === 'Unloading' ? 'Unloading' : 'Loading'
   return Object.entries(vessels)
-    .filter(([, v]) => v.purpose === 'Loading')
+    .filter(([, v]) => v.purpose === p)
     .map(([id, v]) => ({ vesselId: id, vesselName: v.vesselName, siId: v.siId, product: v.product }))
 }
+
+/** @deprecated Use getAtBerthOperations('Loading') */
+export const getLoadingOperations = () => getAtBerthOperations('Loading')
 
 /** Line-up for Planning (vessel ids in order, with optional berth) */
 export const lineUp = [

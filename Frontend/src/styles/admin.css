@@ -1,0 +1,110 @@
+/* Admin: Departments, Roles, Users */
+
+.admin-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+.admin-status-badge--active {
+  background: #e8f5e9;
+  color: #1b5e20;
+}
+
+.admin-status-badge--inactive {
+  background: var(--color-bg-lighter);
+  color: var(--color-text-steel);
+}
+
+.admin-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--color-border-light);
+  margin-bottom: var(--spacing-3);
+}
+
+.admin-tabs__tab {
+  padding: var(--spacing-2) var(--spacing-3);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-steel);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+
+.admin-tabs__tab:hover {
+  color: var(--color-text-charcoal);
+}
+
+.admin-tabs__tab--active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+
+.admin-permission-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-small);
+}
+
+.admin-permission-table th,
+.admin-permission-table td {
+  padding: var(--spacing-2) var(--spacing-3);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.admin-permission-table th {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+}
+
+.admin-permission-table th.admin-permission-table__th--check {
+  width: 80px;
+  text-align: center;
+}
+
+.admin-permission-table td.admin-permission-table__cell--check {
+  text-align: center;
+}
+
+.admin-permission-table input[type="checkbox"] {
+  margin: 0;
+}
+
+.admin-section-title {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0 0 var(--spacing-2);
+}
+
+.admin-role-summary {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-steel);
+}
+
+.admin-multiselect {
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-2);
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--color-bg-white);
+}
+
+.admin-multiselect__item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-1) 0;
+}
+
+.admin-multiselect__item input {
+  margin: 0;
+}
