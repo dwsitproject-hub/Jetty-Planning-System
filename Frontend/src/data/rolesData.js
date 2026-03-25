@@ -16,6 +16,7 @@ export const PAGE_OPTIONS = [
   { id: 'master-port', label: 'Master – Port' },
   { id: 'master-jetty', label: 'Master – Jetty' },
   { id: 'master-jetty-layout', label: 'Master – Jetty Layout' },
+  { id: 'activity-log', label: 'Activity Log' },
   { id: 'admin', label: 'Admin' },
 ]
 

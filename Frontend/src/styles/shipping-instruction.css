@@ -312,6 +312,36 @@
   box-sizing: border-box;
 }
 
+.shipping-instruction-breakdown-table td {
+  vertical-align: middle;
+}
+
+/* Make key columns comfortably wide (Option A: keep table). */
+.shipping-instruction-breakdown-table th:nth-child(1),
+.shipping-instruction-breakdown-table td:nth-child(1) {
+  min-width: 220px; /* Commodity */
+}
+.shipping-instruction-breakdown-table th:nth-child(2),
+.shipping-instruction-breakdown-table td:nth-child(2) {
+  min-width: 120px; /* Qty */
+}
+.shipping-instruction-breakdown-table th:nth-child(3),
+.shipping-instruction-breakdown-table td:nth-child(3) {
+  min-width: 200px; /* Unit */
+}
+.shipping-instruction-breakdown-table th:nth-child(4),
+.shipping-instruction-breakdown-table td:nth-child(4) {
+  min-width: 200px; /* Contract No */
+}
+.shipping-instruction-breakdown-table th:nth-child(5),
+.shipping-instruction-breakdown-table td:nth-child(5) {
+  min-width: 160px; /* PO No */
+}
+.shipping-instruction-breakdown-table th:nth-child(6),
+.shipping-instruction-breakdown-table td:nth-child(6) {
+  min-width: 260px; /* Remarks */
+}
+
 .shipping-instruction-inline-input--num {
   text-align: right;
 }

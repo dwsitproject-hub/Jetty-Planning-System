@@ -11,6 +11,8 @@ const DEFAULT_USER = 'Current user'
 export function ActivityLogProvider({ children }) {
   const [activities, setActivities] = useState([])
 
+  // Frontend no longer writes logs directly; backend writes to DB.
+  // Keep this for backward compatibility with pages still calling it; it only updates local UI state.
   const logActivity = useCallback(({ pageKey, action, entityType, entityLabel, details = '' }) => {
     const entry = {
       id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -18,7 +20,7 @@ export function ActivityLogProvider({ children }) {
       action,
       entityType: entityType || '',
       entityLabel: entityLabel || '',
-      details: typeof details === 'string' ? details : JSON.stringify(details),
+      details,
       user: DEFAULT_USER,
       timestamp: new Date().toISOString(),
     }

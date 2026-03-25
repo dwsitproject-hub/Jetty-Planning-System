@@ -1,13 +1,66 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { getPorts, addPort, updatePort } from '../data/masterData'
+import { ping, getHealth, getApiOrigin } from '../api/client'
+import { fetchPorts, createPort, updatePortApi } from '../api/ports'
 import { useActivityLog } from '../context/ActivityLogContext'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 
 export default function MasterPort() {
   const { logActivity } = useActivityLog()
-  const [ports, setPorts] = useState(() => getPorts())
+  const [ports, setPorts] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+  const [slice0Status, setSlice0Status] = useState({ health: null, ping: null, message: '' })
+
+  const loadPorts = useCallback(async () => {
+    setError(null)
+    setLoading(true)
+    try {
+      const list = await fetchPorts()
+      setPorts(Array.isArray(list) ? list : [])
+    } catch (e) {
+      setPorts([])
+      setError(e?.message || 'Failed to load ports')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        await getHealth()
+        if (cancelled) return
+        setSlice0Status((s) => ({ ...s, health: 'ok' }))
+      } catch {
+        if (!cancelled) setSlice0Status((s) => ({ ...s, health: 'fail' }))
+      }
+      try {
+        await ping()
+        if (cancelled) return
+        setSlice0Status((s) => ({ ...s, ping: 'ok', message: 'API reachable' }))
+      } catch {
+        if (!cancelled) {
+          setSlice0Status((s) => ({
+            ...s,
+            ping: 'fail',
+            message: `Check Backend + CORS (${getApiOrigin()})`,
+          }))
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    loadPorts()
+  }, [loadPorts])
+
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [formName, setFormName] = useState('')
@@ -23,7 +76,7 @@ export default function MasterPort() {
   const openEdit = useCallback((port) => {
     setEditingId(port.id)
     setFormName(port.name || '')
-    setFormDescription(port.description || '')
+    setFormDescription(port.description ?? '')
     setModalOpen(true)
   }, [])
 
@@ -34,38 +87,78 @@ export default function MasterPort() {
     setFormDescription('')
   }, [])
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     const name = (formName || '').trim()
     if (!name) return
-    if (editingId) {
-      updatePort(editingId, { name, description: formDescription || '' })
-      logActivity({ pageKey: 'master-port', action: 'update', entityType: 'Port', entityLabel: name })
-    } else {
-      addPort({ name, description: formDescription || '' })
-      logActivity({ pageKey: 'master-port', action: 'add', entityType: 'Port', entityLabel: name })
+    setSaving(true)
+    setError(null)
+    try {
+      if (editingId != null) {
+        await updatePortApi(editingId, {
+          name,
+          description: (formDescription || '').trim() || null,
+        })
+        logActivity({ pageKey: 'master-port', action: 'update', entityType: 'Port', entityLabel: name })
+      } else {
+        await createPort({
+          name,
+          description: (formDescription || '').trim() || null,
+        })
+        logActivity({ pageKey: 'master-port', action: 'add', entityType: 'Port', entityLabel: name })
+      }
+      await loadPorts()
+      closeModal()
+    } catch (e) {
+      setError(e?.message || 'Save failed')
+    } finally {
+      setSaving(false)
     }
-    setPorts(getPorts())
-    closeModal()
-  }, [editingId, formName, formDescription, closeModal, logActivity])
+  }, [editingId, formName, formDescription, closeModal, logActivity, loadPorts])
+
+  const apiLine =
+    slice0Status.health === 'ok' && slice0Status.ping === 'ok'
+      ? 'API: health + /ping OK'
+      : `API: health ${slice0Status.health || '…'} · /ping ${slice0Status.ping || '…'}${slice0Status.message ? ` — ${slice0Status.message}` : ''}`
 
   return (
     <div className="allocation-page">
       <h1 className="page-title">Master – Port</h1>
       <p className="allocation-page__intro">
-        Add and manage master port / site data.
+        Add and manage master port / site data (live API).
+      </p>
+      <p className="text-steel" style={{ fontSize: 'var(--font-size-small)' }}>
+        {apiLine}
       </p>
       <p className="text-steel">
         <Link to="/master" className="link">← Back to Master Menu</Link>
       </p>
 
+      {error && (
+        <p className="allocation-page__intro" style={{ color: 'var(--color-danger, #c00)' }} role="alert">
+          {error}
+        </p>
+      )}
+
       <section className="card at-berth-list-section">
         <div className="card__header-row">
           <h2 className="card__title">Ports</h2>
-          <button type="button" className="btn btn--primary" onClick={openAdd}>
-            Add Port
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <button
+              type="button"
+              className="btn btn--secondary btn--small"
+              onClick={() => loadPorts()}
+              disabled={loading}
+            >
+              Refresh
+            </button>
+            <button type="button" className="btn btn--primary" onClick={openAdd}>
+              Add Port
+            </button>
+          </div>
         </div>
-        {ports.length === 0 ? (
+        {loading ? (
+          <p className="text-steel">Loading ports…</p>
+        ) : ports.length === 0 ? (
           <p className="text-steel">No ports. Click Add Port to add one.</p>
         ) : (
           <div className="table-wrap">
@@ -81,7 +174,13 @@ export default function MasterPort() {
                 {ports.map((p) => (
                   <tr key={p.id} className="allocation-table__row">
                     <td><strong>{p.name || '—'}</strong></td>
-                    <td>{p.description ? (p.description.length > 60 ? p.description.slice(0, 60) + '…' : p.description) : '—'}</td>
+                    <td>
+                      {p.description
+                        ? p.description.length > 60
+                          ? `${p.description.slice(0, 60)}…`
+                          : p.description
+                        : '—'}
+                    </td>
                     <td className="allocation-table__action-col">
                       <button type="button" className="btn btn--small btn--secondary" onClick={() => openEdit(p)}>
                         Edit
@@ -105,7 +204,7 @@ export default function MasterPort() {
             aria-modal="true"
           >
             <h2 id="port-modal-title" className="modal__title">
-              {editingId ? 'Edit Port' : 'Add Port'}
+              {editingId != null ? 'Edit Port' : 'Add Port'}
             </h2>
             <div className="modal__section">
               <label htmlFor="port-name" className="modal__label">Port Name</label>
@@ -130,9 +229,11 @@ export default function MasterPort() {
               />
             </div>
             <div className="modal__footer">
-              <button type="button" className="btn btn--secondary" onClick={closeModal}>Cancel</button>
-              <button type="button" className="btn btn--primary" onClick={handleSubmit}>
-                {editingId ? 'Save' : 'Add'}
+              <button type="button" className="btn btn--secondary" onClick={closeModal} disabled={saving}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn--primary" onClick={handleSubmit} disabled={saving}>
+                {saving ? 'Saving…' : editingId != null ? 'Save' : 'Add'}
               </button>
             </div>
           </div>

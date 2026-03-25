@@ -1,12 +1,11 @@
 import { useState, Fragment, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { allocationPlan as initialPlan, BERTH_IDS, berths, vessels, ALLOCATION_EVENTS, BERTHING_EVENTS, setArrivalNor } from '../data/mockData'
 import JettySchematic from '../components/JettySchematic'
-import { useLoading, getLoadingPhaseIndex } from '../context/LoadingContext'
+import JettyScheduleGantt from '../components/JettyScheduleGantt'
+import { deleteOperationDocument, fetchAllocationOverview, saveArrivalUpdate as saveArrivalUpdateApi, uploadOperationDocuments } from '../api/allocation'
+import { ApiError, resolveUploadUrl } from '../api/client'
+import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import '../styles/allocation.css'
-
-const SLOTS_COUNT = 12
-const SLOT_MS = 6 * 60 * 60 * 1000
 
 /** Unified flow for both Loading and Unloading */
 const UNIFIED_PHASES = ['Shipping Instruction', 'Allocation', 'Berthing', 'Pre Checking', 'Operational', 'Post Checking', 'Clearance']
@@ -32,69 +31,8 @@ function getPhaseLink(label, vesselId, purpose) {
   return base
 }
 
-function get72hWindowStart(plan) {
-  let minTs = Infinity
-  plan.forEach((r) => {
-    const t = r.etbDateTime || r.etaDateTime
-    if (t) {
-      const d = new Date(t)
-      d.setHours(0, 0, 0, 0)
-      const ts = d.getTime()
-      if (ts < minTs) minTs = ts
-    }
-  })
-  if (minTs === Infinity) minTs = Date.now()
-  return new Date(minTs)
-}
-
-function getScheduleSlotLabels(windowStart) {
-  return Array.from({ length: SLOTS_COUNT }, (_, i) => {
-    const d = new Date(windowStart.getTime() + i * SLOT_MS)
-    const day = d.getDate()
-    const month = d.toLocaleString('en-GB', { month: 'short' }).toUpperCase()
-    const hours = d.getHours()
-    return `${day} ${month} - ${String(hours).padStart(2, '0')}:00`
-  })
-}
-
-function buildOccupancyFromPlan(plan, windowStart) {
-  const startTs = windowStart.getTime()
-  const occupancies = []
-  const sorted = [...plan].sort((a, b) => (a.sequence ?? 99) - (b.sequence ?? 99))
-  sorted.forEach((r) => {
-    const jettyId = (r.jetty || '').trim().split('/')[0].trim()
-    if (!jettyId) return
-    const timeStr = r.etbDateTime || r.etaDateTime
-    if (!timeStr) return
-    const slotStart = Math.floor((new Date(timeStr).getTime() - startTs) / SLOT_MS)
-    if (slotStart < 0 || slotStart >= SLOTS_COUNT) return
-    const slotEnd = Math.min(slotStart + 3, SLOTS_COUNT)
-    let status = 'Expected'
-    if (r.sequence === 1) status = 'Active'
-    else if (r.sequence === 2) status = 'Berthing'
-    occupancies.push({
-      jettyId,
-      vesselId: r.vesselId,
-      vesselName: r.vesselName || r.vesselId,
-      slotStart,
-      slotEnd,
-      status,
-    })
-  })
-  return occupancies
-}
-
-function getOccupancyInSlot(occupancies, jettyId, slotIndex) {
-  const occ = occupancies.find(
-    (o) => o.jettyId === jettyId && o.slotStart <= slotIndex && slotIndex < o.slotEnd
-  )
-  if (occ && occ.slotStart === slotIndex) return { ...occ, span: occ.slotEnd - occ.slotStart }
-  if (occ) return 'continued'
-  return null
-}
-
 function getVesselName(vesselId) {
-  return vessels[vesselId]?.vesselName ?? vesselId
+  return vesselId
 }
 
 const PRIORITY_OPTIONS = ['Low', 'Moderate', 'High', 'Critical']
@@ -111,18 +49,6 @@ const ALLOCATION_COLUMNS = [
   { key: 'jetty', label: 'Jetty', getValue: (r) => r.jetty || '—', getSortValue: (r) => (r.jetty || '').toLowerCase() },
 ]
 
-/** Format datetime-local value to display string (dd/mm hh:mm LT) */
-function formatDateTimeDisplay(iso) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  const day = String(d.getDate()).padStart(2, '0')
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const hours = String(d.getHours()).padStart(2, '0')
-  const mins = String(d.getMinutes()).padStart(2, '0')
-  return `${day}/${month} ${hours}:${mins} LT`
-}
-
 /** Return current local date-time as YYYY-MM-DDTHH:mm for datetime-local input */
 function getNowForDateTimeLocal() {
   const d = new Date()
@@ -134,11 +60,80 @@ function getNowForDateTimeLocal() {
   return `${y}-${m}-${day}T${h}:${min}`
 }
 
+/** Convert ISO / timestamptz string to datetime-local (YYYY-MM-DDTHH:mm). */
+function toDateTimeLocalValue(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) {
+    // If already looks like datetime-local (no timezone), return it.
+    if (typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(iso)) return iso.slice(0, 16)
+    return ''
+  }
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const h = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  return `${y}-${m}-${day}T${h}:${min}`
+}
+
+function parseDateMs(val) {
+  if (!val) return null
+  const t = new Date(val).getTime()
+  return Number.isNaN(t) ? null : t
+}
+
+function formatDuration(ms) {
+  if (ms == null || ms < 0) return '—'
+  const totalMinutes = Math.floor(ms / 60000)
+  const days = Math.floor(totalMinutes / (24 * 60))
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60)
+  const minutes = totalMinutes % 60
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`
+  if (hours > 0) return `${hours}h ${minutes}m`
+  return `${minutes}m`
+}
+
+function deriveCurrentPhaseIndex(vessel) {
+  const siDone = Boolean(vessel?.shippingInstructionId)
+  const allocationDone = Boolean((vessel?.jetty || '').trim())
+  const berthingDone = Boolean(vessel?.tbDateTime)
+
+  if (!siDone) return 0
+  if (!allocationDone) return 1
+  if (!berthingDone) return 2
+  // Pre/Operational/Post/Clearance are intentionally deferred for now.
+  return 3
+}
+
+function getBerthingPlanStatus(row) {
+  const hasTb = Boolean(row?.tbDateTime)
+  const opStatus = String(row?.status || '').toUpperCase()
+  if (hasTb || opStatus === 'DOCKED' || opStatus === 'IN_PROGRESS' || opStatus === 'COMPLETED') {
+    return 'berthed'
+  }
+  return 'incoming'
+}
+
+function getArrivalMsForJettyValidation(row) {
+  return (
+    parseDateMs(row?.etaDateTime) ??
+    parseDateMs(row?.etbDateTime) ??
+    parseDateMs(row?.taDateTime) ??
+    null
+  )
+}
+
+function getCompletionMsForJettyValidation(row) {
+  return parseDateMs(row?.actualCompletionDateTime) ?? parseDateMs(row?.estimatedCompletionDateTime) ?? null
+}
+
 export default function Allocation() {
-  const [list, setList] = useState(initialPlan)
-  const [berthsState, setBerthsState] = useState(() => [...berths].map((b) => ({ ...b })))
+  const [list, setList] = useState([])
+  const [berthsState, setBerthsState] = useState([])
   const filterKeys = ALLOCATION_COLUMNS.map((c) => c.key)
   const [filters, setFilters] = useState(Object.fromEntries(filterKeys.map((k) => [k, ''])))
+  const [statusFilter, setStatusFilter] = useState({ incoming: true, berthed: false })
   const [sortState, setSortState] = useState({ key: 'sequence', dir: 'asc' })
   const [expandedId, setExpandedId] = useState(null)
   const [vesselDetailModalVesselId, setVesselDetailModalVesselId] = useState(null)
@@ -151,33 +146,103 @@ export default function Allocation() {
   const [berthingSob, setBerthingSob] = useState('')
   const [berthingPhotos, setBerthingPhotos] = useState([]) // { id, file, previewUrl }[]
   const [berthingRemarks, setBerthingRemarks] = useState('')
+  const [berthingEstimatedCompletion, setBerthingEstimatedCompletion] = useState('')
+  const [berthingSaving, setBerthingSaving] = useState(false)
   const [vesselPhotosByVesselId, setVesselPhotosByVesselId] = useState({}) // { [vesselId]: [{ url, name }] }
   const [berthingSuccessMessage, setBerthingSuccessMessage] = useState(null)
-  const [visualTab, setVisualTab] = useState('schematic') // 'schematic' | 'schedule'
-  const { getSteps: getLoadingSteps } = useLoading()
+  const [arrivalSuccessMessage, setArrivalSuccessMessage] = useState(null)
+  const [visualTab, setVisualTab] = useState('schematic') // 'schematic' | 'jettySchedule'
+  const [siDetailId, setSiDetailId] = useState(null)
+  const [siDetailFrameLoaded, setSiDetailFrameLoaded] = useState(false)
 
-  const scheduleData = useMemo(() => {
-    const plan = [...list].sort((a, b) => (a.sequence ?? 99) - (b.sequence ?? 99))
-    const windowStart = get72hWindowStart(plan)
-    return {
-      windowStart,
-      slotLabels: getScheduleSlotLabels(windowStart),
-      occupancies: buildOccupancyFromPlan(plan, windowStart),
+  const berthIds = useMemo(
+    () => (Array.isArray(berthsState) ? berthsState.map((b) => b.id).filter(Boolean) : []),
+    [berthsState]
+  )
+
+  useEffect(() => {
+    let alive = true
+    fetchAllocationOverview()
+      .then((data) => {
+        if (!alive) return
+        setList(Array.isArray(data?.queue) ? data.queue : [])
+        setBerthsState(Array.isArray(data?.berths) ? data.berths : [])
+      })
+      .catch(() => {
+        if (!alive) return
+        setList([])
+        setBerthsState([])
+      })
+    return () => {
+      alive = false
     }
+  }, [])
+
+  const vesselById = useMemo(() => {
+    const map = {}
+    for (const r of list) {
+      if (!r?.vesselId) continue
+      map[r.vesselId] = {
+        vesselName: r.vesselName || r.vesselId,
+        siId: r.shippingInstruction || '—',
+        purpose: r.purpose || null,
+        commodity: r.commodity || null,
+        etaToCompletion: r.estimatedCompletionDateTime
+          ? new Date(r.estimatedCompletionDateTime).toLocaleString()
+          : '—',
+        ragStatus: 'green',
+        status: r.status || null,
+      }
+    }
+    return map
+  }, [list])
+
+  const incomingByJetty = useMemo(() => {
+    const byJetty = {}
+    const incomingRows = [...list]
+      .filter((r) => getBerthingPlanStatus(r) === 'incoming')
+      .sort((a, b) => {
+        const aMs = getArrivalMsForJettyValidation(a) ?? Number.MAX_SAFE_INTEGER
+        const bMs = getArrivalMsForJettyValidation(b) ?? Number.MAX_SAFE_INTEGER
+        return aMs - bMs
+      })
+    for (const r of incomingRows) {
+      const jettyId = (r.jetty || '').trim().split('/')[0].trim()
+      if (!jettyId || byJetty[jettyId]) continue
+      byJetty[jettyId] = r.vesselName || r.vesselId || '—'
+    }
+    return byJetty
   }, [list])
 
   const [arrivalNorFiles, setArrivalNorFiles] = useState([]) // [{ name, url }] for NOR document preview
+  const [arrivalNorRawFiles, setArrivalNorRawFiles] = useState([]) // File[]
+  const [arrivalSaving, setArrivalSaving] = useState(false)
+  const [arrivalSaveMsg, setArrivalSaveMsg] = useState(null)
+
+  const fileUrl = (p) => resolveUploadUrl(p)
+
+  const refreshOverview = async () => {
+    const data = await fetchAllocationOverview()
+    const q = Array.isArray(data?.queue) ? data.queue : []
+    setList(q)
+    setBerthsState(Array.isArray(data?.berths) ? data.berths : [])
+    return q
+  }
 
   const openArrivalUpdate = (r) => {
     setArrivalUpdateForm({
       ...r,
-      etaDateTime: r.etaDateTime || '',
-      taDateTime: r.taDateTime || '',
-      etbDateTime: r.etbDateTime || '',
-      norTenderedDateTime: r.norTenderedDateTime || '',
-      norAcceptedDateTime: r.norAcceptedDateTime || '',
+      etaDateTime: toDateTimeLocalValue(r.etaDateTime),
+      taDateTime: toDateTimeLocalValue(r.taDateTime),
+      etbDateTime: toDateTimeLocalValue(r.etbDateTime),
+      estimatedCompletionDateTime: toDateTimeLocalValue(r.estimatedCompletionDateTime),
+      norTenderedDateTime: toDateTimeLocalValue(r.norTenderedDateTime),
+      norAcceptedDateTime: toDateTimeLocalValue(r.norAcceptedDateTime),
     })
     setArrivalNorFiles([])
+    setArrivalNorRawFiles([])
+    setArrivalSaving(false)
+    setArrivalSaveMsg(null)
   }
 
   const addArrivalNorFiles = (files) => {
@@ -187,10 +252,49 @@ export default function Allocation() {
       url: URL.createObjectURL(file),
     }))
     setArrivalNorFiles((prev) => [...prev, ...newOnes])
+    setArrivalNorRawFiles((prev) => [...prev, ...Array.from(files)])
   }
 
-  const saveArrivalUpdate = () => {
+  const saveArrivalUpdate = async () => {
     if (!arrivalUpdateForm) return
+    setArrivalSaving(true)
+    setArrivalSaveMsg(null)
+
+    // Validate selected jetty availability before saving arrival update.
+    const targetJettyId = (arrivalUpdateForm.jetty || '').trim().split('/')[0].trim()
+    if (targetJettyId) {
+      const berth = berthsState.find((b) => b.id === targetJettyId)
+      if (!berth) {
+        setArrivalSaveMsg(`Jetty ${targetJettyId} not found.`)
+        setArrivalSaving(false)
+        return
+      }
+      if (berth.currentVesselId && berth.currentVesselId !== arrivalUpdateForm.vesselId) {
+        const occupantName = getVesselName(berth.currentVesselId)
+        const occupantRow = list.find((x) => x.vesselId === berth.currentVesselId)
+        const candidateArrivalMs = getArrivalMsForJettyValidation(arrivalUpdateForm)
+        const occupantCompletionMs = getCompletionMsForJettyValidation(occupantRow)
+
+        const canAllocateAfterCompletion =
+          candidateArrivalMs != null &&
+          occupantCompletionMs != null &&
+          candidateArrivalMs >= occupantCompletionMs
+
+        if (!canAllocateAfterCompletion) {
+          const completionHint =
+            occupantCompletionMs != null
+              ? ` Estimated completion: ${new Date(occupantCompletionMs).toLocaleString()}.`
+              : ' Estimated/actual completion for current occupant is not set.'
+          setArrivalSaveMsg(
+            `Jetty ${targetJettyId} is occupied by ${occupantName}.${completionHint} Please choose another jetty or set a later arrival.`
+          )
+          setArrivalSaving(false)
+          return
+        }
+      }
+    }
+
+    const norFilesToUpload = arrivalNorRawFiles
     const newSequence = Math.max(1, Math.min(list.length, Number(arrivalUpdateForm.sequence) || 1))
     const updated = {
       ...arrivalUpdateForm,
@@ -206,15 +310,63 @@ export default function Allocation() {
     const bySequence = [...listWithUpdate].sort((a, b) => (a.sequence ?? 999) - (b.sequence ?? 999))
     const renumbered = bySequence.map((row, i) => ({ ...row, sequence: i + 1 }))
     setList(renumbered)
-    if (updated.vesselId) {
-      setArrivalNor(updated.vesselId, {
-        norDocumentNames: Array.isArray(updated.norDocumentNames) ? updated.norDocumentNames : (arrivalNorFiles.map((f) => f.name) || []),
+
+    let saveRes
+    try {
+      saveRes = await saveArrivalUpdateApi({
+        operationId: updated.operationId,
+        shippingInstructionId: updated.shippingInstructionId,
+        noPkk: updated.noPkk ?? '',
+        jetty: updated.jetty ?? '',
+        priority: updated.priority || '',
+        etaDateTime: updated.etaDateTime || '',
+        taDateTime: updated.taDateTime || '',
+        etbDateTime: updated.etbDateTime || '',
+        estimatedCompletionDateTime: updated.estimatedCompletionDateTime || '',
         norTenderedDateTime: updated.norTenderedDateTime || '',
         norAcceptedDateTime: updated.norAcceptedDateTime || '',
+        remark: updated.remark ?? updated.remarks ?? '',
       })
+    } catch (e) {
+      const msg =
+        e instanceof ApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : 'Save failed. Check your connection and try again.'
+      await refreshOverview().catch(() => {})
+      setArrivalSaveMsg(msg)
+      setArrivalSaving(false)
+      return
     }
-    setArrivalUpdateForm(null)
+
+    const opId = updated.operationId || saveRes?.operationId
+    let norUploadError = null
+    if (opId && norFilesToUpload.length > 0) {
+      try {
+        await uploadOperationDocuments(opId, 'NOR', norFilesToUpload)
+      } catch (e) {
+        norUploadError =
+          e instanceof Error ? e.message : typeof e === 'string' ? e : 'NOR upload failed'
+      }
+    }
+
+    await refreshOverview().catch(() => {})
+
     setArrivalNorFiles([])
+    setArrivalNorRawFiles([])
+    setArrivalSaving(false)
+    setArrivalUpdateForm(null)
+
+    if (norUploadError) {
+      setArrivalSuccessMessage(
+        `Arrival saved, but NOR upload failed: ${norUploadError}`
+      )
+    } else if (norFilesToUpload.length > 0) {
+      setArrivalSuccessMessage('Arrival update saved. NOR uploaded.')
+    } else {
+      setArrivalSuccessMessage('Arrival update saved.')
+    }
   }
 
   const moveSequenceUp = (r, e) => {
@@ -248,7 +400,7 @@ export default function Allocation() {
     return raw.split('/')[0].trim() || null
   }
 
-  const handleBerthingConfirm = () => {
+  const handleBerthingConfirm = async () => {
     if (!berthingConfirmRow) return
     const targetJettyId = (berthingSelectedJetty || '').trim()
     const errors = []
@@ -273,10 +425,69 @@ export default function Allocation() {
       setBerthingErrors(errors)
       return
     }
+    if (!berthingConfirmRow.operationId && !berthingConfirmRow.shippingInstructionId) {
+      setBerthingErrors(['Cannot save: missing operation or shipping instruction.'])
+      return
+    }
+
     setBerthingErrors([])
+    setBerthingSaving(true)
+    const berthingFilesToUpload = berthingPhotos.map((p) => p.file)
+    let saveRes
+    try {
+      saveRes = await saveArrivalUpdateApi({
+        operationId: berthingConfirmRow.operationId,
+        shippingInstructionId: berthingConfirmRow.shippingInstructionId,
+        noPkk: berthingConfirmRow.noPkk ?? '',
+        jetty: targetJettyId,
+        priority: berthingConfirmRow.priority || '',
+        etaDateTime: toDateTimeLocalValue(berthingConfirmRow.etaDateTime) || '',
+        taDateTime: toDateTimeLocalValue(berthingConfirmRow.taDateTime) || '',
+        etbDateTime: toDateTimeLocalValue(berthingConfirmRow.etbDateTime) || '',
+        pobDateTime: berthingPob || '',
+        tbDateTime: berthingTb || '',
+        sobDateTime: berthingSob || '',
+        estimatedCompletionDateTime: berthingEstimatedCompletion || '',
+        norTenderedDateTime: toDateTimeLocalValue(berthingConfirmRow.norTenderedDateTime) || '',
+        norAcceptedDateTime: toDateTimeLocalValue(berthingConfirmRow.norAcceptedDateTime) || '',
+        remark: (berthingRemarks || '').trim(),
+      })
+    } catch (e) {
+      const msg =
+        e instanceof ApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : 'Save failed. Check your connection and try again.'
+      setBerthingErrors([msg])
+      setBerthingSaving(false)
+      return
+    }
+
+    const opId = berthingConfirmRow.operationId || saveRes?.operationId
+    let photoUploadError = null
+    let savedPhotoItems = []
+    if (opId && berthingFilesToUpload.length > 0) {
+      try {
+        const uploadRes = await uploadOperationDocuments(opId, 'BERTHING', berthingFilesToUpload)
+        savedPhotoItems = Array.isArray(uploadRes?.items)
+          ? uploadRes.items.map((d) => ({ url: fileUrl(d.url), name: d.name || 'Berthing photo' }))
+          : []
+      } catch (e) {
+        photoUploadError =
+          e instanceof Error ? e.message : typeof e === 'string' ? e : 'Berthing photo upload failed'
+      }
+    }
+
+    setBerthingSaving(false)
+    await refreshOverview().catch(() => {})
+
     setVesselPhotosByVesselId((prev) => ({
       ...prev,
-      [berthingConfirmRow.vesselId]: berthingPhotos.map((p) => ({ url: p.previewUrl, name: p.file.name })),
+      [berthingConfirmRow.vesselId]:
+        savedPhotoItems.length > 0
+          ? savedPhotoItems
+          : berthingPhotos.map((p) => ({ url: p.previewUrl, name: p.file.name })),
     }))
     setBerthsState((prev) =>
       prev.map((b) => (b.id === targetJettyId ? { ...b, currentVesselId: berthingConfirmRow.vesselId } : b))
@@ -286,8 +497,18 @@ export default function Allocation() {
       return next.map((row, i) => ({ ...row, sequence: i + 1 }))
     })
     const vesselName = berthingConfirmRow.vesselName || 'Vessel'
-    setBerthingSuccessMessage(`${vesselName} has been allocated to Jetty ${targetJettyId}. Berthing completed successfully.`)
-    closeBerthingConfirm(true)
+    if (photoUploadError) {
+      setBerthingSuccessMessage(
+        `${vesselName} has been allocated to Jetty ${targetJettyId}, but vessel photo upload failed: ${photoUploadError}`
+      )
+    } else if (berthingFilesToUpload.length > 0) {
+      setBerthingSuccessMessage(
+        `${vesselName} has been allocated to Jetty ${targetJettyId}. Berthing completed and vessel photo uploaded.`
+      )
+    } else {
+      setBerthingSuccessMessage(`${vesselName} has been allocated to Jetty ${targetJettyId}. Berthing completed successfully.`)
+    }
+    closeBerthingConfirm()
   }
 
   const openBerthingConfirm = (r, e) => {
@@ -296,10 +517,12 @@ export default function Allocation() {
     setBerthingConfirmRow(r)
     setBerthingSelectedJetty(getTargetJettyId(r) || '')
     setBerthingPob(r.pobDateTime || '')
-    setBerthingTb(getNowForDateTimeLocal())
+    setBerthingTb(toDateTimeLocalValue(r.tbDateTime) || getNowForDateTimeLocal())
     setBerthingSob(r.sobDateTime || '')
+    setBerthingEstimatedCompletion(toDateTimeLocalValue(r.estimatedCompletionDateTime))
     setBerthingPhotos([])
     setBerthingRemarks(r.remark ?? r.remarks ?? '')
+    setBerthingSaving(false)
   }
 
   const closeBerthingConfirm = (skipRevoke = false) => {
@@ -314,8 +537,10 @@ export default function Allocation() {
     setBerthingPob('')
     setBerthingTb('')
     setBerthingSob('')
+    setBerthingEstimatedCompletion('')
     setBerthingPhotos([])
     setBerthingRemarks('')
+    setBerthingSaving(false)
   }
 
   const addBerthingPhotos = (e) => {
@@ -340,11 +565,17 @@ export default function Allocation() {
   useEffect(() => {
     if (!vesselDetailModalVesselId) return
     const onKeyDown = (e) => {
-      if (e.key === 'Escape') setVesselDetailModalVesselId(null)
+      if (e.key !== 'Escape') return
+      if (siDetailId != null) {
+        setSiDetailId(null)
+        setSiDetailFrameLoaded(false)
+        return
+      }
+      setVesselDetailModalVesselId(null)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [vesselDetailModalVesselId])
+  }, [vesselDetailModalVesselId, siDetailId])
 
   useEffect(() => {
     if (!arrivalUpdateForm) return
@@ -370,10 +601,18 @@ export default function Allocation() {
     return () => clearTimeout(t)
   }, [berthingSuccessMessage])
 
+  useEffect(() => {
+    if (!arrivalSuccessMessage) return
+    const t = setTimeout(() => setArrivalSuccessMessage(null), 6000)
+    return () => clearTimeout(t)
+  }, [arrivalSuccessMessage])
+
   const updateFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }))
   const handleSort = (key) => setSortState((s) => ({ key, dir: s.key === key && s.dir === 'asc' ? 'desc' : 'asc' }))
 
   const filteredList = list.filter((r) => {
+    const rowStatus = getBerthingPlanStatus(r)
+    if (!statusFilter[rowStatus]) return false
     return filterKeys.every((key) => {
       const f = (filters[key] || '').trim().toLowerCase()
       if (!f) return true
@@ -414,6 +653,28 @@ export default function Allocation() {
         </div>
       )}
 
+      {arrivalSuccessMessage && (
+        <div
+          className={`toast ${arrivalSuccessMessage.includes('failed') ? 'toast--warning' : 'toast--success'}${berthingSuccessMessage ? ' toast--stacked' : ''}`}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <span className="toast__icon" aria-hidden>
+            {arrivalSuccessMessage.includes('failed') ? '!' : '✓'}
+          </span>
+          <p className="toast__message">{arrivalSuccessMessage}</p>
+          <button
+            type="button"
+            className="toast__close"
+            onClick={() => setArrivalSuccessMessage(null)}
+            aria-label="Dismiss notification"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       <h1 className="page-title">Allocation & Berthing</h1>
 
       <div className="allocation-visual">
@@ -432,13 +693,13 @@ export default function Allocation() {
           <button
             type="button"
             role="tab"
-            aria-selected={visualTab === 'schedule'}
-            aria-controls="allocation-panel-schedule"
-            id="allocation-tab-schedule"
-            className={`allocation-tabs__tab ${visualTab === 'schedule' ? 'allocation-tabs__tab--active' : ''}`}
-            onClick={() => setVisualTab('schedule')}
+            aria-selected={visualTab === 'jettySchedule'}
+            aria-controls="allocation-panel-jetty-schedule"
+            id="allocation-tab-jetty-schedule"
+            className={`allocation-tabs__tab ${visualTab === 'jettySchedule' ? 'allocation-tabs__tab--active' : ''}`}
+            onClick={() => setVisualTab('jettySchedule')}
           >
-            Upcoming schedule
+            Jetty schedule
           </button>
         </div>
         <div
@@ -448,72 +709,26 @@ export default function Allocation() {
           hidden={visualTab !== 'schematic'}
           className="allocation-tabpanel"
         >
-          <JettySchematic berths={berthsState} onSelectBerth={handleBerthClick} />
+          <JettySchematic
+            berths={berthsState}
+            vesselById={vesselById}
+            incomingByJetty={incomingByJetty}
+            onSelectBerth={handleBerthClick}
+          />
         </div>
         <div
-          id="allocation-panel-schedule"
+          id="allocation-panel-jetty-schedule"
           role="tabpanel"
-          aria-labelledby="allocation-tab-schedule"
-          hidden={visualTab !== 'schedule'}
+          aria-labelledby="allocation-tab-jetty-schedule"
+          hidden={visualTab !== 'jettySchedule'}
           className="allocation-tabpanel"
         >
-          <section className="card allocation-schedule">
-            <h2 className="allocation-schedule__title">72-Hour berth schedule</h2>
-            <div className="allocation-schedule__legend">
-              <span className="allocation-schedule__legend-item">
-                <span className="allocation-schedule__legend-dot allocation-schedule__legend-dot--active" /> Active
-              </span>
-              <span className="allocation-schedule__legend-item">
-                <span className="allocation-schedule__legend-dot allocation-schedule__legend-dot--berthing" /> Berthing
-              </span>
-              <span className="allocation-schedule__legend-item">
-                <span className="allocation-schedule__legend-dot allocation-schedule__legend-dot--expected" /> Expected
-              </span>
-            </div>
-            <div className="allocation-schedule__table-wrap">
-              <table className="allocation-schedule__table">
-                <thead>
-                  <tr>
-                    <th className="allocation-schedule__th-id">JETTY ID</th>
-                    {scheduleData.slotLabels.map((label, i) => (
-                      <th key={i} className="allocation-schedule__th-slot">{label}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {BERTH_IDS.map((jettyId) => {
-                    const berth = berthsState.find((b) => b.id === jettyId)
-                    const statusLabel = berth?.currentVesselId ? 'Occupied' : 'Ready'
-                    return (
-                      <tr key={jettyId}>
-                        <td className="allocation-schedule__cell-id">
-                          <span className="allocation-schedule__jetty-id">{jettyId}</span>
-                          <span className="allocation-schedule__jetty-status">Status: {statusLabel}</span>
-                        </td>
-                        {Array.from({ length: SLOTS_COUNT }, (_, slotIndex) => {
-                          const cell = getOccupancyInSlot(scheduleData.occupancies, jettyId, slotIndex)
-                          if (cell === 'continued') return null
-                          if (cell) {
-                            return (
-                              <td key={slotIndex} colSpan={cell.span} className="allocation-schedule__cell allocation-schedule__cell--vessel">
-                                <span className={`allocation-schedule__pill allocation-schedule__pill--${(cell.status || '').toLowerCase()}`}>
-                                  {(cell.status === 'Expected' || cell.status === 'Berthing') && (
-                                    <span className="allocation-schedule__pill-icon" aria-hidden>🚢</span>
-                                  )}
-                                  {cell.vesselName}
-                                </span>
-                              </td>
-                            )
-                          }
-                          return <td key={slotIndex} className="allocation-schedule__cell" />
-                        })}
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          <JettyScheduleGantt
+            berthIds={berthIds}
+            berthsState={berthsState}
+            list={list}
+            onSelectVessel={(vesselId) => vesselId && setVesselDetailModalVesselId(vesselId)}
+          />
         </div>
       </div>
 
@@ -535,25 +750,39 @@ export default function Allocation() {
               ⚓ Active Vessel Detail: {getVesselName(vesselDetailModalVesselId)}
             </h2>
             {(() => {
-              const vessel = vessels[vesselDetailModalVesselId]
+              const vesselRow = list.find((r) => r.vesselId === vesselDetailModalVesselId)
+              const vessel = vesselRow || null
               const purpose = (vessel?.purpose ?? '').toString().trim()
               const phases = UNIFIED_PHASES
-              const loadingSteps = purpose === 'Loading' ? getLoadingSteps(vesselDetailModalVesselId) : null
-              const currentPhaseIndex = purpose === 'Loading' && loadingSteps
-                ? getLoadingPhaseIndex(loadingSteps)
-                : (vessel?.currentPhaseIndex ?? 0)
+              const currentPhaseIndex = deriveCurrentPhaseIndex(vessel)
+              const currentPhaseLabel = phases[Math.min(Math.max(currentPhaseIndex, 0), phases.length - 1)] || '—'
               const formatDateTime = (val) => {
                 if (val == null || val === '') return '—'
                 if (typeof val === 'string' && val.includes('T')) return new Date(val).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
                 return String(val)
               }
-              const eta = formatDateTime(vessel?.eta)
-              const ta = formatDateTime(vessel?.ta)
-              const etb = formatDateTime(vessel?.etb)
-              const tb = formatDateTime(vessel?.tb)
-              const timeSinceBerthing = vessel?.timeSinceDocking ?? '—'
-              const estCompletion = formatDateTime(vessel?.estCompletion)
-              const estTimeRemaining = vessel?.estTimeRemaining ?? '—'
+              const eta = formatDateTime(vessel?.etaDateTime)
+              const ta = formatDateTime(vessel?.taDateTime)
+              const etb = formatDateTime(vessel?.etbDateTime)
+              const pob = formatDateTime(vessel?.pobDateTime)
+              const tb = formatDateTime(vessel?.tbDateTime)
+              const sob = formatDateTime(vessel?.sobDateTime)
+              const estCompletion = formatDateTime(vessel?.estimatedCompletionDateTime)
+              const actualCompletion = formatDateTime(vessel?.actualCompletionDateTime)
+              const tbMs = parseDateMs(vessel?.tbDateTime)
+              const estCompMs = parseDateMs(vessel?.estimatedCompletionDateTime)
+              const actualCompMs = parseDateMs(vessel?.actualCompletionDateTime)
+              const nowMs = Date.now()
+              const timeSinceBerthing =
+                tbMs != null ? formatDuration(Math.max(0, (actualCompMs ?? nowMs) - tbMs)) : '—'
+              const estTimeRemaining =
+                actualCompMs != null
+                  ? 'Completed'
+                  : estCompMs != null
+                    ? estCompMs > nowMs
+                      ? formatDuration(estCompMs - nowMs)
+                      : 'Overdue'
+                    : '—'
               return (
                 <div className="vessel-detail-modal__body">
                   <section className="berthing-modal__card berthing-modal__card--vessel">
@@ -565,31 +794,51 @@ export default function Allocation() {
                       </div>
                       <div className="berthing-modal__vessel-row">
                         <dt>SI No</dt>
-                        <dd className="berthing-modal__vessel-dl--bold">{vessel?.siId || '—'}</dd>
+                        <dd className="berthing-modal__vessel-dl--bold">{vessel?.shippingInstruction || '—'}</dd>
                       </div>
                       <div className="berthing-modal__vessel-row">
                         <dt>Purpose</dt>
                         <dd>{vessel?.purpose || '—'}</dd>
                       </div>
                       <div className="berthing-modal__vessel-row">
-                        <dt>Material</dt>
-                        <dd>{vessel?.product || '—'}</dd>
+                        <dt>Commodity</dt>
+                        <dd>{vessel?.commodity || '—'}</dd>
                       </div>
                     </dl>
                   </section>
 
                   <section className="berthing-modal__card">
                     <h3 className="berthing-modal__card-title">Current Phase</h3>
+                    <p className="phase-stepper__current-text">Current: {currentPhaseLabel}</p>
+                    <p className="phase-stepper__hint" aria-label="Phase status legend">
+                      <span className="phase-stepper__hint-item phase-stepper__hint-item--completed">Done</span>
+                      <span className="phase-stepper__hint-item phase-stepper__hint-item--in-progress">In progress</span>
+                      <span className="phase-stepper__hint-item phase-stepper__hint-item--not-started">Not started</span>
+                    </p>
                     <div className="phase-stepper" role="list" aria-label="Current phase steps">
                       {phases.map((label, index) => {
                         const isCompleted = index < currentPhaseIndex
                         const isCurrent = index === currentPhaseIndex
                         const state = isCompleted ? 'completed' : isCurrent ? 'in-progress' : 'not-started'
                         const isPlainStep = label === 'Allocation' || label === 'Berthing'
-                        const content = isPlainStep ? (
+                        const content = label === 'Shipping Instruction' ? (
+                          <button
+                            type="button"
+                            className="phase-stepper__step-label phase-stepper__step-label--link phase-stepper__step-label--btn"
+                            onClick={() => {
+                              if (!vessel?.shippingInstructionId) return
+                              setSiDetailId(vessel.shippingInstructionId)
+                              setSiDetailFrameLoaded(false)
+                            }}
+                            disabled={!vessel?.shippingInstructionId}
+                            title={vessel?.shippingInstructionId ? 'Open shipping instruction detail' : 'Shipping instruction not available'}
+                          >
+                            {label}
+                          </button>
+                        ) : isPlainStep ? (
                           <span className="phase-stepper__step-label">{label}</span>
                         ) : (
-                          <Link to={getPhaseLink(label, vesselDetailModalVesselId, purpose) || '#'} className="phase-stepper__step-label phase-stepper__step-label--link">
+                          <Link to={getPhaseLink(label, vessel?.operationId || vessel?.shippingInstructionId, purpose) || '#'} className="phase-stepper__step-label phase-stepper__step-label--link">
                             {label}
                           </Link>
                         )
@@ -605,7 +854,12 @@ export default function Allocation() {
                               {content}
                             </div>
                             {index < phases.length - 1 && (
-                              <span className="phase-stepper__connector" aria-hidden="true">→</span>
+                              <span
+                                className={`phase-stepper__connector${index < currentPhaseIndex ? ' phase-stepper__connector--completed' : ''}${index === currentPhaseIndex ? ' phase-stepper__connector--current' : ''}`}
+                                aria-hidden="true"
+                              >
+                                →
+                              </span>
                             )}
                           </Fragment>
                         )
@@ -633,6 +887,14 @@ export default function Allocation() {
                         <dd>{tb}</dd>
                       </div>
                       <div className="berthing-modal__vessel-row">
+                        <dt>Pilot on Board (POB)</dt>
+                        <dd>{pob}</dd>
+                      </div>
+                      <div className="berthing-modal__vessel-row">
+                        <dt>Surveyor on Board (SOB)</dt>
+                        <dd>{sob}</dd>
+                      </div>
+                      <div className="berthing-modal__vessel-row">
                         <dt>Time Since Berthing</dt>
                         <dd>{timeSinceBerthing}</dd>
                       </div>
@@ -641,30 +903,13 @@ export default function Allocation() {
                         <dd>{estCompletion}</dd>
                       </div>
                       <div className="berthing-modal__vessel-row">
+                        <dt>Actual Completion</dt>
+                        <dd>{actualCompletion}</dd>
+                      </div>
+                      <div className="berthing-modal__vessel-row">
                         <dt>Est. Time Remaining</dt>
                         <dd>{estTimeRemaining}</dd>
                       </div>
-                    </dl>
-                  </section>
-
-                  <section className="berthing-modal__card">
-                    <h3 className="berthing-modal__card-title">Allocation &amp; Berthing events</h3>
-                    <p className="loading-tab-hint" style={{ marginBottom: 'var(--spacing-2)' }}>
-                      Allocation: VESSEL ARRIVED, DROP ANCHORED, NOR TENDERED. Berthing: POB, ALL FAST, SOB.
-                    </p>
-                    <dl className="berthing-modal__vessel-dl">
-                      {ALLOCATION_EVENTS.map((ev) => (
-                        <div key={ev} className="berthing-modal__vessel-row">
-                          <dt>{ev}</dt>
-                          <dd>—</dd>
-                        </div>
-                      ))}
-                      {BERTHING_EVENTS.map((ev) => (
-                        <div key={ev} className="berthing-modal__vessel-row">
-                          <dt>{ev}</dt>
-                          <dd>—</dd>
-                        </div>
-                      ))}
                     </dl>
                   </section>
 
@@ -686,6 +931,49 @@ export default function Allocation() {
             })()}
             <div className="modal__footer">
               <button type="button" className="btn btn--primary" onClick={() => setVesselDetailModalVesselId(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {vesselDetailModalVesselId && siDetailId != null && (
+        <div
+          className="modal-overlay modal-overlay--nested"
+          onClick={() => {
+            setSiDetailId(null)
+            setSiDetailFrameLoaded(false)
+          }}
+          aria-hidden="true"
+        >
+          <div
+            className="modal modal--si-embed"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="si-detail-modal-title"
+            aria-modal="true"
+          >
+            <h2 id="si-detail-modal-title" className="modal__title">
+              Shipping Instruction detail
+            </h2>
+            {!siDetailFrameLoaded && <p className="berthing-modal__empty">Loading shipping instruction...</p>}
+            <iframe
+              title={`Shipping Instruction ${siDetailId}`}
+              src={`/shipping-instruction/view/${siDetailId}?embed=1`}
+              className="si-detail-modal__iframe"
+              onLoad={() => setSiDetailFrameLoaded(true)}
+            />
+
+            <div className="modal__footer">
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => {
+                  setSiDetailId(null)
+                  setSiDetailFrameLoaded(false)
+                }}
+              >
                 Close
               </button>
             </div>
@@ -749,7 +1037,7 @@ export default function Allocation() {
                       aria-describedby={berthingErrors.length > 0 ? 'berthing-errors' : undefined}
                     >
                       <option value="">— Select jetty —</option>
-                      {BERTH_IDS.map((jid) => {
+                      {berthIds.map((jid) => {
                         const b = berthsState.find((bb) => bb.id === jid)
                         const label = b?.currentVesselId ? `${jid} – ${getVesselName(b.currentVesselId)}` : `${jid} – Vacant`
                         return (
@@ -791,6 +1079,19 @@ export default function Allocation() {
                       value={berthingSob}
                       onChange={(e) => setBerthingSob(e.target.value)}
                       aria-label="Surveyor on Board"
+                    />
+                  </div>
+                  <div className="berthing-modal__field">
+                    <label htmlFor="berthing-estimated-completion" className="berthing-modal__label">
+                      Estimated completion
+                    </label>
+                    <input
+                      id="berthing-estimated-completion"
+                      type="datetime-local"
+                      className="berthing-modal__input"
+                      value={berthingEstimatedCompletion}
+                      onChange={(e) => setBerthingEstimatedCompletion(e.target.value)}
+                      aria-label="Estimated completion"
                     />
                   </div>
                 </section>
@@ -865,8 +1166,9 @@ export default function Allocation() {
                 type="button"
                 className="btn btn--primary"
                 onClick={handleBerthingConfirm}
+                disabled={berthingSaving}
               >
-                Confirm Berthing
+                {berthingSaving ? 'Saving…' : 'Confirm Berthing'}
               </button>
             </div>
           </div>
@@ -904,14 +1206,23 @@ export default function Allocation() {
                     <dd className="berthing-modal__vessel-dl--bold" aria-live="polite">{arrivalUpdateForm.shippingInstruction || '—'}</dd>
                   </div>
                   <div className="berthing-modal__vessel-row">
-                    <dt>Material</dt>
-                    <dd aria-live="polite">{arrivalUpdateForm.material || (arrivalUpdateForm.shippingTable?.[0]?.material) || '—'}</dd>
+                    <dt>Commodity</dt>
+                    <dd aria-live="polite">{arrivalUpdateForm.commodity || '—'}</dd>
+                  </div>
+                  <div className="berthing-modal__vessel-row">
+                    <dt>Purpose</dt>
+                    <dd aria-live="polite">{arrivalUpdateForm.purpose || '—'}</dd>
                   </div>
                 </dl>
               </section>
 
               <section className="berthing-modal__form-section">
                 <h3 className="berthing-modal__form-section-title">Arrival Documents</h3>
+                {arrivalSaveMsg && (
+                  <p className="allocation-arrival-save-msg allocation-arrival-save-msg--error" role="alert">
+                    {arrivalSaveMsg}
+                  </p>
+                )}
                 <div className="berthing-modal__field">
                   <label htmlFor="arrival-noPkk" className="berthing-modal__label">No PKK</label>
                   <input
@@ -925,6 +1236,64 @@ export default function Allocation() {
                 </div>
                 <div className="berthing-modal__field">
                   <label htmlFor="arrival-nor-doc" className="berthing-modal__label">Notice of Readiness</label>
+                  {Array.isArray(arrivalUpdateForm.norDocuments) && arrivalUpdateForm.norDocuments.length > 0 && (
+                    <ul
+                      className="berthing-modal__file-list"
+                      style={{ marginTop: 'var(--spacing-1)', fontSize: 'var(--font-size-small)' }}
+                    >
+                      {arrivalUpdateForm.norDocuments.map((d) => (
+                        <li key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <a href={fileUrl(d.url)} target="_blank" rel="noreferrer">
+                            {d.name || 'NOR document'}
+                          </a>
+                          <button
+                            type="button"
+                            className="berthing-modal__nor-delete-btn"
+                            title="Delete NOR document"
+                            aria-label={`Delete NOR document: ${d.name || 'document'}`}
+                            onClick={async () => {
+                              if (!window.confirm('Delete this NOR document?')) return
+                              try {
+                                await deleteOperationDocument(d.id)
+                                const q = await refreshOverview()
+                                // Refresh the modal's row (so the list updates).
+                                setArrivalUpdateForm((prev) => {
+                                  const opId = prev?.operationId
+                                  const siId = prev?.shippingInstructionId
+                                  const nextRow =
+                                    (opId && q.find((x) => x.operationId === opId)) ||
+                                    (siId && q.find((x) => x.shippingInstructionId === siId)) ||
+                                    prev
+                                  return nextRow ? { ...prev, ...nextRow } : prev
+                                })
+                              } catch (e) {
+                                setArrivalSaveMsg(e?.message || 'Delete failed')
+                              }
+                            }}
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              width="18"
+                              height="18"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden
+                            >
+                              <path d="M3 6h18" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                              <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                              <line x1="10" x2="10" y1="11" y2="17" />
+                              <line x1="14" x2="14" y1="11" y2="17" />
+                            </svg>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                   <label className="berthing-modal__file-zone" htmlFor="arrival-nor-doc">
                     <span className="berthing-modal__file-zone-text">
                       {arrivalNorFiles.length > 0 ? `${arrivalNorFiles.length} file(s) chosen` : 'Choose NOR document'}
@@ -974,6 +1343,20 @@ export default function Allocation() {
               <section className="berthing-modal__form-section">
                 <h3 className="berthing-modal__form-section-title">Times & jetty</h3>
                 <div className="berthing-modal__field">
+                  <label htmlFor="arrival-priority" className="berthing-modal__label">Priority</label>
+                  <select
+                    id="arrival-priority"
+                    className="berthing-modal__input"
+                    value={arrivalUpdateForm.priority || ''}
+                    onChange={(e) => setArrivalUpdateForm((f) => ({ ...f, priority: e.target.value }))}
+                  >
+                    <option value="">—</option>
+                    {PRIORITY_OPTIONS.map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="berthing-modal__field">
                   <label htmlFor="arrival-eta" className="berthing-modal__label">ETA</label>
                   <input
                     id="arrival-eta"
@@ -1004,6 +1387,20 @@ export default function Allocation() {
                   />
                 </div>
                 <div className="berthing-modal__field">
+                  <label htmlFor="arrival-estimated-completion" className="berthing-modal__label">
+                    Estimated completion
+                  </label>
+                  <input
+                    id="arrival-estimated-completion"
+                    type="datetime-local"
+                    className="berthing-modal__input"
+                    value={arrivalUpdateForm.estimatedCompletionDateTime || ''}
+                    onChange={(e) =>
+                      setArrivalUpdateForm((f) => ({ ...f, estimatedCompletionDateTime: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="berthing-modal__field">
                   <label htmlFor="arrival-jetty" className="berthing-modal__label">Jetty</label>
                   <select
                     id="arrival-jetty"
@@ -1012,7 +1409,7 @@ export default function Allocation() {
                     onChange={(e) => setArrivalUpdateForm((f) => ({ ...f, jetty: e.target.value }))}
                   >
                     <option value="">—</option>
-                    {BERTH_IDS.map((jid) => (
+                    {berthIds.map((jid) => (
                       <option key={jid} value={jid}>{jid}</option>
                     ))}
                   </select>
@@ -1033,11 +1430,20 @@ export default function Allocation() {
             </div>
 
             <div className="modal__footer">
+              {arrivalSaveMsg && (
+                <p
+                  className="allocation-arrival-save-msg allocation-arrival-save-msg--error"
+                  role="alert"
+                  style={{ margin: 0, marginRight: 'auto' }}
+                >
+                  {arrivalSaveMsg}
+                </p>
+              )}
               <button type="button" className="btn btn--secondary" onClick={() => setArrivalUpdateForm(null)}>
                 Cancel
               </button>
-              <button type="button" className="btn btn--primary" onClick={saveArrivalUpdate}>
-                Save update
+              <button type="button" className="btn btn--primary" onClick={() => saveArrivalUpdate()} disabled={arrivalSaving}>
+                {arrivalSaving ? 'Saving…' : 'Save update'}
               </button>
             </div>
           </div>
@@ -1046,6 +1452,25 @@ export default function Allocation() {
 
       <section className="card">
         <h2 className="card__title">Incoming vessel & berthing plan</h2>
+        <div className="allocation-plan-status-filter" role="group" aria-label="Filter incoming and berthed vessels">
+          <span className="allocation-plan-status-filter__label">Status</span>
+          <label className="allocation-plan-status-filter__option">
+            <input
+              type="checkbox"
+              checked={statusFilter.incoming}
+              onChange={(e) => setStatusFilter((prev) => ({ ...prev, incoming: e.target.checked }))}
+            />
+            Incoming
+          </label>
+          <label className="allocation-plan-status-filter__option">
+            <input
+              type="checkbox"
+              checked={statusFilter.berthed}
+              onChange={(e) => setStatusFilter((prev) => ({ ...prev, berthed: e.target.checked }))}
+            />
+            Berthed
+          </label>
+        </div>
         <div className="table-wrap">
           <table className="data-table allocation-table">
             <thead>
@@ -1154,6 +1579,14 @@ export default function Allocation() {
                             <dt>Number of Palka</dt><dd>{r.numberOfPalka ?? '—'}</dd>
                             <dt>Purpose</dt><dd>{r.purpose || (r.loadDischarge === 'LOAD' ? 'Loading' : r.loadDischarge === 'DISCH' ? 'Unloading' : r.loadDischarge) || '—'}</dd>
                             <dt>Shipper</dt><dd>{r.shipper || '—'}</dd>
+                            <dt>Agent</dt><dd>{r.agent || '—'}</dd>
+                            <dt>Surveyor</dt><dd>{r.surveyor || '—'}</dd>
+                            <dt>Jetty</dt><dd>{r.jetty || '—'}</dd>
+                            <dt>ETA</dt><dd>{formatDateTimeDisplay(r.etaDateTime || r.eta)}</dd>
+                            <dt>TA</dt><dd>{formatDateTimeDisplay(r.taDateTime)}</dd>
+                            <dt>ETB</dt><dd>{formatDateTimeDisplay(r.etbDateTime || r.etb)}</dd>
+                            <dt>TB</dt><dd>{formatDateTimeDisplay(r.tbDateTime)}</dd>
+                            <dt>Remark</dt><dd>{r.remark || r.remarks || '—'}</dd>
                           </dl>
                           {Array.isArray(r.shippingTable) && r.shippingTable.length > 0 && (
                             <div className="allocation-detail__shipping-table-wrap">
@@ -1180,14 +1613,6 @@ export default function Allocation() {
                               </table>
                             </div>
                           )}
-                          <dl className="allocation-detail__grid">
-                            <dt>Agent</dt><dd>{r.agent || '—'}</dd>
-                            <dt>Surveyor</dt><dd>{r.surveyor || '—'}</dd>
-                            <dt>Estimated Time of Arrival (ETA)</dt><dd>{r.eta || '—'}</dd>
-                            <dt>Estimated Time of Berthing (ETB)</dt><dd>{r.etb || '—'}</dd>
-                            <dt>Jetty</dt><dd>{r.jetty || '—'}</dd>
-                            <dt>Remark</dt><dd>{r.remark || r.remarks || '—'}</dd>
-                          </dl>
                         </div>
                       </td>
                     </tr>
@@ -1196,6 +1621,9 @@ export default function Allocation() {
               ))}
             </tbody>
           </table>
+          {sortedList.length === 0 && (
+            <p className="allocation-plan-status-filter__empty">No vessels match the selected status/filter criteria.</p>
+          )}
         </div>
       </section>
     </div>

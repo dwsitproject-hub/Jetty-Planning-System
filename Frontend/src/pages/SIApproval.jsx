@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { nominations } from '../data/mockData'
+import { fetchShippingInstruction, updateShippingInstruction } from '../api/shippingInstructions'
 import '../styles/si-approval.css'
 
 const SI_FORM_COMPANY = {
@@ -52,15 +52,52 @@ export default function SIApproval() {
   const [uploadedManualDocs, setUploadedManualDocs] = useState([]) // { id, name, size }
 
   const siFromState = location.state?.si
-  const siFromList = nominations.find((n) => (n.siId || '').toUpperCase() === (siId || '').toUpperCase() || n.id === siId)
-  const si = siFromState || siFromList || null
-  const lifecycle = si ? getMockLifecycle(si) : []
+  const [apiSi, setApiSi] = useState(null)
+  const numId = parseInt(siId, 10)
 
   useEffect(() => {
-    if (!si && siId) {
-      // Could show toast
+    if (siFromState || Number.isNaN(numId)) {
+      setApiSi(null)
+      return
     }
-  }, [si, siId])
+    let c = false
+    fetchShippingInstruction(numId)
+      .then((row) => {
+        if (!c)
+          setApiSi({
+            id: row.id,
+            referenceNumber: row.referenceNumber ?? null,
+            siId: row.referenceNumber || `SI-${row.id}`,
+            vesselName: row.vesselName,
+            purpose: row.purpose,
+            purposeId: row.purposeId ?? null,
+            status: row.status,
+            approvalId: row.approvalId ?? null,
+            commodity: row.commodity,
+            commodityId: row.commodityId ?? null,
+            etaDateTime: row.eta,
+            surveyor: row.surveyorName ?? '—',
+            agent: row.agentName ?? '—',
+            receivedAt: row.createdAt,
+          })
+      })
+      .catch(() => {
+        if (!c) setApiSi(null)
+      })
+    return () => {
+      c = true
+    }
+  }, [siId, siFromState, numId])
+
+  const si = siFromState || apiSi || null
+  useEffect(() => {
+    if (!si) return
+    if ((si.status || '').toLowerCase() === 'approved') {
+      setDecision('approved')
+      setApprovalId(si.approvalId || null)
+    }
+  }, [si])
+  const lifecycle = si ? getMockLifecycle(si) : []
 
   const handlePrint = () => {
     window.print()
@@ -79,9 +116,26 @@ export default function SIApproval() {
     return `JPS-${date}-${time}-${r}`
   }
 
-  const handleApprove = () => {
+  const handleApprove = async () => {
     if (!certified) return
-    setApprovalId(generateApprovalId())
+    const nextApprovalId = generateApprovalId()
+    setApprovalId(nextApprovalId)
+    const sid = si?.id != null && !Number.isNaN(Number(si.id)) ? Number(si.id) : Number.isNaN(numId) ? null : numId
+    if (sid != null) {
+      try {
+        await updateShippingInstruction(sid, {
+          vesselName: si.vesselName,
+          purpose: si.purpose,
+          purposeId: si.purposeId,
+          referenceNumber: si.referenceNumber ?? (si.siId?.startsWith?.('SI-') ? null : si.siId),
+          eta: si.etaDateTime,
+          status: 'Approved',
+          approvalId: nextApprovalId,
+        })
+      } catch {
+        /* UI still shows approved locally */
+      }
+    }
     setDecision('approved')
   }
 

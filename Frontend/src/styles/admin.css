@@ -89,6 +89,30 @@
   color: var(--color-text-steel);
 }
 
+/* Admin Roles — add/edit: single page (role details + pages), no tabs */
+.admin-role-form__basic {
+  margin-bottom: var(--spacing-4);
+}
+
+.admin-role-form__section-title {
+  margin-top: 0;
+}
+
+/* Roles list expand: read-only page access (same grid as edit form) */
+.admin-role-page-access-wrap {
+  margin-top: var(--spacing-2);
+  max-height: 22rem;
+  overflow: auto;
+}
+
+.admin-roles-table .allocation-table__row {
+  cursor: pointer;
+}
+
+.admin-roles-table .allocation-table__action-col {
+  cursor: default;
+}
+
 .admin-multiselect {
   border: 1px solid var(--color-border-medium);
   border-radius: var(--radius-sm);

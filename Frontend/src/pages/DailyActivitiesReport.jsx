@@ -14,17 +14,8 @@ import { downloadDailyActivitiesReportExcel } from '../data/dailyActivitiesRepor
 import { useLoading } from '../context/LoadingContext'
 import { useClearance } from '../context/ClearanceContext'
 import DropdownMultiSelect from '../components/DropdownMultiSelect'
+import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import '../styles/allocation.css'
-
-function formatDateTimeDisplay(value) {
-  if (!value || !value.trim()) return '—'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return value
-  return d.toLocaleString(undefined, {
-    dateStyle: 'short',
-    timeStyle: 'short',
-  })
-}
 
 const HEADER_FIELDS = [
   { key: 'jetty', label: 'Jetty' },

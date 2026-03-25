@@ -1,5 +1,6 @@
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { nominations } from '../data/mockData'
+import { useState, useEffect } from 'react'
+import { fetchShippingInstruction } from '../api/shippingInstructions'
 import '../styles/si-view.css'
 import '../styles/si-approval.css'
 
@@ -62,17 +63,71 @@ function getShipperLines(si) {
   return combined.length ? combined : ['—']
 }
 
+function mapApiToSi(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    siId: row.referenceNumber || `SI-${row.id}`,
+    referenceNumber: row.referenceNumber ?? null,
+    vesselName: row.vesselName,
+    purpose: row.purpose,
+    purposeId: row.purposeId ?? null,
+    status: row.status,
+    approvalId: row.approvalId ?? null,
+    commodity: row.commodity,
+    commodityId: row.commodityId ?? null,
+    etaDateTime: row.eta,
+    breakdown: Array.isArray(row.breakdown) ? row.breakdown : [],
+    shipper: row.shipperName ?? '—',
+    loadingPort: row.loadingPortName ?? '—',
+    agent: row.agentName ?? '—',
+    surveyor: row.surveyorName ?? '—',
+    term: row.tradeTermCode ?? '—',
+    note: row.note ?? null,
+  }
+}
+
 export default function SIView() {
   const { siId } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
+  const isEmbed = new URLSearchParams(location.search).get('embed') === '1'
   const siFromState = location.state?.si
-  const siFromList = nominations.find((n) => (n.siId || '').toUpperCase() === (siId || '').toUpperCase() || n.id === siId)
-  const si = siFromState || siFromList || null
+  const [apiSi, setApiSi] = useState(null)
+  const numId = parseInt(siId, 10)
+  useEffect(() => {
+    if (Number.isNaN(numId)) {
+      setApiSi(null)
+      return
+    }
+    let c = false
+    fetchShippingInstruction(numId)
+      .then((row) => {
+        if (!c) setApiSi(mapApiToSi(row))
+      })
+      .catch(() => {
+        if (!c) setApiSi(null)
+      })
+    return () => {
+      c = true
+    }
+  }, [siId, numId])
+  // Prefer API row (ensures DB-consistent view); fall back to navigation state only if API missing.
+  const si = apiSi || siFromState || null
   const canView = si && canViewAsDocument(si)
   const isLoading = (si?.purpose || '').toLowerCase() === 'loading'
   const breakdown = si?.breakdown || []
-  const totalQty = si?.totalQtyKg ?? breakdown.reduce((sum, r) => sum + (Number(r.qtyKg) || 0), 0)
+  const totalsByUnit = breakdown.reduce((acc, r) => {
+    const code = r.metricCode || '?'
+    acc[code] = (acc[code] || 0) + (Number(r.qty) || 0)
+    return acc
+  }, {})
+  const totalQtyLabel =
+    Object.keys(totalsByUnit).length === 0
+      ? '—'
+      : Object.entries(totalsByUnit)
+          .map(([code, sum]) => `${Number(sum).toLocaleString('id-ID')} ${code}`)
+          .join(' · ')
 
   if (!si) {
     return (
@@ -106,7 +161,8 @@ export default function SIView() {
   const shipperLines = getShipperLines(si)
 
   return (
-    <div className="si-view-page">
+    <div className={`si-view-page${isEmbed ? ' si-view-page--embed' : ''}`}>
+      {!isEmbed && (
       <header className="si-view-header no-print">
         <button
           type="button"
@@ -121,6 +177,7 @@ export default function SIView() {
           {si.siId || si.id} · {isLoading ? 'Loading' : 'External'}
         </span>
       </header>
+      )}
 
       {isLoading ? (
         <div className="si-view-doc si-view-doc--loading card">
@@ -140,19 +197,19 @@ export default function SIView() {
               <dt>Vessel Name</dt>
               <dd>{si.vesselName || si.vesselId || '—'}</dd>
               <dt>Descr. of Good</dt>
-              <dd>{si.commodity || si.product || '—'}</dd>
+              <dd>{si.commodity || '—'}</dd>
               <dt>Quantity</dt>
-              <dd><strong>{si.totalQtyKg != null ? `${(si.totalQtyKg / 1000).toLocaleString()} MT` : '—'}</strong></dd>
+              <dd><strong>{totalQtyLabel}</strong></dd>
               <dt>BL Split</dt>
-              <dd><strong>{si.breakdown && si.breakdown.length ? `${si.breakdown.length} X ${(si.totalQtyKg / 1000).toFixed(0)} MTS` : (si.totalQtyKg != null ? `1 X ${(si.totalQtyKg / 1000).toFixed(0)} MTS` : '—')}</strong></dd>
+              <dd><strong>{breakdown.length ? `${breakdown.length} line(s)` : '—'}</strong></dd>
               <dt>Shipment From</dt>
-              <dd>{si.loadingPort || 'BONTANG'}</dd>
+              <dd>{si.loadingPort || '—'}</dd>
               <dt>Destination</dt>
-              <dd>{si.destination || 'NANSHA, CHINA'}</dd>
+              <dd>{si.destination || '—'}</dd>
               <dt>Bill of Lading</dt>
-              <dd>{si.billOfLading || '3 NON-NEGOTIABLE BILLS OF LADING'}</dd>
+              <dd>{si.billOfLading || '—'}</dd>
               <dt>Consignee</dt>
-              <dd>{si.consignee || 'TO ORDER'}</dd>
+              <dd>{si.consignee || '—'}</dd>
               <dt>Notify Party</dt>
               <dd>{si.notifyParty || '—'}</dd>
               <dt>Freight</dt>
@@ -188,7 +245,7 @@ export default function SIView() {
             </div>
             <div className="si-view-summary__row">
               <span className="si-view-summary__label">COMMODITY:</span>
-              <span className="si-view-summary__value">{si.commodity || si.product || '—'}</span>
+              <span className="si-view-summary__value">{si.commodity || '—'}</span>
             </div>
             <div className="si-view-summary__row">
               <span className="si-view-summary__label">SHIPPER:</span>
@@ -204,7 +261,7 @@ export default function SIView() {
             </div>
             <div className="si-view-summary__row">
               <span className="si-view-summary__label">QTY:</span>
-              <span className="si-view-summary__value">{formatQtyKg(totalQty)}</span>
+              <span className="si-view-summary__value">{totalQtyLabel}</span>
             </div>
             <div className="si-view-summary__row">
               <span className="si-view-summary__label">ETA BONTANG:</span>
@@ -220,10 +277,11 @@ export default function SIView() {
             <table className="si-view-table">
               <thead>
                 <tr>
-                  <th className="si-view-table__th">Shipper</th>
+                  <th className="si-view-table__th">Commodity</th>
+                  <th className="si-view-table__th si-view-table__th--num">Qty</th>
+                  <th className="si-view-table__th">Unit</th>
                   <th className="si-view-table__th">Kontrak</th>
                   <th className="si-view-table__th">PO</th>
-                  <th className="si-view-table__th si-view-table__th--num">Qty (kg)</th>
                   <th className="si-view-table__th">Keterangan</th>
                 </tr>
               </thead>
@@ -231,32 +289,29 @@ export default function SIView() {
                 {breakdown.length > 0 ? (
                   breakdown.map((row, i) => (
                     <tr key={i}>
-                      <td className="si-view-table__cell">{row.shipper || '—'}</td>
+                      <td className="si-view-table__cell">{row.commodityName || '—'}</td>
+                      <td className="si-view-table__cell si-view-table__cell--num">
+                        {row.qty != null ? Number(row.qty).toLocaleString('id-ID') : '—'}
+                      </td>
+                      <td className="si-view-table__cell">{row.metricCode || '—'}</td>
                       <td className="si-view-table__cell">{row.contractNo || '—'}</td>
                       <td className="si-view-table__cell">{row.poNo || '—'}</td>
-                      <td className="si-view-table__cell si-view-table__cell--num">
-                        {row.qtyKg != null ? Number(row.qtyKg).toLocaleString('id-ID') : '—'}
-                      </td>
                       <td className="si-view-table__cell">{row.remarks || '—'}</td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td className="si-view-table__cell">{si.shipper || '—'}</td>
+                    <td className="si-view-table__cell">—</td>
+                    <td className="si-view-table__cell si-view-table__cell--num">—</td>
                     <td className="si-view-table__cell">—</td>
                     <td className="si-view-table__cell">—</td>
-                    <td className="si-view-table__cell si-view-table__cell--num">
-                      {totalQty != null ? Number(totalQty).toLocaleString('id-ID') : '—'}
-                    </td>
+                    <td className="si-view-table__cell">—</td>
                     <td className="si-view-table__cell">—</td>
                   </tr>
                 )}
                 <tr className="si-view-table__total">
-                  <td colSpan={3} className="si-view-table__cell si-view-table__cell--total-label">TOTAL</td>
-                  <td className="si-view-table__cell si-view-table__cell--num si-view-table__cell--total">
-                    {totalQty != null ? Number(totalQty).toLocaleString('id-ID') : '—'}
-                  </td>
-                  <td className="si-view-table__cell" />
+                  <td colSpan={5} className="si-view-table__cell si-view-table__cell--total-label">TOTAL</td>
+                  <td className="si-view-table__cell si-view-table__cell--total">{totalQtyLabel}</td>
                 </tr>
               </tbody>
             </table>

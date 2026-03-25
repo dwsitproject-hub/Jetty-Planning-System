@@ -4,6 +4,11 @@
   max-width: 800px;
 }
 
+.si-view-page--embed {
+  max-width: none;
+  padding: 0;
+}
+
 .si-view-header {
   display: flex;
   flex-wrap: wrap;

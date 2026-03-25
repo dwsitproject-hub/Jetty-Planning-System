@@ -1,29 +1,26 @@
+import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  vessels,
   upcomingQueue,
   painPointTracker,
   dashboardMetrics,
   dashboardWeather,
-  dashboardClearance,
-  getAtBerthOperations,
-  allocationPlan,
-  nominations,
+  vessels,
 } from '../data/mockData'
-import { useLoading, getLoadingPhaseIndex } from '../context/LoadingContext'
+import { fetchAtBerth, fetchOperations } from '../api/operations'
+import { fetchShippingInstructions } from '../api/shippingInstructions'
 import '../styles/dashboard.css'
 import '../styles/allocation.css'
-
-const PHASE_LABELS = {
-  3: 'Pre-Checking',
-  4: 'Operational',
-  5: 'Post-Checking',
-  6: 'Post-Checking',
-}
 
 const PHASES = ['Pre-Checking', 'Operational', 'Post-Checking']
 const PHASE_EMOJI = { 'Pre-Checking': '📋', Operational: '⚙️', 'Post-Checking': '✅' }
 const PURPOSES = [{ key: 'Loading', label: 'Loading' }, { key: 'Unloading', label: 'Unloading' }]
+
+function statusToPhase(status) {
+  if (status === 'IN_PROGRESS') return 'Operational'
+  if (status === 'COMPLETED') return 'Post-Checking'
+  return 'Pre-Checking'
+}
 
 const PIPELINE_STAGES = [
   { id: 'si', label: 'Shipping Instruction', path: '/shipping-instruction', color: 'si' },
@@ -34,7 +31,7 @@ const PIPELINE_STAGES = [
 
 const QUICK_LINKS = [
   { to: '/at-berth', label: 'At-Berth Executions' },
-  { to: '/allocation', label: 'Allocation & Berthing' },
+  { to: '/e2e-console', label: 'E2E console' },
   { to: '/verification', label: 'Clearance' },
   { to: '/shipping-instruction', label: 'Shipping Instruction' },
 ]
@@ -45,32 +42,60 @@ function getVesselName(vesselId) {
 
 export default function Dashboard() {
   const { current, forecast } = dashboardWeather
-  const { getSteps } = useLoading()
+  const [atBerth, setAtBerth] = useState([])
+  const [siCount, setSiCount] = useState(0)
+  const [allocCount, setAllocCount] = useState(0)
+  const [readySail, setReadySail] = useState(0)
+  const [sailed, setSailed] = useState(0)
+  const [apiErr, setApiErr] = useState(null)
+  const [loaded, setLoaded] = useState(false)
 
-  const loadingOps = getAtBerthOperations('Loading').map((o) => ({ ...o, purpose: 'Loading' }))
-  const unloadingOps = getAtBerthOperations('Unloading').map((o) => ({ ...o, purpose: 'Unloading' }))
-  const atBerthVessels = [...loadingOps, ...unloadingOps]
+  const refresh = useCallback(async () => {
+    const errs = []
+    const run = async (label, fn) => {
+      try {
+        const v = await fn()
+        return { ok: true, v }
+      } catch (e) {
+        errs.push(`${label}: ${e?.message || 'failed'}`)
+        return { ok: false, v: null }
+      }
+    }
+    const [a, b, c, d, e, f] = await Promise.all([
+      run('at-berth', fetchAtBerth),
+      run('SIs', fetchShippingInstructions),
+      run('ops', () => fetchOperations({ status: 'PENDING' })),
+      run('ops', () => fetchOperations({ status: 'ALLOCATED' })),
+      run('ops', () => fetchOperations({ status: 'COMPLETED' })),
+      run('ops', () => fetchOperations({ status: 'SAILED' })),
+    ])
+    setAtBerth(Array.isArray(a.v) ? a.v : [])
+    setSiCount(Array.isArray(b.v) ? b.v.length : 0)
+    setAllocCount((Array.isArray(c.v) ? c.v.length : 0) + (Array.isArray(d.v) ? d.v.length : 0))
+    setReadySail(Array.isArray(e.v) ? e.v.length : 0)
+    setSailed(Array.isArray(f.v) ? f.v.length : 0)
+    setApiErr(errs.length ? errs.join(' · ') : null)
+    setLoaded(true)
+  }, [])
 
-  const vesselsWithPhase = atBerthVessels.map((v) => {
-    const steps = getSteps(v.vesselId)
-    const phaseIndex = getLoadingPhaseIndex(steps ?? null)
-    const phaseLabel = PHASE_LABELS[phaseIndex] ?? 'Pre-Checking'
-    return { ...v, phaseIndex, phaseLabel }
-  })
+  useEffect(() => {
+    refresh()
+  }, [refresh])
 
   const atBerthCounts = {
     Loading: { 'Pre-Checking': 0, Operational: 0, 'Post-Checking': 0 },
     Unloading: { 'Pre-Checking': 0, Operational: 0, 'Post-Checking': 0 },
   }
-  vesselsWithPhase.forEach((v) => {
-    atBerthCounts[v.purpose][v.phaseLabel] += 1
+  atBerth.forEach((o) => {
+    const phase = statusToPhase(o.status)
+    if (atBerthCounts[o.purpose]) atBerthCounts[o.purpose][phase] += 1
   })
 
   const pipelineCounts = {
-    si: nominations?.length ?? 0,
-    allocation: allocationPlan?.length ?? 0,
-    atBerth: atBerthVessels.length,
-    clearance: dashboardClearance.departed,
+    si: siCount,
+    allocation: allocCount,
+    atBerth: atBerth.length,
+    clearance: sailed,
   }
 
   const occupancyMetric = dashboardMetrics.find((m) => m.id === 'berth-occupancy')
@@ -85,12 +110,14 @@ export default function Dashboard() {
         <h1 className="page-title">Dashboard</h1>
         <span className="dashboard-header__meta">
           Last updated: {new Date().toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}
+          {' '}
+          <button type="button" className="btn btn--small btn--secondary" onClick={refresh} disabled={!loaded}>Refresh API</button>
         </span>
       </header>
+      {apiErr && <p className="text-steel" style={{ color: '#a60' }}>API: {apiErr}</p>}
 
-      {/* Weather */}
       <section className="card weather-card">
-        <h2 className="card__title">Weather</h2>
+        <h2 className="card__title">Weather (mock)</h2>
         <div className="weather-card__body">
           <div className="weather-card__main">
             <span className="weather-card__condition">{current.condition}</span>
@@ -116,35 +143,33 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {/* KPI row: 4 cards */}
       <div className="dashboard-kpi-row">
         <div className="metric-card">
-          <span className="metric-card__label">Vessels at berth</span>
-          <span className="metric-card__value">{atBerthVessels.length}</span>
+          <span className="metric-card__label">Vessels at berth (API)</span>
+          <span className="metric-card__value">{atBerth.length}</span>
           <Link to="/at-berth" className="metric-card__link">View →</Link>
         </div>
         <div className="metric-card">
-          <span className="metric-card__label">Berth occupancy</span>
+          <span className="metric-card__label">Berth occupancy (mock)</span>
           <span className="metric-card__value">{occupancyPercent}<span className="metric-card__unit">%</span></span>
           <div className="metric-card__bar-wrap" role="presentation">
             <div className="metric-card__bar" style={{ width: `${occupancyPercent}%` }} />
           </div>
         </div>
         <div className="metric-card">
-          <span className="metric-card__label">Avg pumping rate</span>
+          <span className="metric-card__label">Avg pumping rate (mock)</span>
           <span className="metric-card__value">{pumpingRate} <span className="metric-card__unit">{pumpingUnit}</span></span>
           <span className="metric-card__trend">↑ 2% vs last week</span>
         </div>
         <div className="metric-card">
-          <span className="metric-card__label">Clearance: Ready to Sail</span>
-          <span className="metric-card__value">{dashboardClearance.readyToDepart}</span>
-          <Link to="/verification" className="metric-card__link">View →</Link>
+          <span className="metric-card__label">Ready to Sail (API)</span>
+          <span className="metric-card__value">{readySail}</span>
+          <Link to="/verification" className="metric-card__link">Clearance →</Link>
         </div>
       </div>
 
-      {/* Pipeline */}
       <section className="card dashboard-pipeline">
-        <h2 className="card__title">Vessel pipeline</h2>
+        <h2 className="card__title">Vessel pipeline (API counts)</h2>
         <div className="pipeline-flow" role="presentation">
           <Link to={PIPELINE_STAGES[0].path} className={`pipeline-stage pipeline-stage--${PIPELINE_STAGES[0].color}`}>
             <span className="pipeline-stage__label">{PIPELINE_STAGES[0].label}</span>
@@ -162,19 +187,17 @@ export default function Dashboard() {
           </Link>
           <span className="pipeline-arrow" aria-hidden>→</span>
           <Link to={PIPELINE_STAGES[3].path} className={`pipeline-stage pipeline-stage--${PIPELINE_STAGES[3].color}`}>
-            <span className="pipeline-stage__label">{PIPELINE_STAGES[3].label}</span>
+            <span className="pipeline-stage__label">{PIPELINE_STAGES[3].label} (sailed)</span>
             <span className="pipeline-stage__count">{pipelineCounts.clearance}</span>
           </Link>
         </div>
       </section>
 
-      {/* Two columns */}
       <div className="dashboard__two-col">
-        {/* Left: At-Berth + Clearance */}
         <div className="dashboard-left">
           <section className="card dashboard-at-berth">
             <div className="dashboard-at-berth__head">
-              <h2 className="card__title">At-berth now</h2>
+              <h2 className="card__title">At-berth now (API)</h2>
               <Link to="/at-berth" className="btn btn--small btn--primary">View all</Link>
             </div>
             <div className="at-berth-summary__groups at-berth-summary__groups--compact">
@@ -199,21 +222,20 @@ export default function Dashboard() {
               <Link to="/verification" className="dashboard-clearance-card dashboard-clearance-card--ready">
                 <span className="dashboard-clearance-card__icon">⚓</span>
                 <span className="dashboard-clearance-card__label">Ready to Sail</span>
-                <span className="dashboard-clearance-card__count">{dashboardClearance.readyToDepart}</span>
+                <span className="dashboard-clearance-card__count">{readySail}</span>
               </Link>
               <div className="dashboard-clearance-card dashboard-clearance-card--departed">
                 <span className="dashboard-clearance-card__icon">🚀</span>
                 <span className="dashboard-clearance-card__label">Sailed</span>
-                <span className="dashboard-clearance-card__count">{dashboardClearance.departed}</span>
+                <span className="dashboard-clearance-card__count">{sailed}</span>
               </div>
             </div>
           </section>
         </div>
 
-        {/* Right: Queue + Alerts */}
         <div className="dashboard-right">
           <section className="card">
-            <h2 className="card__title">Upcoming queue</h2>
+            <h2 className="card__title">Upcoming queue (mock)</h2>
             <div className="table-wrap">
               <table className="data-table">
                 <thead>
@@ -247,7 +269,7 @@ export default function Dashboard() {
           </section>
 
           <section className="card dashboard-alerts">
-            <h2 className="card__title">Alerts & SLAs</h2>
+            <h2 className="card__title">Alerts & SLAs (mock)</h2>
             <div className="dashboard-alerts__list">
               <div className="dashboard-alert dashboard-alert--warning">
                 <span className="dashboard-alert__icon" aria-hidden>⚠️</span>
@@ -275,7 +297,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Quick links */}
       <nav className="dashboard-quick-links" aria-label="Quick links">
         {QUICK_LINKS.map(({ to, label }) => (
           <Link key={to} to={to} className="dashboard-quick-link">

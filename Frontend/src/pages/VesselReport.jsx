@@ -5,14 +5,8 @@ import { buildJettyVesselReport } from '../data/jettyVesselReportData'
 import { downloadJettyVesselReportExcel } from '../data/jettyVesselReportExcel'
 import { useClearance } from '../context/ClearanceContext'
 import DropdownMultiSelect from '../components/DropdownMultiSelect'
+import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import '../styles/allocation.css'
-
-function formatDateTimeDisplay(value) {
-  if (!value || !String(value).trim()) return '—'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return value
-  return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
-}
 
 function getDefaultDateRange() {
   const end = new Date()

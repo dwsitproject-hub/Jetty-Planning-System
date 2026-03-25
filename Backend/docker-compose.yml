@@ -1,0 +1,54 @@
+# Jetty Planning System - Backend development (Docker-only)
+# Run from Backend folder.
+#
+# IMPORTANT (Windows / Docker Desktop): Foreground `docker compose up` often hangs after
+# "Attaching to jps-api, jps-db" and NEVER starts containers — `docker ps -a` shows STATUS "Created".
+# Always use detached mode, then follow logs:
+#   docker compose up -d --build
+#   docker compose logs -f
+#
+# API: http://localhost:3000  |  PostgreSQL: localhost:5433
+
+services:
+  jps-db:
+    image: postgres:16-alpine
+    container_name: jps-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jps_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jps_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-jps_db}
+    ports:
+      - "5433:5432"
+    volumes:
+      - jps_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jps_user} -d ${POSTGRES_DB:-jps_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  jps-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jps-api
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-jps_user}:${POSTGRES_PASSWORD:-jps_dev_password}@jps-db:5432/${POSTGRES_DB:-jps_db}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      UPLOAD_DIR: /tmp/jps-uploads
+    volumes:
+      # Live code (no rebuild on file change) without overwriting node_modules
+      - ./src:/app/src
+      - ./scripts:/app/scripts
+      - ./migrations:/app/migrations
+      - ./package.json:/app/package.json
+    depends_on:
+      jps-db:
+        condition: service_healthy
+
+volumes:
+  jps_db_data:

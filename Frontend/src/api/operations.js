@@ -1,0 +1,190 @@
+import { apiGet, apiPost, apiPut, apiDelete, apiPostForm } from './client.js'
+
+export function fetchOperations(params = {}) {
+  const sp = new URLSearchParams()
+  if (params.portId) sp.set('port_id', params.portId)
+  if (params.jettyId) sp.set('jetty_id', params.jettyId)
+  if (params.status) sp.set('status', params.status)
+  if (params.purpose) sp.set('purpose', params.purpose)
+  const q = sp.toString()
+  return apiGet(`/operations${q ? `?${q}` : ''}`)
+}
+
+export function fetchAtBerth() {
+  return apiGet('/operations/at-berth')
+}
+
+export function fetchOperation(id) {
+  return apiGet(`/operations/${id}`)
+}
+
+export function createOperation(shippingInstructionId, jettyId) {
+  return apiPost('/operations', {
+    shipping_instruction_id: shippingInstructionId,
+    jetty_id: jettyId,
+  })
+}
+
+export function updateOperation(id, body) {
+  return apiPut(`/operations/${id}`, {
+    status: body.status,
+    completion_percent: body.completionPercent,
+  })
+}
+
+export function startDocking(id, dockingStartTime) {
+  return apiPost(`/operations/${id}/start-docking`, {
+    docking_start_time: dockingStartTime ?? undefined,
+  })
+}
+
+export function fetchMaterials(operationId) {
+  return apiGet(`/operations/${operationId}/materials`)
+}
+
+export function addMaterial(operationId, materialKey, volume) {
+  return apiPost(`/operations/${operationId}/materials`, {
+    material_key: materialKey,
+    volume,
+  })
+}
+
+export function deleteMaterial(operationId, materialRowId) {
+  return apiDelete(`/operations/${operationId}/materials/${materialRowId}`)
+}
+
+export function fetchQcSurveys(operationId) {
+  return apiGet(`/operations/${operationId}/qc-surveys`)
+}
+
+export function createQcSurvey(operationId, body) {
+  return apiPost(`/operations/${operationId}/qc-surveys`, {
+    phase: body.phase,
+    step_key: body.stepKey,
+    status: body.status ?? 'Pending',
+    result: body.result,
+    remarks: body.remarks,
+    occurred_at: body.occurredAt,
+    documents: body.documents,
+  })
+}
+
+export function updateQcSurvey(surveyId, body) {
+  return apiPut(`/qc-surveys/${surveyId}`, {
+    status: body.status,
+    result: body.result,
+    remarks: body.remarks,
+    occurred_at: body.occurredAt,
+  })
+}
+
+export function fetchQuantityChecks(operationId) {
+  return apiGet(`/operations/${operationId}/quantity-checks`)
+}
+
+export function createQuantityCheck(operationId, body) {
+  return apiPost(`/operations/${operationId}/quantity-checks`, {
+    phase: body.phase,
+    check_key: body.checkKey,
+    value_json: body.value,
+    remarks: body.remarks,
+    occurred_at: body.occurredAt,
+  })
+}
+
+export function updateQuantityCheck(checkId, body) {
+  return apiPut(`/quantity-checks/${checkId}`, {
+    value_json: body.value,
+    remarks: body.remarks,
+    occurred_at: body.occurredAt,
+  })
+}
+
+export function requestException(operationId, justification, documentUrl) {
+  return apiPost(`/operations/${operationId}/request-exception`, {
+    justification,
+    exception_document_url: documentUrl,
+  })
+}
+
+export function approveException(operationId, approverUserId) {
+  return apiPost(`/operations/${operationId}/approve-exception`, {
+    approver_user_id: approverUserId,
+  })
+}
+
+export function rejectException(operationId, approverUserId) {
+  return apiPost(`/operations/${operationId}/reject-exception`, {
+    approver_user_id: approverUserId,
+  })
+}
+
+export function signoff(operationId) {
+  return apiPost(`/operations/${operationId}/signoff`, {})
+}
+
+export function depart(operationId, hoseOffAt, castOffAt, clearanceUrl, photoUrl) {
+  return apiPost(`/operations/${operationId}/depart`, {
+    hose_off_at: hoseOffAt,
+    cast_off_at: castOffAt,
+    clearance_document_url: clearanceUrl,
+    vessel_photo_url: photoUrl,
+  })
+}
+
+export function deleteOperation(id) {
+  return apiDelete(`/operations/${id}`)
+}
+
+export function fetchSubProcesses(operationId, phase) {
+  const q = phase ? `?phase=${encodeURIComponent(phase)}` : ''
+  return apiGet(`/operations/${operationId}/sub-processes${q}`)
+}
+
+export function upsertSubProcess(operationId, subProcessKey, body) {
+  return apiPut(`/operations/${operationId}/sub-processes/${encodeURIComponent(subProcessKey)}`, {
+    phase: body.phase,
+    status: body.status,
+    occurredAt: body.occurredAt,
+    remark: body.remark,
+    payload: body.payload,
+  })
+}
+
+export function fetchSubProcessDocuments(operationId, subProcessKey, phase = 'Pre-Checking') {
+  return apiGet(
+    `/operations/${operationId}/sub-processes/${encodeURIComponent(subProcessKey)}/documents?phase=${encodeURIComponent(phase)}`
+  )
+}
+
+export function deleteSubProcessDocument(operationId, subProcessKey, documentId, phase = 'Pre-Checking') {
+  const q = `?phase=${encodeURIComponent(phase)}`
+  return apiDelete(
+    `/operations/${operationId}/sub-processes/${encodeURIComponent(subProcessKey)}/documents/${encodeURIComponent(String(documentId))}${q}`
+  )
+}
+
+export async function uploadSubProcessDocuments(operationId, subProcessKey, phase, files) {
+  const form = new FormData()
+  const phaseValue = phase || 'Pre-Checking'
+  form.append('phase', phaseValue)
+  for (const f of Array.from(files || [])) {
+    form.append('files', f)
+  }
+  return apiPostForm(
+    `/operations/${operationId}/sub-processes/${encodeURIComponent(subProcessKey)}/documents?phase=${encodeURIComponent(phaseValue)}`,
+    form,
+    60000
+  )
+}
+
+export function fetchNorDetails(operationId) {
+  return apiGet(`/operations/${operationId}/nor-details`)
+}
+
+export function updateNorDetails(operationId, body) {
+  return apiPut(`/operations/${operationId}/nor-details`, {
+    remark: body?.remark ?? '',
+    payload: body?.payload ?? null,
+  })
+}

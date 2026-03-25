@@ -1,10 +1,9 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Link, useParams, Navigate, useLocation } from 'react-router-dom'
 import {
   vessels,
   getAtBerthOperations,
   LOADING_STEP_IDS,
-  LOADING_STEPS_CONFIG,
   initialLoadingStepsByVesselId,
   getLoadingOperationCargo,
   LOADING_ACTIVITY_CATEGORIES,
@@ -15,6 +14,25 @@ import {
   defaultPostCheckingSection,
 } from '../data/mockData'
 import { useLoading } from '../context/LoadingContext'
+import {
+  fetchOperation,
+  fetchSubProcesses,
+  upsertSubProcess,
+  fetchSubProcessDocuments,
+  uploadSubProcessDocuments,
+  deleteSubProcessDocument,
+  fetchNorDetails,
+  updateNorDetails,
+} from '../api/operations'
+import { resolveUploadUrl } from '../api/client'
+import {
+  fetchAllocationOverview,
+  saveArrivalUpdate as saveArrivalUpdateApi,
+  uploadOperationDocuments,
+  fetchOperationDocuments,
+  deleteOperationDocument,
+} from '../api/allocation'
+import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import '../styles/allocation.css'
 
 const SECTIONS = [
@@ -44,6 +62,151 @@ function getNowForDateTimeLocal() {
   return `${y}-${m}-${day}T${h}:${min}`
 }
 
+/** API ISO or datetime-local prefix → `yyyy-mm-ddThh:mm` for inputs */
+function isoOrDatetimeToLocal(value) {
+  if (value == null || value === '') return ''
+  const s = String(value).trim()
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) return s.slice(0, 16)
+  const d = new Date(s)
+  if (Number.isNaN(d.getTime())) return ''
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const h = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  return `${y}-${m}-${day}T${h}:${min}`
+}
+
+/** Later of two timestamps (ISO); null if both missing */
+function laterIso(a, b) {
+  if (!a && !b) return null
+  if (!a) return b || null
+  if (!b) return a || null
+  const ta = new Date(a).getTime()
+  const tb = new Date(b).getTime()
+  const na = Number.isNaN(ta)
+  const nb = Number.isNaN(tb)
+  if (na && nb) return null
+  if (na) return b
+  if (nb) return a
+  return ta >= tb ? a : b
+}
+
+/** Allocation / at-berth queue uses `op-<operationId>` as vessel_id for berthed operations */
+function parseOperationIdFromRouteVesselId(vid) {
+  if (!vid || typeof vid !== 'string') return null
+  const m = /^op-(\d+)$/i.exec(vid.trim())
+  return m ? parseInt(m[1], 10) : null
+}
+
+function normalizeApiPurpose(p) {
+  return p === 'Unloading' ? 'Unloading' : 'Loading'
+}
+
+/** Minimal cargo card when vessel comes from API (no mock `vessels` entry) */
+function cargoFromApiOp(op) {
+  if (!op) return null
+  const jettyRaw = op.jettyName || '—'
+  const jetty = String(jettyRaw).replace(/^Jetty\s+/i, '').trim() || '—'
+  return {
+    vesselName: op.vesselName || '—',
+    commodity: op.commodity || '—',
+    quantity: '—',
+    quantityNum: null,
+    stowage: '—',
+    loadPort: '—',
+    dischPort: '—',
+    shipper: '—',
+    consignee: '—',
+    surveyor: '—',
+    agent: '—',
+    jettyName: jetty,
+    jettyId: op.jettyId ?? null,
+  }
+}
+
+function inferPrecheckStatus(sectionKey, item = {}) {
+  const explicit = String(item?.status || '').trim()
+  if (explicit) return explicit
+  const hasDocs = Array.isArray(item?.documents) && item.documents.length > 0
+  const hasRemark = Boolean(String(item?.remark || '').trim())
+  if (sectionKey === 'sampling') {
+    const hasRecords = Array.isArray(item?.records) && item.records.length > 0
+    if (hasRecords) return 'Done'
+    if (hasDocs || hasRemark) return 'In Progress'
+    return 'Not Started'
+  }
+  if (sectionKey === 'norAccepted') {
+    const hasTendered = Boolean(item?.norTenderedDateTime)
+    const hasAccepted = Boolean(item?.norAcceptedDateTime)
+    if (hasTendered && hasAccepted) return 'Done'
+    if (hasTendered || hasAccepted || hasDocs || hasRemark) return 'In Progress'
+    return 'Not Started'
+  }
+  if (sectionKey === 'initialSounding' || sectionKey === 'initialDraftSurvey') {
+    const hasResult = Boolean(String(item?.remark || item?.result || '').trim())
+    const hasDate = Boolean(item?.dateTime)
+    if (hasResult || hasDate) return 'Done'
+    if (hasDocs || hasRemark) return 'In Progress'
+    return 'Not Started'
+  }
+  const hasDate = Boolean(item?.dateTime)
+  if (hasDate) return 'Done'
+  if (hasDocs || hasRemark) return 'In Progress'
+  return 'Not Started'
+}
+
+function VesselDetailCard({ detail }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <section className="berthing-modal__card loading-tab-card loading-card--collapsible vessel-detail-card">
+      <button
+        type="button"
+        className="loading-card__header"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+      >
+        <span className="berthing-modal__card-title">Vessel Detail</span>
+        <span className="loading-card__chevron" aria-hidden>{expanded ? '▼' : '▶'}</span>
+      </button>
+      {expanded && (
+        <dl className="allocation-detail__grid">
+          <dt>Vessel Name</dt>
+          <dd>{detail.vesselName || '—'}</dd>
+          <dt>Shipping Instruction</dt>
+          <dd>{detail.shippingInstruction || '—'}</dd>
+          <dt>No PKK</dt>
+          <dd>{detail.noPkk ?? '—'}</dd>
+          <dt>Priority</dt>
+          <dd>{detail.priority || '—'}</dd>
+          <dt>Number of Palka</dt>
+          <dd>{detail.numberOfPalka ?? '—'}</dd>
+          <dt>Purpose</dt>
+          <dd>{detail.purpose || '—'}</dd>
+          <dt>Shipper</dt>
+          <dd>{detail.shipper || '—'}</dd>
+          <dt>Agent</dt>
+          <dd>{detail.agent || '—'}</dd>
+          <dt>Surveyor</dt>
+          <dd>{detail.surveyor || '—'}</dd>
+          <dt>Jetty</dt>
+          <dd>{detail.jetty || '—'}</dd>
+          <dt>ETA</dt>
+          <dd>{formatDateTimeDisplay(detail.etaDateTime || detail.eta)}</dd>
+          <dt>TA</dt>
+          <dd>{formatDateTimeDisplay(detail.taDateTime)}</dd>
+          <dt>ETB</dt>
+          <dd>{formatDateTimeDisplay(detail.etbDateTime || detail.etb)}</dd>
+          <dt>TB</dt>
+          <dd>{formatDateTimeDisplay(detail.tbDateTime)}</dd>
+          <dt>Remark</dt>
+          <dd>{detail.remark || detail.remarks || '—'}</dd>
+        </dl>
+      )}
+    </section>
+  )
+}
+
 export default function Loading() {
   const { vesselId, section } = useParams()
   const location = useLocation()
@@ -54,10 +217,137 @@ export default function Loading() {
   const operations = getAtBerthOperations(purpose)
   const { getSteps, setStepData, getLoadingOperation, addLoadingActivity, updateLoadingActivity, deleteLoadingActivity, getPreChecking, setPreCheckingSection, getPostChecking, setPostCheckingSection } = useLoading()
   const [stepPhotos, setStepPhotos] = useState({})
-  const [vesselCargoExpanded, setVesselCargoExpanded] = useState({ 'pre-checking': false, 'loading': false, 'post-checking': false })
+  const [allocationDetailRow, setAllocationDetailRow] = useState(null)
 
-  const vesselRaw = vesselId ? vessels[vesselId] : null
-  const vessel = vesselRaw && vesselRaw.purpose === purpose ? vesselRaw : null
+  const mockVessel = vesselId ? vessels[vesselId] : null
+  const mockMatchesRoutePurpose = Boolean(mockVessel && mockVessel.purpose === purpose)
+  const opNumericId = vesselId ? parseOperationIdFromRouteVesselId(vesselId) : null
+  const shouldFetchOp = Boolean(vesselId && !mockMatchesRoutePurpose && opNumericId != null)
+
+  const [apiOp, setApiOp] = useState(null)
+  const [apiLoading, setApiLoading] = useState(false)
+  const [apiError, setApiError] = useState(null)
+
+  useEffect(() => {
+    if (!vesselId || mockMatchesRoutePurpose) {
+      setApiOp(null)
+      setApiLoading(false)
+      setApiError(null)
+      return
+    }
+    if (opNumericId == null) {
+      setApiOp(null)
+      setApiLoading(false)
+      setApiError(null)
+      return
+    }
+    let cancelled = false
+    setApiLoading(true)
+    setApiError(null)
+    fetchOperation(opNumericId)
+      .then((op) => {
+        if (cancelled) return
+        setApiOp(op)
+        setApiLoading(false)
+      })
+      .catch((e) => {
+        if (cancelled) return
+        setApiOp(null)
+        setApiError(e?.message || 'Failed to load operation')
+        setApiLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [vesselId, mockMatchesRoutePurpose, opNumericId])
+
+  const apiPurpose = apiOp ? normalizeApiPurpose(apiOp.purpose) : null
+  const purposeMismatch = Boolean(apiOp && apiPurpose !== purpose)
+  const operationId = apiOp?.id ?? (shouldFetchOp ? opNumericId : null)
+
+  const vessel = useMemo(() => {
+    if (mockMatchesRoutePurpose) return mockVessel
+    if (apiOp && !purposeMismatch) {
+      return {
+        id: vesselId,
+        vesselName: apiOp.vesselName || '—',
+        siId: apiOp.referenceNumber || (apiOp.shippingInstructionId != null ? `SI-${apiOp.shippingInstructionId}` : '—'),
+        product: apiOp.commodity || '—',
+        purpose: apiPurpose,
+      }
+    }
+    return null
+  }, [mockMatchesRoutePurpose, mockVessel, apiOp, purposeMismatch, vesselId, apiPurpose])
+
+  const cargoForTabs = useMemo(() => {
+    if (!vesselId) return null
+    const mockCargo = getLoadingOperationCargo(vesselId)
+    if (mockCargo) return mockCargo
+    return cargoFromApiOp(apiOp)
+  }, [vesselId, apiOp])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!operationId) {
+      setAllocationDetailRow(null)
+      return () => { cancelled = true }
+    }
+    fetchAllocationOverview()
+      .then((res) => {
+        if (cancelled) return
+        const q = Array.isArray(res?.queue) ? res.queue : []
+        const row = q.find((x) => Number(x.operationId) === Number(operationId)) || null
+        setAllocationDetailRow(row)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setAllocationDetailRow(null)
+      })
+    return () => { cancelled = true }
+  }, [operationId])
+
+  const vesselDetail = useMemo(() => {
+    const fallback = {
+      vesselName: vessel?.vesselName || '—',
+      shippingInstruction: vessel?.siId || '—',
+      noPkk: '—',
+      priority: '—',
+      numberOfPalka: vessel?.numberOfPalkas ?? '—',
+      purpose: purpose,
+      shipper: cargoForTabs?.shipper || '—',
+      agent: cargoForTabs?.agent || '—',
+      surveyor: cargoForTabs?.surveyor || '—',
+      jetty: cargoForTabs?.jettyName || '—',
+      etaDateTime: null,
+      taDateTime: null,
+      etbDateTime: null,
+      tbDateTime: null,
+      remark: '—',
+    }
+    if (!allocationDetailRow) return fallback
+    return {
+      ...fallback,
+      vesselName: allocationDetailRow.vesselName || fallback.vesselName,
+      shippingInstruction: allocationDetailRow.shippingInstruction || fallback.shippingInstruction,
+      noPkk: allocationDetailRow.noPkk ?? fallback.noPkk,
+      priority: allocationDetailRow.priority || fallback.priority,
+      numberOfPalka: allocationDetailRow.numberOfPalka ?? fallback.numberOfPalka,
+      purpose: allocationDetailRow.purpose || fallback.purpose,
+      shipper: allocationDetailRow.shipper || fallback.shipper,
+      agent: allocationDetailRow.agent || fallback.agent,
+      surveyor: allocationDetailRow.surveyor || fallback.surveyor,
+      jetty: allocationDetailRow.jetty || fallback.jetty,
+      eta: allocationDetailRow.eta || null,
+      etaDateTime: allocationDetailRow.etaDateTime || null,
+      taDateTime: allocationDetailRow.taDateTime || null,
+      etb: allocationDetailRow.etb || null,
+      etbDateTime: allocationDetailRow.etbDateTime || null,
+      tbDateTime: allocationDetailRow.tbDateTime || null,
+      remark: allocationDetailRow.remark || allocationDetailRow.remarks || fallback.remark,
+      remarks: allocationDetailRow.remarks || null,
+    }
+  }, [allocationDetailRow, vessel, cargoForTabs, purpose])
+
   const steps = vesselId ? getSteps(vesselId) : null
   const stepsOrInitial = steps ?? (vesselId ? initialLoadingStepsByVesselId[vesselId] : null) ?? (vesselId ? Object.fromEntries(LOADING_STEP_IDS.map((id) => [id, { status: 'not_started', startTime: '', endTime: '', quantityResult: null, documents: [] }])) : null)
 
@@ -125,6 +415,46 @@ export default function Loading() {
     )
   }
 
+  if (shouldFetchOp && apiLoading) {
+    return (
+      <div className="allocation-page loading-page">
+        <h1 className="page-title">{purpose}</h1>
+        <p className="text-steel">Loading operation…</p>
+        <Link to="/at-berth" className="loading-back-link">← Back to Overview</Link>
+      </div>
+    )
+  }
+
+  if (shouldFetchOp && apiError) {
+    return (
+      <div className="allocation-page loading-page">
+        <h1 className="page-title">{purpose}</h1>
+        <p className="text-steel" style={{ color: 'var(--danger-600, #c00)' }}>
+          {apiError}
+        </p>
+        <Link to="/at-berth" className="loading-back-link">← Back to Overview</Link>
+      </div>
+    )
+  }
+
+  if (purposeMismatch && apiOp) {
+    const correctBase = apiPurpose === 'Unloading' ? '/unloading' : '/loading'
+    return (
+      <div className="allocation-page loading-page">
+        <h1 className="page-title">{purpose}</h1>
+        <p className="text-steel">
+          This operation is <strong>{apiPurpose}</strong>. Open it under the correct section:
+        </p>
+        <p>
+          <Link to={`${correctBase}/${encodeURIComponent(vesselId)}`} className="btn btn--primary">
+            Go to {apiPurpose} →
+          </Link>
+        </p>
+        <Link to="/at-berth" className="loading-back-link">← Back to Overview</Link>
+      </div>
+    )
+  }
+
   // Vessel not found
   if (!vessel) {
     return (
@@ -150,25 +480,7 @@ export default function Loading() {
         </div>
         <PurposeBanner purpose={purpose} />
         <h1 className="page-title">{purpose}: {vessel.vesselName}</h1>
-        <p className="allocation-page__intro">SI: {vessel.siId} · {vessel.product}</p>
-
-        <section className="berthing-modal__card berthing-modal__card--vessel">
-          <h3 className="berthing-modal__card-title">Vessel info</h3>
-          <dl className="berthing-modal__vessel-dl">
-            <div className="berthing-modal__vessel-row">
-              <dt>Vessel name</dt>
-              <dd className="berthing-modal__vessel-dl--bold">{vessel.vesselName || '—'}</dd>
-            </div>
-            <div className="berthing-modal__vessel-row">
-              <dt>SI No</dt>
-              <dd className="berthing-modal__vessel-dl--bold">{vessel.siId || '—'}</dd>
-            </div>
-            <div className="berthing-modal__vessel-row">
-              <dt>Material</dt>
-              <dd>{vessel.product || '—'}</dd>
-            </div>
-          </dl>
-        </section>
+        <VesselDetailCard detail={vesselDetail} />
 
         <nav className="loading-section-tabs" aria-label="At-berth sections">
           {SECTIONS.map((sec) => (
@@ -194,6 +506,16 @@ export default function Loading() {
   // Sub-page: Pre-Checking / Loading / Post-Checking
   const sectionConfig = SECTIONS.find((s) => s.id === section)
   const stepIds = sectionConfig?.stepIds ?? []
+  const preStepIds = ['keyMeeting', 'norAccepted', 'tankInspection', 'holdInspection', 'sampling', 'initialSounding', 'initialDraftSurvey']
+  const preData = getPreChecking(vesselId)
+  const preDone = preStepIds.filter((k) => inferPrecheckStatus(k, preData?.[k] || {}) === 'Done').length
+  const operationalDone = stepsOrInitial?.B?.status === 'completed' ? 1 : 0
+  const postDone = ['C1', 'C2'].filter((k) => stepsOrInitial?.[k]?.status === 'completed').length
+  const processStages = [
+    { id: 'pre-checking', label: 'Pre-Checking', done: preDone, total: preStepIds.length },
+    { id: 'loading', label: 'Operational', done: operationalDone, total: 1 },
+    { id: 'post-checking', label: 'Post-Checking', done: postDone, total: 2 },
+  ]
 
   return (
     <div className="allocation-page loading-page">
@@ -202,76 +524,31 @@ export default function Loading() {
       </div>
       <PurposeBanner purpose={purpose} />
       <h1 className="page-title">{sectionConfig?.label ?? section}: {vessel.vesselName}</h1>
-      <p className="allocation-page__intro">SI: {vessel.siId} · {vessel.product}</p>
 
-      <div className="vessel-detail-modal__body">
-        <section className="berthing-modal__card berthing-modal__card--vessel">
-          <h3 className="berthing-modal__card-title">Vessel info</h3>
-          <dl className="berthing-modal__vessel-dl">
-            <div className="berthing-modal__vessel-row">
-              <dt>Vessel name</dt>
-              <dd className="berthing-modal__vessel-dl--bold">{vessel.vesselName || '—'}</dd>
-            </div>
-            <div className="berthing-modal__vessel-row">
-              <dt>SI No</dt>
-              <dd className="berthing-modal__vessel-dl--bold">{vessel.siId || '—'}</dd>
-            </div>
-            <div className="berthing-modal__vessel-row">
-              <dt>Material</dt>
-              <dd>{vessel.product || '—'}</dd>
-            </div>
-          </dl>
-        </section>
+      <VesselDetailCard detail={vesselDetail} />
 
-        <nav className="loading-section-tabs" aria-label="Loading sections">
-          {SECTIONS.map((sec) => (
+      <div className="loading-process-layout">
+        <aside className="loading-process-rail" aria-label="Process stages">
+          {processStages.map((s) => (
             <Link
-              key={sec.id}
-              to={`${basePath}/${vesselId}/${sec.id}`}
-              className={`loading-section-tabs__tab ${section === sec.id ? 'loading-section-tabs__tab--active' : ''}`}
+              key={s.id}
+              to={`${basePath}/${vesselId}/${s.id}`}
+              className={`loading-process-rail__item ${section === s.id ? 'loading-process-rail__item--active' : ''}`}
             >
-              {sec.label}
+              <span className="loading-process-rail__title">{s.label}</span>
+              <span className="loading-process-rail__meta">{s.done} / {s.total} complete</span>
             </Link>
           ))}
-        </nav>
+        </aside>
 
+        <div className="vessel-detail-modal__body loading-process-content">
         {section === 'pre-checking' && (
           <>
-            {(() => {
-              const cargo = getLoadingOperationCargo(vesselId)
-              if (!cargo) return null
-              const expanded = vesselCargoExpanded['pre-checking']
-              return (
-                <section className="berthing-modal__card loading-tab-card loading-card--collapsible">
-                  <button
-                    type="button"
-                    className="loading-card__header"
-                    onClick={() => setVesselCargoExpanded((prev) => ({ ...prev, 'pre-checking': !prev['pre-checking'] }))}
-                    aria-expanded={expanded}
-                  >
-                    <span className="berthing-modal__card-title">Vessel &amp; Cargo</span>
-                    <span className="loading-card__chevron" aria-hidden>{expanded ? '▼' : '▶'}</span>
-                  </button>
-                  {expanded && (
-                    <dl className="loading-tab-dl">
-                      <div className="loading-tab-dl__row"><dt>Vessel</dt><dd>{cargo.vesselName}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Commodity</dt><dd>{cargo.commodity}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Quantity</dt><dd>{cargo.quantity}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Stowage</dt><dd>{cargo.stowage}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Load port</dt><dd>{cargo.loadPort}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Disch port</dt><dd>{cargo.dischPort}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Shipper</dt><dd>{cargo.shipper}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Consignee</dt><dd>{cargo.consignee}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Surveyor</dt><dd>{cargo.surveyor}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Agent</dt><dd>{cargo.agent}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Jetty</dt><dd>{cargo.jettyName}</dd></div>
-                    </dl>
-                  )}
-                </section>
-              )
-            })()}
             <PreCheckingSections
               vesselId={vesselId}
+              operationId={operationId}
+              operationNorTenderedAt={apiOp?.norTenderedAt ?? null}
+              operationNorAcceptedAt={apiOp?.norAcceptedAt ?? null}
               getPreChecking={getPreChecking}
               setPreCheckingSection={setPreCheckingSection}
               getArrivalNor={getArrivalNor}
@@ -283,39 +560,6 @@ export default function Loading() {
 
         {section === 'post-checking' && (
           <>
-            {(() => {
-              const cargo = getLoadingOperationCargo(vesselId)
-              if (!cargo) return null
-              const expanded = vesselCargoExpanded['post-checking']
-              return (
-                <section className="berthing-modal__card loading-tab-card loading-card--collapsible">
-                  <button
-                    type="button"
-                    className="loading-card__header"
-                    onClick={() => setVesselCargoExpanded((prev) => ({ ...prev, 'post-checking': !prev['post-checking'] }))}
-                    aria-expanded={expanded}
-                  >
-                    <span className="berthing-modal__card-title">Vessel &amp; Cargo</span>
-                    <span className="loading-card__chevron" aria-hidden>{expanded ? '▼' : '▶'}</span>
-                  </button>
-                  {expanded && (
-                    <dl className="loading-tab-dl">
-                      <div className="loading-tab-dl__row"><dt>Vessel</dt><dd>{cargo.vesselName}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Commodity</dt><dd>{cargo.commodity}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Quantity</dt><dd>{cargo.quantity}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Stowage</dt><dd>{cargo.stowage}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Load port</dt><dd>{cargo.loadPort}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Disch port</dt><dd>{cargo.dischPort}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Shipper</dt><dd>{cargo.shipper}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Consignee</dt><dd>{cargo.consignee}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Surveyor</dt><dd>{cargo.surveyor}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Agent</dt><dd>{cargo.agent}</dd></div>
-                      <div className="loading-tab-dl__row"><dt>Jetty</dt><dd>{cargo.jettyName}</dd></div>
-                    </dl>
-                  )}
-                </section>
-              )
-            })()}
             <PostCheckingSections
               vesselId={vesselId}
               getPostChecking={getPostChecking}
@@ -326,22 +570,16 @@ export default function Loading() {
         )}
 
         {section === 'loading' && stepIds.map((stepId) => {
-          const config = LOADING_STEPS_CONFIG[stepId]
           const loadingOp = getLoadingOperation(vesselId)
-          const cargo = getLoadingOperationCargo(vesselId)
           return (
             <LoadingTabContent
               key={stepId}
               vesselId={vesselId}
-              vessel={vessel}
-              cargo={cargo}
               loadingOp={loadingOp}
               purpose={purpose}
               addActivity={addLoadingActivity}
               updateActivity={updateLoadingActivity}
               deleteActivity={deleteLoadingActivity}
-              vesselCargoExpanded={vesselCargoExpanded['loading']}
-              onVesselCargoToggle={() => setVesselCargoExpanded((prev) => ({ ...prev, loading: !prev.loading }))}
             />
           )
         })}
@@ -351,16 +589,10 @@ export default function Loading() {
             <Link to="/verification" className="btn btn--primary">Proceed to Clearance →</Link>
           </section>
         )}
+        </div>
       </div>
     </div>
   )
-}
-
-/** Format ISO datetime for display */
-function formatDateTimeDisplay(iso) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  return d.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
 const PRE_CHECK_SUB_TABS = [
@@ -373,22 +605,306 @@ const PRE_CHECK_SUB_TABS = [
   { id: 'initialDraftSurvey', label: 'INITIAL DRAFT SURVEY' },
 ]
 
+const PRECHECK_SECTION_TO_KEY = {
+  keyMeeting: 'key_meeting',
+  norAccepted: 'nor_accepted',
+  tankInspection: 'tank_inspection',
+  holdInspection: 'hold_inspection',
+  sampling: 'sampling',
+  initialSounding: 'initial_sounding',
+  initialDraftSurvey: 'initial_draft_survey',
+}
+
+const PRECHECK_KEY_TO_SECTION = Object.fromEntries(
+  Object.entries(PRECHECK_SECTION_TO_KEY).map(([section, key]) => [key, section])
+)
+
 const POST_CHECK_SUB_TABS = [
   { id: 'finalTankInspection', label: 'FINAL TANK INSPECTION' },
   { id: 'finalHoldInspection', label: 'FINAL HOLD INSPECTION' },
   { id: 'finalSounding', label: 'FINAL SOUNDING' },
 ]
 
+function precheckDocumentHref(url) {
+  if (url == null || url === '') return '#'
+  const u = String(url)
+  if (u.startsWith('blob:')) return u
+  return resolveUploadUrl(u)
+}
+
+function normalizeNorDetailsPayload(raw) {
+  if (raw == null) return {}
+  if (typeof raw === 'string') {
+    try {
+      const o = JSON.parse(raw)
+      return o && typeof o === 'object' ? o : {}
+    } catch {
+      return {}
+    }
+  }
+  return typeof raw === 'object' ? raw : {}
+}
+
+/** Same trash icon as Log arrival update → Notice of Readiness (Allocation.jsx) */
+function NorTrashIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M3 6h18" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <line x1="10" x2="10" y1="11" y2="17" />
+      <line x1="14" x2="14" y1="11" y2="17" />
+    </svg>
+  )
+}
+
+/** Open in new tab (external link) */
+function OpenDocumentIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <polyline points="15 3 21 3 21 9" />
+      <line x1="10" y1="14" x2="21" y2="3" />
+    </svg>
+  )
+}
+
+/** Edit mode: pick files, list pending + saved; remove uses NOR modal trash icon */
+function PrecheckDocumentsEdit({ sectionKey, documents, onAddFiles, onRemoveIndex, removingKey }) {
+  const list = documents || []
+  return (
+    <div className="berthing-modal__field">
+      <label className="berthing-modal__label">Upload document</label>
+      <label className="berthing-modal__file-zone">
+        <span className="berthing-modal__file-zone-text">
+          {list.length ? `${list.length} file(s) selected` : 'Choose files'}
+        </span>
+        <input
+          type="file"
+          multiple
+          accept="image/*,.pdf"
+          className="berthing-modal__file-input"
+          onChange={(e) => {
+            onAddFiles(e.target.files)
+            e.target.value = ''
+          }}
+        />
+      </label>
+      {list.length > 0 && (
+        <ul className="precheck-doc-list">
+          {list.map((f, i) => (
+            <li key={f.id != null ? `doc-${f.id}` : `local-${i}-${f.name}`} className="precheck-doc-list__item">
+              <span className="precheck-doc-list__name">{f.name}</span>
+              {f.url ? (
+                <button
+                  type="button"
+                  className="berthing-modal__doc-open-btn"
+                  title="Open document in new tab"
+                  aria-label={`Open document: ${f.name || 'file'}`}
+                  onClick={() => {
+                    const href = precheckDocumentHref(f.url)
+                    if (href && href !== '#') window.open(href, '_blank', 'noopener,noreferrer')
+                  }}
+                >
+                  <OpenDocumentIcon />
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="berthing-modal__nor-delete-btn"
+                title="Remove document"
+                aria-label={`Remove document: ${f.name || 'file'}`}
+                disabled={f.id != null && removingKey === `${sectionKey}-${f.id}`}
+                onClick={() => onRemoveIndex(i)}
+              >
+                <NorTrashIcon />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/** View mode: links only (no delete — use Edit to remove documents) */
+function PrecheckDocumentsRead({ documents }) {
+  const list = documents || []
+  return (
+    <div className="precheck-section__row precheck-section__row--block">
+      <span className="precheck-section__label">Documents</span>
+      <div className="precheck-section__value">
+        {list.length === 0 ? (
+          '—'
+        ) : (
+          <ul className="precheck-doc-list">
+            {list.map((f, i) => (
+              <li key={f.id ?? `rv-${i}-${f.name}`} className="precheck-doc-list__item">
+                <a
+                  href={precheckDocumentHref(f.url)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="precheck-doc-list__link"
+                >
+                  {f.name}
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /** Pre-Checking sections: KEY MEETING, NOR ACCEPTED, TANK INSPECTION, HOLD INSPECTION, SAMPLING, INITIAL SOUNDING, INITIAL DRAFT SURVEY */
-function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, getArrivalNor, setArrivalNor, formatDateTimeDisplay }) {
+function PreCheckingSections({
+  vesselId,
+  operationId,
+  operationNorTenderedAt,
+  operationNorAcceptedAt,
+  getPreChecking,
+  setPreCheckingSection,
+  getArrivalNor,
+  setArrivalNor,
+  formatDateTimeDisplay,
+}) {
   const [activeSubTab, setActiveSubTab] = useState('keyMeeting')
   const [editingSection, setEditingSection] = useState(null)
   const [draft, setDraft] = useState(() => defaultPreCheckingSection())
   const [editingSamplingRecordId, setEditingSamplingRecordId] = useState(null)
   const [samplingForm, setSamplingForm] = useState({ noPalka: '', ffa: '', moisture: '' })
+  const [loadingPersisted, setLoadingPersisted] = useState(false)
+  const [persistError, setPersistError] = useState(null)
+  const [savingSection, setSavingSection] = useState(null)
+  const [saveSuccessMessage, setSaveSuccessMessage] = useState(null)
+  const [removingDoc, setRemovingDoc] = useState(null)
 
   const data = getPreChecking(vesselId)
   const norFromArrival = getArrivalNor(vesselId)
+
+  useEffect(() => {
+    let cancelled = false
+    if (!operationId) {
+      setLoadingPersisted(false)
+      setPersistError(null)
+      return () => { cancelled = true }
+    }
+    setLoadingPersisted(true)
+    setPersistError(null)
+    Promise.all([
+      fetchSubProcesses(operationId, 'Pre-Checking'),
+      fetchNorDetails(operationId),
+      fetchOperationDocuments(operationId, 'NOR').catch(() => []),
+    ])
+      .then(async ([subRows, nor, norDocsFromOperation]) => {
+        if (cancelled) return
+        const bySection = {}
+        const docLoads = []
+        ;(Array.isArray(subRows) ? subRows : []).forEach((row) => {
+          const section = PRECHECK_KEY_TO_SECTION[row.subProcessKey]
+          if (!section) return
+          const current = bySection[section] || {}
+          const merged = {
+            ...current,
+            remark: row.remark || '',
+            status: row.status || current.status,
+            lastSavedAt: row.updatedAt ?? current.lastSavedAt ?? null,
+          }
+          if (row.occurredAt) merged.dateTime = String(row.occurredAt).slice(0, 16)
+          if (section === 'sampling') {
+            merged.records = Array.isArray(row.payload?.records) ? row.payload.records : []
+          }
+          if (section === 'initialSounding' || section === 'initialDraftSurvey') {
+            merged.remark = row.remark || row.payload?.result || ''
+          }
+          if (section === 'norAccepted') {
+            const p = row.payload && typeof row.payload === 'object' ? row.payload : {}
+            if (p.norTenderedDateTime) merged.norTenderedDateTime = isoOrDatetimeToLocal(p.norTenderedDateTime)
+            if (p.norAcceptedDateTime) merged.norAcceptedDateTime = isoOrDatetimeToLocal(p.norAcceptedDateTime)
+          }
+          bySection[section] = merged
+          docLoads.push(
+            fetchSubProcessDocuments(operationId, row.subProcessKey, 'Pre-Checking')
+              .then((docs) => ({ section, docs: Array.isArray(docs) ? docs : [] }))
+              .catch(() => ({ section, docs: [] }))
+          )
+        })
+        const docBySection = {}
+        const loadedDocs = await Promise.all(docLoads)
+        loadedDocs.forEach((x) => {
+          docBySection[x.section] = x.docs.map((d) => ({ id: d.id, name: d.name, url: d.url, source: 'precheck_subprocess' }))
+        })
+        Object.entries(bySection).forEach(([section, val]) => {
+          if (section === 'norAccepted') return
+          setPreCheckingSection(vesselId, section, { ...val, documents: docBySection[section] || [] })
+        })
+        const norFromSub = bySection.norAccepted || {}
+        const opNorDocs = (Array.isArray(norDocsFromOperation) ? norDocsFromOperation : []).map((d) => ({
+          id: d.id,
+          name: d.name,
+          url: d.url,
+          source: 'shared_operation_nor',
+        }))
+        const mergedNorDocs = [...opNorDocs, ...(docBySection.norAccepted || [])]
+        const norPayload = normalizeNorDetailsPayload(nor?.payload)
+        const sourceFromPayload = norPayload?.norSource || null
+        const subProcessNorDocs = docBySection.norAccepted || []
+        const inferredSource =
+          sourceFromPayload ||
+          (opNorDocs.length > 0 ? 'inferred_from_nor_files' : null) ||
+          (subProcessNorDocs.length > 0 ? 'nor_accepted_tab' : null)
+
+        setArrivalNor(vesselId, {
+          norTenderedDateTime:
+            isoOrDatetimeToLocal(operationNorTenderedAt) || norFromSub.norTenderedDateTime || '',
+          norAcceptedDateTime:
+            isoOrDatetimeToLocal(operationNorAcceptedAt) || norFromSub.norAcceptedDateTime || '',
+        })
+        setPreCheckingSection(vesselId, 'norAccepted', {
+          ...norFromSub,
+          remark: nor?.remark ?? norFromSub.remark ?? '',
+          documents: mergedNorDocs,
+          sourceModule: inferredSource,
+          lastSavedAt: laterIso(nor?.updatedAt, norFromSub.lastSavedAt),
+        })
+        setLoadingPersisted(false)
+      })
+      .catch((e) => {
+        if (cancelled) return
+        setPersistError(e?.message || 'Failed to load pre-checking data')
+        setLoadingPersisted(false)
+      })
+    return () => { cancelled = true }
+  }, [operationId, vesselId, operationNorTenderedAt, operationNorAcceptedAt, setArrivalNor, setPreCheckingSection])
+
+  useEffect(() => {
+    if (!saveSuccessMessage) return undefined
+    const t = setTimeout(() => setSaveSuccessMessage(null), 6500)
+    return () => clearTimeout(t)
+  }, [saveSuccessMessage])
 
   const startEdit = (sectionKey) => {
     const current = getPreChecking(vesselId)
@@ -412,7 +928,37 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
     setEditingSection(sectionKey)
   }
 
-  const saveSection = (sectionKey) => {
+  const buildSubProcessPayload = (sectionKey, sectionDraft) => {
+    if (sectionKey === 'sampling') {
+      return {
+        status: 'Done',
+        occurredAt: sectionDraft?.dateTime || null,
+        remark: sectionDraft?.remark || '',
+        payload: { records: sectionDraft?.records || [] },
+      }
+    }
+    if (sectionKey === 'initialSounding' || sectionKey === 'initialDraftSurvey') {
+      return {
+        status: 'Done',
+        occurredAt: sectionDraft?.dateTime || null,
+        remark: sectionDraft?.remark || sectionDraft?.result || '',
+        payload: null,
+      }
+    }
+    return {
+      status: 'Done',
+      occurredAt: sectionDraft?.dateTime || null,
+      remark: sectionDraft?.remark || '',
+      payload: null,
+    }
+  }
+
+  const saveSection = async (sectionKey, mode = 'final', goNext = false) => {
+    const isDraft = mode === 'draft'
+    const nextStatus = isDraft ? 'In Progress' : 'Done'
+    setPersistError(null)
+    setSaveSuccessMessage(null)
+    setSavingSection(`${sectionKey}:${mode}`)
     if (sectionKey === 'norAccepted') {
       setArrivalNor(vesselId, {
         norTenderedDateTime: draft.norAccepted.norTenderedDateTime || '',
@@ -421,19 +967,198 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
       setPreCheckingSection(vesselId, 'norAccepted', {
         documents: draft.norAccepted.documents || [],
         remark: draft.norAccepted.remark || '',
+        status: nextStatus,
+        sourceModule: 'nor_accepted_tab',
       })
+      try {
+        if (operationId) {
+          await saveArrivalUpdateApi({
+            operationId,
+            norTenderedDateTime: draft.norAccepted.norTenderedDateTime || '',
+            norAcceptedDateTime: draft.norAccepted.norAcceptedDateTime || '',
+          })
+          const norDet = await updateNorDetails(operationId, {
+            remark: draft.norAccepted.remark || '',
+            payload: {
+              norStage: 'at_berth',
+              norSource: 'nor_accepted_tab',
+              updatedVia: 'loading.pre-checking.nor_accepted',
+            },
+          })
+          const subNor = await upsertSubProcess(operationId, 'nor_accepted', {
+            phase: 'Pre-Checking',
+            status: nextStatus,
+            occurredAt: draft.norAccepted.norAcceptedDateTime || draft.norAccepted.norTenderedDateTime || null,
+            remark: draft.norAccepted.remark || '',
+            payload: {
+              norTenderedDateTime: draft.norAccepted.norTenderedDateTime || null,
+              norAcceptedDateTime: draft.norAccepted.norAcceptedDateTime || null,
+              saveMode: isDraft ? 'draft' : 'final',
+            },
+          })
+          const norLastSaved = laterIso(norDet?.updatedAt, subNor?.updatedAt)
+          if (norLastSaved) {
+            setPreCheckingSection(vesselId, 'norAccepted', { lastSavedAt: norLastSaved })
+          }
+          const pendingNorDocs = (draft.norAccepted.documents || []).filter((d) => d?.file)
+          if (pendingNorDocs.length > 0) {
+            const upload = await uploadOperationDocuments(operationId, 'NOR', pendingNorDocs.map((d) => d.file))
+            const saved = Array.isArray(upload?.items)
+              ? upload.items.map((x) => ({ id: x.id, name: x.name, url: x.url, source: 'nor_accepted_tab' }))
+              : []
+            setPreCheckingSection(vesselId, 'norAccepted', {
+              documents: [
+                ...(draft.norAccepted.documents || []).filter((d) => !d?.file),
+                ...saved,
+              ],
+              remark: draft.norAccepted.remark || '',
+              status: nextStatus,
+              sourceModule: 'nor_accepted_tab',
+              ...(norLastSaved ? { lastSavedAt: norLastSaved } : {}),
+            })
+          }
+        }
+      } catch (e) {
+        setPersistError(e?.message || 'Failed to save NOR Accepted')
+        setSavingSection(null)
+        return
+      }
     } else {
-      setPreCheckingSection(vesselId, sectionKey, draft[sectionKey])
+      const sectionDraft = draft[sectionKey] || {}
+      setPreCheckingSection(vesselId, sectionKey, { ...sectionDraft, status: nextStatus })
+      try {
+        if (operationId) {
+          const subKey = PRECHECK_SECTION_TO_KEY[sectionKey]
+          const payload = buildSubProcessPayload(sectionKey, sectionDraft)
+          const sent = await upsertSubProcess(operationId, subKey, { phase: 'Pre-Checking', ...payload, status: nextStatus })
+          if (sent?.updatedAt) {
+            setPreCheckingSection(vesselId, sectionKey, { lastSavedAt: sent.updatedAt })
+          }
+          const pendingDocs = (sectionDraft.documents || []).filter((d) => d?.file)
+          if (pendingDocs.length > 0) {
+            const upload = await uploadSubProcessDocuments(operationId, subKey, 'Pre-Checking', pendingDocs.map((d) => d.file))
+            const saved = Array.isArray(upload?.items)
+              ? upload.items.map((x) => ({ id: x.id, name: x.name, url: x.url }))
+              : []
+            setPreCheckingSection(vesselId, sectionKey, {
+              ...sectionDraft,
+              status: nextStatus,
+              documents: [
+                ...(sectionDraft.documents || []).filter((d) => !d?.file),
+                ...saved,
+              ],
+              ...(sent?.updatedAt ? { lastSavedAt: sent.updatedAt } : {}),
+            })
+          }
+        }
+      } catch (e) {
+        setPersistError(e?.message || `Failed to save ${sectionKey}`)
+        setSavingSection(null)
+        return
+      }
     }
+    setSavingSection(null)
     setEditingSection(null)
+    const tabLabel = PRE_CHECK_SUB_TABS.find((t) => t.id === sectionKey)?.label || sectionKey
+    let successMsg = ''
+    if (operationId) {
+      if (isDraft) {
+        successMsg = `${tabLabel} draft saved.`
+      } else {
+        successMsg = `${tabLabel} saved.`
+      }
+    } else {
+      successMsg = isDraft
+        ? `${tabLabel} draft saved on this device only. Open the vessel from At-Berth to sync to the server.`
+        : `${tabLabel} saved on this device only. Open the vessel from At-Berth to sync to the server.`
+    }
+    if (goNext) {
+      const idx = PRE_CHECK_SUB_TABS.findIndex((t) => t.id === sectionKey)
+      const next = PRE_CHECK_SUB_TABS[idx + 1]
+      if (next) {
+        setActiveSubTab(next.id)
+        if (operationId) {
+          successMsg = isDraft
+            ? `${tabLabel} draft saved. Next: ${next.label}.`
+            : `${tabLabel} saved. Next: ${next.label}.`
+        } else {
+          successMsg = isDraft
+            ? `${tabLabel} draft saved locally. Next: ${next.label}.`
+            : `${tabLabel} saved locally. Next: ${next.label}.`
+        }
+      }
+    }
+    setSaveSuccessMessage(successMsg)
   }
 
   const addSectionDocuments = (sectionKey, files) => {
-    const newOnes = Array.from(files || []).map((f) => ({ name: f.name, url: URL.createObjectURL(f) }))
+    const newOnes = Array.from(files || []).map((f) => ({ name: f.name, url: URL.createObjectURL(f), file: f }))
     setDraft((prev) => ({
       ...prev,
       [sectionKey]: { ...(prev[sectionKey] || {}), documents: [...(prev[sectionKey]?.documents || []), ...newOnes] },
     }))
+  }
+
+  const removePrecheckDocumentAt = async (sectionKey, index) => {
+    const subKey = PRECHECK_SECTION_TO_KEY[sectionKey]
+    if (!subKey) return
+    const docs = [...(draft[sectionKey]?.documents || [])]
+    const doc = docs[index]
+    if (!doc) return
+
+    const revokeBlob = (d) => {
+      if (d?.url && String(d.url).startsWith('blob:')) {
+        try {
+          URL.revokeObjectURL(d.url)
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    if (doc.file) {
+      revokeBlob(doc)
+      docs.splice(index, 1)
+      setDraft((prev) => ({
+        ...prev,
+        [sectionKey]: { ...(prev[sectionKey] || {}), documents: docs },
+      }))
+      return
+    }
+
+    if (doc.id == null) {
+      docs.splice(index, 1)
+      setDraft((prev) => ({
+        ...prev,
+        [sectionKey]: { ...(prev[sectionKey] || {}), documents: docs },
+      }))
+      return
+    }
+
+    if (!window.confirm('Remove this document from the operation?')) return
+
+    const rk = `${sectionKey}-${doc.id}`
+    setRemovingDoc(rk)
+    setPersistError(null)
+    try {
+      if (operationId) {
+        if (sectionKey === 'norAccepted' && doc?.source !== 'precheck_subprocess') {
+          await deleteOperationDocument(doc.id)
+        } else {
+          await deleteSubProcessDocument(operationId, subKey, doc.id, 'Pre-Checking')
+        }
+      }
+      docs.splice(index, 1)
+      setDraft((prev) => ({
+        ...prev,
+        [sectionKey]: { ...(prev[sectionKey] || {}), documents: docs },
+      }))
+      setPreCheckingSection(vesselId, sectionKey, { documents: docs })
+    } catch (e) {
+      setPersistError(e?.message || 'Failed to remove document')
+    } finally {
+      setRemovingDoc(null)
+    }
   }
 
   const cancelEdit = () => {
@@ -443,6 +1168,31 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
   }
 
   const samplingRecords = (editingSection === 'sampling' ? draft.sampling?.records : data.sampling?.records) ?? []
+  const formatSamplingMetric = (value) => {
+    if (value == null || value === '') return '—'
+    const n = Number(value)
+    if (Number.isNaN(n)) return String(value)
+    return n.toFixed(2)
+  }
+  const samplingSummary = (() => {
+    const rows = samplingRecords
+      .map((r) => ({
+        ffa: Number(r?.ffa),
+        moisture: Number(r?.moisture),
+      }))
+      .filter((r) => Number.isFinite(r.ffa) || Number.isFinite(r.moisture))
+    if (rows.length === 0) {
+      return { count: samplingRecords.length, avgFfa: null, avgMoisture: null }
+    }
+    const ffaVals = rows.map((r) => r.ffa).filter((v) => Number.isFinite(v))
+    const moistureVals = rows.map((r) => r.moisture).filter((v) => Number.isFinite(v))
+    const avg = (vals) => (vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null)
+    return {
+      count: samplingRecords.length,
+      avgFfa: avg(ffaVals),
+      avgMoisture: avg(moistureVals),
+    }
+  })()
 
   const addSamplingRecord = () => {
     const { noPalka, ffa, moisture } = samplingForm
@@ -502,28 +1252,85 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
     }))
   }
 
+  const stepStatuses = useMemo(() => {
+    const map = {}
+    PRE_CHECK_SUB_TABS.forEach((t) => {
+      map[t.id] = inferPrecheckStatus(t.id, data?.[t.id] || {})
+    })
+    return map
+  }, [data])
+
   return (
     <div className="precheck-sections">
-      <div className="allocation-tabs precheck-subtabs" role="tablist" aria-label="Pre-Checking sections">
-        {PRE_CHECK_SUB_TABS.map((tab) => (
+      {saveSuccessMessage && (
+        <div
+          className="toast toast--success"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <span className="toast__icon" aria-hidden>
+            ✓
+          </span>
+          <p className="toast__message">{saveSuccessMessage}</p>
           <button
-            key={tab.id}
             type="button"
-            role="tab"
-            aria-selected={activeSubTab === tab.id}
-            className={`allocation-tabs__tab ${activeSubTab === tab.id ? 'allocation-tabs__tab--active' : ''}`}
-            onClick={() => setActiveSubTab(tab.id)}
+            className="toast__close"
+            onClick={() => setSaveSuccessMessage(null)}
+            aria-label="Dismiss notification"
           >
-            {tab.label}
+            ×
           </button>
-        ))}
-      </div>
+        </div>
+      )}
+      {loadingPersisted && <p className="text-steel">Loading saved pre-checking data…</p>}
+      {persistError && (
+        <p className="text-steel" style={{ color: 'var(--danger-600, #c00)' }}>
+          {persistError}
+        </p>
+      )}
+      {savingSection && (
+        <p className="text-steel">
+          {savingSection.endsWith(':draft') ? 'Saving draft…' : 'Saving…'}
+        </p>
+      )}
+      <div className="precheck-master-detail">
+        <aside className="precheck-master-detail__list">
+          <div className="precheck-checklist" role="tablist" aria-label="Pre-Checking sections">
+            {PRE_CHECK_SUB_TABS.map((tab) => (
+              <div
+                key={tab.id}
+                className={`precheck-checklist__item ${activeSubTab === tab.id ? 'precheck-checklist__item--active' : ''}`}
+              >
+                <div className="precheck-checklist__left">
+                  <div className="precheck-checklist__topline">
+                    <span className="precheck-checklist__title">{tab.label}</span>
+                    <span className={`precheck-checklist__status precheck-checklist__status--${String(stepStatuses[tab.id] || '').toLowerCase().replace(/\s+/g, '-')}`}>
+                      {stepStatuses[tab.id]}
+                    </span>
+                  </div>
+                  {data[tab.id]?.lastSavedAt ? (
+                    <span className="precheck-checklist__saved">
+                      Last saved {formatDateTimeDisplay(data[tab.id].lastSavedAt)}
+                    </span>
+                  ) : null}
+                </div>
+                <button type="button" className="btn btn--small" onClick={() => setActiveSubTab(tab.id)}>
+                  Open
+                </button>
+              </div>
+            ))}
+          </div>
+        </aside>
+        <div className="precheck-master-detail__panel" role="tabpanel" aria-label="Pre-Checking detail">
       {activeSubTab === 'keyMeeting' && (
       <PreCheckSectionCard
         title="KEY MEETING"
         isEditing={editingSection === 'keyMeeting'}
         onEdit={() => startEdit('keyMeeting')}
-        onSave={() => saveSection('keyMeeting')}
+        onSave={() => saveSection('keyMeeting', 'final')}
+        onSaveDraft={() => saveSection('keyMeeting', 'draft')}
+        onSaveNext={() => saveSection('keyMeeting', 'final', true)}
         onCancel={cancelEdit}
       >
         {editingSection === 'keyMeeting' ? (
@@ -537,20 +1344,13 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
                 onChange={(e) => updateDraft('keyMeeting', 'dateTime', e.target.value)}
               />
             </div>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Upload document</label>
-              <label className="berthing-modal__file-zone">
-                <span className="berthing-modal__file-zone-text">{draft.keyMeeting?.documents?.length ? `${draft.keyMeeting.documents.length} file(s)` : 'Choose files'}</span>
-                <input type="file" multiple accept="image/*,.pdf" onChange={(e) => addSectionDocuments('keyMeeting', e.target.files)} className="berthing-modal__file-input" />
-              </label>
-              {(draft.keyMeeting?.documents?.length > 0) && (
-                <ul className="loading-step-card__file-list">
-                  {draft.keyMeeting.documents.map((f, i) => (
-                    <li key={i}>{f.name}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            <PrecheckDocumentsEdit
+              sectionKey="keyMeeting"
+              documents={draft.keyMeeting?.documents}
+              onAddFiles={(files) => addSectionDocuments('keyMeeting', files)}
+              onRemoveIndex={(i) => removePrecheckDocumentAt('keyMeeting', i)}
+              removingKey={removingDoc}
+            />
             <div className="berthing-modal__field">
               <label className="berthing-modal__label">Remark</label>
               <textarea
@@ -568,12 +1368,7 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
               <span className="precheck-section__label">Date &amp; Time</span>
               <span className="precheck-section__value">{data.keyMeeting?.dateTime ? formatDateTimeDisplay(data.keyMeeting.dateTime) : '—'}</span>
             </div>
-            <div className="precheck-section__row">
-              <span className="precheck-section__label">Upload document</span>
-              <span className="precheck-section__value">
-                {data.keyMeeting?.documents?.length ? data.keyMeeting.documents.map((f, i) => f.name).join(', ') : '—'}
-              </span>
-            </div>
+            <PrecheckDocumentsRead documents={data.keyMeeting?.documents} />
             <div className="precheck-section__row precheck-section__row--block">
               <span className="precheck-section__label">Remark</span>
               <span className="precheck-section__value">{data.keyMeeting?.remark || '—'}</span>
@@ -587,7 +1382,9 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
         title="NOR ACCEPTED"
         isEditing={editingSection === 'norAccepted'}
         onEdit={() => startEdit('norAccepted')}
-        onSave={() => saveSection('norAccepted')}
+        onSave={() => saveSection('norAccepted', 'final')}
+        onSaveDraft={() => saveSection('norAccepted', 'draft')}
+        onSaveNext={() => saveSection('norAccepted', 'final', true)}
         onCancel={cancelEdit}
       >
         {editingSection === 'norAccepted' ? (
@@ -610,20 +1407,13 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
                 onChange={(e) => updateDraft('norAccepted', 'norAcceptedDateTime', e.target.value)}
               />
             </div>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Upload document</label>
-              <label className="berthing-modal__file-zone">
-                <span className="berthing-modal__file-zone-text">{draft.norAccepted?.documents?.length ? `${draft.norAccepted.documents.length} file(s)` : 'Choose files'}</span>
-                <input type="file" multiple accept="image/*,.pdf" onChange={(e) => addSectionDocuments('norAccepted', e.target.files)} className="berthing-modal__file-input" />
-              </label>
-              {(draft.norAccepted?.documents?.length > 0) && (
-                <ul className="loading-step-card__file-list">
-                  {draft.norAccepted.documents.map((f, i) => (
-                    <li key={i}>{f.name}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            <PrecheckDocumentsEdit
+              sectionKey="norAccepted"
+              documents={draft.norAccepted?.documents}
+              onAddFiles={(files) => addSectionDocuments('norAccepted', files)}
+              onRemoveIndex={(i) => removePrecheckDocumentAt('norAccepted', i)}
+              removingKey={removingDoc}
+            />
             <div className="berthing-modal__field">
               <label className="berthing-modal__label">Remark</label>
               <textarea
@@ -645,15 +1435,20 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
               <span className="precheck-section__label">Date &amp; Time (NOR Accepted)</span>
               <span className="precheck-section__value">{norFromArrival.norAcceptedDateTime ? formatDateTimeDisplay(norFromArrival.norAcceptedDateTime) : '—'}</span>
             </div>
-            <div className="precheck-section__row">
-              <span className="precheck-section__label">Upload document</span>
-              <span className="precheck-section__value">
-                {data.norAccepted?.documents?.length ? data.norAccepted.documents.map((f, i) => f.name).join(', ') : '—'}
-              </span>
-            </div>
+            <PrecheckDocumentsRead documents={data.norAccepted?.documents} />
             <div className="precheck-section__row precheck-section__row--block">
               <span className="precheck-section__label">Remark</span>
               <span className="precheck-section__value">{data.norAccepted?.remark || '—'}</span>
+            </div>
+            <div className="precheck-section__row">
+              <span className="precheck-section__label">Last Updated Via</span>
+              <span className="precheck-section__value">
+                {data.norAccepted?.sourceModule === 'allocation_log_arrival'
+                  ? 'Allocation & Berthing'
+                  : data.norAccepted?.sourceModule === 'nor_accepted_tab'
+                    ? 'NOR Accepted Tab'
+                    : '—'}
+              </span>
             </div>
           </>
         )}
@@ -664,7 +1459,9 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
         title="TANK INSPECTION"
         isEditing={editingSection === 'tankInspection'}
         onEdit={() => startEdit('tankInspection')}
-        onSave={() => saveSection('tankInspection')}
+        onSave={() => saveSection('tankInspection', 'final')}
+        onSaveDraft={() => saveSection('tankInspection', 'draft')}
+        onSaveNext={() => saveSection('tankInspection', 'final', true)}
         onCancel={cancelEdit}
       >
         {editingSection === 'tankInspection' ? (
@@ -678,20 +1475,13 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
                 onChange={(e) => updateDraft('tankInspection', 'dateTime', e.target.value)}
               />
             </div>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Upload document</label>
-              <label className="berthing-modal__file-zone">
-                <span className="berthing-modal__file-zone-text">{draft.tankInspection?.documents?.length ? `${draft.tankInspection.documents.length} file(s)` : 'Choose files'}</span>
-                <input type="file" multiple accept="image/*,.pdf" onChange={(e) => addSectionDocuments('tankInspection', e.target.files)} className="berthing-modal__file-input" />
-              </label>
-              {(draft.tankInspection?.documents?.length > 0) && (
-                <ul className="loading-step-card__file-list">
-                  {draft.tankInspection.documents.map((f, i) => (
-                    <li key={i}>{f.name}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            <PrecheckDocumentsEdit
+              sectionKey="tankInspection"
+              documents={draft.tankInspection?.documents}
+              onAddFiles={(files) => addSectionDocuments('tankInspection', files)}
+              onRemoveIndex={(i) => removePrecheckDocumentAt('tankInspection', i)}
+              removingKey={removingDoc}
+            />
             <div className="berthing-modal__field">
               <label className="berthing-modal__label">Remark</label>
               <textarea
@@ -709,10 +1499,7 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
               <span className="precheck-section__label">Date &amp; Time</span>
               <span className="precheck-section__value">{data.tankInspection?.dateTime ? formatDateTimeDisplay(data.tankInspection.dateTime) : '—'}</span>
             </div>
-            <div className="precheck-section__row">
-              <span className="precheck-section__label">Upload document</span>
-              <span className="precheck-section__value">{data.tankInspection?.documents?.length ? data.tankInspection.documents.map((f, i) => f.name).join(', ') : '—'}</span>
-            </div>
+            <PrecheckDocumentsRead documents={data.tankInspection?.documents} />
             <div className="precheck-section__row precheck-section__row--block">
               <span className="precheck-section__label">Remark</span>
               <span className="precheck-section__value">{data.tankInspection?.remark || '—'}</span>
@@ -726,7 +1513,9 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
         title="HOLD INSPECTION"
         isEditing={editingSection === 'holdInspection'}
         onEdit={() => startEdit('holdInspection')}
-        onSave={() => saveSection('holdInspection')}
+        onSave={() => saveSection('holdInspection', 'final')}
+        onSaveDraft={() => saveSection('holdInspection', 'draft')}
+        onSaveNext={() => saveSection('holdInspection', 'final', true)}
         onCancel={cancelEdit}
       >
         {editingSection === 'holdInspection' ? (
@@ -740,20 +1529,13 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
                 onChange={(e) => updateDraft('holdInspection', 'dateTime', e.target.value)}
               />
             </div>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Upload document</label>
-              <label className="berthing-modal__file-zone">
-                <span className="berthing-modal__file-zone-text">{draft.holdInspection?.documents?.length ? `${draft.holdInspection.documents.length} file(s)` : 'Choose files'}</span>
-                <input type="file" multiple accept="image/*,.pdf" onChange={(e) => addSectionDocuments('holdInspection', e.target.files)} className="berthing-modal__file-input" />
-              </label>
-              {(draft.holdInspection?.documents?.length > 0) && (
-                <ul className="loading-step-card__file-list">
-                  {draft.holdInspection.documents.map((f, i) => (
-                    <li key={i}>{f.name}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            <PrecheckDocumentsEdit
+              sectionKey="holdInspection"
+              documents={draft.holdInspection?.documents}
+              onAddFiles={(files) => addSectionDocuments('holdInspection', files)}
+              onRemoveIndex={(i) => removePrecheckDocumentAt('holdInspection', i)}
+              removingKey={removingDoc}
+            />
             <div className="berthing-modal__field">
               <label className="berthing-modal__label">Remark</label>
               <textarea
@@ -771,10 +1553,7 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
               <span className="precheck-section__label">Date &amp; Time</span>
               <span className="precheck-section__value">{data.holdInspection?.dateTime ? formatDateTimeDisplay(data.holdInspection.dateTime) : '—'}</span>
             </div>
-            <div className="precheck-section__row">
-              <span className="precheck-section__label">Upload document</span>
-              <span className="precheck-section__value">{data.holdInspection?.documents?.length ? data.holdInspection.documents.map((f, i) => f.name).join(', ') : '—'}</span>
-            </div>
+            <PrecheckDocumentsRead documents={data.holdInspection?.documents} />
             <div className="precheck-section__row precheck-section__row--block">
               <span className="precheck-section__label">Remark</span>
               <span className="precheck-section__value">{data.holdInspection?.remark || '—'}</span>
@@ -788,7 +1567,9 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
         title="SAMPLING"
         isEditing={editingSection === 'sampling'}
         onEdit={() => startEdit('sampling')}
-        onSave={() => saveSection('sampling')}
+        onSave={() => saveSection('sampling', 'final')}
+        onSaveDraft={() => saveSection('sampling', 'draft')}
+        onSaveNext={() => saveSection('sampling', 'final', true)}
         onCancel={cancelEdit}
       >
         {editingSection === 'sampling' ? (
@@ -802,20 +1583,13 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
                 onChange={(e) => updateDraft('sampling', 'dateTime', e.target.value)}
               />
             </div>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Upload document</label>
-              <label className="berthing-modal__file-zone">
-                <span className="berthing-modal__file-zone-text">{draft.sampling?.documents?.length ? `${draft.sampling.documents.length} file(s)` : 'Choose files'}</span>
-                <input type="file" multiple accept="image/*,.pdf" onChange={(e) => addSectionDocuments('sampling', e.target.files)} className="berthing-modal__file-input" />
-              </label>
-              {(draft.sampling?.documents?.length > 0) && (
-                <ul className="loading-step-card__file-list">
-                  {draft.sampling.documents.map((f, i) => (
-                    <li key={i}>{f.name}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            <PrecheckDocumentsEdit
+              sectionKey="sampling"
+              documents={draft.sampling?.documents}
+              onAddFiles={(files) => addSectionDocuments('sampling', files)}
+              onRemoveIndex={(i) => removePrecheckDocumentAt('sampling', i)}
+              removingKey={removingDoc}
+            />
             <div className="berthing-modal__field">
               <label className="berthing-modal__label">Remark</label>
               <textarea
@@ -826,55 +1600,70 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
                 placeholder="Optional remark"
               />
             </div>
-            <div className="loading-detail-activity-form precheck-sampling-form">
-              <div className="berthing-modal__field">
-                <label className="berthing-modal__label">No. Palka</label>
-                <input
-                  type="text"
-                  className="berthing-modal__input"
-                  value={samplingForm.noPalka}
-                  onChange={(e) => setSamplingForm((f) => ({ ...f, noPalka: e.target.value }))}
-                  placeholder="e.g. 1P, 2P, 3P"
-                />
-              </div>
-              <div className="berthing-modal__field">
-                <label className="berthing-modal__label">(%), FFA</label>
-                <input
-                  type="text"
-                  className="berthing-modal__input"
-                  value={samplingForm.ffa}
-                  onChange={(e) => setSamplingForm((f) => ({ ...f, ffa: e.target.value }))}
-                  placeholder="e.g. 4.91"
-                />
-              </div>
-              <div className="berthing-modal__field">
-                <label className="berthing-modal__label">(%), Moisture</label>
-                <input
-                  type="text"
-                  className="berthing-modal__input"
-                  value={samplingForm.moisture}
-                  onChange={(e) => setSamplingForm((f) => ({ ...f, moisture: e.target.value }))}
-                  placeholder="e.g. 0.25"
-                />
-              </div>
-              <div className="loading-step-card__actions">
-                {editingSamplingRecordId ? (
-                  <>
-                    <button type="button" className="btn btn--primary btn--small" onClick={updateSamplingRecord}>
-                      Update
+            <section className="sampling-entry-block">
+              <h4 className="sampling-entry-block__title">Sampling Entries (Per Palka)</h4>
+              <div className="sampling-entry-block__grid">
+                <div className="berthing-modal__field">
+                  <label className="berthing-modal__label">No. Palka</label>
+                  <input
+                    type="text"
+                    className="berthing-modal__input"
+                    value={samplingForm.noPalka}
+                    onChange={(e) => setSamplingForm((f) => ({ ...f, noPalka: e.target.value }))}
+                    placeholder="e.g. 1P, 2P, 3P"
+                  />
+                </div>
+                <div className="berthing-modal__field">
+                  <label className="berthing-modal__label">(%), FFA</label>
+                  <input
+                    type="text"
+                    className="berthing-modal__input"
+                    value={samplingForm.ffa}
+                    onChange={(e) => setSamplingForm((f) => ({ ...f, ffa: e.target.value }))}
+                    placeholder="e.g. 4.91"
+                  />
+                </div>
+                <div className="berthing-modal__field">
+                  <label className="berthing-modal__label">(%), Moisture</label>
+                  <input
+                    type="text"
+                    className="berthing-modal__input"
+                    value={samplingForm.moisture}
+                    onChange={(e) => setSamplingForm((f) => ({ ...f, moisture: e.target.value }))}
+                    placeholder="e.g. 0.25"
+                  />
+                </div>
+                <div className="sampling-entry-block__actions loading-step-card__actions">
+                  {editingSamplingRecordId ? (
+                    <>
+                      <button type="button" className="btn btn--primary btn--small" onClick={updateSamplingRecord}>
+                        Update
+                      </button>
+                      <button type="button" className="btn btn--small btn--secondary" onClick={cancelEditSamplingRecord}>
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn--primary btn--small"
+                      onClick={addSamplingRecord}
+                      title="Press Enter in field, then Add"
+                    >
+                      Add
                     </button>
-                    <button type="button" className="btn btn--small btn--secondary" onClick={cancelEditSamplingRecord}>
-                      Cancel
-                    </button>
-                  </>
-                ) : (
-                  <button type="button" className="btn btn--primary btn--small" onClick={addSamplingRecord}>
-                    Add
-                  </button>
-                )}
+                  )}
+                </div>
               </div>
+              <p className="sampling-entry-block__hint">Enter per-palka FFA and Moisture values, then add to the list.</p>
+            </section>
+            <div className="sampling-summary-chips" role="status" aria-live="polite">
+              <span className="sampling-summary-chip">Total Palka sampled: {samplingSummary.count}</span>
+              <span className="sampling-summary-chip">Avg FFA: {samplingSummary.avgFfa == null ? '—' : samplingSummary.avgFfa.toFixed(2)}</span>
+              <span className="sampling-summary-chip">Avg Moisture: {samplingSummary.avgMoisture == null ? '—' : samplingSummary.avgMoisture.toFixed(2)}</span>
             </div>
             <div className="loading-detail-activity-table-wrap">
+              <h4 className="sampling-entry-block__title sampling-entry-block__title--table">Recorded Samples</h4>
               <table className="loading-detail-activity-table">
                 <thead>
                   <tr>
@@ -895,8 +1684,8 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
                     samplingRecords.map((rec) => (
                       <tr key={rec.id}>
                         <td>{rec.noPalka || '—'}</td>
-                        <td>{rec.ffa || '—'}</td>
-                        <td>{rec.moisture || '—'}</td>
+                        <td className="sampling-cell--numeric">{formatSamplingMetric(rec.ffa)}</td>
+                        <td className="sampling-cell--numeric">{formatSamplingMetric(rec.moisture)}</td>
                         <td>
                           <button type="button" className="btn btn--small" onClick={() => startEditSamplingRecord(rec)}>
                             Edit
@@ -918,18 +1707,21 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
               <span className="precheck-section__label">Date &amp; Time</span>
               <span className="precheck-section__value">{data.sampling?.dateTime ? formatDateTimeDisplay(data.sampling.dateTime) : '—'}</span>
             </div>
-            <div className="precheck-section__row">
-              <span className="precheck-section__label">Upload document</span>
-              <span className="precheck-section__value">{data.sampling?.documents?.length ? data.sampling.documents.map((f, i) => f.name).join(', ') : '—'}</span>
-            </div>
+            <PrecheckDocumentsRead documents={data.sampling?.documents} />
             <div className="precheck-section__row precheck-section__row--block">
               <span className="precheck-section__label">Remark</span>
               <span className="precheck-section__value">{data.sampling?.remark || '—'}</span>
+            </div>
+            <div className="sampling-summary-chips" role="status" aria-live="polite">
+              <span className="sampling-summary-chip">Total Palka sampled: {samplingSummary.count}</span>
+              <span className="sampling-summary-chip">Avg FFA: {samplingSummary.avgFfa == null ? '—' : samplingSummary.avgFfa.toFixed(2)}</span>
+              <span className="sampling-summary-chip">Avg Moisture: {samplingSummary.avgMoisture == null ? '—' : samplingSummary.avgMoisture.toFixed(2)}</span>
             </div>
             {!samplingRecords.length ? (
               <p className="text-steel precheck-section__placeholder">No sampling records.</p>
             ) : (
               <div className="loading-detail-activity-table-wrap">
+                <h4 className="sampling-entry-block__title sampling-entry-block__title--table">Sampling Entries</h4>
                 <table className="loading-detail-activity-table">
                   <thead>
                     <tr>
@@ -942,8 +1734,8 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
                     {samplingRecords.map((rec) => (
                       <tr key={rec.id}>
                         <td>{rec.noPalka || '—'}</td>
-                        <td>{rec.ffa || '—'}</td>
-                        <td>{rec.moisture || '—'}</td>
+                        <td className="sampling-cell--numeric">{formatSamplingMetric(rec.ffa)}</td>
+                        <td className="sampling-cell--numeric">{formatSamplingMetric(rec.moisture)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -959,7 +1751,9 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
         title="INITIAL SOUNDING"
         isEditing={editingSection === 'initialSounding'}
         onEdit={() => startEdit('initialSounding')}
-        onSave={() => saveSection('initialSounding')}
+        onSave={() => saveSection('initialSounding', 'final')}
+        onSaveDraft={() => saveSection('initialSounding', 'draft')}
+        onSaveNext={() => saveSection('initialSounding', 'final', true)}
         onCancel={cancelEdit}
       >
         {editingSection === 'initialSounding' ? (
@@ -973,28 +1767,21 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
                 onChange={(e) => updateDraft('initialSounding', 'dateTime', e.target.value)}
               />
             </div>
+            <PrecheckDocumentsEdit
+              sectionKey="initialSounding"
+              documents={draft.initialSounding?.documents}
+              onAddFiles={(files) => addSectionDocuments('initialSounding', files)}
+              onRemoveIndex={(i) => removePrecheckDocumentAt('initialSounding', i)}
+              removingKey={removingDoc}
+            />
             <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Upload document</label>
-              <label className="berthing-modal__file-zone">
-                <span className="berthing-modal__file-zone-text">{draft.initialSounding?.documents?.length ? `${draft.initialSounding.documents.length} file(s)` : 'Choose files'}</span>
-                <input type="file" multiple accept="image/*,.pdf" onChange={(e) => addSectionDocuments('initialSounding', e.target.files)} className="berthing-modal__file-input" />
-              </label>
-              {(draft.initialSounding?.documents?.length > 0) && (
-                <ul className="loading-step-card__file-list">
-                  {draft.initialSounding.documents.map((f, i) => (
-                    <li key={i}>{f.name}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Result / Remark</label>
+              <label className="berthing-modal__label">Remark</label>
               <textarea
                 className="berthing-modal__input berthing-modal__textarea"
-                value={draft.initialSounding?.result || ''}
-                onChange={(e) => updateDraft('initialSounding', 'result', e.target.value)}
+                value={draft.initialSounding?.remark || ''}
+                onChange={(e) => updateDraft('initialSounding', 'remark', e.target.value)}
                 rows={4}
-                placeholder="Result or remark"
+                placeholder="Optional remark"
               />
             </div>
           </>
@@ -1004,13 +1791,10 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
               <span className="precheck-section__label">Date &amp; Time</span>
               <span className="precheck-section__value">{data.initialSounding?.dateTime ? formatDateTimeDisplay(data.initialSounding.dateTime) : '—'}</span>
             </div>
-            <div className="precheck-section__row">
-              <span className="precheck-section__label">Upload document</span>
-              <span className="precheck-section__value">{data.initialSounding?.documents?.length ? data.initialSounding.documents.map((f, i) => f.name).join(', ') : '—'}</span>
-            </div>
+            <PrecheckDocumentsRead documents={data.initialSounding?.documents} />
             <div className="precheck-section__row precheck-section__row--block">
-              <span className="precheck-section__label">Result / Remark</span>
-              <span className="precheck-section__value">{data.initialSounding?.result || '—'}</span>
+              <span className="precheck-section__label">Remark</span>
+              <span className="precheck-section__value">{data.initialSounding?.remark || '—'}</span>
             </div>
           </>
         )}
@@ -1021,7 +1805,9 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
         title="INITIAL DRAFT SURVEY"
         isEditing={editingSection === 'initialDraftSurvey'}
         onEdit={() => startEdit('initialDraftSurvey')}
-        onSave={() => saveSection('initialDraftSurvey')}
+        onSave={() => saveSection('initialDraftSurvey', 'final')}
+        onSaveDraft={() => saveSection('initialDraftSurvey', 'draft')}
+        onSaveNext={() => saveSection('initialDraftSurvey', 'final', true)}
         onCancel={cancelEdit}
       >
         {editingSection === 'initialDraftSurvey' ? (
@@ -1035,28 +1821,21 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
                 onChange={(e) => updateDraft('initialDraftSurvey', 'dateTime', e.target.value)}
               />
             </div>
+            <PrecheckDocumentsEdit
+              sectionKey="initialDraftSurvey"
+              documents={draft.initialDraftSurvey?.documents}
+              onAddFiles={(files) => addSectionDocuments('initialDraftSurvey', files)}
+              onRemoveIndex={(i) => removePrecheckDocumentAt('initialDraftSurvey', i)}
+              removingKey={removingDoc}
+            />
             <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Upload document</label>
-              <label className="berthing-modal__file-zone">
-                <span className="berthing-modal__file-zone-text">{draft.initialDraftSurvey?.documents?.length ? `${draft.initialDraftSurvey.documents.length} file(s)` : 'Choose files'}</span>
-                <input type="file" multiple accept="image/*,.pdf" onChange={(e) => addSectionDocuments('initialDraftSurvey', e.target.files)} className="berthing-modal__file-input" />
-              </label>
-              {(draft.initialDraftSurvey?.documents?.length > 0) && (
-                <ul className="loading-step-card__file-list">
-                  {draft.initialDraftSurvey.documents.map((f, i) => (
-                    <li key={i}>{f.name}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Result / Remark</label>
+              <label className="berthing-modal__label">Remark</label>
               <textarea
                 className="berthing-modal__input berthing-modal__textarea"
-                value={draft.initialDraftSurvey?.result || ''}
-                onChange={(e) => updateDraft('initialDraftSurvey', 'result', e.target.value)}
+                value={draft.initialDraftSurvey?.remark || ''}
+                onChange={(e) => updateDraft('initialDraftSurvey', 'remark', e.target.value)}
                 rows={4}
-                placeholder="Result or remark"
+                placeholder="Optional remark"
               />
             </div>
           </>
@@ -1066,23 +1845,22 @@ function PreCheckingSections({ vesselId, getPreChecking, setPreCheckingSection, 
               <span className="precheck-section__label">Date &amp; Time</span>
               <span className="precheck-section__value">{data.initialDraftSurvey?.dateTime ? formatDateTimeDisplay(data.initialDraftSurvey.dateTime) : '—'}</span>
             </div>
-            <div className="precheck-section__row">
-              <span className="precheck-section__label">Upload document</span>
-              <span className="precheck-section__value">{data.initialDraftSurvey?.documents?.length ? data.initialDraftSurvey.documents.map((f, i) => f.name).join(', ') : '—'}</span>
-            </div>
+            <PrecheckDocumentsRead documents={data.initialDraftSurvey?.documents} />
             <div className="precheck-section__row precheck-section__row--block">
-              <span className="precheck-section__label">Result / Remark</span>
-              <span className="precheck-section__value">{data.initialDraftSurvey?.result || '—'}</span>
+              <span className="precheck-section__label">Remark</span>
+              <span className="precheck-section__value">{data.initialDraftSurvey?.remark || '—'}</span>
             </div>
           </>
         )}
       </PreCheckSectionCard>
       )}
+        </div>
+      </div>
     </div>
   )
 }
 
-function PreCheckSectionCard({ title, isEditing, onEdit, onSave, onCancel, children }) {
+function PreCheckSectionCard({ title, isEditing, onEdit, onSave, onSaveDraft, onSaveNext, onCancel, children }) {
   return (
     <section className={`precheck-section-card ${isEditing ? 'precheck-section-card--editing' : 'precheck-section-card--disabled'}`}>
       <div className="precheck-section-card__head">
@@ -1094,9 +1872,19 @@ function PreCheckSectionCard({ title, isEditing, onEdit, onSave, onCancel, child
         )}
         {isEditing && (
           <div className="precheck-section-card__actions">
+            {onSaveDraft && (
+              <button type="button" className="btn btn--small btn--secondary" onClick={onSaveDraft}>
+                Save Draft
+              </button>
+            )}
             <button type="button" className="btn btn--primary btn--small" onClick={onSave}>
               Save
             </button>
+            {onSaveNext && (
+              <button type="button" className="btn btn--primary btn--small" onClick={onSaveNext}>
+                Save &amp; Next
+              </button>
+            )}
             <button type="button" className="btn btn--small btn--secondary" onClick={onCancel}>
               Cancel
             </button>
@@ -1401,7 +2189,7 @@ function PostCheckingSections({ vesselId, getPostChecking, setPostCheckingSectio
   )
 }
 
-function LoadingTabContent({ vesselId, cargo, loadingOp, purpose, addActivity, updateActivity, deleteActivity, vesselCargoExpanded = false, onVesselCargoToggle }) {
+function LoadingTabContent({ vesselId, loadingOp, purpose, addActivity, updateActivity, deleteActivity }) {
   const activityCategories = purpose === 'Unloading' ? UNLOADING_ACTIVITY_CATEGORIES : LOADING_ACTIVITY_CATEGORIES
   const categoryLabel = purpose === 'Unloading' ? 'Unloading Activity Category' : 'Loading Activity Category'
 
@@ -1464,37 +2252,8 @@ function LoadingTabContent({ vesselId, cargo, loadingOp, purpose, addActivity, u
     if (window.confirm('Delete this activity?')) deleteActivity(vesselId, activityId)
   }
 
-  if (!cargo) return null
-
   return (
     <div className="loading-tab-content">
-      <section className="berthing-modal__card loading-tab-card loading-card--collapsible">
-        <button
-          type="button"
-          className="loading-card__header"
-          onClick={onVesselCargoToggle}
-          aria-expanded={vesselCargoExpanded}
-        >
-          <span className="berthing-modal__card-title">Vessel &amp; Cargo</span>
-          <span className="loading-card__chevron" aria-hidden>{vesselCargoExpanded ? '▼' : '▶'}</span>
-        </button>
-        {vesselCargoExpanded && (
-          <dl className="loading-tab-dl">
-            <div className="loading-tab-dl__row"><dt>Vessel</dt><dd>{cargo.vesselName}</dd></div>
-            <div className="loading-tab-dl__row"><dt>Commodity</dt><dd>{cargo.commodity}</dd></div>
-            <div className="loading-tab-dl__row"><dt>Quantity</dt><dd>{cargo.quantity}</dd></div>
-            <div className="loading-tab-dl__row"><dt>Stowage</dt><dd>{cargo.stowage}</dd></div>
-            <div className="loading-tab-dl__row"><dt>Load port</dt><dd>{cargo.loadPort}</dd></div>
-            <div className="loading-tab-dl__row"><dt>Disch port</dt><dd>{cargo.dischPort}</dd></div>
-            <div className="loading-tab-dl__row"><dt>Shipper</dt><dd>{cargo.shipper}</dd></div>
-            <div className="loading-tab-dl__row"><dt>Consignee</dt><dd>{cargo.consignee}</dd></div>
-            <div className="loading-tab-dl__row"><dt>Surveyor</dt><dd>{cargo.surveyor}</dd></div>
-            <div className="loading-tab-dl__row"><dt>Agent</dt><dd>{cargo.agent}</dd></div>
-            <div className="loading-tab-dl__row"><dt>Jetty</dt><dd>{cargo.jettyName}</dd></div>
-          </dl>
-        )}
-      </section>
-
       <section className="berthing-modal__card loading-tab-card">
         <h3 className="berthing-modal__card-title">Detail Activity</h3>
         <div className="loading-detail-activity-form">

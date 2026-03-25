@@ -1,4 +1,4 @@
-import { berths as defaultBerths, vessels } from '../data/mockData'
+import { berths as defaultBerths, vessels as mockVessels } from '../data/mockData'
 import { getJettyLayout, getJettyById } from '../data/masterData'
 import '../styles/jetty-schematic.css'
 
@@ -17,15 +17,29 @@ const FALLBACK_LAYOUT = [
   { jetty: 3, topId: '3A', bottomId: '3B' },
 ]
 
-export default function JettySchematic({ berths: berthsProp, selectedBerthId, onSelectBerth, portId = 'p1' }) {
+export default function JettySchematic({
+  berths: berthsProp,
+  vesselById = {},
+  incomingByJetty = {},
+  selectedBerthId,
+  onSelectBerth,
+  portId = 'p1',
+}) {
   const berths = berthsProp ?? defaultBerths
   const interactive = typeof onSelectBerth === 'function'
   const layout = getJettyLayout(portId)
   const useLayout = layout && layout.columns && layout.columns.length > 0
+  const getVessel = (id) => {
+    if (!id) return null
+    return vesselById[id] || mockVessels[id] || null
+  }
 
   function renderSlot(berthId, slotClassName, content) {
     const berth = berths.find((b) => b.id === berthId)
-    const v = berth?.currentVesselId ? vessels[berth.currentVesselId] : null
+    const v = berth?.currentVesselId ? getVessel(berth.currentVesselId) : null
+    const currentName = v?.vesselName || berth?.currentVesselName || '—'
+    const incomingName = incomingByJetty[berthId] || '—'
+    const tooltip = `Jetty ${berthId}\nCurrent : ${currentName}\nIncoming : ${incomingName}`
     const selected = selectedBerthId === berthId
     const className = `${slotClassName} ${selected ? 'jetty-schematic__slot--selected' : ''}`
     const slotBody = (
@@ -41,14 +55,14 @@ export default function JettySchematic({ berths: berthsProp, selectedBerthId, on
           type="button"
           className={className}
           onClick={() => onSelectBerth(berthId)}
-          title={`Jetty ${berthId}`}
+          title={tooltip}
         >
           {slotBody}
         </button>
       )
     }
     return (
-      <div className={className} title={`Jetty ${berthId}`} role="img" aria-label={v ? `${berthId}: ${v.vesselName}` : `${berthId}: Vacant`}>
+      <div className={className} title={tooltip} role="img" aria-label={tooltip}>
         {slotBody}
       </div>
     )
@@ -82,8 +96,8 @@ export default function JettySchematic({ berths: berthsProp, selectedBerthId, on
               const bottomBerthId = col.bottom?.type === 'jetty' && col.bottom.jettyId ? (getJettyById(col.bottom.jettyId)?.jettyName ?? null) : null
               const topBerth = topBerthId ? berths.find((b) => b.id === topBerthId) : null
               const bottomBerth = bottomBerthId ? berths.find((b) => b.id === bottomBerthId) : null
-              const topV = topBerth?.currentVesselId ? vessels[topBerth.currentVesselId] : null
-              const bottomV = bottomBerth?.currentVesselId ? vessels[bottomBerth.currentVesselId] : null
+              const topV = topBerth?.currentVesselId ? getVessel(topBerth.currentVesselId) : null
+              const bottomV = bottomBerth?.currentVesselId ? getVessel(bottomBerth.currentVesselId) : null
               const topOp = topV ? getOperationType(topV) : null
               const bottomOp = bottomV ? getOperationType(bottomV) : null
               const topSlotClass = topV ? `jetty-schematic__slot jetty-schematic__slot--${topOp === 'LOAD' ? 'load' : 'disch'} jetty-schematic__slot--rag-${topV.ragStatus || 'green'}` : 'jetty-schematic__slot jetty-schematic__slot--vacant'
@@ -123,8 +137,8 @@ export default function JettySchematic({ berths: berthsProp, selectedBerthId, on
           {FALLBACK_LAYOUT.map(({ jetty, topId, bottomId }) => {
             const topBerth = berths.find((b) => b.id === topId)
             const bottomBerth = bottomId ? berths.find((b) => b.id === bottomId) : null
-            const topV = topBerth?.currentVesselId ? vessels[topBerth.currentVesselId] : null
-            const bottomV = bottomBerth?.currentVesselId ? vessels[bottomBerth.currentVesselId] : null
+            const topV = topBerth?.currentVesselId ? getVessel(topBerth.currentVesselId) : null
+            const bottomV = bottomBerth?.currentVesselId ? getVessel(bottomBerth.currentVesselId) : null
             const topOp = topV ? getOperationType(topV) : null
             const bottomOp = bottomV ? getOperationType(bottomV) : null
             const topSlotClass = `jetty-schematic__slot ${topV ? `jetty-schematic__slot--${topOp === 'LOAD' ? 'load' : 'disch'} jetty-schematic__slot--rag-${topV.ragStatus || 'green'}` : 'jetty-schematic__slot--vacant'}`

@@ -1,0 +1,103 @@
+/**
+ * Jetty Planning System - Backend API
+ * Entry point; Phase 3 — Shipping instructions & operations + PostgreSQL + API prefix + CORS.
+ */
+import 'dotenv/config';
+import 'express-async-errors';
+import cors from 'cors';
+import express from 'express';
+import { verifyConnection } from './db.js';
+import { UPLOAD_ROOT } from './paths.js';
+import authRoutes from './routes/auth.js';
+import userRoutes from './routes/users.js';
+import rbacRoutes from './routes/rbac.js';
+import portsRoutes from './routes/ports.js';
+import jettiesRoutes from './routes/jetties.js';
+import slaConfigRoutes from './routes/sla-config.js';
+import standardRatesRoutes from './routes/standard-rates.js';
+import shippingInstructionsRoutes from './routes/shipping-instructions.js';
+import siLookupsRoutes from './routes/si-lookups.js';
+import operationsRoutes from './routes/operations.js';
+import qcSurveysRoutes from './routes/qc-surveys.js';
+import quantityChecksRoutes from './routes/quantity-checks.js';
+import activityLogsRoutes from './routes/activity-logs.js';
+import allocationRoutes from './routes/allocation.js';
+import operationDocumentsRoutes from './routes/operation-documents.js';
+import operationSubProcessesRoutes from './routes/operation-sub-processes.js';
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
+
+app.use(
+  cors({
+    origin: corsOrigin.split(',').map((s) => s.trim()),
+    credentials: true,
+  }),
+);
+app.use(express.json());
+app.use('/uploads', express.static(UPLOAD_ROOT));
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+const apiV1 = express.Router();
+
+apiV1.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+apiV1.get('/ping', (req, res) => {
+  res.json({ ok: true });
+});
+
+apiV1.use('/auth', authRoutes);
+apiV1.use('/users', userRoutes);
+apiV1.use('/rbac', rbacRoutes);
+apiV1.use('/ports', portsRoutes);
+apiV1.use('/jetties', jettiesRoutes);
+apiV1.use('/sla-config', slaConfigRoutes);
+apiV1.use('/standard-rates', standardRatesRoutes);
+apiV1.use('/shipping-instructions', shippingInstructionsRoutes);
+apiV1.use('/si-lookups', siLookupsRoutes);
+apiV1.use('/operations', operationsRoutes);
+apiV1.use('/allocation', allocationRoutes);
+apiV1.use('/operation-documents', operationDocumentsRoutes);
+apiV1.use('/activity-logs', activityLogsRoutes);
+apiV1.use('/', qcSurveysRoutes);
+apiV1.use('/', quantityChecksRoutes);
+apiV1.use('/', operationSubProcessesRoutes);
+
+app.use('/api/v1', apiV1);
+
+// Central error handler (prevents crashes on async errors)
+app.use((err, req, res, next) => {
+  const code = err?.code;
+
+  // Postgres common errors
+  if (code === '23505') {
+    return res.status(409).json({ error: 'Duplicate key' });
+  }
+  if (code === '22P02') {
+    return res.status(400).json({ error: 'Invalid input' });
+  }
+
+  console.error('Unhandled error:', err);
+  return res.status(500).json({ error: 'Internal server error' });
+});
+
+async function start() {
+  try {
+    await verifyConnection();
+    console.log('Database connection OK');
+  } catch (err) {
+    console.error('FATAL: Database connection failed:', err.message);
+    process.exit(1);
+  }
+  app.listen(PORT, () => {
+    console.log(`JPS API listening on http://localhost:${PORT}`);
+  });
+}
+
+start();

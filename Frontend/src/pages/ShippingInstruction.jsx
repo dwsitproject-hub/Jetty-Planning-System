@@ -1,6 +1,39 @@
 import { useState, Fragment, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { nominations as initialList, SURVEYOR_OPTIONS, AGENT_OPTIONS, SHIPPER_OPTIONS, LOADING_PORT_OPTIONS, BERTH_IDS } from '../data/mockData'
+import {
+  fetchShippingInstructions,
+  fetchShippingInstruction,
+  createShippingInstruction,
+} from '../api/shippingInstructions'
+import { fetchSiLookups } from '../api/siLookups'
+import { updateShippingInstruction } from '../api/shippingInstructions'
+import { useActivityLog } from '../context/ActivityLogContext'
+
+function mapSiFromApi(row) {
+  return {
+    id: row.id,
+    siId: row.referenceNumber || `SI-${row.id}`,
+    vesselName: row.vesselName,
+    vesselId: `v-${row.id}`,
+    purpose: row.purpose,
+    status: row.status,
+    commodity: row.commodity,
+    etaDateTime: row.eta,
+    etaFrom: row.etaFrom || (row.eta ? String(row.eta).slice(0, 10) : ''),
+    etaTo: row.etaTo || (row.eta ? String(row.eta).slice(0, 10) : ''),
+    shipper: row.shipperName ?? '—',
+    loadingPort: row.loadingPortName ?? '—',
+    agent: row.agentName ?? '—',
+    surveyor: row.surveyorName ?? '—',
+    breakdown: [],
+    totalQtyKg: 0,
+    receivedAt: row.createdAt,
+    term: row.tradeTermCode ?? '—',
+    jetty: row.preferredJettyName ?? null,
+    note: row.note ?? null,
+    documents: [],
+  }
+}
 import '../styles/shipping-instruction.css'
 
 function formatDate(iso) {
@@ -53,11 +86,16 @@ const IconViewDocument = () => (
   </svg>
 )
 
-const COMMODITY_OPTIONS = ['CPO', 'CRUDE PALM OIL', 'POME', 'PKE', 'FAME', 'RBD PO']
-const TERM_OPTIONS = ['FOB', 'CIF', 'CFR']
+/** Pencil icon — for Edit (Draft) action */
+const IconEdit = () => (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden focusable="false">
+    <path d="M3 12.75V15h2.25L13.5 6.75 11.25 4.5 3 12.75z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" />
+    <path d="M10.5 5.25l2.25 2.25" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+  </svg>
+)
 
 /** Set to true to show "Create New SI" (e.g. local/mock); false when data is streamed from other apps (staging/production) */
-const SHOW_CREATE_NEW = false
+const SHOW_CREATE_NEW = true
 
 const PURPOSE_OPTIONS = [
   { value: '', label: 'All' },
@@ -108,7 +146,18 @@ const SI_TABLE_COLUMNS = [
   { key: 'status', label: 'Status', getSortValue: (n) => (n.status || '').toLowerCase() },
 ]
 
-const emptyBreakdownRow = () => ({ shipper: '', contractNo: '', poNo: '', qtyKg: '', remarks: '' })
+function emptyBreakdownRow(lookups) {
+  const mt = lookups?.metrics?.find((m) => m.code === 'MT') || lookups?.metrics?.[0]
+  const comm = lookups?.commodities?.[0]
+  return {
+    commodityId: comm?.id != null ? String(comm.id) : '',
+    metricId: mt?.id != null ? String(mt.id) : '',
+    qty: '',
+    contractNo: '',
+    poNo: '',
+    remarks: '',
+  }
+}
 
 function nextDocId() {
   return 'doc-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
@@ -123,37 +172,82 @@ function nextSiId(list) {
 
 export default function ShippingInstruction() {
   const navigate = useNavigate()
+  const { logActivity } = useActivityLog()
   const [isFormOpen, setIsFormOpen] = useState(false)
-  const [list, setList] = useState(initialList)
+  const [editingId, setEditingId] = useState(null)
+  const [editingSnapshot, setEditingSnapshot] = useState(null)
+  const [list, setList] = useState([])
+  const [listLoading, setListLoading] = useState(true)
+  const [listError, setListError] = useState(null)
+  const [lookups, setLookups] = useState(null)
+  const [lookupsError, setLookupsError] = useState(null)
+
+  useEffect(() => {
+    fetchSiLookups()
+      .then((data) => setLookups(data))
+      .catch((e) => setLookupsError(e?.message || 'Failed to load form options'))
+  }, [])
+
+  const defaultFormFromLookups = (lu) => {
+    const base = {
+      vesselName: '',
+      referenceNumber: '',
+      purposeId: '',
+      tradeTermId: '',
+      preferredJettyId: '',
+      shipperId: '',
+      loadingPortId: '',
+      surveyorId: '',
+      agentId: '',
+      etaFrom: '',
+      etaTo: '',
+      breakdown: [emptyBreakdownRow(lu)],
+      note: '',
+      documents: [],
+    }
+    if (!lu) return base
+    const unload = lu.purposes?.find((p) => p.code === 'Unloading') || lu.purposes?.[0]
+    return {
+      ...base,
+      purposeId: unload?.id != null ? String(unload.id) : '',
+      tradeTermId: lu.tradeTerms?.[0]?.id != null ? String(lu.tradeTerms[0].id) : '',
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setListLoading(true)
+      setListError(null)
+      try {
+        const rows = await fetchShippingInstructions()
+        if (!cancelled) setList((rows || []).map(mapSiFromApi))
+      } catch (e) {
+        if (!cancelled) {
+          setList([])
+          setListError(e?.message || 'Failed to load shipping instructions')
+        }
+      } finally {
+        if (!cancelled) setListLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const [searchQuery, setSearchQuery] = useState('')
   const [filters, setFilters] = useState({ purpose: '', status: '' })
   const [filtersPanelOpen, setFiltersPanelOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [sortState, setSortState] = useState({ key: 'siId', dir: 'desc' })
   const [expandedId, setExpandedId] = useState(null)
-  const [form, setForm] = useState({
-    vesselName: '',
-    purpose: 'Unloading',
-    etaFrom: '',
-    etaTo: '',
-    shipper: '',
-    loadingPort: '',
-    commodity: 'CPO',
-    term: 'FOB',
-    totalQtyKg: '',
-    surveyor: '',
-    agent: '',
-    jetty: '',
-    breakdown: [emptyBreakdownRow()],
-    qualityFFA: '',
-    qualityMI: '',
-    documents: [],
-  })
+  const [breakdownBySi, setBreakdownBySi] = useState({})
+  const [form, setForm] = useState(() => defaultFormFromLookups(null))
 
   const updateForm = (updates) => setForm((f) => ({ ...f, ...updates }))
 
   const addBreakdownRow = () => {
-    setForm((f) => ({ ...f, breakdown: [...f.breakdown, emptyBreakdownRow()] }))
+    setForm((f) => ({ ...f, breakdown: [...f.breakdown, emptyBreakdownRow(lookups)] }))
   }
 
   const updateBreakdownRow = (index, field, value) => {
@@ -181,66 +275,221 @@ export default function ShippingInstruction() {
     setForm((f) => ({ ...f, documents: f.documents.filter((d) => d.id !== id) }))
   }
 
-  const breakdownTotalKg = form.breakdown.reduce((sum, row) => sum + (Number(row.qtyKg) || 0), 0)
+  const breakdownTotalsByMetric = form.breakdown.reduce((acc, row) => {
+    const m = lookups?.metrics?.find((x) => String(x.id) === String(row.metricId))
+    const code = m?.code || '?'
+    acc[code] = (acc[code] || 0) + (Number(row.qty) || 0)
+    return acc
+  }, {})
 
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    const totalQtyKg = Number(form.totalQtyKg) || breakdownTotalKg || 0
-    const newSI = {
-      id: 'n' + (list.length + 1),
-      siId: nextSiId(list),
-      status: 'Draft',
-      vesselName: form.vesselName.trim(),
-      purpose: form.purpose || 'Unloading',
-      etaFrom: form.etaFrom || null,
-      etaTo: form.etaTo || null,
-      etaDateTime: form.etaFrom ? (form.etaFrom + 'T12:00:00') : null,
-      shipper: form.shipper.trim(),
-      loadingPort: form.loadingPort.trim(),
-      commodity: form.commodity,
-      term: form.term,
-      totalQtyKg,
-      surveyor: form.surveyor || null,
-      agent: form.agent || null,
-      jetty: form.jetty || null,
-      breakdown: form.breakdown
-        .filter((r) => r.contractNo || r.poNo || r.qtyKg)
-        .map((r) => ({
-          shipper: r.shipper,
-          contractNo: r.contractNo,
-          poNo: r.poNo,
-          qtyKg: Number(r.qtyKg) || 0,
-          remarks: r.remarks,
-        })),
-      qualityFFA: form.qualityFFA === '' ? null : Number(form.qualityFFA),
-      qualityMI: form.qualityMI === '' ? null : Number(form.qualityMI),
-      documents: form.documents.map((d) => ({ id: d.id, name: d.name })),
-      receivedAt: new Date().toISOString(),
+  useEffect(() => {
+    if (!expandedId || breakdownBySi[expandedId]) return
+    let cancelled = false
+    fetchShippingInstruction(expandedId)
+      .then((row) => {
+        if (!cancelled && row?.breakdown) {
+          setBreakdownBySi((m) => ({ ...m, [expandedId]: row.breakdown }))
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
     }
-    setList([newSI, ...list])
-    setForm({
-      vesselName: '',
-      purpose: 'Unloading',
-      etaFrom: '',
-      etaTo: '',
-      shipper: '',
-      loadingPort: '',
-      commodity: 'CPO',
-      term: 'FOB',
-      totalQtyKg: '',
-      surveyor: '',
-      agent: '',
-      jetty: '',
-      breakdown: [emptyBreakdownRow()],
-      qualityFFA: '',
-      qualityMI: '',
-      documents: [],
-    })
-    setIsFormOpen(false)
+  }, [expandedId, breakdownBySi])
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setListError(null)
+    if (!lookups) {
+      setListError('Form options not loaded yet')
+      return
+    }
+    const pid = parseInt(form.purposeId, 10)
+    if (Number.isNaN(pid)) {
+      setListError('Select purpose')
+      return
+    }
+    const breakdownPayload = form.breakdown.map((row) => ({
+      commodityId: parseInt(row.commodityId, 10),
+      metricId: parseInt(row.metricId, 10),
+      qty: Number(row.qty) || 0,
+      contractNo: row.contractNo?.trim() || null,
+      poNo: row.poNo?.trim() || null,
+      remarks: row.remarks?.trim() || null,
+    }))
+    for (let i = 0; i < breakdownPayload.length; i += 1) {
+      const r = breakdownPayload[i]
+      if (Number.isNaN(r.commodityId) || Number.isNaN(r.metricId) || r.qty < 0) {
+        setListError(`Breakdown row ${i + 1}: select commodity & metric, qty ≥ 0`)
+        return
+      }
+    }
+    try {
+      const etaIso = form.etaFrom ? new Date(`${form.etaFrom}T12:00:00`).toISOString() : null
+      const num = (v) => {
+        const n = parseInt(v, 10)
+        return v !== '' && !Number.isNaN(n) ? n : null
+      }
+      const payload = {
+        vesselName: form.vesselName.trim(),
+        purposeId: pid,
+        tradeTermId: num(form.tradeTermId),
+        preferredJettyId: num(form.preferredJettyId),
+        shipperId: num(form.shipperId),
+        loadingPortId: num(form.loadingPortId),
+        surveyorId: num(form.surveyorId),
+        agentId: num(form.agentId),
+        referenceNumber: form.referenceNumber?.trim() || null,
+        eta: etaIso,
+        etaFrom: form.etaFrom || null,
+        etaTo: form.etaTo || null,
+        status: 'Draft',
+        breakdown: breakdownPayload,
+        note: form.note?.trim() || null,
+      }
+
+      const saved = editingId
+        ? await updateShippingInstruction(editingId, payload)
+        : await createShippingInstruction(payload)
+
+      setList((prev) => {
+        const next = prev.filter((x) => x.id !== saved.id)
+        return [mapSiFromApi(saved), ...next]
+      })
+      const toLabel = (id, list, fallback) => {
+        if (!id) return '—'
+        const m = (list || []).find((x) => String(x.id) === String(id))
+        return m ? (m.label || m.name || m.code || m.label || m.id) : fallback || String(id)
+      }
+      const summarizeBreakdown = (rows) => {
+        const r = Array.isArray(rows) ? rows : []
+        if (r.length === 0) return '—'
+        const parts = r.map((x) => `${x.qty || 0} ${toLabel(x.metricId, lookups?.metrics, '?')} · ${toLabel(x.commodityId, lookups?.commodities, '?')}`)
+        return `${r.length} line(s): ${parts.join(' | ')}`
+      }
+      const changes = []
+      if (editingId && editingSnapshot) {
+        const before = editingSnapshot
+        const after = {
+          vesselName: payload.vesselName,
+          referenceNumber: payload.referenceNumber || '',
+          purposeId: String(payload.purposeId || ''),
+          tradeTermId: String(payload.tradeTermId || ''),
+          preferredJettyId: String(payload.preferredJettyId || ''),
+          shipperId: String(payload.shipperId || ''),
+          loadingPortId: String(payload.loadingPortId || ''),
+          surveyorId: String(payload.surveyorId || ''),
+          agentId: String(payload.agentId || ''),
+          etaFrom: payload.etaFrom || '',
+          etaTo: payload.etaTo || '',
+          note: payload.note || '',
+          breakdown: (form.breakdown || []).map((x) => ({ ...x })), // current UI rows
+        }
+        const addChange = (field, from, to) => {
+          if ((from ?? '') === (to ?? '')) return
+          changes.push({ field, from, to })
+        }
+        addChange('Vessel', before.vesselName, after.vesselName)
+        addChange('Reference', before.referenceNumber, after.referenceNumber)
+        addChange('Purpose', toLabel(before.purposeId, lookups?.purposes), toLabel(after.purposeId, lookups?.purposes))
+        addChange('Term', toLabel(before.tradeTermId, lookups?.tradeTerms), toLabel(after.tradeTermId, lookups?.tradeTerms))
+        addChange('Preferred jetty', toLabel(before.preferredJettyId, lookups?.jetties), toLabel(after.preferredJettyId, lookups?.jetties))
+        addChange('Shipper', toLabel(before.shipperId, lookups?.shippers), toLabel(after.shipperId, lookups?.shippers))
+        addChange('Loading port', toLabel(before.loadingPortId, lookups?.loadingPorts), toLabel(after.loadingPortId, lookups?.loadingPorts))
+        addChange('Surveyor', toLabel(before.surveyorId, lookups?.surveyors), toLabel(after.surveyorId, lookups?.surveyors))
+        addChange('Agent', toLabel(before.agentId, lookups?.agents), toLabel(after.agentId, lookups?.agents))
+        addChange('ETA From', before.etaFrom, after.etaFrom)
+        addChange('ETA To', before.etaTo, after.etaTo)
+        addChange('Note', before.note, after.note)
+        addChange('Breakdown', summarizeBreakdown(before.breakdown), summarizeBreakdown(after.breakdown))
+      }
+
+      logActivity({
+        pageKey: 'shipping-instruction',
+        action: editingId ? 'update' : 'add',
+        entityType: 'Shipping Instruction',
+        entityLabel: saved.referenceNumber || `SI-${saved.id}`,
+        details: editingId
+          ? { summary: 'Updated Draft SI', changes: changes.length ? changes : [{ field: 'No changes', from: '—', to: '—' }] }
+          : { summary: 'Created Draft SI', changes: [{ field: 'Vessel', from: '—', to: payload.vesselName }, { field: 'Breakdown', from: '—', to: summarizeBreakdown(form.breakdown) }] },
+      })
+      setForm(defaultFormFromLookups(lookups))
+      setIsFormOpen(false)
+      setEditingId(null)
+      setEditingSnapshot(null)
+    } catch (err) {
+      setListError(err?.message || (editingId ? 'Update failed' : 'Create failed'))
+    }
+  }
+
+  const openCreateModal = () => {
+    setForm(defaultFormFromLookups(lookups))
+    setEditingId(null)
+    setIsFormOpen(true)
+  }
+
+  const openEditModal = async (id) => {
+    if (!lookups) {
+      setListError('Form options not loaded yet')
+      return
+    }
+    setListError(null)
+    try {
+      const row = await fetchShippingInstruction(id)
+      const bd =
+        Array.isArray(row?.breakdown) && row.breakdown.length
+          ? row.breakdown.map((b) => ({
+              commodityId: b.commodityId != null ? String(b.commodityId) : '',
+              metricId: b.metricId != null ? String(b.metricId) : '',
+              qty: b.qty != null ? String(b.qty) : '',
+              contractNo: b.contractNo ?? '',
+              poNo: b.poNo ?? '',
+              remarks: b.remarks ?? '',
+            }))
+          : [emptyBreakdownRow(lookups)]
+
+      setForm({
+        vesselName: row.vesselName ?? '',
+        referenceNumber: row.referenceNumber ?? '',
+        purposeId: row.purposeId != null ? String(row.purposeId) : '',
+        tradeTermId: row.tradeTermId != null ? String(row.tradeTermId) : '',
+        preferredJettyId: row.preferredJettyId != null ? String(row.preferredJettyId) : '',
+        shipperId: row.shipperId != null ? String(row.shipperId) : '',
+        loadingPortId: row.loadingPortId != null ? String(row.loadingPortId) : '',
+        surveyorId: row.surveyorId != null ? String(row.surveyorId) : '',
+        agentId: row.agentId != null ? String(row.agentId) : '',
+        etaFrom: row.eta ? String(row.eta).slice(0, 10) : '',
+        etaTo: row.eta ? String(row.eta).slice(0, 10) : '',
+        breakdown: bd,
+        note: row.note ?? '',
+        documents: [],
+      })
+      setEditingId(id)
+      setEditingSnapshot({
+        vesselName: row.vesselName ?? '',
+        referenceNumber: row.referenceNumber ?? '',
+        purposeId: row.purposeId != null ? String(row.purposeId) : '',
+        tradeTermId: row.tradeTermId != null ? String(row.tradeTermId) : '',
+        preferredJettyId: row.preferredJettyId != null ? String(row.preferredJettyId) : '',
+        shipperId: row.shipperId != null ? String(row.shipperId) : '',
+        loadingPortId: row.loadingPortId != null ? String(row.loadingPortId) : '',
+        surveyorId: row.surveyorId != null ? String(row.surveyorId) : '',
+        agentId: row.agentId != null ? String(row.agentId) : '',
+        etaFrom: row.etaFrom ?? (row.eta ? String(row.eta).slice(0, 10) : ''),
+        etaTo: row.etaTo ?? (row.eta ? String(row.eta).slice(0, 10) : ''),
+        breakdown: bd,
+        note: row.note ?? '',
+      })
+      setIsFormOpen(true)
+    } catch (e) {
+      setListError(e?.message || 'Failed to load shipping instruction')
+    }
   }
 
   const handleCloseModal = () => {
     setIsFormOpen(false)
+    setEditingId(null)
+    setEditingSnapshot(null)
   }
 
   useEffect(() => {
@@ -308,6 +557,13 @@ export default function ShippingInstruction() {
   const handleRequestApproval = (n, e) => {
     e.stopPropagation()
     setList((prev) => prev.map((r) => (r.id === n.id ? { ...r, status: 'Submitted' } : r)))
+    logActivity({
+      pageKey: 'shipping-instruction',
+      action: 'update',
+      entityType: 'Shipping Instruction',
+      entityLabel: n.siId || `SI-${n.id}`,
+      details: 'Requested approval (UI status change)',
+    })
   }
 
   const handleExport = () => {
@@ -344,13 +600,17 @@ export default function ShippingInstruction() {
           <button
             type="button"
             className="btn btn--primary si-page-header__cta"
-            onClick={() => setIsFormOpen(true)}
+            onClick={openCreateModal}
             aria-expanded={isFormOpen}
           >
             + Create New SI
           </button>
         )}
       </header>
+      {listError && (
+        <p className="si-page-header__subtitle" style={{ color: '#c00' }} role="alert">{listError}</p>
+      )}
+      {listLoading && <p className="text-steel" style={{ padding: '0 1rem' }}>Loading shipping instructions…</p>}
 
       <div className="si-summary-cards">
         <div className="si-summary-card">
@@ -437,7 +697,11 @@ export default function ShippingInstruction() {
             aria-labelledby="si-modal-title"
             aria-modal="true"
           >
-            <h2 id="si-modal-title" className="modal__title">Create Vessel Trip / New Shipping Instruction</h2>
+            <h2 id="si-modal-title" className="modal__title">
+              {editingId ? `Edit Shipping Instruction (Draft) — #${editingId}` : 'Create Vessel Trip / New Shipping Instruction'}
+            </h2>
+            {lookupsError && <p className="text-steel" style={{ color: '#c00' }}>{lookupsError}</p>}
+            {!lookups && !lookupsError && <p className="text-steel">Loading options from API…</p>}
             <form onSubmit={handleSubmit} className="shipping-instruction-form">
               <div className="shipping-instruction-form__section">
                 <h3 className="shipping-instruction-form__section-title">Vessel & trip</h3>
@@ -450,58 +714,56 @@ export default function ShippingInstruction() {
                       onChange={(e) => updateForm({ vesselName: e.target.value })}
                       required
                       placeholder="e.g. TB. ARIA CITRA IV / BG. MULIA VII"
+                      disabled={!lookups}
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label htmlFor="siRef">Reference number (optional)</label>
+                    <input
+                      id="siRef"
+                      value={form.referenceNumber}
+                      onChange={(e) => updateForm({ referenceNumber: e.target.value })}
+                      placeholder="e.g. SI/EUP/2026/1/003"
+                      disabled={!lookups}
                     />
                   </div>
                   <div className="input-group">
                     <label htmlFor="etaFrom">ETA from *</label>
-                    <input id="etaFrom" type="date" value={form.etaFrom} onChange={(e) => updateForm({ etaFrom: e.target.value })} required />
+                    <input id="etaFrom" type="date" value={form.etaFrom} onChange={(e) => updateForm({ etaFrom: e.target.value })} required disabled={!lookups} />
                   </div>
                   <div className="input-group">
                     <label htmlFor="etaTo">ETA to *</label>
-                    <input id="etaTo" type="date" value={form.etaTo} onChange={(e) => updateForm({ etaTo: e.target.value })} required />
-                  </div>
-                  <div className="input-group">
-                    <label htmlFor="commodity">Commodity *</label>
-                    <select id="commodity" value={form.commodity} onChange={(e) => updateForm({ commodity: e.target.value })}>
-                      {COMMODITY_OPTIONS.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
+                    <input id="etaTo" type="date" value={form.etaTo} onChange={(e) => updateForm({ etaTo: e.target.value })} required disabled={!lookups} />
                   </div>
                   <div className="input-group">
                     <label htmlFor="term">Term</label>
-                    <select id="term" value={form.term} onChange={(e) => updateForm({ term: e.target.value })}>
-                      {TERM_OPTIONS.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="input-group">
-                    <label htmlFor="purpose">Purpose</label>
-                    <select id="purpose" value={form.purpose} onChange={(e) => updateForm({ purpose: e.target.value })}>
-                      <option value="Unloading">Unloading</option>
-                      <option value="Loading">Loading</option>
-                    </select>
-                  </div>
-                  <div className="input-group">
-                    <label htmlFor="jetty">Jetty</label>
-                    <select id="jetty" value={form.jetty} onChange={(e) => updateForm({ jetty: e.target.value })}>
+                    <select id="term" value={form.tradeTermId} onChange={(e) => updateForm({ tradeTermId: e.target.value })} disabled={!lookups}>
                       <option value="">—</option>
-                      {BERTH_IDS.map((jid) => (
-                        <option key={jid} value={jid}>{jid}</option>
+                      {(lookups?.tradeTerms || []).map((t) => (
+                        <option key={t.id} value={t.id}>{t.code}</option>
                       ))}
                     </select>
                   </div>
                   <div className="input-group">
-                    <label htmlFor="totalQtyKg">Total loading qty (kg) *</label>
-                    <input
-                      id="totalQtyKg"
-                      type="number"
-                      min="1"
-                      value={form.totalQtyKg}
-                      onChange={(e) => updateForm({ totalQtyKg: e.target.value })}
-                      placeholder="e.g. 3001887"
-                    />
+                    <label htmlFor="purpose">Purpose *</label>
+                    <select id="purpose" value={form.purposeId} onChange={(e) => updateForm({ purposeId: e.target.value })} required disabled={!lookups}>
+                      <option value="">—</option>
+                      {(lookups?.purposes || []).map((p) => (
+                        <option key={p.id} value={p.id}>{p.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="input-group">
+                    <label htmlFor="jetty">Preferred jetty</label>
+                    <select id="jetty" value={form.preferredJettyId} onChange={(e) => updateForm({ preferredJettyId: e.target.value })} disabled={!lookups}>
+                      <option value="">—</option>
+                      {(lookups?.jetties || []).map((j) => (
+                        <option key={j.id} value={j.id}>{j.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="input-group">
+                    {/* intentionally removed: total qty now comes from breakdown sum if needed */}
                   </div>
                 </div>
               </div>
@@ -511,37 +773,37 @@ export default function ShippingInstruction() {
                 <div className="shipping-instruction-form__grid">
                   <div className="input-group">
                     <label htmlFor="shipper">Shipper</label>
-                    <select id="shipper" value={form.shipper} onChange={(e) => updateForm({ shipper: e.target.value })}>
+                    <select id="shipper" value={form.shipperId} onChange={(e) => updateForm({ shipperId: e.target.value })} disabled={!lookups}>
                       <option value="">—</option>
-                      {SHIPPER_OPTIONS.map((s) => (
-                        <option key={s} value={s}>{s}</option>
+                      {(lookups?.shippers || []).map((s) => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </select>
                   </div>
                   <div className="input-group">
                     <label htmlFor="loadingPort">Loading port</label>
-                    <select id="loadingPort" value={form.loadingPort} onChange={(e) => updateForm({ loadingPort: e.target.value })}>
+                    <select id="loadingPort" value={form.loadingPortId} onChange={(e) => updateForm({ loadingPortId: e.target.value })} disabled={!lookups}>
                       <option value="">—</option>
-                      {LOADING_PORT_OPTIONS.map((p) => (
-                        <option key={p} value={p}>{p}</option>
+                      {(lookups?.loadingPorts || []).map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
                       ))}
                     </select>
                   </div>
                   <div className="input-group">
                     <label htmlFor="surveyor">Surveyor</label>
-                    <select id="surveyor" value={form.surveyor} onChange={(e) => updateForm({ surveyor: e.target.value })}>
+                    <select id="surveyor" value={form.surveyorId} onChange={(e) => updateForm({ surveyorId: e.target.value })} disabled={!lookups}>
                       <option value="">—</option>
-                      {SURVEYOR_OPTIONS.map((s) => (
-                        <option key={s} value={s}>{s}</option>
+                      {(lookups?.surveyors || []).map((s) => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </select>
                   </div>
                   <div className="input-group">
                     <label htmlFor="agent">Agent</label>
-                    <select id="agent" value={form.agent} onChange={(e) => updateForm({ agent: e.target.value })}>
+                    <select id="agent" value={form.agentId} onChange={(e) => updateForm({ agentId: e.target.value })} disabled={!lookups}>
                       <option value="">—</option>
-                      {AGENT_OPTIONS.map((a) => (
-                        <option key={a} value={a}>{a}</option>
+                      {(lookups?.agents || []).map((a) => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
                       ))}
                     </select>
                   </div>
@@ -549,16 +811,20 @@ export default function ShippingInstruction() {
               </div>
 
               <div className="shipping-instruction-form__section">
-                <h3 className="shipping-instruction-form__section-title">Shipment breakdown (Kontrak / PO)</h3>
+                <h3 className="shipping-instruction-form__section-title">Shipment breakdown (Kontrak / PO) — commodity per contract</h3>
+                <p className="text-steel" style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+                  Each row is one contract line: its own commodity, qty, and unit (KL / MT).
+                </p>
                 <div className="table-wrap">
                   <table className="data-table shipping-instruction-breakdown-table">
                     <thead>
                       <tr>
-                        <th>Shipper</th>
-                        <th>Contract No (Kontrak)</th>
+                        <th>Commodity *</th>
+                        <th>Qty *</th>
+                        <th>Unit *</th>
+                        <th>Contract No</th>
                         <th>PO No</th>
-                        <th>Qty (kg)</th>
-                        <th>Remarks (Keterangan)</th>
+                        <th>Remarks</th>
                         <th></th>
                       </tr>
                     </thead>
@@ -566,18 +832,47 @@ export default function ShippingInstruction() {
                       {form.breakdown.map((row, i) => (
                         <tr key={i}>
                           <td>
-                            <input
-                              value={row.shipper}
-                              onChange={(e) => updateBreakdownRow(i, 'shipper', e.target.value)}
-                              placeholder="e.g. PT. TBP"
+                            <select
+                              value={row.commodityId}
+                              onChange={(e) => updateBreakdownRow(i, 'commodityId', e.target.value)}
+                              required
                               className="shipping-instruction-inline-input"
+                              disabled={!lookups}
+                            >
+                              <option value="">—</option>
+                              {(lookups?.commodities || []).map((c) => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td>
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              value={row.qty}
+                              onChange={(e) => updateBreakdownRow(i, 'qty', e.target.value)}
+                              placeholder="0"
+                              className="shipping-instruction-inline-input shipping-instruction-inline-input--num"
                             />
+                          </td>
+                          <td>
+                            <select
+                              value={row.metricId}
+                              onChange={(e) => updateBreakdownRow(i, 'metricId', e.target.value)}
+                              disabled={!lookups}
+                              className="shipping-instruction-inline-input"
+                            >
+                              <option value="">—</option>
+                              {(lookups?.metrics || []).map((m) => (
+                                <option key={m.id} value={m.id}>{m.code} ({m.label})</option>
+                              ))}
+                            </select>
                           </td>
                           <td>
                             <input
                               value={row.contractNo}
                               onChange={(e) => updateBreakdownRow(i, 'contractNo', e.target.value)}
-                              placeholder="e.g. 001/TBP-EUP/FOB-CPO/01/26"
                               className="shipping-instruction-inline-input"
                             />
                           </td>
@@ -585,25 +880,13 @@ export default function ShippingInstruction() {
                             <input
                               value={row.poNo}
                               onChange={(e) => updateBreakdownRow(i, 'poNo', e.target.value)}
-                              placeholder="e.g. 1001027272"
                               className="shipping-instruction-inline-input"
-                            />
-                          </td>
-                          <td>
-                            <input
-                              type="number"
-                              min="0"
-                              value={row.qtyKg}
-                              onChange={(e) => updateBreakdownRow(i, 'qtyKg', e.target.value)}
-                              placeholder="0"
-                              className="shipping-instruction-inline-input shipping-instruction-inline-input--num"
                             />
                           </td>
                           <td>
                             <input
                               value={row.remarks}
                               onChange={(e) => updateBreakdownRow(i, 'remarks', e.target.value)}
-                              placeholder="—"
                               className="shipping-instruction-inline-input"
                             />
                           </td>
@@ -623,9 +906,15 @@ export default function ShippingInstruction() {
                     </tbody>
                     <tfoot>
                       <tr>
-                        <td colSpan={3} className="shipping-instruction-total-label">TOTAL</td>
-                        <td className="shipping-instruction-total-value">{breakdownTotalKg.toLocaleString()}</td>
-                        <td colSpan={2}></td>
+                        <td colSpan={2} className="shipping-instruction-total-label">Totals by unit</td>
+                        <td colSpan={5} className="shipping-instruction-total-value">
+                          {Object.keys(breakdownTotalsByMetric).length === 0
+                            ? '—'
+                            : Object.entries(breakdownTotalsByMetric)
+                                .map(([code, sum]) => `${sum.toLocaleString()} ${code}`)
+                                .join(' · ')}
+                        </td>
+                        <td />
                       </tr>
                     </tfoot>
                   </table>
@@ -664,32 +953,18 @@ export default function ShippingInstruction() {
               </div>
 
               <div className="shipping-instruction-form__section">
-                <h3 className="shipping-instruction-form__section-title">Loading quality</h3>
-                <div className="shipping-instruction-form__grid shipping-instruction-form__grid--quality">
-                  <div className="input-group">
-                    <label htmlFor="qualityFFA">FFA (%)</label>
-                    <input
-                      id="qualityFFA"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={form.qualityFFA}
-                      onChange={(e) => updateForm({ qualityFFA: e.target.value })}
-                      placeholder="e.g. 3.57"
-                    />
-                  </div>
-                  <div className="input-group">
-                    <label htmlFor="qualityMI">M&I (%)</label>
-                    <input
-                      id="qualityMI"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={form.qualityMI}
-                      onChange={(e) => updateForm({ qualityMI: e.target.value })}
-                      placeholder="e.g. 0.43"
-                    />
-                  </div>
+                <h3 className="shipping-instruction-form__section-title">Note</h3>
+                <div className="input-group">
+                  <label htmlFor="siNote">Anything important for this SI (quality, handling, remarks, etc.)</label>
+                  <textarea
+                    id="siNote"
+                    className="shipping-instruction-inline-input"
+                    style={{ minHeight: 96, resize: 'vertical' }}
+                    value={form.note}
+                    onChange={(e) => updateForm({ note: e.target.value })}
+                    placeholder="Write any notes here…"
+                    disabled={!lookups}
+                  />
                 </div>
               </div>
 
@@ -772,6 +1047,20 @@ export default function ShippingInstruction() {
                       )}
                     </td>
                     <td className="si-table__col-actions" onClick={(e) => e.stopPropagation()}>
+                      {n.status === 'Draft' && (
+                        <button
+                          type="button"
+                          className="btn btn--secondary btn--small si-table__action-btn si-table__action-icon"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openEditModal(n.id)
+                          }}
+                          title="Edit (Draft only)"
+                          aria-label="Edit (Draft only)"
+                        >
+                          <IconEdit />
+                        </button>
+                      )}
                       {isInternalApprovalFlow(n) && n.status === 'Draft' && (
                         <button
                           type="button"
@@ -787,7 +1076,7 @@ export default function ShippingInstruction() {
                         <button
                           type="button"
                           className="btn btn--primary btn--small si-table__action-btn si-table__action-icon"
-                          onClick={(e) => { e.stopPropagation(); navigate(`/shipping-instruction/approval/${n.siId || n.id}`, { state: { si: n } }) }}
+                          onClick={(e) => { e.stopPropagation(); navigate(`/shipping-instruction/approval/${n.id}`, { state: { si: n } }) }}
                           title="Approve SI"
                           aria-label="Approve SI"
                         >
@@ -810,7 +1099,7 @@ export default function ShippingInstruction() {
                         onClick={(e) => {
                           e.stopPropagation()
                           if (canViewAsDocument(n) && (n.siId || n.id)) {
-                            navigate(`/shipping-instruction/view/${n.siId || n.id}`, { state: { si: n } })
+                            navigate(`/shipping-instruction/view/${n.id}`, { state: { si: n } })
                           }
                         }}
                         title={canViewAsDocument(n) ? 'View SI document' : 'View SI available after approval'}
@@ -834,18 +1123,46 @@ export default function ShippingInstruction() {
                             <dt>Vessel</dt><dd>{n.vesselName || n.vesselId || '—'}</dd>
                             <dt>Purpose</dt><dd>{n.purpose || '—'}</dd>
                             <dt>Jetty</dt><dd>{n.jetty || '—'}</dd>
-                            <dt>ETA</dt><dd>{n.etaFrom && n.etaTo ? `${n.etaFrom} → ${n.etaTo}` : n.ETA || '—'}</dd>
-                            <dt>Commodity</dt><dd>{n.commodity || n.product || '—'}</dd>
+                            <dt>ETA From</dt><dd>{n.etaFrom || (n.etaDateTime ? String(n.etaDateTime).slice(0, 10) : '—')}</dd>
+                            <dt>ETA To</dt><dd>{n.etaTo || (n.etaDateTime ? String(n.etaDateTime).slice(0, 10) : '—')}</dd>
                             <dt>Term</dt><dd>{n.term || '—'}</dd>
-                            <dt>Total qty (kg)</dt><dd>{(n.totalQtyKg ?? n.quantity) != null ? (n.totalQtyKg ?? n.quantity).toLocaleString() : '—'}</dd>
                             <dt>Shipper</dt><dd>{n.shipper || '—'}</dd>
                             <dt>Loading port</dt><dd>{n.loadingPort || '—'}</dd>
                             <dt>Surveyor</dt><dd>{n.surveyor || '—'}</dd>
                             <dt>Agent</dt><dd>{n.agent || '—'}</dd>
-                            <dt>Loading quality FFA (%)</dt><dd>{n.qualityFFA != null ? n.qualityFFA : '—'}</dd>
-                            <dt>Loading quality M&I (%)</dt><dd>{n.qualityMI != null ? n.qualityMI : '—'}</dd>
+                            <dt>Note</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{n.note || '—'}</dd>
                             <dt>Received</dt><dd>{formatDate(n.receivedAt)}</dd>
                           </dl>
+                          <h5 className="shipping-instruction-detail__title" style={{ marginTop: '1rem' }}>Contract / PO breakdown</h5>
+                          {!breakdownBySi[n.id] && <p className="text-steel">Loading…</p>}
+                          {breakdownBySi[n.id]?.length > 0 && (
+                            <div className="table-wrap">
+                              <table className="data-table">
+                                <thead>
+                                  <tr>
+                                    <th>Commodity</th>
+                                    <th>Qty</th>
+                                    <th>Unit</th>
+                                    <th>Contract</th>
+                                    <th>PO</th>
+                                    <th>Remarks</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {breakdownBySi[n.id].map((b) => (
+                                    <tr key={b.id}>
+                                      <td>{b.commodityName}</td>
+                                      <td>{Number(b.qty).toLocaleString()}</td>
+                                      <td>{b.metricCode}</td>
+                                      <td>{b.contractNo || '—'}</td>
+                                      <td>{b.poNo || '—'}</td>
+                                      <td>{b.remarks || '—'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
                           {n.documents && n.documents.length > 0 && (
                             <div className="shipping-instruction-detail__docs">
                               <h4 className="shipping-instruction-detail__subtitle">Documents</h4>
