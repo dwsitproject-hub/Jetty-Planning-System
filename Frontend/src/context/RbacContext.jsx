@@ -10,6 +10,7 @@ const RbacContext = createContext({
   canView: () => true,
   canEdit: () => false,
   canDelete: () => false,
+  canApprove: () => false,
 })
 
 export function RbacProvider({ children }) {
@@ -31,7 +32,12 @@ export function RbacProvider({ children }) {
       const rows = await apiGet('/rbac/me/page-permissions')
       const map = {}
       for (const r of Array.isArray(rows) ? rows : []) {
-        map[r.resourceKey] = { canView: !!r.canView, canEdit: !!r.canEdit, canDelete: !!r.canDelete }
+        map[r.resourceKey] = {
+          canView: !!r.canView,
+          canEdit: !!r.canEdit,
+          canDelete: !!r.canDelete,
+          canApprove: !!r.canApprove,
+        }
       }
       setPagePerms(map)
     } catch (e) {
@@ -54,10 +60,11 @@ export function RbacProvider({ children }) {
 
   const canEdit = useCallback((pageKey) => pagePerms[pageKey]?.canEdit === true, [pagePerms])
   const canDelete = useCallback((pageKey) => pagePerms[pageKey]?.canDelete === true, [pagePerms])
+  const canApprove = useCallback((pageKey) => pagePerms[pageKey]?.canApprove === true, [pagePerms])
 
   const value = useMemo(
-    () => ({ loading, error, pagePerms, refresh, canView, canEdit, canDelete }),
-    [loading, error, pagePerms, refresh, canView, canEdit, canDelete]
+    () => ({ loading, error, pagePerms, refresh, canView, canEdit, canDelete, canApprove }),
+    [loading, error, pagePerms, refresh, canView, canEdit, canDelete, canApprove]
   )
 
   return <RbacContext.Provider value={value}>{children}</RbacContext.Provider>

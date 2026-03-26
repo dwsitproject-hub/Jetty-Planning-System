@@ -77,6 +77,48 @@
   margin: 0;
 }
 
+.admin-permission-table__si-subrow td {
+  background: var(--color-surface-muted, rgba(0, 0, 0, 0.03));
+  padding-top: var(--spacing-2);
+  padding-bottom: var(--spacing-2);
+  font-size: var(--font-size-xs);
+  vertical-align: middle;
+}
+
+.admin-permission-table__si-subrow--readonly td {
+  padding-left: var(--spacing-3);
+}
+
+.admin-permission-table__si-subindent {
+  display: inline-block;
+  margin-right: var(--spacing-2);
+  color: var(--color-text-steel);
+  font-weight: var(--font-weight-semibold);
+}
+
+.admin-permission-table__si-approve-label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-2);
+  cursor: pointer;
+  margin: 0;
+  font-weight: normal;
+}
+
+.admin-permission-table__si-approve-label input[type='checkbox'] {
+  flex-shrink: 0;
+  margin-top: 0.15em;
+}
+
+.admin-permission-table__si-approve-text {
+  line-height: 1.35;
+}
+
+.admin-permission-table__si-approve-hint {
+  color: var(--color-text-steel);
+  font-weight: normal;
+}
+
 .admin-section-title {
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-semibold);

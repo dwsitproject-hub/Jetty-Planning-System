@@ -28,13 +28,18 @@ export function fetchPagePermissionCatalog() {
   return apiGet('/rbac/permissions?resource_type=page')
 }
 
-export function upsertRolePermission(roleId, { permissionId, canView, canEdit, canDelete }) {
+export function upsertRolePermission(roleId, { permissionId, canView, canEdit, canDelete, canApprove }) {
   return apiPost(`/rbac/roles/${roleId}/permissions`, {
     permission_id: permissionId,
     can_view: canView,
     can_edit: canEdit,
     can_delete: canDelete,
+    can_approve: canApprove,
   })
+}
+
+export function deleteRolePermission(roleId, permissionId) {
+  return apiDelete(`/rbac/roles/${roleId}/permissions/${permissionId}`)
 }
 
 export function fetchUserRoles(userId) {

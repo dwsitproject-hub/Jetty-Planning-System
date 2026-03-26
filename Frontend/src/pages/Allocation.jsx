@@ -5,6 +5,7 @@ import JettyScheduleGantt from '../components/JettyScheduleGantt'
 import { deleteOperationDocument, fetchAllocationOverview, saveArrivalUpdate as saveArrivalUpdateApi, uploadOperationDocuments } from '../api/allocation'
 import { ApiError, resolveUploadUrl } from '../api/client'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import PurposeBadge, { resolvePurposeLabel } from '../components/PurposeBadge'
 import '../styles/allocation.css'
 
 /** Unified flow for both Loading and Unloading */
@@ -42,7 +43,12 @@ const ALLOCATION_COLUMNS = [
   { key: 'vesselName', label: 'Vessel Name', getValue: (r) => <strong>{r.vesselName || '—'}</strong>, getSortValue: (r) => (r.vesselName || '').toLowerCase() },
   { key: 'shippingInstruction', label: 'Shipping Instruction', getValue: (r) => r.shippingInstruction || '—', getSortValue: (r) => (r.shippingInstruction || '').toLowerCase() },
   { key: 'priority', label: 'Priority', getValue: (r) => r.priority || '—', getSortValue: (r) => (r.priority || '').toLowerCase() },
-  { key: 'purpose', label: 'Purpose', getValue: (r) => r.purpose || '—', getSortValue: (r) => (r.purpose || '').toLowerCase() },
+  {
+    key: 'purpose',
+    label: 'Purpose',
+    getValue: (r) => <PurposeBadge purpose={r.purpose} loadDischarge={r.loadDischarge} />,
+    getSortValue: (r) => resolvePurposeLabel(r.purpose, r.loadDischarge).toLowerCase(),
+  },
   { key: 'remark', label: 'Remark', getValue: (r) => r.remark || r.remarks || '—', getSortValue: (r) => (r.remark || r.remarks || '').toLowerCase() },
   { key: 'eta', label: 'ETA', getValue: (r) => r.eta || '—', getSortValue: (r) => (r.eta || '').toLowerCase() },
   { key: 'etb', label: 'ETB', getValue: (r) => r.etb || '—', getSortValue: (r) => (r.etb || '').toLowerCase() },
@@ -616,7 +622,8 @@ export default function Allocation() {
     return filterKeys.every((key) => {
       const f = (filters[key] || '').trim().toLowerCase()
       if (!f) return true
-      const val = r[key]
+      const val =
+        key === 'purpose' ? resolvePurposeLabel(r.purpose, r.loadDischarge) || r[key] : r[key]
       return String(val ?? '').toLowerCase().includes(f)
     })
   })
@@ -798,7 +805,9 @@ export default function Allocation() {
                       </div>
                       <div className="berthing-modal__vessel-row">
                         <dt>Purpose</dt>
-                        <dd>{vessel?.purpose || '—'}</dd>
+                        <dd>
+                          <PurposeBadge purpose={vessel?.purpose} loadDischarge={vessel?.loadDischarge} />
+                        </dd>
                       </div>
                       <div className="berthing-modal__vessel-row">
                         <dt>Commodity</dt>
@@ -1211,7 +1220,9 @@ export default function Allocation() {
                   </div>
                   <div className="berthing-modal__vessel-row">
                     <dt>Purpose</dt>
-                    <dd aria-live="polite">{arrivalUpdateForm.purpose || '—'}</dd>
+                    <dd aria-live="polite">
+                      <PurposeBadge purpose={arrivalUpdateForm.purpose} loadDischarge={arrivalUpdateForm.loadDischarge} />
+                    </dd>
                   </div>
                 </dl>
               </section>
@@ -1577,7 +1588,10 @@ export default function Allocation() {
                             <dt>No PKK</dt><dd>{r.noPkk ?? '—'}</dd>
                             <dt>Priority</dt><dd>{r.priority || '—'}</dd>
                             <dt>Number of Palka</dt><dd>{r.numberOfPalka ?? '—'}</dd>
-                            <dt>Purpose</dt><dd>{r.purpose || (r.loadDischarge === 'LOAD' ? 'Loading' : r.loadDischarge === 'DISCH' ? 'Unloading' : r.loadDischarge) || '—'}</dd>
+                            <dt>Purpose</dt>
+                            <dd>
+                              <PurposeBadge purpose={r.purpose} loadDischarge={r.loadDischarge} />
+                            </dd>
                             <dt>Shipper</dt><dd>{r.shipper || '—'}</dd>
                             <dt>Agent</dt><dd>{r.agent || '—'}</dd>
                             <dt>Surveyor</dt><dd>{r.surveyor || '—'}</dd>

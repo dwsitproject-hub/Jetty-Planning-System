@@ -5,6 +5,33 @@ import express from 'express';
 import { pool } from '../db.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { requireAuth } from '../middleware/auth.js';
+import { userHasPageApprove, userHasPageDelete } from '../middleware/permissions.js';
+
+const FREIGHT_TERMS = ['PREPAID', 'COLLECT', 'AS_PER_CHARTER_PARTY', 'OTHER'];
+const SI_APPROVE_PAGE_KEY = 'shipping-instruction';
+
+function generateApprovalId() {
+  const now = new Date();
+  const date = now.toISOString().slice(0, 10).replace(/-/g, '');
+  const time = now.toTimeString().slice(0, 8).replace(/:/g, '');
+  const r = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `JPS-${date}-${time}-${r}`;
+}
+
+/** @param {unknown} v @param {number} max */
+function trimText(v, max = 4000) {
+  if (v == null || v === '') return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  return s.length > max ? s.slice(0, max) : s;
+}
+
+function normalizeFreightTerms(v) {
+  if (v == null || v === '') return { value: null };
+  const s = String(v).trim().toUpperCase();
+  if (!FREIGHT_TERMS.includes(s)) return { error: 'freight_terms must be PREPAID, COLLECT, AS_PER_CHARTER_PARTY, or OTHER' };
+  return { value: s };
+}
 
 const router = express.Router();
 
@@ -25,6 +52,7 @@ const SI_FROM = `
   LEFT JOIN si_loading_ports lp ON si.loading_port_id = lp.id AND lp.deleted_at IS NULL
   LEFT JOIN si_surveyors sv ON si.surveyor_id = sv.id AND sv.deleted_at IS NULL
   LEFT JOIN si_agents ag ON si.agent_id = ag.id AND ag.deleted_at IS NULL
+  LEFT JOIN users si_approver ON si_approver.id = si.approved_by_user_id AND si_approver.deleted_at IS NULL
 `;
 
 const SI_SELECT = `
@@ -34,6 +62,9 @@ const SI_SELECT = `
     si.note,
     si.commodity_id, si.trade_term_id, si.purpose_id, si.preferred_jetty_id,
     si.shipper_id, si.loading_port_id, si.surveyor_id, si.agent_id,
+    si.voyage_no, si.destination_text, si.freight_terms, si.bill_of_lading_clause, si.consignee_text,
+    si.notify_party_text, si.bl_indicated, si.document_date,
+    si.approved_by_user_id, si.approved_at, si.approver_name_snapshot, si.approver_title_snapshot,
     ${COMMODITY_DISPLAY} AS commodity_display,
     tt.code AS trade_term_code,
     sp.code AS purpose_code,
@@ -41,7 +72,9 @@ const SI_SELECT = `
     sh.name AS shipper_name,
     lp.name AS loading_port_name,
     sv.name AS surveyor_name,
-    ag.name AS agent_name
+    ag.name AS agent_name,
+    si_approver.display_name AS approver_display_name,
+    si_approver.username AS approver_username
   ${SI_FROM}
 `;
 
@@ -181,6 +214,14 @@ function diffFields(before, after) {
   add('ETA From', before.etaFrom, after.etaFrom);
   add('ETA To', before.etaTo, after.etaTo);
   add('Note', before.note, after.note);
+  add('Voyage', before.voyageNo, after.voyageNo);
+  add('Destination', before.destinationText, after.destinationText);
+  add('Freight terms', before.freightTerms, after.freightTerms);
+  add('Bill of lading', before.billOfLadingClause, after.billOfLadingClause);
+  add('Consignee', before.consigneeText, after.consigneeText);
+  add('Notify party', before.notifyPartyText, after.notifyPartyText);
+  add('BL indicated', before.blIndicated, after.blIndicated);
+  add('Document date', before.documentDate, after.documentDate);
   add('Breakdown', summarizeBreakdown(before.breakdown), summarizeBreakdown(after.breakdown));
   return changes;
 }
@@ -218,6 +259,7 @@ router.post('/', requireAuth, async (req, res) => {
   const {
     reference_number,
     vessel_name,
+    voyage_no,
     trade_term_id,
     purpose,
     purpose_id,
@@ -233,11 +275,31 @@ router.post('/', requireAuth, async (req, res) => {
     agent_id,
     note,
     breakdown,
+    destination_text,
+    freight_terms,
+    bill_of_lading_clause,
+    consignee_text,
+    notify_party_text,
+    bl_indicated,
+    document_date,
   } = b;
 
   if (!vessel_name || typeof vessel_name !== 'string' || !vessel_name.trim()) {
     return res.status(400).json({ error: 'vessel_name is required' });
   }
+  if (!reference_number || typeof reference_number !== 'string' || !reference_number.trim()) {
+    return res.status(400).json({ error: 'reference_number is required (Shipping Instructions No.)' });
+  }
+  const etaFromIn = eta_from != null && eta_from !== '' ? String(eta_from).trim() : '';
+  const etaToIn = eta_to != null && eta_to !== '' ? String(eta_to).trim() : '';
+  if (!etaFromIn) return res.status(400).json({ error: 'eta_from is required' });
+  if (!etaToIn) return res.status(400).json({ error: 'eta_to is required' });
+  if (document_date == null || document_date === '' || !String(document_date).trim()) {
+    return res.status(400).json({ error: 'document_date is required' });
+  }
+
+  const ft = normalizeFreightTerms(freight_terms);
+  if (ft?.error) return res.status(400).json({ error: ft.error });
 
   const bdErr = validateBreakdownPayload(breakdown);
   if (bdErr) return res.status(400).json({ error: bdErr });
@@ -269,26 +331,40 @@ router.post('/', requireAuth, async (req, res) => {
   });
   if (fkErr) return res.status(400).json(fkErr);
 
+  let statusVal = status && ['Draft', 'Submitted', 'Approved'].includes(status) ? status : 'Draft';
+  if (statusVal === 'Approved') {
+    return res.status(400).json({ error: 'New shipping instructions cannot be created as Approved' });
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const result = await client.query(
       `INSERT INTO shipping_instructions (
-         reference_number, vessel_name, commodity, commodity_id, trade_term_id, purpose_id, purpose, eta, eta_from, eta_to, status,
-         approval_id, preferred_jetty_id, shipper_id, loading_port_id, surveyor_id, agent_id, note
-       ) VALUES ($1,$2,NULL,NULL,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+         reference_number, vessel_name, voyage_no, commodity, commodity_id, trade_term_id, purpose_id, purpose, eta, eta_from, eta_to, status,
+         approval_id, destination_text, freight_terms, bill_of_lading_clause, consignee_text, notify_party_text, bl_indicated, document_date,
+         preferred_jetty_id, shipper_id, loading_port_id, surveyor_id, agent_id, note
+       ) VALUES ($1,$2,$3,NULL,NULL,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
        RETURNING id`,
       [
         reference_number?.trim() ?? null,
         vessel_name.trim(),
+        trimText(voyage_no, 64),
         trade_term_id != null && trade_term_id !== '' ? parseInt(trade_term_id, 10) : null,
         purposeIdVal,
         purposeVal,
         eta ? new Date(eta) : eta_from ? new Date(`${eta_from}T12:00:00Z`) : null,
         eta_from ? String(eta_from).slice(0, 10) : null,
         eta_to ? String(eta_to).slice(0, 10) : (eta_from ? String(eta_from).slice(0, 10) : null),
-        status && ['Draft', 'Submitted', 'Approved'].includes(status) ? status : 'Draft',
+        statusVal,
         typeof approval_id === 'string' ? approval_id.trim() || null : null,
+        trimText(destination_text, 4000),
+        ft?.value ?? null,
+        trimText(bill_of_lading_clause, 4000),
+        trimText(consignee_text, 4000),
+        trimText(notify_party_text, 4000),
+        trimText(bl_indicated, 4000),
+        document_date ? String(document_date).slice(0, 10) : null,
         preferred_jetty_id != null && preferred_jetty_id !== '' ? parseInt(preferred_jetty_id, 10) : null,
         shipper_id != null && shipper_id !== '' ? parseInt(shipper_id, 10) : null,
         loading_port_id != null && loading_port_id !== '' ? parseInt(loading_port_id, 10) : null,
@@ -335,6 +411,7 @@ router.put('/:id', requireAuth, async (req, res) => {
   const {
     reference_number,
     vessel_name,
+    voyage_no,
     trade_term_id,
     purpose,
     purpose_id,
@@ -350,19 +427,29 @@ router.put('/:id', requireAuth, async (req, res) => {
     agent_id,
     note,
     breakdown,
+    destination_text,
+    freight_terms,
+    bill_of_lading_clause,
+    consignee_text,
+    notify_party_text,
+    bl_indicated,
+    document_date,
   } = b;
 
   if (!vessel_name || typeof vessel_name !== 'string' || !vessel_name.trim()) {
     return res.status(400).json({ error: 'vessel_name is required' });
   }
 
+  const ftIn = normalizeFreightTerms(freight_terms);
+  if (ftIn?.error) return res.status(400).json({ error: ftIn.error });
+
   const cur = await pool.query(`${SI_SELECT} WHERE si.id = $1 AND si.deleted_at IS NULL`, [id]);
   if (cur.rows.length === 0) return res.status(404).json({ error: 'Shipping instruction not found' });
   const beforeRow = cur.rows[0];
   const beforeBd = await loadBreakdown(id);
 
-  let purposeVal = purpose ?? cur.rows[0].purpose;
-  let purposeIdVal = purpose_id != null ? parseInt(purpose_id, 10) : cur.rows[0].purpose_id;
+  let purposeVal = purpose ?? beforeRow.purpose;
+  let purposeIdVal = purpose_id != null ? parseInt(purpose_id, 10) : beforeRow.purpose_id;
 
   if (purpose_id != null && purpose_id !== '') {
     const pr = await pool.query(`SELECT code FROM si_purposes WHERE id = $1 AND deleted_at IS NULL`, [
@@ -398,6 +485,90 @@ router.put('/:id', requireAuth, async (req, res) => {
     if (bdErr) return res.status(400).json({ error: bdErr });
   }
 
+  const requestedStatus =
+    status !== undefined && status !== null && ['Draft', 'Submitted', 'Approved'].includes(String(status))
+      ? String(status)
+      : beforeRow.status;
+  const transitioningToApproved = requestedStatus === 'Approved' && beforeRow.status !== 'Approved';
+
+  if (transitioningToApproved) {
+    const ok = await userHasPageApprove(req.userId, SI_APPROVE_PAGE_KEY);
+    if (!ok) {
+      return res.status(403).json({ error: 'Forbidden: shipping instruction approval permission required' });
+    }
+    if (beforeRow.status !== 'Submitted') {
+      return res.status(400).json({ error: 'Shipping instruction must be Submitted before approval' });
+    }
+  }
+
+  let nextApprovalId = beforeRow.approval_id ?? null;
+  let nextApprovedBy = beforeRow.approved_by_user_id ?? null;
+  let nextApprovedAt = beforeRow.approved_at ?? null;
+  let nextApproverName = beforeRow.approver_name_snapshot ?? null;
+  let nextApproverTitle = beforeRow.approver_title_snapshot ?? null;
+
+  if (transitioningToApproved) {
+    const uid = req.userId;
+    const urow = await pool.query(
+      `SELECT display_name, username, job_title FROM users WHERE id = $1 AND deleted_at IS NULL`,
+      [uid]
+    );
+    const ur = urow.rows[0];
+    nextApproverName = ur?.display_name?.trim() || ur?.username || '—';
+    nextApproverTitle = ur?.job_title?.trim() || 'OPERATION HEAD';
+    nextApprovedBy = uid;
+    nextApprovedAt = new Date();
+    const incomingId = typeof approval_id === 'string' ? approval_id.trim() : '';
+    nextApprovalId = incomingId || generateApprovalId();
+  } else if (requestedStatus === 'Approved' && beforeRow.status === 'Approved') {
+    const incomingId = typeof approval_id === 'string' ? approval_id.trim() : '';
+    if (incomingId) nextApprovalId = incomingId;
+  } else if (typeof approval_id === 'string' && approval_id.trim()) {
+    nextApprovalId = approval_id.trim();
+  }
+
+  const freightVal = freight_terms !== undefined ? ftIn?.value ?? null : beforeRow.freight_terms;
+
+  function optInt(v, beforeVal) {
+    if (v === undefined) return beforeVal;
+    if (v === null || v === '') return null;
+    const n = parseInt(v, 10);
+    return Number.isNaN(n) ? beforeVal : n;
+  }
+
+  const nextRef =
+    reference_number !== undefined ? reference_number?.trim() || null : beforeRow.reference_number;
+  const nextTradeTermId = optInt(trade_term_id, beforeRow.trade_term_id);
+  const nextPreferredJetty = optInt(preferred_jetty_id, beforeRow.preferred_jetty_id);
+  const nextShipper = optInt(shipper_id, beforeRow.shipper_id);
+  const nextLoadingPort = optInt(loading_port_id, beforeRow.loading_port_id);
+  const nextSurveyor = optInt(surveyor_id, beforeRow.surveyor_id);
+  const nextAgent = optInt(agent_id, beforeRow.agent_id);
+  const nextNote = note !== undefined ? (typeof note === 'string' ? note.trim() || null : null) : beforeRow.note;
+
+  const nextEta =
+    eta !== undefined || eta_from !== undefined
+      ? eta
+        ? new Date(eta)
+        : eta_from
+          ? new Date(`${eta_from}T12:00:00Z`)
+          : null
+      : beforeRow.eta;
+  const nextEtaFrom =
+    eta_from !== undefined
+      ? eta_from
+        ? String(eta_from).slice(0, 10)
+        : null
+      : beforeRow.eta_from;
+  const nextEtaTo =
+    eta_to !== undefined
+      ? eta_to
+        ? String(eta_to).slice(0, 10)
+        : eta_from
+          ? String(eta_from).slice(0, 10)
+          : null
+      : beforeRow.eta_to;
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -405,39 +576,63 @@ router.put('/:id', requireAuth, async (req, res) => {
       `UPDATE shipping_instructions SET
          reference_number = $1,
          vessel_name = $2,
-         trade_term_id = $3,
-         purpose_id = $4,
-         purpose = $5,
-         eta = $6,
-         eta_from = $7,
-         eta_to = $8,
-         status = $9,
-         approval_id = COALESCE($10, approval_id),
-         preferred_jetty_id = $11,
-         shipper_id = $12,
-         loading_port_id = $13,
-         surveyor_id = $14,
-         agent_id = $15,
-         note = $16,
+         voyage_no = $3,
+         trade_term_id = $4,
+         purpose_id = $5,
+         purpose = $6,
+         eta = $7,
+         eta_from = $8,
+         eta_to = $9,
+         status = $10,
+         approval_id = $11,
+         destination_text = $12,
+         freight_terms = $13,
+         bill_of_lading_clause = $14,
+         consignee_text = $15,
+         notify_party_text = $16,
+         bl_indicated = $17,
+         document_date = $18,
+         approved_by_user_id = $19,
+         approved_at = $20,
+         approver_name_snapshot = $21,
+         approver_title_snapshot = $22,
+         preferred_jetty_id = $23,
+         shipper_id = $24,
+         loading_port_id = $25,
+         surveyor_id = $26,
+         agent_id = $27,
+         note = $28,
          updated_at = NOW()
-       WHERE id = $17 AND deleted_at IS NULL`,
+       WHERE id = $29 AND deleted_at IS NULL`,
       [
-        reference_number?.trim() ?? null,
+        nextRef,
         vessel_name.trim(),
-        trade_term_id != null && trade_term_id !== '' ? parseInt(trade_term_id, 10) : null,
+        voyage_no !== undefined ? trimText(voyage_no, 64) : beforeRow.voyage_no,
+        nextTradeTermId,
         purposeIdVal,
         purposeVal,
-        eta ? new Date(eta) : eta_from ? new Date(`${eta_from}T12:00:00Z`) : null,
-        eta_from ? String(eta_from).slice(0, 10) : null,
-        eta_to ? String(eta_to).slice(0, 10) : (eta_from ? String(eta_from).slice(0, 10) : null),
-        status && ['Draft', 'Submitted', 'Approved'].includes(status) ? status : 'Draft',
-        typeof approval_id === 'string' ? approval_id.trim() || null : null,
-        preferred_jetty_id != null && preferred_jetty_id !== '' ? parseInt(preferred_jetty_id, 10) : null,
-        shipper_id != null && shipper_id !== '' ? parseInt(shipper_id, 10) : null,
-        loading_port_id != null && loading_port_id !== '' ? parseInt(loading_port_id, 10) : null,
-        surveyor_id != null && surveyor_id !== '' ? parseInt(surveyor_id, 10) : null,
-        agent_id != null && agent_id !== '' ? parseInt(agent_id, 10) : null,
-        typeof note === 'string' ? note.trim() || null : null,
+        nextEta,
+        nextEtaFrom,
+        nextEtaTo,
+        requestedStatus,
+        nextApprovalId,
+        destination_text !== undefined ? trimText(destination_text, 4000) : beforeRow.destination_text,
+        freightVal,
+        bill_of_lading_clause !== undefined ? trimText(bill_of_lading_clause, 4000) : beforeRow.bill_of_lading_clause,
+        consignee_text !== undefined ? trimText(consignee_text, 4000) : beforeRow.consignee_text,
+        notify_party_text !== undefined ? trimText(notify_party_text, 4000) : beforeRow.notify_party_text,
+        bl_indicated !== undefined ? trimText(bl_indicated, 4000) : beforeRow.bl_indicated,
+        nextDocDate,
+        nextApprovedBy,
+        nextApprovedAt,
+        nextApproverName,
+        nextApproverTitle,
+        nextPreferredJetty,
+        nextShipper,
+        nextLoadingPort,
+        nextSurveyor,
+        nextAgent,
+        nextNote,
         id,
       ]
     );
@@ -458,8 +653,10 @@ router.put('/:id', requireAuth, async (req, res) => {
       entityType: 'Shipping Instruction',
       entityId: id,
       entityLabel: response.referenceNumber || `SI-${id}`,
-      summary: 'Updated Draft SI',
-      changes,
+      summary: transitioningToApproved ? 'Approved Shipping Instruction' : 'Updated Shipping Instruction',
+      changes: transitioningToApproved
+        ? [...changes, { field: 'Approval ID', from: null, to: response.approvalId }]
+        : changes,
       actorUserId: req.userId ?? null,
     }).catch(() => {});
     res.json(response);
@@ -482,6 +679,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
   if (op.rows.length > 0) {
     return res.status(409).json({ error: 'Cannot delete shipping instruction while operations reference it' });
   }
+  const entityLabel = siCheck.rows[0].reference_number?.trim() || `SI-${id}`;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -496,7 +694,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
     );
     if (del.rows.length === 0) {
       await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Shipping instruction not found' });
+      return res.status(404).json({ error: 'Shipping instruction not found' }); // race: row removed concurrently
     }
     await client.query('COMMIT');
   } catch (e) {
@@ -510,7 +708,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
     action: 'delete',
     entityType: 'Shipping Instruction',
     entityId: id,
-    entityLabel: `SI-${id}`,
+    entityLabel,
     summary: 'Deleted Shipping Instruction',
     changes: [],
     actorUserId: req.userId ?? null,
@@ -523,6 +721,7 @@ function toSIList(row) {
     id: row.id,
     referenceNumber: row.reference_number ?? null,
     vesselName: row.vessel_name,
+    voyageNo: row.voyage_no ?? null,
     commodity: row.commodity_display ?? null,
     commodityId: null,
     tradeTermId: row.trade_term_id ?? null,
@@ -534,6 +733,18 @@ function toSIList(row) {
     etaTo: row.eta_to ?? null,
     status: row.status,
     approvalId: row.approval_id ?? null,
+    destinationText: row.destination_text ?? null,
+    freightTerms: row.freight_terms ?? null,
+    billOfLadingClause: row.bill_of_lading_clause ?? null,
+    consigneeText: row.consignee_text ?? null,
+    notifyPartyText: row.notify_party_text ?? null,
+    blIndicated: row.bl_indicated ?? null,
+    documentDate: row.document_date ?? null,
+    approvedByUserId: row.approved_by_user_id ?? null,
+    approvedAt: row.approved_at ?? null,
+    approverNameSnapshot: row.approver_name_snapshot ?? null,
+    approverTitleSnapshot: row.approver_title_snapshot ?? null,
+    approverDisplayName: row.approver_display_name ?? row.approver_username ?? null,
     note: row.note ?? null,
     preferredJettyId: row.preferred_jetty_id ?? null,
     preferredJettyName: row.preferred_jetty_name ?? null,

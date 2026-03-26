@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut } from './client.js'
+import { apiGet, apiPost, apiPut, apiDelete } from './client.js'
 
 export function fetchShippingInstructions(params = {}) {
   const sp = new URLSearchParams()
@@ -16,6 +16,7 @@ export function createShippingInstruction(body) {
   return apiPost('/shipping-instructions', {
     reference_number: body.referenceNumber ?? null,
     vessel_name: body.vesselName,
+    voyage_no: body.voyageNo ?? null,
     trade_term_id: body.tradeTermId ?? null,
     purpose: body.purpose ?? null,
     purpose_id: body.purposeId ?? null,
@@ -31,13 +32,25 @@ export function createShippingInstruction(body) {
     agent_id: body.agentId ?? null,
     breakdown: body.breakdown ?? null,
     note: body.note ?? null,
+    destination_text: body.destinationText ?? null,
+    freight_terms: body.freightTerms ?? null,
+    bill_of_lading_clause: body.billOfLadingClause ?? null,
+    consignee_text: body.consigneeText ?? null,
+    notify_party_text: body.notifyPartyText ?? null,
+    bl_indicated: body.blIndicated ?? null,
+    document_date: body.documentDate ?? null,
   })
+}
+
+export function deleteShippingInstruction(id) {
+  return apiDelete(`/shipping-instructions/${id}`)
 }
 
 export function updateShippingInstruction(id, body) {
   return apiPut(`/shipping-instructions/${id}`, {
     reference_number: body.referenceNumber,
     vessel_name: body.vesselName,
+    voyage_no: body.voyageNo,
     trade_term_id: body.tradeTermId,
     purpose: body.purpose,
     purpose_id: body.purposeId,
@@ -53,5 +66,12 @@ export function updateShippingInstruction(id, body) {
     agent_id: body.agentId,
     breakdown: body.breakdown,
     note: body.note,
+    destination_text: body.destinationText,
+    freight_terms: body.freightTerms,
+    bill_of_lading_clause: body.billOfLadingClause,
+    consignee_text: body.consigneeText,
+    notify_party_text: body.notifyPartyText,
+    bl_indicated: body.blIndicated,
+    document_date: body.documentDate,
   })
 }

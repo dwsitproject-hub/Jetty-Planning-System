@@ -118,6 +118,30 @@
   font-weight: 700;
 }
 
+.si-form__reference-dates {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px var(--spacing-4);
+  margin: 0 0 var(--spacing-5);
+  padding: var(--spacing-3);
+  background: #f7f9f8;
+  border: 1px solid #e0e8e3;
+  border-radius: 4px;
+  font-size: var(--font-size-xs);
+  align-items: baseline;
+}
+
+.si-form__reference-dates dt {
+  margin: 0;
+  font-weight: 600;
+  color: #444;
+}
+
+.si-form__reference-dates dd {
+  margin: 0;
+  color: #222;
+}
+
 .si-form__approval {
   text-align: right;
   margin-top: var(--spacing-8);

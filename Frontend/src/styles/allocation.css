@@ -1,5 +1,7 @@
 /* Allocation page */
 
+@import './purpose-badge.css';
+
 .allocation-visual {
   margin-bottom: var(--spacing-6);
 }
@@ -1469,26 +1471,6 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   transition: background var(--duration-fast), border-color var(--duration-fast);
 }
 
-.loading-list__badge {
-  flex-shrink: 0;
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-  padding: var(--spacing-1) var(--spacing-2);
-  border-radius: var(--radius-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.loading-list__badge--purpose[data-purpose="Loading"] {
-  background: rgba(45, 122, 62, 0.15);
-  color: #1a5f2a;
-}
-
-.loading-list__badge--purpose[data-purpose="Unloading"] {
-  background: rgba(33, 115, 199, 0.15);
-  color: #1e40af;
-}
-
 .loading-list__main {
   display: flex;
   flex-direction: column;
@@ -1649,11 +1631,105 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   align-items: start;
 }
 
+.loading-process-layout--stage-collapsed {
+  grid-template-columns: 92px minmax(0, 1fr);
+}
+
 .loading-process-rail {
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-sm);
   background: var(--color-bg);
   overflow: hidden;
+  align-self: start;
+  position: relative;
+}
+
+.loading-process-rail__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  border-bottom: 1px solid var(--color-border-light);
+  background: var(--color-bg-white);
+  min-height: 44px;
+}
+
+.loading-process-rail__header-title {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-steel);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.loading-process-rail__collapse {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rail-chevron {
+  display: inline-block;
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 700;
+  transform: translateY(-1px);
+}
+
+.loading-process-rail__icon {
+  width: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-process-rail__label {
+  display: inline-block;
+}
+
+.loading-process-rail--collapsed {
+  width: 92px;
+}
+
+.loading-process-rail--collapsed .loading-process-rail__header-title {
+  display: none;
+}
+
+.loading-process-rail--collapsed .loading-process-rail__header {
+  justify-content: center;
+  padding: var(--spacing-2);
+}
+
+.loading-process-rail__collapse.btn--secondary {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: var(--color-text-steel);
+}
+
+.loading-process-rail__collapse.btn--secondary:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.loading-process-rail__collapse svg,
+.precheck-checklist-header__collapse svg {
+  display: block;
+}
+
+.loading-process-rail--collapsed .loading-process-rail__item {
+  padding: var(--spacing-2) var(--spacing-2);
+}
+
+.loading-process-rail--collapsed .loading-process-rail__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .loading-process-rail__item {
@@ -1687,6 +1763,120 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   margin-top: var(--spacing-1);
   color: var(--color-text-steel);
   font-size: var(--font-size-small);
+}
+
+/* Pre-checking list: header + collapsed compact mode */
+.precheck-checklist-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  border: none;
+  border-bottom: 1px solid var(--color-border-light);
+  border-radius: 0;
+  background: var(--color-bg-white);
+  margin-bottom: 0;
+  min-height: 44px;
+}
+
+.precheck-checklist-header__collapse {
+  /* sizing/visuals come from .loading-process-rail__collapse */
+}
+
+.precheck-checklist-header__collapse.btn--secondary:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.precheck-checklist {
+  padding: var(--spacing-2);
+}
+
+.precheck-master-detail__list--collapsed .precheck-checklist-header {
+  padding: var(--spacing-2);
+  justify-content: center;
+}
+
+.precheck-master-detail__list--collapsed .precheck-checklist-header__title {
+  display: none;
+}
+
+.precheck-master-detail__list--collapsed .precheck-checklist-header__collapse {
+  width: 100%;
+  justify-content: center;
+}
+
+.precheck-master-detail__list--collapsed .precheck-checklist__item {
+  padding: 0;
+}
+
+.precheck-master-detail__list--collapsed .precheck-checklist__compact-btn {
+  justify-content: center;
+  padding: var(--spacing-3) var(--spacing-2);
+  gap: 8px;
+}
+
+.precheck-master-detail__list--collapsed .precheck-checklist__code {
+  font-size: 11px;
+}
+
+.precheck-checklist-header__title {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-steel);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.precheck-checklist__compact-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: var(--spacing-2);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.precheck-checklist__compact-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.precheck-checklist__code {
+  font-size: 12px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+}
+
+.precheck-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--color-border-medium);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  flex: 0 0 auto;
+}
+
+.precheck-status-dot--done {
+  background: #10b981;
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+.precheck-status-dot--in-progress {
+  background: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.precheck-status-dot--not-started {
+  background: #94a3b8;
+  border-color: rgba(148, 163, 184, 0.5);
 }
 
 /* Pre-checking checklist rows */
@@ -1820,10 +2010,21 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   align-items: start;
 }
 
+.precheck-master-detail__list--collapsed {
+  width: 88px;
+}
+
+.precheck-master-detail:has(.precheck-master-detail__list--collapsed) {
+  grid-template-columns: 88px minmax(0, 1fr);
+}
+
 .precheck-master-detail__list {
   align-self: start;
-  position: sticky;
-  top: var(--spacing-2);
+  position: relative;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  overflow: hidden;
 }
 
 .precheck-master-detail__panel {

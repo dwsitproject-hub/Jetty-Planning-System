@@ -5,6 +5,7 @@
 import express from 'express';
 import { pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { writeActivityLog } from '../lib/activity-log.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -18,7 +19,8 @@ router.get('/me/page-permissions', async (req, res) => {
     `SELECT p.resource_key,
             BOOL_OR(rp.can_view) AS can_view,
             BOOL_OR(rp.can_edit) AS can_edit,
-            BOOL_OR(rp.can_delete) AS can_delete
+            BOOL_OR(rp.can_delete) AS can_delete,
+            BOOL_OR(rp.can_approve) AS can_approve
      FROM user_roles ur
      JOIN role_permissions rp
        ON rp.role_id = ur.role_id
@@ -40,6 +42,7 @@ router.get('/me/page-permissions', async (req, res) => {
       canView: r.can_view,
       canEdit: r.can_edit,
       canDelete: r.can_delete,
+      canApprove: r.can_approve,
     }))
   );
 });
@@ -55,6 +58,7 @@ router.get('/roles/:roleId/page-permissions', async (req, res) => {
             COALESCE(rp.can_view, FALSE) AS can_view,
             COALESCE(rp.can_edit, FALSE) AS can_edit,
             COALESCE(rp.can_delete, FALSE) AS can_delete,
+            COALESCE(rp.can_approve, FALSE) AS can_approve,
             p.created_at,
             COALESCE(rp.updated_at, p.updated_at) AS updated_at
      FROM permissions p
@@ -67,7 +71,12 @@ router.get('/roles/:roleId/page-permissions', async (req, res) => {
      ORDER BY p.resource_key`,
     [roleId]
   );
-  res.json(result.rows.map(toPermission));
+  res.json(
+    result.rows.map((row) => ({
+      ...toPermission(row),
+      canApprove: row.can_approve,
+    }))
+  );
 });
 
 /** Page permissions linked to a role (per-role flags). */
@@ -92,18 +101,30 @@ router.get('/roles/:roleId/permissions', async (req, res) => {
 router.post('/roles/:roleId/permissions', async (req, res) => {
   const roleId = parseInt(req.params.roleId, 10);
   if (Number.isNaN(roleId)) return res.status(400).json({ error: 'Invalid roleId' });
-  const { permission_id, can_view, can_edit, can_delete } = req.body || {};
+  const { permission_id, can_view, can_edit, can_delete, can_approve } = req.body || {};
   const permId = parseInt(permission_id, 10);
   if (Number.isNaN(permId)) return res.status(400).json({ error: 'permission_id is required' });
-  if (can_view === undefined && can_edit === undefined && can_delete === undefined) {
+  if (
+    can_view === undefined &&
+    can_edit === undefined &&
+    can_delete === undefined &&
+    can_approve === undefined
+  ) {
     return res.status(400).json({
-      error: 'At least one flag is required: can_view, can_edit, can_delete',
+      error: 'At least one flag is required: can_view, can_edit, can_delete, can_approve',
     });
   }
   const r = await pool.query('SELECT id FROM roles WHERE id = $1 AND deleted_at IS NULL', [roleId]);
   if (r.rows.length === 0) return res.status(404).json({ error: 'Role not found' });
   const p = await pool.query('SELECT id FROM permissions WHERE id = $1 AND deleted_at IS NULL', [permId]);
   if (p.rows.length === 0) return res.status(404).json({ error: 'Permission not found' });
+  const roleName = await pool.query('SELECT name FROM roles WHERE id = $1 AND deleted_at IS NULL', [roleId]);
+  const permKey = await pool.query(
+    'SELECT resource_key FROM permissions WHERE id = $1 AND deleted_at IS NULL',
+    [permId]
+  );
+  const roleLabel = roleName.rows[0]?.name ?? `Role-${roleId}`;
+  const permissionLabel = permKey.rows[0]?.resource_key ?? `permission-${permId}`;
   const active = await pool.query(
     `SELECT 1 FROM role_permissions WHERE role_id = $1 AND permission_id = $2 AND deleted_at IS NULL`,
     [roleId, permId]
@@ -115,16 +136,28 @@ router.post('/roles/:roleId/permissions', async (req, res) => {
          can_view = COALESCE($1, can_view),
          can_edit = COALESCE($2, can_edit),
          can_delete = COALESCE($3, can_delete),
+         can_approve = COALESCE($4, can_approve),
          updated_at = NOW()
-       WHERE role_id = $4 AND permission_id = $5 AND deleted_at IS NULL`,
+       WHERE role_id = $5 AND permission_id = $6 AND deleted_at IS NULL`,
       [
         can_view === undefined ? null : Boolean(can_view),
         can_edit === undefined ? null : Boolean(can_edit),
         can_delete === undefined ? null : Boolean(can_delete),
+        can_approve === undefined ? null : Boolean(can_approve),
         roleId,
         permId,
       ]
     );
+    await writeActivityLog({
+      pageKey: 'admin',
+      action: 'update',
+      entityType: 'Role permission',
+      entityId: `${roleId}:${permId}`,
+      entityLabel: `${roleLabel} → ${permissionLabel}`,
+      summary: `Role permissions updated: ${roleLabel} → ${permissionLabel}`,
+      actorUserId: req.userId,
+      meta: { roleId, permissionId: permId, permissionKey: permissionLabel },
+    });
     return res.status(200).json({ roleId, permissionId: permId, assigned: true, alreadyAssigned: true });
   }
   const revive = await pool.query(
@@ -133,6 +166,7 @@ router.post('/roles/:roleId/permissions', async (req, res) => {
        can_view = $3,
        can_edit = $4,
        can_delete = $5,
+       can_approve = $6,
        updated_at = NOW()
      WHERE role_id = $1 AND permission_id = $2 AND deleted_at IS NOT NULL RETURNING id`,
     [
@@ -141,15 +175,33 @@ router.post('/roles/:roleId/permissions', async (req, res) => {
       Boolean(can_view),
       Boolean(can_edit),
       Boolean(can_delete),
+      Boolean(can_approve),
     ]
   );
   if (revive.rowCount === 0) {
     await pool.query(
-      `INSERT INTO role_permissions (role_id, permission_id, can_view, can_edit, can_delete)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [roleId, permId, Boolean(can_view), Boolean(can_edit), Boolean(can_delete)]
+      `INSERT INTO role_permissions (role_id, permission_id, can_view, can_edit, can_delete, can_approve)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        roleId,
+        permId,
+        Boolean(can_view),
+        Boolean(can_edit),
+        Boolean(can_delete),
+        Boolean(can_approve),
+      ]
     );
   }
+  await writeActivityLog({
+    pageKey: 'admin',
+    action: 'update',
+    entityType: 'Role permission',
+    entityId: `${roleId}:${permId}`,
+    entityLabel: `${roleLabel} → ${permissionLabel}`,
+    summary: `Role permissions updated: ${roleLabel} → ${permissionLabel}`,
+    actorUserId: req.userId,
+    meta: { roleId, permissionId: permId, permissionKey: permissionLabel },
+  });
   res.status(201).json({ roleId, permissionId: permId, assigned: true });
 });
 
@@ -247,6 +299,15 @@ router.post('/roles', async (req, res) => {
      RETURNING id, name, description, is_system_role, created_at, updated_at`,
     [name.trim(), description?.trim() ?? null, sys]
   );
+  await writeActivityLog({
+    pageKey: 'admin',
+    action: 'add',
+    entityType: 'Role',
+    entityId: result.rows[0]?.id,
+    entityLabel: result.rows[0]?.name,
+    summary: `Role created: ${result.rows[0]?.name || '—'}`,
+    actorUserId: req.userId,
+  });
   res.status(201).json(toRole(result.rows[0]));
 });
 
@@ -276,6 +337,15 @@ router.put('/roles/:id', async (req, res) => {
     [name.trim(), description?.trim() ?? null, id]
   );
   if (result.rows.length === 0) return res.status(404).json({ error: 'Role not found' });
+  await writeActivityLog({
+    pageKey: 'admin',
+    action: 'update',
+    entityType: 'Role',
+    entityId: id,
+    entityLabel: result.rows[0]?.name,
+    summary: `Role updated: ${result.rows[0]?.name || `Role-${id}`}`,
+    actorUserId: req.userId,
+  });
   res.json(toRole(result.rows[0]));
 });
 
@@ -290,6 +360,8 @@ router.delete('/roles/:id', async (req, res) => {
   if (role.rows[0].is_system_role) {
     return res.status(403).json({ error: 'Cannot delete system role' });
   }
+  const roleLabel = await pool.query('SELECT name FROM roles WHERE id = $1 AND deleted_at IS NULL', [id]);
+  const roleName = roleLabel.rows[0]?.name ?? `Role-${id}`;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -306,6 +378,15 @@ router.delete('/roles/:id', async (req, res) => {
       [id]
     );
     await client.query('COMMIT');
+    await writeActivityLog({
+      pageKey: 'admin',
+      action: 'delete',
+      entityType: 'Role',
+      entityId: id,
+      entityLabel: roleName,
+      summary: `Role deleted: ${roleName}`,
+      actorUserId: req.userId,
+    });
     res.status(204).send();
   } catch (e) {
     await client.query('ROLLBACK');

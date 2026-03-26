@@ -33,24 +33,46 @@ import {
   deleteOperationDocument,
 } from '../api/allocation'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import FlowPill from '../components/FlowPill'
 import '../styles/allocation.css'
+
+const STAGE_ICON = {
+  'pre-checking': '📋',
+  loading: '⚙️',
+  'post-checking': '✅',
+}
+
+const STAGE_SHORT = {
+  'pre-checking': 'Pre',
+  loading: 'Ops',
+  'post-checking': 'Post',
+}
+
+const LOADING_RAIL_COLLAPSED_KEY = 'jps_loading_stage_rail_collapsed'
+function readBool(key, fallback = false) {
+  try {
+    const v = localStorage.getItem(key)
+    if (v === '1') return true
+    if (v === '0') return false
+    return fallback
+  } catch {
+    return fallback
+  }
+}
+
+function writeBool(key, value) {
+  try {
+    localStorage.setItem(key, value ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
 
 const SECTIONS = [
   { id: 'pre-checking', label: 'Pre-Checking', description: 'Survey, Quality Check, Quantity Check (A1, A2, A3)', stepIds: ['A1', 'A2', 'A3'] },
   { id: 'loading', label: 'Operational', description: 'Cargo loading (B)', stepIds: ['B'] },
   { id: 'post-checking', label: 'Post-Checking', description: 'Final Quality Check, Final Quantity Check (C1, C2)', stepIds: ['C1', 'C2'] },
 ]
-
-/** Sticky purpose banner so user always sees Loading vs Unloading */
-function PurposeBanner({ purpose }) {
-  const isUnloading = purpose === 'Unloading'
-  return (
-    <div className={`purpose-banner purpose-banner--${isUnloading ? 'unloading' : 'loading'}`} role="status" aria-live="polite">
-      <span className="purpose-banner__icon" aria-hidden="true">{isUnloading ? '↓' : '↑'}</span>
-      <span className="purpose-banner__text">{purpose.toUpperCase()}</span>
-    </div>
-  )
-}
 
 function getNowForDateTimeLocal() {
   const d = new Date()
@@ -214,6 +236,8 @@ export default function Loading() {
   const purpose = isUnloading ? 'Unloading' : 'Loading'
   const basePath = isUnloading ? '/unloading' : '/loading'
   const purposeLower = purpose.toLowerCase()
+  const [stageRailCollapsed, setStageRailCollapsed] = useState(() => readBool(LOADING_RAIL_COLLAPSED_KEY, false))
+  useEffect(() => writeBool(LOADING_RAIL_COLLAPSED_KEY, stageRailCollapsed), [stageRailCollapsed])
   const operations = getAtBerthOperations(purpose)
   const { getSteps, setStepData, getLoadingOperation, addLoadingActivity, updateLoadingActivity, deleteLoadingActivity, getPreChecking, setPreCheckingSection, getPostChecking, setPostCheckingSection } = useLoading()
   const [stepPhotos, setStepPhotos] = useState({})
@@ -478,8 +502,10 @@ export default function Loading() {
         <div style={{ marginBottom: 'var(--spacing-2)' }}>
           <Link to="/at-berth" className="loading-back-link">← Back to Overview</Link>
         </div>
-        <PurposeBanner purpose={purpose} />
-        <h1 className="page-title">{purpose}: {vessel.vesselName}</h1>
+        <h1 className="page-title page-title-row">
+          <span>{purpose}: {vessel.vesselName}</span>
+          <FlowPill purpose={purpose} />
+        </h1>
         <VesselDetailCard detail={vesselDetail} />
 
         <nav className="loading-section-tabs" aria-label="At-berth sections">
@@ -522,24 +548,22 @@ export default function Loading() {
       <div style={{ marginBottom: 'var(--spacing-2)' }}>
         <Link to={`${basePath}/${vesselId}`} className="loading-back-link">← Back to {vessel.vesselName}</Link>
       </div>
-      <PurposeBanner purpose={purpose} />
-      <h1 className="page-title">{sectionConfig?.label ?? section}: {vessel.vesselName}</h1>
+      <h1 className="page-title page-title-row">
+        <span>{sectionConfig?.label ?? section}: {vessel.vesselName}</span>
+        <FlowPill purpose={purpose} />
+      </h1>
 
       <VesselDetailCard detail={vesselDetail} />
 
-      <div className="loading-process-layout">
-        <aside className="loading-process-rail" aria-label="Process stages">
-          {processStages.map((s) => (
-            <Link
-              key={s.id}
-              to={`${basePath}/${vesselId}/${s.id}`}
-              className={`loading-process-rail__item ${section === s.id ? 'loading-process-rail__item--active' : ''}`}
-            >
-              <span className="loading-process-rail__title">{s.label}</span>
-              <span className="loading-process-rail__meta">{s.done} / {s.total} complete</span>
-            </Link>
-          ))}
-        </aside>
+      <div className={`loading-process-layout ${stageRailCollapsed ? 'loading-process-layout--stage-collapsed' : ''}`}>
+        <StageRailControlled
+          processStages={processStages}
+          section={section}
+          basePath={basePath}
+          vesselId={vesselId}
+          collapsed={stageRailCollapsed}
+          setCollapsed={setStageRailCollapsed}
+        />
 
         <div className="vessel-detail-modal__body loading-process-content">
         {section === 'pre-checking' && (
@@ -554,6 +578,7 @@ export default function Loading() {
               getArrivalNor={getArrivalNor}
               setArrivalNor={setArrivalNor}
               formatDateTimeDisplay={formatDateTimeDisplay}
+              stageRailCollapsed={stageRailCollapsed}
             />
           </>
         )}
@@ -595,6 +620,53 @@ export default function Loading() {
   )
 }
 
+function StageRail({ processStages, section, basePath, vesselId }) {
+  // NOTE: collapse state is controlled by parent (so layout grid can reflow).
+  return null
+}
+
+function StageRailControlled({ processStages, section, basePath, vesselId, collapsed, setCollapsed }) {
+  useEffect(() => writeBool(LOADING_RAIL_COLLAPSED_KEY, collapsed), [collapsed])
+
+  return (
+    <aside className={`loading-process-rail ${collapsed ? 'loading-process-rail--collapsed' : ''}`} aria-label="Process stages">
+      <div className="loading-process-rail__header">
+        <span className="loading-process-rail__header-title">Stages</span>
+        <button
+          type="button"
+          className="btn btn--secondary btn--small loading-process-rail__collapse"
+          onClick={() => setCollapsed((c) => !c)}
+          aria-label={collapsed ? 'Expand stages navigation' : 'Collapse stages navigation'}
+          title={collapsed ? 'Expand stages' : 'Collapse stages'}
+        >
+          <span className="rail-chevron" aria-hidden>
+            {collapsed ? '›' : '‹'}
+          </span>
+        </button>
+      </div>
+      {processStages.map((s) => (
+        <Link
+          key={s.id}
+          to={`${basePath}/${vesselId}/${s.id}`}
+          className={`loading-process-rail__item ${section === s.id ? 'loading-process-rail__item--active' : ''}`}
+          title={`${s.label} (${s.done}/${s.total} complete)`}
+          aria-label={`${s.label} (${s.done} of ${s.total} complete)`}
+        >
+          <span className="loading-process-rail__title">
+            <span className="loading-process-rail__icon" aria-hidden>
+              {STAGE_ICON[s.id] || '•'}
+            </span>
+            <span className="loading-process-rail__label">
+              {collapsed ? (STAGE_SHORT[s.id] || s.label) : s.label}
+            </span>
+          </span>
+          {!collapsed && <span className="loading-process-rail__meta">{s.done} / {s.total} complete</span>}
+        </Link>
+      ))}
+    </aside>
+  )
+}
+
 const PRE_CHECK_SUB_TABS = [
   { id: 'keyMeeting', label: 'KEY MEETING' },
   { id: 'norAccepted', label: 'NOR ACCEPTED' },
@@ -604,6 +676,18 @@ const PRE_CHECK_SUB_TABS = [
   { id: 'initialSounding', label: 'INITIAL SOUNDING' },
   { id: 'initialDraftSurvey', label: 'INITIAL DRAFT SURVEY' },
 ]
+
+const PRECHECK_SHORT_CODE = {
+  keyMeeting: 'KM',
+  norAccepted: 'NOR',
+  tankInspection: 'TANK',
+  holdInspection: 'HOLD',
+  sampling: 'SAMP',
+  initialSounding: 'SOUND',
+  initialDraftSurvey: 'DRAFT',
+}
+
+const PRECHECK_RAIL_COLLAPSED_KEY = 'jps_precheck_section_rail_collapsed'
 
 const PRECHECK_SECTION_TO_KEY = {
   keyMeeting: 'key_meeting',
@@ -790,8 +874,11 @@ function PreCheckingSections({
   getArrivalNor,
   setArrivalNor,
   formatDateTimeDisplay,
+  stageRailCollapsed,
 }) {
   const [activeSubTab, setActiveSubTab] = useState('keyMeeting')
+  const [listCollapsed, setListCollapsed] = useState(() => readBool(PRECHECK_RAIL_COLLAPSED_KEY, false))
+  const [autoCollapseAfterSelect, setAutoCollapseAfterSelect] = useState(false)
   const [editingSection, setEditingSection] = useState(null)
   const [draft, setDraft] = useState(() => defaultPreCheckingSection())
   const [editingSamplingRecordId, setEditingSamplingRecordId] = useState(null)
@@ -804,6 +891,29 @@ function PreCheckingSections({
 
   const data = getPreChecking(vesselId)
   const norFromArrival = getArrivalNor(vesselId)
+
+  useEffect(() => {
+    writeBool(PRECHECK_RAIL_COLLAPSED_KEY, listCollapsed)
+  }, [listCollapsed])
+
+  const toggleList = () => {
+    setListCollapsed((cur) => {
+      const next = !cur
+      // If user expands the list while in compact navigation mode, auto-collapse after selecting a step.
+      if (cur === true && next === false && stageRailCollapsed) {
+        setAutoCollapseAfterSelect(true)
+      }
+      return next
+    })
+  }
+
+  const selectTab = (tabId) => {
+    setActiveSubTab(tabId)
+    if (autoCollapseAfterSelect) {
+      setListCollapsed(true)
+      setAutoCollapseAfterSelect(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -1295,31 +1405,67 @@ function PreCheckingSections({
         </p>
       )}
       <div className="precheck-master-detail">
-        <aside className="precheck-master-detail__list">
-          <div className="precheck-checklist" role="tablist" aria-label="Pre-Checking sections">
-            {PRE_CHECK_SUB_TABS.map((tab) => (
-              <div
-                key={tab.id}
-                className={`precheck-checklist__item ${activeSubTab === tab.id ? 'precheck-checklist__item--active' : ''}`}
-              >
-                <div className="precheck-checklist__left">
-                  <div className="precheck-checklist__topline">
-                    <span className="precheck-checklist__title">{tab.label}</span>
-                    <span className={`precheck-checklist__status precheck-checklist__status--${String(stepStatuses[tab.id] || '').toLowerCase().replace(/\s+/g, '-')}`}>
-                      {stepStatuses[tab.id]}
-                    </span>
-                  </div>
-                  {data[tab.id]?.lastSavedAt ? (
-                    <span className="precheck-checklist__saved">
-                      Last saved {formatDateTimeDisplay(data[tab.id].lastSavedAt)}
-                    </span>
-                  ) : null}
+        <aside className={`precheck-master-detail__list ${listCollapsed ? 'precheck-master-detail__list--collapsed' : ''}`}>
+          <div className="precheck-checklist-header">
+            <span className="precheck-checklist-header__title">Pre‑Checking</span>
+            <button
+              type="button"
+              className="btn btn--secondary btn--small loading-process-rail__collapse precheck-checklist-header__collapse"
+              onClick={toggleList}
+              aria-label={listCollapsed ? 'Expand sections navigation' : 'Collapse sections navigation'}
+              title={listCollapsed ? 'Expand sections' : 'Collapse sections'}
+            >
+              <span className="rail-chevron" aria-hidden>
+                {listCollapsed ? '›' : '‹'}
+              </span>
+            </button>
+          </div>
+
+          <div className={`precheck-checklist ${listCollapsed ? 'precheck-checklist--collapsed' : ''}`} role="tablist" aria-label="Pre-Checking sections">
+            {PRE_CHECK_SUB_TABS.map((tab) => {
+              const status = String(stepStatuses[tab.id] || '').toLowerCase()
+              const statusClass = status.replace(/\s+/g, '-')
+              const code = PRECHECK_SHORT_CODE[tab.id] || tab.label.slice(0, 4)
+              const title = `${tab.label} · ${stepStatuses[tab.id] || '—'}${data[tab.id]?.lastSavedAt ? ` · Last saved ${formatDateTimeDisplay(data[tab.id].lastSavedAt)}` : ''}`
+              return (
+                <div
+                  key={tab.id}
+                  className={`precheck-checklist__item ${activeSubTab === tab.id ? 'precheck-checklist__item--active' : ''}`}
+                  title={title}
+                >
+                  {listCollapsed ? (
+                    <button
+                      type="button"
+                      className="precheck-checklist__compact-btn"
+                      onClick={() => selectTab(tab.id)}
+                      aria-label={title}
+                    >
+                      <span className={`precheck-status-dot precheck-status-dot--${statusClass}`} aria-hidden />
+                      <span className="precheck-checklist__code" aria-hidden>{code}</span>
+                    </button>
+                  ) : (
+                    <>
+                      <div className="precheck-checklist__left">
+                        <div className="precheck-checklist__topline">
+                          <span className="precheck-checklist__title">{tab.label}</span>
+                          <span className={`precheck-checklist__status precheck-checklist__status--${statusClass}`}>
+                            {stepStatuses[tab.id]}
+                          </span>
+                        </div>
+                        {data[tab.id]?.lastSavedAt ? (
+                          <span className="precheck-checklist__saved">
+                            Last saved {formatDateTimeDisplay(data[tab.id].lastSavedAt)}
+                          </span>
+                        ) : null}
+                      </div>
+                      <button type="button" className="btn btn--small" onClick={() => selectTab(tab.id)}>
+                        Open
+                      </button>
+                    </>
+                  )}
                 </div>
-                <button type="button" className="btn btn--small" onClick={() => setActiveSubTab(tab.id)}>
-                  Open
-                </button>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </aside>
         <div className="precheck-master-detail__panel" role="tabpanel" aria-label="Pre-Checking detail">

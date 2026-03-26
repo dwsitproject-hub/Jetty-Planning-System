@@ -1,6 +1,10 @@
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { fetchShippingInstruction } from '../api/shippingInstructions'
+import { formatBlSplitFromBreakdown, getPrintedSiNumber, formatFreightForSi } from '../utils/siBlSplit'
+import { formatSiSignOffDate } from '../utils/siFormPlaceDate'
+import SiFormReferenceDates from '../components/SiFormReferenceDates'
+import FlowPill from '../components/FlowPill'
 import '../styles/si-view.css'
 import '../styles/si-approval.css'
 
@@ -9,32 +13,10 @@ const SI_FORM_COMPANY = {
   address: 'GAMA TOWER, LT 41, JL HR RASUNA SAID, KAV C 22, KARET KUNINGAN, SETIABUDI, KOTA ADM. JAKARTA SELATAN, DKI JAKARTA, 12940',
 }
 
-/** View is applicable for: Approved Loading SI, or Unloading / External SI */
+/** Same rule as main list: formal document after approval (Loading or Unloading). */
 function canViewAsDocument(si) {
   if (!si) return false
-  const purpose = (si.purpose || '').toLowerCase()
-  const status = (si.status || '').toLowerCase()
-  if (purpose === 'unloading') return true
-  if (purpose === 'loading' && status === 'approved') return true
-  return false
-}
-
-/** SI document number e.g. SI/EUP/2026/1/20260893 */
-function getSiDocNumber(si) {
-  const raw = (si.siId || si.id || '003').toString()
-  const id = raw.replace(/\D/g, '') || '003'
-  const y = new Date().getFullYear()
-  return `SI/EUP/${y}/1/${id.padStart(3, '0')}`
-}
-
-/** Format date for form: "BONTANG, 2 MARCH 2026" */
-function formatFormDate(iso, location = 'BONTANG') {
-  if (!iso) return `${location}, —`
-  const d = new Date(iso)
-  const day = d.getDate()
-  const month = d.toLocaleString('en-GB', { month: 'long' }).toUpperCase()
-  const year = d.getFullYear()
-  return `${location}, ${day} ${month} ${year}`
+  return (si.status || '').toLowerCase() === 'approved'
 }
 
 function formatQtyKg(kg) {
@@ -70,6 +52,7 @@ function mapApiToSi(row) {
     siId: row.referenceNumber || `SI-${row.id}`,
     referenceNumber: row.referenceNumber ?? null,
     vesselName: row.vesselName,
+    voyageNo: row.voyageNo ?? null,
     purpose: row.purpose,
     purposeId: row.purposeId ?? null,
     status: row.status,
@@ -77,6 +60,17 @@ function mapApiToSi(row) {
     commodity: row.commodity,
     commodityId: row.commodityId ?? null,
     etaDateTime: row.eta,
+    etaFrom: row.etaFrom ?? null,
+    etaTo: row.etaTo ?? null,
+    documentDate: row.documentDate ?? null,
+    destinationText: row.destinationText ?? null,
+    freightTerms: row.freightTerms ?? null,
+    billOfLadingClause: row.billOfLadingClause ?? null,
+    consigneeText: row.consigneeText ?? null,
+    notifyPartyText: row.notifyPartyText ?? null,
+    blIndicated: row.blIndicated ?? null,
+    approverNameSnapshot: row.approverNameSnapshot ?? null,
+    approverTitleSnapshot: row.approverTitleSnapshot ?? null,
     breakdown: Array.isArray(row.breakdown) ? row.breakdown : [],
     shipper: row.shipperName ?? '—',
     loadingPort: row.loadingPortName ?? '—',
@@ -84,6 +78,8 @@ function mapApiToSi(row) {
     surveyor: row.surveyorName ?? '—',
     term: row.tradeTermCode ?? '—',
     note: row.note ?? null,
+    receivedAt: row.createdAt ?? null,
+    updatedAt: row.updatedAt ?? null,
   }
 }
 
@@ -148,7 +144,7 @@ export default function SIView() {
         <div className="card si-view-unavailable">
           <h2 className="si-view-unavailable__title">View not available</h2>
           <p className="text-steel">
-            This Shipping Instruction is not available for document view. View is applicable for <strong>Approved Loading SI</strong> or <strong>Unloading / External SI</strong> only.
+            This Shipping Instruction is not available for document view. The printable form is available after <strong>approval sign-off</strong> (status Approved — for Unloading this shows as <strong>Confirmed</strong> in the list).
           </p>
           <button type="button" className="btn btn--primary" onClick={() => navigate('/shipping-instruction')}>
             Back to Shipping Instructions
@@ -172,10 +168,11 @@ export default function SIView() {
         >
           ← Back
         </button>
-        <h1 className="page-title">Shipping Instruction</h1>
-        <span className="si-view-meta">
-          {si.siId || si.id} · {isLoading ? 'Loading' : 'External'}
-        </span>
+        <h1 className="page-title page-title-row">
+          <span>Shipping Instruction</span>
+          <FlowPill purpose={si?.purpose} />
+        </h1>
+        <span className="si-view-meta">{si.siId || si.id}</span>
       </header>
       )}
 
@@ -192,37 +189,48 @@ export default function SIView() {
               {si.agent ? `PT. ${si.agent}` : 'PT. Tirta Permai Bahari (TPB Agency)'}
             </div>
             <h1 className="si-form__title">SHIPPING – INSTRUCTION</h1>
-            <p className="si-form__docno">No.: {getSiDocNumber(si)}</p>
+            <p className="si-form__docno">No.: {getPrintedSiNumber(si)}</p>
             <dl className="si-form__body">
               <dt>Vessel Name</dt>
-              <dd>{si.vesselName || si.vesselId || '—'}</dd>
+              <dd>
+                {si.vesselName || si.vesselId || '—'}
+                {si.voyageNo ? ` ${si.voyageNo}` : ''}
+              </dd>
               <dt>Descr. of Good</dt>
               <dd>{si.commodity || '—'}</dd>
               <dt>Quantity</dt>
               <dd><strong>{totalQtyLabel}</strong></dd>
               <dt>BL Split</dt>
-              <dd><strong>{breakdown.length ? `${breakdown.length} line(s)` : '—'}</strong></dd>
+              <dd><strong>{formatBlSplitFromBreakdown(breakdown)}</strong></dd>
               <dt>Shipment From</dt>
               <dd>{si.loadingPort || '—'}</dd>
               <dt>Destination</dt>
-              <dd>{si.destination || '—'}</dd>
+              <dd>{si.destinationText || '—'}</dd>
               <dt>Bill of Lading</dt>
-              <dd>{si.billOfLading || '—'}</dd>
+              <dd style={{ whiteSpace: 'pre-wrap' }}>{si.billOfLadingClause || '—'}</dd>
               <dt>Consignee</dt>
-              <dd>{si.consignee || '—'}</dd>
+              <dd style={{ whiteSpace: 'pre-wrap' }}>{si.consigneeText || '—'}</dd>
               <dt>Notify Party</dt>
-              <dd>{si.notifyParty || '—'}</dd>
+              <dd style={{ whiteSpace: 'pre-wrap' }}>{si.notifyPartyText || '—'}</dd>
               <dt>Freight</dt>
-              <dd>{si.term === 'CIF' ? 'PREPAID' : (si.term || 'FOB')}</dd>
+              <dd>{formatFreightForSi(si)}</dd>
               <dt>Shipper</dt>
               <dd>{SI_FORM_COMPANY.name} {SI_FORM_COMPANY.address}</dd>
               <dt>NPWP</dt>
               <dd>{si.npwp || '81.291.248.3-018.000'}</dd>
               <dt>BL Indicated</dt>
-              <dd>{si.blIndicated || 'CLEAN SHIPPED ON BOARD FREIGHT PREPAID'}</dd>
+              <dd style={{ whiteSpace: 'pre-wrap' }}>{si.blIndicated || 'CLEAN SHIPPED ON BOARD FREIGHT PREPAID'}</dd>
             </dl>
+            <SiFormReferenceDates
+              documentDate={si.documentDate}
+              createdAt={si.receivedAt}
+              updatedAt={si.updatedAt}
+              approvedAt={si.approvedAt}
+            />
             <div className="si-form__approval">
-              <div className="si-form__approval-place">{formatFormDate(si.receivedAt || new Date().toISOString())}</div>
+              <div className="si-form__approval-place" title="Sign-off line: approval date when approved; otherwise document / created">
+                {formatSiSignOffDate(si.documentDate, si.receivedAt, si.approvedAt)}
+              </div>
               <div className="si-form__approval-company">{SI_FORM_COMPANY.name}</div>
               {si.approvalId && (
                 <div className="si-form__approval-remark">
@@ -231,8 +239,8 @@ export default function SIView() {
                 </div>
               )}
               <div className="si-form__approval-signature" />
-              <div className="si-form__approval-name">RUDI HARTONO</div>
-              <div className="si-form__approval-title">OPERATION HEAD</div>
+              <div className="si-form__approval-name">{si.approverNameSnapshot || '—'}</div>
+              <div className="si-form__approval-title">{si.approverTitleSnapshot || 'OPERATION HEAD'}</div>
             </div>
           </div>
         </div>
@@ -264,7 +272,7 @@ export default function SIView() {
               <span className="si-view-summary__value">{totalQtyLabel}</span>
             </div>
             <div className="si-view-summary__row">
-              <span className="si-view-summary__label">ETA BONTANG:</span>
+              <span className="si-view-summary__label">ETA:</span>
               <span className="si-view-summary__value">{formatEtaBontang(si)}</span>
             </div>
             <div className="si-view-summary__row">

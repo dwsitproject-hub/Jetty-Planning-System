@@ -120,8 +120,8 @@ export default function MasterJetty() {
 
   return (
     <div className="allocation-page">
-      <h1 className="page-title">Master – Jetty</h1>
-      <p className="allocation-page__intro">Jetties from API (per port).</p>
+      <h1 className="page-title">Master – Preferred Jetty</h1>
+      <p className="allocation-page__intro">Jetties from API (per port). Used as Preferred Jetty.</p>
       <p className="text-steel">
         <Link to="/master" className="link">← Back to Master Menu</Link>
       </p>

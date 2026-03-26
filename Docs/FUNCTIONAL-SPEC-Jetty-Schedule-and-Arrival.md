@@ -3,7 +3,7 @@
 **Product:** Jetty Planning & Monitoring System (JPS)  
 **Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **At-Berth Executions list**, and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.2 (see document history at end).
+**Version:** 1.4 (see §16 and document history at end).
 
 ---
 
@@ -180,6 +180,41 @@ Other arrival fields (ETA, TA, ETB, NOR times, remark, priority, jetty, `no_pkk`
 
 ---
 
+## 9.1 At-berth operation workspace (Pre-Checking) — navigation + workspace width
+
+This section documents UI behaviour implemented in `Frontend/src/pages/Loading.jsx` for the at-berth operation workspace (Loading/Unloading).
+
+### 9.1.1 Goal
+
+- Maintain the multi-layer navigation (Stages → Sections) so users always know where they are.
+- Provide a **collapse/expand** experience that increases the main working area (detail/form panel).
+
+### 9.1.2 Stage rail (green)
+
+- Stages are shown as a left rail with icons:
+  - 📋 Pre-Checking
+  - ⚙️ Operational
+  - ✅ Post-Checking
+- **Collapsed** stage rail shows short labels:
+  - 📋 Pre
+  - ⚙️ Ops
+  - ✅ Post
+- Collapsed state is persisted per user in `localStorage`.
+
+### 9.1.3 Pre-Checking sections rail (blue)
+
+- Pre-Checking sections are shown in a master-detail layout:
+  - Left list = sections
+  - Right panel = the active section detail (read-only or edit mode)
+- **Collapsed** section rail becomes narrow and shows:
+  - **Status dot** (Done / In Progress / Not Started)
+  - **Short code** (KM / NOR / TANK / HOLD / SAMP / SOUND / DRAFT)
+- When the stage rail is collapsed, expanding the section list to choose a section will **auto-collapse** again after selection (focus/workspace-first behaviour).
+
+### 9.1.4 Collapse controls
+
+- Collapse controls are rendered consistently in the rail headers and use non-SVG chevrons to avoid platform-specific SVG rendering quirks.
+
 ## 10. Date and time display (user-facing)
 
 | Rule | Behaviour |
@@ -201,6 +236,7 @@ Other arrival fields (ETA, TA, ETB, NOR times, remark, priority, jetty, `no_pkk`
 | 1.3 | 2026-03-24 | Added Pre-Checking save-mode behavior: **Save Draft** (In Progress) and **Save** (Done). |
 | 1.4 | 2026-03-24 | Pre-Checking UX updated to checklist-style interaction with step status chips and **Save & Next** path. |
 | 1.5 | 2026-03-25 | NOR Accepted: merged NOR documents from Allocation + tab; **Last Updated Via**; Initial Sounding / Initial Draft Survey **Remark** field; Activity Log expectations; app shell (logout placement); fresh DB / Docker reset explanation; cross-ref to dev seed migrations and RBAC bootstrap. |
+| 1.6 | 2026-03-25 | At-berth operation workspace: **collapsible navigation rails** for stages + Pre-Checking sections (localStorage persistence, narrow collapsed states, auto-close behaviour for section picker in compact navigation mode). |
 
 ---
 
@@ -293,6 +329,24 @@ Technical contract: **TECH-SPEC-Jetty-Planning-System.md §3.8A**.
 | **New Docker volume / DB reset** | All **business** data (operations, SIs, uploads on old volume) is gone; **schema** returns after **`npm run migrate`** (or equivalent). |
 | **Not a bug** | Migrations create **structure** and small **reference seeds**; optional **dev seed migrations** (`023`, `024`) add sample SIs/operations/pre-checking rows for local testing. |
 | **Login / menu access** | A new DB has users from seed migration **002** but **no roles** until created; **page permissions** require **`user_roles`** + **`role_permissions`** — assign an admin role with full page access or the UI will look “locked”. |
+
+---
+
+## 16. Shipping Instructions — Loading document & approval (internal SI)
+
+**Scope:** Behaviour for **Loading** shipping instructions: create/edit form fields, document view, submit for approval, and **RBAC-gated** sign-off.
+
+| Area | Behaviour |
+|------|-----------|
+| **Extra draft fields** | Optional: **voyage no.**, **document date**, **destination**, **freight terms** (PREPAID / COLLECT / AS PER CHARTER PARTY / OTHER), **B/L clause**, **consignee**, **notify party**, **BL indicated**. |
+| **B/L split preview** | Read-only **preview** on the create/edit modal derived from breakdown lines (e.g. `1 × 4,000 MT`). |
+| **Submit for approval** | **Request approval** calls the API to set status **Submitted** (not only local UI state). |
+| **Approve SI** | List action opens the approval page only if the user has **Approve SI** on the **Shipping Instruction** page (see Admin → Roles). |
+| **Approval API** | Transition **Draft → Approved** requires prior **Submitted**; **PUT** with `status: Approved` checks **`can_approve`** for page `shipping-instruction`. **403** if missing. |
+| **Approver on document** | On approval, the system stores **approver name/title snapshots** (from `users.display_name` / `users.job_title`, default title **OPERATION HEAD** if job title empty). The **SI document view** shows these instead of a fixed name. |
+| **Printed SI number** | Document **No.** prefers stored **`reference_number`** when set; otherwise legacy synthetic numbering. |
+
+Technical contract: **TECH-SPEC-Jetty-Planning-System.md** (§2.2.1, §4 `shipping_instructions`, §6 RBAC, migration **`025_si_loading_document_and_approve_rbac.sql`**).
 
 ---
 

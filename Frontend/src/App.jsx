@@ -23,6 +23,8 @@ import Master from './pages/Master'
 import MasterPort from './pages/MasterPort'
 import MasterJetty from './pages/MasterJetty'
 import MasterJettyLayout from './pages/MasterJettyLayout'
+import MasterSiLookup from './pages/MasterSiLookup'
+import MasterFreightTerms from './pages/MasterFreightTerms'
 import Admin from './pages/Admin'
 import AdminUsers from './pages/AdminUsers'
 import AdminRoles from './pages/AdminRoles'
@@ -76,6 +78,79 @@ function App() {
                   <Route path="/master/port" element={<MasterPort />} />
                   <Route path="/master/jetty" element={<MasterJetty />} />
                   <Route path="/master/jetty-layout" element={<MasterJettyLayout />} />
+                  <Route
+                    path="/master/si-term"
+                    element={
+                      <MasterSiLookup
+                        apiType="trade-terms"
+                        title="Master – SI Term"
+                        valueLabel="Term"
+                        placeholder="e.g. PREPAID"
+                        pageKey="master-si-term"
+                      />
+                    }
+                  />
+                  <Route
+                    path="/master/si-shipper"
+                    element={
+                      <MasterSiLookup
+                        apiType="shippers"
+                        title="Master – SI Shipper"
+                        valueLabel="Shipper"
+                        placeholder="e.g. PT ABC"
+                        pageKey="master-si-shipper"
+                      />
+                    }
+                  />
+                  <Route
+                    path="/master/si-loading-port"
+                    element={
+                      <MasterSiLookup
+                        apiType="loading-ports"
+                        title="Master – SI Loading Port"
+                        valueLabel="Loading Port"
+                        placeholder="e.g. Bontang"
+                        pageKey="master-si-loading-port"
+                      />
+                    }
+                  />
+                  <Route
+                    path="/master/si-surveyor"
+                    element={
+                      <MasterSiLookup
+                        apiType="surveyors"
+                        title="Master – SI Surveyor"
+                        valueLabel="Surveyor"
+                        placeholder="e.g. Intertek"
+                        pageKey="master-si-surveyor"
+                      />
+                    }
+                  />
+                  <Route
+                    path="/master/si-agent"
+                    element={
+                      <MasterSiLookup
+                        apiType="agents"
+                        title="Master – SI Agent"
+                        valueLabel="Agent"
+                        placeholder="e.g. PT DEF"
+                        pageKey="master-si-agent"
+                      />
+                    }
+                  />
+                  <Route
+                    path="/master/si-commodity"
+                    element={
+                      <MasterSiLookup
+                        apiType="commodities"
+                        title="Master – SI Commodity"
+                        valueLabel="Commodity"
+                        placeholder="e.g. LNG"
+                        pageKey="master-si-commodity"
+                      />
+                    }
+                  />
+                  <Route path="/master/freight-terms" element={<MasterFreightTerms />} />
                   <Route path="/admin" element={<Admin />} />
                   <Route path="/admin/users" element={<AdminUsers />} />
                   <Route path="/admin/roles" element={<AdminRoles />} />

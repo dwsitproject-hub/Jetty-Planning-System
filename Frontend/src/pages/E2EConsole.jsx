@@ -71,11 +71,16 @@ export default function E2EConsole() {
       return
     }
     try {
+      const ymd = new Date().toISOString().slice(0, 10)
       const row = await createShippingInstruction({
         vesselName: newSi.vesselName,
         purpose: newSi.purpose,
         purposeId,
-        referenceNumber: newSi.referenceNumber || null,
+        referenceNumber: newSi.referenceNumber?.trim() || `E2E-${Date.now()}`,
+        etaFrom: ymd,
+        etaTo: ymd,
+        eta: new Date(`${ymd}T12:00:00`).toISOString(),
+        documentDate: ymd,
         status: 'Approved',
         breakdown: [
           {

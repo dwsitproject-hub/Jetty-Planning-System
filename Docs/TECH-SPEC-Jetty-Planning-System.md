@@ -1,6 +1,6 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.2  
+**Version**: 1.4  
 **Last Updated**: 2026-03-25  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
@@ -57,12 +57,20 @@ RBAC is defined at **department**, **page**, and **field** level (see §6).
 
 **User Story**: As a Jetty Operator, I want to view incoming SIs so I can see vessel, material, and purpose details.
 
-**Workflow (current frontend: `ShippingInstruction.jsx`)**:
+**Workflow (current frontend: `ShippingInstruction.jsx`, `SIApproval.jsx`, `SIView.jsx`)**:
 1. SIs are listed with filters (purpose, status, search by SI, vessel, agent).
 2. For each SI:
    - Show vessel, commodity, purpose (Loading/Unloading), ETA, status.
-   - Expand row for full details (breakdown, quality, documents).
-3. Loading SIs can go through an internal approval flow (Draft → Submitted → Approved).
+   - Expand row for full details (breakdown, documents; extended header fields as implemented).
+3. Loading SIs: create/edit includes **destination**, **freight_terms**, **B/L & consignee** text fields, **voyage**, **document date**; modal shows **B/L split preview** from breakdown.
+4. Internal approval (Loading + Unloading): **Submit for approval** persists **Submitted** via API; **Approve/Sign-off** requires RBAC **`can_approve`** on page `shipping-instruction` (see §6). On approve, API sets **`approved_by_user_id`**, **`approved_at`**, **snapshots**, **`approval_id`**; document view uses **reference_number** as **No.** when set.
+5. Document view/approval templates:
+   - **Loading** uses the full template (header + full field set).
+   - **Unloading** uses a simplified template (label and layout differences).
+6. UX details:
+   - Mandatory fields are validated client-side and enforced server-side.
+   - Action buttons are always visible but may be disabled with one-line “why disabled” tooltips.
+   - Delete is supported for Draft and Submitted SIs with RBAC + status enforcement.
 
 **Target implementation**:
 - Source SIs from upstream EXIM/Logistics via `shipping_instructions` API.
@@ -70,6 +78,19 @@ RBAC is defined at **department**, **page**, and **field** level (see §6).
   - Action “Create Operation / Go to Allocation” should:
     - Create or open an `Operation` for this SI.
     - Navigate to Allocation view with context.
+
+#### 2.2.1.1 SI master data (dropdown sources)
+
+SI dropdown values are sourced from master tables and managed via Master Menu pages:
+
+- Term
+- Shipper
+- Loading Port
+- Surveyor
+- Agent
+- Commodity
+
+Freight terms are currently fixed (frontend constant + backend validation), so the UI exposes them as a read-only master page.
 
 #### 2.2.2 Allocation & Berthing
 
@@ -227,6 +248,19 @@ All endpoints under `/api/v1`.
 - `GET /shipping-instructions/:id`.
 - `POST /shipping-instructions` – create (for manual entry).
 - `PUT /shipping-instructions/:id` — body may include **`approval_id`** / persisted **`approvalId`** for approved flows.
+- `DELETE /shipping-instructions/:id` — guarded by RBAC `can_delete` and status rules (Draft/Submitted only).
+
+### 3.2.1 SI lookups (master dropdown CRUD)
+
+Base: `/si-lookups`
+
+- `GET /si-lookups/:type` – list items
+- `GET /si-lookups/:type/:id` – get item
+- `POST /si-lookups/:type` – create `{ value }`
+- `PUT /si-lookups/:type/:id` – update `{ value }`
+- `DELETE /si-lookups/:type/:id` – delete (blocked when referenced by SI or SI breakdown)
+
+Types are whitelisted by backend config (`Backend/src/routes/si-lookups.js`) and map to the corresponding SI master tables.
 
 ### 3.3 Operations & SLA
 
@@ -538,7 +572,9 @@ Entities follow the design already outlined in the previous answer; key ones:
 
 - `users`, `roles`, `permissions`, `role_permissions`, `user_roles`.
 - `ports`, `jetties`, `jetty_status_history`.
-- `shipping_instructions` — includes **`approval_id`** (`TEXT`, optional): persisted when SI is approved (see migration **`019_shipping_instructions_approval_id.sql`**); API field **`approvalId`** on list/detail/update.
+- `shipping_instructions` — includes **`approval_id`** (migration **`019`**). Migration **`025_si_loading_document_and_approve_rbac.sql`** adds Loading document fields: **`voyage_no`**, **`destination_text`**, **`freight_terms`** (check: PREPAID, COLLECT, AS_PER_CHARTER_PARTY, OTHER), **`bill_of_lading_clause`**, **`consignee_text`**, **`notify_party_text`**, **`bl_indicated`**, **`document_date`**, and approval audit: **`approved_by_user_id`**, **`approved_at`**, **`approver_name_snapshot`**, **`approver_title_snapshot`**. API exposes camelCase equivalents (e.g. **`destinationText`**, **`freightTerms`**, **`approverNameSnapshot`**).
+- `users` — optional **`job_title`** (migration **`025`**) used when populating approver title snapshot (fallback: `OPERATION HEAD`).
+- `role_permissions` — **`can_approve`** boolean (migration **`025`**); merged in **`GET /rbac/me/page-permissions`** as **`canApprove`** per page. Shipping Instruction approval on **PUT** `/shipping-instructions/:id` when transitioning to **Approved** requires **`can_approve`** for resource_key **`shipping-instruction`**.
 - `operation_documents` — file metadata per operation (`kind`, `stored_path`, NOR/BERTHING, etc.).
 - `operations`, `operation_materials`, `operation_activities` (optional).
 - `qc_surveys`, `qc_documents`.
@@ -588,7 +624,7 @@ Indexes:
 UI implementation (`AdminRoles.jsx`):
 - **Basic**: role name, description.
 - **Departments**: checkboxes for view/edit/delete by department.
-- **Pages**: per-page view/edit/delete.
+- **Pages**: per-page view/edit/delete, plus **Approve SI** (fourth column) for the **Shipping Instruction** page only (`AdminRoles.jsx`).
 - **Fields**: per-field view/edit within selected pages.
 
 Backend enforcement:
@@ -599,16 +635,38 @@ Backend enforcement:
     - 403 if edit/delete requested without permission.
 
 Frontend enforcement:
-- `AuthContext` provides current user + effective permissions.
+- `AuthContext` + **`RbacContext`**: page-level **`canView` / `canEdit` / `canDelete` / `canApprove`** from **`GET /rbac/me/page-permissions`** (see **`Frontend/src/context/RbacContext.jsx`**).
 - Navigation and buttons:
   - Hide Admin/Master menus without page view permission.
   - Disable create/edit/delete actions when edit/delete is false.
   - Hide/disable sensitive fields based on field-level view/edit.
 
+### 6.2 Admin → Roles UX & persistence
+
+- Permission checkbox ticks update **local UI state only**.
+- Database persistence for role permissions happens only when user clicks **Save role**.
+- Roles UI supports:
+  - Page list **search**
+  - **Collapsible groups** (Core modules, Master – Port & Jetty, Master – Shipping Instruction)
+  - Group-level bulk toggles (View all / Edit all / Delete all)
+- Admin role actions (create/update/delete roles, permission changes) write to `activity_logs` and show toast notifications for success/failure.
+
+### 6.3 New page keys (SI master menu)
+
+New master pages have dedicated RBAC page keys (seeded by migration):
+
+- `master-si-term`
+- `master-si-shipper`
+- `master-si-loading-port`
+- `master-si-surveyor`
+- `master-si-agent`
+- `master-si-commodity`
+- `master-si-freight-terms` (read-only UI; RBAC still gates view)
+
 **Fresh database bootstrap (permissions)**:
 
 - `GET /rbac/me/page-permissions` merges flags from **`user_roles`** → **`role_permissions`** → **`permissions`** (`resource_type = 'page'`). If the user has **no roles** or no **`role_permissions`** rows, the UI receives **no page grants** (everything appears locked).
-- After migrations, ensure at least one **role** exists, assign **`role_permissions`** for all catalog pages (see migration **`014_seed_page_permissions.sql`**), and link the admin user via **`user_roles`**. For local dev, granting an **Administrator** role with `can_view` / `can_edit` / `can_delete` = true on every page permission is the usual fix.
+- After migrations, ensure at least one **role** exists, assign **`role_permissions`** for all catalog pages (see migration **`014_seed_page_permissions.sql`**), and link the admin user via **`user_roles`**. For local dev, granting **Edit** on Shipping Instruction usually also sets **`can_approve`** for that page (migration **`025`** backfill); use **Admin → Roles** to adjust **Approve SI** per role.
 
 ---
 
@@ -619,6 +677,7 @@ Selected, testable criteria:
 - **Shipping Instruction**
   - Filter by purpose and status works; list shows vessel, material, purpose.
   - SI → Operation link exists; clicking opens Allocation for that SI.
+  - Submit for approval persists **Submitted**; approve transition enforces **`can_approve`**; document view shows approver **snapshots** and **reference_number** on the printed form when present.
 
 - **Allocation & Berthing**
   - Arrival update stores ETA/TA/ETB and NOR data; audit log captured.

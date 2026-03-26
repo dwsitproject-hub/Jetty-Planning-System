@@ -9,6 +9,56 @@
   min-height: 100vh;
 }
 
+/* Flow pill (Loading vs Unloading) — used across modules */
+.flow-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-family: var(--font-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.flow-pill--md {
+  padding: 6px 10px;
+  font-size: var(--font-size-xs);
+}
+
+.flow-pill--sm {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.flow-pill__icon {
+  font-size: 1.05em;
+  line-height: 1;
+}
+
+.flow-pill--loading {
+  background: rgba(45, 122, 62, 0.14);
+  border-color: rgba(45, 122, 62, 0.28);
+  color: #1a5f2a;
+}
+
+.flow-pill--unloading {
+  background: rgba(33, 115, 199, 0.14);
+  border-color: rgba(33, 115, 199, 0.28);
+  color: #1e40af;
+}
+
+.page-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+}
+
 /* Top bar */
 .topbar {
   display: flex;
