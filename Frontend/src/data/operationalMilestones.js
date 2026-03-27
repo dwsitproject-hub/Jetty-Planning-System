@@ -2,17 +2,15 @@
 
 export const UNLOADING_MILESTONES = [
   { key: 'opening_h1_h2', label: 'OPENING H1 & H2' },
-  { key: 'hose_on', label: 'HOSE ON' },
-  { key: 'comm_discharge', label: 'COMM DISCHARGE' },
-  { key: 'compl_discharge', label: 'COMPL DISCHARGE' },
+  { key: 'cargo_pre_conditioning', label: 'CARGO PRE-CONDITIONING' },
+  { key: 'cargo_operations', label: 'CARGO OPERATIONS' },
   { key: 'other', label: 'OTHER' },
 ]
 
 export const LOADING_MILESTONES = [
   { key: 'opening_h1_h2', label: 'OPENING H1 & H2' },
-  { key: 'hose_on', label: 'HOSE ON' },
-  { key: 'comm_load', label: 'COMM LOAD' },
-  { key: 'compl_load', label: 'COMPL LOAD' },
+  { key: 'cargo_pre_conditioning', label: 'CARGO PRE-CONDITIONING' },
+  { key: 'cargo_operations', label: 'CARGO OPERATIONS' },
   { key: 'other', label: 'OTHER' },
 ]
 

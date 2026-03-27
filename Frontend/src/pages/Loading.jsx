@@ -172,13 +172,13 @@ function inferPrecheckStatus(sectionKey, item = {}) {
   }
   if (sectionKey === 'initialSounding' || sectionKey === 'initialDraftSurvey') {
     const hasResult = Boolean(String(item?.remark || item?.result || '').trim())
-    const hasDate = Boolean(item?.dateTime)
-    if (hasResult || hasDate) return 'Done'
+    const hasTimes = Boolean(item?.startTime || item?.endTime || item?.dateTime)
+    if (hasResult || hasTimes) return 'Done'
     if (hasDocs || hasRemark) return 'In Progress'
     return 'Not Started'
   }
-  const hasDate = Boolean(item?.dateTime)
-  if (hasDate) return 'Done'
+  const hasTimes = Boolean(item?.startTime || item?.endTime || item?.dateTime)
+  if (hasTimes) return 'Done'
   if (hasDocs || hasRemark) return 'In Progress'
   return 'Not Started'
 }
@@ -188,8 +188,8 @@ function inferPostcheckStatus(_sectionKey, item = {}) {
   if (explicit) return explicit
   const hasDocs = Array.isArray(item?.documents) && item.documents.length > 0
   const hasResult = Boolean(String(item?.result || '').trim())
-  const hasDate = Boolean(item?.dateTime)
-  if (hasResult || hasDate) return 'Done'
+  const hasTimes = Boolean(item?.startTime || item?.endTime || item?.dateTime)
+  if (hasResult || hasTimes) return 'Done'
   if (hasDocs) return 'In Progress'
   return 'Not Started'
 }
@@ -1077,7 +1077,12 @@ function PreCheckingSections({
             status: row.status || current.status,
             lastSavedAt: row.updatedAt ?? current.lastSavedAt ?? null,
           }
-          if (row.occurredAt) merged.dateTime = String(row.occurredAt).slice(0, 16)
+          if (row.startAt || row.occurredAt) {
+            merged.startTime = String(row.startAt || row.occurredAt).slice(0, 16)
+          }
+          if (row.endAt) {
+            merged.endTime = String(row.endAt).slice(0, 16)
+          }
           if (section === 'sampling') {
             merged.records = Array.isArray(row.payload?.records) ? row.payload.records : []
           }
@@ -1191,10 +1196,14 @@ function PreCheckingSections({
   }, [searchParams, setSearchParams])
 
   const buildSubProcessPayload = (sectionKey, sectionDraft) => {
+    const startTime = sectionDraft?.startTime || sectionDraft?.dateTime || null
+    const endTime = sectionDraft?.endTime || sectionDraft?.dateTime || null
     if (sectionKey === 'sampling') {
       return {
         status: 'Done',
-        occurredAt: sectionDraft?.dateTime || null,
+        occurredAt: startTime,
+        startAt: startTime,
+        endAt: endTime,
         remark: sectionDraft?.remark || '',
         payload: { records: sectionDraft?.records || [] },
       }
@@ -1202,14 +1211,18 @@ function PreCheckingSections({
     if (sectionKey === 'initialSounding' || sectionKey === 'initialDraftSurvey') {
       return {
         status: 'Done',
-        occurredAt: sectionDraft?.dateTime || null,
+        occurredAt: startTime,
+        startAt: startTime,
+        endAt: endTime,
         remark: sectionDraft?.remark || sectionDraft?.result || '',
         payload: null,
       }
     }
     return {
       status: 'Done',
-      occurredAt: sectionDraft?.dateTime || null,
+      occurredAt: startTime,
+      startAt: startTime,
+      endAt: endTime,
       remark: sectionDraft?.remark || '',
       payload: null,
     }
@@ -1251,6 +1264,8 @@ function PreCheckingSections({
             phase: 'Pre-Checking',
             status: nextStatus,
             occurredAt: draft.norAccepted.norAcceptedDateTime || draft.norAccepted.norTenderedDateTime || null,
+            startAt: draft.norAccepted.startTime || draft.norAccepted.norTenderedDateTime || null,
+            endAt: draft.norAccepted.endTime || draft.norAccepted.norAcceptedDateTime || null,
             remark: draft.norAccepted.remark || '',
             payload: {
               norTenderedDateTime: draft.norAccepted.norTenderedDateTime || null,
@@ -1689,6 +1704,24 @@ function PreCheckingSections({
         {editingSection === 'norAccepted' ? (
           <>
             <div className="berthing-modal__field">
+              <label className="berthing-modal__label">Start Time</label>
+              <input
+                type="datetime-local"
+                className="berthing-modal__input"
+                value={draft.norAccepted?.startTime || ''}
+                onChange={(e) => updateDraft('norAccepted', 'startTime', e.target.value)}
+              />
+            </div>
+            <div className="berthing-modal__field">
+              <label className="berthing-modal__label">End Time</label>
+              <input
+                type="datetime-local"
+                className="berthing-modal__input"
+                value={draft.norAccepted?.endTime || ''}
+                onChange={(e) => updateDraft('norAccepted', 'endTime', e.target.value)}
+              />
+            </div>
+            <div className="berthing-modal__field">
               <label className="berthing-modal__label">Date &amp; Time (NOR Tendered)</label>
               <input
                 type="datetime-local"
@@ -1726,6 +1759,14 @@ function PreCheckingSections({
           </>
         ) : (
           <>
+            <div className="precheck-section__row">
+              <span className="precheck-section__label">Start Time</span>
+              <span className="precheck-section__value">{data.norAccepted?.startTime ? formatDateTimeDisplay(data.norAccepted.startTime) : '—'}</span>
+            </div>
+            <div className="precheck-section__row">
+              <span className="precheck-section__label">End Time</span>
+              <span className="precheck-section__value">{data.norAccepted?.endTime ? formatDateTimeDisplay(data.norAccepted.endTime) : '—'}</span>
+            </div>
             <div className="precheck-section__row">
               <span className="precheck-section__label">Date &amp; Time (NOR Tendered)</span>
               <span className="precheck-section__value">{norFromArrival.norTenderedDateTime ? formatDateTimeDisplay(norFromArrival.norTenderedDateTime) : '—'}</span>
@@ -2282,7 +2323,8 @@ function PostCheckingSections({
             result: row.remark || '',
             status: row.status || '',
             lastSavedAt: row.updatedAt ?? null,
-            ...(row.occurredAt ? { dateTime: isoOrDatetimeToLocal(row.occurredAt) } : {}),
+            ...(row.startAt || row.occurredAt ? { startTime: isoOrDatetimeToLocal(row.startAt || row.occurredAt) } : {}),
+            ...(row.endAt ? { endTime: isoOrDatetimeToLocal(row.endAt) } : {}),
             documents: docs.map((d) => ({ id: d.id, name: d.name, url: d.url, source: 'precheck_subprocess' })),
           })
         })
@@ -2421,7 +2463,9 @@ function PostCheckingSections({
         const sent = await upsertSubProcess(operationId, subKey, {
           phase: 'Post-Checking',
           status: nextStatus,
-          occurredAt: sectionDraft?.dateTime || null,
+          occurredAt: sectionDraft?.startTime || sectionDraft?.dateTime || null,
+          startAt: sectionDraft?.startTime || sectionDraft?.dateTime || null,
+          endAt: sectionDraft?.endTime || sectionDraft?.dateTime || null,
           remark: sectionDraft?.result || '',
           payload: null,
         })

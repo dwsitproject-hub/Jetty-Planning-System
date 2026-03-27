@@ -146,6 +146,9 @@ export function upsertSubProcess(operationId, subProcessKey, body) {
     phase: body.phase,
     status: body.status,
     occurredAt: body.occurredAt,
+    startAt: body.startAt,
+    endAt: body.endAt,
+    skipReason: body.skipReason,
     remark: body.remark,
     payload: body.payload,
   })
@@ -209,6 +212,7 @@ export function createOperationalEntry(operationId, body) {
     endAt: body.endAt,
     reason: body.reason,
     markedAt: body.markedAt,
+    cargoHandlingMethodId: body.cargoHandlingMethodId,
   })
 }
 
@@ -221,6 +225,7 @@ export function updateOperationalEntry(operationId, entryId, body) {
     endAt: body.endAt,
     reason: body.reason,
     markedAt: body.markedAt,
+    cargoHandlingMethodId: body.cargoHandlingMethodId,
   })
 }
 
@@ -230,4 +235,8 @@ export function deleteOperationalEntry(operationId, entryId) {
 
 export function fetchActivityTimeline(operationId) {
   return apiGet(`/operations/${operationId}/activity-timeline`)
+}
+
+export function fetchCargoHandlingMethods() {
+  return apiGet('/master/cargo-handling-methods')
 }

@@ -202,7 +202,7 @@ export default function OperationActivityTimeline({
                         <span>N/A: {ev.reason || '—'}</span>
                       ) : ev.source === 'operational_activity' ? (
                         <span>
-                          {[ev.subStepTitle, ev.remark].filter(Boolean).join(' — ') || ev.remark || '—'}
+                          {[ev.subStepTitle, ev.cargoHandlingMethodName, ev.remark].filter(Boolean).join(' — ') || ev.remark || '—'}
                         </span>
                       ) : (
                         <span>

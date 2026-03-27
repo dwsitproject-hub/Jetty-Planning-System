@@ -1,7 +1,7 @@
 # Jetty Planning System — Technical Architecture
 
 **Version**: 1.0  
-**Last Updated**: 2026-03-26  
+**Last Updated**: 2026-03-27  
 **Sources**: TECH-SPEC-Jetty-Planning-System.md, Feature-Module-Summary.md, Dev-Notes.md, Jetty PRD vRian - 1.0
 
 ---
@@ -208,6 +208,31 @@ All endpoints under **`/api/v1`**.
 
 - `GET /operations/:operationId/activity-timeline`
 
+### 6.3.2 Operational step redesign (latest)
+
+Operational step order is standardized as:
+
+1. `opening_h1_h2` (Opening H1 & H2)
+2. `cargo_pre_conditioning` (Cargo Pre-Conditioning)
+3. `cargo_operations` (Cargo Operations)
+4. `other` (Other)
+
+Cargo Operations keeps sub-step support and records `cargo_handling_method_id` per activity row.
+
+### 6.3.3 Master data: cargo handling methods
+
+New master endpoint:
+
+- `GET /master/cargo-handling-methods`
+
+Seeded active values:
+
+- Hose
+- Conveyor
+- Grab Bucket
+- Dump Truck
+- Bucket Elevator
+
 ### 6.4 QC & quantity
 
 - `GET /operations/:id/qc-surveys`, `POST /operations/:id/qc-surveys`, `PUT /qc-surveys/:id`  
@@ -317,6 +342,22 @@ The Loading/Unloading pages display a unified timeline card titled **“Activity
 - **Toasts**:
   - Save flows already show success toasts in the Loading UI.
   - Timeline edit/delete and operational save/N/A actions show success/error toasts using the shared `.toast` styles.
+
+### 11.2 At-berth baseline form standards
+
+Pre-Checking, Operational, and Post-Checking follow a shared baseline form contract:
+
+- Status
+- Start Time
+- End Time
+- Documents
+- Remark
+
+Additional rules:
+
+- `Skipped` status is supported and requires a reason.
+- `Skipped` counts as complete in stage completion logic.
+- NOR section includes Start/End time fields in addition to NOR Tendered and NOR Accepted timestamps.
 
 Replacing remaining in-memory modules with API calls and adding AuthContext + permission checks is part of the ongoing backend integration (see TECH-SPEC §8).
 

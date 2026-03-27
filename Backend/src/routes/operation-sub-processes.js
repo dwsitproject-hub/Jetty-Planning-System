@@ -89,7 +89,7 @@ async function ensureOperationExists(operationId) {
 
 async function loadSubProcess(operationId, phase, key) {
   const r = await pool.query(
-    `SELECT id, operation_id, phase, sub_process_key, status, occurred_at, remark, payload_json, created_at, updated_at
+    `SELECT id, operation_id, phase, sub_process_key, status, occurred_at, start_at, end_at, skip_reason, remark, payload_json, created_at, updated_at
      FROM operation_sub_processes
      WHERE operation_id = $1
        AND phase = $2
@@ -105,9 +105,15 @@ async function loadSubProcess(operationId, phase, key) {
 async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
   const key = cleanKey(subProcessKey);
   const occurredAt = parseTs(body.occurredAt);
+  const startAt = parseTs(body.startAt);
+  const endAt = parseTs(body.endAt);
   const status = body.status != null ? String(body.status).trim() : undefined;
+  const skipReason = body.skipReason != null ? String(body.skipReason).trim() : undefined;
   const remark = body.remark != null ? String(body.remark) : undefined;
   const payload = sanitizePayload(body.payload);
+  if (status === 'Skipped' && !(skipReason && skipReason.trim())) {
+    throw Object.assign(new Error('skipReason is required when status is Skipped'), { statusCode: 400 });
+  }
 
   const client = await pool.connect();
   try {
@@ -126,14 +132,23 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
         `UPDATE operation_sub_processes SET
            status = COALESCE($1, status),
            occurred_at = CASE WHEN $2::timestamptz IS NULL AND $3::boolean THEN NULL ELSE COALESCE($2, occurred_at) END,
-           remark = CASE WHEN $4::boolean THEN COALESCE($5, '') ELSE remark END,
-           payload_json = CASE WHEN $6::boolean THEN $7::jsonb ELSE payload_json END,
+           start_at = CASE WHEN $4::timestamptz IS NULL AND $5::boolean THEN NULL ELSE COALESCE($4, start_at) END,
+           end_at = CASE WHEN $6::timestamptz IS NULL AND $7::boolean THEN NULL ELSE COALESCE($6, end_at) END,
+           skip_reason = CASE WHEN $8::boolean THEN NULLIF($9, '') ELSE skip_reason END,
+           remark = CASE WHEN $10::boolean THEN COALESCE($11, '') ELSE remark END,
+           payload_json = CASE WHEN $12::boolean THEN $13::jsonb ELSE payload_json END,
            updated_at = NOW()
-         WHERE id = $8`,
+         WHERE id = $14`,
         [
           status !== undefined ? status : null,
           occurredAt === undefined ? null : occurredAt,
           occurredAt !== undefined,
+          startAt === undefined ? null : startAt,
+          startAt !== undefined,
+          endAt === undefined ? null : endAt,
+          endAt !== undefined,
+          skipReason !== undefined,
+          skipReason !== undefined ? skipReason : null,
           remark !== undefined,
           remark !== undefined ? remark : null,
           payload !== undefined,
@@ -144,8 +159,8 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
     } else {
       const ins = await client.query(
         `INSERT INTO operation_sub_processes
-         (operation_id, phase, sub_process_key, status, occurred_at, remark, payload_json)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         (operation_id, phase, sub_process_key, status, occurred_at, start_at, end_at, skip_reason, remark, payload_json)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          RETURNING id`,
         [
           operationId,
@@ -153,6 +168,9 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
           key,
           status ?? null,
           occurredAt === undefined ? null : occurredAt,
+          startAt === undefined ? null : startAt,
+          endAt === undefined ? null : endAt,
+          skipReason ?? null,
           remark ?? null,
           payload !== undefined ? JSON.stringify(payload) : null,
         ]
@@ -177,6 +195,9 @@ function toSubProcessRow(r) {
     subProcessKey: r.sub_process_key,
     status: r.status ?? null,
     occurredAt: r.occurred_at ?? null,
+    startAt: r.start_at ?? r.occurred_at ?? null,
+    endAt: r.end_at ?? null,
+    skipReason: r.skip_reason ?? null,
     remark: r.remark ?? null,
     payload: r.payload_json ?? null,
     createdAt: r.created_at,
@@ -219,7 +240,7 @@ router.get('/operations/:operationId/sub-processes', async (req, res) => {
   }
 
   const r = await pool.query(
-    `SELECT id, operation_id, phase, sub_process_key, status, occurred_at, remark, payload_json, created_at, updated_at
+    `SELECT id, operation_id, phase, sub_process_key, status, occurred_at, start_at, end_at, skip_reason, remark, payload_json, created_at, updated_at
      FROM operation_sub_processes
      WHERE operation_id = $1
        AND deleted_at IS NULL
@@ -239,6 +260,9 @@ router.put('/operations/:operationId/sub-processes/:subProcessKey', async (req, 
 
   const phase = cleanPhase(req.body?.phase);
   if (!phase) return res.status(400).json({ error: 'phase must be Pre-Checking, Operational, or Post-Checking' });
+  if (String(req.body?.status || '') === 'Skipped' && !String(req.body?.skipReason || '').trim()) {
+    return res.status(400).json({ error: 'skipReason is required when status is Skipped' });
+  }
 
   if (!(await ensureOperationExists(operationId))) {
     return res.status(404).json({ error: 'Operation not found' });
@@ -247,7 +271,7 @@ router.put('/operations/:operationId/sub-processes/:subProcessKey', async (req, 
   const before = await loadSubProcess(operationId, phase, key);
   const id = await upsertSubProcess(operationId, phase, key, req.body || {});
   const out = await pool.query(
-    `SELECT id, operation_id, phase, sub_process_key, status, occurred_at, remark, payload_json, created_at, updated_at
+    `SELECT id, operation_id, phase, sub_process_key, status, occurred_at, start_at, end_at, skip_reason, remark, payload_json, created_at, updated_at
      FROM operation_sub_processes
      WHERE id = $1`,
     [id]
@@ -258,6 +282,9 @@ router.put('/operations/:operationId/sub-processes/:subProcessKey', async (req, 
     { field: 'Sub-process', from: normalizeForChange(before?.sub_process_key), to: normalizeForChange(after?.sub_process_key) },
     { field: 'Status', from: normalizeForChange(before?.status), to: normalizeForChange(after?.status) },
     { field: 'Occurred At', from: normalizeForChange(before?.occurred_at), to: normalizeForChange(after?.occurred_at) },
+    { field: 'Start At', from: normalizeForChange(before?.start_at), to: normalizeForChange(after?.start_at) },
+    { field: 'End At', from: normalizeForChange(before?.end_at), to: normalizeForChange(after?.end_at) },
+    { field: 'Skip Reason', from: normalizeForChange(before?.skip_reason), to: normalizeForChange(after?.skip_reason) },
     { field: 'Remark', from: normalizeForChange(before?.remark), to: normalizeForChange(after?.remark) },
     ...(key === 'sampling'
       ? [

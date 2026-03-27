@@ -12,11 +12,8 @@ router.use(optionalAuth);
 
 const MILESTONE_KEYS = new Set([
   'opening_h1_h2',
-  'hose_on',
-  'comm_discharge',
-  'compl_discharge',
-  'comm_load',
-  'compl_load',
+  'cargo_pre_conditioning',
+  'cargo_operations',
   'other',
 ]);
 
@@ -59,6 +56,8 @@ function toRow(r) {
     startAt: r.start_at ?? null,
     endAt: r.end_at ?? null,
     markedAt: r.marked_at ?? null,
+    cargoHandlingMethodId: r.cargo_handling_method_id ?? null,
+    cargoHandlingMethodName: r.cargo_handling_method_name ?? null,
     createdAt: r.created_at ?? null,
     updatedAt: r.updated_at ?? null,
   };
@@ -81,14 +80,19 @@ router.get('/operations/:operationId/operational-activities', async (req, res) =
     return res.status(404).json({ error: 'Operation not found' });
   }
   const r = await pool.query(
-    `SELECT id, operation_id, entry_type, milestone_key, sub_step_title, remark, reason,
-            start_at, end_at, marked_at, created_at, updated_at
-     FROM operation_operational_activities
-     WHERE operation_id = $1 AND deleted_at IS NULL
+    `SELECT oa.id, oa.operation_id, oa.entry_type, oa.milestone_key, oa.sub_step_title, oa.remark, oa.reason,
+            oa.start_at, oa.end_at, oa.marked_at, oa.created_at, oa.updated_at,
+            oa.cargo_handling_method_id,
+            mhm.name AS cargo_handling_method_name
+     FROM operation_operational_activities oa
+     LEFT JOIN master_cargo_handling_methods mhm
+       ON mhm.id = oa.cargo_handling_method_id
+      AND mhm.deleted_at IS NULL
+     WHERE oa.operation_id = $1 AND oa.deleted_at IS NULL
      ORDER BY
-       CASE entry_type WHEN 'milestone_na' THEN 0 ELSE 1 END,
-       COALESCE(start_at, marked_at, created_at) ASC NULLS LAST,
-       id ASC`,
+      CASE oa.entry_type WHEN 'milestone_na' THEN 0 ELSE 1 END,
+      COALESCE(oa.start_at, oa.marked_at, oa.created_at) ASC NULLS LAST,
+      oa.id ASC`,
     [operationId]
   );
   res.json({ entries: r.rows.map(toRow) });
@@ -122,6 +126,12 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
       const subStepTitle = body.subStepTitle != null ? String(body.subStepTitle).trim() : '';
       const startAt = body.startAt || body.start_at;
       const endAt = body.endAt || body.end_at;
+      const cargoHandlingMethodIdRaw =
+        body.cargoHandlingMethodId ?? body.cargo_handling_method_id ?? null;
+      const cargoHandlingMethodId =
+        cargoHandlingMethodIdRaw == null || cargoHandlingMethodIdRaw === ''
+          ? null
+          : parseInt(cargoHandlingMethodIdRaw, 10);
       if (!remark) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'remark is required for activity' });
@@ -136,19 +146,49 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'Invalid startAt/endAt' });
       }
+      if (milestoneKey === 'cargo_operations') {
+        if (!Number.isFinite(cargoHandlingMethodId)) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'cargoHandlingMethodId is required for cargo_operations' });
+        }
+        const mhm = await client.query(
+          `SELECT id FROM master_cargo_handling_methods
+           WHERE id = $1 AND deleted_at IS NULL AND is_active = TRUE`,
+          [cargoHandlingMethodId]
+        );
+        if (mhm.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'Invalid cargoHandlingMethodId' });
+        }
+      }
 
       await softDeleteMilestoneNaFor(operationId, milestoneKey, client);
 
       const ins = await client.query(
         `INSERT INTO operation_operational_activities
-         (operation_id, entry_type, milestone_key, sub_step_title, remark, start_at, end_at)
-         VALUES ($1,'activity',$2,$3,$4,$5,$6)
+         (operation_id, entry_type, milestone_key, sub_step_title, remark, start_at, end_at, cargo_handling_method_id)
+         VALUES ($1,'activity',$2,$3,$4,$5,$6,$7)
          RETURNING id, operation_id, entry_type, milestone_key, sub_step_title, remark, reason,
-                   start_at, end_at, marked_at, created_at, updated_at`,
-        [operationId, milestoneKey, subStepTitle || null, remark, ta.toISOString(), tb.toISOString()]
+                   start_at, end_at, marked_at, created_at, updated_at, cargo_handling_method_id`,
+        [
+          operationId,
+          milestoneKey,
+          subStepTitle || null,
+          remark,
+          ta.toISOString(),
+          tb.toISOString(),
+          milestoneKey === 'cargo_operations' ? cargoHandlingMethodId : null,
+        ]
       );
       await client.query('COMMIT');
       const row = ins.rows[0];
+      if (row.cargo_handling_method_id) {
+        const m = await pool.query(
+          `SELECT name FROM master_cargo_handling_methods WHERE id = $1 AND deleted_at IS NULL`,
+          [row.cargo_handling_method_id]
+        );
+        row.cargo_handling_method_name = m.rows[0]?.name ?? null;
+      }
       writeActivityLog({
         pageKey: 'loading',
         action: 'add',
@@ -248,11 +288,30 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
     const subStepTitle = body.subStepTitle != null ? String(body.subStepTitle).trim() : row0.sub_step_title;
     const startAt = body.startAt || body.start_at || row0.start_at;
     const endAt = body.endAt || body.end_at || row0.end_at;
+    const cargoHandlingMethodIdRaw =
+      body.cargoHandlingMethodId ?? body.cargo_handling_method_id ?? row0.cargo_handling_method_id ?? null;
+    const cargoHandlingMethodId =
+      cargoHandlingMethodIdRaw == null || cargoHandlingMethodIdRaw === ''
+        ? null
+        : parseInt(cargoHandlingMethodIdRaw, 10);
     if (!remark) return res.status(400).json({ error: 'remark is required' });
     const ta = new Date(startAt);
     const tb = new Date(endAt);
     if (Number.isNaN(ta.getTime()) || Number.isNaN(tb.getTime()) || tb < ta) {
       return res.status(400).json({ error: 'Invalid startAt/endAt' });
+    }
+    if (milestoneKey === 'cargo_operations') {
+      if (!Number.isFinite(cargoHandlingMethodId)) {
+        return res.status(400).json({ error: 'cargoHandlingMethodId is required for cargo_operations' });
+      }
+      const mhm = await pool.query(
+        `SELECT id FROM master_cargo_handling_methods
+         WHERE id = $1 AND deleted_at IS NULL AND is_active = TRUE`,
+        [cargoHandlingMethodId]
+      );
+      if (mhm.rows.length === 0) {
+        return res.status(400).json({ error: 'Invalid cargoHandlingMethodId' });
+      }
     }
 
     const client = await pool.connect();
@@ -268,13 +327,31 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
            remark = $3,
            start_at = $4,
            end_at = $5,
+           cargo_handling_method_id = $6,
            updated_at = NOW()
-         WHERE id = $6 AND operation_id = $7 AND entry_type = 'activity' AND deleted_at IS NULL
+         WHERE id = $7 AND operation_id = $8 AND entry_type = 'activity' AND deleted_at IS NULL
          RETURNING id, operation_id, entry_type, milestone_key, sub_step_title, remark, reason,
-                   start_at, end_at, marked_at, created_at, updated_at`,
-        [milestoneKey, subStepTitle || null, remark, ta.toISOString(), tb.toISOString(), entryId, operationId]
+                   start_at, end_at, marked_at, created_at, updated_at, cargo_handling_method_id`,
+        [
+          milestoneKey,
+          subStepTitle || null,
+          remark,
+          ta.toISOString(),
+          tb.toISOString(),
+          milestoneKey === 'cargo_operations' ? cargoHandlingMethodId : null,
+          entryId,
+          operationId,
+        ]
       );
       await client.query('COMMIT');
+      const row = up.rows[0];
+      if (row.cargo_handling_method_id) {
+        const m = await pool.query(
+          `SELECT name FROM master_cargo_handling_methods WHERE id = $1 AND deleted_at IS NULL`,
+          [row.cargo_handling_method_id]
+        );
+        row.cargo_handling_method_name = m.rows[0]?.name ?? null;
+      }
       writeActivityLog({
         pageKey: 'loading',
         action: 'update',
@@ -285,7 +362,7 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
         meta: { operationId, entryId },
         actorUserId: req.userId ?? null,
       }).catch(() => {});
-      return res.json(toRow(up.rows[0]));
+      return res.json(toRow(row));
     } catch (e) {
       await client.query('ROLLBACK');
       throw e;
@@ -359,16 +436,21 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
 
   const [sp, opAct] = await Promise.all([
     pool.query(
-      `SELECT id, operation_id, phase, sub_process_key, status, occurred_at, remark, updated_at, created_at
+      `SELECT id, operation_id, phase, sub_process_key, status, occurred_at, start_at, end_at, skip_reason, remark, updated_at, created_at
        FROM operation_sub_processes
        WHERE operation_id = $1 AND deleted_at IS NULL
-       ORDER BY COALESCE(occurred_at, updated_at, created_at) ASC NULLS LAST, id ASC`,
+       ORDER BY COALESCE(start_at, occurred_at, updated_at, created_at) ASC NULLS LAST, id ASC`,
       [operationId]
     ),
     pool.query(
-      `SELECT id, entry_type, milestone_key, sub_step_title, remark, reason, start_at, end_at, marked_at, created_at
-       FROM operation_operational_activities
-       WHERE operation_id = $1 AND deleted_at IS NULL`,
+      `SELECT oa.id, oa.entry_type, oa.milestone_key, oa.sub_step_title, oa.remark, oa.reason,
+              oa.start_at, oa.end_at, oa.marked_at, oa.created_at, oa.cargo_handling_method_id,
+              mhm.name AS cargo_handling_method_name
+       FROM operation_operational_activities oa
+       LEFT JOIN master_cargo_handling_methods mhm
+         ON mhm.id = oa.cargo_handling_method_id
+        AND mhm.deleted_at IS NULL
+       WHERE oa.operation_id = $1 AND oa.deleted_at IS NULL`,
       [operationId]
     ),
   ]);
@@ -378,7 +460,7 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
   for (const r of sp.rows) {
     const phase = r.phase;
     const key = r.sub_process_key;
-    const sortTs = r.occurred_at || r.updated_at || r.created_at;
+    const sortTs = r.start_at || r.occurred_at || r.updated_at || r.created_at;
     events.push({
       id: `sp-${r.id}`,
       source: 'sub_process',
@@ -386,10 +468,11 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
       subProcessKey: key,
       title: titleForSubProcessKey(key),
       status: r.status ?? null,
+      skipReason: r.skip_reason ?? null,
       remark: r.remark ?? null,
       occurredAt: r.occurred_at ?? null,
-      startAt: null,
-      endAt: null,
+      startAt: r.start_at ?? r.occurred_at ?? null,
+      endAt: r.end_at ?? null,
       sortAt: sortTs ? new Date(sortTs).toISOString() : new Date(r.created_at).toISOString(),
     });
   }
@@ -404,6 +487,8 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
         milestoneKey: r.milestone_key,
         title: r.milestone_key.replace(/_/g, ' ').toUpperCase(),
         subStepTitle: r.sub_step_title ?? null,
+        cargoHandlingMethodId: r.cargo_handling_method_id ?? null,
+        cargoHandlingMethodName: r.cargo_handling_method_name ?? null,
         remark: r.remark ?? null,
         occurredAt: null,
         startAt: r.start_at ?? null,

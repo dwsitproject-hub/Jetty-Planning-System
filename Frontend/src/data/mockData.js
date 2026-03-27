@@ -533,18 +533,16 @@ export const BERTHING_EVENTS = ['POB', 'ALL FAST', 'SOB']
 /** Loading Activity Category options for Detail Activity (Operational tab) */
 export const LOADING_ACTIVITY_CATEGORIES = [
   'OPENING H1 & H2',
-  'HOSE ON',
-  'COMM LOAD',
-  'COMPL LOAD',
+  'CARGO PRE-CONDITIONING',
+  'CARGO OPERATIONS',
   'OTHER',
 ]
 
 /** Unloading Activity Category options for Detail Activity (Operational tab) */
 export const UNLOADING_ACTIVITY_CATEGORIES = [
   'OPENING H1 & H2',
-  'HOSE ON',
-  'COMM DISCHARGE',
-  'COMPL DISCHARGE',
+  'CARGO PRE-CONDITIONING',
+  'CARGO OPERATIONS',
   'OTHER',
 ]
 
@@ -595,20 +593,20 @@ export function getLoadingOperationCargo(vesselId) {
 
 /** Default pre-checking section data (Loading Pre-Checking) */
 export const defaultPreCheckingSection = () => ({
-  keyMeeting: { dateTime: '', documents: [], remark: '' },
-  norAccepted: { norTenderedDateTime: '', norAcceptedDateTime: '', documents: [], remark: '' },
-  tankInspection: { dateTime: '', documents: [], remark: '' },
-  holdInspection: { dateTime: '', documents: [], remark: '' },
-  sampling: { dateTime: '', documents: [], remark: '', records: [] },
-  initialSounding: { dateTime: '', documents: [], remark: '' },
-  initialDraftSurvey: { dateTime: '', documents: [], remark: '' },
+  keyMeeting: { startTime: '', endTime: '', documents: [], remark: '' },
+  norAccepted: { startTime: '', endTime: '', norTenderedDateTime: '', norAcceptedDateTime: '', documents: [], remark: '' },
+  tankInspection: { startTime: '', endTime: '', documents: [], remark: '' },
+  holdInspection: { startTime: '', endTime: '', documents: [], remark: '' },
+  sampling: { startTime: '', endTime: '', documents: [], remark: '', records: [] },
+  initialSounding: { startTime: '', endTime: '', documents: [], remark: '' },
+  initialDraftSurvey: { startTime: '', endTime: '', documents: [], remark: '' },
 })
 
 /** Default post-checking section data (Loading Post-Checking) */
 export const defaultPostCheckingSection = () => ({
-  finalTankInspection: { result: '', dateTime: '', documents: [] },
-  finalHoldInspection: { result: '', dateTime: '', documents: [] },
-  finalSounding: { result: '', dateTime: '', documents: [] },
+  finalTankInspection: { result: '', startTime: '', endTime: '', documents: [] },
+  finalHoldInspection: { result: '', startTime: '', endTime: '', documents: [] },
+  finalSounding: { result: '', startTime: '', endTime: '', documents: [] },
 })
 
 /** Initial loading operation data per vessel (detail activities only) */
@@ -616,8 +614,8 @@ export const initialLoadingOperationByVesselId = {
   'v-mt-metro': {
     milestoneNa: {},
     activities: [
-      { id: 'act-1', category: 'HOSE ON', description: 'Hoses connected for loading.', subStepTitle: '', startTime: '2026-02-21T18:36:00', endTime: '2026-02-21T19:00:00' },
-      { id: 'act-2', category: 'COMM LOAD', description: 'Commenced loading.', subStepTitle: '', startTime: '2026-02-21T20:36:00', endTime: '2026-02-21T21:00:00' },
+      { id: 'act-1', category: 'CARGO OPERATIONS', description: 'Hoses connected for loading.', subStepTitle: '', startTime: '2026-02-21T18:36:00', endTime: '2026-02-21T19:00:00' },
+      { id: 'act-2', category: 'CARGO OPERATIONS', description: 'Commenced loading.', subStepTitle: '', startTime: '2026-02-21T20:36:00', endTime: '2026-02-21T21:00:00' },
     ],
   },
 }

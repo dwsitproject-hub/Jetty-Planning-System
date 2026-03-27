@@ -25,6 +25,7 @@ import allocationRoutes from './routes/allocation.js';
 import operationDocumentsRoutes from './routes/operation-documents.js';
 import operationSubProcessesRoutes from './routes/operation-sub-processes.js';
 import operationOperationalActivitiesRoutes from './routes/operation-operational-activities.js';
+import masterCargoHandlingMethodsRoutes from './routes/master-cargo-handling-methods.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -70,6 +71,7 @@ apiV1.use('/', qcSurveysRoutes);
 apiV1.use('/', quantityChecksRoutes);
 apiV1.use('/', operationSubProcessesRoutes);
 apiV1.use('/', operationOperationalActivitiesRoutes);
+apiV1.use('/', masterCargoHandlingMethodsRoutes);
 
 app.use('/api/v1', apiV1);
 
