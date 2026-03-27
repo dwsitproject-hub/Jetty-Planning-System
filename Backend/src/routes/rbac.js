@@ -414,9 +414,9 @@ router.get('/permissions', async (req, res) => {
 
 router.post('/permissions', async (req, res) => {
   const { resource_type, resource_key, can_view, can_edit, can_delete } = req.body || {};
-  const validTypes = ['department', 'page', 'field'];
+  const validTypes = ['page', 'field'];
   if (!resource_type || !validTypes.includes(resource_type)) {
-    return res.status(400).json({ error: 'resource_type must be department, page, or field' });
+    return res.status(400).json({ error: 'resource_type must be page or field' });
   }
   if (!resource_key || typeof resource_key !== 'string' || !resource_key.trim()) {
     return res.status(400).json({ error: 'resource_key is required' });
@@ -452,7 +452,7 @@ router.put('/permissions/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const { resource_type, resource_key, can_view, can_edit, can_delete } = req.body || {};
-  const validTypes = ['department', 'page', 'field'];
+  const validTypes = ['page', 'field'];
   if (resource_type && !validTypes.includes(resource_type)) {
     return res.status(400).json({ error: 'Invalid resource_type' });
   }

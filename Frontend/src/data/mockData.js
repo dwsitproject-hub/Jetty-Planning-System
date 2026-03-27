@@ -614,9 +614,10 @@ export const defaultPostCheckingSection = () => ({
 /** Initial loading operation data per vessel (detail activities only) */
 export const initialLoadingOperationByVesselId = {
   'v-mt-metro': {
+    milestoneNa: {},
     activities: [
-      { id: 'act-1', category: 'HOSE ON', description: 'Hoses connected for loading.', startTime: '2026-02-21T18:36:00', endTime: null },
-      { id: 'act-2', category: 'COMM LOAD', description: 'Commenced loading.', startTime: '2026-02-21T20:36:00', endTime: null },
+      { id: 'act-1', category: 'HOSE ON', description: 'Hoses connected for loading.', subStepTitle: '', startTime: '2026-02-21T18:36:00', endTime: '2026-02-21T19:00:00' },
+      { id: 'act-2', category: 'COMM LOAD', description: 'Commenced loading.', subStepTitle: '', startTime: '2026-02-21T20:36:00', endTime: '2026-02-21T21:00:00' },
     ],
   },
 }

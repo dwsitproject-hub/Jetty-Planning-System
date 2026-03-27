@@ -1,6 +1,6 @@
 /**
  * Roles and permissions for RBAC.
- * Permission: { resourceType: 'department'|'page'|'field', resourceKey: string, view, edit, delete }
+ * Permission: { resourceType: 'page'|'field', resourceKey: string, view, edit, delete }
  */
 
 export const PAGE_OPTIONS = [

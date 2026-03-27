@@ -284,6 +284,59 @@ router.put('/operations/:operationId/sub-processes/:subProcessKey', async (req, 
   res.json(toSubProcessRow(out.rows[0]));
 });
 
+/** Soft-delete one sub-process row and its documents (activity log entry). */
+router.delete('/operations/:operationId/sub-processes/:subProcessKey', async (req, res) => {
+  const operationId = parseOperationId(req.params.operationId);
+  if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
+  const key = cleanKey(req.params.subProcessKey);
+  if (!key) return res.status(400).json({ error: 'subProcessKey required' });
+  const phase = cleanPhase(req.query.phase || '');
+  if (!phase) return res.status(400).json({ error: 'phase query must be Pre-Checking, Operational, or Post-Checking' });
+
+  if (!(await ensureOperationExists(operationId))) {
+    return res.status(404).json({ error: 'Operation not found' });
+  }
+
+  const row = await loadSubProcess(operationId, phase, key);
+  if (!row) return res.status(404).json({ error: 'Sub-process not found' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE operation_sub_process_documents
+       SET deleted_at = NOW(), updated_at = NOW()
+       WHERE sub_process_id = $1 AND deleted_at IS NULL`,
+      [row.id]
+    );
+    await client.query(
+      `UPDATE operation_sub_processes SET deleted_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND deleted_at IS NULL`,
+      [row.id]
+    );
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+
+  writeActivityLog({
+    pageKey: 'loading',
+    action: 'delete',
+    entityType: phase,
+    entityId: String(operationId),
+    entityLabel: key.replace(/_/g, ' '),
+    summary: `Deleted ${phase} step: ${key.replace(/_/g, ' ')}`,
+    changes: [{ field: 'Sub-process', from: key, to: null }],
+    meta: { operationId, subProcessKey: key, phase },
+    actorUserId: req.userId ?? null,
+  }).catch(() => {});
+
+  res.status(204).send();
+});
+
 router.get('/operations/:operationId/sub-processes/:subProcessKey/documents', async (req, res) => {
   const operationId = parseOperationId(req.params.operationId);
   if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });

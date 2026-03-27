@@ -10,7 +10,10 @@ const defaultLoadingOps = () =>
   Object.fromEntries(
     Object.entries(initialLoadingOperationByVesselId).map(([id, op]) => [
       id,
-      { activities: (op.activities || []).map((a) => ({ ...a })) },
+      {
+        activities: (op.activities || []).map((a) => ({ ...a })),
+        milestoneNa: op.milestoneNa && typeof op.milestoneNa === 'object' ? { ...op.milestoneNa } : {},
+      },
     ])
   )
 
@@ -41,37 +44,62 @@ export function LoadingProvider({ children }) {
   }, [])
 
   const getLoadingOperation = useCallback((vesselId) => {
-    return (
-      loadingOpsByVesselId[vesselId] ??
-      initialLoadingOperationByVesselId[vesselId] ?? { activities: [] }
-    )
+    const raw =
+      loadingOpsByVesselId[vesselId] ?? initialLoadingOperationByVesselId[vesselId] ?? { activities: [] }
+    return {
+      activities: raw.activities || [],
+      milestoneNa: raw.milestoneNa && typeof raw.milestoneNa === 'object' ? raw.milestoneNa : {},
+    }
   }, [loadingOpsByVesselId])
 
   const addLoadingActivity = useCallback((vesselId, activity) => {
     const id = activity.id || `act-${Date.now()}`
-    const entry = { id, category: activity.category, description: activity.description || '', startTime: activity.startTime || null, endTime: activity.endTime || null }
+    const entry = {
+      id,
+      category: activity.category,
+      description: activity.description || '',
+      subStepTitle: activity.subStepTitle || '',
+      startTime: activity.startTime || null,
+      endTime: activity.endTime || null,
+    }
     setLoadingOpsByVesselId((prev) => {
-      const op = prev[vesselId] ?? { activities: [] }
+      const op = prev[vesselId] ?? { activities: [], milestoneNa: {} }
+      const milestoneNa = { ...(op.milestoneNa || {}) }
+      if (entry.category && milestoneNa[entry.category]) delete milestoneNa[entry.category]
       const activities = [...(op.activities || []), entry].sort((a, b) => new Date(a.startTime || 0) - new Date(b.startTime || 0))
-      return { ...prev, [vesselId]: { ...op, activities } }
+      return { ...prev, [vesselId]: { ...op, activities, milestoneNa } }
     })
   }, [])
 
   const updateLoadingActivity = useCallback((vesselId, activityId, updates) => {
     setLoadingOpsByVesselId((prev) => {
-      const op = prev[vesselId] ?? { activities: [] }
-      const activities = (op.activities || []).map((a) =>
-        a.id === activityId ? { ...a, ...updates } : a
-      ).sort((a, b) => new Date(a.startTime || 0) - new Date(b.startTime || 0))
-      return { ...prev, [vesselId]: { ...op, activities } }
+      const op = prev[vesselId] ?? { activities: [], milestoneNa: {} }
+      const milestoneNa = { ...(op.milestoneNa || {}) }
+      const nextCat = updates.category
+      if (nextCat && milestoneNa[nextCat]) delete milestoneNa[nextCat]
+      const activities = (op.activities || [])
+        .map((a) => (a.id === activityId ? { ...a, ...updates } : a))
+        .sort((a, b) => new Date(a.startTime || 0) - new Date(b.startTime || 0))
+      return { ...prev, [vesselId]: { ...op, activities, milestoneNa } }
     })
   }, [])
 
   const deleteLoadingActivity = useCallback((vesselId, activityId) => {
     setLoadingOpsByVesselId((prev) => {
-      const op = prev[vesselId] ?? { activities: [] }
+      const op = prev[vesselId] ?? { activities: [], milestoneNa: {} }
       const activities = (op.activities || []).filter((a) => a.id !== activityId)
       return { ...prev, [vesselId]: { ...op, activities } }
+    })
+  }, [])
+
+  const setOperationalMilestoneNa = useCallback((vesselId, category, payload) => {
+    setLoadingOpsByVesselId((prev) => {
+      const op = prev[vesselId] ?? { activities: [], milestoneNa: {} }
+      const milestoneNa = { ...(op.milestoneNa || {}) }
+      const reason = payload && String(payload.reason || '').trim()
+      if (!reason) delete milestoneNa[category]
+      else milestoneNa[category] = { reason, markedAt: new Date().toISOString() }
+      return { ...prev, [vesselId]: { ...op, milestoneNa } }
     })
   }, [])
 
@@ -107,10 +135,12 @@ export function LoadingProvider({ children }) {
     getSteps,
     setStepData,
     stepsByVesselId,
+    loadingOpsByVesselId,
     getLoadingOperation,
     addLoadingActivity,
     updateLoadingActivity,
     deleteLoadingActivity,
+    setOperationalMilestoneNa,
     getPreChecking,
     setPreCheckingSection,
     getPostChecking,
@@ -126,10 +156,12 @@ export function useLoading() {
       getSteps: () => null,
       setStepData: () => {},
       stepsByVesselId: {},
-      getLoadingOperation: () => ({ activities: [] }),
+      loadingOpsByVesselId: {},
+      getLoadingOperation: () => ({ activities: [], milestoneNa: {} }),
       addLoadingActivity: () => {},
       updateLoadingActivity: () => {},
       deleteLoadingActivity: () => {},
+      setOperationalMilestoneNa: () => {},
       getPreChecking: () => defaultPreCheckingSection(),
       setPreCheckingSection: () => {},
       getPostChecking: () => defaultPostCheckingSection(),

@@ -1,10 +1,11 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
-import { Link, useParams, Navigate, useLocation } from 'react-router-dom'
+import { Link, useParams, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import {
   vessels,
   getAtBerthOperations,
   LOADING_STEP_IDS,
   initialLoadingStepsByVesselId,
+  initialLoadingOperationByVesselId,
   getLoadingOperationCargo,
   LOADING_ACTIVITY_CATEGORIES,
   UNLOADING_ACTIVITY_CATEGORIES,
@@ -21,6 +22,7 @@ import {
   fetchSubProcessDocuments,
   uploadSubProcessDocuments,
   deleteSubProcessDocument,
+  fetchOperationalActivities,
   fetchNorDetails,
   updateNorDetails,
 } from '../api/operations'
@@ -34,6 +36,9 @@ import {
 } from '../api/allocation'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import FlowPill from '../components/FlowPill'
+import OperationalMilestoneWorkspace from '../components/OperationalMilestoneWorkspace'
+import OperationActivityTimeline from '../components/OperationActivityTimeline'
+import { operationalMilestoneDoneCount, viewModelFromOperationalEntries } from '../data/operationalMilestones'
 import '../styles/allocation.css'
 
 const STAGE_ICON = {
@@ -178,6 +183,17 @@ function inferPrecheckStatus(sectionKey, item = {}) {
   return 'Not Started'
 }
 
+function inferPostcheckStatus(_sectionKey, item = {}) {
+  const explicit = String(item?.status || '').trim()
+  if (explicit) return explicit
+  const hasDocs = Array.isArray(item?.documents) && item.documents.length > 0
+  const hasResult = Boolean(String(item?.result || '').trim())
+  const hasDate = Boolean(item?.dateTime)
+  if (hasResult || hasDate) return 'Done'
+  if (hasDocs) return 'In Progress'
+  return 'Not Started'
+}
+
 function VesselDetailCard({ detail }) {
   const [expanded, setExpanded] = useState(false)
   return (
@@ -239,7 +255,18 @@ export default function Loading() {
   const [stageRailCollapsed, setStageRailCollapsed] = useState(() => readBool(LOADING_RAIL_COLLAPSED_KEY, false))
   useEffect(() => writeBool(LOADING_RAIL_COLLAPSED_KEY, stageRailCollapsed), [stageRailCollapsed])
   const operations = getAtBerthOperations(purpose)
-  const { getSteps, setStepData, getLoadingOperation, addLoadingActivity, updateLoadingActivity, deleteLoadingActivity, getPreChecking, setPreCheckingSection, getPostChecking, setPostCheckingSection } = useLoading()
+  const {
+    getSteps,
+    setStepData,
+    loadingOpsByVesselId,
+    getLoadingOperation,
+    addLoadingActivity,
+    setOperationalMilestoneNa,
+    getPreChecking,
+    setPreCheckingSection,
+    getPostChecking,
+    setPostCheckingSection,
+  } = useLoading()
   const [stepPhotos, setStepPhotos] = useState({})
   const [allocationDetailRow, setAllocationDetailRow] = useState(null)
 
@@ -288,6 +315,52 @@ export default function Loading() {
   const apiPurpose = apiOp ? normalizeApiPurpose(apiOp.purpose) : null
   const purposeMismatch = Boolean(apiOp && apiPurpose !== purpose)
   const operationId = apiOp?.id ?? (shouldFetchOp ? opNumericId : null)
+
+  const [activityLogRefresh, setActivityLogRefresh] = useState(0)
+  const bumpActivityLogRefresh = useCallback(() => setActivityLogRefresh((x) => x + 1), [])
+
+  const [apiOperationalVm, setApiOperationalVm] = useState({ activities: [], naByLabel: {} })
+  useEffect(() => {
+    let cancelled = false
+    if (!operationId) {
+      setApiOperationalVm({ activities: [], naByLabel: {} })
+      return () => { cancelled = true }
+    }
+    fetchOperationalActivities(operationId)
+      .then((res) => {
+        if (cancelled) return
+        setApiOperationalVm(viewModelFromOperationalEntries(res?.entries || [], purpose))
+      })
+      .catch(() => {
+        if (cancelled) return
+        setApiOperationalVm({ activities: [], naByLabel: {} })
+      })
+    return () => { cancelled = true }
+  }, [operationId, purpose, activityLogRefresh])
+
+  useEffect(() => {
+    if (!vesselId) return
+    const done = operationId
+      ? operationalMilestoneDoneCount(purpose, apiOperationalVm.activities, apiOperationalVm.naByLabel)
+      : (() => {
+        const milestoneList = purpose === 'Unloading' ? UNLOADING_ACTIVITY_CATEGORIES : LOADING_ACTIVITY_CATEGORIES
+        const raw =
+          loadingOpsByVesselId[vesselId] ??
+          initialLoadingOperationByVesselId[vesselId] ??
+          { activities: [], milestoneNa: {} }
+        const activities = raw.activities || []
+        const na = raw.milestoneNa || {}
+        return milestoneList.filter((cat) => {
+          if (na[cat]?.reason) return true
+          return activities.some((a) => a.category === cat)
+        }).length
+      })()
+    const milestoneList = purpose === 'Unloading' ? UNLOADING_ACTIVITY_CATEGORIES : LOADING_ACTIVITY_CATEGORIES
+    let status = 'not_started'
+    if (done >= milestoneList.length) status = 'completed'
+    else if (done > 0) status = 'in_progress'
+    setStepData(vesselId, 'B', { status })
+  }, [vesselId, purpose, loadingOpsByVesselId, setStepData, operationId, apiOperationalVm])
 
   const vessel = useMemo(() => {
     if (mockMatchesRoutePurpose) return mockVessel
@@ -535,12 +608,27 @@ export default function Loading() {
   const preStepIds = ['keyMeeting', 'norAccepted', 'tankInspection', 'holdInspection', 'sampling', 'initialSounding', 'initialDraftSurvey']
   const preData = getPreChecking(vesselId)
   const preDone = preStepIds.filter((k) => inferPrecheckStatus(k, preData?.[k] || {}) === 'Done').length
-  const operationalDone = stepsOrInitial?.B?.status === 'completed' ? 1 : 0
-  const postDone = ['C1', 'C2'].filter((k) => stepsOrInitial?.[k]?.status === 'completed').length
+  const milestoneList = purpose === 'Unloading' ? UNLOADING_ACTIVITY_CATEGORIES : LOADING_ACTIVITY_CATEGORIES
+  const loadingOpProgress = vesselId ? getLoadingOperation(vesselId) : { activities: [], milestoneNa: {} }
+  const operationalDone = operationId
+    ? operationalMilestoneDoneCount(purpose, apiOperationalVm.activities, apiOperationalVm.naByLabel)
+    : (() => {
+      const naProgress = loadingOpProgress.milestoneNa || {}
+      return milestoneList.filter((cat) => {
+        if (naProgress[cat]?.reason) return true
+        return (loadingOpProgress.activities || []).some((a) => a.category === cat)
+      }).length
+    })()
+  const operationalTotal = milestoneList.length
+  const postTabIds = POST_CHECK_SUB_TABS.map((t) => t.id)
+  const postDataForRail = vesselId ? getPostChecking(vesselId) : {}
+  const postInspectionDone = postTabIds.filter(
+    (k) => inferPostcheckStatus(k, postDataForRail[k] || {}) === 'Done'
+  ).length
   const processStages = [
     { id: 'pre-checking', label: 'Pre-Checking', done: preDone, total: preStepIds.length },
-    { id: 'loading', label: 'Operational', done: operationalDone, total: 1 },
-    { id: 'post-checking', label: 'Post-Checking', done: postDone, total: 2 },
+    { id: 'loading', label: 'Operational', done: operationalDone, total: operationalTotal },
+    { id: 'post-checking', label: 'Post-Checking', done: postInspectionDone, total: postTabIds.length },
   ]
 
   return (
@@ -570,6 +658,7 @@ export default function Loading() {
           <>
             <PreCheckingSections
               vesselId={vesselId}
+              basePath={basePath}
               operationId={operationId}
               operationNorTenderedAt={apiOp?.norTenderedAt ?? null}
               operationNorAcceptedAt={apiOp?.norAcceptedAt ?? null}
@@ -579,6 +668,8 @@ export default function Loading() {
               setArrivalNor={setArrivalNor}
               formatDateTimeDisplay={formatDateTimeDisplay}
               stageRailCollapsed={stageRailCollapsed}
+              onActivityLogRefresh={bumpActivityLogRefresh}
+              activityLogRefresh={activityLogRefresh}
             />
           </>
         )}
@@ -587,9 +678,14 @@ export default function Loading() {
           <>
             <PostCheckingSections
               vesselId={vesselId}
+              basePath={basePath}
+              operationId={operationId}
               getPostChecking={getPostChecking}
               setPostCheckingSection={setPostCheckingSection}
               formatDateTimeDisplay={formatDateTimeDisplay}
+              stageRailCollapsed={stageRailCollapsed}
+              onActivityLogRefresh={bumpActivityLogRefresh}
+              activityLogRefresh={activityLogRefresh}
             />
           </>
         )}
@@ -597,14 +693,17 @@ export default function Loading() {
         {section === 'loading' && stepIds.map((stepId) => {
           const loadingOp = getLoadingOperation(vesselId)
           return (
-            <LoadingTabContent
+            <OperationalMilestoneWorkspace
               key={stepId}
               vesselId={vesselId}
+              basePath={basePath}
               loadingOp={loadingOp}
               purpose={purpose}
+              operationId={operationId}
               addActivity={addLoadingActivity}
-              updateActivity={updateLoadingActivity}
-              deleteActivity={deleteLoadingActivity}
+              setOperationalMilestoneNa={setOperationalMilestoneNa}
+              onOperationalSaved={bumpActivityLogRefresh}
+              activityLogRefresh={activityLogRefresh}
             />
           )
         })}
@@ -708,6 +807,37 @@ const POST_CHECK_SUB_TABS = [
   { id: 'finalHoldInspection', label: 'FINAL HOLD INSPECTION' },
   { id: 'finalSounding', label: 'FINAL SOUNDING' },
 ]
+
+const POSTCHECK_RAIL_COLLAPSED_KEY = 'jps_postcheck_section_rail_collapsed'
+
+const POSTCHECK_SHORT_CODE = {
+  finalTankInspection: 'FTI',
+  finalHoldInspection: 'FHI',
+  finalSounding: 'FSN',
+}
+
+const POSTCHECK_SECTION_TO_KEY = {
+  finalTankInspection: 'final_tank_inspection',
+  finalHoldInspection: 'final_hold_inspection',
+  finalSounding: 'final_sounding',
+}
+
+const POSTCHECK_KEY_TO_SECTION = Object.fromEntries(
+  Object.entries(POSTCHECK_SECTION_TO_KEY).map(([section, key]) => [key, section])
+)
+
+/** Edit-form labels per post-check section (read-only rows use simpler labels in situ). */
+const POSTCHECK_RESULT_LABEL = {
+  finalTankInspection: 'Final Tank Inspection Result',
+  finalHoldInspection: 'Final Hold Inspection Result',
+  finalSounding: 'Final Sounding Inspection Result',
+}
+
+const POSTCHECK_DATETIME_LABEL = {
+  finalTankInspection: 'Final Tank Inspection Date & Time',
+  finalHoldInspection: 'Final Hold Inspection Date & Time',
+  finalSounding: 'Final Sounding Inspection Date & Time',
+}
 
 function precheckDocumentHref(url) {
   if (url == null || url === '') return '#'
@@ -866,6 +996,7 @@ function PrecheckDocumentsRead({ documents }) {
 /** Pre-Checking sections: KEY MEETING, NOR ACCEPTED, TANK INSPECTION, HOLD INSPECTION, SAMPLING, INITIAL SOUNDING, INITIAL DRAFT SURVEY */
 function PreCheckingSections({
   vesselId,
+  basePath,
   operationId,
   operationNorTenderedAt,
   operationNorAcceptedAt,
@@ -875,7 +1006,10 @@ function PreCheckingSections({
   setArrivalNor,
   formatDateTimeDisplay,
   stageRailCollapsed,
+  onActivityLogRefresh,
+  activityLogRefresh = 0,
 }) {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [activeSubTab, setActiveSubTab] = useState('keyMeeting')
   const [listCollapsed, setListCollapsed] = useState(() => readBool(PRECHECK_RAIL_COLLAPSED_KEY, false))
   const [autoCollapseAfterSelect, setAutoCollapseAfterSelect] = useState(false)
@@ -1038,6 +1172,24 @@ function PreCheckingSections({
     setEditingSection(sectionKey)
   }
 
+  useEffect(() => {
+    const focus = searchParams.get('focus')
+    if (!focus) return
+    const tab = PRE_CHECK_SUB_TABS.find((t) => t.id === focus)
+    if (!tab) return
+    setActiveSubTab(focus)
+    if (searchParams.get('edit') === '1') {
+      setSaveSuccessMessage(`Editing ${tab.label}.`)
+      queueMicrotask(() => startEdit(focus))
+    }
+    const next = new URLSearchParams(searchParams)
+    next.delete('focus')
+    next.delete('edit')
+    setSearchParams(next, { replace: true })
+    // URL handoff only; startEdit reads latest context inside microtask
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- avoid re-running when startEdit identity changes every render
+  }, [searchParams, setSearchParams])
+
   const buildSubProcessPayload = (sectionKey, sectionDraft) => {
     if (sectionKey === 'sampling') {
       return {
@@ -1199,6 +1351,7 @@ function PreCheckingSections({
       }
     }
     setSaveSuccessMessage(successMsg)
+    if (operationId) onActivityLogRefresh?.()
   }
 
   const addSectionDocuments = (sectionKey, files) => {
@@ -2002,6 +2155,15 @@ function PreCheckingSections({
       )}
         </div>
       </div>
+      {operationId && (
+        <OperationActivityTimeline
+          operationId={operationId}
+          refreshToken={activityLogRefresh}
+          vesselId={vesselId}
+          basePath={basePath}
+          onActivityLogRefresh={onActivityLogRefresh}
+        />
+      )}
     </div>
   )
 }
@@ -2042,37 +2204,135 @@ function PreCheckSectionCard({ title, isEditing, onEdit, onSave, onSaveDraft, on
   )
 }
 
-/** Post-Checking: Final Tank Inspection, Final Hold Inspection, Final Sounding with edit/save/cancel per section */
-function PostCheckingSections({ vesselId, getPostChecking, setPostCheckingSection, formatDateTimeDisplay }) {
+/** Post-Checking: same shell as Pre-Checking (master-detail rail + `operation_sub_processes` when operationId). */
+function PostCheckingSections({
+  vesselId,
+  basePath,
+  operationId,
+  getPostChecking,
+  setPostCheckingSection,
+  formatDateTimeDisplay,
+  stageRailCollapsed,
+  onActivityLogRefresh,
+  activityLogRefresh = 0,
+}) {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [activeSubTab, setActiveSubTab] = useState('finalTankInspection')
+  const [listCollapsed, setListCollapsed] = useState(() => readBool(POSTCHECK_RAIL_COLLAPSED_KEY, false))
+  const [autoCollapseAfterSelect, setAutoCollapseAfterSelect] = useState(false)
   const [editingSection, setEditingSection] = useState(null)
   const [draft, setDraft] = useState(() => defaultPostCheckingSection())
-  const [pendingDocs, setPendingDocs] = useState([])
+  const [loadingPersisted, setLoadingPersisted] = useState(false)
+  const [persistError, setPersistError] = useState(null)
+  const [savingSection, setSavingSection] = useState(null)
+  const [saveSuccessMessage, setSaveSuccessMessage] = useState(null)
+  const [removingDoc, setRemovingDoc] = useState(null)
 
   const data = getPostChecking(vesselId)
 
+  useEffect(() => {
+    writeBool(POSTCHECK_RAIL_COLLAPSED_KEY, listCollapsed)
+  }, [listCollapsed])
+
+  const toggleList = () => {
+    setListCollapsed((cur) => {
+      const next = !cur
+      if (cur === true && next === false && stageRailCollapsed) {
+        setAutoCollapseAfterSelect(true)
+      }
+      return next
+    })
+  }
+
+  const selectTab = (tabId) => {
+    setActiveSubTab(tabId)
+    if (autoCollapseAfterSelect) {
+      setListCollapsed(true)
+      setAutoCollapseAfterSelect(false)
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    if (!operationId) {
+      setLoadingPersisted(false)
+      setPersistError(null)
+      return () => {
+        cancelled = true
+      }
+    }
+    setLoadingPersisted(true)
+    setPersistError(null)
+    fetchSubProcesses(operationId, 'Post-Checking')
+      .then(async (subRows) => {
+        if (cancelled) return
+        const rows = Array.isArray(subRows) ? subRows : []
+        const docLoads = rows
+          .map((row) => {
+            const section = POSTCHECK_KEY_TO_SECTION[row.subProcessKey]
+            if (!section) return null
+            return fetchSubProcessDocuments(operationId, row.subProcessKey, 'Post-Checking')
+              .then((raw) => ({ row, section, docs: Array.isArray(raw) ? raw : [] }))
+              .catch(() => ({ row, section, docs: [] }))
+          })
+          .filter(Boolean)
+        const loaded = await Promise.all(docLoads)
+        loaded.forEach(({ row, section, docs }) => {
+          setPostCheckingSection(vesselId, section, {
+            result: row.remark || '',
+            status: row.status || '',
+            lastSavedAt: row.updatedAt ?? null,
+            ...(row.occurredAt ? { dateTime: isoOrDatetimeToLocal(row.occurredAt) } : {}),
+            documents: docs.map((d) => ({ id: d.id, name: d.name, url: d.url, source: 'precheck_subprocess' })),
+          })
+        })
+        if (!cancelled) setLoadingPersisted(false)
+      })
+      .catch((e) => {
+        if (cancelled) return
+        setPersistError(e?.message || 'Failed to load post-checking data')
+        setLoadingPersisted(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [operationId, vesselId, setPostCheckingSection])
+
+  useEffect(() => {
+    if (!saveSuccessMessage) return undefined
+    const t = setTimeout(() => setSaveSuccessMessage(null), 6500)
+    return () => clearTimeout(t)
+  }, [saveSuccessMessage])
+
+  const stepStatuses = useMemo(() => {
+    const map = {}
+    POST_CHECK_SUB_TABS.forEach((t) => {
+      map[t.id] = inferPostcheckStatus(t.id, data?.[t.id] || {})
+    })
+    return map
+  }, [data])
+
   const startEdit = (sectionKey) => {
-    setDraft({ ...defaultPostCheckingSection(), ...data })
-    setPendingDocs([])
+    setDraft({ ...defaultPostCheckingSection(), ...getPostChecking(vesselId) })
     setEditingSection(sectionKey)
   }
 
-  const saveSection = (sectionKey) => {
-    const current = data[sectionKey] || {}
-    const docs = [...(current.documents || []), ...pendingDocs]
-    setPostCheckingSection(vesselId, sectionKey, {
-      result: draft[sectionKey]?.result ?? '',
-      dateTime: draft[sectionKey]?.dateTime ?? '',
-      documents: docs,
-    })
-    setEditingSection(null)
-    setPendingDocs([])
-  }
-
-  const cancelEdit = () => {
-    setEditingSection(null)
-    setPendingDocs([])
-  }
+  useEffect(() => {
+    const focus = searchParams.get('focus')
+    if (!focus) return
+    const tab = POST_CHECK_SUB_TABS.find((t) => t.id === focus)
+    if (!tab) return
+    setActiveSubTab(focus)
+    if (searchParams.get('edit') === '1') {
+      setSaveSuccessMessage(`Editing ${tab.label}.`)
+      queueMicrotask(() => startEdit(focus))
+    }
+    const next = new URLSearchParams(searchParams)
+    next.delete('focus')
+    next.delete('edit')
+    setSearchParams(next, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- URL handoff only
+  }, [searchParams, setSearchParams])
 
   const updateDraft = (sectionKey, field, value) => {
     setDraft((prev) => ({
@@ -2081,418 +2341,312 @@ function PostCheckingSections({ vesselId, getPostChecking, setPostCheckingSectio
     }))
   }
 
-  const addPendingDocs = (sectionKey, files) => {
-    if (editingSection !== sectionKey) return
-    const newOnes = Array.from(files || []).map((file) => ({ name: file.name, url: URL.createObjectURL(file) }))
-    setPendingDocs((prev) => [...prev, ...newOnes])
+  const addPostSectionDocuments = (sectionKey, files) => {
+    const newOnes = Array.from(files || []).map((f) => ({ name: f.name, url: URL.createObjectURL(f), file: f }))
+    setDraft((prev) => ({
+      ...prev,
+      [sectionKey]: { ...(prev[sectionKey] || {}), documents: [...(prev[sectionKey]?.documents || []), ...newOnes] },
+    }))
   }
 
-  const allDocsFor = (sectionKey) => {
-    const saved = data[sectionKey]?.documents || []
-    if (editingSection === sectionKey) return [...saved, ...pendingDocs]
-    return saved
+  const removePostDocumentAt = async (sectionKey, index) => {
+    const subKey = POSTCHECK_SECTION_TO_KEY[sectionKey]
+    if (!subKey) return
+    const docs = [...(draft[sectionKey]?.documents || [])]
+    const doc = docs[index]
+    if (!doc) return
+
+    const revokeBlob = (d) => {
+      if (d?.url && String(d.url).startsWith('blob:')) {
+        try {
+          URL.revokeObjectURL(d.url)
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    if (doc.file) {
+      revokeBlob(doc)
+      docs.splice(index, 1)
+      setDraft((prev) => ({
+        ...prev,
+        [sectionKey]: { ...(prev[sectionKey] || {}), documents: docs },
+      }))
+      return
+    }
+
+    if (doc.id == null) {
+      docs.splice(index, 1)
+      setDraft((prev) => ({
+        ...prev,
+        [sectionKey]: { ...(prev[sectionKey] || {}), documents: docs },
+      }))
+      return
+    }
+
+    if (!window.confirm('Remove this document from the operation?')) return
+
+    const rk = `${sectionKey}-${doc.id}`
+    setRemovingDoc(rk)
+    setPersistError(null)
+    try {
+      if (operationId) {
+        await deleteSubProcessDocument(operationId, subKey, doc.id, 'Post-Checking')
+      }
+      docs.splice(index, 1)
+      setDraft((prev) => ({
+        ...prev,
+        [sectionKey]: { ...(prev[sectionKey] || {}), documents: docs },
+      }))
+      setPostCheckingSection(vesselId, sectionKey, { documents: docs })
+    } catch (e) {
+      setPersistError(e?.message || 'Failed to remove document')
+    } finally {
+      setRemovingDoc(null)
+    }
   }
+
+  const saveSection = async (sectionKey, mode = 'final', goNext = false) => {
+    const isDraft = mode === 'draft'
+    const nextStatus = isDraft ? 'In Progress' : 'Done'
+    setPersistError(null)
+    setSaveSuccessMessage(null)
+    setSavingSection(`${sectionKey}:${mode}`)
+    const sectionDraft = draft[sectionKey] || {}
+    setPostCheckingSection(vesselId, sectionKey, { ...sectionDraft, status: nextStatus })
+    try {
+      if (operationId) {
+        const subKey = POSTCHECK_SECTION_TO_KEY[sectionKey]
+        const sent = await upsertSubProcess(operationId, subKey, {
+          phase: 'Post-Checking',
+          status: nextStatus,
+          occurredAt: sectionDraft?.dateTime || null,
+          remark: sectionDraft?.result || '',
+          payload: null,
+        })
+        if (sent?.updatedAt) {
+          setPostCheckingSection(vesselId, sectionKey, { lastSavedAt: sent.updatedAt })
+        }
+        const pendingDocs = (sectionDraft.documents || []).filter((d) => d?.file)
+        if (pendingDocs.length > 0) {
+          const upload = await uploadSubProcessDocuments(operationId, subKey, 'Post-Checking', pendingDocs.map((d) => d.file))
+          const saved = Array.isArray(upload?.items)
+            ? upload.items.map((x) => ({ id: x.id, name: x.name, url: x.url }))
+            : []
+          setPostCheckingSection(vesselId, sectionKey, {
+            ...sectionDraft,
+            status: nextStatus,
+            documents: [...(sectionDraft.documents || []).filter((d) => !d?.file), ...saved],
+            ...(sent?.updatedAt ? { lastSavedAt: sent.updatedAt } : {}),
+          })
+        }
+      }
+    } catch (e) {
+      setPersistError(e?.message || `Failed to save ${sectionKey}`)
+      setSavingSection(null)
+      return
+    }
+    setSavingSection(null)
+    setEditingSection(null)
+    const tabLabel = POST_CHECK_SUB_TABS.find((t) => t.id === sectionKey)?.label || sectionKey
+    let successMsg = ''
+    if (operationId) {
+      successMsg = isDraft ? `${tabLabel} draft saved.` : `${tabLabel} saved.`
+    } else {
+      successMsg = isDraft
+        ? `${tabLabel} draft saved on this device only. Open the vessel from At-Berth to sync to the server.`
+        : `${tabLabel} saved on this device only. Open the vessel from At-Berth to sync to the server.`
+    }
+    if (goNext) {
+      const idx = POST_CHECK_SUB_TABS.findIndex((t) => t.id === sectionKey)
+      const next = POST_CHECK_SUB_TABS[idx + 1]
+      if (next) {
+        setActiveSubTab(next.id)
+        successMsg = operationId
+          ? isDraft
+            ? `${tabLabel} draft saved. Next: ${next.label}.`
+            : `${tabLabel} saved. Next: ${next.label}.`
+          : isDraft
+            ? `${tabLabel} draft saved locally. Next: ${next.label}.`
+            : `${tabLabel} saved locally. Next: ${next.label}.`
+      }
+    }
+    setSaveSuccessMessage(successMsg)
+    if (operationId) onActivityLogRefresh?.()
+  }
+
+  const cancelEdit = () => {
+    setEditingSection(null)
+  }
+
+  const renderSectionCard = (tab) => {
+    const sectionKey = tab.id
+    const isEditing = editingSection === sectionKey
+    const resultL = POSTCHECK_RESULT_LABEL[sectionKey]
+    const dateL = POSTCHECK_DATETIME_LABEL[sectionKey]
+    return (
+      <PreCheckSectionCard
+        title={tab.label}
+        isEditing={isEditing}
+        onEdit={() => startEdit(sectionKey)}
+        onSave={() => saveSection(sectionKey, 'final')}
+        onSaveDraft={() => saveSection(sectionKey, 'draft')}
+        onSaveNext={() => saveSection(sectionKey, 'final', true)}
+        onCancel={cancelEdit}
+      >
+        {isEditing ? (
+          <>
+            <div className="berthing-modal__field">
+              <label className="berthing-modal__label">{resultL}</label>
+              <textarea
+                className="berthing-modal__input berthing-modal__textarea"
+                value={draft[sectionKey]?.result ?? ''}
+                onChange={(e) => updateDraft(sectionKey, 'result', e.target.value)}
+                rows={4}
+                placeholder="Enter result"
+              />
+            </div>
+            <PrecheckDocumentsEdit
+              sectionKey={sectionKey}
+              documents={draft[sectionKey]?.documents}
+              onAddFiles={(files) => addPostSectionDocuments(sectionKey, files)}
+              onRemoveIndex={(i) => removePostDocumentAt(sectionKey, i)}
+              removingKey={removingDoc}
+            />
+            <div className="berthing-modal__field">
+              <label className="berthing-modal__label">{dateL}</label>
+              <input
+                type="datetime-local"
+                className="berthing-modal__input"
+                value={draft[sectionKey]?.dateTime ?? ''}
+                onChange={(e) => updateDraft(sectionKey, 'dateTime', e.target.value)}
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="precheck-section__row precheck-section__row--block">
+              <span className="precheck-section__label">{resultL}</span>
+              <span className="precheck-section__value">{data[sectionKey]?.result || '—'}</span>
+            </div>
+            <PrecheckDocumentsRead documents={data[sectionKey]?.documents} />
+            <div className="precheck-section__row">
+              <span className="precheck-section__label">{dateL}</span>
+              <span className="precheck-section__value">
+                {data[sectionKey]?.dateTime ? formatDateTimeDisplay(data[sectionKey].dateTime) : '—'}
+              </span>
+            </div>
+          </>
+        )}
+      </PreCheckSectionCard>
+    )
+  }
+
+  const activePostTab = POST_CHECK_SUB_TABS.find((t) => t.id === activeSubTab)
 
   return (
     <div className="precheck-sections">
-      <div className="allocation-tabs precheck-subtabs" role="tablist" aria-label="Post-Checking sections">
-        {POST_CHECK_SUB_TABS.map((tab) => (
+      {saveSuccessMessage && (
+        <div className="toast toast--success" role="status" aria-live="polite" aria-atomic="true">
+          <span className="toast__icon" aria-hidden>
+            ✓
+          </span>
+          <p className="toast__message">{saveSuccessMessage}</p>
           <button
-            key={tab.id}
             type="button"
-            role="tab"
-            aria-selected={activeSubTab === tab.id}
-            className={`allocation-tabs__tab ${activeSubTab === tab.id ? 'allocation-tabs__tab--active' : ''}`}
-            onClick={() => setActiveSubTab(tab.id)}
+            className="toast__close"
+            onClick={() => setSaveSuccessMessage(null)}
+            aria-label="Dismiss notification"
           >
-            {tab.label}
+            ×
           </button>
-        ))}
-      </div>
-      {activeSubTab === 'finalTankInspection' && (
-      <PreCheckSectionCard
-        title="FINAL TANK INSPECTION"
-        isEditing={editingSection === 'finalTankInspection'}
-        onEdit={() => startEdit('finalTankInspection')}
-        onSave={() => saveSection('finalTankInspection')}
-        onCancel={cancelEdit}
-      >
-        {editingSection === 'finalTankInspection' ? (
-          <>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Final Tank Inspection Result</label>
-              <textarea
-                className="berthing-modal__input berthing-modal__textarea"
-                value={draft.finalTankInspection?.result ?? ''}
-                onChange={(e) => updateDraft('finalTankInspection', 'result', e.target.value)}
-                rows={4}
-                placeholder="Enter result"
-              />
-            </div>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Document upload</label>
-              <label className="berthing-modal__file-zone">
-                <span className="berthing-modal__file-zone-text">
-                  {allDocsFor('finalTankInspection').length > 0 ? `${allDocsFor('finalTankInspection').length} file(s)` : 'Choose files'}
-                </span>
-                <input
-                  type="file"
-                  accept="image/*,.pdf"
-                  multiple
-                  onChange={(e) => addPendingDocs('finalTankInspection', e.target.files)}
-                  className="berthing-modal__file-input"
-                />
-              </label>
-              {allDocsFor('finalTankInspection').length > 0 && (
-                <ul className="loading-step-card__file-list">
-                  {allDocsFor('finalTankInspection').map((f, i) => (
-                    <li key={i}>{f.name}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Final Tank Inspection Date &amp; Time</label>
-              <input
-                type="datetime-local"
-                className="berthing-modal__input"
-                value={draft.finalTankInspection?.dateTime ?? ''}
-                onChange={(e) => updateDraft('finalTankInspection', 'dateTime', e.target.value)}
-              />
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="precheck-section__row precheck-section__row--block">
-              <span className="precheck-section__label">Final Tank Inspection Result</span>
-              <span className="precheck-section__value">{data.finalTankInspection?.result || '—'}</span>
-            </div>
-            <div className="precheck-section__row">
-              <span className="precheck-section__label">Documents</span>
-              <span className="precheck-section__value">
-                {data.finalTankInspection?.documents?.length ? data.finalTankInspection.documents.map((d) => d.name).join(', ') : '—'}
-              </span>
-            </div>
-            <div className="precheck-section__row">
-              <span className="precheck-section__label">Final Tank Inspection Date &amp; Time</span>
-              <span className="precheck-section__value">
-                {data.finalTankInspection?.dateTime ? formatDateTimeDisplay(data.finalTankInspection.dateTime) : '—'}
-              </span>
-            </div>
-          </>
-        )}
-      </PreCheckSectionCard>
+        </div>
       )}
-      {activeSubTab === 'finalHoldInspection' && (
-      <PreCheckSectionCard
-        title="FINAL HOLD INSPECTION"
-        isEditing={editingSection === 'finalHoldInspection'}
-        onEdit={() => startEdit('finalHoldInspection')}
-        onSave={() => saveSection('finalHoldInspection')}
-        onCancel={cancelEdit}
-      >
-        {editingSection === 'finalHoldInspection' ? (
-          <>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Final Hold Inspection Result</label>
-              <textarea
-                className="berthing-modal__input berthing-modal__textarea"
-                value={draft.finalHoldInspection?.result ?? ''}
-                onChange={(e) => updateDraft('finalHoldInspection', 'result', e.target.value)}
-                rows={4}
-                placeholder="Enter result"
-              />
-            </div>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Document upload</label>
-              <label className="berthing-modal__file-zone">
-                <span className="berthing-modal__file-zone-text">
-                  {allDocsFor('finalHoldInspection').length > 0 ? `${allDocsFor('finalHoldInspection').length} file(s)` : 'Choose files'}
-                </span>
-                <input
-                  type="file"
-                  accept="image/*,.pdf"
-                  multiple
-                  onChange={(e) => addPendingDocs('finalHoldInspection', e.target.files)}
-                  className="berthing-modal__file-input"
-                />
-              </label>
-              {allDocsFor('finalHoldInspection').length > 0 && (
-                <ul className="loading-step-card__file-list">
-                  {allDocsFor('finalHoldInspection').map((f, i) => (
-                    <li key={i}>{f.name}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Final Hold Inspection Date &amp; Time</label>
-              <input
-                type="datetime-local"
-                className="berthing-modal__input"
-                value={draft.finalHoldInspection?.dateTime ?? ''}
-                onChange={(e) => updateDraft('finalHoldInspection', 'dateTime', e.target.value)}
-              />
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="precheck-section__row precheck-section__row--block">
-              <span className="precheck-section__label">Final Hold Inspection Result</span>
-              <span className="precheck-section__value">{data.finalHoldInspection?.result || '—'}</span>
-            </div>
-            <div className="precheck-section__row">
-              <span className="precheck-section__label">Documents</span>
-              <span className="precheck-section__value">
-                {data.finalHoldInspection?.documents?.length ? data.finalHoldInspection.documents.map((d) => d.name).join(', ') : '—'}
-              </span>
-            </div>
-            <div className="precheck-section__row">
-              <span className="precheck-section__label">Final Hold Inspection Date &amp; Time</span>
-              <span className="precheck-section__value">
-                {data.finalHoldInspection?.dateTime ? formatDateTimeDisplay(data.finalHoldInspection.dateTime) : '—'}
-              </span>
-            </div>
-          </>
-        )}
-      </PreCheckSectionCard>
+      {loadingPersisted && <p className="text-steel">Loading saved post-checking data…</p>}
+      {persistError && (
+        <p className="text-steel" style={{ color: 'var(--danger-600, #c00)' }}>
+          {persistError}
+        </p>
       )}
-      {activeSubTab === 'finalSounding' && (
-      <PreCheckSectionCard
-        title="FINAL SOUNDING"
-        isEditing={editingSection === 'finalSounding'}
-        onEdit={() => startEdit('finalSounding')}
-        onSave={() => saveSection('finalSounding')}
-        onCancel={cancelEdit}
-      >
-        {editingSection === 'finalSounding' ? (
-          <>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Final Sounding Inspection Result</label>
-              <textarea
-                className="berthing-modal__input berthing-modal__textarea"
-                value={draft.finalSounding?.result ?? ''}
-                onChange={(e) => updateDraft('finalSounding', 'result', e.target.value)}
-                rows={4}
-                placeholder="Enter result"
-              />
-            </div>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Document upload</label>
-              <label className="berthing-modal__file-zone">
-                <span className="berthing-modal__file-zone-text">
-                  {allDocsFor('finalSounding').length > 0 ? `${allDocsFor('finalSounding').length} file(s)` : 'Choose files'}
-                </span>
-                <input
-                  type="file"
-                  accept="image/*,.pdf"
-                  multiple
-                  onChange={(e) => addPendingDocs('finalSounding', e.target.files)}
-                  className="berthing-modal__file-input"
-                />
-              </label>
-              {allDocsFor('finalSounding').length > 0 && (
-                <ul className="loading-step-card__file-list">
-                  {allDocsFor('finalSounding').map((f, i) => (
-                    <li key={i}>{f.name}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Final Sounding Inspection Date &amp; Time</label>
-              <input
-                type="datetime-local"
-                className="berthing-modal__input"
-                value={draft.finalSounding?.dateTime ?? ''}
-                onChange={(e) => updateDraft('finalSounding', 'dateTime', e.target.value)}
-              />
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="precheck-section__row precheck-section__row--block">
-              <span className="precheck-section__label">Final Sounding Inspection Result</span>
-              <span className="precheck-section__value">{data.finalSounding?.result || '—'}</span>
-            </div>
-            <div className="precheck-section__row">
-              <span className="precheck-section__label">Documents</span>
-              <span className="precheck-section__value">
-                {data.finalSounding?.documents?.length ? data.finalSounding.documents.map((d) => d.name).join(', ') : '—'}
-              </span>
-            </div>
-            <div className="precheck-section__row">
-              <span className="precheck-section__label">Final Sounding Inspection Date &amp; Time</span>
-              <span className="precheck-section__value">
-                {data.finalSounding?.dateTime ? formatDateTimeDisplay(data.finalSounding.dateTime) : '—'}
-              </span>
-            </div>
-          </>
-        )}
-      </PreCheckSectionCard>
+      {savingSection && (
+        <p className="text-steel">{savingSection.endsWith(':draft') ? 'Saving draft…' : 'Saving…'}</p>
       )}
-    </div>
-  )
-}
-
-function LoadingTabContent({ vesselId, loadingOp, purpose, addActivity, updateActivity, deleteActivity }) {
-  const activityCategories = purpose === 'Unloading' ? UNLOADING_ACTIVITY_CATEGORIES : LOADING_ACTIVITY_CATEGORIES
-  const categoryLabel = purpose === 'Unloading' ? 'Unloading Activity Category' : 'Loading Activity Category'
-
-  const [category, setCategory] = useState(activityCategories[0])
-  const [description, setDescription] = useState('')
-  const [startTime, setStartTime] = useState('')
-  const [endTime, setEndTime] = useState('')
-  const [editingId, setEditingId] = useState(null)
-  const [editCategory, setEditCategory] = useState('')
-  const [editDescription, setEditDescription] = useState('')
-  const [editStartTime, setEditStartTime] = useState('')
-  const [editEndTime, setEditEndTime] = useState('')
-
-  const activities = loadingOp.activities || []
-
-  const resetForm = () => {
-    setCategory(activityCategories[0])
-    setDescription('')
-    setStartTime('')
-    setEndTime('')
-  }
-
-  const handleAdd = () => {
-    if (!category.trim()) return
-    addActivity(vesselId, {
-      category: category.trim(),
-      description: description.trim(),
-      startTime: startTime || null,
-      endTime: endTime || null,
-    })
-    resetForm()
-  }
-
-  const handleStartEdit = (act) => {
-    setEditingId(act.id)
-    setEditCategory(act.category)
-    setEditDescription(act.description || '')
-    setEditStartTime(act.startTime ? act.startTime.slice(0, 16) : '')
-    setEditEndTime(act.endTime ? act.endTime.slice(0, 16) : '')
-  }
-
-  const handleSaveEdit = () => {
-    if (!editingId) return
-    updateActivity(vesselId, editingId, {
-      category: editCategory.trim(),
-      description: editDescription.trim(),
-      startTime: editStartTime || null,
-      endTime: editEndTime || null,
-    })
-    setEditingId(null)
-    resetForm()
-  }
-
-  const handleCancelEdit = () => {
-    setEditingId(null)
-    resetForm()
-  }
-
-  const handleDelete = (activityId) => {
-    if (window.confirm('Delete this activity?')) deleteActivity(vesselId, activityId)
-  }
-
-  return (
-    <div className="loading-tab-content">
-      <section className="berthing-modal__card loading-tab-card">
-        <h3 className="berthing-modal__card-title">Detail Activity</h3>
-        <div className="loading-detail-activity-form">
-          <div className="berthing-modal__field">
-            <label className="berthing-modal__label">{categoryLabel}</label>
-            <select
-              className="berthing-modal__input"
-              value={editingId ? editCategory : category}
-              onChange={(e) => (editingId ? setEditCategory(e.target.value) : setCategory(e.target.value))}
+      <div className="precheck-master-detail">
+        <aside className={`precheck-master-detail__list ${listCollapsed ? 'precheck-master-detail__list--collapsed' : ''}`}>
+          <div className="precheck-checklist-header">
+            <span className="precheck-checklist-header__title">Post‑Checking</span>
+            <button
+              type="button"
+              className="btn btn--secondary btn--small loading-process-rail__collapse precheck-checklist-header__collapse"
+              onClick={toggleList}
+              aria-label={listCollapsed ? 'Expand sections navigation' : 'Collapse sections navigation'}
+              title={listCollapsed ? 'Expand sections' : 'Collapse sections'}
             >
-              {activityCategories.map((opt) => (
-                <option key={opt} value={opt}>{opt}</option>
-              ))}
-            </select>
+              <span className="rail-chevron" aria-hidden>
+                {listCollapsed ? '›' : '‹'}
+              </span>
+            </button>
           </div>
-          <div className="berthing-modal__field">
-            <label className="berthing-modal__label">Description</label>
-            <textarea
-              className="berthing-modal__input berthing-modal__textarea"
-              value={editingId ? editDescription : description}
-              onChange={(e) => (editingId ? setEditDescription(e.target.value) : setDescription(e.target.value))}
-              placeholder="Optional description"
-              rows={3}
-            />
+          <div
+            className={`precheck-checklist ${listCollapsed ? 'precheck-checklist--collapsed' : ''}`}
+            role="tablist"
+            aria-label="Post-Checking sections"
+          >
+            {POST_CHECK_SUB_TABS.map((tab) => {
+              const status = String(stepStatuses[tab.id] || '').toLowerCase()
+              const statusClass = status.replace(/\s+/g, '-')
+              const code = POSTCHECK_SHORT_CODE[tab.id] || tab.label.slice(0, 4)
+              const title = `${tab.label} · ${stepStatuses[tab.id] || '—'}${
+                data[tab.id]?.lastSavedAt ? ` · Last saved ${formatDateTimeDisplay(data[tab.id].lastSavedAt)}` : ''
+              }`
+              return (
+                <div
+                  key={tab.id}
+                  className={`precheck-checklist__item ${activeSubTab === tab.id ? 'precheck-checklist__item--active' : ''}`}
+                  title={title}
+                >
+                  {listCollapsed ? (
+                    <button type="button" className="precheck-checklist__compact-btn" onClick={() => selectTab(tab.id)} aria-label={title}>
+                      <span className={`precheck-status-dot precheck-status-dot--${statusClass}`} aria-hidden />
+                      <span className="precheck-checklist__code" aria-hidden>{code}</span>
+                    </button>
+                  ) : (
+                    <>
+                      <div className="precheck-checklist__left">
+                        <div className="precheck-checklist__topline">
+                          <span className="precheck-checklist__title">{tab.label}</span>
+                          <span className={`precheck-checklist__status precheck-checklist__status--${statusClass}`}>
+                            {stepStatuses[tab.id]}
+                          </span>
+                        </div>
+                        {data[tab.id]?.lastSavedAt ? (
+                          <span className="precheck-checklist__saved">Last saved {formatDateTimeDisplay(data[tab.id].lastSavedAt)}</span>
+                        ) : null}
+                      </div>
+                      <button type="button" className="btn btn--small" onClick={() => selectTab(tab.id)}>
+                        Open
+                      </button>
+                    </>
+                  )}
+                </div>
+              )
+            })}
           </div>
-          <div className="loading-detail-activity-times">
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Start time</label>
-              <input
-                type="datetime-local"
-                className="berthing-modal__input"
-                value={editingId ? editStartTime : startTime}
-                onChange={(e) => (editingId ? setEditStartTime(e.target.value) : setStartTime(e.target.value))}
-              />
-            </div>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">End time</label>
-              <input
-                type="datetime-local"
-                className="berthing-modal__input"
-                value={editingId ? editEndTime : endTime}
-                onChange={(e) => (editingId ? setEditEndTime(e.target.value) : setEndTime(e.target.value))}
-              />
-            </div>
-          </div>
-          <div className="loading-step-card__actions">
-            {editingId ? (
-              <>
-                <button type="button" className="btn btn--primary btn--small" onClick={handleSaveEdit}>Update</button>
-                <button type="button" className="btn btn--small btn--secondary" onClick={handleCancelEdit}>Cancel</button>
-              </>
-            ) : (
-              <button type="button" className="btn btn--primary btn--small" onClick={handleAdd}>Add</button>
-            )}
-          </div>
+        </aside>
+        <div className="precheck-master-detail__panel" role="tabpanel" aria-label="Post-Checking detail">
+          {activePostTab ? renderSectionCard(activePostTab) : null}
         </div>
-
-        <div className="loading-detail-activity-table-wrap">
-          <table className="loading-detail-activity-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>{categoryLabel}</th>
-                <th>Description</th>
-                <th>Start time</th>
-                <th>End time</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {activities.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="loading-detail-activity-empty">No detail activities yet. Add one above.</td>
-                </tr>
-              ) : (
-                activities.map((act, index) => (
-                  <tr key={act.id}>
-                    <td>{index + 1}</td>
-                    <td>{act.category}</td>
-                    <td>{act.description || '—'}</td>
-                    <td>{act.startTime ? formatDateTimeDisplay(act.startTime) : '—'}</td>
-                    <td>{act.endTime ? formatDateTimeDisplay(act.endTime) : '—'}</td>
-                    <td>
-                      <button type="button" className="btn btn--small" onClick={() => handleStartEdit(act)}>Edit</button>
-                      <button type="button" className="btn btn--small btn--secondary" onClick={() => handleDelete(act.id)}>Delete</button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      </div>
+      {operationId && (
+        <OperationActivityTimeline
+          operationId={operationId}
+          refreshToken={activityLogRefresh}
+          vesselId={vesselId}
+          basePath={basePath}
+          onActivityLogRefresh={onActivityLogRefresh}
+        />
+      )}
     </div>
   )
 }

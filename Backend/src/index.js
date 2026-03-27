@@ -24,6 +24,7 @@ import activityLogsRoutes from './routes/activity-logs.js';
 import allocationRoutes from './routes/allocation.js';
 import operationDocumentsRoutes from './routes/operation-documents.js';
 import operationSubProcessesRoutes from './routes/operation-sub-processes.js';
+import operationOperationalActivitiesRoutes from './routes/operation-operational-activities.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -68,6 +69,7 @@ apiV1.use('/activity-logs', activityLogsRoutes);
 apiV1.use('/', qcSurveysRoutes);
 apiV1.use('/', quantityChecksRoutes);
 apiV1.use('/', operationSubProcessesRoutes);
+apiV1.use('/', operationOperationalActivitiesRoutes);
 
 app.use('/api/v1', apiV1);
 

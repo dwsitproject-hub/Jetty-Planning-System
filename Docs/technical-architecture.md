@@ -1,7 +1,7 @@
 # Jetty Planning System — Technical Architecture
 
 **Version**: 1.0  
-**Last Updated**: 2026-03-17  
+**Last Updated**: 2026-03-26  
 **Sources**: TECH-SPEC-Jetty-Planning-System.md, Feature-Module-Summary.md, Dev-Notes.md, Jetty PRD vRian - 1.0
 
 ---
@@ -26,8 +26,8 @@ Digitize and streamline end-to-end jetty operations (loading and unloading) by p
                                    │ HTTPS
                                    ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                        BACKEND (To be implemented)                      │
-│  REST API /api/v1  │  Auth (JWT)  │  RBAC middleware  │  Audit logging   │
+│                                BACKEND                                   │
+│  Node.js REST API /api/v1  │  optionalAuth  │  Activity log (audit-like) │
 └─────────────────────────────────┬───────────────────────────────────────┘
                                    │
                     ┌──────────────┼──────────────┐
@@ -39,7 +39,7 @@ Digitize and streamline end-to-end jetty operations (loading and unloading) by p
 └──────────────┘  └──────────────┘  └──────────────┘
 ```
 
-**Current state**: Only the React SPA exists; all data is in-memory. Backend, database, and file storage are specified but not yet built.
+**Current state**: React SPA + Node.js backend exist. Some at-berth flows now persist to PostgreSQL (sub-processes, operational activities, NOR details) and are surfaced in a unified Activity Log timeline on the Loading/Unloading pages.
 
 ---
 
@@ -183,6 +183,31 @@ All endpoints under **`/api/v1`**.
 - `POST /operations/:id/request-exception`, `POST /operations/:id/approve-exception`  
 - `GET /operations/at-berth` – list at-berth operations  
 
+### 6.3.1 At-berth persistence (sub-processes, operational activities, timeline)
+
+**Sub-processes** (Pre-Checking / Post-Checking / Operational “steps” recorded as discrete rows):
+
+- `GET /operations/:operationId/sub-processes?phase=Pre-Checking|Operational|Post-Checking`
+- `PUT /operations/:operationId/sub-processes/:subProcessKey` – upsert one step (JSON payload depends on step type)
+- `DELETE /operations/:operationId/sub-processes/:subProcessKey?phase=Pre-Checking|Operational|Post-Checking` – soft-delete the step and its related documents
+
+**Sub-process documents**:
+
+- `GET /operations/:operationId/sub-processes/:subProcessKey/documents?phase=...`
+- `POST /operations/:operationId/sub-processes/:subProcessKey/documents` (multipart) – upload
+- `DELETE /operations/:operationId/sub-processes/:subProcessKey/documents/:documentId?phase=...` – soft-delete
+
+**Operational activities (milestone activities + milestone N/A)**:
+
+- `GET /operations/:operationId/operational-activities`
+- `POST /operations/:operationId/operational-activities`
+- `PUT /operations/:operationId/operational-activities/:entryId`
+- `DELETE /operations/:operationId/operational-activities/:entryId`
+
+**Unified activity timeline** (used by “Activity log (Pre-Checking · Operational · Post-Checking)”):
+
+- `GET /operations/:operationId/activity-timeline`
+
 ### 6.4 QC & quantity
 
 - `GET /operations/:id/qc-surveys`, `POST /operations/:id/qc-surveys`, `PUT /qc-surveys/:id`  
@@ -278,7 +303,22 @@ All endpoints under **`/api/v1`**.
 - **Contexts**: LoadingProvider (steps, activities, pre/post checking), ClearanceProvider (clearance state per vessel), ActivityLogProvider (per-page activity log).  
 - **Data layer (current)**: In-memory only (`mockData.js`, `masterData.js`, `departmentsData.js`, `rolesData.js`, `usersData.js`, report builders, Excel helpers).  
 
-Replacing this data layer with API calls and adding AuthContext + permission checks is part of the backend integration (see TECH-SPEC §8).
+### 11.1 Activity log (timeline) actions and deep-link edit routing
+
+The Loading/Unloading pages display a unified timeline card titled **“Activity log (Pre-Checking · Operational · Post-Checking)”**.
+
+- **Edit button**:
+  - Navigates to the correct sub-page and focuses the relevant editor using query parameters.
+  - Pre-Checking / Post-Checking: `?focus=<tabId>&edit=1`
+  - Operational: `?milestone=<milestoneKey>&edit=1`
+- **Delete button**:
+  - Sub-process rows: calls `DELETE /operations/:operationId/sub-processes/:subProcessKey?phase=...`
+  - Operational rows (activity or N/A): calls `DELETE /operations/:operationId/operational-activities/:entryId`
+- **Toasts**:
+  - Save flows already show success toasts in the Loading UI.
+  - Timeline edit/delete and operational save/N/A actions show success/error toasts using the shared `.toast` styles.
+
+Replacing remaining in-memory modules with API calls and adding AuthContext + permission checks is part of the ongoing backend integration (see TECH-SPEC §8).
 
 ---
 

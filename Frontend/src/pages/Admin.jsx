@@ -5,17 +5,12 @@ const ADMIN_ITEMS = [
   {
     path: '/admin/users',
     title: 'User Management',
-    description: 'Manage users, assign departments and roles.',
+    description: 'Manage users and assign roles.',
   },
   {
     path: '/admin/roles',
     title: 'Role Management',
-    description: 'Define roles and page/department permissions.',
-  },
-  {
-    path: '/admin/departments',
-    title: 'Department Management',
-    description: 'Add, edit, and manage departments.',
+    description: 'Define roles and page permissions.',
   },
 ]
 
@@ -24,7 +19,7 @@ export default function Admin() {
     <div className="allocation-page">
       <h1 className="page-title">Admin</h1>
       <p className="allocation-page__intro">
-        User management and RBAC: users, roles, and departments.
+        User management and RBAC: users and roles.
       </p>
 
       <section className="reporting-list" aria-label="Admin sections">

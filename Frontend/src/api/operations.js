@@ -151,6 +151,11 @@ export function upsertSubProcess(operationId, subProcessKey, body) {
   })
 }
 
+export function deleteSubProcess(operationId, subProcessKey, phase) {
+  const q = `?phase=${encodeURIComponent(phase)}`
+  return apiDelete(`/operations/${operationId}/sub-processes/${encodeURIComponent(subProcessKey)}${q}`)
+}
+
 export function fetchSubProcessDocuments(operationId, subProcessKey, phase = 'Pre-Checking') {
   return apiGet(
     `/operations/${operationId}/sub-processes/${encodeURIComponent(subProcessKey)}/documents?phase=${encodeURIComponent(phase)}`
@@ -187,4 +192,42 @@ export function updateNorDetails(operationId, body) {
     remark: body?.remark ?? '',
     payload: body?.payload ?? null,
   })
+}
+
+/** Operational milestone activities + N/A (merged entry_type). */
+export function fetchOperationalActivities(operationId) {
+  return apiGet(`/operations/${operationId}/operational-activities`)
+}
+
+export function createOperationalEntry(operationId, body) {
+  return apiPost(`/operations/${operationId}/operational-activities`, {
+    entryType: body.entryType,
+    milestoneKey: body.milestoneKey,
+    subStepTitle: body.subStepTitle,
+    remark: body.remark,
+    startAt: body.startAt,
+    endAt: body.endAt,
+    reason: body.reason,
+    markedAt: body.markedAt,
+  })
+}
+
+export function updateOperationalEntry(operationId, entryId, body) {
+  return apiPut(`/operations/${operationId}/operational-activities/${entryId}`, {
+    milestoneKey: body.milestoneKey,
+    subStepTitle: body.subStepTitle,
+    remark: body.remark,
+    startAt: body.startAt,
+    endAt: body.endAt,
+    reason: body.reason,
+    markedAt: body.markedAt,
+  })
+}
+
+export function deleteOperationalEntry(operationId, entryId) {
+  return apiDelete(`/operations/${operationId}/operational-activities/${entryId}`)
+}
+
+export function fetchActivityTimeline(operationId) {
+  return apiGet(`/operations/${operationId}/activity-timeline`)
 }

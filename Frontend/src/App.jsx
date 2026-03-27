@@ -28,7 +28,6 @@ import MasterFreightTerms from './pages/MasterFreightTerms'
 import Admin from './pages/Admin'
 import AdminUsers from './pages/AdminUsers'
 import AdminRoles from './pages/AdminRoles'
-import AdminDepartments from './pages/AdminDepartments'
 import E2EConsole from './pages/E2EConsole'
 
 function AppShell() {
@@ -154,7 +153,6 @@ function App() {
                   <Route path="/admin" element={<Admin />} />
                   <Route path="/admin/users" element={<AdminUsers />} />
                   <Route path="/admin/roles" element={<AdminRoles />} />
-                  <Route path="/admin/departments" element={<AdminDepartments />} />
                   <Route path="/e2e-console" element={<E2EConsole />} />
                 </Route>
               </Routes>
