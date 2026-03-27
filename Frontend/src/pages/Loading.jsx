@@ -833,10 +833,16 @@ const POSTCHECK_RESULT_LABEL = {
   finalSounding: 'Final Sounding Inspection Result',
 }
 
-const POSTCHECK_DATETIME_LABEL = {
-  finalTankInspection: 'Final Tank Inspection Date & Time',
-  finalHoldInspection: 'Final Hold Inspection Date & Time',
-  finalSounding: 'Final Sounding Inspection Date & Time',
+const POSTCHECK_START_LABEL = {
+  finalTankInspection: 'Final Tank Inspection Start Time',
+  finalHoldInspection: 'Final Hold Inspection Start Time',
+  finalSounding: 'Final Sounding Start Time',
+}
+
+const POSTCHECK_END_LABEL = {
+  finalTankInspection: 'Final Tank Inspection End Time',
+  finalHoldInspection: 'Final Hold Inspection End Time',
+  finalSounding: 'Final Sounding End Time',
 }
 
 function precheckDocumentHref(url) {
@@ -1650,12 +1656,21 @@ function PreCheckingSections({
         {editingSection === 'keyMeeting' ? (
           <>
             <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Date &amp; Time</label>
+              <label className="berthing-modal__label">Start Time</label>
               <input
                 type="datetime-local"
                 className="berthing-modal__input"
-                value={draft.keyMeeting?.dateTime || ''}
-                onChange={(e) => updateDraft('keyMeeting', 'dateTime', e.target.value)}
+                value={draft.keyMeeting?.startTime || ''}
+                onChange={(e) => updateDraft('keyMeeting', 'startTime', e.target.value)}
+              />
+            </div>
+            <div className="berthing-modal__field">
+              <label className="berthing-modal__label">End Time</label>
+              <input
+                type="datetime-local"
+                className="berthing-modal__input"
+                value={draft.keyMeeting?.endTime || ''}
+                onChange={(e) => updateDraft('keyMeeting', 'endTime', e.target.value)}
               />
             </div>
             <PrecheckDocumentsEdit
@@ -1679,8 +1694,18 @@ function PreCheckingSections({
         ) : (
           <>
             <div className="precheck-section__row">
-              <span className="precheck-section__label">Date &amp; Time</span>
-              <span className="precheck-section__value">{data.keyMeeting?.dateTime ? formatDateTimeDisplay(data.keyMeeting.dateTime) : '—'}</span>
+              <span className="precheck-section__label">Start Time</span>
+              <span className="precheck-section__value">
+                {data.keyMeeting?.startTime || data.keyMeeting?.dateTime
+                  ? formatDateTimeDisplay(data.keyMeeting?.startTime || data.keyMeeting?.dateTime)
+                  : '—'}
+              </span>
+            </div>
+            <div className="precheck-section__row">
+              <span className="precheck-section__label">End Time</span>
+              <span className="precheck-section__value">
+                {data.keyMeeting?.endTime ? formatDateTimeDisplay(data.keyMeeting.endTime) : '—'}
+              </span>
             </div>
             <PrecheckDocumentsRead documents={data.keyMeeting?.documents} />
             <div className="precheck-section__row precheck-section__row--block">
@@ -1807,12 +1832,21 @@ function PreCheckingSections({
         {editingSection === 'tankInspection' ? (
           <>
             <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Date &amp; Time</label>
+              <label className="berthing-modal__label">Start Time</label>
               <input
                 type="datetime-local"
                 className="berthing-modal__input"
-                value={draft.tankInspection?.dateTime || ''}
-                onChange={(e) => updateDraft('tankInspection', 'dateTime', e.target.value)}
+                value={draft.tankInspection?.startTime || ''}
+                onChange={(e) => updateDraft('tankInspection', 'startTime', e.target.value)}
+              />
+            </div>
+            <div className="berthing-modal__field">
+              <label className="berthing-modal__label">End Time</label>
+              <input
+                type="datetime-local"
+                className="berthing-modal__input"
+                value={draft.tankInspection?.endTime || ''}
+                onChange={(e) => updateDraft('tankInspection', 'endTime', e.target.value)}
               />
             </div>
             <PrecheckDocumentsEdit
@@ -1836,8 +1870,18 @@ function PreCheckingSections({
         ) : (
           <>
             <div className="precheck-section__row">
-              <span className="precheck-section__label">Date &amp; Time</span>
-              <span className="precheck-section__value">{data.tankInspection?.dateTime ? formatDateTimeDisplay(data.tankInspection.dateTime) : '—'}</span>
+              <span className="precheck-section__label">Start Time</span>
+              <span className="precheck-section__value">
+                {data.tankInspection?.startTime || data.tankInspection?.dateTime
+                  ? formatDateTimeDisplay(data.tankInspection?.startTime || data.tankInspection?.dateTime)
+                  : '—'}
+              </span>
+            </div>
+            <div className="precheck-section__row">
+              <span className="precheck-section__label">End Time</span>
+              <span className="precheck-section__value">
+                {data.tankInspection?.endTime ? formatDateTimeDisplay(data.tankInspection.endTime) : '—'}
+              </span>
             </div>
             <PrecheckDocumentsRead documents={data.tankInspection?.documents} />
             <div className="precheck-section__row precheck-section__row--block">
@@ -1861,12 +1905,21 @@ function PreCheckingSections({
         {editingSection === 'holdInspection' ? (
           <>
             <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Date &amp; Time</label>
+              <label className="berthing-modal__label">Start Time</label>
               <input
                 type="datetime-local"
                 className="berthing-modal__input"
-                value={draft.holdInspection?.dateTime || ''}
-                onChange={(e) => updateDraft('holdInspection', 'dateTime', e.target.value)}
+                value={draft.holdInspection?.startTime || ''}
+                onChange={(e) => updateDraft('holdInspection', 'startTime', e.target.value)}
+              />
+            </div>
+            <div className="berthing-modal__field">
+              <label className="berthing-modal__label">End Time</label>
+              <input
+                type="datetime-local"
+                className="berthing-modal__input"
+                value={draft.holdInspection?.endTime || ''}
+                onChange={(e) => updateDraft('holdInspection', 'endTime', e.target.value)}
               />
             </div>
             <PrecheckDocumentsEdit
@@ -1890,8 +1943,18 @@ function PreCheckingSections({
         ) : (
           <>
             <div className="precheck-section__row">
-              <span className="precheck-section__label">Date &amp; Time</span>
-              <span className="precheck-section__value">{data.holdInspection?.dateTime ? formatDateTimeDisplay(data.holdInspection.dateTime) : '—'}</span>
+              <span className="precheck-section__label">Start Time</span>
+              <span className="precheck-section__value">
+                {data.holdInspection?.startTime || data.holdInspection?.dateTime
+                  ? formatDateTimeDisplay(data.holdInspection?.startTime || data.holdInspection?.dateTime)
+                  : '—'}
+              </span>
+            </div>
+            <div className="precheck-section__row">
+              <span className="precheck-section__label">End Time</span>
+              <span className="precheck-section__value">
+                {data.holdInspection?.endTime ? formatDateTimeDisplay(data.holdInspection.endTime) : '—'}
+              </span>
             </div>
             <PrecheckDocumentsRead documents={data.holdInspection?.documents} />
             <div className="precheck-section__row precheck-section__row--block">
@@ -1915,12 +1978,21 @@ function PreCheckingSections({
         {editingSection === 'sampling' ? (
           <>
             <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Date &amp; Time</label>
+              <label className="berthing-modal__label">Start Time</label>
               <input
                 type="datetime-local"
                 className="berthing-modal__input"
-                value={draft.sampling?.dateTime || ''}
-                onChange={(e) => updateDraft('sampling', 'dateTime', e.target.value)}
+                value={draft.sampling?.startTime || ''}
+                onChange={(e) => updateDraft('sampling', 'startTime', e.target.value)}
+              />
+            </div>
+            <div className="berthing-modal__field">
+              <label className="berthing-modal__label">End Time</label>
+              <input
+                type="datetime-local"
+                className="berthing-modal__input"
+                value={draft.sampling?.endTime || ''}
+                onChange={(e) => updateDraft('sampling', 'endTime', e.target.value)}
               />
             </div>
             <PrecheckDocumentsEdit
@@ -2044,8 +2116,18 @@ function PreCheckingSections({
         ) : (
           <>
             <div className="precheck-section__row">
-              <span className="precheck-section__label">Date &amp; Time</span>
-              <span className="precheck-section__value">{data.sampling?.dateTime ? formatDateTimeDisplay(data.sampling.dateTime) : '—'}</span>
+              <span className="precheck-section__label">Start Time</span>
+              <span className="precheck-section__value">
+                {data.sampling?.startTime || data.sampling?.dateTime
+                  ? formatDateTimeDisplay(data.sampling?.startTime || data.sampling?.dateTime)
+                  : '—'}
+              </span>
+            </div>
+            <div className="precheck-section__row">
+              <span className="precheck-section__label">End Time</span>
+              <span className="precheck-section__value">
+                {data.sampling?.endTime ? formatDateTimeDisplay(data.sampling.endTime) : '—'}
+              </span>
             </div>
             <PrecheckDocumentsRead documents={data.sampling?.documents} />
             <div className="precheck-section__row precheck-section__row--block">
@@ -2099,12 +2181,21 @@ function PreCheckingSections({
         {editingSection === 'initialSounding' ? (
           <>
             <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Date &amp; Time</label>
+              <label className="berthing-modal__label">Start Time</label>
               <input
                 type="datetime-local"
                 className="berthing-modal__input"
-                value={draft.initialSounding?.dateTime || ''}
-                onChange={(e) => updateDraft('initialSounding', 'dateTime', e.target.value)}
+                value={draft.initialSounding?.startTime || ''}
+                onChange={(e) => updateDraft('initialSounding', 'startTime', e.target.value)}
+              />
+            </div>
+            <div className="berthing-modal__field">
+              <label className="berthing-modal__label">End Time</label>
+              <input
+                type="datetime-local"
+                className="berthing-modal__input"
+                value={draft.initialSounding?.endTime || ''}
+                onChange={(e) => updateDraft('initialSounding', 'endTime', e.target.value)}
               />
             </div>
             <PrecheckDocumentsEdit
@@ -2128,8 +2219,18 @@ function PreCheckingSections({
         ) : (
           <>
             <div className="precheck-section__row">
-              <span className="precheck-section__label">Date &amp; Time</span>
-              <span className="precheck-section__value">{data.initialSounding?.dateTime ? formatDateTimeDisplay(data.initialSounding.dateTime) : '—'}</span>
+              <span className="precheck-section__label">Start Time</span>
+              <span className="precheck-section__value">
+                {data.initialSounding?.startTime || data.initialSounding?.dateTime
+                  ? formatDateTimeDisplay(data.initialSounding?.startTime || data.initialSounding?.dateTime)
+                  : '—'}
+              </span>
+            </div>
+            <div className="precheck-section__row">
+              <span className="precheck-section__label">End Time</span>
+              <span className="precheck-section__value">
+                {data.initialSounding?.endTime ? formatDateTimeDisplay(data.initialSounding.endTime) : '—'}
+              </span>
             </div>
             <PrecheckDocumentsRead documents={data.initialSounding?.documents} />
             <div className="precheck-section__row precheck-section__row--block">
@@ -2153,12 +2254,21 @@ function PreCheckingSections({
         {editingSection === 'initialDraftSurvey' ? (
           <>
             <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Date &amp; Time</label>
+              <label className="berthing-modal__label">Start Time</label>
               <input
                 type="datetime-local"
                 className="berthing-modal__input"
-                value={draft.initialDraftSurvey?.dateTime || ''}
-                onChange={(e) => updateDraft('initialDraftSurvey', 'dateTime', e.target.value)}
+                value={draft.initialDraftSurvey?.startTime || ''}
+                onChange={(e) => updateDraft('initialDraftSurvey', 'startTime', e.target.value)}
+              />
+            </div>
+            <div className="berthing-modal__field">
+              <label className="berthing-modal__label">End Time</label>
+              <input
+                type="datetime-local"
+                className="berthing-modal__input"
+                value={draft.initialDraftSurvey?.endTime || ''}
+                onChange={(e) => updateDraft('initialDraftSurvey', 'endTime', e.target.value)}
               />
             </div>
             <PrecheckDocumentsEdit
@@ -2182,8 +2292,18 @@ function PreCheckingSections({
         ) : (
           <>
             <div className="precheck-section__row">
-              <span className="precheck-section__label">Date &amp; Time</span>
-              <span className="precheck-section__value">{data.initialDraftSurvey?.dateTime ? formatDateTimeDisplay(data.initialDraftSurvey.dateTime) : '—'}</span>
+              <span className="precheck-section__label">Start Time</span>
+              <span className="precheck-section__value">
+                {data.initialDraftSurvey?.startTime || data.initialDraftSurvey?.dateTime
+                  ? formatDateTimeDisplay(data.initialDraftSurvey?.startTime || data.initialDraftSurvey?.dateTime)
+                  : '—'}
+              </span>
+            </div>
+            <div className="precheck-section__row">
+              <span className="precheck-section__label">End Time</span>
+              <span className="precheck-section__value">
+                {data.initialDraftSurvey?.endTime ? formatDateTimeDisplay(data.initialDraftSurvey.endTime) : '—'}
+              </span>
             </div>
             <PrecheckDocumentsRead documents={data.initialDraftSurvey?.documents} />
             <div className="precheck-section__row precheck-section__row--block">
@@ -2528,7 +2648,8 @@ function PostCheckingSections({
     const sectionKey = tab.id
     const isEditing = editingSection === sectionKey
     const resultL = POSTCHECK_RESULT_LABEL[sectionKey]
-    const dateL = POSTCHECK_DATETIME_LABEL[sectionKey]
+    const startL = POSTCHECK_START_LABEL[sectionKey]
+    const endL = POSTCHECK_END_LABEL[sectionKey]
     return (
       <PreCheckSectionCard
         title={tab.label}
@@ -2559,12 +2680,21 @@ function PostCheckingSections({
               removingKey={removingDoc}
             />
             <div className="berthing-modal__field">
-              <label className="berthing-modal__label">{dateL}</label>
+              <label className="berthing-modal__label">{startL}</label>
               <input
                 type="datetime-local"
                 className="berthing-modal__input"
-                value={draft[sectionKey]?.dateTime ?? ''}
-                onChange={(e) => updateDraft(sectionKey, 'dateTime', e.target.value)}
+                value={draft[sectionKey]?.startTime ?? ''}
+                onChange={(e) => updateDraft(sectionKey, 'startTime', e.target.value)}
+              />
+            </div>
+            <div className="berthing-modal__field">
+              <label className="berthing-modal__label">{endL}</label>
+              <input
+                type="datetime-local"
+                className="berthing-modal__input"
+                value={draft[sectionKey]?.endTime ?? ''}
+                onChange={(e) => updateDraft(sectionKey, 'endTime', e.target.value)}
               />
             </div>
           </>
@@ -2576,9 +2706,17 @@ function PostCheckingSections({
             </div>
             <PrecheckDocumentsRead documents={data[sectionKey]?.documents} />
             <div className="precheck-section__row">
-              <span className="precheck-section__label">{dateL}</span>
+              <span className="precheck-section__label">{startL}</span>
               <span className="precheck-section__value">
-                {data[sectionKey]?.dateTime ? formatDateTimeDisplay(data[sectionKey].dateTime) : '—'}
+                {data[sectionKey]?.startTime || data[sectionKey]?.dateTime
+                  ? formatDateTimeDisplay(data[sectionKey]?.startTime || data[sectionKey]?.dateTime)
+                  : '—'}
+              </span>
+            </div>
+            <div className="precheck-section__row">
+              <span className="precheck-section__label">{endL}</span>
+              <span className="precheck-section__value">
+                {data[sectionKey]?.endTime ? formatDateTimeDisplay(data[sectionKey].endTime) : '—'}
               </span>
             </div>
           </>
