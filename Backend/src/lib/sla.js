@@ -1,20 +1,33 @@
 /**
  * SLA duration calculation — Phase 3.
- * Formula: SLA = Q1 + Q2 + C + sum(V_n / (Rate_n * Buffer_n)) + ((n-1) * S)
+ * Formula: SLA = Q1 + Q2 + C + sum(V / (effective_rate * buffer)) + ((n-1) * S)
+ * Per-commodity rate + metric from standard_rates; buffer from global sla_config only.
  */
 import { pool } from '../db.js';
 
 const SLA_CONFIG_ID = 1;
 
+const RATE_METRICS = new Set(['KLPH', 'MTPH', 'MTPD']);
+
+/** Convert stored rate to "per hour" basis for the transfer term (volume must match metric). */
+function effectiveRatePerHour(rateValue, rateMetric) {
+  const r = Number(rateValue);
+  if (!Number.isFinite(r) || r <= 0) return 0;
+  const m = String(rateMetric || 'MTPH').toUpperCase();
+  if (!RATE_METRICS.has(m)) return r;
+  if (m === 'MTPD') return r / 24;
+  return r;
+}
+
 export async function computeSlaHours(operationId) {
   const [configRes, materialsRes] = await Promise.all([
     pool.query(
       `SELECT q1_hours, q2_hours, c_hours, s_hours, buffer_default FROM sla_config WHERE id = $1 AND deleted_at IS NULL`,
-      [SLA_CONFIG_ID]
+      [SLA_CONFIG_ID],
     ),
     pool.query(
       `SELECT material_key, volume FROM operation_materials WHERE operation_id = $1 AND deleted_at IS NULL`,
-      [operationId]
+      [operationId],
     ),
   ]);
   const config = configRes.rows[0];
@@ -32,21 +45,32 @@ export async function computeSlaHours(operationId) {
 
   const materialKeys = [...new Set(materials.map((m) => m.material_key))];
   const ratesRes = await pool.query(
-    `SELECT material_key, rate_per_hour, buffer FROM standard_rates WHERE material_key = ANY($1) AND deleted_at IS NULL`,
-    [materialKeys]
+    `SELECT sr.rate_value, sr.rate_metric,
+            LOWER(TRIM(sr.material_key)) AS mk,
+            LOWER(TRIM(COALESCE(sc.name, sr.material_key))) AS lk
+     FROM standard_rates sr
+     LEFT JOIN si_commodities sc ON sc.id = sr.commodity_id AND sc.deleted_at IS NULL
+     WHERE sr.deleted_at IS NULL`,
   );
-  const ratesByKey = Object.fromEntries(
-    ratesRes.rows.map((r) => [r.material_key, { rate: Number(r.rate_per_hour), buffer: Number(r.buffer) }])
-  );
+  const ratesByKeyLower = {};
+  for (const r of ratesRes.rows) {
+    const entry = {
+      rateValue: Number(r.rate_value),
+      rateMetric: r.rate_metric || 'MTPH',
+    };
+    ratesByKeyLower[r.mk] = entry;
+    ratesByKeyLower[r.lk] = entry;
+  }
 
   let sumPart = 0;
   for (const m of materials) {
     const vol = Number(m.volume);
-    const r = ratesByKey[m.material_key];
-    const rate = r ? r.rate : 0;
-    const buffer = r ? r.buffer : bufferDefault;
-    if (rate <= 0) continue;
-    sumPart += vol / (rate * buffer);
+    const lk = String(m.material_key || '').toLowerCase().trim();
+    const rec = lk ? ratesByKeyLower[lk] : null;
+    if (!rec) continue;
+    const hourly = effectiveRatePerHour(rec.rateValue, rec.rateMetric);
+    if (hourly <= 0) continue;
+    sumPart += vol / (hourly * bufferDefault);
   }
   const n = materialKeys.length;
   const penalty = (n - 1) * S;

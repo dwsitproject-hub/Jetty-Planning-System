@@ -6,6 +6,7 @@ import { deleteOperationDocument, fetchAllocationOverview, saveArrivalUpdate as 
 import { ApiError, resolveUploadUrl } from '../api/client'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import PurposeBadge, { resolvePurposeLabel } from '../components/PurposeBadge'
+import { usePortScope } from '../context/PortScopeContext'
 import '../styles/allocation.css'
 
 /** Unified flow for both Loading and Unloading */
@@ -135,6 +136,7 @@ function getCompletionMsForJettyValidation(row) {
 }
 
 export default function Allocation() {
+  const { selectedPortId } = usePortScope()
   const [list, setList] = useState([])
   const [berthsState, setBerthsState] = useState([])
   const filterKeys = ALLOCATION_COLUMNS.map((c) => c.key)
@@ -167,6 +169,11 @@ export default function Allocation() {
   )
 
   useEffect(() => {
+    if (!selectedPortId) {
+      setList([])
+      setBerthsState([])
+      return undefined
+    }
     let alive = true
     fetchAllocationOverview()
       .then((data) => {
@@ -182,7 +189,7 @@ export default function Allocation() {
     return () => {
       alive = false
     }
-  }, [])
+  }, [selectedPortId])
 
   const vesselById = useMemo(() => {
     const map = {}
@@ -244,6 +251,7 @@ export default function Allocation() {
       estimatedCompletionDateTime: toDateTimeLocalValue(r.estimatedCompletionDateTime),
       norTenderedDateTime: toDateTimeLocalValue(r.norTenderedDateTime),
       norAcceptedDateTime: toDateTimeLocalValue(r.norAcceptedDateTime),
+      demurrageLiabilityFromDateTime: toDateTimeLocalValue(r.demurrageLiabilityFromDateTime),
     })
     setArrivalNorFiles([])
     setArrivalNorRawFiles([])
@@ -310,6 +318,7 @@ export default function Allocation() {
       etb: arrivalUpdateForm.etbDateTime ? formatDateTimeDisplay(arrivalUpdateForm.etbDateTime) : arrivalUpdateForm.etb,
       norTenderedDateTime: arrivalUpdateForm.norTenderedDateTime || undefined,
       norAcceptedDateTime: arrivalUpdateForm.norAcceptedDateTime || undefined,
+      demurrageLiabilityFromDateTime: arrivalUpdateForm.demurrageLiabilityFromDateTime || undefined,
       norDocumentNames: arrivalNorFiles.length > 0 ? arrivalNorFiles.map((f) => f.name) : undefined,
     }
     const listWithUpdate = list.map((row) => (row.id === arrivalUpdateForm.id ? updated : row))
@@ -331,6 +340,7 @@ export default function Allocation() {
         estimatedCompletionDateTime: updated.estimatedCompletionDateTime || '',
         norTenderedDateTime: updated.norTenderedDateTime || '',
         norAcceptedDateTime: updated.norAcceptedDateTime || '',
+        demurrageLiabilityFromDateTime: updated.demurrageLiabilityFromDateTime || '',
         remark: updated.remark ?? updated.remarks ?? '',
       })
     } catch (e) {
@@ -456,6 +466,8 @@ export default function Allocation() {
         estimatedCompletionDateTime: berthingEstimatedCompletion || '',
         norTenderedDateTime: toDateTimeLocalValue(berthingConfirmRow.norTenderedDateTime) || '',
         norAcceptedDateTime: toDateTimeLocalValue(berthingConfirmRow.norAcceptedDateTime) || '',
+        demurrageLiabilityFromDateTime:
+          toDateTimeLocalValue(berthingConfirmRow.demurrageLiabilityFromDateTime) || '',
         remark: (berthingRemarks || '').trim(),
       })
     } catch (e) {
@@ -1347,6 +1359,23 @@ export default function Allocation() {
                   />
                   <p className="loading-tab-hint" style={{ marginTop: 'var(--spacing-1)', marginBottom: 0 }}>
                     Starts counting Demurrage SLA.
+                  </p>
+                </div>
+                <div className="berthing-modal__field">
+                  <label htmlFor="arrival-demurrage-liability" className="berthing-modal__label">
+                    Demurrage liability from
+                  </label>
+                  <input
+                    id="arrival-demurrage-liability"
+                    type="datetime-local"
+                    className="berthing-modal__input"
+                    value={arrivalUpdateForm.demurrageLiabilityFromDateTime || ''}
+                    onChange={(e) =>
+                      setArrivalUpdateForm((f) => ({ ...f, demurrageLiabilityFromDateTime: e.target.value }))
+                    }
+                  />
+                  <p className="loading-tab-hint" style={{ marginTop: 'var(--spacing-1)', marginBottom: 0 }}>
+                    Agreed time demurrage liability applies (often matches NOR accepted).
                   </p>
                 </div>
               </section>

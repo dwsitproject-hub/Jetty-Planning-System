@@ -21,7 +21,16 @@ const SI_COMMODITY = `COALESCE(
 )`;
 
 const OP_SELECT = `o.*, si.vessel_name, si.reference_number, ${SI_COMMODITY} AS commodity,
-            j.name AS jetty_name, p.name AS port_name`;
+            j.name AS jetty_name, p.id AS port_id, p.name AS port_name`;
+
+function canAccessOperationForSelectedPort(opRow, selectedPortId) {
+  const selected = Number(selectedPortId);
+  const opPort = opRow?.port_id != null ? Number(opRow.port_id) : null;
+  if (!Number.isFinite(selected)) return false;
+  // Legacy rows may have null jetty/port before allocation; allow access.
+  if (opPort == null) return true;
+  return opPort === selected;
+}
 
 async function loadOperationJoined(id) {
   const r = await pool.query(
@@ -78,6 +87,7 @@ async function checkSignoffEligible(operationId, op) {
 }
 
 router.get('/at-berth', async (req, res) => {
+  const selectedPortId = Number(req.selectedPortId);
   const result = await pool.query(
     `SELECT ${OP_SELECT}
      FROM operations o
@@ -85,6 +95,7 @@ router.get('/at-berth', async (req, res) => {
      LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
      LEFT JOIN ports p ON j.port_id = p.id AND p.deleted_at IS NULL
      WHERE o.deleted_at IS NULL
+       AND p.id = $2
        AND o.status <> 'SAILED'
        AND (
          o.status = ANY($1)
@@ -92,7 +103,7 @@ router.get('/at-berth', async (req, res) => {
          OR o.docking_start_time IS NOT NULL
        )
      ORDER BY o.docking_start_time ASC NULLS LAST`,
-    [AT_BERTH_STATUSES]
+    [AT_BERTH_STATUSES, selectedPortId]
   );
   res.json(result.rows.map(toOp));
 });
@@ -145,6 +156,7 @@ router.post('/:id/materials', async (req, res) => {
 
 router.get('/', async (req, res) => {
   const { port_id, jetty_id, status, purpose } = req.query;
+  const selectedPortId = Number(req.selectedPortId);
   let query = `
     SELECT ${OP_SELECT}
     FROM operations o
@@ -154,10 +166,10 @@ router.get('/', async (req, res) => {
     WHERE o.deleted_at IS NULL`;
   const params = [];
   let i = 1;
-  if (port_id) {
-    query += ` AND p.id = $${i++}`;
-    params.push(parseInt(port_id, 10));
-  }
+  const requestedPort = port_id ? parseInt(port_id, 10) : null;
+  const effectivePort = Number.isFinite(requestedPort) ? requestedPort : selectedPortId;
+  query += ` AND p.id = $${i++}`;
+  params.push(effectivePort);
   if (jetty_id) {
     query += ` AND o.jetty_id = $${i++}`;
     params.push(parseInt(jetty_id, 10));
@@ -180,10 +192,14 @@ router.get('/:id', async (req, res) => {
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const row = await loadOperationJoined(id);
   if (!row) return res.status(404).json({ error: 'Operation not found' });
+  if (!canAccessOperationForSelectedPort(row, req.selectedPortId)) {
+    return res.status(404).json({ error: 'Operation not found' });
+  }
   res.json(toOp(row));
 });
 
 router.post('/', async (req, res) => {
+  const selectedPortId = Number(req.selectedPortId);
   const { shipping_instruction_id, jetty_id } = req.body || {};
   if (shipping_instruction_id == null) {
     return res.status(400).json({ error: 'shipping_instruction_id is required' });
@@ -202,11 +218,11 @@ router.post('/', async (req, res) => {
   }
   if (jId != null) {
     const jettyOk = await pool.query(
-      'SELECT 1 FROM jetties WHERE id = $1 AND deleted_at IS NULL',
-      [jId]
+      'SELECT 1 FROM jetties WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL',
+      [jId, selectedPortId]
     );
     if (jettyOk.rows.length === 0) {
-      return res.status(404).json({ error: 'Jetty not found' });
+      return res.status(404).json({ error: 'Jetty not found for selected port' });
     }
   }
   const purpose = siRes.rows[0].purpose;
@@ -241,6 +257,9 @@ router.put('/:id', async (req, res) => {
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const before = await loadOperationJoined(id);
   if (!before) return res.status(404).json({ error: 'Operation not found' });
+  if (!canAccessOperationForSelectedPort(before, req.selectedPortId)) {
+    return res.status(404).json({ error: 'Operation not found' });
+  }
   const { status, completion_percent } = req.body || {};
   const updates = [];
   const values = [];
@@ -291,6 +310,9 @@ router.post('/:id/start-docking', async (req, res) => {
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const before = await loadOperationJoined(id);
   if (!before) return res.status(404).json({ error: 'Operation not found' });
+  if (!canAccessOperationForSelectedPort(before, req.selectedPortId)) {
+    return res.status(404).json({ error: 'Operation not found' });
+  }
   const { docking_start_time } = req.body || {};
   const startTime = docking_start_time ? new Date(docking_start_time) : new Date();
   let slaHours;
@@ -329,10 +351,17 @@ router.post('/:id/recalculate-sla', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const opRes = await pool.query(
-    'SELECT docking_start_time, estimated_completion_time FROM operations WHERE id = $1 AND deleted_at IS NULL',
+    `SELECT o.docking_start_time, o.estimated_completion_time, p.id AS port_id
+     FROM operations o
+     LEFT JOIN jetties j ON j.id = o.jetty_id AND j.deleted_at IS NULL
+     LEFT JOIN ports p ON p.id = j.port_id AND p.deleted_at IS NULL
+     WHERE o.id = $1 AND o.deleted_at IS NULL`,
     [id]
   );
   if (opRes.rows.length === 0) return res.status(404).json({ error: 'Operation not found' });
+  if (!canAccessOperationForSelectedPort(opRes.rows[0], req.selectedPortId)) {
+    return res.status(404).json({ error: 'Operation not found' });
+  }
   const dockingStart = opRes.rows[0].docking_start_time;
   if (!dockingStart) {
     return res.status(400).json({ error: 'Operation has no docking_start_time; call start-docking first' });
@@ -367,16 +396,70 @@ router.post('/:id/recalculate-sla', async (req, res) => {
   res.json(toOp(slaRow));
 });
 
+/**
+ * Save estimated completion time (manual estimation) for an operation.
+ * Used by Demurrage Risk Calculator page.
+ */
+router.put('/:id/estimated-completion', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  const before = await loadOperationJoined(id);
+  if (!before) return res.status(404).json({ error: 'Operation not found' });
+  if (!canAccessOperationForSelectedPort(before, req.selectedPortId)) {
+    return res.status(404).json({ error: 'Operation not found' });
+  }
+
+  const { estimated_completion_time, meta } = req.body || {};
+  if (!estimated_completion_time) {
+    return res.status(400).json({ error: 'estimated_completion_time is required' });
+  }
+  const dt = new Date(estimated_completion_time);
+  if (Number.isNaN(dt.getTime())) {
+    return res.status(400).json({ error: 'estimated_completion_time must be a valid datetime' });
+  }
+
+  const result = await pool.query(
+    `UPDATE operations
+     SET estimated_completion_time = $1, updated_at = NOW()
+     WHERE id = $2 AND deleted_at IS NULL`,
+    [dt, id],
+  );
+  if (result.rowCount === 0) return res.status(404).json({ error: 'Operation not found' });
+
+  const row = await loadOperationJoined(id);
+  writeActivityLog({
+    pageKey: 'demurrage-risk-calculator',
+    action: 'update',
+    entityType: 'Operation',
+    entityId: String(id),
+    entityLabel: row?.vessel_name || `Operation #${id}`,
+    summary: 'Saved estimation of completion time',
+    changes: [
+      { field: 'Estimated Completion', from: before?.estimated_completion_time ?? null, to: row?.estimated_completion_time ?? null },
+    ].filter((c) => c.from !== c.to),
+    meta: { operationId: id, ...(meta && typeof meta === 'object' ? meta : {}) },
+    actorUserId: req.userId ?? null,
+  }).catch(() => {});
+
+  res.json(toOp(row));
+});
+
 router.post('/:id/request-exception', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const op = await pool.query(
-    `SELECT id, status, completion_percent, exception_status, exception_justification, exception_document_url
-     FROM operations WHERE id = $1 AND deleted_at IS NULL`,
+    `SELECT o.id, o.status, o.completion_percent, o.exception_status, o.exception_justification, o.exception_document_url, p.id AS port_id
+     FROM operations o
+     LEFT JOIN jetties j ON j.id = o.jetty_id AND j.deleted_at IS NULL
+     LEFT JOIN ports p ON p.id = j.port_id AND p.deleted_at IS NULL
+     WHERE o.id = $1 AND o.deleted_at IS NULL`,
     [id]
   );
   if (op.rows.length === 0) return res.status(404).json({ error: 'Operation not found' });
   const row = op.rows[0];
+  if (!canAccessOperationForSelectedPort(row, req.selectedPortId)) {
+    return res.status(404).json({ error: 'Operation not found' });
+  }
   if (row.status === 'SAILED') return res.status(400).json({ error: 'Operation has already sailed' });
   if (row.status === 'COMPLETED') return res.status(400).json({ error: 'Operation is already completed; signoff done' });
   if (row.exception_status === 'PENDING') {
@@ -428,11 +511,17 @@ router.post('/:id/approve-exception', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const op = await pool.query(
-    `SELECT id, exception_status, exception_approver_user_id
-     FROM operations WHERE id = $1 AND deleted_at IS NULL`,
+    `SELECT o.id, o.exception_status, o.exception_approver_user_id, p.id AS port_id
+     FROM operations o
+     LEFT JOIN jetties j ON j.id = o.jetty_id AND j.deleted_at IS NULL
+     LEFT JOIN ports p ON p.id = j.port_id AND p.deleted_at IS NULL
+     WHERE o.id = $1 AND o.deleted_at IS NULL`,
     [id]
   );
   if (op.rows.length === 0) return res.status(404).json({ error: 'Operation not found' });
+  if (!canAccessOperationForSelectedPort(op.rows[0], req.selectedPortId)) {
+    return res.status(404).json({ error: 'Operation not found' });
+  }
   if (op.rows[0].exception_status !== 'PENDING') {
     return res.status(400).json({ error: 'No pending exception to approve' });
   }
@@ -476,11 +565,17 @@ router.post('/:id/reject-exception', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const op = await pool.query(
-    `SELECT id, exception_status, exception_approver_user_id
-     FROM operations WHERE id = $1 AND deleted_at IS NULL`,
+    `SELECT o.id, o.exception_status, o.exception_approver_user_id, p.id AS port_id
+     FROM operations o
+     LEFT JOIN jetties j ON j.id = o.jetty_id AND j.deleted_at IS NULL
+     LEFT JOIN ports p ON p.id = j.port_id AND p.deleted_at IS NULL
+     WHERE o.id = $1 AND o.deleted_at IS NULL`,
     [id]
   );
   if (op.rows.length === 0) return res.status(404).json({ error: 'Operation not found' });
+  if (!canAccessOperationForSelectedPort(op.rows[0], req.selectedPortId)) {
+    return res.status(404).json({ error: 'Operation not found' });
+  }
   if (op.rows[0].exception_status !== 'PENDING') {
     return res.status(400).json({ error: 'No pending exception to reject' });
   }
@@ -525,6 +620,9 @@ router.post('/:id/signoff', async (req, res) => {
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const opRow = await loadOperationJoined(id);
   if (!opRow) return res.status(404).json({ error: 'Operation not found' });
+  if (!canAccessOperationForSelectedPort(opRow, req.selectedPortId)) {
+    return res.status(404).json({ error: 'Operation not found' });
+  }
   if (opRow.status === 'SAILED') return res.status(400).json({ error: 'Operation has already sailed' });
   if (opRow.status === 'COMPLETED') {
     return res.json(toOp(opRow));
@@ -561,26 +659,28 @@ router.post('/:id/signoff', async (req, res) => {
   res.json(toOp(signedRow));
 });
 
-/** Record hose/cast off and mark vessel SAILED (after signoff / COMPLETED). */
+/** Record cast-off and mark vessel SAILED (after signoff / COMPLETED). */
 router.post('/:id/depart', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const opRow = await loadOperationJoined(id);
   if (!opRow) return res.status(404).json({ error: 'Operation not found' });
+  if (!canAccessOperationForSelectedPort(opRow, req.selectedPortId)) {
+    return res.status(404).json({ error: 'Operation not found' });
+  }
   if (opRow.status === 'SAILED') {
     return res.json(toOp(opRow));
   }
   if (opRow.status !== 'COMPLETED') {
     return res.status(400).json({ error: 'Operation must be COMPLETED (signoff) before depart' });
   }
-  const { hose_off_at, cast_off_at, clearance_document_url, vessel_photo_url } = req.body || {};
-  if (!hose_off_at || !cast_off_at) {
-    return res.status(400).json({ error: 'hose_off_at and cast_off_at are required (ISO date strings)' });
+  const { cast_off_at, clearance_document_url, vessel_photo_url } = req.body || {};
+  if (!cast_off_at) {
+    return res.status(400).json({ error: 'cast_off_at is required (ISO date string)' });
   }
-  const hose = new Date(hose_off_at);
   const cast = new Date(cast_off_at);
-  if (Number.isNaN(hose.getTime()) || Number.isNaN(cast.getTime())) {
-    return res.status(400).json({ error: 'Invalid hose_off_at or cast_off_at' });
+  if (Number.isNaN(cast.getTime())) {
+    return res.status(400).json({ error: 'Invalid cast_off_at' });
   }
   const clearanceUrl =
     clearance_document_url && typeof clearance_document_url === 'string'
@@ -591,14 +691,13 @@ router.post('/:id/depart', async (req, res) => {
   await pool.query(
     `UPDATE operations SET
        status = 'SAILED',
-       hose_off_at = $1,
-       cast_off_at = $2,
-       clearance_document_url = $3,
-       vessel_photo_url = $4,
+       cast_off_at = $1,
+       clearance_document_url = $2,
+       vessel_photo_url = $3,
        sailed_at = NOW(),
        updated_at = NOW()
-     WHERE id = $5 AND deleted_at IS NULL`,
-    [hose, cast, clearanceUrl, photoUrl, id]
+     WHERE id = $4 AND deleted_at IS NULL`,
+    [cast, clearanceUrl, photoUrl, id]
   );
   const sailRow = await loadOperationJoined(id);
   writeActivityLog({
@@ -610,7 +709,6 @@ router.post('/:id/depart', async (req, res) => {
     summary: 'Recorded vessel departure (SAILED)',
     changes: [
       { field: 'Status', from: opRow?.status ?? null, to: 'SAILED' },
-      { field: 'Hose Off', from: opRow?.hose_off_at ?? null, to: sailRow?.hose_off_at ?? null },
       { field: 'Cast Off', from: opRow?.cast_off_at ?? null, to: sailRow?.cast_off_at ?? null },
     ],
     meta: { operationId: id },
@@ -625,6 +723,10 @@ router.delete('/:id/materials/:materialId', async (req, res) => {
   if (Number.isNaN(opId) || Number.isNaN(materialId)) {
     return res.status(400).json({ error: 'Invalid id' });
   }
+  const opRow = await loadOperationJoined(opId);
+  if (!opRow || !canAccessOperationForSelectedPort(opRow, req.selectedPortId)) {
+    return res.status(404).json({ error: 'Operation not found' });
+  }
   const result = await pool.query(
     `UPDATE operation_materials SET deleted_at = NOW(), updated_at = NOW()
      WHERE id = $1 AND operation_id = $2 AND deleted_at IS NULL RETURNING id`,
@@ -638,6 +740,10 @@ router.delete('/:id/materials/:materialId', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  const opRow = await loadOperationJoined(id);
+  if (!opRow || !canAccessOperationForSelectedPort(opRow, req.selectedPortId)) {
+    return res.status(404).json({ error: 'Operation not found' });
+  }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -692,14 +798,21 @@ function toOp(row) {
     referenceNumber: row.reference_number ?? undefined,
     commodity: row.commodity ?? undefined,
     jettyName: row.jetty_name ?? undefined,
+    portId: row.port_id ?? null,
     portName: row.port_name ?? undefined,
+    eta: row.eta ?? null,
+    ta: row.ta ?? null,
+    etb: row.etb ?? null,
+    pob: row.pob ?? null,
+    sob: row.sob ?? null,
     dockingStartTime: row.docking_start_time ?? null,
     estimatedCompletionTime: row.estimated_completion_time ?? null,
     actualCompletionTime: row.actual_completion_time ?? null,
     norTenderedAt: row.nor_tendered_at ?? null,
     norAcceptedAt: row.nor_accepted_at ?? null,
+    tbAt: row.tb ?? null,
+    demurrageLiabilityFromAt: row.demurrage_liability_from_at ?? null,
     completionPercent: row.completion_percent ?? 0,
-    hoseOffAt: row.hose_off_at ?? null,
     castOffAt: row.cast_off_at ?? null,
     clearanceDocumentUrl: row.clearance_document_url ?? null,
     vesselPhotoUrl: row.vessel_photo_url ?? null,

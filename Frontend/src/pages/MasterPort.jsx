@@ -182,9 +182,11 @@ export default function MasterPort() {
                         : '—'}
                     </td>
                     <td className="allocation-table__action-col">
-                      <button type="button" className="btn btn--small btn--secondary" onClick={() => openEdit(p)}>
-                        Edit
-                      </button>
+                      <div className="allocation-table__action-btns">
+                        <button type="button" className="btn btn--small btn--secondary" onClick={() => openEdit(p)}>
+                          Edit
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

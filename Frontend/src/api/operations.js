@@ -18,6 +18,13 @@ export function fetchOperation(id) {
   return apiGet(`/operations/${id}`)
 }
 
+export function saveEstimatedCompletion(operationId, estimatedCompletionTime, meta) {
+  return apiPut(`/operations/${operationId}/estimated-completion`, {
+    estimated_completion_time: estimatedCompletionTime,
+    meta: meta ?? null,
+  })
+}
+
 export function createOperation(shippingInstructionId, jettyId) {
   return apiPost('/operations', {
     shipping_instruction_id: shippingInstructionId,
@@ -123,13 +130,24 @@ export function signoff(operationId) {
   return apiPost(`/operations/${operationId}/signoff`, {})
 }
 
-export function depart(operationId, hoseOffAt, castOffAt, clearanceUrl, photoUrl) {
+export function depart(operationId, castOffAt, clearanceUrl, photoUrl) {
   return apiPost(`/operations/${operationId}/depart`, {
-    hose_off_at: hoseOffAt,
     cast_off_at: castOffAt,
     clearance_document_url: clearanceUrl,
     vessel_photo_url: photoUrl,
   })
+}
+
+export async function uploadOperationDocuments(operationId, kind, files) {
+  const form = new FormData()
+  for (const f of Array.from(files || [])) {
+    form.append('files', f)
+  }
+  return apiPostForm(
+    `/operation-documents/operations/${encodeURIComponent(String(operationId))}/${encodeURIComponent(String(kind))}`,
+    form,
+    60000
+  )
 }
 
 export function deleteOperation(id) {
@@ -191,10 +209,14 @@ export function fetchNorDetails(operationId) {
 }
 
 export function updateNorDetails(operationId, body) {
-  return apiPut(`/operations/${operationId}/nor-details`, {
+  const req = {
     remark: body?.remark ?? '',
     payload: body?.payload ?? null,
-  })
+  }
+  if (body && Object.prototype.hasOwnProperty.call(body, 'demurrageLiabilityFromAt')) {
+    req.demurrageLiabilityFromAt = body.demurrageLiabilityFromAt
+  }
+  return apiPut(`/operations/${operationId}/nor-details`, req)
 }
 
 /** Operational milestone activities + N/A (merged entry_type). */

@@ -12,6 +12,8 @@ const HEADER_FIELDS = [
   { key: 'consignee', label: 'Consignee' },
   { key: 'surveyor', label: 'Surveyor' },
   { key: 'agent', label: 'Agent' },
+  { key: 'demurrageLiabilityFrom', label: 'Demurrage liability from' },
+  { key: 'operationStatus', label: 'Operation status' },
 ]
 
 function formatDateTimeForExcel(value) {
@@ -21,9 +23,15 @@ function formatDateTimeForExcel(value) {
   return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
 }
 
+function headerCellValue(key, header) {
+  const raw = header[key]
+  if (key === 'demurrageLiabilityFrom') return formatDateTimeForExcel(raw)
+  return raw ?? '—'
+}
+
 /**
  * Build an ExcelJS workbook for the Daily Activities Report.
- * One sheet, one block per vessel: Header table, Timelog table, Progress.
+ * One sheet, stacked blocks per operation: Header table, Timelog table.
  */
 export function buildDailyActivitiesReportWorkbook(reportVessels, startDate, endDate) {
   const workbook = new ExcelJS.Workbook()
@@ -43,8 +51,8 @@ export function buildDailyActivitiesReportWorkbook(reportVessels, startDate, end
   }
   row += 1
 
-  for (const { vesselName, header, timelog, progress } of reportVessels) {
-    sheet.getCell(row, 1).value = `Vessel: ${vesselName}`
+  for (const { vesselName, header, timelog } of reportVessels) {
+    sheet.getCell(row, 1).value = `Operation: ${vesselName}`
     sheet.getCell(row, 1).font = { bold: true }
     row += 1
 
@@ -53,7 +61,7 @@ export function buildDailyActivitiesReportWorkbook(reportVessels, startDate, end
     row += 1
     HEADER_FIELDS.forEach(({ key, label }) => {
       sheet.getCell(row, 1).value = label
-      sheet.getCell(row, 2).value = header[key] ?? '—'
+      sheet.getCell(row, 2).value = headerCellValue(key, header)
       row += 1
     })
     row += 1
@@ -63,8 +71,9 @@ export function buildDailyActivitiesReportWorkbook(reportVessels, startDate, end
     row += 1
     sheet.getCell(row, 1).value = 'Activity Category'
     sheet.getCell(row, 2).value = 'Remark'
-    sheet.getCell(row, 3).value = 'Date time'
-    sheet.getCell(row, 4).value = 'End Date time'
+    sheet.getCell(row, 3).value = 'Status'
+    sheet.getCell(row, 4).value = 'Date time'
+    sheet.getCell(row, 5).value = 'End Date time'
     sheet.getRow(row).font = { bold: true }
     row += 1
     if (timelog.length === 0) {
@@ -74,39 +83,27 @@ export function buildDailyActivitiesReportWorkbook(reportVessels, startDate, end
       timelog.forEach((entry) => {
         sheet.getCell(row, 1).value = entry.category || '—'
         sheet.getCell(row, 2).value = entry.remark || '—'
-        sheet.getCell(row, 3).value = formatDateTimeForExcel(entry.dateTime)
-        sheet.getCell(row, 4).value = formatDateTimeForExcel(entry.endDateTime)
+        sheet.getCell(row, 3).value = entry.status || '—'
+        sheet.getCell(row, 4).value = formatDateTimeForExcel(entry.dateTime)
+        sheet.getCell(row, 5).value = formatDateTimeForExcel(entry.endDateTime)
         row += 1
       })
     }
     row += 1
-
-    sheet.getCell(row, 1).value = 'Progress Loading / Unloading'
-    sheet.getCell(row, 1).font = { bold: true }
-    row += 1
-    sheet.getCell(row, 1).value = 'QTY LOAD / DISCHARGE'
-    sheet.getCell(row, 2).value = progress.qtyLoadDischarge ?? '—'
-    row += 1
-    sheet.getCell(row, 1).value = 'RATE'
-    sheet.getCell(row, 2).value = progress.rate ?? '—'
-    row += 1
-    sheet.getCell(row, 1).value = 'BALANCE'
-    sheet.getCell(row, 2).value = progress.balance ?? '—'
-    row += 1
-    row += 1
   }
 
   sheet.getColumn(1).width = 28
-  sheet.getColumn(2).width = 24
-  sheet.getColumn(3).width = 20
+  sheet.getColumn(2).width = 28
+  sheet.getColumn(3).width = 14
   sheet.getColumn(4).width = 20
+  sheet.getColumn(5).width = 20
 
   return workbook
 }
 
 /**
  * Generate and download the Daily Activities Report as .xlsx.
- * @param {Array} reportVessels - from buildDailyActivitiesReport().vessels
+ * @param {Array} reportVessels - blocks from buildSingleOperationReportBlock (header + timelog)
  * @param {string} startDate - e.g. '2026-03-01'
  * @param {string} endDate - e.g. '2026-03-07'
  */

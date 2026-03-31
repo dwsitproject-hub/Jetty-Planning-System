@@ -48,6 +48,7 @@ const SI_FROM = `
   LEFT JOIN si_trade_terms tt ON si.trade_term_id = tt.id AND tt.deleted_at IS NULL
   LEFT JOIN si_purposes sp ON si.purpose_id = sp.id AND sp.deleted_at IS NULL
   LEFT JOIN jetties j ON si.preferred_jetty_id = j.id AND j.deleted_at IS NULL
+  LEFT JOIN ports p ON p.id = j.port_id AND p.deleted_at IS NULL
   LEFT JOIN si_shippers sh ON si.shipper_id = sh.id AND sh.deleted_at IS NULL
   LEFT JOIN si_loading_ports lp ON si.loading_port_id = lp.id AND lp.deleted_at IS NULL
   LEFT JOIN si_surveyors sv ON si.surveyor_id = sv.id AND sv.deleted_at IS NULL
@@ -69,6 +70,7 @@ const SI_SELECT = `
     tt.code AS trade_term_code,
     sp.code AS purpose_code,
     j.name AS preferred_jetty_name,
+    p.id AS preferred_port_id,
     sh.name AS shipper_name,
     lp.name AS loading_port_name,
     sv.name AS surveyor_name,
@@ -227,10 +229,13 @@ function diffFields(before, after) {
 }
 
 router.get('/', async (req, res) => {
+  const selectedPortId = Number(req.selectedPortId);
   const { purpose, status } = req.query;
   let query = `${SI_SELECT} WHERE si.deleted_at IS NULL`;
   const params = [];
   let i = 1;
+  query += ` AND (si.preferred_jetty_id IS NULL OR p.id = $${i++})`;
+  params.push(selectedPortId);
   if (purpose) {
     query += ` AND si.purpose = $${i++}`;
     params.push(purpose);
@@ -244,17 +249,112 @@ router.get('/', async (req, res) => {
   res.json(result.rows.map(toSIList));
 });
 
+/**
+ * Candidates list for Demurrage Risk Calculator.
+ * Returns SIs within a date range (ETA overlap), plus linked operation (if any).
+ *
+ * Query:
+ * - from: ISO date or datetime (inclusive)
+ * - to: ISO date or datetime (inclusive)
+ * - include_open: '1'|'0' (default 1)  -> rows where operation_id is null
+ * - include_with_operation: '1'|'0' (default 1) -> rows where operation_id not null
+ */
+router.get('/candidates', async (req, res) => {
+  const selectedPortId = Number(req.selectedPortId);
+  const {
+    from,
+    to,
+    include_open = '1',
+    include_with_operation = '1',
+  } = req.query || {};
+
+  const fromDt = from ? new Date(String(from)) : null;
+  const toDt = to ? new Date(String(to)) : null;
+  if (fromDt && Number.isNaN(fromDt.getTime())) return res.status(400).json({ error: 'Invalid from' });
+  if (toDt && Number.isNaN(toDt.getTime())) return res.status(400).json({ error: 'Invalid to' });
+
+  const incOpen = String(include_open) !== '0';
+  const incWithOp = String(include_with_operation) !== '0';
+  if (!incOpen && !incWithOp) return res.json([]);
+
+  let query = `
+    SELECT
+      si.id,
+      si.reference_number,
+      si.vessel_name,
+      si.purpose,
+      si.status AS si_status,
+      si.eta_from,
+      si.eta_to,
+      ${COMMODITY_DISPLAY} AS commodity_display,
+      o.id AS operation_id,
+      o.status AS operation_status,
+      o.docking_start_time,
+      o.estimated_completion_time,
+      si.created_at
+    FROM shipping_instructions si
+    LEFT JOIN jetties j ON si.preferred_jetty_id = j.id AND j.deleted_at IS NULL
+    LEFT JOIN ports p ON p.id = j.port_id AND p.deleted_at IS NULL
+    LEFT JOIN operations o ON o.shipping_instruction_id = si.id AND o.deleted_at IS NULL AND o.status <> 'SAILED'
+    WHERE si.deleted_at IS NULL
+      AND (si.preferred_jetty_id IS NULL OR p.id = $1)
+  `;
+  const params = [selectedPortId];
+  let i = 2;
+
+  // ETA overlap filter: [eta_from, eta_to] overlaps [from, to]
+  if (fromDt) {
+    query += ` AND (si.eta_to IS NULL OR si.eta_to >= $${i++})`;
+    params.push(fromDt);
+  }
+  if (toDt) {
+    query += ` AND (si.eta_from IS NULL OR si.eta_from <= $${i++})`;
+    params.push(toDt);
+  }
+
+  if (!incOpen) query += ` AND o.id IS NOT NULL`;
+  if (!incWithOp) query += ` AND o.id IS NULL`;
+
+  query += ` ORDER BY COALESCE(si.eta_from, si.created_at) DESC, si.id DESC LIMIT 300`;
+  const result = await pool.query(query, params);
+  res.json(
+    result.rows.map((r) => ({
+      siId: r.id,
+      referenceNumber: r.reference_number,
+      vesselName: r.vessel_name,
+      purpose: r.purpose,
+      siStatus: r.si_status,
+      etaFrom: r.eta_from ?? null,
+      etaTo: r.eta_to ?? null,
+      commodity: r.commodity_display ?? r.commodity ?? null,
+      operation: r.operation_id
+        ? {
+            id: r.operation_id,
+            status: r.operation_status ?? null,
+            dockingStartTime: r.docking_start_time ?? null,
+            estimatedCompletionTime: r.estimated_completion_time ?? null,
+          }
+        : null,
+    }))
+  );
+});
+
 router.get('/:id', async (req, res) => {
+  const selectedPortId = Number(req.selectedPortId);
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const result = await pool.query(`${SI_SELECT} WHERE si.id = $1 AND si.deleted_at IS NULL`, [id]);
   if (result.rows.length === 0) return res.status(404).json({ error: 'Shipping instruction not found' });
   const row = result.rows[0];
+  if (row.preferred_port_id != null && Number(row.preferred_port_id) !== selectedPortId) {
+    return res.status(404).json({ error: 'Shipping instruction not found' });
+  }
   const breakdown = await loadBreakdown(id);
   res.json({ ...toSIList(row), breakdown });
 });
 
 router.post('/', requireAuth, async (req, res) => {
+  const selectedPortId = Number(req.selectedPortId);
   const b = req.body || {};
   const {
     reference_number,
@@ -330,6 +430,16 @@ router.post('/', requireAuth, async (req, res) => {
     agent_id,
   });
   if (fkErr) return res.status(400).json(fkErr);
+  if (preferred_jetty_id != null && preferred_jetty_id !== '') {
+    const preferredJettyId = parseInt(preferred_jetty_id, 10);
+    const portMatch = await pool.query(
+      `SELECT 1 FROM jetties WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
+      [preferredJettyId, selectedPortId]
+    );
+    if (portMatch.rows.length === 0) {
+      return res.status(400).json({ error: 'preferred_jetty_id is not in selected port' });
+    }
+  }
 
   let statusVal = status && ['Draft', 'Submitted', 'Approved'].includes(status) ? status : 'Draft';
   if (statusVal === 'Approved') {
@@ -405,6 +515,7 @@ router.post('/', requireAuth, async (req, res) => {
 });
 
 router.put('/:id', requireAuth, async (req, res) => {
+  const selectedPortId = Number(req.selectedPortId);
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const b = req.body || {};
@@ -446,6 +557,9 @@ router.put('/:id', requireAuth, async (req, res) => {
   const cur = await pool.query(`${SI_SELECT} WHERE si.id = $1 AND si.deleted_at IS NULL`, [id]);
   if (cur.rows.length === 0) return res.status(404).json({ error: 'Shipping instruction not found' });
   const beforeRow = cur.rows[0];
+  if (beforeRow.preferred_port_id != null && Number(beforeRow.preferred_port_id) !== selectedPortId) {
+    return res.status(404).json({ error: 'Shipping instruction not found' });
+  }
   const beforeBd = await loadBreakdown(id);
 
   let purposeVal = purpose ?? beforeRow.purpose;
@@ -479,6 +593,21 @@ router.put('/:id', requireAuth, async (req, res) => {
     agent_id,
   });
   if (fkErr) return res.status(400).json(fkErr);
+  const preferredJettyIdForScope =
+    preferred_jetty_id != null && preferred_jetty_id !== ''
+      ? parseInt(preferred_jetty_id, 10)
+      : beforeRow.preferred_jetty_id != null
+        ? parseInt(beforeRow.preferred_jetty_id, 10)
+        : null;
+  if (preferredJettyIdForScope != null && Number.isFinite(preferredJettyIdForScope)) {
+    const portMatch = await pool.query(
+      `SELECT 1 FROM jetties WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
+      [preferredJettyIdForScope, selectedPortId]
+    );
+    if (portMatch.rows.length === 0) {
+      return res.status(400).json({ error: 'preferred_jetty_id is not in selected port' });
+    }
+  }
 
   if (breakdown !== undefined) {
     const bdErr = validateBreakdownPayload(breakdown);
@@ -568,6 +697,12 @@ router.put('/:id', requireAuth, async (req, res) => {
           ? String(eta_from).slice(0, 10)
           : null
       : beforeRow.eta_to;
+  const nextDocDate =
+    document_date !== undefined
+      ? document_date
+        ? String(document_date).slice(0, 10)
+        : null
+      : beforeRow.document_date;
 
   const client = await pool.connect();
   try {

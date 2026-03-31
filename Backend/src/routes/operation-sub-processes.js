@@ -541,9 +541,18 @@ router.put('/operations/:operationId/nor-details', async (req, res) => {
     return typeof raw === 'object' ? raw : {};
   }
 
+  const demurrageProvided = Object.prototype.hasOwnProperty.call(body, 'demurrageLiabilityFromAt');
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const opDemRes = await client.query(
+      `SELECT demurrage_liability_from_at FROM operations WHERE id = $1 AND deleted_at IS NULL`,
+      [operationId]
+    );
+    const beforeDemurrage = opDemRes.rows[0]?.demurrage_liability_from_at ?? null;
+    let afterDemurrage = beforeDemurrage;
+
     const ex = await client.query(
       `SELECT id, remark, payload_json
        FROM operation_nor_details
@@ -594,6 +603,26 @@ router.put('/operations/:operationId/nor-details', async (req, res) => {
       );
       id = ins.rows[0].id;
     }
+
+    if (demurrageProvided) {
+      const raw = body.demurrageLiabilityFromAt;
+      let nextVal = null;
+      if (raw != null && raw !== '') {
+        const parsed = parseTs(raw);
+        if (parsed === undefined) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'Invalid demurrageLiabilityFromAt' });
+        }
+        nextVal = parsed;
+      }
+      afterDemurrage = nextVal;
+      await client.query(
+        `UPDATE operations SET demurrage_liability_from_at = $1, updated_at = NOW()
+         WHERE id = $2 AND deleted_at IS NULL`,
+        [nextVal, operationId]
+      );
+    }
+
     await client.query('COMMIT');
     const out = await pool.query(
       `SELECT id, operation_id, remark, payload_json, created_at, updated_at
@@ -619,6 +648,15 @@ router.put('/operations/:operationId/nor-details', async (req, res) => {
         from: normalizeForChange(beforePayload?.updatedVia ?? null),
         to: normalizeForChange(afterPayload?.updatedVia ?? null),
       },
+      ...(demurrageProvided
+        ? [
+            {
+              field: 'Demurrage liability from',
+              from: normalizeForChange(beforeDemurrage),
+              to: normalizeForChange(afterDemurrage),
+            },
+          ]
+        : []),
     ].filter((c) => c.from !== c.to);
     writeActivityLog({
       pageKey: 'loading',

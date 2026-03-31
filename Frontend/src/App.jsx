@@ -5,6 +5,7 @@ import { ClearanceProvider } from './context/ClearanceContext'
 import { ActivityLogProvider } from './context/ActivityLogContext'
 import { RbacProvider } from './context/RbacContext'
 import { AuthProvider } from './context/AuthContext'
+import { PortScopeProvider } from './context/PortScopeContext'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import ShippingInstruction from './pages/ShippingInstruction'
@@ -29,6 +30,7 @@ import Admin from './pages/Admin'
 import AdminUsers from './pages/AdminUsers'
 import AdminRoles from './pages/AdminRoles'
 import E2EConsole from './pages/E2EConsole'
+import DemurrageRiskCalculator from './pages/DemurrageRiskCalculator'
 
 function AppShell() {
   const location = useLocation()
@@ -50,8 +52,9 @@ function App() {
       <ClearanceProvider>
         <ActivityLogProvider>
           <AuthProvider>
-            <RbacProvider>
-              <Routes>
+            <PortScopeProvider>
+              <RbacProvider>
+                <Routes>
                 <Route path="/login" element={<Login />} />
                 <Route element={<AppShell />}>
                   <Route path="/" element={<Dashboard />} />
@@ -73,6 +76,7 @@ function App() {
                   <Route path="/reporting" element={<Reporting />} />
                   <Route path="/reporting/daily-activities" element={<DailyActivitiesReport />} />
                   <Route path="/reporting/vessel" element={<VesselReport />} />
+                  <Route path="/demurrage-risk-calculator" element={<DemurrageRiskCalculator />} />
                   <Route path="/master" element={<Master />} />
                   <Route path="/master/port" element={<MasterPort />} />
                   <Route path="/master/jetty" element={<MasterJetty />} />
@@ -146,6 +150,7 @@ function App() {
                         valueLabel="Commodity"
                         placeholder="e.g. LNG"
                         pageKey="master-si-commodity"
+                        enableStandardRateFields
                       />
                     }
                   />
@@ -155,8 +160,9 @@ function App() {
                   <Route path="/admin/roles" element={<AdminRoles />} />
                   <Route path="/e2e-console" element={<E2EConsole />} />
                 </Route>
-              </Routes>
-            </RbacProvider>
+                </Routes>
+              </RbacProvider>
+            </PortScopeProvider>
           </AuthProvider>
         </ActivityLogProvider>
       </ClearanceProvider>

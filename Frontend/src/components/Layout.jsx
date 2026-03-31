@@ -3,6 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import ActivityLogPanel from './ActivityLogPanel'
 import { useRbac } from '../context/RbacContext'
 import { useAuth } from '../context/AuthContext'
+import { usePortScope } from '../context/PortScopeContext'
 
 const navStructure = [
   { path: '/', label: 'Dashboard', icon: '📊' },
@@ -10,6 +11,7 @@ const navStructure = [
   { path: '/allocation', label: 'Allocation & Berthing', icon: '⚓' },
   { path: '/at-berth', label: 'At-Berth Executions', icon: '🚢' },
   { path: '/verification', label: 'Clearance', icon: '🚀' },
+  { path: '/demurrage-risk-calculator', label: 'Demurrage Risk Calculator', icon: '🧮' },
   { path: '/reporting', label: 'Reporting', icon: '📑' },
   { path: '/master', label: 'Master Menu', icon: '📋' },
   { path: '/admin', label: 'Admin', icon: '⚙️' },
@@ -21,10 +23,16 @@ function isPathActive(path, currentPath) {
   return currentPath === path || currentPath.startsWith(path + '/')
 }
 
+function isPortScopeBypassed(pathname) {
+  if (!pathname) return false
+  return pathname.startsWith('/admin') || pathname.startsWith('/master')
+}
+
 /** Map pathname to Activity Log pageKey; null = do not show panel (e.g. Reporting). */
 function pathToPageKey(pathname) {
   if (!pathname || pathname.startsWith('/reporting')) return null
   if (pathname === '/' || pathname === '') return 'dashboard'
+  if (pathname.startsWith('/demurrage-risk-calculator')) return 'demurrage-risk-calculator'
   if (pathname.startsWith('/master/port')) return 'master-port'
   if (pathname.startsWith('/master/jetty-layout')) return 'master-jetty-layout'
   if (pathname.startsWith('/master/jetty')) return 'master-jetty'
@@ -87,9 +95,24 @@ export default function Layout({ children }) {
   const currentPath = location.pathname
   const { loading: rbacLoading, canView, refresh: refreshRbac } = useRbac()
   const { me, logout } = useAuth()
+  const {
+    loading: portScopeLoading,
+    assignedPorts,
+    selectedPortId,
+    selectedPort,
+    requiresSelection,
+    noPortAssigned,
+    noPortMessage,
+    setSelectedPortId,
+  } = usePortScope()
   const navigate = useNavigate()
 
   const closeSidebar = () => setSidebarOpen(false)
+  const applyPortSelection = (portId) => {
+    setSelectedPortId(portId)
+    // Many pages load data on mount; full reload ensures scope switch is applied consistently.
+    window.location.reload()
+  }
 
   const handleLogout = async () => {
     logout()
@@ -99,6 +122,7 @@ export default function Layout({ children }) {
   }
   const activityLogPageKey = useMemo(() => pathToPageKey(currentPath), [currentPath])
   const currentPageKey = useMemo(() => pathToPageKey(currentPath), [currentPath])
+  const portScopeBypassed = isPortScopeBypassed(currentPath)
 
   const filteredNav = useMemo(() => {
     // While loading permissions, show nothing (avoid flashing unauthorized items).
@@ -127,6 +151,25 @@ export default function Layout({ children }) {
         </button>
         <span className="topbar__logo">Jetty Planning System</span>
         <div className="topbar__actions">
+          {me && !portScopeBypassed && assignedPorts.length > 1 && (
+            <label className="topbar__greeting" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span>Port:</span>
+              <select
+                className="allocation-table__input"
+                style={{ width: 180, padding: '4px 8px' }}
+                value={selectedPortId ?? ''}
+                onChange={(e) => applyPortSelection(e.target.value ? Number(e.target.value) : null)}
+              >
+                <option value="">Select port</option>
+                {assignedPorts.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {me && !portScopeBypassed && assignedPorts.length === 1 && selectedPort && (
+            <span className="topbar__greeting">Port: {selectedPort.name}</span>
+          )}
           <span className="topbar__greeting">
             {me ? `Hi, ${me.displayName || me.username}` : ''}
           </span>
@@ -215,7 +258,41 @@ export default function Layout({ children }) {
         </aside>
 
         <main className="content">
-          {rbacLoading ? (
+          {me && !portScopeBypassed && portScopeLoading ? (
+            <div className="card">
+              <p className="text-steel">Loading assigned ports…</p>
+            </div>
+          ) : me && !portScopeBypassed && noPortAssigned ? (
+            <div className="card" style={{ maxWidth: '40rem' }}>
+              <h2 style={{ marginTop: 0 }}>Access not configured</h2>
+              <p className="text-steel">{noPortMessage}</p>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <button type="button" className="btn btn--secondary" onClick={handleLogout}>Back to Login</button>
+              </div>
+            </div>
+          ) : me && !portScopeBypassed && requiresSelection ? (
+            <div className="card" style={{ maxWidth: '40rem' }}>
+              <h2 style={{ marginTop: 0 }}>Choose Port</h2>
+              <p className="text-steel">You are assigned to multiple ports. Select one to continue.</p>
+              <div className="modal__section" style={{ padding: 0 }}>
+                <label className="modal__label" htmlFor="port-scope-select">Port</label>
+                <select
+                  id="port-scope-select"
+                  className="modal__input"
+                  value={selectedPortId ?? ''}
+                  onChange={(e) => applyPortSelection(e.target.value ? Number(e.target.value) : null)}
+                >
+                  <option value="">Select port</option>
+                  {assignedPorts.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+              <p className="text-steel" style={{ marginTop: '0.5rem' }}>
+                You can switch ports later from the top-right header selector.
+              </p>
+            </div>
+          ) : rbacLoading ? (
             <div className="card">
               <p className="text-steel">Loading permissions…</p>
             </div>

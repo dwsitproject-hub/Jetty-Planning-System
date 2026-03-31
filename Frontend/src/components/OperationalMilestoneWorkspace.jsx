@@ -153,7 +153,7 @@ export default function OperationalMilestoneWorkspace({
     setActiveMilestone(label)
     setFormError('')
     if (searchParams.get('edit') === '1') {
-      setActionToast({ message: `Editing ${label}.`, variant: 'success' })
+      setFormModalOpen(true)
     }
     const next = new URLSearchParams(searchParams)
     next.delete('milestone')
@@ -168,6 +168,7 @@ export default function OperationalMilestoneWorkspace({
   const [startTime, setStartTime] = useState(() => getNowForDateTimeLocal())
   const [endTime, setEndTime] = useState('')
   const [formError, setFormError] = useState('')
+  const [formModalOpen, setFormModalOpen] = useState(false)
 
   const [actionToast, setActionToast] = useState(null)
 
@@ -200,6 +201,11 @@ export default function OperationalMilestoneWorkspace({
   const selectMilestone = (cat) => {
     setActiveMilestone(cat)
     setFormError('')
+  }
+
+  const openFormModal = (cat = activeMilestone) => {
+    selectMilestone(cat)
+    setFormModalOpen(true)
   }
 
   const openNaModal = (cat) => {
@@ -348,7 +354,10 @@ export default function OperationalMilestoneWorkspace({
       })
     }
     if (andAnother) resetComposerAfterAdd(activeMilestone)
-    else syncFormFromMilestone(activeMilestone)
+    else {
+      syncFormFromMilestone(activeMilestone)
+      setFormModalOpen(false)
+    }
   }
 
   const clearNa = async () => {
@@ -448,7 +457,7 @@ export default function OperationalMilestoneWorkspace({
                         </div>
                         {subtitle ? <span className="precheck-checklist__saved">{subtitle}</span> : null}
                       </div>
-                      <button type="button" className="btn btn--small" onClick={() => selectMilestone(cat)}>
+                      <button type="button" className="btn btn--small" onClick={() => openFormModal(cat)}>
                         Open
                       </button>
                     </>
@@ -466,7 +475,17 @@ export default function OperationalMilestoneWorkspace({
           </aside>
 
           <div className="precheck-sections operational-milestone-detail">
-            <section className="berthing-modal__card loading-tab-card operational-milestone-composer">
+            <OperationActivityTimeline
+              operationId={useApi ? operationId : null}
+              refreshToken={activityLogRefresh}
+              vesselId={vesselId}
+              basePath={basePath}
+              onActivityLogRefresh={onOperationalSaved}
+            />
+            {formModalOpen ? (
+              <div className="modal-overlay" onClick={() => setFormModalOpen(false)} aria-hidden="true">
+                <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Operational form">
+                  <section className="berthing-modal__card loading-tab-card operational-milestone-composer">
             <h3 className="berthing-modal__card-title operational-milestone-composer__title" id="op-milestone-active-label">
               {activeMilestone}
             </h3>
@@ -570,14 +589,14 @@ export default function OperationalMilestoneWorkspace({
               <button type="button" className="btn btn--primary btn--small" onClick={() => handleAdd(false)}>
                 Save
               </button>
-              <button type="button" className="btn btn--small btn--secondary" onClick={() => handleAdd(true)}>
+              <button type="button" className="btn btn--small btn--soft" onClick={() => handleAdd(true)}>
                 Save &amp; add another
               </button>
             </div>
 
             {canMarkNa ? (
               <div className="operational-na-actions">
-                <button type="button" className="btn btn--small btn--secondary" onClick={() => openNaModal(activeMilestone)}>
+                <button type="button" className="btn btn--small btn--soft" onClick={() => openNaModal(activeMilestone)}>
                   Mark “{activeMilestone}” as N/A…
                 </button>
               </div>
@@ -592,17 +611,12 @@ export default function OperationalMilestoneWorkspace({
                 </button>
               </div>
             ) : null}
-          </section>
+                  </section>
+                </div>
+              </div>
+            ) : null}
         </div>
         </div>
-
-        <OperationActivityTimeline
-          operationId={useApi ? operationId : null}
-          refreshToken={activityLogRefresh}
-          vesselId={vesselId}
-          basePath={basePath}
-          onActivityLogRefresh={onOperationalSaved}
-        />
       </div>
 
       {naModal ? (
@@ -628,7 +642,7 @@ export default function OperationalMilestoneWorkspace({
               />
             </div>
             <div className="modal__footer">
-              <button type="button" className="btn btn--secondary" onClick={closeNaModal}>
+              <button type="button" className="btn btn--ghost" onClick={closeNaModal}>
                 Cancel
               </button>
               <button type="button" className="btn btn--primary" onClick={() => confirmNa()} disabled={!naReason.trim()}>

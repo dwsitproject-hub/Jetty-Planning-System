@@ -6,6 +6,46 @@
 
 ---
 
+## 0. Addendum (2026-03-27)
+
+This addendum updates key requirements/implementation details.
+
+### 0.1 Port-assignment scope (implemented target)
+
+- Ports are not only master data; they define **user operational access scope**.
+- Scope hierarchy: **Port -> Jetty**.
+- Login/session behavior:
+  - 0 assigned ports -> block operational access with message:
+    - `No port assigned, please contact Jetty Planning System Admin`
+  - 1 assigned port -> auto-enter with that port selected.
+  - >1 assigned ports -> force port selection before entering operational modules.
+- User can switch selected port later from header menu.
+- Selected port persistence: **session only**.
+- Scope enforcement applies in both frontend and backend for operational modules; Admin/Master remain configuration surfaces.
+
+### 0.2 API additions for port assignment
+
+- `GET /users/me/ports`
+- `GET /users/:id/ports`
+- `PUT /users/:id/ports`
+- `GET /ports/:id/users`
+- `PUT /ports/:id/users`
+
+Operational ownership note:
+
+- User-to-port assignment is managed from **Admin User Management**.
+- `/ports/:id/users` endpoints are retained temporarily for backward compatibility and planned deprecation.
+
+### 0.3 Clearance depart contract change
+
+- `POST /operations/:id/depart` now requires only:
+  - `cast_off_at` (required)
+  - `clearance_document_url` (optional)
+  - `vessel_photo_url` (optional)
+- `hose_off_at` is removed from active contract and UI flow.
+
+---
+
 ## 1. Overview
 
 **Vision / Goal**: Digitize and streamline end-to-end jetty operations (loading and unloading) by providing:
@@ -283,7 +323,7 @@ Types are whitelisted by backend config (`Backend/src/routes/si-lookups.js`) and
 - `POST /operations/:id/request-exception` – body `justification`, optional `exception_document_url`; sets `PENDING` (before COMPLETED/SAILED).
 - `POST /operations/:id/approve-exception` – body optional `approver_user_id`.
 - `POST /operations/:id/reject-exception` – body optional `approver_user_id`.
-- `POST /operations/:id/depart` – after signoff (`COMPLETED`); body `hose_off_at`, `cast_off_at` (ISO), optional `clearance_document_url`, `vessel_photo_url`; sets `SAILED`, `sailed_at`.
+- `POST /operations/:id/depart` – after signoff (`COMPLETED`); body `cast_off_at` (ISO, required), optional `clearance_document_url`, `vessel_photo_url`; sets `SAILED`, `sailed_at`.
 
 ### 3.4 QC & Quantity
 

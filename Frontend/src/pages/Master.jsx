@@ -45,7 +45,7 @@ const MASTER_ITEMS = [
   {
     path: '/master/si-commodity',
     title: 'SI Commodity',
-    description: 'Add and manage commodities for Shipping Instructions.',
+    description: 'Commodities for Shipping Instructions, plus standard pumping rate (MT/h) and buffer per commodity for SLA.',
   },
   {
     path: '/master/freight-terms',

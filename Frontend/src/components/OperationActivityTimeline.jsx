@@ -103,7 +103,8 @@ export default function OperationActivityTimeline({
   const handleEdit = (ev) => {
     const path = buildActivityLogEditPath(ev, { vesselId, basePath })
     if (!path) return
-    setToast({ message: 'Opening editor…', variant: 'success' })
+    // Do not toast here: the destination (Pre/Post/Operational) already shows "Editing …"
+    // after ?edit=1; a second toast would overlap (same fixed bottom-right position).
     navigate(path)
   }
 
@@ -147,7 +148,7 @@ export default function OperationActivityTimeline({
 
   return (
     <section className={`operation-activity-timeline berthing-modal__card ${className}`}>
-      <h3 className="berthing-modal__card-title">Activity log (Pre-Checking · Operational · Post-Checking)</h3>
+      <h3 className="berthing-modal__card-title">Detailed At-Berth Executions Log</h3>
       {toast?.message && (
         <div
           className={`toast ${toast.variant === 'error' ? 'toast--warning' : 'toast--success'}`}
@@ -219,7 +220,7 @@ export default function OperationActivityTimeline({
                           {editPath ? (
                             <button
                               type="button"
-                              className="btn btn--small btn--secondary"
+                              className="btn btn--small btn--ghost"
                               onClick={() => handleEdit(ev)}
                               disabled={busy}
                             >
@@ -229,7 +230,7 @@ export default function OperationActivityTimeline({
                           {canDelete ? (
                             <button
                               type="button"
-                              className="btn btn--small"
+                              className="btn btn--small btn--danger-soft"
                               onClick={() => handleDelete(ev)}
                               disabled={busy}
                             >

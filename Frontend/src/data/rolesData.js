@@ -11,6 +11,7 @@ export const PAGE_OPTIONS = [
   { id: 'loading', label: 'Loading / Unloading' },
   { id: 'quality', label: 'Quality' },
   { id: 'verification', label: 'Clearance' },
+  { id: 'demurrage-risk-calculator', label: 'Demurrage Risk Calculator' },
   { id: 'reporting', label: 'Reporting' },
   { id: 'master', label: 'Master Menu' },
   { id: 'master-port', label: 'Master – Port' },

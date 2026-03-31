@@ -28,7 +28,6 @@ export default function E2EConsole() {
   const [opId, setOpId] = useState('')
   const [approverId, setApproverId] = useState('1')
   const [justification, setJustification] = useState('E2E exception test')
-  const [hose, setHose] = useState('')
   const [cast, setCast] = useState('')
   const [newSi, setNewSi] = useState({
     vesselName: 'E2E Vessel',
@@ -58,7 +57,6 @@ export default function E2EConsole() {
     refresh()
     fetchSiLookups().then(setE2eLookups).catch(() => setE2eLookups(null))
     const t = new Date()
-    setHose(t.toISOString())
     setCast(new Date(t.getTime() + 15 * 60 * 1000).toISOString())
   }, [refresh])
 
@@ -161,7 +159,7 @@ export default function E2EConsole() {
     const id = parseInt(opId, 10)
     if (Number.isNaN(id)) return
     try {
-      await depart(id, hose, cast, null, null)
+      await depart(id, cast, null, null)
       push(`SAILED`)
       await refresh()
     } catch (e) {
@@ -218,8 +216,6 @@ export default function E2EConsole() {
         <p><strong>B) Signoff</strong> (100% + QC + qty OR approved exception)</p>
         <button type="button" className="btn btn--primary btn--small" onClick={stepSignoff}>Signoff</button>
         <p><strong>C) Depart</strong> (after COMPLETED)</p>
-        <label className="text-steel">hose_off_at (ISO)</label>
-        <input value={hose} onChange={(e) => setHose(e.target.value)} style={{ width: '100%', maxWidth: '28rem' }} />
         <label className="text-steel">cast_off_at (ISO)</label>
         <input value={cast} onChange={(e) => setCast(e.target.value)} style={{ width: '100%', maxWidth: '28rem' }} />
         <button type="button" className="btn btn--primary btn--small" onClick={stepDepart}>Depart (SAILED)</button>

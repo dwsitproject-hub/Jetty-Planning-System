@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { fetchUsers, createUser, updateUserApi, deleteUser } from '../api/usersApi'
+import { fetchUsers, createUser, updateUserApi, deleteUser, fetchUserPorts, saveUserPorts } from '../api/usersApi'
+import { fetchPorts } from '../api/ports'
 import { assignUserRole, fetchRoles, fetchUserRoles, removeUserRole } from '../api/rbac'
 import '../styles/allocation.css'
 import '../styles/modal.css'
@@ -13,6 +14,8 @@ export default function AdminUsers() {
   const [listErr, setListErr] = useState(null)
   const [roles, setRoles] = useState([])
   const [rolesErr, setRolesErr] = useState(null)
+  const [ports, setPorts] = useState([])
+  const [portsErr, setPortsErr] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [formUsername, setFormUsername] = useState('')
@@ -22,8 +25,11 @@ export default function AdminUsers() {
   const [formActive, setFormActive] = useState(true)
   const [formRoleIds, setFormRoleIds] = useState([])
   const [initialRoleIds, setInitialRoleIds] = useState([])
+  const [formPortIds, setFormPortIds] = useState([])
+  const [portSearch, setPortSearch] = useState('')
   const [modalErr, setModalErr] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [toast, setToast] = useState(null)
 
   const load = useCallback(async () => {
     setListErr(null)
@@ -68,10 +74,28 @@ export default function AdminUsers() {
     }
   }, [])
 
+  const loadPorts = useCallback(async () => {
+    setPortsErr(null)
+    try {
+      const list = await fetchPorts()
+      setPorts(Array.isArray(list) ? list : [])
+    } catch (e) {
+      setPortsErr(e?.message || 'Failed to load ports')
+      setPorts([])
+    }
+  }, [])
+
   useEffect(() => {
     load()
     loadRoles()
-  }, [load, loadRoles])
+    loadPorts()
+  }, [load, loadRoles, loadPorts])
+
+  useEffect(() => {
+    if (!toast) return undefined
+    const timer = window.setTimeout(() => setToast(null), 3000)
+    return () => window.clearTimeout(timer)
+  }, [toast])
 
   const openAdd = useCallback(() => {
     setEditingId(null)
@@ -82,6 +106,8 @@ export default function AdminUsers() {
     setFormActive(true)
     setFormRoleIds([])
     setInitialRoleIds([])
+    setFormPortIds([])
+    setPortSearch('')
     setModalErr(null)
     setModalOpen(true)
   }, [])
@@ -95,16 +121,29 @@ export default function AdminUsers() {
     setFormActive(user.isActive !== false)
     setFormRoleIds([])
     setInitialRoleIds([])
+    setFormPortIds(
+      Array.isArray(user?.assignedPorts)
+        ? user.assignedPorts.map((p) => Number(p.id)).filter((n) => Number.isFinite(n))
+        : []
+    )
+    setPortSearch('')
     setModalErr(null)
     setModalOpen(true)
 
     try {
-      const assigned = await fetchUserRoles(user.id)
-      const ids = (Array.isArray(assigned) ? assigned : []).map((r) => r.id)
-      setFormRoleIds(ids)
-      setInitialRoleIds(ids)
+      const [assignedRoles, assignedPorts] = await Promise.all([
+        fetchUserRoles(user.id),
+        fetchUserPorts(user.id),
+      ])
+      const roleIds = (Array.isArray(assignedRoles) ? assignedRoles : []).map((r) => r.id)
+      const portIds = (Array.isArray(assignedPorts?.assignedPorts) ? assignedPorts.assignedPorts : [])
+        .map((p) => Number(p.id))
+        .filter((n) => Number.isFinite(n))
+      setFormRoleIds(roleIds)
+      setInitialRoleIds(roleIds)
+      setFormPortIds(portIds)
     } catch (e) {
-      setModalErr(e?.message || 'Failed to load user roles')
+      setModalErr(e?.message || 'Failed to refresh user roles/ports, showing cached assignments')
     }
   }, [])
 
@@ -119,6 +158,15 @@ export default function AdminUsers() {
       const set = new Set(prev)
       if (checked) set.add(roleId)
       else set.delete(roleId)
+      return Array.from(set)
+    })
+  }, [])
+
+  const togglePort = useCallback((portId, checked) => {
+    setFormPortIds((prev) => {
+      const set = new Set(prev)
+      if (checked) set.add(portId)
+      else set.delete(portId)
       return Array.from(set)
     })
   }, [])
@@ -170,12 +218,18 @@ export default function AdminUsers() {
             await removeUserRole(userId, roleId)
           }
         }
+        await saveUserPorts(userId, formPortIds)
       }
 
       await load()
+      setToast({
+        kind: 'success',
+        text: `User saved successfully. ${formPortIds.length} port${formPortIds.length === 1 ? '' : 's'} assigned.`,
+      })
       closeModal()
     } catch (e) {
       setModalErr(e?.message || 'Save failed')
+      setToast({ kind: 'error', text: e?.message || 'Save failed' })
     } finally {
       setSaving(false)
     }
@@ -187,6 +241,7 @@ export default function AdminUsers() {
     formEmail,
     formActive,
     formRoleIds,
+    formPortIds,
     initialRoleIds,
     load,
     closeModal,
@@ -198,12 +253,32 @@ export default function AdminUsers() {
       try {
         await deleteUser(id)
         await load()
+        setToast({ kind: 'success', text: 'User deleted successfully.' })
       } catch (e) {
-        alert(e?.message || 'Delete failed')
+        setToast({ kind: 'error', text: e?.message || 'Delete failed' })
       }
     },
     [load]
   )
+
+  const filteredPorts = ports.filter((p) => {
+    const q = (portSearch || '').trim().toLowerCase()
+    if (!q) return true
+    return String(p.name || '').toLowerCase().includes(q)
+  })
+
+  const selectAllVisiblePorts = useCallback(() => {
+    setFormPortIds((prev) => {
+      const set = new Set(prev)
+      for (const p of filteredPorts) set.add(p.id)
+      return Array.from(set)
+    })
+  }, [filteredPorts])
+
+  const clearAllVisiblePorts = useCallback(() => {
+    const visibleIds = new Set(filteredPorts.map((p) => p.id))
+    setFormPortIds((prev) => prev.filter((id) => !visibleIds.has(id)))
+  }, [filteredPorts])
 
   return (
     <div className="allocation-page">
@@ -211,11 +286,21 @@ export default function AdminUsers() {
       <p className="allocation-page__intro">
         <Link to="/admin" className="link">← Back to Admin</Link>
         {' · '}
-        <code>GET/POST/PUT/DELETE /users</code> (JWT). Department/role assignment uses RBAC APIs separately.
+        <code>GET/POST/PUT/DELETE /users</code> (JWT). Role assignment uses RBAC APIs; port assignment uses user port APIs.
       </p>
       <button type="button" className="btn btn--secondary btn--small" onClick={load} disabled={loading}>
         Refresh
       </button>
+      {toast && (
+        <div
+          className={`toast ${toast.kind === 'error' ? 'toast--error' : 'toast--success'}`}
+          role="status"
+          aria-live="polite"
+          style={{ marginTop: 12 }}
+        >
+          {toast.text}
+        </div>
+      )}
       {listErr && <p style={{ color: '#c00' }}>{listErr}</p>}
 
       <section className="card at-berth-list-section">
@@ -237,6 +322,7 @@ export default function AdminUsers() {
                   <th className="allocation-table__th">User</th>
                   <th className="allocation-table__th">Email</th>
                   <th className="allocation-table__th">Roles</th>
+                  <th className="allocation-table__th">Ports</th>
                   <th className="allocation-table__th">Status</th>
                   <th className="allocation-table__action-col">Actions</th>
                 </tr>
@@ -254,6 +340,11 @@ export default function AdminUsers() {
                     <td className="text-steel">
                       {(userRolesById[u.id] || [])
                         .map((r) => roles.find((x) => x.id === r.id)?.name || r.name || r.id)
+                        .join(', ') || '—'}
+                    </td>
+                    <td className="text-steel">
+                      {(Array.isArray(u.assignedPorts) ? u.assignedPorts : [])
+                        .map((p) => p.name)
                         .join(', ') || '—'}
                     </td>
                     <td>
@@ -344,6 +435,57 @@ export default function AdminUsers() {
               )}
               <p className="text-steel" style={{ marginTop: 8 }}>
                 Tip: roles control page access (View/Edit/Delete) via RBAC.
+              </p>
+            </div>
+            <div className="modal__section">
+              <div className="modal__label">Port Access (multi-select)</div>
+              {portsErr && <p style={{ color: '#c00', marginTop: 6 }}>{portsErr}</p>}
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                <input
+                  type="text"
+                  className="modal__input"
+                  style={{ margin: 0 }}
+                  placeholder="Search port..."
+                  value={portSearch}
+                  onChange={(e) => setPortSearch(e.target.value)}
+                />
+                <button type="button" className="btn btn--secondary btn--small" onClick={selectAllVisiblePorts}>
+                  Select visible
+                </button>
+                <button type="button" className="btn btn--secondary btn--small" onClick={clearAllVisiblePorts}>
+                  Clear visible
+                </button>
+              </div>
+              {ports.length === 0 ? (
+                <p className="text-steel" style={{ marginTop: 6 }}>No ports found.</p>
+              ) : (
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                    gap: 8,
+                    marginTop: 8,
+                    maxHeight: 180,
+                    overflow: 'auto',
+                    border: '1px solid var(--color-border, #d8dbe1)',
+                    borderRadius: 8,
+                    padding: 8,
+                  }}
+                >
+                  {filteredPorts.map((p) => (
+                    <label key={p.id} className="text-steel" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={formPortIds.includes(p.id)}
+                        onChange={(e) => togglePort(p.id, e.target.checked)}
+                      />
+                      <span>{p.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              <p className="text-steel" style={{ marginTop: 8 }}>
+                Users without assigned ports cannot access operational modules.
               </p>
             </div>
             {modalErr && <p style={{ color: '#c00' }}>{modalErr}</p>}

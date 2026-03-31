@@ -5,10 +5,20 @@ import bcrypt from 'bcrypt';
 import express from 'express';
 import { pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { loadUserAssignedPorts, NO_PORT_MESSAGE } from '../middleware/port-scope.js';
 
 const router = express.Router();
 
 function toUser(row) {
+  let assignedPorts = undefined;
+  if (Array.isArray(row.assigned_ports)) {
+    assignedPorts = row.assigned_ports
+      .filter((p) => p && Number.isFinite(Number(p.id)))
+      .map((p) => ({
+        id: Number(p.id),
+        name: p.name ?? '',
+      }));
+  }
   return {
     id: row.id,
     username: row.username,
@@ -17,6 +27,7 @@ function toUser(row) {
     isActive: row.is_active,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    ...(assignedPorts ? { assignedPorts } : {}),
   };
 }
 
@@ -39,10 +50,41 @@ router.get('/me', requireAuth, async (req, res) => {
   res.json(toUser(row));
 });
 
+router.get('/me/ports', requireAuth, async (req, res) => {
+  const assignedPorts = await loadUserAssignedPorts(req.userId);
+  res.json({
+    assignedPorts,
+    hasAssignedPort: assignedPorts.length > 0,
+    noPortMessage: NO_PORT_MESSAGE,
+  });
+});
+
 router.get('/', requireAuth, async (req, res) => {
   const result = await pool.query(
-    `SELECT id, username, display_name, email, is_active, created_at, updated_at
-     FROM users WHERE deleted_at IS NULL ORDER BY username ASC`
+    `SELECT
+       u.id,
+       u.username,
+       u.display_name,
+       u.email,
+       u.is_active,
+       u.created_at,
+       u.updated_at,
+       COALESCE(
+         JSON_AGG(
+           DISTINCT JSONB_BUILD_OBJECT('id', p.id, 'name', p.name)
+         ) FILTER (WHERE up.id IS NOT NULL),
+         '[]'::json
+       ) AS assigned_ports
+     FROM users u
+     LEFT JOIN user_ports up
+       ON up.user_id = u.id
+      AND up.deleted_at IS NULL
+     LEFT JOIN ports p
+       ON p.id = up.port_id
+      AND p.deleted_at IS NULL
+     WHERE u.deleted_at IS NULL
+     GROUP BY u.id
+     ORDER BY u.username ASC`
   );
   res.json(result.rows.map(toUser));
 });
@@ -57,6 +99,25 @@ router.get('/:id', requireAuth, async (req, res) => {
   );
   if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
   res.json(toUser(result.rows[0]));
+});
+
+router.get('/:id/ports', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  const user = await pool.query(
+    `SELECT id, username, display_name FROM users WHERE id = $1 AND deleted_at IS NULL`,
+    [id]
+  );
+  if (user.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+
+  const assignedPorts = await loadUserAssignedPorts(id);
+  res.json({
+    userId: id,
+    username: user.rows[0].username,
+    displayName: user.rows[0].display_name ?? null,
+    assignedPorts,
+  });
 });
 
 router.post('/', requireAuth, async (req, res) => {
@@ -141,6 +202,60 @@ router.put('/:id', requireAuth, async (req, res) => {
   }
 });
 
+router.put('/:id/ports', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  const portIds = Array.isArray(req.body?.port_ids) ? req.body.port_ids : null;
+  if (!portIds) return res.status(400).json({ error: 'port_ids must be an array' });
+  const normalized = [...new Set(portIds.map((v) => parseInt(v, 10)).filter((n) => Number.isFinite(n) && n > 0))];
+
+  const user = await pool.query(`SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL`, [id]);
+  if (user.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+
+  if (normalized.length > 0) {
+    const ports = await pool.query(
+      `SELECT id FROM ports WHERE id = ANY($1::bigint[]) AND deleted_at IS NULL`,
+      [normalized]
+    );
+    if (ports.rows.length !== normalized.length) {
+      return res.status(400).json({ error: 'One or more port_ids are invalid' });
+    }
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE user_ports
+       SET deleted_at = NOW(), updated_at = NOW()
+       WHERE user_id = $1 AND deleted_at IS NULL`,
+      [id]
+    );
+    for (const pid of normalized) {
+      await client.query(
+        `INSERT INTO user_ports (user_id, port_id)
+         VALUES ($1, $2)`,
+        [id, pid]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+
+  const assignedPorts = await loadUserAssignedPorts(id);
+  res.json({
+    userId: id,
+    assignedPorts,
+    hasAssignedPort: assignedPorts.length > 0,
+    noPortMessage: NO_PORT_MESSAGE,
+  });
+});
+
 router.delete('/:id', requireAuth, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
@@ -160,6 +275,10 @@ router.delete('/:id', requireAuth, async (req, res) => {
     }
     await client.query(
       `UPDATE user_roles SET deleted_at = NOW() WHERE user_id = $1 AND deleted_at IS NULL`,
+      [id]
+    );
+    await client.query(
+      `UPDATE user_ports SET deleted_at = NOW(), updated_at = NOW() WHERE user_id = $1 AND deleted_at IS NULL`,
       [id]
     );
     await client.query(

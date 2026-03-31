@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
-import { Link } from 'react-router-dom'
-import { fetchOperations, depart } from '../api/operations'
+import { fetchOperations, depart, uploadOperationDocuments } from '../api/operations'
+import { resolveUploadUrl } from '../api/client'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 
@@ -21,17 +21,30 @@ function toLocalDatetimeValue(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+function parseLocalTime(local) {
+  if (!local || !local.trim()) return null
+  const d = new Date(local)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+function formatDateTime(iso) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleString()
+}
+
 export default function Verification() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState(null)
   const [submitErr, setSubmitErr] = useState(null)
   const [modalOpId, setModalOpId] = useState(null)
-  const [formHoseOff, setFormHoseOff] = useState('')
   const [formCastOff, setFormCastOff] = useState('')
   const [formDocuments, setFormDocuments] = useState([])
   const [formVesselPhotos, setFormVesselPhotos] = useState([])
   const [submitting, setSubmitting] = useState(false)
+  const [toast, setToast] = useState(null)
 
   const load = useCallback(async () => {
     setErr(null)
@@ -46,21 +59,30 @@ export default function Verification() {
         vesselName: o.vesselName,
         purpose: o.purpose,
         si: `${o.referenceNumber ?? ''} · ${o.commodity ?? ''}`.trim() || '—',
+        referenceNumber: o.referenceNumber,
+        commodity: o.commodity,
+        jettyName: o.jettyName,
         status: 'Ready to Sail',
         apiStatus: o.status,
-        hoseOffAt: o.hoseOffAt,
         castOffAt: o.castOffAt,
+        sailedAt: o.sailedAt,
+        clearanceDocumentUrl: o.clearanceDocumentUrl,
+        vesselPhotoUrl: o.vesselPhotoUrl,
       }))
       const done = (sailed || []).map((o) => ({
         operationId: o.id,
         vesselName: o.vesselName,
         purpose: o.purpose,
         si: `${o.referenceNumber ?? ''} · ${o.commodity ?? ''}`.trim() || '—',
+        referenceNumber: o.referenceNumber,
+        commodity: o.commodity,
+        jettyName: o.jettyName,
         status: 'Sailed',
         apiStatus: o.status,
-        hoseOffAt: o.hoseOffAt,
         castOffAt: o.castOffAt,
         sailedAt: o.sailedAt,
+        clearanceDocumentUrl: o.clearanceDocumentUrl,
+        vesselPhotoUrl: o.vesselPhotoUrl,
       }))
       setRows([...ready, ...done])
     } catch (e) {
@@ -75,9 +97,17 @@ export default function Verification() {
     load()
   }, [load])
 
+  useEffect(() => {
+    if (!toast?.message) return undefined
+    const t = window.setTimeout(() => setToast(null), 6500)
+    return () => clearTimeout(t)
+  }, [toast])
+
   const filterKeys = CLEARANCE_COLUMNS.map((c) => c.key)
   const [filters, setFilters] = useState(() => Object.fromEntries(filterKeys.map((k) => [k, ''])))
   const [sortState, setSortState] = useState({ key: 'vesselName', dir: 'asc' })
+  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [expandedRows, setExpandedRows] = useState({})
 
   const readyCount = rows.filter((r) => r.apiStatus === 'COMPLETED').length
   const departedCount = rows.filter((r) => r.apiStatus === 'SAILED').length
@@ -85,7 +115,13 @@ export default function Verification() {
   const updateFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }))
   const handleSort = (key) => setSortState((s) => ({ key, dir: s.key === key && s.dir === 'asc' ? 'desc' : 'asc' }))
 
-  const filteredVessels = rows.filter((r) => {
+  const rowsAfterStatusFilter = rows.filter((r) => {
+    if (statusFilter === 'READY') return r.apiStatus === 'COMPLETED'
+    if (statusFilter === 'SAILED') return r.apiStatus === 'SAILED'
+    return true
+  })
+
+  const filteredVessels = rowsAfterStatusFilter.filter((r) => {
     return filterKeys.every((key) => {
       const f = (filters[key] || '').trim().toLowerCase()
       if (!f) return true
@@ -108,10 +144,8 @@ export default function Verification() {
     setSubmitErr(null)
     setModalOpId(op.operationId)
     if (op.apiStatus === 'SAILED') {
-      setFormHoseOff(toLocalDatetimeValue(op.hoseOffAt))
       setFormCastOff(toLocalDatetimeValue(op.castOffAt))
     } else {
-      setFormHoseOff(toLocalDatetimeValue(new Date().toISOString()))
       setFormCastOff(toLocalDatetimeValue(new Date().toISOString()))
     }
     setFormDocuments([])
@@ -123,15 +157,24 @@ export default function Verification() {
     setSubmitErr(null)
   }, [])
 
+  const clearFilters = () => {
+    setFilters(Object.fromEntries(filterKeys.map((k) => [k, ''])))
+    setStatusFilter('ALL')
+  }
+
+  const toggleExpanded = (operationId) => {
+    setExpandedRows((prev) => ({ ...prev, [operationId]: !prev[operationId] }))
+  }
+
   const addDocumentFiles = (e) => {
     const files = Array.from(e.target.files || [])
-    const newOnes = files.map((f) => ({ name: f.name, url: URL.createObjectURL(f) }))
+    const newOnes = files.map((f) => ({ name: f.name, file: f }))
     setFormDocuments((prev) => [...prev, ...newOnes])
   }
 
   const addVesselPhotoFiles = (e) => {
     const files = Array.from(e.target.files || [])
-    const newOnes = files.map((f) => ({ name: f.name, url: URL.createObjectURL(f) }))
+    const newOnes = files.map((f) => ({ name: f.name, file: f }))
     setFormVesselPhotos((prev) => [...prev, ...newOnes])
   }
 
@@ -139,6 +182,12 @@ export default function Verification() {
     if (!local || !local.trim()) return new Date().toISOString()
     const d = new Date(local)
     return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString()
+  }
+
+  const validateDepartForm = () => {
+    const cast = parseLocalTime(formCastOff)
+    if (!cast) return 'CAST Off time is required and must be valid.'
+    return null
   }
 
   const handleSubmit = async () => {
@@ -149,12 +198,32 @@ export default function Verification() {
       return
     }
     setSubmitErr(null)
+    const validationError = validateDepartForm()
+    if (validationError) {
+      setSubmitErr(validationError)
+      return
+    }
     setSubmitting(true)
     try {
-      const clearanceUrl = formDocuments[0]?.name ? `local:${formDocuments[0].name}` : null
-      const photoUrl = formVesselPhotos[0]?.name ? `local:${formVesselPhotos[0].name}` : null
-      await depart(modalOpId, toIso(formHoseOff), toIso(formCastOff), clearanceUrl, photoUrl)
+      let clearanceUrl = null
+      let photoUrl = null
+
+      const clearanceFiles = formDocuments.map((d) => d.file).filter(Boolean)
+      if (clearanceFiles.length > 0) {
+        const uploaded = await uploadOperationDocuments(modalOpId, 'CLEARANCE', clearanceFiles)
+        clearanceUrl = uploaded?.items?.[0]?.url || null
+      }
+
+      const vesselPhotoFiles = formVesselPhotos.map((d) => d.file).filter(Boolean)
+      if (vesselPhotoFiles.length > 0) {
+        const uploaded = await uploadOperationDocuments(modalOpId, 'VESSEL_PHOTO', vesselPhotoFiles)
+        photoUrl = uploaded?.items?.[0]?.url || null
+      }
+
+      const castOffIso = toIso(formCastOff)
+      await depart(modalOpId, castOffIso, clearanceUrl, photoUrl)
       await load()
+      setToast({ message: `Departure recorded for ${op?.vesselName || 'vessel'}.`, variant: 'success' })
       closeModal()
     } catch (e) {
       setSubmitErr(e?.message || 'Depart failed')
@@ -165,15 +234,23 @@ export default function Verification() {
 
   const modalRow = modalOpId ? rows.find((r) => r.operationId === modalOpId) : null
   const isSailed = modalRow?.apiStatus === 'SAILED'
+  const formValidationError = isSailed ? null : validateDepartForm()
 
   return (
     <div className="allocation-page clearance-page">
       <h1 className="page-title">Clearance</h1>
       <p className="allocation-page__intro">
-        <strong>API:</strong> <code>GET /operations?status=COMPLETED</code> (ready) and <code>SAILED</code>. Submit calls{' '}
-        <code>POST /operations/:id/depart</code>.
+        Record vessel departure after signoff completion. Capture final CAST timestamp and optional supporting documents.
       </p>
-      <button type="button" className="btn btn--secondary btn--small" onClick={load} disabled={loading}>Refresh</button>
+      {toast?.message && (
+        <div className={`toast ${toast.variant === 'error' ? 'toast--warning' : 'toast--success'}`} role="status" aria-live="polite" aria-atomic="true">
+          <span className="toast__icon" aria-hidden>{toast.variant === 'error' ? '!' : '✓'}</span>
+          <p className="toast__message">{toast.message}</p>
+          <button type="button" className="toast__close" onClick={() => setToast(null)} aria-label="Dismiss notification">
+            ×
+          </button>
+        </div>
+      )}
       {err && <p style={{ color: '#c00' }}>{err}</p>}
 
       <section className="at-berth-summary" aria-label="Summary">
@@ -190,18 +267,47 @@ export default function Verification() {
       </section>
 
       <section className="card at-berth-list-section">
-        <h2 className="card__title">Operations</h2>
+        <div className="card__header-row">
+          <h2 className="card__title">Operations</h2>
+          <div className="clearance-status-filter" role="group" aria-label="Filter operations by status">
+            <button
+              type="button"
+              className={`btn btn--small ${statusFilter === 'ALL' ? 'btn--primary' : 'btn--ghost'}`}
+              onClick={() => setStatusFilter('ALL')}
+            >
+              All ({rows.length})
+            </button>
+            <button
+              type="button"
+              className={`btn btn--small ${statusFilter === 'READY' ? 'btn--primary' : 'btn--ghost'}`}
+              onClick={() => setStatusFilter('READY')}
+            >
+              Ready to Sail ({readyCount})
+            </button>
+            <button
+              type="button"
+              className={`btn btn--small ${statusFilter === 'SAILED' ? 'btn--primary' : 'btn--ghost'}`}
+              onClick={() => setStatusFilter('SAILED')}
+            >
+              Sailed ({departedCount})
+            </button>
+            <button type="button" className="btn btn--small btn--soft" onClick={clearFilters}>
+              Clear filters
+            </button>
+          </div>
+        </div>
         {loading ? (
-          <p className="text-steel">Loading…</p>
+          <p className="text-steel">Fetching latest clearance queue…</p>
         ) : rows.length === 0 ? (
-          <p className="text-steel">No operations. Complete signoff on an operation, then record depart here.</p>
+          <p className="text-steel">No completed operations are waiting for depart recording.</p>
         ) : sortedVessels.length === 0 ? (
           <p className="text-steel">No rows match filters.</p>
         ) : (
           <div className="table-wrap">
-            <table className="data-table allocation-table">
+            <table className="data-table allocation-table clearance-table">
               <thead>
                 <tr>
+                  <th className="allocation-table__expand-col" aria-label="Expand row details" />
                   {CLEARANCE_COLUMNS.map((col) => (
                     <th key={col.key} className="allocation-table__th">
                       <button type="button" className="allocation-table__sort" onClick={() => handleSort(col.key)}>
@@ -215,6 +321,7 @@ export default function Verification() {
                   <th className="allocation-table__action-col">Action</th>
                 </tr>
                 <tr className="allocation-table__filter-row">
+                  <th className="allocation-table__expand-col" />
                   {CLEARANCE_COLUMNS.map((col) => (
                     <th key={col.key}>
                       <input
@@ -229,27 +336,68 @@ export default function Verification() {
                 </tr>
               </thead>
               <tbody>
-                {sortedVessels.map((v) => (
-                  <tr key={v.operationId} className="allocation-table__row">
-                    {CLEARANCE_COLUMNS.map((col) => (
-                      <td key={col.key}>{col.getValue(v)}</td>
-                    ))}
-                    <td className="allocation-table__action-col">
-                      {v.apiStatus === 'COMPLETED' ? (
-                        <button type="button" className="btn btn--small btn--primary" onClick={() => openModal(v)}>
-                          Record depart
+                {sortedVessels.flatMap((v) => {
+                  const expanded = Boolean(expandedRows[v.operationId])
+                  const mainRow = (
+                    <tr key={v.operationId} className={`allocation-table__row ${expanded ? 'allocation-table__row--expanded' : ''}`}>
+                      <td className="allocation-table__expand-col">
+                        <button
+                          type="button"
+                          className="allocation-table__sort"
+                          onClick={() => toggleExpanded(v.operationId)}
+                          aria-label={expanded ? 'Collapse vessel details' : 'Expand vessel details'}
+                        >
+                          <span className="allocation-table__expand-icon">{expanded ? '▼' : '▶'}</span>
                         </button>
-                      ) : (
-                        <button type="button" className="btn btn--small btn--secondary" onClick={() => openModal(v)}>
-                          View
-                        </button>
-                      )}
-                      <Link to={`/loading/operation/${v.operationId}`} className="btn btn--small btn--secondary" style={{ marginLeft: 6 }}>
-                        Op
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      {CLEARANCE_COLUMNS.map((col) => (
+                        <td key={col.key}>{col.getValue(v)}</td>
+                      ))}
+                      <td className="allocation-table__action-col">
+                        <div className="allocation-table__action-btns">
+                          {v.apiStatus === 'COMPLETED' ? (
+                            <button type="button" className="btn btn--small btn--primary" onClick={() => openModal(v)}>
+                              Record depart
+                            </button>
+                          ) : (
+                            <button type="button" className="btn btn--small btn--ghost" onClick={() => openModal(v)}>
+                              View
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                  if (!expanded) return [mainRow]
+                  const detailRow = (
+                    <tr className="allocation-table__detail-row" key={`detail-${v.operationId}`}>
+                      <td className="allocation-table__detail-cell" colSpan={CLEARANCE_COLUMNS.length + 2}>
+                        <div className="allocation-detail">
+                          <h3 className="allocation-detail__title">Vessel details</h3>
+                          <dl className="allocation-detail__grid">
+                            <dt>Vessel Name</dt>
+                            <dd>{v.vesselName || '—'}</dd>
+                            <dt>Shipping Instruction</dt>
+                            <dd>{v.referenceNumber || '—'}</dd>
+                            <dt>Commodity</dt>
+                            <dd>{v.commodity || '—'}</dd>
+                            <dt>Purpose</dt>
+                            <dd>{v.purpose || '—'}</dd>
+                            <dt>Jetty</dt>
+                            <dd>{v.jettyName || '—'}</dd>
+                            <dt>Status</dt>
+                            <dd>{v.status || '—'}</dd>
+                            <dt>CAST Off</dt>
+                            <dd>{formatDateTime(v.castOffAt)}</dd>
+                            <dt>Sailed At</dt>
+                            <dd>{formatDateTime(v.sailedAt)}</dd>
+                          </dl>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                  return [mainRow, detailRow]
+                })}
               </tbody>
             </table>
           </div>
@@ -270,20 +418,8 @@ export default function Verification() {
             </h2>
 
             {isSailed && (
-              <p className="text-steel">This operation has already sailed. HOSE/CAST times are read-only.</p>
+              <p className="text-steel">This operation has already sailed. Departure times and evidence are read-only.</p>
             )}
-
-            <div className="modal__section">
-              <label htmlFor="clearance-hose-off" className="modal__label">HOSE Off</label>
-              <input
-                id="clearance-hose-off"
-                type="datetime-local"
-                className="modal__input"
-                value={formHoseOff}
-                onChange={(e) => setFormHoseOff(e.target.value)}
-                disabled={isSailed}
-              />
-            </div>
 
             <div className="modal__section">
               <label htmlFor="clearance-cast-off" className="modal__label">CAST Off</label>
@@ -300,13 +436,20 @@ export default function Verification() {
             {!isSailed && (
               <>
                 <div className="modal__section">
-                  <label className="modal__label">Document (optional — stored as placeholder URL)</label>
+                  <label className="modal__label">Document (optional)</label>
                   <label className="berthing-modal__file-zone">
                     <span className="berthing-modal__file-zone-text">
                       {formDocuments.length > 0 ? `${formDocuments.length} file(s)` : 'Choose files'}
                     </span>
                     <input type="file" accept="image/*,.pdf" multiple onChange={addDocumentFiles} className="berthing-modal__file-input" />
                   </label>
+                  {formDocuments.length > 0 ? (
+                    <ul className="loading-step-card__file-list">
+                      {formDocuments.map((f, idx) => (
+                        <li key={`${f.name}-${idx}`}>{f.name}</li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </div>
                 <div className="modal__section">
                   <label className="modal__label">Vessel photo (optional)</label>
@@ -316,16 +459,57 @@ export default function Verification() {
                     </span>
                     <input type="file" accept="image/*,.pdf" multiple onChange={addVesselPhotoFiles} className="berthing-modal__file-input" />
                   </label>
+                  {formVesselPhotos.length > 0 ? (
+                    <ul className="loading-step-card__file-list">
+                      {formVesselPhotos.map((f, idx) => (
+                        <li key={`${f.name}-${idx}`}>{f.name}</li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </div>
               </>
             )}
 
+            {isSailed ? (
+              <div className="modal__section">
+                <h3 className="modal__label">Recorded departure</h3>
+                <p className="text-steel">Sailed at: {formatDateTime(modalRow?.sailedAt)}</p>
+                <ul className="loading-step-card__file-list">
+                  <li>
+                    Clearance document:{' '}
+                    {modalRow?.clearanceDocumentUrl ? (
+                      <a href={resolveUploadUrl(modalRow.clearanceDocumentUrl)} target="_blank" rel="noreferrer">
+                        Open file
+                      </a>
+                    ) : (
+                      '—'
+                    )}
+                  </li>
+                  <li>
+                    Vessel photo:{' '}
+                    {modalRow?.vesselPhotoUrl ? (
+                      <a href={resolveUploadUrl(modalRow.vesselPhotoUrl)} target="_blank" rel="noreferrer">
+                        Open file
+                      </a>
+                    ) : (
+                      '—'
+                    )}
+                  </li>
+                </ul>
+              </div>
+            ) : null}
+
             {submitErr && <p style={{ color: '#c00' }}>{submitErr}</p>}
+            {!isSailed && formValidationError ? (
+              <p className="operational-form-error" role="alert">
+                {formValidationError}
+              </p>
+            ) : null}
 
             <div className="modal__footer">
               <button type="button" className="btn btn--secondary" onClick={closeModal}>Close</button>
               {!isSailed && (
-                <button type="button" className="btn btn--primary" onClick={handleSubmit} disabled={submitting}>
+                <button type="button" className="btn btn--primary" onClick={handleSubmit} disabled={submitting || Boolean(formValidationError)}>
                   {submitting ? 'Submitting…' : 'Submit depart'}
                 </button>
               )}

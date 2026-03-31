@@ -4,6 +4,29 @@ This document provides a **detailed assessment and summary of each feature and m
 
 ---
 
+## Latest Update (2026-03-27)
+
+The original sections below contain historical mockup notes. The following items describe current implemented behavior:
+
+- **Port assignment and scope**
+  - Port assignment is managed in **Admin User Management** (add/edit user with multi-port checkbox selection).
+  - Login/access is port-scoped:
+    - 0 assigned ports -> blocked access with message:
+      - `No port assigned, please contact Jetty Planning System Admin`
+    - 1 assigned port -> auto-select.
+    - >1 assigned ports -> user must select port before entering operational pages.
+  - Header includes a port switcher for multi-port users.
+  - Selected port persistence is **session only**.
+  - Operational modules are filtered/scoped by selected port globally; Admin/Master are excluded from this restriction.
+
+- **Clearance module**
+  - Verification uses API-backed data (`operations` / `operation-documents`), not mock-only state.
+  - Depart flow is **CAST Off only** (HOSE removed).
+  - Upload evidence is persisted and shown in SAILED read-only view.
+  - Table includes status chips, filters/sort, and expandable vessel details.
+
+---
+
 ## 1. Project overview
 
 | Aspect | Description |
@@ -168,6 +191,7 @@ This document provides a **detailed assessment and summary of each feature and m
 
 - **Master menu** (`Master.jsx`): Three cards — Port, Jetty, Jetty Layout.
 - **Master – Port** (`MasterPort.jsx`): Table of ports; Add / Edit modal (name, description). Data: `masterData` (getPorts, addPort, updatePort). Activity log: logActivity on add/update.
+- **Master – Port** (`MasterPort.jsx`): Table of ports; Add / Edit modal (name, description). User-to-port assignment is no longer handled here.
 - **Master – Jetty** (`MasterJetty.jsx`): Table of jetties (port, order no, name, description); Add / Edit modal (port, order, name, description). Data: `masterData` (getPorts, getJetties, addJetty, updateJetty). Activity log on add/update.
 - **Master – Jetty Layout** (`MasterJettyLayout.jsx`): Select port; set number of columns; per-column slots: Top (jetty/unused), Middle (block/unused), Bottom (jetty/unused). Use default layout; Save layout. Data: `masterData` (getPorts, getJettiesByPort, getJettyLayout, setJettyLayout, buildDefaultJettyLayout). Activity log on save.
 - **Persistence**: All in-memory in `Frontend/src/data/masterData.js` (ports, jetties, jettyLayoutsByPortId). Used by Allocation (JettySchematic) and by JettySchematic component.

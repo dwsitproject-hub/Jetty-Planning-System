@@ -19,9 +19,14 @@ export default function DropdownMultiSelect({
   label,
   id,
   className = '',
+  disabled = false,
 }) {
   const [open, setOpen] = useState(false)
   const containerRef = useRef(null)
+
+  useEffect(() => {
+    if (disabled) setOpen(false)
+  }, [disabled])
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -41,6 +46,7 @@ export default function DropdownMultiSelect({
   const displayText = selectedLabels.length > 0 ? selectedLabels.join(', ') : placeholder
 
   const toggleOption = (value) => {
+    if (disabled) return
     const next = selectedValues.includes(value)
       ? selectedValues.filter((x) => x !== value)
       : [...selectedValues, value]
@@ -82,6 +88,7 @@ export default function DropdownMultiSelect({
                     <input
                       type="checkbox"
                       checked={selectedValues.includes(opt.value)}
+                      disabled={disabled}
                       onChange={() => toggleOption(opt.value)}
                     />
                     <span>{opt.label}</span>

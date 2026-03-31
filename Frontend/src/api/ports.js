@@ -18,3 +18,13 @@ export function updatePortApi(id, { name, description }) {
     description: description ?? null,
   })
 }
+
+export function fetchPortUsers(portId) {
+  return apiGet(`/ports/${portId}/users`)
+}
+
+export function savePortUsers(portId, userIds) {
+  return apiPut(`/ports/${portId}/users`, {
+    user_ids: Array.isArray(userIds) ? userIds : [],
+  })
+}

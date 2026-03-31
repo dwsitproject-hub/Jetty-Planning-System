@@ -3,6 +3,7 @@
  */
 import express from 'express';
 import { pool } from '../db.js';
+import { requireAuth } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -71,6 +72,93 @@ router.delete('/:id', async (req, res) => {
   );
   if (result.rows.length === 0) return res.status(404).json({ error: 'Port not found' });
   res.status(204).send();
+});
+
+/**
+ * Deprecated: port-centric user assignment.
+ * Ownership has moved to user-centric APIs in /users/:id/ports.
+ * Kept temporarily for backward compatibility during transition.
+ */
+router.get('/:id/users', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  const port = await pool.query(`SELECT id FROM ports WHERE id = $1 AND deleted_at IS NULL`, [id]);
+  if (port.rows.length === 0) return res.status(404).json({ error: 'Port not found' });
+
+  const users = await pool.query(
+    `SELECT
+       u.id, u.username, u.display_name, u.email, u.is_active,
+       EXISTS(
+         SELECT 1
+         FROM user_ports up
+         WHERE up.user_id = u.id
+           AND up.port_id = $1
+           AND up.deleted_at IS NULL
+       ) AS assigned
+     FROM users u
+     WHERE u.deleted_at IS NULL
+     ORDER BY u.username ASC`,
+    [id]
+  );
+  res.json(
+    users.rows.map((u) => ({
+      id: Number(u.id),
+      username: u.username,
+      displayName: u.display_name ?? null,
+      email: u.email ?? null,
+      isActive: Boolean(u.is_active),
+      assigned: Boolean(u.assigned),
+    }))
+  );
+});
+
+router.put('/:id/users', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  const userIds = Array.isArray(req.body?.user_ids) ? req.body.user_ids : null;
+  if (!userIds) return res.status(400).json({ error: 'user_ids must be an array' });
+
+  const normalized = [...new Set(userIds.map((v) => parseInt(v, 10)).filter((n) => Number.isFinite(n) && n > 0))];
+
+  const port = await pool.query(`SELECT id FROM ports WHERE id = $1 AND deleted_at IS NULL`, [id]);
+  if (port.rows.length === 0) return res.status(404).json({ error: 'Port not found' });
+
+  if (normalized.length > 0) {
+    const users = await pool.query(
+      `SELECT id FROM users WHERE id = ANY($1::bigint[]) AND deleted_at IS NULL`,
+      [normalized]
+    );
+    if (users.rows.length !== normalized.length) {
+      return res.status(400).json({ error: 'One or more user_ids are invalid' });
+    }
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE user_ports
+       SET deleted_at = NOW(), updated_at = NOW()
+       WHERE port_id = $1 AND deleted_at IS NULL`,
+      [id]
+    );
+    for (const uid of normalized) {
+      await client.query(
+        `INSERT INTO user_ports (user_id, port_id)
+         VALUES ($1, $2)`,
+        [uid, id]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+
+  res.json({ ok: true, portId: id, userIds: normalized });
 });
 
 function toPort(row) {

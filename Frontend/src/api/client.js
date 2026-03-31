@@ -6,6 +6,7 @@ const BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1
   /\/$/,
   ''
 )
+const SELECTED_PORT_SESSION_KEY = 'jps_selected_port_id'
 
 /** Browser fetch can hang indefinitely if the API host is down; cap wait time. */
 const DEFAULT_TIMEOUT_MS = 18000
@@ -42,7 +43,26 @@ function authHeaders() {
   const token = typeof localStorage !== 'undefined' ? localStorage.getItem('jps_token') : null
   const headers = { Accept: 'application/json' }
   if (token) headers.Authorization = `Bearer ${token}`
+  const selectedPortId =
+    typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(SELECTED_PORT_SESSION_KEY) : null
+  if (selectedPortId) headers['X-Selected-Port-Id'] = selectedPortId
   return headers
+}
+
+export function getSelectedPortId() {
+  if (typeof sessionStorage === 'undefined') return null
+  const v = sessionStorage.getItem(SELECTED_PORT_SESSION_KEY)
+  const n = parseInt(String(v ?? '').trim(), 10)
+  return Number.isFinite(n) ? n : null
+}
+
+export function setSelectedPortId(portId) {
+  if (typeof sessionStorage === 'undefined') return
+  if (portId == null || portId === '') {
+    sessionStorage.removeItem(SELECTED_PORT_SESSION_KEY)
+    return
+  }
+  sessionStorage.setItem(SELECTED_PORT_SESSION_KEY, String(portId))
 }
 
 async function parseResponse(res) {

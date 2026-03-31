@@ -6,10 +6,6 @@ import { useRbac } from '../context/RbacContext'
 import { ApiError } from '../api/client'
 import '../styles/allocation.css'
 
-const API_HINT =
-  (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1').replace(/\/$/, '') +
-  ' — start the Backend (e.g. Docker `jps-api` or `npm run dev` in Backend) so login can reach the API.'
-
 export default function Login() {
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('')
@@ -42,10 +38,6 @@ export default function Login() {
   return (
     <div className="allocation-page" style={{ maxWidth: '24rem', margin: '2rem auto' }}>
       <h1 className="page-title">Sign in</h1>
-      <p className="text-steel">JWT stored for Admin / RBAC API calls.</p>
-      <p className="text-steel" style={{ fontSize: '0.85rem', marginTop: '0.35rem' }}>
-        {API_HINT}
-      </p>
       <form onSubmit={handleSubmit} className="card" style={{ padding: '1.25rem' }}>
         {error && <p style={{ color: '#c00' }}>{error}</p>}
         <label className="modal__label">Username</label>

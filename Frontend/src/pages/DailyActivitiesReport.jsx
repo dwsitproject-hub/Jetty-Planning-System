@@ -1,18 +1,15 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
+import { fetchOperations, fetchActivityTimeline } from '../api/operations'
+import { fetchAllocationOverview } from '../api/allocation'
+import { fetchShippingInstruction } from '../api/shippingInstructions'
+import { fetchJetties } from '../api/jetties'
 import {
-  allocationPlan,
-  BERTH_IDS,
-  getLoadingOperationCargo,
-  getArrivalNor,
-  getBerthingEvents,
-  getAtBerthOperations,
-  vessels,
-} from '../data/mockData'
-import { buildDailyActivitiesReport } from '../data/reportData'
+  operationIsBerthedForReport,
+  buildSingleOperationReportBlock,
+} from '../data/dailyActivitiesReportFromApi'
 import { downloadDailyActivitiesReportExcel } from '../data/dailyActivitiesReportExcel'
-import { useLoading } from '../context/LoadingContext'
-import { useClearance } from '../context/ClearanceContext'
+import { usePortScope } from '../context/PortScopeContext'
 import DropdownMultiSelect from '../components/DropdownMultiSelect'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import '../styles/allocation.css'
@@ -29,6 +26,8 @@ const HEADER_FIELDS = [
   { key: 'consignee', label: 'Consignee' },
   { key: 'surveyor', label: 'Surveyor' },
   { key: 'agent', label: 'Agent' },
+  { key: 'demurrageLiabilityFrom', label: 'Demurrage liability from' },
+  { key: 'operationStatus', label: 'Operation status' },
 ]
 
 function getDefaultDateRange() {
@@ -41,76 +40,179 @@ function getDefaultDateRange() {
   }
 }
 
-/** Build vessel options for multi-select (allocation + at-berth, unique by vesselId) */
-function getVesselOptions() {
-  const loadingOps = getAtBerthOperations('Loading') || []
-  const unloadingOps = getAtBerthOperations('Unloading') || []
-  const planVessels = (allocationPlan || []).map((p) => ({ vesselId: p.vesselId, vesselName: p.vesselName || p.vesselId }))
-  const atBerthVessels = [...loadingOps, ...unloadingOps].map((o) => ({ vesselId: o.vesselId, vesselName: o.vesselName || o.vesselId }))
-  const byId = new Map()
-  ;[...planVessels, ...atBerthVessels].forEach((v) => {
-    if (!byId.has(v.vesselId)) byId.set(v.vesselId, v)
-  })
-  return Array.from(byId.values()).sort((a, b) => (a.vesselName || '').localeCompare(b.vesselName || ''))
-}
-
-const JETTY_OPTIONS = BERTH_IDS
-
 export default function DailyActivitiesReport() {
-  const { getSteps, getPreChecking, getPostChecking, getLoadingOperation } = useLoading()
-  const { getClearance } = useClearance()
+  const {
+    selectedPortId,
+    requiresSelection,
+    noPortAssigned,
+    noPortMessage,
+  } = usePortScope()
   const defaultRange = useMemo(getDefaultDateRange, [])
 
   const [startDate, setStartDate] = useState(defaultRange.startDate)
   const [endDate, setEndDate] = useState(defaultRange.endDate)
-  const [selectedVesselIds, setSelectedVesselIds] = useState([])
+  const [selectedOperationIds, setSelectedOperationIds] = useState([])
   const [selectedJettyIds, setSelectedJettyIds] = useState([])
 
+  const [jetties, setJetties] = useState([])
+  const [berthedOps, setBerthedOps] = useState([])
+  const [filterDataLoading, setFilterDataLoading] = useState(false)
+  const [filterLoadError, setFilterLoadError] = useState(null)
+
   const [appliedFilters, setAppliedFilters] = useState(null)
+  const [reportVessels, setReportVessels] = useState([])
+  const [reportLoading, setReportLoading] = useState(false)
+  const [reportError, setReportError] = useState(null)
 
-  const vesselOptions = useMemo(getVesselOptions, [])
+  useEffect(() => {
+    if (selectedPortId == null) {
+      setJetties([])
+      setBerthedOps([])
+      setFilterLoadError(null)
+      return
+    }
+    let cancelled = false
+    setFilterDataLoading(true)
+    setFilterLoadError(null)
+    ;(async () => {
+      try {
+        const [jetList, ops] = await Promise.all([
+          fetchJetties(selectedPortId),
+          fetchOperations({ portId: selectedPortId }),
+        ])
+        if (cancelled) return
+        setJetties(Array.isArray(jetList) ? jetList : [])
+        const berthed = (Array.isArray(ops) ? ops : []).filter(operationIsBerthedForReport)
+        setBerthedOps(berthed)
+      } catch (e) {
+        if (!cancelled) {
+          setFilterLoadError(e?.message || 'Failed to load filters')
+          setJetties([])
+          setBerthedOps([])
+        }
+      } finally {
+        if (!cancelled) setFilterDataLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedPortId])
+
+  useEffect(() => {
+    setAppliedFilters(null)
+    setReportVessels([])
+    setReportError(null)
+    setSelectedOperationIds([])
+    setSelectedJettyIds([])
+  }, [selectedPortId])
+
   const jettyOptions = useMemo(
-    () => JETTY_OPTIONS.map((id) => ({ value: id, label: id })),
-    []
+    () =>
+      jetties.map((j) => ({
+        value: String(j.id),
+        label: j.name || `Jetty ${j.id}`,
+      })),
+    [jetties]
   )
-  const vesselSelectOptions = useMemo(
-    () => vesselOptions.map(({ vesselId, vesselName }) => ({ value: vesselId, label: vesselName || vesselId })),
-    [vesselOptions]
-  )
 
-  const report = useMemo(() => {
-    const filters = appliedFilters || {
-      startDate,
-      endDate,
-      selectedVesselIds,
-      selectedJettyIds,
+  const vesselSelectOptions = useMemo(() => {
+    return [...berthedOps]
+      .sort((a, b) => {
+        const na = `${a.vesselName || ''} ${a.referenceNumber || ''}`.toLowerCase()
+        const nb = `${b.vesselName || ''} ${b.referenceNumber || ''}`.toLowerCase()
+        return na.localeCompare(nb)
+      })
+      .map((op) => ({
+        value: String(op.id),
+        label: [op.vesselName || '—', op.referenceNumber].filter(Boolean).join(' · '),
+      }))
+  }, [berthedOps])
+
+  const canRunReport = selectedPortId != null && !requiresSelection && !noPortAssigned
+
+  const handleGenerateReport = useCallback(async () => {
+    if (!canRunReport) return
+    setReportLoading(true)
+    setReportError(null)
+    try {
+      const [operations, overview] = await Promise.all([
+        fetchOperations({ portId: selectedPortId }),
+        fetchAllocationOverview(),
+      ])
+      const overviewByOpId = new Map()
+      for (const row of overview?.queue || []) {
+        if (row.operationId != null) overviewByOpId.set(Number(row.operationId), row)
+      }
+
+      let ops = (Array.isArray(operations) ? operations : []).filter(operationIsBerthedForReport)
+
+      if (selectedJettyIds.length > 0) {
+        const want = new Set(selectedJettyIds.map((id) => Number(id)))
+        ops = ops.filter((o) => o.jettyId != null && want.has(Number(o.jettyId)))
+      }
+      if (selectedOperationIds.length > 0) {
+        const want = new Set(selectedOperationIds.map(String))
+        ops = ops.filter((o) => want.has(String(o.id)))
+      }
+
+      const siIds = [...new Set(ops.map((o) => o.shippingInstructionId).filter(Boolean))]
+      const siMap = new Map()
+      await Promise.all(
+        siIds.map(async (id) => {
+          try {
+            const si = await fetchShippingInstruction(id)
+            siMap.set(id, si)
+          } catch {
+            siMap.set(id, null)
+          }
+        })
+      )
+
+      const blocks = []
+      await Promise.all(
+        ops.map(async (op) => {
+          try {
+            const tl = await fetchActivityTimeline(op.id)
+            const events = Array.isArray(tl?.events) ? tl.events : []
+            const block = buildSingleOperationReportBlock(
+              op,
+              siMap.get(op.shippingInstructionId) ?? null,
+              overviewByOpId.get(Number(op.id)),
+              events,
+              startDate,
+              endDate
+            )
+            if (block) blocks.push(block)
+          } catch {
+            /* skip operation if timeline fails */
+          }
+        })
+      )
+
+      blocks.sort((a, b) => (a.vesselName || '').localeCompare(b.vesselName || ''))
+      setReportVessels(blocks)
+      setAppliedFilters({
+        startDate,
+        endDate,
+        selectedOperationIds: [...selectedOperationIds],
+        selectedJettyIds: [...selectedJettyIds],
+      })
+    } catch (e) {
+      setReportError(e?.message || 'Failed to build report')
+      setReportVessels([])
+      setAppliedFilters(null)
+    } finally {
+      setReportLoading(false)
     }
-    const deps = {
-      allocationPlan,
-      getLoadingOperationCargo,
-      getArrivalNor,
-      getBerthingEvents,
-      getPreChecking,
-      getPostChecking,
-      getLoadingOperation,
-      getClearance,
-      getAtBerthOperations,
-      getSteps,
-      vessels,
-    }
-    return buildDailyActivitiesReport(filters, deps)
-  }, [appliedFilters, startDate, endDate, selectedVesselIds, selectedJettyIds, getPreChecking, getPostChecking, getLoadingOperation, getClearance])
-
-  const reportVessels = report.vessels || []
-
-  const handleGenerateReport = useCallback(() => {
-    setAppliedFilters({
-      startDate,
-      endDate,
-      selectedVesselIds: [...selectedVesselIds],
-      selectedJettyIds: [...selectedJettyIds],
-    })
-  }, [startDate, endDate, selectedVesselIds, selectedJettyIds])
+  }, [
+    canRunReport,
+    selectedPortId,
+    selectedJettyIds,
+    selectedOperationIds,
+    startDate,
+    endDate,
+  ])
 
   const [exporting, setExporting] = useState(false)
   const handleDownloadExcel = useCallback(async () => {
@@ -127,18 +229,39 @@ export default function DailyActivitiesReport() {
     }
   }, [appliedFilters, reportVessels])
 
+  function renderHeaderValue(key, raw) {
+    if (key === 'demurrageLiabilityFrom') {
+      return formatDateTimeDisplay(raw)
+    }
+    return raw ?? '—'
+  }
+
   return (
     <div className="allocation-page daily-activities-report">
       <h1 className="page-title">Daily Activities Report</h1>
       <p className="allocation-page__intro">
-        End-to-end activities from Vessel Arrived (TA) until Vessel Cast Off / Sailed. Filter by date range and optionally by vessel or jetty.
+        At-berth operations for the selected port (including sailed), with activity timeline from Pre / Operational / Post.
+        Vessels not yet alongside (no TB / docking) are excluded. Filter by date range and optionally by jetty or operation.
       </p>
       <p className="text-steel">
         <Link to="/reporting" className="link">← Back to Reporting</Link>
       </p>
 
+      {noPortAssigned && (
+        <section className="card">
+          <p className="text-steel">{noPortMessage}</p>
+        </section>
+      )}
+      {requiresSelection && (
+        <section className="card">
+          <p className="text-steel">Select a port in the header to run this report.</p>
+        </section>
+      )}
+
       <section className="card daily-activities-report__filters">
         <h2 className="card__title">Filters</h2>
+        {filterLoadError && <p className="text-steel" role="alert">{filterLoadError}</p>}
+        {filterDataLoading && canRunReport && <p className="text-steel">Loading jetties and operations…</p>}
         <div className="daily-activities-report__filter-grid">
           <div className="daily-activities-report__field">
             <label htmlFor="report-start-date" className="daily-activities-report__label">Start date</label>
@@ -148,6 +271,7 @@ export default function DailyActivitiesReport() {
               className="daily-activities-report__input"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
+              disabled={!canRunReport}
             />
           </div>
           <div className="daily-activities-report__field">
@@ -158,6 +282,7 @@ export default function DailyActivitiesReport() {
               className="daily-activities-report__input"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
+              disabled={!canRunReport}
             />
           </div>
         </div>
@@ -170,15 +295,17 @@ export default function DailyActivitiesReport() {
             selectedValues={selectedJettyIds}
             onChange={setSelectedJettyIds}
             className="daily-activities-report__dropdown"
+            disabled={!canRunReport || jettyOptions.length === 0}
           />
           <DropdownMultiSelect
             id="report-vessel"
-            label="Vessel (optional, multi-select)"
-            placeholder="Select vessel..."
+            label="Operation / vessel (optional, multi-select)"
+            placeholder="Select operation..."
             options={vesselSelectOptions}
-            selectedValues={selectedVesselIds}
-            onChange={setSelectedVesselIds}
+            selectedValues={selectedOperationIds}
+            onChange={setSelectedOperationIds}
             className="daily-activities-report__dropdown"
+            disabled={!canRunReport || vesselSelectOptions.length === 0}
           />
         </div>
         <div className="daily-activities-report__actions">
@@ -186,8 +313,9 @@ export default function DailyActivitiesReport() {
             type="button"
             className="btn btn--primary"
             onClick={handleGenerateReport}
+            disabled={!canRunReport || reportLoading}
           >
-            Generate Report
+            {reportLoading ? 'Generating…' : 'Generate Report'}
           </button>
           <button
             type="button"
@@ -199,18 +327,23 @@ export default function DailyActivitiesReport() {
             {exporting ? 'Preparing…' : 'Download Excel'}
           </button>
         </div>
+        {reportError && <p className="text-steel" role="alert">{reportError}</p>}
       </section>
 
       {!appliedFilters ? (
         <section className="card">
-          <p className="text-steel">Set filters and click <strong>Generate Report</strong> to view the report.</p>
+          <p className="text-steel">
+            {canRunReport
+              ? <>Set filters and click <strong>Generate Report</strong> to view the report.</>
+              : <>Select a port to use this report.</>}
+          </p>
         </section>
       ) : reportVessels.length === 0 ? (
         <section className="card">
-          <p className="text-steel">No vessels match the selected filters.</p>
+          <p className="text-steel">No operations match the selected filters or date range (timelog has no rows in range).</p>
         </section>
       ) : (
-        reportVessels.map(({ vesselId, vesselName, header, timelog, progress }) => (
+        reportVessels.map(({ vesselId, vesselName, header, timelog }) => (
           <section key={vesselId} className="card daily-activities-report__vessel">
             <h2 className="daily-activities-report__vessel-title">{vesselName}</h2>
 
@@ -220,7 +353,7 @@ export default function DailyActivitiesReport() {
                 {HEADER_FIELDS.map(({ key, label }) => (
                   <div key={key} className="daily-activities-report__header-row">
                     <dt>{label}</dt>
-                    <dd>{header[key] ?? '—'}</dd>
+                    <dd>{renderHeaderValue(key, header[key])}</dd>
                   </div>
                 ))}
               </dl>
@@ -234,6 +367,7 @@ export default function DailyActivitiesReport() {
                     <tr>
                       <th className="allocation-table__th">Activity Category</th>
                       <th className="allocation-table__th">Remark</th>
+                      <th className="allocation-table__th">Status</th>
                       <th className="allocation-table__th">Date time</th>
                       <th className="allocation-table__th">End Date time</th>
                     </tr>
@@ -241,13 +375,14 @@ export default function DailyActivitiesReport() {
                   <tbody>
                     {timelog.length === 0 ? (
                       <tr>
-                        <td colSpan={4} className="text-steel">No timelog entries.</td>
+                        <td colSpan={5} className="text-steel">No timelog entries.</td>
                       </tr>
                     ) : (
                       timelog.map((row, idx) => (
                         <tr key={idx} className="allocation-table__row">
                           <td>{row.category || '—'}</td>
                           <td>{row.remark || '—'}</td>
+                          <td>{row.status || '—'}</td>
                           <td>{formatDateTimeDisplay(row.dateTime)}</td>
                           <td>{formatDateTimeDisplay(row.endDateTime)}</td>
                         </tr>
@@ -256,24 +391,6 @@ export default function DailyActivitiesReport() {
                   </tbody>
                 </table>
               </div>
-            </div>
-
-            <div className="daily-activities-report__progress">
-              <h3 className="daily-activities-report__section-title">Progress Loading / Unloading</h3>
-              <dl className="daily-activities-report__header-dl daily-activities-report__progress-dl">
-                <div className="daily-activities-report__header-row">
-                  <dt>QTY LOAD / DISCHARGE</dt>
-                  <dd>{progress.qtyLoadDischarge}</dd>
-                </div>
-                <div className="daily-activities-report__header-row">
-                  <dt>RATE</dt>
-                  <dd>{progress.rate}</dd>
-                </div>
-                <div className="daily-activities-report__header-row">
-                  <dt>BALANCE</dt>
-                  <dd>{progress.balance}</dd>
-                </div>
-              </dl>
             </div>
           </section>
         ))

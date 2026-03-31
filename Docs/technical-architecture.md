@@ -6,6 +6,53 @@
 
 ---
 
+## 0. Latest Update Addendum (2026-03-27)
+
+This addendum reflects implemented behavior that supersedes older sections in this document.
+
+### 0.1 Port-scoped access model (implemented)
+
+- Access scope is now **Port-based** with hierarchy **Port -> Jetty**.
+- New mapping table: `user_ports` (active user-to-port assignment).
+- Operational APIs are scoped by selected port via request header:
+  - `X-Selected-Port-Id`
+- Scope behavior:
+  - User has **0 assigned ports** -> access blocked with:
+    - `No port assigned, please contact Jetty Planning System Admin`
+  - User has **1 assigned port** -> auto-selected.
+  - User has **>1 assigned ports** -> user must select a port first.
+- Frontend stores selected port in **session storage only** (not local storage), and supports **runtime port switch** from the header.
+- Scope applies to operational modules globally (Shipping Instruction, Allocation/Berthing, At-Berth, Loading/Unloading, Verification/Clearance, related activity/doc APIs), while Admin/Master modules remain accessible for configuration.
+
+### 0.2 New/updated APIs for port assignment
+
+- `GET /users/me/ports` -> assigned ports for logged-in user.
+- `GET /users/:id/ports` -> assigned ports for a specific user (Admin User Management).
+- `PUT /users/:id/ports` -> replace assigned ports for a specific user.
+- `GET /ports/:id/users` -> list users with assignment flag for a port.
+- `PUT /ports/:id/users` -> replace assigned users for a port.
+
+Current UI ownership:
+
+- Port assignment is managed in **Admin -> User Management** (add/edit user).
+- Master Port no longer provides assign-user UI; port-centric endpoints remain temporarily for compatibility/deprecation window.
+
+### 0.3 Clearance contract update (implemented)
+
+- Depart now requires **cast-off only**:
+  - `POST /operations/:id/depart` body:
+    - required: `cast_off_at`
+    - optional: `clearance_document_url`, `vessel_photo_url`
+- `hose_off_at` has been removed from active UI/API flow.
+- Frontend Verification page now records CAST Off only and persists evidence links via operation documents.
+
+### 0.4 Data model update
+
+- Added table: `user_ports` (migration `033_user_ports.sql`).
+- Removed `operations.hose_off_at` column from runtime model (migration `032_remove_hose_off_at.sql`).
+
+---
+
 ## 1. Overview
 
 ### 1.1 Vision

@@ -55,6 +55,7 @@ function formatListRow(r) {
     sobDateTime: r.sob_datetime || null,
     norTenderedDateTime: r.nor_tendered_datetime || null,
     norAcceptedDateTime: r.nor_accepted_datetime || null,
+    demurrageLiabilityFromDateTime: r.demurrage_liability_from_datetime || null,
     plannedEtbDateTime: r.planned_etb_datetime || null,
     tbDateTime: r.tb_datetime || null,
     estimatedCompletionDateTime: r.estimated_completion_datetime || null,
@@ -69,6 +70,7 @@ function formatListRow(r) {
 }
 
 router.get('/overview', async (req, res) => {
+  const selectedPortId = Number(req.selectedPortId);
   // NOTE: Allocation page is already hidden by frontend RBAC, but we still keep API auth optional for now.
   // If you want server-side enforcement, add requireAuth + requirePageView('allocation') here.
 
@@ -77,7 +79,10 @@ router.get('/overview', async (req, res) => {
      FROM jetties j
      JOIN ports p ON p.id = j.port_id AND p.deleted_at IS NULL
      WHERE j.deleted_at IS NULL
+       AND p.id = $1
      ORDER BY j.order_no ASC, j.name ASC`
+    ,
+    [selectedPortId]
   );
 
   const activeOpsRes = await pool.query(
@@ -119,6 +124,7 @@ router.get('/overview', async (req, res) => {
         o.cast_off_at AS cast_off_datetime,
         o.nor_tendered_at AS nor_tendered_datetime,
         o.nor_accepted_at AS nor_accepted_datetime,
+        o.demurrage_liability_from_at AS demurrage_liability_from_datetime,
         (to_char(COALESCE(o.eta, si.eta, (si.eta_to::timestamptz), (si.eta_from::timestamptz)) AT TIME ZONE 'UTC', 'DD/MM HH24:MI'))::text AS eta_display,
         CASE WHEN COALESCE(o.etb, o.docking_start_time) IS NULL THEN NULL
              ELSE (to_char(COALESCE(o.etb, o.docking_start_time) AT TIME ZONE 'UTC', 'DD/MM HH24:MI'))
@@ -132,10 +138,12 @@ router.get('/overview', async (req, res) => {
      LEFT JOIN si_agents ag ON ag.id = si.agent_id AND ag.deleted_at IS NULL
      LEFT JOIN si_surveyors sv ON sv.id = si.surveyor_id AND sv.deleted_at IS NULL
      LEFT JOIN jetties j ON j.id = o.jetty_id AND j.deleted_at IS NULL
+     LEFT JOIN ports p ON p.id = j.port_id AND p.deleted_at IS NULL
      WHERE o.deleted_at IS NULL
+       AND p.id = $2
        AND o.status <> 'SAILED'
      ORDER BY COALESCE(o.docking_start_time, si.eta, si.eta_from::timestamptz) ASC NULLS LAST, o.id ASC`,
-    ['operation']
+    ['operation', selectedPortId]
   );
 
   const incomingSiRes = await pool.query(
@@ -162,6 +170,7 @@ router.get('/overview', async (req, res) => {
         NULL::timestamptz AS sob_datetime,
         NULL::timestamptz AS nor_tendered_datetime,
         NULL::timestamptz AS nor_accepted_datetime,
+        NULL::timestamptz AS demurrage_liability_from_datetime,
         (to_char(COALESCE(si.eta, (si.eta_to::timestamptz), (si.eta_from::timestamptz)) AT TIME ZONE 'UTC', 'DD/MM HH24:MI'))::text AS eta_display,
         NULL::text AS etb_display,
         $1::text AS source_kind,
@@ -172,14 +181,16 @@ router.get('/overview', async (req, res) => {
      LEFT JOIN si_agents ag ON ag.id = si.agent_id AND ag.deleted_at IS NULL
      LEFT JOIN si_surveyors sv ON sv.id = si.surveyor_id AND sv.deleted_at IS NULL
      LEFT JOIN jetties j ON j.id = si.preferred_jetty_id AND j.deleted_at IS NULL
+     LEFT JOIN ports p ON p.id = j.port_id AND p.deleted_at IS NULL
      WHERE si.deleted_at IS NULL
        AND si.status = 'Approved'
+       AND (si.preferred_jetty_id IS NULL OR p.id = $2)
        AND NOT EXISTS (
          SELECT 1 FROM operations o
          WHERE o.deleted_at IS NULL AND o.shipping_instruction_id = si.id
        )
      ORDER BY COALESCE(si.eta, (si.eta_to::timestamptz), (si.eta_from::timestamptz)) ASC NULLS LAST, si.id ASC`,
-    ['shipping-instruction']
+    ['shipping-instruction', selectedPortId]
   );
 
   // Build berths occupancy from active operations.
@@ -222,6 +233,7 @@ router.get('/overview', async (req, res) => {
  * ETA rule: client can send ETA; if empty, we derive from SI.eta_to (or eta/eta_from).
  */
 router.put('/arrival', optionalAuth, async (req, res) => {
+  const selectedPortId = Number(req.selectedPortId);
   const b = req.body || {};
   const shippingInstructionId = b.shippingInstructionId != null ? parseInt(b.shippingInstructionId, 10) : null;
   const operationId = b.operationId != null ? parseInt(b.operationId, 10) : null;
@@ -237,13 +249,19 @@ router.put('/arrival', optionalAuth, async (req, res) => {
     let opRow = null;
     if (operationId != null && !Number.isNaN(operationId)) {
       const op = await client.query(
-        `SELECT o.id, o.shipping_instruction_id, o.jetty_id
+        `SELECT o.id, o.shipping_instruction_id, o.jetty_id, p.id AS port_id
          FROM operations o
+         LEFT JOIN jetties j ON j.id = o.jetty_id AND j.deleted_at IS NULL
+         LEFT JOIN ports p ON p.id = j.port_id AND p.deleted_at IS NULL
          WHERE o.id = $1 AND o.deleted_at IS NULL`,
         [operationId]
       );
       opRow = op.rows[0] ?? null;
       if (!opRow) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Operation not found' });
+      }
+      if (opRow.port_id != null && Number(opRow.port_id) !== selectedPortId) {
         await client.query('ROLLBACK');
         return res.status(404).json({ error: 'Operation not found' });
       }
@@ -289,7 +307,7 @@ router.put('/arrival', optionalAuth, async (req, res) => {
     const opBeforeRes = await client.query(
       `SELECT
          eta, ta, etb, pob, tb, sob,
-         nor_tendered_at, nor_accepted_at,
+         nor_tendered_at, nor_accepted_at, demurrage_liability_from_at,
          no_pkk, priority, remark, jetty_id, estimated_completion_time
        FROM operations
        WHERE id = $1 AND deleted_at IS NULL`,
@@ -318,6 +336,13 @@ router.put('/arrival', optionalAuth, async (req, res) => {
     const estimatedCompletion = parseTs(b.estimatedCompletionDateTime);
     const norTendered = parseTs(b.norTenderedDateTime);
     const norAccepted = parseTs(b.norAcceptedDateTime);
+    const demurrageLiabilityFromExplicit = Object.prototype.hasOwnProperty.call(
+      b,
+      'demurrageLiabilityFromDateTime'
+    );
+    const demurrageLiabilityFrom = demurrageLiabilityFromExplicit
+      ? parseTs(b.demurrageLiabilityFromDateTime)
+      : null;
     const remark = b.remark != null ? String(b.remark).trim() : null;
     const priority = b.priority != null ? String(b.priority).trim() : null;
     const noPkk = b.noPkk != null ? String(b.noPkk).trim() : null;
@@ -328,8 +353,12 @@ router.put('/arrival', optionalAuth, async (req, res) => {
       const short = String(b.jetty).trim();
       const full = /^jetty\s+/i.test(short) ? short : `Jetty ${short}`;
       const jr = await client.query(
-        `SELECT id FROM jetties WHERE deleted_at IS NULL AND (name = $1 OR name = $2) ORDER BY id LIMIT 1`,
-        [short, full]
+        `SELECT id FROM jetties
+         WHERE deleted_at IS NULL
+           AND port_id = $3
+           AND (name = $1 OR name = $2)
+         ORDER BY id LIMIT 1`,
+        [short, full, selectedPortId]
       );
       jettyId = jr.rows[0]?.id ?? null;
     }
@@ -351,19 +380,41 @@ router.put('/arrival', optionalAuth, async (req, res) => {
          sob = $6,
          nor_tendered_at = $7,
          nor_accepted_at = $8,
-         remark = COALESCE($9, remark),
-         priority = COALESCE($10, priority),
-         no_pkk = COALESCE($11, no_pkk),
-         jetty_id = COALESCE($12, jetty_id),
-         estimated_completion_time = $13,
+         demurrage_liability_from_at = CASE
+           WHEN $9::boolean THEN $10::timestamptz
+           ELSE demurrage_liability_from_at
+         END,
+         remark = COALESCE($11, remark),
+         priority = COALESCE($12, priority),
+         no_pkk = COALESCE($13, no_pkk),
+         jetty_id = COALESCE($14, jetty_id),
+         estimated_completion_time = $15,
          updated_at = NOW()
-       WHERE id = $14 AND deleted_at IS NULL`,
-      [eta, ta, etb, pob, tb, sob, norTendered, norAccepted, remark, priority, noPkk, jettyId, estimatedCompletion, opRow.id]
+       WHERE id = $16 AND deleted_at IS NULL`,
+      [
+        eta,
+        ta,
+        etb,
+        pob,
+        tb,
+        sob,
+        norTendered,
+        norAccepted,
+        demurrageLiabilityFromExplicit,
+        demurrageLiabilityFrom,
+        remark,
+        priority,
+        noPkk,
+        jettyId,
+        estimatedCompletion,
+        opRow.id,
+      ]
     );
 
     const shouldUpsertNorMeta =
       norTendered !== undefined ||
-      norAccepted !== undefined;
+      norAccepted !== undefined ||
+      demurrageLiabilityFromExplicit;
     if (shouldUpsertNorMeta) {
       const norMetaPayload = {
         norStage: 'pre_berth',
@@ -407,6 +458,15 @@ router.put('/arrival', optionalAuth, async (req, res) => {
       { field: 'SOB', from: opBefore?.sob ?? null, to: sob ?? null },
       { field: 'NOR Tendered', from: opBefore?.nor_tendered_at ?? null, to: norTendered ?? null },
       { field: 'NOR Accepted', from: opBefore?.nor_accepted_at ?? null, to: norAccepted ?? null },
+      ...(demurrageLiabilityFromExplicit
+        ? [
+            {
+              field: 'Demurrage liability from',
+              from: opBefore?.demurrage_liability_from_at ?? null,
+              to: demurrageLiabilityFrom ?? null,
+            },
+          ]
+        : []),
       { field: 'No PKK', from: opBefore?.no_pkk ?? null, to: noPkk ?? null },
       { field: 'Priority', from: opBefore?.priority ?? null, to: priority ?? null },
       { field: 'Jetty ID', from: opBefore?.jetty_id ?? null, to: jettyId ?? null },
@@ -426,6 +486,8 @@ router.put('/arrival', optionalAuth, async (req, res) => {
         operationId: opRow.id,
         norTenderedSet: norTendered != null,
         norAcceptedSet: norAccepted != null,
+        demurrageLiabilityFromSet:
+          demurrageLiabilityFromExplicit && demurrageLiabilityFrom != null,
       },
       actorUserId: req.userId ?? null,
     }).catch(() => {});

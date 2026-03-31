@@ -34,3 +34,17 @@ export function deleteUser(id) {
 export function fetchMe() {
   return apiGet('/users/me')
 }
+
+export function fetchMyPorts() {
+  return apiGet('/users/me/ports')
+}
+
+export function fetchUserPorts(userId) {
+  return apiGet(`/users/${userId}/ports`)
+}
+
+export function saveUserPorts(userId, portIds) {
+  return apiPut(`/users/${userId}/ports`, {
+    port_ids: Array.isArray(portIds) ? portIds : [],
+  })
+}

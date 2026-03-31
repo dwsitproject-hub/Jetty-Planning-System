@@ -10,7 +10,7 @@ const REPORTS = [
   {
     path: '/reporting/vessel',
     title: 'Jetty - Vessel Report',
-    description: 'List of vessels and their details that have been allocated and berthed into a jetty. Filter by date range and jetty.',
+    description: 'Jetty utilization, allocation by jetty, and full vessel detail for the selected port. Filter by date range and jetty.',
   },
 ]
 

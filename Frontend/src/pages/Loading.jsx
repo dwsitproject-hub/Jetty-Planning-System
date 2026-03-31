@@ -41,19 +41,6 @@ import OperationActivityTimeline from '../components/OperationActivityTimeline'
 import { operationalMilestoneDoneCount, viewModelFromOperationalEntries } from '../data/operationalMilestones'
 import '../styles/allocation.css'
 
-const STAGE_ICON = {
-  'pre-checking': '📋',
-  loading: '⚙️',
-  'post-checking': '✅',
-}
-
-const STAGE_SHORT = {
-  'pre-checking': 'Pre',
-  loading: 'Ops',
-  'post-checking': 'Post',
-}
-
-const LOADING_RAIL_COLLAPSED_KEY = 'jps_loading_stage_rail_collapsed'
 function readBool(key, fallback = false) {
   try {
     const v = localStorage.getItem(key)
@@ -252,8 +239,6 @@ export default function Loading() {
   const purpose = isUnloading ? 'Unloading' : 'Loading'
   const basePath = isUnloading ? '/unloading' : '/loading'
   const purposeLower = purpose.toLowerCase()
-  const [stageRailCollapsed, setStageRailCollapsed] = useState(() => readBool(LOADING_RAIL_COLLAPSED_KEY, false))
-  useEffect(() => writeBool(LOADING_RAIL_COLLAPSED_KEY, stageRailCollapsed), [stageRailCollapsed])
   const operations = getAtBerthOperations(purpose)
   const {
     getSteps,
@@ -643,17 +628,8 @@ export default function Loading() {
 
       <VesselDetailCard detail={vesselDetail} />
 
-      <div className={`loading-process-layout ${stageRailCollapsed ? 'loading-process-layout--stage-collapsed' : ''}`}>
-        <StageRailControlled
-          processStages={processStages}
-          section={section}
-          basePath={basePath}
-          vesselId={vesselId}
-          collapsed={stageRailCollapsed}
-          setCollapsed={setStageRailCollapsed}
-        />
-
-        <div className="vessel-detail-modal__body loading-process-content">
+      <StageTabs processStages={processStages} section={section} basePath={basePath} vesselId={vesselId} />
+      <div className="vessel-detail-modal__body loading-process-content">
         {section === 'pre-checking' && (
           <>
             <PreCheckingSections
@@ -662,12 +638,13 @@ export default function Loading() {
               operationId={operationId}
               operationNorTenderedAt={apiOp?.norTenderedAt ?? null}
               operationNorAcceptedAt={apiOp?.norAcceptedAt ?? null}
+              operationDemurrageLiabilityFromAt={apiOp?.demurrageLiabilityFromAt ?? null}
               getPreChecking={getPreChecking}
               setPreCheckingSection={setPreCheckingSection}
               getArrivalNor={getArrivalNor}
               setArrivalNor={setArrivalNor}
               formatDateTimeDisplay={formatDateTimeDisplay}
-              stageRailCollapsed={stageRailCollapsed}
+              stageRailCollapsed={false}
               onActivityLogRefresh={bumpActivityLogRefresh}
               activityLogRefresh={activityLogRefresh}
             />
@@ -683,7 +660,7 @@ export default function Loading() {
               getPostChecking={getPostChecking}
               setPostCheckingSection={setPostCheckingSection}
               formatDateTimeDisplay={formatDateTimeDisplay}
-              stageRailCollapsed={stageRailCollapsed}
+              stageRailCollapsed={false}
               onActivityLogRefresh={bumpActivityLogRefresh}
               activityLogRefresh={activityLogRefresh}
             />
@@ -713,56 +690,35 @@ export default function Loading() {
             <Link to="/verification" className="btn btn--primary">Proceed to Clearance →</Link>
           </section>
         )}
-        </div>
       </div>
     </div>
   )
 }
 
-function StageRail({ processStages, section, basePath, vesselId }) {
-  // NOTE: collapse state is controlled by parent (so layout grid can reflow).
-  return null
-}
-
-function StageRailControlled({ processStages, section, basePath, vesselId, collapsed, setCollapsed }) {
-  useEffect(() => writeBool(LOADING_RAIL_COLLAPSED_KEY, collapsed), [collapsed])
-
+function StageTabs({ processStages, section, basePath, vesselId }) {
   return (
-    <aside className={`loading-process-rail ${collapsed ? 'loading-process-rail--collapsed' : ''}`} aria-label="Process stages">
-      <div className="loading-process-rail__header">
-        <span className="loading-process-rail__header-title">Stages</span>
-        <button
-          type="button"
-          className="btn btn--secondary btn--small loading-process-rail__collapse"
-          onClick={() => setCollapsed((c) => !c)}
-          aria-label={collapsed ? 'Expand stages navigation' : 'Collapse stages navigation'}
-          title={collapsed ? 'Expand stages' : 'Collapse stages'}
-        >
-          <span className="rail-chevron" aria-hidden>
-            {collapsed ? '›' : '‹'}
-          </span>
-        </button>
-      </div>
-      {processStages.map((s) => (
+    <nav className="loading-stage-tabs" aria-label="Process stages">
+      {processStages.map((s) => {
+        const statusClass = s.done >= s.total ? 'done' : s.done > 0 ? 'in-progress' : 'not-started'
+        return (
         <Link
           key={s.id}
           to={`${basePath}/${vesselId}/${s.id}`}
-          className={`loading-process-rail__item ${section === s.id ? 'loading-process-rail__item--active' : ''}`}
+          className={`loading-stage-tabs__tab loading-stage-tabs__tab--${statusClass} ${section === s.id ? 'loading-stage-tabs__tab--active' : ''}`}
           title={`${s.label} (${s.done}/${s.total} complete)`}
           aria-label={`${s.label} (${s.done} of ${s.total} complete)`}
         >
-          <span className="loading-process-rail__title">
-            <span className="loading-process-rail__icon" aria-hidden>
-              {STAGE_ICON[s.id] || '•'}
-            </span>
-            <span className="loading-process-rail__label">
-              {collapsed ? (STAGE_SHORT[s.id] || s.label) : s.label}
-            </span>
+          <span className="loading-stage-tabs__topline">
+            <span className={`loading-stage-tabs__dot loading-stage-tabs__dot--${statusClass}`} aria-hidden />
+            <span className="loading-stage-tabs__label">{s.label}</span>
           </span>
-          {!collapsed && <span className="loading-process-rail__meta">{s.done} / {s.total} complete</span>}
+          <span className="loading-stage-tabs__meta">
+            {s.done} / {s.total} complete
+          </span>
         </Link>
-      ))}
-    </aside>
+        )
+      })}
+    </nav>
   )
 }
 
@@ -1006,6 +962,7 @@ function PreCheckingSections({
   operationId,
   operationNorTenderedAt,
   operationNorAcceptedAt,
+  operationDemurrageLiabilityFromAt,
   getPreChecking,
   setPreCheckingSection,
   getArrivalNor,
@@ -1020,6 +977,7 @@ function PreCheckingSections({
   const [listCollapsed, setListCollapsed] = useState(() => readBool(PRECHECK_RAIL_COLLAPSED_KEY, false))
   const [autoCollapseAfterSelect, setAutoCollapseAfterSelect] = useState(false)
   const [editingSection, setEditingSection] = useState(null)
+  const [formModalOpen, setFormModalOpen] = useState(false)
   const [draft, setDraft] = useState(() => defaultPreCheckingSection())
   const [editingSamplingRecordId, setEditingSamplingRecordId] = useState(null)
   const [samplingForm, setSamplingForm] = useState({ noPalka: '', ffa: '', moisture: '' })
@@ -1140,6 +1098,10 @@ function PreCheckingSections({
         })
         setPreCheckingSection(vesselId, 'norAccepted', {
           ...norFromSub,
+          demurrageLiabilityFromDateTime:
+            isoOrDatetimeToLocal(operationDemurrageLiabilityFromAt) ||
+            norFromSub.demurrageLiabilityFromDateTime ||
+            '',
           remark: nor?.remark ?? norFromSub.remark ?? '',
           documents: mergedNorDocs,
           sourceModule: inferredSource,
@@ -1153,7 +1115,15 @@ function PreCheckingSections({
         setLoadingPersisted(false)
       })
     return () => { cancelled = true }
-  }, [operationId, vesselId, operationNorTenderedAt, operationNorAcceptedAt, setArrivalNor, setPreCheckingSection])
+  }, [
+    operationId,
+    vesselId,
+    operationNorTenderedAt,
+    operationNorAcceptedAt,
+    operationDemurrageLiabilityFromAt,
+    setArrivalNor,
+    setPreCheckingSection,
+  ])
 
   useEffect(() => {
     if (!saveSuccessMessage) return undefined
@@ -1170,6 +1140,7 @@ function PreCheckingSections({
         ...(current.norAccepted || {}),
         norTenderedDateTime: nor.norTenderedDateTime || '',
         norAcceptedDateTime: nor.norAcceptedDateTime || '',
+        demurrageLiabilityFromDateTime: current.norAccepted?.demurrageLiabilityFromDateTime ?? '',
         documents: current.norAccepted?.documents ?? [],
         remark: current.norAccepted?.remark ?? '',
       }
@@ -1190,8 +1161,8 @@ function PreCheckingSections({
     if (!tab) return
     setActiveSubTab(focus)
     if (searchParams.get('edit') === '1') {
-      setSaveSuccessMessage(`Editing ${tab.label}.`)
       queueMicrotask(() => startEdit(focus))
+      setFormModalOpen(true)
     }
     const next = new URLSearchParams(searchParams)
     next.delete('focus')
@@ -1245,9 +1216,15 @@ function PreCheckingSections({
         norTenderedDateTime: draft.norAccepted.norTenderedDateTime || '',
         norAcceptedDateTime: draft.norAccepted.norAcceptedDateTime || '',
       })
+      const demurrageIso =
+        draft.norAccepted.demurrageLiabilityFromDateTime &&
+        !Number.isNaN(new Date(draft.norAccepted.demurrageLiabilityFromDateTime).getTime())
+          ? new Date(draft.norAccepted.demurrageLiabilityFromDateTime).toISOString()
+          : null
       setPreCheckingSection(vesselId, 'norAccepted', {
         documents: draft.norAccepted.documents || [],
         remark: draft.norAccepted.remark || '',
+        demurrageLiabilityFromDateTime: draft.norAccepted.demurrageLiabilityFromDateTime || '',
         status: nextStatus,
         sourceModule: 'nor_accepted_tab',
       })
@@ -1265,6 +1242,7 @@ function PreCheckingSections({
               norSource: 'nor_accepted_tab',
               updatedVia: 'loading.pre-checking.nor_accepted',
             },
+            demurrageLiabilityFromAt: demurrageIso,
           })
           const subNor = await upsertSubProcess(operationId, 'nor_accepted', {
             phase: 'Pre-Checking',
@@ -1281,7 +1259,10 @@ function PreCheckingSections({
           })
           const norLastSaved = laterIso(norDet?.updatedAt, subNor?.updatedAt)
           if (norLastSaved) {
-            setPreCheckingSection(vesselId, 'norAccepted', { lastSavedAt: norLastSaved })
+            setPreCheckingSection(vesselId, 'norAccepted', {
+              lastSavedAt: norLastSaved,
+              demurrageLiabilityFromDateTime: draft.norAccepted.demurrageLiabilityFromDateTime || '',
+            })
           }
           const pendingNorDocs = (draft.norAccepted.documents || []).filter((d) => d?.file)
           if (pendingNorDocs.length > 0) {
@@ -1295,6 +1276,7 @@ function PreCheckingSections({
                 ...saved,
               ],
               remark: draft.norAccepted.remark || '',
+              demurrageLiabilityFromDateTime: draft.norAccepted.demurrageLiabilityFromDateTime || '',
               status: nextStatus,
               sourceModule: 'nor_accepted_tab',
               ...(norLastSaved ? { lastSavedAt: norLastSaved } : {}),
@@ -1371,6 +1353,7 @@ function PreCheckingSections({
         }
       }
     }
+    if (!goNext) setFormModalOpen(false)
     setSaveSuccessMessage(successMsg)
     if (operationId) onActivityLogRefresh?.()
   }
@@ -1449,6 +1432,13 @@ function PreCheckingSections({
     setEditingSection(null)
     setEditingSamplingRecordId(null)
     setSamplingForm({ noPalka: '', ffa: '', moisture: '' })
+    setFormModalOpen(false)
+  }
+
+  const openFormModal = (tabId = activeSubTab) => {
+    setActiveSubTab(tabId)
+    startEdit(tabId)
+    setFormModalOpen(true)
   }
 
   const samplingRecords = (editingSection === 'sampling' ? draft.sampling?.records : data.sampling?.records) ?? []
@@ -1632,7 +1622,7 @@ function PreCheckingSections({
                           </span>
                         ) : null}
                       </div>
-                      <button type="button" className="btn btn--small" onClick={() => selectTab(tab.id)}>
+                      <button type="button" className="btn btn--small" onClick={() => openFormModal(tab.id)}>
                         Open
                       </button>
                     </>
@@ -1643,6 +1633,16 @@ function PreCheckingSections({
           </div>
         </aside>
         <div className="precheck-master-detail__panel" role="tabpanel" aria-label="Pre-Checking detail">
+          <OperationActivityTimeline
+            operationId={operationId}
+            refreshToken={activityLogRefresh}
+            vesselId={vesselId}
+            basePath={basePath}
+            onActivityLogRefresh={onActivityLogRefresh}
+          />
+          {formModalOpen ? (
+            <div className="modal-overlay" onClick={cancelEdit} aria-hidden="true">
+              <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Pre-Checking form">
       {activeSubTab === 'keyMeeting' && (
       <PreCheckSectionCard
         title="KEY MEETING"
@@ -1764,6 +1764,15 @@ function PreCheckingSections({
                 onChange={(e) => updateDraft('norAccepted', 'norAcceptedDateTime', e.target.value)}
               />
             </div>
+            <div className="berthing-modal__field">
+              <label className="berthing-modal__label">Demurrage liability from</label>
+              <input
+                type="datetime-local"
+                className="berthing-modal__input"
+                value={draft.norAccepted?.demurrageLiabilityFromDateTime ?? ''}
+                onChange={(e) => updateDraft('norAccepted', 'demurrageLiabilityFromDateTime', e.target.value)}
+              />
+            </div>
             <PrecheckDocumentsEdit
               sectionKey="norAccepted"
               documents={draft.norAccepted?.documents}
@@ -1799,6 +1808,14 @@ function PreCheckingSections({
             <div className="precheck-section__row">
               <span className="precheck-section__label">Date &amp; Time (NOR Accepted)</span>
               <span className="precheck-section__value">{norFromArrival.norAcceptedDateTime ? formatDateTimeDisplay(norFromArrival.norAcceptedDateTime) : '—'}</span>
+            </div>
+            <div className="precheck-section__row">
+              <span className="precheck-section__label">Demurrage liability from</span>
+              <span className="precheck-section__value">
+                {data.norAccepted?.demurrageLiabilityFromDateTime
+                  ? formatDateTimeDisplay(data.norAccepted.demurrageLiabilityFromDateTime)
+                  : '—'}
+              </span>
             </div>
             <PrecheckDocumentsRead documents={data.norAccepted?.documents} />
             <div className="precheck-section__row precheck-section__row--block">
@@ -2314,17 +2331,11 @@ function PreCheckingSections({
         )}
       </PreCheckSectionCard>
       )}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
-      {operationId && (
-        <OperationActivityTimeline
-          operationId={operationId}
-          refreshToken={activityLogRefresh}
-          vesselId={vesselId}
-          basePath={basePath}
-          onActivityLogRefresh={onActivityLogRefresh}
-        />
-      )}
     </div>
   )
 }
@@ -2332,35 +2343,34 @@ function PreCheckingSections({
 function PreCheckSectionCard({ title, isEditing, onEdit, onSave, onSaveDraft, onSaveNext, onCancel, children }) {
   return (
     <section className={`precheck-section-card ${isEditing ? 'precheck-section-card--editing' : 'precheck-section-card--disabled'}`}>
-      <div className="precheck-section-card__head">
-        <h3 className="berthing-modal__card-title">{title}</h3>
-        {!isEditing && (
+      <h3 className="berthing-modal__card-title">{title}</h3>
+      <div className="precheck-section-card__body">{children}</div>
+      {!isEditing ? (
+        <div className="precheck-section-card__actions precheck-section-card__actions--footer">
           <button type="button" className="btn btn--small" onClick={onEdit}>
             Edit
           </button>
-        )}
-        {isEditing && (
-          <div className="precheck-section-card__actions">
-            {onSaveDraft && (
-              <button type="button" className="btn btn--small btn--secondary" onClick={onSaveDraft}>
-                Save Draft
-              </button>
-            )}
-            <button type="button" className="btn btn--primary btn--small" onClick={onSave}>
-              Save
+        </div>
+      ) : (
+        <div className="precheck-section-card__actions precheck-section-card__actions--footer loading-step-card__actions">
+          {onSaveDraft && (
+            <button type="button" className="btn btn--small btn--soft" onClick={onSaveDraft}>
+              Save Draft
             </button>
-            {onSaveNext && (
-              <button type="button" className="btn btn--primary btn--small" onClick={onSaveNext}>
-                Save &amp; Next
-              </button>
-            )}
-            <button type="button" className="btn btn--small btn--secondary" onClick={onCancel}>
-              Cancel
+          )}
+          <button type="button" className="btn btn--primary btn--small" onClick={onSave}>
+            Save
+          </button>
+          {onSaveNext && (
+            <button type="button" className="btn btn--primary btn--small" onClick={onSaveNext}>
+              Save &amp; Next
             </button>
-          </div>
-        )}
-      </div>
-      <div className="precheck-section-card__body">{children}</div>
+          )}
+          <button type="button" className="btn btn--small btn--ghost" onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      )}
     </section>
   )
 }
@@ -2382,6 +2392,7 @@ function PostCheckingSections({
   const [listCollapsed, setListCollapsed] = useState(() => readBool(POSTCHECK_RAIL_COLLAPSED_KEY, false))
   const [autoCollapseAfterSelect, setAutoCollapseAfterSelect] = useState(false)
   const [editingSection, setEditingSection] = useState(null)
+  const [formModalOpen, setFormModalOpen] = useState(false)
   const [draft, setDraft] = useState(() => defaultPostCheckingSection())
   const [loadingPersisted, setLoadingPersisted] = useState(false)
   const [persistError, setPersistError] = useState(null)
@@ -2486,8 +2497,8 @@ function PostCheckingSections({
     if (!tab) return
     setActiveSubTab(focus)
     if (searchParams.get('edit') === '1') {
-      setSaveSuccessMessage(`Editing ${tab.label}.`)
       queueMicrotask(() => startEdit(focus))
+      setFormModalOpen(true)
     }
     const next = new URLSearchParams(searchParams)
     next.delete('focus')
@@ -2636,12 +2647,20 @@ function PostCheckingSections({
             : `${tabLabel} saved locally. Next: ${next.label}.`
       }
     }
+    if (!goNext) setFormModalOpen(false)
     setSaveSuccessMessage(successMsg)
     if (operationId) onActivityLogRefresh?.()
   }
 
   const cancelEdit = () => {
     setEditingSection(null)
+    setFormModalOpen(false)
+  }
+
+  const openFormModal = (tabId = activeSubTab) => {
+    setActiveSubTab(tabId)
+    startEdit(tabId)
+    setFormModalOpen(true)
   }
 
   const renderSectionCard = (tab) => {
@@ -2806,7 +2825,7 @@ function PostCheckingSections({
                           <span className="precheck-checklist__saved">Last saved {formatDateTimeDisplay(data[tab.id].lastSavedAt)}</span>
                         ) : null}
                       </div>
-                      <button type="button" className="btn btn--small" onClick={() => selectTab(tab.id)}>
+                      <button type="button" className="btn btn--small" onClick={() => openFormModal(tab.id)}>
                         Open
                       </button>
                     </>
@@ -2817,18 +2836,22 @@ function PostCheckingSections({
           </div>
         </aside>
         <div className="precheck-master-detail__panel" role="tabpanel" aria-label="Post-Checking detail">
-          {activePostTab ? renderSectionCard(activePostTab) : null}
+          <OperationActivityTimeline
+            operationId={operationId}
+            refreshToken={activityLogRefresh}
+            vesselId={vesselId}
+            basePath={basePath}
+            onActivityLogRefresh={onActivityLogRefresh}
+          />
+          {formModalOpen ? (
+            <div className="modal-overlay" onClick={cancelEdit} aria-hidden="true">
+              <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Post-Checking form">
+                {activePostTab ? renderSectionCard(activePostTab) : null}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
-      {operationId && (
-        <OperationActivityTimeline
-          operationId={operationId}
-          refreshToken={activityLogRefresh}
-          vesselId={vesselId}
-          basePath={basePath}
-          onActivityLogRefresh={onActivityLogRefresh}
-        />
-      )}
     </div>
   )
 }

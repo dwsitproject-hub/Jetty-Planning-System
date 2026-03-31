@@ -1623,6 +1623,87 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   border-bottom-color: var(--color-primary);
 }
 
+/* At-berth stage tabs (detail page): horizontal strip under vessel detail */
+.loading-stage-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+  margin: 0 0 var(--spacing-4);
+}
+
+.loading-stage-tabs__tab {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-decoration: none;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-white);
+  color: var(--color-text-charcoal);
+  padding: 10px 12px;
+  min-height: 48px;
+  transition: border-color var(--duration-fast), background var(--duration-fast), color var(--duration-fast);
+}
+
+.loading-stage-tabs__tab:hover {
+  border-color: var(--color-primary);
+  background: var(--color-bg-subtle);
+}
+
+.loading-stage-tabs__tab--active {
+  border-color: var(--color-primary);
+  background: var(--color-bg-subtle);
+  box-shadow: inset 0 -2px 0 var(--color-primary);
+}
+
+.loading-stage-tabs__tab--done {
+  border-color: #a7f3d0;
+}
+
+.loading-stage-tabs__tab--in-progress {
+  border-color: #fde68a;
+}
+
+.loading-stage-tabs__label {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+}
+
+.loading-stage-tabs__meta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-steel);
+}
+
+.loading-stage-tabs__topline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.loading-stage-tabs__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  flex: 0 0 auto;
+}
+
+.loading-stage-tabs__dot--done {
+  background: #10b981;
+  border-color: rgba(16, 185, 129, 0.45);
+}
+
+.loading-stage-tabs__dot--in-progress {
+  background: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.loading-stage-tabs__dot--not-started {
+  background: #94a3b8;
+  border-color: rgba(148, 163, 184, 0.5);
+}
+
 /* Two-pane process layout (rail + content) */
 .loading-process-layout {
   display: grid;
@@ -1893,12 +1974,18 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-sm);
   background: var(--color-bg);
-  padding: var(--spacing-2) var(--spacing-3);
+  padding: var(--spacing-2) var(--spacing-2);
+  transition: border-color var(--duration-fast), background var(--duration-fast), box-shadow var(--duration-fast);
 }
 
 .precheck-checklist__item--active {
   border-color: var(--color-primary);
-  background: var(--color-bg-subtle);
+  background: #fff8f6;
+  box-shadow: inset 0 0 0 1px rgba(196, 58, 49, 0.2);
+}
+
+.precheck-checklist__item:hover {
+  background: var(--color-bg-lighter);
 }
 
 .precheck-checklist__left {
@@ -1920,6 +2007,7 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 .precheck-checklist__saved {
   font-size: var(--font-size-xs);
   color: var(--color-text-steel);
+  opacity: 0.92;
 }
 
 .precheck-checklist__title {
@@ -2042,20 +2130,43 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   margin-top: var(--spacing-4);
 }
 
+/* When timeline is the primary panel content, remove top gap. */
+.precheck-master-detail__panel .operation-activity-timeline {
+  margin-top: 0;
+}
+
+/* Operational workspace uses a different right-panel wrapper. */
+.operational-milestone-detail .operation-activity-timeline {
+  margin-top: 0;
+}
+
 .operation-activity-timeline__table-wrap {
   overflow-x: auto;
   margin-top: var(--spacing-2);
+}
+
+.operation-activity-timeline__table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-bg-subtle);
+}
+
+.operation-activity-timeline__table tbody tr:hover {
+  background: var(--color-bg-lighter);
 }
 
 .operation-activity-timeline__detail {
   max-width: 28rem;
   word-break: break-word;
   font-size: var(--font-size-small);
+  line-height: 1.45;
 }
 
 .operation-activity-timeline__time {
   white-space: nowrap;
   font-size: var(--font-size-small);
+  font-variant-numeric: tabular-nums;
 }
 
 .operation-activity-timeline__actions {
@@ -2068,6 +2179,32 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   flex-wrap: wrap;
   gap: var(--spacing-1);
   align-items: center;
+}
+
+.operation-activity-timeline__action-btns .btn {
+  min-width: 3.75rem;
+}
+
+.operation-activity-timeline__action-btns .btn--secondary {
+  background: #fff;
+}
+
+/* Keep save controls visible when long modal content scrolls. */
+.modal .operational-milestone-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: 0 calc(-1 * var(--spacing-1));
+  padding: var(--spacing-2) var(--spacing-1) 0;
+  background: linear-gradient(to top, #fff 72%, rgba(255, 255, 255, 0.85) 100%);
+}
+
+/* Stronger keyboard focus for primary interactive elements in this page. */
+.loading-page .btn:focus-visible,
+.loading-page .loading-stage-tabs__tab:focus-visible,
+.loading-page .precheck-checklist__compact-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 @media (max-width: 900px) {
@@ -2180,7 +2317,8 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   border-bottom: 1px solid var(--color-border-light);
 }
 
-.precheck-section-card__head .berthing-modal__card-title {
+.precheck-section-card__head .berthing-modal__card-title,
+.precheck-section-card > .berthing-modal__card-title {
   margin: 0;
 }
 
@@ -2221,6 +2359,17 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   display: flex;
   align-items: center;
   gap: var(--spacing-2);
+  flex-wrap: wrap;
+}
+
+.precheck-section-card__actions--footer {
+  margin-top: var(--spacing-3);
+  padding-top: var(--spacing-2);
+  border-top: 1px solid var(--color-border-light);
+}
+
+.precheck-section-card__actions--footer .btn {
+  white-space: nowrap;
 }
 
 .precheck-section-card__body {
@@ -2778,6 +2927,33 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   margin-bottom: 0;
 }
 
+.clearance-status-filter {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.clearance-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-bg-subtle);
+}
+
+.clearance-table .allocation-table__action-col {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: #fff;
+  box-shadow: -1px 0 0 var(--color-border-light);
+}
+
+.clearance-table thead .allocation-table__action-col {
+  z-index: 2;
+  background: var(--color-bg-subtle);
+}
+
 .at-berth-filter {
   border-bottom: none;
   margin-bottom: 0;
@@ -2807,6 +2983,40 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 .loading-page .loading-note-item,
 .loading-page .loading-detail-activity-table th {
   background: var(--color-bg-white);
+}
+
+/* At-berth action palette: one dominant primary + softer support actions. */
+.loading-page .btn--soft {
+  background: #f3f4f6;
+  color: #1f2937;
+  border-color: #d1d5db;
+}
+
+.loading-page .btn--soft:hover {
+  background: #e5e7eb;
+  border-color: #cbd5e1;
+}
+
+.loading-page .btn--ghost {
+  background: #fff;
+  color: #334155;
+  border-color: #cbd5e1;
+}
+
+.loading-page .btn--ghost:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.loading-page .btn--danger-soft {
+  background: #fef2f2;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+.loading-page .btn--danger-soft:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
 }
 
 /* Success toast (berthing completed) */
@@ -3176,6 +3386,51 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 
 .daily-activities-report__table {
   width: 100%;
+}
+
+/* Jetty – Vessel report */
+.jetty-vessel-report__groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.jetty-vessel-report__details {
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-2) var(--spacing-3);
+  background: var(--color-bg-lighter, #fafafa);
+}
+
+.jetty-vessel-report__summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2) var(--spacing-4);
+  align-items: baseline;
+}
+
+.jetty-vessel-report__summary::-webkit-details-marker {
+  display: none;
+}
+
+.jetty-vessel-report__summary-title {
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.jetty-vessel-report__summary-meta {
+  font-size: var(--font-size-small);
+}
+
+.jetty-vessel-report__list {
+  margin: var(--spacing-3) 0 var(--spacing-1) var(--spacing-4);
+  padding: 0;
+  list-style: disc;
+}
+
+.jetty-vessel-report__item {
+  margin-bottom: var(--spacing-2);
 }
 
 /* Jetty Layout editor */
