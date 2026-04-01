@@ -8,6 +8,7 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "migrate": "node scripts/run-migrations.js",
+    "grant-admin-access": "node scripts/grant-admin-full-access.js",
     "seed:admin": "node scripts/seed-admin-bcrypt.js"
   },
   "engines": {
