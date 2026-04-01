@@ -1,0 +1,44 @@
+# Backend server only (API + PostgreSQL). Run on the BACKEND ECS (e.g. 172.28.92.57).
+# See Docs/ALICLOUD-DEPLOYMENT-GUIDE.md
+#
+# PostgreSQL is NOT published to the host; only jps-api is reachable on :3000 (lock down with Security Group).
+
+services:
+  jps-db:
+    image: postgres:16-alpine
+    container_name: jps-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jps_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-jps_db}
+    volumes:
+      - jps_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jps_user} -d ${POSTGRES_DB:-jps_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  jps-api:
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile
+    container_name: jps-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-jps_user}:${POSTGRES_PASSWORD}@jps-db:5432/${POSTGRES_DB:-jps_db}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      CORS_ORIGIN: ${CORS_ORIGIN:?Set CORS_ORIGIN to the APP origin users use in the browser}
+      UPLOAD_DIR: /tmp/jps-uploads
+    command: ["npm", "run", "start"]
+    depends_on:
+      jps-db:
+        condition: service_healthy
+
+volumes:
+  jps_pgdata:

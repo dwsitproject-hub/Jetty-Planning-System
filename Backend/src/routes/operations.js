@@ -38,7 +38,7 @@ async function loadOperationJoined(id) {
      FROM operations o
      JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
      LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
-     LEFT JOIN ports p ON j.port_id = p.id AND p.deleted_at IS NULL
+     LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
      WHERE o.id = $1 AND o.deleted_at IS NULL`,
     [id]
   );
@@ -93,9 +93,9 @@ router.get('/at-berth', async (req, res) => {
      FROM operations o
      JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
      LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
-     LEFT JOIN ports p ON j.port_id = p.id AND p.deleted_at IS NULL
+     LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
      WHERE o.deleted_at IS NULL
-       AND p.id = $2
+       AND COALESCE(o.port_id, p.id) = $2
        AND o.status <> 'SAILED'
        AND (
          o.status = ANY($1)
@@ -162,13 +162,13 @@ router.get('/', async (req, res) => {
     FROM operations o
     JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
     LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
-    LEFT JOIN ports p ON j.port_id = p.id AND p.deleted_at IS NULL
+    LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
     WHERE o.deleted_at IS NULL`;
   const params = [];
   let i = 1;
   const requestedPort = port_id ? parseInt(port_id, 10) : null;
   const effectivePort = Number.isFinite(requestedPort) ? requestedPort : selectedPortId;
-  query += ` AND p.id = $${i++}`;
+  query += ` AND COALESCE(o.port_id, p.id) = $${i++}`;
   params.push(effectivePort);
   if (jetty_id) {
     query += ` AND o.jetty_id = $${i++}`;
@@ -227,10 +227,10 @@ router.post('/', async (req, res) => {
   }
   const purpose = siRes.rows[0].purpose;
   const result = await pool.query(
-    `INSERT INTO operations (shipping_instruction_id, jetty_id, purpose, status)
-     VALUES ($1, $2, $3, 'PENDING')
+    `INSERT INTO operations (shipping_instruction_id, jetty_id, purpose, status, port_id)
+     VALUES ($1, $2, $3, 'PENDING', $4)
      RETURNING id`,
-    [siId, jId, purpose]
+    [siId, jId, purpose, selectedPortId]
   );
   const row = await loadOperationJoined(result.rows[0].id);
   writeActivityLog({

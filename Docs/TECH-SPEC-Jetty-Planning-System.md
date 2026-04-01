@@ -1,10 +1,41 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.4  
-**Last Updated**: 2026-03-25  
+**Version**: 1.5  
+**Last Updated**: 2026-03-31  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
+
+## 0. Addendum (2026-03-31)
+
+### 0.4 Dev reset + seed (transactional data only)
+
+To support “start fresh” local testing without wiping master data, the repo includes a repeatable reset+seed script:
+
+- **Script**: `Backend/scripts/reset-and-seed-dev.sql`
+- **Run (PowerShell, from `Backend/`)**:
+  - `Get-Content -Raw .\scripts\reset-and-seed-dev.sql | docker compose exec -T jps-db psql -U jps_user -d jps_db`
+
+**Behaviour**
+
+- **Cleans (TRUNCATE, restart identities, cascade)** transactional tables only:
+  - `operations`
+  - `operation_documents`
+  - `operation_operational_activities`
+  - `operation_sub_processes`
+  - `operation_sub_process_documents`
+  - `operation_nor_details`
+  - `qc_documents`, `qc_surveys`
+  - `quantity_checks`
+  - `operation_materials`
+  - `shipping_instruction_breakdown`, `shipping_instructions`
+  - `activity_logs`
+- **Seeds fresh demo data** using relative timestamps (`NOW() +/- ...`) so Allocation / Loading / Verification views look current immediately after reset.
+
+**Explicitly not cleaned**
+
+- Master/config tables (examples): `ports`, `jetties`, `metric`, `sla_config`, `standard_rates`, and SI lookup masters (`si_*`).
+- RBAC/security tables: `users`, `roles`, `permissions`, `role_permissions`, `user_roles`, `user_ports`.
 
 ## 0. Addendum (2026-03-27)
 

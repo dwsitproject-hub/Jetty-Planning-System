@@ -61,6 +61,7 @@ const SI_SELECT = `
     si.approval_id,
     si.created_at, si.updated_at,
     si.note,
+    si.port_id,
     si.commodity_id, si.trade_term_id, si.purpose_id, si.preferred_jetty_id,
     si.shipper_id, si.loading_port_id, si.surveyor_id, si.agent_id,
     si.voyage_no, si.destination_text, si.freight_terms, si.bill_of_lading_clause, si.consignee_text,
@@ -70,7 +71,7 @@ const SI_SELECT = `
     tt.code AS trade_term_code,
     sp.code AS purpose_code,
     j.name AS preferred_jetty_name,
-    p.id AS preferred_port_id,
+    COALESCE(si.port_id, p.id) AS preferred_port_id,
     sh.name AS shipper_name,
     lp.name AS loading_port_name,
     sv.name AS surveyor_name,
@@ -234,7 +235,7 @@ router.get('/', async (req, res) => {
   let query = `${SI_SELECT} WHERE si.deleted_at IS NULL`;
   const params = [];
   let i = 1;
-  query += ` AND (si.preferred_jetty_id IS NULL OR p.id = $${i++})`;
+  query += ` AND COALESCE(si.port_id, p.id) = $${i++}`;
   params.push(selectedPortId);
   if (purpose) {
     query += ` AND si.purpose = $${i++}`;
@@ -453,8 +454,9 @@ router.post('/', requireAuth, async (req, res) => {
       `INSERT INTO shipping_instructions (
          reference_number, vessel_name, voyage_no, commodity, commodity_id, trade_term_id, purpose_id, purpose, eta, eta_from, eta_to, status,
          approval_id, destination_text, freight_terms, bill_of_lading_clause, consignee_text, notify_party_text, bl_indicated, document_date,
-         preferred_jetty_id, shipper_id, loading_port_id, surveyor_id, agent_id, note
-       ) VALUES ($1,$2,$3,NULL,NULL,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+         preferred_jetty_id, shipper_id, loading_port_id, surveyor_id, agent_id, note,
+         port_id
+       ) VALUES ($1,$2,$3,NULL,NULL,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
        RETURNING id`,
       [
         reference_number?.trim() ?? null,
@@ -481,6 +483,7 @@ router.post('/', requireAuth, async (req, res) => {
         surveyor_id != null && surveyor_id !== '' ? parseInt(surveyor_id, 10) : null,
         agent_id != null && agent_id !== '' ? parseInt(agent_id, 10) : null,
         typeof note === 'string' ? note.trim() || null : null,
+        selectedPortId,
       ]
     );
     const newId = result.rows[0].id;
@@ -737,8 +740,9 @@ router.put('/:id', requireAuth, async (req, res) => {
          surveyor_id = $26,
          agent_id = $27,
          note = $28,
+         port_id = COALESCE(port_id, $29),
          updated_at = NOW()
-       WHERE id = $29 AND deleted_at IS NULL`,
+       WHERE id = $30 AND deleted_at IS NULL`,
       [
         nextRef,
         vessel_name.trim(),
@@ -768,6 +772,7 @@ router.put('/:id', requireAuth, async (req, res) => {
         nextSurveyor,
         nextAgent,
         nextNote,
+        selectedPortId,
         id,
       ]
     );

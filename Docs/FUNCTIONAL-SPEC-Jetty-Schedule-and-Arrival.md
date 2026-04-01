@@ -3,7 +3,7 @@
 **Product:** Jetty Planning & Monitoring System (JPS)  
 **Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **At-Berth Executions list**, and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.4 (see §16 and document history at end).
+**Version:** 1.7 (see document history at end).
 
 ---
 
@@ -237,6 +237,7 @@ This section documents UI behaviour implemented in `Frontend/src/pages/Loading.j
 | 1.4 | 2026-03-24 | Pre-Checking UX updated to checklist-style interaction with step status chips and **Save & Next** path. |
 | 1.5 | 2026-03-25 | NOR Accepted: merged NOR documents from Allocation + tab; **Last Updated Via**; Initial Sounding / Initial Draft Survey **Remark** field; Activity Log expectations; app shell (logout placement); fresh DB / Docker reset explanation; cross-ref to dev seed migrations and RBAC bootstrap. |
 | 1.6 | 2026-03-25 | At-berth operation workspace: **collapsible navigation rails** for stages + Pre-Checking sections (localStorage persistence, narrow collapsed states, auto-close behaviour for section picker in compact navigation mode). |
+| 1.7 | 2026-03-31 | Added one-command **transactional reset + fresh demo seeding** script reference for local testing across operational pages. |
 
 ---
 
@@ -329,6 +330,16 @@ Technical contract: **TECH-SPEC-Jetty-Planning-System.md §3.8A**.
 | **New Docker volume / DB reset** | All **business** data (operations, SIs, uploads on old volume) is gone; **schema** returns after **`npm run migrate`** (or equivalent). |
 | **Not a bug** | Migrations create **structure** and small **reference seeds**; optional **dev seed migrations** (`023`, `024`) add sample SIs/operations/pre-checking rows for local testing. |
 | **Login / menu access** | A new DB has users from seed migration **002** but **no roles** until created; **page permissions** require **`user_roles`** + **`role_permissions`** — assign an admin role with full page access or the UI will look “locked”. |
+
+### 15.1 One-command reset + fresh demo seeding (local dev)
+
+For “start fresh” testing across pages (Allocation, At-Berth, Loading/Unloading, Verification), use the transactional reset+seed script:
+
+- **Script**: `Backend/scripts/reset-and-seed-dev.sql`
+- **Run (PowerShell, from `Backend/`)**:
+  - `Get-Content -Raw .\scripts\reset-and-seed-dev.sql | docker compose exec -T jps-db psql -U jps_user -d jps_db`
+
+This script truncates **transactional tables only** (operations/SI/workflow data) and re-seeds demo rows with **fresh dates** (relative to `NOW()`), without wiping master data (ports/jetties/metrics/SLA/rates/SI lookup masters) or RBAC (users/roles/permissions).
 
 ---
 

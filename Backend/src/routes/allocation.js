@@ -138,9 +138,9 @@ router.get('/overview', async (req, res) => {
      LEFT JOIN si_agents ag ON ag.id = si.agent_id AND ag.deleted_at IS NULL
      LEFT JOIN si_surveyors sv ON sv.id = si.surveyor_id AND sv.deleted_at IS NULL
      LEFT JOIN jetties j ON j.id = o.jetty_id AND j.deleted_at IS NULL
-     LEFT JOIN ports p ON p.id = j.port_id AND p.deleted_at IS NULL
+     LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
      WHERE o.deleted_at IS NULL
-       AND p.id = $2
+       AND COALESCE(o.port_id, p.id) = $2
        AND o.status <> 'SAILED'
      ORDER BY COALESCE(o.docking_start_time, si.eta, si.eta_from::timestamptz) ASC NULLS LAST, o.id ASC`,
     ['operation', selectedPortId]
@@ -181,10 +181,10 @@ router.get('/overview', async (req, res) => {
      LEFT JOIN si_agents ag ON ag.id = si.agent_id AND ag.deleted_at IS NULL
      LEFT JOIN si_surveyors sv ON sv.id = si.surveyor_id AND sv.deleted_at IS NULL
      LEFT JOIN jetties j ON j.id = si.preferred_jetty_id AND j.deleted_at IS NULL
-     LEFT JOIN ports p ON p.id = j.port_id AND p.deleted_at IS NULL
+     LEFT JOIN ports p ON p.id = COALESCE(si.port_id, j.port_id) AND p.deleted_at IS NULL
      WHERE si.deleted_at IS NULL
        AND si.status = 'Approved'
-       AND (si.preferred_jetty_id IS NULL OR p.id = $2)
+       AND COALESCE(si.port_id, p.id) = $2
        AND NOT EXISTS (
          SELECT 1 FROM operations o
          WHERE o.deleted_at IS NULL AND o.shipping_instruction_id = si.id
@@ -252,7 +252,7 @@ router.put('/arrival', optionalAuth, async (req, res) => {
         `SELECT o.id, o.shipping_instruction_id, o.jetty_id, p.id AS port_id
          FROM operations o
          LEFT JOIN jetties j ON j.id = o.jetty_id AND j.deleted_at IS NULL
-         LEFT JOIN ports p ON p.id = j.port_id AND p.deleted_at IS NULL
+         LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
          WHERE o.id = $1 AND o.deleted_at IS NULL`,
         [operationId]
       );
@@ -288,10 +288,10 @@ router.put('/arrival', optionalAuth, async (req, res) => {
           return res.status(404).json({ error: 'Approved shipping instruction not found' });
         }
         const ins = await client.query(
-          `INSERT INTO operations (shipping_instruction_id, jetty_id, purpose, status)
-           VALUES ($1, NULL, $2, 'PENDING')
+          `INSERT INTO operations (shipping_instruction_id, jetty_id, purpose, status, port_id)
+           VALUES ($1, NULL, $2, 'PENDING', $3)
            RETURNING id, shipping_instruction_id, jetty_id`,
-          [shippingInstructionId, si.rows[0].purpose]
+          [shippingInstructionId, si.rows[0].purpose, selectedPortId]
         );
         opRow = ins.rows[0];
       }

@@ -13,6 +13,10 @@ RUN npm ci
 
 COPY . .
 
+# Vite reads VITE_* at build time. Pass via compose build.args (root .env is dockerignored).
+ARG VITE_API_BASE_URL=http://localhost:3000/api/v1
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+
 RUN npm run build
 
 # ---- Production stage ----
