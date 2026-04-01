@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { login } from '../api/auth'
 import { useAuth } from '../context/AuthContext'
 import { useRbac } from '../context/RbacContext'
@@ -54,9 +54,6 @@ export default function Login() {
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
-      <p className="text-steel" style={{ marginTop: '1rem' }}>
-        <Link to="/">Home</Link>
-      </p>
     </div>
   )
 }

@@ -149,7 +149,13 @@ export default function Layout({ children }) {
         >
           ☰
         </button>
-        <span className="topbar__logo">Jetty Planning System</span>
+        <div className="topbar__brand" aria-label="Jetty Planning System">
+          <img className="topbar__brand-logo" src="/kpn-header.png" alt="KPN" />
+          <div className="topbar__brand-text">
+            <span className="topbar__brand-title">Jetty Planning System</span>
+            <span className="topbar__brand-tagline">Smart scheduling for smarter ports</span>
+          </div>
+        </div>
         <div className="topbar__actions">
           {me && !portScopeBypassed && assignedPorts.length > 1 && (
             <label className="topbar__greeting" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>

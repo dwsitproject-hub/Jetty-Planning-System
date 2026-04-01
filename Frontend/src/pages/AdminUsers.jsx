@@ -285,12 +285,7 @@ export default function AdminUsers() {
       <h1 className="page-title">User Management</h1>
       <p className="allocation-page__intro">
         <Link to="/admin" className="link">← Back to Admin</Link>
-        {' · '}
-        <code>GET/POST/PUT/DELETE /users</code> (JWT). Role assignment uses RBAC APIs; port assignment uses user port APIs.
       </p>
-      <button type="button" className="btn btn--secondary btn--small" onClick={load} disabled={loading}>
-        Refresh
-      </button>
       {toast && (
         <div
           className={`toast ${toast.kind === 'error' ? 'toast--error' : 'toast--success'}`}

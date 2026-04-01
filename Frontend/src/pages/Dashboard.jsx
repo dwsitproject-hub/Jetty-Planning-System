@@ -14,6 +14,8 @@ import '../styles/allocation.css'
 
 const PHASES = ['Pre-Checking', 'Operational', 'Post-Checking']
 const PHASE_EMOJI = { 'Pre-Checking': '📋', Operational: '⚙️', 'Post-Checking': '✅' }
+/** Short labels for compact dashboard cards (data keys stay PHASES). */
+const PHASE_SHORT_LABEL = { 'Pre-Checking': 'Pre', Operational: 'Ops', 'Post-Checking': 'Post' }
 const PURPOSES = [
   { key: 'Loading', label: 'Loading' },
   { key: 'Unloading', label: 'Unloading' },
@@ -25,13 +27,6 @@ const PIPELINE_STAGES = [
   { id: 'allocation', label: 'Allocation', path: '/allocation', color: 'allocation' },
   { id: 'at-berth', label: 'At-Berth', path: '/at-berth', color: 'at-berth' },
   { id: 'clearance', label: 'Clearance', path: '/verification', color: 'clearance' },
-]
-
-const QUICK_LINKS = [
-  { to: '/at-berth', label: 'At-Berth Executions' },
-  { to: '/e2e-console', label: 'E2E console' },
-  { to: '/verification', label: 'Clearance' },
-  { to: '/shipping-instruction', label: 'Shipping Instruction' },
 ]
 
 const ACTIVITY_PAGE_KEYS = ['allocation', 'shipping-instruction', 'verification', 'at-berth', 'loading']
@@ -298,15 +293,6 @@ export default function Dashboard() {
               {lastUpdated.toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}
             </>
           )}
-          <button
-            type="button"
-            className="btn btn--small btn--secondary"
-            onClick={refresh}
-            disabled={loading}
-            aria-busy={loading}
-          >
-            {loading ? 'Refreshing…' : 'Refresh'}
-          </button>
         </span>
       </header>
 
@@ -328,37 +314,44 @@ export default function Dashboard() {
       )}
 
       <section className="dashboard-row1">
-        <div className="card weather-card dashboard-row1__weather">
-          <h2 className="card__title">Weather</h2>
-          <p className="dashboard-mock-hint">Preview data — live API connection coming later.</p>
-          <div className="weather-card__body">
-            <div className="weather-card__main">
-              <span className="weather-card__condition">{current.condition}</span>
-              <span className="weather-card__temp">{current.temperature}°C</span>
-              <span className="weather-card__meta">
-                Wind {current.windKmh} km/h · {current.humidity}% humidity
-              </span>
-              {current.berthingImpact && (
-                <p className="weather-card__berthing-note" role="status">
-                  {current.berthingNote}
-                </p>
-              )}
+        <div className="weather-card-wrap dashboard-row1__weather">
+          <div className="card weather-card">
+            <h2 className="card__title">Weather</h2>
+            <p className="dashboard-mock-hint">Preview data — live API connection coming later.</p>
+            <div className="weather-card__body">
+              <div className="weather-card__main">
+                <span className="weather-card__condition">{current.condition}</span>
+                <span className="weather-card__temp">{current.temperature}°C</span>
+                <span className="weather-card__meta">
+                  Wind {current.windKmh} km/h · {current.humidity}% humidity
+                </span>
+                {current.berthingImpact && (
+                  <p className="weather-card__berthing-note" role="status">
+                    {current.berthingNote}
+                  </p>
+                )}
+              </div>
+              <div className="weather-card__forecast">
+                <span className="weather-card__forecast-label">Forecast</span>
+                <ul className="weather-card__forecast-list">
+                  {forecast.map((day, i) => (
+                    <li key={i} className="weather-card__forecast-item">
+                      <span className="weather-card__forecast-day">{day.label}</span>
+                      <span className="weather-card__forecast-condition">{day.condition}</span>
+                      <span className="weather-card__forecast-temp">
+                        {day.tempMin}°–{day.tempMax}°
+                      </span>
+                      <span className="weather-card__forecast-rain">{day.rainChance}% rain</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
-            <div className="weather-card__forecast">
-              <span className="weather-card__forecast-label">Forecast</span>
-              <ul className="weather-card__forecast-list">
-                {forecast.map((day, i) => (
-                  <li key={i} className="weather-card__forecast-item">
-                    <span className="weather-card__forecast-day">{day.label}</span>
-                    <span className="weather-card__forecast-condition">{day.condition}</span>
-                    <span className="weather-card__forecast-temp">
-                      {day.tempMin}°–{day.tempMax}°
-                    </span>
-                    <span className="weather-card__forecast-rain">{day.rainChance}% rain</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+          </div>
+          <div className="weather-card-overlay" aria-hidden="true">
+            <span className="weather-card-overlay__watermark">
+              Widget is in progress - Coming Soon
+            </span>
           </div>
         </div>
 
@@ -475,11 +468,15 @@ export default function Dashboard() {
                           <div
                             key={phase}
                             className={`at-berth-card at-berth-card--${purpose.toLowerCase()} at-berth-card--compact`}
+                            title={`${phase}: ${atBerthCounts[purpose][phase]}`}
                           >
-                            <span className="at-berth-card__title">
-                              {PHASE_EMOJI[phase]} {phase}
-                            </span>
-                            <span className="at-berth-card__count">{atBerthCounts[purpose][phase]}</span>
+                            <div className="at-berth-compact-stack" aria-label={`${PHASE_SHORT_LABEL[phase]} ${atBerthCounts[purpose][phase]}`}>
+                              <span className="at-berth-compact-stack__icon" aria-hidden>
+                                {PHASE_EMOJI[phase]}
+                              </span>
+                              <span className="at-berth-compact-stack__label">{PHASE_SHORT_LABEL[phase]}</span>
+                              <span className="at-berth-compact-stack__count">{atBerthCounts[purpose][phase]}</span>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -673,13 +670,6 @@ export default function Dashboard() {
         </aside>
       </div>
 
-      <nav className="dashboard-quick-links" aria-label="Quick links">
-        {QUICK_LINKS.map(({ to, label }) => (
-          <Link key={to} to={to} className="dashboard-quick-link">
-            {label} →
-          </Link>
-        ))}
-      </nav>
     </div>
   )
 }

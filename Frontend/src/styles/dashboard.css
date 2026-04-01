@@ -349,7 +349,10 @@
 }
 
 .at-berth-card--compact {
-  padding: var(--spacing-2) var(--spacing-3);
+  padding: var(--spacing-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .at-berth-card--compact .at-berth-card__title {
@@ -359,6 +362,37 @@
 
 .at-berth-card--compact .at-berth-card__count {
   font-size: var(--font-size-lg);
+}
+
+.at-berth-compact-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 4px;
+  min-height: 58px;
+}
+
+.at-berth-compact-stack__icon {
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.95;
+}
+
+.at-berth-compact-stack__label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  letter-spacing: 0.01em;
+}
+
+.at-berth-compact-stack__count {
+  font-family: var(--font-heading);
+  font-size: 1.35rem;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  color: var(--color-text-charcoal);
 }
 
 .dashboard-clearance-row {
@@ -462,32 +496,6 @@
   color: var(--color-text-steel);
   margin: 0;
   line-height: 1.4;
-}
-
-/* Quick links */
-.dashboard-quick-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-2);
-  padding-top: var(--spacing-4);
-  margin-top: var(--spacing-4);
-  border-top: 1px solid var(--color-border-light);
-}
-
-.dashboard-quick-link {
-  font-size: var(--font-size-small);
-  color: var(--color-primary);
-  text-decoration: none;
-  padding: var(--spacing-2) var(--spacing-3);
-  background: var(--color-bg-lighter);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border-light);
-  transition: background var(--duration-fast), border-color var(--duration-fast);
-}
-
-.dashboard-quick-link:hover {
-  background: rgba(196, 58, 49, 0.06);
-  border-color: var(--color-primary);
 }
 
 /* Legacy: dashboard-metrics (if still used elsewhere) */
@@ -698,6 +706,36 @@
 .dashboard-row1__weather {
   margin-bottom: 0;
   min-width: 0;
+}
+
+.weather-card-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.weather-card-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-4);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(2px);
+  border-radius: var(--radius-md);
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.weather-card-overlay__watermark {
+  font-size: clamp(0.95rem, 2.5vw, 1.2rem);
+  font-weight: var(--font-weight-semibold);
+  color: rgba(55, 55, 55, 0.42);
+  text-align: center;
+  line-height: 1.35;
+  transform: rotate(-14deg);
+  max-width: 95%;
+  user-select: none;
 }
 
 .dashboard-row1 .weather-card {

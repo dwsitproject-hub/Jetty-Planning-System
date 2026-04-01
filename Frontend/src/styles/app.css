@@ -69,11 +69,42 @@
   border-bottom: 1px solid var(--color-border-light);
   flex-shrink: 0;
 }
-.topbar__logo {
+.topbar__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  min-width: 0;
+}
+
+.topbar__brand-logo {
+  height: 32px;
+  width: auto;
+  flex-shrink: 0;
+}
+
+.topbar__brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.topbar__brand-title {
   font-family: var(--font-heading);
   font-size: var(--font-size-h3);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-charcoal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar__brand-tagline {
+  font-size: 0.78rem;
+  color: var(--color-text-steel);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .topbar__nav-toggle {
   display: none;
