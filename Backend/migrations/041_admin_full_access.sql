@@ -43,9 +43,11 @@ SET
   can_delete = TRUE,
   can_approve = TRUE,
   updated_at = NOW()
-FROM roles r
-JOIN permissions p ON p.id = rp.permission_id AND p.deleted_at IS NULL AND p.resource_type = 'page'
+FROM roles r, permissions p
 WHERE rp.role_id = r.id
+  AND rp.permission_id = p.id
+  AND p.deleted_at IS NULL
+  AND p.resource_type = 'page'
   AND r.deleted_at IS NULL
   AND r.name = 'JPS Full Access'
   AND rp.deleted_at IS NULL
@@ -73,9 +75,11 @@ WHERE u.deleted_at IS NULL
 
 UPDATE user_roles ur
 SET deleted_at = NULL
-FROM users u
-JOIN roles r ON r.id = ur.role_id AND r.deleted_at IS NULL AND r.name = 'JPS Full Access'
+FROM users u, roles r
 WHERE ur.user_id = u.id
+  AND ur.role_id = r.id
+  AND r.deleted_at IS NULL
+  AND r.name = 'JPS Full Access'
   AND u.deleted_at IS NULL
   AND u.username = 'admin'
   AND ur.deleted_at IS NOT NULL;
@@ -96,9 +100,10 @@ WHERE u.deleted_at IS NULL
 
 UPDATE user_ports up
 SET deleted_at = NULL, updated_at = NOW()
-FROM users u
-JOIN ports p ON p.id = up.port_id AND p.deleted_at IS NULL
+FROM users u, ports p
 WHERE up.user_id = u.id
+  AND up.port_id = p.id
+  AND p.deleted_at IS NULL
   AND u.deleted_at IS NULL
   AND u.username = 'admin'
   AND up.deleted_at IS NOT NULL;
