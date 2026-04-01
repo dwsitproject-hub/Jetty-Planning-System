@@ -135,8 +135,6 @@ export default function LoadingOperation() {
     <div className="allocation-page">
       <h1 className="page-title">Loading (operation #{id})</h1>
       <p className="text-steel">
-        <Link to="/e2e-console" className="link">← E2E console</Link>
-        {' · '}
         <Link to="/verification" className="link">Clearance</Link>
       </p>
       {err && <p style={{ color: '#c00' }}>{err}</p>}

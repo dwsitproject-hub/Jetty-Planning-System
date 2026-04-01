@@ -15,7 +15,6 @@ const navStructure = [
   { path: '/reporting', label: 'Reporting', icon: '📑' },
   { path: '/master', label: 'Master Menu', icon: '📋' },
   { path: '/admin', label: 'Admin', icon: '⚙️' },
-  { path: '/e2e-console', label: 'E2E console', icon: '🧪' },
 ]
 
 function isPathActive(path, currentPath) {
@@ -49,7 +48,6 @@ function pathToPageKey(pathname) {
   if (pathname.startsWith('/at-berth')) return 'at-berth'
   if (pathname.startsWith('/loading/operation')) return 'loading'
   if (pathname.startsWith('/loading') || pathname.startsWith('/unloading')) return 'loading'
-  if (pathname.startsWith('/e2e-console')) return 'e2e-console'
   if (pathname.startsWith('/quality')) return 'quality'
   if (pathname.startsWith('/verification')) return 'verification'
   if (pathname.startsWith('/admin')) return 'admin'

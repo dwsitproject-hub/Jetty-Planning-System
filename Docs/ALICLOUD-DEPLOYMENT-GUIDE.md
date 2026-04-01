@@ -310,6 +310,15 @@ git clone git@github.com:<YOUR_ORG_OR_USER>/<YOUR_REPO_NAME>.git .
 
 After the initial clone, deploy updates **without** SCP:
 
+**Notes (to keep deployments consistent + safe):**
+
+- **Run on both servers only if needed**:
+  - If the change is **frontend-only**, you can update only the **App server** (§6).
+  - If the change touches **Backend/**, DB schema, or API routes, update the **Backend server first** (§5), then the App server.
+- **This guide builds Docker images on the server from this repo** (`build: context: .`). That means the server has a checkout under `/opt/jetty-planning-system` for build-time only. At runtime, containers should **not** mount the whole repo (the app compose mounts only `nginx.alicloud-app.conf`).
+- **Database safety**: `docker compose up -d` does **not** wipe Postgres data. Do **not** run `docker compose down -v` unless you intentionally want to delete volumes.
+- **Browser cache**: favicon changes often require a **hard refresh** (Chrome: `Ctrl+Shift+R`) or opening in an incognito window.
+
 **Backend server (PuTTY):**
 
 ```bash
@@ -320,6 +329,13 @@ docker compose -f docker-compose.backend.yml up -d
 docker compose -f docker-compose.backend.yml exec -T jps-api npm run migrate
 ```
 
+If you want a quick health check after update:
+
+```bash
+docker compose -f docker-compose.backend.yml ps
+docker compose -f docker-compose.backend.yml logs --tail=50 jps-api
+```
+
 **App server (PuTTY):**
 
 ```bash
@@ -327,6 +343,13 @@ cd /opt/jetty-planning-system
 git pull
 docker compose -f docker-compose.app.yml build --no-cache
 docker compose -f docker-compose.app.yml up -d
+```
+
+Quick check:
+
+```bash
+docker compose -f docker-compose.app.yml ps
+docker compose -f docker-compose.app.yml logs --tail=50 jps-fe
 ```
 
 If you changed only server-local files (`.env`, `nginx.alicloud-app.conf`), **do not** commit secrets to GitHub — keep them only on the server and run `git pull` carefully (resolve conflicts if any).

@@ -29,7 +29,6 @@ import MasterFreightTerms from './pages/MasterFreightTerms'
 import Admin from './pages/Admin'
 import AdminUsers from './pages/AdminUsers'
 import AdminRoles from './pages/AdminRoles'
-import E2EConsole from './pages/E2EConsole'
 import DemurrageRiskCalculator from './pages/DemurrageRiskCalculator'
 
 function AppShell() {
@@ -158,7 +157,6 @@ function App() {
                   <Route path="/admin" element={<Admin />} />
                   <Route path="/admin/users" element={<AdminUsers />} />
                   <Route path="/admin/roles" element={<AdminRoles />} />
-                  <Route path="/e2e-console" element={<E2EConsole />} />
                 </Route>
                 </Routes>
               </RbacProvider>
