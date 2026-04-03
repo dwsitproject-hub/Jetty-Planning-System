@@ -1,7 +1,7 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.11  
-**Last Updated**: 2026-04-02  
+**Version**: 1.12  
+**Last Updated**: 2026-04-03  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
@@ -50,9 +50,9 @@ This addendum updates key requirements/implementation details.
     - `No port assigned, please contact Jetty Planning System Admin`
   - 1 assigned port -> auto-enter with that port selected.
   - >1 assigned ports -> force port selection before entering operational modules.
-- **Choose-port UX (2026-04-02):** Multi-port users use a **dedicated route** **`/select-port`** (no `Layout` shell). The main app **`Layout`** **`useLayoutEffect`** redirects to **`/select-port?returnTo=<encoded path>`** when `PortScopeContext` reports **`requiresSelection`** and the path is not already bypassed (`/admin`, `/master`). **Login** (`Login.jsx`) after a successful token issue calls **`fetchMyPorts`**; if **`assignedPorts.length > 1`** and **`sessionStorage`** has **no** valid stored id for that list, **`navigate('/select-port')`**; otherwise **`navigate('/')`**. **`returnTo`** is validated on the choose-port page (same-origin path only; rejects `//`).
+- **Choose-port UX (2026-04-02):** Multi-port users use a **dedicated route** **`/select-port`** (no `Layout` shell). The main app **`Layout`** **`useLayoutEffect`** redirects to **`/select-port?returnTo=<encoded path>`** when `PortScopeContext` reports **`requiresSelection`** and the path is not already bypassed (`/admin`, `/master`). **Login** (`Login.jsx`) after a **successful login** (session cookies set; see **§0.10**) calls **`fetchMyPorts`**; if **`assignedPorts.length > 1`** and **`sessionStorage`** has **no** valid stored id for that list, **`navigate('/select-port')`**; otherwise **`navigate('/')`**. **`returnTo`** is validated on the choose-port page (same-origin path only; rejects `//`).
 - **Changing port:** Header **no longer** uses an inline `<select>` for multi-port users. A **button** navigates to **`/select-port?returnTo=…`** so selection happens only on the landing page.
-- Selected port persistence: **browser `sessionStorage`** key **`jps_selected_port_id`** (see `Frontend/src/api/client.js`: **`getSelectedPortId`**, **`setSelectedPortId`**). Every **`authHeaders()`** request adds **`X-Selected-Port-Id`** when set. **Logout** (`Frontend/src/api/auth.js` **`logout`**) clears the token **and** calls **`setSelectedPortId(null)`**.
+- Selected port persistence: **browser `sessionStorage`** key **`jps_selected_port_id`** (see `Frontend/src/api/client.js`: **`getSelectedPortId`**, **`setSelectedPortId`**). Every **`authHeaders()`** request adds **`X-Selected-Port-Id`** when set and **`X-XSRF-TOKEN`** when the CSRF cookie is present (see **§0.10**). **Logout** (`Frontend/src/api/auth.js` **`logout`**) calls **`POST /auth/logout`** (clears HttpOnly session cookies), clears any legacy **`localStorage`** token, and calls **`setSelectedPortId(null)`**.
 - **`PortScopeContext` bugfix:** When **`me` is temporarily null** (auth still loading after reload), **`refreshPorts` must not** call **`persistSelectedPortId(null)`**—that had been clearing the user’s choice on full page load. The **`!me`** branch only resets in-memory lists and syncs **`selectedPortId` state** from **`getSelectedPortId()`**.
 - Scope enforcement applies in both frontend and backend for operational modules; Admin/Master remain configuration surfaces.
 
@@ -190,6 +190,44 @@ Operational ownership note:
 
 **FUNCTIONAL-SPEC:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.5**.
 
+### 0.10 Browser session, CSRF, SI lookups auth, uploads, headers (2026-04-03)
+
+**Goal:** Align the technical spec with implemented **high-priority security hardening** (see `Docs/Security/SECURITY-HIGH-FINDINGS-DETAILED-PLAN.md` §1a).
+
+**Session (replaces primary `localStorage` JWT for the SPA)**
+
+- **Login** `POST /api/v1/auth/login`: on success, response JSON is **`{ user }`** by default; **`Set-Cookie`** sets **`jps_at`** (HttpOnly JWT) and **`jps_xsrf`** (readable anti-CSRF token). Cookie **`maxAge`** follows **`JWT_EXPIRES_IN`** (default **8h** in code / `.env.example`).
+- **Optional:** `AUTH_RETURN_TOKEN_BODY=true` adds **`token`** to the JSON for non-browser API clients that cannot use cookies.
+- **Logout** `POST /api/v1/auth/logout`: clears both cookies (**204**). Frontend **`Frontend/src/api/auth.js`** calls this, clears legacy **`jps_token`** in `localStorage` if present, and **`setSelectedPortId(null)`**.
+- **Authorisation header:** `Backend/src/middleware/auth.js` accepts **`Authorization: Bearer <jwt>`** **or** cookie **`jps_at`**. Bearer-only requests **skip** CSRF verification (integrations/scripts).
+- **CSRF:** For unsafe methods (`POST`, `PUT`, `PATCH`, `DELETE`), when the session cookie **`jps_at`** is present **and** there is **no** Bearer header, middleware **`Backend/src/middleware/csrf.js`** requires **`X-XSRF-TOKEN`** to match cookie **`jps_xsrf`**. **`POST /auth/login`** is exempt.
+- **Frontend:** `Frontend/src/api/client.js` uses **`credentials: 'include'`** on all `fetch` calls and sends **`X-XSRF-TOKEN`** when the `jps_xsrf` cookie exists. **`AuthContext`** / **`RbacContext`** rely on **`GET /users/me`** and RBAC endpoints with cookie session (not `localStorage` token checks).
+
+**CORS / proxy**
+
+- **`CORS_ORIGIN`** must list the SPA origin(s) (e.g. `http://localhost:5173`); credentials enabled. Pair with repo root **`VITE_API_BASE_URL`** (e.g. `http://localhost:3000/api/v1`). Comments in **`.env`** / **`Backend/.env.example`** document the pairing.
+- **`TRUST_PROXY`:** set hop count (or value) when behind a load balancer so **login rate limiting** uses the real client IP (`Backend/src/index.js`).
+
+**Login rate limiting**
+
+- **`express-rate-limit`** on **`POST /auth/login`** (`Backend/src/routes/auth.js`); cap tunable via **`AUTH_LOGIN_MAX_ATTEMPTS`** (default **40** per 15 minutes per IP).
+
+**SI aggregate lookups require authentication**
+
+- Router **`/api/v1/si-lookups`** is mounted with **`requireAuth`** in **`Backend/src/index.js`**. **`GET /si-lookups`** (bulk dropdown bundle) returns **401** without a session. Per-type CRUD behaviour unchanged aside from requiring login first.
+
+**Upload type validation**
+
+- After **multer** writes files for **`operation-documents`** and **sub-process document** uploads, **`Backend/src/lib/upload-mime.js`** runs **`file-type`** (magic bytes) against an allowlist (PDF, common images, XLSX). Mismatch → files removed, **400**.
+
+**Nginx security headers (production SPA image)**
+
+- Root **`nginx.conf`** adds **`X-Content-Type-Options`**, **`Referrer-Policy`**, **`Permissions-Policy`**, **`X-Frame-Options`**, and **`Content-Security-Policy`**. **Vite dev** does not use this file; tune **`connect-src`** (and related directives) for your real API hostname in Alicloud or other hosting.
+
+**E2E smoke (optional)**
+
+- Repo root **`npm run test:e2e`** (Playwright): login UI, asserts cookies, **`GET /users/me`**, logout with CSRF header. Requires Vite + API + DB running locally.
+
 ---
 
 ## 1. Overview
@@ -205,7 +243,8 @@ Operational ownership note:
 - **Production (Alicloud)** – HA deployment, managed DB, monitoring; `.env.production`.
 
 Each environment uses a separate `.env` (or `.env.*`) to configure:
-- `APP_ENV`, `VITE_API_BASE_URL`, `DB_*`, `JWT_SECRET`.
+- **Frontend (repo root):** `VITE_API_BASE_URL` (must match API host + `/api/v1`).
+- **Backend:** `DATABASE_URL` / `DB_*`, `JWT_SECRET`, **`JWT_EXPIRES_IN`** (session cookie lifetime; default **8h**), `CORS_ORIGIN` (must include SPA origin), optional **`AUTH_RETURN_TOKEN_BODY`**, **`AUTH_LOGIN_MAX_ATTEMPTS`**, **`TRUST_PROXY`** (see **§0.10**).
 - External integrations: `EXIM_API_URL`, `GOOGLE_WEATHER_API_KEY`, etc.
 
 ---
@@ -424,10 +463,11 @@ All endpoints under `/api/v1`.
 
 ### 3.1 Authentication & Users
 
-- `POST /auth/login` – login, returns user + JWT.
-- `GET /users/me` – current user profile and effective permissions.
-- `GET /users`, `GET /users/:id`, `POST /users`, `PUT /users/:id`, `DELETE /users/:id` (soft) – JWT required; cannot delete self.
-- **RBAC** (JWT): base path `/rbac` — `GET/POST /rbac/roles`, `GET/PUT/DELETE /rbac/roles/:id` (system roles not deletable); `GET/POST/DELETE /rbac/roles/:roleId/permissions[/:permissionId]`; `GET/POST/PUT/DELETE /rbac/permissions[/:id]`; `GET/POST/DELETE /rbac/users/:userId/roles[/:roleId]`.
+- `POST /auth/login` – login; returns **user** in JSON; **session cookies** **`jps_at`** + **`jps_xsrf`** (**§0.10**); rate-limited. Optional JSON **`token`** if **`AUTH_RETURN_TOKEN_BODY=true`**.
+- `POST /auth/logout` – clears session cookies (**204**).
+- `GET /users/me` – current user profile (session cookie or Bearer); same for effective permissions context elsewhere.
+- `GET /users`, `GET /users/:id`, `POST /users`, `PUT /users/:id`, `DELETE /users/:id` (soft) – authentication required; cannot delete self.
+- **RBAC:** base path `/rbac` — `GET/POST /rbac/roles`, `GET/PUT/DELETE /rbac/roles/:id` (system roles not deletable); `GET/POST/DELETE /rbac/roles/:roleId/permissions[/:permissionId]`; `GET/POST/PUT/DELETE /rbac/permissions[/:id]`; `GET/POST/DELETE /rbac/users/:userId/roles[/:roleId]`.
 
 ### 3.2 Shipping Instructions
 
@@ -439,8 +479,9 @@ All endpoints under `/api/v1`.
 
 ### 3.2.1 SI lookups (master dropdown CRUD)
 
-Base: `/si-lookups`
+Base: `/si-lookups` — **all routes require an authenticated session** (including **`GET /si-lookups`** aggregate used for SI form dropdowns).
 
+- `GET /si-lookups` – bulk bundle for dropdowns (requires auth).
 - `GET /si-lookups/:type` – list items
 - `GET /si-lookups/:type/:id` – get item
 - `POST /si-lookups/:type` – create `{ value }`
@@ -743,7 +784,7 @@ Backward compatibility note:
 
 ### 3.10 Operation documents (upload)
 
-- `POST /api/v1/operation-documents/operations/:operationId/:kind` — multipart `files`; kinds used in UI include **`NOR`** (Log arrival update) and **`BERTHING`** (Confirm Berthing / vessel photos), stored in **`operation_documents`** with paths under uploads.
+- `POST /api/v1/operation-documents/operations/:operationId/:kind` — multipart `files`; kinds used in UI include **`NOR`** (Log arrival update) and **`BERTHING`** (Confirm Berthing / vessel photos), stored in **`operation_documents`** with paths under uploads. **Server validates file content** (magic bytes) against an allowlist (**§0.10**); invalid types rejected with **400**.
 
 ### 3.10A Static file serving (`/uploads`)
 
@@ -755,7 +796,7 @@ Backward compatibility note:
 
 ### 3.10B Multipart uploads from the SPA
 
-- `apiPostForm(path, FormData, timeoutMs)` in `Frontend/src/api/client.js` — uses the same auth + timeout pattern as `apiGet`/`apiPut` (longer default timeout for uploads).
+- `apiPostForm(path, FormData, timeoutMs)` in `Frontend/src/api/client.js` — uses **`credentials: 'include'`**, **CSRF header** when applicable, and a longer default timeout for uploads.
 - `uploadOperationDocuments` and `uploadSubProcessDocuments` (`Frontend/src/api/allocation.js`, `Frontend/src/api/operations.js`) use `apiPostForm`; sub-process upload includes `phase` in the URL query as well as the form field for robustness.
 
 ---
@@ -799,8 +840,11 @@ Indexes:
 ### 5.2 Availability, Security, Observability
 
 - Target availability: 99.5%+ in Production.
-- HTTPS in Testing and Production.
-- Passwords with strong hashing, JWT for auth.
+- HTTPS in Testing and Production (required for **`Secure`** session cookies in production builds).
+- Passwords with strong hashing (**bcrypt**); **JWT** carried in **HttpOnly cookie** for browser SPA, optional Bearer for scripts; **CSRF** protection on unsafe API methods when using cookie session (**§0.10**).
+- **Login** endpoint rate-limited per IP; **`trust proxy`** configurable behind load balancers.
+- **SI master aggregate** and upload pipelines include additional hardening (auth on **`GET /si-lookups`**, magic-byte checks on uploads).
+- Production **nginx** template includes baseline **security headers** / **CSP** (`nginx.conf`); validate in staging per deployment hostname.
 - Full audit logging of field changes and logins.
 - Structured logs with correlation IDs; Alicloud monitoring and alerting.
 

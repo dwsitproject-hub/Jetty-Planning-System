@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { apiGet } from '../api/client'
-import { getToken } from '../api/auth'
+import { useAuth } from './AuthContext'
 
 const RbacContext = createContext({
   loading: true,
@@ -14,13 +14,13 @@ const RbacContext = createContext({
 })
 
 export function RbacProvider({ children }) {
+  const { me } = useAuth()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [pagePerms, setPagePerms] = useState({})
 
   const refresh = useCallback(async () => {
-    const token = getToken()
-    if (!token) {
+    if (!me) {
       setPagePerms({})
       setError(null)
       setLoading(false)
@@ -46,17 +46,21 @@ export function RbacProvider({ children }) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [me])
 
   useEffect(() => {
     refresh()
   }, [refresh])
 
-  const canView = useCallback((pageKey) => {
-    if (!getToken()) return pageKey === 'login'
-    if (!pageKey) return true
-    return pagePerms[pageKey]?.canView === true
-  }, [pagePerms])
+  const canView = useCallback(
+    (pageKey) => {
+      if (pageKey === 'login') return true
+      if (!me) return false
+      if (!pageKey) return true
+      return pagePerms[pageKey]?.canView === true
+    },
+    [me, pagePerms]
+  )
 
   const canEdit = useCallback((pageKey) => pagePerms[pageKey]?.canEdit === true, [pagePerms])
   const canDelete = useCallback((pageKey) => pagePerms[pageKey]?.canDelete === true, [pagePerms])
@@ -73,4 +77,3 @@ export function RbacProvider({ children }) {
 export function useRbac() {
   return useContext(RbacContext)
 }
-

@@ -1,6 +1,15 @@
 # Jetty Planning System — Alicloud Ubuntu Deployment Guide
 
-This guide deploys JPS on **two ECS instances** in the same VPC (recommended layout). All **shell commands** below are intended to be run in an SSH session on the server (**PuTTY**, `ssh`, etc.).
+This guide deploys JPS on **two separate ECS instances** in the same VPC:
+
+| Server | Role | What runs there |
+|--------|------|-----------------|
+| **App server** (example private IP `172.28.92.56`) | **Frontend only** | Docker: **nginx + built React SPA** (`docker-compose.app.yml`). Proxies `/api/` and `/uploads/` to the backend over the **private network**. |
+| **Backend server** (example private IP `172.28.92.57`) | **API + database** | Docker: **Node API** (`jps-api`) + **PostgreSQL** (`jps-db`) (`docker-compose.backend.yml`). **Do not** install the JPS frontend container on this host for the standard layout. |
+
+Users reach **only** the app server URL (public IP or DNS + port). They never call the backend IP directly from the browser.
+
+All **shell commands** below are intended to be run in an SSH session on the correct host (**PuTTY**, `ssh`, etc.).
 
 ---
 
@@ -166,7 +175,17 @@ On **`172.28.92.57`** the following TCP ports were observed **in use** (do **not
 
 **Recommendation:** **`3000` is free** on this host — keep **`docker-compose.backend.yml`** as **`3000:3000`** and keep **`nginx.alicloud-app.conf`** upstream as **`172.28.92.57:3000`**.
 
-**JPS Postgres in Docker:** do **not** publish `5432` on **`0.0.0.0`** if the host already uses **5432** / **5434** / **5422**. For **pgAdmin / psql over SSH** only, you may map **loopback** e.g. `127.0.0.1:15432:5432` on `jps-db` (see [PGADMIN-ALICLOUD-DB-TUNNEL.md](PGADMIN-ALICLOUD-DB-TUNNEL.md)). Default deploy can keep DB on the internal Compose network only until you need that tunnel.
+**JPS Postgres in Docker:** do **not** publish container **5432** on host **`0.0.0.0`** (would conflict with other Postgres on the host and is unnecessary). The checked-in compose maps **`127.0.0.1:5436:5432`** so **inside the container** Postgres remains on **5432** (what `jps-api` uses via `DATABASE_URL` → `jps-db:5432`), while **on the Linux host** you connect to **127.0.0.1 port 5436** for admin tools after an SSH tunnel. See **§1.3** and [PGADMIN-ALICLOUD-DB-TUNNEL.md](PGADMIN-ALICLOUD-DB-TUNNEL.md).
+
+### 1.3 Backend host port **5436** (pgAdmin / DBA tools)
+
+| Item | Detail |
+|------|--------|
+| **Why not host :5432?** | Many ECS images already run PostgreSQL or other services on **5432**. Binding JPS there causes conflicts; tools like pgAdmin may attach to the **wrong** instance. |
+| **Chosen host port** | **`5436`** on **127.0.0.1 only** in `docker-compose.backend.yml` (`127.0.0.1:5436:5432`). |
+| **API unchanged** | `DATABASE_URL` uses hostname **`jps-db`** and port **5432** (Docker DNS). Only **your PC → SSH → backend `127.0.0.1:5436`** uses the host mapping. |
+| **Security** | Keep **5436** off public SGs. Access is **SSH + local forward** (see PGADMIN doc). |
+| **After `git pull`** | If compose changed ports, run `docker compose -f docker-compose.backend.yml up -d` so `jps-db` recreates with the new mapping (data volume is preserved). |
 
 If **3000** becomes occupied later, map a free host port (e.g. **`3010:3000`**) in compose, set nginx upstream to that host port, and allow that port from the app server in the backend SG.
 
@@ -482,7 +501,23 @@ Open in a browser: `http://<APP_PUBLIC_IP>:3080` (or your domain and chosen port
 
 **App server `172.28.92.56` — ports already in use (do not use for JPS):** 22, 80, 3000, 3001, 3002, 3005, 3010, 3011, 8010 (from `sudo ss -tuln`).
 
-**Backend server `172.28.92.57` — ports already in use on host:** 22, 3001, 3003, 4000, 5001, 5002, 5432, 5434, 5422 (plus localhost 5433). JPS API recommended on **3000**; do not publish JPS Postgres to host **5432**.
+**Backend server `172.28.92.57` — ports already in use on host:** 22, 3001, 3003, 4000, 5001, 5002, 5432, 5434, 5422 (plus localhost 5433). JPS API recommended on **3000**. JPS Postgres published on **loopback `5436`** only (not `0.0.0.0:5432`).
+
+---
+
+## 4.6 Staging / repeat deployment (updates only)
+
+Use this when JPS is **already** running on staging and you are deploying **new code** (e.g. new migrations `042+`, API/UI changes). **Do not** treat this like a greenfield install.
+
+| Do | Don’t |
+|----|--------|
+| On **backend:** `git pull` → `docker compose -f docker-compose.backend.yml build` → `up -d` → **`docker compose ... exec -T jps-api npm run migrate`** | **`docker compose down -v`** (destroys Postgres volume and all data). |
+| On **app:** `git pull` → rebuild and `up -d` for `docker-compose.app.yml` | Re-run **user & role bootstrap** SQL or **dev seed** scripts (`reset-and-seed-dev.sql`, `023`/`024` seeds) on staging **unless** you intentionally reset a **non-production** database. |
+| Expect **`npm run migrate`** to apply **only migrations that have not yet run** (tracked in **`schema_migrations`**; see `Backend/scripts/run-migrations.js`). Already-applied files — including schema for **`users`**, **`roles`**, **`permissions`**, **seed users** — are **not** executed again. | Manually re-import **`002_seed_first_user.sql`**-style dumps if accounts already exist (risk duplicate or conflicting ids). |
+
+**Staging RBAC:** If users and roles are **already** configured on the server, a normal **`git pull` + `migrate`** is enough for new feature migrations (e.g. jetty layout, `shifting_out`, `updated_by`). Reserve full re-seed for **new environments only**, documented in §2 / reset scripts.
+
+**Order for an update:** **Backend server first** (API + DB + migrate), then **App server** (rebuild SPA if `VITE_API_BASE_URL` or frontend changed).
 
 ---
 

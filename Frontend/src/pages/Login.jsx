@@ -6,10 +6,10 @@ import { getSelectedPortId } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { useRbac } from '../context/RbacContext'
 import { ApiError } from '../api/client'
-import '../styles/allocation.css'
+import GuestBrandedShell from '../components/GuestBrandedShell'
 
 export default function Login() {
-  const [username, setUsername] = useState('admin')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -49,24 +49,36 @@ export default function Login() {
   }
 
   return (
-    <div className="allocation-page" style={{ maxWidth: '24rem', margin: '2rem auto' }}>
-      <h1 className="page-title">Sign in</h1>
-      <form onSubmit={handleSubmit} className="card" style={{ padding: '1.25rem' }}>
-        {error && <p style={{ color: '#c00' }}>{error}</p>}
-        <label className="modal__label">Username</label>
-        <input className="modal__input" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
-        <label className="modal__label" style={{ marginTop: '0.75rem' }}>Password</label>
+    <GuestBrandedShell>
+      <form onSubmit={handleSubmit}>
+        {error ? <p className="guest-branded__error">{error}</p> : null}
+        <label className="guest-branded__label" htmlFor="login-username">
+          Username
+        </label>
         <input
-          className="modal__input"
+          id="login-username"
+          className="guest-branded__input"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          autoComplete="username"
+          disabled={busy}
+        />
+        <label className="guest-branded__label" htmlFor="login-password">
+          Password
+        </label>
+        <input
+          id="login-password"
+          className="guest-branded__input"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="current-password"
+          disabled={busy}
         />
-        <button type="submit" className="btn btn--primary" style={{ marginTop: '1rem', width: '100%' }} disabled={busy}>
-          {busy ? 'Signing in…' : 'Sign in'}
+        <button type="submit" className="btn btn--primary guest-branded__submit" disabled={busy}>
+          {busy ? 'Signing in…' : 'Sign In'}
         </button>
       </form>
-    </div>
+    </GuestBrandedShell>
   )
 }

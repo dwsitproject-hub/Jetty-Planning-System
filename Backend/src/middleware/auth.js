@@ -1,17 +1,29 @@
 /**
- * JWT auth middleware (Step 1.9). Sets req.userId when Authorization: Bearer <token> is valid.
+ * JWT auth (Step 1.9). Bearer token OR HttpOnly cookie jps_at (H-1).
  */
 import jwt from 'jsonwebtoken';
+import { COOKIE_ACCESS_TOKEN } from '../lib/auth-cookies.js';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-/** If Bearer token is valid, sets req.userId; otherwise continues without auth (for activity logging). */
-export function optionalAuth(req, res, next) {
+function getTokenFromRequest(req) {
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.slice(7);
+  }
+  const fromCookie = req.cookies?.[COOKIE_ACCESS_TOKEN];
+  if (fromCookie && typeof fromCookie === 'string') {
+    return fromCookie;
+  }
+  return null;
+}
+
+/** If token is valid, sets req.userId; otherwise continues without auth (for activity logging). */
+export function optionalAuth(req, res, next) {
+  const token = getTokenFromRequest(req);
+  if (!token) {
     return next();
   }
-  const token = authHeader.slice(7);
   if (!JWT_SECRET) {
     return next();
   }
@@ -28,11 +40,10 @@ export function optionalAuth(req, res, next) {
 }
 
 export function requireAuth(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Authorization header with Bearer token required' });
+  const token = getTokenFromRequest(req);
+  if (!token) {
+    return res.status(401).json({ error: 'Authentication required' });
   }
-  const token = authHeader.slice(7);
   if (!JWT_SECRET) {
     return res.status(500).json({ error: 'Server misconfiguration' });
   }
@@ -44,7 +55,7 @@ export function requireAuth(req, res, next) {
     }
     req.userId = Number(userId);
     next();
-  } catch (err) {
+  } catch {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 }

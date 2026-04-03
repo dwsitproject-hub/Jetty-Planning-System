@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { usePortScope } from '../context/PortScopeContext'
-import '../styles/allocation.css'
+import GuestBrandedShell from '../components/GuestBrandedShell'
 
 function safeReturnTo(raw) {
   if (raw == null || typeof raw !== 'string') return '/'
@@ -66,9 +66,9 @@ export default function SelectPort() {
 
   if (busy) {
     return (
-      <div className="allocation-page" style={{ maxWidth: '28rem', margin: '2rem auto' }}>
-        <p className="text-steel">Loading…</p>
-      </div>
+      <GuestBrandedShell cardTitle="Choose port">
+        <p className="guest-branded__muted">Loading…</p>
+      </GuestBrandedShell>
     )
   }
 
@@ -78,40 +78,38 @@ export default function SelectPort() {
 
   if (noPortAssigned) {
     return (
-      <div className="allocation-page" style={{ maxWidth: '28rem', margin: '2rem auto' }}>
-        <h1 className="page-title">Port access</h1>
-        <div className="card" style={{ padding: '1.25rem' }}>
-          <p className="text-steel">{noPortMessage}</p>
-          <button type="button" className="btn btn--secondary" style={{ marginTop: '1rem' }} onClick={() => navigate('/login', { replace: true })}>
+      <GuestBrandedShell cardTitle="Port access">
+        <p className="guest-branded__muted">{noPortMessage}</p>
+        <div className="guest-branded__actions">
+          <button type="button" className="btn btn--secondary guest-branded__submit" onClick={() => navigate('/login', { replace: true })}>
             Back to sign in
           </button>
         </div>
-      </div>
+      </GuestBrandedShell>
     )
   }
 
   if (assignedPorts.length <= 1) {
     return (
-      <div className="allocation-page" style={{ maxWidth: '28rem', margin: '2rem auto' }}>
-        <p className="text-steel">Continuing…</p>
-      </div>
+      <GuestBrandedShell cardTitle="Choose port">
+        <p className="guest-branded__muted">Continuing…</p>
+      </GuestBrandedShell>
     )
   }
 
   return (
-    <div className="allocation-page" style={{ maxWidth: '28rem', margin: '2rem auto' }}>
-      <h1 className="page-title">Choose port</h1>
-      <p className="text-steel" style={{ marginBottom: '1rem' }}>
-        You are assigned to multiple ports. Select one to continue.
-      </p>
-      <form onSubmit={handleContinue} className="card" style={{ padding: '1.25rem' }}>
-        {localErr && <p style={{ color: '#c00', marginTop: 0 }}>{localErr}</p>}
-        <label className="modal__label" htmlFor="select-port-id">
+    <GuestBrandedShell
+      cardTitle="Choose port"
+      cardDescription="You are assigned to multiple ports. Select one to continue."
+    >
+      <form onSubmit={handleContinue}>
+        {localErr ? <p className="guest-branded__error">{localErr}</p> : null}
+        <label className="guest-branded__label" htmlFor="select-port-id">
           Port
         </label>
         <select
           id="select-port-id"
-          className="modal__input"
+          className="guest-branded__input"
           value={choice}
           onChange={(e) => setChoice(e.target.value)}
           required
@@ -123,10 +121,10 @@ export default function SelectPort() {
             </option>
           ))}
         </select>
-        <button type="submit" className="btn btn--primary" style={{ marginTop: '1rem', width: '100%' }}>
+        <button type="submit" className="btn btn--primary guest-branded__submit">
           Continue
         </button>
       </form>
-    </div>
+    </GuestBrandedShell>
   )
 }

@@ -1,13 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { fetchMe } from '../api/usersApi'
-import { getToken, logout as clearToken } from '../api/auth'
+import { clearLegacyToken, logout as apiLogout } from '../api/auth'
 
 const AuthContext = createContext({
   loading: true,
   error: null,
   me: null,
   refreshMe: async () => {},
-  logout: () => {},
+  logout: async () => {},
 })
 
 export function AuthProvider({ children }) {
@@ -15,14 +15,11 @@ export function AuthProvider({ children }) {
   const [error, setError] = useState(null)
   const [me, setMe] = useState(null)
 
+  useEffect(() => {
+    clearLegacyToken()
+  }, [])
+
   const refreshMe = useCallback(async () => {
-    const token = getToken()
-    if (!token) {
-      setMe(null)
-      setError(null)
-      setLoading(false)
-      return
-    }
     setLoading(true)
     setError(null)
     try {
@@ -36,8 +33,8 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
-  const logout = useCallback(() => {
-    clearToken()
+  const logout = useCallback(async () => {
+    await apiLogout()
     setMe(null)
     setError(null)
     setLoading(false)
@@ -55,4 +52,3 @@ export function AuthProvider({ children }) {
 export function useAuth() {
   return useContext(AuthContext)
 }
-

@@ -1,16 +1,56 @@
 /**
- * Auth routes (Step 1.9). Bcrypt password check; JWT in response.
+ * Auth: bcrypt login; JWT in HttpOnly cookie + CSRF cookie (H-1, H-4, H-5).
+ * Optional Bearer in JSON when AUTH_RETURN_TOKEN_BODY=true (scripts/integration only).
  */
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import express from 'express';
 import jwt from 'jsonwebtoken';
+import rateLimit from 'express-rate-limit';
 import { pool } from '../db.js';
+import {
+  COOKIE_ACCESS_TOKEN,
+  COOKIE_XSRF,
+  cookieBaseOptions,
+  jwtExpiresInToMs,
+} from '../lib/auth-cookies.js';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '8h';
+const RETURN_TOKEN_BODY = process.env.AUTH_RETURN_TOKEN_BODY === 'true';
 
-router.post('/login', async (req, res) => {
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.AUTH_LOGIN_MAX_ATTEMPTS || 40),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts, try again later' },
+});
+
+function setAuthCookies(res, token) {
+  const base = cookieBaseOptions();
+  const maxAge = jwtExpiresInToMs(JWT_EXPIRES_IN);
+  const xsrf = crypto.randomBytes(32).toString('hex');
+  res.cookie(COOKIE_ACCESS_TOKEN, token, {
+    ...base,
+    httpOnly: true,
+    maxAge,
+  });
+  res.cookie(COOKIE_XSRF, xsrf, {
+    ...base,
+    httpOnly: false,
+    maxAge,
+  });
+}
+
+function clearAuthCookies(res) {
+  const base = cookieBaseOptions();
+  res.clearCookie(COOKIE_ACCESS_TOKEN, { path: base.path });
+  res.clearCookie(COOKIE_XSRF, { path: base.path });
+}
+
+router.post('/login', loginLimiter, async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || password === undefined) {
     return res.status(400).json({ error: 'username and password required' });
@@ -34,21 +74,24 @@ router.post('/login', async (req, res) => {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
 
-  const token = jwt.sign(
-    { userId: row.id },
-    JWT_SECRET,
-    { expiresIn: JWT_EXPIRES_IN }
-  );
+  const token = jwt.sign({ userId: row.id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  setAuthCookies(res, token);
 
-  res.json({
-    user: {
-      id: row.id,
-      username: row.username,
-      displayName: row.display_name ?? null,
-      email: row.email ?? null,
-    },
-    token,
-  });
+  const user = {
+    id: row.id,
+    username: row.username,
+    displayName: row.display_name ?? null,
+    email: row.email ?? null,
+  };
+  if (RETURN_TOKEN_BODY) {
+    return res.json({ user, token });
+  }
+  res.json({ user });
+});
+
+router.post('/logout', (req, res) => {
+  clearAuthCookies(res);
+  res.status(204).send();
 });
 
 export default router;

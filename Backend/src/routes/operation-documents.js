@@ -11,6 +11,7 @@ import { pool } from '../db.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { UPLOAD_ROOT } from '../paths.js';
+import { validateMulterFileList } from '../lib/upload-mime.js';
 
 const router = express.Router();
 router.use(optionalAuth);
@@ -139,6 +140,13 @@ router.post('/operations/:operationId/:kind', upload.array('files', 10), async (
 
   const files = Array.isArray(req.files) ? req.files : [];
   if (files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
+
+  try {
+    await validateMulterFileList(files);
+  } catch (e) {
+    const code = e?.statusCode || 400;
+    return res.status(code).json({ error: e?.message || 'Invalid file type' });
+  }
 
   const inserted = [];
   for (const f of files) {

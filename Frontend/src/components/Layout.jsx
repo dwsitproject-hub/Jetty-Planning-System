@@ -106,7 +106,7 @@ export default function Layout({ children }) {
   const closeSidebar = () => setSidebarOpen(false)
 
   const handleLogout = async () => {
-    logout()
+    await logout()
     await refreshRbac()
     navigate('/login')
     closeSidebar()

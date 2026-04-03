@@ -1,21 +1,33 @@
 /**
  * HTTP client for JPS API (Slice 0).
  * Set VITE_API_BASE_URL in project root .env (e.g. http://localhost:3000/api/v1)
+ * Sessions: HttpOnly cookie (H-1); XSRF double-submit header on mutating requests.
  */
 const BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1').replace(
   /\/$/,
   ''
 )
 const SELECTED_PORT_SESSION_KEY = 'jps_selected_port_id'
+const XSRF_COOKIE = 'jps_xsrf'
 
 /** Browser fetch can hang indefinitely if the API host is down; cap wait time. */
 const DEFAULT_TIMEOUT_MS = 18000
+
+function readXsrfCookie() {
+  if (typeof document === 'undefined') return null
+  const m = document.cookie.match(new RegExp(`(?:^|;\\s*)${XSRF_COOKIE}=([^;]*)`))
+  return m ? decodeURIComponent(m[1]) : null
+}
 
 async function fetchWithTimeout(url, init = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
   const controller = new AbortController()
   const id = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    return await fetch(url, { ...init, signal: controller.signal })
+    return await fetch(url, {
+      ...init,
+      credentials: 'include',
+      signal: controller.signal,
+    })
   } catch (e) {
     if (e?.name === 'AbortError') {
       throw new ApiError(
@@ -39,10 +51,10 @@ export class ApiError extends Error {
   }
 }
 
-function authHeaders() {
-  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('jps_token') : null
-  const headers = { Accept: 'application/json' }
-  if (token) headers.Authorization = `Bearer ${token}`
+function authHeaders(extra = {}) {
+  const headers = { Accept: 'application/json', ...extra }
+  const xsrf = readXsrfCookie()
+  if (xsrf) headers['X-XSRF-TOKEN'] = xsrf
   const selectedPortId =
     typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(SELECTED_PORT_SESSION_KEY) : null
   if (selectedPortId) headers['X-Selected-Port-Id'] = selectedPortId
@@ -108,7 +120,10 @@ export function resolveUploadUrl(urlOrPath) {
 }
 
 export async function getHealth() {
-  const res = await fetch(`${getApiOrigin()}/health`, { headers: { Accept: 'application/json' } })
+  const res = await fetch(`${getApiOrigin()}/health`, {
+    headers: { Accept: 'application/json' },
+    credentials: 'include',
+  })
   return parseResponse(res)
 }
 

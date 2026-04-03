@@ -13,3 +13,7 @@ Docs/Trash/
 # Local scratch / reference artifacts (do not commit)
 .tmp-pdf-extract/
 Docs/Reference SI/
+
+# Playwright / e2e output
+test-results/
+playwright-report/

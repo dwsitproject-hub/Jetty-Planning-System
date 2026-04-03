@@ -1,7 +1,8 @@
 # Backend server only (API + PostgreSQL). Run on the BACKEND ECS (e.g. 172.28.92.57).
 # See Docs/ALICLOUD-DEPLOYMENT-GUIDE.md
 #
-# PostgreSQL: optional 127.0.0.1:15432 on host (see jps-db ports). jps-api is reachable on :3000 (lock down with SG).
+# PostgreSQL: optional 127.0.0.1:5436 on host for pgAdmin/psql via SSH tunnel (see ALICLOUD-DEPLOYMENT-GUIDE.md).
+# jps-api still connects to jps-db:5432 on the Docker network. Lock down API with SG.
 
 services:
   jps-db:
@@ -14,11 +15,11 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-jps_db}
     volumes:
       - jps_pgdata:/var/lib/postgresql/data
-    # Optional: expose JPS Postgres on the host for local tools (psql, pgAdmin via SSH tunnel).
-    # Use 127.0.0.1 only — do not use 0.0.0.0 if another stack already uses host :5432 (e.g. infra-postgres).
-    # Inside the container Postgres still listens on 5432; the left side is the host port you connect to.
+    # Optional: expose JPS Postgres on loopback for admin tools (psql, pgAdmin via SSH tunnel).
+    # Host port 5436 avoids conflict with host Postgres or other stacks on :5432. Never bind 0.0.0.0:5436 without SG care.
+    # Container still listens on 5432; jps-api uses DATABASE_URL → jps-db:5432 (unchanged).
     ports:
-      - "127.0.0.1:15432:5432"
+      - "127.0.0.1:5436:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jps_user} -d ${POSTGRES_DB:-jps_db}"]
       interval: 5s
