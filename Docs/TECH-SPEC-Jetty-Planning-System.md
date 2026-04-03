@@ -1,7 +1,7 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.5  
-**Last Updated**: 2026-03-31  
+**Version**: 1.11  
+**Last Updated**: 2026-04-02  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
@@ -50,9 +50,22 @@ This addendum updates key requirements/implementation details.
     - `No port assigned, please contact Jetty Planning System Admin`
   - 1 assigned port -> auto-enter with that port selected.
   - >1 assigned ports -> force port selection before entering operational modules.
-- User can switch selected port later from header menu.
-- Selected port persistence: **session only**.
+- **Choose-port UX (2026-04-02):** Multi-port users use a **dedicated route** **`/select-port`** (no `Layout` shell). The main app **`Layout`** **`useLayoutEffect`** redirects to **`/select-port?returnTo=<encoded path>`** when `PortScopeContext` reports **`requiresSelection`** and the path is not already bypassed (`/admin`, `/master`). **Login** (`Login.jsx`) after a successful token issue calls **`fetchMyPorts`**; if **`assignedPorts.length > 1`** and **`sessionStorage`** has **no** valid stored id for that list, **`navigate('/select-port')`**; otherwise **`navigate('/')`**. **`returnTo`** is validated on the choose-port page (same-origin path only; rejects `//`).
+- **Changing port:** Header **no longer** uses an inline `<select>` for multi-port users. A **button** navigates to **`/select-port?returnTo=…`** so selection happens only on the landing page.
+- Selected port persistence: **browser `sessionStorage`** key **`jps_selected_port_id`** (see `Frontend/src/api/client.js`: **`getSelectedPortId`**, **`setSelectedPortId`**). Every **`authHeaders()`** request adds **`X-Selected-Port-Id`** when set. **Logout** (`Frontend/src/api/auth.js` **`logout`**) clears the token **and** calls **`setSelectedPortId(null)`**.
+- **`PortScopeContext` bugfix:** When **`me` is temporarily null** (auth still loading after reload), **`refreshPorts` must not** call **`persistSelectedPortId(null)`**—that had been clearing the user’s choice on full page load. The **`!me`** branch only resets in-memory lists and syncs **`selectedPortId` state** from **`getSelectedPortId()`**.
 - Scope enforcement applies in both frontend and backend for operational modules; Admin/Master remain configuration surfaces.
+
+**Implementation map**
+
+| Area | Location |
+|------|----------|
+| Choose-port page | `Frontend/src/pages/SelectPort.jsx` |
+| Route registration | `Frontend/src/App.jsx` — **`/select-port`** sibling to **`/login`**, outside **`AppShell` / Layout** |
+| Redirect guard | `Frontend/src/components/Layout.jsx` — **`useLayoutEffect`**, **`navigate(..., { replace: true })`** |
+| Port state + API header | `Frontend/src/context/PortScopeContext.jsx`, `Frontend/src/api/client.js` |
+| Post-login branch | `Frontend/src/pages/Login.jsx` — **`fetchMyPorts`** after **`refreshMe` / `refreshRbac`** |
+| Backend scope | `Backend/src/middleware/port-scope.js` — **`requirePortScope`**, **`req.selectedPortId`** |
 
 ### 0.2 API additions for port assignment
 
@@ -74,6 +87,108 @@ Operational ownership note:
   - `clearance_document_url` (optional)
   - `vessel_photo_url` (optional)
 - `hose_off_at` is removed from active contract and UI flow.
+
+### 0.5 Jetty layout persistence and Jetty Schematic (2026-04-02)
+
+**Source of truth:** Per-port jetty schematic **geometry** (columns, top/bottom jetty cells, middle pipeline blocks) is stored in **`jetty_layouts`** and exposed via the API. **Master – Jetty Layout** is the configuration UI; **Allocation → Jetty Schematic** (and any future Dashboard schematic) must consume the same API — not the legacy in-memory layout in `Frontend/src/data/masterData.js`.
+
+**API (port-scoped via existing middleware on `selectedPortId`):**
+
+- `GET /api/v1/jetty-layout` — Returns `{ portId, columns }`. If no row exists, **`columns` is an empty array** `[]`.
+- `PUT /api/v1/jetty-layout` — Body `{ columns: [...] }` validated server-side (`jetty-layout.js`).
+
+**Layout JSON shape (cells):** Each column has `top`, `middle`, `bottom`. Jetty cells use **`type: 'jetty'`** and **`jettyId`** as a **string of the database `jetties.id`** (bigint), consistent with Master – Jetty Layout save payload.
+
+**Joining layout to occupancy:**
+
+- `/allocation/overview` returns **`berths[].id`** as the **short jetty name** (e.g. `1A`), derived from `jetties.name` with the **`Jetty `** prefix stripped — same rule as `jettyShortName` / `regexp_replace` in `allocation.js`.
+- The schematic component resolves **`layout_json` `jettyId` → `berths[].id`** by loading **`GET /jetties?port_id=...`** for the active port and mapping each jetty’s **`id`** to **`name`** after stripping the `Jetty ` prefix.
+
+**Frontend implementation (Option B — self-contained widget):**
+
+- **`JettySchematic`** (`Frontend/src/components/JettySchematic.jsx`) uses **`usePortScope()`** and, when an operational port is selected, loads **`fetchJettyLayout()`** and **`fetchJetties(selectedPortId)`** in parallel, then renders columns from the API.
+- **No saved layout:** If `columns.length === 0`, the UI shows a single user-facing placeholder (functional copy in **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md**); there is **no** hardcoded fallback grid (e.g. old `1A/2A/3A` default).
+- **Errors:** Network/API failure shows a distinct “unable to load” message (not the admin placeholder).
+- **Dashboard (future):** To embed the same schematic, render **`JettySchematic`** with the same **`PortScopeProvider`** context and pass **`berths` / `vesselById` / handlers** as today on Allocation — **no duplicate layout-fetch parent** required because the component owns layout loading.
+
+**Database:** Table **`jetty_layouts`** (see migration `043_jetty_layout_persistence.sql`); one active row per `port_id` (partial unique index where `deleted_at IS NULL`).
+
+**Schematic presentation (see FUNCTIONAL-SPEC §17.7):** `Frontend/src/styles/jetty-schematic.css` defines **`--jetty-schematic-zone-height`** for the top/bottom grid rows of each column (pipeline row fixed at **48px**). **`JettySchematic`** sets **`--berth-lane-height-divisor`** on each berth stack to **`Math.max(capacity, 2)`** so lane pill height is `(zone − gaps) / divisor`. Implementation files: **`JettySchematic.jsx`**, **`jetty-schematic.css`**.
+
+### 0.6 Jetty schedule Gantt — bank lanes (double bank) (2026-04-02)
+
+**Issue avoided:** Bank lanes must **not** be computed in independent passes per **`planned`** vs **`actual`** layer. Doing so reset lane index to `0` for each layer, so the **same vessel** appeared on **1A-01** for planned and **1A-01** again for actual in a way that **duplicated** the bank row usage and prevented a **second vessel** from consistently using **1A-02**.
+
+**Rule:** For each jetty id, collect distinct **`vesselId`** values from **all** schedule segments (both layers). Sort vessels by **`tbDateTime`** ascending (rows with no TB sort after those with TB), then **`operationId`**, then **`vesselId`**. Assign **bank lane** indices `0 … capacity−1` in that order; `rowKey` = `` `${jettyId}__${lane}` `` (UI label e.g. **1A-01**, **1A-02**). **Every** segment for that vessel — planned or actual — uses the **same** `rowKey`, so **Planned** / **Actual** remain **sub-rows** inside one bank lane.
+
+**Overflow:** If there are more distinct vessels than jetty **`capacity`**, lane index is **clamped** to `capacity − 1` (additional vessels share the last lane).
+
+**Code:** `Frontend/src/components/JettyScheduleGantt.jsx` (`assignBankLanesByVessel`); metadata from allocation **`list`** (`tbDateTime`, `operationId`).
+
+**Schematic parity:** `Frontend/src/components/JettySchematic.jsx` assigns **`berths[].occupants`** into the same **01 / 02** lane order (TB → operation id → vessel id) so labels **1A-01** / **1A-02** align with the schedule.
+
+### 0.7 Active Vessel Detail — times edit, last updated, RBAC (2026-04-02)
+
+**Database:** Migration **`044_operations_updated_by.sql`** adds **`operations.updated_by`** (`BIGINT` → `users.id`, `ON DELETE SET NULL`). Existing **`operations.updated_at`** continues to bump on any `UPDATE` to the row.
+
+**`GET /allocation/overview` (`formatListRow`):**
+
+- Operation-backed queue rows: **`recordLastUpdatedAt`** = `o.updated_at`; **`recordLastUpdatedByDisplayName`** = `COALESCE(users.display_name, users.username)` from join on **`o.updated_by`** (active users only).
+- Approved-SI-only rows: **`recordLastUpdatedAt`** = `shipping_instructions.updated_at`; **`recordLastUpdatedByDisplayName`** = `null`.
+
+**`PUT /allocation/arrival`:**
+
+- **Authorisation:** `userHasPageEdit(req.userId, 'allocation')` from **`Backend/src/middleware/permissions.js`**; **403** if false. Route no longer uses **`optionalAuth`**; parent **`requireAuth`** + port scope still apply.
+- **Persistence:** `UPDATE operations` sets **`updated_by`** = authenticated user id; **`actual_completion_time`** is updated when the JSON body **includes** key **`actualCompletionDateTime`** (empty string clears); if the key is **omitted**, the column is left unchanged (read **`opBefore`** for merge).
+- **Partial JSON bodies:** If the client **omits** keys **`taDateTime`**, **`etbDateTime`**, **`pobDateTime`**, **`tbDateTime`**, **`sobDateTime`**, **`estimatedCompletionDateTime`**, **`norTenderedDateTime`**, or **`norAcceptedDateTime`**, the server **keeps** the existing database values for those columns (supports NOR-only saves from Loading). If a key is **present** (including with an empty string), the server applies normal parse/clear rules.
+- **Activity log:** `writeActivityLog` **`meta`** may include **`source: 'active_vessel_detail'`** when the client sends **`source`** in the body (Active Vessel Detail save).
+
+**Frontend:** `Frontend/src/pages/Allocation.jsx` — **`useRbac().canEdit('allocation')`** gates the Edit icon; **Log arrival** / **Confirm Berthing** requests send the same field keys as before; optional extra fields preserve behaviour when the backend merges partial updates.
+
+### 0.8 Admin User Management — port assignment IDs (2026-04-02)
+
+**Issue:** PostgreSQL **`bigint`** port ids can arrive in JSON as **strings**; **`formPortIds.includes(portListRow.id)`** failed when state held **numbers**, so Edit User showed unchecked ports and toast counts could disagree with **`PUT /users/:id/ports`** deduping.
+
+**Fix (`Frontend/src/pages/AdminUsers.jsx`):** Canonicalise with **`portIdNum` / `uniquePortIds`**; **`loadPorts`** normalises **`id`** to **Number**; success toast uses **`saveUserPorts`** response **`assignedPorts.length`** when present.
+
+**API:** `GET /ports` **`toPort`** (`Backend/src/routes/ports.js`) returns **`id: Number(row.id)`** for consistency.
+
+### 0.9 Shifting out / re-dock — `operations.shifting_out` + remark (2026-04-02)
+
+**Purpose:** Double-bank / priority workflows need to **free berth capacity** without soft-deleting the operation or clearing **TB**. Implementation is **port-scoped**, **authenticated** (`requireAuth` + `requirePortScope`), route: **`POST /api/v1/operations/:id/shifting-out`** (`Backend/src/routes/operations.js`).
+
+**Database (migration `042_jetty_capacity_and_shifting_out.sql`):**
+
+- **`operations.shifting_out`** — `BOOLEAN NOT NULL DEFAULT false`
+- **`operations.shifting_out_at`** — `TIMESTAMPTZ NULL` (set on **first** transition to shifted-out; cleared when shift-out cleared)
+
+**Request body (JSON):**
+
+| Field | Type | Rule |
+|--------|------|------|
+| `shiftingOut` | boolean | **Required** |
+| `remark` | string | **Required** when `shiftingOut === true` (non-empty after trim); persisted to **`operations.remark`** (full replace). When `shiftingOut === false`, include a **non-empty** `remark` to update remark while clearing shift-out (**re-dock** from Allocation); **omit** `remark` (or only whitespace) to clear shift-out **without** changing `operations.remark` (**Undo shift-out** from At-Berth). |
+| `activityLogPage` | string | Optional; **`allocation`** or **`at-berth`** only (anything else treated as **`at-berth`**). Drives `writeActivityLog(..., pageKey)` so re-dock appears under **Allocation** and shift-out under **At-Berth** in the page-scoped Activity Log panel. |
+
+**Handler behaviour (ordering):**
+
+1. `BEGIN`; load operation + port access check (`canAccessOperationForSelectedPort` vs `req.selectedPortId`).
+2. Reject **404** if not found / wrong port; **409** if **SAILED** or **no `jetty_id`** (cannot shift out without a jetty).
+3. **First `UPDATE`:** `shifting_out`, `shifting_out_at` (CASE: set `NOW()` on first true; NULL when false), `updated_at`.
+4. **Second `UPDATE` (when remark payload applies):** `remark = $1::text`, `updated_at` — avoids relying on a single statement mixing boolean + optional text binds across drivers.
+5. **`writeActivityLog`:** `summary` **Shifted out from berth** vs **Re-docked (shift-out cleared)** (when remark sent on clear) vs **Shift-out cleared** (undo without remark); **`changes`** include **Shifting out** and **Remark** when remark actually changed; **`meta`:** `{ source: 'operations.shifting-out', shiftingOut }`.
+6. `COMMIT`; response body **`toOp(row)`** including **`remark`** (`loadOperationJoined`).
+
+**Client:** `Frontend/src/api/operations.js` — **`setOperationShiftingOut(operationId, shiftingOut, remark?, options?)`**. Pass **`{ activityLogPage: 'allocation' }`** on re-dock; **`{ activityLogPage: 'at-berth' }`** on shift-out from At-Berth.
+
+**Allocation overview / UI:**
+
+- **`GET /allocation/overview`** — `activeOperationsOverviewSql` selects **`o.remark`**, **`o.shifting_out`**; `formatListRow` exposes **`remark` / `remarks`** via **`??`** (do not collapse empty string with `|| null`).
+- **`berths` occupancy:** loop **skips** rows where **`o.shifting_out`** is true so shifted vessels do not consume a slot (see `allocation.js` occupants build).
+- **`Frontend/src/pages/Allocation.jsx`** — re-dock modal; overview `useEffect` depends on **`useLocation().key`** and **`visibilitychange`** refetch so returning from At-Berth does not show a stale remark.
+- **`Frontend/src/pages/AtBerthExecutions.jsx`** — shift-out confirmation modal + success toast.
+
+**FUNCTIONAL-SPEC:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.5**.
 
 ---
 
@@ -191,10 +306,11 @@ Freight terms are currently fixed (frontend constant + backend validation), so t
 **User Story**: As Operator, I see all vessels currently at berth with their pipeline phase and can open their operational detail.
 
 **Workflow (implemented: `AtBerthExecutions.jsx`)**:
-1. Data: **`GET /allocation/overview`** → `queue` array, filtered client-side to **berthed** rows (same criteria as Allocation “Berthed” filter: TB present and/or statuses DOCKED, IN_PROGRESS, COMPLETED).
+1. Data: **`GET /allocation/overview`** → `queue` array, filtered client-side to **berthed** rows (same criteria as Allocation “Berthed” filter: TB present and/or statuses DOCKED, IN_PROGRESS, COMPLETED) and **excluding** rows where **`shiftingOut`** is true (those appear as **incoming** on Allocation until re-dock).
 2. Summary cards: Loading / Unloading × phase counts; phase derived from **`operations.status`** (IN_PROGRESS → Operational, COMPLETED → Post-Checking, else Pre-Checking).
 3. Table columns: Vessel, SI, Commodity, Purpose, Jetty, TA, TB, Phase, Status; **Action** first after expand column; expandable **Full details** aligned with Allocation row detail field order.
 4. **Open** → `/{loading|unloading}/:vesselId` (purpose-based route; API rows may use `op-<operationId>` vessel id form).
+5. **Shifting out:** modal + required **`remark`** → **`POST /operations/:id/shifting-out`** (`shiftingOut: true`, `activityLogPage: 'at-berth'`). **Undo shift-out:** same endpoint with `shiftingOut: false` and **no** `remark` in body (optional clear).
 
 **Target / follow-up**:
 - Phase could later incorporate QC/quantity state from backend instead of status-only mapping.
@@ -339,6 +455,7 @@ Types are whitelisted by backend config (`Backend/src/routes/si-lookups.js`) and
 - `GET /operations/:id`.
 - `POST /operations` – create from SI (one operation per SI + jetty).
 - `PUT /operations/:id`.
+- `POST /operations/:id/shifting-out` – **shifting out / re-dock** (`shiftingOut`, optional `remark`, optional `activityLogPage`); see **§0.9**, **§3.5.2**.
 - `POST /operations/:id/start-docking`
   - Body: none or optional manual `docking_start_time`.
   - Side-effects: sets `docking_start_time`, calculates SLA:
@@ -528,16 +645,21 @@ Notes:
 Returns `{ queue, berths }`.
 
 - **`queue`**: union of (a) **active operations** (`status <> 'SAILED'`) joined to SI + jetty, and (b) **approved SIs without an operation**. Each row is normalised in **`formatListRow`** (`Backend/src/routes/allocation.js`).
-- **Key camelCase fields** (non-exhaustive): `id`, `vesselId`, `operationId`, `shippingInstructionId`, `vesselName`, `shippingInstruction`, `commodity`, `purpose`, `priority`, `noPkk`, `remark`, `eta`, `etb`, `jetty`, `etaDateTime`, `taDateTime`, `etbDateTime`, `tbDateTime`, `pobDateTime`, `sobDateTime`, `estimatedCompletionDateTime`, `actualCompletionDateTime`, `castOffDateTime`, `status`, `norDocuments`, **`shipper`**, **`agent`**, **`surveyor`** (from `si_shippers`, `si_agents`, `si_surveyors` joins on `shipping_instructions`).
+- **Key camelCase fields** (non-exhaustive): `id`, `vesselId`, `operationId`, `shippingInstructionId`, `vesselName`, `shippingInstruction`, `commodity`, `purpose`, `priority`, `noPkk`, `remark`, **`shiftingOut`**, **`shiftingOutAt`**, `eta`, `etb`, `jetty`, `etaDateTime`, `taDateTime`, `etbDateTime`, `tbDateTime`, `pobDateTime`, `sobDateTime`, `estimatedCompletionDateTime`, `actualCompletionDateTime`, `castOffDateTime`, `status`, `norDocuments`, **`recordLastUpdatedAt`**, **`recordLastUpdatedByDisplayName`**, **`shipper`**, **`agent`**, **`surveyor`** (from `si_shippers`, `si_agents`, `si_surveyors` joins on `shipping_instructions`).
 - **`eta` / `etb`**: short display strings from SQL `to_char(… AT TIME ZONE 'UTC', 'DD/MM HH24:MI')` — **no** trailing ` LT` suffix.
-- **`berths`**: jetty list with occupancy derived from operations where **TB is set** and/or status in DOCKED / IN_PROGRESS / COMPLETED.
+- **`berths`**: jetty list with occupancy derived from operations where **TB is set** and/or status in DOCKED / IN_PROGRESS / COMPLETED **and `shifting_out` is false** (shifted-out vessels must not occupy a bank slot).
 
-#### 3.5.2 `PUT /allocation/arrival`
+#### 3.5.2 `POST /operations/:id/shifting-out`
 
-- Updates the **operation** linked from the queue row: ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, `no_pkk`, `jetty_id`, **`estimated_completion_time`**, etc.
+See **§0.9** (request/response, remark persistence, activity log, client helpers).
+
+#### 3.5.3 `PUT /allocation/arrival`
+
+- **RBAC:** Requires **`can_edit`** on page permission **`allocation`** (`userHasPageEdit`); otherwise **403**.
+- Updates the **operation** linked from the queue row: ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, `no_pkk`, `jetty_id`, **`estimated_completion_time`**, **`actual_completion_time`** (when `actualCompletionDateTime` is present in body), **`updated_by`**, **`updated_at`**, etc.
 - When **TB** is provided, sets **`status = DOCKED`** if previously PENDING / ALLOCATED / empty; syncs **`docking_start_time`** with TB where applicable.
 
-#### 3.5.3 `GET /operations/at-berth`
+#### 3.5.4 `GET /operations/at-berth`
 
 Used by Dashboard and other consumers. Selection:
 
@@ -600,7 +722,7 @@ Backward compatibility note:
 
 - Prefer **before/after** values from the database when building `changes` (not `null -> value` when an old value existed).
 - For text fields such as **Remark**, normalize empty/whitespace-only strings to a single “empty” representation when comparing so the UI does not show misleading empty chips; sub-process and NOR-detail routes apply this pattern.
-- **Optional auth**: selected routes use `optionalAuth` middleware so a valid JWT sets `req.userId` for `actorUserId` in logs without changing authorization rules where `requireAuth` is still required.
+- **Optional auth**: some routes still use `optionalAuth` so a valid JWT sets `req.userId` for `actorUserId` where applicable. **`PUT /allocation/arrival`** is **not** optional-auth: it requires authenticated user + **allocation** **can_edit**; `actorUserId` is always set for successful writes from the UI.
 
 **Logged areas (non-exhaustive)**:
 
@@ -608,6 +730,7 @@ Backward compatibility note:
 - `operation-documents` — upload/delete with per-file `changes`.
 - `operation-sub-processes` — sub-process upsert (phase, status, occurred_at, remark; sampling adds consolidated **Sampling Records** string); document upload/delete; NOR details (remark + payload fields such as NOR Source / Stage / Updated Via).
 - `operations` — lifecycle updates (status, completion, docking, exceptions, signoff, depart, etc.) with field-level `changes` where applicable.
+- `POST /operations/:id/shifting-out` — **Shifting out** / **Re-docked** / **Shift-out cleared** summaries; `changes` for **Shifting out** and **Remark** when applicable; `pageKey` from body **`activityLogPage`** (`allocation` vs `at-berth`); **`meta.shiftingOut`** (see **§0.9**).
 
 ### 3.9 Frontend shared utilities (date/time)
 

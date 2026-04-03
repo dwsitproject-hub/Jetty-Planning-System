@@ -1,9 +1,9 @@
 # Functional specification — Jetty schedule Gantt & arrival updates
 
 **Product:** Jetty Planning & Monitoring System (JPS)  
-**Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **At-Berth Executions list**, and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
+**Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.7 (see document history at end).
+**Version:** 1.14 (see document history at end).
 
 ---
 
@@ -17,6 +17,8 @@ This document describes **behaviour that is implemented in code**, including:
 - Related **cosmetic** behaviour on the Gantt (reset control, intro area, removal of a confusing planned segment).
 - **At-Berth Executions** list: what the user sees, which data it reflects, columns, expandable details, and summary cards.
 - **Date/time labels** shown in the UI (no misleading “LT” suffix; consistent formatting where the shared formatter is used).
+- **Multi-port sign-in and shell:** dedicated **Choose port** page, session-stored active port, and header behaviour (**§14.1**).
+- **Shifting out & re-dock:** temporarily treating a **berthed** operation as **not occupying** the jetty (for double-bank / priority preemption) while **preserving** operation history and TB/TA; coordinated **remark** capture, success messaging, and activity log (**§2.5**).
 
 For API field names, database columns, and shared code modules, see **TECH-SPEC-Jetty-Planning-System.md** and **§6** below for arrival/estimated completion mapping.
 
@@ -36,6 +38,7 @@ For API field names, database columns, and shared code modules, see **TECH-SPEC-
 | **Vessel icon** | Bars use an **inline SVG** ship icon (avoids emoji rendering issues on Windows). |
 | **Click vessel** | Where configured, clicking a bar selects the vessel for details. |
 | **Removed segment** | The **planned “transit” sliver** from **ETA → planned ETB** was **removed** — it was visually confusing; the Gantt does not draw that segment anymore. |
+| **Double bank — schedule lanes (01 / 02)** | **Bank lane** is assigned per **vessel** on a jetty (not separately for planned vs actual). **Planned** and **Actual** bars for the **same** vessel share the **same** lane (e.g. **1A-01**) as two sub-rows. A **second** vessel on that jetty uses the next lane (**1A-02**) when capacity allows. Lane order: earliest **TB** first, then **operation id**, then **vessel id** (see TECH-SPEC §0.6). |
 
 ### 2.2 Log arrival update (modal)
 
@@ -46,6 +49,45 @@ For API field names, database columns, and shared code modules, see **TECH-SPEC-
 
 - Includes **Estimated completion** (`datetime-local`), aligned with Log arrival update.
 - **Confirm Berthing** persists data via the same **arrival** API **before** applying local UI state; the button shows a **saving** state while the request runs.
+
+### 2.4 Active Vessel Detail (modal) — times & last updated
+
+| Area | Behaviour |
+|------|-----------|
+| **Where** | Opens from **Jetty Schematic** or **Jetty schedule (Gantt)** when the user selects an occupied / planned vessel (same modal as today for vessel summary). |
+| **Last updated** | Between **Current Phase** and **Times & status**, the user sees a single secondary line: **Last updated on** the operation’s or SI’s last change **date/time**, and when known **by** the **user display name**. For rows backed by an **operation**, the timestamp reflects **`operations.updated_at`** (any change to that operation from any module). For **incoming** queue rows that are **shipping instruction only** (no operation yet), the timestamp reflects **`shipping_instructions.updated_at`**; no “by” name is shown for those rows in this release. |
+| **Edit (Times & status)** | Users whose role grants **Allocation & Berthing → Edit** see an **Edit** control (icon with tooltip **Edit**) on the **Times & status** card header. **View-only** users do not see Edit. Editing is available only when the row has an **operation** (not for SI-only incoming rows in this release). |
+| **Fields in edit mode** | **ETA, TA, ETB, TB, POB, SOB, Est. completion, Actual completion** use the same **`datetime-local`** styling as **Log arrival update** / **Confirm Berthing**. **Time Since Berthing** and **Est. Time Remaining** stay **read-only**; they **do not** live-update while the user types—they refresh from saved data **after a successful Save**. |
+| **Helper copy** | While editing, a short note explains that **calculated fields apply after saving**. |
+| **Actions** | **Cancel** discards draft changes. **Save changes** calls the same **arrival** API as other allocation saves, then refreshes the overview so the modal and lists show updated values. **Close** closes the modal (while editing, **Close** is available alongside Cancel/Save; users should use **Cancel** or **Save** to leave edit mode intentionally). |
+| **Audit** | Successful saves are recorded in the **activity log** like other allocation arrival updates; edits from this modal may carry a distinct **meta** source for filtering (see TECH-SPEC). |
+
+### 2.5 Shifting out and re-dock (priority / double-bank)
+
+**Problem this solves:** Operations sometimes need to **free a berth** (e.g. second bank slot or priority vessel) **without** deleting the voyage or losing **TB / history**. The voyage should reappear in planning as **incoming / shifted** until the jetty is formally **re-docked**.
+
+**Outcomes (acceptance):**
+
+| # | Outcome |
+|---|--------|
+| 1 | From **At-Berth Executions**, a berthed operation with a jetty can be **shifted out** in one deliberate step. |
+| 2 | **Shift-out** opens a **confirmation modal** with a **single required Remark** field, prefilled from the current operation remark so the user can **replace or extend** it in one place. |
+| 3 | On confirm, the vessel **stops occupying** jetty **capacity** in schematic / occupancy views (same rules as TECH-SPEC: `shifting_out` excludes the row from berth slot counts). |
+| 4 | The voyage is treated as **incoming** in **Incoming vessel & berthing plan** (Allocation list / filters), with a visible **Shifted** indicator so planners see it is not a greenfield arrival. |
+| 5 | **TB / TA / operation status** are **not** wiped by shift-out; undo semantics remain **separate** from “delete operation”. |
+| 6 | **Re-dock** is initiated from **Allocation** (incoming row with **Re-dock** action): **confirm modal** + **required remark** (same single-field pattern). On confirm, shift-out is cleared and normal **at-berth** workflows can resume. |
+| 7 | **Undo shift-out** from At-Berth (without going through Allocation) remains a **quick clear** of the shift flag **without** forcing a new remark (optional path for corrections). |
+| 8 | **Success feedback:** after shift-out, a **toast** directs the user to **Allocation & Berthing** to re-dock; after re-dock, a **toast** directs them to **At-Berth Executions** to resume activities. |
+| 9 | **Audit:** shift-out and re-dock are written to the **activity log** with field-level changes (including **Remark** when it changes). |
+
+**Copy (implemented):**
+
+- Shift-out toast: *Shift out complete for &lt;Vessel Name&gt;. Please visit 'Allocation & Berthing' to re-dock.*
+- Re-dock toast: *Redocking complete for &lt;Vessel Name&gt;. You may now resume activities via the 'At-Berth Executions'.*
+
+**Dependencies:** Port-scoped API, authenticated user; operation must have **jetty** assigned; **SAILED** operations cannot shift out.
+
+Technical contract (endpoints, columns, persistence order): **TECH-SPEC-Jetty-Planning-System.md §0.9**.
 
 ---
 
@@ -128,17 +170,28 @@ When **TB** is later recorded, the chart shows **TA → TB** transit plus the **
 
 ---
 
-## 6. API & database (estimated completion)
+## 6. API & database (estimated completion, actual completion, last updated)
 
 | Item | Detail |
 |------|--------|
 | **Endpoint** | `PUT /api/v1/allocation/arrival` (relative to API base; client wraps as `PUT /allocation/arrival`). |
-| **Purpose** | Persist “Log arrival update” style fields on the linked **operation**, including estimated completion. |
-| **Request body (relevant)** | Includes `estimatedCompletionDateTime` (ISO or empty string to clear, per client/backend parsing). |
+| **Purpose** | Persist “Log arrival update” style fields on the linked **operation**, including estimated and actual completion. |
+| **Authorisation** | Caller must have **page** permission **allocation** with **can_edit**; otherwise the API returns **403**. |
+| **Request body (relevant)** | Includes `estimatedCompletionDateTime` and, when supplied, `actualCompletionDateTime` (ISO or empty string to clear, per client/backend parsing). |
 | **Table** | `operations` |
-| **Column** | `estimated_completion_time` (`TIMESTAMPTZ`), updated when arrival payload includes estimated completion. |
+| **Columns** | `estimated_completion_time`, `actual_completion_time` (`TIMESTAMPTZ`); `updated_at` set on each save; **`updated_by`** (FK to `users`) set to the saving user when present. |
+| **Overview fields** | `GET /allocation/overview` queue rows include **`recordLastUpdatedAt`** and **`recordLastUpdatedByDisplayName`** (from operation + user join, or SI `updated_at` for incoming rows without an operation). |
 
-Other arrival fields (ETA, TA, ETB, NOR times, remark, priority, jetty, `no_pkk`, etc.) remain as implemented in the same route.
+Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, jetty, `no_pkk`, etc.) remain as implemented in the same route.
+
+### 6.1 Shifting out / re-dock (operations)
+
+| Item | Detail |
+|------|--------|
+| **Endpoint** | `POST /api/v1/operations/:id/shifting-out` (client: `POST /operations/:id/shifting-out`). |
+| **Purpose** | Set or clear **`shifting_out`** / **`shifting_out_at`**; when a **remark** is supplied per the rules in **§2.5**, replace **`operations.remark`**. |
+| **Authorisation** | Authenticated user; operation must belong to the **selected port** (same pattern as other port-scoped operation routes). |
+| **Full contract** | **TECH-SPEC-Jetty-Planning-System.md §0.9** and **§3.5.2**. |
 
 ---
 
@@ -147,9 +200,12 @@ Other arrival fields (ETA, TA, ETB, NOR times, remark, priority, jetty, `no_pkk`
 | Area | Location |
 |------|----------|
 | Gantt UI & segment logic | `Frontend/src/components/JettyScheduleGantt.jsx` |
-| Allocation page, modals, berthing confirm save | `Frontend/src/pages/Allocation.jsx` |
+| Allocation page, modals, berthing confirm, **re-dock** modal | `Frontend/src/pages/Allocation.jsx` |
+| At-Berth list, **shift-out** modal | `Frontend/src/pages/AtBerthExecutions.jsx` |
+| Shift-out / re-dock API | `Frontend/src/api/operations.js` → `POST /operations/:id/shifting-out` |
 | Allocation API client | `Frontend/src/api/allocation.js` |
 | Arrival route | `Backend/src/routes/allocation.js` |
+| Shift-out route | `Backend/src/routes/operations.js` |
 | DB — operations estimated completion | Migrations defining `operations.estimated_completion_time` (e.g. `Backend/migrations/004_shipping_operations_tables.sql` and related) |
 
 ---
@@ -168,15 +224,17 @@ Other arrival fields (ETA, TA, ETB, NOR times, remark, priority, jetty, `no_pkk`
 | Area | Behaviour |
 |------|-----------|
 | **Purpose** | Operators see vessels that are **berthed** (same notion as the **Berthed** filter on “Incoming vessel & berthing plan”) and open the **operation** workspace. |
-| **Data source** | The table and **Full details** use the **same queue** as Allocation: **`GET /allocation/overview`** (`queue`), **not** a separate at-berth-only list. Rows shown are those with an **operation** and **berthed** status (e.g. TB recorded, or operation status DOCKED / IN_PROGRESS / COMPLETED per the same rules as Allocation). |
+| **Data source** | The table and **Full details** use the **same queue** as Allocation: **`GET /allocation/overview`** (`queue`), **not** a separate at-berth-only list. Rows shown are those with an **operation** and **berthed** status (e.g. TB recorded, or operation status DOCKED / IN_PROGRESS / COMPLETED per the same rules as Allocation). Rows with **shift-out** active are **excluded** from this list (they behave as **incoming** in Allocation until re-dock). |
 | **Summary cards** | Two groups — **Loading** and **Unloading** — each with counts for **Pre-Checking**, **Operational**, **Post-Checking**. Phase is **derived from operation status** (e.g. IN_PROGRESS → Operational, COMPLETED → Post-Checking, else Pre-Checking). |
 | **Tabs** | **All / Loading / Unloading** filter the table; summary always reflects all berthed rows. |
 | **Table columns** | **Vessel**, **SI** (reference only), **Commodity** (separate from SI), **Purpose**, **Jetty**, **TA**, **TB**, **Phase**, **Status**. |
 | **Expand row** | Same interaction pattern as **Incoming vessel & berthing plan**: expand column + row click toggles **Full details**. |
 | **Full details (order)** | Vessel Name, Shipping Instruction, No PKK, Priority, Number of Palka, Purpose, Shipper, Agent, Surveyor, Jetty, ETA, TA, ETB, TB, Remark. (Shipping Table block, when present in data, remains on Allocation only where applicable.) |
-| **Action** | **Open** → `/{loading|unloading}/:vesselId` (purpose-based hub entry; API-backed rows may use `op-<operationId>` vessel id form). |
+| **Action** | **Open** → `/{loading|unloading}/:vesselId` (purpose-based hub entry; API-backed rows may use `op-<operationId>` vessel id form). **Shifting Out** / **Undo Shift Out** → see **§2.5** (modal + required remark for shift-out; **Undo** clears shift-out without modal). |
 | **Removed from page** | Intro line (“Live data from GET…”) and **Refresh** button; list still loads on visit. |
 | **Layout** | Loading / Unloading summary groups use a **two-column** grid on wide screens so phase cards do not overlap. |
+
+**Allocation — incoming & re-dock:** When an operation is shifted out, it appears under the **Incoming** plan status with a **Shifted** badge; **Re-dock** opens the same confirmation + remark pattern as shift-out. After re-dock, the voyage can appear again under **Berthed** when the existing rules say it is berthed.
 
 ---
 
@@ -238,6 +296,13 @@ This section documents UI behaviour implemented in `Frontend/src/pages/Loading.j
 | 1.5 | 2026-03-25 | NOR Accepted: merged NOR documents from Allocation + tab; **Last Updated Via**; Initial Sounding / Initial Draft Survey **Remark** field; Activity Log expectations; app shell (logout placement); fresh DB / Docker reset explanation; cross-ref to dev seed migrations and RBAC bootstrap. |
 | 1.6 | 2026-03-25 | At-berth operation workspace: **collapsible navigation rails** for stages + Pre-Checking sections (localStorage persistence, narrow collapsed states, auto-close behaviour for section picker in compact navigation mode). |
 | 1.7 | 2026-03-31 | Added one-command **transactional reset + fresh demo seeding** script reference for local testing across operational pages. |
+| 1.8 | 2026-04-02 | **§17 Master Jetty Layout → Jetty Schematic:** persisted layout consumption, placeholder when unconfigured, loading/error/port states; cross-ref to TECH-SPEC §0.5 for Dashboard embed notes. |
+| 1.9 | 2026-04-02 | Gantt **§2.1** double-bank bank lanes: per-vessel lane assignment so planned+actual do not both consume lane 01; second vessel uses 02. TECH-SPEC **§0.6**. |
+| 1.10 | 2026-04-02 | **§17.6** Jetty Schematic: per-lane boxes (1A-01 / 1A-02), one vessel per box, same sort as Gantt; overflow "+N more"; incoming hint on first vacant. |
+| 1.11 | 2026-04-02 | **§17.7** Schematic UX: fixed column bands for pipeline alignment; lane height divisor **max(capacity, 2)**; compact type / scroll fallback. |
+| 1.12 | 2026-04-02 | **§2.4** Active Vessel Detail: **Times & status** edit (RBAC), **Last updated** line, calculated fields after save; **§6** actual completion, `updated_by`, overview **recordLastUpdated*** fields, **allocation edit** on `PUT /allocation/arrival`. |
+| 1.13 | 2026-04-02 | **§14.1** Multi-port **Choose port** landing (`/select-port`), session-stored active port, post-login routing, header **Change port** → landing with **`returnTo`**; **§17.4** port-not-selected behaviour aligned with redirect. |
+| 1.14 | 2026-04-02 | **§2.5** **Shifting out & re-dock:** modals, single **Remark** field, toasts, Allocation **Shifted** / **Re-dock**; **§9** At-Berth actions & exclusion when shifted; **§17.5** occupancy note; **§7** implementation map; TECH-SPEC **§0.9**. |
 
 ---
 
@@ -321,6 +386,24 @@ Technical contract: **TECH-SPEC-Jetty-Planning-System.md §3.8A**.
 | **Sidebar** | Primary navigation uses an updated layout (card-style on desktop, collapsible). |
 | **Logout** | **Logout** sits in the **top bar** next to the greeting (**Hi, &lt;user&gt;**), not in the sidebar footer. |
 
+### 14.1 Multi-port selection (operational scope)
+
+Users assigned to **more than one** port must **choose an active port** before using operational areas (Dashboard, Allocation, At-Berth, Loading, etc.). Admin (**`/admin`**) and Master (**`/master`**) paths **do not** require an operational port first (port scope bypass).
+
+| Rule | Behaviour |
+|------|-----------|
+| **Dedicated landing** | After sign-in (or when the app detects no valid port for a multi-port user), the user is taken to a **full-page “Choose port”** experience at **`/select-port`**. It is **not** embedded inside the main shell: **no sidebar**, **no primary app chrome**—same “single-task page” pattern as **Sign in** (`/login`). |
+| **Session persistence** | The chosen port id is stored for the browser tab **session** (`sessionStorage`, key `jps_selected_port_id`). All API calls to **port-scoped** modules automatically send **`X-Selected-Port-Id`** so the backend resolves the same active port (see TECH-SPEC, `requirePortScope`). |
+| **After login** | If the user has **multiple** assigned ports and **no** stored port, or a stored port that is **no longer** in their assignment list, they are sent to **`/select-port`**. If they have **exactly one** port, that port is applied automatically (no landing). If they have **zero** ports, they see the existing **“Access not configured”** message (not the choose-port page). |
+| **Returning from landing** | On **Continue**, the selection is saved to session and the user is navigated to the **dashboard** (`/`) or to a **`returnTo`** path when they opened port selection from **Change port** (see below). |
+| **Header when a port is active** | For multi-port users, the top bar shows the **current port name** as a **single control** (not a second dropdown on the same screen as the landing page). |
+| **Changing port** | The user clicks that control (**e.g. “Port: &lt;name&gt; Change…”**) and is navigated to **`/select-port?returnTo=…`** (current path encoded) so they **explicitly** pick again before returning to the app. |
+| **Single port** | Users with one assigned port see **Port: &lt;name&gt;** as read-only text in the header (no change URL needed unless assignments change). |
+
+**Product intent:** force a deliberate port choice up front; avoid duplicate port pickers (embedded card + header) and avoid using the app in an ambiguous port context.
+
+Technical references: **TECH-SPEC-Jetty-Planning-System.md** (port scope, `SelectPort.jsx`, `Layout` redirect, `PortScopeContext`).
+
 ---
 
 ## 15. Fresh install vs “lost” data
@@ -358,6 +441,53 @@ This script truncates **transactional tables only** (operations/SI/workflow data
 | **Printed SI number** | Document **No.** prefers stored **`reference_number`** when set; otherwise legacy synthetic numbering. |
 
 Technical contract: **TECH-SPEC-Jetty-Planning-System.md** (§2.2.1, §4 `shipping_instructions`, §6 RBAC, migration **`025_si_loading_document_and_approve_rbac.sql`**).
+
+---
+
+## 17. Master Jetty Layout and Jetty Schematic (Allocation)
+
+**Purpose:** Users arrange which **master jetty** appears in which **column** and **row** (top / pipeline / bottom) for a **schematic** view. This is **separate** from double-bank capacity and schedule lanes, but the same **short jetty id** (e.g. `1A`) is used to match occupancy from **Allocation overview**.
+
+### 17.1 Where it is configured
+
+- **Master – Jetty Layout:** Users edit columns and assign **top** and **bottom** cells to master jetties (or leave unused). Saving persists server-side for the **active port**.
+
+### 17.2 Where it is consumed
+
+- **Allocation → Jetty Schematic** tab: The schematic reflects the **saved layout** for the current port after load.
+- **Dashboard:** Not required in this release; when added, the same **`JettySchematic`** component and behaviour apply so there is a single implementation (see **TECH-SPEC-Jetty-Planning-System.md §0.5**).
+
+### 17.3 When no layout exists
+
+If the backend returns **no columns** (no configuration saved for that port):
+
+- The schematic area shows an **admin-facing instruction** (exact copy in product):
+
+  > Jetty layout is not configured. Please ask your admin to set it up in the master menu
+
+- There is **no** implicit default grid; operators must complete Master – Jetty Layout first.
+
+### 17.4 Other states (user-visible)
+
+| State | Behaviour |
+|--------|-----------|
+| **Port not selected** | Multi-port users are **redirected** to **`/select-port`** (dedicated page); in-app copy may still refer to selecting an operational port if they land on a port-scoped surface before redirect completes. |
+| **Loading** | Short “Loading jetty layout…” message. |
+| **Load error** | Distinct message to retry/refresh (not the “ask admin” placeholder). |
+
+### 17.5 Relationship to double bank (forward reference)
+
+Double-banking (multiple vessels per jetty, schedule `01`/`02` lanes, one-vessel-per-box schematic) is documented and implemented separately. Jetty **layout** only controls **which jetty** sits in which **schematic cell**; **capacity** and **occupancy** still come from overview **`berths`**. **Shifted-out** operations are **not** counted as occupying a berth slot (see **§2.5**, TECH-SPEC **§0.9** / **`berths`** derivation).
+
+### 17.6 Schematic bank lanes (1A-01, 1A-02)
+
+On **Allocation → Jetty Schematic**, each configured jetty cell is split into **`capacity`** lane boxes labelled **`{berthId}-01`**, **`{berthId}-02`**, … (e.g. **1A-01**, **1A-02**). Each box holds **at most one** displayed vessel (vacant otherwise). Occupants are ordered like the Jetty schedule Gantt: **TB** ascending, then **operation id**, then **vessel id** (see TECH-SPEC **§0.6**). If more occupied vessels than **capacity**, the last lane shows **+N more** after the representative vessel for that lane. **Incoming** names (queue) are hinted on the **first vacant** lane only to avoid clutter.
+
+### 17.7 Schematic layout & lane sizing (UX)
+
+- **Pipeline alignment:** Each schematic **column** uses a **fixed-height** top band, **fixed** middle (pipeline) band, and **fixed-height** bottom band so the black **pipeline** segment stays **level across columns**, including columns whose top or bottom cell is a non-dockable placeholder (`—`).
+- **Consistent lane box height:** Each lane’s height is derived from the band height divided by **max(jetty `capacity`, 2)**. A jetty with **capacity 1** therefore uses the **same lane band height** as a single lane on a double-bank jetty (the vessel card does not stretch to the full top/bottom band).
+- **Readability:** Lane copy (vessel name, SI, purpose, material) uses **compact** typography and padding; lanes may **scroll vertically** if content exceeds the band (edge case).
 
 ---
 

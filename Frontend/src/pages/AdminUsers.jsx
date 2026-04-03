@@ -7,6 +7,16 @@ import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/admin.css'
 
+/** PG bigint / JSON may yield string ids; keep one numeric type for Set/includes and API payloads. */
+function portIdNum(id) {
+  const n = Number(id)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+function uniquePortIds(ids) {
+  return [...new Set((Array.isArray(ids) ? ids : []).map(portIdNum).filter((n) => n != null))]
+}
+
 export default function AdminUsers() {
   const [users, setUsers] = useState([])
   const [userRolesById, setUserRolesById] = useState({})
@@ -121,11 +131,7 @@ export default function AdminUsers() {
     setFormActive(user.isActive !== false)
     setFormRoleIds([])
     setInitialRoleIds([])
-    setFormPortIds(
-      Array.isArray(user?.assignedPorts)
-        ? user.assignedPorts.map((p) => Number(p.id)).filter((n) => Number.isFinite(n))
-        : []
-    )
+    setFormPortIds(uniquePortIds(Array.isArray(user?.assignedPorts) ? user.assignedPorts.map((p) => p.id) : []))
     setPortSearch('')
     setModalErr(null)
     setModalOpen(true)
@@ -136,9 +142,9 @@ export default function AdminUsers() {
         fetchUserPorts(user.id),
       ])
       const roleIds = (Array.isArray(assignedRoles) ? assignedRoles : []).map((r) => r.id)
-      const portIds = (Array.isArray(assignedPorts?.assignedPorts) ? assignedPorts.assignedPorts : [])
-        .map((p) => Number(p.id))
-        .filter((n) => Number.isFinite(n))
+      const portIds = uniquePortIds(
+        (Array.isArray(assignedPorts?.assignedPorts) ? assignedPorts.assignedPorts : []).map((p) => p.id)
+      )
       setFormRoleIds(roleIds)
       setInitialRoleIds(roleIds)
       setFormPortIds(portIds)
@@ -163,10 +169,12 @@ export default function AdminUsers() {
   }, [])
 
   const togglePort = useCallback((portId, checked) => {
+    const pid = portIdNum(portId)
+    if (pid == null) return
     setFormPortIds((prev) => {
-      const set = new Set(prev)
-      if (checked) set.add(portId)
-      else set.delete(portId)
+      const set = new Set(uniquePortIds(prev))
+      if (checked) set.add(pid)
+      else set.delete(pid)
       return Array.from(set)
     })
   }, [])
@@ -203,7 +211,8 @@ export default function AdminUsers() {
         userId = created?.id
       }
 
-      // Sync roles (multi-role)
+      // Sync roles (multi-role) + port assignments
+      let savedPortCount = uniquePortIds(formPortIds).length
       if (userId) {
         const next = new Set(formRoleIds.map((x) => String(x)))
         const prev = new Set(initialRoleIds.map((x) => String(x)))
@@ -218,13 +227,17 @@ export default function AdminUsers() {
             await removeUserRole(userId, roleId)
           }
         }
-        await saveUserPorts(userId, formPortIds)
+        const normalizedPortIds = uniquePortIds(formPortIds)
+        const portsRes = await saveUserPorts(userId, normalizedPortIds)
+        savedPortCount = Array.isArray(portsRes?.assignedPorts)
+          ? portsRes.assignedPorts.length
+          : normalizedPortIds.length
       }
 
       await load()
       setToast({
         kind: 'success',
-        text: `User saved successfully. ${formPortIds.length} port${formPortIds.length === 1 ? '' : 's'} assigned.`,
+        text: `User saved successfully. ${savedPortCount} port${savedPortCount === 1 ? '' : 's'} assigned.`,
       })
       closeModal()
     } catch (e) {
@@ -269,15 +282,20 @@ export default function AdminUsers() {
 
   const selectAllVisiblePorts = useCallback(() => {
     setFormPortIds((prev) => {
-      const set = new Set(prev)
-      for (const p of filteredPorts) set.add(p.id)
+      const set = new Set(uniquePortIds(prev))
+      for (const p of filteredPorts) {
+        const id = portIdNum(p.id)
+        if (id != null) set.add(id)
+      }
       return Array.from(set)
     })
   }, [filteredPorts])
 
   const clearAllVisiblePorts = useCallback(() => {
-    const visibleIds = new Set(filteredPorts.map((p) => p.id))
-    setFormPortIds((prev) => prev.filter((id) => !visibleIds.has(id)))
+    const visibleNums = new Set(
+      filteredPorts.map((p) => portIdNum(p.id)).filter((n) => n != null)
+    )
+    setFormPortIds((prev) => uniquePortIds(prev.filter((id) => !visibleNums.has(portIdNum(id)))))
   }, [filteredPorts])
 
   return (
@@ -467,16 +485,20 @@ export default function AdminUsers() {
                     padding: 8,
                   }}
                 >
-                  {filteredPorts.map((p) => (
-                    <label key={p.id} className="text-steel" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <input
-                        type="checkbox"
-                        checked={formPortIds.includes(p.id)}
-                        onChange={(e) => togglePort(p.id, e.target.checked)}
-                      />
-                      <span>{p.name}</span>
-                    </label>
-                  ))}
+                  {filteredPorts.map((p) => {
+                    const pid = portIdNum(p.id)
+                    if (pid == null) return null
+                    return (
+                      <label key={pid} className="text-steel" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={formPortIds.includes(pid)}
+                          onChange={(e) => togglePort(pid, e.target.checked)}
+                        />
+                        <span>{p.name}</span>
+                      </label>
+                    )
+                  })}
                 </div>
               )}
               <p className="text-steel" style={{ marginTop: 8 }}>

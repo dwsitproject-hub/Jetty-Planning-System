@@ -39,6 +39,25 @@ export function updateOperation(id, body) {
   })
 }
 
+/**
+ * @param {object} [options]
+ * @param {'allocation'|'at-berth'} [options.activityLogPage] — where this action is initiated (for activity log page filter).
+ */
+export function setOperationShiftingOut(operationId, shiftingOut, remark, options) {
+  const shift = Boolean(shiftingOut)
+  const body = { shiftingOut: shift }
+  if (shift) {
+    body.remark = remark != null ? String(remark) : ''
+  } else if (remark !== undefined) {
+    body.remark = remark != null ? String(remark) : ''
+  }
+  const logPage = options?.activityLogPage
+  if (logPage === 'allocation' || logPage === 'at-berth') {
+    body.activityLogPage = logPage
+  }
+  return apiPost(`/operations/${operationId}/shifting-out`, body)
+}
+
 export function startDocking(id, dockingStartTime) {
   return apiPost(`/operations/${id}/start-docking`, {
     docking_start_time: dockingStartTime ?? undefined,

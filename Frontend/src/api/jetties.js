@@ -9,21 +9,23 @@ export function fetchJetty(id) {
   return apiGet(`/jetties/${id}`)
 }
 
-export function createJetty({ portId, orderNo, name, description }) {
+export function createJetty({ portId, orderNo, name, description, capacity }) {
   return apiPost('/jetties', {
     port_id: portId,
     order_no: orderNo ?? 0,
     name,
     description: description ?? null,
+    capacity: capacity ?? undefined,
   })
 }
 
-export function updateJettyApi(id, { portId, orderNo, name, description }) {
+export function updateJettyApi(id, { portId, orderNo, name, description, capacity }) {
   return apiPut(`/jetties/${id}`, {
     port_id: portId,
     order_no: orderNo,
     name,
     description: description ?? null,
+    capacity: capacity ?? undefined,
   })
 }
 

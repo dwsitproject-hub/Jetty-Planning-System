@@ -26,6 +26,7 @@ import operationDocumentsRoutes from './routes/operation-documents.js';
 import operationSubProcessesRoutes from './routes/operation-sub-processes.js';
 import operationOperationalActivitiesRoutes from './routes/operation-operational-activities.js';
 import masterCargoHandlingMethodsRoutes from './routes/master-cargo-handling-methods.js';
+import jettyLayoutRoutes from './routes/jetty-layout.js';
 import { requireAuth } from './middleware/auth.js';
 import { requirePortScope } from './middleware/port-scope.js';
 
@@ -68,6 +69,7 @@ apiV1.use('/si-lookups', siLookupsRoutes);
 apiV1.use('/operations', requireAuth, requirePortScope, operationsRoutes);
 apiV1.use('/allocation', requireAuth, requirePortScope, allocationRoutes);
 apiV1.use('/operation-documents', requireAuth, requirePortScope, operationDocumentsRoutes);
+apiV1.use('/jetty-layout', requireAuth, requirePortScope, jettyLayoutRoutes);
 apiV1.use('/activity-logs', requireAuth, requirePortScope, activityLogsRoutes);
 apiV1.use('/', requireAuth, requirePortScope, qcSurveysRoutes);
 apiV1.use('/', requireAuth, requirePortScope, quantityChecksRoutes);

@@ -5,6 +5,7 @@ import { fetchJetties, createJetty, updateJettyApi } from '../api/jetties'
 import { useActivityLog } from '../context/ActivityLogContext'
 import '../styles/allocation.css'
 import '../styles/modal.css'
+import '../styles/shipping-instruction.css'
 
 export default function MasterJetty() {
   const { logActivity } = useActivityLog()
@@ -18,7 +19,15 @@ export default function MasterJetty() {
   const [formPortId, setFormPortId] = useState('')
   const [formOrderNo, setFormOrderNo] = useState('')
   const [formJettyName, setFormJettyName] = useState('')
+  const [formCapacity, setFormCapacity] = useState('1')
   const [formDescription, setFormDescription] = useState('')
+  const [toast, setToast] = useState(null)
+
+  useEffect(() => {
+    if (!toast) return
+    const t = window.setTimeout(() => setToast(null), 5500)
+    return () => window.clearTimeout(t)
+  }, [toast])
 
   const loadAll = useCallback(async () => {
     setError(null)
@@ -47,6 +56,7 @@ export default function MasterJetty() {
     setFormPortId(ports[0]?.id != null ? String(ports[0].id) : '')
     setFormOrderNo('')
     setFormJettyName('')
+    setFormCapacity('1')
     setFormDescription('')
     setModalOpen(true)
   }, [ports])
@@ -56,6 +66,7 @@ export default function MasterJetty() {
     setFormPortId(String(jetty.portId ?? ''))
     setFormOrderNo(String(jetty.orderNo ?? ''))
     setFormJettyName(jetty.name || '')
+    setFormCapacity(String(jetty.capacity ?? 1))
     setFormDescription(jetty.description ?? '')
     setModalOpen(true)
   }, [])
@@ -70,6 +81,7 @@ export default function MasterJetty() {
     const jettyName = (formJettyName || '').trim()
     if (Number.isNaN(portId) || !jettyName) return
     const orderNo = Math.max(0, Math.min(32767, parseInt(formOrderNo, 10) || 0))
+    const capacity = Math.max(1, Math.min(20, parseInt(formCapacity, 10) || 1))
     setSaving(true)
     setError(null)
     try {
@@ -77,6 +89,7 @@ export default function MasterJetty() {
         await updateJettyApi(editingId, {
           portId,
           orderNo,
+          capacity,
           name: jettyName,
           description: (formDescription || '').trim() || null,
         })
@@ -87,10 +100,12 @@ export default function MasterJetty() {
           entityLabel: jettyName,
           details: portName(portId),
         })
+        setToast({ message: `Jetty saved: ${jettyName}.`, variant: 'success' })
       } else {
         await createJetty({
           portId,
           orderNo,
+          capacity,
           name: jettyName,
           description: (formDescription || '').trim() || null,
         })
@@ -101,15 +116,18 @@ export default function MasterJetty() {
           entityLabel: jettyName,
           details: portName(portId),
         })
+        setToast({ message: `Jetty added: ${jettyName}.`, variant: 'success' })
       }
       await loadAll()
       closeModal()
     } catch (e) {
-      setError(e?.message || 'Save failed')
+      const msg = e?.message || 'Save failed'
+      setError(msg)
+      setToast({ message: msg, variant: 'error' })
     } finally {
       setSaving(false)
     }
-  }, [editingId, formPortId, formOrderNo, formJettyName, formDescription, loadAll, closeModal, logActivity])
+  }, [editingId, formPortId, formOrderNo, formJettyName, formCapacity, formDescription, loadAll, closeModal, logActivity])
 
   const sortedJetties = [...jetties].sort((a, b) => {
     const na = a.portName || portName(a.portId)
@@ -120,6 +138,27 @@ export default function MasterJetty() {
 
   return (
     <div className="allocation-page">
+      {toast && (
+        <div
+          className={`si-toast si-toast--${toast.variant}`}
+          role={toast.variant === 'error' ? 'alert' : 'status'}
+          aria-live={toast.variant === 'error' ? 'assertive' : 'polite'}
+          aria-atomic="true"
+        >
+          <span className="si-toast__icon" aria-hidden>
+            {toast.variant === 'error' ? '!' : '✓'}
+          </span>
+          <p className="si-toast__message">{toast.message}</p>
+          <button
+            type="button"
+            className="si-toast__close"
+            onClick={() => setToast(null)}
+            aria-label="Dismiss notification"
+          >
+            ×
+          </button>
+        </div>
+      )}
       <h1 className="page-title">Master – Preferred Jetty</h1>
       <p className="allocation-page__intro">Jetties from API (per port). Used as Preferred Jetty.</p>
       <p className="text-steel">
@@ -163,6 +202,7 @@ export default function MasterJetty() {
                   <th>Port</th>
                   <th>Order</th>
                   <th>Jetty name</th>
+                  <th>Capacity</th>
                   <th>Status</th>
                   <th>Description</th>
                   <th>Actions</th>
@@ -174,6 +214,7 @@ export default function MasterJetty() {
                     <td>{j.portName || portName(j.portId)}</td>
                     <td>{j.orderNo ?? '—'}</td>
                     <td><strong>{j.name || '—'}</strong></td>
+                    <td>{j.capacity ?? 1}</td>
                     <td>{j.status || '—'}</td>
                     <td>{j.description ? (j.description.length > 40 ? `${j.description.slice(0, 40)}…` : j.description) : '—'}</td>
                     <td>
@@ -214,6 +255,20 @@ export default function MasterJetty() {
                 onChange={(e) => setFormOrderNo(e.target.value)}
                 min={0}
               />
+            </div>
+            <div className="modal__section">
+              <label className="modal__label">Capacity (vessels)</label>
+              <input
+                type="number"
+                className="modal__input"
+                value={formCapacity}
+                onChange={(e) => setFormCapacity(e.target.value)}
+                min={1}
+                max={20}
+              />
+              <p className="text-steel" style={{ marginTop: '0.25rem' }}>
+                Default is 1. Set 2+ to allow double-bank / multi-bank on this jetty.
+              </p>
             </div>
             <div className="modal__section">
               <label className="modal__label">Jetty name</label>

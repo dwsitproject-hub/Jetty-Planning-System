@@ -48,6 +48,24 @@ export async function userHasPageApprove(userId, resourceKey) {
   return result.rows.length > 0;
 }
 
+/** Whether the user may edit entities for this page (role flag can_edit). */
+export async function userHasPageEdit(userId, resourceKey) {
+  if (userId == null) return false;
+  const result = await pool.query(
+    `SELECT 1
+     FROM user_roles ur
+     JOIN role_permissions rp ON rp.role_id = ur.role_id AND rp.deleted_at IS NULL
+     JOIN permissions p ON p.id = rp.permission_id AND p.deleted_at IS NULL
+     WHERE ur.user_id = $1 AND ur.deleted_at IS NULL
+       AND p.resource_type = 'page'
+       AND p.resource_key = $2
+       AND rp.can_edit = TRUE
+     LIMIT 1`,
+    [userId, resourceKey]
+  );
+  return result.rows.length > 0;
+}
+
 /** Whether the user may delete entities for this page (role flag can_delete). */
 export async function userHasPageDelete(userId, resourceKey) {
   if (userId == null) return false;

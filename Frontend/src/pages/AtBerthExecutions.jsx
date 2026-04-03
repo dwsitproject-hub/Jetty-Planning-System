@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useMemo, Fragment } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchAllocationOverview } from '../api/allocation'
+import { setOperationShiftingOut } from '../api/operations'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { atBerthExecutionOpenPath } from '../utils/atBerthOpenPath'
 import '../styles/allocation.css'
+import '../styles/modal.css'
 
 const PHASES = ['Pre-Checking', 'Operational', 'Post-Checking']
 const PHASE_EMOJI = {
@@ -25,6 +27,7 @@ const FILTER_OPTIONS = [
 
 /** Same rule as Allocation "Incoming vessel & berthing plan" status filter. */
 function getBerthingPlanStatus(row) {
+  if (row?.shiftingOut) return 'incoming'
   const hasTb = Boolean(row?.tbDateTime)
   const opStatus = String(row?.status || '').toUpperCase()
   if (hasTb || opStatus === 'DOCKED' || opStatus === 'IN_PROGRESS' || opStatus === 'COMPLETED') {
@@ -169,6 +172,16 @@ export default function AtBerthExecutions() {
   const [filters, setFilters] = useState(() => Object.fromEntries(filterKeys.map((k) => [k, ''])))
   const [sortState, setSortState] = useState({ key: 'vesselName', dir: 'asc' })
   const [expandedId, setExpandedId] = useState(null)
+  const [shiftSavingByOpId, setShiftSavingByOpId] = useState({})
+  const [shiftModal, setShiftModal] = useState(null)
+  const [shiftRemarkDraft, setShiftRemarkDraft] = useState('')
+  const [shiftOutToastMessage, setShiftOutToastMessage] = useState(null)
+
+  useEffect(() => {
+    if (!shiftOutToastMessage) return undefined
+    const t = window.setTimeout(() => setShiftOutToastMessage(null), 7500)
+    return () => clearTimeout(t)
+  }, [shiftOutToastMessage])
 
   const load = useCallback(async () => {
     setErr(null)
@@ -183,6 +196,61 @@ export default function AtBerthExecutions() {
       setLoading(false)
     }
   }, [])
+
+  const closeShiftModal = useCallback(() => {
+    setShiftModal(null)
+    setShiftRemarkDraft('')
+  }, [])
+
+  const confirmShiftOut = useCallback(async () => {
+    const row = shiftModal?.row
+    const opId = row?.operationId
+    if (!opId) return
+    const trimmed = shiftRemarkDraft.trim()
+    if (!trimmed) {
+      setErr('Enter a remark before confirming shift-out.')
+      return
+    }
+    setErr(null)
+    setShiftSavingByOpId((m) => ({ ...m, [opId]: true }))
+    try {
+      await setOperationShiftingOut(opId, true, trimmed, { activityLogPage: 'at-berth' })
+      const vesselLabel = row.vesselName || row.shippingInstruction || 'Vessel'
+      setShiftOutToastMessage(
+        `Shift out complete for ${vesselLabel}. Please visit 'Allocation & Berthing' to re-dock.`
+      )
+      closeShiftModal()
+      await load()
+    } catch (err) {
+      setErr(err?.message || 'Shift-out failed')
+    } finally {
+      setShiftSavingByOpId((m) => ({ ...m, [opId]: false }))
+    }
+  }, [shiftModal, shiftRemarkDraft, load, closeShiftModal])
+
+  const handleShiftOutToggle = useCallback(
+    async (row, e) => {
+      e?.stopPropagation?.()
+      const opId = row?.operationId
+      if (!opId) return
+      if (!row.shiftingOut) {
+        setErr(null)
+        setShiftModal({ row })
+        setShiftRemarkDraft(String(row.remark ?? row.remarks ?? ''))
+        return
+      }
+      setShiftSavingByOpId((m) => ({ ...m, [opId]: true }))
+      try {
+        await setOperationShiftingOut(opId, false)
+        await load()
+      } catch (err) {
+        setErr(err?.message || 'Shift-out failed')
+      } finally {
+        setShiftSavingByOpId((m) => ({ ...m, [opId]: false }))
+      }
+    },
+    [load]
+  )
 
   useEffect(() => {
     load()
@@ -234,6 +302,27 @@ export default function AtBerthExecutions() {
 
   return (
     <div className="allocation-page at-berth-page">
+      {shiftOutToastMessage ? (
+        <div
+          className="toast toast--success"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <span className="toast__icon" aria-hidden>
+            ✓
+          </span>
+          <p className="toast__message">{shiftOutToastMessage}</p>
+          <button
+            type="button"
+            className="toast__close"
+            onClick={() => setShiftOutToastMessage(null)}
+            aria-label="Dismiss notification"
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
       <h1 className="page-title">At-Berth Executions</h1>
       {err && <p style={{ color: '#c00' }}>{err}</p>}
 
@@ -342,6 +431,22 @@ export default function AtBerthExecutions() {
                         <Link to={atBerthExecutionOpenPath(r)} className="btn btn--small btn--primary">
                           Open
                         </Link>
+                      {r.operationId != null && (
+                        <button
+                          type="button"
+                          className="btn btn--small btn--secondary"
+                          style={{ marginLeft: '0.5rem' }}
+                          onClick={(e) => handleShiftOutToggle(r, e)}
+                          disabled={Boolean(shiftSavingByOpId[r.operationId])}
+                          title={r.shiftingOut ? 'Clear shift-out (return to berth state)' : 'Shift out: move back to incoming queue and free berth capacity'}
+                        >
+                          {shiftSavingByOpId[r.operationId]
+                            ? 'Saving…'
+                            : r.shiftingOut
+                              ? 'Undo Shift Out'
+                              : 'Shifting Out'}
+                        </button>
+                      )}
                       </td>
                       {AT_BERTH_COLUMNS.map((col) => (
                         <td key={col.key}>{col.getValue(r)}</td>
@@ -361,6 +466,51 @@ export default function AtBerthExecutions() {
           </div>
         )}
       </section>
+
+      {shiftModal?.row ? (
+        <div className="modal-overlay" onClick={closeShiftModal} aria-hidden="true">
+          <div
+            className="modal"
+            onClick={(ev) => ev.stopPropagation()}
+            role="dialog"
+            aria-labelledby="shift-out-modal-title"
+            aria-modal="true"
+          >
+            <h2 id="shift-out-modal-title" className="modal__title">
+              Shift out — {shiftModal.row.vesselName || shiftModal.row.shippingInstruction || 'Vessel'}
+            </h2>
+            <p className="text-steel" style={{ marginBottom: '0.75rem', fontSize: '0.9rem' }}>
+              The vessel returns to the incoming queue and berth capacity is freed. Set the operation remark (required).
+            </p>
+            <div className="modal__section">
+              <label htmlFor="shift-out-remark" className="modal__label">
+                Remark
+              </label>
+              <textarea
+                id="shift-out-remark"
+                className="modal__textarea"
+                rows={4}
+                value={shiftRemarkDraft}
+                onChange={(ev) => setShiftRemarkDraft(ev.target.value)}
+                disabled={Boolean(shiftSavingByOpId[shiftModal.row.operationId])}
+              />
+            </div>
+            <div className="modal__actions" style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn--secondary" onClick={closeShiftModal}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => confirmShiftOut()}
+                disabled={Boolean(shiftSavingByOpId[shiftModal.row.operationId])}
+              >
+                {shiftSavingByOpId[shiftModal.row.operationId] ? 'Saving…' : 'Confirm shift-out'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

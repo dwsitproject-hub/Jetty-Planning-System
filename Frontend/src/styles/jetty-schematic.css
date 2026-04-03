@@ -17,12 +17,127 @@
 }
 
 .jetty-schematic__column {
-  display: flex;
-  flex-direction: column;
+  /*
+   * Fixed-height top/bottom rows so the pipeline aligns across columns.
+   * (Each column is its own grid; `auto` rows made “short” placeholders misalign the black bar.)
+   */
+  /* Two “standard” lane bands + gap; compact but readable */
+  --jetty-schematic-zone-height: 200px;
+  display: grid;
+  grid-template-rows: var(--jetty-schematic-zone-height) 48px var(--jetty-schematic-zone-height);
   align-items: stretch;
+  align-content: start;
   flex: 1 1 0;
   min-width: 0;
   gap: var(--spacing-2);
+}
+
+/* Double bank: multiple lane boxes per jetty (1A-01, 1A-02, …) */
+.jetty-schematic__berth-stack {
+  --berth-lane-height-divisor: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-content: flex-start;
+  gap: var(--spacing-1);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+/*
+ * Fixed lane height = (zone − lane gaps) / divisor.
+ * Divisor is max(capacity, 2) from JSX so a single-slot jetty matches 1A-01 height, not the full zone.
+ */
+.jetty-schematic__lane {
+  --lane-pixel-height: calc(
+    (var(--jetty-schematic-zone-height) - (var(--berth-lane-height-divisor) - 1) * var(--spacing-1))
+    / var(--berth-lane-height-divisor)
+  );
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: stretch;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 3px var(--spacing-2) 4px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-align: left;
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--easing-default), box-shadow var(--duration-fast) var(--easing-default), background var(--duration-fast) var(--easing-default);
+  background: var(--color-bg-lighter);
+  color: var(--color-text-charcoal);
+  flex: 0 0 var(--lane-pixel-height);
+  height: var(--lane-pixel-height);
+  min-height: var(--lane-pixel-height);
+  max-height: var(--lane-pixel-height);
+  overflow-x: hidden;
+  overflow-y: auto;
+  font-family: inherit;
+}
+
+/* Compact type; full text readable in ~96px-tall lane */
+.jetty-schematic__lane .jetty-schematic__slot-jetty-name {
+  font-size: 0.62rem;
+  margin-bottom: 1px;
+  line-height: 1.1;
+}
+
+.jetty-schematic__lane .jetty-slot__title {
+  font-size: 0.7rem;
+  line-height: 1.12;
+  -webkit-line-clamp: 2;
+}
+
+.jetty-schematic__lane .jetty-slot__line {
+  font-size: 8.5px;
+  line-height: 1.18;
+}
+
+.jetty-schematic__lane .jetty-slot__line--incoming {
+  font-size: 9px;
+}
+
+.jetty-schematic__lane:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.jetty-slot__vessel-block {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  text-align: left;
+  min-width: 0;
+}
+
+.jetty-slot__line--overflow {
+  color: var(--color-text-steel);
+  font-weight: var(--font-weight-medium);
+}
+
+.jetty-slot__line--incoming {
+  color: var(--color-text-charcoal);
+  font-size: 10px;
+}
+
+button.jetty-schematic__lane:hover:not(:disabled):not(.jetty-schematic__slot--vacant) {
+  border-color: var(--color-border-dark);
+  box-shadow: var(--shadow-sm);
+}
+
+button.jetty-schematic__lane:hover:not(:disabled).jetty-schematic__slot--vacant {
+  border-color: var(--color-border-dark);
+}
+
+button.jetty-schematic__lane:focus-visible {
+  outline: 2px solid rgba(196, 58, 49, 0.35);
+  outline-offset: 2px;
 }
 
 .jetty-schematic__slot {
@@ -43,7 +158,7 @@
   background: var(--color-bg-lighter);
   color: var(--color-text-charcoal);
   min-height: 88px;
-  height: 88px;
+  height: auto;
   overflow: hidden;
 }
 
@@ -104,9 +219,11 @@
   font-size: var(--font-size-small);
   line-height: 1.2;
   color: var(--color-text-charcoal);
-  white-space: nowrap;
+  white-space: normal;
   overflow: hidden;
-  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   max-width: 100%;
 }
 
@@ -118,10 +235,40 @@
 }
 
 .jetty-slot__line {
+  display: block;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+}
+
+.jetty-slot__vessel-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: var(--spacing-1) 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.jetty-slot__vessel-card + .jetty-slot__vessel-card {
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  margin-top: var(--spacing-1);
+  padding-top: var(--spacing-2);
+}
+
+.jetty-slot__vessel-card--static {
+  cursor: default;
+}
+
+.jetty-slot__vessel-card:focus-visible {
+  outline: 2px solid rgba(196, 58, 49, 0.35);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .jetty-slot__row {
@@ -180,8 +327,13 @@
 .jetty-schematic__slot--empty {
   cursor: default;
   pointer-events: none;
-  min-height: 88px;
-  height: 88px;
+}
+
+/* Top/bottom zone placeholders fill the column row so pipeline lines up with dockable stacks */
+.jetty-schematic__column > .jetty-schematic__slot.jetty-schematic__slot--empty {
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
 }
 
 .jetty-schematic__slot--selected {
@@ -210,4 +362,20 @@ button.jetty-schematic__slot:hover:not(.jetty-schematic__slot--vacant) {
   cursor: default;
   width: 100%;
   box-sizing: border-box;
+}
+
+.jetty-schematic__placeholder {
+  margin: 0;
+  padding: var(--spacing-4) var(--spacing-3);
+  font-size: var(--font-size-small);
+  line-height: 1.5;
+  color: var(--color-text-charcoal);
+  background: var(--color-bg-subtle, #f5f5f5);
+  border: 1px dashed var(--color-border-medium);
+  border-radius: var(--radius-sm);
+}
+
+.jetty-schematic__placeholder--muted {
+  color: var(--color-text-steel);
+  font-style: italic;
 }

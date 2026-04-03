@@ -25,12 +25,14 @@ export function PortScopeProvider({ children }) {
   const [noPortMessage, setNoPortMessage] = useState('No port assigned, please contact Jetty Planning System Admin')
 
   const refreshPorts = useCallback(async () => {
+    // Do not clear sessionStorage here: `me` is null while auth is still loading after a
+    // full reload; wiping the key caused multi-port selection to disappear immediately.
+    // Logout clears the port via `api/auth.js` logout() → setSelectedPortId(null).
     if (!me) {
       setAssignedPorts([])
       setError(null)
       setLoading(false)
-      setSelectedPortIdState(null)
-      persistSelectedPortId(null)
+      setSelectedPortIdState(getSelectedPortId())
       return
     }
     setLoading(true)

@@ -88,6 +88,7 @@ Shipping Instruction → Allocation & Berthing → At-Berth → Loading/Unloadin
 | **Dev-Notes.md** | Dev handover: branch status, local run, staging deployment, docs reference, next steps. |
 | **ALICLOUD-DEPLOYMENT-GUIDE.md** | Deployment on Alicloud Ubuntu: security group, Docker, optional PostgreSQL, migrations, troubleshooting. |
 | **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md** | **Functional spec:** Jetty schedule Gantt, arrival/berthing modals, **At-Berth Executions** list behaviour, **date/time display** rules (no “LT”), and related user-visible logic. |
+| **UAT-PRE-TRAINING-Scripts.md** | **Pre-UAT training:** facilitator scripts module-by-module (starts with **Shipping Instruction**); Pass/Fail tables and links to functional/technical specs. |
 
 For full context when starting backend or architecture work, use **TECH-SPEC-Jetty-Planning-System.md**, **Feature-Module-Summary.md**, and **technical-architecture.md** together with the PRD.
 

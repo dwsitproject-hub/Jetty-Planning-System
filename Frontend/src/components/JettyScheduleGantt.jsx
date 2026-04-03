@@ -357,10 +357,68 @@ function segmentPillClass(seg) {
   return `jetty-schedule-gantt__bar jetty-schedule-gantt__bar--${layer}-${grad} jetty-schedule-gantt__bar--st-${st}`
 }
 
-function segmentsForJettyLayer(segments, jettyId, layer) {
-  return segments
-    .filter((s) => s.jettyId === jettyId && s.layer === layer)
-    .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs)
+/** Short jetty id from allocation list row (matches segment jettyId). */
+function jettyIdFromListRow(row) {
+  return (row?.jetty || '').trim().split('/')[0].trim()
+}
+
+/**
+ * Bank lanes (01, 02, …) are per vessel on a jetty, not per planned/actual layer.
+ * Sort: earliest TB first, then operation id, then vessel id — then assign lane 0..capacity-1.
+ */
+function assignBankLanesByVessel(baseSegments, rowDefs, listRows) {
+  const caps = new Map()
+  for (const r of rowDefs) caps.set(r.jettyId, r.capacity)
+
+  const metaByJettyVessel = new Map()
+  for (const row of listRows) {
+    const jid = jettyIdFromListRow(row)
+    if (!jid || !row?.vesselId) continue
+    const k = `${jid}\0${row.vesselId}`
+    const tbMs = parseMs(row.tbDateTime)
+    const opRaw = row.operationId
+    const opId = opRaw != null && !Number.isNaN(Number(opRaw)) ? Number(opRaw) : null
+    metaByJettyVessel.set(k, { tbMs, opId })
+  }
+
+  const vesselsByJetty = new Map()
+  for (const s of baseSegments) {
+    if (!s.vesselId) continue
+    if (!vesselsByJetty.has(s.jettyId)) vesselsByJetty.set(s.jettyId, new Set())
+    vesselsByJetty.get(s.jettyId).add(s.vesselId)
+  }
+
+  const laneByJettyVessel = new Map()
+  for (const [jettyId, vesselSet] of vesselsByJetty) {
+    const cap = Math.max(1, caps.get(jettyId) || 1)
+    const vessels = [...vesselSet]
+    vessels.sort((a, b) => {
+      const ka = `${jettyId}\0${a}`
+      const kb = `${jettyId}\0${b}`
+      const ma = metaByJettyVessel.get(ka) || {}
+      const mb = metaByJettyVessel.get(kb) || {}
+      const tbA = ma.tbMs ?? null
+      const tbB = mb.tbMs ?? null
+      if (tbA != null && tbB != null && tbA !== tbB) return tbA - tbB
+      if (tbA != null && tbB == null) return -1
+      if (tbA == null && tbB != null) return 1
+      const opA = ma.opId != null ? ma.opId : Number.MAX_SAFE_INTEGER
+      const opB = mb.opId != null ? mb.opId : Number.MAX_SAFE_INTEGER
+      if (opA !== opB) return opA - opB
+      return String(a).localeCompare(String(b))
+    })
+    vessels.forEach((vid, idx) => {
+      const lane = Math.min(idx, cap - 1)
+      laneByJettyVessel.set(`${jettyId}\0${vid}`, lane)
+    })
+  }
+
+  const out = []
+  for (const s of baseSegments) {
+    const lane = laneByJettyVessel.get(`${s.jettyId}\0${s.vesselId}`) ?? 0
+    out.push({ ...s, laneIndex: lane, rowKey: `${s.jettyId}__${lane}` })
+  }
+  return out
 }
 
 export default function JettyScheduleGantt({ berthIds, berthsState, list, onSelectVessel }) {
@@ -381,7 +439,7 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
 
   const showDualLanes = isWide || comparePlanActual
 
-  const { windowStartMs, windowEndMs, dateColumns, segments, totalMs, rangeError } = useMemo(() => {
+  const { windowStartMs, windowEndMs, dateColumns, baseSegments, totalMs, rangeError } = useMemo(() => {
     const plan = Array.isArray(list) ? list : []
     const wStart = parseDateInputStart(dateFrom)
     const wEnd = parseDateInputEndExclusive(dateTo)
@@ -390,7 +448,7 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
         windowStartMs: 0,
         windowEndMs: 0,
         dateColumns: [],
-        segments: [],
+        baseSegments: [],
         totalMs: 0,
         rangeError: 'Please select valid start and end dates.',
       }
@@ -400,7 +458,7 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
         windowStartMs: wStart,
         windowEndMs: wEnd,
         dateColumns: [],
-        segments: [],
+        baseSegments: [],
         totalMs: 0,
         rangeError: 'End date must be after start date.',
       }
@@ -410,7 +468,7 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
         windowStartMs: wStart,
         windowEndMs: wEnd,
         dateColumns: [],
-        segments: [],
+        baseSegments: [],
         totalMs: 0,
         rangeError: 'Date range is too large (maximum about 18 months). Please narrow the filter.',
       }
@@ -421,11 +479,37 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
       windowStartMs: wStart,
       windowEndMs: wEnd,
       dateColumns: cols,
-      segments: barList,
+      baseSegments: barList,
       totalMs: wEnd - wStart,
       rangeError: null,
     }
   }, [list, dateFrom, dateTo])
+
+  const rowDefs = useMemo(() => {
+    const berths = Array.isArray(berthsState) ? berthsState : []
+    const byId = new Map(berths.map((b) => [b.id, b]))
+    const out = []
+    for (const jettyId of Array.isArray(berthIds) ? berthIds : []) {
+      const b = byId.get(jettyId)
+      const capRaw = b?.capacity != null ? Number(b.capacity) : 1
+      const cap = Number.isFinite(capRaw) && capRaw >= 1 ? capRaw : 1
+      for (let i = 0; i < cap; i += 1) {
+        out.push({
+          jettyId,
+          laneIndex: i,
+          rowKey: `${jettyId}__${i}`,
+          label: `${jettyId}-${String(i + 1).padStart(2, '0')}`,
+          capacity: cap,
+        })
+      }
+    }
+    return out
+  }, [berthIds, berthsState])
+
+  const segments = useMemo(() => {
+    const listRows = Array.isArray(list) ? list : []
+    return assignBankLanesByVessel(baseSegments, rowDefs, listRows)
+  }, [baseSegments, rowDefs, list])
 
   const [, setTick] = useState(0)
   useEffect(() => {
@@ -450,8 +534,10 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
     setDateTo(next.to)
   }
 
-  const renderContinuousLane = (jettyId, layer) => {
-    const segs = segmentsForJettyLayer(segments, jettyId, layer)
+  const renderContinuousLane = (rowKey, layer) => {
+    const segs = segments
+      .filter((s) => s.rowKey === rowKey && s.layer === layer)
+      .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs)
     const laneH = Math.max(30, 8 + segs.length * 26)
     return (
       <div
@@ -626,17 +712,23 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
                     />
                   )}
 
-                  {berthIds.map((jettyId) => {
-                    const berth = berthsState.find((b) => b.id === jettyId)
-                    const statusLabel = berth?.currentVesselId ? 'Occupied' : 'Ready'
+                  {rowDefs.map((row) => {
+                    const berth = (Array.isArray(berthsState) ? berthsState : []).find((b) => b.id === row.jettyId)
+                    const occCount =
+                      berth?.occupiedCount != null
+                        ? Number(berth.occupiedCount)
+                        : berth?.currentVesselId
+                          ? 1
+                          : 0
+                    const statusLabel = occCount > 0 ? `Occupied (${occCount}/${row.capacity})` : `Ready (0/${row.capacity})`
                     return (
                       <div
-                        key={jettyId}
+                        key={row.rowKey}
                         className="jetty-schedule-gantt__row"
                         style={{ gridTemplateColumns }}
                       >
                         <div className="jetty-schedule-gantt__id-cell">
-                          <span className="jetty-schedule-gantt__jetty-id">{jettyId}</span>
+                          <span className="jetty-schedule-gantt__jetty-id">{row.label}</span>
                           {showDualLanes ? (
                             <>
                               <span className="jetty-schedule-gantt__lane-label">Planned</span>
@@ -662,8 +754,8 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
                             <div
                               className={`jetty-schedule-gantt__timeline-tracks${showDualLanes ? ' jetty-schedule-gantt__timeline-tracks--dual' : ''}`}
                             >
-                              {renderContinuousLane(jettyId, 'planned')}
-                              {showDualLanes && renderContinuousLane(jettyId, 'actual')}
+                              {renderContinuousLane(row.rowKey, 'planned')}
+                              {showDualLanes && renderContinuousLane(row.rowKey, 'actual')}
                             </div>
                           </div>
                         </div>

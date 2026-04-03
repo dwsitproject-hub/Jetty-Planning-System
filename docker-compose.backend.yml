@@ -1,7 +1,7 @@
 # Backend server only (API + PostgreSQL). Run on the BACKEND ECS (e.g. 172.28.92.57).
 # See Docs/ALICLOUD-DEPLOYMENT-GUIDE.md
 #
-# PostgreSQL is NOT published to the host; only jps-api is reachable on :3000 (lock down with Security Group).
+# PostgreSQL: optional 127.0.0.1:15432 on host (see jps-db ports). jps-api is reachable on :3000 (lock down with SG).
 
 services:
   jps-db:
@@ -14,6 +14,11 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-jps_db}
     volumes:
       - jps_pgdata:/var/lib/postgresql/data
+    # Optional: expose JPS Postgres on the host for local tools (psql, pgAdmin via SSH tunnel).
+    # Use 127.0.0.1 only — do not use 0.0.0.0 if another stack already uses host :5432 (e.g. infra-postgres).
+    # Inside the container Postgres still listens on 5432; the left side is the host port you connect to.
+    ports:
+      - "127.0.0.1:15432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jps_user} -d ${POSTGRES_DB:-jps_db}"]
       interval: 5s

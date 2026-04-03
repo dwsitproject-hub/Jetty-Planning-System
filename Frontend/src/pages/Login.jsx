@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { login } from '../api/auth'
+import { fetchMyPorts } from '../api/usersApi'
+import { getSelectedPortId } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { useRbac } from '../context/RbacContext'
 import { ApiError } from '../api/client'
@@ -23,7 +25,18 @@ export default function Login() {
       await login(username.trim(), password)
       await refreshMe()
       await refreshRbac()
-      navigate('/')
+      let goSelectPort = false
+      try {
+        const portsData = await fetchMyPorts()
+        const ports = Array.isArray(portsData?.assignedPorts) ? portsData.assignedPorts : []
+        const stored = getSelectedPortId()
+        const storedValid =
+          stored != null && ports.some((p) => Number(p.id) === Number(stored))
+        goSelectPort = ports.length > 1 && !storedValid
+      } catch {
+        goSelectPort = false
+      }
+      navigate(goSelectPort ? '/select-port' : '/')
     } catch (err) {
       const msg =
         err instanceof ApiError && err.status === 401

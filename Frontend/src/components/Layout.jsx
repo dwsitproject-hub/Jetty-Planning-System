@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useLayoutEffect } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import ActivityLogPanel from './ActivityLogPanel'
 import { useRbac } from '../context/RbacContext'
@@ -96,21 +96,14 @@ export default function Layout({ children }) {
   const {
     loading: portScopeLoading,
     assignedPorts,
-    selectedPortId,
     selectedPort,
     requiresSelection,
     noPortAssigned,
     noPortMessage,
-    setSelectedPortId,
   } = usePortScope()
   const navigate = useNavigate()
 
   const closeSidebar = () => setSidebarOpen(false)
-  const applyPortSelection = (portId) => {
-    setSelectedPortId(portId)
-    // Many pages load data on mount; full reload ensures scope switch is applied consistently.
-    window.location.reload()
-  }
 
   const handleLogout = async () => {
     logout()
@@ -121,6 +114,23 @@ export default function Layout({ children }) {
   const activityLogPageKey = useMemo(() => pathToPageKey(currentPath), [currentPath])
   const currentPageKey = useMemo(() => pathToPageKey(currentPath), [currentPath])
   const portScopeBypassed = isPortScopeBypassed(currentPath)
+
+  useLayoutEffect(() => {
+    if (!me || portScopeBypassed || portScopeLoading || noPortAssigned) return
+    if (!requiresSelection) return
+    const params = new URLSearchParams()
+    params.set('returnTo', `${currentPath}${location.search || ''}`)
+    navigate(`/select-port?${params.toString()}`, { replace: true })
+  }, [
+    me,
+    portScopeBypassed,
+    portScopeLoading,
+    noPortAssigned,
+    requiresSelection,
+    currentPath,
+    location.search,
+    navigate,
+  ])
 
   const filteredNav = useMemo(() => {
     // While loading permissions, show nothing (avoid flashing unauthorized items).
@@ -155,21 +165,21 @@ export default function Layout({ children }) {
           </div>
         </div>
         <div className="topbar__actions">
-          {me && !portScopeBypassed && assignedPorts.length > 1 && (
-            <label className="topbar__greeting" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <span>Port:</span>
-              <select
-                className="allocation-table__input"
-                style={{ width: 180, padding: '4px 8px' }}
-                value={selectedPortId ?? ''}
-                onChange={(e) => applyPortSelection(e.target.value ? Number(e.target.value) : null)}
-              >
-                <option value="">Select port</option>
-                {assignedPorts.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </label>
+          {me && !portScopeBypassed && assignedPorts.length > 1 && selectedPort && (
+            <button
+              type="button"
+              className="btn btn--secondary btn--small topbar__greeting"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              onClick={() => {
+                const params = new URLSearchParams()
+                params.set('returnTo', `${currentPath}${location.search || ''}`)
+                navigate(`/select-port?${params.toString()}`)
+              }}
+              title="Choose a different port"
+            >
+              <span>Port: {selectedPort.name}</span>
+              <span className="admin-role-summary">Change…</span>
+            </button>
           )}
           {me && !portScopeBypassed && assignedPorts.length === 1 && selectedPort && (
             <span className="topbar__greeting">Port: {selectedPort.name}</span>
@@ -275,26 +285,8 @@ export default function Layout({ children }) {
               </div>
             </div>
           ) : me && !portScopeBypassed && requiresSelection ? (
-            <div className="card" style={{ maxWidth: '40rem' }}>
-              <h2 style={{ marginTop: 0 }}>Choose Port</h2>
-              <p className="text-steel">You are assigned to multiple ports. Select one to continue.</p>
-              <div className="modal__section" style={{ padding: 0 }}>
-                <label className="modal__label" htmlFor="port-scope-select">Port</label>
-                <select
-                  id="port-scope-select"
-                  className="modal__input"
-                  value={selectedPortId ?? ''}
-                  onChange={(e) => applyPortSelection(e.target.value ? Number(e.target.value) : null)}
-                >
-                  <option value="">Select port</option>
-                  {assignedPorts.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-              <p className="text-steel" style={{ marginTop: '0.5rem' }}>
-                You can switch ports later from the top-right header selector.
-              </p>
+            <div className="card">
+              <p className="text-steel">Opening port selection…</p>
             </div>
           ) : rbacLoading ? (
             <div className="card">

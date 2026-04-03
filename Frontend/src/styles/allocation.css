@@ -932,6 +932,81 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   margin-top: var(--spacing-2);
 }
 
+.vessel-detail-modal__last-updated {
+  margin: 0;
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel, #5c6b7a);
+  line-height: 1.4;
+}
+
+.vessel-detail-modal__meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+  margin: 0;
+}
+
+.vessel-detail-modal__meta-row .vessel-detail-modal__last-updated {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.vessel-detail-modal__times-extras {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--spacing-3);
+  margin-bottom: var(--spacing-3);
+}
+
+.vessel-detail-modal__card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+  flex-wrap: wrap;
+}
+
+.vessel-detail-modal__card-title--inline {
+  margin: 0;
+}
+
+.vessel-detail-modal__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-1) var(--spacing-2);
+  border: 1px solid var(--color-border-subtle, #d0d7de);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-surface, #fff);
+  color: var(--color-text-charcoal, #333);
+  cursor: pointer;
+}
+
+.vessel-detail-modal__icon-btn:hover {
+  background: var(--color-surface-muted, #f4f6f8);
+}
+
+.vessel-detail-modal__icon-btn:focus-visible {
+  outline: 2px solid var(--color-primary, #2563eb);
+  outline-offset: 2px;
+}
+
+.vessel-detail-modal__edit-hint {
+  margin: 0 0 var(--spacing-2);
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel, #5c6b7a);
+}
+
+.vessel-detail-modal__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .vessel-detail-modal__section-title {
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-semibold);
@@ -1232,6 +1307,25 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 .berthing-modal__vessel-dl dd {
   margin: 0;
   color: var(--color-text-charcoal);
+}
+
+.berthing-modal__docs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.berthing-modal__doc-link {
+  color: var(--color-primary, #c43a31);
+  text-decoration: none;
+  font-weight: var(--font-weight-medium);
+}
+
+.berthing-modal__doc-link:hover {
+  text-decoration: underline;
 }
 
 .berthing-modal__vessel-dl--bold {

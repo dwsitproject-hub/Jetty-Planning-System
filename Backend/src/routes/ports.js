@@ -4,8 +4,11 @@
 import express from 'express';
 import { pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { optionalAuth } from '../middleware/auth.js';
+import { writeActivityLog } from '../lib/activity-log.js';
 
 const router = express.Router();
+router.use(optionalAuth);
 
 router.get('/', async (req, res) => {
   const result = await pool.query(
@@ -36,6 +39,16 @@ router.post('/', async (req, res) => {
      RETURNING id, name, description, created_at, updated_at`,
     [name.trim(), description?.trim() ?? null]
   );
+  writeActivityLog({
+    pageKey: 'master-port',
+    action: 'add',
+    entityType: 'Port',
+    entityId: result.rows[0].id,
+    entityLabel: result.rows[0].name,
+    summary: 'Created port',
+    changes: [{ field: 'Name', from: null, to: result.rows[0].name }],
+    actorUserId: req.userId ?? null,
+  }).catch(() => {});
   res.status(201).json(toPort(result.rows[0]));
 });
 
@@ -52,6 +65,16 @@ router.put('/:id', async (req, res) => {
     [name.trim(), description?.trim() ?? null, id]
   );
   if (result.rows.length === 0) return res.status(404).json({ error: 'Port not found' });
+  writeActivityLog({
+    pageKey: 'master-port',
+    action: 'update',
+    entityType: 'Port',
+    entityId: id,
+    entityLabel: result.rows[0].name,
+    summary: 'Updated port',
+    changes: [{ field: 'Name', from: null, to: result.rows[0].name }],
+    actorUserId: req.userId ?? null,
+  }).catch(() => {});
   res.json(toPort(result.rows[0]));
 });
 
@@ -71,6 +94,15 @@ router.delete('/:id', async (req, res) => {
     [id]
   );
   if (result.rows.length === 0) return res.status(404).json({ error: 'Port not found' });
+  writeActivityLog({
+    pageKey: 'master-port',
+    action: 'delete',
+    entityType: 'Port',
+    entityId: id,
+    entityLabel: `Port ${id}`,
+    summary: 'Deleted port',
+    actorUserId: req.userId ?? null,
+  }).catch(() => {});
   res.status(204).send();
 });
 
@@ -163,7 +195,7 @@ router.put('/:id/users', requireAuth, async (req, res) => {
 
 function toPort(row) {
   return {
-    id: row.id,
+    id: row.id != null ? Number(row.id) : row.id,
     name: row.name,
     description: row.description ?? null,
     createdAt: row.created_at,

@@ -186,9 +186,11 @@ export function computeJettyUtilizationSummary(detailRows, jetties, startDate, e
 
   const byJettyId = new Map()
   for (const j of scopedJetties) {
+    const cap = j?.capacity != null ? Number(j.capacity) : 1
     byJettyId.set(String(j.id), {
       jettyId: j.id,
       jettyName: j.name,
+      capacity: Number.isFinite(cap) && cap >= 1 ? cap : 1,
       calls: 0,
       berthHours: 0,
     })
@@ -209,8 +211,9 @@ export function computeJettyUtilizationSummary(detailRows, jetties, startDate, e
   }
 
   const list = Array.from(byJettyId.values()).map((r) => {
+    const denom = hoursInWindow > 0 ? hoursInWindow * (Number(r.capacity) || 1) : 0
     const utilizationPct =
-      hoursInWindow > 0 ? Math.min(100, Math.round((r.berthHours / hoursInWindow) * 1000) / 10) : 0
+      denom > 0 ? Math.min(100, Math.round((r.berthHours / denom) * 1000) / 10) : 0
     return {
       ...r,
       berthHoursRounded: Math.round(r.berthHours * 10) / 10,

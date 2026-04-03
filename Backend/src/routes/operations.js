@@ -108,6 +108,128 @@ router.get('/at-berth', async (req, res) => {
   res.json(result.rows.map(toOp));
 });
 
+/**
+ * Shifting out (priority preemption): temporarily free the berth while keeping operation history.
+ * - shiftingOut=true: mark operation as shifted out and set shifting_out_at when first triggered.
+ *   Body must include non-empty `remark` (stored on operations.remark).
+ * - shiftingOut=false: clear shift flag (does not rewrite TB/TA/etc). Optional non-empty `remark`
+ *   updates operations.remark (e.g. re-dock confirmation); omit to leave remark unchanged (e.g. quick undo).
+ */
+router.post('/:id/shifting-out', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  const { shiftingOut, remark: remarkBody, activityLogPage: activityLogPageRaw } = req.body || {};
+  if (typeof shiftingOut !== 'boolean') {
+    return res.status(400).json({ error: 'shiftingOut must be boolean' });
+  }
+  const activityLogPage = activityLogPageRaw === 'allocation' ? 'allocation' : 'at-berth';
+  let remarkUpdate = null;
+  if (shiftingOut) {
+    if (remarkBody == null || typeof remarkBody !== 'string') {
+      return res.status(400).json({ error: 'remark is required when shifting out' });
+    }
+    remarkUpdate = remarkBody.trim();
+    if (!remarkUpdate) {
+      return res.status(400).json({ error: 'remark cannot be empty when shifting out' });
+    }
+  } else if (remarkBody != null && typeof remarkBody === 'string') {
+    const t = remarkBody.trim();
+    if (t) remarkUpdate = t;
+  }
+  const selectedPortId = Number(req.selectedPortId);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const before = await client.query(
+      `SELECT ${OP_SELECT}
+       FROM operations o
+       JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
+       LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
+       LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
+       WHERE o.id = $1 AND o.deleted_at IS NULL`,
+      [id]
+    );
+    const op = before.rows[0] ?? null;
+    if (!op) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Operation not found' });
+    }
+    if (!canAccessOperationForSelectedPort(op, selectedPortId)) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Operation not found' });
+    }
+    if (op.status === 'SAILED') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Cannot shift out a SAILED operation' });
+    }
+    if (!op.jetty_id) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Cannot shift out: operation has no jetty assigned' });
+    }
+
+    // node-pg: never pass `undefined` in bind values (can break placeholder binding).
+    const remarkBind = remarkUpdate == null ? null : String(remarkUpdate);
+    // Separate flag vs remark updates: avoids any ambiguity with COALESCE + mixed bind types,
+    // and matches “always replace remark when client sent a new value”.
+    const up = await client.query(
+      `UPDATE operations
+       SET shifting_out = $1,
+           shifting_out_at = CASE
+             WHEN $1 = true AND shifting_out_at IS NULL THEN NOW()
+             WHEN $1 = false THEN NULL
+             ELSE shifting_out_at
+           END,
+           updated_at = NOW()
+       WHERE id = $2 AND deleted_at IS NULL
+       RETURNING id`,
+      [shiftingOut, id]
+    );
+    if (up.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Operation not found' });
+    }
+    if (remarkBind != null) {
+      await client.query(
+        `UPDATE operations SET remark = $1::text, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
+        [remarkBind, id]
+      );
+    }
+
+    const changes = [
+      { field: 'Shifting out', from: Boolean(op.shifting_out), to: shiftingOut },
+    ];
+    if (remarkBind != null && String(op.remark ?? '').trim() !== String(remarkBind).trim()) {
+      changes.push({ field: 'Remark', from: op.remark ?? null, to: remarkBind });
+    }
+
+    await writeActivityLog({
+      pageKey: activityLogPage,
+      action: 'update',
+      entityType: 'Operation',
+      entityId: String(id),
+      entityLabel: op.reference_number || `OP-${id}`,
+      summary: shiftingOut
+        ? 'Shifted out from berth'
+        : remarkBind != null
+          ? 'Re-docked (shift-out cleared)'
+          : 'Shift-out cleared',
+      changes,
+      meta: { source: 'operations.shifting-out', shiftingOut },
+      actorUserId: req.userId ?? null,
+    });
+
+    await client.query('COMMIT');
+    const row = await loadOperationJoined(id);
+    return res.json(toOp(row));
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+});
+
 router.get('/:id/materials', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
@@ -823,6 +945,9 @@ function toOp(row) {
     exceptionRequestedAt: row.exception_requested_at ?? null,
     exceptionResolvedAt: row.exception_resolved_at ?? null,
     exceptionApproverUserId: row.exception_approver_user_id ?? null,
+    shiftingOut: row.shifting_out ?? false,
+    shiftingOutAt: row.shifting_out_at ?? null,
+    remark: row.remark ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

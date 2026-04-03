@@ -166,7 +166,7 @@ On **`172.28.92.57`** the following TCP ports were observed **in use** (do **not
 
 **Recommendation:** **`3000` is free** on this host — keep **`docker-compose.backend.yml`** as **`3000:3000`** and keep **`nginx.alicloud-app.conf`** upstream as **`172.28.92.57:3000`**.
 
-**JPS Postgres in Docker:** do **not** add `ports: "5432:5432"` for `jps-db`; that would clash with host listeners on **5432** / **5434** / **5422**. The bundled DB should stay on the **internal** Compose network only (as in `docker-compose.backend.yml`).
+**JPS Postgres in Docker:** do **not** publish `5432` on **`0.0.0.0`** if the host already uses **5432** / **5434** / **5422**. For **pgAdmin / psql over SSH** only, you may map **loopback** e.g. `127.0.0.1:15432:5432` on `jps-db` (see [PGADMIN-ALICLOUD-DB-TUNNEL.md](PGADMIN-ALICLOUD-DB-TUNNEL.md)). Default deploy can keep DB on the internal Compose network only until you need that tunnel.
 
 If **3000** becomes occupied later, map a free host port (e.g. **`3010:3000`**) in compose, set nginx upstream to that host port, and allow that port from the app server in the backend SG.
 
@@ -529,6 +529,7 @@ docker compose -f docker-compose.app.yml up -d --build
 - **Wrong API host in SPA:** Rebuild app image after changing `VITE_API_BASE_URL`: `docker compose -f docker-compose.app.yml up -d --build`.
 - **Bind / start fails (“port already allocated”):** Run `sudo ss -tuln`, pick a host port not listed, set `JPS_FE_PORT`, update SG + `VITE_API_BASE_URL` + backend `CORS_ORIGIN`, then rebuild.
 - **DB errors on backend:** `docker compose -f docker-compose.backend.yml logs jps-db jps-api`.
+- **pgAdmin or desktop tools → remote JPS Postgres:** Use an SSH tunnel and optional localhost-only Docker port mapping; full steps and “where we left off” are in [PGADMIN-ALICLOUD-DB-TUNNEL.md](PGADMIN-ALICLOUD-DB-TUNNEL.md).
 
 ---
 

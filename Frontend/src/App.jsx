@@ -7,6 +7,7 @@ import { RbacProvider } from './context/RbacContext'
 import { AuthProvider } from './context/AuthContext'
 import { PortScopeProvider } from './context/PortScopeContext'
 import Login from './pages/Login'
+import SelectPort from './pages/SelectPort'
 import Dashboard from './pages/Dashboard'
 import ShippingInstruction from './pages/ShippingInstruction'
 import SIApproval from './pages/SIApproval'
@@ -55,6 +56,7 @@ function App() {
               <RbacProvider>
                 <Routes>
                 <Route path="/login" element={<Login />} />
+                <Route path="/select-port" element={<SelectPort />} />
                 <Route element={<AppShell />}>
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/shipping-instruction" element={<ShippingInstruction />} />
