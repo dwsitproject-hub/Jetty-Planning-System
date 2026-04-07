@@ -1,16 +1,28 @@
 /**
  * HttpOnly session cookie + readable XSRF cookie names (H-1, CSRF defense).
+ *
+ * In production, `secure: true` is the default so cookies are HTTPS-only.
+ * If the SPA is served over plain HTTP (e.g. internal IP:3080), browsers will
+ * not accept or send Secure cookies — set COOKIE_SECURE=false on the API.
  */
 export const COOKIE_ACCESS_TOKEN = 'jps_at';
 export const COOKIE_XSRF = 'jps_xsrf';
 
-const isProd = process.env.NODE_ENV === 'production';
+function cookieSecure() {
+  const raw = process.env.COOKIE_SECURE;
+  if (raw != null && String(raw).trim() !== '') {
+    const s = String(raw).trim().toLowerCase();
+    if (s === 'false' || s === '0' || s === 'no' || s === 'off') return false;
+    if (s === 'true' || s === '1' || s === 'yes' || s === 'on') return true;
+  }
+  return process.env.NODE_ENV === 'production';
+}
 
 export function cookieBaseOptions() {
   return {
     path: '/',
     sameSite: 'lax',
-    secure: isProd,
+    secure: cookieSecure(),
   };
 }
 
