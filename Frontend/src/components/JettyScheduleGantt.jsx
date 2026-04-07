@@ -714,17 +714,22 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
 
                   {rowDefs.map((row) => {
                     const berth = (Array.isArray(berthsState) ? berthsState : []).find((b) => b.id === row.jettyId)
+                    const isOos = (berth?.status || '') === 'Out of Service'
                     const occCount =
                       berth?.occupiedCount != null
                         ? Number(berth.occupiedCount)
                         : berth?.currentVesselId
                           ? 1
                           : 0
-                    const statusLabel = occCount > 0 ? `Occupied (${occCount}/${row.capacity})` : `Ready (0/${row.capacity})`
+                    const statusLabel = isOos
+                      ? `Out of service (lanes shown for schedule only)`
+                      : occCount > 0
+                        ? `Occupied (${occCount}/${row.capacity})`
+                        : `Ready (0/${row.capacity})`
                     return (
                       <div
                         key={row.rowKey}
-                        className="jetty-schedule-gantt__row"
+                        className={`jetty-schedule-gantt__row${isOos ? ' jetty-schedule-gantt__row--oos' : ''}`}
                         style={{ gridTemplateColumns }}
                       >
                         <div className="jetty-schedule-gantt__id-cell">

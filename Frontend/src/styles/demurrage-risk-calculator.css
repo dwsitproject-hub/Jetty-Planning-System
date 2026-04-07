@@ -1,0 +1,127 @@
+/* Demurrage Risk Calculator — voyage context (read-only) + scenario (buffer) */
+
+.drc-voyage-context {
+  margin-top: var(--spacing-4);
+  padding: var(--spacing-3) var(--spacing-4);
+  background: var(--color-bg-lighter);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+}
+
+.drc-voyage-context__title {
+  margin: 0 0 var(--spacing-3);
+  font-family: var(--font-primary);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.drc-voyage-context__dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(7rem, 9rem) 1fr;
+  gap: var(--spacing-2) var(--spacing-3);
+  font-family: var(--font-primary);
+  font-size: var(--font-size-small);
+}
+
+.drc-voyage-context__dl dt {
+  margin: 0;
+  color: var(--color-text-steel);
+  font-weight: var(--font-weight-medium);
+}
+
+.drc-voyage-context__dl dd {
+  margin: 0;
+  color: var(--color-text-charcoal);
+}
+
+.drc-voyage-context__hint {
+  margin: var(--spacing-3) 0 0;
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+  line-height: 1.45;
+}
+
+.drc-voyage-context__edit {
+  margin-top: var(--spacing-3);
+  font-size: var(--font-size-small);
+}
+
+.drc-scenario {
+  margin-top: var(--spacing-4);
+  padding: var(--spacing-3) var(--spacing-4);
+  background: var(--color-bg-white);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.drc-scenario__title {
+  margin: 0 0 var(--spacing-3);
+  font-family: var(--font-primary);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.drc-scenario__buffer-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--spacing-2) var(--spacing-3);
+}
+
+.drc-scenario__buffer-row .modal__input {
+  max-width: 10rem;
+}
+
+.drc-scenario__helper {
+  margin: var(--spacing-2) 0 0;
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+  line-height: 1.45;
+}
+
+.drc-stale-hint {
+  margin: var(--spacing-2) 0 0;
+  font-size: var(--font-size-small);
+  color: var(--color-brand-red-deep, #9e2c25);
+}
+
+.drc-advanced {
+  margin-top: var(--spacing-4);
+  border-top: 1px solid var(--color-border-light);
+  padding-top: var(--spacing-3);
+}
+
+.drc-advanced summary {
+  cursor: pointer;
+  font-family: var(--font-primary);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-charcoal);
+  user-select: none;
+}
+
+.drc-advanced summary:hover {
+  color: var(--color-primary);
+}
+
+.drc-advanced__body {
+  margin-top: var(--spacing-3);
+}
+
+.drc-filter-card .card__title {
+  margin-bottom: var(--spacing-2);
+}
+
+@media (max-width: 900px) {
+  .drc-grid {
+    grid-template-columns: 1fr !important;
+  }
+}

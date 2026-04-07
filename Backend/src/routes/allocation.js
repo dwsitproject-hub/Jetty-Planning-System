@@ -11,6 +11,7 @@ import express from 'express';
 import { pool } from '../db.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { userHasPageEdit } from '../middleware/permissions.js';
+import { JETTY_OUT_OF_SERVICE } from '../lib/jetty-blocking.js';
 
 const router = express.Router();
 
@@ -586,6 +587,21 @@ router.put('/arrival', async (req, res) => {
         [short, full, selectedPortId]
       );
       jettyId = jr.rows[0]?.id ?? null;
+    }
+
+    if (jettyId != null) {
+      const jst = await client.query(
+        `SELECT status FROM jetties WHERE id = $1 AND deleted_at IS NULL`,
+        [jettyId]
+      );
+      const st = jst.rows[0]?.status;
+      if (st === JETTY_OUT_OF_SERVICE) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error:
+            'Jetty is out of service. Select another jetty or restore service in Master – Preferred Jetty.',
+        });
+      }
     }
 
     const arrivalUpdateParamsBase = [

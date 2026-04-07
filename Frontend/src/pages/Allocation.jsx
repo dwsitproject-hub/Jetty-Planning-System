@@ -12,6 +12,7 @@ import {
 import { setOperationShiftingOut } from '../api/operations'
 import { ApiError, resolveUploadUrl } from '../api/client'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import { isBerthOutOfService, jettyOosAllocationMessage } from '../utils/jettyAvailability'
 import PurposeBadge, { resolvePurposeLabel } from '../components/PurposeBadge'
 import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
@@ -163,8 +164,9 @@ function getCompletionMsForJettyValidation(row) {
 
 export default function Allocation() {
   const { selectedPortId } = usePortScope()
-  const { canEdit } = useRbac()
+  const { canEdit, canView } = useRbac()
   const canEditAllocation = canEdit('allocation')
+  const canViewMasterJetty = canView('master-jetty')
   const [list, setList] = useState([])
   const [berthsState, setBerthsState] = useState([])
   const filterKeys = ALLOCATION_COLUMNS.map((c) => c.key)
@@ -284,6 +286,35 @@ export default function Allocation() {
 
     return map
   }, [list, berthsState])
+
+  const allocationTableColumns = useMemo(() => {
+    const berthById = new Map((berthsState || []).map((b) => [b.id, b]))
+    return ALLOCATION_COLUMNS.map((c) => {
+      if (c.key !== 'jetty') return c
+      return {
+        ...c,
+        getValue: (r) => {
+          const j = (r.jetty || '').trim().split('/')[0].trim()
+          const berth = j ? berthById.get(j) : null
+          const oos = berth && isBerthOutOfService(berth)
+          return (
+            <>
+              {r.jetty || '—'}
+              {oos ? (
+                <span
+                  className="allocation-jetty-oos-badge"
+                  title="Jetty is out of service in master data"
+                >
+                  {' '}
+                  OOS
+                </span>
+              ) : null}
+            </>
+          )
+        },
+      }
+    })
+  }, [berthsState])
 
   const getVesselName = useCallback(
     (vesselId) => {
@@ -438,6 +469,11 @@ export default function Allocation() {
       const berth = berthsState.find((b) => b.id === targetJettyId)
       if (!berth) {
         setArrivalSaveMsg(`Jetty ${targetJettyId} not found.`)
+        setArrivalSaving(false)
+        return
+      }
+      if (isBerthOutOfService(berth)) {
+        setArrivalSaveMsg(jettyOosAllocationMessage(targetJettyId, canViewMasterJetty))
         setArrivalSaving(false)
         return
       }
@@ -597,6 +633,8 @@ export default function Allocation() {
       const berth = berthsState.find((b) => b.id === targetJettyId)
       if (!berth) {
         errors.push(`Jetty ${targetJettyId} not found.`)
+      } else if (isBerthOutOfService(berth)) {
+        errors.push(jettyOosAllocationMessage(targetJettyId, canViewMasterJetty))
       } else {
         const capacity = berth.capacity != null ? Number(berth.capacity) : 1
         const occList = Array.isArray(berth.occupants)
@@ -881,6 +919,10 @@ export default function Allocation() {
       const berth = berthsState.find((b) => b.id === targetJettyId)
       if (!berth) {
         setVesselDetailEditError(`Jetty ${targetJettyId} not found.`)
+        return
+      }
+      if (isBerthOutOfService(berth)) {
+        setVesselDetailEditError(jettyOosAllocationMessage(targetJettyId, canViewMasterJetty))
         return
       }
       const capacity = berth.capacity != null ? Number(berth.capacity) : 1
@@ -2448,6 +2490,10 @@ export default function Allocation() {
 
       <section className="card">
         <h2 className="card__title">Incoming vessel & berthing plan</h2>
+        <p className="text-steel" style={{ marginTop: 'calc(-1 * var(--spacing-2))', marginBottom: 'var(--spacing-3)' }}>
+          Jetties marked <strong>out of service</strong> in Master cannot receive new allocations. Use the schematic and
+          schedule to spot OOS lanes.
+        </p>
         <div className="allocation-plan-status-filter" role="group" aria-label="Filter incoming and berthed vessels">
           <span className="allocation-plan-status-filter__label">Status</span>
           <label className="allocation-plan-status-filter__option">
@@ -2473,7 +2519,7 @@ export default function Allocation() {
               <tr>
                 <th className="allocation-table__expand-col"></th>
                 <th className="allocation-table__action-col">Action</th>
-                {ALLOCATION_COLUMNS.map((col) => (
+                {allocationTableColumns.map((col) => (
                   <th key={col.key} className="allocation-table__th">
                     <button
                       type="button"
@@ -2492,7 +2538,7 @@ export default function Allocation() {
               <tr className="allocation-table__filter-row">
                 <th className="allocation-table__expand-col"></th>
                 <th className="allocation-table__action-col"></th>
-                {ALLOCATION_COLUMNS.map((col) => (
+                {allocationTableColumns.map((col) => (
                   <th key={col.key}>
                     <input
                       type="text"
@@ -2540,7 +2586,7 @@ export default function Allocation() {
                         )}
                       </div>
                     </td>
-                    {ALLOCATION_COLUMNS.map((col) => (
+                    {allocationTableColumns.map((col) => (
                       <td key={col.key} onClick={col.key === 'sequence' ? (e) => e.stopPropagation() : undefined}>
                         {col.key === 'sequence' ? (
                           <span className="allocation-table__sequence-cell">
@@ -2576,7 +2622,7 @@ export default function Allocation() {
                   </tr>
                   {expandedId === r.id && (
                     <tr className="allocation-table__detail-row">
-                      <td colSpan={ALLOCATION_COLUMNS.length + 2} className="allocation-table__detail-cell">
+                      <td colSpan={allocationTableColumns.length + 2} className="allocation-table__detail-cell">
                         <div className="allocation-detail">
                           <h4 className="allocation-detail__title">Full details</h4>
                           <dl className="allocation-detail__grid">

@@ -193,7 +193,10 @@ export default function JettySchematic({
     const occNames = occIds.map((id) => getVessel(id)?.vesselName || berth?.currentVesselName || id).filter(Boolean)
     const incomingNames = formatIncomingList(incomingByJetty[berthId])
     const incomingLabel = incomingNames.length ? incomingNames.join(', ') : '—'
-    const baseTooltip = jettyTooltip(berthId, cap, occIds, occNames, incomingLabel)
+    const isOos = (berth?.status || '') === 'Out of Service'
+    const baseTooltip = isOos
+      ? `Out of service — not available for new allocation.\n${jettyTooltip(berthId, cap, occIds, occNames, incomingLabel)}`
+      : jettyTooltip(berthId, cap, occIds, occNames, incomingLabel)
 
     const slots = buildBerthLaneSlots(berth, cap)
     let firstVacantIncomingShown = false
@@ -202,9 +205,14 @@ export default function JettySchematic({
 
     return (
       <div
-        className="jetty-schematic__berth-stack"
+        className={`jetty-schematic__berth-stack${isOos ? ' jetty-schematic__berth-stack--oos' : ''}`}
         style={{ ['--berth-lane-height-divisor']: laneHeightDivisor }}
       >
+        {isOos ? (
+          <span className="jetty-schematic__oos-badge" title="Out of service — not available for new allocation.">
+            OOS
+          </span>
+        ) : null}
         {slots.map((slot) => {
           const laneLabel = `${berthId}-${String(slot.laneIndex + 1).padStart(2, '0')}`
           const isVacant = !slot.vesselId

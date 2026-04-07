@@ -5,8 +5,9 @@ import express from 'express';
 import { pool } from '../db.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { writeActivityLog } from '../lib/activity-log.js';
+import { countBlockingOperationsOnJetty, isJettyUnavailableMasterStatus } from '../lib/jetty-blocking.js';
 
-const VALID_STATUSES = ['Available', 'Maintenance', 'High-Priority', 'Out of Service'];
+const VALID_STATUSES = ['Available', 'Out of Service'];
 const router = express.Router();
 router.use(optionalAuth);
 
@@ -181,6 +182,16 @@ router.put('/:id/status', async (req, res) => {
     if (!beforeRow) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Jetty not found' });
+    }
+    if (isJettyUnavailableMasterStatus(status)) {
+      const blocking = await countBlockingOperationsOnJetty(client, id);
+      if (blocking > 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error:
+            'Cannot set this status while active operations use the jetty. Reassign or complete them on Allocation & Berthing first.',
+        });
+      }
     }
     const up = await client.query(
       `UPDATE jetties SET status = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL

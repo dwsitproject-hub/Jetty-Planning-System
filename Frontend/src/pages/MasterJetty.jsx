@@ -1,11 +1,14 @@
 import { useState, useCallback, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchPorts } from '../api/ports'
-import { fetchJetties, createJetty, updateJettyApi } from '../api/jetties'
+import { fetchJetties, createJetty, updateJettyApi, updateJettyStatus } from '../api/jetties'
+import { ApiError } from '../api/client'
 import { useActivityLog } from '../context/ActivityLogContext'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/shipping-instruction.css'
+
+const JETTY_STATUS_OPTIONS = ['Available', 'Out of Service']
 
 export default function MasterJetty() {
   const { logActivity } = useActivityLog()
@@ -21,6 +24,8 @@ export default function MasterJetty() {
   const [formJettyName, setFormJettyName] = useState('')
   const [formCapacity, setFormCapacity] = useState('1')
   const [formDescription, setFormDescription] = useState('')
+  const [formStatus, setFormStatus] = useState('Available')
+  const [statusWhenOpened, setStatusWhenOpened] = useState('Available')
   const [toast, setToast] = useState(null)
 
   useEffect(() => {
@@ -58,6 +63,8 @@ export default function MasterJetty() {
     setFormJettyName('')
     setFormCapacity('1')
     setFormDescription('')
+    setFormStatus('Available')
+    setStatusWhenOpened('Available')
     setModalOpen(true)
   }, [ports])
 
@@ -68,6 +75,9 @@ export default function MasterJetty() {
     setFormJettyName(jetty.name || '')
     setFormCapacity(String(jetty.capacity ?? 1))
     setFormDescription(jetty.description ?? '')
+    const st = jetty.status && JETTY_STATUS_OPTIONS.includes(jetty.status) ? jetty.status : 'Available'
+    setFormStatus(st)
+    setStatusWhenOpened(st)
     setModalOpen(true)
   }, [])
 
@@ -93,6 +103,9 @@ export default function MasterJetty() {
           name: jettyName,
           description: (formDescription || '').trim() || null,
         })
+        if (formStatus !== statusWhenOpened) {
+          await updateJettyStatus(editingId, formStatus)
+        }
         logActivity({
           pageKey: 'master-jetty',
           action: 'update',
@@ -102,13 +115,17 @@ export default function MasterJetty() {
         })
         setToast({ message: `Jetty saved: ${jettyName}.`, variant: 'success' })
       } else {
-        await createJetty({
+        const created = await createJetty({
           portId,
           orderNo,
           capacity,
           name: jettyName,
           description: (formDescription || '').trim() || null,
         })
+        const newId = created?.id
+        if (newId != null && formStatus !== 'Available') {
+          await updateJettyStatus(newId, formStatus)
+        }
         logActivity({
           pageKey: 'master-jetty',
           action: 'add',
@@ -121,13 +138,29 @@ export default function MasterJetty() {
       await loadAll()
       closeModal()
     } catch (e) {
-      const msg = e?.message || 'Save failed'
+      const msg =
+        e instanceof ApiError && e.status === 409
+          ? e.message ||
+            'Cannot change status: active operations still use this jetty. Reassign them on Allocation & Berthing first.'
+          : e?.message || 'Save failed'
       setError(msg)
       setToast({ message: msg, variant: 'error' })
     } finally {
       setSaving(false)
     }
-  }, [editingId, formPortId, formOrderNo, formJettyName, formCapacity, formDescription, loadAll, closeModal, logActivity])
+  }, [
+    editingId,
+    formPortId,
+    formOrderNo,
+    formJettyName,
+    formCapacity,
+    formDescription,
+    formStatus,
+    statusWhenOpened,
+    loadAll,
+    closeModal,
+    logActivity,
+  ])
 
   const sortedJetties = [...jetties].sort((a, b) => {
     const na = a.portName || portName(a.portId)
@@ -268,6 +301,27 @@ export default function MasterJetty() {
               />
               <p className="text-steel" style={{ marginTop: '0.25rem' }}>
                 Default is 1. Set 2+ to allow double-bank / multi-bank on this jetty.
+              </p>
+            </div>
+            <div className="modal__section">
+              <label className="modal__label" htmlFor="master-jetty-status">
+                Operational status
+              </label>
+              <select
+                id="master-jetty-status"
+                className="modal__input"
+                value={formStatus}
+                onChange={(e) => setFormStatus(e.target.value)}
+              >
+                {JETTY_STATUS_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              <p className="text-steel" style={{ marginTop: '0.25rem' }}>
+                Out of service cannot be saved while an active operation still uses this jetty — reassign on
+                Allocation &amp; Berthing first.
               </p>
             </div>
             <div className="modal__section">

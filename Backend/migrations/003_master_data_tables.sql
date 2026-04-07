@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS jetties (
   name TEXT NOT NULL,
   description TEXT,
   status TEXT NOT NULL DEFAULT 'Available'
-    CHECK (status IN ('Available', 'Maintenance', 'High-Priority', 'Out of Service')),
+    CHECK (status IN ('Available', 'Out of Service')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

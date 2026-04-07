@@ -43,12 +43,6 @@ function parseIso(value) {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
-function hoursBetween(start, end = new Date()) {
-  const a = parseIso(start)
-  if (!a) return null
-  return Math.max(0, (end.getTime() - a.getTime()) / 3600000)
-}
-
 function formatRelativeTime(iso) {
   const d = parseIso(iso)
   if (!d) return '—'
@@ -192,18 +186,35 @@ export default function Dashboard() {
     }
   }, [allOps])
 
-  const occupancy = useMemo(() => {
-    const total = berths.length
-    const occupied = berths.filter((b) => b.currentVesselId).length
-    const pct = total ? Math.round((occupied / total) * 100) : 0
-    return { total, occupied, pct }
+  /** Slot-based: Σ min(occupiedCount, capacity) / Σ capacity excluding Out of Service jetties */
+  const slotOccupancy = useMemo(() => {
+    const list = Array.isArray(berths) ? berths : []
+    let totalSlots = 0
+    let usedSlots = 0
+    for (const b of list) {
+      if ((b?.status || '') === 'Out of Service') continue
+      const cap = b?.capacity != null ? Number(b.capacity) : 1
+      const capN = Number.isFinite(cap) && cap >= 1 ? cap : 1
+      const occ =
+        b?.occupiedCount != null && Number.isFinite(Number(b.occupiedCount))
+          ? Number(b.occupiedCount)
+          : b?.currentVesselId
+            ? 1
+            : 0
+      totalSlots += capN
+      usedSlots += Math.min(Math.max(0, occ), capN)
+    }
+    const pct = totalSlots > 0 ? Math.round((usedSlots / totalSlots) * 100) : 0
+    const overCapacity = usedSlots > totalSlots && totalSlots > 0
+    return { totalSlots, usedSlots, pct, overCapacity }
   }, [berths])
 
   const jettyStatusCounts = useMemo(() => {
-    const m = { Available: 0, Maintenance: 0, 'High-Priority': 0, 'Out of Service': 0 }
+    const m = { Available: 0, 'Out of Service': 0 }
     for (const j of jetties) {
       const s = j.status || 'Available'
-      if (m[s] !== undefined) m[s] += 1
+      if (s === 'Out of Service') m['Out of Service'] += 1
+      else m.Available += 1
     }
     return m
   }, [jetties])
@@ -235,16 +246,6 @@ export default function Dashboard() {
     risky.sort((a, b) => b.overHours - a.overHours)
     return risky.slice(0, 5)
   }, [allOps])
-
-  const awaitingBerth = useMemo(() => {
-    const rows = queue.filter((r) => r.operationId && r.taDateTime && !r.tbDateTime)
-    rows.sort((a, b) => {
-      const ta = parseIso(a.taDateTime)?.getTime() ?? 0
-      const tb = parseIso(b.taDateTime)?.getTime() ?? 0
-      return ta - tb
-    })
-    return rows.slice(0, 6)
-  }, [queue])
 
   const nextArrivals = useMemo(() => {
     const rows = [...queue].filter((r) => r.etaDateTime)
@@ -357,12 +358,12 @@ export default function Dashboard() {
 
         <div className="dashboard-kpi-grid" aria-label="Key metrics for selected port">
           <div className="metric-card">
-            <span className="metric-card__label">Jetty occupancy</span>
+            <span className="metric-card__label">Slot occupancy</span>
             <span className="metric-card__value">
-              {occupancy.total > 0 ? (
+              {slotOccupancy.totalSlots > 0 ? (
                 <>
-                  {occupancy.occupied}/{occupancy.total}
-                  <span className="metric-card__unit">{occupancy.pct}%</span>
+                  {slotOccupancy.usedSlots}/{slotOccupancy.totalSlots}
+                  <span className="metric-card__unit">{slotOccupancy.pct}%</span>
                 </>
               ) : (
                 '—'
@@ -370,11 +371,16 @@ export default function Dashboard() {
             </span>
             <div className="metric-card__bar-wrap" role="presentation">
               <div
-                className="metric-card__bar"
-                style={{ width: occupancy.total > 0 ? `${occupancy.pct}%` : '0%' }}
+                className={`metric-card__bar${slotOccupancy.overCapacity ? ' metric-card__bar--over' : ''}`}
+                style={{
+                  width:
+                    slotOccupancy.totalSlots > 0
+                      ? `${Math.min(100, slotOccupancy.pct)}%`
+                      : '0%',
+                }}
               />
             </div>
-            <span className="metric-card__type">Busy berths / total jetties</span>
+            <span className="metric-card__type">Vessel positions (excl. out-of-service jetties)</span>
           </div>
           <div className="metric-card">
             <span className="metric-card__label">Vessels at berth</span>
@@ -600,44 +606,10 @@ export default function Dashboard() {
               <span className="dashboard-jetty-chip dashboard-jetty-chip--ok" role="listitem">
                 Available {jettyStatusCounts.Available}
               </span>
-              <span className="dashboard-jetty-chip dashboard-jetty-chip--warn" role="listitem">
-                Maintenance {jettyStatusCounts.Maintenance}
-              </span>
-              <span className="dashboard-jetty-chip dashboard-jetty-chip--priority" role="listitem">
-                High-priority {jettyStatusCounts['High-Priority']}
-              </span>
               <span className="dashboard-jetty-chip dashboard-jetty-chip--bad" role="listitem">
                 Out of service {jettyStatusCounts['Out of Service']}
               </span>
             </div>
-          </section>
-
-          <section className="card">
-            <h2 className="card__title">Awaiting berth</h2>
-            <p className="text-steel dashboard-sidebar__hint">Vessels with arrival logged, not yet alongside.</p>
-            {loading ? (
-              <p className="text-steel">Loading…</p>
-            ) : awaitingBerth.length === 0 ? (
-              <p className="text-steel">None right now.</p>
-            ) : (
-              <ul className="dashboard-sidebar-list">
-                {awaitingBerth.map((row) => {
-                  const waitH = hoursBetween(row.taDateTime)
-                  return (
-                    <li key={row.id} className="dashboard-sidebar-list__item">
-                      <div className="dashboard-sidebar-list__title">{row.vesselName || '—'}</div>
-                      <div className="dashboard-sidebar-list__meta">
-                        Wait {waitH != null ? `${waitH < 24 ? `${Math.round(waitH)}h` : `${Math.round(waitH / 24)}d`}` : '—'}
-                        {row.priority === 'HIGH' && <span className="badge badge--high">HIGH</span>}
-                      </div>
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-            <Link to="/allocation" className="dashboard-sidebar__footer-link">
-              Open allocation →
-            </Link>
           </section>
 
           <section className="card">

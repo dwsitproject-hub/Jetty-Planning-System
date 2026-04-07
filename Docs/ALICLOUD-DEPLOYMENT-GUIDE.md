@@ -18,7 +18,7 @@ All **shell commands** below are intended to be run in an SSH session on the cor
 | # | Requirement | How this guide covers it |
 |---|-------------|---------------------------|
 | **1** | **Target directory:** `/opt/[project-name]` | Use **`/opt/jetty-planning-system`** on **both** servers (`[project-name]` = `jetty-planning-system`). All `cd` and `docker compose` commands assume this path. |
-| **2** | **Docker** + **PostgreSQL migrations** | **Backend server:** `docker compose -f docker-compose.backend.yml` (API + `jps-db`), then `docker compose ... exec -T jps-api npm run migrate` (§5). **App server:** `docker compose -f docker-compose.app.yml` (§6). |
+| **2** | **Docker** + **PostgreSQL migrations** | **Backend server:** `docker compose --env-file Backend/.env -f docker-compose.backend.yml` (API + `jps-db`), then `docker compose ... exec -T jps-api npm run migrate` (§5). **App server:** `docker compose -f docker-compose.app.yml` (§6). |
 | **3** | **Security Group ports** | **Consolidated table** below; details per server in §1. **JPS Postgres** is **not** opened on any SG (Docker internal only). |
 | **4** | **Exact shell commands (PuTTY)** | §3 (Docker install), §4 (GitHub + directory), §5–§6 (deploy + migrate), §8 (operations). Copy/paste each block on the correct server. |
 
@@ -101,7 +101,7 @@ Users open only the **app** URL (public IP / domain + port or HTTPS). The browse
 **Repo files used:**
 
 - **App server:** `Dockerfile`, `docker-compose.app.yml`, `nginx.alicloud-app.conf`, root `.env` (for `VITE_API_BASE_URL` and compose)
-- **Backend server:** `Backend/`, `docker-compose.backend.yml`, root `.env` (DB + JWT + `CORS_ORIGIN`)
+- **Backend server:** `Backend/`, `docker-compose.backend.yml`, **`Backend/.env`** (DB + JWT + `CORS_ORIGIN`). Run Compose with `--env-file Backend/.env` so `${POSTGRES_PASSWORD}` and other vars interpolate from that file.
 
 **Single-server alternative (all-in-one on one VM):** use `docker-compose.production.yml` as documented in git history or enable `jps-web` + `jps-api` + `jps-db` on one host; this guide focuses on the **two-server** split.
 
@@ -185,7 +185,7 @@ On **`172.28.92.57`** the following TCP ports were observed **in use** (do **not
 | **Chosen host port** | **`5436`** on **127.0.0.1 only** in `docker-compose.backend.yml` (`127.0.0.1:5436:5432`). |
 | **API unchanged** | `DATABASE_URL` uses hostname **`jps-db`** and port **5432** (Docker DNS). Only **your PC → SSH → backend `127.0.0.1:5436`** uses the host mapping. |
 | **Security** | Keep **5436** off public SGs. Access is **SSH + local forward** (see PGADMIN doc). |
-| **After `git pull`** | If compose changed ports, run `docker compose -f docker-compose.backend.yml up -d` so `jps-db` recreates with the new mapping (data volume is preserved). |
+| **After `git pull`** | If compose changed ports, run `docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d` so `jps-db` recreates with the new mapping (data volume is preserved). |
 
 If **3000** becomes occupied later, map a free host port (e.g. **`3010:3000`**) in compose, set nginx upstream to that host port, and allow that port from the app server in the backend SG.
 
@@ -343,16 +343,16 @@ After the initial clone, deploy updates **without** SCP:
 ```bash
 cd /opt/jetty-planning-system
 git pull
-docker compose -f docker-compose.backend.yml build --no-cache
-docker compose -f docker-compose.backend.yml up -d
-docker compose -f docker-compose.backend.yml exec -T jps-api npm run migrate
+docker compose --env-file Backend/.env -f docker-compose.backend.yml build --no-cache
+docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d
+docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps-api npm run migrate
 ```
 
 If you want a quick health check after update:
 
 ```bash
-docker compose -f docker-compose.backend.yml ps
-docker compose -f docker-compose.backend.yml logs --tail=50 jps-api
+docker compose --env-file Backend/.env -f docker-compose.backend.yml ps
+docker compose --env-file Backend/.env -f docker-compose.backend.yml logs --tail=50 jps-api
 ```
 
 **App server (PuTTY):**
@@ -387,11 +387,11 @@ Then continue with §5 / §6 using the same paths.
 
 ## 5. Backend server first (`172.28.92.57`)
 
-### 5.1 Create `.env` (secrets stay here)
+### 5.1 Create `Backend/.env` (secrets stay here)
 
 ```bash
 cd /opt/jetty-planning-system
-nano .env
+nano Backend/.env
 ```
 
 Use strong values. **`CORS_ORIGIN`** must match the URL users use for the SPA (scheme + host + port), e.g. `http://<APP_PUBLIC_IP>:3080` when JPS listens on **3080**, or `https://app.example.com` behind TLS.
@@ -408,24 +408,26 @@ CORS_ORIGIN=http://<APP_PUBLIC_IP_OR_DOMAIN>:3080
 ```
 
 ```bash
-chmod 600 .env
+chmod 600 Backend/.env
 ```
+
+If you already have secrets in a **root** `.env` from an older layout, either move those keys into **`Backend/.env`** or run Compose with `--env-file` pointing at your file; interpolation only reads the env file you pass (or the default **root** `.env` if you omit `--env-file`).
 
 ### 5.2 Start API + database
 
 ```bash
 cd /opt/jetty-planning-system
-docker compose -f docker-compose.backend.yml build --no-cache
-docker compose -f docker-compose.backend.yml up -d
-docker compose -f docker-compose.backend.yml ps
+docker compose --env-file Backend/.env -f docker-compose.backend.yml build --no-cache
+docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d
+docker compose --env-file Backend/.env -f docker-compose.backend.yml ps
 ```
 
 ### 5.3 Migrations
 
 ```bash
 cd /opt/jetty-planning-system
-docker compose -f docker-compose.backend.yml exec -T jps-db pg_isready -U ${POSTGRES_USER:-jps_user} -d ${POSTGRES_DB:-jps_db}
-docker compose -f docker-compose.backend.yml exec -T jps-api npm run migrate
+docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps-db pg_isready -U ${POSTGRES_USER:-jps_user} -d ${POSTGRES_DB:-jps_db}
+docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps-api npm run migrate
 ```
 
 ### 5.4 Verify API from the app server (optional)
@@ -511,7 +513,7 @@ Use this when JPS is **already** running on staging and you are deploying **new 
 
 | Do | Don’t |
 |----|--------|
-| On **backend:** `git pull` → `docker compose -f docker-compose.backend.yml build` → `up -d` → **`docker compose ... exec -T jps-api npm run migrate`** | **`docker compose down -v`** (destroys Postgres volume and all data). |
+| On **backend:** `git pull` → `docker compose --env-file Backend/.env -f docker-compose.backend.yml build` → `up -d` → **`docker compose ... exec -T jps-api npm run migrate`** | **`docker compose down -v`** (destroys Postgres volume and all data). |
 | On **app:** `git pull` → rebuild and `up -d` for `docker-compose.app.yml` | Re-run **user & role bootstrap** SQL or **dev seed** scripts (`reset-and-seed-dev.sql`, `023`/`024` seeds) on staging **unless** you intentionally reset a **non-production** database. |
 | Expect **`npm run migrate`** to apply **only migrations that have not yet run** (tracked in **`schema_migrations`**; see `Backend/scripts/run-migrations.js`). Already-applied files — including schema for **`users`**, **`roles`**, **`permissions`**, **seed users** — are **not** executed again. | Manually re-import **`002_seed_first_user.sql`**-style dumps if accounts already exist (risk duplicate or conflicting ids). |
 
@@ -527,9 +529,9 @@ Use this when JPS is **already** running on staging and you are deploying **new 
 
 ```bash
 cd /opt/jetty-planning-system
-docker compose -f docker-compose.backend.yml logs -f
-docker compose -f docker-compose.backend.yml exec -T jps-api npm run migrate
-docker compose -f docker-compose.backend.yml up -d --build
+docker compose --env-file Backend/.env -f docker-compose.backend.yml logs -f
+docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps-api npm run migrate
+docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d --build
 ```
 
 **App**
@@ -552,7 +554,7 @@ docker compose -f docker-compose.app.yml up -d --build
 - [ ] Backend `.env`: `POSTGRES_PASSWORD`, `JWT_SECRET`, `CORS_ORIGIN` matches SPA URL (including **:3080** if used)
 - [ ] `nginx.alicloud-app.conf` upstream = backend private IP
 - [ ] App `.env`: `VITE_API_BASE_URL` = `http(s)://<same-host-as-SPA>/api/v1`
-- [ ] Migrations ran on backend: `docker compose -f docker-compose.backend.yml exec -T jps-api npm run migrate`
+- [ ] Migrations ran on backend: `docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps-api npm run migrate`
 - [ ] UI loads and login/API works through **one** browser origin
 
 ---
@@ -563,7 +565,7 @@ docker compose -f docker-compose.app.yml up -d --build
 - **API 502 from nginx:** Backend container down, wrong private IP in `nginx.alicloud-app.conf`, or SG blocks **app → backend:3000**.
 - **Wrong API host in SPA:** Rebuild app image after changing `VITE_API_BASE_URL`: `docker compose -f docker-compose.app.yml up -d --build`.
 - **Bind / start fails (“port already allocated”):** Run `sudo ss -tuln`, pick a host port not listed, set `JPS_FE_PORT`, update SG + `VITE_API_BASE_URL` + backend `CORS_ORIGIN`, then rebuild.
-- **DB errors on backend:** `docker compose -f docker-compose.backend.yml logs jps-db jps-api`.
+- **DB errors on backend:** `docker compose --env-file Backend/.env -f docker-compose.backend.yml logs jps-db jps-api`.
 - **pgAdmin or desktop tools → remote JPS Postgres:** Use an SSH tunnel and optional localhost-only Docker port mapping; full steps and “where we left off” are in [PGADMIN-ALICLOUD-DB-TUNNEL.md](PGADMIN-ALICLOUD-DB-TUNNEL.md).
 
 ---

@@ -125,7 +125,7 @@ Create a **new server** (or connection):
 |--------|--------|
 | **Host** | `127.0.0.1` or `localhost` |
 | **Port** | **5433** (your **local** tunnel port from Part B), **not** 5436 unless you intentionally use the same number locally |
-| **Maintenance database** | Usually `jps_db` (or your `POSTGRES_DB`) |
+| **Target database** | Usually `jps_db` (or your `POSTGRES_DB`) |
 | **Username** | `jps_user` (or your `POSTGRES_USER`) |
 | **Password** | Value of **`POSTGRES_PASSWORD`** on the backend (from `.env` / `docker exec` — see progress table) |
 

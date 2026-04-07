@@ -3,6 +3,9 @@
 #
 # PostgreSQL: optional 127.0.0.1:5436 on host for pgAdmin/psql via SSH tunnel (see ALICLOUD-DEPLOYMENT-GUIDE.md).
 # jps-api still connects to jps-db:5432 on the Docker network. Lock down API with SG.
+#
+# Local (repo root): Compose defaults to ./.env for ${VAR} substitution. To use Backend/.env instead:
+#   docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d
 
 services:
   jps-db:

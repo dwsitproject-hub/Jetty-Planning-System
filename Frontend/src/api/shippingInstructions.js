@@ -12,8 +12,8 @@ export function fetchShippingInstructionCandidates(params = {}) {
   const sp = new URLSearchParams()
   if (params.from) sp.set('from', params.from)
   if (params.to) sp.set('to', params.to)
-  if (params.includeOpen != null) sp.set('include_open', params.includeOpen ? '1' : '0')
-  if (params.includeWithOperation != null) sp.set('include_with_operation', params.includeWithOperation ? '1' : '0')
+  if (params.includeIncoming != null) sp.set('include_incoming', params.includeIncoming ? '1' : '0')
+  if (params.includeBerthed != null) sp.set('include_berthed', params.includeBerthed ? '1' : '0')
   const q = sp.toString()
   return apiGet(`/shipping-instructions/candidates${q ? `?${q}` : ''}`)
 }

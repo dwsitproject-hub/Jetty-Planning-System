@@ -254,19 +254,30 @@ router.get('/', async (req, res) => {
  * Candidates list for Demurrage Risk Calculator.
  * Returns SIs within a date range (ETA overlap), plus linked operation (if any).
  *
+ * Port scope (selected port from request context):
+ * - COALESCE(si.port_id, preferred_jetty.port_id) matches, OR
+ * - a non-SAILED operation exists for this SI with operations.port_id matching (allocation path).
+ * SIs without jetty are included when si.port_id is set for the selected port (same as main SI list).
+ *
+ * Excludes SIs whose only operations are SAILED (so sailed voyages do not appear as "open").
+ *
+ * Berthing plan status (aligned with Allocation `getBerthingPlanStatus`):
+ * - incoming: no operation row, OR shifting_out, OR (op exists, no TB, status not DOCKED/IN_PROGRESS/COMPLETED)
+ * - berthed: op exists, not shifting_out, and (TB set OR status in DOCKED, IN_PROGRESS, COMPLETED)
+ *
  * Query:
  * - from: ISO date or datetime (inclusive)
  * - to: ISO date or datetime (inclusive)
- * - include_open: '1'|'0' (default 1)  -> rows where operation_id is null
- * - include_with_operation: '1'|'0' (default 1) -> rows where operation_id not null
+ * - include_incoming: '1'|'0' (default 1)
+ * - include_berthed: '1'|'0' (default 1)
  */
 router.get('/candidates', async (req, res) => {
   const selectedPortId = Number(req.selectedPortId);
   const {
     from,
     to,
-    include_open = '1',
-    include_with_operation = '1',
+    include_incoming = '1',
+    include_berthed = '1',
   } = req.query || {};
 
   const fromDt = from ? new Date(String(from)) : null;
@@ -274,9 +285,9 @@ router.get('/candidates', async (req, res) => {
   if (fromDt && Number.isNaN(fromDt.getTime())) return res.status(400).json({ error: 'Invalid from' });
   if (toDt && Number.isNaN(toDt.getTime())) return res.status(400).json({ error: 'Invalid to' });
 
-  const incOpen = String(include_open) !== '0';
-  const incWithOp = String(include_with_operation) !== '0';
-  if (!incOpen && !incWithOp) return res.json([]);
+  const incIncoming = String(include_incoming) !== '0';
+  const incBerthed = String(include_berthed) !== '0';
+  if (!incIncoming && !incBerthed) return res.json([]);
 
   let query = `
     SELECT
@@ -292,13 +303,44 @@ router.get('/candidates', async (req, res) => {
       o.status AS operation_status,
       o.docking_start_time,
       o.estimated_completion_time,
-      si.created_at
+      si.created_at,
+      oj.name AS operation_jetty_name,
+      CASE
+        WHEN o.id IS NULL THEN 'incoming'
+        WHEN COALESCE(o.shifting_out, false) THEN 'incoming'
+        WHEN o.tb IS NOT NULL
+          OR UPPER(TRIM(COALESCE(o.status, ''))) IN ('DOCKED', 'IN_PROGRESS', 'COMPLETED')
+          THEN 'berthed'
+        ELSE 'incoming'
+      END AS berthing_plan_status
     FROM shipping_instructions si
     LEFT JOIN jetties j ON si.preferred_jetty_id = j.id AND j.deleted_at IS NULL
     LEFT JOIN ports p ON p.id = j.port_id AND p.deleted_at IS NULL
     LEFT JOIN operations o ON o.shipping_instruction_id = si.id AND o.deleted_at IS NULL AND o.status <> 'SAILED'
+    LEFT JOIN jetties oj ON oj.id = o.jetty_id AND oj.deleted_at IS NULL
     WHERE si.deleted_at IS NULL
-      AND (si.preferred_jetty_id IS NULL OR p.id = $1)
+      AND (
+        COALESCE(si.port_id, p.id) = $1
+        OR EXISTS (
+          SELECT 1 FROM operations o_port
+          WHERE o_port.shipping_instruction_id = si.id
+            AND o_port.deleted_at IS NULL
+            AND o_port.status <> 'SAILED'
+            AND o_port.port_id = $1
+        )
+      )
+      AND (
+        NOT EXISTS (
+          SELECT 1 FROM operations o_any
+          WHERE o_any.shipping_instruction_id = si.id AND o_any.deleted_at IS NULL
+        )
+        OR EXISTS (
+          SELECT 1 FROM operations o_live
+          WHERE o_live.shipping_instruction_id = si.id
+            AND o_live.deleted_at IS NULL
+            AND o_live.status <> 'SAILED'
+        )
+      )
   `;
   const params = [selectedPortId];
   let i = 2;
@@ -313,8 +355,29 @@ router.get('/candidates', async (req, res) => {
     params.push(toDt);
   }
 
-  if (!incOpen) query += ` AND o.id IS NOT NULL`;
-  if (!incWithOp) query += ` AND o.id IS NULL`;
+  const planIncomingSql = `(
+      o.id IS NULL
+      OR COALESCE(o.shifting_out, false) = true
+      OR (
+        o.id IS NOT NULL
+        AND o.tb IS NULL
+        AND UPPER(TRIM(COALESCE(o.status, ''))) NOT IN ('DOCKED', 'IN_PROGRESS', 'COMPLETED')
+      )
+    )`;
+  const planBerthedSql = `(
+      o.id IS NOT NULL
+      AND COALESCE(o.shifting_out, false) = false
+      AND (
+        o.tb IS NOT NULL
+        OR UPPER(TRIM(COALESCE(o.status, ''))) IN ('DOCKED', 'IN_PROGRESS', 'COMPLETED')
+      )
+    )`;
+
+  if (!incIncoming) {
+    query += ` AND ${planBerthedSql}`;
+  } else if (!incBerthed) {
+    query += ` AND ${planIncomingSql}`;
+  }
 
   query += ` ORDER BY COALESCE(si.eta_from, si.created_at) DESC, si.id DESC LIMIT 300`;
   const result = await pool.query(query, params);
@@ -328,6 +391,8 @@ router.get('/candidates', async (req, res) => {
       etaFrom: r.eta_from ?? null,
       etaTo: r.eta_to ?? null,
       commodity: r.commodity_display ?? r.commodity ?? null,
+      berthingPlanStatus: r.berthing_plan_status === 'berthed' ? 'berthed' : 'incoming',
+      jettyName: r.operation_jetty_name ?? null,
       operation: r.operation_id
         ? {
             id: r.operation_id,

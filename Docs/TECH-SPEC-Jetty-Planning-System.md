@@ -1,7 +1,7 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.12  
-**Last Updated**: 2026-04-03  
+**Version**: 1.14  
+**Last Updated**: 2026-04-07  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
@@ -440,13 +440,13 @@ Freight terms are currently fixed (frontend constant + backend validation), so t
 
 **Workflow (current frontend: `Dashboard.jsx`)**:
 - Weather widget (mock) simulating Google Weather integration.
-- Top KPIs:
-  - Vessels at berth.
-  - Berth occupancy.
-  - Average pumping rate.
-  - Clearance Ready-to-Sail count.
-- Pipeline view (Shipping Instruction → Allocation → At-Berth → Clearance).
-- Upcoming queue and alerts (arrival-to-berth wait time, offloading SLA progress, tank levels).
+- Top KPIs (evolving; not all legacy PRD metrics are wired):
+  - **Slot occupancy** — `Σ min(occupiedCount, capacity) / Σ capacity` from `GET /allocation/overview` **`berths`**, excluding jetties with master **`status = 'Out of Service'`** from the capacity denominator (`Dashboard.jsx`).
+  - Vessels at berth (from `GET /operations/at-berth` aggregate).
+  - Ready to sail / SLA at risk (from operations list).
+- Pipeline view (Shipping Instruction → Planned berthing → Allocation → At-Berth → Clearance).
+- **Awaiting berth** sidebar list was **removed** (redundant with pipeline **Planned berthing**); “next arrivals” table remains.
+- Jetty status chips from `GET /jetties?port_id=…`.
 
 **Target implementation**:
 - Expose backend dashboard endpoints:
@@ -489,6 +489,25 @@ Base: `/si-lookups` — **all routes require an authenticated session** (includi
 - `DELETE /si-lookups/:type/:id` – delete (blocked when referenced by SI or SI breakdown)
 
 Types are whitelisted by backend config (`Backend/src/routes/si-lookups.js`) and map to the corresponding SI master tables.
+
+### 3.2.2 Demurrage Risk Calculator — candidates list & save ETC
+
+**`GET /shipping-instructions/candidates`** (port-scoped via `requirePortScope`, same `X-Selected-Port-Id` as other SI routes)
+
+- **Purpose:** Populate the **Demurrage Risk Calculator** vessel/SI picker with rows in an ETA window.
+- **Query params:** `from`, `to` (ISO, inclusive overlap against `si.eta_from` / `si.eta_to`), `include_incoming` (`1`|`0`, default `1`), `include_berthed` (`1`|`0`, default `1`).
+- **Port filter:** Row is included if `COALESCE(si.port_id, preferred_jetty.port_id) = selectedPortId` **or** there exists a non-`SAILED` operation for that SI with `operations.port_id = selectedPortId` (allocation path without SI `port_id`).
+- **Sailed exclusion:** SIs whose **only** operations are `SAILED` are omitted (no “ghost” open rows).
+- **Incoming vs Berthed:** Same classification idea as **Allocation** `getBerthingPlanStatus` (`Frontend/src/pages/Allocation.jsx`): **berthed** = operation exists, not `shifting_out`, and (`tb` set **or** status ∈ `DOCKED`, `IN_PROGRESS`, `COMPLETED`); otherwise **incoming** (includes SI-only rows and pre-berth operations, e.g. jetty still null).
+- **Response (per row):** `siId`, `referenceNumber`, `vesselName`, `purpose`, ETA fields, `commodity`, `berthingPlanStatus` (`incoming`|`berthed`), `jettyName` (from `operations.jetty_id` → `jetties.name` when set), optional nested `operation` summary (`id`, `status`, `dockingStartTime`, `estimatedCompletionTime`).
+
+**`PUT /operations/:id/estimated-completion`** (session auth + port access via `canAccessOperationForSelectedPort`)
+
+- **Body:** `estimated_completion_time` (ISO, required); optional `meta` object (audited: e.g. `tool: 'demurrage-risk-calculator'`, buffer, override flags) merged into activity log `meta`.
+- **Effect:** Updates `operations.estimated_completion_time`; activity log **`pageKey`:** `demurrage-risk-calculator`.
+- **Client:** `Frontend/src/api/operations.js` — `saveEstimatedCompletion`.
+
+**Reference:** `Docs/Plan/DEMURRAGE-RISK-CALCULATOR-PLAN.md`, `Docs/FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md` §2.6.
 
 ### 3.3 Operations & SLA
 
@@ -679,7 +698,9 @@ Notes:
 
 - `GET /ports`, `POST /ports`, `PUT /ports/:id`.
 - `GET /jetties`, `POST /jetties`, `PUT /jetties/:id`.
-- `PUT /jetties/:id/status` – status = Available / Maintenance / High-Priority / Out of Service.
+- `PUT /jetties/:id/status` – status = Available / Out of Service.
+  - Before applying **Out of Service**, the handler counts **blocking** `operations` for that `jetty_id`: `deleted_at IS NULL`, `status <> 'SAILED'`, `COALESCE(shifting_out, false) = false` (`Backend/src/lib/jetty-blocking.js`).
+  - If count **> 0**, responds **409** — client must reassign or complete operations on Allocation first.
 
 #### 3.5.1 `GET /allocation/overview`
 
@@ -697,6 +718,7 @@ See **§0.9** (request/response, remark persistence, activity log, client helper
 #### 3.5.3 `PUT /allocation/arrival`
 
 - **RBAC:** Requires **`can_edit`** on page permission **`allocation`** (`userHasPageEdit`); otherwise **403**.
+- After resolving optional body **`jetty`** string to **`jetties.id`** for the selected port, if the jetty row’s **`status`** is **`Out of Service`**, responds **409** and rolls back (no partial update).
 - Updates the **operation** linked from the queue row: ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, `no_pkk`, `jetty_id`, **`estimated_completion_time`**, **`actual_completion_time`** (when `actualCompletionDateTime` is present in body), **`updated_by`**, **`updated_at`**, etc.
 - When **TB** is provided, sets **`status = DOCKED`** if previously PENDING / ALLOCATED / empty; syncs **`docking_start_time`** with TB where applicable.
 
@@ -1039,7 +1061,7 @@ Selected, testable criteria:
 
 12. **Jetty status**
     - Extend `jetties` with status field.
-    - Add status control (Available/Maintenance/High-Priority) in Master or dedicated Ops page.
+    - Add status control (Available/Out of Service) in Master or dedicated Ops page.
     - Use status in Allocation & schedule to warn/block allocations.
 
 ### 8.6 RBAC Enforcement

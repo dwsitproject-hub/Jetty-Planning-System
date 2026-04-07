@@ -289,7 +289,7 @@ Seeded active values:
 
 - `GET /ports`, `POST /ports`, `PUT /ports/:id`  
 - `GET /jetties`, `POST /jetties`, `PUT /jetties/:id`  
-- `PUT /jetties/:id/status` – Available / Maintenance / High-Priority / Out of Service  
+- `PUT /jetties/:id/status` – Available / Out of Service  
 
 ### 6.6 SLA & rates
 
