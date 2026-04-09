@@ -1,4 +1,4 @@
-import { useState, Fragment, useEffect } from 'react'
+import { useState, Fragment, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   fetchShippingInstructions,
@@ -6,11 +6,11 @@ import {
   createShippingInstruction,
   updateShippingInstruction,
   deleteShippingInstruction,
+  fetchSiNpwpMaster,
 } from '../api/shippingInstructions'
 import { fetchSiLookups } from '../api/siLookups'
 import { useActivityLog } from '../context/ActivityLogContext'
 import { useRbac } from '../context/RbacContext'
-import { formatBlSplitFromBreakdown } from '../utils/siBlSplit'
 import PurposeBadge from '../components/PurposeBadge'
 import { formatSiCalendarDateOnly } from '../utils/siFormPlaceDate'
 
@@ -42,6 +42,7 @@ function mapSiFromApi(row) {
     destinationText: row.destinationText ?? null,
     freightTerms: row.freightTerms ?? null,
     billOfLadingClause: row.billOfLadingClause ?? null,
+    blSplitText: row.blSplitText ?? null,
     consigneeText: row.consigneeText ?? null,
     notifyPartyText: row.notifyPartyText ?? null,
     blIndicated: row.blIndicated ?? null,
@@ -59,6 +60,7 @@ function mapSiFromApi(row) {
     jetty: row.preferredJettyName ?? null,
     note: row.note ?? null,
     documents: [],
+    resolvedPortId: row.resolvedPortId ?? null,
   }
 }
 import '../styles/shipping-instruction.css'
@@ -492,6 +494,7 @@ export default function ShippingInstruction() {
       destinationText: '',
       freightTerms: '',
       billOfLadingClause: '',
+      blSplitText: '',
       consigneeText: '',
       notifyPartyText: '',
       blIndicated: '',
@@ -500,10 +503,8 @@ export default function ShippingInstruction() {
       documents: [],
     }
     if (!lu) return base
-    const unload = lu.purposes?.find((p) => p.code === 'Unloading') || lu.purposes?.[0]
     return {
       ...base,
-      purposeId: unload?.id != null ? String(unload.id) : '',
       tradeTermId: lu.tradeTerms?.[0]?.id != null ? String(lu.tradeTerms[0].id) : '',
     }
   }
@@ -538,6 +539,17 @@ export default function ShippingInstruction() {
   const [expandedId, setExpandedId] = useState(null)
   const [breakdownBySi, setBreakdownBySi] = useState({})
   const [form, setForm] = useState(() => defaultFormFromLookups(null))
+  const [npwpMaster, setNpwpMaster] = useState(null)
+
+  const selectedPurpose = useMemo(
+    () => (lookups?.purposes || []).find((p) => String(p.id) === String(form.purposeId)) || null,
+    [lookups?.purposes, form.purposeId]
+  )
+  const purposeCode = selectedPurpose?.code || null
+  const purposeChosen = !!form.purposeId
+  const isLoadingPurpose = purposeCode === 'Loading'
+  const isUnloadingPurpose = purposeCode === 'Unloading'
+  const formEnabled = !!lookups && purposeChosen
 
   const updateForm = (updates) => setForm((f) => ({ ...f, ...updates }))
 
@@ -593,6 +605,27 @@ export default function ShippingInstruction() {
     }
   }, [expandedId, breakdownBySi])
 
+  useEffect(() => {
+    if (!isFormOpen) return
+    if (!isLoadingPurpose) {
+      setNpwpMaster(null)
+      return
+    }
+    let cancelled = false
+    fetchSiNpwpMaster()
+      .then((r) => {
+        if (!cancelled) setNpwpMaster(r?.npwp ?? null)
+      })
+      .catch((e) => {
+        if (!cancelled) setNpwpMaster(null)
+        const msg = e?.message || 'Failed to load NPWP master'
+        setToast({ message: `Failed to load NPWP master: ${msg}`, variant: 'error' })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isFormOpen, isLoadingPurpose])
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!lookups) {
@@ -604,6 +637,10 @@ export default function ShippingInstruction() {
       setToast({ message: 'Select purpose.', variant: 'error' })
       return
     }
+    const pRow = (lookups?.purposes || []).find((p) => Number(p.id) === pid) || null
+    const pCode = pRow?.code || null
+    const isLoading = pCode === 'Loading'
+    const isUnloading = pCode === 'Unloading'
     if (!form.referenceNumber?.trim()) {
       setToast({ message: 'Shipping Instructions No. is required.', variant: 'error' })
       return
@@ -643,24 +680,25 @@ export default function ShippingInstruction() {
       const payload = {
         vesselName: form.vesselName.trim(),
         purposeId: pid,
-        tradeTermId: num(form.tradeTermId),
+        tradeTermId: isUnloading ? num(form.tradeTermId) : null,
         preferredJettyId: num(form.preferredJettyId),
         shipperId: num(form.shipperId),
         loadingPortId: num(form.loadingPortId),
-        surveyorId: num(form.surveyorId),
-        agentId: num(form.agentId),
+        surveyorId: null,
+        agentId: null,
         referenceNumber: form.referenceNumber.trim(),
         voyageNo: form.voyageNo?.trim() || null,
         eta: etaIso,
         etaFrom: form.etaFrom || null,
         etaTo: form.etaTo || null,
         documentDate: form.documentDate.trim(),
-        destinationText: form.destinationText?.trim() || null,
-        freightTerms: form.freightTerms?.trim() || null,
-        billOfLadingClause: form.billOfLadingClause?.trim() || null,
-        consigneeText: form.consigneeText?.trim() || null,
-        notifyPartyText: form.notifyPartyText?.trim() || null,
-        blIndicated: form.blIndicated?.trim() || null,
+        destinationText: isLoading ? (form.destinationText?.trim() || null) : null,
+        freightTerms: isLoading ? (form.freightTerms?.trim() || null) : null,
+        billOfLadingClause: isLoading ? (form.billOfLadingClause?.trim() || null) : null,
+        blSplitText: isLoading ? (form.blSplitText?.trim() || null) : null,
+        consigneeText: isLoading ? (form.consigneeText?.trim() || null) : null,
+        notifyPartyText: isLoading ? (form.notifyPartyText?.trim() || null) : null,
+        blIndicated: isLoading ? (form.blIndicated?.trim() || null) : null,
         status: 'Draft',
         breakdown: breakdownPayload,
         note: form.note?.trim() || null,
@@ -705,6 +743,7 @@ export default function ShippingInstruction() {
           destinationText: payload.destinationText || '',
           freightTerms: payload.freightTerms || '',
           billOfLadingClause: payload.billOfLadingClause || '',
+          blSplitText: payload.blSplitText || '',
           consigneeText: payload.consigneeText || '',
           notifyPartyText: payload.notifyPartyText || '',
           blIndicated: payload.blIndicated || '',
@@ -731,6 +770,7 @@ export default function ShippingInstruction() {
         addChange('Destination', before.destinationText, after.destinationText)
         addChange('Freight terms', before.freightTerms, after.freightTerms)
         addChange('B/L clause', before.billOfLadingClause, after.billOfLadingClause)
+        addChange('B/L split', before.blSplitText, after.blSplitText)
         addChange('Consignee', before.consigneeText, after.consigneeText)
         addChange('Notify', before.notifyPartyText, after.notifyPartyText)
         addChange('BL indicated', before.blIndicated, after.blIndicated)
@@ -767,6 +807,8 @@ export default function ShippingInstruction() {
   const openCreateModal = () => {
     setForm(defaultFormFromLookups(lookups))
     setEditingId(null)
+    setEditingSnapshot(null)
+    setNpwpMaster(null)
     setIsFormOpen(true)
   }
 
@@ -806,6 +848,7 @@ export default function ShippingInstruction() {
         destinationText: row.destinationText ?? '',
         freightTerms: row.freightTerms ?? '',
         billOfLadingClause: row.billOfLadingClause ?? '',
+        blSplitText: row.blSplitText ?? '',
         consigneeText: row.consigneeText ?? '',
         notifyPartyText: row.notifyPartyText ?? '',
         blIndicated: row.blIndicated ?? '',
@@ -831,6 +874,7 @@ export default function ShippingInstruction() {
         destinationText: row.destinationText ?? '',
         freightTerms: row.freightTerms ?? '',
         billOfLadingClause: row.billOfLadingClause ?? '',
+        blSplitText: row.blSplitText ?? '',
         consigneeText: row.consigneeText ?? '',
         notifyPartyText: row.notifyPartyText ?? '',
         blIndicated: row.blIndicated ?? '',
@@ -848,6 +892,7 @@ export default function ShippingInstruction() {
     setIsFormOpen(false)
     setEditingId(null)
     setEditingSnapshot(null)
+    setNpwpMaster(null)
   }
 
   useEffect(() => {
@@ -1161,9 +1206,36 @@ export default function ShippingInstruction() {
             {!lookups && !lookupsError && <p className="text-steel">Loading options from API…</p>}
             <form onSubmit={handleSubmit} className="shipping-instruction-form">
               <div className="shipping-instruction-form__section">
-                <h3 className="shipping-instruction-form__section-title">Vessel & trip</h3>
+                <h3 className="shipping-instruction-form__section-title">Purpose</h3>
                 <div className="shipping-instruction-form__grid">
-                  <div className="input-group">
+                  <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+                    <label htmlFor="purpose">Purpose *</label>
+                    <select
+                      id="purpose"
+                      value={form.purposeId}
+                      onChange={(e) => updateForm({ purposeId: e.target.value })}
+                      required
+                      disabled={!lookups}
+                    >
+                      <option value="">—</option>
+                      {(lookups?.purposes || []).map((p) => (
+                        <option key={p.id} value={p.id}>{p.label}</option>
+                      ))}
+                    </select>
+                    {!purposeChosen && (
+                      <div className="text-steel" style={{ marginTop: 6, fontSize: '0.875rem' }}>
+                        Select <strong>Loading</strong> or <strong>Unloading</strong> to continue.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <fieldset disabled={!formEnabled} style={{ border: 0, padding: 0, margin: 0 }}>
+              <div className="shipping-instruction-form__section">
+                <h3 className="shipping-instruction-form__section-title">Vessel & trip</h3>
+                <div className="shipping-instruction-form__grid shipping-instruction-form__grid--vessel-trip">
+                  <div className="input-group shipping-instruction-form__vessel">
                     <label htmlFor="vesselName">Vessel Name *</label>
                     <input
                       id="vesselName"
@@ -1174,7 +1246,7 @@ export default function ShippingInstruction() {
                       disabled={!lookups}
                     />
                   </div>
-                  <div className="input-group">
+                  <div className="input-group shipping-instruction-form__ref">
                     <label htmlFor="siRef">Shipping Instructions No. *</label>
                     <input
                       id="siRef"
@@ -1185,52 +1257,7 @@ export default function ShippingInstruction() {
                       disabled={!lookups}
                     />
                   </div>
-                  <div className="input-group">
-                    <label htmlFor="etaFrom">ETA from *</label>
-                    <input id="etaFrom" type="date" value={form.etaFrom} onChange={(e) => updateForm({ etaFrom: e.target.value })} required disabled={!lookups} />
-                  </div>
-                  <div className="input-group">
-                    <label htmlFor="etaTo">ETA to *</label>
-                    <input id="etaTo" type="date" value={form.etaTo} onChange={(e) => updateForm({ etaTo: e.target.value })} required disabled={!lookups} />
-                  </div>
-                  <div className="input-group">
-                    <label htmlFor="term">Term</label>
-                    <select id="term" value={form.tradeTermId} onChange={(e) => updateForm({ tradeTermId: e.target.value })} disabled={!lookups}>
-                      <option value="">—</option>
-                      {(lookups?.tradeTerms || []).map((t) => (
-                        <option key={t.id} value={t.id}>{t.code}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="input-group">
-                    <label htmlFor="purpose">Purpose *</label>
-                    <select id="purpose" value={form.purposeId} onChange={(e) => updateForm({ purposeId: e.target.value })} required disabled={!lookups}>
-                      <option value="">—</option>
-                      {(lookups?.purposes || []).map((p) => (
-                        <option key={p.id} value={p.id}>{p.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="input-group">
-                    <label htmlFor="jetty">Preferred jetty</label>
-                    <select id="jetty" value={form.preferredJettyId} onChange={(e) => updateForm({ preferredJettyId: e.target.value })} disabled={!lookups}>
-                      <option value="">—</option>
-                      {(lookups?.jetties || []).map((j) => (
-                        <option key={j.id} value={j.id}>{j.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="input-group">
-                    <label htmlFor="voyageNo">Voyage no. (optional)</label>
-                    <input
-                      id="voyageNo"
-                      value={form.voyageNo}
-                      onChange={(e) => updateForm({ voyageNo: e.target.value })}
-                      placeholder="e.g. V.2601"
-                      disabled={!lookups}
-                    />
-                  </div>
-                  <div className="input-group">
+                  <div className="input-group shipping-instruction-form__docdate">
                     <label htmlFor="documentDate">Document date *</label>
                     <input
                       id="documentDate"
@@ -1241,37 +1268,66 @@ export default function ShippingInstruction() {
                       disabled={!lookups}
                     />
                   </div>
-                </div>
-              </div>
-
-              <div className="shipping-instruction-form__section">
-                <h3 className="shipping-instruction-form__section-title">Route & freight (Loading document)</h3>
-                <div className="shipping-instruction-form__grid">
-                  <div className="input-group" style={{ gridColumn: '1 / -1' }}>
-                    <label htmlFor="destinationText">Destination</label>
-                    <input
-                      id="destinationText"
-                      value={form.destinationText}
-                      onChange={(e) => updateForm({ destinationText: e.target.value })}
-                      placeholder="e.g. NANSHA, CHINA"
-                      disabled={!lookups}
-                    />
+                  <div className="input-group shipping-instruction-form__eta-from">
+                    <label htmlFor="etaFrom">ETA from *</label>
+                    <input id="etaFrom" type="date" value={form.etaFrom} onChange={(e) => updateForm({ etaFrom: e.target.value })} required disabled={!lookups} />
                   </div>
-                  <div className="input-group">
-                    <label htmlFor="freightTerms">Freight terms</label>
-                    <select
-                      id="freightTerms"
-                      value={form.freightTerms}
-                      onChange={(e) => updateForm({ freightTerms: e.target.value })}
-                      disabled={!lookups}
-                    >
-                      {FREIGHT_TERM_OPTIONS.map((o) => (
-                        <option key={o.value || 'none'} value={o.value}>{o.label}</option>
+                  <div className="input-group shipping-instruction-form__eta-to">
+                    <label htmlFor="etaTo">ETA to *</label>
+                    <input id="etaTo" type="date" value={form.etaTo} onChange={(e) => updateForm({ etaTo: e.target.value })} required disabled={!lookups} />
+                  </div>
+                  <div className="input-group shipping-instruction-form__jetty">
+                    <label htmlFor="jetty">Preferred jetty</label>
+                    <select id="jetty" value={form.preferredJettyId} onChange={(e) => updateForm({ preferredJettyId: e.target.value })} disabled={!lookups}>
+                      <option value="">—</option>
+                      {(lookups?.jetties || []).map((j) => (
+                        <option key={j.id} value={j.id}>{j.label}</option>
                       ))}
                     </select>
                   </div>
+                  <div className="input-group shipping-instruction-form__voyage">
+                    <label htmlFor="voyageNo">Voyage no. (optional)</label>
+                    <input
+                      id="voyageNo"
+                      value={form.voyageNo}
+                      onChange={(e) => updateForm({ voyageNo: e.target.value })}
+                      placeholder="e.g. V.2601"
+                      disabled={!lookups}
+                    />
+                  </div>
                 </div>
               </div>
+
+              {isLoadingPurpose && (
+                <div className="shipping-instruction-form__section">
+                  <h3 className="shipping-instruction-form__section-title">Route & freight</h3>
+                  <div className="shipping-instruction-form__grid">
+                    <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+                      <label htmlFor="destinationText">Destination</label>
+                      <input
+                        id="destinationText"
+                        value={form.destinationText}
+                        onChange={(e) => updateForm({ destinationText: e.target.value })}
+                        placeholder="e.g. NANSHA, CHINA"
+                        disabled={!lookups}
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label htmlFor="freightTerms">Freight terms</label>
+                      <select
+                        id="freightTerms"
+                        value={form.freightTerms}
+                        onChange={(e) => updateForm({ freightTerms: e.target.value })}
+                        disabled={!lookups}
+                      >
+                        {FREIGHT_TERM_OPTIONS.map((o) => (
+                          <option key={o.value || 'none'} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="shipping-instruction-form__section">
                 <h3 className="shipping-instruction-form__section-title">Party & port</h3>
@@ -1286,7 +1342,7 @@ export default function ShippingInstruction() {
                     </select>
                   </div>
                   <div className="input-group">
-                    <label htmlFor="loadingPort">Loading port</label>
+                    <label htmlFor="loadingPort">Loading Port / Shipment From</label>
                     <select id="loadingPort" value={form.loadingPortId} onChange={(e) => updateForm({ loadingPortId: e.target.value })} disabled={!lookups}>
                       <option value="">—</option>
                       {(lookups?.loadingPorts || []).map((p) => (
@@ -1294,40 +1350,30 @@ export default function ShippingInstruction() {
                       ))}
                     </select>
                   </div>
-                  <div className="input-group">
-                    <label htmlFor="surveyor">Surveyor</label>
-                    <select id="surveyor" value={form.surveyorId} onChange={(e) => updateForm({ surveyorId: e.target.value })} disabled={!lookups}>
-                      <option value="">—</option>
-                      {(lookups?.surveyors || []).map((s) => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="input-group">
-                    <label htmlFor="agent">Agent</label>
-                    <select id="agent" value={form.agentId} onChange={(e) => updateForm({ agentId: e.target.value })} disabled={!lookups}>
-                      <option value="">—</option>
-                      {(lookups?.agents || []).map((a) => (
-                        <option key={a.id} value={a.id}>{a.name}</option>
-                      ))}
-                    </select>
-                  </div>
+                  {isUnloadingPurpose && (
+                    <div className="input-group">
+                      <label htmlFor="term">Term</label>
+                      <select id="term" value={form.tradeTermId} onChange={(e) => updateForm({ tradeTermId: e.target.value })} disabled={!lookups}>
+                        <option value="">—</option>
+                        {(lookups?.tradeTerms || []).map((t) => (
+                          <option key={t.id} value={t.id}>{t.code}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {isLoadingPurpose && (
+                    <div className="input-group">
+                      <label htmlFor="npwpMaster">NPWP</label>
+                      <input id="npwpMaster" value={npwpMaster || '—'} readOnly disabled={!lookups} />
+                    </div>
+                  )}
                 </div>
               </div>
 
               <div className="shipping-instruction-form__section">
-                <h3 className="shipping-instruction-form__section-title">Shipment breakdown (Kontrak / PO) — commodity per contract</h3>
+                <h3 className="shipping-instruction-form__section-title">Shipment breakdown (Contract / PO)</h3>
                 <p className="text-steel" style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>
                   Each row is one contract line: its own commodity, qty, and unit (KL / MT).
-                </p>
-                <p className="text-steel" style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>
-                  <strong>B/L split preview:</strong>{' '}
-                  {formatBlSplitFromBreakdown(
-                    form.breakdown.map((row) => ({
-                      qty: row.qty,
-                      metricCode: lookups?.metrics?.find((m) => String(m.id) === String(row.metricId))?.code,
-                    }))
-                  )}
                 </p>
                 <div className="table-wrap">
                   <table className="data-table shipping-instruction-breakdown-table">
@@ -1440,9 +1486,22 @@ export default function ShippingInstruction() {
                 </button>
               </div>
 
-              <div className="shipping-instruction-form__section">
-                <h3 className="shipping-instruction-form__section-title">B/L & consignee (optional)</h3>
-                <div className="shipping-instruction-form__grid">
+              {isLoadingPurpose && (
+                <div className="shipping-instruction-form__section">
+                  <h3 className="shipping-instruction-form__section-title">B/L & consignee</h3>
+                  <div className="shipping-instruction-form__grid">
+                  <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+                    <label htmlFor="blSplitText">B/L Split</label>
+                    <textarea
+                      id="blSplitText"
+                      className="shipping-instruction-inline-input"
+                      style={{ minHeight: 56, resize: 'vertical' }}
+                      value={form.blSplitText}
+                      onChange={(e) => updateForm({ blSplitText: e.target.value })}
+                      placeholder="e.g  1 X 1,430 MTS ..."
+                      disabled={!lookups}
+                    />
+                  </div>
                   <div className="input-group" style={{ gridColumn: '1 / -1' }}>
                     <label htmlFor="billOfLadingClause">Bill of lading clause</label>
                     <textarea
@@ -1490,8 +1549,9 @@ export default function ShippingInstruction() {
                       disabled={!lookups}
                     />
                   </div>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="shipping-instruction-form__section">
                 <h3 className="shipping-instruction-form__section-title">Document upload</h3>
@@ -1537,11 +1597,12 @@ export default function ShippingInstruction() {
                 </div>
               </div>
 
+              </fieldset>
               <div className="modal__footer">
                 <button type="button" className="btn btn--secondary" onClick={handleCloseModal}>
                   Cancel
                 </button>
-                <button type="submit" className="btn btn--primary">Submit</button>
+                <button type="submit" className="btn btn--primary" disabled={!formEnabled}>Submit</button>
               </div>
             </form>
           </div>
@@ -1656,6 +1717,7 @@ export default function ShippingInstruction() {
                             <dt>Freight terms</dt><dd>{n.freightTerms || '—'}</dd>
                             <dt>Document date</dt><dd>{n.documentDate || '—'}</dd>
                             <dt>B/L clause</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{n.billOfLadingClause || '—'}</dd>
+                            <dt>B/L split</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{n.blSplitText || '—'}</dd>
                             <dt>Consignee</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{n.consigneeText || '—'}</dd>
                             <dt>Notify party</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{n.notifyPartyText || '—'}</dd>
                             <dt>BL indicated</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{n.blIndicated || '—'}</dd>

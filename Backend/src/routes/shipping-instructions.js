@@ -65,7 +65,7 @@ const SI_SELECT = `
     si.commodity_id, si.trade_term_id, si.purpose_id, si.preferred_jetty_id,
     si.shipper_id, si.loading_port_id, si.surveyor_id, si.agent_id,
     si.voyage_no, si.destination_text, si.freight_terms, si.bill_of_lading_clause, si.consignee_text,
-    si.notify_party_text, si.bl_indicated, si.document_date,
+    si.notify_party_text, si.bl_split_text, si.bl_indicated, si.document_date,
     si.approved_by_user_id, si.approved_at, si.approver_name_snapshot, si.approver_title_snapshot,
     ${COMMODITY_DISPLAY} AS commodity_display,
     tt.code AS trade_term_code,
@@ -405,6 +405,31 @@ router.get('/candidates', async (req, res) => {
   );
 });
 
+/**
+ * Master NPWP for the selected port (or ?port_id= if user has access to that port).
+ * Used by SI form (read-only), SI View, SI Approval.
+ */
+router.get('/npwp-master', async (req, res) => {
+  const selectedPortId = Number(req.selectedPortId);
+  let portId = selectedPortId;
+  const raw = req.query.port_id;
+  if (raw != null && raw !== '') {
+    const pid = parseInt(String(raw), 10);
+    if (!Number.isNaN(pid)) {
+      const allowed = Array.isArray(req.assignedPortIds) && req.assignedPortIds.includes(pid);
+      if (!allowed) {
+        return res.status(403).json({ error: 'Selected port is not assigned to this user' });
+      }
+      portId = pid;
+    }
+  }
+  const r = await pool.query(
+    `SELECT npwp FROM si_port_npwp WHERE port_id = $1 AND deleted_at IS NULL`,
+    [portId]
+  );
+  res.json({ npwp: r.rows[0]?.npwp ?? null, portId });
+});
+
 router.get('/:id', async (req, res) => {
   const selectedPortId = Number(req.selectedPortId);
   const id = parseInt(req.params.id, 10);
@@ -446,6 +471,7 @@ router.post('/', requireAuth, async (req, res) => {
     bill_of_lading_clause,
     consignee_text,
     notify_party_text,
+    bl_split_text,
     bl_indicated,
     document_date,
   } = b;
@@ -518,10 +544,10 @@ router.post('/', requireAuth, async (req, res) => {
     const result = await client.query(
       `INSERT INTO shipping_instructions (
          reference_number, vessel_name, voyage_no, commodity, commodity_id, trade_term_id, purpose_id, purpose, eta, eta_from, eta_to, status,
-         approval_id, destination_text, freight_terms, bill_of_lading_clause, consignee_text, notify_party_text, bl_indicated, document_date,
+         approval_id, destination_text, freight_terms, bill_of_lading_clause, consignee_text, notify_party_text, bl_split_text, bl_indicated, document_date,
          preferred_jetty_id, shipper_id, loading_port_id, surveyor_id, agent_id, note,
          port_id
-       ) VALUES ($1,$2,$3,NULL,NULL,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+       ) VALUES ($1,$2,$3,NULL,NULL,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
        RETURNING id`,
       [
         reference_number?.trim() ?? null,
@@ -540,6 +566,7 @@ router.post('/', requireAuth, async (req, res) => {
         trimText(bill_of_lading_clause, 4000),
         trimText(consignee_text, 4000),
         trimText(notify_party_text, 4000),
+        trimText(bl_split_text, 4000),
         trimText(bl_indicated, 4000),
         document_date ? String(document_date).slice(0, 10) : null,
         preferred_jetty_id != null && preferred_jetty_id !== '' ? parseInt(preferred_jetty_id, 10) : null,
@@ -611,6 +638,7 @@ router.put('/:id', requireAuth, async (req, res) => {
     bill_of_lading_clause,
     consignee_text,
     notify_party_text,
+    bl_split_text,
     bl_indicated,
     document_date,
   } = b;
@@ -742,6 +770,8 @@ router.put('/:id', requireAuth, async (req, res) => {
   const nextSurveyor = optInt(surveyor_id, beforeRow.surveyor_id);
   const nextAgent = optInt(agent_id, beforeRow.agent_id);
   const nextNote = note !== undefined ? (typeof note === 'string' ? note.trim() || null : null) : beforeRow.note;
+  const nextBlSplitText =
+    bl_split_text !== undefined ? trimText(bl_split_text, 4000) : beforeRow.bl_split_text;
 
   const nextEta =
     eta !== undefined || eta_from !== undefined
@@ -793,21 +823,22 @@ router.put('/:id', requireAuth, async (req, res) => {
          bill_of_lading_clause = $14,
          consignee_text = $15,
          notify_party_text = $16,
-         bl_indicated = $17,
-         document_date = $18,
-         approved_by_user_id = $19,
-         approved_at = $20,
-         approver_name_snapshot = $21,
-         approver_title_snapshot = $22,
-         preferred_jetty_id = $23,
-         shipper_id = $24,
-         loading_port_id = $25,
-         surveyor_id = $26,
-         agent_id = $27,
-         note = $28,
-         port_id = COALESCE(port_id, $29),
+         bl_split_text = $17,
+         bl_indicated = $18,
+         document_date = $19,
+         approved_by_user_id = $20,
+         approved_at = $21,
+         approver_name_snapshot = $22,
+         approver_title_snapshot = $23,
+         preferred_jetty_id = $24,
+         shipper_id = $25,
+         loading_port_id = $26,
+         surveyor_id = $27,
+         agent_id = $28,
+         note = $29,
+         port_id = COALESCE(port_id, $30),
          updated_at = NOW()
-       WHERE id = $30 AND deleted_at IS NULL`,
+       WHERE id = $31 AND deleted_at IS NULL`,
       [
         nextRef,
         vessel_name.trim(),
@@ -825,6 +856,7 @@ router.put('/:id', requireAuth, async (req, res) => {
         bill_of_lading_clause !== undefined ? trimText(bill_of_lading_clause, 4000) : beforeRow.bill_of_lading_clause,
         consignee_text !== undefined ? trimText(consignee_text, 4000) : beforeRow.consignee_text,
         notify_party_text !== undefined ? trimText(notify_party_text, 4000) : beforeRow.notify_party_text,
+        nextBlSplitText,
         bl_indicated !== undefined ? trimText(bl_indicated, 4000) : beforeRow.bl_indicated,
         nextDocDate,
         nextApprovedBy,
@@ -941,6 +973,7 @@ function toSIList(row) {
     destinationText: row.destination_text ?? null,
     freightTerms: row.freight_terms ?? null,
     billOfLadingClause: row.bill_of_lading_clause ?? null,
+    blSplitText: row.bl_split_text ?? null,
     consigneeText: row.consignee_text ?? null,
     notifyPartyText: row.notify_party_text ?? null,
     blIndicated: row.bl_indicated ?? null,
@@ -963,6 +996,7 @@ function toSIList(row) {
     agentName: row.agent_name ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    resolvedPortId: row.preferred_port_id != null ? Number(row.preferred_port_id) : null,
   };
 }
 

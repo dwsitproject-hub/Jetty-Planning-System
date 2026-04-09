@@ -1,0 +1,143 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n))
+}
+
+/**
+ * Lightweight portal tooltip anchored to a trigger element.
+ * UX modeled after DashboardActivityChart tooltip (clamp/flip + close on scroll/resize).
+ */
+export default function InteractiveTooltip({
+  title,
+  subtitle,
+  items = [],
+  emptyText = 'No items.',
+  maxWidth = 320,
+  maxHeight = 220,
+  placement = 'left', // 'left' | 'right'
+  children,
+}) {
+  const triggerRef = useRef(null)
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState(null) // { left, top, flip }
+
+  const safeItems = useMemo(() => (Array.isArray(items) ? items : []), [items])
+
+  const close = useCallback(() => {
+    setOpen(false)
+    setPos(null)
+  }, [])
+
+  const computePosition = useCallback(() => {
+    const el = triggerRef.current
+    if (!el) return null
+    const r = el.getBoundingClientRect()
+    const gap = 10
+    const estW = Math.min(maxWidth, 360)
+    const viewportPad = 12
+    let flip = false
+
+    let left = placement === 'right' ? r.right + gap : r.left - gap - estW
+    if (left < viewportPad) {
+      left = r.right + gap
+      flip = true
+    }
+    if (left + estW > window.innerWidth - viewportPad) {
+      left = window.innerWidth - viewportPad - estW
+    }
+    const top = clamp(r.top + r.height / 2, viewportPad + 10, window.innerHeight - viewportPad - 10)
+    return { left, top, flip }
+  }, [maxWidth, placement])
+
+  const openNow = useCallback(() => {
+    const p = computePosition()
+    if (!p) return
+    setPos(p)
+    setOpen(true)
+  }, [computePosition])
+
+  const onKeyDown = useCallback(
+    (e) => {
+      if (e.key === 'Escape') close()
+    },
+    [close]
+  )
+
+  useEffect(() => {
+    if (!open) return undefined
+    const onScroll = () => close()
+    const onResize = () => close()
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onResize)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onResize)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open, close, onKeyDown])
+
+  const tip =
+    open && pos
+      ? createPortal(
+          <div
+            className={`jps-tooltip${pos.flip ? ' jps-tooltip--flip' : ''}`}
+            style={{ left: pos.left, top: pos.top, ['--jps-tooltip-maxw']: `${maxWidth}px`, ['--jps-tooltip-maxh']: `${maxHeight}px` }}
+            role="tooltip"
+          >
+            <div className="jps-tooltip__inner">
+              {title ? <div className="jps-tooltip__title">{title}</div> : null}
+              {subtitle ? <div className="jps-tooltip__subtitle">{subtitle}</div> : null}
+              {safeItems.length > 0 ? (
+                <ul className="jps-tooltip__list">
+                  {safeItems.map((it, idx) => {
+                    if (it && typeof it === 'object' && ('primary' in it || 'secondary' in it)) {
+                      const primary = String(it.primary ?? '').trim() || '—'
+                      const secondary = it.secondary != null && String(it.secondary).trim() ? String(it.secondary) : null
+                      return (
+                        <li key={idx} className="jps-tooltip__item">
+                          <div className="jps-tooltip__item-primary">{primary}</div>
+                          {secondary ? <div className="jps-tooltip__item-secondary">{secondary}</div> : null}
+                        </li>
+                      )
+                    }
+                    const s = it == null ? '—' : String(it)
+                    return (
+                      <li key={idx} className="jps-tooltip__item">
+                        <div className="jps-tooltip__item-primary">{s}</div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : (
+                <div className="jps-tooltip__empty">{emptyText}</div>
+              )}
+            </div>
+          </div>,
+          document.body
+        )
+      : null
+
+  return (
+    <>
+      <span
+        ref={triggerRef}
+        className="jps-tooltip-trigger"
+        onMouseEnter={openNow}
+        onMouseLeave={close}
+        onFocus={openNow}
+        onBlur={close}
+        tabIndex={0}
+        role="button"
+        aria-haspopup="true"
+        aria-expanded={open ? 'true' : 'false'}
+      >
+        {children}
+      </span>
+      {tip}
+    </>
+  )
+}
+

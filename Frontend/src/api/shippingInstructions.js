@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiDelete } from './client.js'
+import { apiGet, apiPost, apiPut, apiDelete, getSelectedPortId } from './client.js'
 
 export function fetchShippingInstructions(params = {}) {
   const sp = new URLSearchParams()
@@ -20,6 +20,13 @@ export function fetchShippingInstructionCandidates(params = {}) {
 
 export function fetchShippingInstruction(id) {
   return apiGet(`/shipping-instructions/${id}`)
+}
+
+/** NPWP master for the current or given port (`?port_id=`); omit for selected port from session. */
+export function fetchSiNpwpMaster(portId) {
+  const pid = portId != null && portId !== '' ? portId : getSelectedPortId()
+  const q = pid != null && pid !== '' ? `?port_id=${encodeURIComponent(pid)}` : ''
+  return apiGet(`/shipping-instructions/npwp-master${q}`)
 }
 
 export function createShippingInstruction(body) {
@@ -45,6 +52,7 @@ export function createShippingInstruction(body) {
     destination_text: body.destinationText ?? null,
     freight_terms: body.freightTerms ?? null,
     bill_of_lading_clause: body.billOfLadingClause ?? null,
+    bl_split_text: body.blSplitText ?? null,
     consignee_text: body.consigneeText ?? null,
     notify_party_text: body.notifyPartyText ?? null,
     bl_indicated: body.blIndicated ?? null,
@@ -79,6 +87,7 @@ export function updateShippingInstruction(id, body) {
     destination_text: body.destinationText,
     freight_terms: body.freightTerms,
     bill_of_lading_clause: body.billOfLadingClause,
+    bl_split_text: body.blSplitText,
     consignee_text: body.consigneeText,
     notify_party_text: body.notifyPartyText,
     bl_indicated: body.blIndicated,

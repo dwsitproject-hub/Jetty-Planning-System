@@ -3,7 +3,7 @@
 **Product:** Jetty Planning & Monitoring System (JPS)  
 **Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.16 (see document history at end).
+**Version:** 1.18 (see document history at end).
 
 ---
 
@@ -108,9 +108,13 @@ Technical contract (endpoints, columns, persistence order): **TECH-SPEC-Jetty-Pl
 
 | Area | Behaviour |
 |------|------------|
-| **Dashboard — slot occupancy** | The KPI labelled **Slot occupancy** shows **vessel positions in use / total positions** across jetties in the port: numerator **Σ min(occupiedCount, capacity)**, denominator **Σ capacity** for jetties whose master status is **not** **Out of Service**. (This replaces counting only “jetties with any occupant” vs “number of jetties”.) If data temporarily exceeds capacity, the bar may indicate **over capacity** visually. |
+| **Dashboard — slot occupancy** | The KPI labelled **Slot occupancy** shows **vessel positions in use / total positions** across jetties in the port: numerator **Σ min(occupiedCount, capacity)**, denominator **Σ capacity** for jetties whose master status is **not** **Out of Service**. (This replaces counting only “jetties with any occupant” vs “number of jetties”.) If data temporarily exceeds capacity, the bar may indicate **over capacity** visually. The card includes a shortcut link **View at‑berth →** to the At‑Berth Executions page. The caption includes a **Details** tooltip listing occupied slots as `<jetty>-<lane> — <vessel name>` (hover or keyboard focus). |
+| **Dashboard — Port activity** | The **top row** (left of the KPI grid) shows a **Port activity** card with a toggle: **Operations** — grouped bars for **Loading** and **Unloading**, each with **Planned berthing** vs **Berthing** counts; percentages are **within that purpose** (planned vs berthing as shares of Loading-only or Unloading-only rows). Data is **allocation overview queue** for the selected port, aligned with pipeline **planned berthing** rules; **berthing** counts exclude rows in **shifting out**. **Shipping instructions** — three bars (**Approved**, **Submitted**, **Draft**) with counts and **percentage of all SIs** returned for the port. The chart shows a **Y-axis** of integer counts with **horizontal dashed grid** lines aligned to bar height. **Hover or keyboard focus** on a non-zero bar opens a **tooltip** (popover) with the count, labels, the same percentage rule as on the chart, and a **list of vessel names** in that segment (queue rows: vessel name, else vessel id, else em dash; SI mode: per instruction the same). Tooltips dismiss on leave, blur, scroll, or resize. Empty and loading states are explicit. |
+| **Dashboard — weather** | The weather preview (mock data, “coming soon” overlay) appears at the **bottom** of the dashboard page, not in the top row. |
 | **Dashboard — awaiting berth widget** | Removed. **Planned berthing** in the **Vessel pipeline** is the single indicator for “jetty assigned, not yet alongside” (see pipeline sublabel). |
-| **Dashboard — jetty status chips** | Unchanged: counts still come from **`GET /jetties?port_id=…`**. |
+| **Dashboard — jetty status** | The KPI grid includes a **Jetty status** card showing **Available** and **Out of Service** counts. Counts come from **`GET /jetties?port_id=…`**. Hover or keyboard focus on each status chip shows a tooltip listing the jetties in that bucket. |
+| **Dashboard — SLA at risk** | The KPI **SLA at risk** shows a count of operations past estimated completion. Hover or keyboard focus on the KPI value shows a tooltip listing `Vessel Name, Jetty No, +Xh over ETC` for each risk item (same items as the “SLA & schedule risk” list). |
+| **Dashboard — performance** | The Dashboard includes a **Performance** card (non‑SLA) with a toggle **24h / 7d** and three KPIs computed from Allocation overview timestamps: **Waiting to berth** (median **TA→TB**), **Turnaround** (median **TB→Cast‑off**, fallback **TB→Actual completion** when cast‑off is missing), and **On‑time berthing** (% where **TB ≤ planned ETB + 6h**). Each KPI supports hover/keyboard tooltip drill‑down showing the worst/late cases in the selected window (vessel, jetty, duration). |
 | **Master — Preferred Jetty** | Users set **Operational status** (**Available** / **Out of Service**) in the add/edit modal. **Out of Service** cannot be saved while a **blocking** operation still uses that jetty (**non-SAILED**, **`shifting_out` false**); the API returns **409** and the UI explains planners must **reassign or complete** on **Allocation & Berthing** first. New jetties default to **Available**; non-default status on create is applied via a follow-up status call. |
 | **Allocation — copy & validation** | Short intro under **Incoming vessel & berthing plan** states that **out of service** jetties cannot receive new allocations. **Log arrival update**, **Confirm Berthing**, and **Active Vessel Detail** saves that assign a **resolved** jetty whose overview berth is **Out of Service** are **blocked client-side** with RBAC-aware wording (users **with** master-jetty view are pointed to **Master – Preferred Jetty**; others to **contact an admin**). Server **409** on `PUT /allocation/arrival` enforces the same. |
 | **Allocation — queue table** | Jetty column may show a small **OOS** badge when the row’s jetty maps to an out-of-service berth in overview (e.g. legacy assignment). |
@@ -236,7 +240,7 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | Jetty blocking queries (master status / allocation guard) | `Backend/src/lib/jetty-blocking.js` |
 | Client jetty OOS messages | `Frontend/src/utils/jettyAvailability.js` |
 | Master jetty status UI | `Frontend/src/pages/MasterJetty.jsx`, `Frontend/src/api/jetties.js` → `PUT /jetties/:id/status` |
-| Dashboard slot KPI | `Frontend/src/pages/Dashboard.jsx` |
+| Dashboard slot KPI, Port activity chart, weather footer | `Frontend/src/pages/Dashboard.jsx`, `Frontend/src/components/DashboardActivityChart.jsx`, `Frontend/src/utils/dashboardQueueClassification.js` |
 | Shift-out route | `Backend/src/routes/operations.js` |
 | Demurrage Risk Calculator UI | `Frontend/src/pages/DemurrageRiskCalculator.jsx`, `Frontend/src/styles/demurrage-risk-calculator.css` |
 | SI candidates + port/sailed rules | `Backend/src/routes/shipping-instructions.js` — `GET /shipping-instructions/candidates` |
@@ -339,6 +343,8 @@ This section documents UI behaviour implemented in `Frontend/src/pages/Loading.j
 | 1.13 | 2026-04-02 | **§14.1** Multi-port **Choose port** landing (`/select-port`), session-stored active port, post-login routing, header **Change port** → landing with **`returnTo`**; **§17.4** port-not-selected behaviour aligned with redirect. |
 | 1.14 | 2026-04-02 | **§2.5** **Shifting out & re-dock:** modals, single **Remark** field, toasts, Allocation **Shifted** / **Re-dock**; **§9** At-Berth actions & exclusion when shifted; **§17.5** occupancy note; **§7** implementation map; TECH-SPEC **§0.9**. |
 | 1.15 | 2026-04-07 | **§2.7** Dashboard **slot occupancy** (capacity-aware, excludes OOS jetties from denominator); remove **Awaiting berth** sidebar; **Master** jetty operational status in UI; **OOS** blocked when operations still use jetty; Allocation **OOS** validation + schematic/Gantt/table cues; **§2.1** Gantt OOS lane styling. TECH-SPEC §2.3, §3.5. See **Docs/Plan/SLOT-OCCUPANCY-JETTY-OOS-DASHBOARD-PLAN.md**. |
+| 1.17 | 2026-04-08 | **§2.7** **Port activity** chart (Operations vs Shipping instructions toggle); **weather** moved to page footer. **§7** implementation map. Cross-ref **Docs/Plan/DASHBOARD-ACTIVITY-CHART-PLAN.md** and TECH-SPEC §2.3. |
+| 1.18 | 2026-04-08 | **§2.7** Port activity: **Y-axis** count scale + grid; **hover/focus tooltip** with vessel name lists per bar. TECH-SPEC §2.3. See **Docs/Plan/DASHBOARD-ACTIVITY-CHART-PLAN.md** §10. |
 
 ---
 
@@ -464,12 +470,15 @@ This script truncates **transactional tables only** (operations/SI/workflow data
 
 ## 16. Shipping Instructions — Loading document & approval (internal SI)
 
-**Scope:** Behaviour for **Loading** shipping instructions: create/edit form fields, document view, submit for approval, and **RBAC-gated** sign-off.
+**Scope:** Behaviour for **Loading** and **Unloading** shipping instructions: **purpose-first** create/edit form behaviour, Loading document view, submit for approval, and **RBAC-gated** sign-off.
 
 | Area | Behaviour |
 |------|-----------|
 | **Extra draft fields** | Optional: **voyage no.**, **document date**, **destination**, **freight terms** (PREPAID / COLLECT / AS PER CHARTER PARTY / OTHER), **B/L clause**, **consignee**, **notify party**, **BL indicated**. |
-| **B/L split preview** | Read-only **preview** on the create/edit modal derived from breakdown lines (e.g. `1 × 4,000 MT`). |
+| **Purpose-first form** | In **Create Vessel Trip / New Shipping Instruction**, user must choose **Purpose** (**Loading** or **Unloading**) first; until selected, the rest of the form is disabled. |
+| **Loading vs Unloading field sets** | **Loading** shows Route/Freight + B/L fields; **Unloading** hides those and instead shows **Term** (trade term) under Party & Port. Both use the same submit/approval pipeline. |
+| **B/L split text** | Create/edit modal provides an editable **B/L Split** textarea (not auto-generated), persisted on the SI record and shown on the document view. |
+| **NPWP (read-only)** | NPWP is **not** a free-text SI field. The UI shows NPWP as **read-only** from a **per-port master** (based on the active selected port). |
 | **Submit for approval** | **Request approval** calls the API to set status **Submitted** (not only local UI state). |
 | **Approve SI** | List action opens the approval page only if the user has **Approve SI** on the **Shipping Instruction** page (see Admin → Roles). |
 | **Approval API** | Transition **Draft → Approved** requires prior **Submitted**; **PUT** with `status: Approved` checks **`can_approve`** for page `shipping-instruction`. **403** if missing. |

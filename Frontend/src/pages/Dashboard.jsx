@@ -9,6 +9,10 @@ import { fetchActivityLogs } from '../api/activityLogs'
 import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import { isPlannedBerthingQueueRow } from '../utils/dashboardQueueClassification'
+import { atBerthExecutionOpenPath } from '../utils/atBerthOpenPath'
+import DashboardActivityChart from '../components/DashboardActivityChart'
+import InteractiveTooltip from '../components/InteractiveTooltip'
 import '../styles/dashboard.css'
 import '../styles/allocation.css'
 
@@ -24,12 +28,15 @@ const PURPOSES = [
 const PIPELINE_STAGES = [
   { id: 'si', label: 'Shipping Instruction', path: '/shipping-instruction', color: 'si' },
   { id: 'planned-berthing', label: 'Planned berthing', path: '/allocation', color: 'planned-berthing' },
-  { id: 'allocation', label: 'Allocation', path: '/allocation', color: 'allocation' },
   { id: 'at-berth', label: 'At-Berth', path: '/at-berth', color: 'at-berth' },
   { id: 'clearance', label: 'Clearance', path: '/verification', color: 'clearance' },
 ]
 
 const ACTIVITY_PAGE_KEYS = ['allocation', 'shipping-instruction', 'verification', 'at-berth', 'loading']
+const PERF_WINDOWS = [
+  { key: '7d', label: 'Last 7 days', ms: 7 * 24 * 3600000 },
+  { key: '24h', label: 'Last 24 hours', ms: 24 * 3600000 },
+]
 
 function statusToPhase(status) {
   if (status === 'IN_PROGRESS') return 'Operational'
@@ -53,14 +60,20 @@ function formatRelativeTime(iso) {
   return `${Math.floor(sec / 86400)}d ago`
 }
 
-/** Same idea as Allocation incoming + jetty: berth planned, not yet alongside. */
-function isPlannedBerthingQueueRow(row) {
-  const jetty = (row?.jetty || '').trim()
-  if (!jetty) return false
-  const hasTb = Boolean(row?.tbDateTime)
-  const opStatus = String(row?.status || '').toUpperCase()
-  if (hasTb || ['DOCKED', 'IN_PROGRESS', 'COMPLETED'].includes(opStatus)) return false
-  return true
+function median(values) {
+  const arr = Array.isArray(values) ? values.filter((n) => Number.isFinite(n)).slice() : []
+  if (arr.length === 0) return null
+  arr.sort((a, b) => a - b)
+  const mid = Math.floor(arr.length / 2)
+  if (arr.length % 2 === 1) return arr[mid]
+  return (arr[mid - 1] + arr[mid]) / 2
+}
+
+function formatDurationHours(hours) {
+  if (hours == null || !Number.isFinite(hours) || hours < 0) return '—'
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))}m`
+  if (hours >= 48) return `${(hours / 24).toFixed(1)}d`
+  return `${hours.toFixed(1)}h`
 }
 
 export default function Dashboard() {
@@ -78,6 +91,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [apiErr, setApiErr] = useState(null)
   const [lastUpdated, setLastUpdated] = useState(null)
+  const [perfWindow, setPerfWindow] = useState('7d')
 
   const canViewActivityLog = canView('activity-log')
 
@@ -209,6 +223,43 @@ export default function Dashboard() {
     return { totalSlots, usedSlots, pct, overCapacity }
   }, [berths])
 
+  const slotOccupancyItems = useMemo(() => {
+    const list = Array.isArray(berths) ? berths : []
+    const out = []
+    for (const b of list) {
+      const jettyId = b?.id
+      if (!jettyId) continue
+      const capRaw = b?.capacity != null ? Number(b.capacity) : 1
+      const cap = Number.isFinite(capRaw) && capRaw >= 1 ? capRaw : 1
+      const occs = Array.isArray(b?.occupants) ? b.occupants : []
+      for (let i = 0; i < Math.min(cap, occs.length); i += 1) {
+        const occ = occs[i]
+        const slotLabel = `${jettyId}-${String(i + 1).padStart(2, '0')}`
+        const vesselName = (occ?.vesselName || '').trim() || String(occ?.vesselId || '—')
+        out.push({ primary: `${slotLabel} — ${vesselName}` })
+      }
+      if (occs.length > cap) {
+        out.push({ primary: `${jettyId}-${String(cap).padStart(2, '0')} — +${occs.length - cap} more` })
+      }
+    }
+    return out
+  }, [berths])
+
+  const jettyStatusLists = useMemo(() => {
+    const avail = []
+    const oos = []
+    for (const j of Array.isArray(jetties) ? jetties : []) {
+      const name = (j?.name || '').trim()
+      const shortId = name ? name.replace(/^Jetty\s+/i, '').trim() : ''
+      const label = shortId || name || '—'
+      if ((j?.status || '') === 'Out of Service') oos.push(label)
+      else avail.push(label)
+    }
+    avail.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    oos.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    return { avail, oos }
+  }, [jetties])
+
   const jettyStatusCounts = useMemo(() => {
     const m = { Available: 0, 'Out of Service': 0 }
     for (const j of jetties) {
@@ -247,15 +298,82 @@ export default function Dashboard() {
     return risky.slice(0, 5)
   }, [allOps])
 
-  const nextArrivals = useMemo(() => {
-    const rows = [...queue].filter((r) => r.etaDateTime)
-    rows.sort((a, b) => {
-      const ea = parseIso(a.etaDateTime)?.getTime() ?? 0
-      const eb = parseIso(b.etaDateTime)?.getTime() ?? 0
-      return ea - eb
-    })
-    return rows.slice(0, 8)
-  }, [queue])
+  const performance = useMemo(() => {
+    const win = PERF_WINDOWS.find((w) => w.key === perfWindow) || PERF_WINDOWS[0]
+    const cutoff = Date.now() - win.ms
+    const tolMs = 6 * 3600000
+    const list = Array.isArray(queue) ? queue : []
+
+    const waitingHrs = []
+    const waitingWorst = []
+
+    const turnaroundHrs = []
+    const turnaroundWorst = []
+
+    let onTimeEligible = 0
+    let onTimeCount = 0
+    const onTimeLateList = []
+
+    for (const r of list) {
+      if (r?.shiftingOut) continue
+      const vesselName = (r?.vesselName || '').trim() || `Op #${r?.operationId ?? r?.id ?? '—'}`
+      const jettyName = (r?.jetty || '').trim() || '—'
+
+      const ta = parseIso(r?.taDateTime)
+      const tb = parseIso(r?.tbDateTime)
+      const planned = parseIso(r?.plannedEtbDateTime)
+      const castOff = parseIso(r?.castOffDateTime)
+      const actualComp = parseIso(r?.actualCompletionDateTime)
+
+      // Waiting time to berth (TA -> TB), windowed by TB.
+      if (ta && tb && tb.getTime() > ta.getTime() && tb.getTime() >= cutoff) {
+        const h = (tb.getTime() - ta.getTime()) / 3600000
+        waitingHrs.push(h)
+        waitingWorst.push({ vesselName, jettyName, hours: h })
+      }
+
+      // Turnaround time at berth (TB -> cast-off preferred; else actual completion), windowed by end time.
+      if (tb) {
+        const end = castOff || actualComp
+        if (end && end.getTime() > tb.getTime() && end.getTime() >= cutoff) {
+          const h = (end.getTime() - tb.getTime()) / 3600000
+          turnaroundHrs.push(h)
+          turnaroundWorst.push({ vesselName, jettyName, hours: h })
+        }
+      }
+
+      // On-time berthing rate: TB <= planned ETB + 6h, windowed by TB.
+      if (planned && tb && tb.getTime() >= cutoff) {
+        onTimeEligible += 1
+        const lateMs = tb.getTime() - (planned.getTime() + tolMs)
+        if (lateMs <= 0) onTimeCount += 1
+        else onTimeLateList.push({ vesselName, jettyName, lateHours: lateMs / 3600000 })
+      }
+    }
+
+    waitingWorst.sort((a, b) => b.hours - a.hours)
+    turnaroundWorst.sort((a, b) => b.hours - a.hours)
+    onTimeLateList.sort((a, b) => b.lateHours - a.lateHours)
+
+    // Show a value as soon as we have at least 1 eligible row; surface sample size in the UI.
+    const minSample = 1
+    const waitingMedian = waitingHrs.length >= minSample ? median(waitingHrs) : null
+    const turnaroundMedian = turnaroundHrs.length >= minSample ? median(turnaroundHrs) : null
+    const onTimeRate =
+      onTimeEligible >= minSample ? Math.round((onTimeCount / Math.max(1, onTimeEligible)) * 100) : null
+
+    return {
+      window: win,
+      minSample,
+      waiting: { medianHours: waitingMedian, sampleSize: waitingHrs.length, worst: waitingWorst.slice(0, 10) },
+      turnaround: {
+        medianHours: turnaroundMedian,
+        sampleSize: turnaroundHrs.length,
+        worst: turnaroundWorst.slice(0, 10),
+      },
+      onTime: { ratePct: onTimeRate, eligible: onTimeEligible, onTime: onTimeCount, late: onTimeLateList.slice(0, 10) },
+    }
+  }, [queue, perfWindow])
 
   const plannedBerthingCount = useMemo(
     () => queue.filter(isPlannedBerthingQueueRow).length,
@@ -265,10 +383,52 @@ export default function Dashboard() {
   const pipelineCounts = {
     si: siStats.total,
     plannedBerthing: plannedBerthingCount,
-    allocation: opStats.pending + opStats.allocated,
     atBerth: atBerth.length,
     clearance: opStats.sailed,
   }
+
+  const weatherFooter = (
+    <section className="dashboard-weather-footer" aria-label="Weather preview">
+      <div className="weather-card-wrap">
+        <div className="card weather-card">
+          <h2 className="card__title">Weather</h2>
+          <p className="dashboard-mock-hint">Preview data — live API connection coming later.</p>
+          <div className="weather-card__body">
+            <div className="weather-card__main">
+              <span className="weather-card__condition">{current.condition}</span>
+              <span className="weather-card__temp">{current.temperature}°C</span>
+              <span className="weather-card__meta">
+                Wind {current.windKmh} km/h · {current.humidity}% humidity
+              </span>
+              {current.berthingImpact && (
+                <p className="weather-card__berthing-note" role="status">
+                  {current.berthingNote}
+                </p>
+              )}
+            </div>
+            <div className="weather-card__forecast">
+              <span className="weather-card__forecast-label">Forecast</span>
+              <ul className="weather-card__forecast-list">
+                {forecast.map((day, i) => (
+                  <li key={i} className="weather-card__forecast-item">
+                    <span className="weather-card__forecast-day">{day.label}</span>
+                    <span className="weather-card__forecast-condition">{day.condition}</span>
+                    <span className="weather-card__forecast-temp">
+                      {day.tempMin}°–{day.tempMax}°
+                    </span>
+                    <span className="weather-card__forecast-rain">{day.rainChance}% rain</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div className="weather-card-overlay" aria-hidden="true">
+          <span className="weather-card-overlay__watermark">Widget is in progress - Coming Soon</span>
+        </div>
+      </div>
+    </section>
+  )
 
   if (selectedPortId == null) {
     return (
@@ -279,6 +439,7 @@ export default function Dashboard() {
         <div className="card dashboard-empty-state">
           <p className="text-steel">Select a port from the header to load dashboard data.</p>
         </div>
+        {weatherFooter}
       </div>
     )
   }
@@ -314,46 +475,49 @@ export default function Dashboard() {
         </div>
       )}
 
-      <section className="dashboard-row1">
-        <div className="weather-card-wrap dashboard-row1__weather">
-          <div className="card weather-card">
-            <h2 className="card__title">Weather</h2>
-            <p className="dashboard-mock-hint">Preview data — live API connection coming later.</p>
-            <div className="weather-card__body">
-              <div className="weather-card__main">
-                <span className="weather-card__condition">{current.condition}</span>
-                <span className="weather-card__temp">{current.temperature}°C</span>
-                <span className="weather-card__meta">
-                  Wind {current.windKmh} km/h · {current.humidity}% humidity
+      <section className="card dashboard-pipeline">
+        <h2 className="card__title">Vessel pipeline</h2>
+        <p className="dashboard-pipeline__intro text-steel">
+          Counts reflect the port selected above.
+        </p>
+        <div className="pipeline-flow" role="navigation" aria-label="Pipeline stages">
+          {PIPELINE_STAGES.map((stage, index) => (
+            <Fragment key={stage.id}>
+              {index > 0 && (
+                <span className="pipeline-arrow" aria-hidden>
+                  →
                 </span>
-                {current.berthingImpact && (
-                  <p className="weather-card__berthing-note" role="status">
-                    {current.berthingNote}
-                  </p>
-                )}
-              </div>
-              <div className="weather-card__forecast">
-                <span className="weather-card__forecast-label">Forecast</span>
-                <ul className="weather-card__forecast-list">
-                  {forecast.map((day, i) => (
-                    <li key={i} className="weather-card__forecast-item">
-                      <span className="weather-card__forecast-day">{day.label}</span>
-                      <span className="weather-card__forecast-condition">{day.condition}</span>
-                      <span className="weather-card__forecast-temp">
-                        {day.tempMin}°–{day.tempMax}°
-                      </span>
-                      <span className="weather-card__forecast-rain">{day.rainChance}% rain</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </div>
-          <div className="weather-card-overlay" aria-hidden="true">
-            <span className="weather-card-overlay__watermark">
-              Widget is in progress - Coming Soon
-            </span>
-          </div>
+              )}
+              <Link
+                to={stage.path}
+                className={`pipeline-stage pipeline-stage--${stage.color}`}
+              >
+                <span className="pipeline-stage__label">{stage.label}</span>
+                <span className="pipeline-stage__count">
+                  {stage.id === 'si' && pipelineCounts.si}
+                  {stage.id === 'planned-berthing' && pipelineCounts.plannedBerthing}
+                  {stage.id === 'at-berth' && pipelineCounts.atBerth}
+                  {stage.id === 'clearance' && pipelineCounts.clearance}
+                </span>
+                <span className="pipeline-stage__sublabel">
+                  {stage.id === 'si' && (
+                    <>
+                      {siStats.approved} approved · {siStats.total} total
+                    </>
+                  )}
+                  {stage.id === 'planned-berthing' && <>Jetty assigned · not alongside</>}
+                  {stage.id === 'at-berth' && <>By vessel alongside</>}
+                  {stage.id === 'clearance' && <>Sailed (completed departures)</>}
+                </span>
+              </Link>
+            </Fragment>
+          ))}
+        </div>
+      </section>
+
+      <section className="dashboard-row1">
+        <div className="dashboard-row1__chart">
+          <DashboardActivityChart queue={queue} sis={sis} loading={loading} />
         </div>
 
         <div className="dashboard-kpi-grid" aria-label="Key metrics for selected port">
@@ -380,14 +544,44 @@ export default function Dashboard() {
                 }}
               />
             </div>
-            <span className="metric-card__type">Vessel positions (excl. out-of-service jetties)</span>
-          </div>
-          <div className="metric-card">
-            <span className="metric-card__label">Vessels at berth</span>
-            <span className="metric-card__value">{atBerth.length}</span>
+            <span className="metric-card__type">
+              Vessel positions (excl. out-of-service jetties){' '}
+              <InteractiveTooltip
+                title="Slots in use"
+                subtitle="By jetty slot"
+                items={slotOccupancyItems}
+                emptyText="No occupied slots."
+                maxWidth={360}
+              >
+                <span className="metric-card__type-link">Details</span>
+              </InteractiveTooltip>
+            </span>
             <Link to="/at-berth" className="metric-card__link">
               View at-berth →
             </Link>
+          </div>
+          <div className="metric-card">
+            <span className="metric-card__label">Jetty status</span>
+            <div className="metric-card__jetty-status" role="list" aria-label="Jetty status counts">
+              <InteractiveTooltip
+                title="Available jetties"
+                items={jettyStatusLists.avail}
+                emptyText="No available jetties."
+              >
+                <span className="metric-card__jetty-chip metric-card__jetty-chip--ok" role="listitem">
+                  Available <strong>{jettyStatusCounts.Available}</strong>
+                </span>
+              </InteractiveTooltip>
+              <InteractiveTooltip
+                title="Out of service jetties"
+                items={jettyStatusLists.oos}
+                emptyText="No out of service jetties."
+              >
+                <span className="metric-card__jetty-chip metric-card__jetty-chip--bad" role="listitem">
+                  Out of service <strong>{jettyStatusCounts['Out of Service']}</strong>
+                </span>
+              </InteractiveTooltip>
+            </div>
           </div>
           <div className="metric-card">
             <span className="metric-card__label">Ready to sail</span>
@@ -398,219 +592,186 @@ export default function Dashboard() {
           </div>
           <div className="metric-card metric-card--risk">
             <span className="metric-card__label">SLA at risk</span>
-            <span className="metric-card__value">{slaAtRisk.length}</span>
+            <InteractiveTooltip
+              title="SLA at risk"
+              subtitle="Past estimated completion"
+              items={slaAtRisk.map((o) => ({
+                primary: o.vesselName || `Op #${o.id}`,
+                secondary: `${o.jettyName || '—'} · +${o.overHours < 1 ? `${Math.round(o.overHours * 60)}m` : `${o.overHours.toFixed(1)}h`} over ETC`,
+              }))}
+              emptyText="No operations past estimated completion."
+              maxWidth={360}
+            >
+              <span className="metric-card__value">{slaAtRisk.length}</span>
+            </InteractiveTooltip>
             <span className="metric-card__type">Past estimated completion</span>
           </div>
         </div>
       </section>
 
-      <section className="card dashboard-pipeline">
-        <h2 className="card__title">Vessel pipeline</h2>
-        <p className="dashboard-pipeline__intro text-steel">
-          Counts reflect the port selected above.
-        </p>
-        <div className="pipeline-flow" role="navigation" aria-label="Pipeline stages">
-          {PIPELINE_STAGES.map((stage, index) => (
-            <Fragment key={stage.id}>
-              {index > 0 && (
-                <span className="pipeline-arrow" aria-hidden>
-                  →
-                </span>
-              )}
-              <Link
-                to={stage.path}
-                className={`pipeline-stage pipeline-stage--${stage.color}`}
-              >
-                <span className="pipeline-stage__label">{stage.label}</span>
-                <span className="pipeline-stage__count">
-                  {stage.id === 'si' && pipelineCounts.si}
-                  {stage.id === 'planned-berthing' && pipelineCounts.plannedBerthing}
-                  {stage.id === 'allocation' && pipelineCounts.allocation}
-                  {stage.id === 'at-berth' && pipelineCounts.atBerth}
-                  {stage.id === 'clearance' && pipelineCounts.clearance}
-                </span>
-                <span className="pipeline-stage__sublabel">
-                  {stage.id === 'si' && (
-                    <>
-                      {siStats.approved} approved · {siStats.total} total
-                    </>
-                  )}
-                  {stage.id === 'planned-berthing' && <>Jetty assigned · not alongside</>}
-                  {stage.id === 'allocation' && (
-                    <>
-                      {opStats.pending} pending · {opStats.allocated} allocated
-                    </>
-                  )}
-                  {stage.id === 'at-berth' && <>By vessel alongside</>}
-                  {stage.id === 'clearance' && <>Sailed (completed departures)</>}
-                </span>
-              </Link>
-            </Fragment>
-          ))}
-        </div>
-      </section>
-
-      <div className="dashboard__two-col dashboard-main-grid">
+      <div className="dashboard-main-grid dashboard-main-grid--single">
         <div className="dashboard-main-column">
-          <section className="card dashboard-at-berth">
-            <div className="dashboard-at-berth__head">
-              <h2 className="card__title">At berth now</h2>
-              <Link to="/at-berth" className="btn btn--small btn--primary">
-                View all
-              </Link>
-            </div>
-            {loading ? (
-              <p className="text-steel">Loading…</p>
-            ) : (
-              <>
-                <div className="at-berth-summary__groups at-berth-summary__groups--compact">
-                  {PURPOSES.map(({ key: purpose, label }) => (
-                    <div key={purpose} className="at-berth-summary__group">
-                      <h3 className="at-berth-summary__group-title at-berth-summary__group-title--small">
-                        {label}
-                      </h3>
-                      <div className="at-berth-summary__grid">
-                        {PHASES.map((phase) => (
-                          <div
-                            key={phase}
-                            className={`at-berth-card at-berth-card--${purpose.toLowerCase()} at-berth-card--compact`}
-                            title={`${phase}: ${atBerthCounts[purpose][phase]}`}
-                          >
-                            <div className="at-berth-compact-stack" aria-label={`${PHASE_SHORT_LABEL[phase]} ${atBerthCounts[purpose][phase]}`}>
-                              <span className="at-berth-compact-stack__icon" aria-hidden>
-                                {PHASE_EMOJI[phase]}
-                              </span>
-                              <span className="at-berth-compact-stack__label">{PHASE_SHORT_LABEL[phase]}</span>
-                              <span className="at-berth-compact-stack__count">{atBerthCounts[purpose][phase]}</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+          <div className="dashboard-perf-row">
+            <section className="card dashboard-performance">
+              <div className="dashboard-performance__head">
+                <h2 className="card__title">Performance</h2>
+                <div className="dashboard-performance__toggle" role="group" aria-label="Performance window">
+                  {PERF_WINDOWS.map((w) => (
+                    <button
+                      key={w.key}
+                      type="button"
+                      className={`dashboard-performance__toggle-btn${perfWindow === w.key ? ' is-active' : ''}`}
+                      onClick={() => setPerfWindow(w.key)}
+                    >
+                      {w.key}
+                    </button>
                   ))}
                 </div>
-                <div className="dashboard-clearance-row dashboard-clearance-row--triple">
-                  <Link
-                    to="/verification"
-                    className="dashboard-clearance-card dashboard-clearance-card--ready"
-                  >
-                    <span className="dashboard-clearance-card__icon" aria-hidden>
-                      ⚓
-                    </span>
-                    <span className="dashboard-clearance-card__label">Ready to sail</span>
-                    <span className="dashboard-clearance-card__count">{opStats.completed}</span>
-                  </Link>
-                  <div className="dashboard-clearance-card dashboard-clearance-card--departed">
-                    <span className="dashboard-clearance-card__icon" aria-hidden>
-                      🚀
-                    </span>
-                    <span className="dashboard-clearance-card__label">Sailed</span>
-                    <span className="dashboard-clearance-card__count">{opStats.sailed}</span>
+              </div>
+
+              {loading ? (
+                <p className="text-steel">Loading…</p>
+              ) : (
+                <div className="dashboard-performance__grid" role="list" aria-label="Performance KPIs">
+                  <div className="dashboard-performance__metric" role="listitem">
+                    <div className="dashboard-performance__label">Waiting to berth</div>
+                    <InteractiveTooltip
+                      title="Longest waits (TA → TB)"
+                      subtitle={`${performance.window.label} · n=${performance.waiting.sampleSize}`}
+                      items={performance.waiting.worst.map((x) => ({
+                        primary: `${x.vesselName} — ${x.jettyName}`,
+                        secondary: `Wait: ${formatDurationHours(x.hours)}`,
+                      }))}
+                      emptyText="Not enough TA/TB data in this window."
+                      maxWidth={360}
+                    >
+                      <div className="dashboard-performance__value">
+                        {performance.waiting.medianHours == null
+                          ? '—'
+                          : formatDurationHours(performance.waiting.medianHours)}
+                      </div>
+                    </InteractiveTooltip>
+                    <div className="dashboard-performance__sub">
+                    Median (TA→TB) · {performance.window.key} · n={performance.waiting.sampleSize}
+                    </div>
                   </div>
-                  <div
-                    className={`dashboard-clearance-card dashboard-clearance-card--exception ${opStats.exceptionPending > 0 ? 'dashboard-clearance-card--exception-active' : ''}`}
-                  >
-                    <span className="dashboard-clearance-card__icon" aria-hidden>
-                      ⚠
-                    </span>
-                    <span className="dashboard-clearance-card__label">Exceptions pending</span>
-                    <span className="dashboard-clearance-card__count">{opStats.exceptionPending}</span>
+
+                  <div className="dashboard-performance__metric" role="listitem">
+                    <div className="dashboard-performance__label">Turnaround</div>
+                    <InteractiveTooltip
+                      title="Longest turnarounds"
+                      subtitle={`${performance.window.label} · n=${performance.turnaround.sampleSize}`}
+                      items={performance.turnaround.worst.map((x) => ({
+                        primary: `${x.vesselName} — ${x.jettyName}`,
+                        secondary: `Turnaround: ${formatDurationHours(x.hours)}`,
+                      }))}
+                      emptyText="Not enough completion data in this window."
+                      maxWidth={360}
+                    >
+                      <div className="dashboard-performance__value">
+                        {performance.turnaround.medianHours == null
+                          ? '—'
+                          : formatDurationHours(performance.turnaround.medianHours)}
+                      </div>
+                    </InteractiveTooltip>
+                    <div className="dashboard-performance__sub">
+                    Median (TB→Cast‑off/Completion) · {performance.window.key} · n={performance.turnaround.sampleSize}
+                    </div>
+                  </div>
+
+                  <div className="dashboard-performance__metric" role="listitem">
+                    <div className="dashboard-performance__label">On‑time berthing</div>
+                    <InteractiveTooltip
+                      title="Late berthings (vs planned ETB +6h)"
+                      subtitle={`${performance.window.label} · eligible=${performance.onTime.eligible}`}
+                      items={performance.onTime.late.map((x) => ({
+                        primary: `${x.vesselName} — ${x.jettyName}`,
+                        secondary: `Late: +${formatDurationHours(x.lateHours)}`,
+                      }))}
+                      emptyText="No late berthings in this window."
+                      maxWidth={360}
+                    >
+                      <div className="dashboard-performance__value">
+                        {performance.onTime.ratePct == null ? '—' : `${performance.onTime.ratePct}%`}
+                      </div>
+                    </InteractiveTooltip>
+                    <div className="dashboard-performance__sub">
+                    TB within +6h of planned ETB · {performance.window.key} · eligible={performance.onTime.eligible}
+                    </div>
                   </div>
                 </div>
-              </>
-            )}
-          </section>
-
-          <section className="card dashboard-sla-card">
-            <div className="dashboard-sla-card__head">
-              <h2 className="card__title">SLA &amp; schedule risk</h2>
-              {slaAtRisk.length > 0 && (
-                <span className="dashboard-badge-risk" aria-label={`${slaAtRisk.length} at risk`}>
-                  {slaAtRisk.length}
-                </span>
               )}
-            </div>
-            {loading ? (
-              <p className="text-steel">Loading…</p>
-            ) : slaAtRisk.length === 0 ? (
-              <div className="dashboard-empty-inline">
-                <span className="dashboard-empty-inline__icon" aria-hidden>
-                  ✓
-                </span>
-                <p>No operations past estimated completion.</p>
-              </div>
-            ) : (
-              <ul className="dashboard-risk-list">
-                {slaAtRisk.map((o) => (
-                  <li key={o.id}>
-                    <Link to={`/loading/operation/${o.id}`} className="dashboard-risk-list__link">
-                      <span className="dashboard-risk-list__vessel">{o.vesselName || `Op #${o.id}`}</span>
-                      <span className="dashboard-risk-list__jetty">{o.jettyName || '—'}</span>
-                      <span className="dashboard-risk-list__detail">
-                        +{o.overHours < 1 ? `${Math.round(o.overHours * 60)}m` : `${o.overHours.toFixed(1)}h`}{' '}
-                        over ETC
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+            </section>
 
-          <section className="card">
-            <div className="dashboard-at-berth__head">
-              <h2 className="card__title">Next arrivals / line-up</h2>
-              <Link to="/allocation" className="btn btn--small btn--secondary">
-                Allocation →
-              </Link>
-            </div>
-            {loading ? (
-              <p className="text-steel">Loading…</p>
-            ) : nextArrivals.length === 0 ? (
-              <p className="text-steel">No queued vessels with ETA.</p>
-            ) : (
-              <div className="table-wrap">
-                <table className="data-table dashboard-table-compact">
-                  <thead>
-                    <tr>
-                      <th>Vessel</th>
-                      <th>Jetty</th>
-                      <th>ETA</th>
-                      <th>Purpose</th>
-                      <th>Priority</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {nextArrivals.map((row) => (
-                      <tr key={row.id}>
-                        <td>
-                          <strong>{row.vesselName || '—'}</strong>
-                        </td>
-                        <td>{row.jetty || '—'}</td>
-                        <td>{formatDateTimeDisplay(row.etaDateTime)}</td>
-                        <td>{row.purpose || '—'}</td>
-                        <td>{row.priority || '—'}</td>
-                      </tr>
+            <section className="card dashboard-at-berth">
+              <div className="dashboard-at-berth__head">
+                <h2 className="card__title">At berth now</h2>
+                <Link to="/at-berth" className="btn btn--small btn--primary">
+                  View all
+                </Link>
+              </div>
+              {loading ? (
+                <p className="text-steel">Loading…</p>
+              ) : (
+                <>
+                  <div className="at-berth-summary__groups at-berth-summary__groups--compact">
+                    {PURPOSES.map(({ key: purpose, label }) => (
+                      <div key={purpose} className="at-berth-summary__group">
+                        <h3 className="at-berth-summary__group-title at-berth-summary__group-title--small">
+                          {label}
+                        </h3>
+                        <div className="at-berth-summary__grid">
+                          {PHASES.map((phase) => (
+                            <div
+                              key={phase}
+                              className={`at-berth-card at-berth-card--${purpose.toLowerCase()} at-berth-card--compact`}
+                              title={`${phase}: ${atBerthCounts[purpose][phase]}`}
+                            >
+                              <div className="at-berth-compact-stack" aria-label={`${PHASE_SHORT_LABEL[phase]} ${atBerthCounts[purpose][phase]}`}>
+                                <span className="at-berth-compact-stack__icon" aria-hidden>
+                                  {PHASE_EMOJI[phase]}
+                                </span>
+                                <span className="at-berth-compact-stack__label">{PHASE_SHORT_LABEL[phase]}</span>
+                                <span className="at-berth-compact-stack__count">{atBerthCounts[purpose][phase]}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        </div>
-
-        <aside className="dashboard-sidebar">
-          <section className="card dashboard-jetty-health">
-            <h2 className="card__title">Jetty status</h2>
-            <div className="dashboard-jetty-chips" role="list">
-              <span className="dashboard-jetty-chip dashboard-jetty-chip--ok" role="listitem">
-                Available {jettyStatusCounts.Available}
-              </span>
-              <span className="dashboard-jetty-chip dashboard-jetty-chip--bad" role="listitem">
-                Out of service {jettyStatusCounts['Out of Service']}
-              </span>
-            </div>
-          </section>
+                  </div>
+                  <div className="dashboard-clearance-row dashboard-clearance-row--triple">
+                    <Link
+                      to="/verification"
+                      className="dashboard-clearance-card dashboard-clearance-card--ready"
+                    >
+                      <span className="dashboard-clearance-card__icon" aria-hidden>
+                        ⚓
+                      </span>
+                      <span className="dashboard-clearance-card__label">Ready to sail</span>
+                      <span className="dashboard-clearance-card__count">{opStats.completed}</span>
+                    </Link>
+                    <div className="dashboard-clearance-card dashboard-clearance-card--departed">
+                      <span className="dashboard-clearance-card__icon" aria-hidden>
+                        🚀
+                      </span>
+                      <span className="dashboard-clearance-card__label">Sailed</span>
+                      <span className="dashboard-clearance-card__count">{opStats.sailed}</span>
+                    </div>
+                    <div
+                      className={`dashboard-clearance-card dashboard-clearance-card--exception ${opStats.exceptionPending > 0 ? 'dashboard-clearance-card--exception-active' : ''}`}
+                    >
+                      <span className="dashboard-clearance-card__icon" aria-hidden>
+                        ⚠
+                      </span>
+                      <span className="dashboard-clearance-card__label">Exceptions pending</span>
+                      <span className="dashboard-clearance-card__count">{opStats.exceptionPending}</span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </section>
+          </div>
 
           <section className="card">
             <div className="dashboard-at-berth__head">
@@ -639,9 +800,12 @@ export default function Dashboard() {
               </ul>
             )}
           </section>
-        </aside>
+
+          {/* Next arrivals / line-up widget removed (not used). */}
+        </div>
       </div>
 
+      {weatherFooter}
     </div>
   )
 }

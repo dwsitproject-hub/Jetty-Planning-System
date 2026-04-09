@@ -356,6 +356,13 @@
   border-bottom: 1px solid var(--color-border-light);
 }
 
+/* Tighten the first 2 sections inside the SI modal to reduce scrolling. */
+.shipping-instruction-form .shipping-instruction-form__section:first-child,
+.shipping-instruction-form .shipping-instruction-form__section:nth-child(2) {
+  margin-bottom: var(--spacing-4);
+  padding-bottom: var(--spacing-3);
+}
+
 .shipping-instruction-form__section:last-of-type {
   border-bottom: none;
 }
@@ -371,6 +378,68 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: var(--spacing-4);
+}
+
+.shipping-instruction-form__grid--vessel-trip {
+  /* Simple vertical stack (one field per row). */
+  grid-template-columns: 1fr;
+  grid-template-areas: none;
+  gap: var(--spacing-2);
+}
+
+.shipping-instruction-form__grid--vessel-trip .input-group {
+  margin-bottom: 0;
+}
+
+.shipping-instruction-form__grid--vessel-trip .input-group label {
+  margin-bottom: 6px;
+}
+
+.shipping-instruction-form__grid--vessel-trip .input-group input,
+.shipping-instruction-form__grid--vessel-trip .input-group select {
+  /* Keep fields from becoming overly long in the wide modal (match other inputs like Destination). */
+  max-width: 400px;
+  min-height: 38px;
+  padding: 6px 10px;
+  font-size: 0.95rem;
+}
+
+.shipping-instruction-form__vessel {
+  grid-area: auto;
+}
+.shipping-instruction-form__ref {
+  grid-area: auto;
+}
+.shipping-instruction-form__docdate {
+  grid-area: auto;
+}
+.shipping-instruction-form__eta-from {
+  grid-area: auto;
+}
+.shipping-instruction-form__eta-to {
+  grid-area: auto;
+}
+.shipping-instruction-form__jetty {
+  grid-area: auto;
+}
+.shipping-instruction-form__voyage {
+  grid-area: auto;
+}
+
+@media (max-width: 760px) {
+  .shipping-instruction-form__grid--vessel-trip {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-areas: none;
+  }
+  .shipping-instruction-form__vessel,
+  .shipping-instruction-form__ref,
+  .shipping-instruction-form__docdate,
+  .shipping-instruction-form__eta-from,
+  .shipping-instruction-form__eta-to,
+  .shipping-instruction-form__jetty,
+  .shipping-instruction-form__voyage {
+    grid-area: auto;
+  }
 }
 
 .shipping-instruction-form__grid--quality {

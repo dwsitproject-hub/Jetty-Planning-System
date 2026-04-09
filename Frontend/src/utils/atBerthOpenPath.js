@@ -28,7 +28,10 @@ export function getAtBerthDefaultSection(row) {
 /** Full path e.g. /loading/op-12/pre-checking */
 export function atBerthExecutionOpenPath(row) {
   const purpose = row?.purpose === 'Unloading' ? 'unloading' : 'loading'
-  const vesselId = encodeURIComponent(row?.vesselId ?? `op-${row?.operationId ?? ''}`)
+  const opId = row?.operationId ?? row?.id ?? null
+  const rawVesselId = row?.vesselId ?? (opId != null ? `op-${opId}` : null)
+  if (!rawVesselId) return '#'
+  const vesselId = encodeURIComponent(rawVesselId)
   const section = getAtBerthDefaultSection(row)
   return `/${purpose}/${vesselId}/${section}`
 }

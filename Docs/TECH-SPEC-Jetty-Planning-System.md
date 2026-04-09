@@ -1,7 +1,7 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.14  
-**Last Updated**: 2026-04-07  
+**Version**: 1.18  
+**Last Updated**: 2026-04-08  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
@@ -439,14 +439,34 @@ Freight terms are currently fixed (frontend constant + backend validation), so t
 **User Story**: As a Manager, I want weekly trends (occupied jetties, demurrage, incidents) and weather.
 
 **Workflow (current frontend: `Dashboard.jsx`)**:
-- Weather widget (mock) simulating Google Weather integration.
+- **Vessel pipeline** card (`section.dashboard-pipeline`) is rendered **first** in the main column (after header, port chip, and optional API error banner), then the **Port activity chart + KPI grid** row — pipeline is the top-level summary of port flow.
+- **Port activity chart** (`DashboardActivityChart.jsx`) in the **second row** left column (beside the KPI grid):
+  - **Operations** mode: classifies `GET /allocation/overview` **`queue`** rows by **`purpose`** (Loading / Unloading; unknown purpose omitted) and by stage using shared helpers in `Frontend/src/utils/dashboardQueueClassification.js`:
+    - **Planned berthing:** `isPlannedBerthingQueueRow` — jetty set, no TB, operation status not in `DOCKED` / `IN_PROGRESS` / `COMPLETED` (same idea as pipeline planned berthing).
+    - **Berthing:** `isQueueRowBerthing` — TB set or status in that alongside set; **`shiftingOut` rows excluded**.
+  - **Shipping instructions** mode: counts by `status` **`Approved` | `Submitted` | `Draft`** from `GET /shipping-instructions` (port-scoped); percentages use total of those three as denominator.
+  - **Presentation:** **Y-axis** integer ticks (step sized from data max) with **dashed horizontal grid** lines; bar heights use the same scale (`yMax` ≥ max count in view). **Tooltip:** `createPortal` to `document.body`, positioned from `getBoundingClientRect` (flips if it would leave the left edge); lists **vessel names** collected when building series — queue: `vesselName` → `vesselId` → `—`; SI: same fields per row. Bars with count **0** are non-interactive. Scroll/resize closes the tooltip.
+- **Weather** widget (mock `dashboardWeather` in `mockData`, “coming soon” overlay) is rendered at the **bottom** of the page (`section.dashboard-weather-footer`), not in row 1.
 - Top KPIs (evolving; not all legacy PRD metrics are wired):
   - **Slot occupancy** — `Σ min(occupiedCount, capacity) / Σ capacity` from `GET /allocation/overview` **`berths`**, excluding jetties with master **`status = 'Out of Service'`** from the capacity denominator (`Dashboard.jsx`).
-  - Vessels at berth (from `GET /operations/at-berth` aggregate).
+  - **Jetty status** (Available / Out of Service) from `GET /jetties?port_id=…` (rendered as a compact KPI card in the KPI grid).
   - Ready to sail / SLA at risk (from operations list).
-- Pipeline view (Shipping Instruction → Planned berthing → Allocation → At-Berth → Clearance).
-- **Awaiting berth** sidebar list was **removed** (redundant with pipeline **Planned berthing**); “next arrivals” table remains.
+- **KPI tooltips (drill-down)**:
+  - **Slot occupancy** includes a **Details** tooltip listing occupied slots as `<jetty>-<lane> — <vessel name>` (portal tooltip; closes on scroll/resize/Escape).
+  - **Jetty status** chips are hover/focus interactive and show tooltips listing the jetties in each bucket (Available / Out of Service).
+  - **SLA at risk** value is hover/focus interactive and shows a tooltip listing `<vessel name>` with `<jetty>` and `+Xh over ETC`.
+- **Performance card (non‑SLA)**:
+  - Toggle: **24h / 7d** (frontend-only windowing).
+  - Metrics computed client-side from `GET /allocation/overview` **`queue`** timestamps:
+    - **Waiting to berth (median)**: median of `(TB − TA)` for rows with both timestamps, windowed by **TB**.
+    - **Turnaround (median)**: median of `(end − TB)` where `end = castOffDateTime ?? actualCompletionDateTime`, windowed by **end**.
+    - **On‑time berthing (%)**: `TB <= plannedEtbDateTime + 6h`, windowed by **TB**.
+  - Drill-down uses the same portal tooltip pattern (`InteractiveTooltip.jsx`) listing worst/late cases with vessel + jetty + duration.
+- **Implementation**: shared portal tooltip component `Frontend/src/components/InteractiveTooltip.jsx` (pattern mirrors `DashboardActivityChart.jsx` tooltip).
+- Pipeline view (Shipping Instruction → Planned berthing → At-Berth → Clearance; **Allocation** is not a separate dashboard stage — use **Planned berthing** / **At-Berth** links to `/allocation` and `/at-berth` as today).
+- **Awaiting berth** sidebar list was **removed** (redundant with pipeline **Planned berthing**). “Next arrivals / line-up” widget was also removed.
 - Jetty status chips from `GET /jetties?port_id=…`.
+- **Styles:** `Frontend/src/styles/dashboard.css` — `dashboard-row1__chart`, `.dashboard-activity-chart*`, `.dashboard-weather-footer`.
 
 **Target implementation**:
 - Expose backend dashboard endpoints:
@@ -473,6 +493,7 @@ All endpoints under `/api/v1`.
 
 - `GET /shipping-instructions` – list SIs, with filters.
 - `GET /shipping-instructions/:id`.
+- `GET /shipping-instructions/npwp-master` – get **NPWP master** for the active port (or `?port_id=` when user is assigned to that port); returns `{ npwp, portId }`.
 - `POST /shipping-instructions` – create (for manual entry).
 - `PUT /shipping-instructions/:id` — body may include **`approval_id`** / persisted **`approvalId`** for approved flows.
 - `DELETE /shipping-instructions/:id` — guarded by RBAC `can_delete` and status rules (Draft/Submitted only).
@@ -740,8 +761,8 @@ Ensures berthed vessels appear even if status and TB were temporarily out of syn
 
 ### 3.7 Dashboard & Weather
 
-- `GET /dashboard/summary` – pipeline counts, occupancy, SLA metrics.
-- `GET /dashboard/weather?port_id=...` – proxy to Google Weather API.
+- `GET /dashboard/summary` – pipeline counts, occupancy, SLA metrics (target; not required for current Port activity chart, which uses existing `GET /allocation/overview` + `GET /shipping-instructions`).
+- `GET /dashboard/weather?port_id=...` – proxy to Google Weather API (target). **Current UI:** mock weather at bottom of `Dashboard.jsx` until this is wired.
 
 ### 3.8 Audit Trail
 
@@ -830,6 +851,7 @@ Entities follow the design already outlined in the previous answer; key ones:
 - `users`, `roles`, `permissions`, `role_permissions`, `user_roles`.
 - `ports`, `jetties`, `jetty_status_history`.
 - `shipping_instructions` — includes **`approval_id`** (migration **`019`**). Migration **`025_si_loading_document_and_approve_rbac.sql`** adds Loading document fields: **`voyage_no`**, **`destination_text`**, **`freight_terms`** (check: PREPAID, COLLECT, AS_PER_CHARTER_PARTY, OTHER), **`bill_of_lading_clause`**, **`consignee_text`**, **`notify_party_text`**, **`bl_indicated`**, **`document_date`**, and approval audit: **`approved_by_user_id`**, **`approved_at`**, **`approver_name_snapshot`**, **`approver_title_snapshot`**. API exposes camelCase equivalents (e.g. **`destinationText`**, **`freightTerms`**, **`approverNameSnapshot`**).
+- `si_port_npwp` — per-port **NPWP master** used for Shipping Instruction display (read-only in SI form/view/approval); unique active row per `port_id` (migration **`047_si_port_npwp.sql`**).
 - `users` — optional **`job_title`** (migration **`025`**) used when populating approver title snapshot (fallback: `OPERATION HEAD`).
 - `role_permissions` — **`can_approve`** boolean (migration **`025`**); merged in **`GET /rbac/me/page-permissions`** as **`canApprove`** per page. Shipping Instruction approval on **PUT** `/shipping-instructions/:id` when transitioning to **Approved** requires **`can_approve`** for resource_key **`shipping-instruction`**.
 - `operation_documents` — file metadata per operation (`kind`, `stored_path`, NOR/BERTHING, etc.).

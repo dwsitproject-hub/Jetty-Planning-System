@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { fetchShippingInstruction, updateShippingInstruction } from '../api/shippingInstructions'
+import { fetchShippingInstruction, fetchSiNpwpMaster, updateShippingInstruction } from '../api/shippingInstructions'
 import { useRbac } from '../context/RbacContext'
 import { formatBlSplitFromBreakdown, getPrintedSiNumber, formatFreightForSi } from '../utils/siBlSplit'
 import { formatSiSignOffDate } from '../utils/siFormPlaceDate'
@@ -77,6 +77,7 @@ function mapShippingInstructionRow(row) {
     term: row.tradeTermCode ?? '—',
     receivedAt: row.createdAt,
     updatedAt: row.updatedAt ?? null,
+    resolvedPortId: row.resolvedPortId ?? null,
   }
 }
 
@@ -101,6 +102,7 @@ export default function SIApproval() {
   const [approvalId, setApprovalId] = useState(null) // set when user clicks Approve & Sign-off
   const [uploadedManualDocs, setUploadedManualDocs] = useState([]) // { id, name, size }
   const [approveError, setApproveError] = useState(null)
+  const [npwpMaster, setNpwpMaster] = useState(null)
 
   const siFromState = location.state?.si
   const [apiSi, setApiSi] = useState(null)
@@ -132,6 +134,22 @@ export default function SIApproval() {
       setApprovalId(si.approvalId || null)
     }
   }, [si])
+
+  useEffect(() => {
+    if (!si) return
+    const portId = si?.resolvedPortId
+    let cancelled = false
+    fetchSiNpwpMaster(portId)
+      .then((r) => {
+        if (!cancelled) setNpwpMaster(r?.npwp ?? null)
+      })
+      .catch(() => {
+        if (!cancelled) setNpwpMaster(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [si?.resolvedPortId, si?.id])
 
   const breakdownRows = si?.breakdown || []
   const purposeLower = (si?.purpose || '').toLowerCase()
@@ -399,7 +417,7 @@ export default function SIApproval() {
               <dt>Shipper</dt>
               <dd>{SI_FORM_COMPANY.name} {SI_FORM_COMPANY.address}</dd>
               <dt>NPWP</dt>
-              <dd>{si.npwp || '81.291.248.3-018.000'}</dd>
+              <dd>{npwpMaster || '—'}</dd>
               <dt>BL Indicated</dt>
               <dd style={{ whiteSpace: 'pre-wrap' }}>{si.blIndicated || 'CLEAN SHIPPED ON BOARD FREIGHT PREPAID'}</dd>
             </dl>

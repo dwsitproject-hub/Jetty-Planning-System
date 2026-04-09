@@ -19,28 +19,29 @@ import { useRbac } from '../context/RbacContext'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 
-/** Unified flow for both Loading and Unloading */
-const UNIFIED_PHASES = ['Shipping Instruction', 'Allocation', 'Berthing', 'Pre Checking', 'Operational', 'Post Checking', 'Clearance']
+/** Standardized pipeline flow (match Dashboard Vessel pipeline) */
+const UNIFIED_PHASES = ['Shipping Instruction', 'Planned berthing', 'At-Berth', 'Clearance']
 
 const PHASE_ROUTES = {
   'Shipping Instruction': '/shipping-instruction',
-  'Allocation': '/allocation',
-  'Berthing': '/allocation',
-  'Pre Checking': '/loading',
-  'Operational': '/loading',
-  'Post Checking': '/loading',
+  'Planned berthing': '/allocation',
   'Clearance': '/verification',
 }
 
-function getPhaseLink(label, vesselId, purpose) {
-  const base = PHASE_ROUTES[label] || '#'
-  if (!vesselId) return base
-  if (label === 'Pre Checking' || label === 'Operational' || label === 'Post Checking') {
-    const unloadBase = '/unloading'
-    return purpose === 'Unloading' ? `${unloadBase}${vesselId ? `/${vesselId}` : ''}` : `${base}/${vesselId}`
+function getPhaseLink(label, vessel) {
+  if (label === 'At-Berth') {
+    const opId = vessel?.operationId
+    if (!opId) return null
+    const purpose = String(vessel?.purpose || '').trim()
+    const base = purpose === 'Unloading' ? '/unloading' : '/loading'
+    return `${base}/op-${opId}/pre-checking`
   }
-  if (label === 'Clearance') return base
-  return base
+  return PHASE_ROUTES[label] || '#'
+}
+
+function isVesselReadyToSail(vessel) {
+  const opStatus = String(vessel?.status || '').toUpperCase()
+  return opStatus === 'COMPLETED' || Boolean(vessel?.actualCompletionDateTime)
 }
 
 const PRIORITY_OPTIONS = ['Low', 'Moderate', 'High', 'Critical']
@@ -129,14 +130,17 @@ function formatVesselRecordLastUpdatedLine(vessel) {
 
 function deriveCurrentPhaseIndex(vessel) {
   const siDone = Boolean(vessel?.shippingInstructionId)
-  const allocationDone = Boolean((vessel?.jetty || '').trim())
-  const berthingDone = Boolean(vessel?.tbDateTime)
+  const plannedBerthingDone = Boolean((vessel?.jetty || '').trim())
+  const atBerthDone = Boolean(vessel?.tbDateTime)
+  // Clearance interpreted as "Ready to sail" (consistent with Dashboard ready/completed).
+  const readyToSail = isVesselReadyToSail(vessel)
 
-  if (!siDone) return 0
-  if (!allocationDone) return 1
-  if (!berthingDone) return 2
-  // Pre/Operational/Post/Clearance are intentionally deferred for now.
-  return 3
+  if (!siDone) return 0 // Shipping Instruction
+  if (!plannedBerthingDone) return 1 // Planned berthing
+  // At-Berth stays "in progress" until Ready-to-sail.
+  if (!atBerthDone) return 2 // At-Berth (not started / in progress until TB recorded)
+  if (!readyToSail) return 2 // At-Berth (still in progress)
+  return 3 // Clearance (in progress/done depending on downstream meaning)
 }
 
 function getBerthingPlanStatus(row) {
@@ -1242,10 +1246,10 @@ export default function Allocation() {
             {(() => {
               const vesselRow = list.find((r) => r.vesselId === vesselDetailModalVesselId)
               const vessel = vesselRow || null
-              const purpose = (vessel?.purpose ?? '').toString().trim()
               const phases = UNIFIED_PHASES
               const currentPhaseIndex = deriveCurrentPhaseIndex(vessel)
               const currentPhaseLabel = phases[Math.min(Math.max(currentPhaseIndex, 0), phases.length - 1)] || '—'
+              const readyToSail = isVesselReadyToSail(vessel)
               const formatDateTime = (val) => {
                 if (val == null || val === '') return '—'
                 if (typeof val === 'string' && val.includes('T')) return new Date(val).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
@@ -1308,7 +1312,7 @@ export default function Allocation() {
                   </section>
 
                   <section className="berthing-modal__card">
-                    <h3 className="berthing-modal__card-title">Current Phase</h3>
+                    <h3 className="berthing-modal__card-title">Vessel pipeline</h3>
                     <p className="phase-stepper__current-text">Current: {currentPhaseLabel}</p>
                     <p className="phase-stepper__hint" aria-label="Phase status legend">
                       <span className="phase-stepper__hint-item phase-stepper__hint-item--completed">Done</span>
@@ -1320,7 +1324,15 @@ export default function Allocation() {
                         const isCompleted = index < currentPhaseIndex
                         const isCurrent = index === currentPhaseIndex
                         const state = isCompleted ? 'completed' : isCurrent ? 'in-progress' : 'not-started'
-                        const isPlainStep = label === 'Allocation' || label === 'Berthing'
+                        const isClearance = label === 'Clearance'
+                        const to = label === 'Shipping Instruction' ? null : getPhaseLink(label, vessel)
+                        const disabled =
+                          // At-Berth deep link requires an operation id.
+                          (label === 'At-Berth' && !vessel?.operationId) ||
+                          // Clearance should not be clickable until ready to sail.
+                          (isClearance && !readyToSail) ||
+                          // If we couldn't resolve a route, disable.
+                          !to
                         const content = label === 'Shipping Instruction' ? (
                           <button
                             type="button"
@@ -1335,10 +1347,15 @@ export default function Allocation() {
                           >
                             {label}
                           </button>
-                        ) : isPlainStep ? (
-                          <span className="phase-stepper__step-label">{label}</span>
                         ) : (
-                          <Link to={getPhaseLink(label, vessel?.operationId || vessel?.shippingInstructionId, purpose) || '#'} className="phase-stepper__step-label phase-stepper__step-label--link">
+                          <Link
+                            to={disabled ? '#' : to}
+                            className={`phase-stepper__step-label phase-stepper__step-label--link${disabled ? ' disabled' : ''}`}
+                            aria-disabled={disabled}
+                            onClick={(e) => {
+                              if (disabled) e.preventDefault()
+                            }}
+                          >
                             {label}
                           </Link>
                         )
