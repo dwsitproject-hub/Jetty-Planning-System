@@ -41,7 +41,9 @@ function getPhaseLink(label, vessel) {
 
 function isVesselReadyToSail(vessel) {
   const opStatus = String(vessel?.status || '').toUpperCase()
-  return opStatus === 'COMPLETED' || Boolean(vessel?.actualCompletionDateTime)
+  return (
+    ['SIGNOFF_REQUESTED', 'SIGNOFF_APPROVED'].includes(opStatus) || Boolean(vessel?.actualCompletionDateTime)
+  )
 }
 
 const PRIORITY_OPTIONS = ['Low', 'Moderate', 'High', 'Critical']
@@ -147,7 +149,14 @@ function getBerthingPlanStatus(row) {
   if (row?.shiftingOut) return 'incoming'
   const hasTb = Boolean(row?.tbDateTime)
   const opStatus = String(row?.status || '').toUpperCase()
-  if (hasTb || opStatus === 'DOCKED' || opStatus === 'IN_PROGRESS' || opStatus === 'COMPLETED') {
+  if (
+    hasTb ||
+    opStatus === 'DOCKED' ||
+    opStatus === 'IN_PROGRESS' ||
+    opStatus === 'POST_OPS' ||
+    opStatus === 'SIGNOFF_REQUESTED' ||
+    opStatus === 'SIGNOFF_APPROVED'
+  ) {
     return 'berthed'
   }
   return 'incoming'

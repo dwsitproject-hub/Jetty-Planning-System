@@ -67,6 +67,34 @@ function PermissionRow({ label, perm, onChange }) {
   )
 }
 
+/** Inline under Loading / Unloading: final operation sign-off (after request). */
+function LoadingOperationSignoffApproveSubrow({ perm, onToggleApprove }) {
+  return (
+    <tr className="admin-permission-table__si-subrow">
+      <td colSpan={4}>
+        <label className="admin-permission-table__si-approve-label">
+          <span className="admin-permission-table__si-subindent" aria-hidden>
+            ↳
+          </span>
+          <input
+            type="checkbox"
+            checked={!!perm.approve}
+            onChange={(e) => onToggleApprove(e.target.checked)}
+            aria-label="Approve operation sign-off (Loading / Unloading)"
+          />
+          <span className="admin-permission-table__si-approve-text">
+            <strong>Approve operation sign-off</strong>
+            <span className="admin-permission-table__si-approve-hint">
+              {' '}
+              — final sign-off after a request; vessel moves to Clearance (Ready to Sail). Separate from Edit above.
+            </span>
+          </span>
+        </label>
+      </td>
+    </tr>
+  )
+}
+
 /** Inline under Shipping Instruction only: internal Loading SI sign-off. */
 function ShippingInstructionApproveSubrow({ perm, onToggleApprove }) {
   return (
@@ -632,6 +660,12 @@ export default function AdminRoles() {
                                 perm={perm}
                                 onChange={(pUpd) => updatePerm('page', p.id, pUpd)}
                               />
+                              {p.id === 'loading' && (
+                                <LoadingOperationSignoffApproveSubrow
+                                  perm={perm}
+                                  onToggleApprove={(approve) => updatePerm('page', 'loading', { ...perm, approve })}
+                                />
+                              )}
                               {p.id === 'shipping-instruction' && (
                                 <ShippingInstructionApproveSubrow
                                   perm={perm}
@@ -807,6 +841,19 @@ export default function AdminRoles() {
                                                 />
                                               </td>
                                             </tr>
+                                            {row.key === 'loading' && (
+                                              <tr className="admin-permission-table__si-subrow admin-permission-table__si-subrow--readonly">
+                                                <td colSpan={4}>
+                                                  <span className="admin-permission-table__si-subindent" aria-hidden>
+                                                    ↳
+                                                  </span>
+                                                  <span className="text-steel">
+                                                    Approve operation sign-off:{' '}
+                                                    <strong>{row.approve ? 'Yes' : 'No'}</strong>
+                                                  </span>
+                                                </td>
+                                              </tr>
+                                            )}
                                             {row.key === 'shipping-instruction' && (
                                               <tr className="admin-permission-table__si-subrow admin-permission-table__si-subrow--readonly">
                                                 <td colSpan={4}>

@@ -1,9 +1,9 @@
 # Functional specification — Jetty schedule Gantt & arrival updates
 
 **Product:** Jetty Planning & Monitoring System (JPS)  
-**Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
+**Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.18 (see document history at end).
+**Version:** 1.23 (see document history at end).
 
 ---
 
@@ -16,6 +16,7 @@ This document describes **behaviour that is implemented in code**, including:
 - **Confirm Berthing** saving arrival-related fields (including estimated completion) to the backend.
 - Related **cosmetic** behaviour on the Gantt (reset control, intro area, removal of a confusing planned segment).
 - **At-Berth Executions** list: what the user sees, which data it reflects, columns, expandable details, and summary cards.
+- **Operation sign-off** after at-berth work: request vs approve (RBAC), and **Clearance** queue (**§9.2**).
 - **Date/time labels** shown in the UI (no misleading “LT” suffix; consistent formatting where the shared formatter is used).
 - **Multi-port sign-in and shell:** dedicated **Choose port** page, session-stored active port, and header behaviour (**§14.1**).
 - **Shifting out & re-dock:** temporarily treating a **berthed** operation as **not occupying** the jetty (for double-bank / priority preemption) while **preserving** operation history and TB/TA; coordinated **remark** capture, success messaging, and activity log (**§2.5**).
@@ -96,7 +97,7 @@ Technical contract (endpoints, columns, persistence order): **TECH-SPEC-Jetty-Pl
 | Area | Behaviour |
 |------|------------|
 | **Where** | **Demurrage Risk Calculator** in the main nav (RBAC page key `demurrage-risk-calculator`). |
-| **Choose voyage** | User filters by **date range** (ETA overlap) and checkboxes **Incoming** / **Berthed**, then **Apply**. These labels match **Allocation → Incoming vessel & berthing plan**: **Incoming** includes SIs with **no** active non-`SAILED` operation **or** an operation that is **not yet “berthed”** in that sense (e.g. `PENDING` / `ALLOCATED` without TB, **including operation with no jetty**); **Berthed** requires TB or status **DOCKED** / **IN_PROGRESS** / **COMPLETED** (and not **shift-out**). |
+| **Choose voyage** | User filters by **date range** (ETA overlap) and checkboxes **Incoming** / **Berthed**, then **Apply**. These labels match **Allocation → Incoming vessel & berthing plan**: **Incoming** includes SIs with **no** active non-`SAILED` operation **or** an operation that is **not yet “berthed”** in that sense (e.g. `PENDING` / `ALLOCATED` without TB, **including operation with no jetty**); **Berthed** requires TB or status **DOCKED** / **IN_PROGRESS** / **POST_OPS** / **SIGNOFF_REQUESTED** / **SIGNOFF_APPROVED** (and not **shift-out**). |
 | **List row** | **Vessel · SI reference · Incoming \| Berthed · [jetty name when set] · commodity** (jetty from allocated operation when present). |
 | **Voyage context** | **Read-only** panel: **Purpose**, **commodity line** (first breakdown line in **MT** if any, else line 1), **volume (MT)** when applicable, **start for calculation** (operation docking start, else SI ETA), **master rate** (from commodity master for loading/unloading). Link to **Shipping Instruction** for edits — users do **not** change commodity, volume, purpose, or start time on this page. |
 | **Scenario** | **Throughput buffer** (multiplier on standard rate) with **Reset to default** (from SLA config). If the user changes buffer after running **Estimate**, a short reminder prompts **Estimate** again. **Advanced** (collapsed by default) exposes **Override rate** when master rate is missing or unsuitable (e.g. KLPH). |
@@ -114,7 +115,7 @@ Technical contract (endpoints, columns, persistence order): **TECH-SPEC-Jetty-Pl
 | **Dashboard — awaiting berth widget** | Removed. **Planned berthing** in the **Vessel pipeline** is the single indicator for “jetty assigned, not yet alongside” (see pipeline sublabel). |
 | **Dashboard — jetty status** | The KPI grid includes a **Jetty status** card showing **Available** and **Out of Service** counts. Counts come from **`GET /jetties?port_id=…`**. Hover or keyboard focus on each status chip shows a tooltip listing the jetties in that bucket. |
 | **Dashboard — SLA at risk** | The KPI **SLA at risk** shows a count of operations past estimated completion. Hover or keyboard focus on the KPI value shows a tooltip listing `Vessel Name, Jetty No, +Xh over ETC` for each risk item (same items as the “SLA & schedule risk” list). |
-| **Dashboard — performance** | The Dashboard includes a **Performance** card (non‑SLA) with a toggle **24h / 7d** and three KPIs computed from Allocation overview timestamps: **Waiting to berth** (median **TA→TB**), **Turnaround** (median **TB→Cast‑off**, fallback **TB→Actual completion** when cast‑off is missing), and **On‑time berthing** (% where **TB ≤ planned ETB + 6h**). Each KPI supports hover/keyboard tooltip drill‑down showing the worst/late cases in the selected window (vessel, jetty, duration). |
+| **Dashboard — performance** | The Dashboard includes a **Performance** card (non‑SLA) with a toggle **24h / 7d** and three KPIs: **Waiting to berth** (median **TA→TB**, from allocation overview queue), **Turnaround** (median **TB→Cast‑off**, fallback **TB→Actual completion**; computed from operations so **sailed vessels are included**), and **On‑time berthing** (% where **TB ≤ planned ETB + 6h**, from allocation overview queue). Each KPI supports hover/keyboard tooltip drill‑down showing the worst/late cases in the selected window (vessel, jetty, duration). |
 | **Master — Preferred Jetty** | Users set **Operational status** (**Available** / **Out of Service**) in the add/edit modal. **Out of Service** cannot be saved while a **blocking** operation still uses that jetty (**non-SAILED**, **`shifting_out` false**); the API returns **409** and the UI explains planners must **reassign or complete** on **Allocation & Berthing** first. New jetties default to **Available**; non-default status on create is applied via a follow-up status call. |
 | **Allocation — copy & validation** | Short intro under **Incoming vessel & berthing plan** states that **out of service** jetties cannot receive new allocations. **Log arrival update**, **Confirm Berthing**, and **Active Vessel Detail** saves that assign a **resolved** jetty whose overview berth is **Out of Service** are **blocked client-side** with RBAC-aware wording (users **with** master-jetty view are pointed to **Master – Preferred Jetty**; others to **contact an admin**). Server **409** on `PUT /allocation/arrival` enforces the same. |
 | **Allocation — queue table** | Jetty column may show a small **OOS** badge when the row’s jetty maps to an out-of-service berth in overview (e.g. legacy assignment). |
@@ -246,6 +247,8 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | SI candidates + port/sailed rules | `Backend/src/routes/shipping-instructions.js` — `GET /shipping-instructions/candidates` |
 | Save estimation of completion | `Frontend/src/api/operations.js` → `PUT /operations/:id/estimated-completion`; `Backend/src/routes/operations.js` |
 | DB — operations estimated completion | Migrations defining `operations.estimated_completion_time` (e.g. `Backend/migrations/004_shipping_operations_tables.sql` and related) |
+| Operation sign-off (request → approve) + Clearance pending queue | `Frontend/src/pages/Loading.jsx`, `Frontend/src/pages/Verification.jsx`, `Frontend/src/api/operations.js`; `Backend/src/routes/operations.js` (`POST .../signoff-request`, `POST .../signoff`, `GET .../pending-signoff-requests`); `Backend/migrations/049_operations_signoff_request.sql`; RBAC sub-row **Approve operation sign-off** — `Frontend/src/pages/AdminRoles.jsx`. Plan: **Docs/Plan/OPERATION-SIGNOFF-REQUEST-AND-APPROVAL-PLAN.md**. |
+| Stage tabs: Pre/Post **`— / n`** until persisted load (Case A, Option A) | `Frontend/src/pages/Loading.jsx` (`StageTabs`, `preCheckPersistHydrated` / `postCheckPersistHydrated`, `onPersistedHydrationDone`). Plan: **Docs/Plan/AT-BERTH-TWO-LEVEL-PHASE-AND-WORKSPACE-STAGE-PLAN.md**. |
 
 ---
 
@@ -263,8 +266,8 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | Area | Behaviour |
 |------|-----------|
 | **Purpose** | Operators see vessels that are **berthed** (same notion as the **Berthed** filter on “Incoming vessel & berthing plan”) and open the **operation** workspace. |
-| **Data source** | The table and **Full details** use the **same queue** as Allocation: **`GET /allocation/overview`** (`queue`), **not** a separate at-berth-only list. Rows shown are those with an **operation** and **berthed** status (e.g. TB recorded, or operation status DOCKED / IN_PROGRESS / COMPLETED per the same rules as Allocation). Rows with **shift-out** active are **excluded** from this list (they behave as **incoming** in Allocation until re-dock). |
-| **Summary cards** | Two groups — **Loading** and **Unloading** — each with counts for **Pre-Checking**, **Operational**, **Post-Checking**. Phase is **derived from operation status** (e.g. IN_PROGRESS → Operational, COMPLETED → Post-Checking, else Pre-Checking). |
+| **Data source** | The table and **Full details** use the **same queue** as Allocation: **`GET /allocation/overview`** (`queue`), **not** a separate at-berth-only list. Rows shown are those with an **operation** and **berthed** status (e.g. TB recorded, or operation status DOCKED / IN_PROGRESS / POST_OPS / SIGNOFF_REQUESTED / SIGNOFF_APPROVED per the same rules as Allocation). Rows with **shift-out** active are **excluded** from this list (they behave as **incoming** in Allocation until re-dock). |
+| **Summary cards** | Two groups — **Loading** and **Unloading** — each with counts for **Pre-Checking**, **Operational**, **Post-Checking**, **Ready to Sail**, **Signed off**. Phase is **derived from operation status** (e.g. IN_PROGRESS → Operational, POST_OPS → Post-Checking, SIGNOFF_REQUESTED → Ready to Sail, SIGNOFF_APPROVED → Signed off, else Pre-Checking). |
 | **Tabs** | **All / Loading / Unloading** filter the table; summary always reflects all berthed rows. |
 | **Table columns** | **Vessel**, **SI** (reference only), **Commodity** (separate from SI), **Purpose**, **Jetty**, **TA**, **TB**, **Phase**, **Status**. |
 | **Expand row** | Same interaction pattern as **Incoming vessel & berthing plan**: expand column + row click toggles **Full details**. |
@@ -272,6 +275,7 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | **Action** | **Open** → `/{loading|unloading}/:vesselId` (purpose-based hub entry; API-backed rows may use `op-<operationId>` vessel id form). **Shifting Out** / **Undo Shift Out** → see **§2.5** (modal + required remark for shift-out; **Undo** clears shift-out without modal). |
 | **Removed from page** | Intro line (“Live data from GET…”) and **Refresh** button; list still loads on visit. |
 | **Layout** | Loading / Unloading summary groups use a **two-column** grid on wide screens so phase cards do not overlap. |
+| **Detailed executions log** | In the Loading/Unloading operation workspace, the **Detailed At-Berth Executions Log** lists operational milestones, operational activities, and Pre-/Post-Checking sub-process rows. **Start time**, **End time**, and **Duration** use the same formatting rules for **operational activities** and **sub-process** rows when the backend supplies a closed interval (`start_at` / `end_at` on sub-processes, or activity start/end). If only a single instant is recorded (no end), **End** and **Duration** show **—**. |
 
 **Allocation — incoming & re-dock:** When an operation is shifted out, it appears under the **Incoming** plan status with a **Shifted** badge; **Re-dock** opens the same confirmation + remark pattern as shift-out. After re-dock, the voyage can appear again under **Berthed** when the existing rules say it is berthed.
 
@@ -312,6 +316,36 @@ This section documents UI behaviour implemented in `Frontend/src/pages/Loading.j
 
 - Collapse controls are rendered consistently in the rail headers and use non-SVG chevrons to avoid platform-specific SVG rendering quirks.
 
+### 9.1.5 Stage tabs — progress counts (API-backed operations)
+
+The horizontal **Pre-Checking / Operational / Post-Checking** stage tabs show **`done / total complete`** for each stage.
+
+- **Pre-Checking** and **Post-Checking** persisted sub-process data is loaded when the user visits that stage (lazy load). Until that load has **finished** (success or error), the tab shows **`— / n complete`** instead of **`0 / n complete`**, so users are not misled into thinking no work has been recorded.
+- **Operational** uses the operational-activities load path; it does not use this unknown state for the count line.
+- **Mock / demo** vessel routes (not API-backed) do not show the unknown state.
+
+Cross-ref: **TECH-SPEC §2.2.4**; plan **Docs/Plan/AT-BERTH-TWO-LEVEL-PHASE-AND-WORKSPACE-STAGE-PLAN.md** (Case A, Option A).
+
+## 9.2 Operation sign-off → Clearance (Ready to Sail)
+
+Completing **Pre-Checking**, **Operational**, and **Post-Checking** in the hub (stage tabs **7/7**, **4/4**, **3/3** when all sub-process / activity data is **Done** — with Pre/Post numeric counts only after each stage’s data has been loaded; see **§9.1.5**) advances **`operations.status`** via **auto-promotions** (e.g. operational work → **IN_PROGRESS**, Post-Checking completion → **POST_OPS**). A separate **operation sign-off** flow (similar in spirit to Shipping Instruction **submit → approve**) gates the move from **POST_OPS** to **Clearance**.
+
+| Step | Who | What the user sees |
+|------|-----|-------------------|
+| **1. Request** | Users with **Edit** on **Loading / Unloading** | When all three stages are complete and the operation is **POST_OPS**, the **Operation sign-off** card offers **Request operation sign-off** (optional remark). The server accepts the request only if the same **eligibility rules** as final sign-off are met at that moment (e.g. **completion 100%**, QC / quantity gates — see **TECH-SPEC §3.3**). |
+| **2. Pending** | Anyone with hub access | The card shows **Sign-off requested** (time, requester, remark) and directs users to **Open Clearance** for approval handling. Status is **SIGNOFF_REQUESTED**. |
+| **3. Approve (sign off)** | Users with **Approve operation sign-off** on **Loading / Unloading** (configured in **Admin → Roles**, same pattern as **Approve internal SI**) | Approval is performed from **Clearance** (not from the Loading/Unloading hub). On approval, the operation becomes **SIGNOFF_APPROVED** and appears on **Clearance** under **Ready to Sail** (signed off, awaiting depart). |
+| **4. Clearance** | Clearance users | **Clearance** (`/verification`) lists **Ready to Sail** (**SIGNOFF_APPROVED**) and **Sailed** as before. A **Pending sign-off** filter shows vessels awaiting step 3; approvers can **Open operation** (deep link to the hub) or **Sign off** from the table. |
+| **5. Depart** | Unchanged | **Record depart** after **SIGNOFF_APPROVED**, as today. |
+
+**Product rules**
+
+- **Request** and **approve** are separate permissions; operators can request without being able to approve.
+- **Duplicate request** while one is already pending is blocked by the API.
+- **Audit:** Activity log records request and sign-off (see **TECH-SPEC** for `pageKey` and fields).
+
+Technical contract: **TECH-SPEC-Jetty-Planning-System.md §3.3** (routes, RBAC, `operations.signoff_*` columns). Detailed UX wireframes: **Docs/Plan/OPERATION-SIGNOFF-REQUEST-AND-APPROVAL-PLAN.md** §10.
+
 ## 10. Date and time display (user-facing)
 
 | Rule | Behaviour |
@@ -345,6 +379,11 @@ This section documents UI behaviour implemented in `Frontend/src/pages/Loading.j
 | 1.15 | 2026-04-07 | **§2.7** Dashboard **slot occupancy** (capacity-aware, excludes OOS jetties from denominator); remove **Awaiting berth** sidebar; **Master** jetty operational status in UI; **OOS** blocked when operations still use jetty; Allocation **OOS** validation + schematic/Gantt/table cues; **§2.1** Gantt OOS lane styling. TECH-SPEC §2.3, §3.5. See **Docs/Plan/SLOT-OCCUPANCY-JETTY-OOS-DASHBOARD-PLAN.md**. |
 | 1.17 | 2026-04-08 | **§2.7** **Port activity** chart (Operations vs Shipping instructions toggle); **weather** moved to page footer. **§7** implementation map. Cross-ref **Docs/Plan/DASHBOARD-ACTIVITY-CHART-PLAN.md** and TECH-SPEC §2.3. |
 | 1.18 | 2026-04-08 | **§2.7** Port activity: **Y-axis** count scale + grid; **hover/focus tooltip** with vessel name lists per bar. TECH-SPEC §2.3. See **Docs/Plan/DASHBOARD-ACTIVITY-CHART-PLAN.md** §10. |
+| 1.19 | 2026-04-09 | **§9** Detailed At-Berth Executions Log: Pre/Post sub-process rows show **Start / End / Duration** when interval data exists (aligned with operational rows). Cross-ref **Docs/Plan/AT-BERTH-EXECUTIONS-LOG-TIMES-FIX-PLAN.md** (fixed) and TECH-SPEC §3.4A. |
+| 1.20 | 2026-04-10 | **§9.2** Operation **sign-off request** (Loading **Edit**) and **approve** (Loading **Approve operation sign-off**); **Clearance** **Pending sign-off** queue; **§7** implementation map. DB migration **049**. TECH-SPEC §3.3. Cross-ref **Docs/Plan/OPERATION-SIGNOFF-REQUEST-AND-APPROVAL-PLAN.md**. |
+| 1.21 | 2026-04-10 | **§9.1.5** Loading/Unloading **stage tab** counts: **`— / n complete`** for Pre-Checking and Post-Checking until that stage’s persisted fetch has settled (Option A — avoids misleading **0/n** before lazy load). TECH-SPEC §2.2.4. Cross-ref **Docs/Plan/AT-BERTH-TWO-LEVEL-PHASE-AND-WORKSPACE-STAGE-PLAN.md** (Case A implemented). |
+| 1.22 | 2026-04-10 | Post-Checking save hardening for sub-process times (explicit timestamp payload / range guard), sign-off approval entry restricted to **Clearance** (hub keeps request + pending visibility), Dashboard clearance card renamed **Pending Sign Off** and bound to **SIGNOFF_REQUESTED**, and Performance **Turnaround** now includes **sailed** vessels in median calculation. |
+| 1.23 | 2026-04-10 | Shipping Instruction create/edit forms: **Agent** selector is now available in **Party & Port** for both **Loading** and **Unloading**. |
 
 ---
 
@@ -476,7 +515,7 @@ This script truncates **transactional tables only** (operations/SI/workflow data
 |------|-----------|
 | **Extra draft fields** | Optional: **voyage no.**, **document date**, **destination**, **freight terms** (PREPAID / COLLECT / AS PER CHARTER PARTY / OTHER), **B/L clause**, **consignee**, **notify party**, **BL indicated**. |
 | **Purpose-first form** | In **Create Vessel Trip / New Shipping Instruction**, user must choose **Purpose** (**Loading** or **Unloading**) first; until selected, the rest of the form is disabled. |
-| **Loading vs Unloading field sets** | **Loading** shows Route/Freight + B/L fields; **Unloading** hides those and instead shows **Term** (trade term) under Party & Port. Both use the same submit/approval pipeline. |
+| **Loading vs Unloading field sets** | **Loading** shows Route/Freight + B/L fields; **Unloading** hides those and instead shows **Term** (trade term) under Party & Port. **Agent** is available under **Party & Port** for both Loading and Unloading forms. Both use the same submit/approval pipeline. |
 | **B/L split text** | Create/edit modal provides an editable **B/L Split** textarea (not auto-generated), persisted on the SI record and shown on the document view. |
 | **NPWP (read-only)** | NPWP is **not** a free-text SI field. The UI shows NPWP as **read-only** from a **per-port master** (based on the active selected port). |
 | **Submit for approval** | **Request approval** calls the API to set status **Submitted** (not only local UI state). |

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Link, useParams, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import {
   vessels,
@@ -25,6 +25,7 @@ import {
   fetchOperationalActivities,
   fetchNorDetails,
   updateNorDetails,
+  signoffRequest,
 } from '../api/operations'
 import { resolveUploadUrl } from '../api/client'
 import {
@@ -40,6 +41,7 @@ import OperationalMilestoneWorkspace from '../components/OperationalMilestoneWor
 import OperationActivityTimeline from '../components/OperationActivityTimeline'
 import { operationalMilestoneDoneCount, viewModelFromOperationalEntries } from '../data/operationalMilestones'
 import '../styles/allocation.css'
+import { useRbac } from '../context/RbacContext'
 
 function readBool(key, fallback = false) {
   try {
@@ -76,11 +78,12 @@ function getNowForDateTimeLocal() {
   return `${y}-${m}-${day}T${h}:${min}`
 }
 
-/** API ISO or datetime-local prefix → `yyyy-mm-ddThh:mm` for inputs */
+/** API ISO or datetime-local → `yyyy-mm-ddThh:mm` for `<input type="datetime-local" />` */
 function isoOrDatetimeToLocal(value) {
   if (value == null || value === '') return ''
   const s = String(value).trim()
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) return s.slice(0, 16)
+  // Only pass through values that are already local wall time with no zone (not a prefix of ISO+Z).
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) return s
   const d = new Date(s)
   if (Number.isNaN(d.getTime())) return ''
   const y = d.getFullYear()
@@ -179,6 +182,204 @@ function inferPostcheckStatus(_sectionKey, item = {}) {
   if (hasResult || hasTimes) return 'Done'
   if (hasDocs) return 'In Progress'
   return 'Not Started'
+}
+
+const PRE_CHECK_STAGE_KEYS = [
+  'keyMeeting',
+  'norAccepted',
+  'tankInspection',
+  'holdInspection',
+  'sampling',
+  'initialSounding',
+  'initialDraftSurvey',
+]
+const POST_CHECK_STAGE_IDS = ['finalTankInspection', 'finalHoldInspection', 'finalSounding']
+
+/** Aligns with stage tabs (7/7, 4/4, 3/3) for operation sign-off CTA visibility. */
+function computeAllStagesComplete({
+  vesselId,
+  purpose,
+  operationId,
+  apiOperationalVm,
+  getPreChecking,
+  getPostChecking,
+  getLoadingOperation,
+}) {
+  if (!vesselId) return false
+  const preData = getPreChecking(vesselId) || {}
+  const preDone = PRE_CHECK_STAGE_KEYS.filter((k) => inferPrecheckStatus(k, preData[k] || {}) === 'Done').length
+  if (preDone < PRE_CHECK_STAGE_KEYS.length) return false
+
+  const milestoneList = purpose === 'Unloading' ? UNLOADING_ACTIVITY_CATEGORIES : LOADING_ACTIVITY_CATEGORIES
+  const loadingOpProgress = getLoadingOperation(vesselId) || { activities: [], milestoneNa: {} }
+  const operationalDone = operationId
+    ? operationalMilestoneDoneCount(purpose, apiOperationalVm.activities, apiOperationalVm.naByLabel)
+    : (() => {
+        const naProgress = loadingOpProgress.milestoneNa || {}
+        return milestoneList.filter((cat) => {
+          if (naProgress[cat]?.reason) return true
+          return (loadingOpProgress.activities || []).some((a) => a.category === cat)
+        }).length
+      })()
+  if (operationalDone < milestoneList.length) return false
+
+  const postData = getPostChecking(vesselId) || {}
+  const postDone = POST_CHECK_STAGE_IDS.filter(
+    (k) => inferPostcheckStatus(k, postData[k] || {}) === 'Done'
+  ).length
+  return postDone >= POST_CHECK_STAGE_IDS.length
+}
+
+function OperationSignoffBanner({
+  apiOp,
+  operationId,
+  allStagesComplete,
+  canEditLoading,
+  canApproveLoading,
+  onOperationUpdated,
+}) {
+  const [requestOpen, setRequestOpen] = useState(false)
+  const [remark, setRemark] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState(null)
+
+  if (!apiOp || !operationId) return null
+  const st = String(apiOp.status || '')
+  if (st === 'SIGNOFF_APPROVED' || st === 'SAILED') return null
+  if (!['DOCKED', 'IN_PROGRESS', 'POST_OPS', 'SIGNOFF_REQUESTED'].includes(st)) return null
+
+  const pending = st === 'SIGNOFF_REQUESTED' || Boolean(apiOp.signoffRequestedAt)
+  const showRequestCta = st === 'POST_OPS' && allStagesComplete && !pending && canEditLoading
+  const showApproveCta = pending && canApproveLoading
+
+  const parseApiError = (e) => (e?.body && typeof e.body === 'object' && e.body.error) || e?.message || 'Request failed'
+
+  const submitRequest = async () => {
+    setErr(null)
+    setBusy(true)
+    try {
+      const updated = await signoffRequest(operationId, remark)
+      onOperationUpdated?.(updated)
+      setRequestOpen(false)
+      setRemark('')
+    } catch (e) {
+      setErr(parseApiError(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!showRequestCta && !pending && !showApproveCta) {
+    if (allStagesComplete && !canEditLoading) {
+      return (
+        <section className="card" style={{ marginTop: 'var(--spacing-3)' }}>
+          <p className="text-steel">
+            All stages are complete. Your role cannot submit a sign-off request (Loading / Unloading <strong>Edit</strong> required).
+          </p>
+        </section>
+      )
+    }
+    return null
+  }
+
+  return (
+    <>
+      <section
+        className="card"
+        style={{
+          marginTop: 'var(--spacing-3)',
+          borderLeft: '4px solid var(--accent-500, #c45c26)',
+        }}
+      >
+        <h2 className="card__title" style={{ fontSize: '1.05rem' }}>
+          Operation sign-off
+        </h2>
+        {pending ? (
+          <div>
+            <p>
+              <strong>Sign-off requested</strong>
+              {apiOp.signoffRequestedAt ? ` · ${formatDateTimeDisplay(apiOp.signoffRequestedAt)}` : ''}
+              {apiOp.signoffRequestedByUsername ? ` · ${apiOp.signoffRequestedByUsername}` : ''}
+            </p>
+            {apiOp.signoffRequestRemark ? (
+              <p className="text-steel" style={{ marginTop: 'var(--spacing-1)' }}>
+                Remark: {apiOp.signoffRequestRemark}
+              </p>
+            ) : null}
+            <p className="text-steel" style={{ marginTop: 'var(--spacing-2)' }}>
+              An approver with <strong>Approve operation sign-off</strong> on Loading / Unloading must sign off before the vessel appears under Ready to Sail on Clearance.
+            </p>
+            <div style={{ marginTop: 'var(--spacing-2)', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              <Link to="/verification" className="btn btn--ghost btn--small">
+                Open Clearance
+              </Link>
+            </div>
+            {!showApproveCta ? (
+              <p className="text-steel" style={{ marginTop: 'var(--spacing-2)' }}>
+                You do not have approval permission for this action.
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <div>
+            <p className="text-steel" style={{ marginBottom: 'var(--spacing-2)' }}>
+              Post-checking and earlier stages are complete. Request sign-off to hand the operation to an approver; after approval the vessel will appear on Clearance (Ready to Sail).
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              <button type="button" className="btn btn--primary" onClick={() => { setErr(null); setRequestOpen(true) }}>
+                Request operation sign-off
+              </button>
+              <Link to="/verification" className="btn btn--ghost btn--small">
+                Clearance
+              </Link>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {requestOpen && (
+        <div className="modal-overlay" onClick={() => !busy && setRequestOpen(false)} aria-hidden="true">
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="signoff-req-title"
+          >
+            <h2 id="signoff-req-title" className="modal__title">
+              Request operation sign-off
+            </h2>
+            <p className="text-steel">
+              This notifies approvers. The operation must still meet completion rules (e.g. completion 100%, QC) — the server will reject the request if not eligible.
+            </p>
+            <div className="modal__section">
+              <label htmlFor="signoff-req-remark" className="modal__label">
+                Remark (optional)
+              </label>
+              <textarea
+                id="signoff-req-remark"
+                className="modal__textarea"
+                rows={3}
+                value={remark}
+                onChange={(e) => setRemark(e.target.value)}
+                disabled={busy}
+              />
+            </div>
+            {err ? <p style={{ color: 'var(--danger-600, #c00)' }}>{err}</p> : null}
+            <div className="modal__footer" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+              <button type="button" className="btn btn--secondary" onClick={() => setRequestOpen(false)} disabled={busy}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn--primary" onClick={submitRequest} disabled={busy}>
+                {busy ? 'Submitting…' : 'Submit request'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </>
+  )
 }
 
 function VesselDetailCard({ detail }) {
@@ -301,8 +502,55 @@ export default function Loading() {
   const purposeMismatch = Boolean(apiOp && apiPurpose !== purpose)
   const operationId = apiOp?.id ?? (shouldFetchOp ? opNumericId : null)
 
+  /** Option A: Pre/Post stage counts stay "unknown" until that tab's persisted fetch has run (avoids misleading 0/7, 0/3). */
+  const [preCheckPersistHydrated, setPreCheckPersistHydrated] = useState(true)
+  const [postCheckPersistHydrated, setPostCheckPersistHydrated] = useState(true)
+
+  useEffect(() => {
+    if (!operationId || mockMatchesRoutePurpose) {
+      setPreCheckPersistHydrated(true)
+      setPostCheckPersistHydrated(true)
+      return
+    }
+    setPreCheckPersistHydrated(false)
+    setPostCheckPersistHydrated(false)
+  }, [operationId, vesselId, mockMatchesRoutePurpose])
+
+  const operationIdRef = useRef(operationId)
+  operationIdRef.current = operationId
+
+  const onPreCheckPersistHydrated = useCallback((loadedForOpId) => {
+    if (loadedForOpId != null && loadedForOpId === operationIdRef.current) {
+      setPreCheckPersistHydrated(true)
+    }
+  }, [])
+  const onPostCheckPersistHydrated = useCallback((loadedForOpId) => {
+    if (loadedForOpId != null && loadedForOpId === operationIdRef.current) {
+      setPostCheckPersistHydrated(true)
+    }
+  }, [])
+
+  const { canEdit, canApprove } = useRbac()
+  const canEditLoading = canEdit('loading')
+  const canApproveLoading = canApprove('loading')
+
   const [activityLogRefresh, setActivityLogRefresh] = useState(0)
   const bumpActivityLogRefresh = useCallback(() => setActivityLogRefresh((x) => x + 1), [])
+
+  useEffect(() => {
+    if (activityLogRefresh === 0) return
+    if (!vesselId || mockMatchesRoutePurpose || opNumericId == null) return
+    let cancelled = false
+    fetchOperation(opNumericId)
+      .then((op) => {
+        if (cancelled) return
+        setApiOp(op)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [activityLogRefresh, vesselId, mockMatchesRoutePurpose, opNumericId])
 
   const [apiOperationalVm, setApiOperationalVm] = useState({ activities: [], naByLabel: {} })
   useEffect(() => {
@@ -322,6 +570,20 @@ export default function Loading() {
       })
     return () => { cancelled = true }
   }, [operationId, purpose, activityLogRefresh])
+
+  const allStagesComplete = useMemo(
+    () =>
+      computeAllStagesComplete({
+        vesselId,
+        purpose,
+        operationId,
+        apiOperationalVm,
+        getPreChecking,
+        getPostChecking,
+        getLoadingOperation,
+      }),
+    [vesselId, purpose, operationId, apiOperationalVm, getPreChecking, getPostChecking, getLoadingOperation]
+  )
 
   useEffect(() => {
     if (!vesselId) return
@@ -386,7 +648,7 @@ export default function Loading() {
         setAllocationDetailRow(null)
       })
     return () => { cancelled = true }
-  }, [operationId])
+  }, [operationId, activityLogRefresh])
 
   const vesselDetail = useMemo(() => {
     const fallback = {
@@ -566,6 +828,17 @@ export default function Loading() {
         </h1>
         <VesselDetailCard detail={vesselDetail} />
 
+        {!mockMatchesRoutePurpose && operationId && apiOp ? (
+          <OperationSignoffBanner
+            apiOp={apiOp}
+            operationId={operationId}
+            allStagesComplete={allStagesComplete}
+            canEditLoading={canEditLoading}
+            canApproveLoading={canApproveLoading}
+            onOperationUpdated={setApiOp}
+          />
+        ) : null}
+
         <nav className="loading-section-tabs" aria-label="At-berth sections">
           {SECTIONS.map((sec) => (
             <Link
@@ -610,16 +883,31 @@ export default function Loading() {
   const postInspectionDone = postTabIds.filter(
     (k) => inferPostcheckStatus(k, postDataForRail[k] || {}) === 'Done'
   ).length
+  const apiBackedStages = Boolean(operationId) && !mockMatchesRoutePurpose
+  const preCountUnknown = apiBackedStages && !preCheckPersistHydrated
+  const postCountUnknown = apiBackedStages && !postCheckPersistHydrated
   const processStages = [
-    { id: 'pre-checking', label: 'Pre-Checking', done: preDone, total: preStepIds.length },
-    { id: 'loading', label: 'Operational', done: operationalDone, total: operationalTotal },
-    { id: 'post-checking', label: 'Post-Checking', done: postInspectionDone, total: postTabIds.length },
+    {
+      id: 'pre-checking',
+      label: 'Pre-Checking',
+      done: preDone,
+      total: preStepIds.length,
+      countUnknown: preCountUnknown,
+    },
+    { id: 'loading', label: 'Operational', done: operationalDone, total: operationalTotal, countUnknown: false },
+    {
+      id: 'post-checking',
+      label: 'Post-Checking',
+      done: postInspectionDone,
+      total: postTabIds.length,
+      countUnknown: postCountUnknown,
+    },
   ]
 
   return (
     <div className="allocation-page loading-page">
       <div style={{ marginBottom: 'var(--spacing-2)' }}>
-        <Link to={`${basePath}/${vesselId}`} className="loading-back-link">← Back to {vessel.vesselName}</Link>
+        <Link to="/at-berth" className="loading-back-link">← Back to At-Berth Executions</Link>
       </div>
       <h1 className="page-title page-title-row">
         <span>{sectionConfig?.label ?? section}: {vessel.vesselName}</span>
@@ -629,6 +917,18 @@ export default function Loading() {
       <VesselDetailCard detail={vesselDetail} />
 
       <StageTabs processStages={processStages} section={section} basePath={basePath} vesselId={vesselId} />
+
+      {!mockMatchesRoutePurpose && operationId && apiOp ? (
+        <OperationSignoffBanner
+          apiOp={apiOp}
+          operationId={operationId}
+          allStagesComplete={allStagesComplete}
+          canEditLoading={canEditLoading}
+          canApproveLoading={canApproveLoading}
+          onOperationUpdated={setApiOp}
+        />
+      ) : null}
+
       <div className="vessel-detail-modal__body loading-process-content">
         {section === 'pre-checking' && (
           <>
@@ -647,6 +947,7 @@ export default function Loading() {
               stageRailCollapsed={false}
               onActivityLogRefresh={bumpActivityLogRefresh}
               activityLogRefresh={activityLogRefresh}
+              onPersistedHydrationDone={onPreCheckPersistHydrated}
             />
           </>
         )}
@@ -663,6 +964,7 @@ export default function Loading() {
               stageRailCollapsed={false}
               onActivityLogRefresh={bumpActivityLogRefresh}
               activityLogRefresh={activityLogRefresh}
+              onPersistedHydrationDone={onPostCheckPersistHydrated}
             />
           </>
         )}
@@ -699,21 +1001,25 @@ function StageTabs({ processStages, section, basePath, vesselId }) {
   return (
     <nav className="loading-stage-tabs" aria-label="Process stages">
       {processStages.map((s) => {
-        const statusClass = s.done >= s.total ? 'done' : s.done > 0 ? 'in-progress' : 'not-started'
+        const unknown = Boolean(s.countUnknown)
+        const done = Number(s.done) || 0
+        const total = Number(s.total) || 0
+        const statusClass = unknown ? 'not-started' : done >= total ? 'done' : done > 0 ? 'in-progress' : 'not-started'
+        const countLabel = unknown ? `— / ${total}` : `${done} / ${total}`
         return (
         <Link
           key={s.id}
           to={`${basePath}/${vesselId}/${s.id}`}
           className={`loading-stage-tabs__tab loading-stage-tabs__tab--${statusClass} ${section === s.id ? 'loading-stage-tabs__tab--active' : ''}`}
-          title={`${s.label} (${s.done}/${s.total} complete)`}
-          aria-label={`${s.label} (${s.done} of ${s.total} complete)`}
+          title={unknown ? `${s.label} (open tab to load progress)` : `${s.label} (${done}/${total} complete)`}
+          aria-label={unknown ? `${s.label}, progress not loaded yet` : `${s.label} (${done} of ${total} complete)`}
         >
           <span className="loading-stage-tabs__topline">
             <span className={`loading-stage-tabs__dot loading-stage-tabs__dot--${statusClass}`} aria-hidden />
             <span className="loading-stage-tabs__label">{s.label}</span>
           </span>
           <span className="loading-stage-tabs__meta">
-            {s.done} / {s.total} complete
+            {countLabel} complete
           </span>
         </Link>
         )
@@ -971,6 +1277,7 @@ function PreCheckingSections({
   stageRailCollapsed,
   onActivityLogRefresh,
   activityLogRefresh = 0,
+  onPersistedHydrationDone,
 }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [activeSubTab, setActiveSubTab] = useState('keyMeeting')
@@ -1022,6 +1329,8 @@ function PreCheckingSections({
     }
     setLoadingPersisted(true)
     setPersistError(null)
+    const opIdForFetch = operationId
+    let shouldSignalPersistHydration = false
     Promise.all([
       fetchSubProcesses(operationId, 'Pre-Checking'),
       fetchNorDetails(operationId),
@@ -1042,10 +1351,10 @@ function PreCheckingSections({
             lastSavedAt: row.updatedAt ?? current.lastSavedAt ?? null,
           }
           if (row.startAt || row.occurredAt) {
-            merged.startTime = String(row.startAt || row.occurredAt).slice(0, 16)
+            merged.startTime = isoOrDatetimeToLocal(row.startAt || row.occurredAt)
           }
           if (row.endAt) {
-            merged.endTime = String(row.endAt).slice(0, 16)
+            merged.endTime = isoOrDatetimeToLocal(row.endAt)
           }
           if (section === 'sampling') {
             merged.records = Array.isArray(row.payload?.records) ? row.payload.records : []
@@ -1107,12 +1416,19 @@ function PreCheckingSections({
           sourceModule: inferredSource,
           lastSavedAt: laterIso(nor?.updatedAt, norFromSub.lastSavedAt),
         })
-        setLoadingPersisted(false)
+        shouldSignalPersistHydration = true
+        if (!cancelled) setLoadingPersisted(false)
       })
       .catch((e) => {
         if (cancelled) return
         setPersistError(e?.message || 'Failed to load pre-checking data')
         setLoadingPersisted(false)
+        shouldSignalPersistHydration = true
+      })
+      .finally(() => {
+        if (opIdForFetch != null && shouldSignalPersistHydration) {
+          onPersistedHydrationDone?.(opIdForFetch)
+        }
       })
     return () => { cancelled = true }
   }, [
@@ -1123,6 +1439,7 @@ function PreCheckingSections({
     operationDemurrageLiabilityFromAt,
     setArrivalNor,
     setPreCheckingSection,
+    onPersistedHydrationDone,
   ])
 
   useEffect(() => {
@@ -1230,6 +1547,17 @@ function PreCheckingSections({
       })
       try {
         if (operationId) {
+          const norStart = draft.norAccepted.startTime || draft.norAccepted.norTenderedDateTime || ''
+          const norEnd = draft.norAccepted.endTime || draft.norAccepted.norAcceptedDateTime || ''
+          if (norStart && norEnd) {
+            const tStart = new Date(norStart).getTime()
+            const tEnd = new Date(norEnd).getTime()
+            if (!Number.isNaN(tStart) && !Number.isNaN(tEnd) && tEnd < tStart) {
+              setPersistError('NOR Accepted time must be on or after NOR Tendered / start time.')
+              setSavingSection(null)
+              return
+            }
+          }
           await saveArrivalUpdateApi({
             operationId,
             norTenderedDateTime: draft.norAccepted.norTenderedDateTime || '',
@@ -1284,7 +1612,9 @@ function PreCheckingSections({
           }
         }
       } catch (e) {
-        setPersistError(e?.message || 'Failed to save NOR Accepted')
+        const msg =
+          (e?.body && typeof e.body === 'object' && e.body.error) || e?.message || 'Failed to save NOR Accepted'
+        setPersistError(msg)
         setSavingSection(null)
         return
       }
@@ -2386,6 +2716,7 @@ function PostCheckingSections({
   stageRailCollapsed,
   onActivityLogRefresh,
   activityLogRefresh = 0,
+  onPersistedHydrationDone,
 }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [activeSubTab, setActiveSubTab] = useState('finalTankInspection')
@@ -2435,6 +2766,8 @@ function PostCheckingSections({
     }
     setLoadingPersisted(true)
     setPersistError(null)
+    const opIdForFetch = operationId
+    let shouldSignalPersistHydration = false
     fetchSubProcesses(operationId, 'Post-Checking')
       .then(async (subRows) => {
         if (cancelled) return
@@ -2459,17 +2792,24 @@ function PostCheckingSections({
             documents: docs.map((d) => ({ id: d.id, name: d.name, url: d.url, source: 'precheck_subprocess' })),
           })
         })
+        shouldSignalPersistHydration = true
         if (!cancelled) setLoadingPersisted(false)
       })
       .catch((e) => {
         if (cancelled) return
         setPersistError(e?.message || 'Failed to load post-checking data')
         setLoadingPersisted(false)
+        shouldSignalPersistHydration = true
+      })
+      .finally(() => {
+        if (opIdForFetch != null && shouldSignalPersistHydration) {
+          onPersistedHydrationDone?.(opIdForFetch)
+        }
       })
     return () => {
       cancelled = true
     }
-  }, [operationId, vesselId, setPostCheckingSection])
+  }, [operationId, vesselId, setPostCheckingSection, onPersistedHydrationDone])
 
   useEffect(() => {
     if (!saveSuccessMessage) return undefined
@@ -2587,6 +2927,26 @@ function PostCheckingSections({
     setSaveSuccessMessage(null)
     setSavingSection(`${sectionKey}:${mode}`)
     const sectionDraft = draft[sectionKey] || {}
+    const st = (sectionDraft?.startTime && String(sectionDraft.startTime).trim()) || ''
+    const en = (sectionDraft?.endTime && String(sectionDraft.endTime).trim()) || ''
+    const dt = (sectionDraft?.dateTime && String(sectionDraft.dateTime).trim()) || ''
+    let occurredAt = null
+    let startAt = null
+    let endAt = null
+    if (st || en || dt) {
+      startAt = st || dt || null
+      endAt = en || dt || null
+      occurredAt = startAt
+    }
+    if (startAt && endAt) {
+      const t0 = new Date(startAt).getTime()
+      const t1 = new Date(endAt).getTime()
+      if (!Number.isNaN(t0) && !Number.isNaN(t1) && t1 < t0) {
+        setPersistError('End time must be on or after start time.')
+        setSavingSection(null)
+        return
+      }
+    }
     setPostCheckingSection(vesselId, sectionKey, { ...sectionDraft, status: nextStatus })
     try {
       if (operationId) {
@@ -2594,9 +2954,9 @@ function PostCheckingSections({
         const sent = await upsertSubProcess(operationId, subKey, {
           phase: 'Post-Checking',
           status: nextStatus,
-          occurredAt: sectionDraft?.startTime || sectionDraft?.dateTime || null,
-          startAt: sectionDraft?.startTime || sectionDraft?.dateTime || null,
-          endAt: sectionDraft?.endTime || sectionDraft?.dateTime || null,
+          occurredAt,
+          startAt,
+          endAt,
           remark: sectionDraft?.result || '',
           payload: null,
         })

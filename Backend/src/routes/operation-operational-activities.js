@@ -6,6 +6,7 @@ import express from 'express';
 import { pool } from '../db.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { optionalAuth } from '../middleware/auth.js';
+import { promoteDockedToInProgressIfDocked } from '../lib/operation-auto-status.js';
 
 const router = express.Router();
 router.use(optionalAuth);
@@ -180,6 +181,7 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
           milestoneKey === 'cargo_operations' ? cargoHandlingMethodId : null,
         ]
       );
+      await promoteDockedToInProgressIfDocked(client, operationId);
       await client.query('COMMIT');
       const row = ins.rows[0];
       if (row.cargo_handling_method_id) {
@@ -242,6 +244,7 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
       );
       row = ins.rows[0];
     }
+    await promoteDockedToInProgressIfDocked(client, operationId);
     await client.query('COMMIT');
     writeActivityLog({
       pageKey: 'loading',
@@ -343,6 +346,7 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
           operationId,
         ]
       );
+      await promoteDockedToInProgressIfDocked(client, operationId);
       await client.query('COMMIT');
       const row = up.rows[0];
       if (row.cargo_handling_method_id) {
@@ -379,24 +383,35 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
     const d = new Date(body.markedAt || body.marked_at);
     if (!Number.isNaN(d.getTime())) markedAt = d.toISOString();
   }
-  const up = await pool.query(
-    `UPDATE operation_operational_activities SET reason = $1, marked_at = $2, updated_at = NOW()
-     WHERE id = $3 AND operation_id = $4 AND entry_type = 'milestone_na' AND deleted_at IS NULL
-     RETURNING id, operation_id, entry_type, milestone_key, sub_step_title, remark, reason,
-               start_at, end_at, marked_at, created_at, updated_at`,
-    [reason, markedAt, entryId, operationId]
-  );
-  writeActivityLog({
-    pageKey: 'loading',
-    action: 'update',
-    entityType: 'Operational milestone N/A',
-    entityId: String(operationId),
-    entityLabel: row0.milestone_key,
-    summary: `Updated operational milestone N/A (${row0.milestone_key})`,
-    meta: { operationId, entryId },
-    actorUserId: req.userId ?? null,
-  }).catch(() => {});
-  return res.json(toRow(up.rows[0]));
+  const clientNa = await pool.connect();
+  try {
+    await clientNa.query('BEGIN');
+    const up = await clientNa.query(
+      `UPDATE operation_operational_activities SET reason = $1, marked_at = $2, updated_at = NOW()
+       WHERE id = $3 AND operation_id = $4 AND entry_type = 'milestone_na' AND deleted_at IS NULL
+       RETURNING id, operation_id, entry_type, milestone_key, sub_step_title, remark, reason,
+                 start_at, end_at, marked_at, created_at, updated_at`,
+      [reason, markedAt, entryId, operationId]
+    );
+    await promoteDockedToInProgressIfDocked(clientNa, operationId);
+    await clientNa.query('COMMIT');
+    writeActivityLog({
+      pageKey: 'loading',
+      action: 'update',
+      entityType: 'Operational milestone N/A',
+      entityId: String(operationId),
+      entityLabel: row0.milestone_key,
+      summary: `Updated operational milestone N/A (${row0.milestone_key})`,
+      meta: { operationId, entryId },
+      actorUserId: req.userId ?? null,
+    }).catch(() => {});
+    return res.json(toRow(up.rows[0]));
+  } catch (e) {
+    await clientNa.query('ROLLBACK');
+    throw e;
+  } finally {
+    clientNa.release();
+  }
 });
 
 /** DELETE /operations/:operationId/operational-activities/:entryId */

@@ -2,7 +2,13 @@
  * Build Daily Activities Report rows from live API data (operations, SI, activity timeline).
  */
 
-const AT_BERTH_STATUSES = ['DOCKED', 'IN_PROGRESS', 'COMPLETED']
+const AT_BERTH_STATUSES = [
+  'DOCKED',
+  'IN_PROGRESS',
+  'POST_OPS',
+  'SIGNOFF_REQUESTED',
+  'SIGNOFF_APPROVED',
+]
 
 function startOfDay(s) {
   if (!s) return null

@@ -16,10 +16,19 @@ import InteractiveTooltip from '../components/InteractiveTooltip'
 import '../styles/dashboard.css'
 import '../styles/allocation.css'
 
-const PHASES = ['Pre-Checking', 'Operational', 'Post-Checking']
-const PHASE_EMOJI = { 'Pre-Checking': '📋', Operational: '⚙️', 'Post-Checking': '✅' }
-/** Short labels for compact dashboard cards (data keys stay PHASES). */
-const PHASE_SHORT_LABEL = { 'Pre-Checking': 'Pre', Operational: 'Ops', 'Post-Checking': 'Post' }
+/** "At berth now" compact cards — sign-off phases are under Clearance, not here. */
+const AT_BERTH_SUMMARY_PHASES = ['Pre-Checking', 'Operational', 'Post-Checking']
+const PHASE_EMOJI = {
+  'Pre-Checking': '📋',
+  Operational: '⚙️',
+  'Post-Checking': '✅',
+}
+/** Short labels for compact dashboard cards (data keys stay AT_BERTH_SUMMARY_PHASES). */
+const PHASE_SHORT_LABEL = {
+  'Pre-Checking': 'Pre',
+  Operational: 'Ops',
+  'Post-Checking': 'Post',
+}
 const PURPOSES = [
   { key: 'Loading', label: 'Loading' },
   { key: 'Unloading', label: 'Unloading' },
@@ -38,9 +47,11 @@ const PERF_WINDOWS = [
   { key: '24h', label: 'Last 24 hours', ms: 24 * 3600000 },
 ]
 
-function statusToPhase(status) {
-  if (status === 'IN_PROGRESS') return 'Operational'
-  if (status === 'COMPLETED') return 'Post-Checking'
+function phaseForAtBerthSummaryCard(status) {
+  const s = String(status || '')
+  if (s === 'SIGNOFF_REQUESTED' || s === 'SIGNOFF_APPROVED') return null
+  if (s === 'IN_PROGRESS') return 'Operational'
+  if (s === 'POST_OPS') return 'Post-Checking'
   return 'Pre-Checking'
 }
 
@@ -194,9 +205,10 @@ export default function Dashboard() {
       allocated: by('ALLOCATED'),
       docked: by('DOCKED'),
       inProgress: by('IN_PROGRESS'),
-      completed: by('COMPLETED'),
+      postOps: by('POST_OPS'),
+      signoffRequested: by('SIGNOFF_REQUESTED'),
+      signoffApproved: by('SIGNOFF_APPROVED'),
       sailed: by('SAILED'),
-      exceptionPending: list.filter((o) => o.exceptionStatus === 'PENDING').length,
     }
   }, [allOps])
 
@@ -271,13 +283,18 @@ export default function Dashboard() {
   }, [jetties])
 
   const atBerthCounts = useMemo(() => {
+    const empty = () =>
+      AT_BERTH_SUMMARY_PHASES.reduce((acc, ph) => {
+        acc[ph] = 0
+        return acc
+      }, {})
     const counts = {
-      Loading: { 'Pre-Checking': 0, Operational: 0, 'Post-Checking': 0 },
-      Unloading: { 'Pre-Checking': 0, Operational: 0, 'Post-Checking': 0 },
+      Loading: empty(),
+      Unloading: empty(),
     }
     for (const o of atBerth) {
-      const phase = statusToPhase(o.status)
-      if (counts[o.purpose]) counts[o.purpose][phase] += 1
+      const phase = phaseForAtBerthSummaryCard(o.status)
+      if (phase && counts[o.purpose]) counts[o.purpose][phase] += 1
     }
     return counts
   }, [atBerth])
@@ -302,7 +319,8 @@ export default function Dashboard() {
     const win = PERF_WINDOWS.find((w) => w.key === perfWindow) || PERF_WINDOWS[0]
     const cutoff = Date.now() - win.ms
     const tolMs = 6 * 3600000
-    const list = Array.isArray(queue) ? queue : []
+    const queueList = Array.isArray(queue) ? queue : []
+    const opsList = Array.isArray(allOps) ? allOps : []
 
     const waitingHrs = []
     const waitingWorst = []
@@ -314,7 +332,7 @@ export default function Dashboard() {
     let onTimeCount = 0
     const onTimeLateList = []
 
-    for (const r of list) {
+    for (const r of queueList) {
       if (r?.shiftingOut) continue
       const vesselName = (r?.vesselName || '').trim() || `Op #${r?.operationId ?? r?.id ?? '—'}`
       const jettyName = (r?.jetty || '').trim() || '—'
@@ -332,22 +350,29 @@ export default function Dashboard() {
         waitingWorst.push({ vesselName, jettyName, hours: h })
       }
 
-      // Turnaround time at berth (TB -> cast-off preferred; else actual completion), windowed by end time.
-      if (tb) {
-        const end = castOff || actualComp
-        if (end && end.getTime() > tb.getTime() && end.getTime() >= cutoff) {
-          const h = (end.getTime() - tb.getTime()) / 3600000
-          turnaroundHrs.push(h)
-          turnaroundWorst.push({ vesselName, jettyName, hours: h })
-        }
-      }
-
       // On-time berthing rate: TB <= planned ETB + 6h, windowed by TB.
       if (planned && tb && tb.getTime() >= cutoff) {
         onTimeEligible += 1
         const lateMs = tb.getTime() - (planned.getTime() + tolMs)
         if (lateMs <= 0) onTimeCount += 1
         else onTimeLateList.push({ vesselName, jettyName, lateHours: lateMs / 3600000 })
+      }
+    }
+
+    // Turnaround includes sailed operations too; compute from operations list (TB -> cast-off preferred; else actual completion).
+    for (const o of opsList) {
+      if (o?.shiftingOut) continue
+      const vesselName = (o?.vesselName || '').trim() || `Op #${o?.id ?? '—'}`
+      const jettyName = (o?.jettyName || '').trim() || '—'
+      const tb = parseIso(o?.tbAt || o?.dockingStartTime)
+      const castOff = parseIso(o?.castOffAt)
+      const actualComp = parseIso(o?.actualCompletionTime)
+      if (!tb) continue
+      const end = castOff || actualComp
+      if (end && end.getTime() > tb.getTime() && end.getTime() >= cutoff) {
+        const h = (end.getTime() - tb.getTime()) / 3600000
+        turnaroundHrs.push(h)
+        turnaroundWorst.push({ vesselName, jettyName, hours: h })
       }
     }
 
@@ -373,7 +398,7 @@ export default function Dashboard() {
       },
       onTime: { ratePct: onTimeRate, eligible: onTimeEligible, onTime: onTimeCount, late: onTimeLateList.slice(0, 10) },
     }
-  }, [queue, perfWindow])
+  }, [queue, allOps, perfWindow])
 
   const plannedBerthingCount = useMemo(
     () => queue.filter(isPlannedBerthingQueueRow).length,
@@ -585,7 +610,7 @@ export default function Dashboard() {
           </div>
           <div className="metric-card">
             <span className="metric-card__label">Ready to sail</span>
-            <span className="metric-card__value">{opStats.completed}</span>
+            <span className="metric-card__value">{opStats.signoffApproved}</span>
             <Link to="/verification" className="metric-card__link">
               Clearance →
             </Link>
@@ -721,7 +746,7 @@ export default function Dashboard() {
                           {label}
                         </h3>
                         <div className="at-berth-summary__grid">
-                          {PHASES.map((phase) => (
+                          {AT_BERTH_SUMMARY_PHASES.map((phase) => (
                             <div
                               key={phase}
                               className={`at-berth-card at-berth-card--${purpose.toLowerCase()} at-berth-card--compact`}
@@ -749,7 +774,7 @@ export default function Dashboard() {
                         ⚓
                       </span>
                       <span className="dashboard-clearance-card__label">Ready to sail</span>
-                      <span className="dashboard-clearance-card__count">{opStats.completed}</span>
+                      <span className="dashboard-clearance-card__count">{opStats.signoffApproved}</span>
                     </Link>
                     <div className="dashboard-clearance-card dashboard-clearance-card--departed">
                       <span className="dashboard-clearance-card__icon" aria-hidden>
@@ -759,13 +784,13 @@ export default function Dashboard() {
                       <span className="dashboard-clearance-card__count">{opStats.sailed}</span>
                     </div>
                     <div
-                      className={`dashboard-clearance-card dashboard-clearance-card--exception ${opStats.exceptionPending > 0 ? 'dashboard-clearance-card--exception-active' : ''}`}
+                      className={`dashboard-clearance-card dashboard-clearance-card--exception ${opStats.signoffRequested > 0 ? 'dashboard-clearance-card--exception-active' : ''}`}
                     >
                       <span className="dashboard-clearance-card__icon" aria-hidden>
                         ⚠
                       </span>
-                      <span className="dashboard-clearance-card__label">Exceptions pending</span>
-                      <span className="dashboard-clearance-card__count">{opStats.exceptionPending}</span>
+                      <span className="dashboard-clearance-card__label">Pending Sign Off</span>
+                      <span className="dashboard-clearance-card__count">{opStats.signoffRequested}</span>
                     </div>
                   </div>
                 </>

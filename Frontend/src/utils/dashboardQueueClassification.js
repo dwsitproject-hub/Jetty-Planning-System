@@ -11,7 +11,12 @@ export function isPlannedBerthingQueueRow(row) {
   if (!jetty) return false
   const hasTb = Boolean(row?.tbDateTime)
   const opStatus = String(row?.status || '').toUpperCase()
-  if (hasTb || ['DOCKED', 'IN_PROGRESS', 'COMPLETED'].includes(opStatus)) return false
+  if (
+    hasTb ||
+    ['DOCKED', 'IN_PROGRESS', 'POST_OPS', 'SIGNOFF_REQUESTED', 'SIGNOFF_APPROVED'].includes(opStatus)
+  ) {
+    return false
+  }
   return true
 }
 
@@ -23,7 +28,12 @@ export function isQueueRowBerthing(row) {
   if (row?.shiftingOut) return false
   const hasTb = Boolean(row?.tbDateTime)
   const opStatus = String(row?.status || '').toUpperCase()
-  if (hasTb || ['DOCKED', 'IN_PROGRESS', 'COMPLETED'].includes(opStatus)) return true
+  if (
+    hasTb ||
+    ['DOCKED', 'IN_PROGRESS', 'POST_OPS', 'SIGNOFF_REQUESTED', 'SIGNOFF_APPROVED'].includes(opStatus)
+  ) {
+    return true
+  }
   return false
 }
 

@@ -10,6 +10,7 @@ import {
 import {
   fetchOperationalActivities,
   createOperationalEntry,
+  updateOperationalEntry,
   deleteOperationalEntry,
   fetchCargoHandlingMethods,
 } from '../api/operations'
@@ -38,6 +39,20 @@ function writeBool(key, value) {
 
 function getNowForDateTimeLocal() {
   const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const h = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  return `${y}-${m}-${day}T${h}:${min}`
+}
+
+function isoOrDatetimeToLocal(value) {
+  if (value == null || value === '') return ''
+  const s = String(value).trim()
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) return s
+  const d = new Date(s)
+  if (Number.isNaN(d.getTime())) return ''
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
@@ -153,13 +168,32 @@ export default function OperationalMilestoneWorkspace({
     setActiveMilestone(label)
     setFormError('')
     if (searchParams.get('edit') === '1') {
+      const entryId = String(searchParams.get('entryId') || '').trim()
+      const row = entryId ? (activities || []).find((a) => String(a.id) === entryId) : null
+      setEditingEntryId(entryId || null)
+      setSubStepTitle(row?.subStepTitle || String(searchParams.get('subStepTitle') || ''))
+      setRemark(row?.description || String(searchParams.get('remark') || ''))
+      setStartTime(isoOrDatetimeToLocal(row?.startTime || searchParams.get('startAt')) || getNowForDateTimeLocal())
+      setEndTime(isoOrDatetimeToLocal(row?.endTime || searchParams.get('endAt')) || '')
+      setCargoHandlingMethodId(
+        row?.cargoHandlingMethodId != null && row?.cargoHandlingMethodId !== ''
+          ? String(row.cargoHandlingMethodId)
+          : ''
+      )
       setFormModalOpen(true)
+    } else {
+      setEditingEntryId(null)
     }
     const next = new URLSearchParams(searchParams)
     next.delete('milestone')
     next.delete('edit')
+    next.delete('entryId')
+    next.delete('subStepTitle')
+    next.delete('remark')
+    next.delete('startAt')
+    next.delete('endAt')
     setSearchParams(next, { replace: true })
-  }, [searchParams, setSearchParams, purpose])
+  }, [searchParams, setSearchParams, purpose, activities])
 
   const [subStepTitle, setSubStepTitle] = useState('')
   const [cargoHandlingMethodId, setCargoHandlingMethodId] = useState('')
@@ -167,6 +201,7 @@ export default function OperationalMilestoneWorkspace({
   const [remark, setRemark] = useState('')
   const [startTime, setStartTime] = useState(() => getNowForDateTimeLocal())
   const [endTime, setEndTime] = useState('')
+  const [editingEntryId, setEditingEntryId] = useState(null)
   const [formError, setFormError] = useState('')
   const [formModalOpen, setFormModalOpen] = useState(false)
 
@@ -257,6 +292,7 @@ export default function OperationalMilestoneWorkspace({
   }, [milestones, naMap, activities])
 
   function syncFormFromMilestone(cat) {
+    setEditingEntryId(null)
     setSubStepTitle('')
     setCargoHandlingMethodId('')
     setRemark('')
@@ -268,6 +304,7 @@ export default function OperationalMilestoneWorkspace({
 
   const resetComposerAfterAdd = (keepMilestone) => {
     const m = keepMilestone || activeMilestone
+    setEditingEntryId(null)
     setSubStepTitle('')
     setCargoHandlingMethodId('')
     setRemark('')
@@ -320,19 +357,34 @@ export default function OperationalMilestoneWorkspace({
     }
     if (useApi) {
       try {
-        await createOperationalEntry(operationId, {
-          entryType: 'activity',
-          milestoneKey: payload.milestoneKey,
-          subStepTitle: payload.subStepTitle,
-          remark: payload.description,
-          startAt: new Date(payload.startTime).toISOString(),
-          endAt: new Date(payload.endTime).toISOString(),
-          cargoHandlingMethodId: payload.cargoHandlingMethodId,
-        })
+        if (editingEntryId) {
+          await updateOperationalEntry(operationId, editingEntryId, {
+            milestoneKey: payload.milestoneKey,
+            subStepTitle: payload.subStepTitle,
+            remark: payload.description,
+            startAt: new Date(payload.startTime).toISOString(),
+            endAt: new Date(payload.endTime).toISOString(),
+            cargoHandlingMethodId: payload.cargoHandlingMethodId,
+          })
+        } else {
+          await createOperationalEntry(operationId, {
+            entryType: 'activity',
+            milestoneKey: payload.milestoneKey,
+            subStepTitle: payload.subStepTitle,
+            remark: payload.description,
+            startAt: new Date(payload.startTime).toISOString(),
+            endAt: new Date(payload.endTime).toISOString(),
+            cargoHandlingMethodId: payload.cargoHandlingMethodId,
+          })
+        }
         await loadApi()
         bumpSaved()
         setActionToast({
-          message: andAnother ? 'Activity saved. Add another below.' : 'Activity saved.',
+          message: editingEntryId
+            ? 'Activity updated.'
+            : andAnother
+              ? 'Activity saved. Add another below.'
+              : 'Activity saved.',
           variant: 'success',
         })
       } catch (e) {

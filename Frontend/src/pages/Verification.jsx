@@ -1,5 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
-import { fetchOperations, depart, uploadOperationDocuments } from '../api/operations'
+import { Link } from 'react-router-dom'
+import { fetchOperations, fetchPendingSignoffRequests, depart, uploadOperationDocuments, signoff } from '../api/operations'
+import { useRbac } from '../context/RbacContext'
 import { resolveUploadUrl } from '../api/client'
 import '../styles/allocation.css'
 import '../styles/modal.css'
@@ -35,6 +37,8 @@ function formatDateTime(iso) {
 }
 
 export default function Verification() {
+  const { canApprove } = useRbac()
+  const canApproveLoading = canApprove('loading')
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState(null)
@@ -45,16 +49,37 @@ export default function Verification() {
   const [formVesselPhotos, setFormVesselPhotos] = useState([])
   const [submitting, setSubmitting] = useState(false)
   const [toast, setToast] = useState(null)
+  const [signoffBusyId, setSignoffBusyId] = useState(null)
 
   const load = useCallback(async () => {
     setErr(null)
     setLoading(true)
     try {
-      const [completed, sailed] = await Promise.all([
-        fetchOperations({ status: 'COMPLETED' }),
+      const pendingPromise = fetchPendingSignoffRequests().catch(() => [])
+      const [signedOff, sailed, pendingRaw] = await Promise.all([
+        fetchOperations({ status: 'SIGNOFF_APPROVED' }),
         fetchOperations({ status: 'SAILED' }),
+        pendingPromise,
       ])
-      const ready = (completed || []).map((o) => ({
+      const pending = (pendingRaw || []).map((o) => ({
+        operationId: o.id,
+        vesselName: o.vesselName,
+        purpose: o.purpose,
+        si: `${o.referenceNumber ?? ''} · ${o.commodity ?? ''}`.trim() || '—',
+        referenceNumber: o.referenceNumber,
+        commodity: o.commodity,
+        jettyName: o.jettyName,
+        status: 'Pending sign-off',
+        apiStatus: 'PENDING_SIGNOFF',
+        signoffRequestedAt: o.signoffRequestedAt,
+        signoffRequestRemark: o.signoffRequestRemark,
+        signoffRequestedByUsername: o.signoffRequestedByUsername,
+        castOffAt: o.castOffAt,
+        sailedAt: o.sailedAt,
+        clearanceDocumentUrl: o.clearanceDocumentUrl,
+        vesselPhotoUrl: o.vesselPhotoUrl,
+      }))
+      const ready = (signedOff || []).map((o) => ({
         operationId: o.id,
         vesselName: o.vesselName,
         purpose: o.purpose,
@@ -84,7 +109,7 @@ export default function Verification() {
         clearanceDocumentUrl: o.clearanceDocumentUrl,
         vesselPhotoUrl: o.vesselPhotoUrl,
       }))
-      setRows([...ready, ...done])
+      setRows([...pending, ...ready, ...done])
     } catch (e) {
       setErr(e?.message || 'Failed to load clearance data')
       setRows([])
@@ -109,15 +134,17 @@ export default function Verification() {
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [expandedRows, setExpandedRows] = useState({})
 
-  const readyCount = rows.filter((r) => r.apiStatus === 'COMPLETED').length
+  const readyCount = rows.filter((r) => r.apiStatus === 'SIGNOFF_APPROVED').length
   const departedCount = rows.filter((r) => r.apiStatus === 'SAILED').length
+  const pendingSignoffCount = rows.filter((r) => r.apiStatus === 'PENDING_SIGNOFF').length
 
   const updateFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }))
   const handleSort = (key) => setSortState((s) => ({ key, dir: s.key === key && s.dir === 'asc' ? 'desc' : 'asc' }))
 
   const rowsAfterStatusFilter = rows.filter((r) => {
-    if (statusFilter === 'READY') return r.apiStatus === 'COMPLETED'
+    if (statusFilter === 'READY') return r.apiStatus === 'SIGNOFF_APPROVED'
     if (statusFilter === 'SAILED') return r.apiStatus === 'SAILED'
+    if (statusFilter === 'PENDING') return r.apiStatus === 'PENDING_SIGNOFF'
     return true
   })
 
@@ -160,6 +187,28 @@ export default function Verification() {
   const clearFilters = () => {
     setFilters(Object.fromEntries(filterKeys.map((k) => [k, ''])))
     setStatusFilter('ALL')
+  }
+
+  const hubPathForRow = (r) => {
+    const purpose = r.purpose === 'Unloading' ? 'unloading' : 'loading'
+    return `/${purpose}/op-${r.operationId}/post-checking`
+  }
+
+  const handleApproveSignoff = async (r) => {
+    if (!r?.operationId) return
+    if (!window.confirm(`Sign off operation for ${r.vesselName || 'this vessel'}? It will move to Ready to Sail.`)) return
+    setSignoffBusyId(r.operationId)
+    setSubmitErr(null)
+    try {
+      await signoff(r.operationId)
+      await load()
+      setToast({ message: `Operation signed off — ${r.vesselName || 'Vessel'} is Ready to Sail.`, variant: 'success' })
+    } catch (e) {
+      const msg = (e?.body && typeof e.body === 'object' && e.body.error) || e?.message || 'Sign-off failed'
+      setToast({ message: msg, variant: 'error' })
+    } finally {
+      setSignoffBusyId(null)
+    }
   }
 
   const toggleExpanded = (operationId) => {
@@ -240,7 +289,7 @@ export default function Verification() {
     <div className="allocation-page clearance-page">
       <h1 className="page-title">Clearance</h1>
       <p className="allocation-page__intro">
-        Record vessel departure after signoff completion. Capture final CAST timestamp and optional supporting documents.
+        Approvers sign off completed work (Ready to Sail), then record departure. Use <strong>Pending sign-off</strong> for vessels awaiting final approval.
       </p>
       {toast?.message && (
         <div className={`toast ${toast.variant === 'error' ? 'toast--warning' : 'toast--success'}`} role="status" aria-live="polite" aria-atomic="true">
@@ -291,6 +340,13 @@ export default function Verification() {
             >
               Sailed ({departedCount})
             </button>
+            <button
+              type="button"
+              className={`btn btn--small ${statusFilter === 'PENDING' ? 'btn--primary' : 'btn--ghost'}`}
+              onClick={() => setStatusFilter('PENDING')}
+            >
+              Pending sign-off ({pendingSignoffCount})
+            </button>
             <button type="button" className="btn btn--small btn--soft" onClick={clearFilters}>
               Clear filters
             </button>
@@ -299,7 +355,7 @@ export default function Verification() {
         {loading ? (
           <p className="text-steel">Fetching latest clearance queue…</p>
         ) : rows.length === 0 ? (
-          <p className="text-steel">No completed operations are waiting for depart recording.</p>
+          <p className="text-steel">No operations in this queue yet. Pending sign-off appears after berth teams request sign-off; Ready to Sail after approval.</p>
         ) : sortedVessels.length === 0 ? (
           <p className="text-steel">No rows match filters.</p>
         ) : (
@@ -355,7 +411,23 @@ export default function Verification() {
                       ))}
                       <td className="allocation-table__action-col">
                         <div className="allocation-table__action-btns">
-                          {v.apiStatus === 'COMPLETED' ? (
+                          {v.apiStatus === 'PENDING_SIGNOFF' ? (
+                            <>
+                              <Link to={hubPathForRow(v)} className="btn btn--small btn--ghost">
+                                Open operation
+                              </Link>
+                              {canApproveLoading ? (
+                                <button
+                                  type="button"
+                                  className="btn btn--small btn--primary"
+                                  disabled={signoffBusyId === v.operationId}
+                                  onClick={() => handleApproveSignoff(v)}
+                                >
+                                  {signoffBusyId === v.operationId ? 'Signing off…' : 'Sign off'}
+                                </button>
+                              ) : null}
+                            </>
+                          ) : v.apiStatus === 'SIGNOFF_APPROVED' ? (
                             <button type="button" className="btn btn--small btn--primary" onClick={() => openModal(v)}>
                               Record depart
                             </button>
@@ -387,6 +459,24 @@ export default function Verification() {
                             <dd>{v.jettyName || '—'}</dd>
                             <dt>Status</dt>
                             <dd>{v.status || '—'}</dd>
+                            {v.apiStatus === 'PENDING_SIGNOFF' ? (
+                              <>
+                                <dt>Sign-off requested</dt>
+                                <dd>{formatDateTime(v.signoffRequestedAt)}</dd>
+                                {v.signoffRequestedByUsername ? (
+                                  <>
+                                    <dt>Requested by</dt>
+                                    <dd>{v.signoffRequestedByUsername}</dd>
+                                  </>
+                                ) : null}
+                                {v.signoffRequestRemark ? (
+                                  <>
+                                    <dt>Request remark</dt>
+                                    <dd>{v.signoffRequestRemark}</dd>
+                                  </>
+                                ) : null}
+                              </>
+                            ) : null}
                             <dt>CAST Off</dt>
                             <dd>{formatDateTime(v.castOffAt)}</dd>
                             <dt>Sailed At</dt>

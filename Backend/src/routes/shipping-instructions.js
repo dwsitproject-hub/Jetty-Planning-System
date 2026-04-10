@@ -262,8 +262,8 @@ router.get('/', async (req, res) => {
  * Excludes SIs whose only operations are SAILED (so sailed voyages do not appear as "open").
  *
  * Berthing plan status (aligned with Allocation `getBerthingPlanStatus`):
- * - incoming: no operation row, OR shifting_out, OR (op exists, no TB, status not DOCKED/IN_PROGRESS/COMPLETED)
- * - berthed: op exists, not shifting_out, and (TB set OR status in DOCKED, IN_PROGRESS, COMPLETED)
+ * - incoming: no operation row, OR shifting_out, OR (op exists, no TB, status not in at-berth set)
+ * - berthed: op exists, not shifting_out, and (TB set OR status in DOCKED/IN_PROGRESS/POST_OPS/SIGNOFF_*)
  *
  * Query:
  * - from: ISO date or datetime (inclusive)
@@ -309,7 +309,9 @@ router.get('/candidates', async (req, res) => {
         WHEN o.id IS NULL THEN 'incoming'
         WHEN COALESCE(o.shifting_out, false) THEN 'incoming'
         WHEN o.tb IS NOT NULL
-          OR UPPER(TRIM(COALESCE(o.status, ''))) IN ('DOCKED', 'IN_PROGRESS', 'COMPLETED')
+          OR UPPER(TRIM(COALESCE(o.status, ''))) IN (
+            'DOCKED', 'IN_PROGRESS', 'POST_OPS', 'SIGNOFF_REQUESTED', 'SIGNOFF_APPROVED'
+          )
           THEN 'berthed'
         ELSE 'incoming'
       END AS berthing_plan_status
@@ -361,7 +363,9 @@ router.get('/candidates', async (req, res) => {
       OR (
         o.id IS NOT NULL
         AND o.tb IS NULL
-        AND UPPER(TRIM(COALESCE(o.status, ''))) NOT IN ('DOCKED', 'IN_PROGRESS', 'COMPLETED')
+        AND UPPER(TRIM(COALESCE(o.status, ''))) NOT IN (
+          'DOCKED', 'IN_PROGRESS', 'POST_OPS', 'SIGNOFF_REQUESTED', 'SIGNOFF_APPROVED'
+        )
       )
     )`;
   const planBerthedSql = `(
@@ -369,7 +373,9 @@ router.get('/candidates', async (req, res) => {
       AND COALESCE(o.shifting_out, false) = false
       AND (
         o.tb IS NOT NULL
-        OR UPPER(TRIM(COALESCE(o.status, ''))) IN ('DOCKED', 'IN_PROGRESS', 'COMPLETED')
+        OR UPPER(TRIM(COALESCE(o.status, ''))) IN (
+          'DOCKED', 'IN_PROGRESS', 'POST_OPS', 'SIGNOFF_REQUESTED', 'SIGNOFF_APPROVED'
+        )
       )
     )`;
 

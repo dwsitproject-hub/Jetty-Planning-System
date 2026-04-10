@@ -1,7 +1,7 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.18  
-**Last Updated**: 2026-04-08  
+**Version**: 1.20  
+**Last Updated**: 2026-04-10  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
@@ -345,8 +345,8 @@ Freight terms are currently fixed (frontend constant + backend validation), so t
 **User Story**: As Operator, I see all vessels currently at berth with their pipeline phase and can open their operational detail.
 
 **Workflow (implemented: `AtBerthExecutions.jsx`)**:
-1. Data: **`GET /allocation/overview`** → `queue` array, filtered client-side to **berthed** rows (same criteria as Allocation “Berthed” filter: TB present and/or statuses DOCKED, IN_PROGRESS, COMPLETED) and **excluding** rows where **`shiftingOut`** is true (those appear as **incoming** on Allocation until re-dock).
-2. Summary cards: Loading / Unloading × phase counts; phase derived from **`operations.status`** (IN_PROGRESS → Operational, COMPLETED → Post-Checking, else Pre-Checking).
+1. Data: **`GET /allocation/overview`** → `queue` array, filtered client-side to **berthed** rows (same criteria as Allocation “Berthed” filter: TB present and/or statuses DOCKED, IN_PROGRESS, POST_OPS, SIGNOFF_REQUESTED, SIGNOFF_APPROVED) and **excluding** rows where **`shiftingOut`** is true (those appear as **incoming** on Allocation until re-dock).
+2. Summary cards: Loading / Unloading × phase counts; phase derived from **`operations.status`** (IN_PROGRESS → Operational, POST_OPS → Post-Checking, SIGNOFF_REQUESTED → Ready to Sail, SIGNOFF_APPROVED → Signed off, else Pre-Checking).
 3. Table columns: Vessel, SI, Commodity, Purpose, Jetty, TA, TB, Phase, Status; **Action** first after expand column; expandable **Full details** aligned with Allocation row detail field order.
 4. **Open** → `/{loading|unloading}/:vesselId` (purpose-based route; API rows may use `op-<operationId>` vessel id form).
 5. **Shifting out:** modal + required **`remark`** → **`POST /operations/:id/shifting-out`** (`shiftingOut: true`, `activityLogPage: 'at-berth'`). **Undo shift-out:** same endpoint with `shiftingOut: false` and **no** `remark` in body (optional clear).
@@ -365,6 +365,8 @@ Freight terms are currently fixed (frontend constant + backend validation), so t
   - Selecting a vessel opens hub page with:
     - Collapsible **Vessel Detail** card (operation-backed details).
     - Tabs: Pre-Checking, Operational, Post-Checking.
+
+- **Stage tabs — progress counts (`Loading.jsx` / `StageTabs`):** For **API-backed** operations, Pre-Checking and Post-Checking sub-process state is merged into context when the user navigates to that stage (`PreCheckingSections` / `PostCheckingSections` effects). Until the corresponding persisted load has **settled** (success or handled error), the tab meta line shows **`— / N complete`** instead of **`0 / N`**, keyed off parent state (`preCheckPersistHydrated` / `postCheckPersistHydrated`) and `onPersistedHydrationDone(operationId)` after merge or catch. Stale completions are ignored via `operationIdRef` when the user switches operation. Mock route vessels skip the unknown state. Documented functionally in **FUNCTIONAL-SPEC §9.1.5**; see **Docs/Plan/AT-BERTH-TWO-LEVEL-PHASE-AND-WORKSPACE-STAGE-PLAN.md** (Case A, Option A).
 
 - **Pre-Checking**:
   - Checklist-style step navigator: Key Meeting, NOR Accepted, Tank Inspection, Hold Inspection, Sampling, Initial Sounding, Initial Draft Survey.
@@ -442,7 +444,7 @@ Freight terms are currently fixed (frontend constant + backend validation), so t
 - **Vessel pipeline** card (`section.dashboard-pipeline`) is rendered **first** in the main column (after header, port chip, and optional API error banner), then the **Port activity chart + KPI grid** row — pipeline is the top-level summary of port flow.
 - **Port activity chart** (`DashboardActivityChart.jsx`) in the **second row** left column (beside the KPI grid):
   - **Operations** mode: classifies `GET /allocation/overview` **`queue`** rows by **`purpose`** (Loading / Unloading; unknown purpose omitted) and by stage using shared helpers in `Frontend/src/utils/dashboardQueueClassification.js`:
-    - **Planned berthing:** `isPlannedBerthingQueueRow` — jetty set, no TB, operation status not in `DOCKED` / `IN_PROGRESS` / `COMPLETED` (same idea as pipeline planned berthing).
+    - **Planned berthing:** `isPlannedBerthingQueueRow` — jetty set, no TB, operation status not in `DOCKED` / `IN_PROGRESS` / `POST_OPS` / `SIGNOFF_REQUESTED` / `SIGNOFF_APPROVED` (same idea as pipeline planned berthing).
     - **Berthing:** `isQueueRowBerthing` — TB set or status in that alongside set; **`shiftingOut` rows excluded**.
   - **Shipping instructions** mode: counts by `status` **`Approved` | `Submitted` | `Draft`** from `GET /shipping-instructions` (port-scoped); percentages use total of those three as denominator.
   - **Presentation:** **Y-axis** integer ticks (step sized from data max) with **dashed horizontal grid** lines; bar heights use the same scale (`yMax` ≥ max count in view). **Tooltip:** `createPortal` to `document.body`, positioned from `getBoundingClientRect` (flips if it would leave the left edge); lists **vessel names** collected when building series — queue: `vesselName` → `vesselId` → `—`; SI: same fields per row. Bars with count **0** are non-interactive. Scroll/resize closes the tooltip.
@@ -457,9 +459,11 @@ Freight terms are currently fixed (frontend constant + backend validation), so t
   - **SLA at risk** value is hover/focus interactive and shows a tooltip listing `<vessel name>` with `<jetty>` and `+Xh over ETC`.
 - **Performance card (non‑SLA)**:
   - Toggle: **24h / 7d** (frontend-only windowing).
-  - Metrics computed client-side from `GET /allocation/overview` **`queue`** timestamps:
+  - Metrics computed client-side with mixed sources:
+    - `GET /allocation/overview` **`queue`** for waiting/on-time metrics.
+    - `GET /operations` (**`allOps`**) for turnaround so sailed rows can be included.
     - **Waiting to berth (median)**: median of `(TB − TA)` for rows with both timestamps, windowed by **TB**.
-    - **Turnaround (median)**: median of `(end − TB)` where `end = castOffDateTime ?? actualCompletionDateTime`, windowed by **end**.
+    - **Turnaround (median)**: median of `(end − TB)` where `end = castOffAt ?? actualCompletionTime`, windowed by **end**; includes operations that are already `SAILED`.
     - **On‑time berthing (%)**: `TB <= plannedEtbDateTime + 6h`, windowed by **TB**.
   - Drill-down uses the same portal tooltip pattern (`InteractiveTooltip.jsx`) listing worst/late cases with vessel + jetty + duration.
 - **Implementation**: shared portal tooltip component `Frontend/src/components/InteractiveTooltip.jsx` (pattern mirrors `DashboardActivityChart.jsx` tooltip).
@@ -519,7 +523,7 @@ Types are whitelisted by backend config (`Backend/src/routes/si-lookups.js`) and
 - **Query params:** `from`, `to` (ISO, inclusive overlap against `si.eta_from` / `si.eta_to`), `include_incoming` (`1`|`0`, default `1`), `include_berthed` (`1`|`0`, default `1`).
 - **Port filter:** Row is included if `COALESCE(si.port_id, preferred_jetty.port_id) = selectedPortId` **or** there exists a non-`SAILED` operation for that SI with `operations.port_id = selectedPortId` (allocation path without SI `port_id`).
 - **Sailed exclusion:** SIs whose **only** operations are `SAILED` are omitted (no “ghost” open rows).
-- **Incoming vs Berthed:** Same classification idea as **Allocation** `getBerthingPlanStatus` (`Frontend/src/pages/Allocation.jsx`): **berthed** = operation exists, not `shifting_out`, and (`tb` set **or** status ∈ `DOCKED`, `IN_PROGRESS`, `COMPLETED`); otherwise **incoming** (includes SI-only rows and pre-berth operations, e.g. jetty still null).
+- **Incoming vs Berthed:** Same classification idea as **Allocation** `getBerthingPlanStatus` (`Frontend/src/pages/Allocation.jsx`): **berthed** = operation exists, not `shifting_out`, and (`tb` set **or** status ∈ `DOCKED`, `IN_PROGRESS`, `POST_OPS`, `SIGNOFF_REQUESTED`, `SIGNOFF_APPROVED`); otherwise **incoming** (includes SI-only rows and pre-berth operations, e.g. jetty still null).
 - **Response (per row):** `siId`, `referenceNumber`, `vesselName`, `purpose`, ETA fields, `commodity`, `berthingPlanStatus` (`incoming`|`berthed`), `jettyName` (from `operations.jetty_id` → `jetties.name` when set), optional nested `operation` summary (`id`, `status`, `dockingStartTime`, `estimatedCompletionTime`).
 
 **`PUT /operations/:id/estimated-completion`** (session auth + port access via `canAccessOperationForSelectedPort`)
@@ -532,7 +536,8 @@ Types are whitelisted by backend config (`Backend/src/routes/si-lookups.js`) and
 
 ### 3.3 Operations & SLA
 
-- `GET /operations` – filter by port, jetty, status, purpose.
+- `GET /operations` – filter by port, jetty, status, purpose; optional query **`signoff_requested=1`** limits to rows with **`signoff_requested_at` set** and **`status` = `SIGNOFF_REQUESTED`** (pending approval).
+- `GET /operations/pending-signoff-requests` – same pending rows for the selected port, **`can_approve` on page `loading`** required (**403** otherwise). Used by Clearance “Pending sign-off”.
 - `GET /operations/:id`.
 - `POST /operations` – create from SI (one operation per SI + jetty).
 - `PUT /operations/:id`.
@@ -546,13 +551,20 @@ Types are whitelisted by backend config (`Backend/src/routes/si-lookups.js`) and
       - \( SLA = Q1 + Q2 + C + \sum (V_n / Rate_n \times Buffer_n) + ((n-1) \times S) \).
     - Set `estimated_completion_time = docking_start_time + SLA`.
 - `POST /operations/:id/recalculate-sla` – if volumes or config change.
-- `POST /operations/:id/signoff` – sets `COMPLETED` + `actual_completion_time` when:
+- `POST /operations/:id/signoff-request` – berth team **requests** final sign-off. **RBAC:** **`can_edit`** on page **`loading`**. **Body:** optional `remark` (trimmed, max 4000 chars). **Rules:** `status` must be **`POST_OPS`**; **`signoff_requested_at` must be null**; before eligibility check, backend normalizes legacy rows by setting `completion_percent = 100` when status is `POST_OPS` but completion remains below 100; then **`checkSignoffEligible`** must pass (same gates as sign-off). Sets **`status` = `SIGNOFF_REQUESTED`**, **`signoff_requested_at`**, **`signoff_requested_by`**, **`signoff_request_remark`**; activity log **`pageKey`:** `loading`.
+- `POST /operations/:id/signoff` – **final approval:** sets **`SIGNOFF_APPROVED`** + `actual_completion_time` when:
+  - **RBAC:** **`can_approve`** on page **`loading`** (**403** if missing).
+  - **`status` must be `SIGNOFF_REQUESTED`** (a prior **signoff-request**).
+  - Gates: **`checkSignoffEligible`** as below (re-checked at approve time).
   - `exception_status === APPROVED` (skips gates), **or**
   - `completion_percent === 100`, all QC surveys `Done`, at least one Pre- + one Post-Checking `Done` (when any QC rows exist), and all Operational `quantity_checks` have `occurred_at`.
-- `POST /operations/:id/request-exception` – body `justification`, optional `exception_document_url`; sets `PENDING` (before COMPLETED/SAILED).
+  - Activity log **`pageKey`:** `loading`.
+- **`operations` columns (migration `049_operations_signoff_request.sql`):** `signoff_requested_at`, `signoff_requested_by` → `users.id`, `signoff_request_remark` (retained after **`SIGNOFF_APPROVED`** for audit).
+- `POST /operations/:id/request-exception` – body `justification`, optional `exception_document_url`; sets `PENDING` (before terminal at-berth statuses / `SAILED`).
 - `POST /operations/:id/approve-exception` – body optional `approver_user_id`.
 - `POST /operations/:id/reject-exception` – body optional `approver_user_id`.
-- `POST /operations/:id/depart` – after signoff (`COMPLETED`); body `cast_off_at` (ISO, required), optional `clearance_document_url`, `vessel_photo_url`; sets `SAILED`, `sailed_at`.
+- `POST /operations/:id/depart` – after **`SIGNOFF_APPROVED`**; body `cast_off_at` (ISO, required), optional `clearance_document_url`, `vessel_photo_url`; sets `SAILED`, `sailed_at`.
+- **UI entrypoint policy:** Loading/Unloading hub (`Loading.jsx`) supports **request sign-off** and pending-state visibility only; final approval action is routed through **Clearance** (`Verification.jsx`) as the single approval entry point.
 
 ### 3.4 QC & Quantity
 
@@ -577,7 +589,7 @@ This subsection describes the **implemented** hybrid persistence for Pre-Checkin
 #### 3.4A.2 Proposed new data entities
 
 - `operation_sub_processes` (generalized per operation + phase + key):
-  - `id`, `operation_id`, `phase`, `sub_process_key`, `status`, `occurred_at`, `remark`, `payload_json`, audit timestamps, `deleted_at`.
+  - `id`, `operation_id`, `phase`, `sub_process_key`, `status`, `occurred_at`, optional interval fields `start_at` / `end_at` (for duration in UI and reporting), `skip_reason`, `remark`, `payload_json`, audit timestamps, `deleted_at`.
   - Unique active row target: `(operation_id, phase, sub_process_key)` where `deleted_at IS NULL`.
 - `operation_sub_process_documents`:
   - `id`, `sub_process_id`, file metadata fields, timestamps, `deleted_at`.
@@ -589,6 +601,7 @@ This subsection describes the **implemented** hybrid persistence for Pre-Checkin
 - Generalized sub-process:
   - `GET /operations/:id/sub-processes?phase=Pre-Checking`
   - `PUT /operations/:id/sub-processes/:subProcessKey` (upsert semantics)
+- **Activity timeline (merged log):** `GET /operations/:id/activity-timeline` (`Backend/src/routes/operation-operational-activities.js`) returns a sorted list of events for the **Detailed At-Berth Executions Log**. Sub-process events use `source: 'sub_process'` with `startAt` = `start_at ?? occurred_at`, `endAt` = `end_at`, and `occurredAt` for sorting/legacy; the frontend maps these to **Start**, **End**, and **Duration** the same way as operational activity rows when both interval ends are present.
 - Sub-process documents:
   - `GET /operations/:id/sub-processes/:subProcessKey/documents`
   - `POST /operations/:id/sub-processes/:subProcessKey/documents`
@@ -653,8 +666,10 @@ Optional future migrations (comments/views) remain out of scope until needed.
   - `operation_id BIGINT NOT NULL REFERENCES operations(id) ON DELETE CASCADE`
   - `phase TEXT NOT NULL CHECK (phase IN ('Pre-Checking','Operational','Post-Checking'))`
   - `sub_process_key TEXT NOT NULL`
-  - `status TEXT NULL CHECK (status IN ('Pending','In Progress','Done','N/A'))`
+  - `status TEXT NULL CHECK (status IN ('Pending','In Progress','Done','Skipped','N/A'))`
   - `occurred_at TIMESTAMPTZ NULL`
+  - `start_at TIMESTAMPTZ NULL`, `end_at TIMESTAMPTZ NULL` (interval for duration; `PUT` upsert accepts `startAt` / `endAt`)
+  - `skip_reason TEXT NULL`
   - `remark TEXT NULL`
   - `payload_json JSONB NULL`
   - `created_by BIGINT NULL` (optional FK to `users`)
@@ -730,7 +745,7 @@ Returns `{ queue, berths }`.
 - **`queue`**: union of (a) **active operations** (`status <> 'SAILED'`) joined to SI + jetty, and (b) **approved SIs without an operation**. Each row is normalised in **`formatListRow`** (`Backend/src/routes/allocation.js`).
 - **Key camelCase fields** (non-exhaustive): `id`, `vesselId`, `operationId`, `shippingInstructionId`, `vesselName`, `shippingInstruction`, `commodity`, `purpose`, `priority`, `noPkk`, `remark`, **`shiftingOut`**, **`shiftingOutAt`**, `eta`, `etb`, `jetty`, `etaDateTime`, `taDateTime`, `etbDateTime`, `tbDateTime`, `pobDateTime`, `sobDateTime`, `estimatedCompletionDateTime`, `actualCompletionDateTime`, `castOffDateTime`, `status`, `norDocuments`, **`recordLastUpdatedAt`**, **`recordLastUpdatedByDisplayName`**, **`shipper`**, **`agent`**, **`surveyor`** (from `si_shippers`, `si_agents`, `si_surveyors` joins on `shipping_instructions`).
 - **`eta` / `etb`**: short display strings from SQL `to_char(… AT TIME ZONE 'UTC', 'DD/MM HH24:MI')` — **no** trailing ` LT` suffix.
-- **`berths`**: jetty list with occupancy derived from operations where **TB is set** and/or status in DOCKED / IN_PROGRESS / COMPLETED **and `shifting_out` is false** (shifted-out vessels must not occupy a bank slot).
+- **`berths`**: jetty list with occupancy derived from operations where **TB is set** and/or status in DOCKED / IN_PROGRESS / POST_OPS / SIGNOFF_REQUESTED / SIGNOFF_APPROVED **and `shifting_out` is false** (shifted-out vessels must not occupy a bank slot).
 
 #### 3.5.2 `POST /operations/:id/shifting-out`
 
@@ -748,7 +763,7 @@ See **§0.9** (request/response, remark persistence, activity log, client helper
 Used by Dashboard and other consumers. Selection:
 
 - `deleted_at IS NULL`, **`status <> 'SAILED'`**, and **any of**:
-  - `status IN ('DOCKED','IN_PROGRESS','COMPLETED')`, or
+  - `status IN ('DOCKED','IN_PROGRESS','POST_OPS','SIGNOFF_REQUESTED','SIGNOFF_APPROVED')`, or
   - **`tb IS NOT NULL`**, or
   - **`docking_start_time IS NOT NULL`**.
 
@@ -853,7 +868,7 @@ Entities follow the design already outlined in the previous answer; key ones:
 - `shipping_instructions` — includes **`approval_id`** (migration **`019`**). Migration **`025_si_loading_document_and_approve_rbac.sql`** adds Loading document fields: **`voyage_no`**, **`destination_text`**, **`freight_terms`** (check: PREPAID, COLLECT, AS_PER_CHARTER_PARTY, OTHER), **`bill_of_lading_clause`**, **`consignee_text`**, **`notify_party_text`**, **`bl_indicated`**, **`document_date`**, and approval audit: **`approved_by_user_id`**, **`approved_at`**, **`approver_name_snapshot`**, **`approver_title_snapshot`**. API exposes camelCase equivalents (e.g. **`destinationText`**, **`freightTerms`**, **`approverNameSnapshot`**).
 - `si_port_npwp` — per-port **NPWP master** used for Shipping Instruction display (read-only in SI form/view/approval); unique active row per `port_id` (migration **`047_si_port_npwp.sql`**).
 - `users` — optional **`job_title`** (migration **`025`**) used when populating approver title snapshot (fallback: `OPERATION HEAD`).
-- `role_permissions` — **`can_approve`** boolean (migration **`025`**); merged in **`GET /rbac/me/page-permissions`** as **`canApprove`** per page. Shipping Instruction approval on **PUT** `/shipping-instructions/:id` when transitioning to **Approved** requires **`can_approve`** for resource_key **`shipping-instruction`**.
+- `role_permissions` — **`can_approve`** boolean (migration **`025`**); merged in **`GET /rbac/me/page-permissions`** as **`canApprove`** per page. Shipping Instruction approval on **PUT** `/shipping-instructions/:id` when transitioning to **Approved** requires **`can_approve`** for resource_key **`shipping-instruction`**. **Operation sign-off** (**`POST /operations/:id/signoff`**) requires **`can_approve`** for resource_key **`loading`** (Admin UI: **Approve operation sign-off** under Loading / Unloading).
 - `operation_documents` — file metadata per operation (`kind`, `stored_path`, NOR/BERTHING, etc.).
 - `operations`, `operation_materials`, `operation_activities` (optional).
 - `qc_surveys`, `qc_documents`.

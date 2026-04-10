@@ -359,7 +359,13 @@ router.get('/overview', async (req, res) => {
 
   // Build berths occupancy from active operations.
   // Occupied when status is operational OR when TB has been recorded.
-  const occupiedStatuses = new Set(['DOCKED', 'IN_PROGRESS', 'COMPLETED']);
+  const occupiedStatuses = new Set([
+    'DOCKED',
+    'IN_PROGRESS',
+    'POST_OPS',
+    'SIGNOFF_REQUESTED',
+    'SIGNOFF_APPROVED',
+  ]);
   const ops = activeOpsRes.rows;
   const occupantsByJetty = new Map();
   for (const o of ops) {

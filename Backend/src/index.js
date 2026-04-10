@@ -92,6 +92,11 @@ app.use('/api/v1', apiV1);
 
 // Central error handler (prevents crashes on async errors)
 app.use((err, req, res, next) => {
+  const status = err?.statusCode ?? err?.status;
+  if (Number.isInteger(status) && status >= 400 && status < 600) {
+    return res.status(status).json({ error: err.message || 'Error' });
+  }
+
   const code = err?.code;
 
   // Postgres common errors
@@ -100,6 +105,14 @@ app.use((err, req, res, next) => {
   }
   if (code === '22P02') {
     return res.status(400).json({ error: 'Invalid input' });
+  }
+  if (code === '23514') {
+    const constraint = err?.constraint || null;
+    if (constraint === 'operation_sub_processes_time_range_check') {
+      return res.status(400).json({ error: 'Invalid time range: end must be on or after start' });
+    }
+    // Other CHECK constraints (e.g., status/phase) also map to 23514; return a clearer message for debugging.
+    return res.status(400).json({ error: constraint ? `Invalid input (${constraint})` : 'Invalid input' });
   }
 
   console.error('Unhandled error:', err);

@@ -64,7 +64,7 @@ ins AS (
       ('DEMO-SI-0002', 'BG DEMO UNLOAD 02',    'Unloading', 'Approved',  NOW() + INTERVAL '10 hours', 'Incoming SI (no operation yet)'),
       ('DEMO-SI-0003', 'MT BERTHED DEMO 03',   'Loading',   'Approved',  NOW() - INTERVAL '2 hours',  'Has operation: DOCKED'),
       ('DEMO-SI-0004', 'BG INPROGRESS DEMO 04','Unloading', 'Approved',  NOW() - INTERVAL '6 hours',  'Has operation: IN_PROGRESS'),
-      ('DEMO-SI-0005', 'MT READY SAIL 05',     'Loading',   'Approved',  NOW() - INTERVAL '14 hours', 'Has operation: COMPLETED (clearance flow)'),
+      ('DEMO-SI-0005', 'MT READY SAIL 05',     'Loading',   'Approved',  NOW() - INTERVAL '14 hours', 'Has operation: SIGNOFF_APPROVED (clearance flow)'),
       ('DEMO-SI-0006', 'BG SAILED DEMO 06',    'Unloading', 'Approved',  NOW() - INTERVAL '30 hours', 'Has operation: SAILED (history)'),
       ('DEMO-SI-0007', 'MT MULTI CARGO 07',    'Loading',   'Approved',  NOW() + INTERVAL '18 hours', 'Multi-commodity breakdown')
   ) AS v(reference_number, vessel_name, purpose, status, eta, note)
@@ -174,7 +174,7 @@ JOIN (
       'PKK-DEMO-0004', 'High',
       NULL::timestamptz, NULL::text, NULL::text, NULL::timestamptz
     ),
-    ('DEMO-SI-0005', 3, 'COMPLETED',   100, 3,
+    ('DEMO-SI-0005', 3, 'SIGNOFF_APPROVED',   100, 3,
       NOW() - INTERVAL '12 hours', NOW() - INTERVAL '2 hours', NOW() - INTERVAL '2 hours 20 minutes',
       NOW() - INTERVAL '14 hours', NOW() - INTERVAL '13 hours 40 minutes', NOW() - INTERVAL '12 hours 50 minutes',
       NOW() - INTERVAL '13 hours 55 minutes', NOW() - INTERVAL '13 hours 35 minutes',

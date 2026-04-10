@@ -36,11 +36,12 @@ function timelineRowSchedule(ev) {
     }
   }
   if (ev.source === 'sub_process') {
-    const at = ev.occurredAt ?? null
+    const start = ev.startAt ?? ev.occurredAt ?? null
+    const end = ev.endAt ?? null
     return {
-      start: at,
-      end: null,
-      duration: '—',
+      start,
+      end,
+      duration: formatTimelineDuration(start, end),
     }
   }
   return {

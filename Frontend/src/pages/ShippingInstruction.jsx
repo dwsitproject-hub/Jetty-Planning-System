@@ -685,7 +685,7 @@ export default function ShippingInstruction() {
         shipperId: num(form.shipperId),
         loadingPortId: num(form.loadingPortId),
         surveyorId: null,
-        agentId: null,
+        agentId: num(form.agentId),
         referenceNumber: form.referenceNumber.trim(),
         voyageNo: form.voyageNo?.trim() || null,
         eta: etaIso,
@@ -1338,6 +1338,15 @@ export default function ShippingInstruction() {
                       <option value="">—</option>
                       {(lookups?.shippers || []).map((s) => (
                         <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="input-group">
+                    <label htmlFor="agent">Agent</label>
+                    <select id="agent" value={form.agentId} onChange={(e) => updateForm({ agentId: e.target.value })} disabled={!lookups}>
+                      <option value="">—</option>
+                      {(lookups?.agents || []).map((a) => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
                       ))}
                     </select>
                   </div>

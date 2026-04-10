@@ -59,6 +59,7 @@ export function viewModelFromOperationalEntries(entries, purpose) {
         description: e.remark ?? '',
         startTime: e.startAt ?? e.start_at,
         endTime: e.endAt ?? e.end_at,
+        cargoHandlingMethodId: e.cargoHandlingMethodId ?? e.cargo_handling_method_id ?? null,
       })
     }
   }

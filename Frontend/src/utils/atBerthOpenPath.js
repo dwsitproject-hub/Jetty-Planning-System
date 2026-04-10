@@ -6,7 +6,7 @@
  * - DOCKED / ALLOCATED / PENDING / other non-terminal → pre-checking
  * - IN_PROGRESS and completion < 100 → loading (operational)
  * - IN_PROGRESS and completion >= 100 → post-checking (cargo done, final checks)
- * - COMPLETED → post-checking
+ * - POST_OPS / SIGNOFF_REQUESTED / SIGNOFF_APPROVED → post-checking
  *
  * Matches `Loading.jsx` route segments: pre-checking | loading | post-checking
  */
@@ -16,7 +16,7 @@ export function getAtBerthDefaultSection(row) {
   const pctRaw = Number(row?.completionPercent)
   const pct = Number.isFinite(pctRaw) ? pctRaw : 0
 
-  if (st === 'COMPLETED') {
+  if (st === 'POST_OPS' || st === 'SIGNOFF_REQUESTED' || st === 'SIGNOFF_APPROVED') {
     return 'post-checking'
   }
   if (st === 'IN_PROGRESS') {

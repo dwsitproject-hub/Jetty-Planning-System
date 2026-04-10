@@ -537,7 +537,7 @@ docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d --bui
 **App**
 
 ```bash
-cd /opt/jetty-planning-system
+cd /opt/jetty-planning-system/Jetty-Planning-System 
 docker compose -f docker-compose.app.yml logs -f
 docker compose -f docker-compose.app.yml up -d --build
 ```

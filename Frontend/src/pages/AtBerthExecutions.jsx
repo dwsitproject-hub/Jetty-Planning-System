@@ -7,7 +7,8 @@ import { atBerthExecutionOpenPath } from '../utils/atBerthOpenPath'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 
-const PHASES = ['Pre-Checking', 'Operational', 'Post-Checking']
+/** Summary cards only — Ready to Sail / Signed off are tracked under Clearance, not here. */
+const AT_BERTH_SUMMARY_PHASES = ['Pre-Checking', 'Operational', 'Post-Checking']
 const PHASE_EMOJI = {
   'Pre-Checking': '📋',
   Operational: '⚙️',
@@ -30,15 +31,34 @@ function getBerthingPlanStatus(row) {
   if (row?.shiftingOut) return 'incoming'
   const hasTb = Boolean(row?.tbDateTime)
   const opStatus = String(row?.status || '').toUpperCase()
-  if (hasTb || opStatus === 'DOCKED' || opStatus === 'IN_PROGRESS' || opStatus === 'COMPLETED') {
+  if (
+    hasTb ||
+    opStatus === 'DOCKED' ||
+    opStatus === 'IN_PROGRESS' ||
+    opStatus === 'POST_OPS' ||
+    opStatus === 'SIGNOFF_REQUESTED' ||
+    opStatus === 'SIGNOFF_APPROVED'
+  ) {
     return 'berthed'
   }
   return 'incoming'
 }
 
 function statusToPhase(status) {
-  if (status === 'IN_PROGRESS') return 'Operational'
-  if (status === 'COMPLETED') return 'Post-Checking'
+  const s = String(status || '')
+  if (s === 'IN_PROGRESS') return 'Operational'
+  if (s === 'POST_OPS') return 'Post-Checking'
+  if (s === 'SIGNOFF_REQUESTED') return 'Ready to Sail'
+  if (s === 'SIGNOFF_APPROVED') return 'Signed off'
+  return 'Pre-Checking'
+}
+
+/** Buckets for summary cards (excludes sign-off states — those belong to Clearance). */
+function phaseForAtBerthSummaryCard(status) {
+  const s = String(status || '')
+  if (s === 'SIGNOFF_REQUESTED' || s === 'SIGNOFF_APPROVED') return null
+  if (s === 'IN_PROGRESS') return 'Operational'
+  if (s === 'POST_OPS') return 'Post-Checking'
   return 'Pre-Checking'
 }
 
@@ -261,13 +281,18 @@ export default function AtBerthExecutions() {
     return queue.filter((r) => r.operationId != null && getBerthingPlanStatus(r) === 'berthed')
   }, [queue])
 
+  const emptyCounts = () =>
+    AT_BERTH_SUMMARY_PHASES.reduce((acc, ph) => {
+      acc[ph] = 0
+      return acc
+    }, {})
   const counts = {
-    Loading: { 'Pre-Checking': 0, Operational: 0, 'Post-Checking': 0 },
-    Unloading: { 'Pre-Checking': 0, Operational: 0, 'Post-Checking': 0 },
+    Loading: emptyCounts(),
+    Unloading: emptyCounts(),
   }
   rows.forEach((v) => {
-    const phase = statusToPhase(v.status)
-    if (counts[v.purpose]) counts[v.purpose][phase] += 1
+    const phase = phaseForAtBerthSummaryCard(v.status)
+    if (phase && counts[v.purpose]) counts[v.purpose][phase] += 1
   })
 
   const byPurpose = purposeFilter === 'All' ? rows : rows.filter((v) => v.purpose === purposeFilter)
@@ -332,7 +357,7 @@ export default function AtBerthExecutions() {
             <div key={purpose} className="at-berth-summary__group">
               <h3 className="at-berth-summary__group-title">{label}</h3>
               <div className="at-berth-summary__grid">
-                {PHASES.map((phase) => (
+                {AT_BERTH_SUMMARY_PHASES.map((phase) => (
                   <div
                     key={phase}
                     className={`at-berth-card at-berth-card--${purpose.toLowerCase()}`}

@@ -43,7 +43,18 @@ export function buildActivityLogEditPath(ev, { vesselId, basePath }) {
   if (ev.source === 'operational_activity' || ev.source === 'operational_milestone_na') {
     const mk = ev.milestoneKey
     if (!mk) return null
-    return `${basePath}/${v}/loading?milestone=${encodeURIComponent(mk)}&edit=1`
+    const q = new URLSearchParams()
+    q.set('milestone', mk)
+    q.set('edit', '1')
+    if (ev.source === 'operational_activity') {
+      const m = /^op-(\d+)$/.exec(String(ev.id || ''))
+      if (m) q.set('entryId', m[1])
+      if (ev.subStepTitle) q.set('subStepTitle', String(ev.subStepTitle))
+      if (ev.remark) q.set('remark', String(ev.remark))
+      if (ev.startAt) q.set('startAt', String(ev.startAt))
+      if (ev.endAt) q.set('endAt', String(ev.endAt))
+    }
+    return `${basePath}/${v}/loading?${q.toString()}`
   }
 
   return null

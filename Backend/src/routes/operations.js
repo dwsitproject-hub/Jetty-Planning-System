@@ -7,10 +7,17 @@ import { pool } from '../db.js';
 import { computeSlaHours } from '../lib/sla.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { optionalAuth } from '../middleware/auth.js';
+import { userHasPageApprove, userHasPageEdit } from '../middleware/permissions.js';
 
 const router = express.Router();
 router.use(optionalAuth);
-const AT_BERTH_STATUSES = ['DOCKED', 'IN_PROGRESS', 'COMPLETED'];
+const AT_BERTH_STATUSES = [
+  'DOCKED',
+  'IN_PROGRESS',
+  'POST_OPS',
+  'SIGNOFF_REQUESTED',
+  'SIGNOFF_APPROVED',
+];
 
 const SI_COMMODITY = `COALESCE(
   (SELECT sc.name FROM public.shipping_instruction_breakdown b
@@ -34,11 +41,12 @@ function canAccessOperationForSelectedPort(opRow, selectedPortId) {
 
 async function loadOperationJoined(id) {
   const r = await pool.query(
-    `SELECT ${OP_SELECT}
+    `SELECT ${OP_SELECT}, signoff_req_user.username AS signoff_requested_by_username
      FROM operations o
      JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
      LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
      LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
+     LEFT JOIN users signoff_req_user ON signoff_req_user.id = o.signoff_requested_by AND signoff_req_user.deleted_at IS NULL
      WHERE o.id = $1 AND o.deleted_at IS NULL`,
     [id]
   );
@@ -304,8 +312,33 @@ router.get('/', async (req, res) => {
     query += ` AND o.purpose = $${i++}`;
     params.push(purpose);
   }
+  if (String(req.query.signoff_requested || '') === '1') {
+    query += ` AND o.signoff_requested_at IS NOT NULL AND o.status = 'SIGNOFF_REQUESTED'`;
+  }
   query += ` ORDER BY o.created_at DESC`;
   const result = await pool.query(query, params);
+  res.json(result.rows.map(toOp));
+});
+
+/** Approvers: operations awaiting sign-off approval (SIGNOFF_REQUESTED). */
+router.get('/pending-signoff-requests', async (req, res) => {
+  if (!(await userHasPageApprove(req.userId, 'loading'))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const selectedPortId = Number(req.selectedPortId);
+  const result = await pool.query(
+    `SELECT ${OP_SELECT}
+     FROM operations o
+     JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
+     LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
+     LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
+     WHERE o.deleted_at IS NULL
+       AND COALESCE(o.port_id, p.id) = $1
+       AND o.signoff_requested_at IS NOT NULL
+       AND o.status = 'SIGNOFF_REQUESTED'
+     ORDER BY o.signoff_requested_at ASC NULLS LAST`,
+    [selectedPortId]
+  );
   res.json(result.rows.map(toOp));
 });
 
@@ -387,7 +420,16 @@ router.put('/:id', async (req, res) => {
   const values = [];
   let i = 1;
   if (status) {
-    const valid = ['PENDING', 'ALLOCATED', 'DOCKED', 'IN_PROGRESS', 'COMPLETED', 'SAILED'];
+    const valid = [
+      'PENDING',
+      'ALLOCATED',
+      'DOCKED',
+      'IN_PROGRESS',
+      'POST_OPS',
+      'SIGNOFF_REQUESTED',
+      'SIGNOFF_APPROVED',
+      'SAILED',
+    ];
     if (!valid.includes(status)) return res.status(400).json({ error: 'Invalid status' });
     updates.push(`status = $${i++}`);
     values.push(status);
@@ -583,7 +625,9 @@ router.post('/:id/request-exception', async (req, res) => {
     return res.status(404).json({ error: 'Operation not found' });
   }
   if (row.status === 'SAILED') return res.status(400).json({ error: 'Operation has already sailed' });
-  if (row.status === 'COMPLETED') return res.status(400).json({ error: 'Operation is already completed; signoff done' });
+  if (row.status === 'SIGNOFF_APPROVED') {
+    return res.status(400).json({ error: 'Operation is already signed off' });
+  }
   if (row.exception_status === 'PENDING') {
     return res.status(400).json({ error: 'An exception request is already pending' });
   }
@@ -737,27 +781,107 @@ router.post('/:id/reject-exception', async (req, res) => {
   res.json(toOp(rejRow));
 });
 
-router.post('/:id/signoff', async (req, res) => {
+router.post('/:id/signoff-request', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  if (!(await userHasPageEdit(req.userId, 'loading'))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const opRow = await loadOperationJoined(id);
   if (!opRow) return res.status(404).json({ error: 'Operation not found' });
   if (!canAccessOperationForSelectedPort(opRow, req.selectedPortId)) {
     return res.status(404).json({ error: 'Operation not found' });
   }
   if (opRow.status === 'SAILED') return res.status(400).json({ error: 'Operation has already sailed' });
-  if (opRow.status === 'COMPLETED') {
+  if (opRow.status === 'SIGNOFF_APPROVED') {
+    return res.status(400).json({ error: 'Operation is already signed off' });
+  }
+  if (opRow.status === 'SIGNOFF_REQUESTED') {
+    return res.status(400).json({ error: 'A sign-off request is already pending' });
+  }
+  const allowed = ['POST_OPS'];
+  if (!allowed.includes(opRow.status)) {
+    return res.status(400).json({
+      error: `Sign-off request requires status POST_OPS (current: ${opRow.status})`,
+    });
+  }
+  // Legacy/seed data may still have completion_percent < 100 even after POST_OPS.
+  // Normalize here so eligible post-check-complete operations are not blocked.
+  if ((Number(opRow.completion_percent) || 0) < 100 && opRow.status === 'POST_OPS') {
+    await pool.query(
+      `UPDATE operations
+       SET completion_percent = 100,
+           updated_at = NOW()
+       WHERE id = $1 AND deleted_at IS NULL`,
+      [id]
+    );
+    opRow.completion_percent = 100;
+  }
+  const gate = await checkSignoffEligible(id, opRow);
+  if (!gate.ok) return res.status(400).json({ error: gate.reason });
+  const { remark } = req.body || {};
+  const remarkTrim =
+    remark != null && typeof remark === 'string' && remark.trim() ? remark.trim().slice(0, 4000) : null;
+  await pool.query(
+    `UPDATE operations SET
+       status = 'SIGNOFF_REQUESTED',
+       signoff_requested_at = NOW(),
+       signoff_requested_by = $2,
+       signoff_request_remark = $3,
+       updated_at = NOW()
+     WHERE id = $1 AND deleted_at IS NULL`,
+    [id, req.userId ?? null, remarkTrim]
+  );
+  const row = await loadOperationJoined(id);
+  const reqChanges = [
+    { field: 'Status', from: opRow?.status ?? null, to: row?.status ?? null },
+    { field: 'Sign-off requested at', from: null, to: row?.signoff_requested_at ?? null },
+  ];
+  if (remarkTrim) {
+    reqChanges.push({ field: 'Sign-off request remark', from: null, to: remarkTrim });
+  }
+  writeActivityLog({
+    pageKey: 'loading',
+    action: 'update',
+    entityType: 'Operation',
+    entityId: String(id),
+    entityLabel: row?.vessel_name || `Operation #${id}`,
+    summary: 'Requested operation sign-off',
+    changes: reqChanges,
+    meta: { operationId: id },
+    actorUserId: req.userId ?? null,
+  }).catch(() => {});
+  res.json(toOp(row));
+});
+
+router.post('/:id/signoff', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  if (!(await userHasPageApprove(req.userId, 'loading'))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const opRow = await loadOperationJoined(id);
+  if (!opRow) return res.status(404).json({ error: 'Operation not found' });
+  if (!canAccessOperationForSelectedPort(opRow, req.selectedPortId)) {
+    return res.status(404).json({ error: 'Operation not found' });
+  }
+  if (opRow.status === 'SAILED') return res.status(400).json({ error: 'Operation has already sailed' });
+  if (opRow.status === 'SIGNOFF_APPROVED') {
     return res.json(toOp(opRow));
   }
-  const allowed = ['DOCKED', 'IN_PROGRESS'];
-  if (!allowed.includes(opRow.status)) {
-    return res.status(400).json({ error: `Signoff requires status DOCKED or IN_PROGRESS (current: ${opRow.status})` });
+  if (opRow.status !== 'SIGNOFF_REQUESTED') {
+    return res.status(400).json({
+      error: `Signoff requires status SIGNOFF_REQUESTED (current: ${opRow.status})`,
+    });
+  }
+  if (!opRow.signoff_requested_at) {
+    return res.status(400).json({ error: 'A sign-off request is required before sign-off' });
   }
   const gate = await checkSignoffEligible(id, opRow);
   if (!gate.ok) return res.status(400).json({ error: gate.reason });
   await pool.query(
     `UPDATE operations SET
-       status = 'COMPLETED',
+       status = 'SIGNOFF_APPROVED',
        actual_completion_time = COALESCE(actual_completion_time, NOW()),
        updated_at = NOW()
      WHERE id = $1 AND deleted_at IS NULL`,
@@ -765,14 +889,14 @@ router.post('/:id/signoff', async (req, res) => {
   );
   const signedRow = await loadOperationJoined(id);
   writeActivityLog({
-    pageKey: 'verification',
+    pageKey: 'loading',
     action: 'update',
     entityType: 'Operation',
     entityId: String(id),
     entityLabel: signedRow?.vessel_name || `Operation #${id}`,
-    summary: 'Signed off operation (COMPLETED)',
+    summary: 'Signed off operation (SIGNOFF_APPROVED)',
     changes: [
-      { field: 'Status', from: opRow?.status ?? null, to: 'COMPLETED' },
+      { field: 'Status', from: opRow?.status ?? null, to: 'SIGNOFF_APPROVED' },
       { field: 'Actual Completion', from: opRow?.actual_completion_time ?? null, to: signedRow?.actual_completion_time ?? null },
     ],
     meta: { operationId: id },
@@ -781,7 +905,7 @@ router.post('/:id/signoff', async (req, res) => {
   res.json(toOp(signedRow));
 });
 
-/** Record cast-off and mark vessel SAILED (after signoff / COMPLETED). */
+/** Record cast-off and mark vessel SAILED (after SIGNOFF_APPROVED). */
 router.post('/:id/depart', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
@@ -793,8 +917,8 @@ router.post('/:id/depart', async (req, res) => {
   if (opRow.status === 'SAILED') {
     return res.json(toOp(opRow));
   }
-  if (opRow.status !== 'COMPLETED') {
-    return res.status(400).json({ error: 'Operation must be COMPLETED (signoff) before depart' });
+  if (opRow.status !== 'SIGNOFF_APPROVED') {
+    return res.status(400).json({ error: 'Operation must be SIGNOFF_APPROVED before depart' });
   }
   const { cast_off_at, clearance_document_url, vessel_photo_url } = req.body || {};
   if (!cast_off_at) {
@@ -948,6 +1072,10 @@ function toOp(row) {
     shiftingOut: row.shifting_out ?? false,
     shiftingOutAt: row.shifting_out_at ?? null,
     remark: row.remark ?? null,
+    signoffRequestedAt: row.signoff_requested_at ?? null,
+    signoffRequestedByUserId: row.signoff_requested_by ?? null,
+    signoffRequestedByUsername: row.signoff_requested_by_username ?? undefined,
+    signoffRequestRemark: row.signoff_request_remark ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

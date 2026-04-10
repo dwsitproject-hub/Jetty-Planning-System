@@ -6,8 +6,13 @@ export function fetchOperations(params = {}) {
   if (params.jettyId) sp.set('jetty_id', params.jettyId)
   if (params.status) sp.set('status', params.status)
   if (params.purpose) sp.set('purpose', params.purpose)
+  if (params.signoffRequested) sp.set('signoff_requested', '1')
   const q = sp.toString()
   return apiGet(`/operations${q ? `?${q}` : ''}`)
+}
+
+export function fetchPendingSignoffRequests() {
+  return apiGet('/operations/pending-signoff-requests')
 }
 
 export function fetchAtBerth() {
@@ -145,6 +150,12 @@ export function rejectException(operationId, approverUserId) {
   })
 }
 
+export function signoffRequest(operationId, remark) {
+  return apiPost(`/operations/${operationId}/signoff-request`, {
+    remark: remark != null && String(remark).trim() ? String(remark).trim() : undefined,
+  })
+}
+
 export function signoff(operationId) {
   return apiPost(`/operations/${operationId}/signoff`, {})
 }
@@ -178,16 +189,52 @@ export function fetchSubProcesses(operationId, phase) {
   return apiGet(`/operations/${operationId}/sub-processes${q}`)
 }
 
+/**
+ * Sub-process times from `datetime-local` (no timezone) must be converted in the **browser**
+ * so the server receives an unambiguous instant (RFC3339). Otherwise Node may treat
+ * `YYYY-MM-DDTHH:mm` as UTC while the user entered local time, or merge logic can break ranges.
+ */
+function normalizeSubProcessTimestampForApi(v) {
+  if (v === undefined) return undefined
+  if (v === null || v === '') return null
+  const s = String(v).trim()
+  if (!s) return null
+  const d = new Date(s)
+  if (Number.isNaN(d.getTime())) {
+    throw new Error('Invalid date or time')
+  }
+  return d.toISOString()
+}
+
 export function upsertSubProcess(operationId, subProcessKey, body) {
-  return apiPut(`/operations/${operationId}/sub-processes/${encodeURIComponent(subProcessKey)}`, {
+  const nOcc = normalizeSubProcessTimestampForApi(body.occurredAt)
+  const nStart = normalizeSubProcessTimestampForApi(body.startAt)
+  const nEnd = normalizeSubProcessTimestampForApi(body.endAt)
+
+  const base = {
     phase: body.phase,
     status: body.status,
-    occurredAt: body.occurredAt,
-    startAt: body.startAt,
-    endAt: body.endAt,
     skipReason: body.skipReason,
     remark: body.remark,
     payload: body.payload,
+  }
+
+  // Post-Checking: always send all three keys (null or ISO). Omitting a key made JSON drop `endAt`,
+  // so the API kept a stale DB `end_at` and merged it with a new `start_at` → invalid range 400.
+  if (body.phase === 'Post-Checking') {
+    return apiPut(`/operations/${operationId}/sub-processes/${encodeURIComponent(subProcessKey)}`, {
+      ...base,
+      occurredAt: nOcc === undefined ? null : nOcc,
+      startAt: nStart === undefined ? null : nStart,
+      endAt: nEnd === undefined ? null : nEnd,
+    })
+  }
+
+  return apiPut(`/operations/${operationId}/sub-processes/${encodeURIComponent(subProcessKey)}`, {
+    ...base,
+    ...(nOcc !== undefined ? { occurredAt: nOcc } : {}),
+    ...(nStart !== undefined ? { startAt: nStart } : {}),
+    ...(nEnd !== undefined ? { endAt: nEnd } : {}),
   })
 }
 

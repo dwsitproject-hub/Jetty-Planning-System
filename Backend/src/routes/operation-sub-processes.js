@@ -16,6 +16,13 @@ import { UPLOAD_ROOT } from '../paths.js';
 import { validateMulterFileList } from '../lib/upload-mime.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { optionalAuth } from '../middleware/auth.js';
+import { promoteInProgressToPostOpsIfInProgress } from '../lib/operation-auto-status.js';
+
+const POST_CHECK_AUTO_KEYS = new Set([
+  'final_tank_inspection',
+  'final_hold_inspection',
+  'final_sounding',
+]);
 
 const router = express.Router();
 router.use(optionalAuth);
@@ -41,6 +48,27 @@ function parseTs(v) {
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return undefined;
   return d.toISOString();
+}
+
+/** Non-empty body field must parse; otherwise we risk merging bad data and hitting DB check. */
+function assertParsedIfProvided(label, raw, parsed) {
+  if (raw === undefined) return;
+  if (raw === null || raw === '') return;
+  if (String(raw).trim() === '') return;
+  if (parsed === undefined) {
+    throw Object.assign(new Error(`Invalid ${label}`), { statusCode: 400 });
+  }
+}
+
+/** After UPDATE merge rules, both timestamps set ⇒ end >= start (matches operation_sub_processes_time_range_check). */
+function assertEffectiveTimeRange(effStart, effEnd) {
+  if (effStart == null || effEnd == null) return;
+  const s = new Date(effStart).getTime();
+  const e = new Date(effEnd).getTime();
+  if (Number.isNaN(s) || Number.isNaN(e)) return;
+  if (e < s) {
+    throw Object.assign(new Error('Invalid time range: end must be on or after start'), { statusCode: 400 });
+  }
 }
 
 function sanitizePayload(v) {
@@ -116,6 +144,16 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
     throw Object.assign(new Error('skipReason is required when status is Skipped'), { statusCode: 400 });
   }
 
+  assertParsedIfProvided('occurredAt', body.occurredAt, occurredAt);
+  assertParsedIfProvided('startAt', body.startAt, startAt);
+  assertParsedIfProvided('endAt', body.endAt, endAt);
+
+  const isPostChecking = phase === 'Post-Checking';
+  /** Post-Checking: full replace of time columns (omit/undefined → NULL). Pre-Checking keeps COALESCE merge. */
+  const pcOcc = occurredAt === undefined ? null : occurredAt;
+  const pcStart = startAt === undefined ? null : startAt;
+  const pcEnd = endAt === undefined ? null : endAt;
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -129,35 +167,77 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
     let id;
     if (ex.rows.length > 0) {
       id = ex.rows[0].id;
-      await client.query(
-        `UPDATE operation_sub_processes SET
-           status = COALESCE($1, status),
-           occurred_at = CASE WHEN $2::timestamptz IS NULL AND $3::boolean THEN NULL ELSE COALESCE($2, occurred_at) END,
-           start_at = CASE WHEN $4::timestamptz IS NULL AND $5::boolean THEN NULL ELSE COALESCE($4, start_at) END,
-           end_at = CASE WHEN $6::timestamptz IS NULL AND $7::boolean THEN NULL ELSE COALESCE($6, end_at) END,
-           skip_reason = CASE WHEN $8::boolean THEN NULLIF($9, '') ELSE skip_reason END,
-           remark = CASE WHEN $10::boolean THEN COALESCE($11, '') ELSE remark END,
-           payload_json = CASE WHEN $12::boolean THEN $13::jsonb ELSE payload_json END,
-           updated_at = NOW()
-         WHERE id = $14`,
-        [
-          status !== undefined ? status : null,
-          occurredAt === undefined ? null : occurredAt,
-          occurredAt !== undefined,
-          startAt === undefined ? null : startAt,
-          startAt !== undefined,
-          endAt === undefined ? null : endAt,
-          endAt !== undefined,
-          skipReason !== undefined,
-          skipReason !== undefined ? skipReason : null,
-          remark !== undefined,
-          remark !== undefined ? remark : null,
-          payload !== undefined,
-          payload !== undefined ? JSON.stringify(payload) : null,
-          id,
-        ]
-      );
+      if (isPostChecking) {
+        assertEffectiveTimeRange(pcStart, pcEnd);
+        await client.query(
+          `UPDATE operation_sub_processes SET
+             status = COALESCE($1, status),
+             occurred_at = $2,
+             start_at = $3,
+             end_at = $4,
+             skip_reason = CASE WHEN $5::boolean THEN NULLIF($6, '') ELSE skip_reason END,
+             remark = CASE WHEN $7::boolean THEN COALESCE($8, '') ELSE remark END,
+             payload_json = CASE WHEN $9::boolean THEN $10::jsonb ELSE payload_json END,
+             updated_at = NOW()
+           WHERE id = $11`,
+          [
+            status !== undefined ? status : null,
+            pcOcc,
+            pcStart,
+            pcEnd,
+            skipReason !== undefined,
+            skipReason !== undefined ? skipReason : null,
+            remark !== undefined,
+            remark !== undefined ? remark : null,
+            payload !== undefined,
+            payload !== undefined ? JSON.stringify(payload) : null,
+            id,
+          ]
+        );
+      } else {
+        const cur = await client.query(
+          `SELECT start_at, end_at FROM operation_sub_processes WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+          [id]
+        );
+        const row = cur.rows[0];
+        const effStart = startAt === undefined ? row?.start_at ?? null : startAt;
+        const effEnd = endAt === undefined ? row?.end_at ?? null : endAt;
+        assertEffectiveTimeRange(effStart, effEnd);
+        await client.query(
+          `UPDATE operation_sub_processes SET
+             status = COALESCE($1, status),
+             occurred_at = CASE WHEN $2::timestamptz IS NULL AND $3::boolean THEN NULL ELSE COALESCE($2, occurred_at) END,
+             start_at = CASE WHEN $4::timestamptz IS NULL AND $5::boolean THEN NULL ELSE COALESCE($4, start_at) END,
+             end_at = CASE WHEN $6::timestamptz IS NULL AND $7::boolean THEN NULL ELSE COALESCE($6, end_at) END,
+             skip_reason = CASE WHEN $8::boolean THEN NULLIF($9, '') ELSE skip_reason END,
+             remark = CASE WHEN $10::boolean THEN COALESCE($11, '') ELSE remark END,
+             payload_json = CASE WHEN $12::boolean THEN $13::jsonb ELSE payload_json END,
+             updated_at = NOW()
+           WHERE id = $14`,
+          [
+            status !== undefined ? status : null,
+            occurredAt === undefined ? null : occurredAt,
+            occurredAt !== undefined,
+            startAt === undefined ? null : startAt,
+            startAt !== undefined,
+            endAt === undefined ? null : endAt,
+            endAt !== undefined,
+            skipReason !== undefined,
+            skipReason !== undefined ? skipReason : null,
+            remark !== undefined,
+            remark !== undefined ? remark : null,
+            payload !== undefined,
+            payload !== undefined ? JSON.stringify(payload) : null,
+            id,
+          ]
+        );
+      }
     } else {
+      if (isPostChecking) {
+        assertEffectiveTimeRange(pcStart, pcEnd);
+      } else {
+        assertEffectiveTimeRange(startAt === undefined ? null : startAt, endAt === undefined ? null : endAt);
+      }
       const ins = await client.query(
         `INSERT INTO operation_sub_processes
          (operation_id, phase, sub_process_key, status, occurred_at, start_at, end_at, skip_reason, remark, payload_json)
@@ -168,15 +248,18 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
           phase,
           key,
           status ?? null,
-          occurredAt === undefined ? null : occurredAt,
-          startAt === undefined ? null : startAt,
-          endAt === undefined ? null : endAt,
+          isPostChecking ? pcOcc : occurredAt === undefined ? null : occurredAt,
+          isPostChecking ? pcStart : startAt === undefined ? null : startAt,
+          isPostChecking ? pcEnd : endAt === undefined ? null : endAt,
           skipReason ?? null,
           remark ?? null,
           payload !== undefined ? JSON.stringify(payload) : null,
         ]
       );
       id = ins.rows[0].id;
+    }
+    if (phase === 'Post-Checking' && POST_CHECK_AUTO_KEYS.has(key)) {
+      await promoteInProgressToPostOpsIfInProgress(client, operationId);
     }
     await client.query('COMMIT');
     return id;
