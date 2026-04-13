@@ -15,7 +15,6 @@ test.describe('session cookie + CSRF (local dev)', () => {
     await expect(page).not.toHaveURL(/\/login$/i, { timeout: 20000 });
 
     const cookies = await page.context().cookies();
-    const apiHost = new URL(BACKEND).hostname;
     const hasAt = cookies.some((c) => c.name === 'jps_at' && c.httpOnly);
     const hasXsrf = cookies.some((c) => c.name === 'jps_xsrf' && !c.httpOnly);
     expect(hasAt, 'HttpOnly jps_at should be set after login').toBeTruthy();

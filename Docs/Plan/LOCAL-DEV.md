@@ -25,15 +25,17 @@ No need to run `npm install` in **Backend** on your PC; dependencies install ins
 
    (Match the compose file / Dockerfile if they load `.env`.)
 
-3. **Terminal 2 — Repo root (frontend)**
+3. **Terminal 2 — Frontend folder (preferred)**
 
    ```powershell
-   cd "d:\Cursor\Jetty Planning System"
+   cd "d:\Cursor\Jetty Planning System\Frontend"
    npm install
    npm run dev
    ```
 
-4. Open **http://localhost:5173** (root `.env` should have `VITE_API_BASE_URL=http://localhost:3000/api/v1`).
+   Compatibility command from repo root also works: `npm run dev` (delegates to `Frontend`).
+
+4. Open **http://localhost:5173** (`Frontend/.env` should have `VITE_API_BASE_URL=http://localhost:3000/api/v1`).
 
 ---
 
@@ -51,7 +53,7 @@ No need to run `npm install` in **Backend** on your PC; dependencies install ins
 
 2. Postgres must be running and `DATABASE_URL` in `Backend\.env` must match.
 
-3. Frontend: same as step 3–4 in Option A (repo root `npm install` + `npm run dev`).
+3. Frontend: same as step 3–4 in Option A (`Frontend` folder `npm install` + `npm run dev`).
 
 ---
 
@@ -59,7 +61,8 @@ No need to run `npm install` in **Backend** on your PC; dependencies install ins
 
 | Directory | Command | Purpose |
 |-----------|---------|---------|
-| `d:\Cursor\Jetty Planning System\` | `npm run dev` | **Frontend** (Vite) |
+| `d:\Cursor\Jetty Planning System\Frontend\` | `npm run dev` | **Frontend** (Vite, preferred) |
+| `d:\Cursor\Jetty Planning System\` | `npm run dev` | **Frontend** (compatibility wrapper) |
 | `d:\Cursor\Jetty Planning System\Backend\` | `npm run dev` | **API** (only if Option B) |
 
 Root `npm install` does **not** install Backend packages.

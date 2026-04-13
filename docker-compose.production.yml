@@ -1,12 +1,13 @@
 # Jetty Planning System (JPS) - Production deployment on Alicloud Ubuntu
 # Use: docker compose -f docker-compose.production.yml up -d
+# Canonical source: Backend/infra/docker-compose.production.yml
 # Target directory: /opt/jetty-planning-system
 
 services:
   # React frontend (nginx) - port 3001
   jps-web:
     build:
-      context: .
+      context: ./Frontend
       dockerfile: Dockerfile
     ports:
       - "3001:80"

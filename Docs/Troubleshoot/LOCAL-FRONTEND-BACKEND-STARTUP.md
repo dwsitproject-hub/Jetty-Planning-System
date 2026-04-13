@@ -12,7 +12,15 @@
 
 **Fix (start frontend)**
 
-From repo root (PowerShell):
+From `Frontend` (preferred) or repo root (compatibility wrapper):
+
+```powershell
+cd "d:\Cursor\Jetty Planning System\Frontend"
+npm install
+npm run dev
+```
+
+Compatibility command from repo root:
 
 ```powershell
 cd "d:\Cursor\Jetty Planning System"

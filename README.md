@@ -5,6 +5,7 @@ Web-based mockup for CPO Downstream Jetty Operations. No backend or database; al
 ## Run locally (development)
 
 ```bash
+cd Frontend
 npm install
 npm run dev
 ```
@@ -43,4 +44,4 @@ Open [http://localhost:3001](http://localhost:3001).
 - `Frontend/src/data/mockData.js` — In-memory mock data
 - `Frontend/src/styles/` — design-tokens.css, app.css, dashboard.css
 - `Assets/design-tokens.json` — Design system source
-- `Dockerfile` + `docker-compose.yml` — Container build and run
+- `Frontend/Dockerfile` + `docker-compose.yml` — Container build and run

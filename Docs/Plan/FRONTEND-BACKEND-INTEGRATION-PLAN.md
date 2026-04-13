@@ -2,11 +2,11 @@
 
 **Goal:** Replace `Frontend/src/data/mockData.js` usage **feature by feature**. After each step you can manually verify that page against the live API (and add automated tests later if you want).
 
-**Prerequisite stack:** `Backend` Docker (`jps-api` :3000, `jps-db` :5433). Frontend: **`npm run dev` from repo root** (Vite serves `Frontend/src`; typically :5173).
+**Prerequisite stack:** `Backend` Docker (`jps-api` :3000, `jps-db` :5433). Frontend preferred: **`cd Frontend && npm run dev`** (typically :5173). Root compatibility command `npm run dev` still works.
 
 **CORS:** In `Backend/.env`, set `CORS_ORIGIN=http://localhost:5173` (add `,http://localhost:3001` if you use root Docker nginx).
 
-**Env file:** Project root `.env` (same folder as `vite.config.js`). Copy `.env.example` → `.env` with `VITE_API_BASE_URL=http://localhost:3000/api/v1`.
+**Env file:** `Frontend/.env` (same folder as `Frontend/vite.config.js`). Set `VITE_API_BASE_URL=http://localhost:3000/api/v1`.
 
 ---
 
@@ -14,7 +14,7 @@
 
 | Item | Action |
 |------|--------|
-| Env | Root `.env`: `VITE_API_BASE_URL=http://localhost:3000/api/v1` |
+| Env | `Frontend/.env`: `VITE_API_BASE_URL=http://localhost:3000/api/v1` |
 | Code | `Frontend/src/api/client.js` — `apiGet` / `apiPost` / `apiPut` / `apiDelete`, `getHealth`, `ping`, optional `Authorization` from `localStorage.jps_token` |
 | Test | **Master → Port** page shows “API: health + /ping OK” when Backend + CORS are correct |
 

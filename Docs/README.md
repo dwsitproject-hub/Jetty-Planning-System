@@ -31,8 +31,9 @@ Jetty operations today lack a centralized system for tracking vessel progress, l
 | **Tech stack** | React 18, Vite 5, React Router 6. CSS with design tokens (KPN Downstream); no UI component library. |
 
 **Run locally**  
-- **Frontend**: `npm install` → `npm run dev` → **http://localhost:5173/**  
-- **Frontend (Docker)**: from repo root `docker compose up --build` → **http://localhost:3001/**  
+- **Frontend (preferred)**: from `Frontend/` run `npm install` → `npm run dev` → **http://localhost:5173/**  
+- **Frontend (root compatibility)**: from repo root run `npm run dev` (delegates to `Frontend/`)  
+- **Frontend (Docker)**: from repo root `docker compose up --build` → **http://localhost:3001/** (build context is `Frontend/`)  
 - **Backend (Docker-only)**: from `Backend/` run `docker compose up -d --build` → API **http://localhost:3000**, PostgreSQL on host port **5433** (see `Backend/docker-compose.yml`, `LOCAL-DEV.md`).
 
 **Primary branch**  

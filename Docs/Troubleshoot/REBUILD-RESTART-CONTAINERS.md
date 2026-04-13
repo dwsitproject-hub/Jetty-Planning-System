@@ -62,6 +62,14 @@ Expected:
 **Start / restart Vite**
 
 ```powershell
+cd "d:\Cursor\Jetty Planning System\Frontend"
+npm install
+npm run dev
+```
+
+Compatibility command from repo root:
+
+```powershell
 cd "d:\Cursor\Jetty Planning System"
 npm run dev
 ```

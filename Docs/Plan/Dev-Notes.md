@@ -29,6 +29,7 @@ git pull
 - **Run locally (no Docker):**
 
 ```bash
+cd Frontend
 npm install
 npm run dev
 ```
@@ -39,7 +40,7 @@ npm run dev
 docker compose up --build
 ```
 
-The `docker-compose.yml` in the repo builds from the `Dockerfile` and serves the Vite build through nginx on port `3001`.
+The `docker-compose.yml` in the repo builds from `Frontend/Dockerfile` and serves the Vite build through nginx on port `3001`.
 
 **Date/time display (no ` LT` suffix):** Use the shared helper so formatting and legacy string cleanup stay consistent:
 
@@ -57,9 +58,9 @@ import { formatDateTimeDisplay, stripLegacyDatetimeLt } from '../utils/formatDat
 - **Staging branch:** `sit` (same commit `3fc16c3` as local).
 - **Deployment model:** nginx container serving static build from Vite.
 - **Key files:**
-  - `Dockerfile` – builds production bundle and nginx image.
+  - `Frontend/Dockerfile` – builds production bundle and nginx image.
   - `docker-compose.yml` – for local parity; on server, either `docker compose` or an equivalent `docker build` + `docker run` is used.
-  - `nginx.conf` – serves from `/usr/share/nginx/html` with SPA routing.
+  - `Frontend/nginx.conf` – serves from `/usr/share/nginx/html` with SPA routing.
 
 **Typical server update flow (manual):**
 
@@ -73,7 +74,7 @@ docker compose down
 docker compose up --build -d
 
 # Option B – No Compose: build + run manually (example)
-docker build -t jps-web:latest .
+docker build -t jps-web:latest ./Frontend
 docker stop jps-web || true
 docker rm jps-web || true
 docker run -d --name jps-web -p 3001:80 jps-web:latest

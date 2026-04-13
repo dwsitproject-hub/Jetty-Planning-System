@@ -34,7 +34,7 @@ The original sections below contain historical mockup notes. The following items
 | **Purpose** | Web-based Jetty Planning System (JPS) for CPO Downstream Jetty Operations: planning, allocation, at-berth execution, clearance, and reporting. |
 | **Current state** | **Frontend-only mockup.** All data is in-memory; no persistent backend or database. Reload clears or resets data. |
 | **Tech stack** | React 18, Vite 5, React Router 6. CSS with design tokens (KPN Downstream); no UI component library. |
-| **Run** | `npm install` → `npm run dev` (localhost:5173); or `docker-compose up --build` (localhost:3001). |
+| **Run** | Preferred: `cd Frontend && npm install && npm run dev` (localhost:5173); compatibility: repo root `npm run dev`; or `docker-compose up --build` (localhost:3001). |
 
 **To become an actual application**, the following will be needed (not implemented today):
 

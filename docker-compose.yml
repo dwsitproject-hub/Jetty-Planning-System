@@ -5,7 +5,7 @@
 services:
   jps-web:
     build:
-      context: .
+      context: ./Frontend
       dockerfile: Dockerfile
     ports:
       - "3001:80"

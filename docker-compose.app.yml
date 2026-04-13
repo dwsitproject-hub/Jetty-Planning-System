@@ -1,8 +1,9 @@
 # App server only (frontend + nginx reverse proxy to backend private IP).
 # Run on the APP ECS (e.g. 172.28.92.56). See Docs/ALICLOUD-DEPLOYMENT-GUIDE.md
+# Canonical source: Backend/infra/docker-compose.app.yml
 #
 # Prerequisites:
-# - Edit nginx.alicloud-app.conf: set upstream server to BACKEND private IP.
+# - Edit Frontend/nginx.alicloud-app.conf: set upstream server to BACKEND private IP.
 # - Root .env (same directory) must define VITE_API_BASE_URL for the browser (same host users open).
 #
 # Example (busy app host — use a free host port, e.g. 3080):
@@ -14,7 +15,7 @@
 services:
   jps-fe:
     build:
-      context: .
+      context: ./Frontend
       dockerfile: Dockerfile
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:?Set VITE_API_BASE_URL in .env}
@@ -24,4 +25,4 @@ services:
     container_name: jps-fe
     restart: unless-stopped
     volumes:
-      - ./nginx.alicloud-app.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./Frontend/nginx.alicloud-app.conf:/etc/nginx/conf.d/default.conf:ro
