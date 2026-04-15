@@ -1,7 +1,7 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.20  
-**Last Updated**: 2026-04-10  
+**Version**: 1.22  
+**Last Updated**: 2026-04-15  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
@@ -205,7 +205,7 @@ Operational ownership note:
 
 **CORS / proxy**
 
-- **`CORS_ORIGIN`** must list the SPA origin(s) (e.g. `http://localhost:5173`); credentials enabled. Pair with repo root **`VITE_API_BASE_URL`** (e.g. `http://localhost:3000/api/v1`). Comments in **`.env`** / **`Backend/.env.example`** document the pairing.
+- **`CORS_ORIGIN`** must list the SPA origin(s) (e.g. `http://localhost:5173`); credentials enabled. Pair with **`Frontend/.env`** **`VITE_API_BASE_URL`** (e.g. `http://localhost:3000/api/v1`). **`Backend/.env`** / **`Backend/.env.example`** document API-side pairing; root **`.env.example`** may point to the two app env files only (no secrets duplicated).
 - **`TRUST_PROXY`:** set hop count (or value) when behind a load balancer so **login rate limiting** uses the real client IP (`Backend/src/index.js`).
 
 **Login rate limiting**
@@ -222,11 +222,24 @@ Operational ownership note:
 
 **Nginx security headers (production SPA image)**
 
-- Root **`nginx.conf`** adds **`X-Content-Type-Options`**, **`Referrer-Policy`**, **`Permissions-Policy`**, **`X-Frame-Options`**, and **`Content-Security-Policy`**. **Vite dev** does not use this file; tune **`connect-src`** (and related directives) for your real API hostname in Alicloud or other hosting.
+- **`Frontend/nginx.conf`** (copied into the production nginx image) adds **`X-Content-Type-Options`**, **`Referrer-Policy`**, **`Permissions-Policy`**, **`X-Frame-Options`**, and **`Content-Security-Policy`**. **Vite dev** does not use this file; tune **`connect-src`** (and related directives) for your real API hostname in Alicloud or other hosting.
 
 **E2E smoke (optional)**
 
-- Repo root **`npm run test:e2e`** (Playwright): login UI, asserts cookies, **`GET /users/me`**, logout with CSRF header. Requires Vite + API + DB running locally.
+- **`npm run test:e2e`** from repo root delegates to **`Frontend/`** (Playwright): login UI, asserts cookies, **`GET /users/me`**, logout with CSRF header. Equivalent: `cd Frontend && npm run test:e2e`. Requires Vite + API + DB running locally.
+
+### 0.11 Repository layout and frontend env (2026-04-13)
+
+After the **root four-folder reorg**, ownership is explicit; root remains a thin compatibility layer.
+
+| Concern | Location | Notes |
+|--------|----------|--------|
+| SPA dependencies + scripts | `Frontend/package.json`, `Frontend/package-lock.json` | Canonical install: `cd Frontend && npm ci` / `npm install`. |
+| Vite + build-time env | `Frontend/vite.config.js`, `Frontend/index.html` | **`VITE_*`** variables (including **`VITE_API_BASE_URL`**) belong in **`Frontend/.env`** (or env files Vite loads from that directory). |
+| Playwright E2E | `Frontend/playwright.config.js`, `Frontend/e2e/` | Run via root `npm run test:e2e` or from `Frontend/`. |
+| Production SPA image | `Frontend/Dockerfile`, `Frontend/nginx.conf`, `Frontend/nginx.alicloud-app.conf`, `Frontend/.dockerignore` | Compose **`build.context: ./Frontend`** from repo root files. |
+| Root npm UX | Root `package.json` | Delegates only: `npm --prefix Frontend run …` for dev/build/preview/e2e. |
+| Backend + DB compose | `Backend/docker-compose.yml` (local dev), root `docker-compose.backend.yml` | API **`Backend/`**; canonical copies also under **`Backend/infra/`** — see **`Docs/Plan/ROOT-FOUR-FOLDER-REORG-PLAN.md`**. |
 
 ---
 
@@ -243,7 +256,7 @@ Operational ownership note:
 - **Production (Alicloud)** – HA deployment, managed DB, monitoring; `.env.production`.
 
 Each environment uses a separate `.env` (or `.env.*`) to configure:
-- **Frontend (repo root):** `VITE_API_BASE_URL` (must match API host + `/api/v1`).
+- **Frontend (`Frontend/.env` for local Vite; build-time `VITE_*` in Docker via compose args):** `VITE_API_BASE_URL` (must match API host + `/api/v1`). Root **`npm run dev`** is a thin wrapper — see **§0.11**.
 - **Backend:** `DATABASE_URL` / `DB_*`, `JWT_SECRET`, **`JWT_EXPIRES_IN`** (session cookie lifetime; default **8h**), `CORS_ORIGIN` (must include SPA origin), optional **`AUTH_RETURN_TOKEN_BODY`**, **`AUTH_LOGIN_MAX_ATTEMPTS`**, **`TRUST_PROXY`** (see **§0.10**).
 - External integrations: `EXIM_API_URL`, `GOOGLE_WEATHER_API_KEY`, etc.
 
@@ -366,10 +379,10 @@ Freight terms are currently fixed (frontend constant + backend validation), so t
     - Collapsible **Vessel Detail** card (operation-backed details).
     - Tabs: Pre-Checking, Operational, Post-Checking.
 
-- **Stage tabs — progress counts (`Loading.jsx` / `StageTabs`):** For **API-backed** operations, Pre-Checking and Post-Checking sub-process state is merged into context when the user navigates to that stage (`PreCheckingSections` / `PostCheckingSections` effects). Until the corresponding persisted load has **settled** (success or handled error), the tab meta line shows **`— / N complete`** instead of **`0 / N`**, keyed off parent state (`preCheckPersistHydrated` / `postCheckPersistHydrated`) and `onPersistedHydrationDone(operationId)` after merge or catch. Stale completions are ignored via `operationIdRef` when the user switches operation. Mock route vessels skip the unknown state. Documented functionally in **FUNCTIONAL-SPEC §9.1.5**; see **Docs/Plan/AT-BERTH-TWO-LEVEL-PHASE-AND-WORKSPACE-STAGE-PLAN.md** (Case A, Option A).
+- **Stage tabs — progress counts (`Loading.jsx` / `StageTabs`):** For **API-backed** operations, Pre-Checking, Operational, and Post-Checking readiness uses hydration flags before rendering counts. Until persisted loads have **settled** (success or handled error), the tab meta line shows **`— / N complete`** instead of **`0 / N`**, keyed off parent state (`preCheckPersistHydrated`, `operationalPersistHydrated`, `postCheckPersistHydrated`). Pre/Post sub-processes are also hydrated in the parent page so completion/sign-off state does not depend on opening each tab first. Stale completions are ignored via `operationIdRef` when the user switches operation. Mock route vessels skip the unknown state. Documented functionally in **FUNCTIONAL-SPEC §9.1.5**; see **Docs/Plan/AT-BERTH-TWO-LEVEL-PHASE-AND-WORKSPACE-STAGE-PLAN.md** (Case A, Option A).
 
 - **Pre-Checking**:
-  - Checklist-style step navigator: Key Meeting, NOR Accepted, Tank Inspection, Hold Inspection, Sampling, Initial Sounding, Initial Draft Survey.
+  - Checklist-style step navigator: Key Meeting, NOR Accepted, Inspection, Sampling, Initial Cargo Checking.
   - Each step displays status chip (`Not Started` / `In Progress` / `Done`) and **Open** action.
   - Each captures:
     - Date & time.
@@ -390,11 +403,13 @@ Freight terms are currently fixed (frontend constant + backend validation), so t
   - Activities accumulate into a table (per vessel).
 
 - **Post-Checking**:
-  - Final Tank Inspection, Final Hold Inspection, Final Sounding:
-    - Result text.
-    - Documents.
-    - Date & time.
-  - When Final Tank & Final Sounding are completed (C1/C2), UI allows “Proceed to Clearance”.
+  - Final Inspection (merged from Final Tank + Final Hold Inspection):
+    - Result text, documents, date & time.
+    - `payload_json.inspectionType` auto-derived from SI commodity type (`Tank` for liquid, `Hold` for solid).
+  - Final Cargo Checking (renamed from Final Sounding; still persisted under key `final_sounding` for compatibility):
+    - Result text, documents, date & time.
+    - `payload_json.cargoCheckingType` auto-derived from SI commodity type (`Sounding` for liquid, `Draft Survey` for solid).
+  - When Final Inspection and Final Cargo Checking are completed (C1/C2), UI allows “Proceed to Clearance”.
 
 - **Unloading-specific offloading (`Unloading.jsx`)**:
   - 4 stages: Arrival & Connection, Active Discharge, Stripping & Cleaning, Line Clearance.
@@ -418,9 +433,11 @@ Freight terms are currently fixed (frontend constant + backend validation), so t
 1. Summary cards: Ready to Sail count, Sailed count.
 2. Table of vessels with purpose and clearance status.
 3. “Open” shows clearance modal:
-   - HOSE Off, CAST Off timestamps.
+   - CAST Off timestamp (`datetime-local`, required).
    - Document uploads & vessel photos.
-   - On submit, marks vessel as `departed`.
+   - On open, UI fetches `GET /operations/:id/activity-timeline` and computes `latestTimelineAt = max(startAt, endAt, occurredAt, sortAt, markedAt)` across returned events.
+   - Validation: submit is blocked when `CAST Off < latestTimelineAt`; UI shows inline error and keeps the operation unchanged.
+   - On valid submit, marks vessel as `departed`.
 
 **Target implementation**:
 - Backend `operations` track `status` and `completion_percent`.
@@ -531,6 +548,13 @@ Types are whitelisted by backend config (`Backend/src/routes/si-lookups.js`) and
 - **Body:** `estimated_completion_time` (ISO, required); optional `meta` object (audited: e.g. `tool: 'demurrage-risk-calculator'`, buffer, override flags) merged into activity log `meta`.
 - **Effect:** Updates `operations.estimated_completion_time`; activity log **`pageKey`:** `demurrage-risk-calculator`.
 - **Client:** `Frontend/src/api/operations.js` — `saveEstimatedCompletion`.
+- **Calculator input model (UI):**
+  - MT transfer term includes **all** SI breakdown rows with MT metric (not only first line).
+  - Start timestamp precedence in UI estimate: `operations.docking_start_time` → `operations.tb_at` → `operations.etb` → `si.eta_from` → `si.eta_to`.
+  - Scenario inputs are user-adjustable: `Q1`, `Q2`, `C` (default `1` hour each), `buffer` (default from SLA config), and optional override rate.
+- **Calculator result model (UI):**
+  - Shows decomposition: transfer term \(\sum(V/(Rate \times Buffer))\), base checks \((Q1+Q2+C)\), switch penalty \(((n-1)\times S)\), and total duration.
+  - `n` is number of distinct material types in MT lines; `S` comes from SLA config (`s_hours`).
 
 **Reference:** `Docs/Plan/DEMURRAGE-RISK-CALCULATOR-PLAN.md`, `Docs/FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md` §2.6.
 
@@ -564,6 +588,7 @@ Types are whitelisted by backend config (`Backend/src/routes/si-lookups.js`) and
 - `POST /operations/:id/approve-exception` – body optional `approver_user_id`.
 - `POST /operations/:id/reject-exception` – body optional `approver_user_id`.
 - `POST /operations/:id/depart` – after **`SIGNOFF_APPROVED`**; body `cast_off_at` (ISO, required), optional `clearance_document_url`, `vessel_photo_url`; sets `SAILED`, `sailed_at`.
+- **Clearance UI rule (frontend guard):** before calling `depart`, `Verification.jsx` loads `GET /operations/:id/activity-timeline` and rejects `cast_off_at` earlier than the latest timeline timestamp. This aligns depart time with the latest recorded event in the **Detailed At-Berth Executions Log**.
 - **UI entrypoint policy:** Loading/Unloading hub (`Loading.jsx`) supports **request sign-off** and pending-state visibility only; final approval action is routed through **Clearance** (`Verification.jsx`) as the single approval entry point.
 
 ### 3.4 QC & Quantity
@@ -622,11 +647,10 @@ Save mode semantics (Pre-Checking UI):
 #### 3.4A.4 Tab-to-storage mapping (target)
 
 - `key_meeting` -> `operation_sub_processes` (`phase='Pre-Checking'`, own remark/documents)
-- `tank_inspection` -> `operation_sub_processes`
-- `hold_inspection` -> `operation_sub_processes`
+- `inspection` -> `operation_sub_processes` (`payload_json.inspectionType`: `Tank` | `Hold`, derived from SI commodity type; **Loading only** — not used for Unloading)
+- Legacy keys `tank_inspection` / `hold_inspection` are migrated to `inspection` (see migrations `052`, `053`).
 - `sampling` -> `operation_sub_processes` (`payload_json.records`)
-- `initial_sounding` -> `operation_sub_processes` (**remark** column for free text; legacy rows may have text only in `payload_json.result` — frontend loads with fallback)
-- `initial_draft_survey` -> `operation_sub_processes` (same **remark** convention as `initial_sounding`)
+- `initial_cargo_checking` -> `operation_sub_processes` (`payload_json.cargoCheckingType`: `Sounding` | `Draft Survey`; **remark** column for free text; legacy `initial_sounding` / `initial_draft_survey` merged via migration `053`)
 - NOR accepted tab:
   - timestamps -> `operations`
   - NOR remark/details -> `operation_nor_details`
@@ -716,11 +740,15 @@ Optional future migrations (comments/views) remain out of scope until needed.
 Target sub-process keys for Pre-Checking phase:
 
 - `key_meeting`
-- `tank_inspection`
-- `hold_inspection`
+- `inspection` (Loading only)
 - `sampling`
-- `initial_sounding`
-- `initial_draft_survey`
+- `initial_cargo_checking`
+- `nor_accepted` (sub-process mirror; `end_at` not used — single start / NOR timestamps from `operations` + `operation_nor_details`)
+
+Target sub-process keys for Post-Checking phase:
+
+- `final_inspection` (merged Final Tank/Hold Inspection; compatibility: legacy rows may still use `final_tank_inspection` / `final_hold_inspection`)
+- `final_sounding` (UI label **Final Cargo Checking** for continuity with existing storage key)
 
 Notes:
 
@@ -850,7 +878,7 @@ Backward compatibility note:
 - **Express**: `app.use('/uploads', express.static(UPLOAD_ROOT))` in `Backend/src/index.js`.
 - **Docker (local dev)**: `Backend/docker-compose.yml` may set `UPLOAD_DIR` to a container-local directory to avoid Windows host bind-mount stalls during large or concurrent writes; adjust for production (named volume or object storage strategy).
 - **Frontend**: `resolveUploadUrl()` in `Frontend/src/api/client.js` prefixes relative `/uploads/...` paths with the API **origin** derived from `VITE_API_BASE_URL`, so links opened from the Vite dev server hit the API host.
-- **Vite dev**: `vite.config.js` may proxy `/uploads` to the API for any remaining relative requests.
+- **Vite dev**: `Frontend/vite.config.js` may proxy `/uploads` to the API for any remaining relative requests.
 
 ### 3.10B Multipart uploads from the SPA
 

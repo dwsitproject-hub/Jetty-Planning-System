@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { fetchOperations, fetchPendingSignoffRequests, depart, uploadOperationDocuments, signoff } from '../api/operations'
+import { fetchOperations, fetchPendingSignoffRequests, depart, uploadOperationDocuments, signoff, fetchActivityTimeline } from '../api/operations'
 import { useRbac } from '../context/RbacContext'
 import { resolveUploadUrl } from '../api/client'
 import '../styles/allocation.css'
@@ -36,6 +36,21 @@ function formatDateTime(iso) {
   return d.toLocaleString()
 }
 
+function latestTimelineInstant(events) {
+  const arr = Array.isArray(events) ? events : []
+  let latest = null
+  for (const ev of arr) {
+    const candidates = [ev?.startAt, ev?.endAt, ev?.occurredAt, ev?.sortAt, ev?.markedAt]
+    for (const c of candidates) {
+      if (!c) continue
+      const d = new Date(c)
+      if (Number.isNaN(d.getTime())) continue
+      if (!latest || d.getTime() > latest.getTime()) latest = d
+    }
+  }
+  return latest
+}
+
 export default function Verification() {
   const { canApprove } = useRbac()
   const canApproveLoading = canApprove('loading')
@@ -50,6 +65,7 @@ export default function Verification() {
   const [submitting, setSubmitting] = useState(false)
   const [toast, setToast] = useState(null)
   const [signoffBusyId, setSignoffBusyId] = useState(null)
+  const [timelineMaxAtByOpId, setTimelineMaxAtByOpId] = useState({})
 
   const load = useCallback(async () => {
     setErr(null)
@@ -233,9 +249,34 @@ export default function Verification() {
     return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString()
   }
 
+  useEffect(() => {
+    let cancelled = false
+    if (!modalOpId || timelineMaxAtByOpId[modalOpId] !== undefined) return () => { cancelled = true }
+    fetchActivityTimeline(modalOpId)
+      .then((res) => {
+        if (cancelled) return
+        const latest = latestTimelineInstant(res?.events)
+        setTimelineMaxAtByOpId((prev) => ({ ...prev, [modalOpId]: latest ? latest.toISOString() : null }))
+      })
+      .catch(() => {
+        if (cancelled) return
+        setTimelineMaxAtByOpId((prev) => ({ ...prev, [modalOpId]: null }))
+      })
+    return () => { cancelled = true }
+  }, [modalOpId, timelineMaxAtByOpId])
+
   const validateDepartForm = () => {
     const cast = parseLocalTime(formCastOff)
     if (!cast) return 'CAST Off time is required and must be valid.'
+    if (modalOpId) {
+      const latestIso = timelineMaxAtByOpId[modalOpId]
+      if (latestIso) {
+        const latest = new Date(latestIso)
+        if (!Number.isNaN(latest.getTime()) && cast.getTime() < latest.getTime()) {
+          return `CAST Off must be on or after the latest execution log time (${formatDateTime(latestIso)}).`
+        }
+      }
+    }
     return null
   }
 
@@ -284,6 +325,7 @@ export default function Verification() {
   const modalRow = modalOpId ? rows.find((r) => r.operationId === modalOpId) : null
   const isSailed = modalRow?.apiStatus === 'SAILED'
   const formValidationError = isSailed ? null : validateDepartForm()
+  const modalTimelineMaxAt = modalOpId ? timelineMaxAtByOpId[modalOpId] : null
 
   return (
     <div className="allocation-page clearance-page">
@@ -521,6 +563,11 @@ export default function Verification() {
                 onChange={(e) => setFormCastOff(e.target.value)}
                 disabled={isSailed}
               />
+              {modalTimelineMaxAt ? (
+                <p className="text-steel" style={{ marginTop: 6, fontSize: 'var(--font-size-small)' }}>
+                  Must be on/after latest execution log time: <strong>{formatDateTime(modalTimelineMaxAt)}</strong>
+                </p>
+              ) : null}
             </div>
 
             {!isSailed && (

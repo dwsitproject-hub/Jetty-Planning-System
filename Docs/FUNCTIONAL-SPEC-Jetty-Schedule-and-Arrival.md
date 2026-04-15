@@ -3,7 +3,7 @@
 **Product:** Jetty Planning & Monitoring System (JPS)  
 **Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.23 (see document history at end).
+**Version:** 1.26 (see document history at end).
 
 ---
 
@@ -99,9 +99,9 @@ Technical contract (endpoints, columns, persistence order): **TECH-SPEC-Jetty-Pl
 | **Where** | **Demurrage Risk Calculator** in the main nav (RBAC page key `demurrage-risk-calculator`). |
 | **Choose voyage** | User filters by **date range** (ETA overlap) and checkboxes **Incoming** / **Berthed**, then **Apply**. These labels match **Allocation → Incoming vessel & berthing plan**: **Incoming** includes SIs with **no** active non-`SAILED` operation **or** an operation that is **not yet “berthed”** in that sense (e.g. `PENDING` / `ALLOCATED` without TB, **including operation with no jetty**); **Berthed** requires TB or status **DOCKED** / **IN_PROGRESS** / **POST_OPS** / **SIGNOFF_REQUESTED** / **SIGNOFF_APPROVED** (and not **shift-out**). |
 | **List row** | **Vessel · SI reference · Incoming \| Berthed · [jetty name when set] · commodity** (jetty from allocated operation when present). |
-| **Voyage context** | **Read-only** panel: **Purpose**, **commodity line** (first breakdown line in **MT** if any, else line 1), **volume (MT)** when applicable, **start for calculation** (operation docking start, else SI ETA), **master rate** (from commodity master for loading/unloading). Link to **Shipping Instruction** for edits — users do **not** change commodity, volume, purpose, or start time on this page. |
-| **Scenario** | **Throughput buffer** (multiplier on standard rate) with **Reset to default** (from SLA config). If the user changes buffer after running **Estimate**, a short reminder prompts **Estimate** again. **Advanced** (collapsed by default) exposes **Override rate** when master rate is missing or unsuitable (e.g. KLPH). |
-| **Result** | **Estimate** computes duration and estimated completion from context + buffer (and override if used). **Save as estimation of completion** persists **`operations.estimated_completion_time`** only when an **operation** exists and the user has **edit** permission on the calculator page; activity log uses page key **demurrage-risk-calculator**. |
+| **Voyage context** | **Read-only** panel: **Purpose**, **commodity line(s)** and summed **volume (MT)** from all SI breakdown rows in MT, **start for calculation** with precedence **docking start → TB → ETB → SI ETA**, and **master rate(s)** from commodity master for loading/unloading. Link to **Shipping Instruction** for edits — users do **not** change commodity, volume, purpose, or operation timestamps on this page. |
+| **Scenario** | User-adjustable fields for SLA terms: **Q1** (Quality & Quantity checking), **Q2** (Final Quality & Quantity checking), **C** (Clearance), each default **1 hour** and resettable. Also includes **Throughput buffer** (multiplier on rate) with **Reset to default** (from SLA config). If the user changes buffer or scenario terms after running **Estimate**, a reminder prompts **Estimate** again. **Advanced** (collapsed by default) exposes **Override rate** when master rate is missing or unsuitable (e.g. KLPH). |
+| **Result** | **Estimate** shows SLA decomposition: **Transfer term** \(\sum(V/(Rate \times Buffer))\), **Base checks** \((Q1+Q2+C)\), **Material switch penalty** \(((n-1)\times S)\), total **Estimated SLA duration**, and **Estimated completion**. For multi-commodity SI, transfer uses all MT lines; when rates differ, each line is calculated with its own rate then summed. **Save as estimation of completion** persists **`operations.estimated_completion_time`** only when an **operation** exists and the user has **edit** permission on the calculator page; activity log uses page key **demurrage-risk-calculator**. |
 
 **Related:** Detailed API and port/sailed rules: **TECH-SPEC §3.2.2**; UX notes: **Docs/Plan/DEMURRAGE-RISK-CALCULATOR-PLAN.md**.
 
@@ -323,12 +323,16 @@ The horizontal **Pre-Checking / Operational / Post-Checking** stage tabs show **
 - **Pre-Checking** and **Post-Checking** persisted sub-process data is loaded when the user visits that stage (lazy load). Until that load has **finished** (success or error), the tab shows **`— / n complete`** instead of **`0 / n complete`**, so users are not misled into thinking no work has been recorded.
 - **Operational** uses the operational-activities load path; it does not use this unknown state for the count line.
 - **Mock / demo** vessel routes (not API-backed) do not show the unknown state.
+- **Post-Checking merged sections (Loading):**
+  - **Final Inspection** (merged from Final Tank Inspection + Final Hold Inspection). The UI shows **Inspection Type** auto-derived from SI commodity type (**Tank** for liquid, **Hold** for solid).
+  - **Final Cargo Checking** (renamed from Final Sounding). The UI shows **Cargo Checking Type** auto-derived from SI commodity type (**Sounding** for liquid, **Draft Survey** for solid).
+  - Legacy persisted keys remain readable for compatibility; activity log labels use the merged names.
 
 Cross-ref: **TECH-SPEC §2.2.4**; plan **Docs/Plan/AT-BERTH-TWO-LEVEL-PHASE-AND-WORKSPACE-STAGE-PLAN.md** (Case A, Option A).
 
 ## 9.2 Operation sign-off → Clearance (Ready to Sail)
 
-Completing **Pre-Checking**, **Operational**, and **Post-Checking** in the hub (stage tabs **7/7**, **4/4**, **3/3** when all sub-process / activity data is **Done** — with Pre/Post numeric counts only after each stage’s data has been loaded; see **§9.1.5**) advances **`operations.status`** via **auto-promotions** (e.g. operational work → **IN_PROGRESS**, Post-Checking completion → **POST_OPS**). A separate **operation sign-off** flow (similar in spirit to Shipping Instruction **submit → approve**) gates the move from **POST_OPS** to **Clearance**.
+Completing **Pre-Checking**, **Operational**, and **Post-Checking** in the hub (stage tabs **7/7**, **4/4**, **2/2** when all sub-process / activity data is **Done** — with Pre/Post numeric counts only after each stage’s data has been loaded; see **§9.1.5**) advances **`operations.status`** via **auto-promotions** (e.g. operational work → **IN_PROGRESS**, Post-Checking completion → **POST_OPS**). A separate **operation sign-off** flow (similar in spirit to Shipping Instruction **submit → approve**) gates the move from **POST_OPS** to **Clearance**.
 
 | Step | Who | What the user sees |
 |------|-----|-------------------|
@@ -336,7 +340,7 @@ Completing **Pre-Checking**, **Operational**, and **Post-Checking** in the hub (
 | **2. Pending** | Anyone with hub access | The card shows **Sign-off requested** (time, requester, remark) and directs users to **Open Clearance** for approval handling. Status is **SIGNOFF_REQUESTED**. |
 | **3. Approve (sign off)** | Users with **Approve operation sign-off** on **Loading / Unloading** (configured in **Admin → Roles**, same pattern as **Approve internal SI**) | Approval is performed from **Clearance** (not from the Loading/Unloading hub). On approval, the operation becomes **SIGNOFF_APPROVED** and appears on **Clearance** under **Ready to Sail** (signed off, awaiting depart). |
 | **4. Clearance** | Clearance users | **Clearance** (`/verification`) lists **Ready to Sail** (**SIGNOFF_APPROVED**) and **Sailed** as before. A **Pending sign-off** filter shows vessels awaiting step 3; approvers can **Open operation** (deep link to the hub) or **Sign off** from the table. |
-| **5. Depart** | Unchanged | **Record depart** after **SIGNOFF_APPROVED**, as today. |
+| **5. Depart** | Clearance users | **Record depart** after **SIGNOFF_APPROVED**. In the Clearance modal, **CAST Off** is required and must be **on or after** the latest timestamp in the operation’s **Detailed At-Berth Executions Log** timeline; earlier values are blocked with a validation error. |
 
 **Product rules**
 
@@ -384,6 +388,9 @@ Technical contract: **TECH-SPEC-Jetty-Planning-System.md §3.3** (routes, RBAC, 
 | 1.21 | 2026-04-10 | **§9.1.5** Loading/Unloading **stage tab** counts: **`— / n complete`** for Pre-Checking and Post-Checking until that stage’s persisted fetch has settled (Option A — avoids misleading **0/n** before lazy load). TECH-SPEC §2.2.4. Cross-ref **Docs/Plan/AT-BERTH-TWO-LEVEL-PHASE-AND-WORKSPACE-STAGE-PLAN.md** (Case A implemented). |
 | 1.22 | 2026-04-10 | Post-Checking save hardening for sub-process times (explicit timestamp payload / range guard), sign-off approval entry restricted to **Clearance** (hub keeps request + pending visibility), Dashboard clearance card renamed **Pending Sign Off** and bound to **SIGNOFF_REQUESTED**, and Performance **Turnaround** now includes **sailed** vessels in median calculation. |
 | 1.23 | 2026-04-10 | Shipping Instruction create/edit forms: **Agent** selector is now available in **Party & Port** for both **Loading** and **Unloading**. |
+| 1.24 | 2026-04-15 | **Master SI Commodity** Solid/Liquid; **one commodity type per SI**; Pre-Checking **Inspection** (Tank/Hold from SI) and **Initial Cargo Checking** (Sounding/Draft Survey from SI); **no Inspection** on Unloading; Operational **Opening Hatch** (multi-row hatches) with **start-only** times for Opening Hatch and Cargo Pre-Conditioning; NOR Accepted tab uses **NOR Tendered / NOR Accepted** datetimes without a separate Start/End pair. See **Docs/Plan/UAT-COMMODITY-PRECHECK-OPERATIONAL-PLAN.md**. |
+| 1.25 | 2026-04-15 | Post-Checking merge: **Final Tank Inspection + Final Hold Inspection** unified into **Final Inspection** (inspection type auto-derived from SI commodity), and **Final Sounding** renamed to **Final Cargo Checking** (cargo checking type auto-derived: Sounding/Draft Survey). Stage completion count now reflects **2/2** for Post-Checking. |
+| 1.26 | 2026-04-15 | **§9.2 Clearance Depart validation:** in **Record depart**, **CAST Off** must be equal to or later than the latest timestamp from the operation’s **Detailed At-Berth Executions Log** timeline; earlier input is rejected in the modal. |
 
 ---
 
@@ -407,11 +414,9 @@ This section describes the agreed migration direction. It is a plan for upcoming
 |---|---|
 | Key Meeting | Generalized sub-process record (`sub_process_key = key_meeting`) with own remark and documents. |
 | NOR Accepted | NOR Tendered/Accepted timestamps remain operation-level; NOR-specific remark/details stored in dedicated NOR detail entity; NOR files from **Allocation (Log arrival update)** and from this tab are **shown together** in the NOR Accepted documents list (no separate “source” labels in the list). **Last Updated Via** reflects metadata when present (e.g. Allocation & Berthing vs NOR Accepted tab). |
-| Tank Inspection | Generalized sub-process record (`tank_inspection`) with own remark/documents/status. |
-| Hold Inspection | Generalized sub-process record (`hold_inspection`) with own remark/documents/status. |
+| Inspection (Loading only) | Single tab **Inspection**; type is **Tank** (liquid SI) or **Hold** (solid SI), read-only from the shipping instruction. **Unloading** operations do not show this step. Storage: `inspection` (`payload_json.inspectionType`). |
 | Sampling | Generalized sub-process record (`sampling`) with structured sampling values (per-palka FFA/Moisture in `payload_json.records`); UI may show **summary** indicators (e.g. counts/averages) and formatted numbers in the records table. |
-| Initial Sounding | Generalized sub-process record (`initial_sounding`) with **Remark**, date/time, and documents (free text persisted as sub-process **remark**; legacy data may still show values previously stored only in payload). |
-| Initial Draft Survey | Generalized sub-process record (`initial_draft_survey`) with **Remark**, date/time, and documents (same remark convention as Initial Sounding). |
+| Initial Cargo Checking | Single tab replacing Initial Sounding / Initial Draft Survey; type is **Sounding** (liquid) or **Draft Survey** (solid), read-only from SI. Storage: `initial_cargo_checking` (`payload_json.cargoCheckingType`). |
 
 ### 12.3 User-visible behavior (target)
 
