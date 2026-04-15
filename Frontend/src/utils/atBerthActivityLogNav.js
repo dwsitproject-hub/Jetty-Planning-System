@@ -2,18 +2,21 @@
 export const ACTIVITY_LOG_PRE_KEY_TO_SECTION = {
   key_meeting: 'keyMeeting',
   nor_accepted: 'norAccepted',
-  tank_inspection: 'tankInspection',
-  hold_inspection: 'holdInspection',
+  inspection: 'inspection',
+  tank_inspection: 'inspection',
+  hold_inspection: 'inspection',
   sampling: 'sampling',
-  initial_sounding: 'initialSounding',
-  initial_draft_survey: 'initialDraftSurvey',
+  initial_cargo_checking: 'initialCargoChecking',
+  initial_sounding: 'initialCargoChecking',
+  initial_draft_survey: 'initialCargoChecking',
 }
 
 /** Maps API sub_process_key → Post-Checking section tab id. */
 export const ACTIVITY_LOG_POST_KEY_TO_SECTION = {
-  final_tank_inspection: 'finalTankInspection',
-  final_hold_inspection: 'finalHoldInspection',
-  final_sounding: 'finalSounding',
+  final_inspection: 'finalInspection',
+  final_tank_inspection: 'finalInspection',
+  final_hold_inspection: 'finalInspection',
+  final_sounding: 'finalCargoChecking',
 }
 
 /**

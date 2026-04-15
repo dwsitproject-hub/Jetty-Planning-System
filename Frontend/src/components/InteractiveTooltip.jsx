@@ -17,6 +17,7 @@ export default function InteractiveTooltip({
   maxWidth = 320,
   maxHeight = 220,
   placement = 'left', // 'left' | 'right'
+  interactiveChild = false,
   children,
 }) {
   const triggerRef = useRef(null)
@@ -129,10 +130,10 @@ export default function InteractiveTooltip({
         onMouseLeave={close}
         onFocus={openNow}
         onBlur={close}
-        tabIndex={0}
-        role="button"
-        aria-haspopup="true"
-        aria-expanded={open ? 'true' : 'false'}
+        tabIndex={interactiveChild ? undefined : 0}
+        role={interactiveChild ? undefined : 'button'}
+        aria-haspopup={interactiveChild ? undefined : 'true'}
+        aria-expanded={interactiveChild ? undefined : open ? 'true' : 'false'}
       >
         {children}
       </span>

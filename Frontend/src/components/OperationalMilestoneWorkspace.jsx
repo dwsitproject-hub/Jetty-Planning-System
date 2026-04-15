@@ -62,7 +62,7 @@ function isoOrDatetimeToLocal(value) {
 }
 
 const SHORT_CODE = {
-  'OPENING H1 & H2': 'OP',
+  'OPENING HATCH': 'OH',
   'CARGO PRE-CONDITIONING': 'CPC',
   'CARGO OPERATIONS': 'COP',
   OTHER: 'OT',
@@ -80,6 +80,11 @@ function deriveMilestoneDisplay(category, activities, naMap) {
   const rows = milestoneActivitiesFor(activities, category)
   if (rows.length === 0) {
     return { label: 'Not started', dotClass: 'not-started', statusClass: 'not-started' }
+  }
+  if (category === 'OPENING HATCH' || category === 'CARGO PRE-CONDITIONING') {
+    const allStarted = rows.every((a) => a.startTime)
+    if (allStarted) return { label: 'Done', dotClass: 'done', statusClass: 'done' }
+    return { label: 'In progress', dotClass: 'in-progress', statusClass: 'in-progress' }
   }
   const anyOpen = rows.some((a) => !a.endTime)
   if (anyOpen) {
@@ -238,8 +243,23 @@ export default function OperationalMilestoneWorkspace({
     setFormError('')
   }
 
+  const nextOpeningHatchLabel = useCallback(() => {
+    const rows = milestoneActivitiesFor(activities, 'OPENING HATCH')
+    const nums = rows.map((r) => {
+      const m = /^H(\d+)$/i.exec(String(r.subStepTitle || '').trim())
+      return m ? parseInt(m[1], 10) : 0
+    })
+    const max = nums.length ? Math.max(...nums) : 0
+    return `H${max + 1}`
+  }, [activities])
+
   const openFormModal = (cat = activeMilestone) => {
     selectMilestone(cat)
+    if (cat === 'OPENING HATCH') {
+      setSubStepTitle(nextOpeningHatchLabel())
+    } else {
+      setSubStepTitle('')
+    }
     setFormModalOpen(true)
   }
 
@@ -287,13 +307,18 @@ export default function OperationalMilestoneWorkspace({
   const milestoneClosedCount = useMemo(() => {
     return milestones.filter((cat) => {
       if (naMap[cat]?.reason) return true
-      return milestoneActivitiesFor(activities, cat).length > 0
+      const rows = milestoneActivitiesFor(activities, cat)
+      if (rows.length === 0) return false
+      if (cat === 'OPENING HATCH' || cat === 'CARGO PRE-CONDITIONING') {
+        return rows.every((a) => a.startTime)
+      }
+      return true
     }).length
   }, [milestones, naMap, activities])
 
   function syncFormFromMilestone(cat) {
     setEditingEntryId(null)
-    setSubStepTitle('')
+    setSubStepTitle(cat === 'OPENING HATCH' ? nextOpeningHatchLabel() : '')
     setCargoHandlingMethodId('')
     setRemark('')
     setStartTime(getNowForDateTimeLocal())
@@ -305,7 +330,7 @@ export default function OperationalMilestoneWorkspace({
   const resetComposerAfterAdd = (keepMilestone) => {
     const m = keepMilestone || activeMilestone
     setEditingEntryId(null)
-    setSubStepTitle('')
+    setSubStepTitle(m === 'OPENING HATCH' ? nextOpeningHatchLabel() : '')
     setCargoHandlingMethodId('')
     setRemark('')
     setStartTime(getNowForDateTimeLocal())
@@ -319,13 +344,26 @@ export default function OperationalMilestoneWorkspace({
     if (!c) return { error: 'Select a milestone.' }
     const remarkTrim = String(rem || '').trim()
     if (!remarkTrim) return { error: 'Remark is required.' }
-    if (!st || !en) return { error: 'Start time and end time are required.' }
+    if (!st) return { error: 'Start time is required.' }
     const ta = new Date(st).getTime()
-    const tb = new Date(en).getTime()
-    if (Number.isNaN(ta) || Number.isNaN(tb)) return { error: 'Invalid date or time.' }
-    if (tb < ta) return { error: 'End time must be after start time.' }
+    if (Number.isNaN(ta)) return { error: 'Invalid date or time.' }
     const mk = milestoneLabelToKey(c, purpose)
     if (!mk) return { error: 'Invalid milestone.' }
+    const startOnly = mk === 'opening_hatch' || mk === 'cargo_pre_conditioning'
+    let endPayload = en
+    if (startOnly) {
+      if (en) {
+        const tb = new Date(en).getTime()
+        if (Number.isNaN(tb)) return { error: 'Invalid end time.' }
+        if (tb < ta) return { error: 'End time must be on or after start time.' }
+      }
+    } else {
+      if (!en) return { error: 'End time is required.' }
+      const tb = new Date(en).getTime()
+      if (Number.isNaN(tb)) return { error: 'Invalid date or time.' }
+      if (tb < ta) return { error: 'End time must be after start time.' }
+      endPayload = en
+    }
     if (mk === 'cargo_operations') {
       const mid = parseInt(methodId, 10)
       if (!Number.isFinite(mid)) return { error: 'Cargo handling method is required.' }
@@ -336,7 +374,7 @@ export default function OperationalMilestoneWorkspace({
         subStepTitle: String(sub || '').trim(),
         description: remarkTrim,
         startTime: st,
-        endTime: en,
+        endTime: startOnly ? (en || null) : endPayload,
         cargoHandlingMethodId: mk === 'cargo_operations' ? parseInt(methodId, 10) : null,
       },
     }
@@ -357,13 +395,17 @@ export default function OperationalMilestoneWorkspace({
     }
     if (useApi) {
       try {
+        const endIso =
+          payload.endTime != null && payload.endTime !== ''
+            ? new Date(payload.endTime).toISOString()
+            : null
         if (editingEntryId) {
           await updateOperationalEntry(operationId, editingEntryId, {
             milestoneKey: payload.milestoneKey,
             subStepTitle: payload.subStepTitle,
             remark: payload.description,
             startAt: new Date(payload.startTime).toISOString(),
-            endAt: new Date(payload.endTime).toISOString(),
+            endAt: endIso,
             cargoHandlingMethodId: payload.cargoHandlingMethodId,
           })
         } else {
@@ -373,7 +415,7 @@ export default function OperationalMilestoneWorkspace({
             subStepTitle: payload.subStepTitle,
             remark: payload.description,
             startAt: new Date(payload.startTime).toISOString(),
-            endAt: new Date(payload.endTime).toISOString(),
+            endAt: endIso,
             cargoHandlingMethodId: payload.cargoHandlingMethodId,
           })
         }
@@ -397,7 +439,7 @@ export default function OperationalMilestoneWorkspace({
         subStepTitle: payload.subStepTitle,
         description: payload.description,
         startTime: payload.startTime,
-        endTime: payload.endTime,
+        endTime: payload.endTime || null,
         cargoHandlingMethodId: payload.cargoHandlingMethodId,
       })
       setActionToast({
@@ -434,6 +476,7 @@ export default function OperationalMilestoneWorkspace({
 
   const activeRows = milestoneActivitiesFor(activities, activeMilestone)
   const activeDisplay = deriveMilestoneDisplay(activeMilestone, activities, naMap)
+  const startOnlyForm = activeMilestone === 'OPENING HATCH' || activeMilestone === 'CARGO PRE-CONDITIONING'
   const canMarkNa = activeMilestone && !naMap[activeMilestone]?.reason && activeRows.length === 0
 
   return (
@@ -541,9 +584,14 @@ export default function OperationalMilestoneWorkspace({
             <h3 className="berthing-modal__card-title operational-milestone-composer__title" id="op-milestone-active-label">
               {activeMilestone}
             </h3>
+            {activeMilestone === 'OPENING HATCH' ? (
+              <p className="operational-milestone-composer__subtitle text-steel">
+                Add one row per hatch (e.g. H1, H2). Start time records when each hatch opening began; end time is not used for this milestone.
+              </p>
+            ) : null}
             {activeMilestone === 'CARGO PRE-CONDITIONING' ? (
               <p className="operational-milestone-composer__subtitle text-steel">
-                Capture pre-operation readiness: preparation, condition checks, and pre-transfer notes in the remark field.
+                Capture pre-operation readiness: preparation, condition checks, and pre-transfer notes in the remark field. Only start time is required.
               </p>
             ) : null}
             {activeDisplay.statusClass === 'na' ? (
@@ -562,7 +610,7 @@ export default function OperationalMilestoneWorkspace({
                 className="berthing-modal__input"
                 value={subStepTitle}
                 onChange={(e) => setSubStepTitle(e.target.value)}
-                placeholder="e.g. Second hose connection, leak check"
+                placeholder={activeMilestone === 'OPENING HATCH' ? 'e.g. H1, H2, H3' : 'e.g. Second hose connection, leak check'}
               />
             </div>
             {activeMilestone === 'CARGO OPERATIONS' ? (
@@ -612,20 +660,22 @@ export default function OperationalMilestoneWorkspace({
                   onChange={(e) => setStartTime(e.target.value)}
                 />
               </div>
-              <div className="berthing-modal__field">
-                <label className="berthing-modal__label">
-                  End time <span className="required-star">*</span>
-                </label>
-                <input
-                  type="datetime-local"
-                  className="berthing-modal__input"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                />
-              </div>
+              {!startOnlyForm ? (
+                <div className="berthing-modal__field">
+                  <label className="berthing-modal__label">
+                    End time <span className="required-star">*</span>
+                  </label>
+                  <input
+                    type="datetime-local"
+                    className="berthing-modal__input"
+                    value={endTime}
+                    onChange={(e) => setEndTime(e.target.value)}
+                  />
+                </div>
+              ) : null}
             </div>
 
-            {startTime && endTime ? (
+            {!startOnlyForm && startTime && endTime ? (
               <p className="operational-duration-hint">
                 Duration: <strong>{formatDurationLabel(startTime, endTime)}</strong>
               </p>

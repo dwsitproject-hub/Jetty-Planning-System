@@ -3142,12 +3142,12 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   border-color: #fca5a5;
 }
 
-/* Success toast (berthing completed) */
+/* Success toast (berthing completed) — above .modal-overlay (1000) and .modal-overlay--nested (1100) */
 .toast {
   position: fixed;
   bottom: var(--spacing-4);
   right: var(--spacing-4);
-  z-index: 1000;
+  z-index: 10050;
   display: flex;
   align-items: flex-start;
   gap: var(--spacing-2);

@@ -69,6 +69,47 @@
   letter-spacing: 0.04em;
 }
 
+.drc-scenario__intro {
+  margin: 0 0 var(--spacing-3);
+  font-size: var(--font-size-small);
+  line-height: 1.45;
+}
+
+.drc-scenario__base-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--spacing-3);
+}
+
+@media (max-width: 720px) {
+  .drc-scenario__base-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.drc-scenario__field {
+  min-width: 0;
+}
+
+.drc-scenario__field-label {
+  display: block;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-charcoal);
+  margin-bottom: var(--spacing-1);
+}
+
+.drc-scenario__field-desc {
+  margin: 0 0 var(--spacing-2);
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--color-text-steel);
+}
+
+.drc-scenario__field .modal__input {
+  max-width: 100%;
+}
+
 .drc-scenario__buffer-row {
   display: flex;
   flex-wrap: wrap;

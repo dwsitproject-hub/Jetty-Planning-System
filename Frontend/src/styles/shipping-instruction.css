@@ -692,11 +692,12 @@
 }
 
 /* Fixed toasts: create / edit / delete / submit (matches Allocation/Loading pattern) */
+/* Above shared modals (.modal-overlay z-index 1000) so validation errors stay visible */
 .si-toast {
   position: fixed;
   bottom: var(--spacing-4);
   right: var(--spacing-4);
-  z-index: 1000;
+  z-index: 10050;
   display: flex;
   align-items: flex-start;
   gap: var(--spacing-2);

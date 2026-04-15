@@ -49,6 +49,9 @@ export default function MasterSiLookup({
   const [formUnloadingMetric, setFormUnloadingMetric] = useState('MTPH')
   const [formClearUnloadingRate, setFormClearUnloadingRate] = useState(false)
   const [editingHadUnloadingRate, setEditingHadUnloadingRate] = useState(false)
+  const [formCommodityType, setFormCommodityType] = useState('Liquid')
+
+  const isCommodityMaster = apiType === 'commodities'
 
   const load = useCallback(async () => {
     setError(null)
@@ -77,6 +80,7 @@ export default function MasterSiLookup({
   const openAdd = useCallback(() => {
     setEditingId(null)
     setFormValue('')
+    setFormCommodityType('Liquid')
     setFormLoadingRate('')
     setFormLoadingMetric('MTPH')
     setFormClearLoadingRate(false)
@@ -91,6 +95,7 @@ export default function MasterSiLookup({
   const openEdit = useCallback((item) => {
     setEditingId(item.id)
     setFormValue(item.value ?? '')
+    setFormCommodityType(item.commodityType === 'Solid' ? 'Solid' : 'Liquid')
     const lr = item?.portRates?.loading ?? null
     const ur = item?.portRates?.unloading ?? null
 
@@ -111,6 +116,7 @@ export default function MasterSiLookup({
     setModalOpen(false)
     setEditingId(null)
     setFormValue('')
+    setFormCommodityType('Liquid')
     setFormLoadingRate('')
     setFormLoadingMetric('MTPH')
     setFormClearLoadingRate(false)
@@ -127,6 +133,13 @@ export default function MasterSiLookup({
   const handleSubmit = useCallback(async () => {
     const value = normalizeValue(apiType, formValue)
     if (!value) return
+
+    if (isCommodityMaster) {
+      if (formCommodityType !== 'Solid' && formCommodityType !== 'Liquid') {
+        setError('Commodity type must be Solid or Liquid.')
+        return
+      }
+    }
 
     if (enableStandardRateFields) {
       if (formClearLoadingRate && editingId == null) {
@@ -167,6 +180,9 @@ export default function MasterSiLookup({
     setError(null)
     try {
       const payload = { value }
+      if (isCommodityMaster) {
+        payload.commodityType = formCommodityType
+      }
       if (enableStandardRateFields) {
         if (formClearLoadingRate) {
           payload.clearLoadingRate = true
@@ -226,6 +242,8 @@ export default function MasterSiLookup({
     formUnloadingMetric,
     formClearUnloadingRate,
     valueLabel,
+    isCommodityMaster,
+    formCommodityType,
   ])
 
   const handleDelete = useCallback(
@@ -309,6 +327,7 @@ export default function MasterSiLookup({
               <thead>
                 <tr>
                   <th>{valueLabel}</th>
+                  {isCommodityMaster && <th>Type</th>}
                   {enableStandardRateFields && (
                     <>
                       <th>Loading rate</th>
@@ -327,6 +346,9 @@ export default function MasterSiLookup({
                     <td>
                       <strong>{it.value ?? '—'}</strong>
                     </td>
+                    {isCommodityMaster && (
+                      <td>{it.commodityType === 'Solid' ? 'Solid' : 'Liquid'}</td>
+                    )}
                     {enableStandardRateFields && (
                       <>
                         <td>{it?.portRates?.loading != null ? it.portRates.loading.rate : '—'}</td>
@@ -391,6 +413,23 @@ export default function MasterSiLookup({
                 disabled={!canDoEdit}
               />
             </div>
+            {isCommodityMaster && (
+              <div className="modal__section">
+                <label htmlFor="si-commodity-type" className="modal__label">
+                  Commodity type
+                </label>
+                <select
+                  id="si-commodity-type"
+                  className="modal__input"
+                  value={formCommodityType}
+                  onChange={(e) => setFormCommodityType(e.target.value)}
+                  disabled={!canDoEdit}
+                >
+                  <option value="Liquid">Liquid</option>
+                  <option value="Solid">Solid</option>
+                </select>
+              </div>
+            )}
             {enableStandardRateFields && (
               <>
                 <div className="modal__section">

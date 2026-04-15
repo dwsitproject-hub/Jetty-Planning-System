@@ -27,7 +27,16 @@ const SI_COMMODITY = `COALESCE(
   si.commodity
 )`;
 
+const SI_COMMODITY_TYPE = `COALESCE(
+  (SELECT sc.commodity_type FROM public.shipping_instruction_breakdown b
+   JOIN public.si_commodities sc ON sc.id = b.commodity_id AND sc.deleted_at IS NULL
+   WHERE b.shipping_instruction_id = si.id AND b.deleted_at IS NULL
+   ORDER BY b.line_order, b.id LIMIT 1),
+  'Liquid'
+)`;
+
 const OP_SELECT = `o.*, si.vessel_name, si.reference_number, ${SI_COMMODITY} AS commodity,
+            ${SI_COMMODITY_TYPE} AS commodity_type,
             j.name AS jetty_name, p.id AS port_id, p.name AS port_name`;
 
 function canAccessOperationForSelectedPort(opRow, selectedPortId) {
@@ -1043,6 +1052,7 @@ function toOp(row) {
     vesselName: row.vessel_name ?? undefined,
     referenceNumber: row.reference_number ?? undefined,
     commodity: row.commodity ?? undefined,
+    commodityType: row.commodity_type === 'Solid' ? 'Solid' : 'Liquid',
     jettyName: row.jetty_name ?? undefined,
     portId: row.port_id ?? null,
     portName: row.port_name ?? undefined,

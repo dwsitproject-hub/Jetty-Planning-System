@@ -12,23 +12,28 @@ const router = express.Router();
 router.use(optionalAuth);
 
 const MILESTONE_KEYS = new Set([
-  'opening_h1_h2',
+  'opening_hatch',
   'cargo_pre_conditioning',
   'cargo_operations',
   'other',
 ]);
 
+const START_ONLY_MILESTONE_KEYS = new Set(['opening_hatch', 'cargo_pre_conditioning']);
+
 const SUB_PROCESS_TITLE = {
   key_meeting: 'KEY MEETING',
   nor_accepted: 'NOR ACCEPTED',
-  tank_inspection: 'TANK INSPECTION',
-  hold_inspection: 'HOLD INSPECTION',
+  inspection: 'INSPECTION',
+  tank_inspection: 'INSPECTION',
+  hold_inspection: 'INSPECTION',
   sampling: 'SAMPLING',
-  initial_sounding: 'INITIAL SOUNDING',
-  initial_draft_survey: 'INITIAL DRAFT SURVEY',
-  final_tank_inspection: 'FINAL TANK INSPECTION',
-  final_hold_inspection: 'FINAL HOLD INSPECTION',
-  final_sounding: 'FINAL SOUNDING',
+  initial_cargo_checking: 'INITIAL CARGO CHECKING',
+  initial_sounding: 'INITIAL CARGO CHECKING',
+  initial_draft_survey: 'INITIAL CARGO CHECKING',
+  final_inspection: 'FINAL INSPECTION',
+  final_tank_inspection: 'FINAL INSPECTION',
+  final_hold_inspection: 'FINAL INSPECTION',
+  final_sounding: 'FINAL CARGO CHECKING',
 };
 
 function parseOperationId(raw) {
@@ -137,15 +142,37 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'remark is required for activity' });
       }
-      if (!startAt || !endAt) {
+      if (!startAt) {
         await client.query('ROLLBACK');
-        return res.status(400).json({ error: 'startAt and endAt are required for activity' });
+        return res.status(400).json({ error: 'startAt is required for activity' });
       }
       const ta = new Date(startAt);
-      const tb = new Date(endAt);
-      if (Number.isNaN(ta.getTime()) || Number.isNaN(tb.getTime()) || tb < ta) {
+      if (Number.isNaN(ta.getTime())) {
         await client.query('ROLLBACK');
-        return res.status(400).json({ error: 'Invalid startAt/endAt' });
+        return res.status(400).json({ error: 'Invalid startAt' });
+      }
+      const startOnly = START_ONLY_MILESTONE_KEYS.has(milestoneKey);
+      let tbIso = null;
+      if (startOnly) {
+        if (endAt != null && endAt !== '') {
+          const tb = new Date(endAt);
+          if (Number.isNaN(tb.getTime()) || tb < ta) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'Invalid endAt' });
+          }
+          tbIso = tb.toISOString();
+        }
+      } else {
+        if (!endAt) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'startAt and endAt are required for activity' });
+        }
+        const tb = new Date(endAt);
+        if (Number.isNaN(tb.getTime()) || tb < ta) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'Invalid startAt/endAt' });
+        }
+        tbIso = tb.toISOString();
       }
       if (milestoneKey === 'cargo_operations') {
         if (!Number.isFinite(cargoHandlingMethodId)) {
@@ -177,7 +204,7 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
           subStepTitle || null,
           remark,
           ta.toISOString(),
-          tb.toISOString(),
+          tbIso,
           milestoneKey === 'cargo_operations' ? cargoHandlingMethodId : null,
         ]
       );
@@ -290,7 +317,12 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
     const remark = body.remark != null ? String(body.remark).trim() : row0.remark;
     const subStepTitle = body.subStepTitle != null ? String(body.subStepTitle).trim() : row0.sub_step_title;
     const startAt = body.startAt || body.start_at || row0.start_at;
-    const endAt = body.endAt || body.end_at || row0.end_at;
+    const endAt =
+      body.endAt !== undefined && body.endAt !== null
+        ? body.endAt
+        : body.end_at !== undefined && body.end_at !== null
+          ? body.end_at
+          : row0.end_at;
     const cargoHandlingMethodIdRaw =
       body.cargoHandlingMethodId ?? body.cargo_handling_method_id ?? row0.cargo_handling_method_id ?? null;
     const cargoHandlingMethodId =
@@ -299,9 +331,19 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
         : parseInt(cargoHandlingMethodIdRaw, 10);
     if (!remark) return res.status(400).json({ error: 'remark is required' });
     const ta = new Date(startAt);
-    const tb = new Date(endAt);
-    if (Number.isNaN(ta.getTime()) || Number.isNaN(tb.getTime()) || tb < ta) {
-      return res.status(400).json({ error: 'Invalid startAt/endAt' });
+    if (Number.isNaN(ta.getTime())) return res.status(400).json({ error: 'Invalid startAt' });
+    const startOnly = START_ONLY_MILESTONE_KEYS.has(milestoneKey);
+    let tbIso = null;
+    if (startOnly) {
+      if (endAt != null && endAt !== '') {
+        const tb = new Date(endAt);
+        if (Number.isNaN(tb.getTime()) || tb < ta) return res.status(400).json({ error: 'Invalid endAt' });
+        tbIso = tb.toISOString();
+      }
+    } else {
+      const tb = new Date(endAt);
+      if (Number.isNaN(tb.getTime()) || tb < ta) return res.status(400).json({ error: 'Invalid startAt/endAt' });
+      tbIso = tb.toISOString();
     }
     if (milestoneKey === 'cargo_operations') {
       if (!Number.isFinite(cargoHandlingMethodId)) {
@@ -340,7 +382,7 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
           subStepTitle || null,
           remark,
           ta.toISOString(),
-          tb.toISOString(),
+          tbIso,
           milestoneKey === 'cargo_operations' ? cargoHandlingMethodId : null,
           entryId,
           operationId,

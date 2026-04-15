@@ -160,7 +160,7 @@ function inferPrecheckStatus(sectionKey, item = {}) {
     if (hasTendered || hasAccepted || hasDocs || hasRemark) return 'In Progress'
     return 'Not Started'
   }
-  if (sectionKey === 'initialSounding' || sectionKey === 'initialDraftSurvey') {
+  if (sectionKey === 'initialCargoChecking') {
     const hasResult = Boolean(String(item?.remark || item?.result || '').trim())
     const hasTimes = Boolean(item?.startTime || item?.endTime || item?.dateTime)
     if (hasResult || hasTimes) return 'Done'
@@ -184,16 +184,13 @@ function inferPostcheckStatus(_sectionKey, item = {}) {
   return 'Not Started'
 }
 
-const PRE_CHECK_STAGE_KEYS = [
-  'keyMeeting',
-  'norAccepted',
-  'tankInspection',
-  'holdInspection',
-  'sampling',
-  'initialSounding',
-  'initialDraftSurvey',
-]
-const POST_CHECK_STAGE_IDS = ['finalTankInspection', 'finalHoldInspection', 'finalSounding']
+function getPreCheckStageKeys(purpose) {
+  const keys = ['keyMeeting', 'norAccepted']
+  if (purpose === 'Loading') keys.push('inspection')
+  keys.push('sampling', 'initialCargoChecking')
+  return keys
+}
+const POST_CHECK_STAGE_IDS = ['finalInspection', 'finalCargoChecking']
 
 /** Aligns with stage tabs (7/7, 4/4, 3/3) for operation sign-off CTA visibility. */
 function computeAllStagesComplete({
@@ -207,8 +204,9 @@ function computeAllStagesComplete({
 }) {
   if (!vesselId) return false
   const preData = getPreChecking(vesselId) || {}
-  const preDone = PRE_CHECK_STAGE_KEYS.filter((k) => inferPrecheckStatus(k, preData[k] || {}) === 'Done').length
-  if (preDone < PRE_CHECK_STAGE_KEYS.length) return false
+  const preKeys = getPreCheckStageKeys(purpose)
+  const preDone = preKeys.filter((k) => inferPrecheckStatus(k, preData[k] || {}) === 'Done').length
+  if (preDone < preKeys.length) return false
 
   const milestoneList = purpose === 'Unloading' ? UNLOADING_ACTIVITY_CATEGORIES : LOADING_ACTIVITY_CATEGORIES
   const loadingOpProgress = getLoadingOperation(vesselId) || { activities: [], milestoneNa: {} }
@@ -502,18 +500,21 @@ export default function Loading() {
   const purposeMismatch = Boolean(apiOp && apiPurpose !== purpose)
   const operationId = apiOp?.id ?? (shouldFetchOp ? opNumericId : null)
 
-  /** Option A: Pre/Post stage counts stay "unknown" until that tab's persisted fetch has run (avoids misleading 0/7, 0/3). */
+  /** Option A: stage counts stay "unknown" until persisted fetch has run (avoids misleading 0/n). */
   const [preCheckPersistHydrated, setPreCheckPersistHydrated] = useState(true)
   const [postCheckPersistHydrated, setPostCheckPersistHydrated] = useState(true)
+  const [operationalPersistHydrated, setOperationalPersistHydrated] = useState(true)
 
   useEffect(() => {
     if (!operationId || mockMatchesRoutePurpose) {
       setPreCheckPersistHydrated(true)
       setPostCheckPersistHydrated(true)
+      setOperationalPersistHydrated(true)
       return
     }
     setPreCheckPersistHydrated(false)
     setPostCheckPersistHydrated(false)
+    setOperationalPersistHydrated(false)
   }, [operationId, vesselId, mockMatchesRoutePurpose])
 
   const operationIdRef = useRef(operationId)
@@ -529,6 +530,144 @@ export default function Loading() {
       setPostCheckPersistHydrated(true)
     }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!operationId || !vesselId || mockMatchesRoutePurpose) return () => { cancelled = true }
+
+    fetchSubProcesses(operationId, 'Post-Checking')
+      .then((subRows) => {
+        if (cancelled) return
+        const rows = Array.isArray(subRows) ? subRows : []
+        if (rows.length === 0) return
+
+        const current = getPostChecking(vesselId) || {}
+        const bySection = {
+          finalInspection: { ...(current.finalInspection || {}) },
+          finalCargoChecking: { ...(current.finalCargoChecking || {}) },
+          finalSounding: { ...(current.finalSounding || {}) }, // legacy fallback only
+        }
+        const commodityType = apiOp?.commodityType === 'Solid' ? 'Solid' : 'Liquid'
+
+        for (const row of rows) {
+          const key = String(row?.subProcessKey || '').toLowerCase()
+          if (key === 'final_inspection' || key === 'final_tank_inspection' || key === 'final_hold_inspection') {
+            bySection.finalInspection = mergeFinalInspectionHydration(bySection.finalInspection || {}, row, commodityType)
+            continue
+          }
+          if (key === 'final_sounding') {
+            bySection.finalCargoChecking = mergeFinalCargoCheckingHydration(bySection.finalCargoChecking || {}, row, commodityType)
+          }
+        }
+
+        Object.entries(bySection).forEach(([section, val]) => {
+          if (!val || Object.keys(val).length === 0) return
+          setPostCheckingSection(vesselId, section, val)
+        })
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (cancelled) return
+        onPostCheckPersistHydrated(operationId)
+      })
+
+    return () => { cancelled = true }
+  }, [
+    operationId,
+    vesselId,
+    mockMatchesRoutePurpose,
+    getPostChecking,
+    setPostCheckingSection,
+    onPostCheckPersistHydrated,
+    apiOp?.commodityType,
+  ])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!operationId || !vesselId || mockMatchesRoutePurpose) return () => { cancelled = true }
+
+    fetchSubProcesses(operationId, 'Pre-Checking')
+      .then((subRows) => {
+        if (cancelled) return
+        const rows = Array.isArray(subRows) ? subRows : []
+        const current = getPreChecking(vesselId) || {}
+        const bySection = {}
+
+        for (const row of rows) {
+          const section = PRECHECK_KEY_TO_SECTION[row.subProcessKey]
+          if (!section) continue
+          const cur = bySection[section] || current[section] || {}
+
+          if (section === 'inspection') {
+            bySection[section] = mergeInspectionHydration(cur, row)
+            continue
+          }
+          if (section === 'initialCargoChecking') {
+            bySection[section] = mergeInitialCargoHydration(cur, row)
+            continue
+          }
+
+          const p = row.payload && typeof row.payload === 'object' ? row.payload : {}
+          const next = {
+            ...cur,
+            remark: [cur.remark, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || cur.remark || '',
+            status:
+              precheckStatusRank(row.status) >= precheckStatusRank(cur.status) ? row.status || cur.status : cur.status,
+            lastSavedAt: laterIso(row.updatedAt, cur.lastSavedAt),
+          }
+          if (row.startAt || row.occurredAt) {
+            const st = isoOrDatetimeToLocal(row.startAt || row.occurredAt)
+            if (st) next.startTime = next.startTime || st
+          }
+          if (row.endAt) {
+            const en = isoOrDatetimeToLocal(row.endAt)
+            if (en) next.endTime = next.endTime || en
+          }
+          if (section === 'sampling') {
+            next.records = Array.isArray(p.records) ? p.records : cur.records || []
+          }
+          if (section === 'norAccepted') {
+            if (p.norTenderedDateTime) {
+              next.norTenderedDateTime = next.norTenderedDateTime || isoOrDatetimeToLocal(p.norTenderedDateTime)
+            }
+            if (p.norAcceptedDateTime) {
+              next.norAcceptedDateTime = next.norAcceptedDateTime || isoOrDatetimeToLocal(p.norAcceptedDateTime)
+            }
+          }
+          bySection[section] = next
+        }
+
+        const opTendered = isoOrDatetimeToLocal(apiOp?.norTenderedAt)
+        const opAccepted = isoOrDatetimeToLocal(apiOp?.norAcceptedAt)
+        const norCurrent = bySection.norAccepted || current.norAccepted || {}
+        bySection.norAccepted = {
+          ...norCurrent,
+          norTenderedDateTime: opTendered || norCurrent.norTenderedDateTime || '',
+          norAcceptedDateTime: opAccepted || norCurrent.norAcceptedDateTime || '',
+        }
+
+        Object.entries(bySection).forEach(([section, val]) => {
+          if (!val || Object.keys(val).length === 0) return
+          setPreCheckingSection(vesselId, section, val)
+        })
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (cancelled) return
+        onPreCheckPersistHydrated(operationId)
+      })
+
+    return () => { cancelled = true }
+  }, [
+    operationId,
+    vesselId,
+    mockMatchesRoutePurpose,
+    getPreChecking,
+    setPreCheckingSection,
+    onPreCheckPersistHydrated,
+    apiOp?.norTenderedAt,
+    apiOp?.norAcceptedAt,
+  ])
 
   const { canEdit, canApprove } = useRbac()
   const canEditLoading = canEdit('loading')
@@ -557,8 +696,10 @@ export default function Loading() {
     let cancelled = false
     if (!operationId) {
       setApiOperationalVm({ activities: [], naByLabel: {} })
+      setOperationalPersistHydrated(true)
       return () => { cancelled = true }
     }
+    setOperationalPersistHydrated(false)
     fetchOperationalActivities(operationId)
       .then((res) => {
         if (cancelled) return
@@ -567,6 +708,10 @@ export default function Loading() {
       .catch(() => {
         if (cancelled) return
         setApiOperationalVm({ activities: [], naByLabel: {} })
+      })
+      .finally(() => {
+        if (cancelled) return
+        setOperationalPersistHydrated(true)
       })
     return () => { cancelled = true }
   }, [operationId, purpose, activityLogRefresh])
@@ -863,7 +1008,7 @@ export default function Loading() {
   // Sub-page: Pre-Checking / Loading / Post-Checking
   const sectionConfig = SECTIONS.find((s) => s.id === section)
   const stepIds = sectionConfig?.stepIds ?? []
-  const preStepIds = ['keyMeeting', 'norAccepted', 'tankInspection', 'holdInspection', 'sampling', 'initialSounding', 'initialDraftSurvey']
+  const preStepIds = getPreCheckStageKeys(purpose)
   const preData = getPreChecking(vesselId)
   const preDone = preStepIds.filter((k) => inferPrecheckStatus(k, preData?.[k] || {}) === 'Done').length
   const milestoneList = purpose === 'Unloading' ? UNLOADING_ACTIVITY_CATEGORIES : LOADING_ACTIVITY_CATEGORIES
@@ -885,6 +1030,7 @@ export default function Loading() {
   ).length
   const apiBackedStages = Boolean(operationId) && !mockMatchesRoutePurpose
   const preCountUnknown = apiBackedStages && !preCheckPersistHydrated
+  const operationalCountUnknown = apiBackedStages && !operationalPersistHydrated
   const postCountUnknown = apiBackedStages && !postCheckPersistHydrated
   const processStages = [
     {
@@ -894,7 +1040,7 @@ export default function Loading() {
       total: preStepIds.length,
       countUnknown: preCountUnknown,
     },
-    { id: 'loading', label: 'Operational', done: operationalDone, total: operationalTotal, countUnknown: false },
+    { id: 'loading', label: 'Operational', done: operationalDone, total: operationalTotal, countUnknown: operationalCountUnknown },
     {
       id: 'post-checking',
       label: 'Post-Checking',
@@ -936,6 +1082,8 @@ export default function Loading() {
               vesselId={vesselId}
               basePath={basePath}
               operationId={operationId}
+              purpose={purpose}
+              commodityType={apiOp?.commodityType === 'Solid' ? 'Solid' : 'Liquid'}
               operationNorTenderedAt={apiOp?.norTenderedAt ?? null}
               operationNorAcceptedAt={apiOp?.norAcceptedAt ?? null}
               operationDemurrageLiabilityFromAt={apiOp?.demurrageLiabilityFromAt ?? null}
@@ -958,6 +1106,7 @@ export default function Loading() {
               vesselId={vesselId}
               basePath={basePath}
               operationId={operationId}
+              commodityType={apiOp?.commodityType === 'Solid' ? 'Solid' : 'Liquid'}
               getPostChecking={getPostChecking}
               setPostCheckingSection={setPostCheckingSection}
               formatDateTimeDisplay={formatDateTimeDisplay}
@@ -1028,24 +1177,25 @@ function StageTabs({ processStages, section, basePath, vesselId }) {
   )
 }
 
-const PRE_CHECK_SUB_TABS = [
-  { id: 'keyMeeting', label: 'KEY MEETING' },
-  { id: 'norAccepted', label: 'NOR ACCEPTED' },
-  { id: 'tankInspection', label: 'TANK INSPECTION' },
-  { id: 'holdInspection', label: 'HOLD INSPECTION' },
-  { id: 'sampling', label: 'SAMPLING' },
-  { id: 'initialSounding', label: 'INITIAL SOUNDING' },
-  { id: 'initialDraftSurvey', label: 'INITIAL DRAFT SURVEY' },
-]
+function getPreCheckSubTabs(purpose) {
+  const head = [
+    { id: 'keyMeeting', label: 'KEY MEETING' },
+    { id: 'norAccepted', label: 'NOR' },
+  ]
+  const inspection = purpose === 'Loading' ? [{ id: 'inspection', label: 'INSPECTION' }] : []
+  const tail = [
+    { id: 'sampling', label: 'SAMPLING' },
+    { id: 'initialCargoChecking', label: 'INITIAL CARGO CHECKING' },
+  ]
+  return [...head, ...inspection, ...tail]
+}
 
 const PRECHECK_SHORT_CODE = {
   keyMeeting: 'KM',
   norAccepted: 'NOR',
-  tankInspection: 'TANK',
-  holdInspection: 'HOLD',
+  inspection: 'INSP',
   sampling: 'SAMP',
-  initialSounding: 'SOUND',
-  initialDraftSurvey: 'DRAFT',
+  initialCargoChecking: 'ICC',
 }
 
 const PRECHECK_RAIL_COLLAPSED_KEY = 'jps_precheck_section_rail_collapsed'
@@ -1053,58 +1203,166 @@ const PRECHECK_RAIL_COLLAPSED_KEY = 'jps_precheck_section_rail_collapsed'
 const PRECHECK_SECTION_TO_KEY = {
   keyMeeting: 'key_meeting',
   norAccepted: 'nor_accepted',
-  tankInspection: 'tank_inspection',
-  holdInspection: 'hold_inspection',
+  inspection: 'inspection',
   sampling: 'sampling',
-  initialSounding: 'initial_sounding',
-  initialDraftSurvey: 'initial_draft_survey',
+  initialCargoChecking: 'initial_cargo_checking',
 }
 
-const PRECHECK_KEY_TO_SECTION = Object.fromEntries(
-  Object.entries(PRECHECK_SECTION_TO_KEY).map(([section, key]) => [key, section])
-)
+const PRECHECK_KEY_TO_SECTION = {
+  ...Object.fromEntries(Object.entries(PRECHECK_SECTION_TO_KEY).map(([section, key]) => [key, section])),
+  tank_inspection: 'inspection',
+  hold_inspection: 'inspection',
+  initial_sounding: 'initialCargoChecking',
+  initial_draft_survey: 'initialCargoChecking',
+}
+
+function mergeInitialCargoHydration(current, row) {
+  const p = row.payload && typeof row.payload === 'object' ? row.payload : {}
+  const typeFromKey =
+    row.subProcessKey === 'initial_draft_survey'
+      ? 'Draft Survey'
+      : row.subProcessKey === 'initial_sounding'
+        ? 'Sounding'
+        : null
+  const next = {
+    ...current,
+    remark: [current.remark, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || current.remark || '',
+    status:
+      precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
+    lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
+  }
+  if (row.startAt || row.occurredAt) {
+    const st = isoOrDatetimeToLocal(row.startAt || row.occurredAt)
+    if (st) next.startTime = next.startTime || st
+  }
+  if (row.endAt) {
+    const en = isoOrDatetimeToLocal(row.endAt)
+    if (en) next.endTime = next.endTime || en
+  }
+  const remarkResult = row.remark || p.result || ''
+  if (remarkResult) next.remark = remarkResult
+  next.cargoCheckingType = typeFromKey || p.cargoCheckingType || current.cargoCheckingType
+  return next
+}
+
+function precheckStatusRank(s) {
+  const x = String(s || '').trim()
+  if (x === 'Done') return 3
+  if (x === 'In Progress') return 2
+  return 1
+}
+
+function mergeInspectionHydration(current, row) {
+  const p = row.payload && typeof row.payload === 'object' ? row.payload : {}
+  const typeFromKey =
+    row.subProcessKey === 'hold_inspection' ? 'Hold' : row.subProcessKey === 'tank_inspection' ? 'Tank' : null
+  const next = {
+    ...current,
+    remark: [current.remark, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || current.remark || '',
+    status:
+      precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
+    lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
+  }
+  if (row.startAt || row.occurredAt) {
+    const st = isoOrDatetimeToLocal(row.startAt || row.occurredAt)
+    if (st) next.startTime = next.startTime || st
+  }
+  if (row.endAt) {
+    const en = isoOrDatetimeToLocal(row.endAt)
+    if (en) next.endTime = next.endTime || en
+  }
+  next.inspectionType = typeFromKey || p.inspectionType || current.inspectionType
+  return next
+}
 
 const POST_CHECK_SUB_TABS = [
-  { id: 'finalTankInspection', label: 'FINAL TANK INSPECTION' },
-  { id: 'finalHoldInspection', label: 'FINAL HOLD INSPECTION' },
-  { id: 'finalSounding', label: 'FINAL SOUNDING' },
+  { id: 'finalInspection', label: 'FINAL INSPECTION' },
+  { id: 'finalCargoChecking', label: 'FINAL CARGO CHECKING' },
 ]
 
 const POSTCHECK_RAIL_COLLAPSED_KEY = 'jps_postcheck_section_rail_collapsed'
 
 const POSTCHECK_SHORT_CODE = {
-  finalTankInspection: 'FTI',
-  finalHoldInspection: 'FHI',
-  finalSounding: 'FSN',
+  finalInspection: 'FIN',
+  finalCargoChecking: 'FCC',
 }
 
 const POSTCHECK_SECTION_TO_KEY = {
-  finalTankInspection: 'final_tank_inspection',
-  finalHoldInspection: 'final_hold_inspection',
-  finalSounding: 'final_sounding',
+  finalInspection: 'final_inspection',
+  finalCargoChecking: 'final_sounding',
 }
 
-const POSTCHECK_KEY_TO_SECTION = Object.fromEntries(
-  Object.entries(POSTCHECK_SECTION_TO_KEY).map(([section, key]) => [key, section])
-)
+const POSTCHECK_KEY_TO_SECTION = {
+  final_inspection: 'finalInspection',
+  final_tank_inspection: 'finalInspection',
+  final_hold_inspection: 'finalInspection',
+  final_sounding: 'finalCargoChecking',
+}
 
 /** Edit-form labels per post-check section (read-only rows use simpler labels in situ). */
 const POSTCHECK_RESULT_LABEL = {
-  finalTankInspection: 'Final Tank Inspection Result',
-  finalHoldInspection: 'Final Hold Inspection Result',
-  finalSounding: 'Final Sounding Inspection Result',
+  finalInspection: 'Final Inspection Result',
+  finalCargoChecking: 'Final Cargo Checking Result',
 }
 
 const POSTCHECK_START_LABEL = {
-  finalTankInspection: 'Final Tank Inspection Start Time',
-  finalHoldInspection: 'Final Hold Inspection Start Time',
-  finalSounding: 'Final Sounding Start Time',
+  finalInspection: 'Final Inspection Start Time',
+  finalCargoChecking: 'Final Cargo Checking Start Time',
 }
 
 const POSTCHECK_END_LABEL = {
-  finalTankInspection: 'Final Tank Inspection End Time',
-  finalHoldInspection: 'Final Hold Inspection End Time',
-  finalSounding: 'Final Sounding End Time',
+  finalInspection: 'Final Inspection End Time',
+  finalCargoChecking: 'Final Cargo Checking End Time',
+}
+
+function mergeFinalInspectionHydration(current, row, commodityType = 'Liquid') {
+  const p = row.payload && typeof row.payload === 'object' ? row.payload : {}
+  const typeFromKey =
+    row.subProcessKey === 'final_hold_inspection'
+      ? 'Hold'
+      : row.subProcessKey === 'final_tank_inspection'
+        ? 'Tank'
+        : null
+  const fallbackType = commodityType === 'Solid' ? 'Hold' : 'Tank'
+  const next = {
+    ...current,
+    result: [current.result, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || current.result || '',
+    status:
+      precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
+    lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
+    inspectionType: typeFromKey || p.inspectionType || current.inspectionType || fallbackType,
+  }
+  if (row.startAt || row.occurredAt) {
+    const st = isoOrDatetimeToLocal(row.startAt || row.occurredAt)
+    if (st) next.startTime = next.startTime || st
+  }
+  if (row.endAt) {
+    const en = isoOrDatetimeToLocal(row.endAt)
+    if (en) next.endTime = next.endTime || en
+  }
+  return next
+}
+
+function mergeFinalCargoCheckingHydration(current, row, commodityType = 'Liquid') {
+  const p = row.payload && typeof row.payload === 'object' ? row.payload : {}
+  const fallbackType = commodityType === 'Solid' ? 'Draft Survey' : 'Sounding'
+  const next = {
+    ...current,
+    result: [current.result, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || current.result || '',
+    status:
+      precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
+    lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
+    cargoCheckingType: p.cargoCheckingType || current.cargoCheckingType || fallbackType,
+  }
+  if (row.startAt || row.occurredAt) {
+    const st = isoOrDatetimeToLocal(row.startAt || row.occurredAt)
+    if (st) next.startTime = next.startTime || st
+  }
+  if (row.endAt) {
+    const en = isoOrDatetimeToLocal(row.endAt)
+    if (en) next.endTime = next.endTime || en
+  }
+  return next
 }
 
 function precheckDocumentHref(url) {
@@ -1261,11 +1519,13 @@ function PrecheckDocumentsRead({ documents }) {
   )
 }
 
-/** Pre-Checking sections: KEY MEETING, NOR ACCEPTED, TANK INSPECTION, HOLD INSPECTION, SAMPLING, INITIAL SOUNDING, INITIAL DRAFT SURVEY */
+/** Pre-Checking sections: KEY MEETING, NOR ACCEPTED, INSPECTION (Loading only), SAMPLING, INITIAL SOUNDING, INITIAL DRAFT SURVEY */
 function PreCheckingSections({
   vesselId,
   basePath,
   operationId,
+  purpose,
+  commodityType = 'Liquid',
   operationNorTenderedAt,
   operationNorAcceptedAt,
   operationDemurrageLiabilityFromAt,
@@ -1279,6 +1539,7 @@ function PreCheckingSections({
   activityLogRefresh = 0,
   onPersistedHydrationDone,
 }) {
+  const preCheckTabs = useMemo(() => getPreCheckSubTabs(purpose), [purpose])
   const [searchParams, setSearchParams] = useSearchParams()
   const [activeSubTab, setActiveSubTab] = useState('keyMeeting')
   const [listCollapsed, setListCollapsed] = useState(() => readBool(PRECHECK_RAIL_COLLAPSED_KEY, false))
@@ -1300,6 +1561,12 @@ function PreCheckingSections({
   useEffect(() => {
     writeBool(PRECHECK_RAIL_COLLAPSED_KEY, listCollapsed)
   }, [listCollapsed])
+
+  useEffect(() => {
+    if (purpose === 'Unloading' && activeSubTab === 'inspection') {
+      setActiveSubTab('keyMeeting')
+    }
+  }, [purpose, activeSubTab])
 
   const toggleList = () => {
     setListCollapsed((cur) => {
@@ -1344,28 +1611,32 @@ function PreCheckingSections({
           const section = PRECHECK_KEY_TO_SECTION[row.subProcessKey]
           if (!section) return
           const current = bySection[section] || {}
-          const merged = {
-            ...current,
-            remark: row.remark || '',
-            status: row.status || current.status,
-            lastSavedAt: row.updatedAt ?? current.lastSavedAt ?? null,
-          }
-          if (row.startAt || row.occurredAt) {
-            merged.startTime = isoOrDatetimeToLocal(row.startAt || row.occurredAt)
-          }
-          if (row.endAt) {
-            merged.endTime = isoOrDatetimeToLocal(row.endAt)
-          }
-          if (section === 'sampling') {
-            merged.records = Array.isArray(row.payload?.records) ? row.payload.records : []
-          }
-          if (section === 'initialSounding' || section === 'initialDraftSurvey') {
-            merged.remark = row.remark || row.payload?.result || ''
-          }
-          if (section === 'norAccepted') {
-            const p = row.payload && typeof row.payload === 'object' ? row.payload : {}
-            if (p.norTenderedDateTime) merged.norTenderedDateTime = isoOrDatetimeToLocal(p.norTenderedDateTime)
-            if (p.norAcceptedDateTime) merged.norAcceptedDateTime = isoOrDatetimeToLocal(p.norAcceptedDateTime)
+          let merged
+          if (section === 'inspection') {
+            merged = mergeInspectionHydration(current, row)
+          } else if (section === 'initialCargoChecking') {
+            merged = mergeInitialCargoHydration(current, row)
+          } else {
+            merged = {
+              ...current,
+              remark: row.remark || '',
+              status: row.status || current.status,
+              lastSavedAt: row.updatedAt ?? current.lastSavedAt ?? null,
+            }
+            if (row.startAt || row.occurredAt) {
+              merged.startTime = isoOrDatetimeToLocal(row.startAt || row.occurredAt)
+            }
+            if (row.endAt) {
+              merged.endTime = isoOrDatetimeToLocal(row.endAt)
+            }
+            if (section === 'sampling') {
+              merged.records = Array.isArray(row.payload?.records) ? row.payload.records : []
+            }
+            if (section === 'norAccepted') {
+              const p = row.payload && typeof row.payload === 'object' ? row.payload : {}
+              if (p.norTenderedDateTime) merged.norTenderedDateTime = isoOrDatetimeToLocal(p.norTenderedDateTime)
+              if (p.norAcceptedDateTime) merged.norAcceptedDateTime = isoOrDatetimeToLocal(p.norAcceptedDateTime)
+            }
           }
           bySection[section] = merged
           docLoads.push(
@@ -1377,7 +1648,18 @@ function PreCheckingSections({
         const docBySection = {}
         const loadedDocs = await Promise.all(docLoads)
         loadedDocs.forEach((x) => {
-          docBySection[x.section] = x.docs.map((d) => ({ id: d.id, name: d.name, url: d.url, source: 'precheck_subprocess' }))
+          const list = x.docs.map((d) => ({ id: d.id, name: d.name, url: d.url, source: 'precheck_subprocess' }))
+          docBySection[x.section] = [...(docBySection[x.section] || []), ...list]
+        })
+        Object.keys(docBySection).forEach((k) => {
+          const arr = docBySection[k]
+          const seen = new Set()
+          docBySection[k] = arr.filter((d) => {
+            if (d.id == null) return true
+            if (seen.has(d.id)) return false
+            seen.add(d.id)
+            return true
+          })
         })
         Object.entries(bySection).forEach(([section, val]) => {
           if (section === 'norAccepted') return
@@ -1462,6 +1744,34 @@ function PreCheckingSections({
         remark: current.norAccepted?.remark ?? '',
       }
     }
+    if (sectionKey === 'inspection') {
+      const ti = current.tankInspection || {}
+      const hi = current.holdInspection || {}
+      const ins = current.inspection || {}
+      merged.inspection = {
+        ...ins,
+        startTime: ins.startTime || ti.startTime || hi.startTime,
+        endTime: ins.endTime || ti.endTime || hi.endTime,
+        remark: ins.remark || [ti.remark, hi.remark].filter(Boolean).join('\n'),
+        documents:
+          ins.documents?.length ? ins.documents : [...(ti.documents || []), ...(hi.documents || [])],
+        inspectionType: ins.inspectionType || (commodityType === 'Solid' ? 'Hold' : 'Tank'),
+      }
+    }
+    if (sectionKey === 'initialCargoChecking') {
+      const snd = current.initialSounding || {}
+      const dr = current.initialDraftSurvey || {}
+      const icc = current.initialCargoChecking || {}
+      merged.initialCargoChecking = {
+        ...icc,
+        startTime: icc.startTime || snd.startTime || dr.startTime,
+        endTime: icc.endTime || snd.endTime || dr.endTime,
+        remark: icc.remark || [snd.remark, dr.remark].filter(Boolean).join('\n'),
+        documents:
+          icc.documents?.length ? icc.documents : [...(snd.documents || []), ...(dr.documents || [])],
+        cargoCheckingType: icc.cargoCheckingType || (commodityType === 'Solid' ? 'Draft Survey' : 'Sounding'),
+      }
+    }
     if (sectionKey === 'sampling') {
       merged.sampling = { ...(current.sampling || {}), records: current.sampling?.records ?? [] }
       setSamplingForm({ noPalka: '', ffa: '', moisture: '' })
@@ -1474,11 +1784,18 @@ function PreCheckingSections({
   useEffect(() => {
     const focus = searchParams.get('focus')
     if (!focus) return
-    const tab = PRE_CHECK_SUB_TABS.find((t) => t.id === focus)
+    const tab =
+      preCheckTabs.find((t) => t.id === focus) ||
+      (focus === 'tankInspection' || focus === 'holdInspection'
+        ? preCheckTabs.find((t) => t.id === 'inspection')
+        : null) ||
+      (focus === 'initialSounding' || focus === 'initialDraftSurvey'
+        ? preCheckTabs.find((t) => t.id === 'initialCargoChecking')
+        : null)
     if (!tab) return
-    setActiveSubTab(focus)
+    setActiveSubTab(tab.id)
     if (searchParams.get('edit') === '1') {
-      queueMicrotask(() => startEdit(focus))
+      queueMicrotask(() => startEdit(tab.id))
       setFormModalOpen(true)
     }
     const next = new URLSearchParams(searchParams)
@@ -1487,11 +1804,22 @@ function PreCheckingSections({
     setSearchParams(next, { replace: true })
     // URL handoff only; startEdit reads latest context inside microtask
     // eslint-disable-next-line react-hooks/exhaustive-deps -- avoid re-running when startEdit identity changes every render
-  }, [searchParams, setSearchParams])
+  }, [searchParams, setSearchParams, preCheckTabs])
 
   const buildSubProcessPayload = (sectionKey, sectionDraft) => {
     const startTime = sectionDraft?.startTime || sectionDraft?.dateTime || null
     const endTime = sectionDraft?.endTime || sectionDraft?.dateTime || null
+    if (sectionKey === 'inspection') {
+      const inspectionType = commodityType === 'Solid' ? 'Hold' : 'Tank'
+      return {
+        status: 'Done',
+        occurredAt: startTime,
+        startAt: startTime,
+        endAt: endTime,
+        remark: sectionDraft?.remark || '',
+        payload: { inspectionType },
+      }
+    }
     if (sectionKey === 'sampling') {
       return {
         status: 'Done',
@@ -1502,14 +1830,15 @@ function PreCheckingSections({
         payload: { records: sectionDraft?.records || [] },
       }
     }
-    if (sectionKey === 'initialSounding' || sectionKey === 'initialDraftSurvey') {
+    if (sectionKey === 'initialCargoChecking') {
+      const cargoCheckingType = commodityType === 'Solid' ? 'Draft Survey' : 'Sounding'
       return {
         status: 'Done',
         occurredAt: startTime,
         startAt: startTime,
         endAt: endTime,
         remark: sectionDraft?.remark || sectionDraft?.result || '',
-        payload: null,
+        payload: { cargoCheckingType },
       }
     }
     return {
@@ -1529,6 +1858,13 @@ function PreCheckingSections({
     setSaveSuccessMessage(null)
     setSavingSection(`${sectionKey}:${mode}`)
     if (sectionKey === 'norAccepted') {
+      const toIsoOrNull = (raw) => {
+        if (!raw) return null
+        const d = new Date(raw)
+        return Number.isNaN(d.getTime()) ? null : d.toISOString()
+      }
+      const norTenderedIso = toIsoOrNull(draft.norAccepted.norTenderedDateTime)
+      const norAcceptedIso = toIsoOrNull(draft.norAccepted.norAcceptedDateTime)
       setArrivalNor(vesselId, {
         norTenderedDateTime: draft.norAccepted.norTenderedDateTime || '',
         norAcceptedDateTime: draft.norAccepted.norAcceptedDateTime || '',
@@ -1547,21 +1883,10 @@ function PreCheckingSections({
       })
       try {
         if (operationId) {
-          const norStart = draft.norAccepted.startTime || draft.norAccepted.norTenderedDateTime || ''
-          const norEnd = draft.norAccepted.endTime || draft.norAccepted.norAcceptedDateTime || ''
-          if (norStart && norEnd) {
-            const tStart = new Date(norStart).getTime()
-            const tEnd = new Date(norEnd).getTime()
-            if (!Number.isNaN(tStart) && !Number.isNaN(tEnd) && tEnd < tStart) {
-              setPersistError('NOR Accepted time must be on or after NOR Tendered / start time.')
-              setSavingSection(null)
-              return
-            }
-          }
           await saveArrivalUpdateApi({
             operationId,
-            norTenderedDateTime: draft.norAccepted.norTenderedDateTime || '',
-            norAcceptedDateTime: draft.norAccepted.norAcceptedDateTime || '',
+            norTenderedDateTime: norTenderedIso,
+            norAcceptedDateTime: norAcceptedIso,
           })
           const norDet = await updateNorDetails(operationId, {
             remark: draft.norAccepted.remark || '',
@@ -1575,13 +1900,13 @@ function PreCheckingSections({
           const subNor = await upsertSubProcess(operationId, 'nor_accepted', {
             phase: 'Pre-Checking',
             status: nextStatus,
-            occurredAt: draft.norAccepted.norAcceptedDateTime || draft.norAccepted.norTenderedDateTime || null,
-            startAt: draft.norAccepted.startTime || draft.norAccepted.norTenderedDateTime || null,
-            endAt: draft.norAccepted.endTime || draft.norAccepted.norAcceptedDateTime || null,
+            occurredAt: norAcceptedIso || norTenderedIso || null,
+            startAt: norAcceptedIso || norTenderedIso || null,
+            endAt: null,
             remark: draft.norAccepted.remark || '',
             payload: {
-              norTenderedDateTime: draft.norAccepted.norTenderedDateTime || null,
-              norAcceptedDateTime: draft.norAccepted.norAcceptedDateTime || null,
+              norTenderedDateTime: norTenderedIso,
+              norAcceptedDateTime: norAcceptedIso,
               saveMode: isDraft ? 'draft' : 'final',
             },
           })
@@ -1654,7 +1979,7 @@ function PreCheckingSections({
     }
     setSavingSection(null)
     setEditingSection(null)
-    const tabLabel = PRE_CHECK_SUB_TABS.find((t) => t.id === sectionKey)?.label || sectionKey
+    const tabLabel = preCheckTabs.find((t) => t.id === sectionKey)?.label || sectionKey
     let successMsg = ''
     if (operationId) {
       if (isDraft) {
@@ -1668,8 +1993,8 @@ function PreCheckingSections({
         : `${tabLabel} saved on this device only. Open the vessel from At-Berth to sync to the server.`
     }
     if (goNext) {
-      const idx = PRE_CHECK_SUB_TABS.findIndex((t) => t.id === sectionKey)
-      const next = PRE_CHECK_SUB_TABS[idx + 1]
+      const idx = preCheckTabs.findIndex((t) => t.id === sectionKey)
+      const next = preCheckTabs[idx + 1]
       if (next) {
         setActiveSubTab(next.id)
         if (operationId) {
@@ -1858,11 +2183,11 @@ function PreCheckingSections({
 
   const stepStatuses = useMemo(() => {
     const map = {}
-    PRE_CHECK_SUB_TABS.forEach((t) => {
+    preCheckTabs.forEach((t) => {
       map[t.id] = inferPrecheckStatus(t.id, data?.[t.id] || {})
     })
     return map
-  }, [data])
+  }, [data, preCheckTabs])
 
   return (
     <div className="precheck-sections">
@@ -1916,7 +2241,7 @@ function PreCheckingSections({
           </div>
 
           <div className={`precheck-checklist ${listCollapsed ? 'precheck-checklist--collapsed' : ''}`} role="tablist" aria-label="Pre-Checking sections">
-            {PRE_CHECK_SUB_TABS.map((tab) => {
+            {preCheckTabs.map((tab) => {
               const status = String(stepStatuses[tab.id] || '').toLowerCase()
               const statusClass = status.replace(/\s+/g, '-')
               const code = PRECHECK_SHORT_CODE[tab.id] || tab.label.slice(0, 4)
@@ -2048,7 +2373,7 @@ function PreCheckingSections({
       )}
       {activeSubTab === 'norAccepted' && (
       <PreCheckSectionCard
-        title="NOR ACCEPTED"
+        title="NOR"
         isEditing={editingSection === 'norAccepted'}
         onEdit={() => startEdit('norAccepted')}
         onSave={() => saveSection('norAccepted', 'final')}
@@ -2058,24 +2383,6 @@ function PreCheckingSections({
       >
         {editingSection === 'norAccepted' ? (
           <>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Start Time</label>
-              <input
-                type="datetime-local"
-                className="berthing-modal__input"
-                value={draft.norAccepted?.startTime || ''}
-                onChange={(e) => updateDraft('norAccepted', 'startTime', e.target.value)}
-              />
-            </div>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">End Time</label>
-              <input
-                type="datetime-local"
-                className="berthing-modal__input"
-                value={draft.norAccepted?.endTime || ''}
-                onChange={(e) => updateDraft('norAccepted', 'endTime', e.target.value)}
-              />
-            </div>
             <div className="berthing-modal__field">
               <label className="berthing-modal__label">Date &amp; Time (NOR Tendered)</label>
               <input
@@ -2095,7 +2402,7 @@ function PreCheckingSections({
               />
             </div>
             <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Demurrage liability from</label>
+              <label className="berthing-modal__label">Laytime</label>
               <input
                 type="datetime-local"
                 className="berthing-modal__input"
@@ -2124,14 +2431,6 @@ function PreCheckingSections({
         ) : (
           <>
             <div className="precheck-section__row">
-              <span className="precheck-section__label">Start Time</span>
-              <span className="precheck-section__value">{data.norAccepted?.startTime ? formatDateTimeDisplay(data.norAccepted.startTime) : '—'}</span>
-            </div>
-            <div className="precheck-section__row">
-              <span className="precheck-section__label">End Time</span>
-              <span className="precheck-section__value">{data.norAccepted?.endTime ? formatDateTimeDisplay(data.norAccepted.endTime) : '—'}</span>
-            </div>
-            <div className="precheck-section__row">
               <span className="precheck-section__label">Date &amp; Time (NOR Tendered)</span>
               <span className="precheck-section__value">{norFromArrival.norTenderedDateTime ? formatDateTimeDisplay(norFromArrival.norTenderedDateTime) : '—'}</span>
             </div>
@@ -2140,7 +2439,7 @@ function PreCheckingSections({
               <span className="precheck-section__value">{norFromArrival.norAcceptedDateTime ? formatDateTimeDisplay(norFromArrival.norAcceptedDateTime) : '—'}</span>
             </div>
             <div className="precheck-section__row">
-              <span className="precheck-section__label">Demurrage liability from</span>
+              <span className="precheck-section__label">Laytime</span>
               <span className="precheck-section__value">
                 {data.norAccepted?.demurrageLiabilityFromDateTime
                   ? formatDateTimeDisplay(data.norAccepted.demurrageLiabilityFromDateTime)
@@ -2166,25 +2465,35 @@ function PreCheckingSections({
         )}
       </PreCheckSectionCard>
       )}
-      {activeSubTab === 'tankInspection' && (
+      {activeSubTab === 'inspection' && (
       <PreCheckSectionCard
-        title="TANK INSPECTION"
-        isEditing={editingSection === 'tankInspection'}
-        onEdit={() => startEdit('tankInspection')}
-        onSave={() => saveSection('tankInspection', 'final')}
-        onSaveDraft={() => saveSection('tankInspection', 'draft')}
-        onSaveNext={() => saveSection('tankInspection', 'final', true)}
+        title="INSPECTION"
+        isEditing={editingSection === 'inspection'}
+        onEdit={() => startEdit('inspection')}
+        onSave={() => saveSection('inspection', 'final')}
+        onSaveDraft={() => saveSection('inspection', 'draft')}
+        onSaveNext={() => saveSection('inspection', 'final', true)}
         onCancel={cancelEdit}
       >
-        {editingSection === 'tankInspection' ? (
+        {editingSection === 'inspection' ? (
           <>
+            <div className="berthing-modal__field">
+              <label className="berthing-modal__label">Inspection type</label>
+              <input
+                type="text"
+                className="berthing-modal__input"
+                readOnly
+                value={commodityType === 'Solid' ? 'Hold' : 'Tank'}
+                title="Derived from shipping instruction commodity type"
+              />
+            </div>
             <div className="berthing-modal__field">
               <label className="berthing-modal__label">Start Time</label>
               <input
                 type="datetime-local"
                 className="berthing-modal__input"
-                value={draft.tankInspection?.startTime || ''}
-                onChange={(e) => updateDraft('tankInspection', 'startTime', e.target.value)}
+                value={draft.inspection?.startTime || ''}
+                onChange={(e) => updateDraft('inspection', 'startTime', e.target.value)}
               />
             </div>
             <div className="berthing-modal__field">
@@ -2192,23 +2501,23 @@ function PreCheckingSections({
               <input
                 type="datetime-local"
                 className="berthing-modal__input"
-                value={draft.tankInspection?.endTime || ''}
-                onChange={(e) => updateDraft('tankInspection', 'endTime', e.target.value)}
+                value={draft.inspection?.endTime || ''}
+                onChange={(e) => updateDraft('inspection', 'endTime', e.target.value)}
               />
             </div>
             <PrecheckDocumentsEdit
-              sectionKey="tankInspection"
-              documents={draft.tankInspection?.documents}
-              onAddFiles={(files) => addSectionDocuments('tankInspection', files)}
-              onRemoveIndex={(i) => removePrecheckDocumentAt('tankInspection', i)}
+              sectionKey="inspection"
+              documents={draft.inspection?.documents}
+              onAddFiles={(files) => addSectionDocuments('inspection', files)}
+              onRemoveIndex={(i) => removePrecheckDocumentAt('inspection', i)}
               removingKey={removingDoc}
             />
             <div className="berthing-modal__field">
               <label className="berthing-modal__label">Remark</label>
               <textarea
                 className="berthing-modal__input berthing-modal__textarea"
-                value={draft.tankInspection?.remark || ''}
-                onChange={(e) => updateDraft('tankInspection', 'remark', e.target.value)}
+                value={draft.inspection?.remark || ''}
+                onChange={(e) => updateDraft('inspection', 'remark', e.target.value)}
                 rows={4}
                 placeholder="Optional remark"
               />
@@ -2217,96 +2526,29 @@ function PreCheckingSections({
         ) : (
           <>
             <div className="precheck-section__row">
+              <span className="precheck-section__label">Inspection type</span>
+              <span className="precheck-section__value">
+                {data.inspection?.inspectionType || (commodityType === 'Solid' ? 'Hold' : 'Tank')}
+              </span>
+            </div>
+            <div className="precheck-section__row">
               <span className="precheck-section__label">Start Time</span>
               <span className="precheck-section__value">
-                {data.tankInspection?.startTime || data.tankInspection?.dateTime
-                  ? formatDateTimeDisplay(data.tankInspection?.startTime || data.tankInspection?.dateTime)
+                {data.inspection?.startTime || data.inspection?.dateTime
+                  ? formatDateTimeDisplay(data.inspection?.startTime || data.inspection?.dateTime)
                   : '—'}
               </span>
             </div>
             <div className="precheck-section__row">
               <span className="precheck-section__label">End Time</span>
               <span className="precheck-section__value">
-                {data.tankInspection?.endTime ? formatDateTimeDisplay(data.tankInspection.endTime) : '—'}
+                {data.inspection?.endTime ? formatDateTimeDisplay(data.inspection.endTime) : '—'}
               </span>
             </div>
-            <PrecheckDocumentsRead documents={data.tankInspection?.documents} />
+            <PrecheckDocumentsRead documents={data.inspection?.documents} />
             <div className="precheck-section__row precheck-section__row--block">
               <span className="precheck-section__label">Remark</span>
-              <span className="precheck-section__value">{data.tankInspection?.remark || '—'}</span>
-            </div>
-          </>
-        )}
-      </PreCheckSectionCard>
-      )}
-      {activeSubTab === 'holdInspection' && (
-      <PreCheckSectionCard
-        title="HOLD INSPECTION"
-        isEditing={editingSection === 'holdInspection'}
-        onEdit={() => startEdit('holdInspection')}
-        onSave={() => saveSection('holdInspection', 'final')}
-        onSaveDraft={() => saveSection('holdInspection', 'draft')}
-        onSaveNext={() => saveSection('holdInspection', 'final', true)}
-        onCancel={cancelEdit}
-      >
-        {editingSection === 'holdInspection' ? (
-          <>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Start Time</label>
-              <input
-                type="datetime-local"
-                className="berthing-modal__input"
-                value={draft.holdInspection?.startTime || ''}
-                onChange={(e) => updateDraft('holdInspection', 'startTime', e.target.value)}
-              />
-            </div>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">End Time</label>
-              <input
-                type="datetime-local"
-                className="berthing-modal__input"
-                value={draft.holdInspection?.endTime || ''}
-                onChange={(e) => updateDraft('holdInspection', 'endTime', e.target.value)}
-              />
-            </div>
-            <PrecheckDocumentsEdit
-              sectionKey="holdInspection"
-              documents={draft.holdInspection?.documents}
-              onAddFiles={(files) => addSectionDocuments('holdInspection', files)}
-              onRemoveIndex={(i) => removePrecheckDocumentAt('holdInspection', i)}
-              removingKey={removingDoc}
-            />
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Remark</label>
-              <textarea
-                className="berthing-modal__input berthing-modal__textarea"
-                value={draft.holdInspection?.remark || ''}
-                onChange={(e) => updateDraft('holdInspection', 'remark', e.target.value)}
-                rows={4}
-                placeholder="Optional remark"
-              />
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="precheck-section__row">
-              <span className="precheck-section__label">Start Time</span>
-              <span className="precheck-section__value">
-                {data.holdInspection?.startTime || data.holdInspection?.dateTime
-                  ? formatDateTimeDisplay(data.holdInspection?.startTime || data.holdInspection?.dateTime)
-                  : '—'}
-              </span>
-            </div>
-            <div className="precheck-section__row">
-              <span className="precheck-section__label">End Time</span>
-              <span className="precheck-section__value">
-                {data.holdInspection?.endTime ? formatDateTimeDisplay(data.holdInspection.endTime) : '—'}
-              </span>
-            </div>
-            <PrecheckDocumentsRead documents={data.holdInspection?.documents} />
-            <div className="precheck-section__row precheck-section__row--block">
-              <span className="precheck-section__label">Remark</span>
-              <span className="precheck-section__value">{data.holdInspection?.remark || '—'}</span>
+              <span className="precheck-section__value">{data.inspection?.remark || '—'}</span>
             </div>
           </>
         )}
@@ -2515,25 +2757,35 @@ function PreCheckingSections({
         )}
       </PreCheckSectionCard>
       )}
-      {activeSubTab === 'initialSounding' && (
+      {activeSubTab === 'initialCargoChecking' && (
       <PreCheckSectionCard
-        title="INITIAL SOUNDING"
-        isEditing={editingSection === 'initialSounding'}
-        onEdit={() => startEdit('initialSounding')}
-        onSave={() => saveSection('initialSounding', 'final')}
-        onSaveDraft={() => saveSection('initialSounding', 'draft')}
-        onSaveNext={() => saveSection('initialSounding', 'final', true)}
+        title="INITIAL CARGO CHECKING"
+        isEditing={editingSection === 'initialCargoChecking'}
+        onEdit={() => startEdit('initialCargoChecking')}
+        onSave={() => saveSection('initialCargoChecking', 'final')}
+        onSaveDraft={() => saveSection('initialCargoChecking', 'draft')}
+        onSaveNext={() => saveSection('initialCargoChecking', 'final', true)}
         onCancel={cancelEdit}
       >
-        {editingSection === 'initialSounding' ? (
+        {editingSection === 'initialCargoChecking' ? (
           <>
+            <div className="berthing-modal__field">
+              <label className="berthing-modal__label">Checking type</label>
+              <input
+                type="text"
+                className="berthing-modal__input"
+                readOnly
+                value={commodityType === 'Solid' ? 'Draft Survey' : 'Sounding'}
+                title="Derived from shipping instruction commodity type"
+              />
+            </div>
             <div className="berthing-modal__field">
               <label className="berthing-modal__label">Start Time</label>
               <input
                 type="datetime-local"
                 className="berthing-modal__input"
-                value={draft.initialSounding?.startTime || ''}
-                onChange={(e) => updateDraft('initialSounding', 'startTime', e.target.value)}
+                value={draft.initialCargoChecking?.startTime || ''}
+                onChange={(e) => updateDraft('initialCargoChecking', 'startTime', e.target.value)}
               />
             </div>
             <div className="berthing-modal__field">
@@ -2541,23 +2793,23 @@ function PreCheckingSections({
               <input
                 type="datetime-local"
                 className="berthing-modal__input"
-                value={draft.initialSounding?.endTime || ''}
-                onChange={(e) => updateDraft('initialSounding', 'endTime', e.target.value)}
+                value={draft.initialCargoChecking?.endTime || ''}
+                onChange={(e) => updateDraft('initialCargoChecking', 'endTime', e.target.value)}
               />
             </div>
             <PrecheckDocumentsEdit
-              sectionKey="initialSounding"
-              documents={draft.initialSounding?.documents}
-              onAddFiles={(files) => addSectionDocuments('initialSounding', files)}
-              onRemoveIndex={(i) => removePrecheckDocumentAt('initialSounding', i)}
+              sectionKey="initialCargoChecking"
+              documents={draft.initialCargoChecking?.documents}
+              onAddFiles={(files) => addSectionDocuments('initialCargoChecking', files)}
+              onRemoveIndex={(i) => removePrecheckDocumentAt('initialCargoChecking', i)}
               removingKey={removingDoc}
             />
             <div className="berthing-modal__field">
               <label className="berthing-modal__label">Remark</label>
               <textarea
                 className="berthing-modal__input berthing-modal__textarea"
-                value={draft.initialSounding?.remark || ''}
-                onChange={(e) => updateDraft('initialSounding', 'remark', e.target.value)}
+                value={draft.initialCargoChecking?.remark || ''}
+                onChange={(e) => updateDraft('initialCargoChecking', 'remark', e.target.value)}
                 rows={4}
                 placeholder="Optional remark"
               />
@@ -2566,96 +2818,29 @@ function PreCheckingSections({
         ) : (
           <>
             <div className="precheck-section__row">
+              <span className="precheck-section__label">Checking type</span>
+              <span className="precheck-section__value">
+                {data.initialCargoChecking?.cargoCheckingType || (commodityType === 'Solid' ? 'Draft Survey' : 'Sounding')}
+              </span>
+            </div>
+            <div className="precheck-section__row">
               <span className="precheck-section__label">Start Time</span>
               <span className="precheck-section__value">
-                {data.initialSounding?.startTime || data.initialSounding?.dateTime
-                  ? formatDateTimeDisplay(data.initialSounding?.startTime || data.initialSounding?.dateTime)
+                {data.initialCargoChecking?.startTime || data.initialCargoChecking?.dateTime
+                  ? formatDateTimeDisplay(data.initialCargoChecking?.startTime || data.initialCargoChecking?.dateTime)
                   : '—'}
               </span>
             </div>
             <div className="precheck-section__row">
               <span className="precheck-section__label">End Time</span>
               <span className="precheck-section__value">
-                {data.initialSounding?.endTime ? formatDateTimeDisplay(data.initialSounding.endTime) : '—'}
+                {data.initialCargoChecking?.endTime ? formatDateTimeDisplay(data.initialCargoChecking.endTime) : '—'}
               </span>
             </div>
-            <PrecheckDocumentsRead documents={data.initialSounding?.documents} />
+            <PrecheckDocumentsRead documents={data.initialCargoChecking?.documents} />
             <div className="precheck-section__row precheck-section__row--block">
               <span className="precheck-section__label">Remark</span>
-              <span className="precheck-section__value">{data.initialSounding?.remark || '—'}</span>
-            </div>
-          </>
-        )}
-      </PreCheckSectionCard>
-      )}
-      {activeSubTab === 'initialDraftSurvey' && (
-      <PreCheckSectionCard
-        title="INITIAL DRAFT SURVEY"
-        isEditing={editingSection === 'initialDraftSurvey'}
-        onEdit={() => startEdit('initialDraftSurvey')}
-        onSave={() => saveSection('initialDraftSurvey', 'final')}
-        onSaveDraft={() => saveSection('initialDraftSurvey', 'draft')}
-        onSaveNext={() => saveSection('initialDraftSurvey', 'final', true)}
-        onCancel={cancelEdit}
-      >
-        {editingSection === 'initialDraftSurvey' ? (
-          <>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Start Time</label>
-              <input
-                type="datetime-local"
-                className="berthing-modal__input"
-                value={draft.initialDraftSurvey?.startTime || ''}
-                onChange={(e) => updateDraft('initialDraftSurvey', 'startTime', e.target.value)}
-              />
-            </div>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">End Time</label>
-              <input
-                type="datetime-local"
-                className="berthing-modal__input"
-                value={draft.initialDraftSurvey?.endTime || ''}
-                onChange={(e) => updateDraft('initialDraftSurvey', 'endTime', e.target.value)}
-              />
-            </div>
-            <PrecheckDocumentsEdit
-              sectionKey="initialDraftSurvey"
-              documents={draft.initialDraftSurvey?.documents}
-              onAddFiles={(files) => addSectionDocuments('initialDraftSurvey', files)}
-              onRemoveIndex={(i) => removePrecheckDocumentAt('initialDraftSurvey', i)}
-              removingKey={removingDoc}
-            />
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Remark</label>
-              <textarea
-                className="berthing-modal__input berthing-modal__textarea"
-                value={draft.initialDraftSurvey?.remark || ''}
-                onChange={(e) => updateDraft('initialDraftSurvey', 'remark', e.target.value)}
-                rows={4}
-                placeholder="Optional remark"
-              />
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="precheck-section__row">
-              <span className="precheck-section__label">Start Time</span>
-              <span className="precheck-section__value">
-                {data.initialDraftSurvey?.startTime || data.initialDraftSurvey?.dateTime
-                  ? formatDateTimeDisplay(data.initialDraftSurvey?.startTime || data.initialDraftSurvey?.dateTime)
-                  : '—'}
-              </span>
-            </div>
-            <div className="precheck-section__row">
-              <span className="precheck-section__label">End Time</span>
-              <span className="precheck-section__value">
-                {data.initialDraftSurvey?.endTime ? formatDateTimeDisplay(data.initialDraftSurvey.endTime) : '—'}
-              </span>
-            </div>
-            <PrecheckDocumentsRead documents={data.initialDraftSurvey?.documents} />
-            <div className="precheck-section__row precheck-section__row--block">
-              <span className="precheck-section__label">Remark</span>
-              <span className="precheck-section__value">{data.initialDraftSurvey?.remark || '—'}</span>
+              <span className="precheck-section__value">{data.initialCargoChecking?.remark || '—'}</span>
             </div>
           </>
         )}
@@ -2710,6 +2895,7 @@ function PostCheckingSections({
   vesselId,
   basePath,
   operationId,
+  commodityType = 'Liquid',
   getPostChecking,
   setPostCheckingSection,
   formatDateTimeDisplay,
@@ -2719,7 +2905,7 @@ function PostCheckingSections({
   onPersistedHydrationDone,
 }) {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [activeSubTab, setActiveSubTab] = useState('finalTankInspection')
+  const [activeSubTab, setActiveSubTab] = useState('finalInspection')
   const [listCollapsed, setListCollapsed] = useState(() => readBool(POSTCHECK_RAIL_COLLAPSED_KEY, false))
   const [autoCollapseAfterSelect, setAutoCollapseAfterSelect] = useState(false)
   const [editingSection, setEditingSection] = useState(null)
@@ -2782,16 +2968,36 @@ function PostCheckingSections({
           })
           .filter(Boolean)
         const loaded = await Promise.all(docLoads)
+        const bySection = {}
         loaded.forEach(({ row, section, docs }) => {
-          setPostCheckingSection(vesselId, section, {
-            result: row.remark || '',
-            status: row.status || '',
-            lastSavedAt: row.updatedAt ?? null,
-            ...(row.startAt || row.occurredAt ? { startTime: isoOrDatetimeToLocal(row.startAt || row.occurredAt) } : {}),
-            ...(row.endAt ? { endTime: isoOrDatetimeToLocal(row.endAt) } : {}),
-            documents: docs.map((d) => ({ id: d.id, name: d.name, url: d.url, source: 'precheck_subprocess' })),
-          })
+          const current = bySection[section] || {}
+          if (section === 'finalInspection') {
+            bySection[section] = mergeFinalInspectionHydration(current, row, commodityType)
+          } else if (section === 'finalCargoChecking') {
+            bySection[section] = mergeFinalCargoCheckingHydration(current, row, commodityType)
+          } else {
+            bySection[section] = {
+              ...current,
+              result: [current.result, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || current.result || '',
+              status:
+                precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
+              lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
+              ...(row.startAt || row.occurredAt ? { startTime: current.startTime || isoOrDatetimeToLocal(row.startAt || row.occurredAt) } : {}),
+              ...(row.endAt ? { endTime: current.endTime || isoOrDatetimeToLocal(row.endAt) } : {}),
+            }
+          }
+          bySection[section].documents = [
+            ...(bySection[section].documents || []),
+            ...docs.map((d) => ({
+              id: d.id,
+              name: d.name,
+              url: d.url,
+              source: 'precheck_subprocess',
+              subProcessKey: row.subProcessKey,
+            })),
+          ]
         })
+        Object.entries(bySection).forEach(([section, val]) => setPostCheckingSection(vesselId, section, val))
         shouldSignalPersistHydration = true
         if (!cancelled) setLoadingPersisted(false)
       })
@@ -2809,7 +3015,7 @@ function PostCheckingSections({
     return () => {
       cancelled = true
     }
-  }, [operationId, vesselId, setPostCheckingSection, onPersistedHydrationDone])
+  }, [commodityType, operationId, vesselId, setPostCheckingSection, onPersistedHydrationDone])
 
   useEffect(() => {
     if (!saveSuccessMessage) return undefined
@@ -2905,7 +3111,8 @@ function PostCheckingSections({
     setPersistError(null)
     try {
       if (operationId) {
-        await deleteSubProcessDocument(operationId, subKey, doc.id, 'Post-Checking')
+        const targetSubKey = doc.subProcessKey || subKey
+        await deleteSubProcessDocument(operationId, targetSubKey, doc.id, 'Post-Checking')
       }
       docs.splice(index, 1)
       setDraft((prev) => ({
@@ -2927,6 +3134,8 @@ function PostCheckingSections({
     setSaveSuccessMessage(null)
     setSavingSection(`${sectionKey}:${mode}`)
     const sectionDraft = draft[sectionKey] || {}
+    const finalInspectionType = commodityType === 'Solid' ? 'Hold' : 'Tank'
+    const finalCargoCheckingType = commodityType === 'Solid' ? 'Draft Survey' : 'Sounding'
     const st = (sectionDraft?.startTime && String(sectionDraft.startTime).trim()) || ''
     const en = (sectionDraft?.endTime && String(sectionDraft.endTime).trim()) || ''
     const dt = (sectionDraft?.dateTime && String(sectionDraft.dateTime).trim()) || ''
@@ -2958,7 +3167,12 @@ function PostCheckingSections({
           startAt,
           endAt,
           remark: sectionDraft?.result || '',
-          payload: null,
+          payload:
+            sectionKey === 'finalInspection'
+              ? { inspectionType: finalInspectionType }
+              : sectionKey === 'finalCargoChecking'
+                ? { cargoCheckingType: finalCargoCheckingType }
+                : null,
         })
         if (sent?.updatedAt) {
           setPostCheckingSection(vesselId, sectionKey, { lastSavedAt: sent.updatedAt })
@@ -2972,6 +3186,8 @@ function PostCheckingSections({
           setPostCheckingSection(vesselId, sectionKey, {
             ...sectionDraft,
             status: nextStatus,
+            ...(sectionKey === 'finalInspection' ? { inspectionType: finalInspectionType } : {}),
+            ...(sectionKey === 'finalCargoChecking' ? { cargoCheckingType: finalCargoCheckingType } : {}),
             documents: [...(sectionDraft.documents || []).filter((d) => !d?.file), ...saved],
             ...(sent?.updatedAt ? { lastSavedAt: sent.updatedAt } : {}),
           })
@@ -3041,6 +3257,18 @@ function PostCheckingSections({
       >
         {isEditing ? (
           <>
+            {sectionKey === 'finalInspection' && (
+              <div className="precheck-section__row">
+                <span className="precheck-section__label">Inspection Type</span>
+                <span className="precheck-section__value">{commodityType === 'Solid' ? 'Hold' : 'Tank'}</span>
+              </div>
+            )}
+            {sectionKey === 'finalCargoChecking' && (
+              <div className="precheck-section__row">
+                <span className="precheck-section__label">Cargo Checking Type</span>
+                <span className="precheck-section__value">{commodityType === 'Solid' ? 'Draft Survey' : 'Sounding'}</span>
+              </div>
+            )}
             <div className="berthing-modal__field">
               <label className="berthing-modal__label">{resultL}</label>
               <textarea
@@ -3079,6 +3307,22 @@ function PostCheckingSections({
           </>
         ) : (
           <>
+            {sectionKey === 'finalInspection' && (
+              <div className="precheck-section__row">
+                <span className="precheck-section__label">Inspection Type</span>
+                <span className="precheck-section__value">
+                  {data[sectionKey]?.inspectionType || (commodityType === 'Solid' ? 'Hold' : 'Tank')}
+                </span>
+              </div>
+            )}
+            {sectionKey === 'finalCargoChecking' && (
+              <div className="precheck-section__row">
+                <span className="precheck-section__label">Cargo Checking Type</span>
+                <span className="precheck-section__value">
+                  {data[sectionKey]?.cargoCheckingType || (commodityType === 'Solid' ? 'Draft Survey' : 'Sounding')}
+                </span>
+              </div>
+            )}
             <div className="precheck-section__row precheck-section__row--block">
               <span className="precheck-section__label">{resultL}</span>
               <span className="precheck-section__value">{data[sectionKey]?.result || '—'}</span>

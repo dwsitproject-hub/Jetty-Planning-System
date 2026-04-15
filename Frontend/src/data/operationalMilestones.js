@@ -1,14 +1,14 @@
 /** Stable DB/API keys ↔ UI labels for Operational milestones (loading vs unloading). */
 
 export const UNLOADING_MILESTONES = [
-  { key: 'opening_h1_h2', label: 'OPENING H1 & H2' },
+  { key: 'opening_hatch', label: 'OPENING HATCH' },
   { key: 'cargo_pre_conditioning', label: 'CARGO PRE-CONDITIONING' },
   { key: 'cargo_operations', label: 'CARGO OPERATIONS' },
   { key: 'other', label: 'OTHER' },
 ]
 
 export const LOADING_MILESTONES = [
-  { key: 'opening_h1_h2', label: 'OPENING H1 & H2' },
+  { key: 'opening_hatch', label: 'OPENING HATCH' },
   { key: 'cargo_pre_conditioning', label: 'CARGO PRE-CONDITIONING' },
   { key: 'cargo_operations', label: 'CARGO OPERATIONS' },
   { key: 'other', label: 'OTHER' },
@@ -70,6 +70,11 @@ export function operationalMilestoneDoneCount(purpose, activities, naByLabel) {
   const list = getMilestoneListForPurpose(purpose)
   return list.filter((m) => {
     if (naByLabel[m.label]?.reason) return true
-    return (activities || []).some((a) => a.category === m.label)
+    const rows = (activities || []).filter((a) => a.category === m.label)
+    if (rows.length === 0) return false
+    if (m.key === 'opening_hatch' || m.key === 'cargo_pre_conditioning') {
+      return rows.every((a) => Boolean(a.startTime))
+    }
+    return true
   }).length
 }

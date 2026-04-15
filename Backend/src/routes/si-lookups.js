@@ -42,10 +42,16 @@ function formatRateSnapshot(rateValue, rateMetric) {
   return `${rateValue} ${m}`;
 }
 
+function normalizeCommodityType(raw) {
+  const v = String(raw ?? 'Liquid').trim();
+  if (v === 'Solid' || v === 'Liquid') return v;
+  return null;
+}
+
 async function selectCommoditiesWithRates({ portId, whereSql, params = [] }) {
   const portParam = portId == null ? null : Number(portId);
   return pool.query(
-    `SELECT c.id, c.name AS value, c.sort_order, c.created_at, c.updated_at,
+    `SELECT c.id, c.name AS value, c.sort_order, c.commodity_type, c.created_at, c.updated_at,
             srl.id AS loading_standard_rate_id, srl.rate_value AS loading_rate_value, srl.rate_metric AS loading_rate_metric,
             sru.id AS unloading_standard_rate_id, sru.rate_value AS unloading_rate_value, sru.rate_metric AS unloading_rate_metric
      FROM si_commodities c
@@ -102,6 +108,7 @@ function toCommodityListItem(row) {
     id: row.id,
     value: row.value,
     name: row.value,
+    commodityType: row.commodity_type ?? 'Liquid',
     sortOrder: row.sort_order ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -230,7 +237,7 @@ router.get('/', async (_req, res) => {
     metrics,
   ] = await Promise.all([
     pool.query(
-      `SELECT id, name, sort_order FROM si_commodities WHERE deleted_at IS NULL ORDER BY sort_order, name`
+      `SELECT id, name, sort_order, commodity_type FROM si_commodities WHERE deleted_at IS NULL ORDER BY sort_order, name`
     ),
     pool.query(
       `SELECT id, code, sort_order FROM si_trade_terms WHERE deleted_at IS NULL ORDER BY sort_order, code`
@@ -264,6 +271,7 @@ router.get('/', async (_req, res) => {
     commodities: commodities.rows.map((r) => ({
       id: r.id,
       name: r.name,
+      commodityType: r.commodity_type ?? 'Liquid',
       sortOrder: r.sort_order,
     })),
     tradeTerms: tradeTerms.rows.map((r) => ({
@@ -390,17 +398,18 @@ router.post('/:type', async (req, res) => {
   }
 
   const cleaned = type === 'trade-terms' ? value.trim().toUpperCase() : value.trim();
-  const result = await pool.query(
-    `INSERT INTO ${cfg.table} (${cfg.valueCol}, sort_order)
-     VALUES ($1, 0)
-     RETURNING id, ${cfg.valueCol} AS value, sort_order, created_at, updated_at`,
-    [cleaned],
-  );
-  const row = result.rows[0];
 
   if (type === 'commodities') {
     if (!req.userId) return res.status(401).json({ error: 'Authentication required' });
     return requirePortScope(req, res, async () => {
+      const ct = normalizeCommodityType(req.body.commodityType ?? req.body.commodity_type);
+      if (!ct) return res.status(400).json({ error: 'commodityType must be Solid or Liquid' });
+      const ins = await pool.query(
+        `INSERT INTO si_commodities (name, sort_order, commodity_type) VALUES ($1, 0, $2)
+         RETURNING id, name AS value, sort_order, commodity_type, created_at, updated_at`,
+        [cleaned, ct]
+      );
+      const row = ins.rows[0];
       const portId = req.selectedPortId;
       // Backwards-compatible: legacy `rate` is treated as UNLOADING for the active port.
       const legacyUnloadingRate = toNum(rate ?? ratePerHour);
@@ -464,7 +473,7 @@ router.post('/:type', async (req, res) => {
       const uSnap = createdItem.portRates.unloading
         ? formatRateSnapshot(createdItem.portRates.unloading.rate, createdItem.portRates.unloading.rateMetric)
         : null;
-      let summary = `Created ${tm.noun} "${cleaned}"`;
+      let summary = `Created ${tm.noun} "${cleaned}" (${ct})`;
       if (lSnap || uSnap) summary += ` — rates (L: ${lSnap ?? '—'}, U: ${uSnap ?? '—'})`;
 
       writeActivityLog({
@@ -481,6 +490,14 @@ router.post('/:type', async (req, res) => {
       return res.status(201).json(createdItem);
     });
   }
+
+  const result = await pool.query(
+    `INSERT INTO ${cfg.table} (${cfg.valueCol}, sort_order)
+     VALUES ($1, 0)
+     RETURNING id, ${cfg.valueCol} AS value, sort_order, created_at, updated_at`,
+    [cleaned],
+  );
+  const row = result.rows[0];
 
   const tm = getTypeMeta(type);
   writeActivityLog({
@@ -523,6 +540,7 @@ router.put('/:type/:id', async (req, res) => {
   const cleaned = type === 'trade-terms' ? value.trim().toUpperCase() : value.trim();
 
   let prevName;
+  let prevCommodityType = null;
   let prevLoadingValue = null;
   let prevLoadingMetric = null;
   let prevUnloadingValue = null;
@@ -539,6 +557,7 @@ router.put('/:type/:id', async (req, res) => {
     });
     if (prevQ.rows.length === 0) return res.status(404).json({ error: 'Item not found' });
     prevName = prevQ.rows[0].value;
+    prevCommodityType = prevQ.rows[0].commodity_type ?? 'Liquid';
     prevLoadingValue = prevQ.rows[0].loading_rate_value;
     prevLoadingMetric = prevQ.rows[0].loading_rate_metric;
     prevUnloadingValue = prevQ.rows[0].unloading_rate_value;
@@ -552,13 +571,37 @@ router.put('/:type/:id', async (req, res) => {
     prevName = prevQ.rows[0].v;
   }
 
-  const result = await pool.query(
-    `UPDATE ${cfg.table}
-     SET ${cfg.valueCol} = $1, updated_at = NOW()
-     WHERE id = $2 AND deleted_at IS NULL
-     RETURNING id, ${cfg.valueCol} AS value, sort_order, created_at, updated_at`,
-    [cleaned, id],
-  );
+  let result;
+  if (type === 'commodities') {
+    const ctRaw = req.body.commodityType ?? req.body.commodity_type;
+    if (ctRaw !== undefined && ctRaw !== null && String(ctRaw).trim() !== '') {
+      const ct = normalizeCommodityType(ctRaw);
+      if (!ct) return res.status(400).json({ error: 'commodityType must be Solid or Liquid' });
+      result = await pool.query(
+        `UPDATE si_commodities
+         SET name = $1, commodity_type = $2, updated_at = NOW()
+         WHERE id = $3 AND deleted_at IS NULL
+         RETURNING id, name AS value, sort_order, commodity_type, created_at, updated_at`,
+        [cleaned, ct, id]
+      );
+    } else {
+      result = await pool.query(
+        `UPDATE si_commodities
+         SET name = $1, updated_at = NOW()
+         WHERE id = $2 AND deleted_at IS NULL
+         RETURNING id, name AS value, sort_order, commodity_type, created_at, updated_at`,
+        [cleaned, id]
+      );
+    }
+  } else {
+    result = await pool.query(
+      `UPDATE ${cfg.table}
+       SET ${cfg.valueCol} = $1, updated_at = NOW()
+       WHERE id = $2 AND deleted_at IS NULL
+       RETURNING id, ${cfg.valueCol} AS value, sort_order, created_at, updated_at`,
+      [cleaned, id]
+    );
+  }
   if (result.rows.length === 0) return res.status(404).json({ error: 'Item not found' });
 
   if (type === 'commodities') {
@@ -629,6 +672,9 @@ router.put('/:type/:id', async (req, res) => {
     const tmC = getTypeMeta(type);
     const changesC = [];
     if (prevName !== cleaned) changesC.push({ field: 'Name', from: prevName, to: cleaned });
+    if (prevCommodityType && updatedItem.commodityType && prevCommodityType !== updatedItem.commodityType) {
+      changesC.push({ field: 'Commodity type', from: prevCommodityType, to: updatedItem.commodityType });
+    }
     const fromL = formatRateSnapshot(prevLoadingValue, prevLoadingMetric);
     const toL = updatedItem.portRates.loading
       ? formatRateSnapshot(updatedItem.portRates.loading.rate, updatedItem.portRates.loading.rateMetric)

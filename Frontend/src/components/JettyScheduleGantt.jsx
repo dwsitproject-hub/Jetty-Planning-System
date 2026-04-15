@@ -1,4 +1,6 @@
 import { useMemo, useState, useEffect } from 'react'
+import InteractiveTooltip from './InteractiveTooltip'
+import '../styles/dashboard.css'
 
 /** Replaces emoji (often renders as empty box on Windows) */
 function GanttVesselIcon() {
@@ -554,9 +556,15 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
           }
           const minimal = rawWidthPct < 6
           const pillClass = segmentPillClass(seg)
-          const tooltip = `${seg.vesselName}: ${seg.label}`
           const canClick = Boolean(seg.vesselId && typeof onSelectVessel === 'function')
-          const title = `${tooltip}${canClick ? ' — click for details' : ''}`
+          const tooltipItems = [
+            { primary: `Status: ${seg.status || '—'}` },
+            {
+              primary: `Start: ${new Date(seg.startMs).toLocaleString()}`,
+              secondary: `End: ${new Date(seg.endMs).toLocaleString()}`,
+            },
+          ]
+          if (canClick) tooltipItems.push({ primary: 'Click to open vessel details.' })
 
           const inner = minimal ? null : (
             <>
@@ -567,30 +575,45 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
 
           if (canClick) {
             return (
-              <button
+              <InteractiveTooltip
                 key={`${layer}-${seg.phase}-${seg.vesselName}-${seg.startMs}-${i}`}
-                type="button"
-                className={`${pillClass} jetty-schedule-gantt__bar--btn${minimal ? ' jetty-schedule-gantt__bar--minimal' : ''}`}
-                style={style}
-                title={title}
-                aria-label={minimal ? title : undefined}
-                onClick={() => onSelectVessel(seg.vesselId)}
+                title={seg.vesselName}
+                subtitle={seg.label}
+                items={tooltipItems}
+                emptyText="No details."
+                placement="right"
+                interactiveChild
               >
-                {inner}
-              </button>
+                <button
+                  type="button"
+                  className={`${pillClass} jetty-schedule-gantt__bar--btn${minimal ? ' jetty-schedule-gantt__bar--minimal' : ''}`}
+                  style={style}
+                  aria-label={minimal ? `${seg.vesselName}: ${seg.label}` : undefined}
+                  onClick={() => onSelectVessel(seg.vesselId)}
+                >
+                  {inner}
+                </button>
+              </InteractiveTooltip>
             )
           }
           return (
-            <span
+            <InteractiveTooltip
               key={`${layer}-${seg.phase}-${seg.vesselName}-${seg.startMs}-${i}`}
-              className={`${pillClass}${minimal ? ' jetty-schedule-gantt__bar--minimal' : ''}`}
-              style={style}
-              title={title}
-              role={minimal ? 'img' : undefined}
-              aria-label={minimal ? title : undefined}
+              title={seg.vesselName}
+              subtitle={seg.label}
+              items={tooltipItems}
+              emptyText="No details."
+              placement="right"
             >
-              {inner}
-            </span>
+              <span
+                className={`${pillClass}${minimal ? ' jetty-schedule-gantt__bar--minimal' : ''}`}
+                style={style}
+                role={minimal ? 'img' : undefined}
+                aria-label={minimal ? `${seg.vesselName}: ${seg.label}` : undefined}
+              >
+                {inner}
+              </span>
+            </InteractiveTooltip>
           )
         })}
       </div>

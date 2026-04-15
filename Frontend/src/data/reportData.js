@@ -90,19 +90,16 @@ function buildTimelogForVessel(vesselId, deps) {
   if (arrivalNor.norAcceptedDateTime) {
     entries.push({ category: 'NOR ACCEPTED', remark: '', dateTime: arrivalNor.norAcceptedDateTime, endDateTime: '' })
   }
-  if (preCheck.tankInspection?.dateTime) {
+  const inspectionDt =
+    preCheck.inspection?.dateTime || preCheck.inspection?.startTime || preCheck.tankInspection?.dateTime || preCheck.holdInspection?.dateTime
+  if (inspectionDt) {
+    const isHold =
+      preCheck.inspection?.inspectionType === 'Hold' ||
+      (!preCheck.inspection && preCheck.holdInspection?.dateTime && !preCheck.tankInspection?.dateTime)
     entries.push({
-      category: 'TANK INSPECTION',
-      remark: preCheck.tankInspection.remark || '',
-      dateTime: preCheck.tankInspection.dateTime,
-      endDateTime: '',
-    })
-  }
-  if (preCheck.holdInspection?.dateTime) {
-    entries.push({
-      category: 'HOLD INSPECTION',
-      remark: preCheck.holdInspection.remark || '',
-      dateTime: preCheck.holdInspection.dateTime,
+      category: isHold ? 'HOLD INSPECTION' : 'TANK INSPECTION',
+      remark: preCheck.inspection?.remark || preCheck.tankInspection?.remark || preCheck.holdInspection?.remark || '',
+      dateTime: inspectionDt,
       endDateTime: '',
     })
   }
@@ -114,19 +111,24 @@ function buildTimelogForVessel(vesselId, deps) {
       endDateTime: '',
     })
   }
-  if (preCheck.initialSounding?.dateTime) {
+  const iccDt =
+    preCheck.initialCargoChecking?.dateTime ||
+    preCheck.initialCargoChecking?.startTime ||
+    preCheck.initialSounding?.dateTime ||
+    preCheck.initialDraftSurvey?.dateTime
+  if (iccDt) {
+    const isDraft =
+      preCheck.initialCargoChecking?.cargoCheckingType === 'Draft Survey' ||
+      (!preCheck.initialCargoChecking && preCheck.initialDraftSurvey?.dateTime && !preCheck.initialSounding?.dateTime)
     entries.push({
-      category: 'INITIAL SOUNDING/ULLAGE&CAL',
-      remark: preCheck.initialSounding.result || '',
-      dateTime: preCheck.initialSounding.dateTime,
-      endDateTime: '',
-    })
-  }
-  if (preCheck.initialDraftSurvey?.dateTime) {
-    entries.push({
-      category: 'INITIAL DRAFT SURVEY',
-      remark: preCheck.initialDraftSurvey.result || '',
-      dateTime: preCheck.initialDraftSurvey.dateTime,
+      category: isDraft ? 'INITIAL DRAFT SURVEY' : 'INITIAL SOUNDING/ULLAGE&CAL',
+      remark:
+        preCheck.initialCargoChecking?.remark ||
+        preCheck.initialCargoChecking?.result ||
+        preCheck.initialSounding?.result ||
+        preCheck.initialDraftSurvey?.result ||
+        '',
+      dateTime: iccDt,
       endDateTime: '',
     })
   }
@@ -141,27 +143,32 @@ function buildTimelogForVessel(vesselId, deps) {
     })
   })
 
-  if (postCheck.finalSounding?.dateTime) {
+  const finalCargoCheckingDt =
+    postCheck.finalCargoChecking?.dateTime ||
+    postCheck.finalCargoChecking?.startTime ||
+    postCheck.finalSounding?.dateTime
+  if (finalCargoCheckingDt) {
     entries.push({
-      category: 'FINAL SOUNDING/ULLAGE&CAL',
-      remark: postCheck.finalSounding.result || '',
-      dateTime: postCheck.finalSounding.dateTime,
+      category: 'FINAL CARGO CHECKING',
+      remark: postCheck.finalCargoChecking?.result || postCheck.finalSounding?.result || '',
+      dateTime: finalCargoCheckingDt,
       endDateTime: '',
     })
   }
-  if (postCheck.finalTankInspection?.dateTime) {
+  const finalInspectionDt =
+    postCheck.finalInspection?.dateTime ||
+    postCheck.finalInspection?.startTime ||
+    postCheck.finalTankInspection?.dateTime ||
+    postCheck.finalHoldInspection?.dateTime
+  if (finalInspectionDt) {
     entries.push({
-      category: 'FINAL TANK INSPECTION',
-      remark: postCheck.finalTankInspection.result || '',
-      dateTime: postCheck.finalTankInspection.dateTime,
-      endDateTime: '',
-    })
-  }
-  if (postCheck.finalHoldInspection?.dateTime) {
-    entries.push({
-      category: 'FINAL HOLD INSPECTION',
-      remark: postCheck.finalHoldInspection.result || '',
-      dateTime: postCheck.finalHoldInspection.dateTime,
+      category: 'FINAL INSPECTION',
+      remark:
+        postCheck.finalInspection?.result ||
+        postCheck.finalTankInspection?.result ||
+        postCheck.finalHoldInspection?.result ||
+        '',
+      dateTime: finalInspectionDt,
       endDateTime: '',
     })
   }

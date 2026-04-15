@@ -671,6 +671,18 @@ export default function ShippingInstruction() {
         return
       }
     }
+    const distinctCommodityTypes = new Set()
+    for (const row of form.breakdown) {
+      const c = (lookups?.commodities || []).find((x) => String(x.id) === String(row.commodityId))
+      if (c?.commodityType) distinctCommodityTypes.add(c.commodityType)
+    }
+    if (distinctCommodityTypes.size > 1) {
+      setToast({
+        message: 'All commodities on one shipping instruction must be the same type (Solid or Liquid).',
+        variant: 'error',
+      })
+      return
+    }
     try {
       const etaIso = form.etaFrom ? new Date(`${form.etaFrom}T12:00:00`).toISOString() : null
       const num = (v) => {

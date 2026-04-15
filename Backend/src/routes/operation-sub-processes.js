@@ -19,6 +19,7 @@ import { optionalAuth } from '../middleware/auth.js';
 import { promoteInProgressToPostOpsIfInProgress } from '../lib/operation-auto-status.js';
 
 const POST_CHECK_AUTO_KEYS = new Set([
+  'final_inspection',
   'final_tank_inspection',
   'final_hold_inspection',
   'final_sounding',
@@ -40,6 +41,18 @@ function cleanKey(raw) {
 function cleanPhase(raw) {
   const v = String(raw || '').trim();
   return ALLOWED_PHASES.has(v) ? v : null;
+}
+
+/** Legacy key normalization for merged subprocess tabs. */
+function normalizeLegacySubProcessKey(phase, rawKey) {
+  const k = cleanKey(rawKey);
+  if (phase === 'Pre-Checking' && (k === 'tank_inspection' || k === 'hold_inspection')) {
+    return 'inspection';
+  }
+  if (phase === 'Pre-Checking' && (k === 'initial_sounding' || k === 'initial_draft_survey')) {
+    return 'initial_cargo_checking';
+  }
+  return k;
 }
 
 function parseTs(v) {
@@ -114,6 +127,24 @@ async function ensureOperationExists(operationId) {
     [operationId]
   );
   return r.rows.length > 0;
+}
+
+/** First breakdown line commodity type for the operation’s shipping instruction. */
+async function loadOperationPrecheckContext(operationId) {
+  const r = await pool.query(
+    `SELECT o.purpose,
+            COALESCE(
+              (SELECT sc.commodity_type FROM shipping_instruction_breakdown b
+               JOIN si_commodities sc ON sc.id = b.commodity_id AND sc.deleted_at IS NULL
+               WHERE b.shipping_instruction_id = o.shipping_instruction_id AND b.deleted_at IS NULL
+               ORDER BY b.line_order, b.id LIMIT 1),
+              'Liquid'
+            ) AS commodity_type
+     FROM operations o
+     WHERE o.id = $1 AND o.deleted_at IS NULL`,
+    [operationId]
+  );
+  return r.rows[0] ?? null;
 }
 
 async function loadSubProcess(operationId, phase, key) {
@@ -293,7 +324,8 @@ const storage = multer.diskStorage({
   destination: async (req, file, cb) => {
     try {
       const operationId = String(req.params.operationId || '').trim();
-      const key = cleanKey(req.params.subProcessKey || '');
+      const phase = cleanPhase(req.body?.phase || req.query?.phase || 'Pre-Checking') || 'Pre-Checking';
+      const key = normalizeLegacySubProcessKey(phase, req.params.subProcessKey || '');
       const dir = path.join(UPLOAD_ROOT, 'operations', operationId, 'sub-processes', key);
       await ensureDir(dir);
       cb(null, dir);
@@ -339,17 +371,57 @@ router.get('/operations/:operationId/sub-processes', async (req, res) => {
 router.put('/operations/:operationId/sub-processes/:subProcessKey', async (req, res) => {
   const operationId = parseOperationId(req.params.operationId);
   if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
-  const key = cleanKey(req.params.subProcessKey);
-  if (!key) return res.status(400).json({ error: 'subProcessKey required' });
-
   const phase = cleanPhase(req.body?.phase);
   if (!phase) return res.status(400).json({ error: 'phase must be Pre-Checking, Operational, or Post-Checking' });
+  let key = normalizeLegacySubProcessKey(phase, req.params.subProcessKey);
+  if (!key) return res.status(400).json({ error: 'subProcessKey required' });
   if (String(req.body?.status || '') === 'Skipped' && !String(req.body?.skipReason || '').trim()) {
     return res.status(400).json({ error: 'skipReason is required when status is Skipped' });
   }
 
   if (!(await ensureOperationExists(operationId))) {
     return res.status(404).json({ error: 'Operation not found' });
+  }
+
+  if (phase === 'Pre-Checking' && key === 'inspection') {
+    const ctx = await loadOperationPrecheckContext(operationId);
+    if (!ctx) return res.status(404).json({ error: 'Operation not found' });
+    if (ctx.purpose === 'Unloading') {
+      return res.status(400).json({ error: 'Inspection does not apply to Unloading operations.' });
+    }
+    const expected = ctx.commodity_type === 'Solid' ? 'Hold' : 'Tank';
+    const payloadIn = req.body?.payload;
+    if (payloadIn != null && typeof payloadIn !== 'object') {
+      return res.status(400).json({ error: 'payload must be an object' });
+    }
+    const clientType = payloadIn && typeof payloadIn === 'object' ? payloadIn.inspectionType : null;
+    if (clientType != null && clientType !== expected) {
+      return res.status(400).json({
+        error: `Inspection type must be ${expected} for this shipping instruction (commodity is ${
+          ctx.commodity_type === 'Solid' ? 'Solid' : 'Liquid'
+        }).`,
+      });
+    }
+    req.body.payload = { ...(payloadIn && typeof payloadIn === 'object' ? payloadIn : {}), inspectionType: expected };
+  }
+
+  if (phase === 'Pre-Checking' && key === 'initial_cargo_checking') {
+    const ctx = await loadOperationPrecheckContext(operationId);
+    if (!ctx) return res.status(404).json({ error: 'Operation not found' });
+    const expected = ctx.commodity_type === 'Solid' ? 'Draft Survey' : 'Sounding';
+    const payloadIn = req.body?.payload;
+    if (payloadIn != null && typeof payloadIn !== 'object') {
+      return res.status(400).json({ error: 'payload must be an object' });
+    }
+    const clientType = payloadIn && typeof payloadIn === 'object' ? payloadIn.cargoCheckingType : null;
+    if (clientType != null && clientType !== expected) {
+      return res.status(400).json({
+        error: `Initial cargo checking type must be "${expected}" for this shipping instruction (commodity is ${
+          ctx.commodity_type === 'Solid' ? 'Solid' : 'Liquid'
+        }).`,
+      });
+    }
+    req.body.payload = { ...(payloadIn && typeof payloadIn === 'object' ? payloadIn : {}), cargoCheckingType: expected };
   }
 
   const before = await loadSubProcess(operationId, phase, key);
@@ -399,10 +471,10 @@ router.put('/operations/:operationId/sub-processes/:subProcessKey', async (req, 
 router.delete('/operations/:operationId/sub-processes/:subProcessKey', async (req, res) => {
   const operationId = parseOperationId(req.params.operationId);
   if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
-  const key = cleanKey(req.params.subProcessKey);
-  if (!key) return res.status(400).json({ error: 'subProcessKey required' });
   const phase = cleanPhase(req.query.phase || '');
   if (!phase) return res.status(400).json({ error: 'phase query must be Pre-Checking, Operational, or Post-Checking' });
+  const key = normalizeLegacySubProcessKey(phase, req.params.subProcessKey);
+  if (!key) return res.status(400).json({ error: 'subProcessKey required' });
 
   if (!(await ensureOperationExists(operationId))) {
     return res.status(404).json({ error: 'Operation not found' });
@@ -451,10 +523,10 @@ router.delete('/operations/:operationId/sub-processes/:subProcessKey', async (re
 router.get('/operations/:operationId/sub-processes/:subProcessKey/documents', async (req, res) => {
   const operationId = parseOperationId(req.params.operationId);
   if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
-  const key = cleanKey(req.params.subProcessKey);
-  if (!key) return res.status(400).json({ error: 'subProcessKey required' });
   const phase = cleanPhase(req.query.phase || req.body?.phase || 'Pre-Checking');
   if (!phase) return res.status(400).json({ error: 'Invalid phase' });
+  const key = normalizeLegacySubProcessKey(phase, req.params.subProcessKey);
+  if (!key) return res.status(400).json({ error: 'subProcessKey required' });
 
   const row = await loadSubProcess(operationId, phase, key);
   if (!row) return res.json([]);
@@ -482,10 +554,10 @@ router.get('/operations/:operationId/sub-processes/:subProcessKey/documents', as
 router.post('/operations/:operationId/sub-processes/:subProcessKey/documents', upload.array('files', 10), async (req, res) => {
   const operationId = parseOperationId(req.params.operationId);
   if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
-  const key = cleanKey(req.params.subProcessKey);
-  if (!key) return res.status(400).json({ error: 'subProcessKey required' });
   const phase = cleanPhase(req.body?.phase || req.query.phase || 'Pre-Checking');
   if (!phase) return res.status(400).json({ error: 'Invalid phase' });
+  const key = normalizeLegacySubProcessKey(phase, req.params.subProcessKey);
+  if (!key) return res.status(400).json({ error: 'subProcessKey required' });
   if (!(await ensureOperationExists(operationId))) {
     return res.status(404).json({ error: 'Operation not found' });
   }
@@ -546,10 +618,10 @@ router.delete(
     if (operationId == null || !Number.isFinite(documentId)) {
       return res.status(400).json({ error: 'Invalid operation or document id' });
     }
-    const key = cleanKey(req.params.subProcessKey);
-    if (!key) return res.status(400).json({ error: 'subProcessKey required' });
     const phase = cleanPhase(req.query.phase || 'Pre-Checking');
     if (!phase) return res.status(400).json({ error: 'Invalid phase' });
+    const key = normalizeLegacySubProcessKey(phase, req.params.subProcessKey);
+    if (!key) return res.status(400).json({ error: 'subProcessKey required' });
 
     const row = await loadSubProcess(operationId, phase, key);
     if (!row) return res.status(404).json({ error: 'Sub-process not found' });

@@ -31,6 +31,11 @@ function formatDisplayDateTime(dt) {
   return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
 }
 
+function formatFixed2(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n.toFixed(2) : '—'
+}
+
 function rateToPerHour(rateValue, metric) {
   if (rateValue == null) return null
   const rv = Number(rateValue)
@@ -45,6 +50,21 @@ function purposeToDirection(purpose) {
   if (p === 'loading') return 'LOADING'
   if (p === 'unloading') return 'UNLOADING'
   return 'UNLOADING'
+}
+
+function isBreakdownMetricMt(row) {
+  return String(row?.metricCode || '').toUpperCase().includes('MT')
+}
+
+function getCommodityById(commodities, id) {
+  if (id == null) return null
+  return commodities.find((c) => Number(c.id) === Number(id)) || null
+}
+
+function getDirectionalPortRate(commodity, direction) {
+  if (!commodity) return null
+  const pr = commodity.portRates || {}
+  return direction === 'LOADING' ? pr.loading : pr.unloading
 }
 
 export default function DemurrageRiskCalculator() {
@@ -79,6 +99,11 @@ export default function DemurrageRiskCalculator() {
 
   const [bufferDefault, setBufferDefault] = useState(0.85)
   const [buffer, setBuffer] = useState('0.85')
+  /** User-adjustable SLA base terms (hours); default 1h each per PRD-style scenario. */
+  const [q1Hours, setQ1Hours] = useState('1')
+  const [q2Hours, setQ2Hours] = useState('1')
+  const [clearanceHours, setClearanceHours] = useState('1')
+  const [switchPenaltyHours, setSwitchPenaltyHours] = useState(1)
 
   const [overrideRate, setOverrideRate] = useState(false)
   const [overrideRateValue, setOverrideRateValue] = useState('')
@@ -89,7 +114,7 @@ export default function DemurrageRiskCalculator() {
   const [result, setResult] = useState(null)
   const [saving, setSaving] = useState(false)
 
-  const bufferAtLastEstimateRef = useRef(null)
+  const lastScenarioFingerprintRef = useRef(null)
 
   useEffect(() => {
     if (!toast?.message) return undefined
@@ -107,6 +132,8 @@ export default function DemurrageRiskCalculator() {
           setBufferDefault(b)
           setBuffer(String(b))
         }
+        const s = Number(cfg?.sHours)
+        if (Number.isFinite(s) && s >= 0) setSwitchPenaltyHours(s)
       })
       .catch(() => {})
     return () => {
@@ -149,12 +176,11 @@ export default function DemurrageRiskCalculator() {
     return Array.isArray(shippingInstruction?.breakdown) ? shippingInstruction.breakdown : []
   }, [shippingInstruction?.breakdown])
 
-  /** First MT line if any, else first line — drives volume + commodity for calculation. */
-  const contextBreakdownRow = useMemo(() => {
-    if (!breakdownRows.length) return null
-    const mt = breakdownRows.find((r) => String(r.metricCode || '').toUpperCase().includes('MT'))
-    return mt || breakdownRows[0]
-  }, [breakdownRows])
+  /** All breakdown lines in MT — total volume and duration use every line (e.g. CPO + CPKO). */
+  const mtBreakdownRows = useMemo(() => breakdownRows.filter(isBreakdownMetricMt), [breakdownRows])
+
+  /** First MT line — used for save metadata / SI name fallback. */
+  const contextBreakdownRow = useMemo(() => mtBreakdownRows[0] ?? null, [mtBreakdownRows])
 
   const matchedCommodityId = useMemo(() => {
     const name = (shippingInstruction?.commodityDisplay || shippingInstruction?.commodity || operation?.commodity || '').trim()
@@ -168,64 +194,82 @@ export default function DemurrageRiskCalculator() {
     return matchedCommodityId
   }, [contextBreakdownRow, matchedCommodityId])
 
-  const selectedCommodity = useMemo(() => {
-    if (contextCommodityId == null) return null
-    return commodities.find((c) => Number(c.id) === Number(contextCommodityId)) || null
-  }, [commodities, contextCommodityId])
-
   const direction = useMemo(
     () => purposeToDirection(shippingInstruction?.purpose),
     [shippingInstruction?.purpose]
   )
 
-  const volumeMtNum = useMemo(() => {
-    if (!contextBreakdownRow) return null
-    if (!String(contextBreakdownRow.metricCode || '').toUpperCase().includes('MT')) return null
-    return toNum(contextBreakdownRow.qty)
-  }, [contextBreakdownRow])
+  const totalVolumeMtNum = useMemo(() => {
+    if (!mtBreakdownRows.length) return null
+    const sum = mtBreakdownRows.reduce((acc, r) => acc + (toNum(r.qty) || 0), 0)
+    return sum > 0 ? sum : null
+  }, [mtBreakdownRows])
+
+  const resolveCommodityForBreakdownRow = useCallback(
+    (row) => {
+      if (row?.commodityId != null) return getCommodityById(commodities, row.commodityId)
+      return getCommodityById(commodities, matchedCommodityId)
+    },
+    [commodities, matchedCommodityId]
+  )
+
+  /** Master rates for display — one entry per MT line when multiple commodities. */
+  const masterRateLabel = useMemo(() => {
+    if (!mtBreakdownRows.length) return '— (not set)'
+    const parts = mtBreakdownRows.map((row) => {
+      const comm = resolveCommodityForBreakdownRow(row)
+      const rr = getDirectionalPortRate(comm, direction)
+      if (!rr || rr.rate == null) return `${row.commodityName || '—'}: —`
+      return `${row.commodityName || '—'}: ${rr.rate} ${rr.rateMetric || ''}`.trim()
+    })
+    return parts.join(' · ')
+  }, [mtBreakdownRows, resolveCommodityForBreakdownRow, direction])
 
   const startInstantIso = useMemo(() => {
-    const raw = operation?.dockingStartTime || shippingInstruction?.etaFrom || shippingInstruction?.etaTo
+    // Prefer operation timeline first; SI ETA is only a fallback before allocation/berthing creates operation timing.
+    const raw =
+      operation?.dockingStartTime ||
+      operation?.tbAt ||
+      operation?.etb ||
+      shippingInstruction?.etaFrom ||
+      shippingInstruction?.etaTo
     if (!raw) return null
     const d = new Date(raw)
     return Number.isNaN(d.getTime()) ? null : d.toISOString()
-  }, [operation?.dockingStartTime, shippingInstruction?.etaFrom, shippingInstruction?.etaTo])
+  }, [operation?.dockingStartTime, operation?.tbAt, operation?.etb, shippingInstruction?.etaFrom, shippingInstruction?.etaTo])
 
   const startForCalcDisplay = useMemo(() => formatDisplayDateTime(startInstantIso), [startInstantIso])
 
-  const resolvedRate = useMemo(() => {
-    if (!selectedCommodity) return null
-    const pr = selectedCommodity?.portRates || {}
-    return direction === 'LOADING' ? pr.loading : pr.unloading
-  }, [selectedCommodity, direction])
+  /** First MT line port rate — hint when metric is KLPH (needs density / override). */
+  const firstLinePortRate = useMemo(() => {
+    if (!mtBreakdownRows.length) return null
+    const comm = resolveCommodityForBreakdownRow(mtBreakdownRows[0])
+    return getDirectionalPortRate(comm, direction)
+  }, [mtBreakdownRows, resolveCommodityForBreakdownRow, direction])
 
-  const effectiveRatePerHour = useMemo(() => {
-    const b = toNum(buffer)
-    if (b == null || b <= 0) return null
-    let rateValue = null
-    let rateMetric = null
-    if (overrideRate) {
-      rateValue = toNum(overrideRateValue)
-      rateMetric = overrideRateMetric
-    } else if (resolvedRate) {
-      rateValue = toNum(resolvedRate.rate)
-      rateMetric = resolvedRate.rateMetric
-    }
-    const perHr = rateToPerHour(rateValue, rateMetric)
-    if (perHr == null) return null
-    const eff = perHr * b
-    return Number.isFinite(eff) && eff > 0 ? eff : null
-  }, [buffer, overrideRate, overrideRateMetric, overrideRateValue, resolvedRate])
+  const showMetricHint = !overrideRate && firstLinePortRate?.rateMetric === 'KLPH'
 
-  const showMetricHint = !overrideRate && resolvedRate?.rateMetric === 'KLPH'
+  const scenarioFingerprint = useMemo(
+    () =>
+      JSON.stringify({
+        buffer,
+        q1Hours,
+        q2Hours,
+        clearanceHours,
+        switchPenaltyHours,
+      }),
+    [buffer, q1Hours, q2Hours, clearanceHours, switchPenaltyHours]
+  )
 
-  const bufferStale =
-    result != null && bufferAtLastEstimateRef.current != null && String(bufferAtLastEstimateRef.current) !== String(buffer)
+  const scenarioStale =
+    result != null &&
+    lastScenarioFingerprintRef.current != null &&
+    lastScenarioFingerprintRef.current !== scenarioFingerprint
 
   const selectCandidate = useCallback(async (row) => {
     setErr(null)
     setResult(null)
-    bufferAtLastEstimateRef.current = null
+    lastScenarioFingerprintRef.current = null
     setOverrideRate(false)
     setOverrideRateValue('')
     setAdvancedOpen(false)
@@ -251,29 +295,127 @@ export default function DemurrageRiskCalculator() {
 
   const estimate = useCallback(() => {
     setErr(null)
-    if (volumeMtNum == null || volumeMtNum <= 0) {
-      setErr('Volume is not available in MT for the primary commodity line. Update the SI breakdown or metric in Shipping Instruction.')
+    const b = toNum(buffer)
+    if (b == null || b <= 0) {
+      setErr('Throughput buffer must be a positive number.')
       return
     }
-    if (!effectiveRatePerHour) {
-      setErr('Missing or invalid rate/buffer. Set a master commodity rate or use Advanced → Override rate.')
+    if (!mtBreakdownRows.length || totalVolumeMtNum == null || totalVolumeMtNum <= 0) {
+      setErr('Volume is not available in MT. Add MT breakdown lines in Shipping Instruction.')
       return
     }
     if (!startInstantIso) {
       setErr('Start time for calculation is missing (operation docking / SI ETA).')
       return
     }
+
+    const q1 = toNum(q1Hours)
+    const q2 = toNum(q2Hours)
+    const cH = toNum(clearanceHours)
+    if (q1 == null || q2 == null || cH == null) {
+      setErr('Enter valid hours for Q1, Q2, and C (use numbers; default is 1 hour each).')
+      return
+    }
+    if (q1 < 0 || q2 < 0 || cH < 0) {
+      setErr('Q1, Q2, and C cannot be negative.')
+      return
+    }
+
+    let transferHours
+    let effectivePerHour
+
+    if (overrideRate) {
+      const rateValue = toNum(overrideRateValue)
+      const perHr = rateToPerHour(rateValue, overrideRateMetric)
+      if (perHr == null || perHr <= 0) {
+        setErr('Missing or invalid override rate.')
+        return
+      }
+      effectivePerHour = perHr * b
+      transferHours = totalVolumeMtNum / effectivePerHour
+    } else if (mtBreakdownRows.length === 1) {
+      const comm = resolveCommodityForBreakdownRow(mtBreakdownRows[0])
+      const rr = getDirectionalPortRate(comm, direction)
+      if (!rr) {
+        setErr('Missing master commodity rate. Set a rate in Master SI Lookup or use Advanced → Override rate.')
+        return
+      }
+      const perHr = rateToPerHour(toNum(rr.rate), rr.rateMetric)
+      if (perHr == null || perHr <= 0) {
+        setErr('Invalid master rate for this commodity (e.g. KLPH — use override with MTPH/MTPD).')
+        return
+      }
+      effectivePerHour = perHr * b
+      transferHours = totalVolumeMtNum / effectivePerHour
+    } else {
+      let sumH = 0
+      for (const row of mtBreakdownRows) {
+        const qty = toNum(row.qty)
+        if (qty == null || qty <= 0) continue
+        const comm = resolveCommodityForBreakdownRow(row)
+        const rr = getDirectionalPortRate(comm, direction)
+        if (!rr || rr.rate == null) {
+          setErr(
+            `Missing master rate for "${row.commodityName || 'line'}". Set port rates in Master SI Lookup or use Advanced → Override rate.`
+          )
+          return
+        }
+        const perHr = rateToPerHour(toNum(rr.rate), rr.rateMetric)
+        if (perHr == null || perHr <= 0) {
+          setErr(`Invalid rate for "${row.commodityName || 'line'}" (e.g. KLPH — use override with MTPH/MTPD).`)
+          return
+        }
+        const eff = perHr * b
+        sumH += qty / eff
+      }
+      transferHours = sumH
+      effectivePerHour = totalVolumeMtNum / transferHours
+    }
+
+    const materialTypeKeys = new Set(
+      mtBreakdownRows
+        .filter((row) => (toNum(row.qty) || 0) > 0)
+        .map((row) => {
+          if (row?.commodityId != null && Number.isFinite(Number(row.commodityId))) {
+            return `id:${Number(row.commodityId)}`
+          }
+          return `name:${String(row?.commodityName || '').trim().toLowerCase()}`
+        })
+    )
+    const materialTypeCount = materialTypeKeys.size
+    const baseHours = q1 + q2 + cH
+    const penaltyHours = Math.max(0, materialTypeCount - 1) * switchPenaltyHours
+    const durationHours = baseHours + transferHours + penaltyHours
+
     const start = new Date(startInstantIso)
-    const hours = volumeMtNum / effectiveRatePerHour
-    const estimated = new Date(start.getTime() + hours * 60 * 60 * 1000)
-    bufferAtLastEstimateRef.current = buffer
+    const estimated = new Date(start.getTime() + durationHours * 60 * 60 * 1000)
+    lastScenarioFingerprintRef.current = scenarioFingerprint
     setResult({
-      effectivePerHour: effectiveRatePerHour,
-      durationHours: hours,
+      effectivePerHour,
+      transferHours,
+      baseHours,
+      penaltyHours,
+      materialTypeCount,
+      durationHours,
       estimatedCompletionIso: estimated.toISOString(),
     })
     setToast({ message: 'Estimate updated', variant: 'success' })
-  }, [buffer, effectiveRatePerHour, startInstantIso, volumeMtNum])
+  }, [
+    buffer,
+    direction,
+    mtBreakdownRows,
+    overrideRate,
+    overrideRateMetric,
+    overrideRateValue,
+    q1Hours,
+    q2Hours,
+    resolveCommodityForBreakdownRow,
+    clearanceHours,
+    startInstantIso,
+    scenarioFingerprint,
+    switchPenaltyHours,
+    totalVolumeMtNum,
+  ])
 
   const doSave = useCallback(async () => {
     if (!selectedOpId) {
@@ -292,7 +434,11 @@ export default function DemurrageRiskCalculator() {
         commodityId: contextCommodityId,
         breakdownRowId: contextBreakdownRow?.id != null ? Number(contextBreakdownRow.id) : null,
         direction,
-        volumeMt: volumeMtNum,
+        volumeMt: totalVolumeMtNum,
+        q1Hours: toNum(q1Hours),
+        q2Hours: toNum(q2Hours),
+        clearanceHours: toNum(clearanceHours),
+        switchPenaltyHours,
         buffer: toNum(buffer),
         overrideRate,
         overrideRateValue: overrideRate ? toNum(overrideRateValue) : null,
@@ -312,14 +458,24 @@ export default function DemurrageRiskCalculator() {
     overrideRate,
     overrideRateMetric,
     overrideRateValue,
+    q1Hours,
+    q2Hours,
     result,
     selectedOpId,
-    volumeMtNum,
+    clearanceHours,
+    switchPenaltyHours,
+    totalVolumeMtNum,
   ])
 
   const resetBufferToDefault = useCallback(() => {
     setBuffer(String(bufferDefault))
   }, [bufferDefault])
+
+  const resetBaseDurationsToDefault = useCallback(() => {
+    setQ1Hours('1')
+    setQ2Hours('1')
+    setClearanceHours('1')
+  }, [])
 
   if (!canDoView) {
     return (
@@ -333,14 +489,14 @@ export default function DemurrageRiskCalculator() {
   }
 
   const purposeLabel = shippingInstruction?.purpose ? String(shippingInstruction.purpose) : '—'
-  const commodityLineLabel = contextBreakdownRow
-    ? `${contextBreakdownRow.commodityName || '—'} · ${contextBreakdownRow.qty ?? '—'} ${contextBreakdownRow.metricCode || ''}`.trim()
-    : '—'
-  const lineIndex =
-    contextBreakdownRow && breakdownRows.length
-      ? breakdownRows.findIndex((r) => Number(r.id) === Number(contextBreakdownRow.id)) + 1
-      : 0
-  const masterRateLabel = resolvedRate ? `${resolvedRate.rate} ${resolvedRate.rateMetric}` : '— (not set)'
+  const commodityLinesSummary = (() => {
+    if (!mtBreakdownRows.length) return '—'
+    const parts = mtBreakdownRows.map((r) =>
+      `${r.commodityName || '—'} · ${r.qty ?? '—'} ${r.metricCode || ''}`.trim()
+    )
+    if (mtBreakdownRows.length === 1) return parts[0]
+    return `${parts.join(' · ')} (${totalVolumeMtNum != null ? `${totalVolumeMtNum} MT` : '—'} total)`
+  })()
 
   return (
     <div className="allocation-page">
@@ -462,17 +618,23 @@ export default function DemurrageRiskCalculator() {
                   <dd>{purposeLabel}</dd>
                   <dt>Commodity line</dt>
                   <dd>
-                    {lineIndex > 0 && breakdownRows.length > 1
-                      ? `Line ${lineIndex} of ${breakdownRows.length} (${commodityLineLabel})`
-                      : commodityLineLabel}
+                    {mtBreakdownRows.length > 1
+                      ? `${mtBreakdownRows.length} lines · ${commodityLinesSummary}`
+                      : commodityLinesSummary}
                   </dd>
                   <dt>Volume (MT)</dt>
-                  <dd>{volumeMtNum != null && volumeMtNum > 0 ? String(volumeMtNum) : '—'}</dd>
+                  <dd>{totalVolumeMtNum != null && totalVolumeMtNum > 0 ? String(totalVolumeMtNum) : '—'}</dd>
                   <dt>Start for calculation</dt>
                   <dd>
                     {startForCalcDisplay}
                     <span className="text-steel" style={{ display: 'block', fontSize: '11px', marginTop: 4 }}>
-                      {operation?.dockingStartTime ? 'From operation docking start' : 'From SI ETA (no operation docking yet)'}
+                      {operation?.dockingStartTime
+                        ? 'From operation docking start'
+                        : operation?.tbAt
+                          ? 'From operation TB'
+                          : operation?.etb
+                            ? 'From operation ETB'
+                            : 'From SI ETA (no operation timing yet)'}
                     </span>
                   </dd>
                   <dt>Master rate</dt>
@@ -481,10 +643,10 @@ export default function DemurrageRiskCalculator() {
                     {direction === 'LOADING' ? ' (loading)' : ' (unloading)'}
                   </dd>
                 </dl>
-                {contextBreakdownRow && !String(contextBreakdownRow.metricCode || '').toUpperCase().includes('MT') && (
+                {breakdownRows.length > 0 && mtBreakdownRows.length === 0 && (
                   <p className="drc-voyage-context__hint">
-                    Primary line uses <strong>{contextBreakdownRow.metricCode}</strong>, not MT. Estimation needs MT — adjust the SI
-                    or add an MT line in Shipping Instruction.
+                    No breakdown line uses <strong>MT</strong>. Estimation needs MT quantities — add or adjust lines in Shipping
+                    Instruction.
                   </p>
                 )}
                 {loadingCommodities && (
@@ -502,7 +664,63 @@ export default function DemurrageRiskCalculator() {
 
           <div className="drc-scenario">
             <h3 className="drc-scenario__title">Scenario</h3>
-            <label className="modal__label" htmlFor="drc-buffer">
+            <p className="drc-scenario__intro text-steel">
+              Base durations (hours) used in the SLA total together with transfer time and material-switch penalty. Defaults are 1
+              hour each; adjust for what-if runs.
+            </p>
+            <div className="drc-scenario__base-grid">
+              <div className="drc-scenario__field">
+                <label className="drc-scenario__field-label" htmlFor="drc-q1">
+                  Q1 (hours)
+                </label>
+                <p className="drc-scenario__field-desc">Quality & Quantity checking duration</p>
+                <input
+                  id="drc-q1"
+                  type="number"
+                  min={0}
+                  step="any"
+                  className="modal__input"
+                  value={q1Hours}
+                  onChange={(e) => setQ1Hours(e.target.value)}
+                />
+              </div>
+              <div className="drc-scenario__field">
+                <label className="drc-scenario__field-label" htmlFor="drc-q2">
+                  Q2 (hours)
+                </label>
+                <p className="drc-scenario__field-desc">Final Quality & Quantity checking duration</p>
+                <input
+                  id="drc-q2"
+                  type="number"
+                  min={0}
+                  step="any"
+                  className="modal__input"
+                  value={q2Hours}
+                  onChange={(e) => setQ2Hours(e.target.value)}
+                />
+              </div>
+              <div className="drc-scenario__field">
+                <label className="drc-scenario__field-label" htmlFor="drc-c">
+                  C (hours)
+                </label>
+                <p className="drc-scenario__field-desc">Clearance duration</p>
+                <input
+                  id="drc-c"
+                  type="number"
+                  min={0}
+                  step="any"
+                  className="modal__input"
+                  value={clearanceHours}
+                  onChange={(e) => setClearanceHours(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="drc-scenario__buffer-row" style={{ marginTop: 8 }}>
+              <button type="button" className="btn btn--secondary btn--small" onClick={resetBaseDurationsToDefault}>
+                Reset Q1, Q2, C to 1h
+              </button>
+            </div>
+            <label className="modal__label" htmlFor="drc-buffer" style={{ marginTop: 'var(--spacing-4)' }}>
               Throughput buffer <span className="text-steel">{`(default ${bufferDefault})`}</span>
             </label>
             <div className="drc-scenario__buffer-row">
@@ -523,7 +741,9 @@ export default function DemurrageRiskCalculator() {
             <p id="drc-buffer-help" className="drc-scenario__helper">
               Multiplies the standard rate from master data. Lower buffer → lower effective MT/h → longer estimated duration.
             </p>
-            {bufferStale && <p className="drc-stale-hint">Buffer changed — click Estimate to refresh results.</p>}
+            {scenarioStale && (
+              <p className="drc-stale-hint">Scenario changed (buffer, Q1, Q2, C, or switch penalty) — click Estimate to refresh results.</p>
+            )}
 
             <div className="drc-advanced">
               <button
@@ -595,10 +815,21 @@ export default function DemurrageRiskCalculator() {
               </strong>
             </p>
             <p className="text-steel">
-              Effective throughput: <strong>{result ? `${result.effectivePerHour.toFixed(2)} MT/h` : '—'}</strong>
+              Effective throughput: <strong>{result ? `${formatFixed2(result.effectivePerHour)} MT/h` : '—'}</strong>
             </p>
             <p className="text-steel">
-              Estimated duration: <strong>{result ? `${result.durationHours.toFixed(2)} hours` : '—'}</strong>
+              Transfer term (ΣV/(Rate×Buffer)): <strong>{result ? `${formatFixed2(result.transferHours)} hours` : '—'}</strong>
+            </p>
+            <p className="text-steel">
+              Base checks (Q1+Q2+C): <strong>{result ? `${formatFixed2(result.baseHours)} hours` : '—'}</strong>
+            </p>
+            <p className="text-steel">
+              Material switch penalty ((n-1)×S):{' '}
+              <strong>{result ? `${formatFixed2(result.penaltyHours)} hours` : '—'}</strong>
+              {result ? ` (${result.materialTypeCount} material type${result.materialTypeCount === 1 ? '' : 's'})` : ''}
+            </p>
+            <p className="text-steel">
+              Estimated SLA duration: <strong>{result ? `${formatFixed2(result.durationHours)} hours` : '—'}</strong>
             </p>
             <p className="text-steel">
               Estimated completion: <strong>{result ? new Date(result.estimatedCompletionIso).toLocaleString() : '—'}</strong>

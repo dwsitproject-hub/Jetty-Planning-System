@@ -532,7 +532,7 @@ export const BERTHING_EVENTS = ['POB', 'ALL FAST', 'SOB']
 
 /** Loading Activity Category options for Detail Activity (Operational tab) */
 export const LOADING_ACTIVITY_CATEGORIES = [
-  'OPENING H1 & H2',
+  'OPENING HATCH',
   'CARGO PRE-CONDITIONING',
   'CARGO OPERATIONS',
   'OTHER',
@@ -540,7 +540,7 @@ export const LOADING_ACTIVITY_CATEGORIES = [
 
 /** Unloading Activity Category options for Detail Activity (Operational tab) */
 export const UNLOADING_ACTIVITY_CATEGORIES = [
-  'OPENING H1 & H2',
+  'OPENING HATCH',
   'CARGO PRE-CONDITIONING',
   'CARGO OPERATIONS',
   'OTHER',
@@ -595,18 +595,15 @@ export function getLoadingOperationCargo(vesselId) {
 export const defaultPreCheckingSection = () => ({
   keyMeeting: { startTime: '', endTime: '', documents: [], remark: '' },
   norAccepted: { startTime: '', endTime: '', norTenderedDateTime: '', norAcceptedDateTime: '', documents: [], remark: '' },
-  tankInspection: { startTime: '', endTime: '', documents: [], remark: '' },
-  holdInspection: { startTime: '', endTime: '', documents: [], remark: '' },
+  inspection: { startTime: '', endTime: '', documents: [], remark: '', inspectionType: '' },
   sampling: { startTime: '', endTime: '', documents: [], remark: '', records: [] },
-  initialSounding: { startTime: '', endTime: '', documents: [], remark: '' },
-  initialDraftSurvey: { startTime: '', endTime: '', documents: [], remark: '' },
+  initialCargoChecking: { startTime: '', endTime: '', documents: [], remark: '', cargoCheckingType: '' },
 })
 
 /** Default post-checking section data (Loading Post-Checking) */
 export const defaultPostCheckingSection = () => ({
-  finalTankInspection: { result: '', startTime: '', endTime: '', documents: [] },
-  finalHoldInspection: { result: '', startTime: '', endTime: '', documents: [] },
-  finalSounding: { result: '', startTime: '', endTime: '', documents: [] },
+  finalInspection: { result: '', startTime: '', endTime: '', documents: [], inspectionType: '' },
+  finalCargoChecking: { result: '', startTime: '', endTime: '', documents: [], cargoCheckingType: '' },
 })
 
 /** Initial loading operation data per vessel (detail activities only) */

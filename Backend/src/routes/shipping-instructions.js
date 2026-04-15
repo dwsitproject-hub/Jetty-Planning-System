@@ -155,7 +155,34 @@ function validateBreakdownPayload(breakdown) {
   return null;
 }
 
+/** All breakdown lines must reference commodities with the same commodity_type (Solid | Liquid). */
+async function validateBreakdownCommodityTypes(client, breakdown) {
+  if (!Array.isArray(breakdown) || breakdown.length === 0) return null;
+  const ids = [
+    ...new Set(
+      breakdown
+        .map((row) => parseInt(row.commodity_id ?? row.commodityId, 10))
+        .filter((id) => !Number.isNaN(id) && id > 0)
+    ),
+  ];
+  if (ids.length === 0) return 'breakdown: valid commodity_id required';
+  const r = await client.query(
+    `SELECT id, commodity_type FROM public.si_commodities WHERE id = ANY($1::bigint[]) AND deleted_at IS NULL`,
+    [ids]
+  );
+  if (r.rows.length !== ids.length) {
+    return 'breakdown: invalid or inactive commodity_id';
+  }
+  const types = [...new Set(r.rows.map((x) => x.commodity_type))];
+  if (types.length > 1) {
+    return 'All commodities on one shipping instruction must be the same type (Solid or Liquid).';
+  }
+  return null;
+}
+
 async function replaceBreakdown(client, siId, breakdown) {
+  const typeErr = await validateBreakdownCommodityTypes(client, breakdown);
+  if (typeErr) throw new Error(typeErr);
   await client.query(
     `UPDATE public.shipping_instruction_breakdown SET deleted_at = NOW(), updated_at = NOW()
      WHERE shipping_instruction_id = $1 AND deleted_at IS NULL`,
@@ -609,6 +636,12 @@ router.post('/', requireAuth, async (req, res) => {
   } catch (e) {
     await client.query('ROLLBACK');
     if (e.message?.startsWith('Invalid')) return res.status(400).json({ error: e.message });
+    if (
+      e.message?.includes('All commodities on one shipping instruction') ||
+      e.message?.includes('breakdown:')
+    ) {
+      return res.status(400).json({ error: e.message });
+    }
     throw e;
   } finally {
     client.release();
@@ -906,6 +939,12 @@ router.put('/:id', requireAuth, async (req, res) => {
   } catch (e) {
     await client.query('ROLLBACK');
     if (e.message?.startsWith('Invalid')) return res.status(400).json({ error: e.message });
+    if (
+      e.message?.includes('All commodities on one shipping instruction') ||
+      e.message?.includes('breakdown:')
+    ) {
+      return res.status(400).json({ error: e.message });
+    }
     throw e;
   } finally {
     client.release();
