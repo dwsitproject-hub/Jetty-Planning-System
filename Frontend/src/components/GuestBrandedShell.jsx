@@ -1,11 +1,11 @@
-import loginBgUrl from '../../../Assets/jps_login_bg.png'
-import brandLogoUrl from '../../../Assets/KPN Logo only Header.png'
 import '../styles/guest-branded.css'
 
 /**
  * Full-viewport login / choose-port shell: harbor background, centered card, shared header.
  */
 export default function GuestBrandedShell({ cardTitle, cardDescription, children }) {
+  const loginBgUrl = '/kpn-header.png'
+  const brandLogoUrl = '/kpn-header.png'
   return (
     <div className="guest-branded" style={{ '--guest-branded-bg': `url(${loginBgUrl})` }}>
       <div className="guest-branded__bg" aria-hidden />
