@@ -4,10 +4,48 @@
  * Use everywhere you show user-facing date/times:
  *   import { formatDateTimeDisplay, stripLegacyDatetimeLt } from '../utils/formatDateTimeDisplay'
  *
- * - formatDateTimeDisplay: ISO / timestamps → `dd/mm HH:mm` (browser local). Unparseable strings
- *   are returned with a trailing ` LT` removed (legacy API/cache).
+ * - formatDateTimeDisplay: ISO / timestamps → `dd/mm HH:mm` (locale-aware via `jps_locale`: en → en-GB, id → id-ID).
+ *   Unparseable strings are returned with a trailing ` LT` removed (legacy API/cache).
  * - stripLegacyDatetimeLt: only removes a trailing ` LT` / ` lt` from a string.
  */
+
+import { JPS_LOCALE_STORAGE_KEY } from '../i18n/constants.js'
+
+/** @returns {'en-GB'|'id-ID'} */
+export function getAppLocaleTag() {
+  try {
+    if (localStorage.getItem(JPS_LOCALE_STORAGE_KEY) === 'id') return 'id-ID'
+  } catch {
+    /* ignore */
+  }
+  return 'en-GB'
+}
+
+/**
+ * @param {Date} d
+ * @param {'en-GB'|'id-ID'} localeTag
+ */
+function formatDayMonthHourMinute(d, localeTag) {
+  const parts = new Intl.DateTimeFormat(localeTag, {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(d)
+  const byType = {}
+  for (const p of parts) {
+    if (p.type !== 'literal') byType[p.type] = p.value
+  }
+  const day = String(byType.day ?? '').padStart(2, '0')
+  const month = String(byType.month ?? '').padStart(2, '0')
+  const hour = String(byType.hour ?? '').padStart(2, '0')
+  const minute = String(byType.minute ?? '').padStart(2, '0')
+  if (!day || !month) {
+    return null
+  }
+  return `${day}/${month} ${hour}:${minute}`
+}
 
 /** @param {unknown} value */
 export function stripLegacyDatetimeLt(value) {
@@ -34,6 +72,9 @@ export function formatDateTimeDisplay(value) {
   }
 
   if (!Number.isNaN(d.getTime())) {
+    const localeTag = getAppLocaleTag()
+    const formatted = formatDayMonthHourMinute(d, localeTag)
+    if (formatted) return formatted
     const day = String(d.getDate()).padStart(2, '0')
     const month = String(d.getMonth() + 1).padStart(2, '0')
     const hours = String(d.getHours()).padStart(2, '0')

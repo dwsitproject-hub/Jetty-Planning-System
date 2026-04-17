@@ -3,7 +3,7 @@
 **Product:** Jetty Planning & Monitoring System (JPS)  
 **Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.26 (see document history at end).
+**Version:** 1.28 (see document history at end).
 
 ---
 
@@ -21,6 +21,8 @@ This document describes **behaviour that is implemented in code**, including:
 - **Multi-port sign-in and shell:** dedicated **Choose port** page, session-stored active port, and header behaviour (**§14.1**).
 - **Shifting out & re-dock:** temporarily treating a **berthed** operation as **not occupying** the jetty (for double-bank / priority preemption) while **preserving** operation history and TB/TA; coordinated **remark** capture, success messaging, and activity log (**§2.5**).
 - **Demurrage Risk Calculator:** port-scoped candidate list (**Incoming** / **Berthed** aligned with Allocation), read-only **voyage context**, **throughput buffer** (and optional **Advanced** rate override), **Estimate** and **Save as estimation of completion** on an operation (**§2.6**).
+- **Full details timing fields:** standard detail-block order in operational modules (**§2.8**, **§9**, **§16**).
+- **SI hyperlink detail modal:** clicking SI number in table rows opens a shared **SI Detail** modal across Shipping Instructions, Allocation & Berthing, and At-Berth Executions (**§2.9**, **§7**).
 
 For API field names, database columns, and shared code modules, see **TECH-SPEC-Jetty-Planning-System.md** and **§6** below for arrival/estimated completion mapping.
 
@@ -120,6 +122,28 @@ Technical contract (endpoints, columns, persistence order): **TECH-SPEC-Jetty-Pl
 | **Allocation — copy & validation** | Short intro under **Incoming vessel & berthing plan** states that **out of service** jetties cannot receive new allocations. **Log arrival update**, **Confirm Berthing**, and **Active Vessel Detail** saves that assign a **resolved** jetty whose overview berth is **Out of Service** are **blocked client-side** with RBAC-aware wording (users **with** master-jetty view are pointed to **Master – Preferred Jetty**; others to **contact an admin**). Server **409** on `PUT /allocation/arrival` enforces the same. |
 | **Allocation — queue table** | Jetty column may show a small **OOS** badge when the row’s jetty maps to an out-of-service berth in overview (e.g. legacy assignment). |
 | **Jetty schematic** | Stacks for **Out of Service** berths are **muted**, show an **OOS** badge, and tooltips state the jetty is **not available for new allocation**. |
+
+### 2.8 Full details timing fields (Shipping Instruction, Allocation, At-Berth)
+
+| Module | Behaviour |
+|------|------------|
+| **Shipping Instructions** | In row **Full details**, timing rows are shown as **ETA → TA → ETB → TB → Estimation of Completion**. Existing ETA range labels (**ETA From / ETA To**) remain available for form context, but detail block follows the unified timing set. |
+| **Allocation & Berthing** | In row **Full details**, existing timing rows (**ETA, TA, ETB, TB**) are kept, and **Estimation of Completion** is added (no duplicate timing labels). |
+| **At-Berth Executions** | In row **Full details**, timing rows are shown as **ETA → TA → ETB → TB → Estimation of Completion**. |
+| **Missing values** | Any missing time value is rendered as **`—`**. |
+| **Data source** | Values come from allocation/operation queue row fields (e.g., ETA/TA/ETB/TB/estimated completion) as already delivered by overview payloads. |
+
+### 2.9 SI number hyperlink → shared SI detail modal
+
+| Area | Behaviour |
+|------|-----------|
+| **Trigger** | In table rows only, the **SI number/value is rendered as hyperlink text** (not a button). |
+| **Where** | Implemented on **Shipping Instructions**, **Allocation & Berthing**, and **At-Berth Executions** tables. |
+| **Scope rule** | Click target is SI in the table only; expanded **Full details** SI labels are not converted to modal triggers in this release. |
+| **Modal content** | Shared SI detail modal shows: SI No, Status, Source, Vessel, Purpose, Jetty, ETA From, ETA To, ETB, TB, ETC, Term, Voyage, Destination, Freight terms, Document date, B/L clause, B/L split, Consignee, Notify party, BL indicated, Shipper, Loading port, Surveyor, Agent, Note, Approver, Approval date, and Contract / PO breakdown. |
+| **Fallbacks** | Missing values render as **`—`**. |
+| **Close behavior** | Modal closes via **Close** action or overlay click. |
+| **Localization** | Labels use Shipping Instruction translation keys (EN/ID) for consistent SI terminology. |
 
 ---
 
@@ -245,6 +269,7 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | Shift-out route | `Backend/src/routes/operations.js` |
 | Demurrage Risk Calculator UI | `Frontend/src/pages/DemurrageRiskCalculator.jsx`, `Frontend/src/styles/demurrage-risk-calculator.css` |
 | SI candidates + port/sailed rules | `Backend/src/routes/shipping-instructions.js` — `GET /shipping-instructions/candidates` |
+| Shared SI detail modal (hyperlink trigger target) | `Frontend/src/components/SiDetailModal.jsx`, `Frontend/src/styles/si-detail-modal.css` |
 | Save estimation of completion | `Frontend/src/api/operations.js` → `PUT /operations/:id/estimated-completion`; `Backend/src/routes/operations.js` |
 | DB — operations estimated completion | Migrations defining `operations.estimated_completion_time` (e.g. `Backend/migrations/004_shipping_operations_tables.sql` and related) |
 | Operation sign-off (request → approve) + Clearance pending queue | `Frontend/src/pages/Loading.jsx`, `Frontend/src/pages/Verification.jsx`, `Frontend/src/api/operations.js`; `Backend/src/routes/operations.js` (`POST .../signoff-request`, `POST .../signoff`, `GET .../pending-signoff-requests`); `Backend/migrations/049_operations_signoff_request.sql`; RBAC sub-row **Approve operation sign-off** — `Frontend/src/pages/AdminRoles.jsx`. Plan: **Docs/Plan/OPERATION-SIGNOFF-REQUEST-AND-APPROVAL-PLAN.md**. |
@@ -271,7 +296,7 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | **Tabs** | **All / Loading / Unloading** filter the table; summary always reflects all berthed rows. |
 | **Table columns** | **Vessel**, **SI** (reference only), **Commodity** (separate from SI), **Purpose**, **Jetty**, **TA**, **TB**, **Phase**, **Status**. |
 | **Expand row** | Same interaction pattern as **Incoming vessel & berthing plan**: expand column + row click toggles **Full details**. |
-| **Full details (order)** | Vessel Name, Shipping Instruction, No PKK, Priority, Number of Palka, Purpose, Shipper, Agent, Surveyor, Jetty, ETA, TA, ETB, TB, Remark. (Shipping Table block, when present in data, remains on Allocation only where applicable.) |
+| **Full details (order)** | Vessel Name, Shipping Instruction, No PKK, Priority, Number of Palka, Purpose, Shipper, Agent, Surveyor, Jetty, ETA, TA, ETB, TB, **Estimation of Completion**, Remark. (Shipping Table block, when present in data, remains on Allocation only where applicable.) |
 | **Action** | **Open** → `/{loading|unloading}/:vesselId` (purpose-based hub entry; API-backed rows may use `op-<operationId>` vessel id form). **Shifting Out** / **Undo Shift Out** → see **§2.5** (modal + required remark for shift-out; **Undo** clears shift-out without modal). |
 | **Removed from page** | Intro line (“Live data from GET…”) and **Refresh** button; list still loads on visit. |
 | **Layout** | Loading / Unloading summary groups use a **two-column** grid on wide screens so phase cards do not overlap. |
@@ -391,6 +416,8 @@ Technical contract: **TECH-SPEC-Jetty-Planning-System.md §3.3** (routes, RBAC, 
 | 1.24 | 2026-04-15 | **Master SI Commodity** Solid/Liquid; **one commodity type per SI**; Pre-Checking **Inspection** (Tank/Hold from SI) and **Initial Cargo Checking** (Sounding/Draft Survey from SI); **no Inspection** on Unloading; Operational **Opening Hatch** (multi-row hatches) with **start-only** times for Opening Hatch and Cargo Pre-Conditioning; NOR Accepted tab uses **NOR Tendered / NOR Accepted** datetimes without a separate Start/End pair. See **Docs/Plan/UAT-COMMODITY-PRECHECK-OPERATIONAL-PLAN.md**. |
 | 1.25 | 2026-04-15 | Post-Checking merge: **Final Tank Inspection + Final Hold Inspection** unified into **Final Inspection** (inspection type auto-derived from SI commodity), and **Final Sounding** renamed to **Final Cargo Checking** (cargo checking type auto-derived: Sounding/Draft Survey). Stage completion count now reflects **2/2** for Post-Checking. |
 | 1.26 | 2026-04-15 | **§9.2 Clearance Depart validation:** in **Record depart**, **CAST Off** must be equal to or later than the latest timestamp from the operation’s **Detailed At-Berth Executions Log** timeline; earlier input is rejected in the modal. |
+| 1.27 | 2026-04-17 | Added **§2.8** and updated **§9** to standardize **Full details** timing fields across Shipping Instructions, Allocation & Berthing, and At-Berth Executions with order **ETA → TA → ETB → TB → Estimation of Completion** and `—` fallback for missing values. |
+| 1.28 | 2026-04-17 | Added **§2.9** SI hyperlink behavior: table SI value opens a shared **SI Detail** modal across Shipping Instructions, Allocation & Berthing, and At-Berth Executions; documented modal field set, fallback, and implementation references. |
 
 ---
 
@@ -528,6 +555,7 @@ This script truncates **transactional tables only** (operations/SI/workflow data
 | **Approval API** | Transition **Draft → Approved** requires prior **Submitted**; **PUT** with `status: Approved` checks **`can_approve`** for page `shipping-instruction`. **403** if missing. |
 | **Approver on document** | On approval, the system stores **approver name/title snapshots** (from `users.display_name` / `users.job_title`, default title **OPERATION HEAD** if job title empty). The **SI document view** shows these instead of a fixed name. |
 | **Printed SI number** | Document **No.** prefers stored **`reference_number`** when set; otherwise legacy synthetic numbering. |
+| **SI quick detail (list table)** | SI values in table rows are hyperlink-style and open a shared **SI Detail** modal (non-document view) with operational fields and Contract/PO breakdown. |
 
 Technical contract: **TECH-SPEC-Jetty-Planning-System.md** (§2.2.1, §4 `shipping_instructions`, §6 RBAC, migration **`025_si_loading_document_and_approve_rbac.sql`**).
 

@@ -1,68 +1,29 @@
+import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import '../styles/allocation.css'
 
 const MASTER_ITEMS = [
-  {
-    path: '/master/port',
-    title: 'Port',
-    description: 'Add and manage master port / site data.',
-  },
-  {
-    path: '/master/jetty',
-    title: 'Preferred Jetty',
-    description: 'Add and manage master jetty options per port (used as Preferred Jetty).',
-  },
-  {
-    path: '/master/jetty-layout',
-    title: 'Jetty Layout',
-    description: 'Define how jetties are arranged in the Jetty Schematic for each port.',
-  },
-  {
-    path: '/master/si-term',
-    title: 'SI Term',
-    description: 'Add and manage trade terms (Terms) for Shipping Instructions.',
-  },
-  {
-    path: '/master/si-shipper',
-    title: 'SI Shipper',
-    description: 'Add and manage shippers for Shipping Instructions.',
-  },
-  {
-    path: '/master/si-loading-port',
-    title: 'SI Loading Port',
-    description: 'Add and manage loading ports for Shipping Instructions.',
-  },
-  {
-    path: '/master/si-surveyor',
-    title: 'SI Surveyor',
-    description: 'Add and manage surveyors for Shipping Instructions.',
-  },
-  {
-    path: '/master/si-agent',
-    title: 'SI Agent',
-    description: 'Add and manage agents for Shipping Instructions.',
-  },
-  {
-    path: '/master/si-commodity',
-    title: 'SI Commodity',
-    description: 'Commodities for Shipping Instructions, plus standard pumping rate (MT/h) and buffer per commodity for SLA.',
-  },
-  {
-    path: '/master/freight-terms',
-    title: 'Freight Terms',
-    description: 'View currently fixed freight terms used by the SI module.',
-  },
+  { path: '/master/port', titleKey: 'masterHubPortTitle', descKey: 'masterHubPortDesc' },
+  { path: '/master/jetty', titleKey: 'masterHubJettyTitle', descKey: 'masterHubJettyDesc' },
+  { path: '/master/jetty-layout', titleKey: 'masterHubJettyLayoutTitle', descKey: 'masterHubJettyLayoutDesc' },
+  { path: '/master/si-term', titleKey: 'masterHubSiTermTitle', descKey: 'masterHubSiTermDesc' },
+  { path: '/master/si-shipper', titleKey: 'masterHubSiShipperTitle', descKey: 'masterHubSiShipperDesc' },
+  { path: '/master/si-loading-port', titleKey: 'masterHubSiLoadingPortTitle', descKey: 'masterHubSiLoadingPortDesc' },
+  { path: '/master/si-surveyor', titleKey: 'masterHubSiSurveyorTitle', descKey: 'masterHubSiSurveyorDesc' },
+  { path: '/master/si-agent', titleKey: 'masterHubSiAgentTitle', descKey: 'masterHubSiAgentDesc' },
+  { path: '/master/si-commodity', titleKey: 'masterHubSiCommodityTitle', descKey: 'masterHubSiCommodityDesc' },
+  { path: '/master/freight-terms', titleKey: 'masterHubFreightTermsTitle', descKey: 'masterHubFreightTermsDesc' },
 ]
 
 export default function Master() {
+  const { t } = useTranslation('pages')
+
   return (
     <div className="allocation-page">
-      <h1 className="page-title">Master Menu</h1>
-      <p className="allocation-page__intro">
-        Manage master data for ports, jetties, and SI dropdowns.
-      </p>
+      <h1 className="page-title">{t('masterMenu')}</h1>
+      <p className="allocation-page__intro">{t('masterIntro')}</p>
 
-      <section className="reporting-list" aria-label="Master data">
+      <section className="reporting-list" aria-label={t('masterMenu')}>
         <div className="reporting-list__grid">
           {MASTER_ITEMS.map((item) => (
             <Link
@@ -70,9 +31,9 @@ export default function Master() {
               to={item.path}
               className="reporting-list__card card"
             >
-              <h2 className="reporting-list__card-title">{item.title}</h2>
-              <p className="reporting-list__card-desc">{item.description}</p>
-              <span className="reporting-list__card-link">Open →</span>
+              <h2 className="reporting-list__card-title">{t(item.titleKey)}</h2>
+              <p className="reporting-list__card-desc">{t(item.descKey)}</p>
+              <span className="reporting-list__card-link">{t('hubOpenCard')}</span>
             </Link>
           ))}
         </div>

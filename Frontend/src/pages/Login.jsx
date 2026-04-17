@@ -7,8 +7,10 @@ import { useAuth } from '../context/AuthContext'
 import { useRbac } from '../context/RbacContext'
 import { ApiError } from '../api/client'
 import GuestBrandedShell from '../components/GuestBrandedShell'
+import { useTranslation } from 'react-i18next'
 
 export default function Login() {
+  const { t } = useTranslation('auth')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
@@ -40,8 +42,8 @@ export default function Login() {
     } catch (err) {
       const msg =
         err instanceof ApiError && err.status === 401
-          ? err.message || 'Invalid username or password'
-          : err?.message || 'Login failed'
+          ? err.message || t('invalidCredentials')
+          : err?.message || t('loginFailed')
       setError(msg)
     } finally {
       setBusy(false)
@@ -53,7 +55,7 @@ export default function Login() {
       <form onSubmit={handleSubmit}>
         {error ? <p className="guest-branded__error">{error}</p> : null}
         <label className="guest-branded__label" htmlFor="login-username">
-          Username
+          {t('username')}
         </label>
         <input
           id="login-username"
@@ -76,7 +78,7 @@ export default function Login() {
           disabled={busy}
         />
         <button type="submit" className="btn btn--primary guest-branded__submit" disabled={busy}>
-          {busy ? 'Signing in…' : 'Sign In'}
+          {busy ? t('signingIn') : t('signIn')}
         </button>
       </form>
     </GuestBrandedShell>

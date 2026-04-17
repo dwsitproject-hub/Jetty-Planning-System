@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { fetchOperations, fetchPendingSignoffRequests, depart, uploadOperationDocuments, signoff, fetchActivityTimeline } from '../api/operations'
 import { useRbac } from '../context/RbacContext'
@@ -52,6 +53,7 @@ function latestTimelineInstant(events) {
 }
 
 export default function Verification() {
+  const { t } = useTranslation('pages')
   const { canApprove } = useRbac()
   const canApproveLoading = canApprove('loading')
   const [rows, setRows] = useState([])
@@ -329,7 +331,7 @@ export default function Verification() {
 
   return (
     <div className="allocation-page clearance-page">
-      <h1 className="page-title">Clearance</h1>
+      <h1 className="page-title">{t('clearance')}</h1>
       <p className="allocation-page__intro">
         Approvers sign off completed work (Ready to Sail), then record departure. Use <strong>Pending sign-off</strong> for vessels awaiting final approval.
       </p>

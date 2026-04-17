@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import { Link, useParams, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import {
   vessels,
@@ -42,6 +43,7 @@ import OperationActivityTimeline from '../components/OperationActivityTimeline'
 import { operationalMilestoneDoneCount, viewModelFromOperationalEntries } from '../data/operationalMilestones'
 import '../styles/allocation.css'
 import { useRbac } from '../context/RbacContext'
+import { term } from '../i18n/term'
 
 function readBool(key, fallback = false) {
   try {
@@ -438,6 +440,8 @@ export default function Loading() {
   const purpose = isUnloading ? 'Unloading' : 'Loading'
   const basePath = isUnloading ? '/unloading' : '/loading'
   const purposeLower = purpose.toLowerCase()
+  const { t } = useTranslation('pages')
+  const purposeLabel = isUnloading ? t('unloading') : t('loading')
   const operations = getAtBerthOperations(purpose)
   const {
     getSteps,
@@ -878,12 +882,12 @@ export default function Loading() {
   if (!vesselId) {
     return (
       <div className="allocation-page loading-page">
-        <h1 className="page-title">{purpose}</h1>
-        <p className="allocation-page__intro">Select a {purposeLower} operation to record survey, quality check, quantity check, and final checks.</p>
+        <h1 className="page-title">{purposeLabel}</h1>
+        <p className="allocation-page__intro">{t('loadingPageListIntro', { purpose: purposeLower })}</p>
         <section className="card">
-          <h2 className="card__title">{purpose} operations</h2>
+          <h2 className="card__title">{t('loadingOpsHeading', { purpose: purposeLabel })}</h2>
           {operations.length === 0 ? (
-            <p className="text-steel">No {purposeLower} operations.</p>
+            <p className="text-steel">{t('loadingNoOps', { purpose: purposeLower })}</p>
           ) : (
             <ul className="loading-list">
               {operations.map((op) => (
@@ -907,9 +911,9 @@ export default function Loading() {
   if (shouldFetchOp && apiLoading) {
     return (
       <div className="allocation-page loading-page">
-        <h1 className="page-title">{purpose}</h1>
-        <p className="text-steel">Loading operation…</p>
-        <Link to="/at-berth" className="loading-back-link">← Back to Overview</Link>
+        <h1 className="page-title">{purposeLabel}</h1>
+        <p className="text-steel">{t('loadingOperationLoading')}</p>
+        <Link to="/at-berth" className="loading-back-link">{t('loadingBackOverview')}</Link>
       </div>
     )
   }
@@ -917,29 +921,35 @@ export default function Loading() {
   if (shouldFetchOp && apiError) {
     return (
       <div className="allocation-page loading-page">
-        <h1 className="page-title">{purpose}</h1>
+        <h1 className="page-title">{purposeLabel}</h1>
         <p className="text-steel" style={{ color: 'var(--danger-600, #c00)' }}>
           {apiError}
         </p>
-        <Link to="/at-berth" className="loading-back-link">← Back to Overview</Link>
+        <Link to="/at-berth" className="loading-back-link">{t('loadingBackOverview')}</Link>
       </div>
     )
   }
 
   if (purposeMismatch && apiOp) {
     const correctBase = apiPurpose === 'Unloading' ? '/unloading' : '/loading'
+    const apiPurposeLabel = apiPurpose === 'Unloading' ? t('unloading') : t('loading')
     return (
       <div className="allocation-page loading-page">
-        <h1 className="page-title">{purpose}</h1>
+        <h1 className="page-title">{purposeLabel}</h1>
         <p className="text-steel">
-          This operation is <strong>{apiPurpose}</strong>. Open it under the correct section:
+          <Trans
+            ns="pages"
+            i18nKey="loadingPurposeMismatch"
+            values={{ apiPurpose: apiPurposeLabel }}
+            components={{ bold: <strong /> }}
+          />
         </p>
         <p>
           <Link to={`${correctBase}/${encodeURIComponent(vesselId)}`} className="btn btn--primary">
-            Go to {apiPurpose} →
+            {t('loadingGoToPurpose', { purpose: apiPurposeLabel })}
           </Link>
         </p>
-        <Link to="/at-berth" className="loading-back-link">← Back to Overview</Link>
+        <Link to="/at-berth" className="loading-back-link">{t('loadingBackOverview')}</Link>
       </div>
     )
   }
@@ -948,9 +958,9 @@ export default function Loading() {
   if (!vessel) {
     return (
       <div className="allocation-page loading-page">
-        <h1 className="page-title">{purpose}</h1>
-        <p className="text-steel">Vessel not found.</p>
-        <Link to="/at-berth" className="loading-back-link">Back to Overview</Link>
+        <h1 className="page-title">{purposeLabel}</h1>
+        <p className="text-steel">{t('loadingVesselNotFound')}</p>
+        <Link to="/at-berth" className="loading-back-link">{t('loadingBackOverview')}</Link>
       </div>
     )
   }
@@ -965,10 +975,10 @@ export default function Loading() {
     return (
       <div className="allocation-page loading-page">
         <div style={{ marginBottom: 'var(--spacing-2)' }}>
-          <Link to="/at-berth" className="loading-back-link">← Back to Overview</Link>
+          <Link to="/at-berth" className="loading-back-link">{t('loadingBackOverview')}</Link>
         </div>
         <h1 className="page-title page-title-row">
-          <span>{purpose}: {vessel.vesselName}</span>
+          <span>{purposeLabel}: {vessel.vesselName}</span>
           <FlowPill purpose={purpose} />
         </h1>
         <VesselDetailCard detail={vesselDetail} />
@@ -1053,7 +1063,7 @@ export default function Loading() {
   return (
     <div className="allocation-page loading-page">
       <div style={{ marginBottom: 'var(--spacing-2)' }}>
-        <Link to="/at-berth" className="loading-back-link">← Back to At-Berth Executions</Link>
+        <Link to="/at-berth" className="loading-back-link">{t('loadingBackAtBerth')}</Link>
       </div>
       <h1 className="page-title page-title-row">
         <span>{sectionConfig?.label ?? section}: {vessel.vesselName}</span>
@@ -2439,7 +2449,7 @@ function PreCheckingSections({
               <span className="precheck-section__value">{norFromArrival.norAcceptedDateTime ? formatDateTimeDisplay(norFromArrival.norAcceptedDateTime) : '—'}</span>
             </div>
             <div className="precheck-section__row">
-              <span className="precheck-section__label">Laytime</span>
+              <span className="precheck-section__label">{term('laytime')}</span>
               <span className="precheck-section__value">
                 {data.norAccepted?.demurrageLiabilityFromDateTime
                   ? formatDateTimeDisplay(data.norAccepted.demurrageLiabilityFromDateTime)

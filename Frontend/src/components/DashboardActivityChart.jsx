@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { createPortal } from 'react-dom'
 import {
   isPlannedBerthingQueueRow,
@@ -8,15 +9,6 @@ import {
 
 const MODE_OPS = 'operations'
 const MODE_SI = 'si'
-
-const SERIES_PLANNED = { key: 'planned', label: 'Planned Berthing' }
-const SERIES_BERTH = { key: 'berthing', label: 'Berthing' }
-
-const SI_ORDER = [
-  { key: 'Approved', label: 'Approved' },
-  { key: 'Submitted', label: 'Submitted' },
-  { key: 'Draft', label: 'Draft' },
-]
 
 const BAR_MAX_PX = 120
 
@@ -107,7 +99,7 @@ function buildSiSeries(sis) {
     }
   }
   const total = counts.Approved + counts.Submitted + counts.Draft
-  const dataMax = Math.max(0, ...SI_ORDER.map(({ key }) => counts[key]))
+  const dataMax = Math.max(0, ...['Approved', 'Submitted', 'Draft'].map((key) => counts[key]))
   const { yMax, ticks } = computeYTicks(Math.max(1, dataMax))
   return { counts, vessels, total, dataMax, yMax, ticks }
 }
@@ -131,6 +123,8 @@ function BarHit({
   onShowTip,
   onHideTip,
   tipActive,
+  ariaVessels,
+  ariaNone,
 }) {
   const h = barHeightPx(count, yMax)
   const show = count > 0
@@ -171,7 +165,7 @@ function BarHit({
         onMouseLeave={onHideTip}
         onFocus={onEnter}
         onBlur={onHideTip}
-        aria-label={`${seriesLabel}, ${contextLabel}: ${count}. ${pctLabel}. Vessels: ${names.join(', ') || 'none'}.`}
+        aria-label={`${seriesLabel}, ${contextLabel}: ${count}. ${pctLabel}. ${ariaVessels} ${names.join(', ') || ariaNone}.`}
       >
         <div
           className={`dashboard-activity-chart__bar ${barClass}`}
@@ -182,7 +176,7 @@ function BarHit({
   )
 }
 
-function TooltipLayer({ tip, onClose }) {
+function TooltipLayer({ tip, onClose, emptyBucketText }) {
   useEffect(() => {
     if (!tip) return undefined
     const onScroll = () => onClose()
@@ -217,7 +211,7 @@ function TooltipLayer({ tip, onClose }) {
             ))}
           </ul>
         ) : (
-          <p className="dashboard-activity-chart__tooltip-empty">No vessel names in this bucket.</p>
+          <p className="dashboard-activity-chart__tooltip-empty">{emptyBucketText}</p>
         )}
       </div>
     </div>,
@@ -229,8 +223,20 @@ function TooltipLayer({ tip, onClose }) {
  * @param {{ queue: unknown[], sis: unknown[], loading?: boolean }} props
  */
 export default function DashboardActivityChart({ queue, sis, loading = false }) {
+  const { t } = useTranslation('dashboard')
   const [mode, setMode] = useState(MODE_OPS)
   const [tip, setTip] = useState(null)
+
+  const seriesPlanned = useMemo(() => ({ key: 'planned', label: t('legendPlannedBerthing') }), [t])
+  const seriesBerth = useMemo(() => ({ key: 'berthing', label: t('legendBerthing') }), [t])
+  const siOrder = useMemo(
+    () => [
+      { key: 'Approved', label: t('legendApproved') },
+      { key: 'Submitted', label: t('legendSubmitted') },
+      { key: 'Draft', label: t('legendDraft') },
+    ],
+    [t]
+  )
 
   const opsData = useMemo(() => buildOperationsSeries(queue), [queue])
   const siData = useMemo(() => buildSiSeries(sis), [sis])
@@ -255,23 +261,35 @@ export default function DashboardActivityChart({ queue, sis, loading = false }) 
     setTip({ ...payload, left, top, flip })
   }, [])
 
+  const purposeLabel = useCallback(
+    (p) => (p === 'Loading' ? t('purposeLoading') : t('purposeUnloading')),
+    [t]
+  )
+
   const opsSummary = useMemo(() => {
     const { counts, purposes } = opsData
     const parts = []
     for (const p of purposes) {
       const pl = counts[p].planned
       const br = counts[p].berthing
-      const t = pl + br
-      parts.push(`${p}: ${pl} planned, ${br} berthing (${t} total)`)
+      const tot = pl + br
+      parts.push(
+        t('opsSummaryParts', {
+          purpose: purposeLabel(p),
+          planned: pl,
+          berthing: br,
+          total: tot,
+        })
+      )
     }
     return parts.join('. ')
-  }, [opsData])
+  }, [opsData, t, purposeLabel])
 
   const siSummary = useMemo(() => {
     const { counts, total } = siData
-    if (total === 0) return 'No shipping instructions.'
-    return SI_ORDER.map(({ key, label }) => `${label} ${counts[key]}`).join(', ')
-  }, [siData])
+    if (total === 0) return t('siSummaryEmpty')
+    return siOrder.map(({ key, label }) => `${label} ${counts[key]}`).join(', ')
+  }, [siData, siOrder, t])
 
   const opsEmpty = opsData.purposes.every(
     (p) => opsData.counts[p].planned + opsData.counts[p].berthing === 0
@@ -282,56 +300,54 @@ export default function DashboardActivityChart({ queue, sis, loading = false }) 
 
   return (
     <div className="card dashboard-activity-chart">
-      <TooltipLayer tip={tip} onClose={hideTip} />
+      <TooltipLayer tip={tip} onClose={hideTip} emptyBucketText={t('chartTooltipNoNames')} />
 
       <div className="dashboard-activity-chart__head">
-        <h2 className="card__title">Port activity</h2>
-        <div className="dashboard-activity-chart__toggle" role="group" aria-label="Chart data source">
+        <h2 className="card__title">{t('chartPortActivity')}</h2>
+        <div className="dashboard-activity-chart__toggle" role="group" aria-label={t('chartPortActivity')}>
           <button
             type="button"
             className={`dashboard-activity-chart__toggle-btn${mode === MODE_OPS ? ' is-active' : ''}`}
             onClick={() => setMode(MODE_OPS)}
           >
-            Operations
+            {t('chartToggleOps')}
           </button>
           <button
             type="button"
             className={`dashboard-activity-chart__toggle-btn${mode === MODE_SI ? ' is-active' : ''}`}
             onClick={() => setMode(MODE_SI)}
           >
-            Shipping instructions
+            {t('chartToggleSi')}
           </button>
         </div>
       </div>
 
       <p className="dashboard-activity-chart__hint text-steel">
-        {mode === MODE_OPS
-          ? 'Queue rows by purpose; percentages are within Loading or within Unloading (planned vs berthing).'
-          : 'Shipping instructions in this port: Approved, Submitted, and Draft.'}
+        {mode === MODE_OPS ? t('chartHintOps') : t('chartHintSi')}
       </p>
 
       {loading ? (
-        <p className="text-steel">Loading…</p>
+        <p className="text-steel">{t('loadingEllipsis')}</p>
       ) : mode === MODE_OPS ? (
         <div
           className="dashboard-activity-chart__body"
           role="img"
-          aria-label={`Operations mix. ${opsSummary}`}
+          aria-label={t('chartAriaOps', { summary: opsSummary })}
         >
           <div className="dashboard-activity-chart__legend" aria-hidden>
             <span className="dashboard-activity-chart__legend-item">
               <span className="dashboard-activity-chart__swatch dashboard-activity-chart__swatch--planned" />{' '}
-              {SERIES_PLANNED.label}
+              {seriesPlanned.label}
             </span>
             <span className="dashboard-activity-chart__legend-item">
               <span className="dashboard-activity-chart__swatch dashboard-activity-chart__swatch--berth" />{' '}
-              {SERIES_BERTH.label}
+              {seriesBerth.label}
             </span>
           </div>
 
           {opsEmpty ? (
             <p className="text-steel dashboard-activity-chart__empty">
-              No queue rows in planned berthing or berthing for this port.
+              {t('chartEmptyOps')}
             </p>
           ) : (
             <div className="dashboard-activity-chart__plot">
@@ -357,17 +373,17 @@ export default function DashboardActivityChart({ queue, sis, loading = false }) 
                 <div className="dashboard-activity-chart__titles-row">
                   {opsData.purposes.map((purpose) => (
                     <div key={purpose} className="dashboard-activity-chart__title-cell">
-                      {purpose}
+                      {purposeLabel(purpose)}
                     </div>
                   ))}
                 </div>
 
                 <div className="dashboard-activity-chart__grid-wrap" style={{ height: BAR_MAX_PX }}>
-                  {opsData.ticks.map((t) => (
+                  {opsData.ticks.map((tickVal) => (
                     <div
-                      key={`grid-${t}`}
+                      key={`grid-${tickVal}`}
                       className="dashboard-activity-chart__grid-line"
-                      style={{ bottom: `${(t / opsData.yMax) * 100}%` }}
+                      style={{ bottom: `${(tickVal / opsData.yMax) * 100}%` }}
                     />
                   ))}
                   <div className="dashboard-activity-chart__bars-row">
@@ -378,6 +394,7 @@ export default function DashboardActivityChart({ queue, sis, loading = false }) 
                       const pctBerth = subtotal > 0 ? Math.round((berthing / subtotal) * 100) : 0
                       const namesPl = opsData.vessels[purpose].planned
                       const namesBr = opsData.vessels[purpose].berthing
+                      const pl = purposeLabel(purpose)
                       return (
                         <div key={purpose} className="dashboard-activity-chart__bar-group">
                           <div className="dashboard-activity-chart__bars">
@@ -386,14 +403,16 @@ export default function DashboardActivityChart({ queue, sis, loading = false }) 
                                 count={planned}
                                 yMax={opsData.yMax}
                                 tipKey={`ops-${purpose}-planned`}
-                                seriesLabel={SERIES_PLANNED.label}
-                                contextLabel={purpose}
-                                pctLabel={`${pctPlanned}% of ${purpose} rows`}
+                                seriesLabel={seriesPlanned.label}
+                                contextLabel={pl}
+                                pctLabel={t('pctOfPurpose', { pct: pctPlanned, purpose: pl })}
                                 names={namesPl}
                                 barClass="dashboard-activity-chart__bar--planned"
                                 onShowTip={showTip}
                                 onHideTip={hideTip}
                                 tipActive={tip?.tipKey === `ops-${purpose}-planned`}
+                                ariaVessels={t('chartTooltipVessels')}
+                                ariaNone={t('chartTooltipNone')}
                               />
                             </div>
                             <div className="dashboard-activity-chart__bar-col">
@@ -401,14 +420,16 @@ export default function DashboardActivityChart({ queue, sis, loading = false }) 
                                 count={berthing}
                                 yMax={opsData.yMax}
                                 tipKey={`ops-${purpose}-berthing`}
-                                seriesLabel={SERIES_BERTH.label}
-                                contextLabel={purpose}
-                                pctLabel={`${pctBerth}% of ${purpose} rows`}
+                                seriesLabel={seriesBerth.label}
+                                contextLabel={pl}
+                                pctLabel={t('pctOfPurpose', { pct: pctBerth, purpose: pl })}
                                 names={namesBr}
                                 barClass="dashboard-activity-chart__bar--berth"
                                 onShowTip={showTip}
                                 onHideTip={hideTip}
                                 tipActive={tip?.tipKey === `ops-${purpose}-berthing`}
+                                ariaVessels={t('chartTooltipVessels')}
+                                ariaNone={t('chartTooltipNone')}
                               />
                             </div>
                           </div>
@@ -448,10 +469,10 @@ export default function DashboardActivityChart({ queue, sis, loading = false }) 
         <div
           className="dashboard-activity-chart__body dashboard-activity-chart__body--si"
           role="img"
-          aria-label={`Shipping instructions. ${siSummary}`}
+          aria-label={t('chartAriaSi', { summary: siSummary })}
         >
           <div className="dashboard-activity-chart__legend dashboard-activity-chart__legend--si" aria-hidden>
-            {SI_ORDER.map(({ key, label }, i) => (
+            {siOrder.map(({ key, label }, i) => (
               <span key={key} className="dashboard-activity-chart__legend-item">
                 <span className={`dashboard-activity-chart__swatch dashboard-activity-chart__swatch--si-${i}`} />{' '}
                 {label}
@@ -460,7 +481,7 @@ export default function DashboardActivityChart({ queue, sis, loading = false }) 
           </div>
 
           {siData.total === 0 ? (
-            <p className="text-steel dashboard-activity-chart__empty">No shipping instructions for this port.</p>
+            <p className="text-steel dashboard-activity-chart__empty">{t('chartEmptySi')}</p>
           ) : (
             <div className="dashboard-activity-chart__plot">
               <div className="dashboard-activity-chart__y-col">
@@ -483,7 +504,7 @@ export default function DashboardActivityChart({ queue, sis, loading = false }) 
 
               <div className="dashboard-activity-chart__plot-main">
                 <div className="dashboard-activity-chart__titles-row dashboard-activity-chart__titles-row--si">
-                  {SI_ORDER.map(({ key, label }) => (
+                  {siOrder.map(({ key, label }) => (
                     <div key={key} className="dashboard-activity-chart__title-cell">
                       {label}
                     </div>
@@ -491,15 +512,15 @@ export default function DashboardActivityChart({ queue, sis, loading = false }) 
                 </div>
 
                 <div className="dashboard-activity-chart__grid-wrap" style={{ height: BAR_MAX_PX }}>
-                  {siData.ticks.map((t) => (
+                  {siData.ticks.map((tickVal) => (
                     <div
-                      key={`grid-si-${t}`}
+                      key={`grid-si-${tickVal}`}
                       className="dashboard-activity-chart__grid-line"
-                      style={{ bottom: `${(t / siData.yMax) * 100}%` }}
+                      style={{ bottom: `${(tickVal / siData.yMax) * 100}%` }}
                     />
                   ))}
                   <div className="dashboard-activity-chart__bars-row dashboard-activity-chart__bars-row--si">
-                    {SI_ORDER.map(({ key, label }, i) => {
+                    {siOrder.map(({ key, label }, i) => {
                       const n = siData.counts[key]
                       const pct = siData.total > 0 ? Math.round((n / siData.total) * 100) : 0
                       return (
@@ -511,13 +532,15 @@ export default function DashboardActivityChart({ queue, sis, loading = false }) 
                                 yMax={siData.yMax}
                                 tipKey={`si-${key}`}
                                 seriesLabel={label}
-                                contextLabel="Shipping instructions"
-                                pctLabel={`${pct}% of port SIs`}
+                                contextLabel={t('chartSiContext')}
+                                pctLabel={t('siPctOfPort', { pct })}
                                 names={siData.vessels[key]}
                                 barClass={`dashboard-activity-chart__bar--si-${i}`}
                                 onShowTip={showTip}
                                 onHideTip={hideTip}
                                 tipActive={tip?.tipKey === `si-${key}`}
+                                ariaVessels={t('chartTooltipVessels')}
+                                ariaNone={t('chartTooltipNone')}
                               />
                             </div>
                           </div>
@@ -528,7 +551,7 @@ export default function DashboardActivityChart({ queue, sis, loading = false }) 
                 </div>
 
                 <div className="dashboard-activity-chart__meta-row dashboard-activity-chart__meta-row--si">
-                  {SI_ORDER.map(({ key }) => {
+                  {siOrder.map(({ key }) => {
                     const n = siData.counts[key]
                     const pct = siData.total > 0 ? Math.round((n / siData.total) * 100) : 0
                     return (

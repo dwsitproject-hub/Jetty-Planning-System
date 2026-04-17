@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, Fragment } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { fetchAllocationOverview } from '../api/allocation'
 import { setOperationShiftingOut } from '../api/operations'
+import { term } from '../i18n/term'
+import SiDetailModal from '../components/SiDetailModal'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { atBerthExecutionOpenPath } from '../utils/atBerthOpenPath'
 import '../styles/allocation.css'
@@ -15,16 +18,9 @@ const PHASE_EMOJI = {
   'Post-Checking': '✅',
 }
 
-const PURPOSES = [
-  { key: 'Loading', label: 'Loading' },
-  { key: 'Unloading', label: 'Unloading' },
-]
+const PURPOSES = [{ key: 'Loading' }, { key: 'Unloading' }]
 
-const FILTER_OPTIONS = [
-  { value: 'All', label: 'All' },
-  { value: 'Loading', label: 'Loading' },
-  { value: 'Unloading', label: 'Unloading' },
-]
+const FILTER_OPTIONS = [{ value: 'All' }, { value: 'Loading' }, { value: 'Unloading' }]
 
 /** Same rule as Allocation "Incoming vessel & berthing plan" status filter. */
 function getBerthingPlanStatus(row) {
@@ -139,6 +135,7 @@ const AT_BERTH_COLUMNS = [
 ]
 
 function AtBerthDetailPanel({ r }) {
+  const { t } = useTranslation('atBerth')
   const purposeDisplay =
     r.purpose ||
     (r.loadDischarge === 'LOAD' ? 'Loading' : r.loadDischarge === 'DISCH' ? 'Unloading' : r.loadDischarge) ||
@@ -146,37 +143,39 @@ function AtBerthDetailPanel({ r }) {
 
   return (
     <div className="allocation-detail">
-      <h4 className="allocation-detail__title">Full details</h4>
+      <h4 className="allocation-detail__title">{t('detailTitle')}</h4>
       <dl className="allocation-detail__grid">
-        <dt>Vessel Name</dt>
+        <dt>{t('dtVesselName')}</dt>
         <dd>{r.vesselName || '—'}</dd>
-        <dt>Shipping Instruction</dt>
+        <dt>{t('dtShippingInstruction')}</dt>
         <dd>{r.shippingInstruction || '—'}</dd>
-        <dt>No PKK</dt>
+        <dt>{t('dtNoPkk')}</dt>
         <dd>{r.noPkk ?? '—'}</dd>
-        <dt>Priority</dt>
+        <dt>{t('dtPriority')}</dt>
         <dd>{r.priority || '—'}</dd>
-        <dt>Number of Palka</dt>
+        <dt>{t('dtNumberOfPalka')}</dt>
         <dd>{r.numberOfPalka ?? '—'}</dd>
-        <dt>Purpose</dt>
+        <dt>{t('dtPurpose')}</dt>
         <dd>{purposeDisplay}</dd>
-        <dt>Shipper</dt>
+        <dt>{t('dtShipper')}</dt>
         <dd>{r.shipper || '—'}</dd>
-        <dt>Agent</dt>
+        <dt>{t('dtAgent')}</dt>
         <dd>{r.agent || '—'}</dd>
-        <dt>Surveyor</dt>
+        <dt>{t('dtSurveyor')}</dt>
         <dd>{r.surveyor || '—'}</dd>
-        <dt>Jetty</dt>
+        <dt>{t('dtJetty')}</dt>
         <dd>{r.jetty || '—'}</dd>
-        <dt>ETA</dt>
+        <dt>{t('dtEta')}</dt>
         <dd>{formatDateTimeDisplay(r.etaDateTime || r.eta)}</dd>
-        <dt>TA</dt>
+        <dt>{t('dtTa')}</dt>
         <dd>{formatDateTimeDisplay(r.taDateTime)}</dd>
-        <dt>ETB</dt>
+        <dt>{t('dtEtb')}</dt>
         <dd>{formatDateTimeDisplay(r.etbDateTime || r.etb)}</dd>
-        <dt>TB</dt>
+        <dt>{t('dtTb')}</dt>
         <dd>{formatDateTimeDisplay(r.tbDateTime)}</dd>
-        <dt>Remark</dt>
+        <dt>{t('dtEstimatedCompletion')}</dt>
+        <dd>{formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion)}</dd>
+        <dt>{t('dtRemark')}</dt>
         <dd>{r.remark || r.remarks || '—'}</dd>
       </dl>
     </div>
@@ -184,6 +183,15 @@ function AtBerthDetailPanel({ r }) {
 }
 
 export default function AtBerthExecutions() {
+  const { t } = useTranslation('atBerth')
+  const { t: tPages } = useTranslation('pages')
+  const labelByPurpose = useMemo(
+    () => ({
+      Loading: t('purposeLoading'),
+      Unloading: t('purposeUnloading'),
+    }),
+    [t]
+  )
   const [queue, setQueue] = useState([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState(null)
@@ -192,10 +200,29 @@ export default function AtBerthExecutions() {
   const [filters, setFilters] = useState(() => Object.fromEntries(filterKeys.map((k) => [k, ''])))
   const [sortState, setSortState] = useState({ key: 'vesselName', dir: 'asc' })
   const [expandedId, setExpandedId] = useState(null)
+  const [siDetailId, setSiDetailId] = useState(null)
   const [shiftSavingByOpId, setShiftSavingByOpId] = useState({})
   const [shiftModal, setShiftModal] = useState(null)
   const [shiftRemarkDraft, setShiftRemarkDraft] = useState('')
   const [shiftOutToastMessage, setShiftOutToastMessage] = useState(null)
+  const colLabel = useCallback(
+    (key, fallback) =>
+      t(
+        ({
+          vesselName: 'colVessel',
+          shippingInstruction: 'colSi',
+          commodity: 'colCommodity',
+          purpose: 'colPurpose',
+          jetty: 'colJetty',
+          ta: 'colTa',
+          tb: 'colTb',
+          phaseLabel: 'colPhase',
+          status: 'colStatus',
+        })[key] || '',
+        { defaultValue: fallback }
+      ),
+    [t]
+  )
 
   useEffect(() => {
     if (!shiftOutToastMessage) return undefined
@@ -210,12 +237,12 @@ export default function AtBerthExecutions() {
       const data = await fetchAllocationOverview()
       setQueue(Array.isArray(data?.queue) ? data.queue : [])
     } catch (e) {
-      setErr(e?.message || 'Failed to load')
+      setErr(e?.message || t('loading'))
       setQueue([])
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [t])
 
   const closeShiftModal = useCallback(() => {
     setShiftModal(null)
@@ -228,25 +255,25 @@ export default function AtBerthExecutions() {
     if (!opId) return
     const trimmed = shiftRemarkDraft.trim()
     if (!trimmed) {
-      setErr('Enter a remark before confirming shift-out.')
+      setErr(t('errRemarkRequired'))
       return
     }
     setErr(null)
     setShiftSavingByOpId((m) => ({ ...m, [opId]: true }))
     try {
       await setOperationShiftingOut(opId, true, trimmed, { activityLogPage: 'at-berth' })
-      const vesselLabel = row.vesselName || row.shippingInstruction || 'Vessel'
+      const vesselLabel = row.vesselName || row.shippingInstruction || t('colVessel')
       setShiftOutToastMessage(
-        `Shift out complete for ${vesselLabel}. Please visit 'Allocation & Berthing' to re-dock.`
+        t('shiftOutToast', { vessel: vesselLabel })
       )
       closeShiftModal()
       await load()
     } catch (err) {
-      setErr(err?.message || 'Shift-out failed')
+      setErr(err?.message || t('confirmShiftOut'))
     } finally {
       setShiftSavingByOpId((m) => ({ ...m, [opId]: false }))
     }
-  }, [shiftModal, shiftRemarkDraft, load, closeShiftModal])
+  }, [shiftModal, shiftRemarkDraft, load, closeShiftModal, t])
 
   const handleShiftOutToggle = useCallback(
     async (row, e) => {
@@ -264,12 +291,12 @@ export default function AtBerthExecutions() {
         await setOperationShiftingOut(opId, false)
         await load()
       } catch (err) {
-        setErr(err?.message || 'Shift-out failed')
+        setErr(err?.message || t('confirmShiftOut'))
       } finally {
         setShiftSavingByOpId((m) => ({ ...m, [opId]: false }))
       }
     },
-    [load]
+    [load, t]
   )
 
   useEffect(() => {
@@ -342,20 +369,20 @@ export default function AtBerthExecutions() {
             type="button"
             className="toast__close"
             onClick={() => setShiftOutToastMessage(null)}
-            aria-label="Dismiss notification"
+            aria-label={t('dismissNotification')}
           >
             ×
           </button>
         </div>
       ) : null}
-      <h1 className="page-title">At-Berth Executions</h1>
+      <h1 className="page-title">{tPages('atBerth')}</h1>
       {err && <p style={{ color: '#c00' }}>{err}</p>}
 
-      <section className="at-berth-summary" aria-label="Summary by purpose and phase">
+      <section className="at-berth-summary" aria-label={t('summaryAria')}>
         <div className="at-berth-summary__groups">
-          {PURPOSES.map(({ key: purpose, label }) => (
+          {PURPOSES.map(({ key: purpose }) => (
             <div key={purpose} className="at-berth-summary__group">
-              <h3 className="at-berth-summary__group-title">{label}</h3>
+              <h3 className="at-berth-summary__group-title">{labelByPurpose[purpose] || purpose}</h3>
               <div className="at-berth-summary__grid">
                 {AT_BERTH_SUMMARY_PHASES.map((phase) => (
                   <div
@@ -363,9 +390,9 @@ export default function AtBerthExecutions() {
                     className={`at-berth-card at-berth-card--${purpose.toLowerCase()}`}
                   >
                     <h4 className="at-berth-card__title">
-                      {PHASE_EMOJI[phase]} {phase}
+                      {PHASE_EMOJI[phase]} {t(`phase${phase.replace('-', '')}`)}
                     </h4>
-                    <p className="at-berth-card__count" aria-label={`${purpose} ${phase} count`}>
+                    <p className="at-berth-card__count" aria-label={`${labelByPurpose[purpose] || purpose} ${t(`phase${phase.replace('-', '')}`)} count`}>
                       {counts[purpose][phase]}
                     </p>
                   </div>
@@ -378,9 +405,9 @@ export default function AtBerthExecutions() {
 
       <section className="card at-berth-list-section">
         <div className="at-berth-list-section__header">
-          <h2 className="card__title">Vessels</h2>
+          <h2 className="card__title">{t('vesselsTitle')}</h2>
           <div className="allocation-tabs at-berth-filter" role="tablist">
-            {FILTER_OPTIONS.map(({ value, label }) => (
+            {FILTER_OPTIONS.map(({ value }) => (
               <button
                 key={value}
                 type="button"
@@ -389,33 +416,33 @@ export default function AtBerthExecutions() {
                 className={`allocation-tabs__tab ${purposeFilter === value ? 'allocation-tabs__tab--active' : ''}`}
                 onClick={() => setPurposeFilter(value)}
               >
-                {label}
+                {value === 'All' ? t('filterAll') : labelByPurpose[value] || value}
               </button>
             ))}
           </div>
         </div>
         {loading ? (
-          <p className="text-steel">Loading…</p>
+          <p className="text-steel">{t('loading')}</p>
         ) : rows.length === 0 ? (
-          <p className="text-steel">No at-berth operations. Use Allocation to log arrival and confirm berthing.</p>
+          <p className="text-steel">{t('emptyNoOps')}</p>
         ) : sortedVessels.length === 0 ? (
-          <p className="text-steel">No vessels match filters.</p>
+          <p className="text-steel">{t('emptyNoFilterMatch')}</p>
         ) : (
           <div className="table-wrap">
             <table className="data-table allocation-table">
               <thead>
                 <tr>
-                  <th className="allocation-table__expand-col" aria-label="Expand row" />
-                  <th className="allocation-table__action-col">Action</th>
+                  <th className="allocation-table__expand-col" aria-label={t('expandRow')} />
+                  <th className="allocation-table__action-col">{t('action')}</th>
                   {AT_BERTH_COLUMNS.map((col) => (
                     <th key={col.key} className="allocation-table__th">
                       <button
                         type="button"
                         className="allocation-table__sort"
                         onClick={() => handleSort(col.key)}
-                        title={`Sort by ${col.label}`}
+                        title={t('sortBy', { label: colLabel(col.key, col.label) })}
                       >
-                        {col.label}
+                        {colLabel(col.key, col.label)}
                         <span className="allocation-table__sort-icon">
                           {sortState.key === col.key ? (sortState.dir === 'asc' ? ' ↑' : ' ↓') : ' ⇅'}
                         </span>
@@ -431,10 +458,10 @@ export default function AtBerthExecutions() {
                       <input
                         type="text"
                         className="allocation-table__filter"
-                        placeholder={`Filter ${col.label}`}
+                        placeholder={t('filterPlaceholder', { label: colLabel(col.key, col.label) })}
                         value={filters[col.key]}
                         onChange={(e) => updateFilter(col.key, e.target.value)}
-                        aria-label={`Filter by ${col.label}`}
+                        aria-label={t('filterBy', { label: colLabel(col.key, col.label) })}
                       />
                     </th>
                   ))}
@@ -454,7 +481,7 @@ export default function AtBerthExecutions() {
                       </td>
                       <td className="allocation-table__action-col" onClick={(e) => e.stopPropagation()}>
                         <Link to={atBerthExecutionOpenPath(r)} className="btn btn--small btn--primary">
-                          Open
+                          {t('open')}
                         </Link>
                       {r.operationId != null && (
                         <button
@@ -463,18 +490,38 @@ export default function AtBerthExecutions() {
                           style={{ marginLeft: '0.5rem' }}
                           onClick={(e) => handleShiftOutToggle(r, e)}
                           disabled={Boolean(shiftSavingByOpId[r.operationId])}
-                          title={r.shiftingOut ? 'Clear shift-out (return to berth state)' : 'Shift out: move back to incoming queue and free berth capacity'}
+                          title={r.shiftingOut ? t('shiftOutTooltipUndo') : t('shiftOutTooltipDo')}
                         >
                           {shiftSavingByOpId[r.operationId]
-                            ? 'Saving…'
+                            ? t('saving')
                             : r.shiftingOut
-                              ? 'Undo Shift Out'
-                              : 'Shifting Out'}
+                              ? term('undoShiftingOut')
+                              : term('shiftingOut')}
                         </button>
                       )}
                       </td>
                       {AT_BERTH_COLUMNS.map((col) => (
-                        <td key={col.key}>{col.getValue(r)}</td>
+                        <td key={col.key}>
+                          {col.key === 'shippingInstruction' ? (
+                            r.shippingInstructionId ? (
+                              <a
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  setSiDetailId(r.shippingInstructionId)
+                                }}
+                                aria-label={t('openSiDetail', { defaultValue: 'Open shipping instruction detail' })}
+                              >
+                                {r.shippingInstruction || '—'}
+                              </a>
+                            ) : (
+                              r.shippingInstruction || '—'
+                            )
+                          ) : (
+                            col.getValue(r)
+                          )}
+                        </td>
                       ))}
                     </tr>
                     {expandedId === r.id && (
@@ -502,14 +549,14 @@ export default function AtBerthExecutions() {
             aria-modal="true"
           >
             <h2 id="shift-out-modal-title" className="modal__title">
-              Shift out — {shiftModal.row.vesselName || shiftModal.row.shippingInstruction || 'Vessel'}
+              {t('shiftOutTitle', { name: shiftModal.row.vesselName || shiftModal.row.shippingInstruction || t('colVessel') })}
             </h2>
             <p className="text-steel" style={{ marginBottom: '0.75rem', fontSize: '0.9rem' }}>
-              The vessel returns to the incoming queue and berth capacity is freed. Set the operation remark (required).
+              {t('shiftOutIntro')}
             </p>
             <div className="modal__section">
               <label htmlFor="shift-out-remark" className="modal__label">
-                Remark
+                {t('remark')}
               </label>
               <textarea
                 id="shift-out-remark"
@@ -522,7 +569,7 @@ export default function AtBerthExecutions() {
             </div>
             <div className="modal__actions" style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
               <button type="button" className="btn btn--secondary" onClick={closeShiftModal}>
-                Cancel
+                {t('cancel')}
               </button>
               <button
                 type="button"
@@ -530,12 +577,17 @@ export default function AtBerthExecutions() {
                 onClick={() => confirmShiftOut()}
                 disabled={Boolean(shiftSavingByOpId[shiftModal.row.operationId])}
               >
-                {shiftSavingByOpId[shiftModal.row.operationId] ? 'Saving…' : 'Confirm shift-out'}
+                {shiftSavingByOpId[shiftModal.row.operationId] ? t('saving') : t('confirmShiftOut')}
               </button>
             </div>
           </div>
         </div>
       ) : null}
+      <SiDetailModal
+        isOpen={Boolean(siDetailId)}
+        siId={siDetailId}
+        onClose={() => setSiDetailId(null)}
+      />
     </div>
   )
 }

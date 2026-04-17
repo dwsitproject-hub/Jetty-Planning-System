@@ -1,4 +1,5 @@
 import { useState, Fragment, useEffect, useMemo, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router-dom'
 import JettySchematic from '../components/JettySchematic'
 import JettyScheduleGantt from '../components/JettyScheduleGantt'
@@ -14,6 +15,7 @@ import { ApiError, resolveUploadUrl } from '../api/client'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { isBerthOutOfService, jettyOosAllocationMessage } from '../utils/jettyAvailability'
 import PurposeBadge, { resolvePurposeLabel } from '../components/PurposeBadge'
+import SiDetailModal from '../components/SiDetailModal'
 import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
 import '../styles/allocation.css'
@@ -176,6 +178,8 @@ function getCompletionMsForJettyValidation(row) {
 }
 
 export default function Allocation() {
+  const { t } = useTranslation('pages')
+  const { t: tAlloc } = useTranslation('allocation')
   const { selectedPortId } = usePortScope()
   const { canEdit, canView } = useRbac()
   const canEditAllocation = canEdit('allocation')
@@ -204,7 +208,6 @@ export default function Allocation() {
   const [arrivalSuccessMessage, setArrivalSuccessMessage] = useState(null)
   const [visualTab, setVisualTab] = useState('schematic') // 'schematic' | 'jettySchedule'
   const [siDetailId, setSiDetailId] = useState(null)
-  const [siDetailFrameLoaded, setSiDetailFrameLoaded] = useState(false)
   const [shiftSavingByOpId, setShiftSavingByOpId] = useState({})
   const [reDockModal, setReDockModal] = useState(null)
   const [reDockRemarkDraft, setReDockRemarkDraft] = useState('')
@@ -361,6 +364,24 @@ export default function Allocation() {
   const [arrivalNorRawFiles, setArrivalNorRawFiles] = useState([]) // File[]
   const [arrivalSaving, setArrivalSaving] = useState(false)
   const [arrivalSaveMsg, setArrivalSaveMsg] = useState(null)
+  const allocColLabel = useCallback(
+    (key, fallback) =>
+      tAlloc(
+        ({
+          sequence: 'colBerthingSequence',
+          vesselName: 'colVesselName',
+          shippingInstruction: 'colShippingInstruction',
+          priority: 'colPriority',
+          purpose: 'colPurpose',
+          remark: 'colRemark',
+          eta: 'colEta',
+          etb: 'colEtb',
+          jetty: 'colJetty',
+        })[key] || '',
+        { defaultValue: fallback }
+      ),
+    [tAlloc]
+  )
 
   const fileUrl = (p) => resolveUploadUrl(p)
 
@@ -836,7 +857,6 @@ export default function Allocation() {
       if (e.key !== 'Escape') return
       if (siDetailId != null) {
         setSiDetailId(null)
-        setSiDetailFrameLoaded(false)
         return
       }
       if (vesselDetailEditing) {
@@ -1170,17 +1190,17 @@ export default function Allocation() {
             type="button"
             className="toast__close"
             onClick={() => setReDockSuccessMessage(null)}
-            aria-label="Dismiss notification"
+            aria-label={tAlloc('dismissNotification')}
           >
             ×
           </button>
         </div>
       )}
 
-      <h1 className="page-title">Allocation & Berthing</h1>
+      <h1 className="page-title">{t('allocation')}</h1>
 
       <div className="allocation-visual">
-        <div className="allocation-tabs" role="tablist" aria-label="Visualization">
+        <div className="allocation-tabs" role="tablist" aria-label={tAlloc('visualizationAria')}>
           <button
             type="button"
             role="tab"
@@ -1190,7 +1210,7 @@ export default function Allocation() {
             className={`allocation-tabs__tab ${visualTab === 'schematic' ? 'allocation-tabs__tab--active' : ''}`}
             onClick={() => setVisualTab('schematic')}
           >
-            Jetty schematic
+            {tAlloc('jettySchematic')}
           </button>
           <button
             type="button"
@@ -1201,7 +1221,7 @@ export default function Allocation() {
             className={`allocation-tabs__tab ${visualTab === 'jettySchedule' ? 'allocation-tabs__tab--active' : ''}`}
             onClick={() => setVisualTab('jettySchedule')}
           >
-            Jetty schedule
+            {tAlloc('jettySchedule')}
           </button>
         </div>
         <div
@@ -1349,7 +1369,6 @@ export default function Allocation() {
                             onClick={() => {
                               if (!vessel?.shippingInstructionId) return
                               setSiDetailId(vessel.shippingInstructionId)
-                              setSiDetailFrameLoaded(false)
                             }}
                             disabled={!vessel?.shippingInstructionId}
                             title={vessel?.shippingInstructionId ? 'Open shipping instruction detail' : 'Shipping instruction not available'}
@@ -1923,48 +1942,11 @@ export default function Allocation() {
         </div>
       )}
 
-      {vesselDetailModalVesselId && siDetailId != null && (
-        <div
-          className="modal-overlay modal-overlay--nested"
-          onClick={() => {
-            setSiDetailId(null)
-            setSiDetailFrameLoaded(false)
-          }}
-          aria-hidden="true"
-        >
-          <div
-            className="modal modal--si-embed"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-labelledby="si-detail-modal-title"
-            aria-modal="true"
-          >
-            <h2 id="si-detail-modal-title" className="modal__title">
-              Shipping Instruction detail
-            </h2>
-            {!siDetailFrameLoaded && <p className="berthing-modal__empty">Loading shipping instruction...</p>}
-            <iframe
-              title={`Shipping Instruction ${siDetailId}`}
-              src={`/shipping-instruction/view/${siDetailId}?embed=1`}
-              className="si-detail-modal__iframe"
-              onLoad={() => setSiDetailFrameLoaded(true)}
-            />
-
-            <div className="modal__footer">
-              <button
-                type="button"
-                className="btn btn--primary"
-                onClick={() => {
-                  setSiDetailId(null)
-                  setSiDetailFrameLoaded(false)
-                }}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <SiDetailModal
+        isOpen={Boolean(siDetailId)}
+        siId={siDetailId}
+        onClose={() => setSiDetailId(null)}
+      />
 
       {/* Berthing confirmation modal (extended: jetty allocation, vessel photos, remarks) */}
       {berthingConfirmRow && (
@@ -2515,20 +2497,19 @@ export default function Allocation() {
       )}
 
       <section className="card">
-        <h2 className="card__title">Incoming vessel & berthing plan</h2>
+        <h2 className="card__title">{tAlloc('incomingTitle')}</h2>
         <p className="text-steel" style={{ marginTop: 'calc(-1 * var(--spacing-2))', marginBottom: 'var(--spacing-3)' }}>
-          Jetties marked <strong>out of service</strong> in Master cannot receive new allocations. Use the schematic and
-          schedule to spot OOS lanes.
+          {tAlloc('incomingIntro', { defaultValue: 'Jetties marked out of service in Master cannot receive new allocations. Use the schematic and schedule to spot OOS lanes.' })}
         </p>
-        <div className="allocation-plan-status-filter" role="group" aria-label="Filter incoming and berthed vessels">
-          <span className="allocation-plan-status-filter__label">Status</span>
+        <div className="allocation-plan-status-filter" role="group" aria-label={tAlloc('statusFilterAria')}>
+          <span className="allocation-plan-status-filter__label">{tAlloc('statusLabel')}</span>
           <label className="allocation-plan-status-filter__option">
             <input
               type="checkbox"
               checked={statusFilter.incoming}
               onChange={(e) => setStatusFilter((prev) => ({ ...prev, incoming: e.target.checked }))}
             />
-            Incoming
+            {tAlloc('statusIncoming')}
           </label>
           <label className="allocation-plan-status-filter__option">
             <input
@@ -2536,7 +2517,7 @@ export default function Allocation() {
               checked={statusFilter.berthed}
               onChange={(e) => setStatusFilter((prev) => ({ ...prev, berthed: e.target.checked }))}
             />
-            Berthed
+            {tAlloc('statusBerthed')}
           </label>
         </div>
         <div className="table-wrap">
@@ -2544,16 +2525,16 @@ export default function Allocation() {
             <thead>
               <tr>
                 <th className="allocation-table__expand-col"></th>
-                <th className="allocation-table__action-col">Action</th>
+                <th className="allocation-table__action-col">{tAlloc('action')}</th>
                 {allocationTableColumns.map((col) => (
                   <th key={col.key} className="allocation-table__th">
                     <button
                       type="button"
                       className="allocation-table__sort"
                       onClick={() => handleSort(col.key)}
-                      title={`Sort by ${col.label}`}
+                      title={tAlloc('sortBy', { label: allocColLabel(col.key, col.label) })}
                     >
-                      {col.label}
+                      {allocColLabel(col.key, col.label)}
                       <span className="allocation-table__sort-icon">
                         {sortState.key === col.key ? (sortState.dir === 'asc' ? ' ↑' : ' ↓') : ' ⇅'}
                       </span>
@@ -2569,10 +2550,10 @@ export default function Allocation() {
                     <input
                       type="text"
                       className="allocation-table__filter"
-                      placeholder={`Filter ${col.label}`}
+                      placeholder={tAlloc('filterPlaceholder', { label: allocColLabel(col.key, col.label) })}
                       value={filters[col.key]}
                       onChange={(e) => updateFilter(col.key, e.target.value)}
-                      aria-label={`Filter by ${col.label}`}
+                      aria-label={tAlloc('filterBy', { label: allocColLabel(col.key, col.label) })}
                     />
                   </th>
                 ))}
@@ -2593,7 +2574,7 @@ export default function Allocation() {
                     <td className="allocation-table__action-col" onClick={(e) => e.stopPropagation()}>
                       <div className="allocation-table__action-btns">
                         <button type="button" className="btn btn--primary btn--small" onClick={() => openArrivalUpdate(r)}>
-                          Log arrival update
+                          {tAlloc('logArrivalUpdate')}
                         </button>
                         {r.shiftingOut && r.operationId != null ? (
                           <button
@@ -2603,11 +2584,11 @@ export default function Allocation() {
                             disabled={Boolean(shiftSavingByOpId[r.operationId])}
                             title="Clear shift-out so this vessel can be treated as at-berth again (preserves history)."
                           >
-                            {shiftSavingByOpId[r.operationId] ? 'Saving…' : 'Re-dock'}
+                            {shiftSavingByOpId[r.operationId] ? tAlloc('saving') : tAlloc('reDock')}
                           </button>
                         ) : (
                           <button type="button" className="btn btn--success btn--small" onClick={(e) => openBerthingConfirm(r, e)}>
-                            Berthing
+                            {tAlloc('berthing')}
                           </button>
                         )}
                       </div>
@@ -2640,6 +2621,22 @@ export default function Allocation() {
                               </button>
                             </span>
                           </span>
+                        ) : col.key === 'shippingInstruction' ? (
+                          r.shippingInstructionId ? (
+                            <a
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setSiDetailId(r.shippingInstructionId)
+                              }}
+                              aria-label={tAlloc('openSiDetail', { defaultValue: 'Open shipping instruction detail' })}
+                            >
+                              {r.shippingInstruction || '—'}
+                            </a>
+                          ) : (
+                            r.shippingInstruction || '—'
+                          )
                         ) : (
                           col.getValue(r)
                         )}
@@ -2650,26 +2647,27 @@ export default function Allocation() {
                     <tr className="allocation-table__detail-row">
                       <td colSpan={allocationTableColumns.length + 2} className="allocation-table__detail-cell">
                         <div className="allocation-detail">
-                          <h4 className="allocation-detail__title">Full details</h4>
+                          <h4 className="allocation-detail__title">{tAlloc('fullDetails', { defaultValue: 'Full details' })}</h4>
                           <dl className="allocation-detail__grid">
-                            <dt>Vessel Name</dt><dd>{r.vesselName || '—'}</dd>
-                            <dt>Shipping Instruction</dt><dd>{r.shippingInstruction || '—'}</dd>
-                            <dt>No PKK</dt><dd>{r.noPkk ?? '—'}</dd>
-                            <dt>Priority</dt><dd>{r.priority || '—'}</dd>
-                            <dt>Number of Palka</dt><dd>{r.numberOfPalka ?? '—'}</dd>
-                            <dt>Purpose</dt>
+                            <dt>{tAlloc('dtVesselName', { defaultValue: 'Vessel Name' })}</dt><dd>{r.vesselName || '—'}</dd>
+                            <dt>{tAlloc('dtShippingInstruction', { defaultValue: 'Shipping Instruction' })}</dt><dd>{r.shippingInstruction || '—'}</dd>
+                            <dt>{tAlloc('dtNoPkk', { defaultValue: 'No PKK' })}</dt><dd>{r.noPkk ?? '—'}</dd>
+                            <dt>{tAlloc('dtPriority', { defaultValue: 'Priority' })}</dt><dd>{r.priority || '—'}</dd>
+                            <dt>{tAlloc('dtNumberOfPalka', { defaultValue: 'Number of Palka' })}</dt><dd>{r.numberOfPalka ?? '—'}</dd>
+                            <dt>{tAlloc('dtPurpose', { defaultValue: 'Purpose' })}</dt>
                             <dd>
                               <PurposeBadge purpose={r.purpose} loadDischarge={r.loadDischarge} />
                             </dd>
-                            <dt>Shipper</dt><dd>{r.shipper || '—'}</dd>
-                            <dt>Agent</dt><dd>{r.agent || '—'}</dd>
-                            <dt>Surveyor</dt><dd>{r.surveyor || '—'}</dd>
-                            <dt>Jetty</dt><dd>{r.jetty || '—'}</dd>
-                            <dt>ETA</dt><dd>{formatDateTimeDisplay(r.etaDateTime || r.eta)}</dd>
-                            <dt>TA</dt><dd>{formatDateTimeDisplay(r.taDateTime)}</dd>
-                            <dt>ETB</dt><dd>{formatDateTimeDisplay(r.etbDateTime || r.etb)}</dd>
-                            <dt>TB</dt><dd>{formatDateTimeDisplay(r.tbDateTime)}</dd>
-                            <dt>Remark</dt><dd>{r.remark || r.remarks || '—'}</dd>
+                            <dt>{tAlloc('dtShipper', { defaultValue: 'Shipper' })}</dt><dd>{r.shipper || '—'}</dd>
+                            <dt>{tAlloc('dtAgent', { defaultValue: 'Agent' })}</dt><dd>{r.agent || '—'}</dd>
+                            <dt>{tAlloc('dtSurveyor', { defaultValue: 'Surveyor' })}</dt><dd>{r.surveyor || '—'}</dd>
+                            <dt>{tAlloc('dtJetty', { defaultValue: 'Jetty' })}</dt><dd>{r.jetty || '—'}</dd>
+                            <dt>{tAlloc('dtEta', { defaultValue: 'ETA' })}</dt><dd>{formatDateTimeDisplay(r.etaDateTime || r.eta)}</dd>
+                            <dt>{tAlloc('dtTa', { defaultValue: 'TA' })}</dt><dd>{formatDateTimeDisplay(r.taDateTime)}</dd>
+                            <dt>{tAlloc('dtEtb', { defaultValue: 'ETB' })}</dt><dd>{formatDateTimeDisplay(r.etbDateTime || r.etb)}</dd>
+                            <dt>{tAlloc('dtTb', { defaultValue: 'TB' })}</dt><dd>{formatDateTimeDisplay(r.tbDateTime)}</dd>
+                            <dt>{tAlloc('dtEstimatedCompletion', { defaultValue: 'Estimation of Completion' })}</dt><dd>{formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion)}</dd>
+                            <dt>{tAlloc('dtRemark', { defaultValue: 'Remark' })}</dt><dd>{r.remark || r.remarks || '—'}</dd>
                           </dl>
                           {Array.isArray(r.shippingTable) && r.shippingTable.length > 0 && (
                             <div className="allocation-detail__shipping-table-wrap">

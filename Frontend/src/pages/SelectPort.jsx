@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { usePortScope } from '../context/PortScopeContext'
+import { useTranslation } from 'react-i18next'
 import GuestBrandedShell from '../components/GuestBrandedShell'
 
 function safeReturnTo(raw) {
@@ -12,6 +13,7 @@ function safeReturnTo(raw) {
 }
 
 export default function SelectPort() {
+  const { t } = useTranslation('auth')
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const returnTo = useMemo(() => safeReturnTo(searchParams.get('returnTo')), [searchParams])
@@ -52,12 +54,12 @@ export default function SelectPort() {
     setLocalErr(null)
     const id = choice ? Number(choice) : NaN
     if (!Number.isFinite(id) || id <= 0) {
-      setLocalErr('Please select a port.')
+      setLocalErr(t('selectPortError'))
       return
     }
     const allowed = assignedPorts.some((p) => Number(p.id) === id)
     if (!allowed) {
-      setLocalErr('Invalid port selection.')
+      setLocalErr(t('invalidPort'))
       return
     }
     setSelectedPortId(id)
@@ -78,11 +80,11 @@ export default function SelectPort() {
 
   if (noPortAssigned) {
     return (
-      <GuestBrandedShell cardTitle="Port access">
+      <GuestBrandedShell cardTitle={t('portAccess')}>
         <p className="guest-branded__muted">{noPortMessage}</p>
         <div className="guest-branded__actions">
           <button type="button" className="btn btn--secondary guest-branded__submit" onClick={() => navigate('/login', { replace: true })}>
-            Back to sign in
+            {t('backToSignIn')}
           </button>
         </div>
       </GuestBrandedShell>
@@ -91,21 +93,21 @@ export default function SelectPort() {
 
   if (assignedPorts.length <= 1) {
     return (
-      <GuestBrandedShell cardTitle="Choose port">
-        <p className="guest-branded__muted">Continuing…</p>
+      <GuestBrandedShell cardTitle={t('choosePort')}>
+        <p className="guest-branded__muted">{t('continuing')}</p>
       </GuestBrandedShell>
     )
   }
 
   return (
     <GuestBrandedShell
-      cardTitle="Choose port"
-      cardDescription="You are assigned to multiple ports. Select one to continue."
+      cardTitle={t('choosePort')}
+      cardDescription={t('choosePortDescription')}
     >
       <form onSubmit={handleContinue}>
         {localErr ? <p className="guest-branded__error">{localErr}</p> : null}
         <label className="guest-branded__label" htmlFor="select-port-id">
-          Port
+          {t('port')}
         </label>
         <select
           id="select-port-id"
@@ -114,7 +116,7 @@ export default function SelectPort() {
           onChange={(e) => setChoice(e.target.value)}
           required
         >
-          <option value="">Select port…</option>
+          <option value="">{t('selectPortPlaceholder')}</option>
           {assignedPorts.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -122,7 +124,7 @@ export default function SelectPort() {
           ))}
         </select>
         <button type="submit" className="btn btn--primary guest-branded__submit">
-          Continue
+          {t('continue')}
         </button>
       </form>
     </GuestBrandedShell>

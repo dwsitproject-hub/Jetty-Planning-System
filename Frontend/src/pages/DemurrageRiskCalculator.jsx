@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { fetchOperation, saveEstimatedCompletion } from '../api/operations'
 import { fetchSlaConfig } from '../api/slaConfig'
@@ -68,6 +69,7 @@ function getDirectionalPortRate(commodity, direction) {
 }
 
 export default function DemurrageRiskCalculator() {
+  const { t } = useTranslation('pages')
   const pageKey = 'demurrage-risk-calculator'
   const { canEdit, canView } = useRbac()
   const canDoView = canView(pageKey)
@@ -480,7 +482,7 @@ export default function DemurrageRiskCalculator() {
   if (!canDoView) {
     return (
       <div className="allocation-page">
-        <h1 className="page-title">Demurrage Risk Calculator</h1>
+        <h1 className="page-title">{t('demurrageCalculator')}</h1>
         <p className="allocation-page__intro" style={{ color: 'var(--color-danger, #c00)' }}>
           You do not have permission to view this page.
         </p>
@@ -500,7 +502,7 @@ export default function DemurrageRiskCalculator() {
 
   return (
     <div className="allocation-page">
-      <h1 className="page-title">Demurrage Risk Calculator</h1>
+      <h1 className="page-title">{t('demurrageCalculator')}</h1>
       <p className="text-steel" style={{ fontSize: 'var(--font-size-small)' }}>
         <Link to="/" className="link">
           ← Back

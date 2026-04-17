@@ -1,7 +1,7 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.22  
-**Last Updated**: 2026-04-15  
+**Version**: 1.23  
+**Last Updated**: 2026-04-17  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
@@ -241,6 +241,29 @@ After the **root four-folder reorg**, ownership is explicit; root remains a thin
 | Root npm UX | Root `package.json` | Delegates only: `npm --prefix Frontend run …` for dev/build/preview/e2e. |
 | Backend + DB compose | `Backend/docker-compose.yml` (local dev), root `docker-compose.backend.yml` | API **`Backend/`**; canonical copies also under **`Backend/infra/`** — see **`Docs/Plan/ROOT-FOUR-FOLDER-REORG-PLAN.md`**. |
 
+### 0.12 SI hyperlink detail modal (2026-04-17)
+
+**Goal:** Provide one reusable, non-document SI detail experience triggered from SI values in table rows across operational pages.
+
+**Frontend implementation**
+
+- Shared component:
+  - `Frontend/src/components/SiDetailModal.jsx`
+  - `Frontend/src/styles/si-detail-modal.css`
+- Data source:
+  - `fetchShippingInstruction(id)` (`Frontend/src/api/shippingInstructions.js` → `GET /shipping-instructions/:id`)
+- Trigger behavior:
+  - SI value is rendered as hyperlink text (`<a href="#">...`) in table rows and opens the shared modal.
+  - Click handler uses `preventDefault()` and `stopPropagation()` so row-expand handlers are not triggered.
+- Integrated pages:
+  - `Frontend/src/pages/ShippingInstruction.jsx` (`siNo` table column)
+  - `Frontend/src/pages/Allocation.jsx` (`shippingInstruction` table column)
+  - `Frontend/src/pages/AtBerthExecutions.jsx` (`shippingInstruction` table column)
+- Scope:
+  - Table SI values only (expanded detail blocks are not modal triggers in this release).
+- Localization:
+  - Modal labels/chrome use `shippingInstruction` i18n namespace (EN/ID keys, including modal title/loading/error/close text).
+
 ---
 
 ## 1. Overview
@@ -309,6 +332,9 @@ RBAC is defined at **department**, **page**, and **field** level (see §6).
    - Mandatory fields are validated client-side and enforced server-side.
    - Action buttons are always visible but may be disabled with one-line “why disabled” tooltips.
    - Delete is supported for Draft and Submitted SIs with RBAC + status enforcement.
+7. SI quick detail modal:
+   - SI number in table rows is hyperlink-style and opens shared `SiDetailModal` (non-document view).
+   - Modal data is fetched with `GET /shipping-instructions/:id` and rendered with `—` fallback for empty fields.
 
 **Target implementation**:
 - Source SIs from upstream EXIM/Logistics via `shipping_instructions` API.
@@ -346,6 +372,8 @@ Freight terms are currently fixed (frontend constant + backend validation), so t
 3. Visuals:
    - Jetty schematic (current occupancy).
    - 72-hour berth schedule (jetty vs time, with Expected/Berthing/Active pills).
+4. SI hyperlink modal:
+   - `shippingInstruction` table column is hyperlink-style and opens shared `SiDetailModal` using `shippingInstructionId`.
 
 **Target implementation**:
 - Link allocation rows to backend `operations` and `jetties`.
@@ -363,6 +391,7 @@ Freight terms are currently fixed (frontend constant + backend validation), so t
 3. Table columns: Vessel, SI, Commodity, Purpose, Jetty, TA, TB, Phase, Status; **Action** first after expand column; expandable **Full details** aligned with Allocation row detail field order.
 4. **Open** → `/{loading|unloading}/:vesselId` (purpose-based route; API rows may use `op-<operationId>` vessel id form).
 5. **Shifting out:** modal + required **`remark`** → **`POST /operations/:id/shifting-out`** (`shiftingOut: true`, `activityLogPage: 'at-berth'`). **Undo shift-out:** same endpoint with `shiftingOut: false` and **no** `remark` in body (optional clear).
+6. **SI hyperlink modal:** `shippingInstruction` table value is hyperlink-style and opens shared `SiDetailModal` using `shippingInstructionId`.
 
 **Target / follow-up**:
 - Phase could later incorporate QC/quantity state from backend instead of status-only mapping.

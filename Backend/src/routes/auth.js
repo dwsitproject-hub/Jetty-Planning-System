@@ -3,17 +3,11 @@
  * Optional Bearer in JSON when AUTH_RETURN_TOKEN_BODY=true (scripts/integration only).
  */
 import bcrypt from 'bcrypt';
-import crypto from 'crypto';
 import express from 'express';
-import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import { pool } from '../db.js';
-import {
-  COOKIE_ACCESS_TOKEN,
-  COOKIE_XSRF,
-  cookieBaseOptions,
-  jwtExpiresInToMs,
-} from '../lib/auth-cookies.js';
+import { COOKIE_ACCESS_TOKEN, COOKIE_XSRF, cookieBaseOptions } from '../lib/auth-cookies.js';
+import { setSessionCookiesForUserId } from '../lib/session-cookies.js';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -27,22 +21,6 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many login attempts, try again later' },
 });
-
-function setAuthCookies(res, token) {
-  const base = cookieBaseOptions();
-  const maxAge = jwtExpiresInToMs(JWT_EXPIRES_IN);
-  const xsrf = crypto.randomBytes(32).toString('hex');
-  res.cookie(COOKIE_ACCESS_TOKEN, token, {
-    ...base,
-    httpOnly: true,
-    maxAge,
-  });
-  res.cookie(COOKIE_XSRF, xsrf, {
-    ...base,
-    httpOnly: false,
-    maxAge,
-  });
-}
 
 function clearAuthCookies(res) {
   const base = cookieBaseOptions();
@@ -74,8 +52,7 @@ router.post('/login', loginLimiter, async (req, res) => {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
 
-  const token = jwt.sign({ userId: row.id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
-  setAuthCookies(res, token);
+  const token = setSessionCookiesForUserId(res, row.id);
 
   const user = {
     id: row.id,

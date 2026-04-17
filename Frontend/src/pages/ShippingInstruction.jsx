@@ -1,4 +1,5 @@
-import { useState, Fragment, useEffect, useMemo } from 'react'
+import { useState, Fragment, useEffect, useMemo, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import {
   fetchShippingInstructions,
@@ -12,6 +13,7 @@ import { fetchSiLookups } from '../api/siLookups'
 import { useActivityLog } from '../context/ActivityLogContext'
 import { useRbac } from '../context/RbacContext'
 import PurposeBadge from '../components/PurposeBadge'
+import SiDetailModal from '../components/SiDetailModal'
 import { formatSiCalendarDateOnly } from '../utils/siFormPlaceDate'
 
 /** `YYYY-MM-DD` for `<input type="date" />` — API may return full ISO timestamps (e.g. from Postgres DATE via JSON). */
@@ -33,6 +35,11 @@ function mapSiFromApi(row) {
     status: row.status,
     commodity: row.commodity,
     etaDateTime: row.eta,
+    taDateTime: row.taDateTime ?? row.ta ?? null,
+    etbDateTime: row.etbDateTime ?? row.etb ?? null,
+    tbDateTime: row.tbDateTime ?? row.tb ?? null,
+    estimatedCompletionDateTime:
+      row.estimatedCompletionDateTime ?? row.estimationOfCompletion ?? row.etcDateTime ?? null,
     etaFrom: toDateInputValue(row.etaFrom) || toDateInputValue(row.eta),
     etaTo: toDateInputValue(row.etaTo) || toDateInputValue(row.eta),
     shipper: row.shipperName ?? '—',
@@ -101,6 +108,12 @@ function formatEta(n) {
   if (!raw) return '—'
   const d = new Date(raw)
   return Number.isNaN(d.getTime()) ? raw : d.toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
+}
+
+function formatDateTimeValue(raw) {
+  if (!raw) return '—'
+  const d = new Date(raw)
+  return Number.isNaN(d.getTime()) ? String(raw) : d.toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
 }
 
 /** Action icons — outlined style, consistent size (18×18), use currentColor */
@@ -354,6 +367,7 @@ const SI_TABLE_COLUMNS = [
 
 /** Actions column: Edit | Submit | Approve | View SI | Delete — same button sizing; disabled + tooltip when not applicable. */
 function SiRowActions({ row: n, canApproveSi, canDeleteSi, onEdit, onRequestApproval, onOpenApprove, onViewDocument, onDelete }) {
+  const { t } = useTranslation('shippingInstruction')
   const editReason = siEditDisabledReason(n)
   const submitReason = siSubmitDisabledReason(n)
   const approveReason = siApproveDisabledReason(n, canApproveSi)
@@ -367,8 +381,8 @@ function SiRowActions({ row: n, canApproveSi, canDeleteSi, onEdit, onRequestAppr
           type="button"
           className="btn btn--secondary btn--small si-table__action-btn si-table__action-icon"
           disabled={Boolean(editReason)}
-          title={editReason || 'Edit this draft instruction'}
-          aria-label={editReason || 'Edit this draft instruction'}
+          title={editReason || t('actionEdit')}
+          aria-label={editReason || t('actionEdit')}
           onClick={onEdit}
         >
           <IconEdit />
@@ -379,8 +393,8 @@ function SiRowActions({ row: n, canApproveSi, canDeleteSi, onEdit, onRequestAppr
           type="button"
           className="btn btn--primary btn--small si-table__action-btn si-table__action-icon"
           disabled={Boolean(submitReason)}
-          title={submitReason || 'Submit for approval'}
-          aria-label={submitReason || 'Submit for approval'}
+          title={submitReason || t('actionSubmitForApproval')}
+          aria-label={submitReason || t('actionSubmitForApproval')}
           onClick={onRequestApproval}
         >
           <IconRequestApproval />
@@ -391,8 +405,8 @@ function SiRowActions({ row: n, canApproveSi, canDeleteSi, onEdit, onRequestAppr
           type="button"
           className="btn btn--primary btn--small si-table__action-btn si-table__action-icon"
           disabled={Boolean(approveReason)}
-          title={approveReason || 'Open approval / sign-off'}
-          aria-label={approveReason || 'Open approval sign-off'}
+          title={approveReason || t('actionOpenApproval')}
+          aria-label={approveReason || t('actionOpenApproval')}
           onClick={onOpenApprove}
         >
           <IconApprove />
@@ -403,8 +417,8 @@ function SiRowActions({ row: n, canApproveSi, canDeleteSi, onEdit, onRequestAppr
           type="button"
           className="btn btn--secondary btn--small si-table__action-btn si-table__action-icon si-table__action-btn--view-si"
           disabled={Boolean(viewReason)}
-          title={viewReason || 'View SI document'}
-          aria-label={viewReason || 'View SI document'}
+          title={viewReason || t('actionViewSiDocument')}
+          aria-label={viewReason || t('actionViewSiDocument')}
           onClick={onViewDocument}
         >
           <IconViewDocument />
@@ -415,8 +429,8 @@ function SiRowActions({ row: n, canApproveSi, canDeleteSi, onEdit, onRequestAppr
           type="button"
           className="btn btn--secondary btn--small si-table__action-btn si-table__action-icon si-table__action-btn--delete-si"
           disabled={Boolean(deleteReason)}
-          title={deleteReason || 'Delete this instruction (Draft or Submitted only)'}
-          aria-label={deleteReason || 'Delete shipping instruction'}
+          title={deleteReason || t('actionDeleteInstruction')}
+          aria-label={deleteReason || t('actionDeleteShippingInstruction')}
           onClick={onDelete}
         >
           <IconDelete />
@@ -451,6 +465,7 @@ function nextSiId(list) {
 }
 
 export default function ShippingInstruction() {
+  const { t } = useTranslation('shippingInstruction')
   const navigate = useNavigate()
   const { logActivity } = useActivityLog()
   const { canApprove, canDelete } = useRbac()
@@ -473,7 +488,7 @@ export default function ShippingInstruction() {
   useEffect(() => {
     fetchSiLookups()
       .then((data) => setLookups(data))
-      .catch((e) => setLookupsError(e?.message || 'Failed to load form options'))
+      .catch((e) => setLookupsError(e?.message || t('loadingLookups')))
   }, [])
 
   const defaultFormFromLookups = (lu) => {
@@ -519,7 +534,7 @@ export default function ShippingInstruction() {
       } catch (e) {
         if (!cancelled) {
           setList([])
-          const msg = e?.message || 'Failed to load shipping instructions'
+          const msg = e?.message || t('listLoading')
           setToast({ message: msg, variant: 'error' })
         }
       } finally {
@@ -537,6 +552,7 @@ export default function ShippingInstruction() {
   const [filtersPanelOpen, setFiltersPanelOpen] = useState(false)
   const [sortState, setSortState] = useState({ key: 'siNo', dir: 'desc' })
   const [expandedId, setExpandedId] = useState(null)
+  const [siDetailId, setSiDetailId] = useState(null)
   const [breakdownBySi, setBreakdownBySi] = useState({})
   const [form, setForm] = useState(() => defaultFormFromLookups(null))
   const [npwpMaster, setNpwpMaster] = useState(null)
@@ -921,6 +937,27 @@ export default function ShippingInstruction() {
     setPanelFilters({ ...INITIAL_PANEL_FILTERS })
   }
   const updateColumnFilter = (key, value) => setColumnFilters((f) => ({ ...f, [key]: value }))
+  const labelByColKey = useCallback(
+    (key, fallback) =>
+      t(
+        ({
+          documentDate: 'colDocumentDate',
+          siNo: 'colSiNo',
+          vessel: 'colVessel',
+          agent: 'colAgent',
+          commodity: 'colMaterial',
+          shipper: 'colShipper',
+          surveyor: 'colSurveyor',
+          purpose: 'colPurpose',
+          eta: 'colEta',
+          status: 'colStatus',
+          approver: 'colApprover',
+          approvalDate: 'colApprovalDate',
+        })[key] || '',
+        { defaultValue: fallback }
+      ),
+    [t]
+  )
   const handleSort = (key) => setSortState((s) => ({ key, dir: s.key === key && s.dir === 'asc' ? 'desc' : 'asc' }))
 
   const filteredList = list.filter((n) => {
@@ -1020,19 +1057,19 @@ export default function ShippingInstruction() {
   }
 
   const handleExport = () => {
-    const headers = [
-      'Document date',
-      'SI No',
-      'Vessel',
-      'Agent',
-      'Material',
-      'Shipper',
-      'Surveyor',
-      'Purpose',
-      'ETA',
-      'Status',
-      'Approver',
-      'Approval date',
+      const headers = [
+      t('colDocumentDate'),
+      t('colSiNo'),
+      t('colVessel'),
+      t('colAgent'),
+      t('colMaterial'),
+      t('colShipper'),
+      t('colSurveyor'),
+      t('colPurpose'),
+      t('colEta'),
+      t('colStatus'),
+      t('colApprover'),
+      t('colApprovalDate'),
     ]
     const rows = sortedList.map((n) => {
       const docLabel = formatSiCalendarDateOnly(n.documentDate)
@@ -1078,7 +1115,7 @@ export default function ShippingInstruction() {
             type="button"
             className="si-toast__close"
             onClick={() => setToast(null)}
-            aria-label="Dismiss notification"
+            aria-label={t('dismissNotification')}
           >
             ×
           </button>
@@ -1086,9 +1123,9 @@ export default function ShippingInstruction() {
       )}
       <header className="si-page-header">
         <div className="si-page-header__text">
-          <h1 className="page-title">Shipping Instructions</h1>
+          <h1 className="page-title">{t('pageTitle')}</h1>
           <p className="si-page-header__subtitle">
-            Manage and monitor all submitted vessel shipping instructions for jetty operations.
+            {t('subtitle')}
           </p>
         </div>
         {SHOW_CREATE_NEW && (
@@ -1098,32 +1135,32 @@ export default function ShippingInstruction() {
             onClick={openCreateModal}
             aria-expanded={isFormOpen}
           >
-            + Create New SI
+            {t('createNewSi')}
           </button>
         )}
       </header>
-      {listLoading && <p className="text-steel" style={{ padding: '0 1rem' }}>Loading shipping instructions…</p>}
+      {listLoading && <p className="text-steel" style={{ padding: '0 1rem' }}>{t('listLoading')}</p>}
 
       <div className="si-summary-cards">
         <div className="si-summary-card">
           <span className="si-summary-card__icon" aria-hidden>🚢</span>
           <span className="si-summary-card__value">{totalSI.toLocaleString()}</span>
-          <span className="si-summary-card__label">TOTAL SI</span>
+          <span className="si-summary-card__label">{t('totalSi')}</span>
         </div>
         <div className="si-summary-card">
           <span className="si-summary-card__icon" aria-hidden>🕐</span>
           <span className="si-summary-card__value">{pendingApproval}</span>
-          <span className="si-summary-card__label">PENDING APPROVAL</span>
+          <span className="si-summary-card__label">{t('pendingApproval')}</span>
         </div>
         <div className="si-summary-card">
           <span className="si-summary-card__icon" aria-hidden>🕐</span>
           <span className="si-summary-card__value">{upcomingArrivals}</span>
-          <span className="si-summary-card__label">UPCOMING ARRIVALS</span>
+          <span className="si-summary-card__label">{t('upcomingArrivals')}</span>
         </div>
         <div className="si-summary-card">
           <span className="si-summary-card__icon si-summary-card__icon--check" aria-hidden>✓</span>
           <span className="si-summary-card__value">{approvedThisWeek}</span>
-          <span className="si-summary-card__label">APPROVED THIS WEEK</span>
+          <span className="si-summary-card__label">{t('approvedThisWeek')}</span>
         </div>
       </div>
 
@@ -1135,10 +1172,10 @@ export default function ShippingInstruction() {
             onClick={() => setFiltersPanelOpen((o) => !o)}
             aria-expanded={filtersPanelOpen}
           >
-            🔽 Filters
+            🔽 {t('filters')}
           </button>
           <button type="button" className="btn btn--secondary si-toolbar__btn" onClick={handleExport}>
-            ⬇ Export
+            ⬇ {t('export')}
           </button>
         </div>
       </div>
@@ -1146,46 +1183,50 @@ export default function ShippingInstruction() {
       {filtersPanelOpen && (
         <div className="si-filters-panel">
           <div className="si-filters-panel__row">
-            <label className="si-filters-panel__label">Purpose</label>
+            <label className="si-filters-panel__label">{t('filterPurpose')}</label>
             <select
               className="si-filters-panel__select"
               value={panelFilters.purpose}
               onChange={(e) => updatePanelFilter('purpose', e.target.value)}
             >
               {PURPOSE_OPTIONS.map((opt) => (
-                <option key={opt.value || 'all'} value={opt.value}>{opt.label}</option>
+                <option key={opt.value || 'all'} value={opt.value}>
+                  {opt.value === '' ? t('filterAll') : opt.value}
+                </option>
               ))}
             </select>
           </div>
           <div className="si-filters-panel__row">
-            <label className="si-filters-panel__label">Status</label>
+            <label className="si-filters-panel__label">{t('filterStatus')}</label>
             <select
               className="si-filters-panel__select"
               value={panelFilters.status}
               onChange={(e) => updatePanelFilter('status', e.target.value)}
             >
               {STATUS_OPTIONS.map((opt) => (
-                <option key={opt.value || 'all'} value={opt.value}>{opt.label}</option>
+                <option key={opt.value || 'all'} value={opt.value}>
+                  {opt.value === '' ? t('filterAll') : opt.value}
+                </option>
               ))}
             </select>
           </div>
           <div className="si-filters-panel__row si-filters-panel__row--document-date">
-            <span className="si-filters-panel__label">Document Date</span>
+            <span className="si-filters-panel__label">{t('filterDocumentDate')}</span>
             <div className="si-filters-panel__date-range">
               <input
                 type="date"
                 className="si-filters-panel__date-input"
                 value={panelFilters.documentDateFrom}
                 onChange={(e) => updatePanelFilter('documentDateFrom', e.target.value)}
-                aria-label="Document date from"
+                aria-label={t('documentDateFromAria')}
               />
-              <span className="si-filters-panel__date-range-sep">to</span>
+              <span className="si-filters-panel__date-range-sep">{t('dateRangeTo')}</span>
               <input
                 type="date"
                 className="si-filters-panel__date-input"
                 value={panelFilters.documentDateTo}
                 onChange={(e) => updatePanelFilter('documentDateTo', e.target.value)}
-                aria-label="Document date to"
+                aria-label={t('documentDateToAria')}
               />
             </div>
           </div>
@@ -1194,9 +1235,9 @@ export default function ShippingInstruction() {
               type="button"
               className="btn btn--secondary"
               onClick={resetPanelFilters}
-              aria-label="Reset Purpose, Status, and Document Date filters to show all"
+              aria-label={t('resetFiltersAria')}
             >
-              Reset
+              {t('reset')}
             </button>
           </div>
         </div>
@@ -1212,16 +1253,16 @@ export default function ShippingInstruction() {
             aria-modal="true"
           >
             <h2 id="si-modal-title" className="modal__title">
-              {editingId ? `Edit Shipping Instruction (Draft) — #${editingId}` : 'Create Vessel Trip / New Shipping Instruction'}
+              {editingId ? t('modalEditTitle', { id: editingId }) : t('modalCreateTitle')}
             </h2>
             {lookupsError && <p className="text-steel" style={{ color: '#c00' }}>{lookupsError}</p>}
-            {!lookups && !lookupsError && <p className="text-steel">Loading options from API…</p>}
+            {!lookups && !lookupsError && <p className="text-steel">{t('loadingLookups')}</p>}
             <form onSubmit={handleSubmit} className="shipping-instruction-form">
               <div className="shipping-instruction-form__section">
-                <h3 className="shipping-instruction-form__section-title">Purpose</h3>
+                <h3 className="shipping-instruction-form__section-title">{t('formPurposeSection')}</h3>
                 <div className="shipping-instruction-form__grid">
                   <div className="input-group" style={{ gridColumn: '1 / -1' }}>
-                    <label htmlFor="purpose">Purpose *</label>
+                    <label htmlFor="purpose">{t('formPurposeRequired')}</label>
                     <select
                       id="purpose"
                       value={form.purposeId}
@@ -1236,7 +1277,7 @@ export default function ShippingInstruction() {
                     </select>
                     {!purposeChosen && (
                       <div className="text-steel" style={{ marginTop: 6, fontSize: '0.875rem' }}>
-                        Select <strong>Loading</strong> or <strong>Unloading</strong> to continue.
+                        {t('formPurposeHint')}
                       </div>
                     )}
                   </div>
@@ -1245,10 +1286,10 @@ export default function ShippingInstruction() {
 
               <fieldset disabled={!formEnabled} style={{ border: 0, padding: 0, margin: 0 }}>
               <div className="shipping-instruction-form__section">
-                <h3 className="shipping-instruction-form__section-title">Vessel & trip</h3>
+                <h3 className="shipping-instruction-form__section-title">{t('formVesselTripSection')}</h3>
                 <div className="shipping-instruction-form__grid shipping-instruction-form__grid--vessel-trip">
                   <div className="input-group shipping-instruction-form__vessel">
-                    <label htmlFor="vesselName">Vessel Name *</label>
+                    <label htmlFor="vesselName">{t('formVesselNameRequired')}</label>
                     <input
                       id="vesselName"
                       value={form.vesselName}
@@ -1259,7 +1300,7 @@ export default function ShippingInstruction() {
                     />
                   </div>
                   <div className="input-group shipping-instruction-form__ref">
-                    <label htmlFor="siRef">Shipping Instructions No. *</label>
+                    <label htmlFor="siRef">{t('formSiNoRequired')}</label>
                     <input
                       id="siRef"
                       value={form.referenceNumber}
@@ -1270,7 +1311,7 @@ export default function ShippingInstruction() {
                     />
                   </div>
                   <div className="input-group shipping-instruction-form__docdate">
-                    <label htmlFor="documentDate">Document date *</label>
+                    <label htmlFor="documentDate">{t('formDocumentDateRequired')}</label>
                     <input
                       id="documentDate"
                       type="date"
@@ -1281,15 +1322,15 @@ export default function ShippingInstruction() {
                     />
                   </div>
                   <div className="input-group shipping-instruction-form__eta-from">
-                    <label htmlFor="etaFrom">ETA from *</label>
+                    <label htmlFor="etaFrom">{t('formEtaFromRequired')}</label>
                     <input id="etaFrom" type="date" value={form.etaFrom} onChange={(e) => updateForm({ etaFrom: e.target.value })} required disabled={!lookups} />
                   </div>
                   <div className="input-group shipping-instruction-form__eta-to">
-                    <label htmlFor="etaTo">ETA to *</label>
+                    <label htmlFor="etaTo">{t('formEtaToRequired')}</label>
                     <input id="etaTo" type="date" value={form.etaTo} onChange={(e) => updateForm({ etaTo: e.target.value })} required disabled={!lookups} />
                   </div>
                   <div className="input-group shipping-instruction-form__jetty">
-                    <label htmlFor="jetty">Preferred jetty</label>
+                    <label htmlFor="jetty">{t('formPreferredJetty')}</label>
                     <select id="jetty" value={form.preferredJettyId} onChange={(e) => updateForm({ preferredJettyId: e.target.value })} disabled={!lookups}>
                       <option value="">—</option>
                       {(lookups?.jetties || []).map((j) => (
@@ -1298,7 +1339,7 @@ export default function ShippingInstruction() {
                     </select>
                   </div>
                   <div className="input-group shipping-instruction-form__voyage">
-                    <label htmlFor="voyageNo">Voyage no. (optional)</label>
+                    <label htmlFor="voyageNo">{t('formVoyageOptional')}</label>
                     <input
                       id="voyageNo"
                       value={form.voyageNo}
@@ -1312,10 +1353,10 @@ export default function ShippingInstruction() {
 
               {isLoadingPurpose && (
                 <div className="shipping-instruction-form__section">
-                  <h3 className="shipping-instruction-form__section-title">Route & freight</h3>
+                  <h3 className="shipping-instruction-form__section-title">{t('formRouteFreightSection')}</h3>
                   <div className="shipping-instruction-form__grid">
                     <div className="input-group" style={{ gridColumn: '1 / -1' }}>
-                      <label htmlFor="destinationText">Destination</label>
+                      <label htmlFor="destinationText">{t('formDestination')}</label>
                       <input
                         id="destinationText"
                         value={form.destinationText}
@@ -1325,7 +1366,7 @@ export default function ShippingInstruction() {
                       />
                     </div>
                     <div className="input-group">
-                      <label htmlFor="freightTerms">Freight terms</label>
+                      <label htmlFor="freightTerms">{t('formFreightTerms')}</label>
                       <select
                         id="freightTerms"
                         value={form.freightTerms}
@@ -1342,10 +1383,10 @@ export default function ShippingInstruction() {
               )}
 
               <div className="shipping-instruction-form__section">
-                <h3 className="shipping-instruction-form__section-title">Party & port</h3>
+                <h3 className="shipping-instruction-form__section-title">{t('formPartyPortSection')}</h3>
                 <div className="shipping-instruction-form__grid">
                   <div className="input-group">
-                    <label htmlFor="shipper">Shipper</label>
+                    <label htmlFor="shipper">{t('formShipper')}</label>
                     <select id="shipper" value={form.shipperId} onChange={(e) => updateForm({ shipperId: e.target.value })} disabled={!lookups}>
                       <option value="">—</option>
                       {(lookups?.shippers || []).map((s) => (
@@ -1354,7 +1395,7 @@ export default function ShippingInstruction() {
                     </select>
                   </div>
                   <div className="input-group">
-                    <label htmlFor="agent">Agent</label>
+                    <label htmlFor="agent">{t('formAgent')}</label>
                     <select id="agent" value={form.agentId} onChange={(e) => updateForm({ agentId: e.target.value })} disabled={!lookups}>
                       <option value="">—</option>
                       {(lookups?.agents || []).map((a) => (
@@ -1363,7 +1404,7 @@ export default function ShippingInstruction() {
                     </select>
                   </div>
                   <div className="input-group">
-                    <label htmlFor="loadingPort">Loading Port / Shipment From</label>
+                    <label htmlFor="loadingPort">{t('formLoadingPort')}</label>
                     <select id="loadingPort" value={form.loadingPortId} onChange={(e) => updateForm({ loadingPortId: e.target.value })} disabled={!lookups}>
                       <option value="">—</option>
                       {(lookups?.loadingPorts || []).map((p) => (
@@ -1373,7 +1414,7 @@ export default function ShippingInstruction() {
                   </div>
                   {isUnloadingPurpose && (
                     <div className="input-group">
-                      <label htmlFor="term">Term</label>
+                      <label htmlFor="term">{t('formTerm')}</label>
                       <select id="term" value={form.tradeTermId} onChange={(e) => updateForm({ tradeTermId: e.target.value })} disabled={!lookups}>
                         <option value="">—</option>
                         {(lookups?.tradeTerms || []).map((t) => (
@@ -1392,7 +1433,7 @@ export default function ShippingInstruction() {
               </div>
 
               <div className="shipping-instruction-form__section">
-                <h3 className="shipping-instruction-form__section-title">Shipment breakdown (Contract / PO)</h3>
+                <h3 className="shipping-instruction-form__section-title">{t('formBreakdownSection')}</h3>
                 <p className="text-steel" style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>
                   Each row is one contract line: its own commodity, qty, and unit (KL / MT).
                 </p>
@@ -1400,12 +1441,12 @@ export default function ShippingInstruction() {
                   <table className="data-table shipping-instruction-breakdown-table">
                     <thead>
                       <tr>
-                        <th>Commodity *</th>
-                        <th>Qty *</th>
-                        <th>Unit *</th>
-                        <th>Contract No</th>
-                        <th>PO No</th>
-                        <th>Remarks</th>
+                        <th>{t('formBreakdownCommodityReq')}</th>
+                        <th>{t('formBreakdownQtyReq')}</th>
+                        <th>{t('formBreakdownUnitReq')}</th>
+                        <th>{t('formBreakdownContractNo')}</th>
+                        <th>{t('formBreakdownPoNo')}</th>
+                        <th>{t('formBreakdownRemarks')}</th>
                         <th></th>
                       </tr>
                     </thead>
@@ -1489,7 +1530,7 @@ export default function ShippingInstruction() {
                     </tbody>
                     <tfoot>
                       <tr>
-                        <td colSpan={2} className="shipping-instruction-total-label">Totals by unit</td>
+                        <td colSpan={2} className="shipping-instruction-total-label">{t('formTotalsByUnit')}</td>
                         <td colSpan={5} className="shipping-instruction-total-value">
                           {Object.keys(breakdownTotalsByMetric).length === 0
                             ? '—'
@@ -1509,10 +1550,10 @@ export default function ShippingInstruction() {
 
               {isLoadingPurpose && (
                 <div className="shipping-instruction-form__section">
-                  <h3 className="shipping-instruction-form__section-title">B/L & consignee</h3>
+                  <h3 className="shipping-instruction-form__section-title">{t('formBlConsigneeSection')}</h3>
                   <div className="shipping-instruction-form__grid">
                   <div className="input-group" style={{ gridColumn: '1 / -1' }}>
-                    <label htmlFor="blSplitText">B/L Split</label>
+                    <label htmlFor="blSplitText">{t('formBlSplit')}</label>
                     <textarea
                       id="blSplitText"
                       className="shipping-instruction-inline-input"
@@ -1524,7 +1565,7 @@ export default function ShippingInstruction() {
                     />
                   </div>
                   <div className="input-group" style={{ gridColumn: '1 / -1' }}>
-                    <label htmlFor="billOfLadingClause">Bill of lading clause</label>
+                    <label htmlFor="billOfLadingClause">{t('formBillOfLadingClause')}</label>
                     <textarea
                       id="billOfLadingClause"
                       className="shipping-instruction-inline-input"
@@ -1536,7 +1577,7 @@ export default function ShippingInstruction() {
                     />
                   </div>
                   <div className="input-group" style={{ gridColumn: '1 / -1' }}>
-                    <label htmlFor="consigneeText">Consignee</label>
+                    <label htmlFor="consigneeText">{t('formConsignee')}</label>
                     <textarea
                       id="consigneeText"
                       className="shipping-instruction-inline-input"
@@ -1548,7 +1589,7 @@ export default function ShippingInstruction() {
                     />
                   </div>
                   <div className="input-group" style={{ gridColumn: '1 / -1' }}>
-                    <label htmlFor="notifyPartyText">Notify party</label>
+                    <label htmlFor="notifyPartyText">{t('formNotifyParty')}</label>
                     <textarea
                       id="notifyPartyText"
                       className="shipping-instruction-inline-input"
@@ -1559,7 +1600,7 @@ export default function ShippingInstruction() {
                     />
                   </div>
                   <div className="input-group" style={{ gridColumn: '1 / -1' }}>
-                    <label htmlFor="blIndicated">BL indicated</label>
+                    <label htmlFor="blIndicated">{t('formBlIndicated')}</label>
                     <textarea
                       id="blIndicated"
                       className="shipping-instruction-inline-input"
@@ -1575,7 +1616,7 @@ export default function ShippingInstruction() {
               )}
 
               <div className="shipping-instruction-form__section">
-                <h3 className="shipping-instruction-form__section-title">Document upload</h3>
+                <h3 className="shipping-instruction-form__section-title">{t('formDocumentUpload')}</h3>
                 <p className="text-steel" style={{ marginBottom: 'var(--spacing-2)', fontSize: 'var(--font-size-small)' }}>
                   Add multiple documents. Only file names are stored (no file content).
                 </p>
@@ -1598,14 +1639,14 @@ export default function ShippingInstruction() {
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-steel" style={{ fontSize: 'var(--font-size-small)' }}>No documents added.</p>
+                  <p className="text-steel" style={{ fontSize: 'var(--font-size-small)' }}>{t('formNoDocumentsAdded')}</p>
                 )}
               </div>
 
               <div className="shipping-instruction-form__section">
-                <h3 className="shipping-instruction-form__section-title">Note</h3>
+                <h3 className="shipping-instruction-form__section-title">{t('formNoteSection')}</h3>
                 <div className="input-group">
-                  <label htmlFor="siNote">Anything important for this SI (quality, handling, remarks, etc.)</label>
+                  <label htmlFor="siNote">{t('formNoteLabel')}</label>
                   <textarea
                     id="siNote"
                     className="shipping-instruction-inline-input"
@@ -1621,9 +1662,9 @@ export default function ShippingInstruction() {
               </fieldset>
               <div className="modal__footer">
                 <button type="button" className="btn btn--secondary" onClick={handleCloseModal}>
-                  Cancel
+                  {t('cancel')}
                 </button>
-                <button type="submit" className="btn btn--primary" disabled={!formEnabled}>Submit</button>
+                <button type="submit" className="btn btn--primary" disabled={!formEnabled}>{t('submit')}</button>
               </div>
             </form>
           </div>
@@ -1631,14 +1672,14 @@ export default function ShippingInstruction() {
       )}
 
       <section className="card">
-        <h2 className="card__title">Shipping instructions</h2>
+        <h2 className="card__title">{t('tableSectionTitle')}</h2>
         <div className="table-wrap">
           <table className="data-table shipping-instruction-table">
             <thead>
               <tr>
-                <th className="shipping-instruction-table__expand-col" aria-label="Expand row" />
+                <th className="shipping-instruction-table__expand-col" aria-label={t('expandRow')} />
                 <th scope="col" className="si-table__col-actions shipping-instruction-table__th--actions">
-                  Actions
+                  {t('actions')}
                 </th>
                 {SI_TABLE_COLUMNS.map((col) => (
                   <th key={col.key} className="shipping-instruction-table__th">
@@ -1646,9 +1687,9 @@ export default function ShippingInstruction() {
                       type="button"
                       className="shipping-instruction-table__sort"
                       onClick={() => handleSort(col.key)}
-                      title={`Sort by ${col.label}`}
+                      title={t('sortBy', { label: labelByColKey(col.key, col.label) })}
                     >
-                      {col.label}
+                      {labelByColKey(col.key, col.label)}
                       <span className="shipping-instruction-table__sort-icon">
                         {sortState.key === col.key ? (sortState.dir === 'asc' ? ' ↑' : ' ↓') : ' ⇅'}
                       </span>
@@ -1664,11 +1705,11 @@ export default function ShippingInstruction() {
                     <input
                       type="text"
                       className="shipping-instruction-table__filter"
-                      placeholder={`Filter ${col.label}`}
+                      placeholder={t('filterPlaceholder', { label: labelByColKey(col.key, col.label) })}
                       value={columnFilters[col.key]}
                       onChange={(e) => updateColumnFilter(col.key, e.target.value)}
                       onClick={(e) => e.stopPropagation()}
-                      aria-label={`Filter by ${col.label}`}
+                      aria-label={t('filterBy', { label: labelByColKey(col.key, col.label) })}
                     />
                   </th>
                 ))}
@@ -1710,65 +1751,88 @@ export default function ShippingInstruction() {
                       />
                     </td>
                     {SI_TABLE_COLUMNS.map((col) => (
-                      <td key={col.key}>{col.getCell(n)}</td>
+                      <td key={col.key}>
+                        {col.key === 'siNo' ? (
+                          n.id ? (
+                            <a
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setSiDetailId(n.id)
+                              }}
+                              aria-label={t('openSiDetail')}
+                            >
+                              {n.siId || '—'}
+                            </a>
+                          ) : (
+                            n.siId || '—'
+                          )
+                        ) : (
+                          col.getCell(n)
+                        )}
+                      </td>
                     ))}
                   </tr>
                   {expandedId === n.id && (
                     <tr key={n.id + '-detail'} className="shipping-instruction-table__detail-row">
                       <td colSpan={SI_TABLE_COLUMNS.length + 2} className="shipping-instruction-table__detail-cell">
                         <div className="shipping-instruction-detail">
-                          <h4 className="shipping-instruction-detail__title">Full details</h4>
+                          <h4 className="shipping-instruction-detail__title">{t('detailTitle')}</h4>
                           <dl className="shipping-instruction-detail__grid">
-                            <dt>SI No</dt><dd>{n.siId || '—'}</dd>
-                            <dt>Status</dt><dd>{getDisplayStatus(n)}</dd>
+                            <dt>{t('dtSiNo')}</dt><dd>{n.siId || '—'}</dd>
+                            <dt>{t('dtStatus')}</dt><dd>{getDisplayStatus(n)}</dd>
                             {(n.purpose || '').toLowerCase() === 'unloading' && (
-                              <><dt>Source</dt><dd>External</dd></>
+                              <><dt>{t('dtSource')}</dt><dd>{t('sourceExternal')}</dd></>
                             )}
-                            <dt>Vessel</dt><dd>{n.vesselName || n.vesselId || '—'}</dd>
-                            <dt>Purpose</dt>
+                            <dt>{t('dtVessel')}</dt><dd>{n.vesselName || n.vesselId || '—'}</dd>
+                            <dt>{t('dtPurpose')}</dt>
                             <dd>
                               <PurposeBadge purpose={n.purpose} />
                             </dd>
-                            <dt>Jetty</dt><dd>{n.jetty || '—'}</dd>
-                            <dt>ETA From</dt><dd>{n.etaFrom || (n.etaDateTime ? String(n.etaDateTime).slice(0, 10) : '—')}</dd>
-                            <dt>ETA To</dt><dd>{n.etaTo || (n.etaDateTime ? String(n.etaDateTime).slice(0, 10) : '—')}</dd>
-                            <dt>Term</dt><dd>{n.term || '—'}</dd>
-                            <dt>Voyage</dt><dd>{n.voyageNo || '—'}</dd>
-                            <dt>Destination</dt><dd>{n.destinationText || '—'}</dd>
-                            <dt>Freight terms</dt><dd>{n.freightTerms || '—'}</dd>
-                            <dt>Document date</dt><dd>{n.documentDate || '—'}</dd>
-                            <dt>B/L clause</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{n.billOfLadingClause || '—'}</dd>
-                            <dt>B/L split</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{n.blSplitText || '—'}</dd>
-                            <dt>Consignee</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{n.consigneeText || '—'}</dd>
-                            <dt>Notify party</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{n.notifyPartyText || '—'}</dd>
-                            <dt>BL indicated</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{n.blIndicated || '—'}</dd>
-                            <dt>Shipper</dt><dd>{n.shipper || '—'}</dd>
-                            <dt>Loading port</dt><dd>{n.loadingPort || '—'}</dd>
-                            <dt>Surveyor</dt><dd>{n.surveyor || '—'}</dd>
-                            <dt>Agent</dt><dd>{n.agent || '—'}</dd>
-                            <dt>Note</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{n.note || '—'}</dd>
-                            <dt>Approver</dt>
+                            <dt>{t('dtJetty')}</dt><dd>{n.jetty || '—'}</dd>
+                            <dt>{t('dtEta')}</dt><dd>{formatEta(n)}</dd>
+                            <dt>{t('dtTa')}</dt><dd>{formatDateTimeValue(n.taDateTime || n.ta)}</dd>
+                            <dt>{t('dtEtb')}</dt><dd>{formatDateTimeValue(n.etbDateTime || n.etb)}</dd>
+                            <dt>{t('dtTb')}</dt><dd>{formatDateTimeValue(n.tbDateTime || n.tb)}</dd>
+                            <dt>{t('dtEstimatedCompletion')}</dt><dd>{formatDateTimeValue(n.estimatedCompletionDateTime || n.estimationOfCompletion || n.etcDateTime)}</dd>
+                            <dt>{t('dtTerm')}</dt><dd>{n.term || '—'}</dd>
+                            <dt>{t('dtVoyage')}</dt><dd>{n.voyageNo || '—'}</dd>
+                            <dt>{t('dtDestination')}</dt><dd>{n.destinationText || '—'}</dd>
+                            <dt>{t('dtFreightTerms')}</dt><dd>{n.freightTerms || '—'}</dd>
+                            <dt>{t('dtDocumentDate')}</dt><dd>{n.documentDate || '—'}</dd>
+                            <dt>{t('dtBlClause')}</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{n.billOfLadingClause || '—'}</dd>
+                            <dt>{t('dtBlSplit')}</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{n.blSplitText || '—'}</dd>
+                            <dt>{t('dtConsignee')}</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{n.consigneeText || '—'}</dd>
+                            <dt>{t('dtNotifyParty')}</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{n.notifyPartyText || '—'}</dd>
+                            <dt>{t('dtBlIndicated')}</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{n.blIndicated || '—'}</dd>
+                            <dt>{t('dtShipper')}</dt><dd>{n.shipper || '—'}</dd>
+                            <dt>{t('dtLoadingPort')}</dt><dd>{n.loadingPort || '—'}</dd>
+                            <dt>{t('dtSurveyor')}</dt><dd>{n.surveyor || '—'}</dd>
+                            <dt>{t('dtAgent')}</dt><dd>{n.agent || '—'}</dd>
+                            <dt>{t('dtNote')}</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{n.note || '—'}</dd>
+                            <dt>{t('dtApprover')}</dt>
                             <dd>{n.approverNameSnapshot || n.approverDisplayName || '—'}</dd>
-                            <dt>Approval date</dt>
+                            <dt>{t('dtApprovalDate')}</dt>
                             <dd>{n.approvedAt ? formatDate(n.approvedAt) : '—'}</dd>
-                            <dt>Received</dt><dd>{formatDate(n.receivedAt)}</dd>
+                            <dt>{t('dtReceived')}</dt><dd>{formatDate(n.receivedAt)}</dd>
                           </dl>
-                          <h5 className="shipping-instruction-detail__title" style={{ marginTop: '1rem' }}>Contract / PO breakdown</h5>
-                          {breakdownBySi[n.id] === undefined && <p className="text-steel">Loading…</p>}
+                          <h5 className="shipping-instruction-detail__title" style={{ marginTop: '1rem' }}>{t('breakdownTitle')}</h5>
+                          {breakdownBySi[n.id] === undefined && <p className="text-steel">{t('breakdownLoading')}</p>}
                           {Array.isArray(breakdownBySi[n.id]) && breakdownBySi[n.id].length === 0 && (
-                            <p className="text-steel">No breakdown lines.</p>
+                            <p className="text-steel">{t('breakdownEmpty')}</p>
                           )}
                           {breakdownBySi[n.id]?.length > 0 && (
                             <div className="table-wrap">
                               <table className="data-table">
                                 <thead>
                                   <tr>
-                                    <th>Commodity</th>
-                                    <th>Qty</th>
-                                    <th>Unit</th>
-                                    <th>Contract</th>
-                                    <th>PO</th>
-                                    <th>Remarks</th>
+                                    <th>{t('breakdownCommodity')}</th>
+                                    <th>{t('breakdownQty')}</th>
+                                    <th>{t('breakdownUnit')}</th>
+                                    <th>{t('breakdownContract')}</th>
+                                    <th>{t('breakdownPo')}</th>
+                                    <th>{t('breakdownRemarks')}</th>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -1788,7 +1852,7 @@ export default function ShippingInstruction() {
                           )}
                           {n.documents && n.documents.length > 0 && (
                             <div className="shipping-instruction-detail__docs">
-                              <h4 className="shipping-instruction-detail__subtitle">Documents</h4>
+                              <h4 className="shipping-instruction-detail__subtitle">{t('documentsTitle')}</h4>
                               <ul className="shipping-instruction-detail__docs-list">
                                 {n.documents.map((d) => (
                                   <li key={d.id}>{d.name}</li>
@@ -1806,6 +1870,11 @@ export default function ShippingInstruction() {
           </table>
         </div>
       </section>
+      <SiDetailModal
+        isOpen={Boolean(siDetailId)}
+        siId={siDetailId}
+        onClose={() => setSiDetailId(null)}
+      />
     </div>
   )
 }

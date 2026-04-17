@@ -6,9 +6,10 @@ import { fetchShippingInstructions } from '../api/shippingInstructions'
 import { fetchAllocationOverview } from '../api/allocation'
 import { fetchJetties } from '../api/jetties'
 import { fetchActivityLogs } from '../api/activityLogs'
+import { useTranslation } from 'react-i18next'
 import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
-import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import { formatDateTimeDisplay, getAppLocaleTag } from '../utils/formatDateTimeDisplay'
 import { isPlannedBerthingQueueRow } from '../utils/dashboardQueueClassification'
 import { atBerthExecutionOpenPath } from '../utils/atBerthOpenPath'
 import DashboardActivityChart from '../components/DashboardActivityChart'
@@ -23,28 +24,10 @@ const PHASE_EMOJI = {
   Operational: '⚙️',
   'Post-Checking': '✅',
 }
-/** Short labels for compact dashboard cards (data keys stay AT_BERTH_SUMMARY_PHASES). */
-const PHASE_SHORT_LABEL = {
-  'Pre-Checking': 'Pre',
-  Operational: 'Ops',
-  'Post-Checking': 'Post',
-}
-const PURPOSES = [
-  { key: 'Loading', label: 'Loading' },
-  { key: 'Unloading', label: 'Unloading' },
-]
-
-const PIPELINE_STAGES = [
-  { id: 'si', label: 'Shipping Instruction', path: '/shipping-instruction', color: 'si' },
-  { id: 'planned-berthing', label: 'Planned berthing', path: '/allocation', color: 'planned-berthing' },
-  { id: 'at-berth', label: 'At-Berth', path: '/at-berth', color: 'at-berth' },
-  { id: 'clearance', label: 'Clearance', path: '/verification', color: 'clearance' },
-]
-
 const ACTIVITY_PAGE_KEYS = ['allocation', 'shipping-instruction', 'verification', 'at-berth', 'loading']
-const PERF_WINDOWS = [
-  { key: '7d', label: 'Last 7 days', ms: 7 * 24 * 3600000 },
-  { key: '24h', label: 'Last 24 hours', ms: 24 * 3600000 },
+const PERF_WINDOW_DEFS = [
+  { key: '7d', labelKey: 'perfWindow7d', ms: 7 * 24 * 3600000 },
+  { key: '24h', labelKey: 'perfWindow24h', ms: 24 * 3600000 },
 ]
 
 function phaseForAtBerthSummaryCard(status) {
@@ -61,14 +44,14 @@ function parseIso(value) {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
-function formatRelativeTime(iso) {
+function formatRelativeTime(iso, t) {
   const d = parseIso(iso)
   if (!d) return '—'
   const sec = Math.floor((Date.now() - d.getTime()) / 1000)
-  if (sec < 60) return 'just now'
-  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`
-  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`
-  return `${Math.floor(sec / 86400)}d ago`
+  if (sec < 60) return t('relativeJustNow')
+  if (sec < 3600) return t('relativeMinutesAgo', { n: Math.floor(sec / 60) })
+  if (sec < 86400) return t('relativeHoursAgo', { n: Math.floor(sec / 3600) })
+  return t('relativeDaysAgo', { n: Math.floor(sec / 86400) })
 }
 
 function median(values) {
@@ -88,6 +71,32 @@ function formatDurationHours(hours) {
 }
 
 export default function Dashboard() {
+  const { t } = useTranslation('dashboard')
+  const { t: tPages } = useTranslation('pages')
+  const pipelineStages = useMemo(
+    () => [
+      { id: 'si', label: t('pipelineSi'), path: '/shipping-instruction', color: 'si' },
+      { id: 'planned-berthing', label: t('pipelinePlannedBerthing'), path: '/allocation', color: 'planned-berthing' },
+      { id: 'at-berth', label: t('pipelineAtBerth'), path: '/at-berth', color: 'at-berth' },
+      { id: 'clearance', label: t('pipelineClearance'), path: '/verification', color: 'clearance' },
+    ],
+    [t]
+  )
+  const purposesUi = useMemo(
+    () => [
+      { key: 'Loading', label: t('purposeLoading') },
+      { key: 'Unloading', label: t('purposeUnloading') },
+    ],
+    [t]
+  )
+  const phaseShortLabel = useMemo(
+    () => ({
+      'Pre-Checking': t('phasePre'),
+      Operational: t('phaseOps'),
+      'Post-Checking': t('phasePost'),
+    }),
+    [t]
+  )
   const { current, forecast } = dashboardWeather
   const { selectedPortId, selectedPort } = usePortScope()
   const { canView } = useRbac()
@@ -251,11 +260,11 @@ export default function Dashboard() {
         out.push({ primary: `${slotLabel} — ${vesselName}` })
       }
       if (occs.length > cap) {
-        out.push({ primary: `${jettyId}-${String(cap).padStart(2, '0')} — +${occs.length - cap} more` })
+        out.push({ primary: `${jettyId}-${String(cap).padStart(2, '0')} — ${t('slotMore', { n: occs.length - cap })}` })
       }
     }
     return out
-  }, [berths])
+  }, [berths, t])
 
   const jettyStatusLists = useMemo(() => {
     const avail = []
@@ -316,7 +325,7 @@ export default function Dashboard() {
   }, [allOps])
 
   const performance = useMemo(() => {
-    const win = PERF_WINDOWS.find((w) => w.key === perfWindow) || PERF_WINDOWS[0]
+    const win = PERF_WINDOW_DEFS.find((w) => w.key === perfWindow) || PERF_WINDOW_DEFS[0]
     const cutoff = Date.now() - win.ms
     const tolMs = 6 * 3600000
     const queueList = Array.isArray(queue) ? queue : []
@@ -389,6 +398,7 @@ export default function Dashboard() {
 
     return {
       window: win,
+      windowLabel: t(win.labelKey),
       minSample,
       waiting: { medianHours: waitingMedian, sampleSize: waitingHrs.length, worst: waitingWorst.slice(0, 10) },
       turnaround: {
@@ -398,7 +408,7 @@ export default function Dashboard() {
       },
       onTime: { ratePct: onTimeRate, eligible: onTimeEligible, onTime: onTimeCount, late: onTimeLateList.slice(0, 10) },
     }
-  }, [queue, allOps, perfWindow])
+  }, [queue, allOps, perfWindow, t])
 
   const plannedBerthingCount = useMemo(
     () => queue.filter(isPlannedBerthingQueueRow).length,
@@ -413,17 +423,17 @@ export default function Dashboard() {
   }
 
   const weatherFooter = (
-    <section className="dashboard-weather-footer" aria-label="Weather preview">
+    <section className="dashboard-weather-footer" aria-label={t('weatherAria')}>
       <div className="weather-card-wrap">
         <div className="card weather-card">
-          <h2 className="card__title">Weather</h2>
-          <p className="dashboard-mock-hint">Preview data — live API connection coming later.</p>
+          <h2 className="card__title">{t('weatherTitle')}</h2>
+          <p className="dashboard-mock-hint">{t('weatherMockHint')}</p>
           <div className="weather-card__body">
             <div className="weather-card__main">
               <span className="weather-card__condition">{current.condition}</span>
               <span className="weather-card__temp">{current.temperature}°C</span>
               <span className="weather-card__meta">
-                Wind {current.windKmh} km/h · {current.humidity}% humidity
+                {t('weatherWindHumidity', { wind: current.windKmh, humidity: current.humidity })}
               </span>
               {current.berthingImpact && (
                 <p className="weather-card__berthing-note" role="status">
@@ -432,7 +442,7 @@ export default function Dashboard() {
               )}
             </div>
             <div className="weather-card__forecast">
-              <span className="weather-card__forecast-label">Forecast</span>
+              <span className="weather-card__forecast-label">{t('forecast')}</span>
               <ul className="weather-card__forecast-list">
                 {forecast.map((day, i) => (
                   <li key={i} className="weather-card__forecast-item">
@@ -441,7 +451,7 @@ export default function Dashboard() {
                     <span className="weather-card__forecast-temp">
                       {day.tempMin}°–{day.tempMax}°
                     </span>
-                    <span className="weather-card__forecast-rain">{day.rainChance}% rain</span>
+                    <span className="weather-card__forecast-rain">{t('rainPct', { n: day.rainChance })}</span>
                   </li>
                 ))}
               </ul>
@@ -449,7 +459,7 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="weather-card-overlay" aria-hidden="true">
-          <span className="weather-card-overlay__watermark">Widget is in progress - Coming Soon</span>
+          <span className="weather-card-overlay__watermark">{t('widgetComingSoon')}</span>
         </div>
       </div>
     </section>
@@ -459,10 +469,10 @@ export default function Dashboard() {
     return (
       <div className="dashboard">
         <header className="dashboard-header">
-          <h1 className="page-title">Dashboard</h1>
+          <h1 className="page-title">{tPages('dashboard')}</h1>
         </header>
         <div className="card dashboard-empty-state">
-          <p className="text-steel">Select a port from the header to load dashboard data.</p>
+          <p className="text-steel">{tPages('dashboardSelectPortHint')}</p>
         </div>
         {weatherFooter}
       </div>
@@ -472,12 +482,12 @@ export default function Dashboard() {
   return (
     <div className="dashboard">
       <header className="dashboard-header">
-        <h1 className="page-title">Dashboard</h1>
+        <h1 className="page-title">{tPages('dashboard')}</h1>
         <span className="dashboard-header__meta">
           {lastUpdated && (
             <>
-              Last updated:{' '}
-              {lastUpdated.toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}
+              {t('lastUpdated')}{' '}
+              {lastUpdated.toLocaleString(getAppLocaleTag(), { dateStyle: 'short', timeStyle: 'short' })}
             </>
           )}
         </span>
@@ -486,27 +496,26 @@ export default function Dashboard() {
       {selectedPort && (
         <div className="dashboard-port-chip" role="status">
           <span className="dashboard-port-chip__dot" aria-hidden />
-          <span className="dashboard-port-chip__label">Port</span>
+          <span className="dashboard-port-chip__label">{t('portWord')}</span>
           <span className="dashboard-port-chip__name">{selectedPort.name}</span>
           <span className="dashboard-port-chip__meta">
-            · {jetties.length} jetty{jetties.length === 1 ? '' : 'ies'}
+            {' '}
+            {t('jettyCount', { count: jetties.length })}
           </span>
         </div>
       )}
 
       {apiErr && (
         <div className="dashboard-api-banner" role="alert">
-          Some data could not be loaded: {apiErr}
+          {t('apiLoadPartial')} {apiErr}
         </div>
       )}
 
       <section className="card dashboard-pipeline">
-        <h2 className="card__title">Vessel pipeline</h2>
-        <p className="dashboard-pipeline__intro text-steel">
-          Counts reflect the port selected above.
-        </p>
-        <div className="pipeline-flow" role="navigation" aria-label="Pipeline stages">
-          {PIPELINE_STAGES.map((stage, index) => (
+        <h2 className="card__title">{t('vesselPipeline')}</h2>
+        <p className="dashboard-pipeline__intro text-steel">{t('pipelineIntro')}</p>
+        <div className="pipeline-flow" role="navigation" aria-label={t('vesselPipeline')}>
+          {pipelineStages.map((stage, index) => (
             <Fragment key={stage.id}>
               {index > 0 && (
                 <span className="pipeline-arrow" aria-hidden>
@@ -527,12 +536,12 @@ export default function Dashboard() {
                 <span className="pipeline-stage__sublabel">
                   {stage.id === 'si' && (
                     <>
-                      {siStats.approved} approved · {siStats.total} total
+                      {t('pipelineSiSub', { approved: siStats.approved, total: siStats.total })}
                     </>
                   )}
-                  {stage.id === 'planned-berthing' && <>Jetty assigned · not alongside</>}
-                  {stage.id === 'at-berth' && <>By vessel alongside</>}
-                  {stage.id === 'clearance' && <>Sailed (completed departures)</>}
+                  {stage.id === 'planned-berthing' && <>{t('pipelinePlannedSub')}</>}
+                  {stage.id === 'at-berth' && <>{t('pipelineAtBerthSub')}</>}
+                  {stage.id === 'clearance' && <>{t('pipelineClearanceSub')}</>}
                 </span>
               </Link>
             </Fragment>
@@ -545,9 +554,9 @@ export default function Dashboard() {
           <DashboardActivityChart queue={queue} sis={sis} loading={loading} />
         </div>
 
-        <div className="dashboard-kpi-grid" aria-label="Key metrics for selected port">
+        <div className="dashboard-kpi-grid" aria-label={t('kpiGridAria')}>
           <div className="metric-card">
-            <span className="metric-card__label">Slot occupancy</span>
+            <span className="metric-card__label">{t('slotOccupancy')}</span>
             <span className="metric-card__value">
               {slotOccupancy.totalSlots > 0 ? (
                 <>
@@ -570,66 +579,66 @@ export default function Dashboard() {
               />
             </div>
             <span className="metric-card__type">
-              Vessel positions (excl. out-of-service jetties){' '}
+              {t('slotOccupancyHint')}{' '}
               <InteractiveTooltip
-                title="Slots in use"
-                subtitle="By jetty slot"
+                title={t('slotTooltipTitle')}
+                subtitle={t('slotTooltipSubtitle')}
                 items={slotOccupancyItems}
-                emptyText="No occupied slots."
+                emptyText={t('slotEmpty')}
                 maxWidth={360}
               >
-                <span className="metric-card__type-link">Details</span>
+                <span className="metric-card__type-link">{t('slotDetails')}</span>
               </InteractiveTooltip>
             </span>
             <Link to="/at-berth" className="metric-card__link">
-              View at-berth →
+              {t('viewAtBerth')}
             </Link>
           </div>
           <div className="metric-card">
-            <span className="metric-card__label">Jetty status</span>
-            <div className="metric-card__jetty-status" role="list" aria-label="Jetty status counts">
+            <span className="metric-card__label">{t('jettyStatus')}</span>
+            <div className="metric-card__jetty-status" role="list" aria-label={t('jettyStatus')}>
               <InteractiveTooltip
-                title="Available jetties"
+                title={t('jettyTooltipAvail')}
                 items={jettyStatusLists.avail}
-                emptyText="No available jetties."
+                emptyText={t('jettyEmptyAvail')}
               >
                 <span className="metric-card__jetty-chip metric-card__jetty-chip--ok" role="listitem">
-                  Available <strong>{jettyStatusCounts.Available}</strong>
+                  {t('available')} <strong>{jettyStatusCounts.Available}</strong>
                 </span>
               </InteractiveTooltip>
               <InteractiveTooltip
-                title="Out of service jetties"
+                title={t('jettyTooltipOos')}
                 items={jettyStatusLists.oos}
-                emptyText="No out of service jetties."
+                emptyText={t('jettyEmptyOos')}
               >
                 <span className="metric-card__jetty-chip metric-card__jetty-chip--bad" role="listitem">
-                  Out of service <strong>{jettyStatusCounts['Out of Service']}</strong>
+                  {t('outOfService')} <strong>{jettyStatusCounts['Out of Service']}</strong>
                 </span>
               </InteractiveTooltip>
             </div>
           </div>
           <div className="metric-card">
-            <span className="metric-card__label">Ready to sail</span>
+            <span className="metric-card__label">{t('readyToSail')}</span>
             <span className="metric-card__value">{opStats.signoffApproved}</span>
             <Link to="/verification" className="metric-card__link">
-              Clearance →
+              {t('clearanceLink')}
             </Link>
           </div>
           <div className="metric-card metric-card--risk">
-            <span className="metric-card__label">SLA at risk</span>
+            <span className="metric-card__label">{t('slaAtRisk')}</span>
             <InteractiveTooltip
-              title="SLA at risk"
-              subtitle="Past estimated completion"
+              title={t('slaTooltipTitle')}
+              subtitle={t('slaTooltipSubtitle')}
               items={slaAtRisk.map((o) => ({
                 primary: o.vesselName || `Op #${o.id}`,
                 secondary: `${o.jettyName || '—'} · +${o.overHours < 1 ? `${Math.round(o.overHours * 60)}m` : `${o.overHours.toFixed(1)}h`} over ETC`,
               }))}
-              emptyText="No operations past estimated completion."
+              emptyText={t('slaEmpty')}
               maxWidth={360}
             >
               <span className="metric-card__value">{slaAtRisk.length}</span>
             </InteractiveTooltip>
-            <span className="metric-card__type">Past estimated completion</span>
+            <span className="metric-card__type">{t('slaSub')}</span>
           </div>
         </div>
       </section>
@@ -639,35 +648,35 @@ export default function Dashboard() {
           <div className="dashboard-perf-row">
             <section className="card dashboard-performance">
               <div className="dashboard-performance__head">
-                <h2 className="card__title">Performance</h2>
-                <div className="dashboard-performance__toggle" role="group" aria-label="Performance window">
-                  {PERF_WINDOWS.map((w) => (
+                <h2 className="card__title">{t('perfTitle')}</h2>
+                <div className="dashboard-performance__toggle" role="group" aria-label={t('perfTitle')}>
+                  {PERF_WINDOW_DEFS.map((w) => (
                     <button
                       key={w.key}
                       type="button"
                       className={`dashboard-performance__toggle-btn${perfWindow === w.key ? ' is-active' : ''}`}
                       onClick={() => setPerfWindow(w.key)}
                     >
-                      {w.key}
+                      {t(w.key === '7d' ? 'perfToggle7d' : 'perfToggle24h')}
                     </button>
                   ))}
                 </div>
               </div>
 
               {loading ? (
-                <p className="text-steel">Loading…</p>
+                <p className="text-steel">{t('loadingEllipsis')}</p>
               ) : (
-                <div className="dashboard-performance__grid" role="list" aria-label="Performance KPIs">
+                <div className="dashboard-performance__grid" role="list" aria-label={t('perfTitle')}>
                   <div className="dashboard-performance__metric" role="listitem">
-                    <div className="dashboard-performance__label">Waiting to berth</div>
+                    <div className="dashboard-performance__label">{t('perfWaiting')}</div>
                     <InteractiveTooltip
-                      title="Longest waits (TA → TB)"
-                      subtitle={`${performance.window.label} · n=${performance.waiting.sampleSize}`}
+                      title={t('perfWaitingTooltip')}
+                      subtitle={`${performance.windowLabel} · n=${performance.waiting.sampleSize}`}
                       items={performance.waiting.worst.map((x) => ({
                         primary: `${x.vesselName} — ${x.jettyName}`,
                         secondary: `Wait: ${formatDurationHours(x.hours)}`,
                       }))}
-                      emptyText="Not enough TA/TB data in this window."
+                      emptyText={t('perfWaitingEmpty')}
                       maxWidth={360}
                     >
                       <div className="dashboard-performance__value">
@@ -677,20 +686,23 @@ export default function Dashboard() {
                       </div>
                     </InteractiveTooltip>
                     <div className="dashboard-performance__sub">
-                    Median (TA→TB) · {performance.window.key} · n={performance.waiting.sampleSize}
+                    {t('perfWaitingSub', {
+                      window: performance.windowLabel,
+                      n: performance.waiting.sampleSize,
+                    })}
                     </div>
                   </div>
 
                   <div className="dashboard-performance__metric" role="listitem">
-                    <div className="dashboard-performance__label">Turnaround</div>
+                    <div className="dashboard-performance__label">{t('perfTurnaround')}</div>
                     <InteractiveTooltip
-                      title="Longest turnarounds"
-                      subtitle={`${performance.window.label} · n=${performance.turnaround.sampleSize}`}
+                      title={t('perfTurnaroundTooltip')}
+                      subtitle={`${performance.windowLabel} · n=${performance.turnaround.sampleSize}`}
                       items={performance.turnaround.worst.map((x) => ({
                         primary: `${x.vesselName} — ${x.jettyName}`,
                         secondary: `Turnaround: ${formatDurationHours(x.hours)}`,
                       }))}
-                      emptyText="Not enough completion data in this window."
+                      emptyText={t('perfTurnaroundEmpty')}
                       maxWidth={360}
                     >
                       <div className="dashboard-performance__value">
@@ -700,20 +712,23 @@ export default function Dashboard() {
                       </div>
                     </InteractiveTooltip>
                     <div className="dashboard-performance__sub">
-                    Median (TB→Cast‑off/Completion) · {performance.window.key} · n={performance.turnaround.sampleSize}
+                    {t('perfTurnaroundSub', {
+                      window: performance.windowLabel,
+                      n: performance.turnaround.sampleSize,
+                    })}
                     </div>
                   </div>
 
                   <div className="dashboard-performance__metric" role="listitem">
-                    <div className="dashboard-performance__label">On‑time berthing</div>
+                    <div className="dashboard-performance__label">{t('perfOnTime')}</div>
                     <InteractiveTooltip
-                      title="Late berthings (vs planned ETB +6h)"
-                      subtitle={`${performance.window.label} · eligible=${performance.onTime.eligible}`}
+                      title={t('perfOnTimeTooltip')}
+                      subtitle={`${performance.windowLabel} · eligible=${performance.onTime.eligible}`}
                       items={performance.onTime.late.map((x) => ({
                         primary: `${x.vesselName} — ${x.jettyName}`,
                         secondary: `Late: +${formatDurationHours(x.lateHours)}`,
                       }))}
-                      emptyText="No late berthings in this window."
+                      emptyText={t('perfOnTimeEmpty')}
                       maxWidth={360}
                     >
                       <div className="dashboard-performance__value">
@@ -721,7 +736,10 @@ export default function Dashboard() {
                       </div>
                     </InteractiveTooltip>
                     <div className="dashboard-performance__sub">
-                    TB within +6h of planned ETB · {performance.window.key} · eligible={performance.onTime.eligible}
+                    {t('perfOnTimeSub', {
+                      window: performance.windowLabel,
+                      eligible: performance.onTime.eligible,
+                    })}
                     </div>
                   </div>
                 </div>
@@ -730,17 +748,17 @@ export default function Dashboard() {
 
             <section className="card dashboard-at-berth">
               <div className="dashboard-at-berth__head">
-                <h2 className="card__title">At berth now</h2>
+                <h2 className="card__title">{t('atBerthNow')}</h2>
                 <Link to="/at-berth" className="btn btn--small btn--primary">
-                  View all
+                  {t('viewAll')}
                 </Link>
               </div>
               {loading ? (
-                <p className="text-steel">Loading…</p>
+                <p className="text-steel">{t('loadingEllipsis')}</p>
               ) : (
                 <>
                   <div className="at-berth-summary__groups at-berth-summary__groups--compact">
-                    {PURPOSES.map(({ key: purpose, label }) => (
+                    {purposesUi.map(({ key: purpose, label }) => (
                       <div key={purpose} className="at-berth-summary__group">
                         <h3 className="at-berth-summary__group-title at-berth-summary__group-title--small">
                           {label}
@@ -752,11 +770,11 @@ export default function Dashboard() {
                               className={`at-berth-card at-berth-card--${purpose.toLowerCase()} at-berth-card--compact`}
                               title={`${phase}: ${atBerthCounts[purpose][phase]}`}
                             >
-                              <div className="at-berth-compact-stack" aria-label={`${PHASE_SHORT_LABEL[phase]} ${atBerthCounts[purpose][phase]}`}>
+                              <div className="at-berth-compact-stack" aria-label={`${phaseShortLabel[phase]} ${atBerthCounts[purpose][phase]}`}>
                                 <span className="at-berth-compact-stack__icon" aria-hidden>
                                   {PHASE_EMOJI[phase]}
                                 </span>
-                                <span className="at-berth-compact-stack__label">{PHASE_SHORT_LABEL[phase]}</span>
+                                <span className="at-berth-compact-stack__label">{phaseShortLabel[phase]}</span>
                                 <span className="at-berth-compact-stack__count">{atBerthCounts[purpose][phase]}</span>
                               </div>
                             </div>
@@ -773,14 +791,14 @@ export default function Dashboard() {
                       <span className="dashboard-clearance-card__icon" aria-hidden>
                         ⚓
                       </span>
-                      <span className="dashboard-clearance-card__label">Ready to sail</span>
+                      <span className="dashboard-clearance-card__label">{t('clearanceReady')}</span>
                       <span className="dashboard-clearance-card__count">{opStats.signoffApproved}</span>
                     </Link>
                     <div className="dashboard-clearance-card dashboard-clearance-card--departed">
                       <span className="dashboard-clearance-card__icon" aria-hidden>
                         🚀
                       </span>
-                      <span className="dashboard-clearance-card__label">Sailed</span>
+                      <span className="dashboard-clearance-card__label">{t('clearanceSailed')}</span>
                       <span className="dashboard-clearance-card__count">{opStats.sailed}</span>
                     </div>
                     <div
@@ -789,7 +807,7 @@ export default function Dashboard() {
                       <span className="dashboard-clearance-card__icon" aria-hidden>
                         ⚠
                       </span>
-                      <span className="dashboard-clearance-card__label">Pending Sign Off</span>
+                      <span className="dashboard-clearance-card__label">{t('clearancePendingSignOff')}</span>
                       <span className="dashboard-clearance-card__count">{opStats.signoffRequested}</span>
                     </div>
                   </div>
@@ -800,14 +818,14 @@ export default function Dashboard() {
 
           <section className="card">
             <div className="dashboard-at-berth__head">
-              <h2 className="card__title">Recent updates</h2>
+              <h2 className="card__title">{t('recentUpdates')}</h2>
             </div>
             {!canViewActivityLog ? (
-              <p className="text-steel">Activity log is restricted for your role.</p>
+              <p className="text-steel">{t('activityRestricted')}</p>
             ) : loading ? (
-              <p className="text-steel">Loading…</p>
+              <p className="text-steel">{t('loadingEllipsis')}</p>
             ) : activityItems.length === 0 ? (
-              <p className="text-steel">No recent activity.</p>
+              <p className="text-steel">{t('noRecentActivity')}</p>
             ) : (
               <ul className="dashboard-activity-feed">
                 {activityItems.map((item) => (
@@ -816,7 +834,7 @@ export default function Dashboard() {
                     <div>
                       <div className="dashboard-activity-feed__summary">{item.summary}</div>
                       <div className="dashboard-activity-feed__meta">
-                        {formatRelativeTime(item.createdAt)}
+                        {formatRelativeTime(item.createdAt, t)}
                         {item.actorUsername ? ` · ${item.actorUsername}` : ''}
                       </div>
                     </div>

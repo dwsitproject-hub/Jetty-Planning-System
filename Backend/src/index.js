@@ -10,6 +10,7 @@ import express from 'express';
 import { verifyConnection } from './db.js';
 import { UPLOAD_ROOT } from './paths.js';
 import authRoutes from './routes/auth.js';
+import hubSsoRoutes from './routes/hub-sso.js';
 import userRoutes from './routes/users.js';
 import rbacRoutes from './routes/rbac.js';
 import portsRoutes from './routes/ports.js';
@@ -51,6 +52,8 @@ app.use(
 );
 app.use(cookieParser());
 app.use(express.json());
+/** Downstream Hub bridge: POST /auth/hub (urlencoded body); separate from /api/v1/auth/login */
+app.use('/auth', hubSsoRoutes);
 app.use('/uploads', express.static(UPLOAD_ROOT));
 
 app.get('/health', (req, res) => {

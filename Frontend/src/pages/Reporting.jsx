@@ -1,28 +1,29 @@
+import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import '../styles/allocation.css'
 
 const REPORTS = [
   {
     path: '/reporting/daily-activities',
-    title: 'Daily Activities Report',
-    description: 'End-to-end activities from Vessel Arrived (TA) until Vessel Cast Off / Sailed. Header, timelog, and progress loading/unloading.',
+    titleKey: 'reportingDailyTitle',
+    descKey: 'reportingDailyDesc',
   },
   {
     path: '/reporting/vessel',
-    title: 'Jetty - Vessel Report',
-    description: 'Jetty utilization, allocation by jetty, and full vessel detail for the selected port. Filter by date range and jetty.',
+    titleKey: 'reportingVesselTitle',
+    descKey: 'reportingVesselDesc',
   },
 ]
 
 export default function Reporting() {
+  const { t } = useTranslation('pages')
+
   return (
     <div className="allocation-page">
-      <h1 className="page-title">Reporting</h1>
-      <p className="allocation-page__intro">
-        Select a report to view. Use date range and optional vessel or jetty filters where applicable.
-      </p>
+      <h1 className="page-title">{t('reporting')}</h1>
+      <p className="allocation-page__intro">{t('reportingIntro')}</p>
 
-      <section className="reporting-list" aria-label="Reports">
+      <section className="reporting-list" aria-label={t('reporting')}>
         <div className="reporting-list__grid">
           {REPORTS.map((report) => (
             <Link
@@ -30,9 +31,9 @@ export default function Reporting() {
               to={report.path}
               className="reporting-list__card card"
             >
-              <h2 className="reporting-list__card-title">{report.title}</h2>
-              <p className="reporting-list__card-desc">{report.description}</p>
-              <span className="reporting-list__card-link">View report →</span>
+              <h2 className="reporting-list__card-title">{t(report.titleKey)}</h2>
+              <p className="reporting-list__card-desc">{t(report.descKey)}</p>
+              <span className="reporting-list__card-link">{t('reportingViewReport')}</span>
             </Link>
           ))}
         </div>

@@ -1,20 +1,22 @@
 import { useState, useMemo, useEffect, useLayoutEffect } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import ActivityLogPanel from './ActivityLogPanel'
+import LanguageSwitch from './LanguageSwitch'
 import { useRbac } from '../context/RbacContext'
 import { useAuth } from '../context/AuthContext'
 import { usePortScope } from '../context/PortScopeContext'
 
 const navStructure = [
-  { path: '/', label: 'Dashboard', icon: '📊' },
-  { path: '/shipping-instruction', label: 'Shipping Instruction', icon: '📄' },
-  { path: '/allocation', label: 'Allocation & Berthing', icon: '⚓' },
-  { path: '/at-berth', label: 'At-Berth Executions', icon: '🚢' },
-  { path: '/verification', label: 'Clearance', icon: '🚀' },
-  { path: '/demurrage-risk-calculator', label: 'Demurrage Risk Calculator', icon: '🧮' },
-  { path: '/reporting', label: 'Reporting', icon: '📑' },
-  { path: '/master', label: 'Master Menu', icon: '📋' },
-  { path: '/admin', label: 'Admin', icon: '⚙️' },
+  { path: '/', labelKey: 'dashboard', icon: '📊' },
+  { path: '/shipping-instruction', labelKey: 'shippingInstruction', icon: '📄' },
+  { path: '/allocation', labelKey: 'allocation', icon: '⚓' },
+  { path: '/at-berth', labelKey: 'atBerth', icon: '🚢' },
+  { path: '/verification', labelKey: 'clearance', icon: '🚀' },
+  { path: '/demurrage-risk-calculator', labelKey: 'demurrageCalculator', icon: '🧮' },
+  { path: '/reporting', labelKey: 'reporting', icon: '📑' },
+  { path: '/master', labelKey: 'master', icon: '📋' },
+  { path: '/admin', labelKey: 'admin', icon: '⚙️' },
 ]
 
 function isPathActive(path, currentPath) {
@@ -87,6 +89,8 @@ function LogoutIcon() {
 }
 
 export default function Layout({ children }) {
+  const { t: tNav, i18n } = useTranslation('nav')
+  const { t: tCommon } = useTranslation('common')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed)
   const location = useLocation()
@@ -135,8 +139,10 @@ export default function Layout({ children }) {
   const filteredNav = useMemo(() => {
     // While loading permissions, show nothing (avoid flashing unauthorized items).
     if (rbacLoading) return []
-    return navStructure.filter((item) => canView(pathToPageKey(item.path)))
-  }, [rbacLoading, canView])
+    return navStructure
+      .filter((item) => canView(pathToPageKey(item.path)))
+      .map((item) => ({ ...item, label: tNav(item.labelKey) }))
+  }, [rbacLoading, canView, tNav, i18n.language])
 
   useEffect(() => {
     try {
@@ -153,15 +159,15 @@ export default function Layout({ children }) {
           type="button"
           className="topbar__nav-toggle"
           onClick={() => setSidebarOpen((o) => !o)}
-          aria-label="Toggle menu"
+          aria-label={tCommon('toggleMenu')}
         >
           ☰
         </button>
-        <div className="topbar__brand" aria-label="Jetty Planning System">
+        <div className="topbar__brand" aria-label={tCommon('brandAria')}>
           <img className="topbar__brand-logo" src="/kpn-header.png" alt="KPN" />
           <div className="topbar__brand-text">
-            <span className="topbar__brand-title">Jetty Planning System</span>
-            <span className="topbar__brand-tagline">Smart scheduling for smarter ports</span>
+            <span className="topbar__brand-title">{tCommon('appName')}</span>
+            <span className="topbar__brand-tagline">{tCommon('tagline')}</span>
           </div>
         </div>
         <div className="topbar__actions">
@@ -175,27 +181,28 @@ export default function Layout({ children }) {
                 params.set('returnTo', `${currentPath}${location.search || ''}`)
                 navigate(`/select-port?${params.toString()}`)
               }}
-              title="Choose a different port"
+              title={tCommon('portChangeTitle')}
             >
-              <span>Port: {selectedPort.name}</span>
-              <span className="admin-role-summary">Change…</span>
+              <span>{tCommon('portLabel', { name: selectedPort.name })}</span>
+              <span className="admin-role-summary">{tCommon('changePort')}</span>
             </button>
           )}
           {me && !portScopeBypassed && assignedPorts.length === 1 && selectedPort && (
-            <span className="topbar__greeting">Port: {selectedPort.name}</span>
+            <span className="topbar__greeting">{tCommon('portLabel', { name: selectedPort.name })}</span>
           )}
+          <LanguageSwitch />
           <span className="topbar__greeting">
-            {me ? `Hi, ${me.displayName || me.username}` : ''}
+            {me ? tCommon('greeting', { name: me.displayName || me.username }) : ''}
           </span>
           {me && (
-            <button type="button" className="btn btn--secondary btn--small topbar__logout" onClick={handleLogout} title="Logout">
+            <button type="button" className="btn btn--secondary btn--small topbar__logout" onClick={handleLogout} title={tCommon('logout')}>
               <LogoutIcon />
-              <span>Logout</span>
+              <span>{tCommon('logout')}</span>
             </button>
           )}
           {!me && (
             <NavLink to="/login" className="btn btn--secondary btn--small">
-              Login
+              {tCommon('login')}
             </NavLink>
           )}
         </div>
@@ -215,8 +222,8 @@ export default function Layout({ children }) {
               className="sidebar__collapse-fab"
               onClick={() => setSidebarCollapsed((c) => !c)}
               aria-expanded={!sidebarCollapsed}
-              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-label={sidebarCollapsed ? tCommon('expandSidebar') : tCommon('collapseSidebar')}
+              title={sidebarCollapsed ? tCommon('expandSidebar') : tCommon('collapseSidebar')}
             >
               <SidebarCollapseFabIcon expanded={!sidebarCollapsed} />
             </button>
@@ -226,8 +233,8 @@ export default function Layout({ children }) {
                 JPS
               </div>
               <div className="sidebar__brand-text">
-                <span className="sidebar__brand-title">Jetty Planning</span>
-                <span className="sidebar__brand-sub">Operations console</span>
+                <span className="sidebar__brand-title">{tCommon('sidebarBrand')}</span>
+                <span className="sidebar__brand-sub">{tCommon('sidebarSub')}</span>
               </div>
             </div>
 
@@ -274,28 +281,28 @@ export default function Layout({ children }) {
         <main className="content">
           {me && !portScopeBypassed && portScopeLoading ? (
             <div className="card">
-              <p className="text-steel">Loading assigned ports…</p>
+              <p className="text-steel">{tCommon('loadingPorts')}</p>
             </div>
           ) : me && !portScopeBypassed && noPortAssigned ? (
             <div className="card" style={{ maxWidth: '40rem' }}>
-              <h2 style={{ marginTop: 0 }}>Access not configured</h2>
+              <h2 style={{ marginTop: 0 }}>{tCommon('accessNotConfigured')}</h2>
               <p className="text-steel">{noPortMessage}</p>
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                <button type="button" className="btn btn--secondary" onClick={handleLogout}>Back to Login</button>
+                <button type="button" className="btn btn--secondary" onClick={handleLogout}>{tCommon('backToLogin')}</button>
               </div>
             </div>
           ) : me && !portScopeBypassed && requiresSelection ? (
             <div className="card">
-              <p className="text-steel">Opening port selection…</p>
+              <p className="text-steel">{tCommon('openingPortSelection')}</p>
             </div>
           ) : rbacLoading ? (
             <div className="card">
-              <p className="text-steel">Loading permissions…</p>
+              <p className="text-steel">{tCommon('loadingPermissions')}</p>
             </div>
           ) : currentPageKey && !canView(currentPageKey) ? (
             <div className="card">
-              <h2 style={{ marginTop: 0 }}>Forbidden</h2>
-              <p className="text-steel">You don’t have permission to view this page.</p>
+              <h2 style={{ marginTop: 0 }}>{tCommon('forbidden')}</h2>
+              <p className="text-steel">{tCommon('forbiddenDetail')}</p>
             </div>
           ) : (
             children

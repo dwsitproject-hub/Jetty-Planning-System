@@ -36,6 +36,24 @@
   padding: var(--spacing-4) var(--spacing-4) var(--spacing-5);
 }
 
+.guest-branded__card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+  margin-bottom: var(--spacing-2);
+}
+
+.guest-branded__card-top .guest-branded__brand {
+  flex: 1;
+  min-width: 0;
+}
+
+.guest-branded__lang {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
 .guest-branded__brand {
   display: flex;
   align-items: center;
