@@ -428,3 +428,33 @@
 .berthing-performance__metric:last-child {
   margin-bottom: 0;
 }
+
+@media (max-width: 900px) {
+  .berthing-occupancy__table {
+    min-width: 680px;
+  }
+
+  .berthing-header__actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 640px) {
+  .berthing-header {
+    margin-bottom: var(--spacing-4);
+    gap: var(--spacing-2);
+  }
+
+  .berthing-occupancy__legend {
+    flex-wrap: wrap;
+    gap: var(--spacing-2);
+  }
+
+  .berthing-card,
+  .berthing-pipeline-card,
+  .berthing-performance {
+    padding: var(--spacing-3);
+  }
+}

@@ -267,3 +267,44 @@
 }
 
 /* Modal styles are in shared styles/modal.css */
+
+@media (max-width: 900px) {
+  .offloading-context__select {
+    min-width: 220px;
+    max-width: none;
+    width: 100%;
+  }
+
+  .offloading-context__meta {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: var(--spacing-2);
+  }
+
+  .offloading-actions {
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .offloading-stages {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: var(--spacing-1);
+  }
+
+  .offloading-stages__btn {
+    flex: 0 0 auto;
+    min-width: 52px;
+    padding: var(--spacing-2);
+  }
+
+  .offloading-form-grid {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-2);
+  }
+
+  .offloading-timesheet__table {
+    font-size: var(--font-size-xs);
+  }
+}

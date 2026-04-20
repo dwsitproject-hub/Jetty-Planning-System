@@ -200,6 +200,7 @@ export default function AtBerthExecutions() {
   const [filters, setFilters] = useState(() => Object.fromEntries(filterKeys.map((k) => [k, ''])))
   const [sortState, setSortState] = useState({ key: 'vesselName', dir: 'asc' })
   const [expandedId, setExpandedId] = useState(null)
+  const [expandedMobileId, setExpandedMobileId] = useState(null)
   const [siDetailId, setSiDetailId] = useState(null)
   const [shiftSavingByOpId, setShiftSavingByOpId] = useState({})
   const [shiftModal, setShiftModal] = useState(null)
@@ -428,7 +429,8 @@ export default function AtBerthExecutions() {
         ) : sortedVessels.length === 0 ? (
           <p className="text-steel">{t('emptyNoFilterMatch')}</p>
         ) : (
-          <div className="table-wrap">
+          <>
+          <div className="table-wrap allocation-table-desktop">
             <table className="data-table allocation-table">
               <thead>
                 <tr>
@@ -536,6 +538,77 @@ export default function AtBerthExecutions() {
               </tbody>
             </table>
           </div>
+          <div className="allocation-mobile-cards" aria-label="At-berth vessel cards">
+            {sortedVessels.map((r) => (
+              <article key={`at-berth-mobile-${r.id}`} className="allocation-mobile-card">
+                <header className="allocation-mobile-card__header">
+                  <strong>{r.vesselName || '—'}</strong>
+                  <span className="text-steel">{statusToPhase(r.status)}</span>
+                </header>
+                <dl className="allocation-mobile-card__grid">
+                  <dt>{t('colSi')}</dt>
+                  <dd>
+                    {r.shippingInstructionId ? (
+                      <a
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          setSiDetailId(r.shippingInstructionId)
+                        }}
+                        aria-label={t('openSiDetail', { defaultValue: 'Open shipping instruction detail' })}
+                      >
+                        {r.shippingInstruction || '—'}
+                      </a>
+                    ) : (
+                      r.shippingInstruction || '—'
+                    )}
+                  </dd>
+                  <dt>{t('colPurpose')}</dt>
+                  <dd>{r.purpose || '—'}</dd>
+                  <dt>{t('colJetty')}</dt>
+                  <dd>{r.jetty || '—'}</dd>
+                  <dt>{t('colTa')}</dt>
+                  <dd>{formatDateTimeDisplay(r.taDateTime)}</dd>
+                  <dt>{t('colTb')}</dt>
+                  <dd>{formatDateTimeDisplay(r.tbDateTime)}</dd>
+                  <dt>{t('colStatus')}</dt>
+                  <dd>{r.status || '—'}</dd>
+                </dl>
+                <div className="allocation-mobile-card__actions">
+                  <button
+                    type="button"
+                    className="btn btn--small btn--ghost"
+                    onClick={() => setExpandedMobileId((id) => (id === r.id ? null : r.id))}
+                  >
+                    {expandedMobileId === r.id ? t('hideDetail', { defaultValue: 'Hide full detail' }) : t('fullDetail', { defaultValue: 'Full detail' })}
+                  </button>
+                  <Link to={atBerthExecutionOpenPath(r)} className="btn btn--small btn--primary">
+                    {t('open')}
+                  </Link>
+                  {r.operationId != null && (
+                    <button
+                      type="button"
+                      className="btn btn--small btn--secondary"
+                      onClick={(e) => handleShiftOutToggle(r, e)}
+                      disabled={Boolean(shiftSavingByOpId[r.operationId])}
+                    >
+                      {shiftSavingByOpId[r.operationId]
+                        ? t('saving')
+                        : r.shiftingOut
+                          ? term('undoShiftingOut')
+                          : term('shiftingOut')}
+                    </button>
+                  )}
+                </div>
+                {expandedMobileId === r.id ? (
+                  <div className="allocation-mobile-card__detail">
+                    <AtBerthDetailPanel r={r} />
+                  </div>
+                ) : null}
+              </article>
+            ))}
+          </div>
+          </>
         )}
       </section>
 

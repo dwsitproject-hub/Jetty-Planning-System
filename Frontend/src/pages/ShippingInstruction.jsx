@@ -1673,7 +1673,7 @@ export default function ShippingInstruction() {
 
       <section className="card">
         <h2 className="card__title">{t('tableSectionTitle')}</h2>
-        <div className="table-wrap">
+        <div className="table-wrap shipping-instruction-table-desktop">
           <table className="data-table shipping-instruction-table">
             <thead>
               <tr>
@@ -1868,6 +1868,93 @@ export default function ShippingInstruction() {
               ))}
             </tbody>
           </table>
+        </div>
+        <div className="allocation-mobile-cards shipping-instruction-mobile-cards" aria-label="Shipping instruction cards">
+          {sortedList.map((n) => (
+            <article key={`si-mobile-${n.id}`} className="allocation-mobile-card">
+              <header className="allocation-mobile-card__header">
+                <strong>{n.vesselName || n.vesselId || '—'}</strong>
+                <span className="text-steel">{getDisplayStatus(n)}</span>
+              </header>
+              <dl className="allocation-mobile-card__grid">
+                <dt>{t('dtSiNo')}</dt>
+                <dd>
+                  {n.id ? (
+                    <a
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        setSiDetailId(n.id)
+                      }}
+                      aria-label={t('openSiDetail')}
+                    >
+                      {n.siId || '—'}
+                    </a>
+                  ) : (
+                    n.siId || '—'
+                  )}
+                </dd>
+                <dt>{t('dtPurpose')}</dt>
+                <dd>{n.purpose || '—'}</dd>
+                <dt>{t('dtJetty')}</dt>
+                <dd>{n.jetty || '—'}</dd>
+                <dt>{t('dtEta')}</dt>
+                <dd>{formatEta(n)}</dd>
+              </dl>
+              <div className="allocation-mobile-card__actions">
+                <button
+                  type="button"
+                  className="btn btn--small btn--ghost"
+                  onClick={() => setExpandedId((id) => (id === n.id ? null : n.id))}
+                >
+                  {expandedId === n.id ? t('hideDetail', { defaultValue: 'Hide full detail' }) : t('fullDetail', { defaultValue: 'Full detail' })}
+                </button>
+                <SiRowActions
+                  row={n}
+                  canApproveSi={canApprove('shipping-instruction')}
+                  canDeleteSi={canDelete('shipping-instruction')}
+                  onEdit={(e) => {
+                    e.stopPropagation()
+                    openEditModal(n.id)
+                  }}
+                  onRequestApproval={(e) => handleRequestApproval(n, e)}
+                  onOpenApprove={(e) => {
+                    e.stopPropagation()
+                    navigate(`/shipping-instruction/approval/${n.id}`, { state: { si: n } })
+                  }}
+                  onViewDocument={(e) => {
+                    e.stopPropagation()
+                    if (canViewAsDocument(n) && (n.siId || n.id)) {
+                      navigate(`/shipping-instruction/view/${n.id}`, { state: { si: n } })
+                    }
+                  }}
+                  onDelete={(e) => handleDeleteSi(n, e)}
+                />
+              </div>
+              {expandedId === n.id ? (
+                <div className="allocation-mobile-card__detail">
+                  <div className="shipping-instruction-detail">
+                    <h4 className="shipping-instruction-detail__title">{t('detailTitle')}</h4>
+                    <dl className="shipping-instruction-detail__grid">
+                      <dt>{t('dtSiNo')}</dt><dd>{n.siId || '—'}</dd>
+                      <dt>{t('dtStatus')}</dt><dd>{getDisplayStatus(n)}</dd>
+                      {(n.purpose || '').toLowerCase() === 'unloading' && (
+                        <><dt>{t('dtSource')}</dt><dd>{t('sourceExternal')}</dd></>
+                      )}
+                      <dt>{t('dtVessel')}</dt><dd>{n.vesselName || n.vesselId || '—'}</dd>
+                      <dt>{t('dtPurpose')}</dt><dd><PurposeBadge purpose={n.purpose} /></dd>
+                      <dt>{t('dtJetty')}</dt><dd>{n.jetty || '—'}</dd>
+                      <dt>{t('dtEta')}</dt><dd>{formatEta(n)}</dd>
+                      <dt>{t('dtTa')}</dt><dd>{formatDateTimeValue(n.taDateTime || n.ta)}</dd>
+                      <dt>{t('dtEtb')}</dt><dd>{formatDateTimeValue(n.etbDateTime || n.etb)}</dd>
+                      <dt>{t('dtTb')}</dt><dd>{formatDateTimeValue(n.tbDateTime || n.tb)}</dd>
+                      <dt>{t('dtEstimatedCompletion')}</dt><dd>{formatDateTimeValue(n.estimatedCompletionDateTime || n.estimationOfCompletion || n.etcDateTime)}</dd>
+                    </dl>
+                  </div>
+                </div>
+              ) : null}
+            </article>
+          ))}
         </div>
       </section>
       <SiDetailModal

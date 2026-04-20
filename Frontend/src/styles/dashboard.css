@@ -1718,3 +1718,38 @@
   padding: var(--spacing-6);
   text-align: center;
 }
+
+@media (max-width: 900px) {
+  .dashboard-header {
+    align-items: flex-start;
+  }
+
+  .pipeline-flow {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: var(--spacing-1);
+  }
+
+  .pipeline-stage {
+    flex: 0 0 140px;
+  }
+}
+
+@media (max-width: 640px) {
+  .dashboard {
+    max-width: 100%;
+  }
+
+  .dashboard-port-chip {
+    font-size: var(--font-size-xs);
+  }
+
+  .dashboard-clearance-row {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-activity-chart__legend {
+    gap: var(--spacing-2);
+    font-size: var(--font-size-xs);
+  }
+}

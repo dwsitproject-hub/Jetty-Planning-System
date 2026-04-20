@@ -177,6 +177,60 @@ function getCompletionMsForJettyValidation(row) {
   return parseDateMs(row?.actualCompletionDateTime) ?? parseDateMs(row?.estimatedCompletionDateTime) ?? null
 }
 
+function AllocationDetailPanel({ r, tAlloc }) {
+  return (
+    <div className="allocation-detail">
+      <h4 className="allocation-detail__title">{tAlloc('fullDetails', { defaultValue: 'Full details' })}</h4>
+      <dl className="allocation-detail__grid">
+        <dt>{tAlloc('dtVesselName', { defaultValue: 'Vessel Name' })}</dt><dd>{r.vesselName || '—'}</dd>
+        <dt>{tAlloc('dtShippingInstruction', { defaultValue: 'Shipping Instruction' })}</dt><dd>{r.shippingInstruction || '—'}</dd>
+        <dt>{tAlloc('dtNoPkk', { defaultValue: 'No PKK' })}</dt><dd>{r.noPkk ?? '—'}</dd>
+        <dt>{tAlloc('dtPriority', { defaultValue: 'Priority' })}</dt><dd>{r.priority || '—'}</dd>
+        <dt>{tAlloc('dtNumberOfPalka', { defaultValue: 'Number of Palka' })}</dt><dd>{r.numberOfPalka ?? '—'}</dd>
+        <dt>{tAlloc('dtPurpose', { defaultValue: 'Purpose' })}</dt>
+        <dd>
+          <PurposeBadge purpose={r.purpose} loadDischarge={r.loadDischarge} />
+        </dd>
+        <dt>{tAlloc('dtShipper', { defaultValue: 'Shipper' })}</dt><dd>{r.shipper || '—'}</dd>
+        <dt>{tAlloc('dtAgent', { defaultValue: 'Agent' })}</dt><dd>{r.agent || '—'}</dd>
+        <dt>{tAlloc('dtSurveyor', { defaultValue: 'Surveyor' })}</dt><dd>{r.surveyor || '—'}</dd>
+        <dt>{tAlloc('dtJetty', { defaultValue: 'Jetty' })}</dt><dd>{r.jetty || '—'}</dd>
+        <dt>{tAlloc('dtEta', { defaultValue: 'ETA' })}</dt><dd>{formatDateTimeDisplay(r.etaDateTime || r.eta)}</dd>
+        <dt>{tAlloc('dtTa', { defaultValue: 'TA' })}</dt><dd>{formatDateTimeDisplay(r.taDateTime)}</dd>
+        <dt>{tAlloc('dtEtb', { defaultValue: 'ETB' })}</dt><dd>{formatDateTimeDisplay(r.etbDateTime || r.etb)}</dd>
+        <dt>{tAlloc('dtTb', { defaultValue: 'TB' })}</dt><dd>{formatDateTimeDisplay(r.tbDateTime)}</dd>
+        <dt>{tAlloc('dtEstimatedCompletion', { defaultValue: 'Estimation of Completion' })}</dt><dd>{formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion)}</dd>
+        <dt>{tAlloc('dtRemark', { defaultValue: 'Remark' })}</dt><dd>{r.remark || r.remarks || '—'}</dd>
+      </dl>
+      {Array.isArray(r.shippingTable) && r.shippingTable.length > 0 && (
+        <div className="allocation-detail__shipping-table-wrap">
+          <h5 className="allocation-detail__subtitle">Shipping Table</h5>
+          <table className="data-table allocation-detail__shipping-table">
+            <thead>
+              <tr>
+                <th>Contract</th>
+                <th>PO</th>
+                <th>Material</th>
+                <th>QTY</th>
+              </tr>
+            </thead>
+            <tbody>
+              {r.shippingTable.map((row, i) => (
+                <tr key={i}>
+                  <td>{row.contract ?? '—'}</td>
+                  <td>{row.po ?? '—'}</td>
+                  <td>{row.material ?? '—'}</td>
+                  <td>{row.qty ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Allocation() {
   const { t } = useTranslation('pages')
   const { t: tAlloc } = useTranslation('allocation')
@@ -191,6 +245,7 @@ export default function Allocation() {
   const [statusFilter, setStatusFilter] = useState({ incoming: true, berthed: false })
   const [sortState, setSortState] = useState({ key: 'sequence', dir: 'asc' })
   const [expandedId, setExpandedId] = useState(null)
+  const [expandedMobileId, setExpandedMobileId] = useState(null)
   const [vesselDetailModalVesselId, setVesselDetailModalVesselId] = useState(null)
   const [arrivalUpdateForm, setArrivalUpdateForm] = useState(null)
   const [berthingConfirmRow, setBerthingConfirmRow] = useState(null)
@@ -2520,7 +2575,7 @@ export default function Allocation() {
             {tAlloc('statusBerthed')}
           </label>
         </div>
-        <div className="table-wrap">
+        <div className="table-wrap allocation-table-desktop">
           <table className="data-table allocation-table">
             <thead>
               <tr>
@@ -2646,55 +2701,7 @@ export default function Allocation() {
                   {expandedId === r.id && (
                     <tr className="allocation-table__detail-row">
                       <td colSpan={allocationTableColumns.length + 2} className="allocation-table__detail-cell">
-                        <div className="allocation-detail">
-                          <h4 className="allocation-detail__title">{tAlloc('fullDetails', { defaultValue: 'Full details' })}</h4>
-                          <dl className="allocation-detail__grid">
-                            <dt>{tAlloc('dtVesselName', { defaultValue: 'Vessel Name' })}</dt><dd>{r.vesselName || '—'}</dd>
-                            <dt>{tAlloc('dtShippingInstruction', { defaultValue: 'Shipping Instruction' })}</dt><dd>{r.shippingInstruction || '—'}</dd>
-                            <dt>{tAlloc('dtNoPkk', { defaultValue: 'No PKK' })}</dt><dd>{r.noPkk ?? '—'}</dd>
-                            <dt>{tAlloc('dtPriority', { defaultValue: 'Priority' })}</dt><dd>{r.priority || '—'}</dd>
-                            <dt>{tAlloc('dtNumberOfPalka', { defaultValue: 'Number of Palka' })}</dt><dd>{r.numberOfPalka ?? '—'}</dd>
-                            <dt>{tAlloc('dtPurpose', { defaultValue: 'Purpose' })}</dt>
-                            <dd>
-                              <PurposeBadge purpose={r.purpose} loadDischarge={r.loadDischarge} />
-                            </dd>
-                            <dt>{tAlloc('dtShipper', { defaultValue: 'Shipper' })}</dt><dd>{r.shipper || '—'}</dd>
-                            <dt>{tAlloc('dtAgent', { defaultValue: 'Agent' })}</dt><dd>{r.agent || '—'}</dd>
-                            <dt>{tAlloc('dtSurveyor', { defaultValue: 'Surveyor' })}</dt><dd>{r.surveyor || '—'}</dd>
-                            <dt>{tAlloc('dtJetty', { defaultValue: 'Jetty' })}</dt><dd>{r.jetty || '—'}</dd>
-                            <dt>{tAlloc('dtEta', { defaultValue: 'ETA' })}</dt><dd>{formatDateTimeDisplay(r.etaDateTime || r.eta)}</dd>
-                            <dt>{tAlloc('dtTa', { defaultValue: 'TA' })}</dt><dd>{formatDateTimeDisplay(r.taDateTime)}</dd>
-                            <dt>{tAlloc('dtEtb', { defaultValue: 'ETB' })}</dt><dd>{formatDateTimeDisplay(r.etbDateTime || r.etb)}</dd>
-                            <dt>{tAlloc('dtTb', { defaultValue: 'TB' })}</dt><dd>{formatDateTimeDisplay(r.tbDateTime)}</dd>
-                            <dt>{tAlloc('dtEstimatedCompletion', { defaultValue: 'Estimation of Completion' })}</dt><dd>{formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion)}</dd>
-                            <dt>{tAlloc('dtRemark', { defaultValue: 'Remark' })}</dt><dd>{r.remark || r.remarks || '—'}</dd>
-                          </dl>
-                          {Array.isArray(r.shippingTable) && r.shippingTable.length > 0 && (
-                            <div className="allocation-detail__shipping-table-wrap">
-                              <h5 className="allocation-detail__subtitle">Shipping Table</h5>
-                              <table className="data-table allocation-detail__shipping-table">
-                                <thead>
-                                  <tr>
-                                    <th>Contract</th>
-                                    <th>PO</th>
-                                    <th>Material</th>
-                                    <th>QTY</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {r.shippingTable.map((row, i) => (
-                                    <tr key={i}>
-                                      <td>{row.contract ?? '—'}</td>
-                                      <td>{row.po ?? '—'}</td>
-                                      <td>{row.material ?? '—'}</td>
-                                      <td>{row.qty ?? '—'}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </div>
+                        <AllocationDetailPanel r={r} tAlloc={tAlloc} />
                       </td>
                     </tr>
                   )}
@@ -2702,10 +2709,78 @@ export default function Allocation() {
               ))}
             </tbody>
           </table>
-          {sortedList.length === 0 && (
-            <p className="allocation-plan-status-filter__empty">No vessels match the selected status/filter criteria.</p>
-          )}
         </div>
+        {sortedList.length > 0 && (
+          <div className="allocation-mobile-cards" aria-label="Incoming vessel cards">
+            {sortedList.map((r) => (
+              <article key={`mobile-${r.id}`} className="allocation-mobile-card">
+                <header className="allocation-mobile-card__header">
+                  <strong>{r.vesselName || '—'}</strong>
+                  <span className="text-steel">{r.jetty || '—'}</span>
+                </header>
+                <dl className="allocation-mobile-card__grid">
+                  {allocationTableColumns.slice(0, 6).map((col) => (
+                    <Fragment key={`mobile-col-${r.id}-${col.key}`}>
+                      <dt>{allocColLabel(col.key, col.label)}</dt>
+                      <dd>
+                        {col.key === 'shippingInstruction' ? (
+                          r.shippingInstructionId ? (
+                            <a
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                setSiDetailId(r.shippingInstructionId)
+                              }}
+                              aria-label={tAlloc('openSiDetail', { defaultValue: 'Open shipping instruction detail' })}
+                            >
+                              {r.shippingInstruction || '—'}
+                            </a>
+                          ) : (
+                            r.shippingInstruction || '—'
+                          )
+                        ) : col.getValue(r)}
+                      </dd>
+                    </Fragment>
+                  ))}
+                </dl>
+                <div className="allocation-mobile-card__actions">
+                  <button
+                    type="button"
+                    className="btn btn--small btn--ghost"
+                    onClick={() => setExpandedMobileId((id) => (id === r.id ? null : r.id))}
+                  >
+                    {expandedMobileId === r.id ? 'Hide full detail' : 'Full detail'}
+                  </button>
+                  <button type="button" className="btn btn--primary btn--small" onClick={() => openArrivalUpdate(r)}>
+                    {tAlloc('logArrivalUpdate')}
+                  </button>
+                  {r.shiftingOut && r.operationId != null ? (
+                    <button
+                      type="button"
+                      className="btn btn--secondary btn--small"
+                      onClick={(e) => openReDockModal(r, e)}
+                      disabled={Boolean(shiftSavingByOpId[r.operationId])}
+                    >
+                      {shiftSavingByOpId[r.operationId] ? tAlloc('saving') : tAlloc('reDock')}
+                    </button>
+                  ) : (
+                    <button type="button" className="btn btn--success btn--small" onClick={(e) => openBerthingConfirm(r, e)}>
+                      {tAlloc('berthing')}
+                    </button>
+                  )}
+                </div>
+                {expandedMobileId === r.id ? (
+                  <div className="allocation-mobile-card__detail">
+                    <AllocationDetailPanel r={r} tAlloc={tAlloc} />
+                  </div>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        )}
+        {sortedList.length === 0 && (
+          <p className="allocation-plan-status-filter__empty">No vessels match the selected status/filter criteria.</p>
+        )}
       </section>
     </div>
   )

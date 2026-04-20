@@ -541,6 +541,22 @@
 .table-wrap {
   overflow-x: auto;
 }
+
+/* Shared responsive baseline and mobile-safe content spacing. */
+:root {
+  --bp-mobile-max: 639px;
+  --bp-tablet-max: 1023px;
+}
+
+.mobile-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+}
+
+.mobile-safe-inline-end {
+  padding-inline-end: clamp(0.75rem, 2vw, 1.5rem);
+}
 table.data-table {
   width: 100%;
   border-collapse: collapse;
@@ -608,3 +624,52 @@ table.data-table tr:hover td { background: var(--color-bg-lighter); }
 .palka-card .input-group { margin-bottom: var(--spacing-2); }
 .palka-card .input-group:last-child { margin-bottom: 0; }
 .palka-card input { max-width: 100%; }
+
+@media (max-width: 900px) {
+  .topbar {
+    align-items: flex-start;
+    gap: var(--spacing-2);
+    padding: var(--spacing-2) var(--spacing-3);
+  }
+
+  .topbar__brand {
+    gap: var(--spacing-2);
+    min-width: 0;
+  }
+
+  .topbar__brand-logo {
+    height: 28px;
+  }
+
+  .topbar__brand-title {
+    font-size: var(--font-size-base);
+  }
+
+  .topbar__brand-tagline {
+    display: none;
+  }
+
+  .topbar__actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: var(--spacing-2);
+  }
+}
+
+@media (max-width: 640px) {
+  .content {
+    padding: var(--spacing-3);
+    padding-bottom: calc(var(--spacing-6) + 3.5rem);
+  }
+
+  .topbar__greeting {
+    font-size: var(--font-size-xs);
+  }
+
+  .topbar__actions .btn--small {
+    min-height: 38px;
+    padding: var(--spacing-1) var(--spacing-2);
+  }
+}

@@ -151,6 +151,7 @@ export default function Verification() {
   const [sortState, setSortState] = useState({ key: 'vesselName', dir: 'asc' })
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [expandedRows, setExpandedRows] = useState({})
+  const [expandedMobileRows, setExpandedMobileRows] = useState({})
 
   const readyCount = rows.filter((r) => r.apiStatus === 'SIGNOFF_APPROVED').length
   const departedCount = rows.filter((r) => r.apiStatus === 'SAILED').length
@@ -231,6 +232,10 @@ export default function Verification() {
 
   const toggleExpanded = (operationId) => {
     setExpandedRows((prev) => ({ ...prev, [operationId]: !prev[operationId] }))
+  }
+
+  const toggleExpandedMobile = (operationId) => {
+    setExpandedMobileRows((prev) => ({ ...prev, [operationId]: !prev[operationId] }))
   }
 
   const addDocumentFiles = (e) => {
@@ -403,7 +408,8 @@ export default function Verification() {
         ) : sortedVessels.length === 0 ? (
           <p className="text-steel">No rows match filters.</p>
         ) : (
-          <div className="table-wrap">
+          <>
+          <div className="table-wrap allocation-table-desktop">
             <table className="data-table allocation-table clearance-table">
               <thead>
                 <tr>
@@ -535,6 +541,104 @@ export default function Verification() {
               </tbody>
             </table>
           </div>
+          <div className="allocation-mobile-cards" aria-label="Clearance operation cards">
+            {sortedVessels.map((v) => (
+              <article key={`clearance-mobile-${v.operationId}`} className="allocation-mobile-card">
+                <header className="allocation-mobile-card__header">
+                  <strong>{v.vesselName || '—'}</strong>
+                  <span className="text-steel">{v.status || '—'}</span>
+                </header>
+                <dl className="allocation-mobile-card__grid">
+                  <dt>SI</dt>
+                  <dd>{v.si || '—'}</dd>
+                  <dt>Purpose</dt>
+                  <dd>{v.purpose || '—'}</dd>
+                  <dt>Status</dt>
+                  <dd>{v.status || '—'}</dd>
+                  <dt>CAST Off</dt>
+                  <dd>{formatDateTime(v.castOffAt)}</dd>
+                </dl>
+                <div className="allocation-mobile-card__actions">
+                  <button
+                    type="button"
+                    className="btn btn--small btn--ghost"
+                    onClick={() => toggleExpandedMobile(v.operationId)}
+                  >
+                    {expandedMobileRows[v.operationId] ? 'Hide full detail' : 'Full detail'}
+                  </button>
+                  {v.apiStatus === 'PENDING_SIGNOFF' ? (
+                    <>
+                      <Link to={hubPathForRow(v)} className="btn btn--small btn--ghost">
+                        Open operation
+                      </Link>
+                      {canApproveLoading ? (
+                        <button
+                          type="button"
+                          className="btn btn--small btn--primary"
+                          disabled={signoffBusyId === v.operationId}
+                          onClick={() => handleApproveSignoff(v)}
+                        >
+                          {signoffBusyId === v.operationId ? 'Signing off…' : 'Sign off'}
+                        </button>
+                      ) : null}
+                    </>
+                  ) : v.apiStatus === 'SIGNOFF_APPROVED' ? (
+                    <button type="button" className="btn btn--small btn--primary" onClick={() => openModal(v)}>
+                      Record depart
+                    </button>
+                  ) : (
+                    <button type="button" className="btn btn--small btn--ghost" onClick={() => openModal(v)}>
+                      View
+                    </button>
+                  )}
+                </div>
+                {expandedMobileRows[v.operationId] ? (
+                  <div className="allocation-mobile-card__detail">
+                    <div className="allocation-detail">
+                      <h3 className="allocation-detail__title">Vessel details</h3>
+                      <dl className="allocation-detail__grid">
+                        <dt>Vessel Name</dt>
+                        <dd>{v.vesselName || '—'}</dd>
+                        <dt>Shipping Instruction</dt>
+                        <dd>{v.referenceNumber || '—'}</dd>
+                        <dt>Commodity</dt>
+                        <dd>{v.commodity || '—'}</dd>
+                        <dt>Purpose</dt>
+                        <dd>{v.purpose || '—'}</dd>
+                        <dt>Jetty</dt>
+                        <dd>{v.jettyName || '—'}</dd>
+                        <dt>Status</dt>
+                        <dd>{v.status || '—'}</dd>
+                        {v.apiStatus === 'PENDING_SIGNOFF' ? (
+                          <>
+                            <dt>Sign-off requested</dt>
+                            <dd>{formatDateTime(v.signoffRequestedAt)}</dd>
+                            {v.signoffRequestedByUsername ? (
+                              <>
+                                <dt>Requested by</dt>
+                                <dd>{v.signoffRequestedByUsername}</dd>
+                              </>
+                            ) : null}
+                            {v.signoffRequestRemark ? (
+                              <>
+                                <dt>Request remark</dt>
+                                <dd>{v.signoffRequestRemark}</dd>
+                              </>
+                            ) : null}
+                          </>
+                        ) : null}
+                        <dt>CAST Off</dt>
+                        <dd>{formatDateTime(v.castOffAt)}</dd>
+                        <dt>Sailed At</dt>
+                        <dd>{formatDateTime(v.sailedAt)}</dd>
+                      </dl>
+                    </div>
+                  </div>
+                ) : null}
+              </article>
+            ))}
+          </div>
+          </>
         )}
       </section>
 

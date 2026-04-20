@@ -3624,3 +3624,133 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   width: 100%;
   box-sizing: border-box;
 }
+
+/* Hybrid table/card mode for narrow phones */
+.allocation-mobile-cards {
+  display: none;
+}
+
+.allocation-mobile-card {
+  margin-bottom: var(--spacing-3);
+  padding: var(--spacing-3);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-white);
+}
+
+.allocation-mobile-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-2);
+}
+
+.allocation-mobile-card__grid {
+  display: grid;
+  grid-template-columns: minmax(7rem, 38%) minmax(0, 1fr);
+  gap: var(--spacing-1) var(--spacing-2);
+  margin: 0;
+  font-size: var(--font-size-small);
+}
+
+.allocation-mobile-card__grid dt {
+  color: var(--color-text-steel);
+  font-weight: var(--font-weight-medium);
+}
+
+.allocation-mobile-card__grid dd {
+  margin: 0;
+  color: var(--color-text-charcoal);
+  word-break: break-word;
+}
+
+.allocation-mobile-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+  margin-top: var(--spacing-3);
+}
+
+.allocation-mobile-card__detail {
+  margin-top: var(--spacing-3);
+  padding-top: var(--spacing-3);
+  border-top: 1px solid var(--color-border-light);
+}
+
+.allocation-mobile-card__detail .allocation-detail,
+.allocation-mobile-card__detail .shipping-instruction-detail {
+  max-width: 100%;
+}
+
+@media (max-width: 900px) {
+  .allocation-plan-status-filter,
+  .clearance-status-filter {
+    gap: var(--spacing-2);
+  }
+
+  .allocation-table__action-btns {
+    gap: var(--spacing-1);
+  }
+
+  .clearance-table .allocation-table__action-col {
+    position: static;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .allocation-table-desktop,
+  .shipping-instruction-table-desktop,
+  .operation-activity-timeline__desktop {
+    display: none;
+  }
+
+  .allocation-mobile-cards,
+  .operation-activity-timeline__mobile {
+    display: block;
+  }
+
+  .allocation-tabs {
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .allocation-tabs__tab {
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+
+  .allocation-plan-status-filter {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .clearance-status-filter {
+    display: flex;
+    width: 100%;
+  }
+
+  .clearance-status-filter .btn {
+    flex: 1 1 auto;
+  }
+
+  .loading-process-layout,
+  .precheck-master-detail {
+    grid-template-columns: 1fr;
+  }
+
+  .loading-process-rail,
+  .precheck-master-detail__list,
+  .precheck-master-detail__list--collapsed {
+    width: 100%;
+  }
+
+  .loading-section-tabs,
+  .loading-stage-tabs {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: var(--spacing-1);
+  }
+}

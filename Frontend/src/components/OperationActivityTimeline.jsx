@@ -176,79 +176,123 @@ export default function OperationActivityTimeline({
         <p className="text-steel">No recorded activities yet for this operation.</p>
       )}
       {!loading && !error && events.length > 0 && (
-        <div className="operation-activity-timeline__table-wrap">
-          <table className="loading-detail-activity-table operation-activity-timeline__table">
-            <thead>
-              <tr>
-                <th>Phase</th>
-                <th>Title</th>
-                <th>Detail</th>
-                <th className="operation-activity-timeline__time">Start time</th>
-                <th className="operation-activity-timeline__time">End time</th>
-                <th className="operation-activity-timeline__time">Duration</th>
-                <th className="operation-activity-timeline__actions">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {events.map((ev) => {
-                const { start, end, duration } = timelineRowSchedule(ev)
-                const editPath = buildActivityLogEditPath(ev, { vesselId, basePath })
-                const canDelete = activityLogRowCanDelete(ev)
-                const busy = deletingId === ev.id
-                return (
-                  <tr key={ev.id}>
-                    <td>{ev.phase || '—'}</td>
-                    <td>{ev.title || '—'}</td>
-                    <td className="operation-activity-timeline__detail">
-                      {ev.source === 'operational_milestone_na' ? (
-                        <span>N/A: {ev.reason || '—'}</span>
-                      ) : ev.source === 'operational_activity' ? (
-                        <span>
-                          {[ev.subStepTitle, ev.cargoHandlingMethodName, ev.remark].filter(Boolean).join(' — ') || ev.remark || '—'}
-                        </span>
-                      ) : (
-                        <span>
-                          {[ev.status, ev.remark].filter(Boolean).join(' · ') || ev.remark || '—'}
-                        </span>
-                      )}
-                    </td>
-                    <td className="operation-activity-timeline__time">{start ? formatDateTimeDisplay(start) : '—'}</td>
-                    <td className="operation-activity-timeline__time">{end ? formatDateTimeDisplay(end) : '—'}</td>
-                    <td className="operation-activity-timeline__time">{duration}</td>
-                    <td className="operation-activity-timeline__actions">
-                      {editPath || canDelete ? (
-                        <div className="operation-activity-timeline__action-btns">
-                          {editPath ? (
-                            <button
-                              type="button"
-                              className="btn btn--small btn--ghost"
-                              onClick={() => handleEdit(ev)}
-                              disabled={busy}
-                            >
-                              Edit
-                            </button>
-                          ) : null}
-                          {canDelete ? (
-                            <button
-                              type="button"
-                              className="btn btn--small btn--danger-soft"
-                              onClick={() => handleDelete(ev)}
-                              disabled={busy}
-                            >
-                              {busy ? '…' : 'Delete'}
-                            </button>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <span className="text-steel">—</span>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="operation-activity-timeline__table-wrap operation-activity-timeline__desktop">
+            <table className="loading-detail-activity-table operation-activity-timeline__table">
+              <thead>
+                <tr>
+                  <th>Phase</th>
+                  <th>Title</th>
+                  <th>Detail</th>
+                  <th className="operation-activity-timeline__time">Start time</th>
+                  <th className="operation-activity-timeline__time">End time</th>
+                  <th className="operation-activity-timeline__time">Duration</th>
+                  <th className="operation-activity-timeline__actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {events.map((ev) => {
+                  const { start, end, duration } = timelineRowSchedule(ev)
+                  const editPath = buildActivityLogEditPath(ev, { vesselId, basePath })
+                  const canDelete = activityLogRowCanDelete(ev)
+                  const busy = deletingId === ev.id
+                  return (
+                    <tr key={ev.id}>
+                      <td>{ev.phase || '—'}</td>
+                      <td>{ev.title || '—'}</td>
+                      <td className="operation-activity-timeline__detail">
+                        {ev.source === 'operational_milestone_na' ? (
+                          <span>N/A: {ev.reason || '—'}</span>
+                        ) : ev.source === 'operational_activity' ? (
+                          <span>
+                            {[ev.subStepTitle, ev.cargoHandlingMethodName, ev.remark].filter(Boolean).join(' — ') || ev.remark || '—'}
+                          </span>
+                        ) : (
+                          <span>
+                            {[ev.status, ev.remark].filter(Boolean).join(' · ') || ev.remark || '—'}
+                          </span>
+                        )}
+                      </td>
+                      <td className="operation-activity-timeline__time">{start ? formatDateTimeDisplay(start) : '—'}</td>
+                      <td className="operation-activity-timeline__time">{end ? formatDateTimeDisplay(end) : '—'}</td>
+                      <td className="operation-activity-timeline__time">{duration}</td>
+                      <td className="operation-activity-timeline__actions">
+                        {editPath || canDelete ? (
+                          <div className="operation-activity-timeline__action-btns">
+                            {editPath ? (
+                              <button
+                                type="button"
+                                className="btn btn--small btn--ghost"
+                                onClick={() => handleEdit(ev)}
+                                disabled={busy}
+                              >
+                                Edit
+                              </button>
+                            ) : null}
+                            {canDelete ? (
+                              <button
+                                type="button"
+                                className="btn btn--small btn--danger-soft"
+                                onClick={() => handleDelete(ev)}
+                                disabled={busy}
+                              >
+                                {busy ? '…' : 'Delete'}
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="text-steel">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="allocation-mobile-cards operation-activity-timeline__mobile">
+            {events.map((ev) => {
+              const { start, end, duration } = timelineRowSchedule(ev)
+              const editPath = buildActivityLogEditPath(ev, { vesselId, basePath })
+              const canDelete = activityLogRowCanDelete(ev)
+              const busy = deletingId === ev.id
+              return (
+                <article key={`mobile-${ev.id}`} className="allocation-mobile-card">
+                  <header className="allocation-mobile-card__header">
+                    <strong>{ev.title || '—'}</strong>
+                    <span className="text-steel">{ev.phase || '—'}</span>
+                  </header>
+                  <dl className="allocation-mobile-card__grid">
+                    <dt>Detail</dt>
+                    <dd>
+                      {ev.source === 'operational_milestone_na'
+                        ? `N/A: ${ev.reason || '—'}`
+                        : [ev.subStepTitle, ev.cargoHandlingMethodName, ev.status, ev.remark].filter(Boolean).join(' — ') || '—'}
+                    </dd>
+                    <dt>Start</dt>
+                    <dd>{start ? formatDateTimeDisplay(start) : '—'}</dd>
+                    <dt>End</dt>
+                    <dd>{end ? formatDateTimeDisplay(end) : '—'}</dd>
+                    <dt>Duration</dt>
+                    <dd>{duration}</dd>
+                  </dl>
+                  <div className="allocation-mobile-card__actions">
+                    {editPath ? (
+                      <button type="button" className="btn btn--small btn--ghost" onClick={() => handleEdit(ev)} disabled={busy}>
+                        Edit
+                      </button>
+                    ) : null}
+                    {canDelete ? (
+                      <button type="button" className="btn btn--small btn--danger-soft" onClick={() => handleDelete(ev)} disabled={busy}>
+                        {busy ? '…' : 'Delete'}
+                      </button>
+                    ) : null}
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        </>
       )}
     </section>
   )
