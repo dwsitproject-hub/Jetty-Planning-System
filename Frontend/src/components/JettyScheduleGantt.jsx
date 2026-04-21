@@ -148,33 +148,37 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs) {
     const vesselId = r.vesselId
     const vesselName = r.vesselName || r.vesselId || '—'
     const plannedEtb = parseMs(r.plannedEtbDateTime) ?? parseMs(r.etbDateTime)
+    const eta = parseMs(r.etaDateTime)
     const ta = parseMs(r.taDateTime)
     const tb = parseMs(r.tbDateTime)
     const estComp = parseMs(r.estimatedCompletionDateTime)
     const actComp = parseMs(r.actualCompletionDateTime)
     const castOff = parseMs(r.castOffDateTime)
-    const status = actComp != null ? 'Sailed off' : tb != null ? 'Berthing' : 'Arriving'
+    const sourceStatus = String(r.status || '').trim().toUpperCase()
+    const isSailed = sourceStatus === 'SAILED' || actComp != null || castOff != null
+    const status = isSailed ? 'Sailed off' : tb != null ? 'Berthing' : 'Arriving'
     /** Known end of alongside ops when recorded (cast-off can stand in if completion time missing) */
     const actualEnd = actComp ?? castOff ?? null
 
     // Planned: ETB → est. completion when set; else +3 days from ETB (open end).
     // (Independent of actual completion — matches “planned” semantics.)
 
-    if (plannedEtb != null) {
+    const plannedStart = plannedEtb ?? eta
+    if (plannedStart != null) {
       let opsEnd
       let gradient
       let label
-      if (estComp != null && estComp > plannedEtb) {
+      if (estComp != null && estComp > plannedStart) {
         opsEnd = estComp
         gradient = false
         label = 'Planned · alongside → est. completion'
       } else {
-        opsEnd = plannedEtb + DEFAULT_TAIL_MS
+        opsEnd = plannedStart + DEFAULT_TAIL_MS
         gradient = true
         label =
           estComp == null
             ? 'Planned · alongside (+3 days — est. completion not set)'
-            : 'Planned · alongside (+3 days — est. completion not after ETB)'
+            : 'Planned · alongside (+3 days — est. completion not after start)'
       }
       pushSegment(
         out,
@@ -187,8 +191,13 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs) {
           gradient,
           status,
           label,
-          startMs: plannedEtb,
+          startMs: plannedStart,
           endMs: opsEnd,
+          plannedEtbMs: plannedEtb,
+          etaMs: eta,
+          tbMs: tb,
+          taMs: ta,
+          startSource: plannedEtb != null ? 'ETB' : 'ETA',
         },
         windowStartMs,
         windowEndMs
@@ -252,6 +261,11 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs) {
           label: transitLabel,
           startMs: ta,
           endMs: transitEnd,
+          plannedEtbMs: plannedEtb,
+          etaMs: eta,
+          tbMs: tb,
+          taMs: ta,
+          startSource: 'TA',
         },
         windowStartMs,
         windowEndMs
@@ -328,6 +342,11 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs) {
           label,
           startMs: tb,
           endMs: opsEnd,
+          plannedEtbMs: plannedEtb,
+          etaMs: eta,
+          tbMs: tb,
+          taMs: ta,
+          startSource: 'TB',
         },
         windowStartMs,
         windowEndMs
@@ -557,11 +576,18 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
           const minimal = rawWidthPct < 6
           const pillClass = segmentPillClass(seg)
           const canClick = Boolean(seg.vesselId && typeof onSelectVessel === 'function')
+          const fmt = (ms) => (ms == null ? '—' : new Date(ms).toLocaleString())
           const tooltipItems = [
             { primary: `Status: ${seg.status || '—'}` },
             {
-              primary: `Start: ${new Date(seg.startMs).toLocaleString()}`,
+              primary: `Start: ${new Date(seg.startMs).toLocaleString()}${seg.startSource ? ` (from ${seg.startSource})` : ''}`,
               secondary: `End: ${new Date(seg.endMs).toLocaleString()}`,
+            },
+            {
+              primary: `Planned refs — ETB: ${fmt(seg.plannedEtbMs)} · ETA: ${fmt(seg.etaMs)}`,
+            },
+            {
+              primary: `Actual refs — TB: ${fmt(seg.tbMs)} · TA: ${fmt(seg.taMs)}`,
             },
           ]
           if (canClick) tooltipItems.push({ primary: 'Click to open vessel details.' })
@@ -689,13 +715,6 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
         )}
         <span className="allocation-schedule__legend-item">
           <span className="jetty-schedule-gantt__now-dot" aria-hidden /> Now
-        </span>
-        <span className="allocation-schedule__legend-item">
-          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--status-arriving" /> Arriving
-          / allocated
-        </span>
-        <span className="allocation-schedule__legend-item">
-          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--status-berthing" /> Berthing
         </span>
         <span className="allocation-schedule__legend-item">
           <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--status-sailed-off" /> Sailed

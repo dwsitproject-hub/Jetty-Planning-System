@@ -34,7 +34,11 @@ export default function InteractiveTooltip({
   const computePosition = useCallback(() => {
     const el = triggerRef.current
     if (!el) return null
-    const r = el.getBoundingClientRect()
+    // For absolutely-positioned interactive children (e.g. Gantt bars), measure the child box
+    // instead of the inline wrapper span so tooltip anchor follows the visual target.
+    const anchor =
+      interactiveChild && el.firstElementChild instanceof HTMLElement ? el.firstElementChild : el
+    const r = anchor.getBoundingClientRect()
     const gap = 10
     const estW = Math.min(maxWidth, 360)
     const viewportPad = 12
@@ -50,7 +54,7 @@ export default function InteractiveTooltip({
     }
     const top = clamp(r.top + r.height / 2, viewportPad + 10, window.innerHeight - viewportPad - 10)
     return { left, top, flip }
-  }, [maxWidth, placement])
+  }, [interactiveChild, maxWidth, placement])
 
   const openNow = useCallback(() => {
     const p = computePosition()

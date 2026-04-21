@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { fetchOperations, fetchPendingSignoffRequests, depart, uploadOperationDocuments, signoff, fetchActivityTimeline } from '../api/operations'
 import { useRbac } from '../context/RbacContext'
 import { resolveUploadUrl } from '../api/client'
+import SiDetailModal from '../components/SiDetailModal'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 
@@ -68,6 +69,7 @@ export default function Verification() {
   const [toast, setToast] = useState(null)
   const [signoffBusyId, setSignoffBusyId] = useState(null)
   const [timelineMaxAtByOpId, setTimelineMaxAtByOpId] = useState({})
+  const [siDetailId, setSiDetailId] = useState(null)
 
   const load = useCallback(async () => {
     setErr(null)
@@ -81,6 +83,7 @@ export default function Verification() {
       ])
       const pending = (pendingRaw || []).map((o) => ({
         operationId: o.id,
+        shippingInstructionId: o.shippingInstructionId ?? null,
         vesselName: o.vesselName,
         purpose: o.purpose,
         si: `${o.referenceNumber ?? ''} · ${o.commodity ?? ''}`.trim() || '—',
@@ -99,6 +102,7 @@ export default function Verification() {
       }))
       const ready = (signedOff || []).map((o) => ({
         operationId: o.id,
+        shippingInstructionId: o.shippingInstructionId ?? null,
         vesselName: o.vesselName,
         purpose: o.purpose,
         si: `${o.referenceNumber ?? ''} · ${o.commodity ?? ''}`.trim() || '—',
@@ -114,6 +118,7 @@ export default function Verification() {
       }))
       const done = (sailed || []).map((o) => ({
         operationId: o.id,
+        shippingInstructionId: o.shippingInstructionId ?? null,
         vesselName: o.vesselName,
         purpose: o.purpose,
         si: `${o.referenceNumber ?? ''} · ${o.commodity ?? ''}`.trim() || '—',
@@ -338,7 +343,7 @@ export default function Verification() {
     <div className="allocation-page clearance-page">
       <h1 className="page-title">{t('clearance')}</h1>
       <p className="allocation-page__intro">
-        Approvers sign off completed work (Ready to Sail), then record departure. Use <strong>Pending sign-off</strong> for vessels awaiting final approval.
+        {t('clearanceIntroLead')} <strong>{t('clearancePendingSignoff')}</strong> {t('clearanceIntroTail')}
       </p>
       {toast?.message && (
         <div className={`toast ${toast.variant === 'error' ? 'toast--warning' : 'toast--success'}`} role="status" aria-live="polite" aria-atomic="true">
@@ -351,14 +356,14 @@ export default function Verification() {
       )}
       {err && <p style={{ color: '#c00' }}>{err}</p>}
 
-      <section className="at-berth-summary" aria-label="Summary">
+      <section className="at-berth-summary" aria-label={t('clearanceSummary')}>
         <div className="at-berth-summary__grid at-berth-summary__grid--2">
           <div className="at-berth-card at-berth-card--clearance-ready">
-            <h3 className="at-berth-card__title">⚓ Ready to Sail</h3>
+            <h3 className="at-berth-card__title">⚓ {t('clearanceReadyToSail')}</h3>
             <p className="at-berth-card__count">{readyCount}</p>
           </div>
           <div className="at-berth-card at-berth-card--clearance-departed">
-            <h3 className="at-berth-card__title">🚀 Sailed</h3>
+            <h3 className="at-berth-card__title">🚀 {t('clearanceSailed')}</h3>
             <p className="at-berth-card__count">{departedCount}</p>
           </div>
         </div>
@@ -366,47 +371,47 @@ export default function Verification() {
 
       <section className="card at-berth-list-section">
         <div className="card__header-row">
-          <h2 className="card__title">Operations</h2>
-          <div className="clearance-status-filter" role="group" aria-label="Filter operations by status">
+          <h2 className="card__title">{t('clearanceOperations')}</h2>
+          <div className="clearance-status-filter" role="group" aria-label={t('clearanceFilterByStatus')}>
             <button
               type="button"
               className={`btn btn--small ${statusFilter === 'ALL' ? 'btn--primary' : 'btn--ghost'}`}
               onClick={() => setStatusFilter('ALL')}
             >
-              All ({rows.length})
+              {t('clearanceAll')} ({rows.length})
             </button>
             <button
               type="button"
               className={`btn btn--small ${statusFilter === 'READY' ? 'btn--primary' : 'btn--ghost'}`}
               onClick={() => setStatusFilter('READY')}
             >
-              Ready to Sail ({readyCount})
+              {t('clearanceReadyToSail')} ({readyCount})
             </button>
             <button
               type="button"
               className={`btn btn--small ${statusFilter === 'SAILED' ? 'btn--primary' : 'btn--ghost'}`}
               onClick={() => setStatusFilter('SAILED')}
             >
-              Sailed ({departedCount})
+              {t('clearanceSailed')} ({departedCount})
             </button>
             <button
               type="button"
               className={`btn btn--small ${statusFilter === 'PENDING' ? 'btn--primary' : 'btn--ghost'}`}
               onClick={() => setStatusFilter('PENDING')}
             >
-              Pending sign-off ({pendingSignoffCount})
+              {t('clearancePendingSignoff')} ({pendingSignoffCount})
             </button>
             <button type="button" className="btn btn--small btn--soft" onClick={clearFilters}>
-              Clear filters
+              {t('clearanceClearFilters')}
             </button>
           </div>
         </div>
         {loading ? (
-          <p className="text-steel">Fetching latest clearance queue…</p>
+          <p className="text-steel">{t('clearanceFetchingLatest')}</p>
         ) : rows.length === 0 ? (
-          <p className="text-steel">No operations in this queue yet. Pending sign-off appears after berth teams request sign-off; Ready to Sail after approval.</p>
+          <p className="text-steel">{t('clearanceNoOperations')}</p>
         ) : sortedVessels.length === 0 ? (
-          <p className="text-steel">No rows match filters.</p>
+          <p className="text-steel">{t('clearanceNoRowsMatch')}</p>
         ) : (
           <>
           <div className="table-wrap allocation-table-desktop">
@@ -417,14 +422,22 @@ export default function Verification() {
                   {CLEARANCE_COLUMNS.map((col) => (
                     <th key={col.key} className="allocation-table__th">
                       <button type="button" className="allocation-table__sort" onClick={() => handleSort(col.key)}>
-                        {col.label}
+                        {col.key === 'vesselName'
+                          ? t('clearanceColVessel')
+                          : col.key === 'si'
+                            ? t('clearanceColSi')
+                            : col.key === 'purpose'
+                              ? t('clearanceColPurpose')
+                              : col.key === 'status'
+                                ? t('clearanceColStatus')
+                                : col.label}
                         <span className="allocation-table__sort-icon">
                           {sortState.key === col.key ? (sortState.dir === 'asc' ? ' ↑' : ' ↓') : ' ⇅'}
                         </span>
                       </button>
                     </th>
                   ))}
-                  <th className="allocation-table__action-col">Action</th>
+                  <th className="allocation-table__action-col">{t('clearanceColAction')}</th>
                 </tr>
                 <tr className="allocation-table__filter-row">
                   <th className="allocation-table__expand-col" />
@@ -457,14 +470,34 @@ export default function Verification() {
                         </button>
                       </td>
                       {CLEARANCE_COLUMNS.map((col) => (
-                        <td key={col.key}>{col.getValue(v)}</td>
+                        <td key={col.key}>
+                          {col.key === 'si' ? (
+                            v.shippingInstructionId ? (
+                              <a
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  setSiDetailId(v.shippingInstructionId)
+                                }}
+                                aria-label={t('openSiDetail', { defaultValue: 'Open shipping instruction detail' })}
+                              >
+                                {v.si || '—'}
+                              </a>
+                            ) : (
+                              v.si || '—'
+                            )
+                          ) : (
+                            col.getValue(v)
+                          )}
+                        </td>
                       ))}
                       <td className="allocation-table__action-col">
                         <div className="allocation-table__action-btns">
                           {v.apiStatus === 'PENDING_SIGNOFF' ? (
                             <>
                               <Link to={hubPathForRow(v)} className="btn btn--small btn--ghost">
-                                Open operation
+                                {t('clearanceOpenOperation')}
                               </Link>
                               {canApproveLoading ? (
                                 <button
@@ -473,17 +506,17 @@ export default function Verification() {
                                   disabled={signoffBusyId === v.operationId}
                                   onClick={() => handleApproveSignoff(v)}
                                 >
-                                  {signoffBusyId === v.operationId ? 'Signing off…' : 'Sign off'}
+                                  {signoffBusyId === v.operationId ? t('clearanceSigningOff') : t('clearanceSignOff')}
                                 </button>
                               ) : null}
                             </>
                           ) : v.apiStatus === 'SIGNOFF_APPROVED' ? (
                             <button type="button" className="btn btn--small btn--primary" onClick={() => openModal(v)}>
-                              Record depart
+                              {t('clearanceRecordDepart')}
                             </button>
                           ) : (
                             <button type="button" className="btn btn--small btn--ghost" onClick={() => openModal(v)}>
-                              View
+                              {t('clearanceView')}
                             </button>
                           )}
                         </div>
@@ -541,7 +574,7 @@ export default function Verification() {
               </tbody>
             </table>
           </div>
-          <div className="allocation-mobile-cards" aria-label="Clearance operation cards">
+          <div className="allocation-mobile-cards" aria-label={t('clearanceOperationCardsAria')}>
             {sortedVessels.map((v) => (
               <article key={`clearance-mobile-${v.operationId}`} className="allocation-mobile-card">
                 <header className="allocation-mobile-card__header">
@@ -549,13 +582,28 @@ export default function Verification() {
                   <span className="text-steel">{v.status || '—'}</span>
                 </header>
                 <dl className="allocation-mobile-card__grid">
-                  <dt>SI</dt>
-                  <dd>{v.si || '—'}</dd>
-                  <dt>Purpose</dt>
+                  <dt>{t('clearanceColSi')}</dt>
+                  <dd>
+                    {v.shippingInstructionId ? (
+                      <a
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          setSiDetailId(v.shippingInstructionId)
+                        }}
+                        aria-label={t('openSiDetail', { defaultValue: 'Open shipping instruction detail' })}
+                      >
+                        {v.si || '—'}
+                      </a>
+                    ) : (
+                      v.si || '—'
+                    )}
+                  </dd>
+                  <dt>{t('clearanceColPurpose')}</dt>
                   <dd>{v.purpose || '—'}</dd>
-                  <dt>Status</dt>
+                  <dt>{t('clearanceColStatus')}</dt>
                   <dd>{v.status || '—'}</dd>
-                  <dt>CAST Off</dt>
+                  <dt>{t('clearanceCastOff')}</dt>
                   <dd>{formatDateTime(v.castOffAt)}</dd>
                 </dl>
                 <div className="allocation-mobile-card__actions">
@@ -564,12 +612,12 @@ export default function Verification() {
                     className="btn btn--small btn--ghost"
                     onClick={() => toggleExpandedMobile(v.operationId)}
                   >
-                    {expandedMobileRows[v.operationId] ? 'Hide full detail' : 'Full detail'}
+                    {expandedMobileRows[v.operationId] ? t('clearanceHideDetail') : t('clearanceFullDetail')}
                   </button>
                   {v.apiStatus === 'PENDING_SIGNOFF' ? (
                     <>
                       <Link to={hubPathForRow(v)} className="btn btn--small btn--ghost">
-                        Open operation
+                        {t('clearanceOpenOperation')}
                       </Link>
                       {canApproveLoading ? (
                         <button
@@ -578,17 +626,17 @@ export default function Verification() {
                           disabled={signoffBusyId === v.operationId}
                           onClick={() => handleApproveSignoff(v)}
                         >
-                          {signoffBusyId === v.operationId ? 'Signing off…' : 'Sign off'}
+                          {signoffBusyId === v.operationId ? t('clearanceSigningOff') : t('clearanceSignOff')}
                         </button>
                       ) : null}
                     </>
                   ) : v.apiStatus === 'SIGNOFF_APPROVED' ? (
                     <button type="button" className="btn btn--small btn--primary" onClick={() => openModal(v)}>
-                      Record depart
+                      {t('clearanceRecordDepart')}
                     </button>
                   ) : (
                     <button type="button" className="btn btn--small btn--ghost" onClick={() => openModal(v)}>
-                      View
+                      {t('clearanceView')}
                     </button>
                   )}
                 </div>
@@ -750,16 +798,21 @@ export default function Verification() {
             ) : null}
 
             <div className="modal__footer">
-              <button type="button" className="btn btn--secondary" onClick={closeModal}>Close</button>
+              <button type="button" className="btn btn--secondary" onClick={closeModal}>{t('clearanceClose')}</button>
               {!isSailed && (
                 <button type="button" className="btn btn--primary" onClick={handleSubmit} disabled={submitting || Boolean(formValidationError)}>
-                  {submitting ? 'Submitting…' : 'Submit depart'}
+                  {submitting ? t('clearanceSubmitting') : t('clearanceSubmitDepart')}
                 </button>
               )}
             </div>
           </div>
         </div>
       )}
+      <SiDetailModal
+        isOpen={Boolean(siDetailId)}
+        siId={siDetailId}
+        onClose={() => setSiDetailId(null)}
+      />
     </div>
   )
 }

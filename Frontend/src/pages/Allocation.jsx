@@ -239,6 +239,7 @@ export default function Allocation() {
   const canEditAllocation = canEdit('allocation')
   const canViewMasterJetty = canView('master-jetty')
   const [list, setList] = useState([])
+  const [scheduleList, setScheduleList] = useState([])
   const [berthsState, setBerthsState] = useState([])
   const filterKeys = ALLOCATION_COLUMNS.map((c) => c.key)
   const [filters, setFilters] = useState(Object.fromEntries(filterKeys.map((k) => [k, ''])))
@@ -284,6 +285,7 @@ export default function Allocation() {
   useEffect(() => {
     if (!selectedPortId) {
       setList([])
+      setScheduleList([])
       setBerthsState([])
       return undefined
     }
@@ -292,11 +294,13 @@ export default function Allocation() {
       .then((data) => {
         if (!alive) return
         setList(Array.isArray(data?.queue) ? data.queue : [])
+        setScheduleList(Array.isArray(data?.scheduleQueue) ? data.scheduleQueue : (Array.isArray(data?.queue) ? data.queue : []))
         setBerthsState(Array.isArray(data?.berths) ? data.berths : [])
       })
       .catch(() => {
         if (!alive) return
         setList([])
+        setScheduleList([])
         setBerthsState([])
       })
     return () => {
@@ -312,6 +316,7 @@ export default function Allocation() {
       fetchAllocationOverview()
         .then((data) => {
           setList(Array.isArray(data?.queue) ? data.queue : [])
+          setScheduleList(Array.isArray(data?.scheduleQueue) ? data.scheduleQueue : (Array.isArray(data?.queue) ? data.queue : []))
           setBerthsState(Array.isArray(data?.berths) ? data.berths : [])
         })
         .catch(() => {})
@@ -326,6 +331,21 @@ export default function Allocation() {
     // From queue rows (incoming + operations list)
     for (const r of list) {
       if (!r?.vesselId) continue
+      map[r.vesselId] = {
+        vesselName: r.vesselName || r.vesselId,
+        siId: r.shippingInstruction || '—',
+        purpose: r.purpose || null,
+        commodity: r.commodity || null,
+        etaToCompletion: r.estimatedCompletionDateTime ? new Date(r.estimatedCompletionDateTime).toLocaleString() : '—',
+        ragStatus: 'green',
+        status: r.status || null,
+      }
+    }
+
+    // From schedule rows (includes SAILED rows used by Jetty Schedule Gantt)
+    for (const r of scheduleList) {
+      if (!r?.vesselId) continue
+      if (map[r.vesselId]) continue
       map[r.vesselId] = {
         vesselName: r.vesselName || r.vesselId,
         siId: r.shippingInstruction || '—',
@@ -356,7 +376,20 @@ export default function Allocation() {
     }
 
     return map
-  }, [list, berthsState])
+  }, [list, scheduleList, berthsState])
+
+  const vesselDetailRows = useMemo(() => {
+    const byId = new Map()
+    for (const r of list) {
+      if (!r?.vesselId) continue
+      if (!byId.has(r.vesselId)) byId.set(r.vesselId, r)
+    }
+    for (const r of scheduleList) {
+      if (!r?.vesselId) continue
+      if (!byId.has(r.vesselId)) byId.set(r.vesselId, r)
+    }
+    return Array.from(byId.values())
+  }, [list, scheduleList])
 
   const allocationTableColumns = useMemo(() => {
     const berthById = new Map((berthsState || []).map((b) => [b.id, b]))
@@ -446,7 +479,7 @@ export default function Allocation() {
     const fromId = typeof vesselDetailModalVesselId === 'string' && vesselDetailModalVesselId.startsWith('op-')
       ? parseInt(vesselDetailModalVesselId.slice(3), 10)
       : null
-    const vesselRow = list.find((r) => r.vesselId === vesselDetailModalVesselId) || null
+    const vesselRow = vesselDetailRows.find((r) => r.vesselId === vesselDetailModalVesselId) || null
     const opId = Number.isFinite(fromId) ? fromId : vesselRow?.operationId ?? null
     if (!opId) return undefined
 
@@ -469,7 +502,7 @@ export default function Allocation() {
     return () => {
       alive = false
     }
-  }, [vesselDetailModalVesselId, list, vesselPhotosByVesselId, fileUrl])
+  }, [vesselDetailModalVesselId, vesselDetailRows, vesselPhotosByVesselId, fileUrl])
 
   const refreshOverview = async () => {
     const data = await fetchAllocationOverview()
@@ -1304,7 +1337,7 @@ export default function Allocation() {
           <JettyScheduleGantt
             berthIds={berthIds}
             berthsState={berthsState}
-            list={list}
+            list={scheduleList}
             onSelectVessel={(vesselId) => vesselId && setVesselDetailModalVesselId(vesselId)}
           />
         </div>
@@ -1328,7 +1361,7 @@ export default function Allocation() {
               ⚓ Active Vessel Detail: {getVesselName(vesselDetailModalVesselId)}
             </h2>
             {(() => {
-              const vesselRow = list.find((r) => r.vesselId === vesselDetailModalVesselId)
+              const vesselRow = vesselDetailRows.find((r) => r.vesselId === vesselDetailModalVesselId)
               const vessel = vesselRow || null
               const phases = UNIFIED_PHASES
               const currentPhaseIndex = deriveCurrentPhaseIndex(vessel)

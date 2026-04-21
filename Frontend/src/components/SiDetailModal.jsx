@@ -29,9 +29,11 @@ function normalizeSiDetail(row) {
     jetty: row.preferredJettyName || row.jetty || '—',
     etaFrom: row.etaFrom || null,
     etaTo: row.etaTo || null,
+    eta: row.etaDateTime || row.eta || null,
     etb: row.etbDateTime || row.etb || null,
     tb: row.tbDateTime || row.tb || null,
     etc: row.estimatedCompletionDateTime || row.estimationOfCompletion || row.etcDateTime || null,
+    actualCompletion: row.actualCompletionDateTime || row.actualCompletionTime || null,
     term: row.tradeTermCode || row.term || '—',
     voyage: row.voyageNo || '—',
     destination: row.destinationText || '—',
@@ -112,9 +114,11 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
               <dt>{t('dtJetty')}</dt><dd>{emptyToDash(detail.jetty)}</dd>
               <dt>{t('dtEtaFrom')}</dt><dd>{formatDateOnly(detail.etaFrom)}</dd>
               <dt>{t('dtEtaTo')}</dt><dd>{formatDateOnly(detail.etaTo)}</dd>
+              <dt>{t('dtEta')}</dt><dd>{formatDateTimeDisplay(detail.eta)}</dd>
               <dt>{t('dtEtb')}</dt><dd>{formatDateTimeDisplay(detail.etb)}</dd>
               <dt>{t('dtTb')}</dt><dd>{formatDateTimeDisplay(detail.tb)}</dd>
               <dt>{t('dtEstimatedCompletion')}</dt><dd>{formatDateTimeDisplay(detail.etc)}</dd>
+              <dt>{t('dtActualCompletion')}</dt><dd>{formatDateTimeDisplay(detail.actualCompletion)}</dd>
               <dt>{t('dtTerm')}</dt><dd>{emptyToDash(detail.term)}</dd>
               <dt>{t('dtVoyage')}</dt><dd>{emptyToDash(detail.voyage)}</dd>
               <dt>{t('dtDestination')}</dt><dd>{emptyToDash(detail.destination)}</dd>

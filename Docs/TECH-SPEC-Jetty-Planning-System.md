@@ -1,12 +1,59 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.23  
-**Last Updated**: 2026-04-17  
+**Version**: 1.26
+**Last Updated**: 2026-04-21  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
 
 ## 0. Addendum (2026-03-31)
+
+### 0.14 Allocation schedule dataset split (2026-04-21)
+
+Allocation overview now returns a dedicated **schedule dataset** so the two visuals can intentionally diverge:
+
+- **Live surfaces** (Incoming vessel table + Jetty Schematic) continue to use **`queue`** and **`berths`** (non-`SAILED` operations only).
+- **Jetty Schedule Gantt** uses **`scheduleQueue`**, which can include **`SAILED`** operations for time-series context.
+
+Default backend policy in `allocation.js`:
+
+- `scheduleQueue` includes operation rows where:
+  - `status <> 'SAILED'`, **or**
+  - `status = 'SAILED'` and `COALESCE(cast_off_at, actual_completion_time, updated_at)` is within a bounded lookback window.
+- Lookback constant: **`SCHEDULE_SAILED_LOOKBACK_DAYS = 90`**.
+- `scheduleQueue` also includes approved incoming SI rows (same shape as queue rows via `formatListRow`).
+
+Frontend wiring:
+
+- `Frontend/src/pages/Allocation.jsx` keeps table/schematic on `data.queue` / `data.berths`.
+- `JettyScheduleGantt` receives `data.scheduleQueue` (fallback to `queue` for backward compatibility).
+
+### 0.15 Jetty Schedule source-context tooltip + planned start fallback (2026-04-21)
+
+`Frontend/src/components/JettyScheduleGantt.jsx` now exposes source references in bar tooltips so users can reconcile derived bars with underlying operation timestamps:
+
+- Tooltip includes:
+  - **Planned refs**: `ETB`, `ETA`
+  - **Actual refs**: `TB`, `TA`
+  - Start label with selected source: `Start ... (from ETB|ETA|TB|TA)`
+- Planned bar start now uses:
+  - `plannedStart = COALESCE(plannedEtbDateTime, etbDateTime, etaDateTime)`
+- Planned end matrix remains guarded:
+  - use `estimatedCompletionDateTime` only when later than `plannedStart`, else `plannedStart + 3 days`.
+
+This change is presentation-only for schedule explainability; API contracts remain unchanged.
+
+### 0.16 Jetty Schedule legend/status alignment hardening (2026-04-21)
+
+`Frontend/src/components/JettyScheduleGantt.jsx` now closes remaining legend-alignment gaps:
+
+- **Sailed status source-of-truth**:
+  - `isSailed = (status === 'SAILED') OR actualCompletionDateTime IS NOT NULL OR castOffDateTime IS NOT NULL`
+  - This avoids misclassifying sailed rows when actual completion is empty but cast-off/status indicates completion.
+- **Legend simplification**:
+  - Removed legend items: `Arriving / allocated`, `Berthing`.
+  - Retained legend items: Planned known/open-end, Actual known/open-end, Now, Sailed off.
+- Segment rendering classes and lane assignment remain unchanged.
 
 ### 0.4 Dev reset + seed (transactional data only)
 
@@ -797,9 +844,13 @@ Notes:
 
 #### 3.5.1 `GET /allocation/overview`
 
-Returns `{ queue, berths }`.
+Returns `{ queue, berths, scheduleQueue }`.
 
 - **`queue`**: union of (a) **active operations** (`status <> 'SAILED'`) joined to SI + jetty, and (b) **approved SIs without an operation**. Each row is normalised in **`formatListRow`** (`Backend/src/routes/allocation.js`).
+- **`scheduleQueue`**: schedule-focused union with the same row shape as `queue`, but operations are sourced from a schedule query that includes:
+  - non-`SAILED` operations, plus
+  - `SAILED` operations within configured lookback (`COALESCE(cast_off_at, actual_completion_time, updated_at)` >= `NOW() - lookbackDays`).
+  Incoming approved SI rows are included here as well.
 - **Key camelCase fields** (non-exhaustive): `id`, `vesselId`, `operationId`, `shippingInstructionId`, `vesselName`, `shippingInstruction`, `commodity`, `purpose`, `priority`, `noPkk`, `remark`, **`shiftingOut`**, **`shiftingOutAt`**, `eta`, `etb`, `jetty`, `etaDateTime`, `taDateTime`, `etbDateTime`, `tbDateTime`, `pobDateTime`, `sobDateTime`, `estimatedCompletionDateTime`, `actualCompletionDateTime`, `castOffDateTime`, `status`, `norDocuments`, **`recordLastUpdatedAt`**, **`recordLastUpdatedByDisplayName`**, **`shipper`**, **`agent`**, **`surveyor`** (from `si_shippers`, `si_agents`, `si_surveyors` joins on `shipping_instructions`).
 - **`eta` / `etb`**: short display strings from SQL `to_char(… AT TIME ZONE 'UTC', 'DD/MM HH24:MI')` — **no** trailing ` LT` suffix.
 - **`berths`**: jetty list with occupancy derived from operations where **TB is set** and/or status in DOCKED / IN_PROGRESS / POST_OPS / SIGNOFF_REQUESTED / SIGNOFF_APPROVED **and `shifting_out` is false** (shifted-out vessels must not occupy a bank slot).

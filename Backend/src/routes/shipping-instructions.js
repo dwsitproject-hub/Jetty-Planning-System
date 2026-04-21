@@ -474,7 +474,38 @@ router.get('/:id', async (req, res) => {
     return res.status(404).json({ error: 'Shipping instruction not found' });
   }
   const breakdown = await loadBreakdown(id);
-  res.json({ ...toSIList(row), breakdown });
+  const opRes = await pool.query(
+    `SELECT
+       o.id,
+       o.status,
+       o.eta,
+       o.etb,
+       o.tb,
+       o.estimated_completion_time,
+       o.actual_completion_time,
+       o.updated_at
+     FROM operations o
+     WHERE o.shipping_instruction_id = $1
+       AND o.deleted_at IS NULL
+     ORDER BY
+       CASE WHEN UPPER(TRIM(COALESCE(o.status, ''))) = 'SAILED' THEN 1 ELSE 0 END ASC,
+       o.updated_at DESC,
+       o.id DESC
+     LIMIT 1`,
+    [id]
+  );
+  const op = opRes.rows[0] || null;
+  res.json({
+    ...toSIList(row),
+    breakdown,
+    operationId: op?.id ?? null,
+    operationStatus: op?.status ?? null,
+    etaDateTime: op?.eta ?? null,
+    etbDateTime: op?.etb ?? null,
+    tbDateTime: op?.tb ?? null,
+    estimatedCompletionDateTime: op?.estimated_completion_time ?? null,
+    actualCompletionDateTime: op?.actual_completion_time ?? null,
+  });
 });
 
 router.post('/', requireAuth, async (req, res) => {

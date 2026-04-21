@@ -133,9 +133,10 @@
 }
 
 .jetty-schedule-gantt__scroll {
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: auto;
   -webkit-overflow-scrolling: touch;
+  max-height: min(70vh, 720px);
+  position: relative;
 }
 
 .jetty-schedule-gantt__matrix {
@@ -168,6 +169,9 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   border-bottom: none;
   background: var(--color-bg-subtle, #f5f5f5);
   font-size: var(--font-size-small);
+  position: sticky;
+  top: 0;
+  z-index: 5;
 }
 
 .jetty-schedule-gantt__corner,
@@ -182,6 +186,10 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 .jetty-schedule-gantt__corner {
   text-align: left;
   color: var(--color-text-steel);
+  position: sticky;
+  left: 0;
+  z-index: 7;
+  background: var(--color-bg-subtle, #f5f5f5);
 }
 
 .jetty-schedule-gantt__th-day:last-child {
@@ -258,6 +266,9 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   display: flex;
   flex-direction: column;
   justify-content: center;
+  position: sticky;
+  left: 0;
+  z-index: 4;
 }
 
 .jetty-schedule-gantt__jetty-id {
@@ -449,12 +460,23 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   filter: saturate(0.55);
 }
 
+/* Sailed-off bars should render in neutral gray, regardless of planned/actual layer. */
+.jetty-schedule-gantt__bar--st-sailed-off.jetty-schedule-gantt__bar--planned-solid,
+.jetty-schedule-gantt__bar--st-sailed-off.jetty-schedule-gantt__bar--planned-grad,
+.jetty-schedule-gantt__bar--st-sailed-off.jetty-schedule-gantt__bar--actual-solid,
+.jetty-schedule-gantt__bar--st-sailed-off.jetty-schedule-gantt__bar--actual-grad {
+  background: rgba(107, 114, 128, 0.18);
+  border-color: rgba(107, 114, 128, 0.6);
+  color: #4b5563;
+}
+
 .jetty-schedule-gantt__bar--minimal.jetty-schedule-gantt__bar--st-arriving {
   border-style: solid;
 }
 
 .jetty-schedule-gantt__bar--minimal.jetty-schedule-gantt__bar--st-sailed-off {
   opacity: 0.85;
+  box-shadow: 0 0 0 1px rgba(107, 114, 128, 0.55);
 }
 
 .jetty-schedule-gantt__legend--two {

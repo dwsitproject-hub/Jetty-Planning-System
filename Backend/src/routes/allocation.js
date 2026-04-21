@@ -14,6 +14,7 @@ import { userHasPageEdit } from '../middleware/permissions.js';
 import { JETTY_OUT_OF_SERVICE } from '../lib/jetty-blocking.js';
 
 const router = express.Router();
+const SCHEDULE_SAILED_LOOKBACK_DAYS = 90;
 
 /** null = unknown; set false if DB has no operations.updated_by (migration 044 not applied). */
 let allocationOpsHasUpdatedByColumn = null;
@@ -204,13 +205,19 @@ function formatListRow(r) {
   };
 }
 
-function activeOperationsOverviewSql(includeUpdatedByJoin) {
+function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = false) {
   const bySelect = includeUpdatedByJoin
     ? `NULLIF(TRIM(COALESCE(u.display_name, u.username, '')), '') AS record_last_updated_by_display_name`
     : `NULL::text AS record_last_updated_by_display_name`;
   const joinUsers = includeUpdatedByJoin
     ? `LEFT JOIN users u ON u.id = o.updated_by AND u.deleted_at IS NULL`
     : '';
+  const statusFilter = includeSailedForSchedule
+    ? `AND (
+         o.status <> 'SAILED'
+         OR COALESCE(o.cast_off_at, o.actual_completion_time, o.updated_at) >= (NOW() - ($3::int * INTERVAL '1 day'))
+       )`
+    : `AND o.status <> 'SAILED'`;
   return `
     SELECT
         ('op-' || o.id)::text AS vessel_id,
@@ -272,7 +279,7 @@ function activeOperationsOverviewSql(includeUpdatedByJoin) {
      LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
      WHERE o.deleted_at IS NULL
        AND COALESCE(o.port_id, p.id) = $2
-       AND o.status <> 'SAILED'
+       ${statusFilter}
      ORDER BY COALESCE(o.docking_start_time, si.eta, si.eta_from::timestamptz) ASC NULLS LAST, o.id ASC`;
 }
 
@@ -293,14 +300,25 @@ router.get('/overview', async (req, res) => {
   );
 
   let activeOpsRes;
+  let scheduleOpsRes;
   try {
-    activeOpsRes = await pool.query(activeOperationsOverviewSql(true), ['operation', selectedPortId]);
+    activeOpsRes = await pool.query(operationsOverviewSql(true, false), ['operation', selectedPortId]);
+    scheduleOpsRes = await pool.query(operationsOverviewSql(true, true), [
+      'operation',
+      selectedPortId,
+      SCHEDULE_SAILED_LOOKBACK_DAYS,
+    ]);
   } catch (e) {
     const msg = String(e?.message || '');
     const missingUpdatedBy =
       e?.code === '42703' || (msg.includes('updated_by') && msg.includes('does not exist'));
     if (missingUpdatedBy) {
-      activeOpsRes = await pool.query(activeOperationsOverviewSql(false), ['operation', selectedPortId]);
+      activeOpsRes = await pool.query(operationsOverviewSql(false, false), ['operation', selectedPortId]);
+      scheduleOpsRes = await pool.query(operationsOverviewSql(false, true), [
+        'operation',
+        selectedPortId,
+        SCHEDULE_SAILED_LOOKBACK_DAYS,
+      ]);
     } else {
       throw e;
     }
@@ -409,7 +427,8 @@ router.get('/overview', async (req, res) => {
   });
 
   const queue = [...ops, ...incomingSiRes.rows].map(formatListRow);
-  res.json({ queue, berths });
+  const scheduleQueue = [...(scheduleOpsRes?.rows || []), ...incomingSiRes.rows].map(formatListRow);
+  res.json({ queue, berths, scheduleQueue });
 });
 
 /**

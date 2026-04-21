@@ -3,7 +3,7 @@
 **Product:** Jetty Planning & Monitoring System (JPS)  
 **Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.28 (see document history at end).
+**Version:** 1.32 (see document history at end).
 
 ---
 
@@ -38,10 +38,13 @@ For API field names, database columns, and shared code modules, see **TECH-SPEC-
 | **Reset** | Button label **Reset** — restores the default range (**today** → **today + 1 month**). |
 | **Intro line** | The schedule keeps an intro `<p>` wrapper for layout; **long instructional copy was removed**. Only **validation errors** (invalid range, range too large) appear there. |
 | **Compare plan vs actual** | On narrow viewports, a checkbox toggles dual **Planned** / **Actual** lanes; wide viewports show both by default. |
-| **Legend** | Explains **Planned (known)** vs **Planned (open end)**, **Actual (known)** vs **Actual (open end)**, and **Now** line. |
+| **Legend** | Explains **Planned (known)** vs **Planned (open end)**, **Actual (known)** vs **Actual (open end)**, **Now**, and **Sailed off** status color. |
 | **Vessel icon** | Bars use an **inline SVG** ship icon (avoids emoji rendering issues on Windows). |
 | **Click vessel** | Where configured, clicking a bar selects the vessel for details. |
+| **Sailed visibility scope** | **Jetty Schedule** is a time-series surface and can include **SAILED** operation rows (bounded history from backend) when they intersect the selected date window. **Jetty Schematic** remains a **live occupancy** surface and excludes SAILED by design. |
 | **Removed segment** | The **planned “transit” sliver** from **ETA → planned ETB** was **removed** — it was visually confusing; the Gantt does not draw that segment anymore. |
+| **Tooltip source context** | Hover tooltip shows source references for derived bars: **Planned refs** (`ETB`, `ETA`) and **Actual refs** (`TB`, `TA`). Start line indicates which source is used, e.g. **Start ... (from ETB/ETA/TB/TA)**. |
+| **Status color source of truth** | Gantt bar status color treats a vessel as **Sailed off** when any of these are true: operation status is `SAILED`, `actualCompletionDateTime` is set, or `castOffDateTime` is set. |
 | **Double bank — schedule lanes (01 / 02)** | **Bank lane** is assigned per **vessel** on a jetty (not separately for planned vs actual). **Planned** and **Actual** bars for the **same** vessel share the **same** lane (e.g. **1A-01**) as two sub-rows. A **second** vessel on that jetty uses the next lane (**1A-02**) when capacity allows. Lane order: earliest **TB** first, then **operation id**, then **vessel id** (see TECH-SPEC §0.6). |
 | **Out-of-service jetty (lane display)** | When master **`jetties.status`** is **Out of Service** for a jetty present in overview **`berths`**, the **left id column** shows an **OOS** treatment (striped/muted row) and status text explains the lane is for **schedule context only**; new allocations to that jetty are **blocked** (see **§2.7**). |
 
@@ -153,7 +156,7 @@ Segments are built from allocation overview **queue** rows. Relevant fields:
 
 | Concept | Typical row fields (API/camelCase) |
 |--------|-------------------------------------|
-| Planned alongside start | `plannedEtbDateTime`, else `etbDateTime` |
+| Planned alongside start | `COALESCE(plannedEtbDateTime, etbDateTime, etaDateTime)` |
 | Actual time of arrival (berth approach) | `taDateTime` |
 | Actual alongside / berth | `tbDateTime` |
 | Estimated completion | `estimatedCompletionDateTime` |
@@ -193,10 +196,10 @@ Invalid dates (e.g. end **not after** start) fall back to **+3 days** from the r
 
 | Condition | Planned end | Style |
 |-----------|-------------|--------|
-| `estComp` set and **after** planned ETB | `estComp` | Known (solid) |
-| Otherwise | planned ETB **+ 3 days** | Open end (gradient) |
+| `estComp` set and **after** planned start | `estComp` | Known (solid) |
+| Otherwise | planned start **+ 3 days** | Open end (gradient) |
 
-Planned end **does not** depend on whether actual completion is filled; it reflects **plan** vs **ETB + default** when estimate is missing or invalid.
+Planned end **does not** depend on whether actual completion is filled; it reflects **plan** vs **planned-start + default** when estimate is missing or invalid.
 
 ### 5.2 Actual · alongside (only if **TB** is set)
 
@@ -419,6 +422,9 @@ Technical contract: **TECH-SPEC-Jetty-Planning-System.md §3.3** (routes, RBAC, 
 | 1.27 | 2026-04-17 | Added **§2.8** and updated **§9** to standardize **Full details** timing fields across Shipping Instructions, Allocation & Berthing, and At-Berth Executions with order **ETA → TA → ETB → TB → Estimation of Completion** and `—` fallback for missing values. |
 | 1.28 | 2026-04-17 | Added **§2.9** SI hyperlink behavior: table SI value opens a shared **SI Detail** modal across Shipping Instructions, Allocation & Berthing, and At-Berth Executions; documented modal field set, fallback, and implementation references. |
 | 1.29 | 2026-04-20 | Operational milestone **OPENING** (UI; DB key `opening_hatch`): **cargo handling method** moved from Cargo Operations to Opening; method is **read-only** and server-derived (**Conveyor** for Solid, **Hose** for Liquid). Migration **055** backfills method on existing Opening rows. See **Docs/Plan/UAT-COMMODITY-PRECHECK-OPERATIONAL-PLAN.md**. |
+| 1.30 | 2026-04-21 | Allocation visual split: **Jetty Schedule** now uses a schedule dataset that can include **SAILED** operations (time-series context, bounded lookback), while **Jetty Schematic** remains live occupancy and excludes SAILED rows. |
+| 1.31 | 2026-04-21 | Jetty Schedule tooltip now shows source context for derived bars: **Planned refs (ETB, ETA)** and **Actual refs (TB, TA)**; start label explicitly shows selected source (**from ETB/ETA/TB/TA**). Planned start fallback includes **ETA** when ETB is unavailable. |
+| 1.32 | 2026-04-21 | Legend simplification: removed **Arriving / allocated** and **Berthing** legend items; kept **Sailed off** status indicator. Gantt sailed classification now uses **status = SAILED OR actual completion OR cast-off** as source of truth. |
 
 ---
 
