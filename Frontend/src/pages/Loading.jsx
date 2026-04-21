@@ -1138,6 +1138,7 @@ export default function Loading() {
               loadingOp={loadingOp}
               purpose={purpose}
               operationId={operationId}
+              commodityType={apiOp?.commodityType === 'Solid' ? 'Solid' : 'Liquid'}
               addActivity={addLoadingActivity}
               setOperationalMilestoneNa={setOperationalMilestoneNa}
               onOperationalSaved={bumpActivityLogRefresh}

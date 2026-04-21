@@ -1,12 +1,18 @@
 /**
  * HTTP client for JPS API (Slice 0).
- * Set VITE_API_BASE_URL in project root .env (e.g. http://localhost:3000/api/v1)
+ * Set VITE_API_BASE_URL in project root .env:
+ * - Local dev: http://localhost:3000/api/v1 (Vite → API on another port)
+ * - Production (nginx proxies /api/): /api/v1 — same host whatever users type (private IP or public EIP)
  * Sessions: HttpOnly cookie (H-1); XSRF double-submit header on mutating requests.
  */
 const BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1').replace(
   /\/$/,
   ''
 )
+
+function isRelativeApiBase() {
+  return typeof BASE === 'string' && BASE.startsWith('/')
+}
 const SELECTED_PORT_SESSION_KEY = 'jps_selected_port_id'
 const XSRF_COOKIE = 'jps_xsrf'
 
@@ -99,6 +105,12 @@ async function parseResponse(res) {
  * Origin only (for GET /health outside /api/v1).
  */
 export function getApiOrigin() {
+  if (isRelativeApiBase()) {
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      return window.location.origin
+    }
+    return 'http://localhost:3000'
+  }
   try {
     return new URL(BASE).origin
   } catch {

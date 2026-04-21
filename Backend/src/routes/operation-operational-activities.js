@@ -20,6 +20,11 @@ const MILESTONE_KEYS = new Set([
 
 const START_ONLY_MILESTONE_KEYS = new Set(['opening_hatch', 'cargo_pre_conditioning']);
 
+function operationalActivityTitle(milestoneKey) {
+  if (milestoneKey === 'opening_hatch') return 'OPENING';
+  return String(milestoneKey || '').replace(/_/g, ' ').toUpperCase();
+}
+
 const SUB_PROCESS_TITLE = {
   key_meeting: 'KEY MEETING',
   nor_accepted: 'NOR ACCEPTED',
@@ -48,6 +53,55 @@ function titleForSubProcessKey(key) {
 async function ensureOperationExists(operationId) {
   const r = await pool.query(`SELECT 1 FROM operations WHERE id = $1 AND deleted_at IS NULL`, [operationId]);
   return r.rows.length > 0;
+}
+
+/** Same SI commodity_type resolution as operations route (Solid | Liquid). */
+async function loadCommodityTypeForOperation(q, operationId) {
+  const r = await q.query(
+    `SELECT COALESCE(
+      (SELECT sc.commodity_type FROM public.shipping_instruction_breakdown b
+       JOIN public.si_commodities sc ON sc.id = b.commodity_id AND sc.deleted_at IS NULL
+       WHERE b.shipping_instruction_id = si.id AND b.deleted_at IS NULL
+       ORDER BY b.line_order, b.id LIMIT 1),
+      'Liquid'
+    ) AS commodity_type
+     FROM operations o
+     JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
+     WHERE o.id = $1 AND o.deleted_at IS NULL`,
+    [operationId]
+  );
+  if (r.rows.length === 0) return null;
+  const t = String(r.rows[0].commodity_type || 'Liquid');
+  return t === 'Solid' ? 'Solid' : 'Liquid';
+}
+
+async function resolveCargoHandlingMethodIdForOpening(q, commodityType) {
+  const code = commodityType === 'Solid' ? 'conveyor' : 'hose';
+  const r = await q.query(
+    `SELECT id FROM master_cargo_handling_methods
+     WHERE code = $1 AND deleted_at IS NULL AND is_active = TRUE`,
+    [code]
+  );
+  if (r.rows.length === 0) {
+    const err = new Error(
+      `Master data missing active cargo handling method with code "${code}" (required for Opening)`
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+  return r.rows[0].id;
+}
+
+/** Cargo handling method FK: only opening_hatch rows store it; all other milestones null. */
+async function resolveActivityCargoHandlingMethodId(q, operationId, milestoneKey) {
+  if (milestoneKey !== 'opening_hatch') return null;
+  const ct = await loadCommodityTypeForOperation(q, operationId);
+  if (!ct) {
+    const err = new Error('Operation not found or has no shipping instruction');
+    err.statusCode = 404;
+    throw err;
+  }
+  return resolveCargoHandlingMethodIdForOpening(q, ct);
 }
 
 function toRow(r) {
@@ -132,12 +186,6 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
       const subStepTitle = body.subStepTitle != null ? String(body.subStepTitle).trim() : '';
       const startAt = body.startAt || body.start_at;
       const endAt = body.endAt || body.end_at;
-      const cargoHandlingMethodIdRaw =
-        body.cargoHandlingMethodId ?? body.cargo_handling_method_id ?? null;
-      const cargoHandlingMethodId =
-        cargoHandlingMethodIdRaw == null || cargoHandlingMethodIdRaw === ''
-          ? null
-          : parseInt(cargoHandlingMethodIdRaw, 10);
       if (!remark) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'remark is required for activity' });
@@ -174,20 +222,18 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
         }
         tbIso = tb.toISOString();
       }
-      if (milestoneKey === 'cargo_operations') {
-        if (!Number.isFinite(cargoHandlingMethodId)) {
-          await client.query('ROLLBACK');
-          return res.status(400).json({ error: 'cargoHandlingMethodId is required for cargo_operations' });
-        }
-        const mhm = await client.query(
-          `SELECT id FROM master_cargo_handling_methods
-           WHERE id = $1 AND deleted_at IS NULL AND is_active = TRUE`,
-          [cargoHandlingMethodId]
+
+      let activityCargoHandlingMethodId = null;
+      try {
+        activityCargoHandlingMethodId = await resolveActivityCargoHandlingMethodId(
+          client,
+          operationId,
+          milestoneKey
         );
-        if (mhm.rows.length === 0) {
-          await client.query('ROLLBACK');
-          return res.status(400).json({ error: 'Invalid cargoHandlingMethodId' });
-        }
+      } catch (e) {
+        await client.query('ROLLBACK');
+        const status = Number.isInteger(e?.statusCode) && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 400;
+        return res.status(status).json({ error: e.message || 'Could not resolve cargo handling method' });
       }
 
       await softDeleteMilestoneNaFor(operationId, milestoneKey, client);
@@ -205,7 +251,7 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
           remark,
           ta.toISOString(),
           tbIso,
-          milestoneKey === 'cargo_operations' ? cargoHandlingMethodId : null,
+          activityCargoHandlingMethodId,
         ]
       );
       await promoteDockedToInProgressIfDocked(client, operationId);
@@ -323,12 +369,6 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
         : body.end_at !== undefined && body.end_at !== null
           ? body.end_at
           : row0.end_at;
-    const cargoHandlingMethodIdRaw =
-      body.cargoHandlingMethodId ?? body.cargo_handling_method_id ?? row0.cargo_handling_method_id ?? null;
-    const cargoHandlingMethodId =
-      cargoHandlingMethodIdRaw == null || cargoHandlingMethodIdRaw === ''
-        ? null
-        : parseInt(cargoHandlingMethodIdRaw, 10);
     if (!remark) return res.status(400).json({ error: 'remark is required' });
     const ta = new Date(startAt);
     if (Number.isNaN(ta.getTime())) return res.status(400).json({ error: 'Invalid startAt' });
@@ -345,19 +385,6 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
       if (Number.isNaN(tb.getTime()) || tb < ta) return res.status(400).json({ error: 'Invalid startAt/endAt' });
       tbIso = tb.toISOString();
     }
-    if (milestoneKey === 'cargo_operations') {
-      if (!Number.isFinite(cargoHandlingMethodId)) {
-        return res.status(400).json({ error: 'cargoHandlingMethodId is required for cargo_operations' });
-      }
-      const mhm = await pool.query(
-        `SELECT id FROM master_cargo_handling_methods
-         WHERE id = $1 AND deleted_at IS NULL AND is_active = TRUE`,
-        [cargoHandlingMethodId]
-      );
-      if (mhm.rows.length === 0) {
-        return res.status(400).json({ error: 'Invalid cargoHandlingMethodId' });
-      }
-    }
 
     const client = await pool.connect();
     try {
@@ -365,6 +392,20 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
       if (milestoneKey !== row0.milestone_key) {
         await softDeleteMilestoneNaFor(operationId, milestoneKey, client);
       }
+
+      let putActivityCargoHandlingMethodId = null;
+      try {
+        putActivityCargoHandlingMethodId = await resolveActivityCargoHandlingMethodId(
+          client,
+          operationId,
+          milestoneKey
+        );
+      } catch (e) {
+        await client.query('ROLLBACK');
+        const status = Number.isInteger(e?.statusCode) && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 400;
+        return res.status(status).json({ error: e.message || 'Could not resolve cargo handling method' });
+      }
+
       const up = await client.query(
         `UPDATE operation_operational_activities SET
            milestone_key = $1,
@@ -383,7 +424,7 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
           remark,
           ta.toISOString(),
           tbIso,
-          milestoneKey === 'cargo_operations' ? cargoHandlingMethodId : null,
+          putActivityCargoHandlingMethodId,
           entryId,
           operationId,
         ]
@@ -542,7 +583,7 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
         source: 'operational_activity',
         phase: 'Operational',
         milestoneKey: r.milestone_key,
-        title: r.milestone_key.replace(/_/g, ' ').toUpperCase(),
+        title: operationalActivityTitle(r.milestone_key),
         subStepTitle: r.sub_step_title ?? null,
         cargoHandlingMethodId: r.cargo_handling_method_id ?? null,
         cargoHandlingMethodName: r.cargo_handling_method_name ?? null,
@@ -559,7 +600,7 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
         source: 'operational_milestone_na',
         phase: 'Operational',
         milestoneKey: r.milestone_key,
-        title: `${r.milestone_key.replace(/_/g, ' ').toUpperCase()} · N/A`,
+        title: `${operationalActivityTitle(r.milestone_key)} · N/A`,
         reason: r.reason ?? null,
         occurredAt: null,
         startAt: null,

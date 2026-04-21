@@ -291,6 +291,7 @@ export function fetchOperationalActivities(operationId) {
 }
 
 export function createOperationalEntry(operationId, body) {
+  // cargo_handling_method_id is server-derived for opening_hatch only; never send from client.
   return apiPost(`/operations/${operationId}/operational-activities`, {
     entryType: body.entryType,
     milestoneKey: body.milestoneKey,
@@ -300,7 +301,6 @@ export function createOperationalEntry(operationId, body) {
     endAt: body.endAt,
     reason: body.reason,
     markedAt: body.markedAt,
-    cargoHandlingMethodId: body.cargoHandlingMethodId,
   })
 }
 
@@ -313,7 +313,6 @@ export function updateOperationalEntry(operationId, entryId, body) {
     endAt: body.endAt,
     reason: body.reason,
     markedAt: body.markedAt,
-    cargoHandlingMethodId: body.cargoHandlingMethodId,
   })
 }
 

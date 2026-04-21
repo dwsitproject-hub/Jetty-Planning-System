@@ -38,6 +38,11 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
       CORS_ORIGIN: ${CORS_ORIGIN:?Set CORS_ORIGIN to the APP origin users use in the browser}
       COOKIE_SECURE: ${COOKIE_SECURE:-}
+      SSO_TOKEN_SECRET: ${SSO_TOKEN_SECRET:-}
+      JPS_PUBLIC_ORIGIN: ${JPS_PUBLIC_ORIGIN:-http://localhost:5173}
+      HUB_SSO_JIT_PROVISION: ${HUB_SSO_JIT_PROVISION:-}
+      HUB_SSO_JIT_ROLE_NAME: ${HUB_SSO_JIT_ROLE_NAME:-}
+      HUB_SSO_JIT_ASSIGN_PORTS: ${HUB_SSO_JIT_ASSIGN_PORTS:-}
       UPLOAD_DIR: /tmp/jps-uploads
     command: ["npm", "run", "start"]
     depends_on:

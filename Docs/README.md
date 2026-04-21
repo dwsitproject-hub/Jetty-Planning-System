@@ -90,7 +90,8 @@ Shipping Instruction → Allocation & Berthing → At-Berth → Loading/Unloadin
 | **ALICLOUD-DEPLOYMENT-GUIDE.md** | Deployment on Alicloud Ubuntu: security group, Docker, optional PostgreSQL, migrations, troubleshooting. |
 | **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md** | **Functional spec:** Jetty schedule Gantt, arrival/berthing modals, **At-Berth Executions** list behaviour, **date/time display** rules (no “LT”), and related user-visible logic. |
 | **UAT-PRE-TRAINING-Scripts.md** | **Pre-UAT training:** facilitator scripts module-by-module (starts with **Shipping Instruction**); Pass/Fail tables and links to functional/technical specs. |
-| **Plan/UAT-COMMODITY-PRECHECK-OPERATIONAL-PLAN.md** | **UAT rollout:** commodity type, pre-check subprocess merges (`inspection`, `initial_cargo_checking`), operational **Opening Hatch** / start-only rules, migrations `051`–`054`, short test matrix. |
+| **Plan/UAT-COMMODITY-PRECHECK-OPERATIONAL-PLAN.md** | **UAT rollout:** commodity type, pre-check subprocess merges (`inspection`, `initial_cargo_checking`), operational **OPENING** / start-only rules, cargo handling method on Opening (server-derived), migrations `051`–`055`, short test matrix. |
+| **Plan/CARGO-OPERATIONS-QTY-BALANCE-REQUIREMENTS.md** | **DRAFT (req gathering):** Cargo Operations qty / COB–QWB / balance / flow, chaining across rows, metric from SI breakdown, informative ETA (display-only). |
 | **Plan/I18N-EN-ID-LANGUAGE-PLAN.md** | **UI language (EN/ID):** i18next, `jps_locale`, header language switch, locale JSON + `terms` glossary, phased string migration, QA. |
 
 For full context when starting backend or architecture work, use **TECH-SPEC-Jetty-Planning-System.md**, **Feature-Module-Summary.md**, and **technical-architecture.md** together with the PRD.

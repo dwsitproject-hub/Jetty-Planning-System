@@ -8,9 +8,11 @@
 #
 # Example (busy app host — use a free host port, e.g. 3080):
 #   JPS_FE_PORT=3080
-#   VITE_API_BASE_URL=http://203.0.113.10:3080/api/v1
+# Prefer relative API base so both VPC private IP and public EIP work without rebuilding:
+#   VITE_API_BASE_URL=/api/v1
+# Or pin one absolute URL: http://<EIP-or-DNS>:3080/api/v1
 # Greenfield host: omit JPS_FE_PORT (defaults to 3001) or set explicitly.
-# Use https://your.domain/api/v1 when TLS terminates on this host.
+# Use https://your.domain and VITE_API_BASE_URL=/api/v1 when TLS terminates on this host.
 
 services:
   jps-fe:

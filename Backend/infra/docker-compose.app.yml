@@ -1,5 +1,6 @@
 # Canonical app-server compose file.
 # Root compatibility entrypoint remains at /docker-compose.app.yml.
+# Prefer VITE_API_BASE_URL=/api/v1 for private + public EIP (see Docs/Guide/Allowing-Public-Access.md).
 #
 # Run from repo root:
 #   docker compose -f Backend/infra/docker-compose.app.yml up -d --build

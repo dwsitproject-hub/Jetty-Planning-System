@@ -532,7 +532,7 @@ export const BERTHING_EVENTS = ['POB', 'ALL FAST', 'SOB']
 
 /** Loading Activity Category options for Detail Activity (Operational tab) */
 export const LOADING_ACTIVITY_CATEGORIES = [
-  'OPENING HATCH',
+  'OPENING',
   'CARGO PRE-CONDITIONING',
   'CARGO OPERATIONS',
   'OTHER',
@@ -540,7 +540,7 @@ export const LOADING_ACTIVITY_CATEGORIES = [
 
 /** Unloading Activity Category options for Detail Activity (Operational tab) */
 export const UNLOADING_ACTIVITY_CATEGORIES = [
-  'OPENING HATCH',
+  'OPENING',
   'CARGO PRE-CONDITIONING',
   'CARGO OPERATIONS',
   'OTHER',

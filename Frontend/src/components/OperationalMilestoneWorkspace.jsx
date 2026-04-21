@@ -12,7 +12,6 @@ import {
   createOperationalEntry,
   updateOperationalEntry,
   deleteOperationalEntry,
-  fetchCargoHandlingMethods,
 } from '../api/operations'
 import OperationActivityTimeline from './OperationActivityTimeline'
 
@@ -62,7 +61,7 @@ function isoOrDatetimeToLocal(value) {
 }
 
 const SHORT_CODE = {
-  'OPENING HATCH': 'OH',
+  OPENING: 'OH',
   'CARGO PRE-CONDITIONING': 'CPC',
   'CARGO OPERATIONS': 'COP',
   OTHER: 'OT',
@@ -81,7 +80,19 @@ function deriveMilestoneDisplay(category, activities, naMap) {
   if (rows.length === 0) {
     return { label: 'Not started', dotClass: 'not-started', statusClass: 'not-started' }
   }
-  if (category === 'OPENING HATCH' || category === 'CARGO PRE-CONDITIONING') {
+  if (category === 'OPENING') {
+    const allComplete = rows.every(
+      (a) =>
+        a.startTime &&
+        a.cargoHandlingMethodId != null &&
+        a.cargoHandlingMethodId !== ''
+    )
+    if (allComplete) return { label: 'Done', dotClass: 'done', statusClass: 'done' }
+    const anyStarted = rows.some((a) => a.startTime)
+    if (anyStarted) return { label: 'In progress', dotClass: 'in-progress', statusClass: 'in-progress' }
+    return { label: 'Not started', dotClass: 'not-started', statusClass: 'not-started' }
+  }
+  if (category === 'CARGO PRE-CONDITIONING') {
     const allStarted = rows.every((a) => a.startTime)
     if (allStarted) return { label: 'Done', dotClass: 'done', statusClass: 'done' }
     return { label: 'In progress', dotClass: 'in-progress', statusClass: 'in-progress' }
@@ -119,12 +130,15 @@ export default function OperationalMilestoneWorkspace({
   setOperationalMilestoneNa,
   onOperationalSaved,
   activityLogRefresh = 0,
+  /** Solid | Liquid — drives read-only Conveyor/Hose for Opening (server persists). */
+  commodityType = 'Liquid',
 }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const useApi = operationId != null
   const milestoneDefs = getMilestoneListForPurpose(purpose)
   const milestones = milestoneDefs.map((m) => m.label)
   const shortCodes = SHORT_CODE
+  const openingHandlingLabel = commodityType === 'Solid' ? 'Conveyor' : 'Hose'
 
   const [apiActivities, setApiActivities] = useState([])
   const [apiNaMap, setApiNaMap] = useState({})
@@ -180,11 +194,6 @@ export default function OperationalMilestoneWorkspace({
       setRemark(row?.description || String(searchParams.get('remark') || ''))
       setStartTime(isoOrDatetimeToLocal(row?.startTime || searchParams.get('startAt')) || getNowForDateTimeLocal())
       setEndTime(isoOrDatetimeToLocal(row?.endTime || searchParams.get('endAt')) || '')
-      setCargoHandlingMethodId(
-        row?.cargoHandlingMethodId != null && row?.cargoHandlingMethodId !== ''
-          ? String(row.cargoHandlingMethodId)
-          : ''
-      )
       setFormModalOpen(true)
     } else {
       setEditingEntryId(null)
@@ -201,8 +210,6 @@ export default function OperationalMilestoneWorkspace({
   }, [searchParams, setSearchParams, purpose, activities])
 
   const [subStepTitle, setSubStepTitle] = useState('')
-  const [cargoHandlingMethodId, setCargoHandlingMethodId] = useState('')
-  const [cargoHandlingMethods, setCargoHandlingMethods] = useState([])
   const [remark, setRemark] = useState('')
   const [startTime, setStartTime] = useState(() => getNowForDateTimeLocal())
   const [endTime, setEndTime] = useState('')
@@ -222,13 +229,6 @@ export default function OperationalMilestoneWorkspace({
   }, [actionToast])
 
   useEffect(() => {
-    if (!useApi) return
-    fetchCargoHandlingMethods()
-      .then((rows) => setCargoHandlingMethods(Array.isArray(rows) ? rows : []))
-      .catch(() => setCargoHandlingMethods([]))
-  }, [useApi])
-
-  useEffect(() => {
     if (!naModal) return undefined
     const t = window.setTimeout(() => {
       document.getElementById('op-na-reason')?.focus()
@@ -244,7 +244,7 @@ export default function OperationalMilestoneWorkspace({
   }
 
   const nextOpeningHatchLabel = useCallback(() => {
-    const rows = milestoneActivitiesFor(activities, 'OPENING HATCH')
+    const rows = milestoneActivitiesFor(activities, 'OPENING')
     const nums = rows.map((r) => {
       const m = /^H(\d+)$/i.exec(String(r.subStepTitle || '').trim())
       return m ? parseInt(m[1], 10) : 0
@@ -255,7 +255,7 @@ export default function OperationalMilestoneWorkspace({
 
   const openFormModal = (cat = activeMilestone) => {
     selectMilestone(cat)
-    if (cat === 'OPENING HATCH') {
+    if (cat === 'OPENING') {
       setSubStepTitle(nextOpeningHatchLabel())
     } else {
       setSubStepTitle('')
@@ -309,7 +309,15 @@ export default function OperationalMilestoneWorkspace({
       if (naMap[cat]?.reason) return true
       const rows = milestoneActivitiesFor(activities, cat)
       if (rows.length === 0) return false
-      if (cat === 'OPENING HATCH' || cat === 'CARGO PRE-CONDITIONING') {
+      if (cat === 'OPENING') {
+        return rows.every(
+          (a) =>
+            a.startTime &&
+            a.cargoHandlingMethodId != null &&
+            a.cargoHandlingMethodId !== ''
+        )
+      }
+      if (cat === 'CARGO PRE-CONDITIONING') {
         return rows.every((a) => a.startTime)
       }
       return true
@@ -318,8 +326,7 @@ export default function OperationalMilestoneWorkspace({
 
   function syncFormFromMilestone(cat) {
     setEditingEntryId(null)
-    setSubStepTitle(cat === 'OPENING HATCH' ? nextOpeningHatchLabel() : '')
-    setCargoHandlingMethodId('')
+    setSubStepTitle(cat === 'OPENING' ? nextOpeningHatchLabel() : '')
     setRemark('')
     setStartTime(getNowForDateTimeLocal())
     setEndTime('')
@@ -330,8 +337,7 @@ export default function OperationalMilestoneWorkspace({
   const resetComposerAfterAdd = (keepMilestone) => {
     const m = keepMilestone || activeMilestone
     setEditingEntryId(null)
-    setSubStepTitle(m === 'OPENING HATCH' ? nextOpeningHatchLabel() : '')
-    setCargoHandlingMethodId('')
+    setSubStepTitle(m === 'OPENING' ? nextOpeningHatchLabel() : '')
     setRemark('')
     setStartTime(getNowForDateTimeLocal())
     setEndTime('')
@@ -339,7 +345,7 @@ export default function OperationalMilestoneWorkspace({
     if (m) setActiveMilestone(m)
   }
 
-  const validateAndBuildPayload = (cat, sub, rem, st, en, methodId) => {
+  const validateAndBuildPayload = (cat, sub, rem, st, en) => {
     const c = String(cat || '').trim()
     if (!c) return { error: 'Select a milestone.' }
     const remarkTrim = String(rem || '').trim()
@@ -364,10 +370,6 @@ export default function OperationalMilestoneWorkspace({
       if (tb < ta) return { error: 'End time must be after start time.' }
       endPayload = en
     }
-    if (mk === 'cargo_operations') {
-      const mid = parseInt(methodId, 10)
-      if (!Number.isFinite(mid)) return { error: 'Cargo handling method is required.' }
-    }
     return {
       payload: {
         milestoneKey: mk,
@@ -375,20 +377,12 @@ export default function OperationalMilestoneWorkspace({
         description: remarkTrim,
         startTime: st,
         endTime: startOnly ? (en || null) : endPayload,
-        cargoHandlingMethodId: mk === 'cargo_operations' ? parseInt(methodId, 10) : null,
       },
     }
   }
 
   const handleAdd = async (andAnother = false) => {
-    const { error, payload } = validateAndBuildPayload(
-      activeMilestone,
-      subStepTitle,
-      remark,
-      startTime,
-      endTime,
-      cargoHandlingMethodId
-    )
+    const { error, payload } = validateAndBuildPayload(activeMilestone, subStepTitle, remark, startTime, endTime)
     if (error) {
       setFormError(error)
       return
@@ -406,7 +400,6 @@ export default function OperationalMilestoneWorkspace({
             remark: payload.description,
             startAt: new Date(payload.startTime).toISOString(),
             endAt: endIso,
-            cargoHandlingMethodId: payload.cargoHandlingMethodId,
           })
         } else {
           await createOperationalEntry(operationId, {
@@ -416,7 +409,6 @@ export default function OperationalMilestoneWorkspace({
             remark: payload.description,
             startAt: new Date(payload.startTime).toISOString(),
             endAt: endIso,
-            cargoHandlingMethodId: payload.cargoHandlingMethodId,
           })
         }
         await loadApi()
@@ -440,7 +432,6 @@ export default function OperationalMilestoneWorkspace({
         description: payload.description,
         startTime: payload.startTime,
         endTime: payload.endTime || null,
-        cargoHandlingMethodId: payload.cargoHandlingMethodId,
       })
       setActionToast({
         message: andAnother ? 'Activity saved. Add another below.' : 'Activity saved.',
@@ -476,7 +467,7 @@ export default function OperationalMilestoneWorkspace({
 
   const activeRows = milestoneActivitiesFor(activities, activeMilestone)
   const activeDisplay = deriveMilestoneDisplay(activeMilestone, activities, naMap)
-  const startOnlyForm = activeMilestone === 'OPENING HATCH' || activeMilestone === 'CARGO PRE-CONDITIONING'
+  const startOnlyForm = activeMilestone === 'OPENING' || activeMilestone === 'CARGO PRE-CONDITIONING'
   const canMarkNa = activeMilestone && !naMap[activeMilestone]?.reason && activeRows.length === 0
 
   return (
@@ -584,7 +575,7 @@ export default function OperationalMilestoneWorkspace({
             <h3 className="berthing-modal__card-title operational-milestone-composer__title" id="op-milestone-active-label">
               {activeMilestone}
             </h3>
-            {activeMilestone === 'OPENING HATCH' ? (
+            {activeMilestone === 'OPENING' ? (
               <p className="operational-milestone-composer__subtitle text-steel">
                 Add one row per hatch (e.g. H1, H2). Start time records when each hatch opening began; end time is not used for this milestone.
               </p>
@@ -610,26 +601,23 @@ export default function OperationalMilestoneWorkspace({
                 className="berthing-modal__input"
                 value={subStepTitle}
                 onChange={(e) => setSubStepTitle(e.target.value)}
-                placeholder={activeMilestone === 'OPENING HATCH' ? 'e.g. H1, H2, H3' : 'e.g. Second hose connection, leak check'}
+                placeholder={activeMilestone === 'OPENING' ? 'e.g. H1, H2, H3' : 'e.g. Second hose connection, leak check'}
               />
             </div>
-            {activeMilestone === 'CARGO OPERATIONS' ? (
+            {activeMilestone === 'OPENING' ? (
               <div className="berthing-modal__field">
-                <label className="berthing-modal__label" htmlFor="op-handling-method">
-                  Cargo Handling Method <span className="required-star">*</span>
+                <label className="berthing-modal__label" htmlFor="op-opening-cargo-handling-method">
+                  Cargo handling method
                 </label>
                 <select
-                  id="op-handling-method"
+                  id="op-opening-cargo-handling-method"
                   className="berthing-modal__input"
-                  value={cargoHandlingMethodId}
-                  onChange={(e) => setCargoHandlingMethodId(e.target.value)}
+                  disabled
+                  value={openingHandlingLabel}
+                  aria-readonly="true"
+                  title="Derived from shipping instruction commodity type (Solid → Conveyor, Liquid → Hose)"
                 >
-                  <option value="">Select method</option>
-                  {cargoHandlingMethods.map((m) => (
-                    <option key={m.id} value={String(m.id)}>
-                      {m.name}
-                    </option>
-                  ))}
+                  <option value={openingHandlingLabel}>{openingHandlingLabel}</option>
                 </select>
               </div>
             ) : null}

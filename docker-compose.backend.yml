@@ -46,6 +46,12 @@ services:
       CORS_ORIGIN: ${CORS_ORIGIN:?Set CORS_ORIGIN to the APP origin users use in the browser}
       # When SPA is http:// (not https), set COOKIE_SECURE=false in .env or cookies are never stored (401 on /users/me).
       COOKIE_SECURE: ${COOKIE_SECURE:-}
+      # Downstream Hub SSO (POST /auth/hub); must match Hub SSO_TOKEN_SECRET
+      SSO_TOKEN_SECRET: ${SSO_TOKEN_SECRET:-}
+      JPS_PUBLIC_ORIGIN: ${JPS_PUBLIC_ORIGIN:-http://localhost:5173}
+      HUB_SSO_JIT_PROVISION: ${HUB_SSO_JIT_PROVISION:-}
+      HUB_SSO_JIT_ROLE_NAME: ${HUB_SSO_JIT_ROLE_NAME:-}
+      HUB_SSO_JIT_ASSIGN_PORTS: ${HUB_SSO_JIT_ASSIGN_PORTS:-}
       UPLOAD_DIR: /tmp/jps-uploads
     command: ["npm", "run", "start"]
     depends_on:

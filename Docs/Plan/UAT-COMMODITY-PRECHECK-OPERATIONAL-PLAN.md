@@ -1,6 +1,6 @@
 # UAT rollout — commodity type, pre-check, operational (2026-04)
 
-This document summarizes subprocess keys, migrations, and test focus for the UAT-aligned changes. Apply migrations in order (`051` → `054`) on each environment before relying on new columns or merged rows.
+This document summarizes subprocess keys, migrations, and test focus for the UAT-aligned changes. Apply migrations in order (`051` → `055`) on each environment before relying on new columns or merged rows. Migration `055` backfills `cargo_handling_method_id` on existing `opening_hatch` activity rows from SI commodity type (Solid → conveyor, Liquid → hose).
 
 ## 1. Master data & shipping instructions
 
@@ -37,7 +37,7 @@ DB constraint `chk_operational_activity_entry_fields` updated in `054` to allow 
 | SI | Two lines same type OK; mixed types blocked (API + UI). |
 | Loading pre-check | Inspection shows Tank/Hold from SI; Initial Cargo Checking shows Sounding/Draft Survey from SI. |
 | Unloading pre-check | No Inspection tab; other steps unchanged. |
-| Operational | OPENING HATCH: multiple rows; start-only milestones do not require end time. |
+| Operational | **OPENING**: multiple rows; start-only milestones do not require end time; cargo handling method is read-only (Conveyor/Hose from commodity). **Cargo operations** no longer captures cargo handling method. |
 | NOR | No duplicate Start/End row in NOR Accepted tab; save still updates operation NOR fields. |
 
 ## 6. Related specs
