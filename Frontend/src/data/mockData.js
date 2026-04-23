@@ -21,6 +21,9 @@ export const vessels = {
     vesselName: 'BG MULIA VII',
     product: 'CPO',
     quantity: 4500,
+    siId: 'SI-2026-0892',
+    purpose: 'Unloading',
+    etaToCompletion: '2h',
     ETA: '2026-02-11',
     berthDate: '2026-02-19',
     status: 'Discharge',
@@ -42,8 +45,15 @@ export const vessels = {
     age: '12 days',
     ragStatus: 'red',
     lastStatus: 'Finalizing',
-    etaToCompletion: '2h',
     numberOfPalkas: 18,
+    currentPhaseIndex: 4,
+    eta: '2026-02-18T06:00:00',
+    ta: '2026-02-18T07:15:00',
+    etb: '2026-02-18T08:00:00',
+    tb: '2026-02-18T08:30:00',
+    timeSinceDocking: '2d 4h',
+    estCompletion: '2026-02-20T14:00:00',
+    estTimeRemaining: '2h',
   },
   'v-bg-sumber-kencana': {
     id: 'v-bg-sumber-kencana',
@@ -51,6 +61,8 @@ export const vessels = {
     vesselName: 'BG SUMBER KENCANA II',
     product: 'CPO',
     quantity: 3200,
+    siId: 'SI-2026-0891',
+    purpose: 'Unloading',
     status: 'Offloading',
     phaseLabel: 'Offloading',
     priority: 'NORMAL',
@@ -59,6 +71,14 @@ export const vessels = {
     lastStatus: 'Offloading',
     etaToCompletion: '18h',
     numberOfPalkas: 11,
+    currentPhaseIndex: 3,
+    eta: '2026-02-19T12:00:00',
+    ta: '2026-02-19T11:45:00',
+    etb: '2026-02-19T14:00:00',
+    tb: '2026-02-19T13:50:00',
+    timeSinceDocking: '1d 12h',
+    estCompletion: '2026-02-22T08:00:00',
+    estTimeRemaining: '18h',
   },
   'v-mt-metro': {
     id: 'v-mt-metro',
@@ -66,6 +86,8 @@ export const vessels = {
     vesselName: 'MT METRO MARITIM I',
     product: 'FAME',
     quantity: 2800,
+    siId: 'SI-2026-0888',
+    purpose: 'Loading',
     status: 'Loading',
     phaseLabel: 'Loading FAME',
     priority: 'NORMAL',
@@ -74,6 +96,14 @@ export const vessels = {
     lastStatus: 'Loading FAME',
     etaToCompletion: '8h',
     numberOfPalkas: 15,
+    currentPhaseIndex: 4,
+    eta: '2026-02-20T22:00:00',
+    ta: '2026-02-20T21:30:00',
+    etb: '2026-02-21T00:00:00',
+    tb: '2026-02-21T00:15:00',
+    timeSinceDocking: '6h',
+    estCompletion: '2026-02-21T18:00:00',
+    estTimeRemaining: '8h',
   },
   'v-ob-mapan': {
     id: 'v-ob-mapan',
@@ -193,8 +223,8 @@ export const dashboardWeather = {
     temperature: 27,
     windKmh: 22,
     humidity: 88,
-    dockingImpact: true,
-    dockingNote: 'Docking may be difficult; consider delay.',
+    berthingImpact: true,
+    berthingNote: 'Berthing may be difficult; consider delay.',
   },
   forecast: [
     { label: 'Today 18:00', condition: 'Heavy rain', tempMin: 26, tempMax: 28, rainChance: 95 },
@@ -225,6 +255,9 @@ export const painPointTracker = {
   tankLevelCm: 1231.4,
   feedstockActionNote: 'Sufficient for next 48 hours of production.',
 };
+
+/** Dashboard clearance snapshot (mock until shared with Verification page) */
+export const dashboardClearance = { readyToDepart: 3, departed: 5 };
 
 /** Active vessel metrics (Section 2) — keyed by vessel id */
 export const activeVesselMetrics = {
@@ -281,13 +314,17 @@ export const LOADING_PORT_OPTIONS = [
   'Other',
 ]
 
-/** Shipping instructions (formerly nominations) — vessel trip data */
+/** Shipping instructions — pulled from Logistics & EXIM; Jetty team does not edit. siId, status (Draft/Submitted/Approved), purpose (Loading/Unloading), jetty */
 export const nominations = [
   {
     id: 'n1',
+    siId: 'SI-2026-0892',
+    status: 'Submitted',
+    purpose: 'Unloading',
     vesselName: 'TB. ARIA CITRA IV / BG. MULIA VII',
     etaFrom: '2026-02-09',
     etaTo: '2026-02-11',
+    etaDateTime: '2026-02-09T14:00:00',
     shipper: 'PT. TANJUNG BUYU PERKASA',
     loadingPort: 'LEMPAKE, KALIMANTAN TIMUR',
     commodity: 'CPO',
@@ -295,7 +332,11 @@ export const nominations = [
     totalQtyKg: 3001887,
     surveyor: 'LSN',
     agent: 'PSM',
-    breakdown: [{ shipper: 'PT. TBP', contractNo: '001/TBP-EUP/FOB-CPO/01/26', poNo: '1001027272', qtyKg: 3001887, remarks: '' }],
+    jetty: '1A',
+    breakdown: [
+      { shipper: 'PT. TBP', contractNo: '001/TBP-EUP/FOB-CPO/01/26', poNo: '1001027272', qtyKg: 1500000, remarks: '' },
+      { shipper: 'PT. TBP', contractNo: '002/TBP-EUP/FOB-CPO/01/26', poNo: '1001027273', qtyKg: 1501887, remarks: '' },
+    ],
     qualityFFA: 3.57,
     qualityMI: 0.43,
     documents: [{ id: 'd1', name: 'BL-CPO-001.pdf' }, { id: 'd2', name: 'Nomination-form.pdf' }],
@@ -303,9 +344,13 @@ export const nominations = [
   },
   {
     id: 'n2',
+    siId: 'SI-2026-0891',
+    status: 'Approved',
+    purpose: 'Unloading',
     vesselName: 'MT ROMEO P',
     etaFrom: '2026-02-27',
     etaTo: '2026-02-27',
+    etaDateTime: '2026-02-27T09:30:00',
     shipper: 'PT. Example',
     loadingPort: 'Dumai',
     commodity: 'POME',
@@ -313,6 +358,7 @@ export const nominations = [
     totalQtyKg: 8765000,
     surveyor: 'SAYBOLT',
     agent: 'TPB BONTANG',
+    jetty: '1B',
     breakdown: [],
     qualityFFA: null,
     qualityMI: null,
@@ -321,34 +367,266 @@ export const nominations = [
   },
   {
     id: 'n3',
+    siId: 'SI-2026-0889',
+    status: 'Draft',
+    purpose: 'Loading',
     vesselName: 'TB OSEANIK 03',
     etaFrom: '2026-03-01',
     etaTo: '2026-03-01',
-    shipper: '',
-    loadingPort: '',
+    etaDateTime: '2026-03-01T06:00:00',
+    shipper: 'PT. EUP',
+    loadingPort: 'BONTANG',
     commodity: 'CPO',
     term: 'FOB',
     totalQtyKg: 4409000,
-    surveyor: '',
-    agent: 'PT. SCM',
+    surveyor: 'LSN',
+    agent: 'PSM',
+    jetty: '',
+    destination: 'NANSHA, CHINA',
+    billOfLading: '3 NON-NEGOTIABLE BILLS OF LADING',
+    consignee: 'TO ORDER',
+    notifyParty: '',
+    npwp: '81.291.248.3-018.000',
+    blIndicated: 'CLEAN SHIPPED ON BOARD FREIGHT PREPAID',
     breakdown: [],
     qualityFFA: null,
     qualityMI: null,
     documents: [],
     receivedAt: '2026-02-27T09:30:00Z',
   },
+  {
+    id: 'n4',
+    siId: 'SI-2026-0893',
+    status: 'Submitted',
+    purpose: 'Loading',
+    vesselName: 'MT BINTANG LAUT',
+    etaFrom: '2026-03-05',
+    etaTo: '2026-03-05',
+    etaDateTime: '2026-03-05T08:00:00',
+    shipper: 'PT. EUP',
+    loadingPort: 'BONTANG',
+    commodity: 'FAME',
+    term: 'FOB',
+    totalQtyKg: 5000000,
+    surveyor: 'LSN',
+    agent: 'PSM',
+    jetty: '2A',
+    destination: 'NANSHA, CHINA',
+    billOfLading: '3 NON-NEGOTIABLE BILLS OF LADING',
+    consignee: 'TO ORDER',
+    notifyParty: '',
+    npwp: '81.291.248.3-018.000',
+    blIndicated: 'CLEAN SHIPPED ON BOARD FREIGHT PREPAID',
+    breakdown: [],
+    qualityFFA: 0.8,
+    qualityMI: 0.1,
+    documents: [{ id: 'd4', name: 'SI-Loading-0893.pdf' }],
+    receivedAt: '2026-03-02T11:00:00Z',
+  },
+  {
+    id: 'n5',
+    siId: 'SI-2026-0888',
+    status: 'Approved',
+    purpose: 'Loading',
+    vesselName: 'MT SUMBER CAHAYA',
+    etaFrom: '2026-02-28',
+    etaTo: '2026-02-28',
+    etaDateTime: '2026-02-28T12:00:00',
+    shipper: 'PT. EUP',
+    loadingPort: 'BONTANG',
+    commodity: 'CPO',
+    term: 'FOB',
+    totalQtyKg: 3200000,
+    surveyor: 'LSN',
+    agent: 'PSM',
+    jetty: '1A',
+    destination: 'NANSHA, CHINA',
+    billOfLading: '3 NON-NEGOTIABLE BILLS OF LADING',
+    consignee: 'TO ORDER',
+    notifyParty: '',
+    npwp: '81.291.248.3-018.000',
+    blIndicated: 'CLEAN SHIPPED ON BOARD FREIGHT PREPAID',
+    breakdown: [
+      { shipper: 'PT. EUP', contractNo: '001/EUP/CPO-FOB/02/26', poNo: '1001027100', qtyKg: 2000000, remarks: '' },
+      { shipper: 'PT. EUP', contractNo: '001/EUP/CPO-FOB/02/26', poNo: '1001027101', qtyKg: 1200000, remarks: '' },
+    ],
+    qualityFFA: 1.2,
+    qualityMI: 0.2,
+    documents: [{ id: 'd5', name: 'SI-Loading-0888-approved.pdf' }],
+    receivedAt: '2026-02-25T09:00:00Z',
+    approvalId: 'JPS-20260228-120530-A1B2',
+  },
+  {
+    id: 'n6',
+    siId: 'SI-2026-0890',
+    status: 'Approved',
+    purpose: 'Loading',
+    vesselName: 'TB OSEANIK 05',
+    etaFrom: '2026-03-08',
+    etaTo: '2026-03-08',
+    etaDateTime: '2026-03-08T06:00:00',
+    shipper: 'PT. EUP',
+    loadingPort: 'BONTANG',
+    commodity: 'FAME',
+    term: 'FOB',
+    totalQtyKg: 4500000,
+    surveyor: 'LSN',
+    agent: 'TPB BONTANG',
+    jetty: '2A',
+    destination: 'NANSHA, CHINA',
+    billOfLading: '3 NON-NEGOTIABLE BILLS OF LADING',
+    consignee: 'TO ORDER',
+    notifyParty: '',
+    npwp: '81.291.248.3-018.000',
+    blIndicated: 'CLEAN SHIPPED ON BOARD FREIGHT PREPAID',
+    breakdown: [
+      { shipper: 'PT. EUP', contractNo: '002/EUP/FAME-FOB/03/26', poNo: '1001027501', qtyKg: 2500000, remarks: '' },
+      { shipper: 'PT. EUP', contractNo: '002/EUP/FAME-FOB/03/26', poNo: '1001027502', qtyKg: 2000000, remarks: '' },
+    ],
+    qualityFFA: 0.9,
+    qualityMI: 0.15,
+    documents: [{ id: 'd6', name: 'SI-Loading-0890-approved.pdf' }],
+    receivedAt: '2026-03-01T14:00:00Z',
+    approvalId: 'JPS-20260301-092651-YEQS',
+  },
 ];
 
-/** Incoming vessel/barges & berthing plan (Allocation page) — from nominations + allocation fields; vesselId links to vessels for Docking */
+/** Incoming vessel & berthing plan (Allocation page) — from nominations + allocation fields; vesselId links to vessels for Berthing */
 export const allocationPlan = [
-  { id: 'a1', sequence: 1, vesselId: 'v-ob-mapan', vesselName: 'OB MAPAN 27028', priority: 'High', cargo: 'CPO', loadDischarge: 'DISCH', blQtyMtKl: '3K', shipper: 'PT. TJIM', term: 'CIF', portOfLoading: 'POSO', agent: 'PSM', surveyor: 'LSN', eta: '01/03 02:24 LT', ta: '21/02 21:00', etb: '25/02pm', jetty: '1B', remarks: 'After Eminence VII', etaDateTime: '2026-03-01T02:24', taDateTime: '2026-02-21T21:00', etbDateTime: '2026-02-25T14:00' },
-  { id: 'a2', sequence: 2, vesselId: 'v-bg-as-marina-10', vesselName: 'BG AS MARINA 10', priority: 'Moderate', cargo: 'POME INS', loadDischarge: 'DISCH', blQtyMtKl: '4,8K', shipper: 'PT. EUPLG', term: 'FOB', portOfLoading: 'DUMAI', agent: 'TPB', surveyor: 'SAYBOLT', eta: '01/03 17:00 LT', ta: '', etb: '01/03pm', jetty: '1A', remarks: 'Wait Info', etaDateTime: '2026-03-01T17:00', taDateTime: '', etbDateTime: '2026-03-01T14:00' },
-  { id: 'a3', sequence: 3, vesselId: 'v-spob-anugerah', vesselName: 'SPOB ANUGERAH BERSAM', priority: 'Critical', cargo: 'FAME', loadDischarge: 'LOAD', blQtyMtKl: '5K', shipper: 'PT. EUP', term: 'FOB', portOfLoading: 'BONTANG', agent: 'PSM', surveyor: 'LSN', eta: '02/03 08:00 LT', ta: '', etb: '', jetty: '3B', remarks: 'After Delta Victory', etaDateTime: '2026-03-02T08:00', taDateTime: '', etbDateTime: '' },
-  { id: 'a4', sequence: 4, vesselId: 'v-mt-desan-chemi', vesselName: 'MT DESAN CHEMI V.006', priority: 'Moderate', cargo: 'SRPKFA+CG', loadDischarge: 'DISCH', blQtyMtKl: '7K', shipper: 'PT. TJIM', term: 'CIF', portOfLoading: 'DUMAI', agent: 'TPB', surveyor: 'SAYBOLT', eta: '02/03 14:00 LT', ta: '', etb: '', jetty: '2B', remarks: 'After SMS 3000', etaDateTime: '2026-03-02T14:00', taDateTime: '', etbDateTime: '' },
-  { id: 'a5', sequence: 5, vesselId: 'v-mt-romeo', vesselName: 'MT ROMEO P', priority: 'High', cargo: 'POME ISCC', loadDischarge: 'DISCH', blQtyMtKl: '8,7K', shipper: 'PT. Example', term: 'FOB', portOfLoading: 'DUMAI', agent: 'PSM', surveyor: 'LSN', eta: '27/02 12:00 LT', ta: '', etb: '27/02pm', jetty: '3A', remarks: 'After MM1', etaDateTime: '2026-02-27T12:00', taDateTime: '', etbDateTime: '2026-02-27T14:00' },
-  { id: 'a6', sequence: 6, vesselId: 'v-tb-oseanik', vesselName: 'TB OSEANIK 03', priority: 'Low', cargo: 'CPO', loadDischarge: 'LOAD', blQtyMtKl: '4,4K', shipper: 'PT. EUP', term: 'FOB', portOfLoading: 'BONTANG', agent: 'TPB', surveyor: 'LSN', eta: '01/03 06:00 LT', ta: '', etb: '', jetty: '2A', remarks: 'On Arrival', etaDateTime: '2026-03-01T06:00', taDateTime: '', etbDateTime: '' },
-  { id: 'a7', sequence: 7, vesselId: 'v-mv-vinh', vesselName: 'MV VINH QUANG', priority: 'Moderate', cargo: 'PKE', loadDischarge: 'DISCH', blQtyMtKl: '3,3K', shipper: 'PT. EUPLG', term: 'CF', portOfLoading: 'DUMAI', agent: 'PSM', surveyor: 'SAYBOLT', eta: '03/03 10:00 LT', ta: '', etb: '', jetty: '3B', remarks: '', etaDateTime: '2026-03-03T10:00', taDateTime: '', etbDateTime: '' },
+  { id: 'a1', sequence: 1, vesselId: 'v-ob-mapan', vesselName: 'OB MAPAN 27028', shippingInstruction: 'SI-2026-0901', priority: 'High', purpose: 'Unloading', remark: 'After Eminence VII', eta: '01/03 02:24', etb: '25/02pm', jetty: '1B', noPkk: 'PKK-2026-001', numberOfPalka: 12, shipper: 'PT. TJIM', agent: 'PSM', surveyor: 'LSN', loadDischarge: 'DISCH', etaDateTime: '2026-03-01T02:24', taDateTime: '2026-02-21T21:00', etbDateTime: '2026-02-25T14:00', shippingTable: [{ contract: 'CTR-OB-2026-01', po: 'PO-1001', material: 'CPO', qty: '3,000 MT' }] },
+  { id: 'a2', sequence: 2, vesselId: 'v-bg-as-marina-10', vesselName: 'BG AS MARINA 10', shippingInstruction: 'SI-2026-0902', priority: 'Moderate', purpose: 'Unloading', remark: 'Wait Info', eta: '01/03 17:00', etb: '01/03pm', jetty: '1A', noPkk: 'PKK-2026-002', numberOfPalka: 10, shipper: 'PT. EUPLG', agent: 'TPB', surveyor: 'SAYBOLT', loadDischarge: 'DISCH', etaDateTime: '2026-03-01T17:00', taDateTime: '', etbDateTime: '2026-03-01T14:00', shippingTable: [{ contract: 'CTR-POME-026', po: 'PO-1002', material: 'POME INS', qty: '4,800 MT' }] },
+  { id: 'a3', sequence: 3, vesselId: 'v-spob-anugerah', vesselName: 'SPOB ANUGERAH BERSAM', shippingInstruction: 'SI-2026-0903', priority: 'Critical', purpose: 'Loading', remark: 'After Delta Victory', eta: '02/03 08:00', etb: '', jetty: '3B', noPkk: 'PKK-2026-003', numberOfPalka: 14, shipper: 'PT. EUP', agent: 'PSM', surveyor: 'LSN', loadDischarge: 'LOAD', etaDateTime: '2026-03-02T08:00', taDateTime: '', etbDateTime: '', shippingTable: [{ contract: '002/EUP/FAME-FOB/03/26', po: '1001027501', material: 'FAME', qty: '2,500 MT' }, { contract: '002/EUP/FAME-FOB/03/26', po: '1001027502', material: 'FAME', qty: '2,500 MT' }] },
+  { id: 'a4', sequence: 4, vesselId: 'v-mt-desan-chemi', vesselName: 'MT DESAN CHEMI V.006', shippingInstruction: 'SI-2026-0904', priority: 'Moderate', purpose: 'Unloading', remark: 'After SMS 3000', eta: '02/03 14:00', etb: '', jetty: '2B', noPkk: 'PKK-2026-004', numberOfPalka: 18, shipper: 'PT. TJIM', agent: 'TPB', surveyor: 'SAYBOLT', loadDischarge: 'DISCH', etaDateTime: '2026-03-02T14:00', taDateTime: '', etbDateTime: '', shippingTable: [{ contract: 'CTR-SRPKFA-011', po: 'PO-1004', material: 'SRPKFA+CG', qty: '7,000 MT' }] },
+  { id: 'a5', sequence: 5, vesselId: 'v-mt-romeo', vesselName: 'MT ROMEO P', shippingInstruction: 'SI-2026-0905', priority: 'High', purpose: 'Unloading', remark: 'After MM1', eta: '27/02 12:00', etb: '27/02pm', jetty: '3A', noPkk: 'PKK-2026-005', numberOfPalka: 16, shipper: 'PT. Example', agent: 'PSM', surveyor: 'LSN', loadDischarge: 'DISCH', etaDateTime: '2026-02-27T12:00', taDateTime: '', etbDateTime: '2026-02-27T14:00', shippingTable: [{ contract: 'CTR-POME-028', po: 'PO-1005', material: 'POME ISCC', qty: '8,765 MT' }] },
+  { id: 'a6', sequence: 6, vesselId: 'v-tb-oseanik', vesselName: 'TB OSEANIK 03', shippingInstruction: 'SI-2026-0906', priority: 'Low', purpose: 'Loading', remark: 'On Arrival', eta: '01/03 06:00', etb: '', jetty: '2A', noPkk: 'PKK-2026-006', numberOfPalka: 8, shipper: 'PT. EUP', agent: 'TPB', surveyor: 'LSN', loadDischarge: 'LOAD', etaDateTime: '2026-03-01T06:00', taDateTime: '', etbDateTime: '', shippingTable: [{ contract: 'CTR-CPO-033', po: 'PO-1006', material: 'CPO', qty: '4,409 MT' }] },
+  { id: 'a7', sequence: 7, vesselId: 'v-mv-vinh', vesselName: 'MV VINH QUANG', shippingInstruction: 'SI-2026-0907', priority: 'Moderate', purpose: 'Unloading', remark: '', eta: '03/03 10:00', etb: '', jetty: '3B', noPkk: 'PKK-2026-007', numberOfPalka: 11, shipper: 'PT. EUPLG', agent: 'PSM', surveyor: 'SAYBOLT', loadDischarge: 'DISCH', etaDateTime: '2026-03-03T10:00', taDateTime: '', etbDateTime: '', shippingTable: [{ contract: 'CTR-PKE-019', po: 'PO-1007', material: 'PKE', qty: '3,300 MT' }] },
 ];
+
+/** Loading flow: step IDs and config (A1–A3, B, C1–C2) */
+export const LOADING_STEP_IDS = ['A1', 'A2', 'A3', 'B', 'C1', 'C2']
+
+export const LOADING_STEPS_CONFIG = {
+  A1: { label: 'Survey', pic: 'Surveyor' },
+  A2: { label: 'Quality Check', pic: 'QC Team' },
+  A3: { label: 'Quantity Check', pic: 'Tank Farm' },
+  B: { label: 'Loading', pic: 'Jetty Team / Jetty Operator' },
+  C1: { label: 'Final Quality Check', pic: 'QC Team' },
+  C2: { label: 'Final Quantity Check', pic: 'Tank Farm' },
+}
+
+/** Initial loading step status per vessel (for Loading flow). Used to derive Active Vessel stepper phase. */
+export const initialLoadingStepsByVesselId = {
+  'v-mt-metro': {
+    A1: { status: 'completed', startTime: '2026-02-21T08:00:00', endTime: '2026-02-21T09:30:00', quantityResult: null, documents: [] },
+    A2: { status: 'completed', startTime: '2026-02-21T10:00:00', endTime: '2026-02-21T11:00:00', quantityResult: null, documents: [] },
+    A3: { status: 'in_progress', startTime: '2026-02-21T11:30:00', endTime: '', quantityResult: '2,750 MT', documents: [] },
+    B: { status: 'not_started', startTime: '', endTime: '', quantityResult: null, documents: [] },
+    C1: { status: 'not_started', startTime: '', endTime: '', quantityResult: null, documents: [] },
+    C2: { status: 'not_started', startTime: '', endTime: '', quantityResult: null, documents: [] },
+  },
+}
+
+/** Allocation & Berthing time-log events (from unified flow) */
+export const ALLOCATION_EVENTS = ['VESSEL ARRIVED', 'DROP ANCHORED', 'NOR TENDERED']
+export const BERTHING_EVENTS = ['POB', 'ALL FAST', 'SOB']
+
+/** Loading Activity Category options for Detail Activity (Operational tab) */
+export const LOADING_ACTIVITY_CATEGORIES = [
+  'OPENING',
+  'CARGO PRE-CONDITIONING',
+  'CARGO OPERATIONS',
+  'OTHER',
+]
+
+/** Unloading Activity Category options for Detail Activity (Operational tab) */
+export const UNLOADING_ACTIVITY_CATEGORIES = [
+  'OPENING',
+  'CARGO PRE-CONDITIONING',
+  'CARGO OPERATIONS',
+  'OTHER',
+]
+
+/** Berthing events (POB, ALL FAST/TB, SOB) — used by Daily Activities Report; Allocation can be wired to set these on confirm */
+let berthingEventsByVesselId = {}
+export function getBerthingEvents(vesselId) {
+  return berthingEventsByVesselId[vesselId] ?? { pob: '', allFast: '', sob: '' }
+}
+export function setBerthingEvents(vesselId, data) {
+  berthingEventsByVesselId[vesselId] = { ...getBerthingEvents(vesselId), ...data }
+}
+
+/** NOR data from Log Arrival Update (shared so Loading Pre-Checking can show it) */
+let arrivalNorByVesselId = {}
+export function getArrivalNor(vesselId) {
+  const d = arrivalNorByVesselId[vesselId]
+  return d
+    ? { norDocumentNames: d.norDocumentNames || [], norTenderedDateTime: d.norTenderedDateTime || '', norAcceptedDateTime: d.norAcceptedDateTime || '' }
+    : { norDocumentNames: [], norTenderedDateTime: '', norAcceptedDateTime: '' }
+}
+export function setArrivalNor(vesselId, data) {
+  arrivalNorByVesselId[vesselId] = { ...getArrivalNor(vesselId), ...data }
+}
+
+/** Get vessel + jetty + cargo info for Loading tab (from vessels, berths, allocationPlan) */
+export function getLoadingOperationCargo(vesselId) {
+  const vessel = vessels[vesselId]
+  if (!vessel) return null
+  const berth = Object.values(berths).find((b) => b.currentVesselId === vesselId)
+  const plan = allocationPlan.find((r) => r.vesselId === vesselId)
+  const jettyName = berth ? berth.name?.replace('Jetty ', '') ?? berth?.id : '—'
+  return {
+    vesselName: vessel.vesselName,
+    commodity: vessel.product || '—',
+    quantity: vessel.quantity != null ? `${Number(vessel.quantity).toLocaleString('en-US', { minimumFractionDigits: 3 })} KL` : '—',
+    quantityNum: vessel.quantity,
+    stowage: '1PS,2PS,3PS,4PS,5PS,6PS',
+    loadPort: 'JETTY EUP BONTANG, KALTIM',
+    dischPort: plan?.dischPort || '—',
+    shipper: plan?.shipper || vessel.shipper || '—',
+    consignee: plan?.consignee || '—',
+    surveyor: plan?.surveyor || vessel.surveyor || '—',
+    agent: plan?.agent || vessel.agent || '—',
+    jettyName,
+    jettyId: berth?.id,
+  }
+}
+
+/** Default pre-checking section data (Loading Pre-Checking) */
+export const defaultPreCheckingSection = () => ({
+  keyMeeting: { startTime: '', endTime: '', documents: [], remark: '' },
+  norAccepted: { startTime: '', endTime: '', norTenderedDateTime: '', norAcceptedDateTime: '', documents: [], remark: '' },
+  inspection: { startTime: '', endTime: '', documents: [], remark: '', inspectionType: '' },
+  sampling: { startTime: '', endTime: '', documents: [], remark: '', records: [] },
+  initialCargoChecking: { startTime: '', endTime: '', documents: [], remark: '', cargoCheckingType: '' },
+})
+
+/** Default post-checking section data (Loading Post-Checking) */
+export const defaultPostCheckingSection = () => ({
+  finalInspection: { result: '', startTime: '', endTime: '', documents: [], inspectionType: '' },
+  finalCargoChecking: { result: '', startTime: '', endTime: '', documents: [], cargoCheckingType: '' },
+})
+
+/** Initial loading operation data per vessel (detail activities only) */
+export const initialLoadingOperationByVesselId = {
+  'v-mt-metro': {
+    milestoneNa: {},
+    activities: [
+      { id: 'act-1', category: 'CARGO OPERATIONS', description: 'Hoses connected for loading.', subStepTitle: '', startTime: '2026-02-21T18:36:00', endTime: '2026-02-21T19:00:00' },
+      { id: 'act-2', category: 'CARGO OPERATIONS', description: 'Commenced loading.', subStepTitle: '', startTime: '2026-02-21T20:36:00', endTime: '2026-02-21T21:00:00' },
+    ],
+  },
+}
+
+/** At-berth operations list (Loading or Unloading) — filter vessels by purpose */
+export function getAtBerthOperations(purpose) {
+  const p = purpose === 'Unloading' ? 'Unloading' : 'Loading'
+  return Object.entries(vessels)
+    .filter(([, v]) => v.purpose === p)
+    .map(([id, v]) => ({ vesselId: id, vesselName: v.vesselName, siId: v.siId, product: v.product }))
+}
+
+/** @deprecated Use getAtBerthOperations('Loading') */
+export const getLoadingOperations = () => getAtBerthOperations('Loading')
 
 /** Line-up for Planning (vessel ids in order, with optional berth) */
 export const lineUp = [
@@ -396,3 +674,6 @@ export const qualityComparison = {
 
 /** Dry cert status */
 export const dryCertStatus = { vesselId: 'v-bg-mulia-vii', status: 'CLEAN', signedAt: '2026-02-21T16:00:00Z' };
+
+/** Jetty performance (daily) — used by Berthing & Allocation (derived from operations in real app) */
+export const jettyPerformanceDaily = { averageBerthingTimeMinutes: 42, slaCompliancePercent: 92.4 }

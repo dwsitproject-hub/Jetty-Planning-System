@@ -1,0 +1,460 @@
+/* Berthing & Allocation page */
+
+.berthing-page {
+  max-width: 1400px;
+}
+
+.berthing-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-4);
+  margin-bottom: var(--spacing-6);
+}
+
+.berthing-header__title-block {
+  flex: 1;
+  min-width: 0;
+}
+
+.berthing-header__subtitle {
+  margin: var(--spacing-1) 0 0;
+  font-size: var(--font-size-base);
+  color: var(--color-text-steel);
+}
+
+.berthing-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  flex-shrink: 0;
+}
+
+.berthing-header__icon {
+  display: inline-block;
+  margin-right: var(--spacing-1);
+  font-size: 1em;
+  opacity: 0.9;
+}
+
+/* ----- 72-Hour Jetty Occupancy ----- */
+.berthing-occupancy {
+  margin-bottom: var(--spacing-6);
+}
+
+.berthing-occupancy__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+  margin-bottom: var(--spacing-3);
+}
+
+.berthing-occupancy__title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0;
+}
+
+.berthing-occupancy__legend {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-4);
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+.berthing-occupancy__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+}
+
+.berthing-occupancy__legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-primary);
+}
+
+.berthing-occupancy__legend-dot--expected {
+  background: var(--color-text-steel);
+}
+
+.berthing-occupancy__legend-dot--berthing {
+  background: var(--color-text-charcoal);
+}
+
+.berthing-occupancy__table-wrap {
+  overflow-x: auto;
+}
+
+.berthing-occupancy__table {
+  width: 100%;
+  min-width: 800px;
+  border-collapse: collapse;
+  font-size: var(--font-size-small);
+}
+
+.berthing-occupancy__th-id,
+.berthing-occupancy__cell-id {
+  width: 100px;
+  min-width: 100px;
+  padding: var(--spacing-2) var(--spacing-3);
+  text-align: left;
+  border: 1px solid var(--color-border-light);
+  background: var(--color-bg-subtle, #f5f5f5);
+  vertical-align: middle;
+}
+
+.berthing-occupancy__th-slot {
+  min-width: 72px;
+  padding: var(--spacing-2);
+  text-align: center;
+  border: 1px solid var(--color-border-light);
+  background: var(--color-bg-subtle, #f5f5f5);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-steel);
+}
+
+.berthing-occupancy__cell {
+  min-width: 72px;
+  padding: var(--spacing-2);
+  border: 1px solid var(--color-border-light);
+  vertical-align: middle;
+}
+
+.berthing-occupancy__cell--vessel {
+  padding: var(--spacing-1);
+}
+
+.berthing-occupancy__jetty-id {
+  display: block;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+}
+
+.berthing-occupancy__jetty-status {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-steel);
+  margin-top: 2px;
+}
+
+.berthing-occupancy__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  background: rgba(33, 115, 199, 0.12);
+  color: #2173c7;
+  border: 1px solid rgba(33, 115, 199, 0.3);
+}
+
+.berthing-occupancy__pill--expected,
+.berthing-occupancy__pill--berthing {
+  background: #fff;
+  color: var(--color-text-charcoal);
+  border: 1px solid var(--color-border-medium);
+}
+
+.berthing-occupancy__pill-icon {
+  font-size: 0.9em;
+}
+
+/* ----- Two columns: Active Berthing | Arrival Pipeline ----- */
+.berthing-columns {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: var(--spacing-4);
+  align-items: start;
+}
+
+@media (max-width: 1023px) {
+  .berthing-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ----- Active Berthing Updates ----- */
+.berthing-active__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-4);
+}
+
+.berthing-active__title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0;
+}
+
+.berthing-active__time {
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+.berthing-active__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+
+.berthing-card {
+  padding: var(--spacing-4);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+
+.berthing-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  margin-bottom: 2px;
+}
+
+.berthing-card__icon {
+  font-size: 1.25em;
+}
+
+.berthing-card__name {
+  font-size: var(--font-size-base);
+  color: var(--color-text-charcoal);
+}
+
+.berthing-card__imo {
+  margin: 0 0 var(--spacing-1);
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+.berthing-card__agent {
+  margin: 0 0 var(--spacing-2);
+  font-size: var(--font-size-small);
+  color: var(--color-text-charcoal);
+}
+
+.berthing-card__status-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-3);
+}
+
+.berthing-card__status {
+  display: inline-block;
+  padding: 2px var(--spacing-2);
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  background: rgba(33, 115, 199, 0.12);
+  color: #2173c7;
+}
+
+.berthing-card__status--expected {
+  background: #e8e8e8;
+  color: var(--color-text-steel);
+}
+
+.berthing-card__jetty {
+  font-size: var(--font-size-small);
+  color: #2173c7;
+  font-weight: var(--font-weight-medium);
+}
+
+.berthing-card__timings {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--spacing-3);
+  font-size: var(--font-size-small);
+  color: var(--color-text-charcoal);
+}
+
+.berthing-card__timings li {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: 2px 0;
+}
+
+.berthing-card__timing-icon {
+  flex-shrink: 0;
+}
+
+.berthing-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.berthing-card__more {
+  min-width: 32px;
+  padding: var(--spacing-1) var(--spacing-2);
+  font-size: 1.1em;
+  line-height: 1;
+  border: 1px solid var(--color-border-medium);
+  background: #fff;
+  color: var(--color-text-steel);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.berthing-card__more:hover {
+  background: var(--color-bg-subtle);
+}
+
+/* ----- Arrival Pipeline ----- */
+.berthing-pipeline__title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0 0 var(--spacing-4);
+}
+
+.berthing-pipeline__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  margin-bottom: var(--spacing-4);
+}
+
+.berthing-pipeline-card {
+  padding: var(--spacing-3);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+
+.berthing-pipeline-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-2);
+}
+
+.berthing-pipeline-card__name {
+  font-size: var(--font-size-base);
+  color: var(--color-text-charcoal);
+}
+
+.berthing-pipeline-card__type {
+  font-size: var(--font-size-xs);
+  padding: 2px var(--spacing-2);
+  border-radius: 999px;
+  background: #e8e8e8;
+  color: var(--color-text-steel);
+}
+
+.berthing-pipeline-card__line {
+  margin: 0 0 4px;
+  font-size: var(--font-size-small);
+  color: var(--color-text-charcoal);
+}
+
+.berthing-pipeline-card__btn {
+  margin-top: var(--spacing-2);
+}
+
+.berthing-pipeline__empty {
+  padding: var(--spacing-4);
+  margin-bottom: var(--spacing-4);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-subtle);
+}
+
+.berthing-pipeline__empty-icon {
+  display: block;
+  font-size: 1.5rem;
+  margin-bottom: var(--spacing-2);
+  color: var(--color-text-steel);
+}
+
+.berthing-pipeline__empty-title {
+  margin: 0 0 var(--spacing-1);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+}
+
+.berthing-pipeline__empty-text {
+  margin: 0 0 var(--spacing-2);
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+.berthing-pipeline__link {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.berthing-pipeline__link:hover {
+  text-decoration: underline;
+}
+
+.berthing-performance {
+  padding: var(--spacing-4);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+}
+
+.berthing-performance__title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0 0 var(--spacing-2);
+}
+
+.berthing-performance__metric {
+  margin: 0 0 4px;
+  font-size: var(--font-size-small);
+  color: var(--color-text-charcoal);
+}
+
+.berthing-performance__metric:last-child {
+  margin-bottom: 0;
+}
+
+@media (max-width: 900px) {
+  .berthing-occupancy__table {
+    min-width: 680px;
+  }
+
+  .berthing-header__actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 640px) {
+  .berthing-header {
+    margin-bottom: var(--spacing-4);
+    gap: var(--spacing-2);
+  }
+
+  .berthing-occupancy__legend {
+    flex-wrap: wrap;
+    gap: var(--spacing-2);
+  }
+
+  .berthing-card,
+  .berthing-pipeline-card,
+  .berthing-performance {
+    padding: var(--spacing-3);
+  }
+}

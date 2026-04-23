@@ -1,0 +1,116 @@
+Useful commands
+What you want	Command
+Stop containers	docker-compose down
+Rebuild from scratch (no cache)	docker-compose build --no-cache then docker-compose up
+View logs	docker-compose logs -f
+
+
+From a terminal, run these in the project root (where docker-compose.yml and Dockerfile are), e.g.:
+
+
+cd "c:\Users\04125050828\Documents\Workspace\Cursor\Jetty Planning System"
+image.png
+
+
+
+The restart hit a Docker daemon issue while recreating jps-api (it couldn’t stop the old container cleanly). I’ll recover it by force-removing the stuck API container and bringing compose up again.
+
+Option 1 (UI, recommended)
+Click Docker whale icon in system tray (bottom-right).
+Open Docker Desktop window.
+Top-right menu (or Troubleshoot icon) → Restart Docker Desktop.
+Wait until status shows Docker Desktop is running.
+Option 2 (quit + reopen)
+System tray whale icon → right-click → Quit Docker Desktop.
+Start Menu → search Docker Desktop → open it again.
+Wait until it finishes starting.
+Option 3 (if UI is stuck)
+Ctrl + Shift + Esc → Task Manager.
+End task for:
+Docker Desktop
+com.docker.backend (if still running)
+Reopen Docker Desktop from Start Menu.
+After restart, run:
+
+cd "D:\Cursor\Jetty Planning System\Backend"
+docker compose up -d --build
+docker ps
+If you want, tell me once Docker is back up and I’ll run these for you.
+
+
+
+------
+
+How to eliminate (not just workaround)
+1) Increase Docker resources first (highest impact)
+Docker Desktop → Settings → Resources:
+Memory: set to 4–6 GB minimum (8 GB if machine allows)
+CPUs: 4+ is fine
+Apply & restart Docker Desktop.
+2) Move to WSL2 engine (recommended)
+Docker Desktop → Settings → General:
+Enable Use the WSL 2 based engine.
+This usually stabilizes container lifecycle operations on Windows.
+3) Reduce unnecessary recreates
+For day-to-day dev, prefer:
+docker compose up -d
+Use --build only when Dockerfile/dependencies changed.
+Your backend already uses bind mounts, so code changes do not need rebuild each time.
+4) Keep Desktop current / consider rollback if regression
+You’re on Docker Desktop 4.65.0 (Engine 29.2.1).
+If this started after upgrading, try:
+update to newest patch, or
+roll back one known-stable version.
+5) If it still recurs after 1–4
+Run Docker Desktop Troubleshoot → Clean / Purge data (after backup of any needed volumes).
+Last resort: Reset to factory defaults.
+
+
+
+What to change (high impact)
+1) Stop bind-mounting uploads from Windows host
+Use container-local or named volume for uploads.
+
+In Backend/docker-compose.yml, keep:
+
+UPLOAD_DIR: /tmp/jps-uploads (or better named volume path)
+remove ./uploads:/app/uploads
+This avoids the Windows mount path that hangs during writes.
+
+2) Move project into WSL2 filesystem (very important)
+Do not run repo from D:\... for Docker bind mounts if possible.
+Use path like:
+
+/home/<user>/jetty-planning-system (inside WSL ext4)
+Then run docker compose from WSL terminal.
+This alone usually fixes 80% of Windows Docker file I/O hangs.
+
+3) Avoid --build on every restart
+Use daily:
+
+docker compose up -d Only use build when Dockerfile/dependencies changed:
+docker compose up -d --build
+4) Reduce file-watch churn
+Your API runs node --watch; with Windows mounts this can trigger frequent restarts. If still unstable, use plain node src/index.js inside container during troubleshooting.
+
+5) Exclude Docker/workspace from antivirus scanning
+Windows Defender / Controlled Folder Access can cause exactly this behavior on mounted paths.
+
+Recovery sequence when it gets stuck
+When Docker is jammed (cannot stop container), do this:
+
+Quit Docker Desktop fully
+Run wsl --shutdown
+Start Docker Desktop again
+Wait healthy
+Recreate cleanly:
+docker compose down --remove-orphans
+docker compose up -d
+Recommendation for your case
+Given your repeated failures even after resource increases, the best path is:
+
+Immediate: keep uploads inside container (UPLOAD_DIR), remove upload bind mount.
+Next: migrate this repo to WSL2 filesystem and run compose from WSL shell.
+Then: keep up -d as default restart flow.
+If you want, I can now give you a step-by-step migration checklist to WSL2 (copy repo, env, Docker settings, first run commands) so you can switch once and stop this loop.
+

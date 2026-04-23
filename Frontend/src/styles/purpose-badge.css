@@ -1,0 +1,21 @@
+/* Loading (green) vs Unloading (blue) — shared: At-Berth, Allocation, Shipping Instruction, Loading list */
+
+.loading-list__badge {
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.loading-list__badge--purpose[data-purpose='Loading'] {
+  background: rgba(45, 122, 62, 0.15);
+  color: #1a5f2a;
+}
+
+.loading-list__badge--purpose[data-purpose='Unloading'] {
+  background: rgba(33, 115, 199, 0.15);
+  color: #1e40af;
+}

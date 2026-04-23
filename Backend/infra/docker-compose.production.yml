@@ -1,0 +1,34 @@
+# Canonical production compose file.
+# Root compatibility entrypoint remains at /docker-compose.production.yml.
+#
+# Run from repo root:
+#   docker compose -f Backend/infra/docker-compose.production.yml up -d
+
+services:
+  jps-web:
+    build:
+      context: ../../Frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3001:80"
+    container_name: jps-web
+    restart: unless-stopped
+
+  jps-db:
+    image: postgres:16-alpine
+    container_name: jps-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jps_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-jps_db}
+    volumes:
+      - jps_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jps_user} -d ${POSTGRES_DB:-jps_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  jps_pgdata:

@@ -1,0 +1,30 @@
+{
+  "name": "jetty-planning-system-api",
+  "version": "0.1.0",
+  "description": "Backend API for Jetty Planning & Monitoring System",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "migrate": "node scripts/run-migrations.js",
+    "grant-admin-access": "node scripts/grant-admin-full-access.js",
+    "seed:admin": "node scripts/seed-admin-bcrypt.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "express-async-errors": "^3.1.1",
+    "express-rate-limit": "^7.5.0",
+    "file-type": "^18.7.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.1.1",
+    "pg": "^8.13.0"
+  }
+}

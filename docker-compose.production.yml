@@ -1,0 +1,51 @@
+# Jetty Planning System (JPS) - Production deployment on Alicloud Ubuntu
+# Use: docker compose -f docker-compose.production.yml up -d
+# Canonical source: Backend/infra/docker-compose.production.yml
+# Target directory: /opt/jetty-planning-system
+
+services:
+  # React frontend (nginx) - port 3001
+  jps-web:
+    build:
+      context: ./Frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3001:80"
+    container_name: jps-web
+    restart: unless-stopped
+
+  # Node.js backend API (optional - uncomment when backend is added)
+  # jps-api:
+  #   build:
+  #     context: ./Backend
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "3000:3000"
+  #   container_name: jps-api
+  #   restart: unless-stopped
+  #   environment:
+  #     NODE_ENV: production
+  #     DATABASE_URL: postgresql://${POSTGRES_USER:-jps_user}:${POSTGRES_PASSWORD}@jps-db:5432/${POSTGRES_DB:-jps_db}
+  #   depends_on:
+  #     jps-db:
+  #       condition: service_healthy
+
+  # PostgreSQL database (internal; do not expose 5432 to internet in Security Group)
+  jps-db:
+    image: postgres:16-alpine
+    container_name: jps-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jps_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-jps_db}
+    volumes:
+      - jps_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jps_user} -d ${POSTGRES_DB:-jps_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  jps_pgdata:

@@ -1,0 +1,3 @@
+# Placeholder to ensure migrations directory exists in git.
+# SQL migrations will be added as 001_*.sql, 002_*.sql, etc.
+

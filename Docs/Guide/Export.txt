@@ -1,0 +1,44 @@
+SI ada dari Astar lebih lengkap 
+tim export mensortir informasi yang dishare ke beacukai, atau ke agent, dll
+
+-> koordinasi dengan Tim untuk informasi SI 
+-> Astar punya system untuk generate SI 
+-> Pak Jacky
+
+
+dari Astar
+	-> Delivery Order (booking) 
+	-> Shipping Instruction 
+
+1 DO bisa multiple SI 
+
+SI berdasarkan kontrak
+
+1 SI bisa lebih dari 1 kontrak. 
+
+
+
+1 kontrak bisa punya multiple DO 
+ada case kontrak muncul belakangan 
+
+
+
+1 kapal bisa lebih dari 1 SI 
+
+contoh case
+
+1 DO bisa punya 10 container
+1 kontrak = 5 container
+1 kontrak = 5 container
+
+ada container ada bulking 
+
+
+real case : 
+Cargo ready kapan, koordinasi dengan forwarder untuk memilih vessel yang ready mendekati estimasi
+
+
+
+pain point: 
+1. monitor forwarder
+2. dokumentasi 

@@ -1,0 +1,62 @@
+# Backend server only (API + PostgreSQL). Run on the BACKEND ECS (e.g. 172.28.92.57).
+# See Docs/ALICLOUD-DEPLOYMENT-GUIDE.md
+# Canonical source: Backend/infra/docker-compose.backend.yml
+#
+# PostgreSQL: optional 127.0.0.1:5436 on host for pgAdmin/psql via SSH tunnel (see ALICLOUD-DEPLOYMENT-GUIDE.md).
+# jps-api still connects to jps-db:5432 on the Docker network. Lock down API with SG.
+#
+# Local (repo root): Compose defaults to ./.env for ${VAR} substitution. To use Backend/.env instead:
+#   docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d
+
+services:
+  jps-db:
+    image: postgres:16-alpine
+    container_name: jps-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jps_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-jps_db}
+    volumes:
+      - jps_pgdata:/var/lib/postgresql/data
+    # Optional: expose JPS Postgres on loopback for admin tools (psql, pgAdmin via SSH tunnel).
+    # Host port 5436 avoids conflict with host Postgres or other stacks on :5432. Never bind 0.0.0.0:5436 without SG care.
+    # Container still listens on 5432; jps-api uses DATABASE_URL → jps-db:5432 (unchanged).
+    ports:
+      - "127.0.0.1:5436:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jps_user} -d ${POSTGRES_DB:-jps_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  jps-api:
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile
+    container_name: jps-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-jps_user}:${POSTGRES_PASSWORD}@jps-db:5432/${POSTGRES_DB:-jps_db}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      CORS_ORIGIN: ${CORS_ORIGIN:?Set CORS_ORIGIN to the APP origin users use in the browser}
+      # When SPA is http:// (not https), set COOKIE_SECURE=false in .env or cookies are never stored (401 on /users/me).
+      COOKIE_SECURE: ${COOKIE_SECURE:-}
+      # Downstream Hub SSO (POST /auth/hub); must match Hub SSO_TOKEN_SECRET
+      SSO_TOKEN_SECRET: ${SSO_TOKEN_SECRET:-}
+      JPS_PUBLIC_ORIGIN: ${JPS_PUBLIC_ORIGIN:-http://localhost:5173}
+      HUB_SSO_JIT_PROVISION: ${HUB_SSO_JIT_PROVISION:-}
+      HUB_SSO_JIT_ROLE_NAME: ${HUB_SSO_JIT_ROLE_NAME:-}
+      HUB_SSO_JIT_ASSIGN_PORTS: ${HUB_SSO_JIT_ASSIGN_PORTS:-}
+      UPLOAD_DIR: /tmp/jps-uploads
+    command: ["npm", "run", "start"]
+    depends_on:
+      jps-db:
+        condition: service_healthy
+
+volumes:
+  jps_pgdata:

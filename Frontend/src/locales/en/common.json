@@ -1,0 +1,28 @@
+{
+  "appName": "Jetty Planning System",
+  "tagline": "Smart scheduling for smarter ports",
+  "sidebarBrand": "Jetty Planning",
+  "sidebarSub": "Operations console",
+  "toggleMenu": "Toggle menu",
+  "brandAria": "Jetty Planning System",
+  "portChangeTitle": "Choose a different port",
+  "portLabel": "Port: {{name}}",
+  "changePort": "Change…",
+  "greeting": "Hi, {{name}}",
+  "logout": "Logout",
+  "login": "Login",
+  "expandSidebar": "Expand sidebar",
+  "collapseSidebar": "Collapse sidebar",
+  "loadingPorts": "Loading assigned ports…",
+  "accessNotConfigured": "Access not configured",
+  "backToLogin": "Back to Login",
+  "openingPortSelection": "Opening port selection…",
+  "loadingPermissions": "Loading permissions…",
+  "forbidden": "Forbidden",
+  "forbiddenDetail": "You don't have permission to view this page.",
+  "language": {
+    "label": "Language",
+    "enShort": "EN",
+    "idShort": "ID"
+  }
+}

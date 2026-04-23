@@ -1,0 +1,196 @@
+/* Full-screen guest routes: /login, /select-port */
+
+.guest-branded {
+  --guest-branded-bg: none;
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-4);
+  box-sizing: border-box;
+}
+
+.guest-branded__bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background-color: #87a7c4;
+  background-image: var(--guest-branded-bg);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.guest-branded__inner {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 22.5rem;
+}
+
+.guest-branded__card {
+  background: var(--color-bg-white);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--spacing-4) var(--spacing-4) var(--spacing-5);
+}
+
+.guest-branded__card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+  margin-bottom: var(--spacing-2);
+}
+
+.guest-branded__card-top .guest-branded__brand {
+  flex: 1;
+  min-width: 0;
+}
+
+.guest-branded__lang {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.guest-branded__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  margin-bottom: var(--spacing-3);
+}
+
+.guest-branded__logo {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+}
+
+.guest-branded__brand-text {
+  min-width: 0;
+}
+
+.guest-branded__product {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: 1.25rem;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-charcoal);
+  line-height: 1.25;
+}
+
+.guest-branded__tagline {
+  margin: var(--spacing-1) 0 0;
+  font-family: var(--font-primary);
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+  line-height: 1.4;
+}
+
+.guest-branded__rule {
+  border: none;
+  border-top: 1px solid var(--color-border-light);
+  margin: 0 0 var(--spacing-4);
+}
+
+.guest-branded__card-title {
+  margin: 0 0 var(--spacing-2);
+  font-family: var(--font-primary);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+}
+
+.guest-branded__card-desc {
+  margin: 0 0 var(--spacing-3);
+  font-family: var(--font-primary);
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+  line-height: 1.45;
+}
+
+.guest-branded__body > :first-child {
+  margin-top: 0;
+}
+
+.guest-branded__body > :last-child {
+  margin-bottom: 0;
+}
+
+.guest-branded__label {
+  display: block;
+  font-family: var(--font-primary);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-charcoal);
+  margin-bottom: var(--spacing-1);
+}
+
+.guest-branded__label + .guest-branded__label {
+  margin-top: var(--spacing-3);
+}
+
+.guest-branded__input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-primary);
+  font-size: var(--font-size-base);
+  color: var(--color-text-charcoal);
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-white);
+}
+
+.guest-branded__input:focus {
+  outline: none;
+  border-color: var(--color-border-medium);
+  box-shadow: 0 0 0 2px rgba(196, 58, 49, 0.2);
+}
+
+.guest-branded__input:disabled,
+.guest-branded__input[aria-disabled='true'] {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+select.guest-branded__input {
+  cursor: pointer;
+  appearance: auto;
+}
+
+.guest-branded__error {
+  margin: 0 0 var(--spacing-3);
+  font-family: var(--font-primary);
+  font-size: var(--font-size-small);
+  color: #b42318;
+}
+
+.guest-branded__submit {
+  margin-top: var(--spacing-4);
+  width: 100%;
+  font-weight: var(--font-weight-semibold);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+}
+
+.guest-branded__muted {
+  margin: 0;
+  font-family: var(--font-primary);
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+.guest-branded__actions {
+  margin-top: var(--spacing-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.guest-branded__actions .guest-branded__submit {
+  margin-top: 0;
+}

@@ -1,0 +1,483 @@
+/* SI Approval Sign-off page */
+
+.si-approval-page {
+  max-width: 1200px;
+}
+
+.si-approval-external {
+  max-width: 520px;
+  padding: var(--spacing-6);
+}
+
+.si-approval-external__title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0 0 var(--spacing-3);
+}
+
+.si-approval-external__text {
+  margin: 0 0 var(--spacing-2);
+  color: var(--color-text-charcoal);
+}
+
+.si-approval-external__hint {
+  margin: 0 0 var(--spacing-4);
+  font-size: var(--font-size-small);
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  .si-approval-page .si-approval-header,
+  .si-approval-page .si-approval-sidebar {
+    display: none !important;
+  }
+  .si-approval-page .si-approval-layout {
+    display: block;
+  }
+  .si-approval-page .si-approval-main {
+    max-width: none;
+  }
+}
+
+/* ----- SI formal form (print / screen) ----- */
+.si-form {
+  background: #fff;
+  padding: var(--spacing-6);
+  max-width: 800px;
+  font-size: var(--font-size-small);
+  color: #333;
+}
+
+.si-form__header {
+  margin-bottom: var(--spacing-4);
+}
+
+.si-form__company {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #1a5f2a;
+  margin-bottom: var(--spacing-1);
+}
+
+.si-form__address {
+  font-size: var(--font-size-xs);
+  color: #444;
+  margin-bottom: var(--spacing-2);
+}
+
+.si-form__line {
+  height: 2px;
+  background: #1a5f2a;
+  width: 100%;
+}
+
+.si-form__recipient {
+  margin-bottom: var(--spacing-4);
+  font-size: var(--font-size-small);
+  color: #333;
+  line-height: 1.4;
+}
+
+.si-form__title {
+  text-align: center;
+  font-size: 1.25rem;
+  font-weight: 700;
+  text-decoration: underline;
+  margin: 0 0 var(--spacing-1);
+}
+
+.si-form__docno {
+  text-align: center;
+  font-weight: 700;
+  margin: 0 0 var(--spacing-4);
+}
+
+.si-form__body {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px var(--spacing-4);
+  margin: 0 0 var(--spacing-6);
+  align-items: baseline;
+}
+
+.si-form__body dt {
+  font-weight: 500;
+  color: #333;
+  margin: 0;
+}
+
+.si-form__body dd {
+  margin: 0;
+  color: #333;
+}
+
+.si-form__body dd strong {
+  font-weight: 700;
+}
+
+.si-form__reference-dates {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px var(--spacing-4);
+  margin: 0 0 var(--spacing-5);
+  padding: var(--spacing-3);
+  background: #f7f9f8;
+  border: 1px solid #e0e8e3;
+  border-radius: 4px;
+  font-size: var(--font-size-xs);
+  align-items: baseline;
+}
+
+.si-form__reference-dates dt {
+  margin: 0;
+  font-weight: 600;
+  color: #444;
+}
+
+.si-form__reference-dates dd {
+  margin: 0;
+  color: #222;
+}
+
+.si-form__approval {
+  text-align: right;
+  margin-top: var(--spacing-8);
+  padding-top: var(--spacing-4);
+}
+
+.si-form__approval-place {
+  font-size: var(--font-size-small);
+  margin-bottom: var(--spacing-2);
+}
+
+.si-form__approval-company {
+  font-size: var(--font-size-small);
+  margin-bottom: var(--spacing-2);
+}
+
+.si-form__approval-remark {
+  font-size: var(--font-size-xs);
+  color: #1a5f2a;
+  margin-bottom: var(--spacing-4);
+  line-height: 1.4;
+}
+
+.si-form__approval-remark .si-form__approval-id {
+  font-weight: 700;
+}
+
+.si-form__approval-signature {
+  min-height: 48px;
+  border-bottom: 1px solid #333;
+  margin-bottom: var(--spacing-2);
+  width: 200px;
+  margin-left: auto;
+}
+
+.si-form__approval-name {
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.si-form__approval-title {
+  font-size: var(--font-size-xs);
+  color: #555;
+}
+
+.si-approval-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-4);
+  margin-bottom: var(--spacing-4);
+}
+
+.si-approval-header__left {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  flex-wrap: wrap;
+}
+
+.si-approval-back {
+  flex-shrink: 0;
+}
+
+.si-approval-status {
+  display: inline-block;
+  padding: var(--spacing-1) var(--spacing-3);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  border-radius: 999px;
+  background: #e8e8e8;
+  color: #333;
+}
+
+.si-approval-status--approved {
+  background: rgba(45, 122, 62, 0.15);
+  color: #2d7a3e;
+}
+
+.si-approval-status--rejected {
+  background: rgba(196, 58, 49, 0.12);
+  color: var(--color-primary);
+}
+
+.si-approval-header__actions {
+  display: flex;
+  gap: var(--spacing-2);
+}
+
+.si-approval-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: var(--spacing-4);
+  align-items: start;
+}
+
+@media (max-width: 1023px) {
+  .si-approval-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.si-approval-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+
+.si-approval-meta {
+  padding: var(--spacing-4);
+}
+
+.si-approval-meta__id {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.si-approval-meta__id strong {
+  font-size: var(--font-size-lg);
+  color: var(--color-text-charcoal);
+}
+
+.si-approval-meta__generated,
+.si-approval-meta__class {
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+.si-approval-card__title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0 0 var(--spacing-3);
+  padding-bottom: var(--spacing-2);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.si-approval-card__grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--spacing-2) var(--spacing-4);
+  margin: 0;
+  font-size: var(--font-size-small);
+}
+
+.si-approval-card__grid dt {
+  color: var(--color-text-steel);
+  font-weight: var(--font-weight-medium);
+}
+
+.si-approval-card__grid dd {
+  margin: 0;
+  color: var(--color-text-charcoal);
+}
+
+.si-approval-attachments {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--spacing-3);
+}
+
+.si-approval-attachments__item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) 0;
+  border-bottom: 1px solid var(--color-border-light);
+  font-size: var(--font-size-small);
+}
+
+.si-approval-attachments__item:last-of-type {
+  border-bottom: none;
+}
+
+.si-approval-attachments__name {
+  flex: 1;
+  color: var(--color-text-charcoal);
+}
+
+.si-approval-attachments__size {
+  color: var(--color-text-steel);
+  font-size: var(--font-size-xs);
+}
+
+.si-approval-attachments__action {
+  flex-shrink: 0;
+}
+
+.si-approval-upload {
+  margin-top: var(--spacing-2);
+}
+
+.si-approval-upload__label {
+  display: block;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-charcoal);
+  margin-bottom: var(--spacing-2);
+}
+
+.si-approval-upload__input {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  padding: var(--spacing-2);
+  font-size: var(--font-size-small);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+}
+
+.si-approval-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+
+.si-approval-signoff__title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0 0 var(--spacing-3);
+  padding-bottom: var(--spacing-2);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.si-approval-signoff__section {
+  margin-bottom: var(--spacing-3);
+}
+
+.si-approval-signoff__comments {
+  width: 100%;
+  min-height: 80px;
+  resize: vertical;
+}
+
+.si-approval-signoff__certify {
+  margin-bottom: var(--spacing-4);
+}
+
+.si-approval-signoff__certify-label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-2);
+  font-size: var(--font-size-small);
+  color: var(--color-text-charcoal);
+  cursor: pointer;
+}
+
+.si-approval-signoff__certify-checkbox {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.si-approval-signoff__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.si-approval-signoff__reject {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.si-approval-signoff__reject:hover {
+  background: rgba(196, 58, 49, 0.08);
+}
+
+.si-approval-result {
+  padding: var(--spacing-4);
+}
+
+.si-approval-result--success p:first-child {
+  color: #2d7a3e;
+}
+
+.si-approval-result--rejected p:first-child {
+  color: var(--color-primary);
+}
+
+.si-approval-result p {
+  margin: 0 0 var(--spacing-2);
+}
+
+.si-approval-result .btn {
+  margin-top: var(--spacing-3);
+}
+
+.si-approval-lifecycle__title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0 0 var(--spacing-3);
+  padding-bottom: var(--spacing-2);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.si-approval-lifecycle__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: var(--font-size-small);
+}
+
+.si-approval-lifecycle__item {
+  padding: var(--spacing-2) 0;
+  border-bottom: 1px solid var(--color-border-light);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.si-approval-lifecycle__item:last-child {
+  border-bottom: none;
+}
+
+.si-approval-lifecycle__item--current {
+  color: var(--color-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.si-approval-lifecycle__label {
+  font-weight: var(--font-weight-medium);
+  color: inherit;
+}
+
+.si-approval-lifecycle__by,
+.si-approval-lifecycle__time {
+  color: var(--color-text-steel);
+  font-size: var(--font-size-xs);
+}
+
+.si-approval-lifecycle__item--current .si-approval-lifecycle__by,
+.si-approval-lifecycle__item--current .si-approval-lifecycle__time {
+  color: inherit;
+  opacity: 0.9;
+}

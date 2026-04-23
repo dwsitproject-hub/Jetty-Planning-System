@@ -1,0 +1,28 @@
+{
+  "appName": "Jetty Planning System",
+  "tagline": "Penjadwalan cerdas untuk pelabuhan yang lebih efisien",
+  "sidebarBrand": "Jetty Planning",
+  "sidebarSub": "Konsol operasi",
+  "toggleMenu": "Buka/tutup menu",
+  "brandAria": "Jetty Planning System",
+  "portChangeTitle": "Pilih pelabuhan lain",
+  "portLabel": "Pelabuhan: {{name}}",
+  "changePort": "Ganti…",
+  "greeting": "Halo, {{name}}",
+  "logout": "Keluar",
+  "login": "Masuk",
+  "expandSidebar": "Perluas bilah samping",
+  "collapseSidebar": "Ciutkan bilah samping",
+  "loadingPorts": "Memuat pelabuhan yang ditetapkan…",
+  "accessNotConfigured": "Akses belum dikonfigurasi",
+  "backToLogin": "Kembali ke masuk",
+  "openingPortSelection": "Membuka pemilihan pelabuhan…",
+  "loadingPermissions": "Memuat izin…",
+  "forbidden": "Dilarang",
+  "forbiddenDetail": "Anda tidak memiliki izin untuk melihat halaman ini.",
+  "language": {
+    "label": "Bahasa",
+    "enShort": "EN",
+    "idShort": "ID"
+  }
+}

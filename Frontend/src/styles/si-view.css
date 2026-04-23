@@ -1,0 +1,117 @@
+/* View Shipping Instruction document */
+
+.si-view-page {
+  max-width: 800px;
+}
+
+.si-view-page--embed {
+  max-width: none;
+  padding: 0;
+}
+
+.si-view-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-3);
+  margin-bottom: var(--spacing-4);
+}
+
+.si-view-meta {
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+.si-view-unavailable {
+  max-width: 520px;
+  padding: var(--spacing-6);
+}
+
+.si-view-unavailable__title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0 0 var(--spacing-3);
+}
+
+.si-view-doc {
+  padding: var(--spacing-6);
+}
+
+.si-view-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-6);
+  font-size: var(--font-size-small);
+}
+
+.si-view-summary__row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: var(--spacing-3);
+  align-items: baseline;
+}
+
+.si-view-summary__label {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+}
+
+.si-view-summary__value {
+  color: var(--color-text-charcoal);
+}
+
+.si-view-table-wrap {
+  overflow-x: auto;
+}
+
+.si-view-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-small);
+}
+
+.si-view-table__th {
+  text-align: left;
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-border-medium);
+  background: var(--color-bg-subtle, #f5f5f5);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+}
+
+.si-view-table__th--num {
+  text-align: right;
+}
+
+.si-view-table__cell {
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-border-light);
+  color: var(--color-text-charcoal);
+}
+
+.si-view-table__cell--num {
+  text-align: right;
+}
+
+.si-view-table__total .si-view-table__cell {
+  font-weight: var(--font-weight-semibold);
+  background: var(--color-bg-subtle, #f5f5f5);
+}
+
+.si-view-table__cell--total-label {
+  text-align: right;
+  padding-right: var(--spacing-3);
+}
+
+.si-view-table__cell--total {
+  font-weight: var(--font-weight-semibold);
+}
+
+/* SiDocumentModal: scroll document inside dialog */
+.si-document-modal__body {
+  max-height: min(78vh, 720px);
+  overflow-y: auto;
+  margin-top: var(--spacing-3);
+}

@@ -2,5 +2,18 @@ node_modules
 dist
 .env
 .env.local
+.env.*.local
 *.log
 .DS_Store
+# Word lock files
+~$*
+# Trash / temp
+Docs/Trash/
+
+# Local scratch / reference artifacts (do not commit)
+.tmp-pdf-extract/
+Docs/Reference SI/
+
+# Playwright / e2e output
+test-results/
+playwright-report/

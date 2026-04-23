@@ -1,0 +1,11 @@
+{
+  "dashboard": "Dashboard",
+  "shippingInstruction": "Shipping Instruction",
+  "allocation": "Allocation & Berthing",
+  "atBerth": "At-Berth Executions",
+  "clearance": "Clearance",
+  "demurrageCalculator": "Demurrage Risk Calculator",
+  "reporting": "Reporting",
+  "master": "Master Menu",
+  "admin": "Admin"
+}
