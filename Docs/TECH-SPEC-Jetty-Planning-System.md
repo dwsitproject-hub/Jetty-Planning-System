@@ -1,7 +1,7 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.26
-**Last Updated**: 2026-04-21  
+**Version**: 1.27
+**Last Updated**: 2026-04-22  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
@@ -55,6 +55,26 @@ This change is presentation-only for schedule explainability; API contracts rema
   - Retained legend items: Planned known/open-end, Actual known/open-end, Now, Sailed off.
 - Segment rendering classes and lane assignment remain unchanged.
 
+### 0.17 Jetty Operation Id — `operations.jetty_operation_code` (2026-04-22)
+
+**Purpose:** Human-facing operation reference (`LD|UN-YY-MM-####`) alongside the internal bigint `operations.id`. REST paths keep using **numeric** `:id` only; the code is returned in JSON as **`jettyOperationCode`** (camelCase) for UI and integrations that read responses.
+
+**Database (migration `056_jetty_operation_code.sql`):**
+
+- Column **`operations.jetty_operation_code`** (`TEXT`, nullable only transiently during insert; assigned in the same transaction as insert).
+- Table **`jetty_operation_code_counters`** (`period_key`, `last_n`) — atomic increment per `period_key` (e.g. `LD-26-04`).
+- Function **`public.assign_jetty_operation_code(p_operation_id bigint, p_tz text)`** — reads `purpose` + `created_at`, computes `YY`/`MM` with `timezone(p_tz, created_at)`, upserts counter, sets `jetty_operation_code`.
+- **Backfill** (ordered `created_at`, `id` within each month/type bucket) uses IANA **`Asia/Jakarta`** in SQL; **must match** the default shipped in **`Backend/.env.example`** for `JETTY_OPERATION_CODE_TIMEZONE` unless the migration literal is edited before first apply on a new environment.
+- **Partial unique index** on `jetty_operation_code` where not null.
+
+**Application:**
+
+- **`Backend/src/lib/jetty-operation-code.js`** — `getJettyOperationCodeTimezone()`, `assignJettyOperationCode(client, operationId)` calling the SQL function.
+- **Insert paths** (same DB transaction as `INSERT INTO operations`): `Backend/src/routes/operations.js` (`POST /operations`), `Backend/src/routes/allocation.js` (arrival flow when it creates a new operation row).
+- **`toOp`** in `operations.js` exposes **`jettyOperationCode`**; allocation overview SQL selects **`o.jetty_operation_code`** and **`formatListRow`** maps **`jettyOperationCode`**.
+
+**Dev reset:** `Backend/scripts/reset-and-seed-dev.sql` truncates **`jetty_operation_code_counters`** and assigns codes for seeded operations after insert (requires migration **056** applied).
+
 ### 0.4 Dev reset + seed (transactional data only)
 
 To support “start fresh” local testing without wiping master data, the repo includes a repeatable reset+seed script:
@@ -66,6 +86,7 @@ To support “start fresh” local testing without wiping master data, the repo 
 **Behaviour**
 
 - **Cleans (TRUNCATE, restart identities, cascade)** transactional tables only:
+  - `jetty_operation_code_counters` (see **§0.17**; included in `reset-and-seed-dev.sql` truncate list)
   - `operations`
   - `operation_documents`
   - `operation_operational_activities`

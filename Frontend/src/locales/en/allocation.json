@@ -24,6 +24,7 @@
   "moveDownAria": "Move berthing sequence down",
   "colBerthingSequence": "Berthing sequence",
   "colVesselName": "Vessel Name",
+  "colJettyOperationId": "Jetty Operation ID",
   "colShippingInstruction": "Shipping Instruction",
   "colPriority": "Priority",
   "colPurpose": "Purpose",
@@ -33,6 +34,7 @@
   "colJetty": "Jetty",
   "fullDetails": "Full details",
   "dtVesselName": "Vessel Name",
+  "dtJettyOperationId": "Jetty Operation ID",
   "dtShippingInstruction": "Shipping Instruction",
   "dtNoPkk": "No PKK",
   "dtPriority": "Priority",
@@ -61,5 +63,7 @@
   "arrivalRemarks": "Remarks",
   "selectJetty": "— Select jetty —",
   "jettyOptionOccupied": "{{id}} – Occupied ({{occ}}/{{cap}})",
-  "jettyOptionVacant": "{{id}} – Vacant (0/{{cap}})"
+  "jettyOptionVacant": "{{id}} – Vacant (0/{{cap}})",
+  "openSiDocument": "Open shipping instruction document",
+  "openSiDetailFromJettyOp": "Open shipping instruction detail"
 }

@@ -22,6 +22,7 @@
   "shiftOutToast": "Shift out complete for {{vessel}}. Please visit 'Allocation & Berthing' to re-dock.",
   "errRemarkRequired": "Enter a remark before confirming shift-out.",
   "colVessel": "Vessel",
+  "colJettyOperationId": "Jetty Operation ID",
   "colSi": "SI",
   "colCommodity": "Commodity",
   "colPurpose": "Purpose",
@@ -39,6 +40,7 @@
   "shiftOutTooltipDo": "Shift out: move back to incoming queue and free berth capacity",
   "detailTitle": "Full details",
   "dtVesselName": "Vessel Name",
+  "dtJettyOperationId": "Jetty Operation ID",
   "dtShippingInstruction": "Shipping Instruction",
   "dtNoPkk": "No PKK",
   "dtPriority": "Priority",
@@ -54,5 +56,7 @@
   "dtTb": "TB",
   "dtEstimatedCompletion": "Estimation of Completion",
   "dtRemark": "Remark",
-  "dismissNotification": "Dismiss notification"
+  "dismissNotification": "Dismiss notification",
+  "openSiDocument": "Open shipping instruction document",
+  "openSiDetailFromJettyOp": "Open shipping instruction detail"
 }

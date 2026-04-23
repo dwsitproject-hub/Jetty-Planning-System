@@ -108,3 +108,10 @@
 .si-view-table__cell--total {
   font-weight: var(--font-weight-semibold);
 }
+
+/* SiDocumentModal: scroll document inside dialog */
+.si-document-modal__body {
+  max-height: min(78vh, 720px);
+  overflow-y: auto;
+  margin-top: var(--spacing-3);
+}

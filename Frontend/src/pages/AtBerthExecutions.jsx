@@ -5,6 +5,7 @@ import { fetchAllocationOverview } from '../api/allocation'
 import { setOperationShiftingOut } from '../api/operations'
 import { term } from '../i18n/term'
 import SiDetailModal from '../components/SiDetailModal'
+import SiDocumentModal from '../components/SiDocumentModal'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { atBerthExecutionOpenPath } from '../utils/atBerthOpenPath'
 import '../styles/allocation.css'
@@ -73,6 +74,13 @@ const AT_BERTH_COLUMNS = [
     getFilterValue: (r) => r.vesselName,
   },
   {
+    key: 'jettyOperationCode',
+    label: 'Jetty Operation ID',
+    getValue: (r) => r.jettyOperationCode || '—',
+    getSortValue: (r) => (r.jettyOperationCode || '').toLowerCase(),
+    getFilterValue: (r) => r.jettyOperationCode,
+  },
+  {
     key: 'shippingInstruction',
     label: 'SI',
     getValue: (r) => r.shippingInstruction || '—',
@@ -134,7 +142,7 @@ const AT_BERTH_COLUMNS = [
   },
 ]
 
-function AtBerthDetailPanel({ r }) {
+function AtBerthDetailPanel({ r, onOpenSiDetail }) {
   const { t } = useTranslation('atBerth')
   const purposeDisplay =
     r.purpose ||
@@ -147,6 +155,23 @@ function AtBerthDetailPanel({ r }) {
       <dl className="allocation-detail__grid">
         <dt>{t('dtVesselName')}</dt>
         <dd>{r.vesselName || '—'}</dd>
+        <dt>{t('dtJettyOperationId')}</dt>
+        <dd>
+          {r.shippingInstructionId && onOpenSiDetail ? (
+            <a
+              href="#"
+              onClick={(e) => {
+                e.preventDefault()
+                onOpenSiDetail(r.shippingInstructionId)
+              }}
+              aria-label={t('openSiDetailFromJettyOp')}
+            >
+              {r.jettyOperationCode || '—'}
+            </a>
+          ) : (
+            r.jettyOperationCode || '—'
+          )}
+        </dd>
         <dt>{t('dtShippingInstruction')}</dt>
         <dd>{r.shippingInstruction || '—'}</dd>
         <dt>{t('dtNoPkk')}</dt>
@@ -202,6 +227,16 @@ export default function AtBerthExecutions() {
   const [expandedId, setExpandedId] = useState(null)
   const [expandedMobileId, setExpandedMobileId] = useState(null)
   const [siDetailId, setSiDetailId] = useState(null)
+  const [siDocumentModalId, setSiDocumentModalId] = useState(null)
+
+  const openSiDocumentModal = useCallback((id) => {
+    setSiDetailId(null)
+    setSiDocumentModalId(id)
+  }, [])
+  const openSiDetailModal = useCallback((id) => {
+    setSiDocumentModalId(null)
+    setSiDetailId(id)
+  }, [])
   const [shiftSavingByOpId, setShiftSavingByOpId] = useState({})
   const [shiftModal, setShiftModal] = useState(null)
   const [shiftRemarkDraft, setShiftRemarkDraft] = useState('')
@@ -211,6 +246,7 @@ export default function AtBerthExecutions() {
       t(
         ({
           vesselName: 'colVessel',
+          jettyOperationCode: 'colJettyOperationId',
           shippingInstruction: 'colSi',
           commodity: 'colCommodity',
           purpose: 'colPurpose',
@@ -504,16 +540,32 @@ export default function AtBerthExecutions() {
                       </td>
                       {AT_BERTH_COLUMNS.map((col) => (
                         <td key={col.key}>
-                          {col.key === 'shippingInstruction' ? (
+                          {col.key === 'jettyOperationCode' ? (
                             r.shippingInstructionId ? (
                               <a
                                 href="#"
                                 onClick={(e) => {
                                   e.preventDefault()
                                   e.stopPropagation()
-                                  setSiDetailId(r.shippingInstructionId)
+                                  openSiDetailModal(r.shippingInstructionId)
                                 }}
-                                aria-label={t('openSiDetail', { defaultValue: 'Open shipping instruction detail' })}
+                                aria-label={t('openSiDetailFromJettyOp')}
+                              >
+                                {r.jettyOperationCode || '—'}
+                              </a>
+                            ) : (
+                              r.jettyOperationCode || '—'
+                            )
+                          ) : col.key === 'shippingInstruction' ? (
+                            r.shippingInstructionId ? (
+                              <a
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  openSiDocumentModal(r.shippingInstructionId)
+                                }}
+                                aria-label={t('openSiDocument')}
                               >
                                 {r.shippingInstruction || '—'}
                               </a>
@@ -529,7 +581,7 @@ export default function AtBerthExecutions() {
                     {expandedId === r.id && (
                       <tr className="allocation-table__detail-row">
                         <td colSpan={tableColSpan} className="allocation-table__detail-cell">
-                          <AtBerthDetailPanel r={r} />
+                          <AtBerthDetailPanel r={r} onOpenSiDetail={openSiDetailModal} />
                         </td>
                       </tr>
                     )}
@@ -546,6 +598,23 @@ export default function AtBerthExecutions() {
                   <span className="text-steel">{statusToPhase(r.status)}</span>
                 </header>
                 <dl className="allocation-mobile-card__grid">
+                  <dt>{t('colJettyOperationId')}</dt>
+                  <dd>
+                    {r.shippingInstructionId ? (
+                      <a
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          openSiDetailModal(r.shippingInstructionId)
+                        }}
+                        aria-label={t('openSiDetailFromJettyOp')}
+                      >
+                        {r.jettyOperationCode || '—'}
+                      </a>
+                    ) : (
+                      r.jettyOperationCode || '—'
+                    )}
+                  </dd>
                   <dt>{t('colSi')}</dt>
                   <dd>
                     {r.shippingInstructionId ? (
@@ -553,9 +622,9 @@ export default function AtBerthExecutions() {
                         href="#"
                         onClick={(e) => {
                           e.preventDefault()
-                          setSiDetailId(r.shippingInstructionId)
+                          openSiDocumentModal(r.shippingInstructionId)
                         }}
-                        aria-label={t('openSiDetail', { defaultValue: 'Open shipping instruction detail' })}
+                        aria-label={t('openSiDocument')}
                       >
                         {r.shippingInstruction || '—'}
                       </a>
@@ -602,7 +671,7 @@ export default function AtBerthExecutions() {
                 </div>
                 {expandedMobileId === r.id ? (
                   <div className="allocation-mobile-card__detail">
-                    <AtBerthDetailPanel r={r} />
+                    <AtBerthDetailPanel r={r} onOpenSiDetail={openSiDetailModal} />
                   </div>
                 ) : null}
               </article>
@@ -660,6 +729,11 @@ export default function AtBerthExecutions() {
         isOpen={Boolean(siDetailId)}
         siId={siDetailId}
         onClose={() => setSiDetailId(null)}
+      />
+      <SiDocumentModal
+        isOpen={Boolean(siDocumentModalId)}
+        siId={siDocumentModalId}
+        onClose={() => setSiDocumentModalId(null)}
       />
     </div>
   )

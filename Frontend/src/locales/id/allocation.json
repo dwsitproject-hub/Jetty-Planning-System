@@ -24,6 +24,7 @@
   "moveDownAria": "Turunkan urutan sandar",
   "colBerthingSequence": "Urutan sandar",
   "colVesselName": "Nama kapal",
+  "colJettyOperationId": "ID Operasi Jetty",
   "colShippingInstruction": "Shipping Instruction",
   "colPriority": "Prioritas",
   "colPurpose": "Tujuan",
@@ -33,6 +34,7 @@
   "colJetty": "Jetty",
   "fullDetails": "Detail lengkap",
   "dtVesselName": "Nama kapal",
+  "dtJettyOperationId": "ID Operasi Jetty",
   "dtShippingInstruction": "Shipping Instruction",
   "dtNoPkk": "No PKK",
   "dtPriority": "Prioritas",
@@ -61,5 +63,7 @@
   "arrivalRemarks": "Keterangan",
   "selectJetty": "— Pilih jetty —",
   "jettyOptionOccupied": "{{id}} – Terisi ({{occ}}/{{cap}})",
-  "jettyOptionVacant": "{{id}} – Kosong (0/{{cap}})"
+  "jettyOptionVacant": "{{id}} – Kosong (0/{{cap}})",
+  "openSiDocument": "Buka dokumen shipping instruction",
+  "openSiDetailFromJettyOp": "Buka detail shipping instruction"
 }

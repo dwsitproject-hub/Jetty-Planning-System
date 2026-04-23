@@ -5,11 +5,18 @@ import { fetchOperations, fetchPendingSignoffRequests, depart, uploadOperationDo
 import { useRbac } from '../context/RbacContext'
 import { resolveUploadUrl } from '../api/client'
 import SiDetailModal from '../components/SiDetailModal'
+import SiDocumentModal from '../components/SiDocumentModal'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 
 const CLEARANCE_COLUMNS = [
   { key: 'vesselName', label: 'Vessel', getValue: (r) => <strong>{r.vesselName || '—'}</strong>, getSortValue: (r) => (r.vesselName || '').toLowerCase() },
+  {
+    key: 'jettyOperationCode',
+    label: 'Jetty Operation ID',
+    getValue: (r) => r.jettyOperationCode || '—',
+    getSortValue: (r) => (r.jettyOperationCode || '').toLowerCase(),
+  },
   { key: 'si', label: 'SI', getValue: (r) => r.si || '—', getSortValue: (r) => (r.si || '').toLowerCase() },
   { key: 'purpose', label: 'Purpose', getValue: (r) => (
     <span className="loading-list__badge loading-list__badge--purpose" data-purpose={r.purpose}>{r.purpose}</span>
@@ -70,6 +77,16 @@ export default function Verification() {
   const [signoffBusyId, setSignoffBusyId] = useState(null)
   const [timelineMaxAtByOpId, setTimelineMaxAtByOpId] = useState({})
   const [siDetailId, setSiDetailId] = useState(null)
+  const [siDocumentModalId, setSiDocumentModalId] = useState(null)
+
+  const openSiDocumentModal = useCallback((id) => {
+    setSiDetailId(null)
+    setSiDocumentModalId(id)
+  }, [])
+  const openSiDetailModal = useCallback((id) => {
+    setSiDocumentModalId(null)
+    setSiDetailId(id)
+  }, [])
 
   const load = useCallback(async () => {
     setErr(null)
@@ -83,6 +100,7 @@ export default function Verification() {
       ])
       const pending = (pendingRaw || []).map((o) => ({
         operationId: o.id,
+        jettyOperationCode: o.jettyOperationCode,
         shippingInstructionId: o.shippingInstructionId ?? null,
         vesselName: o.vesselName,
         purpose: o.purpose,
@@ -102,6 +120,7 @@ export default function Verification() {
       }))
       const ready = (signedOff || []).map((o) => ({
         operationId: o.id,
+        jettyOperationCode: o.jettyOperationCode,
         shippingInstructionId: o.shippingInstructionId ?? null,
         vesselName: o.vesselName,
         purpose: o.purpose,
@@ -118,6 +137,7 @@ export default function Verification() {
       }))
       const done = (sailed || []).map((o) => ({
         operationId: o.id,
+        jettyOperationCode: o.jettyOperationCode,
         shippingInstructionId: o.shippingInstructionId ?? null,
         vesselName: o.vesselName,
         purpose: o.purpose,
@@ -424,7 +444,9 @@ export default function Verification() {
                       <button type="button" className="allocation-table__sort" onClick={() => handleSort(col.key)}>
                         {col.key === 'vesselName'
                           ? t('clearanceColVessel')
-                          : col.key === 'si'
+                          : col.key === 'jettyOperationCode'
+                            ? t('clearanceColJettyOperationId')
+                            : col.key === 'si'
                             ? t('clearanceColSi')
                             : col.key === 'purpose'
                               ? t('clearanceColPurpose')
@@ -471,16 +493,32 @@ export default function Verification() {
                       </td>
                       {CLEARANCE_COLUMNS.map((col) => (
                         <td key={col.key}>
-                          {col.key === 'si' ? (
+                          {col.key === 'jettyOperationCode' ? (
                             v.shippingInstructionId ? (
                               <a
                                 href="#"
                                 onClick={(e) => {
                                   e.preventDefault()
                                   e.stopPropagation()
-                                  setSiDetailId(v.shippingInstructionId)
+                                  openSiDetailModal(v.shippingInstructionId)
                                 }}
-                                aria-label={t('openSiDetail', { defaultValue: 'Open shipping instruction detail' })}
+                                aria-label={t('openSiDetailFromJettyOp')}
+                              >
+                                {v.jettyOperationCode || '—'}
+                              </a>
+                            ) : (
+                              v.jettyOperationCode || '—'
+                            )
+                          ) : col.key === 'si' ? (
+                            v.shippingInstructionId ? (
+                              <a
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  openSiDocumentModal(v.shippingInstructionId)
+                                }}
+                                aria-label={t('openSiDocument')}
                               >
                                 {v.si || '—'}
                               </a>
@@ -532,6 +570,23 @@ export default function Verification() {
                           <dl className="allocation-detail__grid">
                             <dt>Vessel Name</dt>
                             <dd>{v.vesselName || '—'}</dd>
+                            <dt>{t('clearanceColJettyOperationId')}</dt>
+                            <dd>
+                              {v.shippingInstructionId ? (
+                                <a
+                                  href="#"
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    openSiDetailModal(v.shippingInstructionId)
+                                  }}
+                                  aria-label={t('openSiDetailFromJettyOp')}
+                                >
+                                  {v.jettyOperationCode || '—'}
+                                </a>
+                              ) : (
+                                v.jettyOperationCode || '—'
+                              )}
+                            </dd>
                             <dt>Shipping Instruction</dt>
                             <dd>{v.referenceNumber || '—'}</dd>
                             <dt>Commodity</dt>
@@ -582,6 +637,23 @@ export default function Verification() {
                   <span className="text-steel">{v.status || '—'}</span>
                 </header>
                 <dl className="allocation-mobile-card__grid">
+                  <dt>{t('clearanceColJettyOperationId')}</dt>
+                  <dd>
+                    {v.shippingInstructionId ? (
+                      <a
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          openSiDetailModal(v.shippingInstructionId)
+                        }}
+                        aria-label={t('openSiDetailFromJettyOp')}
+                      >
+                        {v.jettyOperationCode || '—'}
+                      </a>
+                    ) : (
+                      v.jettyOperationCode || '—'
+                    )}
+                  </dd>
                   <dt>{t('clearanceColSi')}</dt>
                   <dd>
                     {v.shippingInstructionId ? (
@@ -589,9 +661,9 @@ export default function Verification() {
                         href="#"
                         onClick={(e) => {
                           e.preventDefault()
-                          setSiDetailId(v.shippingInstructionId)
+                          openSiDocumentModal(v.shippingInstructionId)
                         }}
-                        aria-label={t('openSiDetail', { defaultValue: 'Open shipping instruction detail' })}
+                        aria-label={t('openSiDocument')}
                       >
                         {v.si || '—'}
                       </a>
@@ -647,6 +719,23 @@ export default function Verification() {
                       <dl className="allocation-detail__grid">
                         <dt>Vessel Name</dt>
                         <dd>{v.vesselName || '—'}</dd>
+                        <dt>{t('clearanceColJettyOperationId')}</dt>
+                        <dd>
+                          {v.shippingInstructionId ? (
+                            <a
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                openSiDetailModal(v.shippingInstructionId)
+                              }}
+                              aria-label={t('openSiDetailFromJettyOp')}
+                            >
+                              {v.jettyOperationCode || '—'}
+                            </a>
+                          ) : (
+                            v.jettyOperationCode || '—'
+                          )}
+                        </dd>
                         <dt>Shipping Instruction</dt>
                         <dd>{v.referenceNumber || '—'}</dd>
                         <dt>Commodity</dt>
@@ -812,6 +901,11 @@ export default function Verification() {
         isOpen={Boolean(siDetailId)}
         siId={siDetailId}
         onClose={() => setSiDetailId(null)}
+      />
+      <SiDocumentModal
+        isOpen={Boolean(siDocumentModalId)}
+        siId={siDocumentModalId}
+        onClose={() => setSiDocumentModalId(null)}
       />
     </div>
   )

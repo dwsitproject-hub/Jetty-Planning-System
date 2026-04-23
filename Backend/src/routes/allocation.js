@@ -9,6 +9,7 @@
  */
 import express from 'express';
 import { pool } from '../db.js';
+import { assignJettyOperationCode } from '../lib/jetty-operation-code.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { userHasPageEdit } from '../middleware/permissions.js';
 import { JETTY_OUT_OF_SERVICE } from '../lib/jetty-blocking.js';
@@ -160,6 +161,7 @@ function formatListRow(r) {
   // Keep a shape similar to existing Allocation.jsx expectations.
   return {
     id: String(r.row_id),
+    jettyOperationCode: r.jetty_operation_code ?? undefined,
     sequence: r.sequence != null ? Number(r.sequence) : null,
     vesselId: r.vessel_id,
     vesselName: r.vessel_name,
@@ -222,6 +224,7 @@ function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = 
     SELECT
         ('op-' || o.id)::text AS vessel_id,
         o.id AS operation_id,
+        o.jetty_operation_code AS jetty_operation_code,
         o.shipping_instruction_id,
         o.purpose,
         o.status AS source_status,
@@ -475,6 +478,7 @@ router.put('/arrival', async (req, res) => {
       }
     } else {
       // Find existing op for SI or create one.
+      let createdNewOperation = false;
       const ex = await client.query(
         `SELECT o.id, o.shipping_instruction_id, o.jetty_id
          FROM operations o
@@ -524,6 +528,10 @@ router.put('/arrival', async (req, res) => {
           }
         }
         opRow = ins.rows[0];
+        createdNewOperation = true;
+      }
+      if (createdNewOperation) {
+        await assignJettyOperationCode(client, opRow.id);
       }
     }
 

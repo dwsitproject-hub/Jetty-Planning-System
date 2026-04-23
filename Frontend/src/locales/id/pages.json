@@ -86,6 +86,7 @@
   "clearanceNoOperations": "Belum ada operasi di antrean ini. Pending sign-off muncul setelah tim dermaga meminta sign-off; Ready to Sail setelah disetujui.",
   "clearanceNoRowsMatch": "Tidak ada baris yang cocok dengan filter.",
   "clearanceColVessel": "Kapal",
+  "clearanceColJettyOperationId": "ID Operasi Jetty",
   "clearanceColSi": "SI",
   "clearanceColPurpose": "Purpose",
   "clearanceColStatus": "Status",
@@ -101,5 +102,7 @@
   "clearanceFullDetail": "Detail lengkap",
   "clearanceClose": "Tutup",
   "clearanceSubmitting": "Mengirim…",
-  "clearanceSubmitDepart": "Kirim keberangkatan"
+  "clearanceSubmitDepart": "Kirim keberangkatan",
+  "openSiDocument": "Buka dokumen shipping instruction",
+  "openSiDetailFromJettyOp": "Buka detail shipping instruction"
 }

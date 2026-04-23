@@ -86,6 +86,7 @@
   "clearanceNoOperations": "No operations in this queue yet. Pending sign-off appears after berth teams request sign-off; Ready to Sail after approval.",
   "clearanceNoRowsMatch": "No rows match filters.",
   "clearanceColVessel": "Vessel",
+  "clearanceColJettyOperationId": "Jetty Operation ID",
   "clearanceColSi": "SI",
   "clearanceColPurpose": "Purpose",
   "clearanceColStatus": "Status",
@@ -101,5 +102,7 @@
   "clearanceFullDetail": "Full detail",
   "clearanceClose": "Close",
   "clearanceSubmitting": "Submitting…",
-  "clearanceSubmitDepart": "Submit depart"
+  "clearanceSubmitDepart": "Submit depart",
+  "openSiDocument": "Open shipping instruction document",
+  "openSiDetailFromJettyOp": "Open shipping instruction detail"
 }

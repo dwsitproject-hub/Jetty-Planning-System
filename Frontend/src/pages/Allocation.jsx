@@ -16,6 +16,7 @@ import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { isBerthOutOfService, jettyOosAllocationMessage } from '../utils/jettyAvailability'
 import PurposeBadge, { resolvePurposeLabel } from '../components/PurposeBadge'
 import SiDetailModal from '../components/SiDetailModal'
+import SiDocumentModal from '../components/SiDocumentModal'
 import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
 import '../styles/allocation.css'
@@ -62,6 +63,12 @@ const ALLOCATION_COLUMNS = [
       </strong>
     ),
     getSortValue: (r) => (r.vesselName || '').toLowerCase(),
+  },
+  {
+    key: 'jettyOperationCode',
+    label: 'Jetty Operation ID',
+    getValue: (r) => r.jettyOperationCode || '—',
+    getSortValue: (r) => (r.jettyOperationCode || '').toLowerCase(),
   },
   { key: 'shippingInstruction', label: 'Shipping Instruction', getValue: (r) => r.shippingInstruction || '—', getSortValue: (r) => (r.shippingInstruction || '').toLowerCase() },
   { key: 'priority', label: 'Priority', getValue: (r) => r.priority || '—', getSortValue: (r) => (r.priority || '').toLowerCase() },
@@ -177,12 +184,29 @@ function getCompletionMsForJettyValidation(row) {
   return parseDateMs(row?.actualCompletionDateTime) ?? parseDateMs(row?.estimatedCompletionDateTime) ?? null
 }
 
-function AllocationDetailPanel({ r, tAlloc }) {
+function AllocationDetailPanel({ r, tAlloc, onOpenSiDetail }) {
   return (
     <div className="allocation-detail">
       <h4 className="allocation-detail__title">{tAlloc('fullDetails', { defaultValue: 'Full details' })}</h4>
       <dl className="allocation-detail__grid">
         <dt>{tAlloc('dtVesselName', { defaultValue: 'Vessel Name' })}</dt><dd>{r.vesselName || '—'}</dd>
+        <dt>{tAlloc('dtJettyOperationId', { defaultValue: 'Jetty Operation ID' })}</dt>
+        <dd>
+          {r.shippingInstructionId && onOpenSiDetail ? (
+            <a
+              href="#"
+              onClick={(e) => {
+                e.preventDefault()
+                onOpenSiDetail(r.shippingInstructionId)
+              }}
+              aria-label={tAlloc('openSiDetailFromJettyOp')}
+            >
+              {r.jettyOperationCode || '—'}
+            </a>
+          ) : (
+            r.jettyOperationCode || '—'
+          )}
+        </dd>
         <dt>{tAlloc('dtShippingInstruction', { defaultValue: 'Shipping Instruction' })}</dt><dd>{r.shippingInstruction || '—'}</dd>
         <dt>{tAlloc('dtNoPkk', { defaultValue: 'No PKK' })}</dt><dd>{r.noPkk ?? '—'}</dd>
         <dt>{tAlloc('dtPriority', { defaultValue: 'Priority' })}</dt><dd>{r.priority || '—'}</dd>
@@ -264,6 +288,16 @@ export default function Allocation() {
   const [arrivalSuccessMessage, setArrivalSuccessMessage] = useState(null)
   const [visualTab, setVisualTab] = useState('schematic') // 'schematic' | 'jettySchedule'
   const [siDetailId, setSiDetailId] = useState(null)
+  const [siDocumentModalId, setSiDocumentModalId] = useState(null)
+
+  const openSiDocumentModal = useCallback((id) => {
+    setSiDetailId(null)
+    setSiDocumentModalId(id)
+  }, [])
+  const openSiDetailModal = useCallback((id) => {
+    setSiDocumentModalId(null)
+    setSiDetailId(id)
+  }, [])
   const [shiftSavingByOpId, setShiftSavingByOpId] = useState({})
   const [reDockModal, setReDockModal] = useState(null)
   const [reDockRemarkDraft, setReDockRemarkDraft] = useState('')
@@ -458,6 +492,7 @@ export default function Allocation() {
         ({
           sequence: 'colBerthingSequence',
           vesselName: 'colVesselName',
+          jettyOperationCode: 'colJettyOperationId',
           shippingInstruction: 'colShippingInstruction',
           priority: 'colPriority',
           purpose: 'colPurpose',
@@ -943,6 +978,10 @@ export default function Allocation() {
     }
     const onKeyDown = (e) => {
       if (e.key !== 'Escape') return
+      if (siDocumentModalId != null) {
+        setSiDocumentModalId(null)
+        return
+      }
       if (siDetailId != null) {
         setSiDetailId(null)
         return
@@ -965,7 +1004,7 @@ export default function Allocation() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [vesselDetailModalVesselId, siDetailId, vesselDetailEditing])
+  }, [vesselDetailModalVesselId, siDetailId, siDocumentModalId, vesselDetailEditing])
 
   const addVesselDetailNorNewFiles = (fileList) => {
     if (!fileList?.length) return
@@ -1416,6 +1455,25 @@ export default function Allocation() {
                         <dd className="berthing-modal__vessel-dl--bold">{vessel?.shippingInstruction || '—'}</dd>
                       </div>
                       <div className="berthing-modal__vessel-row">
+                        <dt>{tAlloc('dtJettyOperationId', { defaultValue: 'Jetty Operation ID' })}</dt>
+                        <dd className="berthing-modal__vessel-dl--bold">
+                          {vessel?.shippingInstructionId ? (
+                            <a
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                openSiDetailModal(vessel.shippingInstructionId)
+                              }}
+                              aria-label={tAlloc('openSiDetailFromJettyOp')}
+                            >
+                              {vessel?.jettyOperationCode || '—'}
+                            </a>
+                          ) : (
+                            vessel?.jettyOperationCode || '—'
+                          )}
+                        </dd>
+                      </div>
+                      <div className="berthing-modal__vessel-row">
                         <dt>Purpose</dt>
                         <dd>
                           <PurposeBadge purpose={vessel?.purpose} loadDischarge={vessel?.loadDischarge} />
@@ -1456,10 +1514,10 @@ export default function Allocation() {
                             className="phase-stepper__step-label phase-stepper__step-label--link phase-stepper__step-label--btn"
                             onClick={() => {
                               if (!vessel?.shippingInstructionId) return
-                              setSiDetailId(vessel.shippingInstructionId)
+                              openSiDocumentModal(vessel.shippingInstructionId)
                             }}
                             disabled={!vessel?.shippingInstructionId}
-                            title={vessel?.shippingInstructionId ? 'Open shipping instruction detail' : 'Shipping instruction not available'}
+                            title={vessel?.shippingInstructionId ? 'Open shipping instruction document' : 'Shipping instruction not available'}
                           >
                             {label}
                           </button>
@@ -2034,6 +2092,11 @@ export default function Allocation() {
         isOpen={Boolean(siDetailId)}
         siId={siDetailId}
         onClose={() => setSiDetailId(null)}
+      />
+      <SiDocumentModal
+        isOpen={Boolean(siDocumentModalId)}
+        siId={siDocumentModalId}
+        onClose={() => setSiDocumentModalId(null)}
       />
 
       {/* Berthing confirmation modal (extended: jetty allocation, vessel photos, remarks) */}
@@ -2709,6 +2772,22 @@ export default function Allocation() {
                               </button>
                             </span>
                           </span>
+                        ) : col.key === 'jettyOperationCode' ? (
+                          r.shippingInstructionId ? (
+                            <a
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                openSiDetailModal(r.shippingInstructionId)
+                              }}
+                              aria-label={tAlloc('openSiDetailFromJettyOp')}
+                            >
+                              {r.jettyOperationCode || '—'}
+                            </a>
+                          ) : (
+                            r.jettyOperationCode || '—'
+                          )
                         ) : col.key === 'shippingInstruction' ? (
                           r.shippingInstructionId ? (
                             <a
@@ -2716,9 +2795,9 @@ export default function Allocation() {
                               onClick={(e) => {
                                 e.preventDefault()
                                 e.stopPropagation()
-                                setSiDetailId(r.shippingInstructionId)
+                                openSiDocumentModal(r.shippingInstructionId)
                               }}
-                              aria-label={tAlloc('openSiDetail', { defaultValue: 'Open shipping instruction detail' })}
+                              aria-label={tAlloc('openSiDocument')}
                             >
                               {r.shippingInstruction || '—'}
                             </a>
@@ -2734,7 +2813,7 @@ export default function Allocation() {
                   {expandedId === r.id && (
                     <tr className="allocation-table__detail-row">
                       <td colSpan={allocationTableColumns.length + 2} className="allocation-table__detail-cell">
-                        <AllocationDetailPanel r={r} tAlloc={tAlloc} />
+                        <AllocationDetailPanel r={r} tAlloc={tAlloc} onOpenSiDetail={openSiDetailModal} />
                       </td>
                     </tr>
                   )}
@@ -2756,22 +2835,39 @@ export default function Allocation() {
                     <Fragment key={`mobile-col-${r.id}-${col.key}`}>
                       <dt>{allocColLabel(col.key, col.label)}</dt>
                       <dd>
-                        {col.key === 'shippingInstruction' ? (
+                        {col.key === 'jettyOperationCode' ? (
                           r.shippingInstructionId ? (
                             <a
                               href="#"
                               onClick={(e) => {
                                 e.preventDefault()
-                                setSiDetailId(r.shippingInstructionId)
+                                openSiDetailModal(r.shippingInstructionId)
                               }}
-                              aria-label={tAlloc('openSiDetail', { defaultValue: 'Open shipping instruction detail' })}
+                              aria-label={tAlloc('openSiDetailFromJettyOp')}
+                            >
+                              {r.jettyOperationCode || '—'}
+                            </a>
+                          ) : (
+                            r.jettyOperationCode || '—'
+                          )
+                        ) : col.key === 'shippingInstruction' ? (
+                          r.shippingInstructionId ? (
+                            <a
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                openSiDocumentModal(r.shippingInstructionId)
+                              }}
+                              aria-label={tAlloc('openSiDocument')}
                             >
                               {r.shippingInstruction || '—'}
                             </a>
                           ) : (
                             r.shippingInstruction || '—'
                           )
-                        ) : col.getValue(r)}
+                        ) : (
+                          col.getValue(r)
+                        )}
                       </dd>
                     </Fragment>
                   ))}
@@ -2804,7 +2900,7 @@ export default function Allocation() {
                 </div>
                 {expandedMobileId === r.id ? (
                   <div className="allocation-mobile-card__detail">
-                    <AllocationDetailPanel r={r} tAlloc={tAlloc} />
+                    <AllocationDetailPanel r={r} tAlloc={tAlloc} onOpenSiDetail={openSiDetailModal} />
                   </div>
                 ) : null}
               </article>

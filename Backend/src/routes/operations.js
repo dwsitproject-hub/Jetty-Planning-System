@@ -5,6 +5,7 @@
 import express from 'express';
 import { pool } from '../db.js';
 import { computeSlaHours } from '../lib/sla.js';
+import { assignJettyOperationCode } from '../lib/jetty-operation-code.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { userHasPageApprove, userHasPageEdit } from '../middleware/permissions.js';
@@ -390,19 +391,32 @@ router.post('/', async (req, res) => {
     }
   }
   const purpose = siRes.rows[0].purpose;
-  const result = await pool.query(
-    `INSERT INTO operations (shipping_instruction_id, jetty_id, purpose, status, port_id)
-     VALUES ($1, $2, $3, 'PENDING', $4)
-     RETURNING id`,
-    [siId, jId, purpose, selectedPortId]
-  );
-  const row = await loadOperationJoined(result.rows[0].id);
+  const client = await pool.connect();
+  let newId;
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `INSERT INTO operations (shipping_instruction_id, jetty_id, purpose, status, port_id)
+       VALUES ($1, $2, $3, 'PENDING', $4)
+       RETURNING id`,
+      [siId, jId, purpose, selectedPortId]
+    );
+    newId = result.rows[0].id;
+    await assignJettyOperationCode(client, newId);
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+  const row = await loadOperationJoined(newId);
   writeActivityLog({
     pageKey: 'allocation',
     action: 'add',
     entityType: 'Operation',
-    entityId: String(result.rows[0].id),
-    entityLabel: row?.vessel_name || `Operation #${result.rows[0].id}`,
+    entityId: String(newId),
+    entityLabel: row?.vessel_name || `Operation #${newId}`,
     summary: `Created operation for ${row?.reference_number || 'SI'}`,
     changes: [
       { field: 'Shipping Instruction', from: null, to: row?.reference_number || `SI-${siId}` },
@@ -410,7 +424,7 @@ router.post('/', async (req, res) => {
       { field: 'Purpose', from: null, to: purpose || null },
       { field: 'Status', from: null, to: 'PENDING' },
     ],
-    meta: { operationId: result.rows[0].id },
+    meta: { operationId: newId },
     actorUserId: req.userId ?? null,
   }).catch(() => {});
   res.status(201).json(toOp(row));
@@ -1045,6 +1059,7 @@ router.delete('/:id', async (req, res) => {
 function toOp(row) {
   return {
     id: row.id,
+    jettyOperationCode: row.jetty_operation_code ?? undefined,
     shippingInstructionId: row.shipping_instruction_id,
     jettyId: row.jetty_id,
     status: row.status,

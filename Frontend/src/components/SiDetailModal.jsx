@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { fetchShippingInstruction } from '../api/shippingInstructions'
+import { fetchOperation } from '../api/operations'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import {
+  loadHubProcessStagesFromApi,
+  mapOperationStatusToClearanceI18nKey,
+  normalizeHubPurpose,
+} from '../utils/loadingHubProcessStagesFromApi'
 import '../styles/modal.css'
 import '../styles/si-detail-modal.css'
 
@@ -52,7 +58,19 @@ function normalizeSiDetail(row) {
     approver: row.approverNameSnapshot || row.approverDisplayName || '—',
     approvalDate: row.approvedAt || null,
     breakdown: Array.isArray(row.breakdown) ? row.breakdown : [],
+    operationId: row.operationId != null ? row.operationId : null,
+    operationStatus: row.operationStatus ?? null,
+    purposeRaw: row.purpose,
   }
+}
+
+function phaseStatusClass(countUnknown, done, total) {
+  if (countUnknown) return 'not-started'
+  const d = Number(done) || 0
+  const n = Number(total) || 0
+  if (n > 0 && d >= n) return 'done'
+  if (d > 0) return 'in-progress'
+  return 'not-started'
 }
 
 export default function SiDetailModal({ isOpen, siId, onClose }) {
@@ -60,6 +78,12 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [row, setRow] = useState(null)
+
+  const [opSummaryLoading, setOpSummaryLoading] = useState(false)
+  const [opSummaryError, setOpSummaryError] = useState('')
+  const [hubStages, setHubStages] = useState(null)
+  const [apiOpSnapshot, setApiOpSnapshot] = useState(null)
+  const [opFetchFailed, setOpFetchFailed] = useState(false)
 
   useEffect(() => {
     if (!isOpen || !siId) return
@@ -84,7 +108,82 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
     }
   }, [isOpen, siId, t])
 
+  useEffect(() => {
+    if (!isOpen || !row?.operationId) {
+      setOpSummaryLoading(false)
+      setOpSummaryError('')
+      setHubStages(null)
+      setApiOpSnapshot(null)
+      setOpFetchFailed(false)
+      return
+    }
+    let cancelled = false
+    const opId = row.operationId
+    setOpSummaryLoading(true)
+    setOpSummaryError('')
+    setHubStages(null)
+    setApiOpSnapshot(null)
+    setOpFetchFailed(false)
+
+    fetchOperation(opId)
+      .then(async (op) => {
+        if (cancelled) return
+        setApiOpSnapshot(op || null)
+        setOpFetchFailed(false)
+        const purpose = normalizeHubPurpose(row.purposeRaw ?? op?.purpose)
+        try {
+          const { stages } = await loadHubProcessStagesFromApi({
+            operationId: opId,
+            purpose,
+            commodityType: op?.commodityType,
+            operationNorTenderedAt: op?.norTenderedAt ?? null,
+            operationNorAcceptedAt: op?.norAcceptedAt ?? null,
+            operationDemurrageLiabilityFromAt: op?.demurrageLiabilityFromAt ?? null,
+          })
+          if (!cancelled) setHubStages(stages)
+        } catch (e) {
+          if (!cancelled) {
+            setHubStages(null)
+            setOpSummaryError(e?.message || t('operationSummaryPhasesError'))
+          }
+        }
+        if (!cancelled) setOpSummaryLoading(false)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setApiOpSnapshot(null)
+        setOpFetchFailed(true)
+        setHubStages(null)
+        setOpSummaryLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, row?.operationId, row?.purposeRaw, t])
+
   const detail = useMemo(() => normalizeSiDetail(row), [row])
+
+  const clearanceStatusRaw = apiOpSnapshot?.status ?? row?.operationStatus ?? null
+  const clearanceI18nSuffix = mapOperationStatusToClearanceI18nKey(clearanceStatusRaw)
+  const clearanceLabel = row?.operationId
+    ? t(`clearanceStatus_${clearanceI18nSuffix}`)
+    : t('operationSummaryNoOperation')
+
+  const renderPhaseStateText = (countUnknown, done, total) => {
+    if (countUnknown) return t('operationSummaryStatePending')
+    const d = Number(done) || 0
+    const n = Number(total) || 0
+    if (n > 0 && d >= n) return t('operationSummaryStateComplete')
+    if (d > 0) return t('operationSummaryStateInProgress')
+    return t('operationSummaryStateNotStarted')
+  }
+
+  const renderPhaseProgress = (countUnknown, done, total) => {
+    if (countUnknown) return t('operationSummaryUnknownComplete', { total })
+    return t('operationSummaryComplete', { done, total })
+  }
+
   if (!isOpen) return null
 
   return (
@@ -137,6 +236,85 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
               <dt>{t('dtApprover')}</dt><dd>{emptyToDash(detail.approver)}</dd>
               <dt>{t('dtApprovalDate')}</dt><dd>{formatDateTimeDisplay(detail.approvalDate)}</dd>
             </dl>
+
+            <section className="si-detail-modal__operation-summary" aria-label={t('operationSummaryPhasesTitle')}>
+              <h4 className="si-detail-modal__subhead">{t('operationSummaryPhasesTitle')}</h4>
+              {!detail.operationId ? (
+                <p className="text-steel si-detail-modal__muted">{t('operationSummaryNoOperation')}</p>
+              ) : opSummaryLoading ? (
+                <p className="text-steel si-detail-modal__muted">{t('operationSummaryLoadingPhases')}</p>
+              ) : hubStages ? (
+                <div className="table-wrap si-detail-modal__table-wrap">
+                  <table className="si-detail-modal__summary-table">
+                    <thead>
+                      <tr>
+                        <th>{t('operationSummaryPhaseCol')}</th>
+                        <th>{t('operationSummaryProgressCol')}</th>
+                        <th>{t('operationSummaryStateCol')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        { key: 'pre', label: t('operationSummaryPhasePre'), s: hubStages.pre },
+                        { key: 'op', label: t('operationSummaryPhaseOperational'), s: hubStages.operational },
+                        { key: 'post', label: t('operationSummaryPhasePost'), s: hubStages.post },
+                      ].map(({ key, label, s }) => {
+                        const stClass = phaseStatusClass(s.countUnknown, s.done, s.total)
+                        return (
+                          <tr key={key}>
+                            <td>{label}</td>
+                            <td>{renderPhaseProgress(s.countUnknown, s.done, s.total)}</td>
+                            <td>
+                              <span className="si-detail-modal__state-cell">
+                                <span
+                                  className={`si-detail-modal__stage-dot si-detail-modal__stage-dot--${stClass}`}
+                                  aria-hidden
+                                />
+                                {renderPhaseStateText(s.countUnknown, s.done, s.total)}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : opFetchFailed || opSummaryError ? (
+                <p className="si-detail-modal__inline-error">{opSummaryError || t('operationSummaryPhasesError')}</p>
+              ) : (
+                <p className="text-steel si-detail-modal__muted">{t('operationSummaryNoOperation')}</p>
+              )}
+
+              <h4 className="si-detail-modal__subhead si-detail-modal__subhead--spaced">{t('operationSummaryClearanceTitle')}</h4>
+              {!detail.operationId ? (
+                <p className="text-steel si-detail-modal__muted">{t('operationSummaryNoOperation')}</p>
+              ) : opSummaryLoading ? (
+                <p className="text-steel si-detail-modal__muted">{t('operationSummaryLoadingPhases')}</p>
+              ) : (
+                <div className="table-wrap si-detail-modal__table-wrap">
+                  <table className="si-detail-modal__summary-table">
+                    <tbody>
+                      <tr>
+                        <th scope="row">{t('operationSummaryClearanceStatus')}</th>
+                        <td>{clearanceLabel}</td>
+                      </tr>
+                      {apiOpSnapshot?.castOffAt ? (
+                        <tr>
+                          <th scope="row">{t('operationSummaryCastOff')}</th>
+                          <td>{formatDateTimeDisplay(apiOpSnapshot.castOffAt)}</td>
+                        </tr>
+                      ) : null}
+                      {apiOpSnapshot?.sailedAt ? (
+                        <tr>
+                          <th scope="row">{t('operationSummarySailedAt')}</th>
+                          <td>{formatDateTimeDisplay(apiOpSnapshot.sailedAt)}</td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
 
             <h4 className="si-detail-modal__subhead">{t('breakdownTitle')}</h4>
             {detail.breakdown.length === 0 ? (

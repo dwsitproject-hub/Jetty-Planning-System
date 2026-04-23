@@ -41,6 +41,14 @@ import FlowPill from '../components/FlowPill'
 import OperationalMilestoneWorkspace from '../components/OperationalMilestoneWorkspace'
 import OperationActivityTimeline from '../components/OperationActivityTimeline'
 import { operationalMilestoneDoneCount, viewModelFromOperationalEntries } from '../data/operationalMilestones'
+import {
+  computeProcessStagesNumbers,
+  inferPrecheckStatus,
+  inferPostcheckStatus,
+  getPreCheckStageKeys,
+  POST_CHECK_SUB_TABS,
+  POST_CHECK_STAGE_IDS,
+} from '../utils/loadingHubProcessStagesFromApi'
 import '../styles/allocation.css'
 import { useRbac } from '../context/RbacContext'
 import { term } from '../i18n/term'
@@ -143,56 +151,6 @@ function cargoFromApiOp(op) {
     jettyId: op.jettyId ?? null,
   }
 }
-
-function inferPrecheckStatus(sectionKey, item = {}) {
-  const explicit = String(item?.status || '').trim()
-  if (explicit) return explicit
-  const hasDocs = Array.isArray(item?.documents) && item.documents.length > 0
-  const hasRemark = Boolean(String(item?.remark || '').trim())
-  if (sectionKey === 'sampling') {
-    const hasRecords = Array.isArray(item?.records) && item.records.length > 0
-    if (hasRecords) return 'Done'
-    if (hasDocs || hasRemark) return 'In Progress'
-    return 'Not Started'
-  }
-  if (sectionKey === 'norAccepted') {
-    const hasTendered = Boolean(item?.norTenderedDateTime)
-    const hasAccepted = Boolean(item?.norAcceptedDateTime)
-    if (hasTendered && hasAccepted) return 'Done'
-    if (hasTendered || hasAccepted || hasDocs || hasRemark) return 'In Progress'
-    return 'Not Started'
-  }
-  if (sectionKey === 'initialCargoChecking') {
-    const hasResult = Boolean(String(item?.remark || item?.result || '').trim())
-    const hasTimes = Boolean(item?.startTime || item?.endTime || item?.dateTime)
-    if (hasResult || hasTimes) return 'Done'
-    if (hasDocs || hasRemark) return 'In Progress'
-    return 'Not Started'
-  }
-  const hasTimes = Boolean(item?.startTime || item?.endTime || item?.dateTime)
-  if (hasTimes) return 'Done'
-  if (hasDocs || hasRemark) return 'In Progress'
-  return 'Not Started'
-}
-
-function inferPostcheckStatus(_sectionKey, item = {}) {
-  const explicit = String(item?.status || '').trim()
-  if (explicit) return explicit
-  const hasDocs = Array.isArray(item?.documents) && item.documents.length > 0
-  const hasResult = Boolean(String(item?.result || '').trim())
-  const hasTimes = Boolean(item?.startTime || item?.endTime || item?.dateTime)
-  if (hasResult || hasTimes) return 'Done'
-  if (hasDocs) return 'In Progress'
-  return 'Not Started'
-}
-
-function getPreCheckStageKeys(purpose) {
-  const keys = ['keyMeeting', 'norAccepted']
-  if (purpose === 'Loading') keys.push('inspection')
-  keys.push('sampling', 'initialCargoChecking')
-  return keys
-}
-const POST_CHECK_STAGE_IDS = ['finalInspection', 'finalCargoChecking']
 
 /** Aligns with stage tabs (7/7, 4/4, 3/3) for operation sign-off CTA visibility. */
 function computeAllStagesComplete({
@@ -1018,45 +976,39 @@ export default function Loading() {
   // Sub-page: Pre-Checking / Loading / Post-Checking
   const sectionConfig = SECTIONS.find((s) => s.id === section)
   const stepIds = sectionConfig?.stepIds ?? []
-  const preStepIds = getPreCheckStageKeys(purpose)
-  const preData = getPreChecking(vesselId)
-  const preDone = preStepIds.filter((k) => inferPrecheckStatus(k, preData?.[k] || {}) === 'Done').length
-  const milestoneList = purpose === 'Unloading' ? UNLOADING_ACTIVITY_CATEGORIES : LOADING_ACTIVITY_CATEGORIES
-  const loadingOpProgress = vesselId ? getLoadingOperation(vesselId) : { activities: [], milestoneNa: {} }
-  const operationalDone = operationId
-    ? operationalMilestoneDoneCount(purpose, apiOperationalVm.activities, apiOperationalVm.naByLabel)
-    : (() => {
-      const naProgress = loadingOpProgress.milestoneNa || {}
-      return milestoneList.filter((cat) => {
-        if (naProgress[cat]?.reason) return true
-        return (loadingOpProgress.activities || []).some((a) => a.category === cat)
-      }).length
-    })()
-  const operationalTotal = milestoneList.length
-  const postTabIds = POST_CHECK_SUB_TABS.map((t) => t.id)
-  const postDataForRail = vesselId ? getPostChecking(vesselId) : {}
-  const postInspectionDone = postTabIds.filter(
-    (k) => inferPostcheckStatus(k, postDataForRail[k] || {}) === 'Done'
-  ).length
-  const apiBackedStages = Boolean(operationId) && !mockMatchesRoutePurpose
-  const preCountUnknown = apiBackedStages && !preCheckPersistHydrated
-  const operationalCountUnknown = apiBackedStages && !operationalPersistHydrated
-  const postCountUnknown = apiBackedStages && !postCheckPersistHydrated
+  const stagesObj = computeProcessStagesNumbers({
+    purpose,
+    preData: getPreChecking(vesselId) || {},
+    postData: getPostChecking(vesselId) || {},
+    apiOperationalVm,
+    operationId,
+    mockMatchesRoutePurpose,
+    loadingOpProgress: vesselId ? getLoadingOperation(vesselId) : { activities: [], milestoneNa: {} },
+    preCheckPersistHydrated,
+    operationalPersistHydrated,
+    postCheckPersistHydrated,
+  })
   const processStages = [
     {
       id: 'pre-checking',
       label: 'Pre-Checking',
-      done: preDone,
-      total: preStepIds.length,
-      countUnknown: preCountUnknown,
+      done: stagesObj.pre.done,
+      total: stagesObj.pre.total,
+      countUnknown: stagesObj.pre.countUnknown,
     },
-    { id: 'loading', label: 'Operational', done: operationalDone, total: operationalTotal, countUnknown: operationalCountUnknown },
+    {
+      id: 'loading',
+      label: 'Operational',
+      done: stagesObj.operational.done,
+      total: stagesObj.operational.total,
+      countUnknown: stagesObj.operational.countUnknown,
+    },
     {
       id: 'post-checking',
       label: 'Post-Checking',
-      done: postInspectionDone,
-      total: postTabIds.length,
-      countUnknown: postCountUnknown,
+      done: stagesObj.post.done,
+      total: stagesObj.post.total,
+      countUnknown: stagesObj.post.countUnknown,
     },
   ]
 
@@ -1285,11 +1237,6 @@ function mergeInspectionHydration(current, row) {
   next.inspectionType = typeFromKey || p.inspectionType || current.inspectionType
   return next
 }
-
-const POST_CHECK_SUB_TABS = [
-  { id: 'finalInspection', label: 'FINAL INSPECTION' },
-  { id: 'finalCargoChecking', label: 'FINAL CARGO CHECKING' },
-]
 
 const POSTCHECK_RAIL_COLLAPSED_KEY = 'jps_postcheck_section_rail_collapsed'
 

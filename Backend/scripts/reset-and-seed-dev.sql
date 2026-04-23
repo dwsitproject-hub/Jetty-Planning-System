@@ -16,6 +16,7 @@ TRUNCATE TABLE
   public.operation_sub_processes,
   public.operation_nor_details,
   public.operation_materials,
+  public.jetty_operation_code_counters,
   public.operations,
   public.shipping_instruction_breakdown,
   public.shipping_instructions,
@@ -244,6 +245,17 @@ SELECT
 FROM public.operations o
 WHERE o.deleted_at IS NULL
   AND o.clearance_document_url IS NOT NULL;
+
+-- Assign Jetty Operation Id for seeded rows (requires migration 056 + assign_jetty_operation_code).
+DO $$
+DECLARE r RECORD;
+BEGIN
+  FOR r IN
+    SELECT id FROM public.operations WHERE deleted_at IS NULL AND jetty_operation_code IS NULL ORDER BY id
+  LOOP
+    PERFORM public.assign_jetty_operation_code(r.id, 'Asia/Jakarta');
+  END LOOP;
+END $$;
 
 COMMIT;
 

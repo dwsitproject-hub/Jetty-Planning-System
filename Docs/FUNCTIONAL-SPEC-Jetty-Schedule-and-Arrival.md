@@ -3,7 +3,7 @@
 **Product:** Jetty Planning & Monitoring System (JPS)  
 **Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.32 (see document history at end).
+**Version:** 1.33 (see document history at end).
 
 ---
 
@@ -23,6 +23,7 @@ This document describes **behaviour that is implemented in code**, including:
 - **Demurrage Risk Calculator:** port-scoped candidate list (**Incoming** / **Berthed** aligned with Allocation), read-only **voyage context**, **throughput buffer** (and optional **Advanced** rate override), **Estimate** and **Save as estimation of completion** on an operation (**§2.6**).
 - **Full details timing fields:** standard detail-block order in operational modules (**§2.8**, **§9**, **§16**).
 - **SI hyperlink detail modal:** clicking SI number in table rows opens a shared **SI Detail** modal across Shipping Instructions, Allocation & Berthing, and At-Berth Executions (**§2.9**, **§7**).
+- **Jetty Operation ID:** external formatted id for each operation (**§2.10**); shown in Allocation, At-Berth, and Clearance main tables **before** SI.
 
 For API field names, database columns, and shared code modules, see **TECH-SPEC-Jetty-Planning-System.md** and **§6** below for arrival/estimated completion mapping.
 
@@ -123,7 +124,7 @@ Technical contract (endpoints, columns, persistence order): **TECH-SPEC-Jetty-Pl
 | **Dashboard — performance** | The Dashboard includes a **Performance** card (non‑SLA) with a toggle **24h / 7d** and three KPIs: **Waiting to berth** (median **TA→TB**, from allocation overview queue), **Turnaround** (median **TB→Cast‑off**, fallback **TB→Actual completion**; computed from operations so **sailed vessels are included**), and **On‑time berthing** (% where **TB ≤ planned ETB + 6h**, from allocation overview queue). Each KPI supports hover/keyboard tooltip drill‑down showing the worst/late cases in the selected window (vessel, jetty, duration). |
 | **Master — Preferred Jetty** | Users set **Operational status** (**Available** / **Out of Service**) in the add/edit modal. **Out of Service** cannot be saved while a **blocking** operation still uses that jetty (**non-SAILED**, **`shifting_out` false**); the API returns **409** and the UI explains planners must **reassign or complete** on **Allocation & Berthing** first. New jetties default to **Available**; non-default status on create is applied via a follow-up status call. |
 | **Allocation — copy & validation** | Short intro under **Incoming vessel & berthing plan** states that **out of service** jetties cannot receive new allocations. **Log arrival update**, **Confirm Berthing**, and **Active Vessel Detail** saves that assign a **resolved** jetty whose overview berth is **Out of Service** are **blocked client-side** with RBAC-aware wording (users **with** master-jetty view are pointed to **Master – Preferred Jetty**; others to **contact an admin**). Server **409** on `PUT /allocation/arrival` enforces the same. |
-| **Allocation — queue table** | Jetty column may show a small **OOS** badge when the row’s jetty maps to an out-of-service berth in overview (e.g. legacy assignment). |
+| **Allocation — queue table** | Includes **Jetty Operation ID** before **Shipping Instruction** when the row has an operation; see **§2.10**. Jetty column may show a small **OOS** badge when the row’s jetty maps to an out-of-service berth in overview (e.g. legacy assignment). |
 | **Jetty schematic** | Stacks for **Out of Service** berths are **muted**, show an **OOS** badge, and tooltips state the jetty is **not available for new allocation**. |
 
 ### 2.8 Full details timing fields (Shipping Instruction, Allocation, At-Berth)
@@ -147,6 +148,18 @@ Technical contract (endpoints, columns, persistence order): **TECH-SPEC-Jetty-Pl
 | **Fallbacks** | Missing values render as **`—`**. |
 | **Close behavior** | Modal closes via **Close** action or overlay click. |
 | **Localization** | Labels use Shipping Instruction translation keys (EN/ID) for consistent SI terminology. |
+
+### 2.10 Jetty Operation ID (external operation reference)
+
+| Area | Behaviour |
+|------|------------|
+| **What** | Each **operation** receives a stable **Jetty Operation ID** when the operation database row is **first created** (including creation from **Log arrival update** when an approved SI had no operation yet, and from **`POST /operations`** when used). |
+| **Format** | **`LD`** or **`UN`** for Loading / Unloading, hyphen, two-digit **calendar year** and **month** (from **`operations.created_at`** in the configured site timezone), hyphen, then a **four-digit** running number within that month and type (example: `LD-26-04-0001`). |
+| **Where shown** | Main data tables on **Allocation & Berthing**, **At-Berth Executions**, and **Clearance** include a **Jetty Operation ID** column **immediately before** **SI / Shipping Instruction**. **Incoming SI-only** rows (no operation yet) show **`—`** in that column. |
+| **Full details** | **Allocation** and **At-Berth** expanded **Full details** list **Jetty Operation ID** before **Shipping Instruction** / SI where the row is operation-backed. |
+| **vs internal id** | Hub links, **`/operations/:id`…** routes, and uploads continue to use the **numeric internal** operation id. The Jetty Operation ID is **display and reporting** metadata (API JSON field **`jettyOperationCode`**). |
+
+Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.17**.
 
 ---
 
@@ -239,7 +252,7 @@ When **TB** is later recorded, the chart shows **TA → TB** transit plus the **
 | **Request body (relevant)** | Includes `estimatedCompletionDateTime` and, when supplied, `actualCompletionDateTime` (ISO or empty string to clear, per client/backend parsing). |
 | **Table** | `operations` |
 | **Columns** | `estimated_completion_time`, `actual_completion_time` (`TIMESTAMPTZ`); `updated_at` set on each save; **`updated_by`** (FK to `users`) set to the saving user when present. |
-| **Overview fields** | `GET /allocation/overview` queue rows include **`recordLastUpdatedAt`** and **`recordLastUpdatedByDisplayName`** (from operation + user join, or SI `updated_at` for incoming rows without an operation). |
+| **Overview fields** | `GET /allocation/overview` queue rows include **`recordLastUpdatedAt`** and **`recordLastUpdatedByDisplayName`** (from operation + user join, or SI `updated_at` for incoming rows without an operation). Operation-backed rows also include **`jettyOperationCode`** when migration **056** is applied (**§2.10**). |
 | **Jetty assignment guard** | When the body resolves **`jetty`** to a `jetties` row with **`status = 'Out of Service'`**, the API responds **409** and does not apply the update — planners must choose another jetty or restore service in Master (see **§2.7**). |
 
 Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, jetty, `no_pkk`, etc.) remain as implemented in the same route.
@@ -265,6 +278,7 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | Shift-out / re-dock API | `Frontend/src/api/operations.js` → `POST /operations/:id/shifting-out` |
 | Allocation API client | `Frontend/src/api/allocation.js` |
 | Arrival route | `Backend/src/routes/allocation.js` |
+| Jetty Operation Id (DB + assign helper) | `Backend/migrations/056_jetty_operation_code.sql`, `Backend/src/lib/jetty-operation-code.js`, `Backend/src/routes/operations.js` (`POST /operations`), `Backend/src/routes/allocation.js` (new operation on arrival) |
 | Jetty blocking queries (master status / allocation guard) | `Backend/src/lib/jetty-blocking.js` |
 | Client jetty OOS messages | `Frontend/src/utils/jettyAvailability.js` |
 | Master jetty status UI | `Frontend/src/pages/MasterJetty.jsx`, `Frontend/src/api/jetties.js` → `PUT /jetties/:id/status` |
@@ -297,9 +311,9 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | **Data source** | The table and **Full details** use the **same queue** as Allocation: **`GET /allocation/overview`** (`queue`), **not** a separate at-berth-only list. Rows shown are those with an **operation** and **berthed** status (e.g. TB recorded, or operation status DOCKED / IN_PROGRESS / POST_OPS / SIGNOFF_REQUESTED / SIGNOFF_APPROVED per the same rules as Allocation). Rows with **shift-out** active are **excluded** from this list (they behave as **incoming** in Allocation until re-dock). |
 | **Summary cards** | Two groups — **Loading** and **Unloading** — each with counts for **Pre-Checking**, **Operational**, **Post-Checking**, **Ready to Sail**, **Signed off**. Phase is **derived from operation status** (e.g. IN_PROGRESS → Operational, POST_OPS → Post-Checking, SIGNOFF_REQUESTED → Ready to Sail, SIGNOFF_APPROVED → Signed off, else Pre-Checking). |
 | **Tabs** | **All / Loading / Unloading** filter the table; summary always reflects all berthed rows. |
-| **Table columns** | **Vessel**, **SI** (reference only), **Commodity** (separate from SI), **Purpose**, **Jetty**, **TA**, **TB**, **Phase**, **Status**. |
+| **Table columns** | **Vessel**, **Jetty Operation ID**, **SI** (reference only), **Commodity** (separate from SI), **Purpose**, **Jetty**, **TA**, **TB**, **Phase**, **Status**. |
 | **Expand row** | Same interaction pattern as **Incoming vessel & berthing plan**: expand column + row click toggles **Full details**. |
-| **Full details (order)** | Vessel Name, Shipping Instruction, No PKK, Priority, Number of Palka, Purpose, Shipper, Agent, Surveyor, Jetty, ETA, TA, ETB, TB, **Estimation of Completion**, Remark. (Shipping Table block, when present in data, remains on Allocation only where applicable.) |
+| **Full details (order)** | Vessel Name, **Jetty Operation ID**, Shipping Instruction, No PKK, Priority, Number of Palka, Purpose, Shipper, Agent, Surveyor, Jetty, ETA, TA, ETB, TB, **Estimation of Completion**, Remark. (Shipping Table block, when present in data, remains on Allocation only where applicable.) |
 | **Action** | **Open** → `/{loading|unloading}/:vesselId` (purpose-based hub entry; API-backed rows may use `op-<operationId>` vessel id form). **Shifting Out** / **Undo Shift Out** → see **§2.5** (modal + required remark for shift-out; **Undo** clears shift-out without modal). |
 | **Removed from page** | Intro line (“Live data from GET…”) and **Refresh** button; list still loads on visit. |
 | **Layout** | Loading / Unloading summary groups use a **two-column** grid on wide screens so phase cards do not overlap. |
@@ -367,7 +381,7 @@ Completing **Pre-Checking**, **Operational**, and **Post-Checking** in the hub (
 | **1. Request** | Users with **Edit** on **Loading / Unloading** | When all three stages are complete and the operation is **POST_OPS**, the **Operation sign-off** card offers **Request operation sign-off** (optional remark). The server accepts the request only if the same **eligibility rules** as final sign-off are met at that moment (e.g. **completion 100%**, QC / quantity gates — see **TECH-SPEC §3.3**). |
 | **2. Pending** | Anyone with hub access | The card shows **Sign-off requested** (time, requester, remark) and directs users to **Open Clearance** for approval handling. Status is **SIGNOFF_REQUESTED**. |
 | **3. Approve (sign off)** | Users with **Approve operation sign-off** on **Loading / Unloading** (configured in **Admin → Roles**, same pattern as **Approve internal SI**) | Approval is performed from **Clearance** (not from the Loading/Unloading hub). On approval, the operation becomes **SIGNOFF_APPROVED** and appears on **Clearance** under **Ready to Sail** (signed off, awaiting depart). |
-| **4. Clearance** | Clearance users | **Clearance** (`/verification`) lists **Ready to Sail** (**SIGNOFF_APPROVED**) and **Sailed** as before. A **Pending sign-off** filter shows vessels awaiting step 3; approvers can **Open operation** (deep link to the hub) or **Sign off** from the table. |
+| **4. Clearance** | Clearance users | **Clearance** (`/verification`) lists **Ready to Sail** (**SIGNOFF_APPROVED**) and **Sailed** as before. A **Pending sign-off** filter shows vessels awaiting step 3; approvers can **Open operation** (deep link to the hub) or **Sign off** from the table. The main operations table includes **Jetty Operation ID** immediately **before** **SI** (**§2.10**). |
 | **5. Depart** | Clearance users | **Record depart** after **SIGNOFF_APPROVED**. In the Clearance modal, **CAST Off** is required and must be **on or after** the latest timestamp in the operation’s **Detailed At-Berth Executions Log** timeline; earlier values are blocked with a validation error. |
 
 **Product rules**
@@ -425,6 +439,7 @@ Technical contract: **TECH-SPEC-Jetty-Planning-System.md §3.3** (routes, RBAC, 
 | 1.30 | 2026-04-21 | Allocation visual split: **Jetty Schedule** now uses a schedule dataset that can include **SAILED** operations (time-series context, bounded lookback), while **Jetty Schematic** remains live occupancy and excludes SAILED rows. |
 | 1.31 | 2026-04-21 | Jetty Schedule tooltip now shows source context for derived bars: **Planned refs (ETB, ETA)** and **Actual refs (TB, TA)**; start label explicitly shows selected source (**from ETB/ETA/TB/TA**). Planned start fallback includes **ETA** when ETB is unavailable. |
 | 1.32 | 2026-04-21 | Legend simplification: removed **Arriving / allocated** and **Berthing** legend items; kept **Sailed off** status indicator. Gantt sailed classification now uses **status = SAILED OR actual completion OR cast-off** as source of truth. |
+| 1.33 | 2026-04-22 | **§2.10 Jetty Operation ID** (format, when assigned, UI column order on Allocation, At-Berth, Clearance); **§2.7** Allocation queue note; **§9** table + full-details order; **§9.2** Clearance table; TECH-SPEC **§0.17** (migration **056**, env `JETTY_OPERATION_CODE_TIMEZONE`). |
 
 ---
 

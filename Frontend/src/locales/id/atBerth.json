@@ -22,6 +22,7 @@
   "shiftOutToast": "Shift out selesai untuk {{vessel}}. Buka 'Alokasi & Sandar' untuk sandar ulang.",
   "errRemarkRequired": "Isi keterangan sebelum konfirmasi shift-out.",
   "colVessel": "Kapal",
+  "colJettyOperationId": "ID Operasi Jetty",
   "colSi": "SI",
   "colCommodity": "Komoditas",
   "colPurpose": "Tujuan",
@@ -39,6 +40,7 @@
   "shiftOutTooltipDo": "Shift out: kembali ke antrean masuk dan bebaskan kapasitas dermaga",
   "detailTitle": "Detail lengkap",
   "dtVesselName": "Nama kapal",
+  "dtJettyOperationId": "ID Operasi Jetty",
   "dtShippingInstruction": "Shipping Instruction",
   "dtNoPkk": "No PKK",
   "dtPriority": "Prioritas",
@@ -54,5 +56,7 @@
   "dtTb": "TB",
   "dtEstimatedCompletion": "Estimasi selesai",
   "dtRemark": "Keterangan",
-  "dismissNotification": "Tutup notifikasi"
+  "dismissNotification": "Tutup notifikasi",
+  "openSiDocument": "Buka dokumen shipping instruction",
+  "openSiDetailFromJettyOp": "Buka detail shipping instruction"
 }
