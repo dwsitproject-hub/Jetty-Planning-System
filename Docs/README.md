@@ -160,6 +160,21 @@ Details: **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md** (what it does for use
 | **Empty DB after Docker fix** | New Postgres volume = empty **business** data — run **`docker exec … npm run migrate`**. Optional dev seeds: migrations **`023_seed_dev_operational_data.sql`**, **`024_seed_dev_prechecking_data.sql`**. |
 | **Admin “no pages”** | **`/rbac/me/page-permissions`** needs **`user_roles`** + **`role_permissions`**; assign a role with full page access to **`admin`** on a fresh DB. |
 
+### 6.7 Operations, clearance, and planning updates (2026-04)
+
+| Topic | In short |
+|-------|-----------|
+| **Operation Detail modal** | SI detail modal is now **Operation Detail** with a compact process summary (**Pre-Checking / Operational / Post-Checking**) and **Clearance** status. Phase numbers in the modal use the same hydration + counting pipeline as the Loading hub to avoid drift. |
+| **Clearance status in modal** | Modal clearance row maps operation status to user-facing labels (Pending allocation, At berth, Pending sign-off, Ready to Sail, Sailed) and shows **CAST off** / **Sailed at** when available. |
+| **Shift-out / re-dock** | At-berth operations can be shifted out (required remark) to temporarily free occupancy, then re-docked from Allocation; includes toasts and activity log coverage. |
+| **Operation sign-off flow** | Sign-off is split into **request** (hub edit users) and **approve** (clearance approvers), with a Pending sign-off path before Ready to Sail. |
+| **Jetty Operation ID** | Operations receive an external id (`LD/UN-YY-MM-####`) and display it in Allocation, At-Berth, and Clearance before SI. |
+| **Demurrage Risk Calculator** | Port-scoped voyage candidates (Incoming/Berthed), SLA scenario controls (including throughput buffer / advanced rate override), estimate preview, and save-as estimated completion for operations. |
+| **Out-of-service guardrails** | OOS jetty status is enforced in master/allocation flows and reflected in schedule/schematic/dashboard cues. |
+| **Dashboard additions** | Port Activity chart, Jetty status, SLA-at-risk details, and Performance KPIs (24h/7d) are documented and aligned with allocation overview rules. |
+| **Multi-port shell** | Dedicated **Choose port** flow (`/select-port`) with session-scoped active port and header-based Change port behavior. |
+| **At-berth and SI detail alignment** | At-berth full-details timing order is standardized; SI hyperlink opens shared modal across Shipping Instruction, Allocation, and At-Berth pages. |
+
 ---
 
 ## 7. Next steps (full application)
@@ -182,6 +197,7 @@ Detailed implementation order is in **TECH-SPEC-Jetty-Planning-System.md** (§8 
 
 | Change | Notes |
 |--------|--------|
+| 2026-04-23 | Added **§6.7** summarizing latest delivered features from the functional spec: Operation Detail modal with hub-matching phase counts + clearance mapping, shift-out/re-dock, operation sign-off flow, Jetty Operation ID rollout, demurrage calculator behavior, OOS guardrails, dashboard additions, multi-port selection, and SI detail alignment. |
 | 2026-03-25 | Added **§6.6** (NOR merge, uploads/static files, activity log contract pointer, remark field, layout/logout, fresh DB + seed migrations, RBAC bootstrap). |
 | 2026-03-24 | Updated §6.5 with checklist/process-rail UX and Save & Next behavior. |
 | 2026-03-24 | Updated §6.5 from planned to in-rollout; added Save Draft vs Save behavior note. |
