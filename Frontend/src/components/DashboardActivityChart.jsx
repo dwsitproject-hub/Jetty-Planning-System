@@ -322,9 +322,9 @@ export default function DashboardActivityChart({ queue, sis, loading = false }) 
         </div>
       </div>
 
-      <p className="dashboard-activity-chart__hint text-steel">
-        {mode === MODE_OPS ? t('chartHintOps') : t('chartHintSi')}
-      </p>
+      {mode === MODE_SI ? (
+        <p className="dashboard-activity-chart__hint text-steel">{t('chartHintSi')}</p>
+      ) : null}
 
       {loading ? (
         <p className="text-steel">{t('loadingEllipsis')}</p>

@@ -3,7 +3,7 @@
 **Product:** Jetty Planning & Monitoring System (JPS)  
 **Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.33 (see document history at end).
+**Version:** 1.34 (see document history at end).
 
 ---
 
@@ -24,6 +24,7 @@ This document describes **behaviour that is implemented in code**, including:
 - **Full details timing fields:** standard detail-block order in operational modules (**§2.8**, **§9**, **§16**).
 - **SI hyperlink detail modal:** clicking SI number in table rows opens a shared **SI Detail** modal across Shipping Instructions, Allocation & Berthing, and At-Berth Executions (**§2.9**, **§7**).
 - **Jetty Operation ID:** external formatted id for each operation (**§2.10**); shown in Allocation, At-Berth, and Clearance main tables **before** SI.
+- **Input maximum lengths (UI):** free-text fields use HTML **`maxLength`** caps for consistent UX and safer payloads (**§2.11**).
 
 For API field names, database columns, and shared code modules, see **TECH-SPEC-Jetty-Planning-System.md** and **§6** below for arrival/estimated completion mapping.
 
@@ -160,6 +161,23 @@ Technical contract (endpoints, columns, persistence order): **TECH-SPEC-Jetty-Pl
 | **vs internal id** | Hub links, **`/operations/:id`…** routes, and uploads continue to use the **numeric internal** operation id. The Jetty Operation ID is **display and reporting** metadata (API JSON field **`jettyOperationCode`**). |
 
 Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.17**.
+
+### 2.11 Field input maximum lengths (UI)
+
+The browser enforces these limits on the relevant controls (HTML **`maxLength`**). Canonical values are defined in **`Frontend/src/constants/inputLimits.js`** (see TECH-SPEC **§0.18**).
+
+| Category | Max characters | Where (examples) |
+|----------|----------------|------------------|
+| **Remark / Remarks** (narrative) | **500** | Allocation (vessel detail, confirm berthing, re-dock, log arrival); Loading (sign-off request, Pre-Checking **Remark** on KEY MEETING / NOR / INSPECTION / SAMPLING / INITIAL CARGO CHECKING); At-Berth **shift-out** remark; Operational milestone **Remark**; Unloading milestone / palka **comment** fields. |
+| **Post-Checking result** | **500** | Loading **Final Inspection Result**, **Final Cargo Checking Result** (and the same cap on the legacy **LoadingStepCard** quantity result field if used). |
+| **Sampling (per palka)** | **20** each | Loading **No. Palka**, **(%), FFA**, **(%), Moisture**. |
+| **Login** | **50** each | Username, Password on `/login`. |
+| **Master Jetty / Master Port** | **100** | Jetty name, port name, and **Description** textareas on master modals. |
+| **Admin Roles** | **50** / **100** | Role name; role description (optional). |
+| **Operational milestone composer** | **100** / **500** | Sub-step title (optional); **Reason** when marking N/A. |
+| **Shipping Instruction** | See TECH-SPEC **§0.18** table | Vessel / SI ref / voyage caps; destination; B/L block textareas; breakdown Contract / PO / **Remarks** column (50 each); SI **Note** (500); SI Approval **Approval comments** (500). |
+
+**Note:** Table **filter** inputs (Allocation, At-Berth, SI list, etc.) are not capped in this release. Backend validation of string lengths remains a recommended hardening step (TECH-SPEC **§0.18**).
 
 ---
 
@@ -407,6 +425,7 @@ Technical contract: **TECH-SPEC-Jetty-Planning-System.md §3.3** (routes, RBAC, 
 
 | Version | Date | Notes |
 |---------|------|--------|
+| 1.34 | 2026-04-24 | **§2.11** UI **maxLength** policy for remarks, post-check results, sampling fields, login, master data, admin roles, operational milestones, and cross-ref to Shipping Instruction / SI Approval limits; TECH-SPEC **§0.18** + `Frontend/src/constants/inputLimits.js`. |
 | 1.0 | 2026-03 | Initial: Gantt segments, end-date matrix, estimated completion in modals, `PUT /allocation/arrival`. |
 | 1.1 | 2026-03-24 | At-Berth Executions alignment with Allocation queue, table/columns/details, summary layout, date/time presentation rules, scope note. |
 | 1.2 | 2026-03-24 | Added **planned migration** for Pre-Checking persistence (hybrid model: generalized sub-process records + dedicated NOR details), rollout/test plan, and impact notes. |

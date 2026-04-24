@@ -3,7 +3,6 @@
   "jettySchedule": "Jadwal jetty",
   "visualizationAria": "Visualisasi",
   "incomingTitle": "Kapal masuk & rencana sandar",
-  "incomingIntro": "Jetty yang ditandai <strong>tidak beroperasi</strong> di Master tidak dapat menerima alokasi baru. Gunakan skematik dan jadwal untuk melihat jalur OOS.",
   "statusFilterAria": "Filter kapal masuk dan sandar",
   "statusLabel": "Status",
   "statusIncoming": "Masuk",

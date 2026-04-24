@@ -362,9 +362,6 @@ export default function Verification() {
   return (
     <div className="allocation-page clearance-page">
       <h1 className="page-title">{t('clearance')}</h1>
-      <p className="allocation-page__intro">
-        {t('clearanceIntroLead')} <strong>{t('clearancePendingSignoff')}</strong> {t('clearanceIntroTail')}
-      </p>
       {toast?.message && (
         <div className={`toast ${toast.variant === 'error' ? 'toast--warning' : 'toast--success'}`} role="status" aria-live="polite" aria-atomic="true">
           <span className="toast__icon" aria-hidden>{toast.variant === 'error' ? '!' : '✓'}</span>

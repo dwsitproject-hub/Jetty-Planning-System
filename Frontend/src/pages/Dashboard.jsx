@@ -513,7 +513,6 @@ export default function Dashboard() {
 
       <section className="card dashboard-pipeline">
         <h2 className="card__title">{t('vesselPipeline')}</h2>
-        <p className="dashboard-pipeline__intro text-steel">{t('pipelineIntro')}</p>
         <div className="pipeline-flow" role="navigation" aria-label={t('vesselPipeline')}>
           {pipelineStages.map((stage, index) => (
             <Fragment key={stage.id}>

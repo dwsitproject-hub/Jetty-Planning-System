@@ -3,7 +3,6 @@
   "jettySchedule": "Jetty schedule",
   "visualizationAria": "Visualization",
   "incomingTitle": "Incoming vessel & berthing plan",
-  "incomingIntro": "Jetties marked <strong>out of service</strong> in Master cannot receive new allocations. Use the schematic and schedule to spot OOS lanes.",
   "statusFilterAria": "Filter incoming and berthed vessels",
   "statusLabel": "Status",
   "statusIncoming": "Incoming",

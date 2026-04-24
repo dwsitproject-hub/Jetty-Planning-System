@@ -14,6 +14,11 @@ import {
   deleteOperationalEntry,
 } from '../api/operations'
 import OperationActivityTimeline from './OperationActivityTimeline'
+import {
+  MAX_MILESTONE_REASON_CHARS,
+  MAX_MILESTONE_SUBSTEP_TITLE_CHARS,
+  MAX_REMARK_CHARS,
+} from '../constants/inputLimits'
 
 const OPERATIONAL_RAIL_COLLAPSED_KEY = 'jps_operational_milestone_rail_collapsed'
 
@@ -601,6 +606,7 @@ export default function OperationalMilestoneWorkspace({
                 className="berthing-modal__input"
                 value={subStepTitle}
                 onChange={(e) => setSubStepTitle(e.target.value)}
+                maxLength={MAX_MILESTONE_SUBSTEP_TITLE_CHARS}
                 placeholder={activeMilestone === 'OPENING' ? 'e.g. H1, H2, H3' : 'e.g. Second hose connection, leak check'}
               />
             </div>
@@ -631,6 +637,7 @@ export default function OperationalMilestoneWorkspace({
                 className="berthing-modal__input berthing-modal__textarea"
                 value={remark}
                 onChange={(e) => setRemark(e.target.value)}
+                maxLength={MAX_REMARK_CHARS}
                 placeholder="What happened, evidence, or handover note"
                 rows={3}
               />
@@ -728,6 +735,7 @@ export default function OperationalMilestoneWorkspace({
                 rows={3}
                 value={naReason}
                 onChange={(e) => setNaReason(e.target.value)}
+                maxLength={MAX_MILESTONE_REASON_CHARS}
                 placeholder="e.g. Liquid product — no separate comm/compl discharge per procedure"
               />
             </div>

@@ -4,12 +4,11 @@
 import express from 'express';
 import { pool } from '../db.js';
 import { writeActivityLog } from '../lib/activity-log.js';
-import { optionalAuth } from '../middleware/auth.js';
-
-const router = express.Router();
-router.use(optionalAuth);
+import { requirePageEdit, requirePageView } from '../middleware/permissions.js';
 
 const RATE_PAGE_KEY = 'master-si-commodity';
+const router = express.Router();
+router.use(...requirePageView(RATE_PAGE_KEY));
 
 function formatRateLog(rateValue, rateMetric) {
   const m = rateMetric || 'MTPH';
@@ -50,7 +49,7 @@ router.get('/:id', async (req, res) => {
   res.json(toRate(result.rows[0]));
 });
 
-router.post('/', async (req, res) => {
+router.post('/', ...requirePageEdit(RATE_PAGE_KEY), async (req, res) => {
   const { commodity_id, commodityId, material_key, rate, rate_per_hour, rate_metric, rateMetric } = req.body || {};
   const cid = commodity_id ?? commodityId;
   const rateNum = toNum(rate ?? rate_per_hour);
@@ -112,7 +111,7 @@ router.post('/', async (req, res) => {
   res.status(201).json(toRate(row));
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', ...requirePageEdit(RATE_PAGE_KEY), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const { material_key, rate, rate_per_hour, rate_metric, rateMetric } = req.body || {};
@@ -201,7 +200,7 @@ router.put('/:id', async (req, res) => {
   res.json(toRate(updated));
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', ...requirePageEdit(RATE_PAGE_KEY), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const prevQ = await pool.query(

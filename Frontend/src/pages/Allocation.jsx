@@ -21,6 +21,7 @@ import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
 import '../styles/allocation.css'
 import '../styles/modal.css'
+import { MAX_REMARK_CHARS } from '../constants/inputLimits'
 
 /** Standardized pipeline flow (match Dashboard Vessel pipeline) */
 const UNIFIED_PHASES = ['Shipping Instruction', 'Planned berthing', 'At-Berth', 'Clearance']
@@ -2037,6 +2038,7 @@ export default function Allocation() {
                         onChange={(e) =>
                           setVesselDetailDraft((prev) => (prev ? { ...prev, remark: e.target.value } : prev))
                         }
+                        maxLength={MAX_REMARK_CHARS}
                         placeholder="Remarks"
                         aria-label="Remarks"
                       />
@@ -2268,6 +2270,7 @@ export default function Allocation() {
                     rows={3}
                     value={berthingRemarks}
                     onChange={(e) => setBerthingRemarks(e.target.value)}
+                    maxLength={MAX_REMARK_CHARS}
                     placeholder="Enter remark for this berthing"
                     aria-describedby={berthingErrors.length > 0 ? 'berthing-errors' : undefined}
                   />
@@ -2333,6 +2336,7 @@ export default function Allocation() {
                 rows={4}
                 value={reDockRemarkDraft}
                 onChange={(e) => setReDockRemarkDraft(e.target.value)}
+                maxLength={MAX_REMARK_CHARS}
                 disabled={Boolean(shiftSavingByOpId[reDockModal.row.operationId])}
               />
             </div>
@@ -2621,6 +2625,7 @@ export default function Allocation() {
                   rows={3}
                   value={arrivalUpdateForm.remark ?? arrivalUpdateForm.remarks ?? ''}
                   onChange={(e) => setArrivalUpdateForm((f) => ({ ...f, remark: e.target.value }))}
+                  maxLength={MAX_REMARK_CHARS}
                   placeholder="e.g. Dropped anchor 12/02 01:10; ETB after BG. SMS 3000 at Jetty 2B; Source: WhatsApp"
                 />
               </section>
@@ -2649,9 +2654,6 @@ export default function Allocation() {
 
       <section className="card">
         <h2 className="card__title">{tAlloc('incomingTitle')}</h2>
-        <p className="text-steel" style={{ marginTop: 'calc(-1 * var(--spacing-2))', marginBottom: 'var(--spacing-3)' }}>
-          {tAlloc('incomingIntro', { defaultValue: 'Jetties marked out of service in Master cannot receive new allocations. Use the schematic and schedule to spot OOS lanes.' })}
-        </p>
         <div className="allocation-plan-status-filter" role="group" aria-label={tAlloc('statusFilterAria')}>
           <span className="allocation-plan-status-filter__label">{tAlloc('statusLabel')}</span>
           <label className="allocation-plan-status-filter__option">

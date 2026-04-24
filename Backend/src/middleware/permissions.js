@@ -30,6 +30,20 @@ export function requirePageView(resourceKey) {
   ];
 }
 
+/** Admin-only page-view guard (shared for admin surfaces). */
+export const requireAdminPageView = requirePageView('admin');
+
+export function requirePageEdit(resourceKey) {
+  return [
+    requireAuth,
+    async (req, res, next) => {
+      const ok = await userHasPageEdit(req.userId, resourceKey);
+      if (!ok) return res.status(403).json({ error: 'Forbidden' });
+      next();
+    },
+  ];
+}
+
 /** Whether the user may approve Shipping Instructions (or other pages using can_approve). */
 export async function userHasPageApprove(userId, resourceKey) {
   if (userId == null) return false;

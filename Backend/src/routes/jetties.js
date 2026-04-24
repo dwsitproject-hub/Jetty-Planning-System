@@ -3,13 +3,13 @@
  */
 import express from 'express';
 import { pool } from '../db.js';
-import { optionalAuth } from '../middleware/auth.js';
+import { requirePageEdit, requirePageView } from '../middleware/permissions.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { countBlockingOperationsOnJetty, isJettyUnavailableMasterStatus } from '../lib/jetty-blocking.js';
 
 const VALID_STATUSES = ['Available', 'Out of Service'];
 const router = express.Router();
-router.use(optionalAuth);
+router.use(...requirePageView('master-jetty'));
 
 router.get('/', async (req, res) => {
   const portId = req.query.port_id;
@@ -50,7 +50,7 @@ router.get('/:id', async (req, res) => {
   res.json(toJetty(result.rows[0]));
 });
 
-router.post('/', async (req, res) => {
+router.post('/', ...requirePageEdit('master-jetty'), async (req, res) => {
   const { port_id, order_no, name, description, capacity } = req.body || {};
   if (port_id == null || !name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'port_id and name are required' });
@@ -96,7 +96,7 @@ router.post('/', async (req, res) => {
   res.status(201).json(toJetty({ ...row, port_name: portName.rows[0]?.name ?? null }));
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', ...requirePageEdit('master-jetty'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const { port_id, order_no, name, description, capacity } = req.body || {};
@@ -162,7 +162,7 @@ router.put('/:id', async (req, res) => {
   res.json(toJetty({ ...row, port_name: portName.rows[0]?.name ?? null }));
 });
 
-router.put('/:id/status', async (req, res) => {
+router.put('/:id/status', ...requirePageEdit('master-jetty'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const { status } = req.body || {};
@@ -231,7 +231,7 @@ router.put('/:id/status', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', ...requirePageEdit('master-jetty'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const op = await pool.query(

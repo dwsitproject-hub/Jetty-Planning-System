@@ -52,6 +52,11 @@ import {
 import '../styles/allocation.css'
 import { useRbac } from '../context/RbacContext'
 import { term } from '../i18n/term'
+import {
+  MAX_POSTCHECK_RESULT_CHARS,
+  MAX_REMARK_CHARS,
+  MAX_SAMPLING_PALKA_FIELD_CHARS,
+} from '../constants/inputLimits'
 
 function readBool(key, fallback = false) {
   try {
@@ -320,6 +325,7 @@ function OperationSignoffBanner({
                 rows={3}
                 value={remark}
                 onChange={(e) => setRemark(e.target.value)}
+                maxLength={MAX_REMARK_CHARS}
                 disabled={busy}
               />
             </div>
@@ -2299,6 +2305,7 @@ function PreCheckingSections({
                 className="berthing-modal__input berthing-modal__textarea"
                 value={draft.keyMeeting?.remark || ''}
                 onChange={(e) => updateDraft('keyMeeting', 'remark', e.target.value)}
+                maxLength={MAX_REMARK_CHARS}
                 rows={4}
                 placeholder="Optional remark"
               />
@@ -2381,6 +2388,7 @@ function PreCheckingSections({
                 className="berthing-modal__input berthing-modal__textarea"
                 value={draft.norAccepted?.remark || ''}
                 onChange={(e) => updateDraft('norAccepted', 'remark', e.target.value)}
+                maxLength={MAX_REMARK_CHARS}
                 rows={4}
                 placeholder="Optional remark"
               />
@@ -2476,6 +2484,7 @@ function PreCheckingSections({
                 className="berthing-modal__input berthing-modal__textarea"
                 value={draft.inspection?.remark || ''}
                 onChange={(e) => updateDraft('inspection', 'remark', e.target.value)}
+                maxLength={MAX_REMARK_CHARS}
                 rows={4}
                 placeholder="Optional remark"
               />
@@ -2555,6 +2564,7 @@ function PreCheckingSections({
                 className="berthing-modal__input berthing-modal__textarea"
                 value={draft.sampling?.remark || ''}
                 onChange={(e) => updateDraft('sampling', 'remark', e.target.value)}
+                maxLength={MAX_REMARK_CHARS}
                 rows={4}
                 placeholder="Optional remark"
               />
@@ -2569,6 +2579,7 @@ function PreCheckingSections({
                     className="berthing-modal__input"
                     value={samplingForm.noPalka}
                     onChange={(e) => setSamplingForm((f) => ({ ...f, noPalka: e.target.value }))}
+                    maxLength={MAX_SAMPLING_PALKA_FIELD_CHARS}
                     placeholder="e.g. 1P, 2P, 3P"
                   />
                 </div>
@@ -2579,6 +2590,7 @@ function PreCheckingSections({
                     className="berthing-modal__input"
                     value={samplingForm.ffa}
                     onChange={(e) => setSamplingForm((f) => ({ ...f, ffa: e.target.value }))}
+                    maxLength={MAX_SAMPLING_PALKA_FIELD_CHARS}
                     placeholder="e.g. 4.91"
                   />
                 </div>
@@ -2589,6 +2601,7 @@ function PreCheckingSections({
                     className="berthing-modal__input"
                     value={samplingForm.moisture}
                     onChange={(e) => setSamplingForm((f) => ({ ...f, moisture: e.target.value }))}
+                    maxLength={MAX_SAMPLING_PALKA_FIELD_CHARS}
                     placeholder="e.g. 0.25"
                   />
                 </div>
@@ -2768,6 +2781,7 @@ function PreCheckingSections({
                 className="berthing-modal__input berthing-modal__textarea"
                 value={draft.initialCargoChecking?.remark || ''}
                 onChange={(e) => updateDraft('initialCargoChecking', 'remark', e.target.value)}
+                maxLength={MAX_REMARK_CHARS}
                 rows={4}
                 placeholder="Optional remark"
               />
@@ -3233,6 +3247,7 @@ function PostCheckingSections({
                 className="berthing-modal__input berthing-modal__textarea"
                 value={draft[sectionKey]?.result ?? ''}
                 onChange={(e) => updateDraft(sectionKey, 'result', e.target.value)}
+                maxLength={MAX_POSTCHECK_RESULT_CHARS}
                 rows={4}
                 placeholder="Enter result"
               />
@@ -3467,6 +3482,7 @@ function LoadingStepCard({ stepId, config, step, vesselId, resultLabel, resultMu
               className="berthing-modal__input berthing-modal__textarea"
               value={quantityResult}
               onChange={(e) => setQuantityResult(e.target.value)}
+              maxLength={MAX_POSTCHECK_RESULT_CHARS}
               placeholder="e.g. 2,750 MT"
               rows={4}
             />
@@ -3476,6 +3492,7 @@ function LoadingStepCard({ stepId, config, step, vesselId, resultLabel, resultMu
               className="berthing-modal__input"
               value={quantityResult}
               onChange={(e) => setQuantityResult(e.target.value)}
+              maxLength={MAX_POSTCHECK_RESULT_CHARS}
               placeholder="e.g. 2,750 MT"
             />
           )}

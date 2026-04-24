@@ -5,6 +5,7 @@ import { fetchPorts, createPort, updatePortApi } from '../api/ports'
 import { useActivityLog } from '../context/ActivityLogContext'
 import '../styles/allocation.css'
 import '../styles/modal.css'
+import { MAX_MASTER_DESCRIPTION_CHARS, MAX_MASTER_PORT_NAME_CHARS } from '../constants/inputLimits'
 
 export default function MasterPort() {
   const { logActivity } = useActivityLog()
@@ -216,6 +217,7 @@ export default function MasterPort() {
                 className="modal__input"
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
+                maxLength={MAX_MASTER_PORT_NAME_CHARS}
                 placeholder="e.g. Bontang"
               />
             </div>
@@ -226,6 +228,7 @@ export default function MasterPort() {
                 className="modal__input modal__textarea"
                 value={formDescription}
                 onChange={(e) => setFormDescription(e.target.value)}
+                maxLength={MAX_MASTER_DESCRIPTION_CHARS}
                 placeholder="Optional description"
                 rows={4}
               />

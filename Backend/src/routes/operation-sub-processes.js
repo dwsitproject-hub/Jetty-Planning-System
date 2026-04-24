@@ -8,10 +8,12 @@
  */
 import express from 'express';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import multer from 'multer';
 import { pool } from '../db.js';
+import { assertOperationInSelectedPort } from '../lib/operation-access.js';
 import { UPLOAD_ROOT } from '../paths.js';
 import { validateMulterFileList } from '../lib/upload-mime.js';
 import { writeActivityLog } from '../lib/activity-log.js';
@@ -28,6 +30,17 @@ const POST_CHECK_AUTO_KEYS = new Set([
 const router = express.Router();
 router.use(optionalAuth);
 const ALLOWED_PHASES = new Set(['Pre-Checking', 'Operational', 'Post-Checking']);
+
+function toSubProcessDocumentDownloadUrl(id) {
+  return `/api/v1/sub-process-documents/${id}/download`;
+}
+
+function resolveStoredPath(storedPath) {
+  const full = path.resolve(UPLOAD_ROOT, String(storedPath || ''));
+  const root = path.resolve(UPLOAD_ROOT);
+  if (!full.startsWith(root)) return null;
+  return full;
+}
 
 function parseOperationId(raw) {
   const v = parseInt(raw, 10);
@@ -121,12 +134,8 @@ async function ensureDir(p) {
   await fs.mkdir(p, { recursive: true });
 }
 
-async function ensureOperationExists(operationId) {
-  const r = await pool.query(
-    `SELECT id FROM operations WHERE id = $1 AND deleted_at IS NULL`,
-    [operationId]
-  );
-  return r.rows.length > 0;
+async function assertOperationAccess(operationId, req) {
+  await assertOperationInSelectedPort(operationId, req.selectedPortId);
 }
 
 /** First breakdown line commodity type for the operation’s shipping instruction. */
@@ -349,6 +358,7 @@ const upload = multer({
 router.get('/operations/:operationId/sub-processes', async (req, res) => {
   const operationId = parseOperationId(req.params.operationId);
   if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
+  await assertOperationAccess(operationId, req);
 
   const phase = req.query.phase ? cleanPhase(req.query.phase) : null;
   if (req.query.phase && !phase) {
@@ -379,9 +389,7 @@ router.put('/operations/:operationId/sub-processes/:subProcessKey', async (req, 
     return res.status(400).json({ error: 'skipReason is required when status is Skipped' });
   }
 
-  if (!(await ensureOperationExists(operationId))) {
-    return res.status(404).json({ error: 'Operation not found' });
-  }
+  await assertOperationAccess(operationId, req);
 
   if (phase === 'Pre-Checking' && key === 'inspection') {
     const ctx = await loadOperationPrecheckContext(operationId);
@@ -476,9 +484,7 @@ router.delete('/operations/:operationId/sub-processes/:subProcessKey', async (re
   const key = normalizeLegacySubProcessKey(phase, req.params.subProcessKey);
   if (!key) return res.status(400).json({ error: 'subProcessKey required' });
 
-  if (!(await ensureOperationExists(operationId))) {
-    return res.status(404).json({ error: 'Operation not found' });
-  }
+  await assertOperationAccess(operationId, req);
 
   const row = await loadSubProcess(operationId, phase, key);
   if (!row) return res.status(404).json({ error: 'Sub-process not found' });
@@ -523,6 +529,7 @@ router.delete('/operations/:operationId/sub-processes/:subProcessKey', async (re
 router.get('/operations/:operationId/sub-processes/:subProcessKey/documents', async (req, res) => {
   const operationId = parseOperationId(req.params.operationId);
   if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
+  await assertOperationAccess(operationId, req);
   const phase = cleanPhase(req.query.phase || req.body?.phase || 'Pre-Checking');
   if (!phase) return res.status(400).json({ error: 'Invalid phase' });
   const key = normalizeLegacySubProcessKey(phase, req.params.subProcessKey);
@@ -543,7 +550,7 @@ router.get('/operations/:operationId/sub-processes/:subProcessKey/documents', as
       id: x.id,
       subProcessId: x.sub_process_id,
       name: x.original_name,
-      url: `/uploads/${String(x.stored_path || '').replace(/\\/g, '/')}`,
+      url: toSubProcessDocumentDownloadUrl(x.id),
       mimeType: x.mime_type ?? null,
       sizeBytes: x.size_bytes != null ? Number(x.size_bytes) : null,
       createdAt: x.created_at,
@@ -554,13 +561,11 @@ router.get('/operations/:operationId/sub-processes/:subProcessKey/documents', as
 router.post('/operations/:operationId/sub-processes/:subProcessKey/documents', upload.array('files', 10), async (req, res) => {
   const operationId = parseOperationId(req.params.operationId);
   if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
+  await assertOperationAccess(operationId, req);
   const phase = cleanPhase(req.body?.phase || req.query.phase || 'Pre-Checking');
   if (!phase) return res.status(400).json({ error: 'Invalid phase' });
   const key = normalizeLegacySubProcessKey(phase, req.params.subProcessKey);
   if (!key) return res.status(400).json({ error: 'subProcessKey required' });
-  if (!(await ensureOperationExists(operationId))) {
-    return res.status(404).json({ error: 'Operation not found' });
-  }
 
   const files = Array.isArray(req.files) ? req.files : [];
   if (files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
@@ -588,7 +593,7 @@ router.post('/operations/:operationId/sub-processes/:subProcessKey/documents', u
       id: ins.rows[0].id,
       subProcessId,
       name: original,
-      url: `/uploads/${rel.replace(/\\/g, '/')}`,
+      url: toSubProcessDocumentDownloadUrl(ins.rows[0].id),
       createdAt: ins.rows[0].created_at,
     });
   }
@@ -610,6 +615,29 @@ router.post('/operations/:operationId/sub-processes/:subProcessKey/documents', u
   res.status(201).json({ items: inserted });
 });
 
+router.get('/sub-process-documents/:documentId/download', async (req, res) => {
+  const documentId = parseInt(req.params.documentId, 10);
+  if (!Number.isFinite(documentId)) return res.status(400).json({ error: 'Invalid document id' });
+  const r = await pool.query(
+    `SELECT d.id, d.original_name, d.stored_path, sp.operation_id
+     FROM operation_sub_process_documents d
+     JOIN operation_sub_processes sp
+       ON sp.id = d.sub_process_id
+      AND sp.deleted_at IS NULL
+     WHERE d.id = $1
+       AND d.deleted_at IS NULL`,
+    [documentId]
+  );
+  if (r.rows.length === 0) return res.status(404).json({ error: 'Document not found' });
+  const row = r.rows[0];
+  await assertOperationInSelectedPort(row.operation_id, req.selectedPortId);
+  const full = resolveStoredPath(row.stored_path);
+  if (!full || !fsSync.existsSync(full)) {
+    return res.status(404).json({ error: 'Document file not found' });
+  }
+  return res.download(full, row.original_name || `sub-process-document-${documentId}`);
+});
+
 router.delete(
   '/operations/:operationId/sub-processes/:subProcessKey/documents/:documentId',
   async (req, res) => {
@@ -618,6 +646,7 @@ router.delete(
     if (operationId == null || !Number.isFinite(documentId)) {
       return res.status(400).json({ error: 'Invalid operation or document id' });
     }
+    await assertOperationAccess(operationId, req);
     const phase = cleanPhase(req.query.phase || 'Pre-Checking');
     if (!phase) return res.status(400).json({ error: 'Invalid phase' });
     const key = normalizeLegacySubProcessKey(phase, req.params.subProcessKey);
@@ -656,6 +685,7 @@ router.delete(
 router.get('/operations/:operationId/nor-details', async (req, res) => {
   const operationId = parseOperationId(req.params.operationId);
   if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
+  await assertOperationAccess(operationId, req);
   const r = await pool.query(
     `SELECT id, operation_id, remark, payload_json, created_at, updated_at
      FROM operation_nor_details
@@ -681,9 +711,7 @@ router.get('/operations/:operationId/nor-details', async (req, res) => {
 router.put('/operations/:operationId/nor-details', async (req, res) => {
   const operationId = parseOperationId(req.params.operationId);
   if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
-  if (!(await ensureOperationExists(operationId))) {
-    return res.status(404).json({ error: 'Operation not found' });
-  }
+  await assertOperationAccess(operationId, req);
 
   const body = req.body || {};
   const remarkProvided = Object.prototype.hasOwnProperty.call(body, 'remark');

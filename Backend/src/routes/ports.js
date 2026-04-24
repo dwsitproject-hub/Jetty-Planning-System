@@ -3,12 +3,11 @@
  */
 import express from 'express';
 import { pool } from '../db.js';
-import { requireAuth } from '../middleware/auth.js';
-import { optionalAuth } from '../middleware/auth.js';
+import { requirePageEdit, requirePageView } from '../middleware/permissions.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 
 const router = express.Router();
-router.use(optionalAuth);
+router.use(...requirePageView('master-port'));
 
 router.get('/', async (req, res) => {
   const result = await pool.query(
@@ -29,7 +28,7 @@ router.get('/:id', async (req, res) => {
   res.json(toPort(result.rows[0]));
 });
 
-router.post('/', async (req, res) => {
+router.post('/', ...requirePageEdit('master-port'), async (req, res) => {
   const { name, description } = req.body || {};
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'name is required' });
@@ -52,7 +51,7 @@ router.post('/', async (req, res) => {
   res.status(201).json(toPort(result.rows[0]));
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', ...requirePageEdit('master-port'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const { name, description } = req.body || {};
@@ -79,7 +78,7 @@ router.put('/:id', async (req, res) => {
 });
 
 /** Soft-delete (blocked if non-deleted jetties reference this port). */
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', ...requirePageEdit('master-port'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const j = await pool.query(
@@ -111,7 +110,7 @@ router.delete('/:id', async (req, res) => {
  * Ownership has moved to user-centric APIs in /users/:id/ports.
  * Kept temporarily for backward compatibility during transition.
  */
-router.get('/:id/users', requireAuth, async (req, res) => {
+router.get('/:id/users', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
 
@@ -145,7 +144,7 @@ router.get('/:id/users', requireAuth, async (req, res) => {
   );
 });
 
-router.put('/:id/users', requireAuth, async (req, res) => {
+router.put('/:id/users', ...requirePageEdit('master-port'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const userIds = Array.isArray(req.body?.user_ids) ? req.body.user_ids : null;

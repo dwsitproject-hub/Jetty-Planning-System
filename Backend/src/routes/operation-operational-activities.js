@@ -4,6 +4,7 @@
  */
 import express from 'express';
 import { pool } from '../db.js';
+import { assertOperationInSelectedPort } from '../lib/operation-access.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { promoteDockedToInProgressIfDocked } from '../lib/operation-auto-status.js';
@@ -50,9 +51,8 @@ function titleForSubProcessKey(key) {
   return SUB_PROCESS_TITLE[key] || String(key || '').replace(/_/g, ' ').toUpperCase();
 }
 
-async function ensureOperationExists(operationId) {
-  const r = await pool.query(`SELECT 1 FROM operations WHERE id = $1 AND deleted_at IS NULL`, [operationId]);
-  return r.rows.length > 0;
+async function assertOperationAccess(operationId, req) {
+  await assertOperationInSelectedPort(operationId, req.selectedPortId);
 }
 
 /** Same SI commodity_type resolution as operations route (Solid | Liquid). */
@@ -136,9 +136,7 @@ async function softDeleteMilestoneNaFor(operationId, milestoneKey, client = null
 router.get('/operations/:operationId/operational-activities', async (req, res) => {
   const operationId = parseOperationId(req.params.operationId);
   if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
-  if (!(await ensureOperationExists(operationId))) {
-    return res.status(404).json({ error: 'Operation not found' });
-  }
+  await assertOperationAccess(operationId, req);
   const r = await pool.query(
     `SELECT oa.id, oa.operation_id, oa.entry_type, oa.milestone_key, oa.sub_step_title, oa.remark, oa.reason,
             oa.start_at, oa.end_at, oa.marked_at, oa.created_at, oa.updated_at,
@@ -162,9 +160,7 @@ router.get('/operations/:operationId/operational-activities', async (req, res) =
 router.post('/operations/:operationId/operational-activities', async (req, res) => {
   const operationId = parseOperationId(req.params.operationId);
   if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
-  if (!(await ensureOperationExists(operationId))) {
-    return res.status(404).json({ error: 'Operation not found' });
-  }
+  await assertOperationAccess(operationId, req);
 
   const body = req.body || {};
   const entryType = String(body.entryType || body.entry_type || '').trim();
@@ -345,6 +341,7 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
   if (operationId == null || Number.isNaN(entryId)) {
     return res.status(400).json({ error: 'Invalid operationId or entryId' });
   }
+  await assertOperationAccess(operationId, req);
   const cur = await pool.query(
     `SELECT * FROM operation_operational_activities
      WHERE id = $1 AND operation_id = $2 AND deleted_at IS NULL`,
@@ -504,6 +501,7 @@ router.delete('/operations/:operationId/operational-activities/:entryId', async 
   if (operationId == null || Number.isNaN(entryId)) {
     return res.status(400).json({ error: 'Invalid operationId or entryId' });
   }
+  await assertOperationAccess(operationId, req);
   const r = await pool.query(
     `UPDATE operation_operational_activities SET deleted_at = NOW(), updated_at = NOW()
      WHERE id = $1 AND operation_id = $2 AND deleted_at IS NULL
@@ -528,9 +526,7 @@ router.delete('/operations/:operationId/operational-activities/:entryId', async 
 router.get('/operations/:operationId/activity-timeline', async (req, res) => {
   const operationId = parseOperationId(req.params.operationId);
   if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
-  if (!(await ensureOperationExists(operationId))) {
-    return res.status(404).json({ error: 'Operation not found' });
-  }
+  await assertOperationAccess(operationId, req);
 
   const [sp, opAct] = await Promise.all([
     pool.query(

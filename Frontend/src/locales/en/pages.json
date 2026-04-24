@@ -72,8 +72,6 @@
   "qualityTableDischargeQuality": "Discharge Quality",
   "qualityTableDelta": "Δ",
   "qualityUploadNote": "Upload CPO analysis (mock): use real upload when backend is connected.",
-  "clearanceIntroLead": "Approvers sign off completed work (Ready to Sail), then record departure. Use",
-  "clearanceIntroTail": "for vessels awaiting final approval.",
   "clearanceSummary": "Summary",
   "clearanceReadyToSail": "Ready to Sail",
   "clearanceSailed": "Sailed",

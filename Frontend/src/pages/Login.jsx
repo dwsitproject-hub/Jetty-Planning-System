@@ -8,6 +8,7 @@ import { useRbac } from '../context/RbacContext'
 import { ApiError } from '../api/client'
 import GuestBrandedShell from '../components/GuestBrandedShell'
 import { useTranslation } from 'react-i18next'
+import { MAX_LOGIN_PASSWORD_CHARS, MAX_LOGIN_USERNAME_CHARS } from '../constants/inputLimits'
 
 export default function Login() {
   const { t } = useTranslation('auth')
@@ -62,6 +63,7 @@ export default function Login() {
           className="guest-branded__input"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
+          maxLength={MAX_LOGIN_USERNAME_CHARS}
           autoComplete="username"
           disabled={busy}
         />
@@ -74,6 +76,7 @@ export default function Login() {
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          maxLength={MAX_LOGIN_PASSWORD_CHARS}
           autoComplete="current-password"
           disabled={busy}
         />

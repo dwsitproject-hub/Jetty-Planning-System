@@ -7,6 +7,7 @@ import {
   OFFLOADING_ACTIVITY_TAGS,
 } from '../data/mockData'
 import '../styles/offloading.css'
+import { MAX_REMARK_CHARS } from '../constants/inputLimits'
 
 const activeBerths = Array.isArray(berths) ? berths.filter((b) => b && b.currentVesselId) : []
 
@@ -517,6 +518,7 @@ export default function Unloading() {
                             placeholder="Comment / remark (optional)"
                             value={state.comment ?? ''}
                             onChange={(e) => setPalkaComment(p.index, e.target.value)}
+                            maxLength={MAX_REMARK_CHARS}
                           />
                         </div>
                       </div>
@@ -665,6 +667,7 @@ export default function Unloading() {
                 placeholder="Add any comment or remark…"
                 value={logModal.comment}
                 onChange={(e) => setLogModal((m) => ({ ...m, comment: e.target.value }))}
+                maxLength={MAX_REMARK_CHARS}
                 rows={3}
               />
             </div>

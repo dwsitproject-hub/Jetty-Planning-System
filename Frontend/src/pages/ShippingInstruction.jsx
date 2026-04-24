@@ -15,6 +15,19 @@ import { useRbac } from '../context/RbacContext'
 import PurposeBadge from '../components/PurposeBadge'
 import SiDetailModal from '../components/SiDetailModal'
 import { formatSiCalendarDateOnly } from '../utils/siFormPlaceDate'
+import {
+  MAX_SI_BL_INDICATED_CHARS,
+  MAX_SI_BL_SPLIT_CHARS,
+  MAX_SI_BILL_OF_LADING_CLAUSE_CHARS,
+  MAX_SI_BREAKDOWN_SHORT_CHARS,
+  MAX_SI_CONSIGNEE_CHARS,
+  MAX_SI_DESTINATION_CHARS,
+  MAX_SI_NOTE_CHARS,
+  MAX_SI_NOTIFY_PARTY_CHARS,
+  MAX_SI_REFERENCE_CHARS,
+  MAX_SI_VESSEL_NAME_CHARS,
+  MAX_SI_VOYAGE_CHARS,
+} from '../constants/inputLimits'
 
 /** `YYYY-MM-DD` for `<input type="date" />` — API may return full ISO timestamps (e.g. from Postgres DATE via JSON). */
 function toDateInputValue(v) {
@@ -1294,6 +1307,7 @@ export default function ShippingInstruction() {
                       id="vesselName"
                       value={form.vesselName}
                       onChange={(e) => updateForm({ vesselName: e.target.value })}
+                      maxLength={MAX_SI_VESSEL_NAME_CHARS}
                       required
                       placeholder="e.g. TB. ARIA CITRA IV / BG. MULIA VII"
                       disabled={!lookups}
@@ -1305,6 +1319,7 @@ export default function ShippingInstruction() {
                       id="siRef"
                       value={form.referenceNumber}
                       onChange={(e) => updateForm({ referenceNumber: e.target.value })}
+                      maxLength={MAX_SI_REFERENCE_CHARS}
                       required
                       placeholder="e.g. SI/EUP/2026/1/003"
                       disabled={!lookups}
@@ -1344,6 +1359,7 @@ export default function ShippingInstruction() {
                       id="voyageNo"
                       value={form.voyageNo}
                       onChange={(e) => updateForm({ voyageNo: e.target.value })}
+                      maxLength={MAX_SI_VOYAGE_CHARS}
                       placeholder="e.g. V.2601"
                       disabled={!lookups}
                     />
@@ -1361,6 +1377,7 @@ export default function ShippingInstruction() {
                         id="destinationText"
                         value={form.destinationText}
                         onChange={(e) => updateForm({ destinationText: e.target.value })}
+                        maxLength={MAX_SI_DESTINATION_CHARS}
                         placeholder="e.g. NANSHA, CHINA"
                         disabled={!lookups}
                       />
@@ -1497,6 +1514,7 @@ export default function ShippingInstruction() {
                             <input
                               value={row.contractNo}
                               onChange={(e) => updateBreakdownRow(i, 'contractNo', e.target.value)}
+                              maxLength={MAX_SI_BREAKDOWN_SHORT_CHARS}
                               className="shipping-instruction-inline-input"
                             />
                           </td>
@@ -1504,6 +1522,7 @@ export default function ShippingInstruction() {
                             <input
                               value={row.poNo}
                               onChange={(e) => updateBreakdownRow(i, 'poNo', e.target.value)}
+                              maxLength={MAX_SI_BREAKDOWN_SHORT_CHARS}
                               className="shipping-instruction-inline-input"
                             />
                           </td>
@@ -1511,6 +1530,7 @@ export default function ShippingInstruction() {
                             <input
                               value={row.remarks}
                               onChange={(e) => updateBreakdownRow(i, 'remarks', e.target.value)}
+                              maxLength={MAX_SI_BREAKDOWN_SHORT_CHARS}
                               className="shipping-instruction-inline-input"
                             />
                           </td>
@@ -1560,6 +1580,7 @@ export default function ShippingInstruction() {
                       style={{ minHeight: 56, resize: 'vertical' }}
                       value={form.blSplitText}
                       onChange={(e) => updateForm({ blSplitText: e.target.value })}
+                      maxLength={MAX_SI_BL_SPLIT_CHARS}
                       placeholder="e.g  1 X 1,430 MTS ..."
                       disabled={!lookups}
                     />
@@ -1572,6 +1593,7 @@ export default function ShippingInstruction() {
                       style={{ minHeight: 72, resize: 'vertical' }}
                       value={form.billOfLadingClause}
                       onChange={(e) => updateForm({ billOfLadingClause: e.target.value })}
+                      maxLength={MAX_SI_BILL_OF_LADING_CLAUSE_CHARS}
                       placeholder="e.g. 3 ORIGINAL and 3 NON-NEGOTIABLE…"
                       disabled={!lookups}
                     />
@@ -1584,6 +1606,7 @@ export default function ShippingInstruction() {
                       style={{ minHeight: 56, resize: 'vertical' }}
                       value={form.consigneeText}
                       onChange={(e) => updateForm({ consigneeText: e.target.value })}
+                      maxLength={MAX_SI_CONSIGNEE_CHARS}
                       placeholder="e.g. TO ORDER"
                       disabled={!lookups}
                     />
@@ -1596,6 +1619,7 @@ export default function ShippingInstruction() {
                       style={{ minHeight: 72, resize: 'vertical' }}
                       value={form.notifyPartyText}
                       onChange={(e) => updateForm({ notifyPartyText: e.target.value })}
+                      maxLength={MAX_SI_NOTIFY_PARTY_CHARS}
                       disabled={!lookups}
                     />
                   </div>
@@ -1607,6 +1631,7 @@ export default function ShippingInstruction() {
                       style={{ minHeight: 56, resize: 'vertical' }}
                       value={form.blIndicated}
                       onChange={(e) => updateForm({ blIndicated: e.target.value })}
+                      maxLength={MAX_SI_BL_INDICATED_CHARS}
                       placeholder="e.g. CLEAN SHIPPED ON BOARD FREIGHT PREPAID"
                       disabled={!lookups}
                     />
@@ -1653,6 +1678,7 @@ export default function ShippingInstruction() {
                     style={{ minHeight: 96, resize: 'vertical' }}
                     value={form.note}
                     onChange={(e) => updateForm({ note: e.target.value })}
+                    maxLength={MAX_SI_NOTE_CHARS}
                     placeholder="Write any notes here…"
                     disabled={!lookups}
                   />

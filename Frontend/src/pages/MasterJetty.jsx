@@ -7,6 +7,7 @@ import { useActivityLog } from '../context/ActivityLogContext'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/shipping-instruction.css'
+import { MAX_MASTER_DESCRIPTION_CHARS, MAX_MASTER_JETTY_NAME_CHARS } from '../constants/inputLimits'
 
 const JETTY_STATUS_OPTIONS = ['Available', 'Out of Service']
 
@@ -330,6 +331,7 @@ export default function MasterJetty() {
                 className="modal__input"
                 value={formJettyName}
                 onChange={(e) => setFormJettyName(e.target.value)}
+                maxLength={MAX_MASTER_JETTY_NAME_CHARS}
                 placeholder="e.g. 1A"
               />
             </div>
@@ -339,6 +341,7 @@ export default function MasterJetty() {
                 className="modal__input modal__textarea"
                 value={formDescription}
                 onChange={(e) => setFormDescription(e.target.value)}
+                maxLength={MAX_MASTER_DESCRIPTION_CHARS}
                 rows={3}
               />
             </div>

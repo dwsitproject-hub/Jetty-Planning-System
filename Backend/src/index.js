@@ -89,7 +89,7 @@ apiV1.use('/', requireAuth, requirePortScope, qcSurveysRoutes);
 apiV1.use('/', requireAuth, requirePortScope, quantityChecksRoutes);
 apiV1.use('/', requireAuth, requirePortScope, operationSubProcessesRoutes);
 apiV1.use('/', requireAuth, requirePortScope, operationOperationalActivitiesRoutes);
-apiV1.use('/', masterCargoHandlingMethodsRoutes);
+apiV1.use('/', requireAuth, masterCargoHandlingMethodsRoutes);
 
 app.use('/api/v1', apiV1);
 

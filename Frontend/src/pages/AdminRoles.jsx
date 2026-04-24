@@ -15,6 +15,7 @@ import {
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/admin.css'
+import { MAX_ROLE_DESCRIPTION_CHARS, MAX_ROLE_NAME_CHARS } from '../constants/inputLimits'
 
 function Toast({ message, variant = 'success', onDismiss, stacked = false }) {
   if (!message) return null
@@ -519,6 +520,7 @@ export default function AdminRoles() {
               className="modal__input"
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
+              maxLength={MAX_ROLE_NAME_CHARS}
               placeholder="e.g. Allocator"
             />
           </div>
@@ -529,6 +531,7 @@ export default function AdminRoles() {
               className="modal__input modal__textarea"
               value={formDescription}
               onChange={(e) => setFormDescription(e.target.value)}
+              maxLength={MAX_ROLE_DESCRIPTION_CHARS}
               placeholder="Brief description"
               rows={2}
             />

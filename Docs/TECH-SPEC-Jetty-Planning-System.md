@@ -1,7 +1,7 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.27
-**Last Updated**: 2026-04-22  
+**Version**: 1.28
+**Last Updated**: 2026-04-24  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
@@ -74,6 +74,27 @@ This change is presentation-only for schedule explainability; API contracts rema
 - **`toOp`** in `operations.js` exposes **`jettyOperationCode`**; allocation overview SQL selects **`o.jetty_operation_code`** and **`formatListRow`** maps **`jettyOperationCode`**.
 
 **Dev reset:** `Backend/scripts/reset-and-seed-dev.sql` truncates **`jetty_operation_code_counters`** and assigns codes for seeded operations after insert (requires migration **056** applied).
+
+### 0.18 Frontend text input maximum lengths (2026-04-24)
+
+**Source of truth (names + numbers):** `Frontend/src/constants/inputLimits.js` — imported by pages/components so caps stay aligned with **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.11**.
+
+**Mechanism:** HTML **`maxLength`** on `<input>` / `<textarea>` for listed fields. PostgreSQL **`TEXT`** columns do not enforce length; limits are **application-level** in the UI.
+
+**Recommended follow-up (backend):** mirror the same bounds on **`POST` / `PATCH`** handlers (operations, allocation arrival, shipping instructions, auth login body fields, RBAC roles, master ports/jetties) so oversized strings cannot bypass the browser. Not implemented in this change set unless explicitly scheduled.
+
+| Constant (export) | Chars | Typical UI |
+|-------------------|------:|--------------|
+| `MAX_REMARK_CHARS` | 500 | Allocation remarks; Loading sign-off + pre-check remarks; At-Berth shift-out; operational **Remark**; Unloading comments |
+| `MAX_POSTCHECK_RESULT_CHARS` | 500 | Loading Final Inspection / Final Cargo Checking **result** textareas |
+| `MAX_SAMPLING_PALKA_FIELD_CHARS` | 20 | Loading sampling **No. Palka**, **FFA**, **Moisture** |
+| `MAX_LOGIN_USERNAME_CHARS` / `MAX_LOGIN_PASSWORD_CHARS` | 50 | `/login` |
+| `MAX_MASTER_JETTY_NAME_CHARS` / `MAX_MASTER_PORT_NAME_CHARS` | 100 | Master modals |
+| `MAX_MASTER_DESCRIPTION_CHARS` | 100 | Master Port / Master Jetty **Description** |
+| `MAX_ROLE_NAME_CHARS` / `MAX_ROLE_DESCRIPTION_CHARS` | 50 / 100 | Admin Roles |
+| `MAX_MILESTONE_SUBSTEP_TITLE_CHARS` / `MAX_MILESTONE_REASON_CHARS` | 100 / 500 | Operational milestone composer |
+| `MAX_SI_*` (see module) | varies | Shipping Instruction form + breakdown row short fields |
+| `MAX_SI_APPROVAL_COMMENTS_CHARS` | 500 | SI Approval **Approval comments** |
 
 ### 0.4 Dev reset + seed (transactional data only)
 

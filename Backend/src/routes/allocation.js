@@ -241,7 +241,7 @@ function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = 
           SELECT jsonb_agg(jsonb_build_object(
             'id', d.id,
             'name', d.original_name,
-            'url', ('/uploads/' || replace(d.stored_path, '\\\\', '/'))
+            'url', ('/api/v1/operation-documents/' || d.id::text || '/download')
           ) ORDER BY d.created_at DESC, d.id DESC)
           FROM public.operation_documents d
           WHERE d.operation_id = o.id AND d.deleted_at IS NULL AND d.kind = 'NOR'

@@ -6,6 +6,7 @@ import express from 'express';
 import { pool } from '../db.js';
 import { computeSlaHours } from '../lib/sla.js';
 import { assignJettyOperationCode } from '../lib/jetty-operation-code.js';
+import { canAccessOperationForSelectedPort } from '../lib/operation-access.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { userHasPageApprove, userHasPageEdit } from '../middleware/permissions.js';
@@ -39,15 +40,6 @@ const SI_COMMODITY_TYPE = `COALESCE(
 const OP_SELECT = `o.*, si.vessel_name, si.reference_number, ${SI_COMMODITY} AS commodity,
             ${SI_COMMODITY_TYPE} AS commodity_type,
             j.name AS jetty_name, p.id AS port_id, p.name AS port_name`;
-
-function canAccessOperationForSelectedPort(opRow, selectedPortId) {
-  const selected = Number(selectedPortId);
-  const opPort = opRow?.port_id != null ? Number(opRow.port_id) : null;
-  if (!Number.isFinite(selected)) return false;
-  // Legacy rows may have null jetty/port before allocation; allow access.
-  if (opPort == null) return true;
-  return opPort === selected;
-}
 
 async function loadOperationJoined(id) {
   const r = await pool.query(

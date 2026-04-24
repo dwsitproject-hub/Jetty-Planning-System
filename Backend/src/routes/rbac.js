@@ -5,15 +5,15 @@
 import express from 'express';
 import { pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { requireAdminPageView } from '../middleware/permissions.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 
 const router = express.Router();
-router.use(requireAuth);
 
 // --- More specific routes first ---
 
 /** Current user's page permissions (merged across roles). */
-router.get('/me/page-permissions', async (req, res) => {
+router.get('/me/page-permissions', requireAuth, async (req, res) => {
   const userId = req.userId;
   const result = await pool.query(
     `SELECT p.resource_key,
@@ -46,6 +46,9 @@ router.get('/me/page-permissions', async (req, res) => {
     }))
   );
 });
+
+// All routes below this line are admin-only.
+router.use(...requireAdminPageView);
 
 /** All page permissions for a role (assigned or not). */
 router.get('/roles/:roleId/page-permissions', async (req, res) => {

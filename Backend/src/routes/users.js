@@ -6,6 +6,7 @@ import express from 'express';
 import { pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { loadUserAssignedPorts, NO_PORT_MESSAGE } from '../middleware/port-scope.js';
+import { requireAdminPageView } from '../middleware/permissions.js';
 
 const router = express.Router();
 
@@ -59,7 +60,10 @@ router.get('/me/ports', requireAuth, async (req, res) => {
   });
 });
 
-router.get('/', requireAuth, async (req, res) => {
+// All routes below this line are admin-only.
+router.use(...requireAdminPageView);
+
+router.get('/', async (req, res) => {
   const result = await pool.query(
     `SELECT
        u.id,
@@ -89,7 +93,7 @@ router.get('/', requireAuth, async (req, res) => {
   res.json(result.rows.map(toUser));
 });
 
-router.get('/:id', requireAuth, async (req, res) => {
+router.get('/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const result = await pool.query(
@@ -101,7 +105,7 @@ router.get('/:id', requireAuth, async (req, res) => {
   res.json(toUser(result.rows[0]));
 });
 
-router.get('/:id/ports', requireAuth, async (req, res) => {
+router.get('/:id/ports', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
 
@@ -120,7 +124,7 @@ router.get('/:id/ports', requireAuth, async (req, res) => {
   });
 });
 
-router.post('/', requireAuth, async (req, res) => {
+router.post('/', async (req, res) => {
   const { username, password, display_name, email, is_active } = req.body || {};
   if (!username || typeof username !== 'string' || !username.trim()) {
     return res.status(400).json({ error: 'username is required' });
@@ -150,7 +154,7 @@ router.post('/', requireAuth, async (req, res) => {
   }
 });
 
-router.put('/:id', requireAuth, async (req, res) => {
+router.put('/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const { display_name, email, is_active, password } = req.body || {};
@@ -202,7 +206,7 @@ router.put('/:id', requireAuth, async (req, res) => {
   }
 });
 
-router.put('/:id/ports', requireAuth, async (req, res) => {
+router.put('/:id/ports', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
 
@@ -256,7 +260,7 @@ router.put('/:id/ports', requireAuth, async (req, res) => {
   });
 });
 
-router.delete('/:id', requireAuth, async (req, res) => {
+router.delete('/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   if (id === req.userId) {

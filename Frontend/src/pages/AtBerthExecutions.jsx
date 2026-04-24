@@ -10,6 +10,7 @@ import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { atBerthExecutionOpenPath } from '../utils/atBerthOpenPath'
 import '../styles/allocation.css'
 import '../styles/modal.css'
+import { MAX_REMARK_CHARS } from '../constants/inputLimits'
 
 /** Summary cards only — Ready to Sail / Signed off are tracked under Clearance, not here. */
 const AT_BERTH_SUMMARY_PHASES = ['Pre-Checking', 'Operational', 'Post-Checking']
@@ -706,6 +707,7 @@ export default function AtBerthExecutions() {
                 rows={4}
                 value={shiftRemarkDraft}
                 onChange={(ev) => setShiftRemarkDraft(ev.target.value)}
+                maxLength={MAX_REMARK_CHARS}
                 disabled={Boolean(shiftSavingByOpId[shiftModal.row.operationId])}
               />
             </div>

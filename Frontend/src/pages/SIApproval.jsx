@@ -8,6 +8,7 @@ import SiFormReferenceDates from '../components/SiFormReferenceDates'
 import FlowPill from '../components/FlowPill'
 import '../styles/si-approval.css'
 import '../styles/si-view.css'
+import { MAX_SI_APPROVAL_COMMENTS_CHARS } from '../constants/inputLimits'
 
 const SI_FORM_COMPANY = {
   name: 'PT ENERGI UNGGUL PERSADA',
@@ -485,6 +486,7 @@ export default function SIApproval() {
                   placeholder="Enter operational notes or specific clearance instructions..."
                   value={approvalComments}
                   onChange={(e) => setApprovalComments(e.target.value)}
+                  maxLength={MAX_SI_APPROVAL_COMMENTS_CHARS}
                   rows={4}
                 />
               </div>

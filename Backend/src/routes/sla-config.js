@@ -3,11 +3,13 @@
  */
 import express from 'express';
 import { pool } from '../db.js';
+import { requireAuth } from '../middleware/auth.js';
+import { requireAdminPageView } from '../middleware/permissions.js';
 
 const router = express.Router();
 const CONFIG_ID = 1;
 
-router.get('/', async (req, res) => {
+router.get('/', requireAuth, async (req, res) => {
   const result = await pool.query(
     `SELECT id, q1_hours, q2_hours, c_hours, s_hours, buffer_default, updated_at
      FROM sla_config WHERE id = $1 AND deleted_at IS NULL`,
@@ -17,7 +19,7 @@ router.get('/', async (req, res) => {
   res.json(toConfig(result.rows[0]));
 });
 
-router.put('/', async (req, res) => {
+router.put('/', ...requireAdminPageView, async (req, res) => {
   const { q1_hours, q2_hours, c_hours, s_hours, buffer_default } = req.body || {};
   const result = await pool.query(
     `UPDATE sla_config SET

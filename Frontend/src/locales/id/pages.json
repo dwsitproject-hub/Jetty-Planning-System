@@ -72,8 +72,6 @@
   "qualityTableDischargeQuality": "Mutu Discharge",
   "qualityTableDelta": "Δ",
   "qualityUploadNote": "Unggah analisis CPO (mock): gunakan unggah nyata saat backend terhubung.",
-  "clearanceIntroLead": "Approver melakukan sign-off pekerjaan yang selesai (Ready to Sail), lalu mencatat keberangkatan. Gunakan",
-  "clearanceIntroTail": "untuk kapal yang menunggu persetujuan akhir.",
   "clearanceSummary": "Ringkasan",
   "clearanceReadyToSail": "Ready to Sail",
   "clearanceSailed": "Sailed",

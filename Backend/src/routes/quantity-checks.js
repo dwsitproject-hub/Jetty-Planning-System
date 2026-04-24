@@ -7,12 +7,14 @@
  */
 import express from 'express';
 import { pool } from '../db.js';
+import { assertOperationInSelectedPort } from '../lib/operation-access.js';
 
 const router = express.Router();
 
 router.get('/operations/:operationId/quantity-checks', async (req, res) => {
   const operationId = parseInt(req.params.operationId, 10);
   if (Number.isNaN(operationId)) return res.status(400).json({ error: 'Invalid operation id' });
+  await assertOperationInSelectedPort(operationId, req.selectedPortId);
 
   const result = await pool.query(
     `SELECT id, operation_id, phase, check_key, value_json, remarks, occurred_at, created_at, updated_at
@@ -27,11 +29,7 @@ router.get('/operations/:operationId/quantity-checks', async (req, res) => {
 router.post('/operations/:operationId/quantity-checks', async (req, res) => {
   const operationId = parseInt(req.params.operationId, 10);
   if (Number.isNaN(operationId)) return res.status(400).json({ error: 'Invalid operation id' });
-
-  const opCheck = await pool.query('SELECT id FROM operations WHERE id = $1 AND deleted_at IS NULL', [
-    operationId,
-  ]);
-  if (opCheck.rows.length === 0) return res.status(404).json({ error: 'Operation not found' });
+  await assertOperationInSelectedPort(operationId, req.selectedPortId);
 
   const { phase, check_key, value_json, remarks, occurred_at } = req.body || {};
   if (!phase || !['Pre-Checking', 'Operational', 'Post-Checking'].includes(phase)) {
@@ -60,6 +58,12 @@ router.post('/operations/:operationId/quantity-checks', async (req, res) => {
 router.put('/quantity-checks/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  const cur = await pool.query(
+    `SELECT id, operation_id FROM quantity_checks WHERE id = $1 AND deleted_at IS NULL`,
+    [id]
+  );
+  if (cur.rows.length === 0) return res.status(404).json({ error: 'Quantity check not found' });
+  await assertOperationInSelectedPort(cur.rows[0].operation_id, req.selectedPortId);
 
   const { value_json, remarks, occurred_at } = req.body || {};
 
@@ -85,6 +89,12 @@ router.put('/quantity-checks/:id', async (req, res) => {
 router.delete('/quantity-checks/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  const cur = await pool.query(
+    `SELECT id, operation_id FROM quantity_checks WHERE id = $1 AND deleted_at IS NULL`,
+    [id]
+  );
+  if (cur.rows.length === 0) return res.status(404).json({ error: 'Quantity check not found' });
+  await assertOperationInSelectedPort(cur.rows[0].operation_id, req.selectedPortId);
   const result = await pool.query(
     `UPDATE quantity_checks SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL RETURNING id`,
     [id]
