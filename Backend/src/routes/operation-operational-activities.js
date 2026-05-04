@@ -8,6 +8,7 @@ import { assertOperationInSelectedPort } from '../lib/operation-access.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { promoteDockedToInProgressIfDocked } from '../lib/operation-auto-status.js';
+import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
 
 const router = express.Router();
 router.use(optionalAuth);
@@ -178,6 +179,7 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
     await client.query('BEGIN');
 
     if (entryType === 'activity') {
+      const scheduleTz = await loadOperationScheduleTimezone(client, operationId);
       const remark = String(body.remark ?? '').trim();
       const subStepTitle = body.subStepTitle != null ? String(body.subStepTitle).trim() : '';
       const startAt = body.startAt || body.start_at;
@@ -190,33 +192,44 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'startAt is required for activity' });
       }
-      const ta = new Date(startAt);
-      if (Number.isNaN(ta.getTime())) {
+      const startIso = parseScheduleInstantToIso(startAt, scheduleTz);
+      if (startIso === undefined || startIso === null) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'Invalid startAt' });
       }
+      const ta = new Date(startIso);
       const startOnly = START_ONLY_MILESTONE_KEYS.has(milestoneKey);
       let tbIso = null;
       if (startOnly) {
         if (endAt != null && endAt !== '') {
-          const tb = new Date(endAt);
+          const endParsed = parseScheduleInstantToIso(endAt, scheduleTz);
+          if (endParsed === undefined || endParsed === null) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'Invalid endAt' });
+          }
+          const tb = new Date(endParsed);
           if (Number.isNaN(tb.getTime()) || tb < ta) {
             await client.query('ROLLBACK');
             return res.status(400).json({ error: 'Invalid endAt' });
           }
-          tbIso = tb.toISOString();
+          tbIso = endParsed;
         }
       } else {
         if (!endAt) {
           await client.query('ROLLBACK');
           return res.status(400).json({ error: 'startAt and endAt are required for activity' });
         }
-        const tb = new Date(endAt);
+        const endParsed = parseScheduleInstantToIso(endAt, scheduleTz);
+        if (endParsed === undefined || endParsed === null) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'Invalid endAt' });
+        }
+        const tb = new Date(endParsed);
         if (Number.isNaN(tb.getTime()) || tb < ta) {
           await client.query('ROLLBACK');
           return res.status(400).json({ error: 'Invalid startAt/endAt' });
         }
-        tbIso = tb.toISOString();
+        tbIso = endParsed;
       }
 
       let activityCargoHandlingMethodId = null;
@@ -245,7 +258,7 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
           milestoneKey,
           subStepTitle || null,
           remark,
-          ta.toISOString(),
+          startIso,
           tbIso,
           activityCargoHandlingMethodId,
         ]
@@ -367,20 +380,26 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
           ? body.end_at
           : row0.end_at;
     if (!remark) return res.status(400).json({ error: 'remark is required' });
-    const ta = new Date(startAt);
-    if (Number.isNaN(ta.getTime())) return res.status(400).json({ error: 'Invalid startAt' });
+    const scheduleTz = await loadOperationScheduleTimezone(pool, operationId);
+    const startIso = parseScheduleInstantToIso(startAt, scheduleTz);
+    if (startIso === undefined || startIso === null) return res.status(400).json({ error: 'Invalid startAt' });
+    const ta = new Date(startIso);
     const startOnly = START_ONLY_MILESTONE_KEYS.has(milestoneKey);
     let tbIso = null;
     if (startOnly) {
       if (endAt != null && endAt !== '') {
-        const tb = new Date(endAt);
+        const endParsed = parseScheduleInstantToIso(endAt, scheduleTz);
+        if (endParsed === undefined || endParsed === null) return res.status(400).json({ error: 'Invalid endAt' });
+        const tb = new Date(endParsed);
         if (Number.isNaN(tb.getTime()) || tb < ta) return res.status(400).json({ error: 'Invalid endAt' });
-        tbIso = tb.toISOString();
+        tbIso = endParsed;
       }
     } else {
-      const tb = new Date(endAt);
+      const endParsed = parseScheduleInstantToIso(endAt, scheduleTz);
+      if (endParsed === undefined || endParsed === null) return res.status(400).json({ error: 'Invalid endAt' });
+      const tb = new Date(endParsed);
       if (Number.isNaN(tb.getTime()) || tb < ta) return res.status(400).json({ error: 'Invalid startAt/endAt' });
-      tbIso = tb.toISOString();
+      tbIso = endParsed;
     }
 
     const client = await pool.connect();
@@ -419,7 +438,7 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
           milestoneKey,
           subStepTitle || null,
           remark,
-          ta.toISOString(),
+          startIso,
           tbIso,
           putActivityCargoHandlingMethodId,
           entryId,
@@ -530,10 +549,29 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
 
   const [sp, opAct] = await Promise.all([
     pool.query(
-      `SELECT id, operation_id, phase, sub_process_key, status, occurred_at, start_at, end_at, skip_reason, remark, updated_at, created_at
-       FROM operation_sub_processes
-       WHERE operation_id = $1 AND deleted_at IS NULL
-       ORDER BY COALESCE(start_at, occurred_at, updated_at, created_at) ASC NULLS LAST, id ASC`,
+      `SELECT sp.id, sp.operation_id, sp.phase, sp.sub_process_key, sp.status, sp.occurred_at, sp.start_at, sp.end_at,
+              sp.skip_reason, sp.remark, sp.updated_at, sp.created_at,
+              COALESCE(
+                doc.j,
+                '[]'::jsonb
+              ) AS documents_json
+       FROM operation_sub_processes sp
+       LEFT JOIN LATERAL (
+         SELECT jsonb_agg(
+                  jsonb_build_object(
+                    'id', d.id,
+                    'name', d.original_name,
+                    'url', '/api/v1/sub-process-documents/' || d.id::text || '/download',
+                    'mimeType', d.mime_type,
+                    'createdAt', d.created_at
+                  )
+                  ORDER BY d.created_at ASC, d.id ASC
+                ) AS j
+         FROM operation_sub_process_documents d
+         WHERE d.sub_process_id = sp.id AND d.deleted_at IS NULL
+       ) doc ON TRUE
+       WHERE sp.operation_id = $1 AND sp.deleted_at IS NULL
+       ORDER BY COALESCE(sp.start_at, sp.occurred_at, sp.updated_at, sp.created_at) ASC NULLS LAST, sp.id ASC`,
       [operationId]
     ),
     pool.query(
@@ -555,6 +593,17 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
     const phase = r.phase;
     const key = r.sub_process_key;
     const sortTs = r.start_at || r.occurred_at || r.updated_at || r.created_at;
+    let documents = [];
+    const dj = r.documents_json;
+    if (dj != null && Array.isArray(dj)) {
+      documents = dj.map((x) => ({
+        id: x.id,
+        name: x.name ?? null,
+        url: x.url ?? null,
+        mimeType: x.mimeType ?? null,
+        createdAt: x.createdAt ?? null,
+      }));
+    }
     events.push({
       id: `sp-${r.id}`,
       source: 'sub_process',
@@ -568,6 +617,7 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
       startAt: r.start_at ?? r.occurred_at ?? null,
       endAt: r.end_at ?? null,
       sortAt: sortTs ? new Date(sortTs).toISOString() : new Date(r.created_at).toISOString(),
+      documents,
     });
   }
 
@@ -588,6 +638,7 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
         startAt: r.start_at ?? null,
         endAt: r.end_at ?? null,
         sortAt: sortTs ? new Date(sortTs).toISOString() : new Date(r.created_at).toISOString(),
+        documents: [],
       });
     } else {
       const sortTs = r.marked_at || r.created_at;
@@ -602,6 +653,7 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
         startAt: null,
         endAt: null,
         sortAt: sortTs ? new Date(sortTs).toISOString() : new Date(r.created_at).toISOString(),
+        documents: [],
       });
     }
   }

@@ -1,6 +1,16 @@
 import { useState, useCallback, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { fetchUsers, createUser, updateUserApi, deleteUser, fetchUserPorts, saveUserPorts } from '../api/usersApi'
+import {
+  fetchUsers,
+  createUser,
+  updateUserApi,
+  deleteUser,
+  fetchUserPorts,
+  saveUserPorts,
+  fetchAdminUserSsoStatus,
+  generateAdminUserSsoLink,
+  unlinkAdminUserSso,
+} from '../api/usersApi'
 import { fetchPorts } from '../api/ports'
 import { assignUserRole, fetchRoles, fetchUserRoles, removeUserRole } from '../api/rbac'
 import '../styles/allocation.css'
@@ -38,6 +48,8 @@ export default function AdminUsers() {
   const [formPortIds, setFormPortIds] = useState([])
   const [portSearch, setPortSearch] = useState('')
   const [modalErr, setModalErr] = useState(null)
+  const [ssoStatus, setSsoStatus] = useState(null)
+  const [ssoActionBusy, setSsoActionBusy] = useState(false)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null)
 
@@ -119,6 +131,7 @@ export default function AdminUsers() {
     setFormPortIds([])
     setPortSearch('')
     setModalErr(null)
+    setSsoStatus(null)
     setModalOpen(true)
   }, [])
 
@@ -134,12 +147,14 @@ export default function AdminUsers() {
     setFormPortIds(uniquePortIds(Array.isArray(user?.assignedPorts) ? user.assignedPorts.map((p) => p.id) : []))
     setPortSearch('')
     setModalErr(null)
+    setSsoStatus(null)
     setModalOpen(true)
 
     try {
-      const [assignedRoles, assignedPorts] = await Promise.all([
+      const [assignedRoles, assignedPorts, sso] = await Promise.all([
         fetchUserRoles(user.id),
         fetchUserPorts(user.id),
+        fetchAdminUserSsoStatus(user.id),
       ])
       const roleIds = (Array.isArray(assignedRoles) ? assignedRoles : []).map((r) => r.id)
       const portIds = uniquePortIds(
@@ -148,6 +163,7 @@ export default function AdminUsers() {
       setFormRoleIds(roleIds)
       setInitialRoleIds(roleIds)
       setFormPortIds(portIds)
+      setSsoStatus(sso || null)
     } catch (e) {
       setModalErr(e?.message || 'Failed to refresh user roles/ports, showing cached assignments')
     }
@@ -157,7 +173,45 @@ export default function AdminUsers() {
     setModalOpen(false)
     setEditingId(null)
     setModalErr(null)
+    setSsoStatus(null)
   }, [])
+
+  const handleGenerateSsoLink = useCallback(async () => {
+    if (!editingId) return
+    setSsoActionBusy(true)
+    try {
+      const data = await generateAdminUserSsoLink(editingId)
+      const url = data?.url || ''
+      if (url && navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url)
+        setToast({ kind: 'success', text: 'One-time SSO link generated and copied to clipboard.' })
+      } else if (url) {
+        window.prompt('Copy SSO link', url)
+      }
+      const refreshed = await fetchAdminUserSsoStatus(editingId)
+      setSsoStatus(refreshed || null)
+    } catch (e) {
+      setToast({ kind: 'error', text: e?.message || 'Failed to generate SSO link' })
+    } finally {
+      setSsoActionBusy(false)
+    }
+  }, [editingId])
+
+  const handleUnlinkSso = useCallback(async () => {
+    if (!editingId) return
+    if (!window.confirm('Unlink this user from SSO?')) return
+    setSsoActionBusy(true)
+    try {
+      await unlinkAdminUserSso(editingId, 'admin_user_modal')
+      const refreshed = await fetchAdminUserSsoStatus(editingId)
+      setSsoStatus(refreshed || null)
+      setToast({ kind: 'success', text: 'SSO link removed.' })
+    } catch (e) {
+      setToast({ kind: 'error', text: e?.message || 'Failed to unlink SSO' })
+    } finally {
+      setSsoActionBusy(false)
+    }
+  }, [editingId])
 
   const toggleRole = useCallback((roleId, checked) => {
     setFormRoleIds((prev) => {
@@ -423,6 +477,38 @@ export default function AdminUsers() {
                 <input type="checkbox" checked={formActive} onChange={(e) => setFormActive(e.target.checked)} />
                 Active
               </label>
+            </div>
+            <div className="modal__section">
+              <div className="modal__label">SSO Link</div>
+              {!editingId ? (
+                <p className="text-steel" style={{ marginTop: 6 }}>Save the user first to manage SSO linking.</p>
+              ) : (
+                <>
+                  <p className="text-steel" style={{ marginTop: 6 }}>
+                    Status:{' '}
+                    <strong>{ssoStatus?.linked ? 'Linked' : 'Not linked'}</strong>
+                    {ssoStatus?.subjectFingerprint ? ` (${ssoStatus.subjectFingerprint})` : ''}
+                  </p>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <button
+                      type="button"
+                      className="btn btn--secondary btn--small"
+                      onClick={handleGenerateSsoLink}
+                      disabled={ssoActionBusy}
+                    >
+                      Generate user link
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--secondary btn--small"
+                      onClick={handleUnlinkSso}
+                      disabled={ssoActionBusy || !ssoStatus?.linked}
+                    >
+                      Unlink
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
             <div className="modal__section">
               <div className="modal__label">Roles (multi-select)</div>

@@ -7,10 +7,12 @@ import 'express-async-errors';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
+import http from 'http';
 import { verifyConnection } from './db.js';
 import { UPLOAD_ROOT } from './paths.js';
 import authRoutes from './routes/auth.js';
 import hubSsoRoutes from './routes/hub-sso.js';
+import oidcSsoRoutes from './routes/oidc-sso.js';
 import userRoutes from './routes/users.js';
 import rbacRoutes from './routes/rbac.js';
 import portsRoutes from './routes/ports.js';
@@ -29,6 +31,7 @@ import operationSubProcessesRoutes from './routes/operation-sub-processes.js';
 import operationOperationalActivitiesRoutes from './routes/operation-operational-activities.js';
 import masterCargoHandlingMethodsRoutes from './routes/master-cargo-handling-methods.js';
 import jettyLayoutRoutes from './routes/jetty-layout.js';
+import adminSsoLinkingRoutes from './routes/admin-sso-linking.js';
 import { requireAuth } from './middleware/auth.js';
 import { requirePortScope } from './middleware/port-scope.js';
 import { csrfProtection } from './middleware/csrf.js';
@@ -54,6 +57,7 @@ app.use(cookieParser());
 app.use(express.json());
 /** Downstream Hub bridge: POST /auth/hub (urlencoded body); separate from /api/v1/auth/login */
 app.use('/auth', hubSsoRoutes);
+app.use('/auth', oidcSsoRoutes);
 app.use('/uploads', express.static(UPLOAD_ROOT));
 
 app.get('/health', (req, res) => {
@@ -73,6 +77,7 @@ apiV1.get('/ping', (req, res) => {
 apiV1.use('/auth', authRoutes);
 apiV1.use(csrfProtection);
 apiV1.use('/users', userRoutes);
+apiV1.use('/admin', adminSsoLinkingRoutes);
 apiV1.use('/rbac', rbacRoutes);
 apiV1.use('/ports', portsRoutes);
 apiV1.use('/jetties', jettiesRoutes);
@@ -130,8 +135,11 @@ async function start() {
     console.error('FATAL: Database connection failed:', err.message);
     process.exit(1);
   }
-  app.listen(PORT, () => {
-    console.log(`JPS API listening on http://localhost:${PORT}`);
+  let maxHeaderSize = Number(process.env.HTTP_MAX_HEADER_SIZE);
+  if (!Number.isFinite(maxHeaderSize) || maxHeaderSize < 8192) maxHeaderSize = 131072;
+  const server = http.createServer({ maxHeaderSize }, app);
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`JPS API listening on http://0.0.0.0:${PORT} (map host port in Docker)`);
   });
 }
 

@@ -1,4 +1,4 @@
-import { apiPost, setSelectedPortId } from './client.js'
+import { apiPost, getApiOrigin, setSelectedPortId } from './client.js'
 
 /** Clear legacy Bearer storage (pre-session-cookie builds). */
 export function clearLegacyToken() {
@@ -23,4 +23,8 @@ export async function logout() {
   }
   clearLegacyToken()
   setSelectedPortId(null)
+}
+
+export function getOidcStartUrl() {
+  return `${getApiOrigin()}/auth/oidc/start`
 }

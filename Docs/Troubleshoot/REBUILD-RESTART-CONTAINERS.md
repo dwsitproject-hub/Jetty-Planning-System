@@ -48,6 +48,12 @@ docker compose --env-file Backend/.env -f docker-compose.backend.yml ps
 Expected:
 
 - Health calls return JSON with `"status":"ok"`.
+
+**SSO / OIDC (iframe and Chrome errors)**
+
+If SSO fails with Chrome blocking `localhost:3000/auth/oidc/callback` from `chrome-error://chromewebdata/` or when Jetty is opened inside Hub in an iframe, see **Downstream Hub SSO** troubleshooting in [SSO-INTEGRATION-GUIDE.md](../Security/SSO-INTEGRATION-GUIDE.md) (section 8). Confirm `/health` above before retesting in a fresh tab.
+
+For **`ERR_CONNECTION_RESET`** on the callback (with or without the `chrome-error` console line), use the step-by-step guide: [OIDC-CALLBACK-ERR-CONNECTION-RESET.md](./OIDC-CALLBACK-ERR-CONNECTION-RESET.md) (includes `curl` to `/auth/oidc/ready` and `127.0.0.1` vs `localhost` on Windows Docker).
 - `ps` shows `jps-api` and `jps-db` **Up**.
 
 ---

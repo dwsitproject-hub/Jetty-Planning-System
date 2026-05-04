@@ -7,6 +7,8 @@ import crypto from 'crypto';
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import { pool } from '../db.js';
+import { logAuthEvent } from '../lib/auth-events.js';
+import { getOidcConfig } from '../lib/oidc-config.js';
 import { setSessionCookiesForUserId } from '../lib/session-cookies.js';
 
 const router = express.Router();
@@ -17,6 +19,7 @@ const JIT_PROVISION = String(process.env.HUB_SSO_JIT_PROVISION || '').toLowerCas
 const JIT_ROLE_NAME = (process.env.HUB_SSO_JIT_ROLE_NAME || '').trim();
 const JIT_PORTS = (process.env.HUB_SSO_JIT_ASSIGN_PORTS || 'first').toLowerCase();
 const PUBLIC_ORIGIN = (process.env.JPS_PUBLIC_ORIGIN || 'http://localhost:5173').replace(/\/$/, '');
+const { legacyBridgeEnabled } = getOidcConfig();
 
 function htmlEscape(s) {
   return String(s)
@@ -53,8 +56,8 @@ async function insertJitUser(email, payload) {
       const username = `hub_${localPart}${suffix}`;
       try {
         const ins = await client.query(
-          `INSERT INTO users (username, display_name, email, password_hash, is_active)
-           VALUES ($1, $2, $3, $4, TRUE)
+          `INSERT INTO users (username, display_name, email, password_hash, is_active, auth_source)
+           VALUES ($1, $2, $3, $4, TRUE, 'sso')
            RETURNING id`,
           [username, localPart, email, passwordHash]
         );
@@ -101,6 +104,10 @@ async function insertJitUser(email, payload) {
 
 router.post('/hub', urlencoded, async (req, res) => {
   try {
+    if (!legacyBridgeEnabled) {
+      return res.status(410).type('html')
+        .send(`<!DOCTYPE html><html><body><p>Legacy SSO bridge disabled. Use OIDC launch flow.</p></body></html>`);
+    }
     if (!SSO_SECRET) {
       return res.status(503).type('html')
         .send(`<!DOCTYPE html><html><body><p>SSO is not configured on this server.</p></body></html>`);
@@ -164,10 +171,10 @@ router.post('/hub', urlencoded, async (req, res) => {
 
     setSessionCookiesForUserId(res, userId);
     const target = `${PUBLIC_ORIGIN}/`;
-    console.info(`Hub SSO: session issued userId=${userId}`);
+    logAuthEvent('legacy-hub.callback.success', { userId, ip: req.ip });
     return res.redirect(302, target);
   } catch (err) {
-    console.error('Hub SSO error:', err.message);
+    logAuthEvent('legacy-hub.callback.failure', { reason: err.message, ip: req.ip });
     return res.status(500).type('html')
       .send(`<!DOCTYPE html><html><body><p>Sign-on failed. Try again from Downstream Hub.</p></body></html>`);
   }

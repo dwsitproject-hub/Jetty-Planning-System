@@ -3,7 +3,7 @@
 **Product:** Jetty Planning & Monitoring System (JPS)  
 **Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.34 (see document history at end).
+**Version:** 1.35 (see document history at end).
 
 ---
 
@@ -146,8 +146,10 @@ Technical contract (endpoints, columns, persistence order): **TECH-SPEC-Jetty-Pl
 | **Where** | Implemented on **Shipping Instructions**, **Allocation & Berthing**, and **At-Berth Executions** tables. |
 | **Scope rule** | Click target is SI in the table only; expanded **Full details** SI labels are not converted to modal triggers in this release. |
 | **Modal content** | Shared SI detail modal shows: SI No, Status, Source, Vessel, Purpose, Jetty, ETA From, ETA To, ETB, TB, ETC, Term, Voyage, Destination, Freight terms, Document date, B/L clause, B/L split, Consignee, Notify party, BL indicated, Shipper, Loading port, Surveyor, Agent, Note, Approver, Approval date, and Contract / PO breakdown. |
+| **At-berth process (summary)** | When the SI is linked to an **operation** (`operationId` present), the modal includes an **At-berth process** table (Pre-Checking / Operational / Post-Checking) with progress and state, loaded from the same hub-stage rules as the Loading/Unloading workspace. |
+| **Detailed executions log (nested)** | In that section, **View detailed executions log** opens a **second** modal on top with the **Detailed At-Berth Executions Log** (same table as the Loading/Unloading hub: `OperationActivityTimeline`, fed by `GET /operations/:id/activity-timeline`). Closing the inner modal (**Close**, overlay click, or **Escape**) returns the user to the **Operation Detail** modal without closing it; closing Operation Detail behaves as before. |
 | **Fallbacks** | Missing values render as **`—`**. |
-| **Close behavior** | Modal closes via **Close** action or overlay click. |
+| **Close behavior** | Parent modal closes via **Close** action or overlay click. |
 | **Localization** | Labels use Shipping Instruction translation keys (EN/ID) for consistent SI terminology. |
 
 ### 2.10 Jetty Operation ID (external operation reference)
@@ -157,6 +159,7 @@ Technical contract (endpoints, columns, persistence order): **TECH-SPEC-Jetty-Pl
 | **What** | Each **operation** receives a stable **Jetty Operation ID** when the operation database row is **first created** (including creation from **Log arrival update** when an approved SI had no operation yet, and from **`POST /operations`** when used). |
 | **Format** | **`LD`** or **`UN`** for Loading / Unloading, hyphen, two-digit **calendar year** and **month** (from **`operations.created_at`** in the configured site timezone), hyphen, then a **four-digit** running number within that month and type (example: `LD-26-04-0001`). |
 | **Where shown** | Main data tables on **Allocation & Berthing**, **At-Berth Executions**, and **Clearance** include a **Jetty Operation ID** column **immediately before** **SI / Shipping Instruction**. **Incoming SI-only** rows (no operation yet) show **`—`** in that column. |
+| **Hyperlink (where wired)** | Where **Jetty Operation ID** is rendered as a hyperlink (e.g. **Allocation**, **At-Berth Executions**, **Clearance** when the row has a **shipping instruction** id), it opens the same shared **Operation Detail** modal as the SI hyperlink (**§2.9**); the nested **Detailed At-Berth Executions Log** link applies whenever the loaded SI has an **operation**. |
 | **Full details** | **Allocation** and **At-Berth** expanded **Full details** list **Jetty Operation ID** before **Shipping Instruction** / SI where the row is operation-backed. |
 | **vs internal id** | Hub links, **`/operations/:id`…** routes, and uploads continue to use the **numeric internal** operation id. The Jetty Operation ID is **display and reporting** metadata (API JSON field **`jettyOperationCode`**). |
 
@@ -178,6 +181,21 @@ The browser enforces these limits on the relevant controls (HTML **`maxLength`**
 | **Shipping Instruction** | See TECH-SPEC **§0.18** table | Vessel / SI ref / voyage caps; destination; B/L block textareas; breakdown Contract / PO / **Remarks** column (50 each); SI **Note** (500); SI Approval **Approval comments** (500). |
 
 **Note:** Table **filter** inputs (Allocation, At-Berth, SI list, etc.) are not capped in this release. Backend validation of string lengths remains a recommended hardening step (TECH-SPEC **§0.18**).
+
+### 2.12 OIDC SSO integration (strict mode) — user-visible behavior
+
+This section documents implemented sign-in behavior for Downstream Hub OIDC integration and the local setup that proved stable during rollout.
+
+| Area | Behaviour |
+|------|-----------|
+| **SSO entry point** | Login page provides **Sign in with SSO**. The action starts Hub OIDC via backend **`GET /auth/oidc/start`**. |
+| **Top-window navigation** | SSO launch is forced to the top browsing context so embedded/iframe contexts do not trap redirects. |
+| **Callback** | Hub redirects to **`/auth/oidc/callback`**. Backend validates token/JWKS and establishes app session cookies, then redirects to app public origin. |
+| **Identity key** | Linked identity uses OIDC **`sub`** (stored as `users.oidc_sub`). App user id is not used as OIDC identity. |
+| **Account collision rule** | If SSO email matches an existing **local** account that is not linked (`oidc_sub` empty), sign-in is blocked with “account not linked” behavior (intentional anti-takeover guard). |
+| **Dual login intent** | A user can remain `auth_source='local'` and still use SSO when `oidc_sub` is linked on the same row. |
+| **Local host policy (current known-good)** | Use **`127.0.0.1` consistently** for frontend (`:5173`), API (`:3000`), and OIDC callback. Mixing `localhost` with `127.0.0.1` may break session/cookie continuity and can trigger callback transport errors in some Windows + Docker setups. |
+| **Direct login / SSO parity** | Once API base URL and callback host are aligned, direct username/password login and Hub SSO both resolve to the same authenticated shell behavior. |
 
 ---
 
@@ -304,7 +322,7 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | Shift-out route | `Backend/src/routes/operations.js` |
 | Demurrage Risk Calculator UI | `Frontend/src/pages/DemurrageRiskCalculator.jsx`, `Frontend/src/styles/demurrage-risk-calculator.css` |
 | SI candidates + port/sailed rules | `Backend/src/routes/shipping-instructions.js` — `GET /shipping-instructions/candidates` |
-| Shared SI detail modal (hyperlink trigger target) | `Frontend/src/components/SiDetailModal.jsx`, `Frontend/src/styles/si-detail-modal.css` |
+| Shared SI detail modal (hyperlink trigger target) | `Frontend/src/components/SiDetailModal.jsx`, `Frontend/src/styles/si-detail-modal.css`; nested **Detailed At-Berth Executions Log** via `OperationActivityTimeline.jsx` |
 | Save estimation of completion | `Frontend/src/api/operations.js` → `PUT /operations/:id/estimated-completion`; `Backend/src/routes/operations.js` |
 | DB — operations estimated completion | Migrations defining `operations.estimated_completion_time` (e.g. `Backend/migrations/004_shipping_operations_tables.sql` and related) |
 | Operation sign-off (request → approve) + Clearance pending queue | `Frontend/src/pages/Loading.jsx`, `Frontend/src/pages/Verification.jsx`, `Frontend/src/api/operations.js`; `Backend/src/routes/operations.js` (`POST .../signoff-request`, `POST .../signoff`, `GET .../pending-signoff-requests`); `Backend/migrations/049_operations_signoff_request.sql`; RBAC sub-row **Approve operation sign-off** — `Frontend/src/pages/AdminRoles.jsx`. Plan: **Docs/Plan/OPERATION-SIGNOFF-REQUEST-AND-APPROVAL-PLAN.md**. |
@@ -316,7 +334,7 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 
 - **Business-day** or **working-hours** tails (current default is **calendar** +3 days).
 - **Cast-off** in the **four-way matrix** for transit/TB-missing rows (matrix uses **actual completion field**; cast-off is used for alongside “both NULL” end).
-- **Configurable org timezone** (e.g. WIB): not implemented; times follow browser local formatting unless otherwise noted in TECH-SPEC.
+- **Single global “org timezone” knob:** not implemented. Instead, **read-only** timestamps use **`formatDateTimeDisplay`** (browser local wall clock), and **editable schedule fields** use the **browser IANA zone** for naive `datetime-local` ↔ API conversion (see **§10.1**). **`ports.schedule_timezone`** remains **port site metadata** (Master – Port, header reference), not the zone used to interpret typed schedule times in the SPA.
 - **AIS**, automated weather, and other items remain per main PRD / TECH-SPEC.
 
 ---
@@ -335,7 +353,7 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | **Action** | **Open** → `/{loading|unloading}/:vesselId` (purpose-based hub entry; API-backed rows may use `op-<operationId>` vessel id form). **Shifting Out** / **Undo Shift Out** → see **§2.5** (modal + required remark for shift-out; **Undo** clears shift-out without modal). |
 | **Removed from page** | Intro line (“Live data from GET…”) and **Refresh** button; list still loads on visit. |
 | **Layout** | Loading / Unloading summary groups use a **two-column** grid on wide screens so phase cards do not overlap. |
-| **Detailed executions log** | In the Loading/Unloading operation workspace, the **Detailed At-Berth Executions Log** lists operational milestones, operational activities, and Pre-/Post-Checking sub-process rows. **Start time**, **End time**, and **Duration** use the same formatting rules for **operational activities** and **sub-process** rows when the backend supplies a closed interval (`start_at` / `end_at` on sub-processes, or activity start/end). If only a single instant is recorded (no end), **End** and **Duration** show **—**. |
+| **Detailed executions log** | In the Loading/Unloading operation workspace, the **Detailed At-Berth Executions Log** lists operational milestones, operational activities, and Pre-/Post-Checking sub-process rows. The table shows **Phase**, **Title**, **Status**, **Remark**, **Documents** (links for files attached to that sub-process step; operational rows show **—** when there are no attachments), **Start time**, **End time**, **Duration**, and **Actions**. **Status** is the sub-process status for Pre/Post rows; for **Operational** activity rows it is derived from timestamps (**Done** when an end time exists, **In Progress** when only a start exists). **Remark** holds free text (and sub-process **skip** reason on a second line when present). **Start time**, **End time**, and **Duration** use the same formatting rules for **operational activities** and **sub-process** rows when the backend supplies a closed interval (`start_at` / `end_at` on sub-processes, or activity start/end). If only a single instant is recorded (no end), **End** and **Duration** show **—**. Document links open in a **new browser tab**; PDFs and other non-image types follow the same pattern so users keep the log visible (the browser may show the PDF inline in the new tab). |
 
 **Allocation — incoming & re-dock:** When an operation is shifted out, it appears under the **Incoming** plan status with a **Shifted** badge; **Re-dock** opens the same confirmation + remark pattern as shift-out. After re-dock, the voyage can appear again under **Berthed** when the existing rules say it is berthed.
 
@@ -419,12 +437,26 @@ Technical contract: **TECH-SPEC-Jetty-Planning-System.md §3.3** (routes, RBAC, 
 | **Legacy strings** | If old cached text still ends with **` LT`**, the helper **strips** that suffix when the value cannot be parsed as a date. |
 | **Not yet global** | Some screens may still use other formatters (`toLocaleString`, etc.); standardisation is to prefer the shared helper for new work (see TECH-SPEC). |
 
+### 10.1 Schedule entry: device browser timezone vs port metadata
+
+| Rule | Behaviour |
+|------|-----------|
+| **`datetime-local` inputs** | Values are interpreted in the **user’s browser IANA timezone** (see app shell **💻** and `getScheduleEntryTimeZone()` in **`scheduleDateTime.js`**), **not** in the port’s stored **`schedule_timezone`** (**⚓**). |
+| **API persistence** | The SPA sends **ISO 8601 instants** (typically UTC with **`Z`**) for schedule fields; the API stores **timestamptz** / UTC. |
+| **Collaboration across zones** | Another user sees the **same instant** in **their** local time when viewing or editing. |
+| **Port `schedule_timezone`** | Edited on **Master – Port** via a **searchable IANA list** with **UTC offset** in each option label; used as **site / reporting reference**, not for naive schedule encoding in the web client. |
+| **Header** | **⚓** = port site timezone (tooltip). **💻** = device timezone used for **schedule entry** (tooltip). One short muted line clarifies that schedule forms follow the device clock. |
+
+Cross-reference: **TECH-SPEC §0.20**, **`Backend/src/lib/schedule-instant.js`** (naive+port parsing retained only when the client omits zone information).
+
 ---
 
 ## 11. Document history
 
 | Version | Date | Notes |
 |---------|------|--------|
+| 1.36 | 2026-05-04 | **§10.1** Schedule entry uses **browser device IANA**; port **`schedule_timezone`** is metadata; Master – Port **searchable timezone** select; shell **⚓ / 💻** hints. Replaces the old “configurable org timezone” bullet in **§8**. TECH-SPEC **§0.20** + **§3.9** table. |
+| 1.35 | 2026-04-28 | Added **§2.12 OIDC SSO integration** (strict mode behavior, account-linking identity rules, and current local host consistency guidance for stable session/callback flow). |
 | 1.34 | 2026-04-24 | **§2.11** UI **maxLength** policy for remarks, post-check results, sampling fields, login, master data, admin roles, operational milestones, and cross-ref to Shipping Instruction / SI Approval limits; TECH-SPEC **§0.18** + `Frontend/src/constants/inputLimits.js`. |
 | 1.0 | 2026-03 | Initial: Gantt segments, end-date matrix, estimated completion in modals, `PUT /allocation/arrival`. |
 | 1.1 | 2026-03-24 | At-Berth Executions alignment with Allocation queue, table/columns/details, summary layout, date/time presentation rules, scope note. |
@@ -459,6 +491,8 @@ Technical contract: **TECH-SPEC-Jetty-Planning-System.md §3.3** (routes, RBAC, 
 | 1.31 | 2026-04-21 | Jetty Schedule tooltip now shows source context for derived bars: **Planned refs (ETB, ETA)** and **Actual refs (TB, TA)**; start label explicitly shows selected source (**from ETB/ETA/TB/TA**). Planned start fallback includes **ETA** when ETB is unavailable. |
 | 1.32 | 2026-04-21 | Legend simplification: removed **Arriving / allocated** and **Berthing** legend items; kept **Sailed off** status indicator. Gantt sailed classification now uses **status = SAILED OR actual completion OR cast-off** as source of truth. |
 | 1.33 | 2026-04-22 | **§2.10 Jetty Operation ID** (format, when assigned, UI column order on Allocation, At-Berth, Clearance); **§2.7** Allocation queue note; **§9** table + full-details order; **§9.2** Clearance table; TECH-SPEC **§0.17** (migration **056**, env `JETTY_OPERATION_CODE_TIMEZONE`). |
+| 1.34 | 2026-05-04 | **§9** Detailed At-Berth Executions Log: split **Status** / **Remark** / **Documents** columns; `GET /operations/:id/activity-timeline` includes `documents` for each sub-process event. TECH-SPEC **§3.4A.3**. |
+| 1.35 | 2026-05-04 | **§2.9** / **§2.10**: **Operation Detail** (`SiDetailModal`) **At-berth process** section adds **View detailed executions log** → nested modal with **Detailed At-Berth Executions Log**; close inner layer returns to Operation Detail. TECH-SPEC **§0.12**. |
 
 ---
 

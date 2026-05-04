@@ -1,6 +1,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { fetchActivityTimeline, deleteOperationalEntry, deleteSubProcess } from '../api/operations'
+import {
+  fetchActivityTimeline,
+  deleteOperationalEntry,
+  deleteSubProcess,
+  fetchSubProcessDocuments,
+} from '../api/operations'
+import { resolveUploadUrl } from '../api/client'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import {
   buildActivityLogEditPath,
@@ -56,6 +62,43 @@ function parseOperationalEntryId(ev) {
   return m ? parseInt(m[1], 10) : null
 }
 
+function timelineStatusDisplay(ev) {
+  if (ev.source === 'operational_milestone_na') return 'N/A'
+  if (ev.source === 'sub_process') {
+    const s = ev.status != null ? String(ev.status).trim() : ''
+    return s || '—'
+  }
+  if (ev.source === 'operational_activity') {
+    if (ev.endAt) return 'Done'
+    if (ev.startAt) return 'In Progress'
+    return '—'
+  }
+  return '—'
+}
+
+function timelineRemarkDisplay(ev) {
+  if (ev.source === 'operational_milestone_na') {
+    return ev.reason != null && String(ev.reason).trim() ? String(ev.reason).trim() : '—'
+  }
+  if (ev.source === 'operational_activity') {
+    const parts = [ev.subStepTitle, ev.cargoHandlingMethodName, ev.remark].filter((x) => x && String(x).trim())
+    return parts.length ? parts.join(' — ') : '—'
+  }
+  if (ev.source === 'sub_process') {
+    const parts = []
+    if (ev.remark != null && String(ev.remark).trim()) parts.push(String(ev.remark).trim())
+    if (ev.skipReason != null && String(ev.skipReason).trim()) parts.push(`Skip: ${String(ev.skipReason).trim()}`)
+    return parts.length ? parts.join('\n') : '—'
+  }
+  if (ev.remark != null && String(ev.remark).trim()) return String(ev.remark).trim()
+  return '—'
+}
+
+function timelineDocuments(ev) {
+  const list = Array.isArray(ev.documents) ? ev.documents : []
+  return list.filter((d) => d && (d.url || d.id))
+}
+
 /**
  * Unified Pre-Checking + Operational + Post-Checking timeline for one operation.
  */
@@ -89,7 +132,38 @@ export default function OperationActivityTimeline({
     setLoading(true)
     setError(null)
     fetchActivityTimeline(operationId)
-      .then((res) => setEvents(Array.isArray(res?.events) ? res.events : []))
+      .then(async (res) => {
+        let list = Array.isArray(res?.events) ? res.events : []
+        // Older API responses omitted `documents`; fill from the same source as Pre-Checking modals.
+        const needDocFill = list.filter(
+          (ev) => ev?.source === 'sub_process' && ev.subProcessKey && ev.phase && ev.documents === undefined
+        )
+        if (needDocFill.length > 0) {
+          const filled = await Promise.all(
+            needDocFill.map((ev) =>
+              fetchSubProcessDocuments(operationId, ev.subProcessKey, ev.phase)
+                .then((docs) => ({ id: ev.id, docs: Array.isArray(docs) ? docs : [] }))
+                .catch(() => ({ id: ev.id, docs: [] }))
+            )
+          )
+          const byEventId = new Map(filled.map((x) => [x.id, x.docs]))
+          list = list.map((ev) => {
+            if (!byEventId.has(ev.id)) return ev
+            const docs = byEventId.get(ev.id)
+            if (!docs.length) return { ...ev, documents: [] }
+            return {
+              ...ev,
+              documents: docs.map((d) => ({
+                id: d.id,
+                name: d.name,
+                url: d.url,
+                mimeType: d.mimeType ?? null,
+              })),
+            }
+          })
+        }
+        setEvents(list)
+      })
       .catch((e) => {
         setEvents([])
         setError(e?.message || 'Failed to load activity timeline')
@@ -183,7 +257,9 @@ export default function OperationActivityTimeline({
                 <tr>
                   <th>Phase</th>
                   <th>Title</th>
-                  <th>Detail</th>
+                  <th>Status</th>
+                  <th>Remark</th>
+                  <th>Documents</th>
                   <th className="operation-activity-timeline__time">Start time</th>
                   <th className="operation-activity-timeline__time">End time</th>
                   <th className="operation-activity-timeline__time">Duration</th>
@@ -196,21 +272,41 @@ export default function OperationActivityTimeline({
                   const editPath = buildActivityLogEditPath(ev, { vesselId, basePath })
                   const canDelete = activityLogRowCanDelete(ev)
                   const busy = deletingId === ev.id
+                  const rowDocs = timelineDocuments(ev)
                   return (
                     <tr key={ev.id}>
                       <td>{ev.phase || '—'}</td>
                       <td>{ev.title || '—'}</td>
-                      <td className="operation-activity-timeline__detail">
-                        {ev.source === 'operational_milestone_na' ? (
-                          <span>N/A: {ev.reason || '—'}</span>
-                        ) : ev.source === 'operational_activity' ? (
-                          <span>
-                            {[ev.subStepTitle, ev.cargoHandlingMethodName, ev.remark].filter(Boolean).join(' — ') || ev.remark || '—'}
-                          </span>
+                      <td className="operation-activity-timeline__status">{timelineStatusDisplay(ev)}</td>
+                      <td className="operation-activity-timeline__remark">{timelineRemarkDisplay(ev)}</td>
+                      <td className="operation-activity-timeline__documents">
+                        {rowDocs.length === 0 ? (
+                          <span className="text-steel">—</span>
                         ) : (
-                          <span>
-                            {[ev.status, ev.remark].filter(Boolean).join(' · ') || ev.remark || '—'}
-                          </span>
+                          <ul className="operation-activity-timeline__doc-list">
+                            {rowDocs.map((d) => {
+                              const href = resolveUploadUrl(d.url)
+                              const mime = d.mimeType != null ? String(d.mimeType) : ''
+                              const isImage = mime.startsWith('image/')
+                              return (
+                                <li key={d.id ?? `${ev.id}-${d.name}`}>
+                                  <a
+                                    href={href}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="operation-activity-timeline__doc-link"
+                                    title={
+                                      isImage
+                                        ? 'Open image in a new tab'
+                                        : 'Open file in a new tab (browser may show PDF inline)'
+                                    }
+                                  >
+                                    {d.name || `Document ${d.id}`}
+                                  </a>
+                                </li>
+                              )
+                            })}
+                          </ul>
                         )}
                       </td>
                       <td className="operation-activity-timeline__time">{start ? formatDateTimeDisplay(start) : '—'}</td>
@@ -256,6 +352,7 @@ export default function OperationActivityTimeline({
               const editPath = buildActivityLogEditPath(ev, { vesselId, basePath })
               const canDelete = activityLogRowCanDelete(ev)
               const busy = deletingId === ev.id
+              const rowDocs = timelineDocuments(ev)
               return (
                 <article key={`mobile-${ev.id}`} className="allocation-mobile-card">
                   <header className="allocation-mobile-card__header">
@@ -263,11 +360,40 @@ export default function OperationActivityTimeline({
                     <span className="text-steel">{ev.phase || '—'}</span>
                   </header>
                   <dl className="allocation-mobile-card__grid">
-                    <dt>Detail</dt>
+                    <dt>Status</dt>
+                    <dd>{timelineStatusDisplay(ev)}</dd>
+                    <dt>Remark</dt>
+                    <dd className="operation-activity-timeline__remark">{timelineRemarkDisplay(ev)}</dd>
+                    <dt>Documents</dt>
                     <dd>
-                      {ev.source === 'operational_milestone_na'
-                        ? `N/A: ${ev.reason || '—'}`
-                        : [ev.subStepTitle, ev.cargoHandlingMethodName, ev.status, ev.remark].filter(Boolean).join(' — ') || '—'}
+                      {rowDocs.length === 0 ? (
+                        '—'
+                      ) : (
+                        <ul className="operation-activity-timeline__doc-list">
+                          {rowDocs.map((d) => {
+                            const href = resolveUploadUrl(d.url)
+                            const mime = d.mimeType != null ? String(d.mimeType) : ''
+                            const isImage = mime.startsWith('image/')
+                            return (
+                              <li key={d.id ?? `${ev.id}-${d.name}`}>
+                                <a
+                                  href={href}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="operation-activity-timeline__doc-link"
+                                  title={
+                                    isImage
+                                      ? 'Open image in a new tab'
+                                      : 'Open file in a new tab (browser may show PDF inline)'
+                                  }
+                                >
+                                  {d.name || `Document ${d.id}`}
+                                </a>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
                     </dd>
                     <dt>Start</dt>
                     <dd>{start ? formatDateTimeDisplay(start) : '—'}</dd>

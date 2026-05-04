@@ -28,6 +28,8 @@
   "siDetailError": "Failed to load shipping instruction detail.",
   "siDetailNotFound": "Shipping instruction detail not found.",
   "operationSummaryPhasesTitle": "At-berth process",
+  "executionsLogLink": "View detailed executions log",
+  "executionsLogModalTitle": "Detailed At-Berth Executions Log",
   "operationSummaryPhaseCol": "Phase",
   "operationSummaryProgressCol": "Progress",
   "operationSummaryStateCol": "State",

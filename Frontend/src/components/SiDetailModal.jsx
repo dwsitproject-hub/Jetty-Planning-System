@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { fetchShippingInstruction } from '../api/shippingInstructions'
 import { fetchOperation } from '../api/operations'
@@ -8,6 +8,8 @@ import {
   mapOperationStatusToClearanceI18nKey,
   normalizeHubPurpose,
 } from '../utils/loadingHubProcessStagesFromApi'
+import { getScheduleEntryTimeZone } from '../utils/scheduleDateTime.js'
+import OperationActivityTimeline from './OperationActivityTimeline'
 import '../styles/modal.css'
 import '../styles/si-detail-modal.css'
 
@@ -74,6 +76,7 @@ function phaseStatusClass(countUnknown, done, total) {
 }
 
 export default function SiDetailModal({ isOpen, siId, onClose }) {
+  const scheduleEntryTz = getScheduleEntryTimeZone()
   const { t } = useTranslation('shippingInstruction')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -84,6 +87,30 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
   const [hubStages, setHubStages] = useState(null)
   const [apiOpSnapshot, setApiOpSnapshot] = useState(null)
   const [opFetchFailed, setOpFetchFailed] = useState(false)
+
+  const [executionsLogOpen, setExecutionsLogOpen] = useState(false)
+  const [activityLogRefresh, setActivityLogRefresh] = useState(0)
+
+  useEffect(() => {
+    setExecutionsLogOpen(false)
+  }, [isOpen, siId])
+
+  useEffect(() => {
+    if (!isOpen) return undefined
+    const onKeyDown = (e) => {
+      if (e.key !== 'Escape') return
+      if (executionsLogOpen) {
+        e.preventDefault()
+        setExecutionsLogOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isOpen, executionsLogOpen])
+
+  const bumpActivityLogRefresh = useCallback(() => {
+    setActivityLogRefresh((x) => x + 1)
+  }, [])
 
   useEffect(() => {
     if (!isOpen || !siId) return
@@ -139,6 +166,7 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
             operationNorTenderedAt: op?.norTenderedAt ?? null,
             operationNorAcceptedAt: op?.norAcceptedAt ?? null,
             operationDemurrageLiabilityFromAt: op?.demurrageLiabilityFromAt ?? null,
+            scheduleIana: scheduleEntryTz,
           })
           if (!cancelled) setHubStages(stages)
         } catch (e) {
@@ -160,7 +188,7 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
     return () => {
       cancelled = true
     }
-  }, [isOpen, row?.operationId, row?.purposeRaw, t])
+  }, [isOpen, row?.operationId, row?.purposeRaw, scheduleEntryTz, t])
 
   const detail = useMemo(() => normalizeSiDetail(row), [row])
 
@@ -184,9 +212,17 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
     return t('operationSummaryComplete', { done, total })
   }
 
+  const hubBasePath = useMemo(() => {
+    const p = normalizeHubPurpose(row?.purposeRaw ?? apiOpSnapshot?.purpose ?? '')
+    return p === 'Unloading' ? '/unloading' : '/loading'
+  }, [row?.purposeRaw, apiOpSnapshot?.purpose])
+
   if (!isOpen) return null
 
+  const hubVesselId = detail?.operationId != null ? `op-${detail.operationId}` : null
+
   return (
+    <>
     <div className="modal-overlay" onClick={onClose} aria-hidden="true">
       <div
         className="modal modal--wide si-detail-modal"
@@ -285,6 +321,18 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
                 <p className="text-steel si-detail-modal__muted">{t('operationSummaryNoOperation')}</p>
               )}
 
+              {detail.operationId ? (
+                <p className="si-detail-modal__executions-log-link-wrap">
+                  <button
+                    type="button"
+                    className="btn btn--small btn--ghost"
+                    onClick={() => setExecutionsLogOpen(true)}
+                  >
+                    {t('executionsLogLink')}
+                  </button>
+                </p>
+              ) : null}
+
               <h4 className="si-detail-modal__subhead si-detail-modal__subhead--spaced">{t('operationSummaryClearanceTitle')}</h4>
               {!detail.operationId ? (
                 <p className="text-steel si-detail-modal__muted">{t('operationSummaryNoOperation')}</p>
@@ -359,5 +407,41 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
         </div>
       </div>
     </div>
+
+    {executionsLogOpen && detail?.operationId != null ? (
+      <div
+        className="modal-overlay si-detail-modal__nested-overlay"
+        onClick={() => setExecutionsLogOpen(false)}
+        role="presentation"
+      >
+        <div
+          className="modal modal--wide si-detail-modal si-detail-modal--nested"
+          onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="si-detail-executions-log-title"
+        >
+          <h2 id="si-detail-executions-log-title" className="modal__title">
+            {t('executionsLogModalTitle')}
+          </h2>
+          <div className="si-detail-modal__nested-body">
+            <OperationActivityTimeline
+              operationId={detail.operationId}
+              refreshToken={activityLogRefresh}
+              vesselId={hubVesselId}
+              basePath={hubBasePath}
+              onActivityLogRefresh={bumpActivityLogRefresh}
+              className="si-detail-modal__timeline"
+            />
+          </div>
+          <div className="modal__footer">
+            <button type="button" className="btn btn--secondary" onClick={() => setExecutionsLogOpen(false)}>
+              {t('close')}
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null}
+    </>
   )
 }

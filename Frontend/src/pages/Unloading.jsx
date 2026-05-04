@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import {
   berths,
   vessels,
@@ -8,6 +8,8 @@ import {
 } from '../data/mockData'
 import '../styles/offloading.css'
 import { MAX_REMARK_CHARS } from '../constants/inputLimits'
+import { usePortScope } from '../context/PortScopeContext'
+import { getScheduleEntryTimeZone, naiveLocalToUtcIso, utcIsoToNaiveLocal } from '../utils/scheduleDateTime.js'
 
 const activeBerths = Array.isArray(berths) ? berths.filter((b) => b && b.currentVesselId) : []
 
@@ -80,22 +82,24 @@ function formatTimeShort(iso) {
   return `${day}/${month} ${hours}:${mins}`
 }
 
-/** For datetime-local input: ISO string -> YYYY-MM-DDTHH:mm */
-function toDateTimeLocal(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toISOString().slice(0, 16)
-}
-
-/** datetime-local value -> ISO string */
-function fromDateTimeLocal(value) {
-  if (!value) return new Date().toISOString()
-  const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString()
-}
-
 export default function Unloading() {
+  const { selectedPort } = usePortScope()
+  const scheduleEntryTz = getScheduleEntryTimeZone()
+  const toDateTimeLocal = useCallback(
+    (iso) => utcIsoToNaiveLocal(iso, scheduleEntryTz),
+    [scheduleEntryTz]
+  )
+  const fromDateTimeLocal = useCallback(
+    (value) => {
+      if (!value) return new Date().toISOString()
+      try {
+        return naiveLocalToUtcIso(value, scheduleEntryTz)
+      } catch {
+        return new Date().toISOString()
+      }
+    },
+    [scheduleEntryTz]
+  )
   const [selectedVesselId, setSelectedVesselId] = useState(activeBerths[0]?.currentVesselId ?? null)
   const [stage, setStage] = useState('A')
   const [docking, setDocking] = useState({ arrival: '2026-02-19T08:00', connection: '2026-02-19T09:30' })

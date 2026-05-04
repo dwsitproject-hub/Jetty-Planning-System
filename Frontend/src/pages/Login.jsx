@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { login } from '../api/auth'
+import { getOidcStartUrl, login } from '../api/auth'
 import { fetchMyPorts } from '../api/usersApi'
 import { getSelectedPortId } from '../api/client'
 import { useAuth } from '../context/AuthContext'
@@ -19,6 +19,15 @@ export default function Login() {
   const navigate = useNavigate()
   const { refreshMe } = useAuth()
   const { refresh: refreshRbac } = useRbac()
+
+  const handleSsoClick = () => {
+    const url = getOidcStartUrl()
+    try {
+      window.top.location.assign(url)
+    } catch {
+      window.location.assign(url)
+    }
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -84,6 +93,15 @@ export default function Login() {
           {busy ? t('signingIn') : t('signIn')}
         </button>
       </form>
+      <button
+        type="button"
+        className="btn guest-branded__submit"
+        style={{ marginTop: 8 }}
+        onClick={handleSsoClick}
+        disabled={busy}
+      >
+        Sign in with SSO
+      </button>
     </GuestBrandedShell>
   )
 }

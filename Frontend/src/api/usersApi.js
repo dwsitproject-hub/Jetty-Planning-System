@@ -39,6 +39,14 @@ export function fetchMyPorts() {
   return apiGet('/users/me/ports')
 }
 
+export function fetchMySsoStatus() {
+  return apiGet('/users/me/sso-status')
+}
+
+export function startMySsoConnect() {
+  return apiPost('/users/me/sso-connect/start', {})
+}
+
 export function fetchUserPorts(userId) {
   return apiGet(`/users/${userId}/ports`)
 }
@@ -46,5 +54,28 @@ export function fetchUserPorts(userId) {
 export function saveUserPorts(userId, portIds) {
   return apiPut(`/users/${userId}/ports`, {
     port_ids: Array.isArray(portIds) ? portIds : [],
+  })
+}
+
+export function fetchAdminUserSsoStatus(userId) {
+  return apiGet(`/admin/users/${userId}/sso-status`)
+}
+
+export function generateAdminUserSsoLink(userId) {
+  return apiPost(`/admin/users/${userId}/sso-link/start`, {})
+}
+
+export function unlinkAdminUserSso(userId, reason = '') {
+  return apiPost(`/admin/users/${userId}/sso-unlink`, { reason })
+}
+
+export function dryRunBulkSsoLink(rows) {
+  return apiPost('/admin/sso-link/bulk/dry-run', { rows: Array.isArray(rows) ? rows : [] })
+}
+
+export function executeBulkSsoLink(items, selectedRowIndexes) {
+  return apiPost('/admin/sso-link/bulk/jobs', {
+    items: Array.isArray(items) ? items : [],
+    selectedRowIndexes: Array.isArray(selectedRowIndexes) ? selectedRowIndexes : [],
   })
 }

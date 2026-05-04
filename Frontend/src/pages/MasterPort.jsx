@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { ping, getHealth, getApiOrigin } from '../api/client'
 import { fetchPorts, createPort, updatePortApi } from '../api/ports'
@@ -6,6 +6,9 @@ import { useActivityLog } from '../context/ActivityLogContext'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import { MAX_MASTER_DESCRIPTION_CHARS, MAX_MASTER_PORT_NAME_CHARS } from '../constants/inputLimits'
+import { DEFAULT_SCHEDULE_TIMEZONE } from '../utils/scheduleDateTime.js'
+import { getIanaTimeZoneOptions, mergeTimezoneOptionsWithOrphan } from '../utils/ianaTimeZoneOptions.js'
+import SearchableSingleSelect from '../components/SearchableSingleSelect.jsx'
 
 export default function MasterPort() {
   const { logActivity } = useActivityLog()
@@ -66,11 +69,13 @@ export default function MasterPort() {
   const [editingId, setEditingId] = useState(null)
   const [formName, setFormName] = useState('')
   const [formDescription, setFormDescription] = useState('')
+  const [formScheduleTimezone, setFormScheduleTimezone] = useState(DEFAULT_SCHEDULE_TIMEZONE)
 
   const openAdd = useCallback(() => {
     setEditingId(null)
     setFormName('')
     setFormDescription('')
+    setFormScheduleTimezone(DEFAULT_SCHEDULE_TIMEZONE)
     setModalOpen(true)
   }, [])
 
@@ -78,6 +83,7 @@ export default function MasterPort() {
     setEditingId(port.id)
     setFormName(port.name || '')
     setFormDescription(port.description ?? '')
+    setFormScheduleTimezone(port.scheduleTimezone || DEFAULT_SCHEDULE_TIMEZONE)
     setModalOpen(true)
   }, [])
 
@@ -86,6 +92,7 @@ export default function MasterPort() {
     setEditingId(null)
     setFormName('')
     setFormDescription('')
+    setFormScheduleTimezone(DEFAULT_SCHEDULE_TIMEZONE)
   }, [])
 
   const handleSubmit = useCallback(async () => {
@@ -98,12 +105,14 @@ export default function MasterPort() {
         await updatePortApi(editingId, {
           name,
           description: (formDescription || '').trim() || null,
+          scheduleTimezone: (formScheduleTimezone || '').trim() || DEFAULT_SCHEDULE_TIMEZONE,
         })
         logActivity({ pageKey: 'master-port', action: 'update', entityType: 'Port', entityLabel: name })
       } else {
         await createPort({
           name,
           description: (formDescription || '').trim() || null,
+          scheduleTimezone: (formScheduleTimezone || '').trim() || DEFAULT_SCHEDULE_TIMEZONE,
         })
         logActivity({ pageKey: 'master-port', action: 'add', entityType: 'Port', entityLabel: name })
       }
@@ -114,7 +123,12 @@ export default function MasterPort() {
     } finally {
       setSaving(false)
     }
-  }, [editingId, formName, formDescription, closeModal, logActivity, loadPorts])
+  }, [editingId, formName, formDescription, formScheduleTimezone, closeModal, logActivity, loadPorts])
+
+  const timezoneSelectOptions = useMemo(
+    () => mergeTimezoneOptionsWithOrphan(formScheduleTimezone, getIanaTimeZoneOptions()),
+    [formScheduleTimezone]
+  )
 
   const apiLine =
     slice0Status.health === 'ok' && slice0Status.ping === 'ok'
@@ -167,6 +181,7 @@ export default function MasterPort() {
               <thead>
                 <tr>
                   <th className="allocation-table__th">Port Name</th>
+                  <th className="allocation-table__th">Schedule TZ</th>
                   <th className="allocation-table__th">Description</th>
                   <th className="allocation-table__action-col">Actions</th>
                 </tr>
@@ -175,6 +190,7 @@ export default function MasterPort() {
                 {ports.map((p) => (
                   <tr key={p.id} className="allocation-table__row">
                     <td><strong>{p.name || '—'}</strong></td>
+                    <td className="text-steel">{p.scheduleTimezone || DEFAULT_SCHEDULE_TIMEZONE}</td>
                     <td>
                       {p.description
                         ? p.description.length > 60
@@ -219,6 +235,17 @@ export default function MasterPort() {
                 onChange={(e) => setFormName(e.target.value)}
                 maxLength={MAX_MASTER_PORT_NAME_CHARS}
                 placeholder="e.g. Bontang"
+              />
+            </div>
+            <div className="modal__section">
+              <SearchableSingleSelect
+                id="port-schedule-tz"
+                label="Schedule timezone (IANA)"
+                options={timezoneSelectOptions}
+                value={formScheduleTimezone}
+                onChange={setFormScheduleTimezone}
+                placeholder="Select timezone…"
+                disabled={saving}
               />
             </div>
             <div className="modal__section">

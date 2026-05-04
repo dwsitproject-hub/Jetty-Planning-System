@@ -13,6 +13,7 @@ import { assignJettyOperationCode } from '../lib/jetty-operation-code.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { userHasPageEdit } from '../middleware/permissions.js';
 import { JETTY_OUT_OF_SERVICE } from '../lib/jetty-blocking.js';
+import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
 
 const router = express.Router();
 const SCHEDULE_SAILED_LOOKBACK_DAYS = 90;
@@ -553,11 +554,12 @@ router.put('/arrival', async (req, res) => {
     );
     const opBefore = opBeforeRes.rows[0] ?? null;
 
+    const scheduleTz = await loadOperationScheduleTimezone(client, opRow.id);
+
     const parseTs = (v) => {
       if (!v) return null;
-      const d = new Date(v);
-      if (Number.isNaN(d.getTime())) return null;
-      return d.toISOString();
+      const out = parseScheduleInstantToIso(v, scheduleTz);
+      return out === undefined ? null : out;
     };
 
     const colToIso = (v) => {

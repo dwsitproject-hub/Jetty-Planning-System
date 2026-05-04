@@ -4,14 +4,18 @@ const NO_PORT_MESSAGE = 'No port assigned, please contact Jetty Planning System 
 
 export async function loadUserAssignedPorts(userId) {
   const result = await pool.query(
-    `SELECT p.id, p.name
+    `SELECT p.id, p.name, p.schedule_timezone
      FROM user_ports up
      JOIN ports p ON p.id = up.port_id AND p.deleted_at IS NULL
      WHERE up.user_id = $1 AND up.deleted_at IS NULL
      ORDER BY p.name ASC, p.id ASC`,
     [userId]
   );
-  return result.rows.map((r) => ({ id: Number(r.id), name: r.name }));
+  return result.rows.map((r) => ({
+    id: Number(r.id),
+    name: r.name,
+    scheduleTimezone: r.schedule_timezone ?? 'Asia/Jakarta',
+  }));
 }
 
 /**

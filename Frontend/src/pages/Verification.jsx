@@ -3,6 +3,12 @@ import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { fetchOperations, fetchPendingSignoffRequests, depart, uploadOperationDocuments, signoff, fetchActivityTimeline } from '../api/operations'
 import { useRbac } from '../context/RbacContext'
+import {
+  getScheduleEntryTimeZone,
+  normalizeForApi,
+  nowToNaiveLocalInScheduleZone,
+  utcIsoToNaiveLocal,
+} from '../utils/scheduleDateTime.js'
 import { resolveUploadUrl } from '../api/client'
 import SiDetailModal from '../components/SiDetailModal'
 import SiDocumentModal from '../components/SiDocumentModal'
@@ -23,20 +29,6 @@ const CLEARANCE_COLUMNS = [
   ), getSortValue: (r) => (r.purpose || '').toLowerCase() },
   { key: 'status', label: 'Status', getValue: (r) => r.status || '—', getSortValue: (r) => (r.status || '').toLowerCase() },
 ]
-
-function toLocalDatetimeValue(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function parseLocalTime(local) {
-  if (!local || !local.trim()) return null
-  const d = new Date(local)
-  return Number.isNaN(d.getTime()) ? null : d
-}
 
 function formatDateTime(iso) {
   if (!iso) return '—'
@@ -61,6 +53,24 @@ function latestTimelineInstant(events) {
 }
 
 export default function Verification() {
+  const scheduleEntryTz = getScheduleEntryTimeZone()
+  const toLocalDatetimeValue = useCallback(
+    (iso) => utcIsoToNaiveLocal(iso, scheduleEntryTz),
+    [scheduleEntryTz]
+  )
+  const parseLocalTime = useCallback(
+    (local) => {
+      if (!local || !local.trim()) return null
+      try {
+        const iso = normalizeForApi(local.trim(), scheduleEntryTz)
+        const d = new Date(iso)
+        return Number.isNaN(d.getTime()) ? null : d
+      } catch {
+        return null
+      }
+    },
+    [scheduleEntryTz]
+  )
   const { t } = useTranslation('pages')
   const { canApprove } = useRbac()
   const canApproveLoading = canApprove('loading')
@@ -211,17 +221,20 @@ export default function Verification() {
       : String(vb).localeCompare(String(va), undefined, { numeric: true })
   })
 
-  const openModal = useCallback((op) => {
-    setSubmitErr(null)
-    setModalOpId(op.operationId)
-    if (op.apiStatus === 'SAILED') {
-      setFormCastOff(toLocalDatetimeValue(op.castOffAt))
-    } else {
-      setFormCastOff(toLocalDatetimeValue(new Date().toISOString()))
-    }
-    setFormDocuments([])
-    setFormVesselPhotos([])
-  }, [])
+  const openModal = useCallback(
+    (op) => {
+      setSubmitErr(null)
+      setModalOpId(op.operationId)
+      if (op.apiStatus === 'SAILED') {
+        setFormCastOff(toLocalDatetimeValue(op.castOffAt))
+      } else {
+        setFormCastOff(nowToNaiveLocalInScheduleZone(scheduleEntryTz))
+      }
+      setFormDocuments([])
+      setFormVesselPhotos([])
+    },
+    [scheduleEntryTz, toLocalDatetimeValue]
+  )
 
   const closeModal = useCallback(() => {
     setModalOpId(null)
@@ -275,11 +288,17 @@ export default function Verification() {
     setFormVesselPhotos((prev) => [...prev, ...newOnes])
   }
 
-  const toIso = (local) => {
-    if (!local || !local.trim()) return new Date().toISOString()
-    const d = new Date(local)
-    return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString()
-  }
+  const toIso = useCallback(
+    (local) => {
+      if (!local || !local.trim()) return new Date().toISOString()
+      try {
+        return normalizeForApi(local.trim(), scheduleEntryTz)
+      } catch {
+        return new Date().toISOString()
+      }
+    },
+    [scheduleEntryTz]
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -297,7 +316,7 @@ export default function Verification() {
     return () => { cancelled = true }
   }, [modalOpId, timelineMaxAtByOpId])
 
-  const validateDepartForm = () => {
+  const validateDepartForm = useCallback(() => {
     const cast = parseLocalTime(formCastOff)
     if (!cast) return 'CAST Off time is required and must be valid.'
     if (modalOpId) {
@@ -310,7 +329,7 @@ export default function Verification() {
       }
     }
     return null
-  }
+  }, [formCastOff, modalOpId, timelineMaxAtByOpId, parseLocalTime])
 
   const handleSubmit = async () => {
     if (!modalOpId) return

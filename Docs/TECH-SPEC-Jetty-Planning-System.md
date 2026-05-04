@@ -1,7 +1,7 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.28
-**Last Updated**: 2026-04-24  
+**Version**: 1.29
+**Last Updated**: 2026-04-28  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
@@ -95,6 +95,82 @@ This change is presentation-only for schedule explainability; API contracts rema
 | `MAX_MILESTONE_SUBSTEP_TITLE_CHARS` / `MAX_MILESTONE_REASON_CHARS` | 100 / 500 | Operational milestone composer |
 | `MAX_SI_*` (see module) | varies | Shipping Instruction form + breakdown row short fields |
 | `MAX_SI_APPROVAL_COMMENTS_CHARS` | 500 | SI Approval **Approval comments** |
+
+### 0.19 OIDC strict integration hardening + local host consistency (2026-04-28)
+
+This addendum captures the implemented OIDC integration behavior and rollout learnings from local stabilization.
+
+**Backend integration (`Backend/src/routes/oidc-sso.js` + libs):**
+
+- OIDC routes mounted under **`/auth`**:
+  - `GET /auth/oidc/start`
+  - `GET /auth/oidc/callback`
+  - `GET /auth/oidc/ready` (plain readiness probe for auth route reachability)
+- Start flow:
+  - builds authorization URL from discovery metadata (`oidc-client.js`)
+  - sets short-lived signed flow cookie (`jps_oidc_flow`)
+  - uses PKCE (`code_challenge` / verifier)
+- Callback flow:
+  - validates token via JWKS (`jose`)
+  - resolves user by `oidc_sub` (`claims.sub`)
+  - optional fallback path for provider variants that return callback `code_verifier` in query when enabled by env:
+    - `OIDC_ALLOW_QUERY_CODE_VERIFIER=true`
+- Account collision guard:
+  - if no `oidc_sub` match and local account exists for the same email, returns guarded failure (`email_collision_local_account`) instead of silent takeover.
+
+**Browser/frame hardening:**
+
+- SSO start behavior includes top-window promotion path for browser HTML requests to reduce iframe redirect traps.
+- Callback includes iframe breakout handling for browser iframe destinations (`Sec-Fetch-Dest: iframe`) by returning minimal HTML that promotes to `window.top` with same callback URL.
+
+**Transport hardening (`Backend/src/index.js`):**
+
+- API server uses explicit `http.createServer(...)` with configurable max header size:
+  - env: `HTTP_MAX_HEADER_SIZE` (default 131072 bytes)
+- server listens on `0.0.0.0` in container runtime for consistent Docker host publishing.
+
+**Frontend/client alignment:**
+
+- Login SSO launch uses top-window navigation (`window.top.location.assign`).
+- Vite local API base should be set in `Frontend/.env`:
+  - `VITE_API_BASE_URL=http://127.0.0.1:3000/api/v1`
+
+**Local host consistency (critical):**
+
+- Use a single host identity across SPA/API/callback in local:
+  - preferred known-good: `127.0.0.1`
+- Avoid mixing `localhost` and `127.0.0.1` in one auth session; mixed hostnames can break cookie/session continuity and produce misleading RBAC/Forbidden symptoms despite successful callback.
+
+**Known-good local OIDC env profile:**
+
+- `OIDC_REDIRECT_URI=http://127.0.0.1:3000/auth/oidc/callback`
+- `JPS_PUBLIC_ORIGIN=http://127.0.0.1:5173`
+- `CORS_ORIGIN=http://127.0.0.1:5173,http://localhost:5173`
+- `COOKIE_SECURE=false` (HTTP local)
+- `SSO_OIDC_ENABLED=true`
+
+### 0.20 Schedule entry timezone (device IANA) + Master Port timezone picker (2026-05-04)
+
+**Frontend — naive `datetime-local` ↔ API:**
+
+- **`Frontend/src/utils/scheduleDateTime.js`**: **`getScheduleEntryTimeZone()`** (alias of **`getClientIanaTimeZone()`**) is the zone passed into **`naiveLocalToUtcIso`**, **`utcIsoToNaiveLocal`**, **`normalizeForApi`**, **`normalizeForApiOrEmpty`**, and **`nowToNaiveLocalInScheduleZone`** for operational schedule UIs (Allocation, Loading, Unloading, Verification, operational activities/sub-processes via **`Frontend/src/api/operations.js`** defaults, **`OperationalMilestoneWorkspace`**, **`SiDetailModal`** hub loader, **`loadingHubProcessStagesFromApi.js`**).
+- The SPA should POST/PUT **ISO strings with `Z` or numeric offset** for schedule instants so the backend does not need to guess.
+
+**Frontend — Master – Port:**
+
+- **`Frontend/src/utils/ianaTimeZoneOptions.js`**: builds sorted **`Intl.supportedValuesOf('timeZone')`** options with **Luxon** offset labels.
+- **`Frontend/src/components/SearchableSingleSelect.jsx`**: searchable single-select; dropdown panel is **`createPortal`**’d to **`document.body`** with **`z-index: 1100`** so **`modal` `overflow: auto`** does not clip it.
+- **`Frontend/src/pages/MasterPort.jsx`**: port **`schedule_timezone`** is chosen from that list (orphan row if DB value is non-standard).
+
+**Shell — `Layout.jsx`:**
+
+- Shows **⚓** port IANA and **💻** device IANA with tooltips; muted subtitle: schedule entry follows the device clock.
+
+**Backend — parsing (`Backend/src/lib/schedule-instant.js`):**
+
+- **`parseScheduleInstantToIso`**: if the client sends a **naive** `YYYY-MM-DDTHH:mm` (no zone), it is interpreted in **`scheduleIana` from the operation’s port** (legacy / non-web). If the string includes **`Z`** or a **numeric offset**, **`new Date(v).toISOString()`** is used and port zone is **not** applied to that token.
+
+**See also:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §10.1**.
 
 ### 0.4 Dev reset + seed (transactional data only)
 
@@ -348,10 +424,12 @@ After the **root four-folder reorg**, ownership is explicit; root remains a thin
   - `Frontend/src/pages/ShippingInstruction.jsx` (`siNo` table column)
   - `Frontend/src/pages/Allocation.jsx` (`shippingInstruction` table column)
   - `Frontend/src/pages/AtBerthExecutions.jsx` (`shippingInstruction` table column)
+  - `Frontend/src/pages/Verification.jsx` (**Clearance** — **Jetty Operation ID** column opens the same modal when hyperlinked to the SI id, consistent with other pages)
 - Scope:
   - Table SI values only (expanded detail blocks are not modal triggers in this release).
 - Localization:
   - Modal labels/chrome use `shippingInstruction` i18n namespace (EN/ID keys, including modal title/loading/error/close text).
+- **Nested executions log (2026-05-04):** When the loaded SI has **`operationId`**, the modal’s **At-berth process** block includes a control that opens a **second** full-screen overlay (higher `z-index` than the default `.modal-overlay`, see `.si-detail-modal__nested-overlay` in `si-detail-modal.css`). The inner dialog embeds **`Frontend/src/components/OperationActivityTimeline.jsx`** with `operationId`, `vesselId` = `op-{operationId}`, and `basePath` = `/loading` or `/unloading` from **`normalizeHubPurpose`** (SI purpose or `fetchOperation` snapshot) so **Edit** deep-links match the hub. Inner close / backdrop / **Escape** dismiss only the nested layer; parent **Operation Detail** stays open. Timeline refresh uses the component’s `refreshToken` / `onActivityLogRefresh` pattern.
 
 ---
 
@@ -369,7 +447,7 @@ After the **root four-folder reorg**, ownership is explicit; root remains a thin
 
 Each environment uses a separate `.env` (or `.env.*`) to configure:
 - **Frontend (`Frontend/.env` for local Vite; build-time `VITE_*` in Docker via compose args):** `VITE_API_BASE_URL` (must match API host + `/api/v1`). Root **`npm run dev`** is a thin wrapper — see **§0.11**.
-- **Backend:** `DATABASE_URL` / `DB_*`, `JWT_SECRET`, **`JWT_EXPIRES_IN`** (session cookie lifetime; default **8h**), `CORS_ORIGIN` (must include SPA origin), optional **`AUTH_RETURN_TOKEN_BODY`**, **`AUTH_LOGIN_MAX_ATTEMPTS`**, **`TRUST_PROXY`** (see **§0.10**).
+- **Backend:** `DATABASE_URL` / `DB_*`, `JWT_SECRET`, **`JWT_EXPIRES_IN`** (session cookie lifetime; default **8h**), `CORS_ORIGIN` (must include SPA origin), optional **`AUTH_RETURN_TOKEN_BODY`**, **`AUTH_LOGIN_MAX_ATTEMPTS`**, **`TRUST_PROXY`**, and strict OIDC controls (`OIDC_ISSUER`, `OIDC_DISCOVERY_URL`, `OIDC_CLIENT_ID`, `OIDC_REDIRECT_URI`, `OIDC_SCOPES`, `SSO_OIDC_ENABLED`, `SSO_LEGACY_BRIDGE_ENABLED`) (see **§0.10**).
 - External integrations: `EXIM_API_URL`, `GOOGLE_WEATHER_API_KEY`, etc.
 
 ---
@@ -624,6 +702,9 @@ All endpoints under `/api/v1`.
 
 - `POST /auth/login` – login; returns **user** in JSON; **session cookies** **`jps_at`** + **`jps_xsrf`** (**§0.10**); rate-limited. Optional JSON **`token`** if **`AUTH_RETURN_TOKEN_BODY=true`**.
 - `POST /auth/logout` – clears session cookies (**204**).
+- `GET /auth/oidc/start` – initiates strict OIDC code flow + PKCE (Hub provider).
+- `GET /auth/oidc/callback` – OIDC callback; validates token/JWKS; sets session cookies; redirects to public origin.
+- `GET /auth/oidc/ready` – plain readiness probe for OIDC auth route reachability.
 - `GET /users/me` – current user profile (session cookie or Bearer); same for effective permissions context elsewhere.
 - `GET /users`, `GET /users/:id`, `POST /users`, `PUT /users/:id`, `DELETE /users/:id` (soft) – authentication required; cannot delete self.
 - **RBAC:** base path `/rbac` — `GET/POST /rbac/roles`, `GET/PUT/DELETE /rbac/roles/:id` (system roles not deletable); `GET/POST/DELETE /rbac/roles/:roleId/permissions[/:permissionId]`; `GET/POST/PUT/DELETE /rbac/permissions[/:id]`; `GET/POST/DELETE /rbac/users/:userId/roles[/:roleId]`.
@@ -744,7 +825,7 @@ This subsection describes the **implemented** hybrid persistence for Pre-Checkin
 - Generalized sub-process:
   - `GET /operations/:id/sub-processes?phase=Pre-Checking`
   - `PUT /operations/:id/sub-processes/:subProcessKey` (upsert semantics)
-- **Activity timeline (merged log):** `GET /operations/:id/activity-timeline` (`Backend/src/routes/operation-operational-activities.js`) returns a sorted list of events for the **Detailed At-Berth Executions Log**. Sub-process events use `source: 'sub_process'` with `startAt` = `start_at ?? occurred_at`, `endAt` = `end_at`, and `occurredAt` for sorting/legacy; the frontend maps these to **Start**, **End**, and **Duration** the same way as operational activity rows when both interval ends are present.
+- **Activity timeline (merged log):** `GET /operations/:id/activity-timeline` (`Backend/src/routes/operation-operational-activities.js`) returns a sorted list of events for the **Detailed At-Berth Executions Log**. Sub-process events use `source: 'sub_process'` with `startAt` = `start_at ?? occurred_at`, `endAt` = `end_at`, and `occurredAt` for sorting/legacy; the frontend maps these to **Start**, **End**, and **Duration** the same way as operational activity rows when both interval ends are present. Each event includes **`status`** (sub-process row status), **`remark`**, and **`documents`**: for `sub_process`, `documents` is an ordered array of `{ id, name, url, mimeType, createdAt }` (same download path as `GET .../sub-processes/:key/documents`), populated in the same SQL read as the sub-process row via `LEFT JOIN LATERAL` + `jsonb_agg` so document rows always match the correct `operation_sub_processes.id`; for operational rows `documents` is `[]`. If a legacy server omits `documents` on sub-process events, the SPA may backfill via `GET .../sub-processes/:key/documents` per row. The **Detailed At-Berth Executions Log** table (`Frontend/src/components/OperationActivityTimeline.jsx`) shows **Status**, **Remark**, and **Documents** as separate columns; document links use `target="_blank"` and `rel="noopener noreferrer"` (images and PDFs open in a new tab; PDFs typically use the browser’s built-in viewer when `Content-Disposition` allows inline display).
 - Sub-process documents:
   - `GET /operations/:id/sub-processes/:subProcessKey/documents`
   - `POST /operations/:id/sub-processes/:subProcessKey/documents`
@@ -987,6 +1068,8 @@ Backward compatibility note:
 |--------|--------|-----------|
 | `formatDateTimeDisplay` | `Frontend/src/utils/formatDateTimeDisplay.js` | Parses ISO / timestamps / `datetime-local`-like prefixes → **`dd/mm HH:mm`** in **browser local** time. If unparseable, returns string with trailing **` LT`** removed (legacy API text). Empty → `—`. |
 | `stripLegacyDatetimeLt` | same | Removes trailing **` LT`** (case-insensitive) only. |
+| `getClientIanaTimeZone` / `getScheduleEntryTimeZone` | `Frontend/src/utils/scheduleDateTime.js` | Resolved **browser IANA** zone (`Intl`). **`getScheduleEntryTimeZone`** is the zone used when converting **naive** `datetime-local` values to/from API ISO for schedule fields (see **§0.20**). |
+| `normalizeForApi` / `normalizeForApiOrEmpty` | same | Normalises schedule strings for PUT/POST: zoned/UTC ISO passes through; naive `YYYY-MM-DDTHH:mm` is interpreted in the **second-arg IANA zone** (callers pass **`getScheduleEntryTimeZone()`** for operational schedules). |
 
 **Current import sites:** `Allocation.jsx`, `AtBerthExecutions.jsx`, `Loading.jsx`, `VesselReport.jsx`, `DailyActivitiesReport.jsx`. Prefer this module for new UI datetime display.
 
