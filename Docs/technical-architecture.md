@@ -251,9 +251,9 @@ All endpoints under **`/api/v1`**.
 - `PUT /operations/:operationId/operational-activities/:entryId`
 - `DELETE /operations/:operationId/operational-activities/:entryId`
 
-**Unified activity timeline** (used by “Activity log (Pre-Checking · Operational · Post-Checking)”):
+**Unified activity timeline** (used by the **Detailed At-Berth Executions Log** on Loading/Unloading and related guards):
 
-- `GET /operations/:operationId/activity-timeline`
+- `GET /operations/:operationId/activity-timeline` — merged Pre/Post sub-process rows and operational rows; sub-process events include a **`documents`** array (links resolve to `GET /api/v1/sub-process-documents/:id/download`).
 
 ### 6.3.2 Operational step redesign (latest)
 

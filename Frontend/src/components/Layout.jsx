@@ -6,6 +6,7 @@ import LanguageSwitch from './LanguageSwitch'
 import { useRbac } from '../context/RbacContext'
 import { useAuth } from '../context/AuthContext'
 import { usePortScope } from '../context/PortScopeContext'
+import { getClientIanaTimeZone } from '../utils/scheduleDateTime.js'
 
 const navStructure = [
   { path: '/', labelKey: 'dashboard', icon: '📊' },
@@ -189,6 +190,37 @@ export default function Layout({ children }) {
           )}
           {me && !portScopeBypassed && assignedPorts.length === 1 && selectedPort && (
             <span className="topbar__greeting">{tCommon('portLabel', { name: selectedPort.name })}</span>
+          )}
+          {me && !portScopeBypassed && selectedPort && (
+            <div className="topbar__tz-stack">
+              <span
+                className="topbar__greeting text-steel"
+                style={{
+                  fontSize: '0.85rem',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  maxWidth: '100%',
+                }}
+              >
+                <span
+                  className="topbar__tz-seg"
+                  title="Port Timezone — site reference for this port (not used for typed schedule entry)."
+                >
+                  ⚓ {selectedPort.scheduleTimezone ?? 'Asia/Jakarta'}
+                </span>
+                <span className="text-steel" aria-hidden>
+                  {' '}
+                  ·{' '}
+                </span>
+                <span
+                  className="topbar__tz-seg"
+                  title="Your / Browser Timezone — schedule date/times you enter are saved using this zone."
+                >
+                  💻 {getClientIanaTimeZone()}
+                </span>
+              </span>
+            </div>
           )}
           <LanguageSwitch />
           <span className="topbar__greeting">

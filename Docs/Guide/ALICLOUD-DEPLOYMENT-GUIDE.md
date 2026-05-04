@@ -409,6 +409,15 @@ JWT\\\\\\\_SECRET=CHANGE\\\\\\\_ME\\\\\\\_STRONG\\\\\\\_JWT\\\\\\\_SECRET
 
 # Origin of the SPA as seen by the browser (must match JPS\\\\\\\_FE\\\\\\\_PORT on app server)
 CORS\\\\\\\_ORIGIN=http://<APP\\\\\\\_PUBLIC\\\\\\\_IP\\\\\\\_OR\\\\\\\_DOMAIN>:3080
+
+# Strict OIDC SSO (keep disabled until staging verification is complete)
+OIDC_ISSUER=https://<HUB_HOST>
+OIDC_DISCOVERY_URL=https://<HUB_HOST>/api/sso/.well-known/openid-configuration
+OIDC_CLIENT_ID=<REGISTERED_APP_CLIENT_ID>
+OIDC_REDIRECT_URI=https://<APP_PUBLIC_DOMAIN_OR_IP>/auth/oidc/callback
+OIDC_SCOPES=openid profile email
+SSO_OIDC_ENABLED=false
+SSO_LEGACY_BRIDGE_ENABLED=true
 ```
 
 ```bash
@@ -416,6 +425,8 @@ chmod 600 Backend/.env
 ```
 
 If you already have secrets in a **root** `.env` from an older layout, either move those keys into **`Backend/.env`** or run Compose with `--env-file` pointing at your file; interpolation only reads the env file you pass (or the default **root** `.env` if you omit `--env-file`).
+
+OIDC prerequisite: register the exact callback URI from `OIDC_REDIRECT_URI` in Hub application settings (`sso_mode=oidc`, `oauth_client_id`, redirect URI allowlist) before setting `SSO_OIDC_ENABLED=true`.
 
 ### 5.2 Start API + database
 

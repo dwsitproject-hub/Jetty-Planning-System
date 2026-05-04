@@ -134,6 +134,17 @@
   color: var(--color-text-steel);
 }
 
+.topbar__tz-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  max-width: 280px;
+}
+
+.topbar__tz-seg {
+  cursor: help;
+}
+
 .topbar__logout {
   display: inline-flex;
   align-items: center;

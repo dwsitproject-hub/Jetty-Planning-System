@@ -19,6 +19,7 @@ import { validateMulterFileList } from '../lib/upload-mime.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { promoteInProgressToPostOpsIfInProgress } from '../lib/operation-auto-status.js';
+import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
 
 const POST_CHECK_AUTO_KEYS = new Set([
   'final_inspection',
@@ -68,12 +69,11 @@ function normalizeLegacySubProcessKey(phase, rawKey) {
   return k;
 }
 
-function parseTs(v) {
+function parseTs(v, scheduleTz) {
   if (v === undefined) return undefined;
   if (v === null || v === '') return null;
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return undefined;
-  return d.toISOString();
+  const out = parseScheduleInstantToIso(v, scheduleTz);
+  return out === undefined ? undefined : out;
 }
 
 /** Non-empty body field must parse; otherwise we risk merging bad data and hitting DB check. */
@@ -173,9 +173,10 @@ async function loadSubProcess(operationId, phase, key) {
 
 async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
   const key = cleanKey(subProcessKey);
-  const occurredAt = parseTs(body.occurredAt);
-  const startAt = parseTs(body.startAt);
-  const endAt = parseTs(body.endAt);
+  const scheduleTz = await loadOperationScheduleTimezone(pool, operationId);
+  const occurredAt = parseTs(body.occurredAt, scheduleTz);
+  const startAt = parseTs(body.startAt, scheduleTz);
+  const endAt = parseTs(body.endAt, scheduleTz);
   const status = body.status != null ? String(body.status).trim() : undefined;
   const skipReason = body.skipReason != null ? String(body.skipReason).trim() : undefined;
   const remark = body.remark != null ? String(body.remark) : undefined;
@@ -737,6 +738,7 @@ router.put('/operations/:operationId/nor-details', async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const scheduleTz = await loadOperationScheduleTimezone(client, operationId);
     const opDemRes = await client.query(
       `SELECT demurrage_liability_from_at FROM operations WHERE id = $1 AND deleted_at IS NULL`,
       [operationId]
@@ -799,7 +801,7 @@ router.put('/operations/:operationId/nor-details', async (req, res) => {
       const raw = body.demurrageLiabilityFromAt;
       let nextVal = null;
       if (raw != null && raw !== '') {
-        const parsed = parseTs(raw);
+        const parsed = parseTs(raw, scheduleTz);
         if (parsed === undefined) {
           await client.query('ROLLBACK');
           return res.status(400).json({ error: 'Invalid demurrageLiabilityFromAt' });

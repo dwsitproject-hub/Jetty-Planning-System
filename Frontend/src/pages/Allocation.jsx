@@ -13,6 +13,12 @@ import {
 import { setOperationShiftingOut } from '../api/operations'
 import { ApiError, resolveUploadUrl } from '../api/client'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import {
+  getScheduleEntryTimeZone,
+  normalizeForApiOrEmpty,
+  nowToNaiveLocalInScheduleZone,
+  utcIsoToNaiveLocal,
+} from '../utils/scheduleDateTime'
 import { isBerthOutOfService, jettyOosAllocationMessage } from '../utils/jettyAvailability'
 import PurposeBadge, { resolvePurposeLabel } from '../components/PurposeBadge'
 import SiDetailModal from '../components/SiDetailModal'
@@ -84,34 +90,6 @@ const ALLOCATION_COLUMNS = [
   { key: 'etb', label: 'ETB', getValue: (r) => r.etb || '—', getSortValue: (r) => (r.etb || '').toLowerCase() },
   { key: 'jetty', label: 'Jetty', getValue: (r) => r.jetty || '—', getSortValue: (r) => (r.jetty || '').toLowerCase() },
 ]
-
-/** Return current local date-time as YYYY-MM-DDTHH:mm for datetime-local input */
-function getNowForDateTimeLocal() {
-  const d = new Date()
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const h = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  return `${y}-${m}-${day}T${h}:${min}`
-}
-
-/** Convert ISO / timestamptz string to datetime-local (YYYY-MM-DDTHH:mm). */
-function toDateTimeLocalValue(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) {
-    // If already looks like datetime-local (no timezone), return it.
-    if (typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(iso)) return iso.slice(0, 16)
-    return ''
-  }
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const h = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  return `${y}-${m}-${day}T${h}:${min}`
-}
 
 function parseDateMs(val) {
   if (!val) return null
@@ -259,7 +237,16 @@ function AllocationDetailPanel({ r, tAlloc, onOpenSiDetail }) {
 export default function Allocation() {
   const { t } = useTranslation('pages')
   const { t: tAlloc } = useTranslation('allocation')
-  const { selectedPortId } = usePortScope()
+  const { selectedPortId, selectedPort } = usePortScope()
+  const scheduleEntryTz = getScheduleEntryTimeZone()
+  const toDateTimeLocalValue = useCallback(
+    (iso) => utcIsoToNaiveLocal(iso, scheduleEntryTz),
+    [scheduleEntryTz]
+  )
+  const getNowForDateTimeLocal = useCallback(
+    () => nowToNaiveLocalInScheduleZone(scheduleEntryTz),
+    [scheduleEntryTz]
+  )
   const { canEdit, canView } = useRbac()
   const canEditAllocation = canEdit('allocation')
   const canViewMasterJetty = canView('master-jetty')
@@ -695,17 +682,17 @@ export default function Allocation() {
         noPkk: updated.noPkk ?? '',
         jetty: updated.jetty ?? '',
         priority: updated.priority || '',
-        etaDateTime: updated.etaDateTime || '',
-        taDateTime: updated.taDateTime || '',
-        etbDateTime: updated.etbDateTime || '',
-        pobDateTime: toDateTimeLocalValue(updated.pobDateTime) || '',
-        tbDateTime: toDateTimeLocalValue(updated.tbDateTime) || '',
-        sobDateTime: toDateTimeLocalValue(updated.sobDateTime) || '',
-        estimatedCompletionDateTime: updated.estimatedCompletionDateTime || '',
-        actualCompletionDateTime: toDateTimeLocalValue(updated.actualCompletionDateTime) || '',
-        norTenderedDateTime: updated.norTenderedDateTime || '',
-        norAcceptedDateTime: updated.norAcceptedDateTime || '',
-        demurrageLiabilityFromDateTime: updated.demurrageLiabilityFromDateTime || '',
+        etaDateTime: normalizeForApiOrEmpty(updated.etaDateTime, scheduleEntryTz),
+        taDateTime: normalizeForApiOrEmpty(updated.taDateTime, scheduleEntryTz),
+        etbDateTime: normalizeForApiOrEmpty(updated.etbDateTime, scheduleEntryTz),
+        pobDateTime: normalizeForApiOrEmpty(updated.pobDateTime, scheduleEntryTz),
+        tbDateTime: normalizeForApiOrEmpty(updated.tbDateTime, scheduleEntryTz),
+        sobDateTime: normalizeForApiOrEmpty(updated.sobDateTime, scheduleEntryTz),
+        estimatedCompletionDateTime: normalizeForApiOrEmpty(updated.estimatedCompletionDateTime, scheduleEntryTz),
+        actualCompletionDateTime: normalizeForApiOrEmpty(updated.actualCompletionDateTime, scheduleEntryTz),
+        norTenderedDateTime: normalizeForApiOrEmpty(updated.norTenderedDateTime, scheduleEntryTz),
+        norAcceptedDateTime: normalizeForApiOrEmpty(updated.norAcceptedDateTime, scheduleEntryTz),
+        demurrageLiabilityFromDateTime: normalizeForApiOrEmpty(updated.demurrageLiabilityFromDateTime, scheduleEntryTz),
         remark: updated.remark ?? updated.remarks ?? '',
       })
     } catch (e) {
@@ -835,18 +822,20 @@ export default function Allocation() {
         noPkk: berthingConfirmRow.noPkk ?? '',
         jetty: targetJettyId,
         priority: berthingConfirmRow.priority || '',
-        etaDateTime: toDateTimeLocalValue(berthingConfirmRow.etaDateTime) || '',
-        taDateTime: toDateTimeLocalValue(berthingConfirmRow.taDateTime) || '',
-        etbDateTime: toDateTimeLocalValue(berthingConfirmRow.etbDateTime) || '',
-        pobDateTime: berthingPob || '',
-        tbDateTime: berthingTb || '',
-        sobDateTime: berthingSob || '',
-        estimatedCompletionDateTime: berthingEstimatedCompletion || '',
-        actualCompletionDateTime: toDateTimeLocalValue(berthingConfirmRow.actualCompletionDateTime) || '',
-        norTenderedDateTime: toDateTimeLocalValue(berthingConfirmRow.norTenderedDateTime) || '',
-        norAcceptedDateTime: toDateTimeLocalValue(berthingConfirmRow.norAcceptedDateTime) || '',
-        demurrageLiabilityFromDateTime:
-          toDateTimeLocalValue(berthingConfirmRow.demurrageLiabilityFromDateTime) || '',
+        etaDateTime: normalizeForApiOrEmpty(berthingConfirmRow.etaDateTime, scheduleEntryTz),
+        taDateTime: normalizeForApiOrEmpty(berthingConfirmRow.taDateTime, scheduleEntryTz),
+        etbDateTime: normalizeForApiOrEmpty(berthingConfirmRow.etbDateTime, scheduleEntryTz),
+        pobDateTime: normalizeForApiOrEmpty(berthingPob, scheduleEntryTz),
+        tbDateTime: normalizeForApiOrEmpty(berthingTb, scheduleEntryTz),
+        sobDateTime: normalizeForApiOrEmpty(berthingSob, scheduleEntryTz),
+        estimatedCompletionDateTime: normalizeForApiOrEmpty(berthingEstimatedCompletion, scheduleEntryTz),
+        actualCompletionDateTime: normalizeForApiOrEmpty(berthingConfirmRow.actualCompletionDateTime, scheduleEntryTz),
+        norTenderedDateTime: normalizeForApiOrEmpty(berthingConfirmRow.norTenderedDateTime, scheduleEntryTz),
+        norAcceptedDateTime: normalizeForApiOrEmpty(berthingConfirmRow.norAcceptedDateTime, scheduleEntryTz),
+        demurrageLiabilityFromDateTime: normalizeForApiOrEmpty(
+          berthingConfirmRow.demurrageLiabilityFromDateTime,
+          scheduleEntryTz
+        ),
         remark: (berthingRemarks || '').trim(),
       })
     } catch (e) {
@@ -1131,17 +1120,26 @@ export default function Allocation() {
         noPkk: vesselDetailDraft.noPkk ?? '',
         jetty: targetJettyId,
         priority: vesselDetailDraft.priority || '',
-        etaDateTime: vesselDetailDraft.etaDateTime || '',
-        taDateTime: vesselDetailDraft.taDateTime || '',
-        etbDateTime: vesselDetailDraft.etbDateTime || '',
-        pobDateTime: vesselDetailDraft.pobDateTime || '',
-        tbDateTime: vesselDetailDraft.tbDateTime || '',
-        sobDateTime: vesselDetailDraft.sobDateTime || '',
-        estimatedCompletionDateTime: vesselDetailDraft.estimatedCompletionDateTime || '',
-        actualCompletionDateTime: vesselDetailDraft.actualCompletionDateTime || '',
-        norTenderedDateTime: vesselDetailDraft.norTenderedDateTime || '',
-        norAcceptedDateTime: vesselDetailDraft.norAcceptedDateTime || '',
-        demurrageLiabilityFromDateTime: vesselDetailDraft.demurrageLiabilityFromDateTime || '',
+        etaDateTime: normalizeForApiOrEmpty(vesselDetailDraft.etaDateTime, scheduleEntryTz),
+        taDateTime: normalizeForApiOrEmpty(vesselDetailDraft.taDateTime, scheduleEntryTz),
+        etbDateTime: normalizeForApiOrEmpty(vesselDetailDraft.etbDateTime, scheduleEntryTz),
+        pobDateTime: normalizeForApiOrEmpty(vesselDetailDraft.pobDateTime, scheduleEntryTz),
+        tbDateTime: normalizeForApiOrEmpty(vesselDetailDraft.tbDateTime, scheduleEntryTz),
+        sobDateTime: normalizeForApiOrEmpty(vesselDetailDraft.sobDateTime, scheduleEntryTz),
+        estimatedCompletionDateTime: normalizeForApiOrEmpty(
+          vesselDetailDraft.estimatedCompletionDateTime,
+          scheduleEntryTz
+        ),
+        actualCompletionDateTime: normalizeForApiOrEmpty(
+          vesselDetailDraft.actualCompletionDateTime,
+          scheduleEntryTz
+        ),
+        norTenderedDateTime: normalizeForApiOrEmpty(vesselDetailDraft.norTenderedDateTime, scheduleEntryTz),
+        norAcceptedDateTime: normalizeForApiOrEmpty(vesselDetailDraft.norAcceptedDateTime, scheduleEntryTz),
+        demurrageLiabilityFromDateTime: normalizeForApiOrEmpty(
+          vesselDetailDraft.demurrageLiabilityFromDateTime,
+          scheduleEntryTz
+        ),
         remark: vesselDetailDraft.remark ?? '',
         source: 'active_vessel_detail',
       })

@@ -1,4 +1,5 @@
 import { apiGet, apiPost, apiPut, apiDelete, apiPostForm } from './client.js'
+import { getScheduleEntryTimeZone, normalizeForApi } from '../utils/scheduleDateTime.js'
 
 export function fetchOperations(params = {}) {
   const sp = new URLSearchParams()
@@ -194,22 +195,23 @@ export function fetchSubProcesses(operationId, phase) {
  * so the server receives an unambiguous instant (RFC3339). Otherwise Node may treat
  * `YYYY-MM-DDTHH:mm` as UTC while the user entered local time, or merge logic can break ranges.
  */
-function normalizeSubProcessTimestampForApi(v) {
+function normalizeSubProcessTimestampForApi(v, scheduleIana = getScheduleEntryTimeZone()) {
   if (v === undefined) return undefined
   if (v === null || v === '') return null
   const s = String(v).trim()
   if (!s) return null
-  const d = new Date(s)
-  if (Number.isNaN(d.getTime())) {
+  try {
+    return normalizeForApi(s, scheduleIana)
+  } catch {
     throw new Error('Invalid date or time')
   }
-  return d.toISOString()
 }
 
-export function upsertSubProcess(operationId, subProcessKey, body) {
-  const nOcc = normalizeSubProcessTimestampForApi(body.occurredAt)
-  const nStart = normalizeSubProcessTimestampForApi(body.startAt)
-  const nEnd = normalizeSubProcessTimestampForApi(body.endAt)
+export function upsertSubProcess(operationId, subProcessKey, body, opts = {}) {
+  const tz = opts.scheduleIana ?? getScheduleEntryTimeZone()
+  const nOcc = normalizeSubProcessTimestampForApi(body.occurredAt, tz)
+  const nStart = normalizeSubProcessTimestampForApi(body.startAt, tz)
+  const nEnd = normalizeSubProcessTimestampForApi(body.endAt, tz)
 
   const base = {
     phase: body.phase,
@@ -274,13 +276,23 @@ export function fetchNorDetails(operationId) {
   return apiGet(`/operations/${operationId}/nor-details`)
 }
 
-export function updateNorDetails(operationId, body) {
+export function updateNorDetails(operationId, body, opts = {}) {
+  const tz = opts.scheduleIana ?? getScheduleEntryTimeZone()
   const req = {
     remark: body?.remark ?? '',
     payload: body?.payload ?? null,
   }
   if (body && Object.prototype.hasOwnProperty.call(body, 'demurrageLiabilityFromAt')) {
-    req.demurrageLiabilityFromAt = body.demurrageLiabilityFromAt
+    const raw = body.demurrageLiabilityFromAt
+    if (raw === null || raw === undefined || raw === '') {
+      req.demurrageLiabilityFromAt = raw
+    } else {
+      try {
+        req.demurrageLiabilityFromAt = normalizeForApi(raw, tz)
+      } catch {
+        throw new Error('Invalid demurrageLiabilityFromAt')
+      }
+    }
   }
   return apiPut(`/operations/${operationId}/nor-details`, req)
 }
@@ -290,29 +302,41 @@ export function fetchOperationalActivities(operationId) {
   return apiGet(`/operations/${operationId}/operational-activities`)
 }
 
-export function createOperationalEntry(operationId, body) {
+function normalizeOpActivityTs(v, scheduleIana) {
+  if (v === undefined) return undefined
+  if (v === null || v === '') return null
+  try {
+    return normalizeForApi(v, scheduleIana)
+  } catch {
+    throw new Error('Invalid date or time')
+  }
+}
+
+export function createOperationalEntry(operationId, body, opts = {}) {
+  const tz = opts.scheduleIana ?? getScheduleEntryTimeZone()
   // cargo_handling_method_id is server-derived for opening_hatch only; never send from client.
   return apiPost(`/operations/${operationId}/operational-activities`, {
     entryType: body.entryType,
     milestoneKey: body.milestoneKey,
     subStepTitle: body.subStepTitle,
     remark: body.remark,
-    startAt: body.startAt,
-    endAt: body.endAt,
+    startAt: normalizeOpActivityTs(body.startAt, tz),
+    endAt: normalizeOpActivityTs(body.endAt, tz),
     reason: body.reason,
-    markedAt: body.markedAt,
+    markedAt: normalizeOpActivityTs(body.markedAt, tz),
   })
 }
 
-export function updateOperationalEntry(operationId, entryId, body) {
+export function updateOperationalEntry(operationId, entryId, body, opts = {}) {
+  const tz = opts.scheduleIana ?? getScheduleEntryTimeZone()
   return apiPut(`/operations/${operationId}/operational-activities/${entryId}`, {
     milestoneKey: body.milestoneKey,
     subStepTitle: body.subStepTitle,
     remark: body.remark,
-    startAt: body.startAt,
-    endAt: body.endAt,
+    startAt: normalizeOpActivityTs(body.startAt, tz),
+    endAt: normalizeOpActivityTs(body.endAt, tz),
     reason: body.reason,
-    markedAt: body.markedAt,
+    markedAt: normalizeOpActivityTs(body.markedAt, tz),
   })
 }
 

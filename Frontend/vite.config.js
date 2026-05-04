@@ -9,11 +9,11 @@ export default defineConfig({
     proxy: {
       // Same host as VITE_API_BASE_URL origin (API serves /uploads). Fixes relative /uploads links in dev.
       '/uploads': {
-        target: 'http://localhost:3000',
+        target: 'http://127.0.0.1:3000',
         changeOrigin: true,
       },
       '/auth': {
-        target: 'http://localhost:3000',
+        target: 'http://127.0.0.1:3000',
         changeOrigin: true,
       },
     },

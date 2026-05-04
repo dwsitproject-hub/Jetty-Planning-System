@@ -6,6 +6,7 @@ import bcrypt from 'bcrypt';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { pool } from '../db.js';
+import { logAuthEvent } from '../lib/auth-events.js';
 import { COOKIE_ACCESS_TOKEN, COOKIE_XSRF, cookieBaseOptions } from '../lib/auth-cookies.js';
 import { setSessionCookiesForUserId } from '../lib/session-cookies.js';
 
@@ -39,16 +40,18 @@ router.post('/login', loginLimiter, async (req, res) => {
 
   const result = await pool.query(
     `SELECT id, username, display_name, email, password_hash, is_active
-     FROM users WHERE username = $1 AND deleted_at IS NULL`,
+     FROM users WHERE username = $1 AND deleted_at IS NULL AND auth_source = 'local'`,
     [username.trim()]
   );
   const row = result.rows[0];
   if (!row || !row.is_active) {
+    logAuthEvent('local.login.failure', { reason: 'invalid_or_inactive', username: username?.trim(), ip: req.ip });
     return res.status(401).json({ error: 'Invalid username or password' });
   }
 
   const passwordOk = await bcrypt.compare(password, row.password_hash);
   if (!passwordOk) {
+    logAuthEvent('local.login.failure', { reason: 'bad_password', username: username?.trim(), ip: req.ip });
     return res.status(401).json({ error: 'Invalid username or password' });
   }
 
@@ -61,8 +64,10 @@ router.post('/login', loginLimiter, async (req, res) => {
     email: row.email ?? null,
   };
   if (RETURN_TOKEN_BODY) {
+    logAuthEvent('local.login.success', { userId: row.id, ip: req.ip });
     return res.json({ user, token });
   }
+  logAuthEvent('local.login.success', { userId: row.id, ip: req.ip });
   res.json({ user });
 });
 

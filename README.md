@@ -20,6 +20,26 @@ This repository is an active full-stack implementation (not an in-memory mockup 
 - **Database**: PostgreSQL (migrations under `Backend/migrations/`)
 - **Container runtime**: Docker Compose for backend/db
 
+## Rebuild after code changes (API + frontend)
+
+**Full guide:** [Docs/Guide/REBUILD-GUIDE.md](Docs/Guide/REBUILD-GUIDE.md)
+
+From repo root (requires Docker for the API):
+
+```bash
+npm run rebuild
+```
+
+Split helpers (no extra top-level folder):
+
+- **Backend:** `node Backend/scripts/rebuild-docker.mjs` or `npm run rebuild:backend` (from root) / `npm run rebuild:docker` (from `Backend/`)
+- **Frontend:** `node Frontend/scripts/rebuild.mjs` or `npm run rebuild:frontend` (from root) / `npm run rebuild` (from `Frontend/`)
+- `node Frontend/scripts/rebuild.mjs --skip-build` — install deps only, no production build
+
+`npm run rebuild` runs backend then frontend scripts in sequence.
+
+Then start the dev server if needed: `npm run dev` (Vite; does not use `dist/`).
+
 ## Local development quick start
 
 ### 1) Start backend (API + DB)

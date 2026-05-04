@@ -19,6 +19,12 @@ import {
   MAX_MILESTONE_SUBSTEP_TITLE_CHARS,
   MAX_REMARK_CHARS,
 } from '../constants/inputLimits'
+import {
+  getScheduleEntryTimeZone,
+  normalizeForApi,
+  nowToNaiveLocalInScheduleZone,
+  utcIsoToNaiveLocal,
+} from '../utils/scheduleDateTime.js'
 
 const OPERATIONAL_RAIL_COLLAPSED_KEY = 'jps_operational_milestone_rail_collapsed'
 
@@ -39,30 +45,6 @@ function writeBool(key, value) {
   } catch {
     /* ignore */
   }
-}
-
-function getNowForDateTimeLocal() {
-  const d = new Date()
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const h = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  return `${y}-${m}-${day}T${h}:${min}`
-}
-
-function isoOrDatetimeToLocal(value) {
-  if (value == null || value === '') return ''
-  const s = String(value).trim()
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) return s
-  const d = new Date(s)
-  if (Number.isNaN(d.getTime())) return ''
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const h = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  return `${y}-${m}-${day}T${h}:${min}`
 }
 
 const SHORT_CODE = {
@@ -137,7 +119,12 @@ export default function OperationalMilestoneWorkspace({
   activityLogRefresh = 0,
   /** Solid | Liquid — drives read-only Conveyor/Hose for Opening (server persists). */
   commodityType = 'Liquid',
+  /** IANA zone for interpreting datetime-local values (defaults to browser device zone). */
+  scheduleIana = getScheduleEntryTimeZone(),
 }) {
+  const tz = scheduleIana?.trim() || getScheduleEntryTimeZone()
+  const isoOrDatetimeToLocal = useCallback((value) => utcIsoToNaiveLocal(value, tz), [tz])
+  const getNowForDateTimeLocal = useCallback(() => nowToNaiveLocalInScheduleZone(tz), [tz])
   const [searchParams, setSearchParams] = useSearchParams()
   const useApi = operationId != null
   const milestoneDefs = getMilestoneListForPurpose(purpose)
@@ -212,11 +199,11 @@ export default function OperationalMilestoneWorkspace({
     next.delete('startAt')
     next.delete('endAt')
     setSearchParams(next, { replace: true })
-  }, [searchParams, setSearchParams, purpose, activities])
+  }, [searchParams, setSearchParams, purpose, activities, isoOrDatetimeToLocal, getNowForDateTimeLocal])
 
   const [subStepTitle, setSubStepTitle] = useState('')
   const [remark, setRemark] = useState('')
-  const [startTime, setStartTime] = useState(() => getNowForDateTimeLocal())
+  const [startTime, setStartTime] = useState(() => nowToNaiveLocalInScheduleZone(tz))
   const [endTime, setEndTime] = useState('')
   const [editingEntryId, setEditingEntryId] = useState(null)
   const [formError, setFormError] = useState('')
@@ -356,7 +343,14 @@ export default function OperationalMilestoneWorkspace({
     const remarkTrim = String(rem || '').trim()
     if (!remarkTrim) return { error: 'Remark is required.' }
     if (!st) return { error: 'Start time is required.' }
-    const ta = new Date(st).getTime()
+    let startIso
+    try {
+      startIso = normalizeForApi(st, tz)
+    } catch {
+      return { error: 'Invalid date or time.' }
+    }
+    if (!startIso) return { error: 'Invalid date or time.' }
+    const ta = new Date(startIso).getTime()
     if (Number.isNaN(ta)) return { error: 'Invalid date or time.' }
     const mk = milestoneLabelToKey(c, purpose)
     if (!mk) return { error: 'Invalid milestone.' }
@@ -364,13 +358,25 @@ export default function OperationalMilestoneWorkspace({
     let endPayload = en
     if (startOnly) {
       if (en) {
-        const tb = new Date(en).getTime()
+        let endIso
+        try {
+          endIso = normalizeForApi(en, tz)
+        } catch {
+          return { error: 'Invalid end time.' }
+        }
+        const tb = new Date(endIso).getTime()
         if (Number.isNaN(tb)) return { error: 'Invalid end time.' }
         if (tb < ta) return { error: 'End time must be on or after start time.' }
       }
     } else {
       if (!en) return { error: 'End time is required.' }
-      const tb = new Date(en).getTime()
+      let endIso
+      try {
+        endIso = normalizeForApi(en, tz)
+      } catch {
+        return { error: 'Invalid date or time.' }
+      }
+      const tb = new Date(endIso).getTime()
       if (Number.isNaN(tb)) return { error: 'Invalid date or time.' }
       if (tb < ta) return { error: 'End time must be after start time.' }
       endPayload = en
@@ -394,27 +400,37 @@ export default function OperationalMilestoneWorkspace({
     }
     if (useApi) {
       try {
+        const startAtIso = normalizeForApi(payload.startTime, tz)
         const endIso =
           payload.endTime != null && payload.endTime !== ''
-            ? new Date(payload.endTime).toISOString()
+            ? normalizeForApi(payload.endTime, tz)
             : null
         if (editingEntryId) {
-          await updateOperationalEntry(operationId, editingEntryId, {
-            milestoneKey: payload.milestoneKey,
-            subStepTitle: payload.subStepTitle,
-            remark: payload.description,
-            startAt: new Date(payload.startTime).toISOString(),
-            endAt: endIso,
-          })
+          await updateOperationalEntry(
+            operationId,
+            editingEntryId,
+            {
+              milestoneKey: payload.milestoneKey,
+              subStepTitle: payload.subStepTitle,
+              remark: payload.description,
+              startAt: startAtIso,
+              endAt: endIso,
+            },
+            { scheduleIana: tz }
+          )
         } else {
-          await createOperationalEntry(operationId, {
-            entryType: 'activity',
-            milestoneKey: payload.milestoneKey,
-            subStepTitle: payload.subStepTitle,
-            remark: payload.description,
-            startAt: new Date(payload.startTime).toISOString(),
-            endAt: endIso,
-          })
+          await createOperationalEntry(
+            operationId,
+            {
+              entryType: 'activity',
+              milestoneKey: payload.milestoneKey,
+              subStepTitle: payload.subStepTitle,
+              remark: payload.description,
+              startAt: startAtIso,
+              endAt: endIso,
+            },
+            { scheduleIana: tz }
+          )
         }
         await loadApi()
         bumpSaved()

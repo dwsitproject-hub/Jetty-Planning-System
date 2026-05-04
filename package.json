@@ -6,6 +6,9 @@
     "dev": "npm --prefix Frontend run dev",
     "build": "npm --prefix Frontend run build",
     "preview": "npm --prefix Frontend run preview",
-    "test:e2e": "npm --prefix Frontend run test:e2e"
+    "test:e2e": "npm --prefix Frontend run test:e2e",
+    "rebuild": "node Backend/scripts/rebuild-docker.mjs && node Frontend/scripts/rebuild.mjs",
+    "rebuild:backend": "node Backend/scripts/rebuild-docker.mjs",
+    "rebuild:frontend": "node Frontend/scripts/rebuild.mjs"
   }
 }

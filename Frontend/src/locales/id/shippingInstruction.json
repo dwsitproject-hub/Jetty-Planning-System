@@ -28,6 +28,8 @@
   "siDetailError": "Gagal memuat detail shipping instruction.",
   "siDetailNotFound": "Detail shipping instruction tidak ditemukan.",
   "operationSummaryPhasesTitle": "Proses di dermaga",
+  "executionsLogLink": "Lihat log eksekusi di dermaga (detail)",
+  "executionsLogModalTitle": "Log eksekusi di dermaga (detail)",
   "operationSummaryPhaseCol": "Fase",
   "operationSummaryProgressCol": "Progres",
   "operationSummaryStateCol": "Status",

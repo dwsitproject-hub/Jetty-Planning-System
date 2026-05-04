@@ -37,6 +37,8 @@ import {
   deleteOperationDocument,
 } from '../api/allocation'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import { getScheduleEntryTimeZone, normalizeForApi } from '../utils/scheduleDateTime.js'
+import { usePortScope } from '../context/PortScopeContext'
 import FlowPill from '../components/FlowPill'
 import OperationalMilestoneWorkspace from '../components/OperationalMilestoneWorkspace'
 import OperationActivityTimeline from '../components/OperationActivityTimeline'
@@ -48,7 +50,9 @@ import {
   getPreCheckStageKeys,
   POST_CHECK_SUB_TABS,
   POST_CHECK_STAGE_IDS,
+  isoOrDatetimeToLocal,
 } from '../utils/loadingHubProcessStagesFromApi'
+import { mergeDistinctLines } from '../utils/mergeHydrationLines.js'
 import '../styles/allocation.css'
 import { useRbac } from '../context/RbacContext'
 import { term } from '../i18n/term'
@@ -82,32 +86,6 @@ const SECTIONS = [
   { id: 'loading', label: 'Operational', description: 'Cargo loading (B)', stepIds: ['B'] },
   { id: 'post-checking', label: 'Post-Checking', description: 'Final Quality Check, Final Quantity Check (C1, C2)', stepIds: ['C1', 'C2'] },
 ]
-
-function getNowForDateTimeLocal() {
-  const d = new Date()
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const h = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  return `${y}-${m}-${day}T${h}:${min}`
-}
-
-/** API ISO or datetime-local → `yyyy-mm-ddThh:mm` for `<input type="datetime-local" />` */
-function isoOrDatetimeToLocal(value) {
-  if (value == null || value === '') return ''
-  const s = String(value).trim()
-  // Only pass through values that are already local wall time with no zone (not a prefix of ISO+Z).
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) return s
-  const d = new Date(s)
-  if (Number.isNaN(d.getTime())) return ''
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const h = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  return `${y}-${m}-${day}T${h}:${min}`
-}
 
 /** Later of two timestamps (ISO); null if both missing */
 function laterIso(a, b) {
@@ -419,6 +397,8 @@ export default function Loading() {
     getPostChecking,
     setPostCheckingSection,
   } = useLoading()
+  const { selectedPort } = usePortScope()
+  const scheduleEntryTz = getScheduleEntryTimeZone()
   const [stepPhotos, setStepPhotos] = useState({})
   const [allocationDetailRow, setAllocationDetailRow] = useState(null)
 
@@ -578,7 +558,7 @@ export default function Loading() {
           const p = row.payload && typeof row.payload === 'object' ? row.payload : {}
           const next = {
             ...cur,
-            remark: [cur.remark, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || cur.remark || '',
+            remark: mergeDistinctLines(cur.remark, row.remark) || row.remark || cur.remark || '',
             status:
               precheckStatusRank(row.status) >= precheckStatusRank(cur.status) ? row.status || cur.status : cur.status,
             lastSavedAt: laterIso(row.updatedAt, cur.lastSavedAt),
@@ -1064,6 +1044,7 @@ export default function Loading() {
               onActivityLogRefresh={bumpActivityLogRefresh}
               activityLogRefresh={activityLogRefresh}
               onPersistedHydrationDone={onPreCheckPersistHydrated}
+              scheduleEntryTz={scheduleEntryTz}
             />
           </>
         )}
@@ -1082,6 +1063,7 @@ export default function Loading() {
               onActivityLogRefresh={bumpActivityLogRefresh}
               activityLogRefresh={activityLogRefresh}
               onPersistedHydrationDone={onPostCheckPersistHydrated}
+              scheduleEntryTz={scheduleEntryTz}
             />
           </>
         )}
@@ -1101,6 +1083,7 @@ export default function Loading() {
               setOperationalMilestoneNa={setOperationalMilestoneNa}
               onOperationalSaved={bumpActivityLogRefresh}
               activityLogRefresh={activityLogRefresh}
+              scheduleIana={scheduleEntryTz}
             />
           )
         })}
@@ -1193,9 +1176,10 @@ function mergeInitialCargoHydration(current, row) {
       : row.subProcessKey === 'initial_sounding'
         ? 'Sounding'
         : null
+  const remarkResult = row.remark || p.result || ''
   const next = {
     ...current,
-    remark: [current.remark, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || current.remark || '',
+    remark: mergeDistinctLines(current.remark, remarkResult) || remarkResult || current.remark || '',
     status:
       precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
     lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
@@ -1208,8 +1192,6 @@ function mergeInitialCargoHydration(current, row) {
     const en = isoOrDatetimeToLocal(row.endAt)
     if (en) next.endTime = next.endTime || en
   }
-  const remarkResult = row.remark || p.result || ''
-  if (remarkResult) next.remark = remarkResult
   next.cargoCheckingType = typeFromKey || p.cargoCheckingType || current.cargoCheckingType
   return next
 }
@@ -1227,7 +1209,7 @@ function mergeInspectionHydration(current, row) {
     row.subProcessKey === 'hold_inspection' ? 'Hold' : row.subProcessKey === 'tank_inspection' ? 'Tank' : null
   const next = {
     ...current,
-    remark: [current.remark, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || current.remark || '',
+    remark: mergeDistinctLines(current.remark, row.remark) || row.remark || current.remark || '',
     status:
       precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
     lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
@@ -1290,7 +1272,7 @@ function mergeFinalInspectionHydration(current, row, commodityType = 'Liquid') {
   const fallbackType = commodityType === 'Solid' ? 'Hold' : 'Tank'
   const next = {
     ...current,
-    result: [current.result, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || current.result || '',
+    result: mergeDistinctLines(current.result, row.remark) || row.remark || current.result || '',
     status:
       precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
     lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
@@ -1312,7 +1294,7 @@ function mergeFinalCargoCheckingHydration(current, row, commodityType = 'Liquid'
   const fallbackType = commodityType === 'Solid' ? 'Draft Survey' : 'Sounding'
   const next = {
     ...current,
-    result: [current.result, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || current.result || '',
+    result: mergeDistinctLines(current.result, row.remark) || row.remark || current.result || '',
     status:
       precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
     lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
@@ -1502,6 +1484,7 @@ function PreCheckingSections({
   onActivityLogRefresh,
   activityLogRefresh = 0,
   onPersistedHydrationDone,
+  scheduleEntryTz,
 }) {
   const preCheckTabs = useMemo(() => getPreCheckSubTabs(purpose), [purpose])
   const [searchParams, setSearchParams] = useSearchParams()
@@ -1686,6 +1669,7 @@ function PreCheckingSections({
     setArrivalNor,
     setPreCheckingSection,
     onPersistedHydrationDone,
+    scheduleEntryTz,
   ])
 
   useEffect(() => {
@@ -1824,8 +1808,11 @@ function PreCheckingSections({
     if (sectionKey === 'norAccepted') {
       const toIsoOrNull = (raw) => {
         if (!raw) return null
-        const d = new Date(raw)
-        return Number.isNaN(d.getTime()) ? null : d.toISOString()
+        try {
+          return normalizeForApi(raw, scheduleEntryTz)
+        } catch {
+          return null
+        }
       }
       const norTenderedIso = toIsoOrNull(draft.norAccepted.norTenderedDateTime)
       const norAcceptedIso = toIsoOrNull(draft.norAccepted.norAcceptedDateTime)
@@ -1833,11 +1820,14 @@ function PreCheckingSections({
         norTenderedDateTime: draft.norAccepted.norTenderedDateTime || '',
         norAcceptedDateTime: draft.norAccepted.norAcceptedDateTime || '',
       })
-      const demurrageIso =
-        draft.norAccepted.demurrageLiabilityFromDateTime &&
-        !Number.isNaN(new Date(draft.norAccepted.demurrageLiabilityFromDateTime).getTime())
-          ? new Date(draft.norAccepted.demurrageLiabilityFromDateTime).toISOString()
-          : null
+      let demurrageIso = null
+      if (draft.norAccepted.demurrageLiabilityFromDateTime) {
+        try {
+          demurrageIso = normalizeForApi(draft.norAccepted.demurrageLiabilityFromDateTime, scheduleEntryTz)
+        } catch {
+          demurrageIso = null
+        }
+      }
       setPreCheckingSection(vesselId, 'norAccepted', {
         documents: draft.norAccepted.documents || [],
         remark: draft.norAccepted.remark || '',
@@ -1849,31 +1839,40 @@ function PreCheckingSections({
         if (operationId) {
           await saveArrivalUpdateApi({
             operationId,
-            norTenderedDateTime: norTenderedIso,
-            norAcceptedDateTime: norAcceptedIso,
+            norTenderedDateTime: norTenderedIso ?? '',
+            norAcceptedDateTime: norAcceptedIso ?? '',
           })
-          const norDet = await updateNorDetails(operationId, {
-            remark: draft.norAccepted.remark || '',
-            payload: {
-              norStage: 'at_berth',
-              norSource: 'nor_accepted_tab',
-              updatedVia: 'loading.pre-checking.nor_accepted',
+          const norDet = await updateNorDetails(
+            operationId,
+            {
+              remark: draft.norAccepted.remark || '',
+              payload: {
+                norStage: 'at_berth',
+                norSource: 'nor_accepted_tab',
+                updatedVia: 'loading.pre-checking.nor_accepted',
+              },
+              demurrageLiabilityFromAt: demurrageIso,
             },
-            demurrageLiabilityFromAt: demurrageIso,
-          })
-          const subNor = await upsertSubProcess(operationId, 'nor_accepted', {
-            phase: 'Pre-Checking',
-            status: nextStatus,
-            occurredAt: norAcceptedIso || norTenderedIso || null,
-            startAt: norAcceptedIso || norTenderedIso || null,
-            endAt: null,
-            remark: draft.norAccepted.remark || '',
-            payload: {
-              norTenderedDateTime: norTenderedIso,
-              norAcceptedDateTime: norAcceptedIso,
-              saveMode: isDraft ? 'draft' : 'final',
+            { scheduleIana: scheduleEntryTz }
+          )
+          const subNor = await upsertSubProcess(
+            operationId,
+            'nor_accepted',
+            {
+              phase: 'Pre-Checking',
+              status: nextStatus,
+              occurredAt: norAcceptedIso || norTenderedIso || null,
+              startAt: norAcceptedIso || norTenderedIso || null,
+              endAt: null,
+              remark: draft.norAccepted.remark || '',
+              payload: {
+                norTenderedDateTime: norTenderedIso,
+                norAcceptedDateTime: norAcceptedIso,
+                saveMode: isDraft ? 'draft' : 'final',
+              },
             },
-          })
+            { scheduleIana: scheduleEntryTz }
+          )
           const norLastSaved = laterIso(norDet?.updatedAt, subNor?.updatedAt)
           if (norLastSaved) {
             setPreCheckingSection(vesselId, 'norAccepted', {
@@ -1914,7 +1913,12 @@ function PreCheckingSections({
         if (operationId) {
           const subKey = PRECHECK_SECTION_TO_KEY[sectionKey]
           const payload = buildSubProcessPayload(sectionKey, sectionDraft)
-          const sent = await upsertSubProcess(operationId, subKey, { phase: 'Pre-Checking', ...payload, status: nextStatus })
+          const sent = await upsertSubProcess(
+            operationId,
+            subKey,
+            { phase: 'Pre-Checking', ...payload, status: nextStatus },
+            { scheduleIana: scheduleEntryTz }
+          )
           if (sent?.updatedAt) {
             setPreCheckingSection(vesselId, sectionKey, { lastSavedAt: sent.updatedAt })
           }
@@ -2875,6 +2879,7 @@ function PostCheckingSections({
   onActivityLogRefresh,
   activityLogRefresh = 0,
   onPersistedHydrationDone,
+  scheduleEntryTz,
 }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [activeSubTab, setActiveSubTab] = useState('finalInspection')
@@ -2950,7 +2955,7 @@ function PostCheckingSections({
           } else {
             bySection[section] = {
               ...current,
-              result: [current.result, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || current.result || '',
+              result: mergeDistinctLines(current.result, row.remark) || row.remark || current.result || '',
               status:
                 precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
               lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
@@ -3120,8 +3125,15 @@ function PostCheckingSections({
       occurredAt = startAt
     }
     if (startAt && endAt) {
-      const t0 = new Date(startAt).getTime()
-      const t1 = new Date(endAt).getTime()
+      let t0
+      let t1
+      try {
+        t0 = new Date(normalizeForApi(startAt, scheduleEntryTz)).getTime()
+        t1 = new Date(normalizeForApi(endAt, scheduleEntryTz)).getTime()
+      } catch {
+        t0 = NaN
+        t1 = NaN
+      }
       if (!Number.isNaN(t0) && !Number.isNaN(t1) && t1 < t0) {
         setPersistError('End time must be on or after start time.')
         setSavingSection(null)
@@ -3132,20 +3144,25 @@ function PostCheckingSections({
     try {
       if (operationId) {
         const subKey = POSTCHECK_SECTION_TO_KEY[sectionKey]
-        const sent = await upsertSubProcess(operationId, subKey, {
-          phase: 'Post-Checking',
-          status: nextStatus,
-          occurredAt,
-          startAt,
-          endAt,
-          remark: sectionDraft?.result || '',
-          payload:
-            sectionKey === 'finalInspection'
-              ? { inspectionType: finalInspectionType }
-              : sectionKey === 'finalCargoChecking'
-                ? { cargoCheckingType: finalCargoCheckingType }
-                : null,
-        })
+        const sent = await upsertSubProcess(
+          operationId,
+          subKey,
+          {
+            phase: 'Post-Checking',
+            status: nextStatus,
+            occurredAt,
+            startAt,
+            endAt,
+            remark: sectionDraft?.result || '',
+            payload:
+              sectionKey === 'finalInspection'
+                ? { inspectionType: finalInspectionType }
+                : sectionKey === 'finalCargoChecking'
+                  ? { cargoCheckingType: finalCargoCheckingType }
+                  : null,
+          },
+          { scheduleIana: scheduleEntryTz }
+        )
         if (sent?.updatedAt) {
           setPostCheckingSection(vesselId, sectionKey, { lastSavedAt: sent.updatedAt })
         }
