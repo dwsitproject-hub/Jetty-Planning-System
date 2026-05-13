@@ -1,12 +1,28 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.29
-**Last Updated**: 2026-04-28  
+**Version**: 1.35
+**Last Updated**: 2026-05-11  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
 
 ## 0. Addendum (2026-03-31)
+
+### 0.24 Shipping instruction vessel-call columns removed (canonical `shipment_plans`) (2026-05-11)
+
+**Migrations:** **`066_shipment_plans_approval_id_and_si_nullable_transition.sql`** adds **`shipment_plans.approval_id`**, backfills plan vessel-call fields from legacy SI rows where the plan was empty, and relaxes **`shipping_instructions.vessel_name` / `purpose`** nullability so the app can stop writing them before drop. **`067_drop_si_vessel_call_columns.sql`** drops from **`shipping_instructions`**: `vessel_name`, `purpose`, `eta`, `purpose_id`, `preferred_jetty_id`, `approval_id`, `voyage_no`, `approved_by_user_id`, `approved_at`, `port_id`.
+
+**API / SQL:** List and detail SI queries **`LEFT JOIN shipment_plans`** (and **`si_purposes`** on **`spl.purpose_id`**) so JSON still exposes **`vesselName`**, **`purpose`**, **`eta`**, **`approvalId`**, **`preferredJettyId`**, etc., resolved from the plan. **`PUT /shipping-instructions/:id`** updates **`shipment_plans`** for those fields and **`shipping_instructions`** for SI-only columns. **`POST /shipping-instructions`** with **`shipment_plan_id`** applies optional body overrides to the linked plan (`vessel_name`, `voyage_no`, `jetty_id`, `approval_id`). Allocation overview / incoming SI SQL and **`operations`** joins use **`sp.vessel_name`**, **`sp.eta`**, plan port/jetty, and **`si_purposes.code`** instead of removed SI columns.
+
+**Deploy order:** Run **066** before or with the application build that writes vessel-call data only on plans; run **067** only after all app instances use the new queries (no references to dropped SI columns).
+
+**Rollback:** Prefer **`pg_dump`-based restore** to a snapshot taken before **067**. Optional SQL to re-add columns and copy back from **`shipment_plans`** (for emergency revert of schema only): **`Backend/rollback/067_rollback_restore_si_vessel_columns.sql`**. After rollback SQL, redeploy the previous API revision that still expected SI mirror columns.
+
+### 0.25 Shipment plan agent + plan-linked SI surveyor (2026-05-13)
+
+**Migration:** **`071_shipment_plan_agent_id.sql`** adds nullable **`shipment_plans.agent_id`** (FK **`si_agents`**, `ON DELETE SET NULL`), backfills from the first child **`shipping_instructions.agent_id`** per plan; rollback **`Backend/rollback/071_rollback_shipment_plan_agent_id.sql`**.
+
+**API:** **`POST` / `PATCH /shipment-plans`** accept optional **`agent_id`**; **`PATCH`** may sync child SIs’ **`agent_id`** to match the plan. List/detail plans expose **`agentId`** / **`agentName`** (list joins **`si_agents`**). **`POST /shipping-instructions`** with **`shipment_plan_id`** resolves **`agent_id`** from the plan when the body omits it. Allocation overview / incoming-SI SQL joins **`si_agents`** on **`COALESCE(si.agent_id, sp.agent_id)`**.
 
 ### 0.14 Allocation schedule dataset split (2026-04-21)
 
@@ -172,6 +188,91 @@ This addendum captures the implemented OIDC integration behavior and rollout lea
 
 **See also:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §10.1**.
 
+### 0.21 Shipment Plan multi-SI vessel call (2026-05-11)
+
+**Schema:** Migration **`059_shipment_plans.sql`** — table **`shipment_plans`**; required FK **`shipping_instructions.shipment_plan_id`**; 1:1 backfill from legacy rows.
+
+**Allocation**
+
+- **`GET /allocation/overview`**: flat **`queue`** unchanged at the top level; each row includes **`shipmentPlanId`** and **COALESCE(plan, operation, SI)** vessel-level timestamps and jetty so existing tables keep working (`Backend/src/routes/allocation.js`).
+- **`PUT /allocation/arrival`**: persists vessel-call fields to **`shipment_plans`** first, then updates the resolved **`operations`** row; when **TB** is set, syncs sibling **`operations`** on the same approved plan (see **§0.24**).
+
+**Operations JSON**
+
+- **`loadOperationJoined`** **`LEFT JOIN shipment_plans sp`**; **`toOp`** prefers **`sp.*`** timestamps and jetty when **`shipment_plan_id`** is set so **`GET /operations`** and **`GET /operations/:id`** expose a single merged voyage timeline to clients (`Backend/src/routes/operations.js`).
+
+**Depart / clearance**
+
+- **`POST /shipment-plans/:id/depart`** — same body as operation depart (`cast_off_at`, optional evidence URLs); validates **port scope**; requires **every** non-`SAILED` child operation on the plan to be **`SIGNOFF_APPROVED`**; sets **`SAILED`** + clearance fields on **all** eligible children and updates **`shipment_plans`** (`Backend/src/routes/shipment-plans.js`, shared **`Backend/src/lib/shipment-plan-depart.js`**).
+- **`POST /operations/:id/depart`** — still supported; when **`shipment_plan_id`** is set it runs the **same** multi-operation transaction via the shared helper.
+
+**Frontend**
+
+- **Verification** — plan-level table collapse + **`departShipmentPlan`** (`Frontend/src/pages/Verification.jsx`, `Frontend/src/api/shipmentPlans.js`).
+- **JettyScheduleGantt** — **`bankLaneKey`** from **`shipmentPlanId`** for double-bank lanes (`Frontend/src/components/JettyScheduleGantt.jsx`).
+- **Dashboard / activity chart** — dedupe by **`allocationQueueVesselCallKey`** (`Frontend/src/utils/dashboardQueueClassification.js`).
+- **Loading hub** — SI switcher when multiple operations share a plan (`Frontend/src/pages/Loading.jsx`).
+
+### 0.22 Allocation plan-centric page + `plan-overview` (2026-05-11)
+
+**RBAC**
+
+- New page permission **`allocation-plan`** (migration **`064_allocation_plan_page_permission.sql`**): catalog insert plus **`role_permissions`** mirrored from existing **`allocation`** grants; **`JPS Full Access`** backfill.
+- **`Frontend/src/data/rolesData.js`** — Admin Roles matrix label for the new page key.
+
+**Backend (`Backend/src/routes/allocation.js`)**
+
+- **`buildAllocationOverviewPayload`** (internal): shared implementation for overview JSON.
+- **`GET /allocation/overview`** — same JSON as **`plan-overview`**; guarded by **`...requirePageView('allocation-plan')`** (runs after global **`requireAuth`** + port scope on **`/allocation`** mount). Incoming queue rows use **`source`** = **`incoming-si`** (approved SI without operation yet).
+- **`GET /allocation/plan-overview`** — same payload as overview; guarded by **`...requirePageView('allocation-plan')`** (runs after global **`requireAuth`** + port scope on **`/allocation`** mount).
+- **`PUT /allocation/arrival`** — edit allowed when **`userHasPageEdit('allocation-plan')`** ( **`userHasAllocationPlanEdit`** in code). **`writeActivityLog.pageKey`** for this route is **`allocation-plan`**. When **`TB`** is set on an approved plan, sibling SIs on the same plan are synced (see **§0.24**).
+
+**Operations shifting-out (`Backend/src/routes/operations.js`)**
+
+- **`POST /operations/:id/shifting-out`** — **`activityLogPage`** in body may be **`allocation-plan`** or **`at-berth`** (legacy client value **`allocation`** is normalised to **`allocation-plan`** for **`writeActivityLog.pageKey`**).
+
+**Frontend**
+
+- **`Frontend/src/api/allocation.js`** — **`fetchAllocationPlanOverview()`** → **`GET /allocation/plan-overview`**; **`fetchAllocationOverview()`** → **`GET /allocation/overview`** (both require **`allocation-plan`** view on the server after migration **068**).
+- **`Frontend/src/utils/allocationPlanGrouping.js`** — **`groupQueueByShipmentPlan(rows, globalOrder?)`** for nested table grouping + unlinked bucket; child order follows **`globalOrder`** when provided.
+- **`Frontend/src/pages/Allocation.jsx`** — accepts **`pageProfile`**: **`planCentric`** switches fetcher, RBAC keys, nested desktop/mobile queue, **`plannedBerthingPath`** for vessel pipeline link; schematic/Gantt still use flat **`list`** / **`scheduleList`**.
+- **`Frontend/src/pages/AllocationPlanBerthing.jsx`** — thin wrapper rendering **`Allocation pageProfile='planCentric'`**.
+- **`Frontend/src/App.jsx`** — routes **`/allocation-plans`**, **`/allocation`** and **`/shipping-instruction`** list URLs render **`RetiredPage`** with links to plan-centric hubs; deep links **`/shipping-instruction/view/:id`** and **`/shipping-instruction/approval/:id`** unchanged.
+- **`Frontend/src/components/Layout.jsx`** — nav item for **`/allocation-plans`** only; **`pathToPageKey`** maps **`/allocation`** and **`/berthing`** to **`allocation-plan`**, **`/shipping-instruction`** subtree to **`shipment-plan`**.
+
+### 0.23 Shipment plan GET JSON — plan-level timeline fields + plan-centric modal (2026-05-11)
+
+**Mapper (`Backend/src/routes/shipment-plans.js` — `toPlanListRow`)**
+
+List and **`GET /api/v1/shipment-plans/:id`** detail responses now include **ISO 8601 strings** (or `null`) for plan-owned schedule fields in addition to existing **`eta`**:
+
+- **`ta`**, **`etb`**, **`tb`**, **`dockingStartTime`**, **`pob`**, **`sob`**, **`estimatedCompletionTime`**, **`actualCompletionTime`**
+
+**Normalization:** `timestampToIso` coalesces DB `timestamptz` / driver values to strings for JSON.
+
+**Frontend (`Frontend/src/pages/Allocation.jsx`, plan profile)**
+
+- Schematic / berth / Gantt selection passing **`plan-<id>`** sets **`vesselDetailPlanId`** and resolves a **representative** **`vesselDetailModalVesselId`** for operation-scoped sections; **`closeVesselDetailModal`** clears vessel + plan fetch state.
+- **`fetchShipmentPlan`** (`Frontend/src/api/shipmentPlans.js`) on open when **`vesselDetailPlanId`** is set; **`planDetail`**, **`planDetailLoading`**, **`planDetailError`** drive the plan **Time & status** card; **`vesselDetailPlanQueueRows`** filters **`list`** ∪ **`scheduleList`** by **`shipmentPlanId`**.
+- i18n: **`Frontend/src/locales/en|id/allocation.json`** — plan modal section titles and **`ttPlan*`** tooltip strings.
+
+### 0.24 Plan berth — sibling `operations` sync (2026-05-11)
+
+**Backend (`Backend/src/routes/allocation.js` — `PUT /allocation/arrival`)**
+
+- **`userHasAllocationPlanEdit`** gates the route (**`allocation-plan`** **edit** only).
+- After updating **`shipment_plans`** and the **primary** **`operations`** row, when **`shipment_plan_id`** is set and resolved **`tb`** is non-null: for each **other** `shipping_instructions` row on the same **Approved** plan, the handler ensures an **`operations`** row exists ( **`insertOperationForApprovedPlanSi`** + **`assignJettyOperationCode`** on insert), skips rows already **`SAILED`**, then applies **`runArrivalOperationUpdate`** with the same call-level timestamps as the request; **`actual_completion_time`** is taken per sibling unless the body explicitly sets **`actualCompletionDateTime`** (then all updated rows share that value). NOR **`operation_nor_details`** upsert remains **primary operation only**.
+
+### 0.25 Retire legacy Allocation & Shipping Instruction list RBAC (2026-05-11)
+
+**Migrations:** **`068_retire_allocation_si_page_permissions.sql`** — for each role, **OR-merge** active grants from catalog pages **`allocation`** → **`allocation-plan`** and **`shipping-instruction`** → **`shipment-plan`** (including **`can_approve`** mirroring per existing **060** rules), then **soft-delete** matching **`role_permissions`** rows and the two retired **`permissions`** catalog rows.
+
+**Rollback:** Prefer a **pre-migrate snapshot** of **`permissions`** + **`role_permissions`**. Optional script **`069_rollback_retire_allocation_si_page_permissions.sql`** clears **`deleted_at`** on those catalog keys and their role links (review before use if new grants were added post-migration).
+
+**Backend:** **`allocation.js`** — **`GET /allocation/overview`** now uses **`requirePageView('allocation-plan')`**; **`userHasAllocationPlanEdit`** is **`allocation-plan`** **edit** only; activity logs for swap + arrival use **`allocation-plan`**. **`shipping-instructions.js`** — internal SI approve checks **`shipment-plan`** **`can_approve`**; activity **`pageKey`** **`shipment-plan`**. **`operations.js`** / **`operation-documents.js`** — allocation-scoped activity keys use **`allocation-plan`**.
+
+**Retired catalog keys:** **`allocation`**, **`shipping-instruction`** — no longer seeded as active pages; Admin matrix uses **`allocation-plan`** and **`shipment-plan`** only.
+
 ### 0.4 Dev reset + seed (transactional data only)
 
 To support “start fresh” local testing without wiping master data, the repo includes a repeatable reset+seed script:
@@ -194,6 +295,7 @@ To support “start fresh” local testing without wiping master data, the repo 
   - `quantity_checks`
   - `operation_materials`
   - `shipping_instruction_breakdown`, `shipping_instructions`
+  - `shipment_plans`
   - `activity_logs`
 - **Seeds fresh demo data** using relative timestamps (`NOW() +/- ...`) so Allocation / Loading / Verification views look current immediately after reset.
 
@@ -303,12 +405,12 @@ Operational ownership note:
 
 **`PUT /allocation/arrival`:**
 
-- **Authorisation:** `userHasPageEdit(req.userId, 'allocation')` from **`Backend/src/middleware/permissions.js`**; **403** if false. Route no longer uses **`optionalAuth`**; parent **`requireAuth`** + port scope still apply.
+- **Authorisation:** `userHasPageEdit(req.userId, 'allocation-plan')` from **`Backend/src/middleware/permissions.js`**; **403** if false. Route no longer uses **`optionalAuth`**; parent **`requireAuth`** + port scope still apply.
 - **Persistence:** `UPDATE operations` sets **`updated_by`** = authenticated user id; **`actual_completion_time`** is updated when the JSON body **includes** key **`actualCompletionDateTime`** (empty string clears); if the key is **omitted**, the column is left unchanged (read **`opBefore`** for merge).
 - **Partial JSON bodies:** If the client **omits** keys **`taDateTime`**, **`etbDateTime`**, **`pobDateTime`**, **`tbDateTime`**, **`sobDateTime`**, **`estimatedCompletionDateTime`**, **`norTenderedDateTime`**, or **`norAcceptedDateTime`**, the server **keeps** the existing database values for those columns (supports NOR-only saves from Loading). If a key is **present** (including with an empty string), the server applies normal parse/clear rules.
 - **Activity log:** `writeActivityLog` **`meta`** may include **`source: 'active_vessel_detail'`** when the client sends **`source`** in the body (Active Vessel Detail save).
 
-**Frontend:** `Frontend/src/pages/Allocation.jsx` — **`useRbac().canEdit('allocation')`** gates the Edit icon; **Log arrival** / **Confirm Berthing** requests send the same field keys as before; optional extra fields preserve behaviour when the backend merges partial updates.
+**Frontend:** `Frontend/src/pages/Allocation.jsx` — **`useRbac().canEdit('allocation-plan')`** gates the Edit icon; **Log arrival** / **Confirm Berthing** requests send the same field keys as before; optional extra fields preserve behaviour when the backend merges partial updates.
 
 ### 0.8 Admin User Management — port assignment IDs (2026-04-02)
 
@@ -333,7 +435,7 @@ Operational ownership note:
 |--------|------|------|
 | `shiftingOut` | boolean | **Required** |
 | `remark` | string | **Required** when `shiftingOut === true` (non-empty after trim); persisted to **`operations.remark`** (full replace). When `shiftingOut === false`, include a **non-empty** `remark` to update remark while clearing shift-out (**re-dock** from Allocation); **omit** `remark` (or only whitespace) to clear shift-out **without** changing `operations.remark` (**Undo shift-out** from At-Berth). |
-| `activityLogPage` | string | Optional; **`allocation`** or **`at-berth`** only (anything else treated as **`at-berth`**). Drives `writeActivityLog(..., pageKey)` so re-dock appears under **Allocation** and shift-out under **At-Berth** in the page-scoped Activity Log panel. |
+| `activityLogPage` | string | Optional; **`allocation-plan`** or **`at-berth`** only (legacy **`allocation`** is treated as **`allocation-plan`**). Drives `writeActivityLog(..., pageKey)` so re-dock appears under **Allocation (plans)** and shift-out under **At-Berth** in the page-scoped Activity Log panel. |
 
 **Handler behaviour (ordering):**
 
@@ -344,7 +446,7 @@ Operational ownership note:
 5. **`writeActivityLog`:** `summary` **Shifted out from berth** vs **Re-docked (shift-out cleared)** (when remark sent on clear) vs **Shift-out cleared** (undo without remark); **`changes`** include **Shifting out** and **Remark** when remark actually changed; **`meta`:** `{ source: 'operations.shifting-out', shiftingOut }`.
 6. `COMMIT`; response body **`toOp(row)`** including **`remark`** (`loadOperationJoined`).
 
-**Client:** `Frontend/src/api/operations.js` — **`setOperationShiftingOut(operationId, shiftingOut, remark?, options?)`**. Pass **`{ activityLogPage: 'allocation' }`** on re-dock; **`{ activityLogPage: 'at-berth' }`** on shift-out from At-Berth.
+**Client:** `Frontend/src/api/operations.js` — **`setOperationShiftingOut(operationId, shiftingOut, remark?, options?)`**. Pass **`{ activityLogPage: 'allocation-plan' }`** on re-dock; **`{ activityLogPage: 'at-berth' }`** on shift-out from At-Berth.
 
 **Allocation overview / UI:**
 
@@ -491,7 +593,7 @@ RBAC is defined at **department**, **page**, and **field** level (see §6).
    - Show vessel, commodity, purpose (Loading/Unloading), ETA, status.
    - Expand row for full details (breakdown, documents; extended header fields as implemented).
 3. Loading SIs: create/edit includes **destination**, **freight_terms**, **B/L & consignee** text fields, **voyage**, **document date**; modal shows **B/L split preview** from breakdown.
-4. Internal approval (Loading + Unloading): **Submit for approval** persists **Submitted** via API; **Approve/Sign-off** requires RBAC **`can_approve`** on page `shipping-instruction` (see §6). On approve, API sets **`approved_by_user_id`**, **`approved_at`**, **snapshots**, **`approval_id`**; document view uses **reference_number** as **No.** when set.
+4. Internal approval (Loading + Unloading): **Submit for approval** persists **Submitted** via API; **Approve/Sign-off** requires RBAC **`can_approve`** on page **`shipment-plan`** (see §6). On approve, API sets **`approved_by_user_id`**, **`approved_at`**, **snapshots**, **`approval_id`**; document view uses **reference_number** as **No.** when set.
 5. Document view/approval templates:
    - **Loading** uses the full template (header + full field set).
    - **Unloading** uses a simplified template (label and layout differences).
@@ -656,7 +758,7 @@ Freight terms are currently fixed (frontend constant + backend validation), so t
 **Workflow (current frontend: `Dashboard.jsx`)**:
 - **Vessel pipeline** card (`section.dashboard-pipeline`) is rendered **first** in the main column (after header, port chip, and optional API error banner), then the **Port activity chart + KPI grid** row — pipeline is the top-level summary of port flow.
 - **Port activity chart** (`DashboardActivityChart.jsx`) in the **second row** left column (beside the KPI grid):
-  - **Operations** mode: classifies `GET /allocation/overview` **`queue`** rows by **`purpose`** (Loading / Unloading; unknown purpose omitted) and by stage using shared helpers in `Frontend/src/utils/dashboardQueueClassification.js`:
+  - **Operations** mode: classifies `GET /allocation/overview` **`queue`** rows by **`purpose`** (Loading / Unloading; unknown purpose omitted) and by stage using shared helpers in `Frontend/src/utils/dashboardQueueClassification.js`. Counts **deduplicate** rows that share **`shipmentPlanId`** via **`allocationQueueVesselCallKey`** so one vessel call does not inflate **Planned berthing** / **Berthing** bars.
     - **Planned berthing:** `isPlannedBerthingQueueRow` — jetty set, no TB, operation status not in `DOCKED` / `IN_PROGRESS` / `POST_OPS` / `SIGNOFF_REQUESTED` / `SIGNOFF_APPROVED` (same idea as pipeline planned berthing).
     - **Berthing:** `isQueueRowBerthing` — TB set or status in that alongside set; **`shiftingOut` rows excluded**.
   - **Shipping instructions** mode: counts by `status` **`Approved` | `Submitted` | `Draft`** from `GET /shipping-instructions` (port-scoped); percentages use total of those three as denominator.
@@ -680,7 +782,7 @@ Freight terms are currently fixed (frontend constant + backend validation), so t
     - **On‑time berthing (%)**: `TB <= plannedEtbDateTime + 6h`, windowed by **TB**.
   - Drill-down uses the same portal tooltip pattern (`InteractiveTooltip.jsx`) listing worst/late cases with vessel + jetty + duration.
 - **Implementation**: shared portal tooltip component `Frontend/src/components/InteractiveTooltip.jsx` (pattern mirrors `DashboardActivityChart.jsx` tooltip).
-- Pipeline view (Shipping Instruction → Planned berthing → At-Berth → Clearance; **Allocation** is not a separate dashboard stage — use **Planned berthing** / **At-Berth** links to `/allocation` and `/at-berth` as today).
+- Pipeline view (Shipping Instruction → Planned berthing → At-Berth → Clearance; **Allocation** is not a separate dashboard stage — use **Planned berthing** / **At-Berth** links to **`/allocation-plans`** and **`/at-berth`**; the **Shipment plans** stage links to **`/shipment-plans`**).
 - **Awaiting berth** sidebar list was **removed** (redundant with pipeline **Planned berthing**). “Next arrivals / line-up” widget was also removed.
 - Jetty status chips from `GET /jetties?port_id=…`.
 - **Styles:** `Frontend/src/styles/dashboard.css` — `dashboard-row1__chart`, `.dashboard-activity-chart*`, `.dashboard-weather-footer`.
@@ -786,8 +888,9 @@ Types are whitelisted by backend config (`Backend/src/routes/si-lookups.js`) and
 - `POST /operations/:id/request-exception` – body `justification`, optional `exception_document_url`; sets `PENDING` (before terminal at-berth statuses / `SAILED`).
 - `POST /operations/:id/approve-exception` – body optional `approver_user_id`.
 - `POST /operations/:id/reject-exception` – body optional `approver_user_id`.
-- `POST /operations/:id/depart` – after **`SIGNOFF_APPROVED`**; body `cast_off_at` (ISO, required), optional `clearance_document_url`, `vessel_photo_url`; sets `SAILED`, `sailed_at`.
-- **Clearance UI rule (frontend guard):** before calling `depart`, `Verification.jsx` loads `GET /operations/:id/activity-timeline` and rejects `cast_off_at` earlier than the latest timeline timestamp. This aligns depart time with the latest recorded event in the **Detailed At-Berth Executions Log**.
+- `POST /operations/:id/depart` – after the operation is **`SIGNOFF_APPROVED`**; body `cast_off_at` (ISO, required), optional `clearance_document_url`, `vessel_photo_url`. When **`shipping_instructions.shipment_plan_id`** is set, the backend sails **all** sibling **`SIGNOFF_APPROVED`** operations and updates **`shipment_plans`** using the same transaction helper as **`POST /shipment-plans/:id/depart`**.
+- `POST /shipment-plans/:id/depart` – plan-first depart endpoint (see **§3.5.3A**); preferred from **Clearance** when the UI row carries **`shipmentPlanId`**.
+- **Clearance UI rule (frontend guard):** before calling depart, `Verification.jsx` loads **`GET /operations/:id/activity-timeline`** for **each** sibling operation on the plan (when collapsed) and rejects `cast_off_at` earlier than the **maximum** latest timestamp. This aligns cast-off with the **combined** **Detailed At-Berth Executions Log** across SIs on the call.
 - **UI entrypoint policy:** Loading/Unloading hub (`Loading.jsx`) supports **request sign-off** and pending-state visibility only; final approval action is routed through **Clearance** (`Verification.jsx`) as the single approval entry point.
 
 ### 3.4 QC & Quantity
@@ -974,7 +1077,7 @@ Returns `{ queue, berths, scheduleQueue }`.
   - non-`SAILED` operations, plus
   - `SAILED` operations within configured lookback (`COALESCE(cast_off_at, actual_completion_time, updated_at)` >= `NOW() - lookbackDays`).
   Incoming approved SI rows are included here as well.
-- **Key camelCase fields** (non-exhaustive): `id`, `vesselId`, `operationId`, `shippingInstructionId`, `vesselName`, `shippingInstruction`, `commodity`, `purpose`, `priority`, `noPkk`, `remark`, **`shiftingOut`**, **`shiftingOutAt`**, `eta`, `etb`, `jetty`, `etaDateTime`, `taDateTime`, `etbDateTime`, `tbDateTime`, `pobDateTime`, `sobDateTime`, `estimatedCompletionDateTime`, `actualCompletionDateTime`, `castOffDateTime`, `status`, `norDocuments`, **`recordLastUpdatedAt`**, **`recordLastUpdatedByDisplayName`**, **`shipper`**, **`agent`**, **`surveyor`** (from `si_shippers`, `si_agents`, `si_surveyors` joins on `shipping_instructions`).
+- **Key camelCase fields** (non-exhaustive): `id`, `vesselId`, `operationId`, **`shipmentPlanId`**, `shippingInstructionId`, `vesselName`, `shippingInstruction`, `commodity`, `purpose`, `priority`, `noPkk`, `remark`, **`shiftingOut`**, **`shiftingOutAt`**, `eta`, `etb`, `jetty`, `etaDateTime`, `taDateTime`, `etbDateTime`, `tbDateTime`, `pobDateTime`, `sobDateTime`, `estimatedCompletionDateTime`, `actualCompletionDateTime`, `castOffDateTime`, `status`, `norDocuments`, **`recordLastUpdatedAt`**, **`recordLastUpdatedByDisplayName`**, **`shipper`**, **`agent`**, **`surveyor`** (from `si_shippers`, `si_agents`, `si_surveyors` joins on `shipping_instructions`).
 - **`eta` / `etb`**: short display strings from SQL `to_char(… AT TIME ZONE 'UTC', 'DD/MM HH24:MI')` — **no** trailing ` LT` suffix.
 - **`berths`**: jetty list with occupancy derived from operations where **TB is set** and/or status in DOCKED / IN_PROGRESS / POST_OPS / SIGNOFF_REQUESTED / SIGNOFF_APPROVED **and `shifting_out` is false** (shifted-out vessels must not occupy a bank slot).
 
@@ -984,10 +1087,17 @@ See **§0.9** (request/response, remark persistence, activity log, client helper
 
 #### 3.5.3 `PUT /allocation/arrival`
 
-- **RBAC:** Requires **`can_edit`** on page permission **`allocation`** (`userHasPageEdit`); otherwise **403**.
+- **RBAC:** Requires **`can_edit`** on **`allocation-plan`** (`userHasAllocationPlanEdit`); otherwise **403**.
 - After resolving optional body **`jetty`** string to **`jetties.id`** for the selected port, if the jetty row’s **`status`** is **`Out of Service`**, responds **409** and rolls back (no partial update).
-- Updates the **operation** linked from the queue row: ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, `no_pkk`, `jetty_id`, **`estimated_completion_time`**, **`actual_completion_time`** (when `actualCompletionDateTime` is present in body), **`updated_by`**, **`updated_at`**, etc.
-- When **TB** is provided, sets **`status = DOCKED`** if previously PENDING / ALLOCATED / empty; syncs **`docking_start_time`** with TB where applicable.
+- Resolves the **`shipment_plans`** row from the queue context and updates **plan-level** fields first: ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, `no_pkk`, `jetty_id`, **`estimated_completion_time`**, **`actual_completion_time`**, plan **`updated_by`** / **`updated_at`**, etc.
+- Updates the linked **`operations`** row for the same payload where the backend mirrors fields for legacy paths; when **TB** is provided, sets **`status = DOCKED`** if previously PENDING / ALLOCATED / empty and syncs **`docking_start_time`** with TB where applicable.
+- When **`tb`** is non-null and the SI belongs to an **Approved** shipment plan, **every other SI on that plan** gets the same arrival payload applied to its **latest** operation (creating the operation and jetty operation code when missing); **`SAILED`** sibling operations are skipped. **`shipping_instructions.status`** is not changed (document lifecycle remains Draft / Submitted / Approved).
+
+#### 3.5.3A `POST /shipment-plans/:id/depart`
+
+- **RBAC / scope:** Same **`requireAuth`** + **`requirePortScope`** as other operational routes; plan must belong to **`req.selectedPortId`**.
+- **Body:** `cast_off_at` (ISO, required), optional `clearance_document_url`, `vessel_photo_url` (mirrors **`POST /operations/:id/depart`**).
+- **Behaviour:** Uses **`departShipmentPlanInTransaction`** (`Backend/src/lib/shipment-plan-depart.js`) to sail **all** **`SIGNOFF_APPROVED`** child operations and set **`shipment_plans`** cast-off / evidence / `sailed_at`. Activity log may use **`entityType: ShipmentPlan`** for this entry (`Backend/src/routes/shipment-plans.js`).
 
 #### 3.5.4 `GET /operations/at-berth`
 
@@ -1020,7 +1130,7 @@ The in-app Activity Log panel (`ActivityLogPanel`) renders expandable details on
 To keep behavior consistent across all pages/modules, backend writers MUST follow this contract when calling `writeActivityLog(...)`:
 
 - Required:
-  - `pageKey` (route/page scope: `shipping-instruction`, `allocation`, `loading`, `verification`, etc.)
+  - `pageKey` (route/page scope: `shipment-plan`, `allocation-plan`, `loading`, `verification`, etc.; retired: `shipping-instruction`, `allocation`)
   - `action` (`add` | `update` | `delete`)
   - `summary` (human-readable short sentence)
 - Recommended:
@@ -1052,7 +1162,7 @@ Backward compatibility note:
 
 - Prefer **before/after** values from the database when building `changes` (not `null -> value` when an old value existed).
 - For text fields such as **Remark**, normalize empty/whitespace-only strings to a single “empty” representation when comparing so the UI does not show misleading empty chips; sub-process and NOR-detail routes apply this pattern.
-- **Optional auth**: some routes still use `optionalAuth` so a valid JWT sets `req.userId` for `actorUserId` where applicable. **`PUT /allocation/arrival`** is **not** optional-auth: it requires authenticated user + **allocation** **can_edit**; `actorUserId` is always set for successful writes from the UI.
+- **Optional auth**: some routes still use `optionalAuth` so a valid JWT sets `req.userId` for `actorUserId` where applicable. **`PUT /allocation/arrival`** is **not** optional-auth: it requires authenticated user + **`allocation-plan`** **can_edit**; `actorUserId` is always set for successful writes from the UI.
 
 **Logged areas (non-exhaustive)**:
 
@@ -1060,7 +1170,7 @@ Backward compatibility note:
 - `operation-documents` — upload/delete with per-file `changes`.
 - `operation-sub-processes` — sub-process upsert (phase, status, occurred_at, remark; sampling adds consolidated **Sampling Records** string); document upload/delete; NOR details (remark + payload fields such as NOR Source / Stage / Updated Via).
 - `operations` — lifecycle updates (status, completion, docking, exceptions, signoff, depart, etc.) with field-level `changes` where applicable.
-- `POST /operations/:id/shifting-out` — **Shifting out** / **Re-docked** / **Shift-out cleared** summaries; `changes` for **Shifting out** and **Remark** when applicable; `pageKey` from body **`activityLogPage`** (`allocation` vs `at-berth`); **`meta.shiftingOut`** (see **§0.9**).
+- `POST /operations/:id/shifting-out` — **Shifting out** / **Re-docked** / **Shift-out cleared** summaries; `changes` for **Shifting out** and **Remark** when applicable; `pageKey` from body **`activityLogPage`** (`allocation-plan` vs `at-berth`; legacy `allocation` → `allocation-plan`); **`meta.shiftingOut`** (see **§0.9**).
 
 ### 3.9 Frontend shared utilities (date/time)
 
@@ -1101,7 +1211,7 @@ Entities follow the design already outlined in the previous answer; key ones:
 - `shipping_instructions` — includes **`approval_id`** (migration **`019`**). Migration **`025_si_loading_document_and_approve_rbac.sql`** adds Loading document fields: **`voyage_no`**, **`destination_text`**, **`freight_terms`** (check: PREPAID, COLLECT, AS_PER_CHARTER_PARTY, OTHER), **`bill_of_lading_clause`**, **`consignee_text`**, **`notify_party_text`**, **`bl_indicated`**, **`document_date`**, and approval audit: **`approved_by_user_id`**, **`approved_at`**, **`approver_name_snapshot`**, **`approver_title_snapshot`**. API exposes camelCase equivalents (e.g. **`destinationText`**, **`freightTerms`**, **`approverNameSnapshot`**).
 - `si_port_npwp` — per-port **NPWP master** used for Shipping Instruction display (read-only in SI form/view/approval); unique active row per `port_id` (migration **`047_si_port_npwp.sql`**).
 - `users` — optional **`job_title`** (migration **`025`**) used when populating approver title snapshot (fallback: `OPERATION HEAD`).
-- `role_permissions` — **`can_approve`** boolean (migration **`025`**); merged in **`GET /rbac/me/page-permissions`** as **`canApprove`** per page. Shipping Instruction approval on **PUT** `/shipping-instructions/:id` when transitioning to **Approved** requires **`can_approve`** for resource_key **`shipping-instruction`**. **Operation sign-off** (**`POST /operations/:id/signoff`**) requires **`can_approve`** for resource_key **`loading`** (Admin UI: **Approve operation sign-off** under Loading / Unloading).
+- `role_permissions` — **`can_approve`** boolean (migration **`025`**); merged in **`GET /rbac/me/page-permissions`** as **`canApprove`** per page. Shipping Instruction approval on **PUT** `/shipping-instructions/:id` when transitioning to **Approved** requires **`can_approve`** for resource_key **`shipment-plan`**. **Operation sign-off** (**`POST /operations/:id/signoff`**) requires **`can_approve`** for resource_key **`loading`** (Admin UI: **Approve operation sign-off** under Loading / Unloading).
 - `operation_documents` — file metadata per operation (`kind`, `stored_path`, NOR/BERTHING, etc.).
 - `operations`, `operation_materials`, `operation_activities` (optional).
 - `qc_surveys`, `qc_documents`.

@@ -32,8 +32,8 @@ function resolveStoredPath(storedPath) {
 /** Activity log page keys for uploads (NOR appears in both Allocation and Pre-Checking). */
 function pageKeysForOperationDocKind(kind) {
   const k = String(kind || '').toUpperCase();
-  if (k === 'NOR') return ['allocation', 'loading'];
-  if (k === 'BERTHING') return ['allocation'];
+  if (k === 'NOR') return ['allocation-plan', 'loading'];
+  if (k === 'BERTHING') return ['allocation-plan'];
   return ['loading'];
 }
 

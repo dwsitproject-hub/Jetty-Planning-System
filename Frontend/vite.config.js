@@ -16,6 +16,18 @@ export default defineConfig({
         target: 'http://127.0.0.1:3000',
         changeOrigin: true,
       },
+      // RTSP helper (rtsp-stream-viewer): same-origin fetches + WS without CORS when VITE_JETTY_LIVE_HTTP_ORIGIN is unset.
+      '/jetty-live-stream': {
+        target: 'http://127.0.0.1:3080',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/jetty-live-stream/, '') || '/',
+      },
+      '/jetty-live-ws': {
+        target: 'ws://127.0.0.1:9999',
+        ws: true,
+        changeOrigin: true,
+        rewrite: (p) => (p === '/jetty-live-ws' || p.startsWith('/jetty-live-ws/') ? '/' : p),
+      },
     },
   },
 })

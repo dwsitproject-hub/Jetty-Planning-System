@@ -9,6 +9,34 @@ function assert(cond, msg) {
   if (!cond) throw new Error(`ASSERT: ${msg}`);
 }
 
+/** Cookie + XSRF session (default) or Bearer when AUTH_RETURN_TOKEN_BODY=true on API. */
+function authHeadersFromLogin(loginRes, loginJson) {
+  if (loginJson.token) {
+    return {
+      Authorization: `Bearer ${loginJson.token}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    };
+  }
+  const list =
+    typeof loginRes.headers.getSetCookie === 'function' ? loginRes.headers.getSetCookie() : [];
+  const jar = {};
+  for (const c of list) {
+    const pair = c.split(';')[0];
+    const eq = pair.indexOf('=');
+    if (eq > 0) jar[pair.slice(0, eq).trim()] = pair.slice(eq + 1).trim();
+  }
+  const at = jar.jps_at;
+  const xsrf = jar.jps_xsrf;
+  assert(at && xsrf, `login: no token in JSON and no session cookies: ${JSON.stringify(loginJson)}`);
+  return {
+    Cookie: `jps_at=${at}; jps_xsrf=${xsrf}`,
+    'X-XSRF-TOKEN': xsrf,
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+}
+
 /** API may return DATE columns as ISO strings (e.g. …T00:00:00.000Z). */
 function dateYmd(v) {
   if (v == null || v === '') return '';
@@ -23,14 +51,10 @@ async function main() {
     body: JSON.stringify({ username: 'admin', password: 'admin123' }),
   });
   const login = await loginRes.json();
-  assert(loginRes.ok && login.token, `login failed: ${JSON.stringify(login)}`);
-  const auth = {
-    Authorization: `Bearer ${login.token}`,
-    Accept: 'application/json',
-    'Content-Type': 'application/json',
-  };
+  assert(loginRes.ok && login.user, `login failed: ${JSON.stringify(login)}`);
+  const auth = authHeadersFromLogin(loginRes, login);
 
-  const luRes = await fetch(`${BASE}/si-lookups`, { headers: { Accept: 'application/json' } });
+  const luRes = await fetch(`${BASE}/si-lookups`, { headers: auth });
   const lu = await luRes.json();
   assert(luRes.ok, `si-lookups failed: ${JSON.stringify(lu)}`);
   const loadingPurpose = lu.purposes?.find((p) => p.code === 'Loading');

@@ -3,7 +3,7 @@
 **Product:** Jetty Planning & Monitoring System (JPS)  
 **Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.35 (see document history at end).
+**Version:** 1.41 (see document history at end).
 
 ---
 
@@ -21,6 +21,7 @@ This document describes **behaviour that is implemented in code**, including:
 - **Multi-port sign-in and shell:** dedicated **Choose port** page, session-stored active port, and header behaviour (**§14.1**).
 - **Shifting out & re-dock:** temporarily treating a **berthed** operation as **not occupying** the jetty (for double-bank / priority preemption) while **preserving** operation history and TB/TA; coordinated **remark** capture, success messaging, and activity log (**§2.5**).
 - **Demurrage Risk Calculator:** port-scoped candidate list (**Incoming** / **Berthed** aligned with Allocation), read-only **voyage context**, **throughput buffer** (and optional **Advanced** rate override), **Estimate** and **Save as estimation of completion** on an operation (**§2.6**).
+- **Shipment Plan (multi-SI vessel call):** one **Shipment Plan** groups multiple **Shipping Instructions** on the same physical call; Allocation/berthing and vessel-level clearance timestamps are anchored on the plan while at-berth execution, QC, and quantities stay **per SI / per operation** (**§2.13**). A second **plan-centric** Allocation surface groups the same queue by plan in the UI (**§2.14**).
 - **Full details timing fields:** standard detail-block order in operational modules (**§2.8**, **§9**, **§16**).
 - **SI hyperlink detail modal:** clicking SI number in table rows opens a shared **SI Detail** modal across Shipping Instructions, Allocation & Berthing, and At-Berth Executions (**§2.9**, **§7**).
 - **Jetty Operation ID:** external formatted id for each operation (**§2.10**); shown in Allocation, At-Berth, and Clearance main tables **before** SI.
@@ -47,32 +48,31 @@ For API field names, database columns, and shared code modules, see **TECH-SPEC-
 | **Removed segment** | The **planned “transit” sliver** from **ETA → planned ETB** was **removed** — it was visually confusing; the Gantt does not draw that segment anymore. |
 | **Tooltip source context** | Hover tooltip shows source references for derived bars: **Planned refs** (`ETB`, `ETA`) and **Actual refs** (`TB`, `TA`). Start line indicates which source is used, e.g. **Start ... (from ETB/ETA/TB/TA)**. |
 | **Status color source of truth** | Gantt bar status color treats a vessel as **Sailed off** when any of these are true: operation status is `SAILED`, `actualCompletionDateTime` is set, or `castOffDateTime` is set. |
-| **Double bank — schedule lanes (01 / 02)** | **Bank lane** is assigned per **vessel** on a jetty (not separately for planned vs actual). **Planned** and **Actual** bars for the **same** vessel share the **same** lane (e.g. **1A-01**) as two sub-rows. A **second** vessel on that jetty uses the next lane (**1A-02**) when capacity allows. Lane order: earliest **TB** first, then **operation id**, then **vessel id** (see TECH-SPEC §0.6). |
+| **Double bank — schedule lanes (01 / 02)** | **Bank lane** uses **`shipmentPlanId`** when present (one lane per **Shipment Plan** so sibling SIs on the same call do not occupy separate 01/02 slots); otherwise assignment is per **vessel** (`vesselId`). **Planned** and **Actual** bars for the **same** logical call share the **same** lane (e.g. **1A-01**) as two sub-rows. A **second** call on that jetty uses the next lane (**1A-02**) when capacity allows. Lane order: earliest **TB** first, then **operation id**, then **vessel id** (see TECH-SPEC §0.6). |
 | **Out-of-service jetty (lane display)** | When master **`jetties.status`** is **Out of Service** for a jetty present in overview **`berths`**, the **left id column** shows an **OOS** treatment (striped/muted row) and status text explains the lane is for **schedule context only**; new allocations to that jetty are **blocked** (see **§2.7**). |
 
 ### 2.2 Log arrival update (modal)
 
 - Includes **Estimated completion** as a **`datetime-local`** input, consistent with other date/time fields on the form.
-- Saving uses the allocation **arrival** API (see §6); value is stored on the operation record.
+- Saving uses the allocation **arrival** API (see §6); vessel-level schedule values (including estimated completion when in scope) are persisted on **`shipment_plans`** and mirrored on each sibling queue row for display.
 
 ### 2.3 Confirm Berthing (modal)
 
 - Includes **Estimated completion** (`datetime-local`), aligned with Log arrival update.
-- **Confirm Berthing** persists data via the same **arrival** API **before** applying local UI state; the button shows a **saving** state while the request runs.
+- **Confirm Berthing** persists data via the same **arrival** API **before** applying local UI state (plan-backed vessel fields per §6); the button shows a **saving** state while the request runs.
 
 ### 2.4 Active Vessel Detail (modal) — times & last updated
 
 | Area | Behaviour |
 |------|-----------|
 | **Where** | Opens from **Jetty Schematic** or **Jetty schedule (Gantt)** when the user selects an occupied / planned vessel (same modal as today for vessel summary). |
-| **Last updated** | Between **Current Phase** and **Times & status**, the user sees a single secondary line: **Last updated on** the operation’s or SI’s last change **date/time**, and when known **by** the **user display name**. For rows backed by an **operation**, the timestamp reflects **`operations.updated_at`** (any change to that operation from any module). For **incoming** queue rows that are **shipping instruction only** (no operation yet), the timestamp reflects **`shipping_instructions.updated_at`**; no “by” name is shown for those rows in this release. |
+| **Last updated** | Between **Current Phase** and **Times & status**, the user sees a single secondary line: **Last updated on** the latest **date/time** across **`shipment_plans.updated_at`** and the linked **`operations.updated_at`** for that row’s vessel call, and when known **by** the **user display name** from whichever side changed most recently. For **incoming** queue rows that are **shipping instruction only** (no operation yet), the timestamp reflects **`shipping_instructions.updated_at`**; no “by” name is shown for those rows in this release. |
 | **Edit (Times & status)** | Users whose role grants **Allocation & Berthing → Edit** see an **Edit** control (icon with tooltip **Edit**) on the **Times & status** card header. **View-only** users do not see Edit. Editing is available only when the row has an **operation** (not for SI-only incoming rows in this release). |
 | **Fields in edit mode** | **ETA, TA, ETB, TB, POB, SOB, Est. completion, Actual completion** use the same **`datetime-local`** styling as **Log arrival update** / **Confirm Berthing**. **Time Since Berthing** and **Est. Time Remaining** stay **read-only**; they **do not** live-update while the user types—they refresh from saved data **after a successful Save**. |
 | **Helper copy** | While editing, a short note explains that **calculated fields apply after saving**. |
 | **Actions** | **Cancel** discards draft changes. **Save changes** calls the same **arrival** API as other allocation saves, then refreshes the overview so the modal and lists show updated values. **Close** closes the modal (while editing, **Close** is available alongside Cancel/Save; users should use **Cancel** or **Save** to leave edit mode intentionally). |
 | **Audit** | Successful saves are recorded in the **activity log** like other allocation arrival updates; edits from this modal may carry a distinct **meta** source for filtering (see TECH-SPEC). |
-
-### 2.5 Shifting out and re-dock (priority / double-bank)
+| **Plan-centric (`/allocation-plans`, `plan-*` slot)** | An extra read-only **Time & status (shipment plan)** block leads the modal, fed by **`GET /api/v1/shipment-plans/:id`** (**§2.14**). The operation **Times & status** card is **hidden in read-only plan mode** and **shown when editing** so **Edit** / **Save** behaviour stays aligned with the rows above. |
 
 **Problem this solves:** Operations sometimes need to **free a berth** (e.g. second bank slot or priority vessel) **without** deleting the voyage or losing **TB / history**. The voyage should reappear in planning as **incoming / shifted** until the jetty is formally **re-docked**.
 
@@ -108,7 +108,7 @@ Technical contract (endpoints, columns, persistence order): **TECH-SPEC-Jetty-Pl
 | **List row** | **Vessel · SI reference · Incoming \| Berthed · [jetty name when set] · commodity** (jetty from allocated operation when present). |
 | **Voyage context** | **Read-only** panel: **Purpose**, **commodity line(s)** and summed **volume (MT)** from all SI breakdown rows in MT, **start for calculation** with precedence **docking start → TB → ETB → SI ETA**, and **master rate(s)** from commodity master for loading/unloading. Link to **Shipping Instruction** for edits — users do **not** change commodity, volume, purpose, or operation timestamps on this page. |
 | **Scenario** | User-adjustable fields for SLA terms: **Q1** (Quality & Quantity checking), **Q2** (Final Quality & Quantity checking), **C** (Clearance), each default **1 hour** and resettable. Also includes **Throughput buffer** (multiplier on rate) with **Reset to default** (from SLA config). If the user changes buffer or scenario terms after running **Estimate**, a reminder prompts **Estimate** again. **Advanced** (collapsed by default) exposes **Override rate** when master rate is missing or unsuitable (e.g. KLPH). |
-| **Result** | **Estimate** shows SLA decomposition: **Transfer term** \(\sum(V/(Rate \times Buffer))\), **Base checks** \((Q1+Q2+C)\), **Material switch penalty** \(((n-1)\times S)\), total **Estimated SLA duration**, and **Estimated completion**. For multi-commodity SI, transfer uses all MT lines; when rates differ, each line is calculated with its own rate then summed. **Save as estimation of completion** persists **`operations.estimated_completion_time`** only when an **operation** exists and the user has **edit** permission on the calculator page; activity log uses page key **demurrage-risk-calculator**. |
+| **Result** | **Estimate** shows SLA decomposition: **Transfer term** \(\sum(V/(Rate \times Buffer))\), **Base checks** \((Q1+Q2+C)\), **Material switch penalty** \(((n-1)\times S)\), total **Estimated SLA duration**, and **Estimated completion**. For multi-commodity SI, transfer uses all MT lines; when rates differ, each line is calculated with its own rate then summed. **Save as estimation of completion** persists **`shipment_plans.estimated_completion_time`** when the SI is on a shipment plan, otherwise **`operations.estimated_completion_time`**, when an **operation** exists and the user has **edit** permission on the calculator page; activity log uses page key **demurrage-risk-calculator**. **`GET /operations/:id`** merges plan-level timestamps into the JSON when **`shipmentPlanId`** is set so voyage context stays consistent with Allocation. |
 
 **Related:** Detailed API and port/sailed rules: **TECH-SPEC §3.2.2**; UX notes: **Docs/Plan/DEMURRAGE-RISK-CALCULATOR-PLAN.md**.
 
@@ -197,6 +197,34 @@ This section documents implemented sign-in behavior for Downstream Hub OIDC inte
 | **Local host policy (current known-good)** | Use **`127.0.0.1` consistently** for frontend (`:5173`), API (`:3000`), and OIDC callback. Mixing `localhost` with `127.0.0.1` may break session/cookie continuity and can trigger callback transport errors in some Windows + Docker setups. |
 | **Direct login / SSO parity** | Once API base URL and callback host are aligned, direct username/password login and Hub SSO both resolve to the same authenticated shell behavior. |
 
+### 2.13 Shipment Plan (multi-SI vessel call)
+
+| Area | Behaviour |
+|------|-----------|
+| **Terminology** | **Shipment Plan** is the aggregate for one physical vessel call; **Shipping Instructions** are documents/execution scopes under that plan. |
+| **Primary list UI** | The standalone **`/shipping-instruction`** list URL is **retired** (placeholder with links to **`/shipment-plans`**). Plan-backed SI creation and list management use **`/shipment-plans`** (and **`/shipment-plans/:id`**). Deep links **`/shipping-instruction/view/:id`** and **`/shipping-instruction/approval/:id`** remain; access is governed by **`shipment-plan`** page permissions (not the retired **`shipping-instruction`** catalog key). |
+| **Allocation queue** | **`GET /allocation/overview`** remains a **flat `queue`**: every row is still one SI (plus operation when present). Rows on the same plan share **`shipmentPlanId`** and the **same** plan-level timestamps and jetty (denormalised in SQL for display). |
+| **Full details (Allocation)** | When more than one SI exists on the plan, **Full details** lists **SIs on this shipment plan** (read-only reference lines). |
+| **Jetty Schedule (Gantt)** | Double-bank **bank lane** groups by **`shipmentPlanId`** when set so the call does not appear as two competing vessels on 01/02 (**§2.1**). |
+| **At-Berth** | Table remains **one row per operation (per SI)**; client sort **tie-breaks** by **`shipmentPlanId`** then **TB** so sibling rows sit together. |
+| **Loading / Unloading hub** | When multiple operations share a plan, a compact **Shipping instruction** selector switches the route’s **`op-<id>`** segment only; hub chrome is unchanged. |
+| **Clearance** | **Ready to Sail** and **Sailed** lists **collapse to one row per shipment plan** (SI column summarises multiple references). **Record depart** uses the **plan depart** API when **`shipmentPlanId`** is present; **CAST Off** must be on or after the **latest** timestamp across **all** sibling operations’ **Detailed At-Berth Executions Log** timelines. Document uploads still attach via a representative **operation id** (primary row). |
+| **Dashboard — Port activity** | Operations-mode counts **deduplicate** queue rows by **`shipmentPlanId`** so a multi-SI call is not double-counted in **Planned berthing** / **Berthing** bars. **Performance** waiting / on-time metrics use the same dedupe rule for TA→TB and on-time berthing. |
+
+### 2.14 Allocation & Berthing — plan-centric queue (second page)
+
+| Area | Behaviour |
+|------|------------|
+| **Where** | Route **`/allocation-plans`** is the primary **Allocation & Berthing** surface. The legacy list URL **`/allocation`** is **retired** (placeholder linking to **`/allocation-plans`** and **`/shipment-plans`**). RBAC page key **`allocation-plan`** replaces the retired catalog key **`allocation`** (migration **068**). |
+| **Data** | **`GET /allocation/plan-overview`** and **`GET /allocation/overview`** return the **same JSON shape** (`queue`, `scheduleQueue`, `berths`) and both require **`allocation-plan`** **view** after migration **068**. Each flat queue row includes **`planReference`** and **`planPurposeLabel`** when the shipment plan and purpose master rows are present. Incoming SI rows without an operation use **`source`** = **`incoming-si`**. |
+| **Queue table** | The **Incoming** table is **grouped by `shipmentPlanId`**: one **summary** row per plan (reference links to **`/shipment-plans/:id`**, vessel name, purpose badge when available, jetty summary, berthed vs total line count), then **nested child rows** per SI/operation with the **same columns, filters, sort, expand row, and actions** as the legacy Allocation page. Rows with no plan id are listed in an **ungrouped** block after grouped plans (normally empty when all SIs are plan-backed). |
+| **Actions on children** | **Log arrival update**, **Confirm Berthing**, **Re-dock**, berthing sequence controls, **Full details**, and SI / Jetty Operation ID links behave like the legacy page and target the **child** SI/operation only. |
+| **Jetty schematic & Jetty schedule (Gantt) — data** | Both consume the **flat** **`queue`** / **`scheduleQueue`** from the same response so berth occupancy, sailed schedule rules, and tooltips match the legacy Allocation page. |
+| **Jetty schematic / Gantt — merged plan selection** | Slots keyed **`plan-<shipmentPlanId>`** open the **Active vessel call** modal in **plan-first** mode: title links to **`/shipment-plans/:id`**; **Time & status (shipment plan)** is read-only and sourced from **`GET /api/v1/shipment-plans/:id`** (plan-level ISO timestamps); **derived** rows (**Time since berthing**, **Est. time remaining**) use the same display rules as the operation modal but **inputs are plan fields**. Short **source / derivation** text appears on **`<dt>` tooltips** only (not in the value column). A **Shipping instructions on this plan** table lists every child row from the current **`queue`** ∪ **`scheduleQueue`** (deduped). If the plan fetch fails, an inline error appears in the plan **Time & status** block; the SI table still renders from the overview. **Phase A:** **Current Phase**, **Edit** (including operation **Times & status**), **NOR**, and **berthing photos** remain tied to the **representative** operation resolved for that merged slot, with a short explanatory subtitle in the modal; the operation-level **Times & status** card is **hidden in read-only plan mode** to avoid duplicate/conflicting numbers and **shown again when editing** so saves stay operation-scoped. |
+| **Retired `/allocation` URL** | Schematic / Gantt clicks that resolve to a **single** `op-*` / `si-*` id keep the existing **Active Vessel Detail** behaviour (**§2.4**); no plan-detail fetch. The bookmark **`/allocation`** itself no longer renders the legacy list. |
+| **Saving arrival / berthing** | **`PUT /allocation/arrival`** requires **`allocation-plan`** **edit**; activity log **`page_key`** is **`allocation-plan`**. |
+| **Re-dock (shift-out clear)** | **`POST /operations/:id/shifting-out`** accepts **`activityLogPage`** **`allocation-plan`** for audit consistency when used from this page. |
+
 ---
 
 ## 3. Gantt data inputs (per queue row)
@@ -205,6 +233,7 @@ Segments are built from allocation overview **queue** rows. Relevant fields:
 
 | Concept | Typical row fields (API/camelCase) |
 |--------|-------------------------------------|
+| Row identity (double-bank / Gantt lane) | When **`shipmentPlanId`** is set, segments use an internal **`bankLaneKey`** of `plan-<id>` so sibling SIs share one lane; otherwise the queue **`vesselId`** is used. |
 | Planned alongside start | `COALESCE(plannedEtbDateTime, etbDateTime, etaDateTime)` |
 | Actual time of arrival (berth approach) | `taDateTime` |
 | Actual alongside / berth | `tbDateTime` |
@@ -283,12 +312,12 @@ When **TB** is later recorded, the chart shows **TA → TB** transit plus the **
 | Item | Detail |
 |------|--------|
 | **Endpoint** | `PUT /api/v1/allocation/arrival` (relative to API base; client wraps as `PUT /allocation/arrival`). |
-| **Purpose** | Persist “Log arrival update” style fields on the linked **operation**, including estimated and actual completion. |
-| **Authorisation** | Caller must have **page** permission **allocation** with **can_edit**; otherwise the API returns **403**. |
+| **Purpose** | Persist “Log arrival update” style **vessel-call** fields on **`shipment_plans`** (jetty, ETA/TA/ETB/NOR/POB/TB/SOB, estimated/actual completion, remark, priority, `no_pkk`, etc.), including estimated and actual completion when in scope. Child **`operations`** rows are updated where the backend still mirrors fields for legacy consumers. |
+| **Authorisation** | Caller must have **page** permission **`allocation-plan`** with **can_edit**; otherwise the API returns **403**. |
 | **Request body (relevant)** | Includes `estimatedCompletionDateTime` and, when supplied, `actualCompletionDateTime` (ISO or empty string to clear, per client/backend parsing). |
-| **Table** | `operations` |
-| **Columns** | `estimated_completion_time`, `actual_completion_time` (`TIMESTAMPTZ`); `updated_at` set on each save; **`updated_by`** (FK to `users`) set to the saving user when present. |
-| **Overview fields** | `GET /allocation/overview` queue rows include **`recordLastUpdatedAt`** and **`recordLastUpdatedByDisplayName`** (from operation + user join, or SI `updated_at` for incoming rows without an operation). Operation-backed rows also include **`jettyOperationCode`** when migration **056** is applied (**§2.10**). |
+| **Table** | Primary write target: **`shipment_plans`**; **`operations`** may receive mirrored timestamps for the targeted operation / siblings per backend rules. |
+| **Columns** | Plan: `estimated_completion_time`, `actual_completion_time`, and other vessel-level timestamps (`TIMESTAMPTZ`); `updated_at` / **`updated_by`** on the plan when present. |
+| **Overview fields** | `GET /allocation/overview` queue rows include **`shipmentPlanId`**, **`recordLastUpdatedAt`** and **`recordLastUpdatedByDisplayName`** derived from **`GREATEST(shipment_plans.updated_at, operations.updated_at)`** (and SI `updated_at` for incoming rows without an operation). Operation-backed rows also include **`jettyOperationCode`** when migration **056** is applied (**§2.10**). |
 | **Jetty assignment guard** | When the body resolves **`jetty`** to a `jetties` row with **`status = 'Out of Service'`**, the API responds **409** and does not apply the update — planners must choose another jetty or restore service in Master (see **§2.7**). |
 
 Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, jetty, `no_pkk`, etc.) remain as implemented in the same route.
@@ -321,6 +350,10 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | Dashboard slot KPI, Port activity chart, weather footer | `Frontend/src/pages/Dashboard.jsx`, `Frontend/src/components/DashboardActivityChart.jsx`, `Frontend/src/utils/dashboardQueueClassification.js` |
 | Shift-out route | `Backend/src/routes/operations.js` |
 | Demurrage Risk Calculator UI | `Frontend/src/pages/DemurrageRiskCalculator.jsx`, `Frontend/src/styles/demurrage-risk-calculator.css` |
+| Shipment plan depart API + shared transaction | `Backend/src/routes/shipment-plans.js`, `Backend/src/lib/shipment-plan-depart.js`; mount in `Backend/src/index.js` — **`POST /shipment-plans/:id/depart`** |
+| Plan timeline merge on `GET /operations/:id` (and list joins) | `Backend/src/routes/operations.js` — **`loadOperationJoined`**, **`toOp`**, **`PLAN_TIMELINE_SELECT`** |
+| Clearance plan depart + multi-timeline validation | `Frontend/src/pages/Verification.jsx`, `Frontend/src/api/shipmentPlans.js` |
+| Dashboard queue dedupe by plan | `Frontend/src/pages/Dashboard.jsx`, `Frontend/src/utils/dashboardQueueClassification.js` — **`allocationQueueVesselCallKey`** |
 | SI candidates + port/sailed rules | `Backend/src/routes/shipping-instructions.js` — `GET /shipping-instructions/candidates` |
 | Shared SI detail modal (hyperlink trigger target) | `Frontend/src/components/SiDetailModal.jsx`, `Frontend/src/styles/si-detail-modal.css`; nested **Detailed At-Berth Executions Log** via `OperationActivityTimeline.jsx` |
 | Save estimation of completion | `Frontend/src/api/operations.js` → `PUT /operations/:id/estimated-completion`; `Backend/src/routes/operations.js` |
@@ -348,6 +381,7 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | **Summary cards** | Two groups — **Loading** and **Unloading** — each with counts for **Pre-Checking**, **Operational**, **Post-Checking**, **Ready to Sail**, **Signed off**. Phase is **derived from operation status** (e.g. IN_PROGRESS → Operational, POST_OPS → Post-Checking, SIGNOFF_REQUESTED → Ready to Sail, SIGNOFF_APPROVED → Signed off, else Pre-Checking). |
 | **Tabs** | **All / Loading / Unloading** filter the table; summary always reflects all berthed rows. |
 | **Table columns** | **Vessel**, **Jetty Operation ID**, **SI** (reference only), **Commodity** (separate from SI), **Purpose**, **Jetty**, **TA**, **TB**, **Phase**, **Status**. |
+| **Multi-SI ordering** | Client sort **tie-break**: **`shipmentPlanId`** (numeric), then **TB**, so rows for the same vessel call appear consecutively without a new table layout. |
 | **Expand row** | Same interaction pattern as **Incoming vessel & berthing plan**: expand column + row click toggles **Full details**. |
 | **Full details (order)** | Vessel Name, **Jetty Operation ID**, Shipping Instruction, No PKK, Priority, Number of Palka, Purpose, Shipper, Agent, Surveyor, Jetty, ETA, TA, ETB, TB, **Estimation of Completion**, Remark. (Shipping Table block, when present in data, remains on Allocation only where applicable.) |
 | **Action** | **Open** → `/{loading|unloading}/:vesselId` (purpose-based hub entry; API-backed rows may use `op-<operationId>` vessel id form). **Shifting Out** / **Undo Shift Out** → see **§2.5** (modal + required remark for shift-out; **Undo** clears shift-out without modal). |
@@ -417,8 +451,8 @@ Completing **Pre-Checking**, **Operational**, and **Post-Checking** in the hub (
 | **1. Request** | Users with **Edit** on **Loading / Unloading** | When all three stages are complete and the operation is **POST_OPS**, the **Operation sign-off** card offers **Request operation sign-off** (optional remark). The server accepts the request only if the same **eligibility rules** as final sign-off are met at that moment (e.g. **completion 100%**, QC / quantity gates — see **TECH-SPEC §3.3**). |
 | **2. Pending** | Anyone with hub access | The card shows **Sign-off requested** (time, requester, remark) and directs users to **Open Clearance** for approval handling. Status is **SIGNOFF_REQUESTED**. |
 | **3. Approve (sign off)** | Users with **Approve operation sign-off** on **Loading / Unloading** (configured in **Admin → Roles**, same pattern as **Approve internal SI**) | Approval is performed from **Clearance** (not from the Loading/Unloading hub). On approval, the operation becomes **SIGNOFF_APPROVED** and appears on **Clearance** under **Ready to Sail** (signed off, awaiting depart). |
-| **4. Clearance** | Clearance users | **Clearance** (`/verification`) lists **Ready to Sail** (**SIGNOFF_APPROVED**) and **Sailed** as before. A **Pending sign-off** filter shows vessels awaiting step 3; approvers can **Open operation** (deep link to the hub) or **Sign off** from the table. The main operations table includes **Jetty Operation ID** immediately **before** **SI** (**§2.10**). |
-| **5. Depart** | Clearance users | **Record depart** after **SIGNOFF_APPROVED**. In the Clearance modal, **CAST Off** is required and must be **on or after** the latest timestamp in the operation’s **Detailed At-Berth Executions Log** timeline; earlier values are blocked with a validation error. |
+| **4. Clearance** | Clearance users | **Clearance** (`/verification`) lists **Ready to Sail** (**SIGNOFF_APPROVED**) and **Sailed**. Rows that share a **`shipmentPlanId`** are **collapsed to one logical row** per plan for those two statuses (SI column lists multiple references when needed). A **Pending sign-off** filter still shows **one row per operation** awaiting step 3. Approvers can **Open operation** (deep link to the hub) or **Sign off** from the table. The main operations table includes **Jetty Operation ID** immediately **before** **SI** (**§2.10**). |
+| **5. Depart** | Clearance users | **Record depart** after **every child operation on the plan** is **SIGNOFF_APPROVED** (server-enforced). **CAST Off** is required and must be **on or after** the **latest** timestamp across the **combined** **Detailed At-Berth Executions Log** timelines of **all** operations on that plan; earlier values are blocked with a validation error. When **`shipmentPlanId`** is present, the client calls **`POST /shipment-plans/:id/depart`**; otherwise **`POST /operations/:id/depart`**. |
 
 **Product rules**
 
@@ -455,6 +489,13 @@ Cross-reference: **TECH-SPEC §0.20**, **`Backend/src/lib/schedule-instant.js`**
 
 | Version | Date | Notes |
 |---------|------|--------|
+| 1.43 | 2026-05-13 | **Shipment plan:** vessel-call **agent** is edited on the **plan** (modal + hub); child SIs inherit **`agent_id`** from the plan on create / plan patch sync. **Plan-linked SI UI:** **surveyor** per shipping instruction; **document upload** sits under each “Shipping instruction *N*” heading (names only; OCR later). Allocation agent label uses plan agent when SI row has no agent. Migration **071**, TECH-SPEC **§0.25**. |
+| 1.42 | 2026-05-11 | **Retire legacy list URLs** **`/allocation`** and **`/shipping-instruction`** (placeholder pages → **`/allocation-plans`** / **`/shipment-plans`**). RBAC catalog keys **`allocation`** / **`shipping-instruction`** retired; canonical **`allocation-plan`** / **`shipment-plan`** (migrations **068** / optional rollback **069**). **`GET /allocation/overview`** gated like **`plan-overview`**. Activity / SI approve paths re-keyed. **§2.13–2.14**, **§6**, **§13**, Shipping Instruction approval bullets, TECH-SPEC **§0.22**. |
+| 1.41 | 2026-05-11 | **Data model (vessel call):** **Shipment plan** is the sole persisted home for **vessel name, purpose, ETA, voyage, preferred jetty, approval id, approver timestamps** shared by sibling SIs; **`shipping_instructions`** keeps SI-specific document/party/breakdown fields and **`eta_from` / `eta_to`** window. Migrations **066** (plan `approval_id` + backfill, relax SI nullability) and **067** (drop duplicate SI columns). **Rollback:** restore from backup or run **`Backend/rollback/067_rollback_restore_si_vessel_columns.sql`** before redeploying older API builds. TECH-SPEC **§0.24**. |
+| 1.40 | 2026-05-11 | **§17.6–17.7** Jetty Schematic: **jetty name band** (short id) adjacent to the central pipeline on top and bottom; lane cells show **bank suffix** `01` / `02` / `03` with full `{berthId}-NN` on hover; **`01` = inner** (closest to pipeline) on **both** sides—top stack uses reversed layout. Lane height uses band minus name strip. `JettySchematic.jsx` / `jetty-schematic.css`. |
+| 1.39 | 2026-05-11 | **§2.14** Plan-centric **Active vessel call** modal (**§2.4** cross-ref): merged schematic/Gantt **`plan-*`** selection loads **`GET /api/v1/shipment-plans/:id`** for plan **Time & status**; all SIs table; label tooltips only for source/derivation; Phase A representative op for pipeline/edit/NOR/photos; hide duplicate operation **Times & status** until edit. TECH-SPEC **§0.23**. |
+| 1.38 | 2026-05-11 | **§2.14** Plan-centric Allocation & Berthing (`/allocation-plans`, RBAC **`allocation-plan`**, nested queue by shipment plan, **`GET /allocation/plan-overview`**, shared arrival API + activity log page key). Overview rows add **`planReference`** / **`planPurposeLabel`**. Migration **064**. TECH-SPEC **§0.22**. |
+| 1.37 | 2026-05-11 | **Shipment Plan (multi-SI):** **§2.13**, **§2.1** Gantt lane key, **§2.2–2.4**, **§2.6** save/read paths, **§3** row identity, **§6** `PUT /allocation/arrival` → **`shipment_plans`**, **§9** sort tie-break, **§9.2** collapsed Clearance rows + **`POST /shipment-plans/:id/depart`**, **§7** implementation map; Dashboard dedupe (**§2.7**). Cross-ref migration **059**, **Docs/CR/Vessel-SI Change Process.md §3.4**, TECH-SPEC **§0.21**, **§3.5.1 / §3.5.3 / §3.3**. Dev seed **DEMO-SI-0005-B** on same plan as **DEMO-SI-0005**. |
 | 1.36 | 2026-05-04 | **§10.1** Schedule entry uses **browser device IANA**; port **`schedule_timezone`** is metadata; Master – Port **searchable timezone** select; shell **⚓ / 💻** hints. Replaces the old “configurable org timezone” bullet in **§8**. TECH-SPEC **§0.20** + **§3.9** table. |
 | 1.35 | 2026-04-28 | Added **§2.12 OIDC SSO integration** (strict mode behavior, account-linking identity rules, and current local host consistency guidance for stable session/callback flow). |
 | 1.34 | 2026-04-24 | **§2.11** UI **maxLength** policy for remarks, post-check results, sampling fields, login, master data, admin roles, operational milestones, and cross-ref to Shipping Instruction / SI Approval limits; TECH-SPEC **§0.18** + `Frontend/src/constants/inputLimits.js`. |
@@ -559,7 +600,7 @@ This section describes the agreed migration direction. It is a plan for upcoming
 
 | Rule | Behaviour |
 |------|-----------|
-| **Scope** | Entries are associated with a **page key** (e.g. allocation, loading) so the slide-out panel shows relevant history for the screen the user is on. |
+| **Scope** | Entries are associated with a **page key** (e.g. **`allocation-plan`**, **`shipment-plan`**, loading) so the slide-out panel shows relevant history for the screen the user is on. Retired keys **`allocation`** and **`shipping-instruction`** are no longer written for new actions. |
 | **Detail** | When the backend supplies a **`changes`** array (`field`, `from`, `to`), the user can expand an entry to see a **before → after** list (aligned with Shipping Instruction style). |
 | **Quality** | Updates should show real prior values when they existed, not only “empty → new value”, for fields such as remarks and status. |
 
@@ -626,8 +667,8 @@ This script truncates **transactional tables only** (operations/SI/workflow data
 | **B/L split text** | Create/edit modal provides an editable **B/L Split** textarea (not auto-generated), persisted on the SI record and shown on the document view. |
 | **NPWP (read-only)** | NPWP is **not** a free-text SI field. The UI shows NPWP as **read-only** from a **per-port master** (based on the active selected port). |
 | **Submit for approval** | **Request approval** calls the API to set status **Submitted** (not only local UI state). |
-| **Approve SI** | List action opens the approval page only if the user has **Approve SI** on the **Shipping Instruction** page (see Admin → Roles). |
-| **Approval API** | Transition **Draft → Approved** requires prior **Submitted**; **PUT** with `status: Approved` checks **`can_approve`** for page `shipping-instruction`. **403** if missing. |
+| **Approve SI** | List action opens the approval page only if the user has **Approve shipment plan** / internal SI approve capability on the **`shipment-plan`** page (see Admin → Roles). |
+| **Approval API** | Transition **Draft → Approved** requires prior **Submitted**; **PUT** with `status: Approved` checks **`can_approve`** for page **`shipment-plan`**. **403** if missing. |
 | **Approver on document** | On approval, the system stores **approver name/title snapshots** (from `users.display_name` / `users.job_title`, default title **OPERATION HEAD** if job title empty). The **SI document view** shows these instead of a fixed name. |
 | **Printed SI number** | Document **No.** prefers stored **`reference_number`** when set; otherwise legacy synthetic numbering. |
 | **SI quick detail (list table)** | SI values in table rows are hyperlink-style and open a shared **SI Detail** modal (non-document view) with operational fields and Contract/PO breakdown. |
@@ -671,14 +712,14 @@ If the backend returns **no columns** (no configuration saved for that port):
 
 Double-banking (multiple vessels per jetty, schedule `01`/`02` lanes, one-vessel-per-box schematic) is documented and implemented separately. Jetty **layout** only controls **which jetty** sits in which **schematic cell**; **capacity** and **occupancy** still come from overview **`berths`**. **Shifted-out** operations are **not** counted as occupying a berth slot (see **§2.5**, TECH-SPEC **§0.9** / **`berths`** derivation).
 
-### 17.6 Schematic bank lanes (1A-01, 1A-02)
+### 17.6 Schematic bank lanes (inner `01`, jetty name band)
 
-On **Allocation → Jetty Schematic**, each configured jetty cell is split into **`capacity`** lane boxes labelled **`{berthId}-01`**, **`{berthId}-02`**, … (e.g. **1A-01**, **1A-02**). Each box holds **at most one** displayed vessel (vacant otherwise). Occupants are ordered like the Jetty schedule Gantt: **TB** ascending, then **operation id**, then **vessel id** (see TECH-SPEC **§0.6**). If more occupied vessels than **capacity**, the last lane shows **+N more** after the representative vessel for that lane. **Incoming** names (queue) are hinted on the **first vacant** lane only to avoid clutter.
+On **Allocation → Jetty Schematic**, each configured jetty **top** or **bottom** cell is a **zone** containing: (1) a **jetty name band** showing the short **berth id** (e.g. **1A**, **1B**) flush against the central **pipeline** (black bar), and (2) **`capacity`** lane boxes. Each lane shows the **bank suffix** only (**`01`**, **`02`**, **`03`**, …); the full lane id **`{berthId}-NN`** appears on **hover** (e.g. tooltip **`1A-01`**). **Inner bank** is **`01`** (closest to the pipeline on **both** top and bottom); **`02`** is the next **outward**, **`03`** outward again for triple bank. The **top** lane stack uses reversed vertical order so **`01`** stays inner toward the pipeline (the **bottom** stack keeps natural order). Each box holds **at most one** displayed vessel (vacant otherwise). Occupants are ordered like the Jetty schedule Gantt: **TB** ascending, then **operation id**, then **vessel id** (see TECH-SPEC **§0.6**). If more occupied vessels than **capacity**, the last lane shows **+N more** after the representative vessel for that lane. **Incoming** names (queue) are hinted on the **first vacant** lane only to avoid clutter.
 
 ### 17.7 Schematic layout & lane sizing (UX)
 
 - **Pipeline alignment:** Each schematic **column** uses a **fixed-height** top band, **fixed** middle (pipeline) band, and **fixed-height** bottom band so the black **pipeline** segment stays **level across columns**, including columns whose top or bottom cell is a non-dockable placeholder (`—`).
-- **Consistent lane box height:** Each lane’s height is derived from the band height divided by **max(jetty `capacity`, 2)**. A jetty with **capacity 1** therefore uses the **same lane band height** as a single lane on a double-bank jetty (the vessel card does not stretch to the full top/bottom band).
+- **Consistent lane box height:** Each lane’s height is derived from the **lane stack** area (the fixed band height **minus** the jetty name strip and spacing) divided by **max(jetty `capacity`, 2)**. A jetty with **capacity 1** therefore uses the **same lane band height** as a single lane on a double-bank jetty (the vessel card does not stretch to the full top/bottom band).
 - **Readability:** Lane copy (vessel name, SI, purpose, material) uses **compact** typography and padding; lanes may **scroll vertically** if content exceeds the band (edge case).
 
 ---

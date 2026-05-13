@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { fetchOperations, fetchPendingSignoffRequests, depart, uploadOperationDocuments, signoff, fetchActivityTimeline } from '../api/operations'
+import { departShipmentPlan } from '../api/shipmentPlans'
 import { useRbac } from '../context/RbacContext'
 import {
   getScheduleEntryTimeZone,
@@ -37,6 +38,37 @@ function formatDateTime(iso) {
   return d.toLocaleString()
 }
 
+/** One clearance row per shipment plan for Ready / Sailed; pending sign-off stays per SI. */
+function collapseVerificationRowsByPlan(rows) {
+  const byPlan = new Map()
+  const singles = []
+  for (const r of rows) {
+    if (r.shipmentPlanId == null || r.apiStatus === 'PENDING_SIGNOFF') {
+      singles.push({ ...r, siblingOperationIds: [r.operationId] })
+      continue
+    }
+    const k = Number(r.shipmentPlanId)
+    if (Number.isNaN(k)) {
+      singles.push({ ...r, siblingOperationIds: [r.operationId] })
+      continue
+    }
+    if (!byPlan.has(k)) byPlan.set(k, [])
+    byPlan.get(k).push(r)
+  }
+  const merged = []
+  for (const grp of byPlan.values()) {
+    const primary = grp.reduce((a, b) => (Number(a.operationId) < Number(b.operationId) ? a : b))
+    const refs = [...new Set(grp.map((g) => g.referenceNumber).filter(Boolean))]
+    merged.push({
+      ...primary,
+      operationId: primary.operationId,
+      siblingOperationIds: grp.map((g) => g.operationId),
+      si: refs.length > 1 ? `${refs.length} SIs: ${refs.join(' · ')}` : primary.si,
+    })
+  }
+  return [...singles, ...merged]
+}
+
 function latestTimelineInstant(events) {
   const arr = Array.isArray(events) ? events : []
   let latest = null
@@ -53,6 +85,7 @@ function latestTimelineInstant(events) {
 }
 
 export default function Verification() {
+  const [searchParams] = useSearchParams()
   const scheduleEntryTz = getScheduleEntryTimeZone()
   const toLocalDatetimeValue = useCallback(
     (iso) => utcIsoToNaiveLocal(iso, scheduleEntryTz),
@@ -85,7 +118,7 @@ export default function Verification() {
   const [submitting, setSubmitting] = useState(false)
   const [toast, setToast] = useState(null)
   const [signoffBusyId, setSignoffBusyId] = useState(null)
-  const [timelineMaxAtByOpId, setTimelineMaxAtByOpId] = useState({})
+  const [timelineMaxAtByKey, setTimelineMaxAtByKey] = useState({})
   const [siDetailId, setSiDetailId] = useState(null)
   const [siDocumentModalId, setSiDocumentModalId] = useState(null)
 
@@ -110,6 +143,7 @@ export default function Verification() {
       ])
       const pending = (pendingRaw || []).map((o) => ({
         operationId: o.id,
+        shipmentPlanId: o.shipmentPlanId ?? null,
         jettyOperationCode: o.jettyOperationCode,
         shippingInstructionId: o.shippingInstructionId ?? null,
         vesselName: o.vesselName,
@@ -130,6 +164,7 @@ export default function Verification() {
       }))
       const ready = (signedOff || []).map((o) => ({
         operationId: o.id,
+        shipmentPlanId: o.shipmentPlanId ?? null,
         jettyOperationCode: o.jettyOperationCode,
         shippingInstructionId: o.shippingInstructionId ?? null,
         vesselName: o.vesselName,
@@ -147,6 +182,7 @@ export default function Verification() {
       }))
       const done = (sailed || []).map((o) => ({
         operationId: o.id,
+        shipmentPlanId: o.shipmentPlanId ?? null,
         jettyOperationCode: o.jettyOperationCode,
         shippingInstructionId: o.shippingInstructionId ?? null,
         vesselName: o.vesselName,
@@ -162,7 +198,8 @@ export default function Verification() {
         clearanceDocumentUrl: o.clearanceDocumentUrl,
         vesselPhotoUrl: o.vesselPhotoUrl,
       }))
-      setRows([...pending, ...ready, ...done])
+      const pendingWithSiblings = pending.map((r) => ({ ...r, siblingOperationIds: [r.operationId] }))
+      setRows([...pendingWithSiblings, ...collapseVerificationRowsByPlan(ready), ...collapseVerificationRowsByPlan(done)])
     } catch (e) {
       setErr(e?.message || 'Failed to load clearance data')
       setRows([])
@@ -187,6 +224,12 @@ export default function Verification() {
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [expandedRows, setExpandedRows] = useState({})
   const [expandedMobileRows, setExpandedMobileRows] = useState({})
+
+  useEffect(() => {
+    if (searchParams.get('filter') === 'pending') {
+      setStatusFilter('PENDING')
+    }
+  }, [searchParams])
 
   const readyCount = rows.filter((r) => r.apiStatus === 'SIGNOFF_APPROVED').length
   const departedCount = rows.filter((r) => r.apiStatus === 'SAILED').length
@@ -302,25 +345,37 @@ export default function Verification() {
 
   useEffect(() => {
     let cancelled = false
-    if (!modalOpId || timelineMaxAtByOpId[modalOpId] !== undefined) return () => { cancelled = true }
-    fetchActivityTimeline(modalOpId)
-      .then((res) => {
+    if (!modalOpId) return () => { cancelled = true }
+    const op = rows.find((r) => r.operationId === modalOpId)
+    const cacheKey = op?.shipmentPlanId != null ? `sp:${op.shipmentPlanId}` : `op:${modalOpId}`
+    if (timelineMaxAtByKey[cacheKey] !== undefined) return () => { cancelled = true }
+    const opIds = Array.isArray(op?.siblingOperationIds) && op.siblingOperationIds.length > 0 ? op.siblingOperationIds : [modalOpId]
+    Promise.all(opIds.map((id) => fetchActivityTimeline(id).catch(() => ({ events: [] }))))
+      .then((results) => {
         if (cancelled) return
-        const latest = latestTimelineInstant(res?.events)
-        setTimelineMaxAtByOpId((prev) => ({ ...prev, [modalOpId]: latest ? latest.toISOString() : null }))
+        let latest = null
+        for (const res of results) {
+          const cand = latestTimelineInstant(res?.events)
+          if (cand && (!latest || cand.getTime() > latest.getTime())) latest = cand
+        }
+        setTimelineMaxAtByKey((prev) => ({ ...prev, [cacheKey]: latest ? latest.toISOString() : null }))
       })
       .catch(() => {
         if (cancelled) return
-        setTimelineMaxAtByOpId((prev) => ({ ...prev, [modalOpId]: null }))
+        setTimelineMaxAtByKey((prev) => ({ ...prev, [cacheKey]: null }))
       })
-    return () => { cancelled = true }
-  }, [modalOpId, timelineMaxAtByOpId])
+    return () => {
+      cancelled = true
+    }
+  }, [modalOpId, rows, timelineMaxAtByKey])
 
   const validateDepartForm = useCallback(() => {
     const cast = parseLocalTime(formCastOff)
     if (!cast) return 'CAST Off time is required and must be valid.'
     if (modalOpId) {
-      const latestIso = timelineMaxAtByOpId[modalOpId]
+      const op = rows.find((r) => r.operationId === modalOpId)
+      const cacheKey = op?.shipmentPlanId != null ? `sp:${op.shipmentPlanId}` : `op:${modalOpId}`
+      const latestIso = timelineMaxAtByKey[cacheKey]
       if (latestIso) {
         const latest = new Date(latestIso)
         if (!Number.isNaN(latest.getTime()) && cast.getTime() < latest.getTime()) {
@@ -329,7 +384,7 @@ export default function Verification() {
       }
     }
     return null
-  }, [formCastOff, modalOpId, timelineMaxAtByOpId, parseLocalTime])
+  }, [formCastOff, modalOpId, rows, timelineMaxAtByKey, parseLocalTime])
 
   const handleSubmit = async () => {
     if (!modalOpId) return
@@ -362,7 +417,11 @@ export default function Verification() {
       }
 
       const castOffIso = toIso(formCastOff)
-      await depart(modalOpId, castOffIso, clearanceUrl, photoUrl)
+      if (op?.shipmentPlanId != null) {
+        await departShipmentPlan(op.shipmentPlanId, castOffIso, clearanceUrl, photoUrl)
+      } else {
+        await depart(modalOpId, castOffIso, clearanceUrl, photoUrl)
+      }
       await load()
       setToast({ message: `Departure recorded for ${op?.vesselName || 'vessel'}.`, variant: 'success' })
       closeModal()
@@ -376,7 +435,9 @@ export default function Verification() {
   const modalRow = modalOpId ? rows.find((r) => r.operationId === modalOpId) : null
   const isSailed = modalRow?.apiStatus === 'SAILED'
   const formValidationError = isSailed ? null : validateDepartForm()
-  const modalTimelineMaxAt = modalOpId ? timelineMaxAtByOpId[modalOpId] : null
+  const modalTimelineCacheKey =
+    modalRow?.shipmentPlanId != null ? `sp:${modalRow.shipmentPlanId}` : modalOpId != null ? `op:${modalOpId}` : null
+  const modalTimelineMaxAt = modalTimelineCacheKey ? timelineMaxAtByKey[modalTimelineCacheKey] : null
 
   return (
     <div className="allocation-page clearance-page">

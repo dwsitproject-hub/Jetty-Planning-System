@@ -820,7 +820,7 @@ export default function ShippingInstruction() {
       }
 
       logActivity({
-        pageKey: 'shipping-instruction',
+        pageKey: 'shipment-plan',
         action: editingId ? 'update' : 'add',
         entityType: 'Shipping Instruction',
         entityLabel: saved.referenceNumber || `SI-${saved.id}`,
@@ -1022,7 +1022,7 @@ export default function ShippingInstruction() {
       })
       setList((prev) => prev.map((r) => (r.id === n.id ? mapSiFromApi(saved) : r)))
       logActivity({
-        pageKey: 'shipping-instruction',
+        pageKey: 'shipment-plan',
         action: 'update',
         entityType: 'Shipping Instruction',
         entityLabel: n.siId || `SI-${n.id}`,
@@ -1037,7 +1037,7 @@ export default function ShippingInstruction() {
 
   const handleDeleteSi = async (n, e) => {
     e.stopPropagation()
-    if (siDeleteDisabledReason(n, canDelete('shipping-instruction'))) return
+    if (siDeleteDisabledReason(n, canDelete('shipment-plan'))) return
     const label = n.referenceNumber || n.siId || `SI-${n.id}`
     if (
       !window.confirm(
@@ -1057,7 +1057,7 @@ export default function ShippingInstruction() {
         return next
       })
       logActivity({
-        pageKey: 'shipping-instruction',
+        pageKey: 'shipment-plan',
         action: 'delete',
         entityType: 'Shipping Instruction',
         entityLabel: label,
@@ -1756,8 +1756,8 @@ export default function ShippingInstruction() {
                     <td className="si-table__col-actions" onClick={(e) => e.stopPropagation()}>
                       <SiRowActions
                         row={n}
-                        canApproveSi={canApprove('shipping-instruction')}
-                        canDeleteSi={canDelete('shipping-instruction')}
+                        canApproveSi={canApprove('shipment-plan')}
+                        canDeleteSi={canDelete('shipment-plan')}
                         onEdit={(e) => {
                           e.stopPropagation()
                           openEditModal(n.id)
@@ -1937,8 +1937,8 @@ export default function ShippingInstruction() {
                 </button>
                 <SiRowActions
                   row={n}
-                  canApproveSi={canApprove('shipping-instruction')}
-                  canDeleteSi={canDelete('shipping-instruction')}
+                  canApproveSi={canApprove('shipment-plan')}
+                  canDeleteSi={canDelete('shipment-plan')}
                   onEdit={(e) => {
                     e.stopPropagation()
                     openEditModal(n.id)

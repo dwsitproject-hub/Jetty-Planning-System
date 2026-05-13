@@ -8,7 +8,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { userHasPageApprove, userHasPageDelete } from '../middleware/permissions.js';
 
 const FREIGHT_TERMS = ['PREPAID', 'COLLECT', 'AS_PER_CHARTER_PARTY', 'OTHER'];
-const SI_APPROVE_PAGE_KEY = 'shipping-instruction';
+const SI_APPROVE_PAGE_KEY = 'shipment-plan';
 
 function generateApprovalId() {
   const now = new Date();
@@ -45,33 +45,36 @@ const COMMODITY_DISPLAY = `COALESCE(
 
 const SI_FROM = `
   FROM shipping_instructions si
+  LEFT JOIN shipment_plans spl ON spl.id = si.shipment_plan_id AND spl.deleted_at IS NULL
   LEFT JOIN si_trade_terms tt ON si.trade_term_id = tt.id AND tt.deleted_at IS NULL
-  LEFT JOIN si_purposes sp ON si.purpose_id = sp.id AND sp.deleted_at IS NULL
-  LEFT JOIN jetties j ON si.preferred_jetty_id = j.id AND j.deleted_at IS NULL
-  LEFT JOIN ports p ON p.id = j.port_id AND p.deleted_at IS NULL
+  LEFT JOIN si_purposes spp ON spp.id = spl.purpose_id AND spp.deleted_at IS NULL
+  LEFT JOIN jetties j ON j.id = spl.jetty_id AND j.deleted_at IS NULL
+  LEFT JOIN ports p ON p.id = COALESCE(spl.port_id, j.port_id) AND p.deleted_at IS NULL
   LEFT JOIN si_shippers sh ON si.shipper_id = sh.id AND sh.deleted_at IS NULL
   LEFT JOIN si_loading_ports lp ON si.loading_port_id = lp.id AND lp.deleted_at IS NULL
   LEFT JOIN si_surveyors sv ON si.surveyor_id = sv.id AND sv.deleted_at IS NULL
   LEFT JOIN si_agents ag ON si.agent_id = ag.id AND ag.deleted_at IS NULL
-  LEFT JOIN users si_approver ON si_approver.id = si.approved_by_user_id AND si_approver.deleted_at IS NULL
+  LEFT JOIN users si_approver ON si_approver.id = spl.approved_by_user_id AND si_approver.deleted_at IS NULL
 `;
 
 const SI_SELECT = `
-  SELECT si.id, si.reference_number, si.vessel_name, si.commodity, si.purpose, si.eta, si.eta_from, si.eta_to, si.status,
-    si.approval_id,
+  SELECT si.id, si.reference_number, spl.vessel_name, si.commodity, spp.code AS purpose, spl.eta,
+    si.eta_from::text AS eta_from, si.eta_to::text AS eta_to, si.status,
+    si.shipment_plan_id,
+    spl.approval_id,
     si.created_at, si.updated_at,
     si.note,
-    si.port_id,
-    si.commodity_id, si.trade_term_id, si.purpose_id, si.preferred_jetty_id,
+    spl.port_id,
+    si.commodity_id, si.trade_term_id, spl.purpose_id, spl.jetty_id AS preferred_jetty_id,
     si.shipper_id, si.loading_port_id, si.surveyor_id, si.agent_id,
-    si.voyage_no, si.destination_text, si.freight_terms, si.bill_of_lading_clause, si.consignee_text,
-    si.notify_party_text, si.bl_split_text, si.bl_indicated, si.document_date,
-    si.approved_by_user_id, si.approved_at, si.approver_name_snapshot, si.approver_title_snapshot,
+    spl.voyage_no, si.destination_text, si.freight_terms, si.bill_of_lading_clause, si.consignee_text,
+    si.notify_party_text, si.bl_split_text, si.bl_indicated, si.document_date::text AS document_date,
+    spl.approved_by_user_id, spl.approved_at, si.approver_name_snapshot, si.approver_title_snapshot,
     ${COMMODITY_DISPLAY} AS commodity_display,
     tt.code AS trade_term_code,
-    sp.code AS purpose_code,
+    spp.code AS purpose_code,
     j.name AS preferred_jetty_name,
-    COALESCE(si.port_id, p.id) AS preferred_port_id,
+    COALESCE(spl.port_id, p.id) AS preferred_port_id,
     sh.name AS shipper_name,
     lp.name AS loading_port_name,
     sv.name AS surveyor_name,
@@ -113,7 +116,7 @@ async function validateSiFks(body) {
 async function loadBreakdown(siId) {
   const r = await pool.query(
     `SELECT b.id, b.shipping_instruction_id, b.commodity_id, b.metric_id, b.qty,
-            b.contract_no, b.po_no, b.remarks, b.shipper_text, b.line_order,
+            b.contract_no, b.po_no, b.so_no, b.remarks, b.shipper_text, b.line_order,
             c.name AS commodity_name, m.code AS metric_code, m.label AS metric_label
      FROM public.shipping_instruction_breakdown b
      JOIN public.si_commodities c ON c.id = b.commodity_id AND c.deleted_at IS NULL
@@ -132,6 +135,7 @@ async function loadBreakdown(siId) {
     qty: row.qty != null ? Number(row.qty) : 0,
     contractNo: row.contract_no ?? null,
     poNo: row.po_no ?? null,
+    soNo: row.so_no ?? null,
     remarks: row.remarks ?? null,
     shipperText: row.shipper_text ?? null,
     lineOrder: row.line_order,
@@ -199,8 +203,8 @@ async function replaceBreakdown(client, siId, breakdown) {
     if (mOk.rows.length === 0) throw new Error(`Invalid metric_id ${mid}`);
     await client.query(
       `INSERT INTO public.shipping_instruction_breakdown (
-         shipping_instruction_id, commodity_id, metric_id, qty, contract_no, po_no, remarks, shipper_text, line_order
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+         shipping_instruction_id, commodity_id, metric_id, qty, contract_no, po_no, so_no, remarks, shipper_text, line_order
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [
         siId,
         cid,
@@ -208,6 +212,7 @@ async function replaceBreakdown(client, siId, breakdown) {
         qty,
         row.contract_no != null ? String(row.contract_no).trim() || null : row.contractNo?.trim() || null,
         row.po_no != null ? String(row.po_no).trim() || null : row.poNo?.trim() || null,
+        row.so_no != null ? String(row.so_no).trim() || null : row.soNo?.trim() || null,
         row.remarks != null ? String(row.remarks).trim() || null : null,
         row.shipper_text != null
           ? String(row.shipper_text).trim() || null
@@ -262,10 +267,10 @@ router.get('/', async (req, res) => {
   let query = `${SI_SELECT} WHERE si.deleted_at IS NULL`;
   const params = [];
   let i = 1;
-  query += ` AND COALESCE(si.port_id, p.id) = $${i++}`;
+  query += ` AND COALESCE(spl.port_id, p.id) = $${i++}`;
   params.push(selectedPortId);
   if (purpose) {
-    query += ` AND si.purpose = $${i++}`;
+    query += ` AND spp.code = $${i++}`;
     params.push(purpose);
   }
   if (status) {
@@ -282,9 +287,9 @@ router.get('/', async (req, res) => {
  * Returns SIs within a date range (ETA overlap), plus linked operation (if any).
  *
  * Port scope (selected port from request context):
- * - COALESCE(si.port_id, preferred_jetty.port_id) matches, OR
+ * - COALESCE(spl.port_id, preferred_jetty.port_id) matches, OR
  * - a non-SAILED operation exists for this SI with operations.port_id matching (allocation path).
- * SIs without jetty are included when si.port_id is set for the selected port (same as main SI list).
+ * SIs without jetty are included when the linked plan's port_id matches the selected port (same as main SI list).
  *
  * Excludes SIs whose only operations are SAILED (so sailed voyages do not appear as "open").
  *
@@ -320,8 +325,8 @@ router.get('/candidates', async (req, res) => {
     SELECT
       si.id,
       si.reference_number,
-      si.vessel_name,
-      si.purpose,
+      spl.vessel_name,
+      spp.code AS purpose,
       si.status AS si_status,
       si.eta_from,
       si.eta_to,
@@ -343,13 +348,15 @@ router.get('/candidates', async (req, res) => {
         ELSE 'incoming'
       END AS berthing_plan_status
     FROM shipping_instructions si
-    LEFT JOIN jetties j ON si.preferred_jetty_id = j.id AND j.deleted_at IS NULL
-    LEFT JOIN ports p ON p.id = j.port_id AND p.deleted_at IS NULL
+    LEFT JOIN shipment_plans spl ON spl.id = si.shipment_plan_id AND spl.deleted_at IS NULL
+    LEFT JOIN si_purposes spp ON spp.id = spl.purpose_id AND spp.deleted_at IS NULL
+    LEFT JOIN jetties j ON j.id = spl.jetty_id AND j.deleted_at IS NULL
+    LEFT JOIN ports p ON p.id = COALESCE(spl.port_id, j.port_id) AND p.deleted_at IS NULL
     LEFT JOIN operations o ON o.shipping_instruction_id = si.id AND o.deleted_at IS NULL AND o.status <> 'SAILED'
     LEFT JOIN jetties oj ON oj.id = o.jetty_id AND oj.deleted_at IS NULL
     WHERE si.deleted_at IS NULL
       AND (
-        COALESCE(si.port_id, p.id) = $1
+        COALESCE(spl.port_id, p.id) = $1
         OR EXISTS (
           SELECT 1 FROM operations o_port
           WHERE o_port.shipping_instruction_id = si.id
@@ -512,6 +519,7 @@ router.post('/', requireAuth, async (req, res) => {
   const selectedPortId = Number(req.selectedPortId);
   const b = req.body || {};
   const {
+    shipment_plan_id: shipment_plan_id_raw,
     reference_number,
     vessel_name,
     voyage_no,
@@ -540,17 +548,75 @@ router.post('/', requireAuth, async (req, res) => {
     document_date,
   } = b;
 
-  if (!vessel_name || typeof vessel_name !== 'string' || !vessel_name.trim()) {
-    return res.status(400).json({ error: 'vessel_name is required' });
-  }
   if (!reference_number || typeof reference_number !== 'string' || !reference_number.trim()) {
     return res.status(400).json({ error: 'reference_number is required (Shipping Instructions No.)' });
   }
-  const etaFromIn = eta_from != null && eta_from !== '' ? String(eta_from).trim() : '';
-  const etaToIn = eta_to != null && eta_to !== '' ? String(eta_to).trim() : '';
-  if (!etaFromIn) return res.status(400).json({ error: 'eta_from is required' });
-  if (!etaToIn) return res.status(400).json({ error: 'eta_to is required' });
-  if (document_date == null || document_date === '' || !String(document_date).trim()) {
+
+  let shipmentPlanIdFromBody = null;
+  /** @type {{ id: number, approval_status: string, vessel_name: string, eta: Date | null, purpose_id: number | null, voyage_no: string | null } | null} */
+  let planRowForLink = null;
+  if (shipment_plan_id_raw != null && shipment_plan_id_raw !== '') {
+    const pid = parseInt(shipment_plan_id_raw, 10);
+    if (Number.isNaN(pid)) {
+      return res.status(400).json({ error: 'Invalid shipment_plan_id' });
+    }
+    const pr = await pool.query(
+      `SELECT id, approval_status, vessel_name, eta, purpose_id, voyage_no, agent_id
+       FROM shipment_plans WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
+      [pid, selectedPortId]
+    );
+    if (pr.rows.length === 0) {
+      return res.status(400).json({ error: 'shipment_plan_id not found for selected port' });
+    }
+    const pst = pr.rows[0].approval_status;
+    if (pst !== 'Draft' && pst !== 'Rejected') {
+      return res.status(400).json({
+        error: 'New shipping instructions can only be linked to a plan in Draft or Rejected approval state',
+      });
+    }
+    planRowForLink = pr.rows[0];
+    shipmentPlanIdFromBody = pid;
+  }
+
+  let bodyAgentParsed =
+    agent_id != null && agent_id !== '' ? parseInt(agent_id, 10) : null;
+  if (bodyAgentParsed != null && Number.isNaN(bodyAgentParsed)) bodyAgentParsed = null;
+  const planAgentForInsert =
+    planRowForLink?.agent_id != null ? Number(planRowForLink.agent_id) : null;
+  const insertAgentId =
+    shipmentPlanIdFromBody != null && planRowForLink
+      ? bodyAgentParsed ?? planAgentForInsert
+      : bodyAgentParsed;
+
+  const vesselForSi =
+    (planRowForLink?.vessel_name && String(planRowForLink.vessel_name).trim()) ||
+    (typeof vessel_name === 'string' && vessel_name.trim() ? vessel_name.trim() : '');
+  if (!vesselForSi) {
+    return res.status(400).json({ error: 'vessel_name is required' });
+  }
+
+  let etaFromIn = eta_from != null && eta_from !== '' ? String(eta_from).trim() : '';
+  let etaToIn = eta_to != null && eta_to !== '' ? String(eta_to).trim() : '';
+  let documentDateIn =
+    document_date != null && document_date !== '' ? String(document_date).trim().slice(0, 10) : '';
+
+  if (shipmentPlanIdFromBody != null && planRowForLink) {
+    if (!planRowForLink.eta || Number.isNaN(new Date(planRowForLink.eta).getTime())) {
+      return res.status(400).json({ error: 'Shipment plan must have an ETA before adding shipping instructions' });
+    }
+    if (planRowForLink.purpose_id == null) {
+      return res.status(400).json({ error: 'Shipment plan must have a purpose before adding shipping instructions' });
+    }
+    const planEta = new Date(planRowForLink.eta);
+    const ymd = planEta.toISOString().slice(0, 10);
+    etaFromIn = ymd;
+    etaToIn = ymd;
+    if (!documentDateIn) documentDateIn = ymd;
+  } else {
+    if (!etaFromIn) return res.status(400).json({ error: 'eta_from is required' });
+    if (!etaToIn) return res.status(400).json({ error: 'eta_to is required' });
+  }
+  if (!documentDateIn) {
     return res.status(400).json({ error: 'document_date is required' });
   }
 
@@ -563,7 +629,12 @@ router.post('/', requireAuth, async (req, res) => {
   let purposeVal = purpose;
   let purposeIdVal = purpose_id != null ? parseInt(purpose_id, 10) : null;
 
-  if (purposeIdVal && !Number.isNaN(purposeIdVal)) {
+  if (shipmentPlanIdFromBody != null && planRowForLink) {
+    purposeIdVal = Number(planRowForLink.purpose_id);
+    const prp = await pool.query(`SELECT code FROM si_purposes WHERE id = $1 AND deleted_at IS NULL`, [purposeIdVal]);
+    if (prp.rows.length === 0) return res.status(400).json({ error: 'Invalid purpose_id on shipment plan' });
+    purposeVal = prp.rows[0].code;
+  } else if (purposeIdVal && !Number.isNaN(purposeIdVal)) {
     const pr = await pool.query(`SELECT code FROM si_purposes WHERE id = $1 AND deleted_at IS NULL`, [
       purposeIdVal,
     ]);
@@ -583,7 +654,7 @@ router.post('/', requireAuth, async (req, res) => {
     shipper_id,
     loading_port_id,
     surveyor_id,
-    agent_id,
+    agent_id: insertAgentId,
   });
   if (fkErr) return res.status(400).json(fkErr);
   if (preferred_jetty_id != null && preferred_jetty_id !== '') {
@@ -602,29 +673,90 @@ router.post('/', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'New shipping instructions cannot be created as Approved' });
   }
 
+  const preferredJettyIdParsed =
+    preferred_jetty_id != null && preferred_jetty_id !== '' ? parseInt(preferred_jetty_id, 10) : null;
+  const voyageForSi =
+    shipmentPlanIdFromBody != null && planRowForLink
+      ? trimText(planRowForLink.voyage_no, 64)
+      : trimText(voyage_no, 64);
+  const etaInstant =
+    shipmentPlanIdFromBody != null && planRowForLink?.eta
+      ? new Date(planRowForLink.eta)
+      : eta
+        ? new Date(eta)
+        : etaFromIn
+          ? new Date(`${etaFromIn}T12:00:00Z`)
+          : null;
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    let shipmentPlanId;
+    if (shipmentPlanIdFromBody != null) {
+      shipmentPlanId = shipmentPlanIdFromBody;
+      const voyageOverride =
+        voyage_no != null && String(voyage_no).trim() !== '' ? trimText(voyage_no, 64) : null;
+      const aid = typeof approval_id === 'string' ? approval_id.trim() || null : null;
+      await client.query(
+        `UPDATE shipment_plans SET
+           vessel_name = COALESCE(NULLIF(TRIM($1::text), ''), vessel_name),
+           voyage_no = COALESCE($2, voyage_no),
+           jetty_id = COALESCE($3, jetty_id),
+           approval_id = COALESCE(NULLIF(TRIM($4::text), ''), approval_id),
+           updated_at = NOW()
+         WHERE id = $5 AND port_id = $6 AND deleted_at IS NULL`,
+        [
+          typeof vessel_name === 'string' ? vessel_name : '',
+          voyageOverride,
+          preferredJettyIdParsed,
+          aid ?? '',
+          shipmentPlanId,
+          selectedPortId,
+        ]
+      );
+    } else {
+      const planIns = await client.query(
+        `INSERT INTO shipment_plans (port_id, vessel_name, jetty_id, eta, purpose_id, voyage_no, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+         RETURNING id`,
+        [
+          selectedPortId,
+          vessel_name.trim(),
+          preferredJettyIdParsed,
+          etaInstant,
+          purposeIdVal,
+          trimText(voyage_no, 64),
+        ]
+      );
+      shipmentPlanId = planIns.rows[0].id;
+      const ref = `SP-${String(shipmentPlanId).padStart(5, '0')}`;
+      await client.query(`UPDATE shipment_plans SET plan_reference = COALESCE(plan_reference, $1) WHERE id = $2`, [
+        ref,
+        shipmentPlanId,
+      ]);
+      const aid = typeof approval_id === 'string' ? approval_id.trim() || null : null;
+      if (aid) {
+        await client.query(`UPDATE shipment_plans SET approval_id = $1, updated_at = NOW() WHERE id = $2`, [
+          aid,
+          shipmentPlanId,
+        ]);
+      }
+    }
+
     const result = await client.query(
       `INSERT INTO shipping_instructions (
-         reference_number, vessel_name, voyage_no, commodity, commodity_id, trade_term_id, purpose_id, purpose, eta, eta_from, eta_to, status,
-         approval_id, destination_text, freight_terms, bill_of_lading_clause, consignee_text, notify_party_text, bl_split_text, bl_indicated, document_date,
-         preferred_jetty_id, shipper_id, loading_port_id, surveyor_id, agent_id, note,
-         port_id
-       ) VALUES ($1,$2,$3,NULL,NULL,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+         reference_number, commodity, trade_term_id, eta_from, eta_to, status,
+         destination_text, freight_terms, bill_of_lading_clause, consignee_text, notify_party_text, bl_split_text, bl_indicated, document_date,
+         shipper_id, loading_port_id, surveyor_id, agent_id, note,
+         shipment_plan_id
+       ) VALUES ($1,NULL,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
        RETURNING id`,
       [
         reference_number?.trim() ?? null,
-        vessel_name.trim(),
-        trimText(voyage_no, 64),
         trade_term_id != null && trade_term_id !== '' ? parseInt(trade_term_id, 10) : null,
-        purposeIdVal,
-        purposeVal,
-        eta ? new Date(eta) : eta_from ? new Date(`${eta_from}T12:00:00Z`) : null,
-        eta_from ? String(eta_from).slice(0, 10) : null,
-        eta_to ? String(eta_to).slice(0, 10) : (eta_from ? String(eta_from).slice(0, 10) : null),
+        etaFromIn ? String(etaFromIn).slice(0, 10) : null,
+        etaToIn ? String(etaToIn).slice(0, 10) : etaFromIn ? String(etaFromIn).slice(0, 10) : null,
         statusVal,
-        typeof approval_id === 'string' ? approval_id.trim() || null : null,
         trimText(destination_text, 4000),
         ft?.value ?? null,
         trimText(bill_of_lading_clause, 4000),
@@ -632,14 +764,13 @@ router.post('/', requireAuth, async (req, res) => {
         trimText(notify_party_text, 4000),
         trimText(bl_split_text, 4000),
         trimText(bl_indicated, 4000),
-        document_date ? String(document_date).slice(0, 10) : null,
-        preferred_jetty_id != null && preferred_jetty_id !== '' ? parseInt(preferred_jetty_id, 10) : null,
+        documentDateIn,
         shipper_id != null && shipper_id !== '' ? parseInt(shipper_id, 10) : null,
         loading_port_id != null && loading_port_id !== '' ? parseInt(loading_port_id, 10) : null,
         surveyor_id != null && surveyor_id !== '' ? parseInt(surveyor_id, 10) : null,
-        agent_id != null && agent_id !== '' ? parseInt(agent_id, 10) : null,
+        insertAgentId,
         typeof note === 'string' ? note.trim() || null : null,
-        selectedPortId,
+        shipmentPlanId,
       ]
     );
     const newId = result.rows[0].id;
@@ -650,7 +781,7 @@ router.post('/', requireAuth, async (req, res) => {
     const response = { ...toSIList(row.rows[0]), breakdown: bd };
     // Best-effort activity log (append-only)
     writeActivityLog({
-      pageKey: 'shipping-instruction',
+      pageKey: 'shipment-plan',
       action: 'add',
       entityType: 'Shipping Instruction',
       entityId: newId,
@@ -713,10 +844,6 @@ router.put('/:id', requireAuth, async (req, res) => {
     document_date,
   } = b;
 
-  if (!vessel_name || typeof vessel_name !== 'string' || !vessel_name.trim()) {
-    return res.status(400).json({ error: 'vessel_name is required' });
-  }
-
   const ftIn = normalizeFreightTerms(freight_terms);
   if (ftIn?.error) return res.status(400).json({ error: ftIn.error });
 
@@ -728,10 +855,39 @@ router.put('/:id', requireAuth, async (req, res) => {
   }
   const beforeBd = await loadBreakdown(id);
 
+  let planRowBound = null;
+  if (beforeRow.shipment_plan_id != null) {
+    const prPlan = await pool.query(
+      `SELECT vessel_name, eta, purpose_id, voyage_no, jetty_id, approval_id, approved_at, approved_by_user_id, agent_id
+       FROM shipment_plans WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
+      [beforeRow.shipment_plan_id, selectedPortId]
+    );
+    planRowBound = prPlan.rows[0] ?? null;
+  }
+
+  if (beforeRow.shipment_plan_id == null) {
+    return res.status(400).json({
+      error: 'Shipping instruction must be linked to a shipment plan before it can be updated',
+    });
+  }
+
+  if (!vessel_name || typeof vessel_name !== 'string' || !vessel_name.trim()) {
+    if (!(planRowBound?.vessel_name && String(planRowBound.vessel_name).trim())) {
+      return res.status(400).json({ error: 'vessel_name is required' });
+    }
+  }
+
   let purposeVal = purpose ?? beforeRow.purpose;
   let purposeIdVal = purpose_id != null ? parseInt(purpose_id, 10) : beforeRow.purpose_id;
 
-  if (purpose_id != null && purpose_id !== '') {
+  if (planRowBound?.purpose_id != null) {
+    purposeIdVal = Number(planRowBound.purpose_id);
+    const prp = await pool.query(`SELECT code FROM si_purposes WHERE id = $1 AND deleted_at IS NULL`, [
+      purposeIdVal,
+    ]);
+    if (prp.rows.length === 0) return res.status(400).json({ error: 'Invalid purpose_id on shipment plan' });
+    purposeVal = prp.rows[0].code;
+  } else if (purpose_id != null && purpose_id !== '') {
     const pr = await pool.query(`SELECT code FROM si_purposes WHERE id = $1 AND deleted_at IS NULL`, [
       parseInt(purpose_id, 10),
     ]);
@@ -756,7 +912,7 @@ router.put('/:id', requireAuth, async (req, res) => {
     shipper_id,
     loading_port_id,
     surveyor_id,
-    agent_id,
+    agent_id: planRowBound?.agent_id != null ? Number(planRowBound.agent_id) : null,
   });
   if (fkErr) return res.status(400).json(fkErr);
   const preferredJettyIdForScope =
@@ -838,7 +994,12 @@ router.put('/:id', requireAuth, async (req, res) => {
   const nextShipper = optInt(shipper_id, beforeRow.shipper_id);
   const nextLoadingPort = optInt(loading_port_id, beforeRow.loading_port_id);
   const nextSurveyor = optInt(surveyor_id, beforeRow.surveyor_id);
-  const nextAgent = optInt(agent_id, beforeRow.agent_id);
+  const nextAgent =
+    beforeRow.shipment_plan_id != null && planRowBound
+      ? planRowBound.agent_id != null
+        ? Number(planRowBound.agent_id)
+        : null
+      : optInt(agent_id, beforeRow.agent_id);
   const nextNote = note !== undefined ? (typeof note === 'string' ? note.trim() || null : null) : beforeRow.note;
   const nextBlSplitText =
     bl_split_text !== undefined ? trimText(bl_split_text, 4000) : beforeRow.bl_split_text;
@@ -865,62 +1026,92 @@ router.put('/:id', requireAuth, async (req, res) => {
           ? String(eta_from).slice(0, 10)
           : null
       : beforeRow.eta_to;
+  let nextEtaFinal = nextEta;
+  let nextEtaFromFinal = nextEtaFrom;
+  let nextEtaToFinal = nextEtaTo;
+  const etaTouchedInBody = eta !== undefined || eta_from !== undefined || eta_to !== undefined;
+  if (!etaTouchedInBody && planRowBound?.eta && !Number.isNaN(new Date(planRowBound.eta).getTime())) {
+    const ymd = new Date(planRowBound.eta).toISOString().slice(0, 10);
+    nextEtaFinal = new Date(planRowBound.eta);
+    nextEtaFromFinal = ymd;
+    nextEtaToFinal = ymd;
+  }
   const nextDocDate =
     document_date !== undefined
       ? document_date
         ? String(document_date).slice(0, 10)
         : null
       : beforeRow.document_date;
+  const nextVoyageNo =
+    voyage_no !== undefined && voyage_no !== null && String(voyage_no).trim() !== ''
+      ? trimText(voyage_no, 64)
+      : trimText(planRowBound?.voyage_no ?? beforeRow.voyage_no, 64);
+  const nextVesselName =
+    vessel_name && String(vessel_name).trim()
+      ? String(vessel_name).trim()
+      : String(planRowBound?.vessel_name || '').trim();
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const planId = beforeRow.shipment_plan_id;
+    if (planId != null) {
+      await client.query(
+        `UPDATE shipment_plans SET
+           vessel_name = $1,
+           eta = $2,
+           voyage_no = $3,
+           jetty_id = $4,
+           purpose_id = $5,
+           approval_id = $6,
+           approved_at = $7,
+           approved_by_user_id = $8,
+           updated_at = NOW()
+         WHERE id = $9 AND port_id = $10 AND deleted_at IS NULL`,
+        [
+          nextVesselName,
+          nextEtaFinal,
+          nextVoyageNo,
+          nextPreferredJetty,
+          purposeIdVal,
+          nextApprovalId,
+          nextApprovedAt,
+          nextApprovedBy,
+          planId,
+          selectedPortId,
+        ]
+      );
+    }
     const up = await client.query(
       `UPDATE shipping_instructions SET
          reference_number = $1,
-         vessel_name = $2,
-         voyage_no = $3,
-         trade_term_id = $4,
-         purpose_id = $5,
-         purpose = $6,
-         eta = $7,
-         eta_from = $8,
-         eta_to = $9,
-         status = $10,
-         approval_id = $11,
-         destination_text = $12,
-         freight_terms = $13,
-         bill_of_lading_clause = $14,
-         consignee_text = $15,
-         notify_party_text = $16,
-         bl_split_text = $17,
-         bl_indicated = $18,
-         document_date = $19,
-         approved_by_user_id = $20,
-         approved_at = $21,
-         approver_name_snapshot = $22,
-         approver_title_snapshot = $23,
-         preferred_jetty_id = $24,
-         shipper_id = $25,
-         loading_port_id = $26,
-         surveyor_id = $27,
-         agent_id = $28,
-         note = $29,
-         port_id = COALESCE(port_id, $30),
+         trade_term_id = $2,
+         eta_from = $3,
+         eta_to = $4,
+         status = $5,
+         destination_text = $6,
+         freight_terms = $7,
+         bill_of_lading_clause = $8,
+         consignee_text = $9,
+         notify_party_text = $10,
+         bl_split_text = $11,
+         bl_indicated = $12,
+         document_date = $13,
+         approver_name_snapshot = $14,
+         approver_title_snapshot = $15,
+         shipper_id = $16,
+         loading_port_id = $17,
+         surveyor_id = $18,
+         agent_id = $19,
+         note = $20,
          updated_at = NOW()
-       WHERE id = $31 AND deleted_at IS NULL`,
+       WHERE id = $21 AND deleted_at IS NULL`,
       [
         nextRef,
-        vessel_name.trim(),
-        voyage_no !== undefined ? trimText(voyage_no, 64) : beforeRow.voyage_no,
         nextTradeTermId,
-        purposeIdVal,
-        purposeVal,
-        nextEta,
-        nextEtaFrom,
-        nextEtaTo,
+        nextEtaFromFinal,
+        nextEtaToFinal,
         requestedStatus,
-        nextApprovalId,
         destination_text !== undefined ? trimText(destination_text, 4000) : beforeRow.destination_text,
         freightVal,
         bill_of_lading_clause !== undefined ? trimText(bill_of_lading_clause, 4000) : beforeRow.bill_of_lading_clause,
@@ -929,17 +1120,13 @@ router.put('/:id', requireAuth, async (req, res) => {
         nextBlSplitText,
         bl_indicated !== undefined ? trimText(bl_indicated, 4000) : beforeRow.bl_indicated,
         nextDocDate,
-        nextApprovedBy,
-        nextApprovedAt,
         nextApproverName,
         nextApproverTitle,
-        nextPreferredJetty,
         nextShipper,
         nextLoadingPort,
         nextSurveyor,
         nextAgent,
         nextNote,
-        selectedPortId,
         id,
       ]
     );
@@ -955,7 +1142,7 @@ router.put('/:id', requireAuth, async (req, res) => {
     const before = { ...toSIList(beforeRow), breakdown: beforeBd };
     const changes = diffFields(before, response);
     writeActivityLog({
-      pageKey: 'shipping-instruction',
+      pageKey: 'shipment-plan',
       action: 'update',
       entityType: 'Shipping Instruction',
       entityId: id,
@@ -985,6 +1172,13 @@ router.put('/:id', requireAuth, async (req, res) => {
 router.delete('/:id', requireAuth, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  const siCheck = await pool.query(
+    `SELECT reference_number FROM shipping_instructions WHERE id = $1 AND deleted_at IS NULL`,
+    [id]
+  );
+  if (siCheck.rows.length === 0) {
+    return res.status(404).json({ error: 'Shipping instruction not found' });
+  }
   const op = await pool.query(
     `SELECT 1 FROM operations WHERE shipping_instruction_id = $1 AND deleted_at IS NULL LIMIT 1`,
     [id]
@@ -1017,7 +1211,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
     client.release();
   }
   writeActivityLog({
-    pageKey: 'shipping-instruction',
+    pageKey: 'shipment-plan',
     action: 'delete',
     entityType: 'Shipping Instruction',
     entityId: id,
@@ -1073,6 +1267,7 @@ function toSIList(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     resolvedPortId: row.preferred_port_id != null ? Number(row.preferred_port_id) : null,
+    shipmentPlanId: row.shipment_plan_id != null ? Number(row.shipment_plan_id) : null,
   };
 }
 

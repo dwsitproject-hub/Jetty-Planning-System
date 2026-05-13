@@ -377,6 +377,7 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
                       <th>{t('breakdownUnit')}</th>
                       <th>{t('breakdownContract')}</th>
                       <th>{t('breakdownPo')}</th>
+                      <th>{t('breakdownSo')}</th>
                       <th>{t('breakdownRemarks')}</th>
                     </tr>
                   </thead>
@@ -388,6 +389,7 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
                         <td>{emptyToDash(item.metricCode)}</td>
                         <td>{emptyToDash(item.contractNo)}</td>
                         <td>{emptyToDash(item.poNo)}</td>
+                        <td>{emptyToDash(item.soNo)}</td>
                         <td>{emptyToDash(item.remarks)}</td>
                       </tr>
                     ))}

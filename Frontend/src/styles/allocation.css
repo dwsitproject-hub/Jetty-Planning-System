@@ -769,6 +769,57 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   background: var(--color-bg-lighter);
 }
 
+.allocation-table__row--plan-summary {
+  cursor: default;
+  background: var(--color-bg-subtle, #f4f6f8);
+  font-size: var(--font-size-small);
+}
+
+.allocation-table__row--plan-summary:hover {
+  background: var(--color-bg-subtle, #f4f6f8);
+}
+
+.allocation-table__plan-summary-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem 0.35rem;
+}
+
+.allocation-table__plan-ref {
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.allocation-table__row--plan-child td:not(.allocation-table__expand-col):not(.allocation-table__action-col) {
+  padding-left: var(--spacing-4);
+}
+
+.allocation-mobile-card--plan {
+  border-left: 3px solid var(--color-primary);
+}
+
+.at-berth__group-header {
+  background: var(--color-surface-muted, rgba(0, 0, 0, 0.03));
+}
+
+.at-berth-mobile-group-children {
+  margin-top: var(--spacing-3);
+  padding-top: var(--spacing-3);
+  border-top: 1px solid var(--color-border-light, #e5e7eb);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+}
+
+.at-berth-mobile-child {
+  padding-left: var(--spacing-2);
+  border-left: 2px solid var(--color-border-medium, #d1d5db);
+}
+
+.at-berth-mobile-child__actions {
+  margin-top: 0.35rem;
+}
+
 .allocation-table__action-btns {
   display: flex;
   flex-wrap: wrap;
@@ -815,16 +866,11 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   gap: var(--spacing-2);
 }
 
-/* Berthing sequence column: number + up/down buttons */
+/* Berthing sequence column: up/down controls */
 .allocation-table__sequence-cell {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-2);
-}
-
-.allocation-table__sequence-num {
-  font-weight: var(--font-weight-semibold);
-  min-width: 1.25rem;
 }
 
 .allocation-table__sequence-btns {
@@ -1766,6 +1812,66 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 .loading-section-tabs__tab--active {
   color: var(--color-primary);
   border-bottom-color: var(--color-primary);
+}
+
+/* Multi-SI same plan: switch shipping instruction / operation under hub header */
+.loading-si-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2) var(--spacing-3);
+  margin-bottom: var(--spacing-3);
+}
+
+.loading-si-switcher__label {
+  margin: 0;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-charcoal);
+  flex-shrink: 0;
+}
+
+.loading-si-switcher__select {
+  min-width: min(100%, 20rem);
+  max-width: 100%;
+  padding: var(--spacing-2) 2.25rem var(--spacing-2) var(--spacing-3);
+  font-size: var(--font-size-small);
+  font-family: var(--font-primary);
+  line-height: 1.35;
+  color: var(--color-text-charcoal);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-base);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  background-size: 0.75rem;
+  box-sizing: border-box;
+  cursor: pointer;
+  appearance: none;
+  transition: border-color var(--duration-fast) var(--easing-default), box-shadow var(--duration-fast) var(--easing-default);
+}
+
+.loading-si-switcher__select::-ms-expand {
+  display: none;
+}
+
+.loading-si-switcher__select:hover {
+  border-color: var(--color-primary);
+}
+
+.loading-si-switcher__select:focus {
+  outline: none;
+}
+
+.loading-si-switcher__select:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 22%, transparent);
+}
+
+.loading-si-switcher__select:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 
 /* At-berth stage tabs (detail page): horizontal strip under vessel detail */
@@ -3046,6 +3152,16 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   font-weight: var(--font-weight-bold);
   margin: 0;
   line-height: 1.2;
+}
+
+.at-berth-card--loading {
+  background: rgba(45, 122, 62, 0.07);
+  border-color: rgba(45, 122, 62, 0.22);
+}
+
+.at-berth-card--unloading {
+  background: rgba(33, 115, 199, 0.07);
+  border-color: rgba(33, 115, 199, 0.24);
 }
 
 .at-berth-card--loading .at-berth-card__title {

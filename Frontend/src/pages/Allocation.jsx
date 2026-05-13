@@ -6,11 +6,14 @@ import JettyScheduleGantt from '../components/JettyScheduleGantt'
 import {
   deleteOperationDocument,
   fetchAllocationOverview,
+  fetchAllocationPlanOverview,
   fetchOperationDocuments,
   saveArrivalUpdate as saveArrivalUpdateApi,
+  swapShipmentPlanBerthingSequence,
   uploadOperationDocuments,
 } from '../api/allocation'
 import { setOperationShiftingOut } from '../api/operations'
+import { fetchShipmentPlan } from '../api/shipmentPlans'
 import { ApiError, resolveUploadUrl } from '../api/client'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import {
@@ -28,17 +31,17 @@ import { useRbac } from '../context/RbacContext'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import { MAX_REMARK_CHARS } from '../constants/inputLimits'
+import { mergeBerthsStateForPlanPov, mergeQueueRowsForPlanPov } from '../utils/allocationPlanPovMerge'
 
 /** Standardized pipeline flow (match Dashboard Vessel pipeline) */
 const UNIFIED_PHASES = ['Shipping Instruction', 'Planned berthing', 'At-Berth', 'Clearance']
 
-const PHASE_ROUTES = {
-  'Shipping Instruction': '/shipping-instruction',
-  'Planned berthing': '/allocation',
-  'Clearance': '/verification',
-}
-
-function getPhaseLink(label, vessel) {
+function getPhaseLink(label, vessel, plannedBerthingPath = '/allocation-plans') {
+  const phaseRoutes = {
+    'Shipping Instruction': '/shipment-plans',
+    'Planned berthing': plannedBerthingPath,
+    'Clearance': '/verification',
+  }
   if (label === 'At-Berth') {
     const opId = vessel?.operationId
     if (!opId) return null
@@ -46,7 +49,7 @@ function getPhaseLink(label, vessel) {
     const base = purpose === 'Unloading' ? '/unloading' : '/loading'
     return `${base}/op-${opId}/pre-checking`
   }
-  return PHASE_ROUTES[label] || '#'
+  return phaseRoutes[label] || '#'
 }
 
 function isVesselReadyToSail(vessel) {
@@ -58,8 +61,14 @@ function isVesselReadyToSail(vessel) {
 
 const PRIORITY_OPTIONS = ['Low', 'Moderate', 'High', 'Critical']
 
+/** Missing berthing sequence sorts last (no magic numbers in the UI). */
+function seqSortKey(row) {
+  const n = row?.sequence != null ? Number(row.sequence) : NaN
+  return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY
+}
+
 const ALLOCATION_COLUMNS = [
-  { key: 'sequence', label: 'Berthing sequence', getValue: (r) => r.sequence ?? '—', getSortValue: (r) => r.sequence ?? 0 },
+  { key: 'sequence', label: 'Berthing sequence', getValue: () => '—', getSortValue: (r) => seqSortKey(r), getFilterValue: (r) => `${r.sequence ?? ''}` },
   {
     key: 'vesselName',
     label: 'Vessel Name',
@@ -90,6 +99,36 @@ const ALLOCATION_COLUMNS = [
   { key: 'etb', label: 'ETB', getValue: (r) => r.etb || '—', getSortValue: (r) => (r.etb || '').toLowerCase() },
   { key: 'jetty', label: 'Jetty', getValue: (r) => r.jetty || '—', getSortValue: (r) => (r.jetty || '').toLowerCase() },
 ]
+
+/** Plan ref column only on allocation-plans; inserted before Vessel to mirror Shipment plans list. */
+function buildAllocationColumnDefs(isPlanCentric) {
+  const cols = ALLOCATION_COLUMNS.map((c) => ({ ...c }))
+  if (!isPlanCentric) return cols
+  const vi = cols.findIndex((c) => c.key === 'vesselName')
+  const idx = vi >= 0 ? vi : 0
+  cols.splice(idx, 0, {
+    key: 'planReference',
+    label: 'Plan ref',
+    getValue: (r) =>
+      r.shipmentPlanId != null ? r.planReference || `Plan #${r.shipmentPlanId}` : '—',
+    getSortValue: (r) =>
+      (r.planReference || (r.shipmentPlanId != null ? `Plan #${r.shipmentPlanId}` : '') || '').toLowerCase(),
+  })
+  return cols
+}
+
+const ALLOCATION_FILTER_STATE_KEYS = [...ALLOCATION_COLUMNS.map((c) => c.key), 'planReference']
+
+/** Next / previous displayed queue row that has a shipment plan (for plan-centric ↑/↓). */
+function findAdjacentPlanRowInDisplay(rows, fromIdx, dir) {
+  const step = dir < 0 ? -1 : 1
+  for (let i = fromIdx + step; i >= 0 && i < rows.length; i += step) {
+    const x = rows[i]
+    const pid = x?.shipmentPlanId != null ? Number(x.shipmentPlanId) : NaN
+    if (Number.isFinite(pid) && pid > 0) return x
+  }
+  return null
+}
 
 function parseDateMs(val) {
   if (!val) return null
@@ -163,7 +202,13 @@ function getCompletionMsForJettyValidation(row) {
   return parseDateMs(row?.actualCompletionDateTime) ?? parseDateMs(row?.estimatedCompletionDateTime) ?? null
 }
 
-function AllocationDetailPanel({ r, tAlloc, onOpenSiDetail }) {
+function AllocationDetailPanel({ r, tAlloc, onOpenSiDetail, queueList }) {
+  const planSis =
+    r?.shipmentPlanId != null && Array.isArray(queueList)
+      ? queueList.filter((row) => Number(row?.shipmentPlanId) === Number(r.shipmentPlanId))
+      : []
+  const planSiLabels = [...new Set(planSis.map((row) => (row.shippingInstruction || '').trim()).filter(Boolean))]
+
   return (
     <div className="allocation-detail">
       <h4 className="allocation-detail__title">{tAlloc('fullDetails', { defaultValue: 'Full details' })}</h4>
@@ -205,6 +250,18 @@ function AllocationDetailPanel({ r, tAlloc, onOpenSiDetail }) {
         <dt>{tAlloc('dtEstimatedCompletion', { defaultValue: 'Estimation of Completion' })}</dt><dd>{formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion)}</dd>
         <dt>{tAlloc('dtRemark', { defaultValue: 'Remark' })}</dt><dd>{r.remark || r.remarks || '—'}</dd>
       </dl>
+      {planSiLabels.length > 1 && (
+        <div className="allocation-detail__plan-sis">
+          <h5 className="allocation-detail__subtitle">
+            {tAlloc('dtSisOnPlan', { defaultValue: 'SIs on this shipment plan' })}
+          </h5>
+          <ul className="allocation-detail__plan-sis-list">
+            {planSiLabels.map((label) => (
+              <li key={label}>{label}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       {Array.isArray(r.shippingTable) && r.shippingTable.length > 0 && (
         <div className="allocation-detail__shipping-table-wrap">
           <h5 className="allocation-detail__subtitle">Shipping Table</h5>
@@ -234,9 +291,18 @@ function AllocationDetailPanel({ r, tAlloc, onOpenSiDetail }) {
   )
 }
 
-export default function Allocation() {
+export default function Allocation({ pageProfile = 'legacy' } = {}) {
   const { t } = useTranslation('pages')
   const { t: tAlloc } = useTranslation('allocation')
+  const location = useLocation()
+  const isPlanCentric = pageProfile === 'planCentric'
+  const rbacPageKey = 'allocation-plan'
+  const activityLogPageKey = rbacPageKey
+  const plannedBerthingPath = '/allocation-plans'
+  const overviewFetcher = useMemo(
+    () => (isPlanCentric ? fetchAllocationPlanOverview : fetchAllocationOverview),
+    [isPlanCentric]
+  )
   const { selectedPortId, selectedPort } = usePortScope()
   const scheduleEntryTz = getScheduleEntryTimeZone()
   const toDateTimeLocalValue = useCallback(
@@ -248,18 +314,24 @@ export default function Allocation() {
     [scheduleEntryTz]
   )
   const { canEdit, canView } = useRbac()
-  const canEditAllocation = canEdit('allocation')
+  const canEditAllocation = canEdit(rbacPageKey)
   const canViewMasterJetty = canView('master-jetty')
   const [list, setList] = useState([])
   const [scheduleList, setScheduleList] = useState([])
   const [berthsState, setBerthsState] = useState([])
-  const filterKeys = ALLOCATION_COLUMNS.map((c) => c.key)
-  const [filters, setFilters] = useState(Object.fromEntries(filterKeys.map((k) => [k, ''])))
+  const [filters, setFilters] = useState(() =>
+    Object.fromEntries(ALLOCATION_FILTER_STATE_KEYS.map((k) => [k, '']))
+  )
   const [statusFilter, setStatusFilter] = useState({ incoming: true, berthed: false })
   const [sortState, setSortState] = useState({ key: 'sequence', dir: 'asc' })
   const [expandedId, setExpandedId] = useState(null)
   const [expandedMobileId, setExpandedMobileId] = useState(null)
   const [vesselDetailModalVesselId, setVesselDetailModalVesselId] = useState(null)
+  /** When opening from merged jetty slot (`plan-*`), load plan detail for plan-first modal. */
+  const [vesselDetailPlanId, setVesselDetailPlanId] = useState(null)
+  const [planDetail, setPlanDetail] = useState(null)
+  const [planDetailLoading, setPlanDetailLoading] = useState(false)
+  const [planDetailError, setPlanDetailError] = useState(null)
   const [arrivalUpdateForm, setArrivalUpdateForm] = useState(null)
   const [berthingConfirmRow, setBerthingConfirmRow] = useState(null)
   const [berthingErrors, setBerthingErrors] = useState([])
@@ -287,6 +359,9 @@ export default function Allocation() {
     setSiDetailId(id)
   }, [])
   const [shiftSavingByOpId, setShiftSavingByOpId] = useState({})
+  /** `minPlanId-maxPlanId` while swapping berthing sequence (shipment_plans only). */
+  const [planSequenceBusyPair, setPlanSequenceBusyPair] = useState(null)
+  const [planSequenceSwapError, setPlanSequenceSwapError] = useState(null)
   const [reDockModal, setReDockModal] = useState(null)
   const [reDockRemarkDraft, setReDockRemarkDraft] = useState('')
   const [reDockModalError, setReDockModalError] = useState(null)
@@ -304,6 +379,102 @@ export default function Allocation() {
     [berthsState]
   )
 
+  const planViz = useMemo(() => {
+    if (!isPlanCentric) {
+      return {
+        mergedList: list,
+        mergedSchedule: scheduleList,
+        mergedBerths: berthsState,
+        planVesselToRepresentativeVesselId: new Map(),
+      }
+    }
+    const q = mergeQueueRowsForPlanPov(list)
+    const s = mergeQueueRowsForPlanPov(scheduleList)
+    const rep = new Map([...q.planVesselToRepresentativeVesselId, ...s.planVesselToRepresentativeVesselId])
+    return {
+      mergedList: q.mergedRows,
+      mergedSchedule: s.mergedRows,
+      mergedBerths: mergeBerthsStateForPlanPov(berthsState, rep),
+      planVesselToRepresentativeVesselId: rep,
+    }
+  }, [isPlanCentric, list, scheduleList, berthsState])
+
+  const closeVesselDetailModal = useCallback(() => {
+    setVesselDetailModalVesselId(null)
+    setVesselDetailPlanId(null)
+    setPlanDetail(null)
+    setPlanDetailError(null)
+    setPlanDetailLoading(false)
+  }, [])
+
+  const selectVesselFromVisualization = useCallback(
+    (vesselId) => {
+      if (!vesselId) return
+      if (isPlanCentric && typeof vesselId === 'string' && vesselId.startsWith('plan-')) {
+        const n = parseInt(String(vesselId).replace(/^plan-/i, ''), 10)
+        setVesselDetailPlanId(Number.isFinite(n) && n > 0 ? n : null)
+      } else {
+        setVesselDetailPlanId(null)
+        setPlanDetail(null)
+        setPlanDetailError(null)
+        setPlanDetailLoading(false)
+      }
+      let resolved =
+        isPlanCentric &&
+        typeof vesselId === 'string' &&
+        vesselId.startsWith('plan-') &&
+        planViz.planVesselToRepresentativeVesselId.has(vesselId)
+          ? planViz.planVesselToRepresentativeVesselId.get(vesselId)
+          : vesselId
+      if (
+        isPlanCentric &&
+        typeof resolved === 'string' &&
+        resolved.startsWith('plan-')
+      ) {
+        const pid = parseInt(resolved.replace(/^plan-/i, ''), 10)
+        if (Number.isFinite(pid) && pid > 0) {
+          const fallback =
+            list.find(
+              (r) => Number(r?.shipmentPlanId) === pid && r?.operationId != null && r?.vesselId
+            ) ||
+            scheduleList.find(
+              (r) => Number(r?.shipmentPlanId) === pid && r?.operationId != null && r?.vesselId
+            ) ||
+            list.find((r) => Number(r?.shipmentPlanId) === pid && r?.vesselId) ||
+            scheduleList.find((r) => Number(r?.shipmentPlanId) === pid && r?.vesselId)
+          if (fallback?.vesselId) resolved = fallback.vesselId
+        }
+      }
+      setVesselDetailModalVesselId(resolved || vesselId)
+    },
+    [isPlanCentric, planViz.planVesselToRepresentativeVesselId, list]
+  )
+
+  useEffect(() => {
+    if (!isPlanCentric || vesselDetailPlanId == null) {
+      setPlanDetail(null)
+      setPlanDetailError(null)
+      setPlanDetailLoading(false)
+      return undefined
+    }
+    let cancelled = false
+    setPlanDetailLoading(true)
+    setPlanDetailError(null)
+    fetchShipmentPlan(vesselDetailPlanId)
+      .then((data) => {
+        if (!cancelled) setPlanDetail(data)
+      })
+      .catch((err) => {
+        if (!cancelled) setPlanDetailError(err?.message || 'Failed to load shipment plan')
+      })
+      .finally(() => {
+        if (!cancelled) setPlanDetailLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isPlanCentric, vesselDetailPlanId])
+
   useEffect(() => {
     if (!selectedPortId) {
       setList([])
@@ -312,7 +483,7 @@ export default function Allocation() {
       return undefined
     }
     let alive = true
-    fetchAllocationOverview()
+    overviewFetcher()
       .then((data) => {
         if (!alive) return
         setList(Array.isArray(data?.queue) ? data.queue : [])
@@ -329,13 +500,13 @@ export default function Allocation() {
       alive = false
     }
     // location.key: refetch when landing here via navigation (port alone does not change on SPA route change).
-  }, [selectedPortId, location.key])
+  }, [selectedPortId, location.key, overviewFetcher])
 
   useEffect(() => {
     if (!selectedPortId) return undefined
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return
-      fetchAllocationOverview()
+      overviewFetcher()
         .then((data) => {
           setList(Array.isArray(data?.queue) ? data.queue : [])
           setScheduleList(Array.isArray(data?.scheduleQueue) ? data.scheduleQueue : (Array.isArray(data?.queue) ? data.queue : []))
@@ -345,17 +516,27 @@ export default function Allocation() {
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [selectedPortId])
+  }, [selectedPortId, overviewFetcher])
 
   const vesselById = useMemo(() => {
     const map = {}
+    const srcList = planViz.mergedList
+    const srcSchedule = planViz.mergedSchedule
+    const srcBerths = planViz.mergedBerths
+
+    const refLabel = (r) => {
+      if (isPlanCentric && String(r?.vesselId || '').startsWith('plan-')) {
+        return r.planReference || r.shippingInstruction || '—'
+      }
+      return r.shippingInstruction || '—'
+    }
 
     // From queue rows (incoming + operations list)
-    for (const r of list) {
+    for (const r of srcList) {
       if (!r?.vesselId) continue
       map[r.vesselId] = {
         vesselName: r.vesselName || r.vesselId,
-        siId: r.shippingInstruction || '—',
+        siId: refLabel(r),
         purpose: r.purpose || null,
         commodity: r.commodity || null,
         etaToCompletion: r.estimatedCompletionDateTime ? new Date(r.estimatedCompletionDateTime).toLocaleString() : '—',
@@ -365,12 +546,12 @@ export default function Allocation() {
     }
 
     // From schedule rows (includes SAILED rows used by Jetty Schedule Gantt)
-    for (const r of scheduleList) {
+    for (const r of srcSchedule) {
       if (!r?.vesselId) continue
       if (map[r.vesselId]) continue
       map[r.vesselId] = {
         vesselName: r.vesselName || r.vesselId,
-        siId: r.shippingInstruction || '—',
+        siId: refLabel(r),
         purpose: r.purpose || null,
         commodity: r.commodity || null,
         etaToCompletion: r.estimatedCompletionDateTime ? new Date(r.estimatedCompletionDateTime).toLocaleString() : '—',
@@ -380,7 +561,7 @@ export default function Allocation() {
     }
 
     // From berths occupants (berthed vessels might not appear in queue depending on backend rules)
-    for (const b of berthsState || []) {
+    for (const b of srcBerths || []) {
       const occs = Array.isArray(b?.occupants) ? b.occupants : []
       for (const o of occs) {
         if (!o?.vesselId) continue
@@ -398,7 +579,7 @@ export default function Allocation() {
     }
 
     return map
-  }, [list, scheduleList, berthsState])
+  }, [planViz, isPlanCentric])
 
   const vesselDetailRows = useMemo(() => {
     const byId = new Map()
@@ -413,9 +594,27 @@ export default function Allocation() {
     return Array.from(byId.values())
   }, [list, scheduleList])
 
+  const vesselDetailPlanQueueRows = useMemo(() => {
+    if (!isPlanCentric || vesselDetailPlanId == null) return []
+    const byKey = new Map()
+    for (const r of [...list, ...scheduleList]) {
+      if (Number(r?.shipmentPlanId) !== Number(vesselDetailPlanId)) continue
+      const k = r.vesselId || r.id || String(r.shippingInstructionId ?? '')
+      if (!k) continue
+      if (!byKey.has(k)) byKey.set(k, r)
+    }
+    return [...byKey.values()].sort((a, b) => {
+      const ds = seqSortKey(a) - seqSortKey(b)
+      if (ds !== 0) return ds
+      return (Number(a.shippingInstructionId) || 0) - (Number(b.shippingInstructionId) || 0)
+    })
+  }, [isPlanCentric, vesselDetailPlanId, list, scheduleList])
+
+  const allocationColumnDefsBase = useMemo(() => buildAllocationColumnDefs(isPlanCentric), [isPlanCentric])
+
   const allocationTableColumns = useMemo(() => {
     const berthById = new Map((berthsState || []).map((b) => [b.id, b]))
-    return ALLOCATION_COLUMNS.map((c) => {
+    return allocationColumnDefsBase.map((c) => {
       if (c.key !== 'jetty') return c
       return {
         ...c,
@@ -440,7 +639,7 @@ export default function Allocation() {
         },
       }
     })
-  }, [berthsState])
+  }, [berthsState, allocationColumnDefsBase])
 
   const getVesselName = useCallback(
     (vesselId) => {
@@ -453,7 +652,7 @@ export default function Allocation() {
 
   const incomingByJetty = useMemo(() => {
     const byJetty = {}
-    const incomingRows = [...list]
+    const incomingRows = [...planViz.mergedList]
       .filter((r) => getBerthingPlanStatus(r) === 'incoming')
       .sort((a, b) => {
         const aMs = getArrivalMsForJettyValidation(a) ?? Number.MAX_SAFE_INTEGER
@@ -468,7 +667,7 @@ export default function Allocation() {
       byJetty[jettyId].push(name)
     }
     return byJetty
-  }, [list])
+  }, [planViz.mergedList])
 
   const [arrivalNorFiles, setArrivalNorFiles] = useState([]) // [{ name, url }] for NOR document preview
   const [arrivalNorRawFiles, setArrivalNorRawFiles] = useState([]) // File[]
@@ -480,6 +679,7 @@ export default function Allocation() {
         ({
           sequence: 'colBerthingSequence',
           vesselName: 'colVesselName',
+          planReference: 'colPlanRef',
           jettyOperationCode: 'colJettyOperationId',
           shippingInstruction: 'colShippingInstruction',
           priority: 'colPriority',
@@ -527,13 +727,41 @@ export default function Allocation() {
     }
   }, [vesselDetailModalVesselId, vesselDetailRows, vesselPhotosByVesselId, fileUrl])
 
-  const refreshOverview = async () => {
-    const data = await fetchAllocationOverview()
+  const refreshOverview = useCallback(async () => {
+    const data = await overviewFetcher()
     const q = Array.isArray(data?.queue) ? data.queue : []
     setList(q)
+    setScheduleList(Array.isArray(data?.scheduleQueue) ? data.scheduleQueue : q)
     setBerthsState(Array.isArray(data?.berths) ? data.berths : [])
     return q
-  }
+  }, [overviewFetcher])
+
+  const swapPlanBerthingSequencePair = useCallback(
+    async (planIdA, planIdB, earlierPlanId) => {
+      const a = Number(planIdA)
+      const b = Number(planIdB)
+      if (!Number.isFinite(a) || !Number.isFinite(b) || a === b) return
+      const busyKey = `${Math.min(a, b)}-${Math.max(a, b)}`
+      setPlanSequenceBusyPair(busyKey)
+      setPlanSequenceSwapError(null)
+      try {
+        const earlier =
+          earlierPlanId != null && Number.isFinite(Number(earlierPlanId)) ? Number(earlierPlanId) : undefined
+        await swapShipmentPlanBerthingSequence(a, b, {
+          activityLogPage: activityLogPageKey,
+          earlierPlanId: earlier,
+        })
+        await refreshOverview()
+      } catch (e) {
+        const msg =
+          e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Sequence update failed'
+        setPlanSequenceSwapError(msg)
+      } finally {
+        setPlanSequenceBusyPair(null)
+      }
+    },
+    [activityLogPageKey, refreshOverview]
+  )
 
   const closeReDockModal = useCallback(() => {
     setReDockModal(null)
@@ -563,7 +791,7 @@ export default function Allocation() {
     setShiftSavingByOpId((m) => ({ ...m, [opId]: true }))
     try {
       const vesselLabel = row.vesselName || row.shippingInstruction || 'Vessel'
-      await setOperationShiftingOut(opId, false, trimmed, { activityLogPage: 'allocation' })
+      await setOperationShiftingOut(opId, false, trimmed, { activityLogPage: activityLogPageKey })
       closeReDockModal()
       setReDockSuccessMessage(
         `Redocking complete for ${vesselLabel}. You may now resume activities via the 'At-Berth Executions'.`
@@ -670,13 +898,14 @@ export default function Allocation() {
       norDocumentNames: arrivalNorFiles.length > 0 ? arrivalNorFiles.map((f) => f.name) : undefined,
     }
     const listWithUpdate = list.map((row) => (row.id === arrivalUpdateForm.id ? updated : row))
-    const bySequence = [...listWithUpdate].sort((a, b) => (a.sequence ?? 999) - (b.sequence ?? 999))
+    const bySequence = [...listWithUpdate].sort((a, b) => seqSortKey(a) - seqSortKey(b))
     const renumbered = bySequence.map((row, i) => ({ ...row, sequence: i + 1 }))
     setList(renumbered)
 
     let saveRes
     try {
       saveRes = await saveArrivalUpdateApi({
+        activityLogPage: activityLogPageKey,
         operationId: updated.operationId,
         shippingInstructionId: updated.shippingInstructionId,
         noPkk: updated.noPkk ?? '',
@@ -739,7 +968,7 @@ export default function Allocation() {
 
   const moveSequenceUp = (r, e) => {
     e.stopPropagation()
-    const bySeq = [...list].sort((a, b) => (a.sequence ?? 999) - (b.sequence ?? 999))
+    const bySeq = [...list].sort((a, b) => seqSortKey(a) - seqSortKey(b))
     const i = bySeq.findIndex((row) => row.id === r.id)
     if (i <= 0) return
     ;[bySeq[i - 1], bySeq[i]] = [bySeq[i], bySeq[i - 1]]
@@ -749,7 +978,7 @@ export default function Allocation() {
 
   const moveSequenceDown = (r, e) => {
     e.stopPropagation()
-    const bySeq = [...list].sort((a, b) => (a.sequence ?? 999) - (b.sequence ?? 999))
+    const bySeq = [...list].sort((a, b) => seqSortKey(a) - seqSortKey(b))
     const i = bySeq.findIndex((row) => row.id === r.id)
     if (i < 0 || i >= bySeq.length - 1) return
     ;[bySeq[i], bySeq[i + 1]] = [bySeq[i + 1], bySeq[i]]
@@ -759,7 +988,16 @@ export default function Allocation() {
 
   const handleBerthClick = (berthId) => {
     const berth = berthsState.find((b) => b.id === berthId)
-    if (berth?.currentVesselId) setVesselDetailModalVesselId(berth.currentVesselId)
+    const id = berth?.currentVesselId
+    if (!id) return
+    if (isPlanCentric) selectVesselFromVisualization(id)
+    else {
+      setVesselDetailPlanId(null)
+      setPlanDetail(null)
+      setPlanDetailError(null)
+      setPlanDetailLoading(false)
+      setVesselDetailModalVesselId(id)
+    }
   }
 
   /** Resolve row.jetty to a single berth id (e.g. "1A" or "1A/2A" → "1A") */
@@ -817,6 +1055,7 @@ export default function Allocation() {
     let saveRes
     try {
       saveRes = await saveArrivalUpdateApi({
+        activityLogPage: activityLogPageKey,
         operationId: berthingConfirmRow.operationId,
         shippingInstructionId: berthingConfirmRow.shippingInstructionId,
         noPkk: berthingConfirmRow.noPkk ?? '',
@@ -958,6 +1197,10 @@ export default function Allocation() {
       setVesselDetailEditSaving(false)
       setVesselDetailNorNewFiles([])
       setVesselDetailNorNewRaw([])
+      setVesselDetailPlanId(null)
+      setPlanDetail(null)
+      setPlanDetailError(null)
+      setPlanDetailLoading(false)
       setVesselDetailBerthingNewPhotos((prev) => {
         prev.forEach((p) => {
           if (p.previewUrl) URL.revokeObjectURL(p.previewUrl)
@@ -990,11 +1233,11 @@ export default function Allocation() {
         setVesselDetailEditError(null)
         return
       }
-      setVesselDetailModalVesselId(null)
+      closeVesselDetailModal()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [vesselDetailModalVesselId, siDetailId, siDocumentModalId, vesselDetailEditing])
+  }, [vesselDetailModalVesselId, siDetailId, siDocumentModalId, vesselDetailEditing, closeVesselDetailModal])
 
   const addVesselDetailNorNewFiles = (fileList) => {
     if (!fileList?.length) return
@@ -1115,6 +1358,7 @@ export default function Allocation() {
     const berthDraft = vesselDetailBerthingNewPhotos
     try {
       const putRes = await saveArrivalUpdateApi({
+        activityLogPage: activityLogPageKey,
         operationId: vessel.operationId,
         shippingInstructionId: vessel.shippingInstructionId,
         noPkk: vesselDetailDraft.noPkk ?? '',
@@ -1235,6 +1479,8 @@ export default function Allocation() {
   const updateFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }))
   const handleSort = (key) => setSortState((s) => ({ key, dir: s.key === key && s.dir === 'asc' ? 'desc' : 'asc' }))
 
+  const filterKeys = useMemo(() => allocationColumnDefsBase.map((c) => c.key), [allocationColumnDefsBase])
+
   const filteredList = list.filter((r) => {
     const rowStatus = getBerthingPlanStatus(r)
     if (!statusFilter[rowStatus]) return false
@@ -1242,13 +1488,17 @@ export default function Allocation() {
       const f = (filters[key] || '').trim().toLowerCase()
       if (!f) return true
       const val =
-        key === 'purpose' ? resolvePurposeLabel(r.purpose, r.loadDischarge) || r[key] : r[key]
+        key === 'purpose'
+          ? resolvePurposeLabel(r.purpose, r.loadDischarge) || r[key]
+          : key === 'planReference'
+            ? r.planReference || (r.shipmentPlanId != null ? `Plan #${r.shipmentPlanId}` : '')
+            : r[key]
       return String(val ?? '').toLowerCase().includes(f)
     })
   })
 
   const sortedList = [...filteredList].sort((a, b) => {
-    const col = ALLOCATION_COLUMNS.find((c) => c.key === sortState.key)
+    const col = allocationColumnDefsBase.find((c) => c.key === sortState.key)
     if (!col) return 0
     const va = col.getSortValue(a)
     const vb = col.getSortValue(b)
@@ -1256,6 +1506,232 @@ export default function Allocation() {
     const cmp = isNum ? va - vb : String(va).localeCompare(String(vb), undefined, { numeric: true })
     return sortState.dir === 'asc' ? cmp : -cmp
   })
+
+  /** One row per shipment plan (merged SIs), same ordering as filters; rep row id for forms / optimistic updates. */
+  const sortedPlanQueueList = useMemo(() => {
+    if (!isPlanCentric) return null
+    const merged = mergeQueueRowsForPlanPov(filteredList, { idMode: 'representative' }).mergedRows
+    return [...merged].sort((a, b) => {
+      const col = allocationColumnDefsBase.find((c) => c.key === sortState.key)
+      if (!col) return 0
+      const va = col.getSortValue(a)
+      const vb = col.getSortValue(b)
+      const isNum = typeof va === 'number' && typeof vb === 'number'
+      const cmp = isNum ? va - vb : String(va).localeCompare(String(vb), undefined, { numeric: true })
+      return sortState.dir === 'asc' ? cmp : -cmp
+    })
+  }, [isPlanCentric, filteredList, sortState, allocationColumnDefsBase])
+
+  const hasQueueRows = isPlanCentric ? (sortedPlanQueueList?.length ?? 0) > 0 : sortedList.length > 0
+
+  const renderOneDesktopRow = (r) => {
+    return (
+      <Fragment key={r.id}>
+        <tr
+          className={[
+            'allocation-table__row',
+            expandedId === r.id ? 'allocation-table__row--expanded' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          onClick={() => setExpandedId((id) => (id === r.id ? null : r.id))}
+        >
+          <td className="allocation-table__expand-col">
+            <span className="allocation-table__expand-icon" aria-hidden>
+              {expandedId === r.id ? '▼' : '▶'}
+            </span>
+          </td>
+          <td className="allocation-table__action-col" onClick={(e) => e.stopPropagation()}>
+            <div className="allocation-table__action-btns">
+              <button type="button" className="btn btn--primary btn--small" onClick={() => openArrivalUpdate(r)}>
+                {tAlloc('logArrivalUpdate')}
+              </button>
+              {r.shiftingOut && r.operationId != null ? (
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--small"
+                  onClick={(e) => openReDockModal(r, e)}
+                  disabled={Boolean(shiftSavingByOpId[r.operationId])}
+                  title="Clear shift-out so this vessel can be treated as at-berth again (preserves history)."
+                >
+                  {shiftSavingByOpId[r.operationId] ? tAlloc('saving') : tAlloc('reDock')}
+                </button>
+              ) : (
+                <button type="button" className="btn btn--success btn--small" onClick={(e) => openBerthingConfirm(r, e)}>
+                  {tAlloc('berthing')}
+                </button>
+              )}
+            </div>
+          </td>
+          {allocationTableColumns.map((col) => (
+            <td key={col.key} onClick={col.key === 'sequence' ? (e) => e.stopPropagation() : undefined}>
+              {col.key === 'sequence' ? (
+                <span className="allocation-table__sequence-cell">
+                  {isPlanCentric && r.shipmentPlanId != null && canEditAllocation && sortedPlanQueueList ? (
+                    (() => {
+                      const displayList = sortedPlanQueueList
+                      const idx = displayList.findIndex((x) => x.id === r.id)
+                      const prevPlan = idx >= 0 ? findAdjacentPlanRowInDisplay(displayList, idx, -1) : null
+                      const nextPlan = idx >= 0 ? findAdjacentPlanRowInDisplay(displayList, idx, 1) : null
+                      const pid = Number(r.shipmentPlanId)
+                      let busyThis = false
+                      if (planSequenceBusyPair) {
+                        const parts = planSequenceBusyPair.split('-').map((p) => parseInt(p, 10))
+                        if (parts.length === 2 && parts.every((n) => Number.isFinite(n))) {
+                          const [ba, bb] = parts
+                          busyThis = pid === ba || pid === bb
+                        }
+                      }
+                      return (
+                        <span className="allocation-table__sequence-btns">
+                          <button
+                            type="button"
+                            className="btn btn--small allocation-table__sequence-btn"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (!prevPlan?.shipmentPlanId) return
+                              void swapPlanBerthingSequencePair(pid, Number(prevPlan.shipmentPlanId), pid)
+                            }}
+                            disabled={!prevPlan || busyThis}
+                            title="Move up"
+                            aria-label="Move berthing sequence up"
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn--small allocation-table__sequence-btn"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (!nextPlan?.shipmentPlanId) return
+                              void swapPlanBerthingSequencePair(
+                                pid,
+                                Number(nextPlan.shipmentPlanId),
+                                Number(nextPlan.shipmentPlanId)
+                              )
+                            }}
+                            disabled={!nextPlan || busyThis}
+                            title="Move down"
+                            aria-label="Move berthing sequence down"
+                          >
+                            ↓
+                          </button>
+                        </span>
+                      )
+                    })()
+                  ) : !isPlanCentric ? (
+                    <span className="allocation-table__sequence-btns">
+                      <button
+                        type="button"
+                        className="btn btn--small allocation-table__sequence-btn"
+                        onClick={(e) => moveSequenceUp(r, e)}
+                        disabled={sortedList.findIndex((x) => x.id === r.id) <= 0}
+                        title="Move up"
+                        aria-label="Move berthing sequence up"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--small allocation-table__sequence-btn"
+                        onClick={(e) => moveSequenceDown(r, e)}
+                        disabled={sortedList.findIndex((x) => x.id === r.id) >= sortedList.length - 1}
+                        title="Move down"
+                        aria-label="Move berthing sequence down"
+                      >
+                        ↓
+                      </button>
+                    </span>
+                  ) : (
+                    '—'
+                  )}
+                </span>
+              ) : col.key === 'planReference' ? (
+                r.shipmentPlanId != null ? (
+                  <Link
+                    to={`/shipment-plans/${r.shipmentPlanId}`}
+                    className="link"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {r.planReference || `Plan #${r.shipmentPlanId}`}
+                  </Link>
+                ) : (
+                  '—'
+                )
+              ) : col.key === 'jettyOperationCode' ? (
+                r.shippingInstructionId ? (
+                  <a
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      openSiDetailModal(r.shippingInstructionId)
+                    }}
+                    aria-label={tAlloc('openSiDetailFromJettyOp')}
+                  >
+                    {r.jettyOperationCode || '—'}
+                  </a>
+                ) : (
+                  r.jettyOperationCode || '—'
+                )
+              ) : col.key === 'shippingInstruction' ? (
+                Array.isArray(r.planQueueSiEntries) && r.planQueueSiEntries.length > 0 ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.35rem',
+                      alignItems: 'flex-start',
+                    }}
+                  >
+                    {r.planQueueSiEntries.map((si) => (
+                      <a
+                        key={si.shippingInstructionId}
+                        href="#"
+                        className="link"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          openSiDocumentModal(si.shippingInstructionId)
+                        }}
+                        aria-label={tAlloc('openSiDocument')}
+                      >
+                        {si.label}
+                      </a>
+                    ))}
+                  </div>
+                ) : r.shippingInstructionId ? (
+                  <a
+                    href="#"
+                    className="link"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      openSiDocumentModal(r.shippingInstructionId)
+                    }}
+                    aria-label={tAlloc('openSiDocument')}
+                  >
+                    {r.shippingInstruction || '—'}
+                  </a>
+                ) : (
+                  r.shippingInstruction || '—'
+                )
+              ) : (
+                col.getValue(r)
+              )}
+            </td>
+          ))}
+        </tr>
+        {expandedId === r.id && (
+          <tr className="allocation-table__detail-row">
+            <td colSpan={allocationTableColumns.length + 2} className="allocation-table__detail-cell">
+              <AllocationDetailPanel r={r} tAlloc={tAlloc} onOpenSiDetail={openSiDetailModal} queueList={list} />
+            </td>
+          </tr>
+        )}
+      </Fragment>
+    )
+  }
 
   return (
     <div className="allocation-page">
@@ -1323,7 +1799,7 @@ export default function Allocation() {
         </div>
       )}
 
-      <h1 className="page-title">{t('allocation')}</h1>
+      <h1 className="page-title">{isPlanCentric ? t('allocationPlanBerthing') : t('allocation')}</h1>
 
       <div className="allocation-visual">
         <div className="allocation-tabs" role="tablist" aria-label={tAlloc('visualizationAria')}>
@@ -1358,11 +1834,12 @@ export default function Allocation() {
           className="allocation-tabpanel"
         >
           <JettySchematic
-            berths={berthsState}
+            berths={planViz.mergedBerths}
             vesselById={vesselById}
             incomingByJetty={incomingByJetty}
             onSelectBerth={handleBerthClick}
-            onSelectVessel={(vesselId) => vesselId && setVesselDetailModalVesselId(vesselId)}
+            onSelectVessel={(vesselId) => vesselId && selectVesselFromVisualization(vesselId)}
+            slotReferenceLabel={isPlanCentric ? tAlloc('planRefSchematicLabel') : 'SI No'}
           />
         </div>
         <div
@@ -1375,8 +1852,8 @@ export default function Allocation() {
           <JettyScheduleGantt
             berthIds={berthIds}
             berthsState={berthsState}
-            list={scheduleList}
-            onSelectVessel={(vesselId) => vesselId && setVesselDetailModalVesselId(vesselId)}
+            list={planViz.mergedSchedule}
+            onSelectVessel={(vesselId) => vesselId && selectVesselFromVisualization(vesselId)}
           />
         </div>
       </div>
@@ -1385,7 +1862,7 @@ export default function Allocation() {
       {vesselDetailModalVesselId && (
         <div
           className="modal-overlay"
-          onClick={() => setVesselDetailModalVesselId(null)}
+          onClick={() => closeVesselDetailModal()}
           aria-hidden="true"
         >
           <div
@@ -1396,7 +1873,19 @@ export default function Allocation() {
             aria-modal="true"
           >
             <h2 id="vessel-detail-modal-title" className="modal__title">
-              ⚓ Active Vessel Detail: {getVesselName(vesselDetailModalVesselId)}
+              {isPlanCentric && vesselDetailPlanId != null ? (
+                <span>
+                  {tAlloc('planModalTitleWithVessel', {
+                    defaultValue: 'Active vessel - {{name}}',
+                    name: getVesselName(vesselDetailModalVesselId) || '—',
+                  })}
+                </span>
+              ) : (
+                <>
+                  ⚓ {tAlloc('activeVesselDetailTitle', { defaultValue: 'Active Vessel Detail' })}:{' '}
+                  {getVesselName(vesselDetailModalVesselId)}
+                </>
+              )}
             </h2>
             {(() => {
               const vesselRow = vesselDetailRows.find((r) => r.vesselId === vesselDetailModalVesselId)
@@ -1425,6 +1914,26 @@ export default function Allocation() {
               const estCompMs = parseDateMs(vessel?.estimatedCompletionDateTime)
               const actualCompMs = parseDateMs(vessel?.actualCompletionDateTime)
               const nowMs = Date.now()
+              const isPlanDetailMode = Boolean(isPlanCentric && vesselDetailPlanId != null)
+              const planTbEffective = planDetail?.tb ?? planDetail?.dockingStartTime
+              const planEta = formatDateTime(planDetail?.eta)
+              const planTa = formatDateTime(planDetail?.ta)
+              const planEtb = formatDateTime(planDetail?.etb)
+              const planTb = formatDateTime(planTbEffective)
+              const planEstCompletion = formatDateTime(planDetail?.estimatedCompletionTime)
+              const planTbMs = parseDateMs(planTbEffective)
+              const planEstCompMs = parseDateMs(planDetail?.estimatedCompletionTime)
+              const planActCompMs = parseDateMs(planDetail?.actualCompletionTime)
+              const planTimeSinceBerthing =
+                planTbMs != null ? formatDuration(Math.max(0, (planActCompMs ?? nowMs) - planTbMs)) : '—'
+              const planEstTimeRemaining =
+                planActCompMs != null
+                  ? tAlloc('planModalCompleted', { defaultValue: 'Completed' })
+                  : planEstCompMs != null
+                    ? planEstCompMs > nowMs
+                      ? formatDuration(planEstCompMs - nowMs)
+                      : tAlloc('planModalOverdue', { defaultValue: 'Overdue' })
+                    : '—'
               const timeSinceBerthing =
                 tbMs != null ? formatDuration(Math.max(0, (actualCompMs ?? nowMs) - tbMs)) : '—'
               const estTimeRemaining =
@@ -1557,6 +2066,126 @@ export default function Allocation() {
                     </div>
                   </section>
 
+                  {isPlanDetailMode ? (
+                    <>
+                      <section className="berthing-modal__card">
+                        <h3 className="berthing-modal__card-title">
+                          {tAlloc('planModalSiSection', { defaultValue: 'Shipping instructions on this plan' })}
+                        </h3>
+                        {vesselDetailPlanQueueRows.length === 0 ? (
+                          <p className="text-steel">{tAlloc('planModalSiEmpty', { defaultValue: 'No queue rows for this plan in the current overview.' })}</p>
+                        ) : (
+                          <div className="table-wrap">
+                            <table className="data-table vessel-detail-modal__si-table">
+                              <thead>
+                                <tr>
+                                  <th>{tAlloc('colShippingInstruction')}</th>
+                                  <th>{tAlloc('colJettyOperationId')}</th>
+                                  <th>{tAlloc('colBerthingSequence')}</th>
+                                  <th>{tAlloc('planModalColStatus', { defaultValue: 'Status' })}</th>
+                                  <th>{tAlloc('colJetty')}</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {vesselDetailPlanQueueRows.map((row) => (
+                                  <tr key={row.vesselId || row.id}>
+                                    <td>
+                                      {row.shippingInstructionId ? (
+                                        <a
+                                          href="#"
+                                          className="link"
+                                          onClick={(e) => {
+                                            e.preventDefault()
+                                            openSiDocumentModal(row.shippingInstructionId)
+                                          }}
+                                        >
+                                          {row.shippingInstruction || '—'}
+                                        </a>
+                                      ) : (
+                                        row.shippingInstruction || '—'
+                                      )}
+                                    </td>
+                                    <td>
+                                      {row.shippingInstructionId ? (
+                                        <a
+                                          href="#"
+                                          className="link"
+                                          onClick={(e) => {
+                                            e.preventDefault()
+                                            openSiDetailModal(row.shippingInstructionId)
+                                          }}
+                                        >
+                                          {row.jettyOperationCode || '—'}
+                                        </a>
+                                      ) : (
+                                        row.jettyOperationCode || '—'
+                                      )}
+                                    </td>
+                                    <td>—</td>
+                                    <td>{row.status || '—'}</td>
+                                    <td>{row.jetty || '—'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </section>
+                      <section className="berthing-modal__card berthing-modal__card--vessel">
+                        <h3 className="berthing-modal__card-title">
+                          {tAlloc('planModalPlanTimesSection', { defaultValue: 'Time & status (shipment plan)' })}
+                        </h3>
+                        {planDetailLoading ? (
+                          <p className="text-steel">{tAlloc('planModalPlanTimesLoading', { defaultValue: 'Loading plan times…' })}</p>
+                        ) : planDetailError ? (
+                          <p className="allocation-arrival-save-msg allocation-arrival-save-msg--error" role="alert">
+                            {tAlloc('planModalPlanTimesError', {
+                              defaultValue: 'Could not load plan times: {{message}}',
+                              message: planDetailError,
+                            })}
+                          </p>
+                        ) : (
+                          <dl className="berthing-modal__vessel-dl">
+                            <div className="berthing-modal__vessel-row">
+                              <dt title={tAlloc('ttPlanEta')}>{tAlloc('planModalLblEta', { defaultValue: 'Estimated Time of Arrival (ETA)' })}</dt>
+                              <dd>{planEta}</dd>
+                            </div>
+                            <div className="berthing-modal__vessel-row">
+                              <dt title={tAlloc('ttPlanTa')}>{tAlloc('planModalLblTa', { defaultValue: 'Actual Time of Arrival (TA)' })}</dt>
+                              <dd>{planTa}</dd>
+                            </div>
+                            <div className="berthing-modal__vessel-row">
+                              <dt title={tAlloc('ttPlanEtb')}>{tAlloc('planModalLblEtb', { defaultValue: 'Estimated Time of Berthing (ETB)' })}</dt>
+                              <dd>{planEtb}</dd>
+                            </div>
+                            <div className="berthing-modal__vessel-row">
+                              <dt title={tAlloc('ttPlanTb')}>{tAlloc('planModalLblTb', { defaultValue: 'Actual Time of Berthing (TB)' })}</dt>
+                              <dd>{planTb}</dd>
+                            </div>
+                            <div className="berthing-modal__vessel-row">
+                              <dt title={tAlloc('ttPlanTimeSince')}>{tAlloc('planModalLblTimeSinceBerth', { defaultValue: 'Time Since Berthing' })}</dt>
+                              <dd>{planTimeSinceBerthing}</dd>
+                            </div>
+                            <div className="berthing-modal__vessel-row">
+                              <dt title={tAlloc('ttPlanEstCompletion')}>{tAlloc('planModalLblEstCompletion', { defaultValue: 'Est. Completion' })}</dt>
+                              <dd>{planEstCompletion}</dd>
+                            </div>
+                            <div className="berthing-modal__vessel-row">
+                              <dt title={tAlloc('ttPlanEstRemaining')}>{tAlloc('planModalLblEstRemaining', { defaultValue: 'Est. Time Remaining' })}</dt>
+                              <dd>{planEstTimeRemaining}</dd>
+                            </div>
+                          </dl>
+                        )}
+                      </section>
+                      <p className="text-steel" style={{ fontSize: '0.9rem', margin: '0 0 0.75rem' }}>
+                        {tAlloc('planModalRepresentativeOpsHint', {
+                          defaultValue:
+                            'Edit, NOR, operation times, documents, and berthing photos in the sections below follow the primary operation on this plan.',
+                        })}
+                      </p>
+                    </>
+                  ) : null}
+
                   <div className="vessel-detail-modal__meta-row" aria-live="polite">
                     <p
                       className="vessel-detail-modal__last-updated"
@@ -1590,6 +2219,7 @@ export default function Allocation() {
                     </p>
                   ) : null}
 
+                  {(!isPlanDetailMode || vesselDetailEditing) && (
                   <section className="berthing-modal__card berthing-modal__card--vessel">
                     <h3 className="berthing-modal__card-title">Times &amp; status</h3>
                     {vesselDetailEditing && d ? (
@@ -1800,6 +2430,7 @@ export default function Allocation() {
                       </div>
                     </dl>
                   </section>
+                  )}
 
                   <section className="berthing-modal__card">
                     <h3 className="berthing-modal__card-title">Arrival documents</h3>
@@ -2069,14 +2700,14 @@ export default function Allocation() {
                       <button
                         type="button"
                         className="btn"
-                        onClick={() => setVesselDetailModalVesselId(null)}
+                        onClick={() => closeVesselDetailModal()}
                         disabled={vesselDetailEditSaving}
                       >
                         Close
                       </button>
                     </>
                   ) : (
-                    <button type="button" className="btn btn--primary" onClick={() => setVesselDetailModalVesselId(null)}>
+                    <button type="button" className="btn btn--primary" onClick={() => closeVesselDetailModal()}>
                       Close
                     </button>
                   )}
@@ -2097,6 +2728,7 @@ export default function Allocation() {
         isOpen={Boolean(siDocumentModalId)}
         siId={siDocumentModalId}
         onClose={() => setSiDocumentModalId(null)}
+        allowPreApprovalPreview={isPlanCentric}
       />
 
       {/* Berthing confirmation modal (extended: jetty allocation, vessel photos, remarks) */}
@@ -2651,7 +3283,7 @@ export default function Allocation() {
       )}
 
       <section className="card">
-        <h2 className="card__title">{tAlloc('incomingTitle')}</h2>
+        <h2 className="card__title">{isPlanCentric ? tAlloc('incomingTitlePlan') : tAlloc('incomingTitle')}</h2>
         <div className="allocation-plan-status-filter" role="group" aria-label={tAlloc('statusFilterAria')}>
           <span className="allocation-plan-status-filter__label">{tAlloc('statusLabel')}</span>
           <label className="allocation-plan-status-filter__option">
@@ -2671,6 +3303,11 @@ export default function Allocation() {
             {tAlloc('statusBerthed')}
           </label>
         </div>
+        {isPlanCentric && planSequenceSwapError ? (
+          <p role="alert" style={{ color: 'var(--danger-600, #c00)', marginBottom: 'var(--spacing-2)' }}>
+            {planSequenceSwapError}
+          </p>
+        ) : null}
         <div className="table-wrap allocation-table-desktop">
           <table className="data-table allocation-table">
             <thead>
@@ -2711,120 +3348,15 @@ export default function Allocation() {
               </tr>
             </thead>
             <tbody>
-              {sortedList.map((r) => (
-                <Fragment key={r.id}>
-                  <tr
-                    className={`allocation-table__row ${expandedId === r.id ? 'allocation-table__row--expanded' : ''}`}
-                    onClick={() => setExpandedId((id) => (id === r.id ? null : r.id))}
-                  >
-                    <td className="allocation-table__expand-col">
-                      <span className="allocation-table__expand-icon" aria-hidden>
-                        {expandedId === r.id ? '▼' : '▶'}
-                      </span>
-                    </td>
-                    <td className="allocation-table__action-col" onClick={(e) => e.stopPropagation()}>
-                      <div className="allocation-table__action-btns">
-                        <button type="button" className="btn btn--primary btn--small" onClick={() => openArrivalUpdate(r)}>
-                          {tAlloc('logArrivalUpdate')}
-                        </button>
-                        {r.shiftingOut && r.operationId != null ? (
-                          <button
-                            type="button"
-                            className="btn btn--secondary btn--small"
-                            onClick={(e) => openReDockModal(r, e)}
-                            disabled={Boolean(shiftSavingByOpId[r.operationId])}
-                            title="Clear shift-out so this vessel can be treated as at-berth again (preserves history)."
-                          >
-                            {shiftSavingByOpId[r.operationId] ? tAlloc('saving') : tAlloc('reDock')}
-                          </button>
-                        ) : (
-                          <button type="button" className="btn btn--success btn--small" onClick={(e) => openBerthingConfirm(r, e)}>
-                            {tAlloc('berthing')}
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                    {allocationTableColumns.map((col) => (
-                      <td key={col.key} onClick={col.key === 'sequence' ? (e) => e.stopPropagation() : undefined}>
-                        {col.key === 'sequence' ? (
-                          <span className="allocation-table__sequence-cell">
-                            <span className="allocation-table__sequence-num">{r.sequence ?? '—'}</span>
-                            <span className="allocation-table__sequence-btns">
-                              <button
-                                type="button"
-                                className="btn btn--small allocation-table__sequence-btn"
-                                onClick={(e) => moveSequenceUp(r, e)}
-                                disabled={sortedList.findIndex((x) => x.id === r.id) <= 0}
-                                title="Move up"
-                                aria-label="Move berthing sequence up"
-                              >
-                                ↑
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn--small allocation-table__sequence-btn"
-                                onClick={(e) => moveSequenceDown(r, e)}
-                                disabled={sortedList.findIndex((x) => x.id === r.id) >= sortedList.length - 1}
-                                title="Move down"
-                                aria-label="Move berthing sequence down"
-                              >
-                                ↓
-                              </button>
-                            </span>
-                          </span>
-                        ) : col.key === 'jettyOperationCode' ? (
-                          r.shippingInstructionId ? (
-                            <a
-                              href="#"
-                              onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                openSiDetailModal(r.shippingInstructionId)
-                              }}
-                              aria-label={tAlloc('openSiDetailFromJettyOp')}
-                            >
-                              {r.jettyOperationCode || '—'}
-                            </a>
-                          ) : (
-                            r.jettyOperationCode || '—'
-                          )
-                        ) : col.key === 'shippingInstruction' ? (
-                          r.shippingInstructionId ? (
-                            <a
-                              href="#"
-                              onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                openSiDocumentModal(r.shippingInstructionId)
-                              }}
-                              aria-label={tAlloc('openSiDocument')}
-                            >
-                              {r.shippingInstruction || '—'}
-                            </a>
-                          ) : (
-                            r.shippingInstruction || '—'
-                          )
-                        ) : (
-                          col.getValue(r)
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                  {expandedId === r.id && (
-                    <tr className="allocation-table__detail-row">
-                      <td colSpan={allocationTableColumns.length + 2} className="allocation-table__detail-cell">
-                        <AllocationDetailPanel r={r} tAlloc={tAlloc} onOpenSiDetail={openSiDetailModal} />
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              ))}
+              {isPlanCentric && sortedPlanQueueList
+                ? sortedPlanQueueList.map((r) => renderOneDesktopRow(r))
+                : sortedList.map((r) => renderOneDesktopRow(r))}
             </tbody>
           </table>
         </div>
-        {sortedList.length > 0 && (
+        {hasQueueRows && (
           <div className="allocation-mobile-cards" aria-label="Incoming vessel cards">
-            {sortedList.map((r) => (
+            {(isPlanCentric && sortedPlanQueueList ? sortedPlanQueueList : sortedList).map((r) => (
               <article key={`mobile-${r.id}`} className="allocation-mobile-card">
                 <header className="allocation-mobile-card__header">
                   <strong>{r.vesselName || '—'}</strong>
@@ -2835,7 +3367,100 @@ export default function Allocation() {
                     <Fragment key={`mobile-col-${r.id}-${col.key}`}>
                       <dt>{allocColLabel(col.key, col.label)}</dt>
                       <dd>
-                        {col.key === 'jettyOperationCode' ? (
+                        {col.key === 'sequence' ? (
+                          isPlanCentric &&
+                          r.shipmentPlanId != null &&
+                          canEditAllocation &&
+                          sortedPlanQueueList ? (
+                            (() => {
+                              const displayList =
+                                isPlanCentric && sortedPlanQueueList ? sortedPlanQueueList : sortedList
+                              const idx = displayList.findIndex((x) => x.id === r.id)
+                              const prevPlan = idx >= 0 ? findAdjacentPlanRowInDisplay(displayList, idx, -1) : null
+                              const nextPlan = idx >= 0 ? findAdjacentPlanRowInDisplay(displayList, idx, 1) : null
+                              const pid = Number(r.shipmentPlanId)
+                              let busyThis = false
+                              if (planSequenceBusyPair) {
+                                const parts = planSequenceBusyPair.split('-').map((p) => parseInt(p, 10))
+                                if (parts.length === 2 && parts.every((n) => Number.isFinite(n))) {
+                                  const [ba, bb] = parts
+                                  busyThis = pid === ba || pid === bb
+                                }
+                              }
+                              return (
+                                <span className="allocation-table__sequence-cell">
+                                  <span className="allocation-table__sequence-btns">
+                                    <button
+                                      type="button"
+                                      className="btn btn--small allocation-table__sequence-btn"
+                                      onClick={() => {
+                                        if (!prevPlan?.shipmentPlanId) return
+                                        void swapPlanBerthingSequencePair(pid, Number(prevPlan.shipmentPlanId), pid)
+                                      }}
+                                      disabled={!prevPlan || busyThis}
+                                      title="Move up"
+                                      aria-label="Move berthing sequence up"
+                                    >
+                                      ↑
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn btn--small allocation-table__sequence-btn"
+                                      onClick={() => {
+                                        if (!nextPlan?.shipmentPlanId) return
+                                        void swapPlanBerthingSequencePair(
+                                          pid,
+                                          Number(nextPlan.shipmentPlanId),
+                                          Number(nextPlan.shipmentPlanId)
+                                        )
+                                      }}
+                                      disabled={!nextPlan || busyThis}
+                                      title="Move down"
+                                      aria-label="Move berthing sequence down"
+                                    >
+                                      ↓
+                                    </button>
+                                  </span>
+                                </span>
+                              )
+                            })()
+                          ) : !isPlanCentric ? (
+                            <span className="allocation-table__sequence-cell">
+                              <span className="allocation-table__sequence-btns">
+                                <button
+                                  type="button"
+                                  className="btn btn--small allocation-table__sequence-btn"
+                                  onClick={(e) => moveSequenceUp(r, e)}
+                                  disabled={sortedList.findIndex((x) => x.id === r.id) <= 0}
+                                  title="Move up"
+                                  aria-label="Move berthing sequence up"
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn--small allocation-table__sequence-btn"
+                                  onClick={(e) => moveSequenceDown(r, e)}
+                                  disabled={sortedList.findIndex((x) => x.id === r.id) >= sortedList.length - 1}
+                                  title="Move down"
+                                  aria-label="Move berthing sequence down"
+                                >
+                                  ↓
+                                </button>
+                              </span>
+                            </span>
+                          ) : (
+                            '—'
+                          )
+                        ) : col.key === 'planReference' ? (
+                          r.shipmentPlanId != null ? (
+                            <Link to={`/shipment-plans/${r.shipmentPlanId}`} className="link">
+                              {r.planReference || `Plan #${r.shipmentPlanId}`}
+                            </Link>
+                          ) : (
+                            '—'
+                          )
+                        ) : col.key === 'jettyOperationCode' ? (
                           r.shippingInstructionId ? (
                             <a
                               href="#"
@@ -2851,9 +3476,34 @@ export default function Allocation() {
                             r.jettyOperationCode || '—'
                           )
                         ) : col.key === 'shippingInstruction' ? (
-                          r.shippingInstructionId ? (
+                          Array.isArray(r.planQueueSiEntries) && r.planQueueSiEntries.length > 0 ? (
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '0.35rem',
+                                alignItems: 'flex-start',
+                              }}
+                            >
+                              {r.planQueueSiEntries.map((si) => (
+                                <a
+                                  key={si.shippingInstructionId}
+                                  href="#"
+                                  className="link"
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    openSiDocumentModal(si.shippingInstructionId)
+                                  }}
+                                  aria-label={tAlloc('openSiDocument')}
+                                >
+                                  {si.label}
+                                </a>
+                              ))}
+                            </div>
+                          ) : r.shippingInstructionId ? (
                             <a
                               href="#"
+                              className="link"
                               onClick={(e) => {
                                 e.preventDefault()
                                 openSiDocumentModal(r.shippingInstructionId)
@@ -2900,14 +3550,14 @@ export default function Allocation() {
                 </div>
                 {expandedMobileId === r.id ? (
                   <div className="allocation-mobile-card__detail">
-                    <AllocationDetailPanel r={r} tAlloc={tAlloc} onOpenSiDetail={openSiDetailModal} />
+                    <AllocationDetailPanel r={r} tAlloc={tAlloc} onOpenSiDetail={openSiDetailModal} queueList={list} />
                   </div>
                 ) : null}
               </article>
             ))}
           </div>
         )}
-        {sortedList.length === 0 && (
+        {!hasQueueRows && (
           <p className="allocation-plan-status-filter__empty">No vessels match the selected status/filter criteria.</p>
         )}
       </section>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { createPortal } from 'react-dom'
 import {
+  allocationQueueVesselCallKey,
   isPlannedBerthingQueueRow,
   isQueueRowBerthing,
   normalizeQueuePurpose,
@@ -59,14 +60,21 @@ function buildOperationsSeries(queue) {
     Unloading: { planned: [], berthing: [] },
   }
   const list = Array.isArray(queue) ? queue : []
+  const seenPlanned = new Set()
+  const seenBerthing = new Set()
   for (const row of list) {
     const purpose = normalizeQueuePurpose(row?.purpose)
     if (!purpose) continue
     const label = queueVesselLabel(row)
+    const dedupeKey = `${purpose}:${allocationQueueVesselCallKey(row)}`
     if (isPlannedBerthingQueueRow(row)) {
+      if (seenPlanned.has(dedupeKey)) continue
+      seenPlanned.add(dedupeKey)
       counts[purpose].planned += 1
       vessels[purpose].planned.push(label)
     } else if (isQueueRowBerthing(row)) {
+      if (seenBerthing.has(dedupeKey)) continue
+      seenBerthing.add(dedupeKey)
       counts[purpose].berthing += 1
       vessels[purpose].berthing.push(label)
     }
@@ -334,15 +342,24 @@ export default function DashboardActivityChart({ queue, sis, loading = false }) 
           role="img"
           aria-label={t('chartAriaOps', { summary: opsSummary })}
         >
-          <div className="dashboard-activity-chart__legend" aria-hidden>
-            <span className="dashboard-activity-chart__legend-item">
-              <span className="dashboard-activity-chart__swatch dashboard-activity-chart__swatch--planned" />{' '}
-              {seriesPlanned.label}
-            </span>
-            <span className="dashboard-activity-chart__legend-item">
-              <span className="dashboard-activity-chart__swatch dashboard-activity-chart__swatch--berth" />{' '}
-              {seriesBerth.label}
-            </span>
+          <div className="dashboard-activity-chart__legend dashboard-activity-chart__legend--ops" aria-hidden>
+            {opsData.purposes.map((purpose) => (
+              <div key={purpose} className="dashboard-activity-chart__legend-purpose">
+                <span className="dashboard-activity-chart__legend-purpose-label">{purposeLabel(purpose)}</span>
+                <span className="dashboard-activity-chart__legend-item">
+                  <span
+                    className={`dashboard-activity-chart__swatch dashboard-activity-chart__swatch--ops-planned-${purpose === 'Loading' ? 'loading' : 'unloading'}`}
+                  />{' '}
+                  {seriesPlanned.label}
+                </span>
+                <span className="dashboard-activity-chart__legend-item">
+                  <span
+                    className={`dashboard-activity-chart__swatch dashboard-activity-chart__swatch--ops-berth-${purpose === 'Loading' ? 'loading' : 'unloading'}`}
+                  />{' '}
+                  {seriesBerth.label}
+                </span>
+              </div>
+            ))}
           </div>
 
           {opsEmpty ? (
@@ -407,7 +424,7 @@ export default function DashboardActivityChart({ queue, sis, loading = false }) 
                                 contextLabel={pl}
                                 pctLabel={t('pctOfPurpose', { pct: pctPlanned, purpose: pl })}
                                 names={namesPl}
-                                barClass="dashboard-activity-chart__bar--planned"
+                                barClass={`dashboard-activity-chart__bar--ops-planned-${purpose === 'Loading' ? 'loading' : 'unloading'}`}
                                 onShowTip={showTip}
                                 onHideTip={hideTip}
                                 tipActive={tip?.tipKey === `ops-${purpose}-planned`}
@@ -424,7 +441,7 @@ export default function DashboardActivityChart({ queue, sis, loading = false }) 
                                 contextLabel={pl}
                                 pctLabel={t('pctOfPurpose', { pct: pctBerth, purpose: pl })}
                                 names={namesBr}
-                                barClass="dashboard-activity-chart__bar--berth"
+                                barClass={`dashboard-activity-chart__bar--ops-berth-${purpose === 'Loading' ? 'loading' : 'unloading'}`}
                                 onShowTip={showTip}
                                 onHideTip={hideTip}
                                 tipActive={tip?.tipKey === `ops-${purpose}-berthing`}

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
-import { Link, useParams, Navigate, useLocation, useSearchParams } from 'react-router-dom'
+import { Link, useParams, Navigate, useLocation, useSearchParams, useNavigate } from 'react-router-dom'
 import {
   vessels,
   getAtBerthOperations,
@@ -175,6 +175,8 @@ function OperationSignoffBanner({
   apiOp,
   operationId,
   allStagesComplete,
+  incompletePlanPeers,
+  basePath,
   canEditLoading,
   canApproveLoading,
   onOperationUpdated,
@@ -190,7 +192,10 @@ function OperationSignoffBanner({
   if (!['DOCKED', 'IN_PROGRESS', 'POST_OPS', 'SIGNOFF_REQUESTED'].includes(st)) return null
 
   const pending = st === 'SIGNOFF_REQUESTED' || Boolean(apiOp.signoffRequestedAt)
-  const showRequestCta = st === 'POST_OPS' && allStagesComplete && !pending && canEditLoading
+  const showPeersBlockingCard =
+    st === 'POST_OPS' && !pending && allStagesComplete && incompletePlanPeers.length > 0
+  const showRequestCta =
+    st === 'POST_OPS' && allStagesComplete && incompletePlanPeers.length === 0 && !pending && canEditLoading
   const showApproveCta = pending && canApproveLoading
 
   const parseApiError = (e) => (e?.body && typeof e.body === 'object' && e.body.error) || e?.message || 'Request failed'
@@ -210,8 +215,46 @@ function OperationSignoffBanner({
     }
   }
 
+  if (showPeersBlockingCard) {
+    return (
+      <section
+        className="card"
+        style={{
+          marginTop: 'var(--spacing-3)',
+          borderLeft: '4px solid var(--color-border-medium, #ccc)',
+        }}
+      >
+        <h2 className="card__title" style={{ fontSize: '1.05rem' }}>
+          Operation sign-off
+        </h2>
+        <p className="text-steel" style={{ marginBottom: 'var(--spacing-2)' }}>
+          This instruction is complete through Post-Checking, but <strong>every</strong> instruction on this vessel call
+          must finish Pre-Checking, Operational, and Post-Checking (and meet completion rules) before sign-off can be
+          requested.
+        </p>
+        <p style={{ marginBottom: 'var(--spacing-2)', fontSize: 'var(--font-size-small)' }}>
+          Still in progress or not ready:
+        </p>
+        <ul style={{ margin: 0, paddingLeft: '1.25rem', fontSize: 'var(--font-size-small)' }}>
+          {incompletePlanPeers.map((row) => (
+            <li key={row.operationId} style={{ marginBottom: 'var(--spacing-1)' }}>
+              <Link to={`${basePath}/op-${row.operationId}/post-checking`}>
+                {row.shippingInstruction || row.jettyOperationCode || `Operation ${row.operationId}`}
+              </Link>
+              <span className="text-steel">
+                {' '}
+                · {row.status || '—'}
+                {row.completionPercent != null ? ` · ${Number(row.completionPercent)}%` : ''}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )
+  }
+
   if (!showRequestCta && !pending && !showApproveCta) {
-    if (allStagesComplete && !canEditLoading) {
+    if (allStagesComplete && !canEditLoading && incompletePlanPeers.length === 0) {
       return (
         <section className="card" style={{ marginTop: 'var(--spacing-3)' }}>
           <p className="text-steel">
@@ -291,7 +334,7 @@ function OperationSignoffBanner({
               Request operation sign-off
             </h2>
             <p className="text-steel">
-              This notifies approvers. The operation must still meet completion rules (e.g. completion 100%, QC) — the server will reject the request if not eligible.
+              This notifies approvers. The operation must still meet completion rules (e.g. completion 100%, QC) — the server will reject the request if not eligible. If this vessel call has more than one shipping instruction, every instruction must be ready for sign-off before the request is accepted.
             </p>
             <div className="modal__section">
               <label htmlFor="signoff-req-remark" className="modal__label">
@@ -377,6 +420,7 @@ function VesselDetailCard({ detail }) {
 
 export default function Loading() {
   const { vesselId, section } = useParams()
+  const navigate = useNavigate()
   const location = useLocation()
   const isUnloading = location.pathname.startsWith('/unloading')
   const purpose = isUnloading ? 'Unloading' : 'Loading'
@@ -401,6 +445,7 @@ export default function Loading() {
   const scheduleEntryTz = getScheduleEntryTimeZone()
   const [stepPhotos, setStepPhotos] = useState({})
   const [allocationDetailRow, setAllocationDetailRow] = useState(null)
+  const [allocationQueue, setAllocationQueue] = useState([])
 
   const mockVessel = vesselId ? vessels[vesselId] : null
   const mockMatchesRoutePurpose = Boolean(mockVessel && mockVessel.purpose === purpose)
@@ -735,10 +780,12 @@ export default function Loading() {
         const q = Array.isArray(res?.queue) ? res.queue : []
         const row = q.find((x) => Number(x.operationId) === Number(operationId)) || null
         setAllocationDetailRow(row)
+        setAllocationQueue(q)
       })
       .catch(() => {
         if (cancelled) return
         setAllocationDetailRow(null)
+        setAllocationQueue([])
       })
     return () => { cancelled = true }
   }, [operationId, activityLogRefresh])
@@ -784,6 +831,29 @@ export default function Loading() {
       remarks: allocationDetailRow.remarks || null,
     }
   }, [allocationDetailRow, vessel, cargoForTabs, purpose])
+
+  const siblingOpsOnPlan = useMemo(() => {
+    if (!apiOp?.shipmentPlanId || !allocationQueue.length) return []
+    const pid = Number(apiOp.shipmentPlanId)
+    if (Number.isNaN(pid)) return []
+    return allocationQueue
+      .filter((x) => x?.operationId != null && Number(x.shipmentPlanId) === pid)
+      .sort((a, b) => Number(a.operationId) - Number(b.operationId))
+  }, [apiOp?.shipmentPlanId, allocationQueue])
+
+  /** Same shipment plan: peers not yet ready for sign-off (status / completion from allocation queue). */
+  const incompletePlanPeers = useMemo(() => {
+    if (mockMatchesRoutePurpose) return []
+    if (siblingOpsOnPlan.length <= 1) return []
+    const terminal = new Set(['SIGNOFF_REQUESTED', 'SIGNOFF_APPROVED'])
+    return siblingOpsOnPlan.filter((row) => {
+      if (Number(row.operationId) === Number(operationId)) return false
+      const st = String(row.status || '')
+      if (terminal.has(st)) return false
+      if (st === 'POST_OPS' && Number(row.completionPercent ?? 0) >= 100) return false
+      return true
+    })
+  }, [mockMatchesRoutePurpose, siblingOpsOnPlan, operationId])
 
   const steps = vesselId ? getSteps(vesselId) : null
   const stepsOrInitial = steps ?? (vesselId ? initialLoadingStepsByVesselId[vesselId] : null) ?? (vesselId ? Object.fromEntries(LOADING_STEP_IDS.map((id) => [id, { status: 'not_started', startTime: '', endTime: '', quantityResult: null, documents: [] }])) : null)
@@ -925,6 +995,29 @@ export default function Loading() {
           <span>{purposeLabel}: {vessel.vesselName}</span>
           <FlowPill purpose={purpose} />
         </h1>
+        {!mockMatchesRoutePurpose && siblingOpsOnPlan.length > 1 ? (
+          <div className="loading-si-switcher">
+            <label className="loading-si-switcher__label" htmlFor="loading-si-operation-select">
+              Shipping instruction
+            </label>
+            <select
+              id="loading-si-operation-select"
+              className="loading-si-switcher__select"
+              value={String(operationId ?? '')}
+              onChange={(e) => {
+                const nextId = e.target.value
+                const path = section ? `${basePath}/op-${nextId}/${section}` : `${basePath}/op-${nextId}`
+                navigate(path)
+              }}
+            >
+              {siblingOpsOnPlan.map((row) => (
+                <option key={row.operationId} value={String(row.operationId)}>
+                  {row.shippingInstruction || row.jettyOperationCode || `Operation ${row.operationId}`}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
         <VesselDetailCard detail={vesselDetail} />
 
         {!mockMatchesRoutePurpose && operationId && apiOp ? (
@@ -932,6 +1025,8 @@ export default function Loading() {
             apiOp={apiOp}
             operationId={operationId}
             allStagesComplete={allStagesComplete}
+            incompletePlanPeers={incompletePlanPeers}
+            basePath={basePath}
             canEditLoading={canEditLoading}
             canApproveLoading={canApproveLoading}
             onOperationUpdated={setApiOp}
@@ -1008,6 +1103,29 @@ export default function Loading() {
         <FlowPill purpose={purpose} />
       </h1>
 
+      {!mockMatchesRoutePurpose && siblingOpsOnPlan.length > 1 ? (
+        <div className="loading-si-switcher">
+          <label className="loading-si-switcher__label" htmlFor="loading-si-operation-select-section">
+            Shipping instruction
+          </label>
+          <select
+            id="loading-si-operation-select-section"
+            className="loading-si-switcher__select"
+            value={String(operationId ?? '')}
+            onChange={(e) => {
+              const nextId = e.target.value
+              navigate(`${basePath}/op-${nextId}/${section}`)
+            }}
+          >
+            {siblingOpsOnPlan.map((row) => (
+              <option key={row.operationId} value={String(row.operationId)}>
+                {row.shippingInstruction || row.jettyOperationCode || `Operation ${row.operationId}`}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+
       <VesselDetailCard detail={vesselDetail} />
 
       <StageTabs processStages={processStages} section={section} basePath={basePath} vesselId={vesselId} />
@@ -1017,6 +1135,8 @@ export default function Loading() {
           apiOp={apiOp}
           operationId={operationId}
           allStagesComplete={allStagesComplete}
+          incompletePlanPeers={incompletePlanPeers}
+          basePath={basePath}
           canEditLoading={canEditLoading}
           canApproveLoading={canApproveLoading}
           onOperationUpdated={setApiOp}

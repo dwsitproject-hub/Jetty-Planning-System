@@ -8,6 +8,7 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "migrate": "node scripts/run-migrations.js",
+    "test:notifications": "node scripts/test-notifications-comprehensive.mjs",
     "grant-admin-access": "node scripts/grant-admin-full-access.js",
     "seed:admin": "node scripts/seed-admin-bcrypt.js",
     "rebuild:docker": "node scripts/rebuild-docker.mjs"
@@ -28,6 +29,7 @@
     "jsonwebtoken": "^9.0.2",
     "luxon": "^3.5.0",
     "multer": "^2.1.1",
+    "nodemailer": "^6.9.16",
     "pg": "^8.13.0"
   }
 }

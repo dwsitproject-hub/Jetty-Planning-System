@@ -16,10 +16,14 @@ import enDashboard from '../locales/en/dashboard.json'
 import idDashboard from '../locales/id/dashboard.json'
 import enShippingInstruction from '../locales/en/shippingInstruction.json'
 import idShippingInstruction from '../locales/id/shippingInstruction.json'
+import enShipmentPlan from '../locales/en/shipmentPlan.json'
+import idShipmentPlan from '../locales/id/shipmentPlan.json'
 import enAllocation from '../locales/en/allocation.json'
 import idAllocation from '../locales/id/allocation.json'
 import enAtBerth from '../locales/en/atBerth.json'
 import idAtBerth from '../locales/id/atBerth.json'
+import enNotifications from '../locales/en/notifications.json'
+import idNotifications from '../locales/id/notifications.json'
 
 export function getInitialLanguage() {
   try {
@@ -44,8 +48,10 @@ i18n.use(initReactI18next).init({
       pages: enPages,
       dashboard: enDashboard,
       shippingInstruction: enShippingInstruction,
+      shipmentPlan: enShipmentPlan,
       allocation: enAllocation,
       atBerth: enAtBerth,
+      notifications: enNotifications,
     },
     id: {
       common: idCommon,
@@ -55,14 +61,16 @@ i18n.use(initReactI18next).init({
       pages: idPages,
       dashboard: idDashboard,
       shippingInstruction: idShippingInstruction,
+      shipmentPlan: idShipmentPlan,
       allocation: idAllocation,
       atBerth: idAtBerth,
+      notifications: idNotifications,
     },
   },
   lng: getInitialLanguage(),
   fallbackLng: 'en',
   defaultNS: 'common',
-  ns: ['common', 'nav', 'auth', 'terms', 'pages', 'dashboard', 'shippingInstruction', 'allocation', 'atBerth'],
+  ns: ['common', 'nav', 'auth', 'terms', 'pages', 'dashboard', 'shippingInstruction', 'shipmentPlan', 'allocation', 'atBerth', 'notifications'],
   interpolation: {
     escapeValue: false,
   },

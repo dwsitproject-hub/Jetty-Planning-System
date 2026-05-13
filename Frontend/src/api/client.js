@@ -184,6 +184,16 @@ export async function apiPut(path, body) {
   return parseResponse(res)
 }
 
+export async function apiPatch(path, body) {
+  const url = `${BASE}${path.startsWith('/') ? path : `/${path}`}`
+  const res = await fetchWithTimeout(url, {
+    method: 'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  })
+  return parseResponse(res)
+}
+
 export async function apiDelete(path) {
   const url = `${BASE}${path.startsWith('/') ? path : `/${path}`}`
   const res = await fetchWithTimeout(url, {

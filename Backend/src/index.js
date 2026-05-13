@@ -26,15 +26,18 @@ import qcSurveysRoutes from './routes/qc-surveys.js';
 import quantityChecksRoutes from './routes/quantity-checks.js';
 import activityLogsRoutes from './routes/activity-logs.js';
 import allocationRoutes from './routes/allocation.js';
+import shipmentPlansRoutes from './routes/shipment-plans.js';
 import operationDocumentsRoutes from './routes/operation-documents.js';
 import operationSubProcessesRoutes from './routes/operation-sub-processes.js';
 import operationOperationalActivitiesRoutes from './routes/operation-operational-activities.js';
 import masterCargoHandlingMethodsRoutes from './routes/master-cargo-handling-methods.js';
 import jettyLayoutRoutes from './routes/jetty-layout.js';
 import adminSsoLinkingRoutes from './routes/admin-sso-linking.js';
+import notificationsRoutes from './routes/notifications.js';
 import { requireAuth } from './middleware/auth.js';
 import { requirePortScope } from './middleware/port-scope.js';
 import { csrfProtection } from './middleware/csrf.js';
+import { startNotificationEmailWorker } from './lib/notification-email-worker.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -87,9 +90,11 @@ apiV1.use('/shipping-instructions', requireAuth, requirePortScope, shippingInstr
 apiV1.use('/si-lookups', requireAuth, siLookupsRoutes);
 apiV1.use('/operations', requireAuth, requirePortScope, operationsRoutes);
 apiV1.use('/allocation', requireAuth, requirePortScope, allocationRoutes);
+apiV1.use('/shipment-plans', requireAuth, requirePortScope, shipmentPlansRoutes);
 apiV1.use('/operation-documents', requireAuth, requirePortScope, operationDocumentsRoutes);
 apiV1.use('/jetty-layout', requireAuth, requirePortScope, jettyLayoutRoutes);
 apiV1.use('/activity-logs', requireAuth, requirePortScope, activityLogsRoutes);
+apiV1.use('/notifications', requireAuth, notificationsRoutes);
 apiV1.use('/', requireAuth, requirePortScope, qcSurveysRoutes);
 apiV1.use('/', requireAuth, requirePortScope, quantityChecksRoutes);
 apiV1.use('/', requireAuth, requirePortScope, operationSubProcessesRoutes);
@@ -141,6 +146,7 @@ async function start() {
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`JPS API listening on http://0.0.0.0:${PORT} (map host port in Docker)`);
   });
+  startNotificationEmailWorker();
 }
 
 start();

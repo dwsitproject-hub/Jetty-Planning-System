@@ -246,6 +246,11 @@
   color: #2d7a3e;
 }
 
+.si-status-badge--rejected {
+  background: rgba(180, 50, 50, 0.12);
+  color: #a32d2d;
+}
+
 .si-status-badge--received {
   background: #d0d0d0;
   color: #333;
@@ -466,30 +471,43 @@
   vertical-align: middle;
 }
 
-/* Make key columns comfortably wide (Option A: keep table). */
+/*
+ * Breakdown row: Commodity, Qty, Unit, Contract, PO, SO, Remarks, Remove.
+ * Min-widths sized so the table fits ~900px viewports; narrower widths scroll inside .table-wrap only.
+ */
 .shipping-instruction-breakdown-table th:nth-child(1),
 .shipping-instruction-breakdown-table td:nth-child(1) {
-  min-width: 220px; /* Commodity */
+  min-width: 11rem; /* Commodity */
 }
 .shipping-instruction-breakdown-table th:nth-child(2),
 .shipping-instruction-breakdown-table td:nth-child(2) {
-  min-width: 120px; /* Qty */
+  min-width: 5.5rem; /* Qty */
 }
 .shipping-instruction-breakdown-table th:nth-child(3),
 .shipping-instruction-breakdown-table td:nth-child(3) {
-  min-width: 200px; /* Unit */
+  min-width: 8.5rem; /* Unit */
 }
 .shipping-instruction-breakdown-table th:nth-child(4),
 .shipping-instruction-breakdown-table td:nth-child(4) {
-  min-width: 200px; /* Contract No */
+  min-width: 7rem; /* Contract */
 }
 .shipping-instruction-breakdown-table th:nth-child(5),
 .shipping-instruction-breakdown-table td:nth-child(5) {
-  min-width: 160px; /* PO No */
+  min-width: 6rem; /* PO */
 }
 .shipping-instruction-breakdown-table th:nth-child(6),
 .shipping-instruction-breakdown-table td:nth-child(6) {
-  min-width: 260px; /* Remarks */
+  min-width: 6rem; /* SO */
+}
+.shipping-instruction-breakdown-table th:nth-child(7),
+.shipping-instruction-breakdown-table td:nth-child(7) {
+  min-width: 8rem; /* Remarks */
+}
+.shipping-instruction-breakdown-table th:nth-child(8),
+.shipping-instruction-breakdown-table td:nth-child(8) {
+  width: 1%;
+  min-width: 4.5rem; /* Remove */
+  white-space: nowrap;
 }
 
 .shipping-instruction-inline-input--num {

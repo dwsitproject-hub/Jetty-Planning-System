@@ -47,7 +47,7 @@ export function updateOperation(id, body) {
 
 /**
  * @param {object} [options]
- * @param {'allocation'|'at-berth'} [options.activityLogPage] — where this action is initiated (for activity log page filter).
+ * @param {'allocation-plan'|'at-berth'} [options.activityLogPage] — where this action is initiated (for activity log page filter).
  */
 export function setOperationShiftingOut(operationId, shiftingOut, remark, options) {
   const shift = Boolean(shiftingOut)
@@ -58,7 +58,7 @@ export function setOperationShiftingOut(operationId, shiftingOut, remark, option
     body.remark = remark != null ? String(remark) : ''
   }
   const logPage = options?.activityLogPage
-  if (logPage === 'allocation' || logPage === 'at-berth') {
+  if (logPage === 'allocation-plan' || logPage === 'at-berth') {
     body.activityLogPage = logPage
   }
   return apiPost(`/operations/${operationId}/shifting-out`, body)

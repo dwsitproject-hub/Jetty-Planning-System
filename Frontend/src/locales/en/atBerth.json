@@ -58,5 +58,14 @@
   "dtRemark": "Remark",
   "dismissNotification": "Dismiss notification",
   "openSiDocument": "Open shipping instruction document",
-  "openSiDetailFromJettyOp": "Open shipping instruction detail"
+  "openSiDetailFromJettyOp": "Open shipping instruction detail",
+  "groupExpand": "Show instructions for this vessel",
+  "groupCollapse": "Hide instructions",
+  "groupSiCount": "{{count}} instructions",
+  "groupMixedPurpose": "Mixed",
+  "groupMixedCommodity": "Various",
+  "groupMixed": "Mixed",
+  "shiftOutAffectsIntro": "Applies to this vessel call (all instructions):",
+  "fullDetail": "Full detail",
+  "hideDetail": "Hide full detail"
 }

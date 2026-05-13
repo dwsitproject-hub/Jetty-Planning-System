@@ -54,12 +54,6 @@ function startOfDay(d) {
   return x
 }
 
-function addMonths(date, delta) {
-  const x = new Date(date.getTime())
-  x.setMonth(x.getMonth() + delta)
-  return x
-}
-
 function toDateInputValue(d) {
   const x = startOfDay(d)
   const y = x.getFullYear()
@@ -70,8 +64,8 @@ function toDateInputValue(d) {
 
 function defaultDateRangeInputs() {
   const today = new Date()
-  const from = startOfDay(today)
-  const to = startOfDay(addMonths(today, 1))
+  const from = new Date(today.getFullYear(), today.getMonth(), 1, 0, 0, 0, 0)
+  const to = new Date(today.getFullYear(), today.getMonth() + 1, 0, 0, 0, 0, 0)
   return { from: toDateInputValue(from), to: toDateInputValue(to) }
 }
 
@@ -146,6 +140,10 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs) {
     if (!jettyId) return
 
     const vesselId = r.vesselId
+    const bankLaneKey =
+      r.shipmentPlanId != null && r.shipmentPlanId !== ''
+        ? `plan-${r.shipmentPlanId}`
+        : r.vesselId
     const vesselName = r.vesselName || r.vesselId || '—'
     const plannedEtb = parseMs(r.plannedEtbDateTime) ?? parseMs(r.etbDateTime)
     const eta = parseMs(r.etaDateTime)
@@ -186,6 +184,7 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs) {
           layer: 'planned',
           phase: 'ops',
           jettyId,
+          bankLaneKey,
           vesselId,
           vesselName,
           gradient,
@@ -254,6 +253,7 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs) {
           layer: 'actual',
           phase: 'transit',
           jettyId,
+          bankLaneKey,
           vesselId,
           vesselName,
           gradient: transitGradient,
@@ -335,6 +335,7 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs) {
           layer: 'actual',
           phase: 'ops',
           jettyId,
+          bankLaneKey,
           vesselId,
           vesselName,
           gradient,
@@ -391,11 +392,17 @@ function assignBankLanesByVessel(baseSegments, rowDefs, listRows) {
   const caps = new Map()
   for (const r of rowDefs) caps.set(r.jettyId, r.capacity)
 
+  const rowBankKey = (row) =>
+    row?.shipmentPlanId != null && row.shipmentPlanId !== ''
+      ? `plan-${row.shipmentPlanId}`
+      : row?.vesselId
+
   const metaByJettyVessel = new Map()
   for (const row of listRows) {
     const jid = jettyIdFromListRow(row)
-    if (!jid || !row?.vesselId) continue
-    const k = `${jid}\0${row.vesselId}`
+    const bk = rowBankKey(row)
+    if (!jid || !bk) continue
+    const k = `${jid}\0${bk}`
     const tbMs = parseMs(row.tbDateTime)
     const opRaw = row.operationId
     const opId = opRaw != null && !Number.isNaN(Number(opRaw)) ? Number(opRaw) : null
@@ -404,9 +411,10 @@ function assignBankLanesByVessel(baseSegments, rowDefs, listRows) {
 
   const vesselsByJetty = new Map()
   for (const s of baseSegments) {
-    if (!s.vesselId) continue
+    const bk = s.bankLaneKey ?? s.vesselId
+    if (!bk) continue
     if (!vesselsByJetty.has(s.jettyId)) vesselsByJetty.set(s.jettyId, new Set())
-    vesselsByJetty.get(s.jettyId).add(s.vesselId)
+    vesselsByJetty.get(s.jettyId).add(bk)
   }
 
   const laneByJettyVessel = new Map()
@@ -436,7 +444,8 @@ function assignBankLanesByVessel(baseSegments, rowDefs, listRows) {
 
   const out = []
   for (const s of baseSegments) {
-    const lane = laneByJettyVessel.get(`${s.jettyId}\0${s.vesselId}`) ?? 0
+    const bk = s.bankLaneKey ?? s.vesselId
+    const lane = laneByJettyVessel.get(`${s.jettyId}\0${bk}`) ?? 0
     out.push({ ...s, laneIndex: lane, rowKey: `${s.jettyId}__${lane}` })
   }
   return out

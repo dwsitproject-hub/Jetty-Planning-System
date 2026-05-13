@@ -3,6 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import ActivityLogPanel from './ActivityLogPanel'
 import LanguageSwitch from './LanguageSwitch'
+import NotificationBell from './NotificationBell'
 import { useRbac } from '../context/RbacContext'
 import { useAuth } from '../context/AuthContext'
 import { usePortScope } from '../context/PortScopeContext'
@@ -10,8 +11,9 @@ import { getClientIanaTimeZone } from '../utils/scheduleDateTime.js'
 
 const navStructure = [
   { path: '/', labelKey: 'dashboard', icon: '📊' },
-  { path: '/shipping-instruction', labelKey: 'shippingInstruction', icon: '📄' },
-  { path: '/allocation', labelKey: 'allocation', icon: '⚓' },
+  { path: '/jetty-live', labelKey: 'jettyLive', icon: '📹' },
+  { path: '/shipment-plans', labelKey: 'shipmentPlans', icon: '📦' },
+  { path: '/allocation-plans', labelKey: 'allocationPlan', icon: '⚓' },
   { path: '/at-berth', labelKey: 'atBerth', icon: '🚢' },
   { path: '/verification', labelKey: 'clearance', icon: '🚀' },
   { path: '/demurrage-risk-calculator', labelKey: 'demurrageCalculator', icon: '🧮' },
@@ -34,6 +36,7 @@ function isPortScopeBypassed(pathname) {
 function pathToPageKey(pathname) {
   if (!pathname || pathname.startsWith('/reporting')) return null
   if (pathname === '/' || pathname === '') return 'dashboard'
+  if (pathname.startsWith('/jetty-live')) return 'jetty-live'
   if (pathname.startsWith('/demurrage-risk-calculator')) return 'demurrage-risk-calculator'
   if (pathname.startsWith('/master/port')) return 'master-port'
   if (pathname.startsWith('/master/jetty-layout')) return 'master-jetty-layout'
@@ -46,8 +49,10 @@ function pathToPageKey(pathname) {
   if (pathname.startsWith('/master/si-commodity')) return 'master-si-commodity'
   if (pathname.startsWith('/master/freight-terms')) return 'master-si-freight-terms'
   if (pathname.startsWith('/master')) return 'master'
-  if (pathname.startsWith('/shipping-instruction')) return 'shipping-instruction'
-  if (pathname.startsWith('/allocation') || pathname.startsWith('/berthing')) return 'allocation'
+  if (pathname.startsWith('/shipping-instruction')) return 'shipment-plan'
+  if (pathname.startsWith('/shipment-plans')) return 'shipment-plan'
+  if (pathname.startsWith('/allocation-plans')) return 'allocation-plan'
+  if (pathname.startsWith('/allocation') || pathname.startsWith('/berthing')) return 'allocation-plan'
   if (pathname.startsWith('/at-berth')) return 'at-berth'
   if (pathname.startsWith('/loading/operation')) return 'loading'
   if (pathname.startsWith('/loading') || pathname.startsWith('/unloading')) return 'loading'
@@ -222,6 +227,7 @@ export default function Layout({ children }) {
               </span>
             </div>
           )}
+          {me && <NotificationBell />}
           <LanguageSwitch />
           <span className="topbar__greeting">
             {me ? tCommon('greeting', { name: me.displayName || me.username }) : ''}

@@ -1,7 +1,7 @@
 # Jetty Planning System — Technical Architecture
 
 **Version**: 1.0  
-**Last Updated**: 2026-03-27  
+**Last Updated**: 2026-05-11  
 **Sources**: TECH-SPEC-Jetty-Planning-System.md, Feature-Module-Summary.md, Dev-Notes.md, Jetty PRD vRian - 1.0
 
 ---
@@ -50,6 +50,17 @@ Current UI ownership:
 
 - Added table: `user_ports` (migration `033_user_ports.sql`).
 - Removed `operations.hose_off_at` column from runtime model (migration `032_remove_hose_off_at.sql`).
+
+### 0.5 Shipment Plan aggregate (2026-05-11, migration `059_shipment_plans.sql`)
+
+- New table **`shipment_plans`**: vessel-call level aggregate (`port_id`, `vessel_name`, jetty, allocation/clearance timestamps, exception fields, etc.) intended to become the **source of truth** for shared scheduling and vessel-level clearance as the multi-SI model is completed.
+- **`shipping_instructions.shipment_plan_id`** (required FK): each SI belongs to exactly one plan today (**1:1 backfill**); future work allows **multiple SIs per plan**.
+- **`operations`**: still holds per-SI execution, sign-off, and Jetty Operation Id; legacy allocation/clearance columns remain populated for **rollback** alongside plan writes where migrations have not yet dropped mirrors.
+- **Shipping Instruction create API**: creates a **shell `shipment_plans` row** in the same transaction as the SI.
+- **Allocation overview API**: each queue row includes **`shipmentPlanId`** plus **denormalised plan timestamps** (flat-queue strategy).
+- **`PUT /allocation/arrival`**: writes vessel-call fields to **`shipment_plans`** (then mirrors to the selected operation as needed).
+- **`POST /shipment-plans/:id/depart`** (+ **`POST /operations/:id/depart`** with plan siblings): single clearance action sails **all** ready child operations and updates the plan row.
+- **`GET /operations` / `:id`**: JSON merges **`shipment_plans`** timeline over **`operations`** when **`shipmentPlanId`** is present so hubs and calculators see one voyage clock.
 
 ---
 

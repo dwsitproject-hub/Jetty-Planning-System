@@ -858,6 +858,34 @@
   color: var(--color-text-steel);
 }
 
+.dashboard-activity-chart__legend--ops {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--spacing-2);
+}
+
+.dashboard-activity-chart__legend-purpose {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-3) var(--spacing-4);
+  padding: var(--spacing-2) 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.dashboard-activity-chart__legend-purpose:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.dashboard-activity-chart__legend-purpose-label {
+  flex: 0 0 auto;
+  min-width: 6.5rem;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  font-size: var(--font-size-small);
+}
+
 .dashboard-activity-chart__legend--si {
   justify-content: center;
   gap: var(--spacing-3);
@@ -877,12 +905,20 @@
   flex-shrink: 0;
 }
 
-.dashboard-activity-chart__swatch--planned {
-  background: rgba(37, 99, 235, 0.85);
+.dashboard-activity-chart__swatch--ops-planned-loading {
+  background: rgba(74, 222, 128, 0.85);
 }
 
-.dashboard-activity-chart__swatch--berth {
-  background: rgba(22, 163, 74, 0.9);
+.dashboard-activity-chart__swatch--ops-berth-loading {
+  background: rgba(22, 101, 52, 0.92);
+}
+
+.dashboard-activity-chart__swatch--ops-planned-unloading {
+  background: rgba(96, 165, 250, 0.88);
+}
+
+.dashboard-activity-chart__swatch--ops-berth-unloading {
+  background: rgba(29, 78, 216, 0.92);
 }
 
 .dashboard-activity-chart__swatch--si-0 {
@@ -1124,12 +1160,20 @@
   justify-content: center;
 }
 
-.dashboard-activity-chart__bar--planned {
-  background: rgba(37, 99, 235, 0.85);
+.dashboard-activity-chart__bar--ops-planned-loading {
+  background: rgba(74, 222, 128, 0.85);
 }
 
-.dashboard-activity-chart__bar--berth {
-  background: rgba(22, 163, 74, 0.9);
+.dashboard-activity-chart__bar--ops-berth-loading {
+  background: rgba(22, 101, 52, 0.92);
+}
+
+.dashboard-activity-chart__bar--ops-planned-unloading {
+  background: rgba(96, 165, 250, 0.88);
+}
+
+.dashboard-activity-chart__bar--ops-berth-unloading {
+  background: rgba(29, 78, 216, 0.92);
 }
 
 .dashboard-activity-chart__bar--si-0 {

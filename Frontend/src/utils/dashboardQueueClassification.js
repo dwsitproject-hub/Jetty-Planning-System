@@ -4,6 +4,20 @@
  */
 
 /**
+ * Stable key for one physical vessel call: shared Shipment Plan rows collapse to one id.
+ * @param {unknown} row
+ */
+export function allocationQueueVesselCallKey(row) {
+  const pid = row?.shipmentPlanId
+  if (pid != null && pid !== '') return `plan:${pid}`
+  const op = row?.operationId
+  if (op != null && op !== '') return `op:${op}`
+  const vid = row?.vesselId
+  const j = (row?.jetty || '').trim()
+  return `v:${j}:${vid ?? ''}`
+}
+
+/**
  * Planned berthing: jetty assigned, not yet alongside (aligned with Vessel pipeline sublabel).
  */
 export function isPlannedBerthingQueueRow(row) {

@@ -551,6 +551,10 @@
 /* Tables */
 .table-wrap {
   overflow-x: auto;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Shared responsive baseline and mobile-safe content spacing. */

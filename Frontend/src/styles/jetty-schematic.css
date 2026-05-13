@@ -23,8 +23,10 @@
    */
   /* Two “standard” lane bands + gap; compact but readable */
   --jetty-schematic-zone-height: 200px;
+  --jetty-schematic-pipeline-height: 36px;
   display: grid;
-  grid-template-rows: var(--jetty-schematic-zone-height) 48px var(--jetty-schematic-zone-height);
+  grid-template-rows: var(--jetty-schematic-zone-height) var(--jetty-schematic-pipeline-height)
+    var(--jetty-schematic-zone-height);
   align-items: stretch;
   align-content: start;
   flex: 1 1 0;
@@ -32,7 +34,53 @@
   gap: var(--spacing-2);
 }
 
-/* Double bank: multiple lane boxes per jetty (1A-01, 1A-02, …) */
+/* Top/bottom of column: lane stacks + jetty name band flush to pipeline */
+.jetty-schematic__berth-zone {
+  --jetty-name-band-height: 22px;
+  --jetty-schematic-lanes-available: calc(
+    var(--jetty-schematic-zone-height) - var(--jetty-name-band-height) - var(--spacing-2)
+  );
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  gap: var(--spacing-2);
+}
+
+.jetty-schematic__berth-zone--placeholder {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.jetty-schematic__berth-zone--placeholder .jetty-schematic__slot.jetty-schematic__slot--empty {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
+.jetty-schematic__jetty-name-band {
+  flex: 0 0 var(--jetty-name-band-height);
+  height: var(--jetty-name-band-height);
+  min-height: var(--jetty-name-band-height);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #374151;
+  background: #e5e7eb;
+  border: 1px solid #d1d5db;
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+}
+
+/* Double bank: multiple lane boxes per jetty (suffix 01 = inner next to pipeline) */
 .jetty-schematic__berth-stack {
   --berth-lane-height-divisor: 2;
   display: flex;
@@ -41,10 +89,15 @@
   align-content: flex-start;
   gap: var(--spacing-1);
   width: 100%;
-  height: 100%;
+  flex: 1 1 0;
   min-height: 0;
   box-sizing: border-box;
   position: relative;
+}
+
+/* Above pipeline: reverse flex so lane 01 (first in DOM) sits inner toward name band / black bar */
+.jetty-schematic__berth-stack--above-pipeline {
+  flex-direction: column-reverse;
 }
 
 .jetty-schematic__berth-stack--oos {
@@ -77,8 +130,10 @@
  */
 .jetty-schematic__lane {
   --lane-pixel-height: calc(
-    (var(--jetty-schematic-zone-height) - (var(--berth-lane-height-divisor) - 1) * var(--spacing-1))
-    / var(--berth-lane-height-divisor)
+    (
+        var(--jetty-schematic-lanes-available, var(--jetty-schematic-zone-height)) -
+          (var(--berth-lane-height-divisor) - 1) * var(--spacing-1)
+      ) / var(--berth-lane-height-divisor)
   );
   display: flex;
   flex-direction: column;
@@ -110,6 +165,11 @@
   font-size: 0.62rem;
   margin-bottom: 1px;
   line-height: 1.1;
+  padding: 1px 4px;
+}
+
+.jetty-schematic__slot--vacant .jetty-schematic__slot-jetty-name {
+  align-self: center;
 }
 
 .jetty-schematic__lane .jetty-slot__title {
@@ -188,25 +248,30 @@ button.jetty-schematic__lane:focus-visible {
 }
 
 .jetty-schematic__slot-jetty-name {
-  display: block;
+  display: inline-block;
+  align-self: flex-start;
   font-size: 0.7rem;
   font-weight: var(--font-weight-semibold);
-  color: var(--color-text-steel);
+  color: #4b5563;
   text-transform: uppercase;
   letter-spacing: 0.02em;
   margin-bottom: var(--spacing-1);
   flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: #e5e7eb;
+  border: 1px solid #d1d5db;
 }
 
 .jetty-schematic__slot--disch {
-  background: #fefbf0;
-  border-color: #e8d88a;
+  background: rgba(33, 115, 199, 0.12);
+  border-color: rgba(33, 115, 199, 0.38);
   color: var(--color-text-charcoal);
 }
 
 .jetty-schematic__slot--load {
-  background: #f0f8fc;
-  border-color: #9ec9e0;
+  background: rgba(45, 122, 62, 0.12);
+  border-color: rgba(45, 122, 62, 0.38);
   color: var(--color-text-charcoal);
 }
 
@@ -228,9 +293,25 @@ button.jetty-schematic__lane:focus-visible {
   background: #f0f8f0;
 }
 
-.jetty-schematic__slot--load.jetty-schematic__slot--rag-red { background: #fef5f5; }
-.jetty-schematic__slot--load.jetty-schematic__slot--rag-amber { background: #fffbf0; }
-.jetty-schematic__slot--load.jetty-schematic__slot--rag-green { background: #f0f8f0; }
+.jetty-schematic__slot--disch.jetty-schematic__slot--rag-red {
+  background: rgba(254, 245, 245, 0.95);
+}
+.jetty-schematic__slot--disch.jetty-schematic__slot--rag-amber {
+  background: rgba(255, 251, 240, 0.98);
+}
+.jetty-schematic__slot--disch.jetty-schematic__slot--rag-green {
+  background: rgba(239, 246, 255, 0.95);
+}
+
+.jetty-schematic__slot--load.jetty-schematic__slot--rag-red {
+  background: rgba(254, 245, 245, 0.95);
+}
+.jetty-schematic__slot--load.jetty-schematic__slot--rag-amber {
+  background: rgba(255, 251, 240, 0.98);
+}
+.jetty-schematic__slot--load.jetty-schematic__slot--rag-green {
+  background: rgba(240, 253, 244, 0.95);
+}
 
 .jetty-slot__inner {
   display: flex;
@@ -354,10 +435,8 @@ button.jetty-schematic__lane:focus-visible {
   pointer-events: none;
 }
 
-/* Top/bottom zone placeholders fill the column row so pipeline lines up with dockable stacks */
-.jetty-schematic__column > .jetty-schematic__slot.jetty-schematic__slot--empty {
-  height: 100%;
-  min-height: 0;
+/* Placeholder zones fill the column row so pipeline lines up with dockable stacks */
+.jetty-schematic__berth-zone--placeholder .jetty-schematic__slot.jetty-schematic__slot--empty {
   box-sizing: border-box;
 }
 
@@ -375,8 +454,8 @@ button.jetty-schematic__slot:hover:not(.jetty-schematic__slot--vacant) {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 48px;
-  min-height: 48px;
+  height: var(--jetty-schematic-pipeline-height, 36px);
+  min-height: var(--jetty-schematic-pipeline-height, 36px);
   flex-shrink: 0;
   background: var(--color-text-charcoal);
   color: var(--color-text-white);

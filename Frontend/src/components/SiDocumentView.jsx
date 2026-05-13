@@ -6,8 +6,8 @@ import '../styles/si-view.css'
 import '../styles/si-approval.css'
 
 /**
- * Approved SI printable / summary document (Loading letterhead vs Unloading summary + table).
- * Parent must ensure `si` is approved (`canViewAsDocument`).
+ * SI printable / summary document (Loading letterhead vs Unloading summary + table).
+ * `SiDocumentModal` normally gates on `canViewAsDocument`; callers may pass `allowPreApprovalPreview` to show this for drafts.
  */
 export default function SiDocumentView({ si, npwpMaster }) {
   const isLoading = (si?.purpose || '').toLowerCase() === 'loading'

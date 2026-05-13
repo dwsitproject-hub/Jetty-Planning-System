@@ -112,7 +112,7 @@
   border-color: rgba(148, 163, 184, 0.5);
 }
 
-/* Stacked above parent Operation Detail overlay (modal.css uses z-index: 1000). */
+/* Stacked above parent SI detail modal overlay (modal.css uses z-index: 1000). */
 .si-detail-modal__nested-overlay {
   z-index: 1100;
 }

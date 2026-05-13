@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:e2e": "playwright test",
+    "test:e2e:notifications": "playwright test e2e/notifications-bell.spec.js",
     "rebuild": "node scripts/rebuild.mjs"
   },
   "dependencies": {

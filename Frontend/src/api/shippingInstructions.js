@@ -30,7 +30,7 @@ export function fetchSiNpwpMaster(portId) {
 }
 
 export function createShippingInstruction(body) {
-  return apiPost('/shipping-instructions', {
+  const payload = {
     reference_number: body.referenceNumber ?? null,
     vessel_name: body.vesselName,
     voyage_no: body.voyageNo ?? null,
@@ -57,7 +57,11 @@ export function createShippingInstruction(body) {
     notify_party_text: body.notifyPartyText ?? null,
     bl_indicated: body.blIndicated ?? null,
     document_date: body.documentDate ?? null,
-  })
+  }
+  if (body.shipmentPlanId != null && body.shipmentPlanId !== '') {
+    payload.shipment_plan_id = body.shipmentPlanId
+  }
+  return apiPost('/shipping-instructions', payload)
 }
 
 export function deleteShippingInstruction(id) {

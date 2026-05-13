@@ -192,7 +192,7 @@ export default function SIApproval() {
   }
 
   const handleApprove = async () => {
-    if (!certified || !canApprove('shipping-instruction')) return
+    if (!certified || !canApprove('shipment-plan')) return
     setApproveError(null)
     const nextApprovalId = generateApprovalId()
     const sid = si?.id != null && !Number.isNaN(Number(si.id)) ? Number(si.id) : Number.isNaN(numId) ? null : numId
@@ -246,7 +246,7 @@ export default function SIApproval() {
       <div className="si-approval-page">
         <div className="card">
           <p className="text-steel">Shipping Instruction not found for ID: {siId || '—'}.</p>
-          <button type="button" className="btn btn--primary" onClick={() => navigate('/shipping-instruction')}>
+          <button type="button" className="btn btn--primary" onClick={() => navigate('/shipment-plans')}>
             Back to Shipping Instructions
           </button>
         </div>
@@ -265,7 +265,7 @@ export default function SIApproval() {
           <button
             type="button"
             className="btn btn--secondary btn--small si-approval-back no-print"
-            onClick={() => navigate('/shipping-instruction')}
+            onClick={() => navigate('/shipment-plans')}
             aria-label="Back to Shipping Instructions"
           >
             ← Back
@@ -503,7 +503,7 @@ export default function SIApproval() {
                   </span>
                 </label>
               </div>
-              {!canApprove('shipping-instruction') && (
+              {!canApprove('shipment-plan') && (
                 <p className="text-steel" style={{ marginBottom: 'var(--spacing-2)', color: 'var(--danger-600, #b00)' }}>
                   You do not have permission to approve shipping instructions. Ask an administrator to grant{' '}
                   <strong>Approve SI</strong> on the Shipping Instruction page for your role.
@@ -519,7 +519,7 @@ export default function SIApproval() {
                   type="button"
                   className="btn btn--primary"
                   onClick={handleApprove}
-                  disabled={!certified || !canApprove('shipping-instruction')}
+                  disabled={!certified || !canApprove('shipment-plan')}
                 >
                   ✓ Approve & Sign-off
                 </button>
@@ -534,7 +534,7 @@ export default function SIApproval() {
             <div className="card si-approval-result si-approval-result--success">
               <p><strong>SI has been approved and signed off.</strong></p>
               <p className="text-steel">Operations can begin as per this instruction.</p>
-              <button type="button" className="btn btn--primary" onClick={() => navigate('/shipping-instruction')}>
+              <button type="button" className="btn btn--primary" onClick={() => navigate('/shipment-plans')}>
                 Back to Shipping Instructions
               </button>
             </div>
@@ -544,7 +544,7 @@ export default function SIApproval() {
             <div className="card si-approval-result si-approval-result--rejected">
               <p><strong>SI has been rejected / queried.</strong></p>
               <p className="text-steel">The submitter will be notified.</p>
-              <button type="button" className="btn btn--primary" onClick={() => navigate('/shipping-instruction')}>
+              <button type="button" className="btn btn--primary" onClick={() => navigate('/shipment-plans')}>
                 Back to Shipping Instructions
               </button>
             </div>

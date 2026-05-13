@@ -5,11 +5,27 @@ import { fetchJetties } from '../api/jetties'
 import { usePortScope } from '../context/PortScopeContext'
 import '../styles/jetty-schematic.css'
 
-function getOperationType(vessel) {
-  if (!vessel) return 'DISCH'
-  const s = (vessel.status || '').toUpperCase()
-  const p = (vessel.phaseLabel || '').toUpperCase()
-  if (s.includes('LOAD') || p.includes('LOAD')) return 'LOAD'
+/**
+ * LOAD vs DISCH for slot tinting. Must not use naive `includes('LOAD')` — "Unloading" → "UNLOADING" contains "LOAD".
+ * Prefer explicit purpose / loadDischarge (queue + vessel map); berth occupant may carry operation fields.
+ */
+function getOperationType(vessel, occupant) {
+  const v = { ...(occupant || {}), ...(vessel || {}) }
+  if (!vessel && !occupant) return 'DISCH'
+
+  const purpose = String(v.purpose || '').trim().toLowerCase()
+  if (purpose === 'loading') return 'LOAD'
+  if (purpose === 'unloading') return 'DISCH'
+
+  const ld = String(v.loadDischarge || '').toUpperCase()
+  if (ld === 'LOAD') return 'LOAD'
+  if (ld === 'DISCH') return 'DISCH'
+
+  const s = String(v.status || '').toUpperCase()
+  const pl = String(v.phaseLabel || '').toUpperCase()
+  if (/\bUNLOAD/i.test(pl) || /\bUNLOAD/i.test(s)) return 'DISCH'
+  if (/\bLOADING\b/i.test(pl) || /\bLOADING\b/i.test(s)) return 'LOAD'
+
   return 'DISCH'
 }
 
@@ -82,6 +98,8 @@ export default function JettySchematic({
   selectedBerthId,
   onSelectBerth,
   onSelectVessel,
+  /** Label for the second line in an occupied slot (default: SI number). */
+  slotReferenceLabel = 'SI No',
 }) {
   const { selectedPortId, requiresSelection, noPortAssigned } = usePortScope()
   const canLoadLayout = selectedPortId != null && !requiresSelection && !noPortAssigned
@@ -171,11 +189,13 @@ export default function JettySchematic({
     const v = getVessel(vesselId)
     const displayName = v?.vesselName || occupant?.vesselName || String(vesselId || '—')
     if (!vesselId) return 'Vacant'
-    const op = getOperationType(v)
+    const op = getOperationType(v, occupant)
     return (
       <span className="jetty-slot__inner">
         <span className="jetty-slot__title">{displayName}</span>
-        <span className="jetty-slot__line">SI No: {v?.siId ?? '—'}</span>
+        <span className="jetty-slot__line">
+          {slotReferenceLabel}: {v?.siId ?? '—'}
+        </span>
         <span className="jetty-slot__line">
           Purpose: {v?.purpose ?? (op === 'LOAD' ? 'Loading' : 'Unloading')}
         </span>
@@ -187,7 +207,8 @@ export default function JettySchematic({
     )
   }
 
-  function renderBerthLaneStack(berthId, berth) {
+  /** @param {'top' | 'bottom'} stackPlacement — top uses column-reverse so lane 01 sits inner (adjacent to pipeline). */
+  function renderBerthLaneStack(berthId, berth, stackPlacement) {
     const cap = berthCapacity(berth)
     const occIds = berthOccupantIds(berth)
     const occNames = occIds.map((id) => getVessel(id)?.vesselName || berth?.currentVesselName || id).filter(Boolean)
@@ -203,9 +224,12 @@ export default function JettySchematic({
     /** Same lane pixel height as a double-bank row when capacity is 1 (avoids one huge green box). */
     const laneHeightDivisor = Math.max(cap, 2)
 
+    const stackModifier =
+      stackPlacement === 'top' ? ' jetty-schematic__berth-stack--above-pipeline' : ''
+
     return (
       <div
-        className={`jetty-schematic__berth-stack${isOos ? ' jetty-schematic__berth-stack--oos' : ''}`}
+        className={`jetty-schematic__berth-stack${isOos ? ' jetty-schematic__berth-stack--oos' : ''}${stackModifier}`}
         style={{ ['--berth-lane-height-divisor']: laneHeightDivisor }}
       >
         {isOos ? (
@@ -215,9 +239,10 @@ export default function JettySchematic({
         ) : null}
         {slots.map((slot) => {
           const laneLabel = `${berthId}-${String(slot.laneIndex + 1).padStart(2, '0')}`
+          const laneSuffix = String(slot.laneIndex + 1).padStart(2, '0')
           const isVacant = !slot.vesselId
           const v = slot.vesselId ? getVessel(slot.vesselId) : null
-          const op = v ? getOperationType(v) : null
+          const op = v ? getOperationType(v, slot.occupant) : null
           const vacantClass = 'jetty-schematic__slot jetty-schematic__slot--vacant'
           const occClass = v
             ? `jetty-schematic__slot jetty-schematic__slot--${op === 'LOAD' ? 'load' : 'disch'} jetty-schematic__slot--rag-${v.ragStatus || 'green'}`
@@ -237,8 +262,8 @@ export default function JettySchematic({
 
           const inner = isVacant ? (
             <>
-              <span className="jetty-schematic__slot-jetty-name" aria-hidden>
-                {laneLabel}
+              <span className="jetty-schematic__slot-jetty-name" title={laneLabel} aria-hidden>
+                {laneSuffix}
               </span>
               <span className="jetty-slot__inner">
                 <span className="jetty-slot__line">Vacant</span>
@@ -249,8 +274,8 @@ export default function JettySchematic({
             </>
           ) : (
             <>
-              <span className="jetty-schematic__slot-jetty-name" aria-hidden>
-                {laneLabel}
+              <span className="jetty-schematic__slot-jetty-name" title={laneLabel} aria-hidden>
+                {laneSuffix}
               </span>
               <span className="jetty-slot__vessel-block">
                 {slotContentForSingleVessel(slot.vesselId, slot.occupant, slot.overflowCount)}
@@ -288,6 +313,29 @@ export default function JettySchematic({
             </div>
           )
         })}
+      </div>
+    )
+  }
+
+  function renderBerthZone(stackPlacement, berthId, berth) {
+    const stack = renderBerthLaneStack(berthId, berth, stackPlacement)
+    const nameBand = (
+      <div className="jetty-schematic__jetty-name-band" aria-hidden>
+        {berthId}
+      </div>
+    )
+    if (stackPlacement === 'top') {
+      return (
+        <div className="jetty-schematic__berth-zone jetty-schematic__berth-zone--top">
+          {stack}
+          {nameBand}
+        </div>
+      )
+    }
+    return (
+      <div className="jetty-schematic__berth-zone jetty-schematic__berth-zone--bottom">
+        {nameBand}
+        {stack}
       </div>
     )
   }
@@ -355,9 +403,13 @@ export default function JettySchematic({
             return (
               <div key={colIndex} className="jetty-schematic__column">
                 {col.top?.type === 'jetty' && topBerthId ? (
-                  renderBerthLaneStack(topBerthId, topBerth)
+                  renderBerthZone('top', topBerthId, topBerth)
                 ) : (
-                  <div className="jetty-schematic__slot jetty-schematic__slot--vacant jetty-schematic__slot--empty" aria-hidden><span className="jetty-schematic__slot-jetty-name">—</span></div>
+                  <div className="jetty-schematic__berth-zone jetty-schematic__berth-zone--placeholder">
+                    <div className="jetty-schematic__slot jetty-schematic__slot--vacant jetty-schematic__slot--empty" aria-hidden>
+                      <span className="jetty-schematic__slot-jetty-name">—</span>
+                    </div>
+                  </div>
                 )}
                 {col.middle?.type === 'block' ? (
                   <div className="jetty-schematic__pipeline-segment" aria-hidden />
@@ -365,9 +417,13 @@ export default function JettySchematic({
                   <div className="jetty-schematic__slot jetty-schematic__slot--vacant jetty-schematic__slot--empty" aria-hidden>—</div>
                 )}
                 {col.bottom?.type === 'jetty' && bottomBerthId ? (
-                  renderBerthLaneStack(bottomBerthId, bottomBerth)
+                  renderBerthZone('bottom', bottomBerthId, bottomBerth)
                 ) : (
-                  <div className="jetty-schematic__slot jetty-schematic__slot--vacant jetty-schematic__slot--empty" aria-hidden><span className="jetty-schematic__slot-jetty-name">—</span></div>
+                  <div className="jetty-schematic__berth-zone jetty-schematic__berth-zone--placeholder">
+                    <div className="jetty-schematic__slot jetty-schematic__slot--vacant jetty-schematic__slot--empty" aria-hidden>
+                      <span className="jetty-schematic__slot-jetty-name">—</span>
+                    </div>
+                  </div>
                 )}
               </div>
             )

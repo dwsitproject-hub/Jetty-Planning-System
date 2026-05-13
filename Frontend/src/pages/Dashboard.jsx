@@ -10,7 +10,10 @@ import { useTranslation } from 'react-i18next'
 import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
 import { formatDateTimeDisplay, getAppLocaleTag } from '../utils/formatDateTimeDisplay'
-import { isPlannedBerthingQueueRow } from '../utils/dashboardQueueClassification'
+import {
+  allocationQueueVesselCallKey,
+  isPlannedBerthingQueueRow,
+} from '../utils/dashboardQueueClassification'
 import { atBerthExecutionOpenPath } from '../utils/atBerthOpenPath'
 import DashboardActivityChart from '../components/DashboardActivityChart'
 import InteractiveTooltip from '../components/InteractiveTooltip'
@@ -24,7 +27,7 @@ const PHASE_EMOJI = {
   Operational: '⚙️',
   'Post-Checking': '✅',
 }
-const ACTIVITY_PAGE_KEYS = ['allocation', 'shipping-instruction', 'verification', 'at-berth', 'loading']
+const ACTIVITY_PAGE_KEYS = ['allocation-plan', 'shipment-plan', 'verification', 'at-berth', 'loading']
 const PERF_WINDOW_DEFS = [
   { key: '7d', labelKey: 'perfWindow7d', ms: 7 * 24 * 3600000 },
   { key: '24h', labelKey: 'perfWindow24h', ms: 24 * 3600000 },
@@ -75,8 +78,8 @@ export default function Dashboard() {
   const { t: tPages } = useTranslation('pages')
   const pipelineStages = useMemo(
     () => [
-      { id: 'si', label: t('pipelineSi'), path: '/shipping-instruction', color: 'si' },
-      { id: 'planned-berthing', label: t('pipelinePlannedBerthing'), path: '/allocation', color: 'planned-berthing' },
+      { id: 'si', label: t('pipelineSi'), path: '/shipment-plans', color: 'si' },
+      { id: 'planned-berthing', label: t('pipelinePlannedBerthing'), path: '/allocation-plans', color: 'planned-berthing' },
       { id: 'at-berth', label: t('pipelineAtBerth'), path: '/at-berth', color: 'at-berth' },
       { id: 'clearance', label: t('pipelineClearance'), path: '/verification', color: 'clearance' },
     ],
@@ -154,7 +157,7 @@ export default function Dashboard() {
       run('at-berth', fetchAtBerth),
       run('operations', () => fetchOperations()),
       run('shipping instructions', fetchShippingInstructions),
-      run('allocation', fetchAllocationOverview),
+      run('allocation-plan', fetchAllocationOverview),
       run('jetties', () => fetchJetties(selectedPortId)),
       ...(canViewActivityLog
         ? ACTIVITY_PAGE_KEYS.map((pageKey) =>
@@ -341,8 +344,11 @@ export default function Dashboard() {
     let onTimeCount = 0
     const onTimeLateList = []
 
+    const seenWaiting = new Set()
+    const seenOnTime = new Set()
     for (const r of queueList) {
       if (r?.shiftingOut) continue
+      const callKey = allocationQueueVesselCallKey(r)
       const vesselName = (r?.vesselName || '').trim() || `Op #${r?.operationId ?? r?.id ?? '—'}`
       const jettyName = (r?.jetty || '').trim() || '—'
 
@@ -354,6 +360,8 @@ export default function Dashboard() {
 
       // Waiting time to berth (TA -> TB), windowed by TB.
       if (ta && tb && tb.getTime() > ta.getTime() && tb.getTime() >= cutoff) {
+        if (seenWaiting.has(callKey)) continue
+        seenWaiting.add(callKey)
         const h = (tb.getTime() - ta.getTime()) / 3600000
         waitingHrs.push(h)
         waitingWorst.push({ vesselName, jettyName, hours: h })
@@ -361,6 +369,8 @@ export default function Dashboard() {
 
       // On-time berthing rate: TB <= planned ETB + 6h, windowed by TB.
       if (planned && tb && tb.getTime() >= cutoff) {
+        if (seenOnTime.has(callKey)) continue
+        seenOnTime.add(callKey)
         onTimeEligible += 1
         const lateMs = tb.getTime() - (planned.getTime() + tolMs)
         if (lateMs <= 0) onTimeCount += 1
@@ -410,10 +420,18 @@ export default function Dashboard() {
     }
   }, [queue, allOps, perfWindow, t])
 
-  const plannedBerthingCount = useMemo(
-    () => queue.filter(isPlannedBerthingQueueRow).length,
-    [queue]
-  )
+  const plannedBerthingCount = useMemo(() => {
+    const seen = new Set()
+    let n = 0
+    for (const r of queue) {
+      if (!isPlannedBerthingQueueRow(r)) continue
+      const k = allocationQueueVesselCallKey(r)
+      if (seen.has(k)) continue
+      seen.add(k)
+      n += 1
+    }
+    return n
+  }, [queue])
 
   const pipelineCounts = {
     si: siStats.total,

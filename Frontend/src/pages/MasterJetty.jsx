@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { fetchPorts } from '../api/ports'
 import { fetchJetties, createJetty, updateJettyApi, updateJettyStatus } from '../api/jetties'
 import { ApiError } from '../api/client'
@@ -12,6 +13,7 @@ import { MAX_MASTER_DESCRIPTION_CHARS, MAX_MASTER_JETTY_NAME_CHARS } from '../co
 const JETTY_STATUS_OPTIONS = ['Available', 'Out of Service']
 
 export default function MasterJetty() {
+  const { t } = useTranslation('pages')
   const { logActivity } = useActivityLog()
   const [ports, setPorts] = useState([])
   const [jetties, setJetties] = useState([])
@@ -193,8 +195,8 @@ export default function MasterJetty() {
           </button>
         </div>
       )}
-      <h1 className="page-title">Master – Preferred Jetty</h1>
-      <p className="allocation-page__intro">Jetties from API (per port). Used as Preferred Jetty.</p>
+      <h1 className="page-title">{t('masterJetty')}</h1>
+      <p className="allocation-page__intro">{t('masterJettyIntro')}</p>
       <p className="text-steel">
         <Link to="/master" className="link">← Back to Master Menu</Link>
       </p>

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RTSP Live Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/gh/phoboslab/jsmpeg@master/jsmpeg.min.js"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <div class="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8">
+      <header class="text-center">
+        <h1 class="text-2xl font-semibold tracking-tight text-white">
+          RTSP Live Stream
+        </h1>
+        <p class="mt-1 text-sm text-slate-400">
+          MPEG1 over WebSocket · jsmpeg · Tailwind (CDN)
+        </p>
+      </header>
+
+      <section
+        class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl shadow-black/40"
+      >
+        <h2 class="mb-4 text-sm font-medium uppercase tracking-wide text-slate-400">
+          Stream health
+        </h2>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div class="rounded-xl bg-slate-900 p-4 ring-1 ring-slate-800">
+            <div class="text-xs text-slate-500">Current status</div>
+            <div id="statusLine" class="mt-1 text-lg font-semibold">…</div>
+          </div>
+          <div class="rounded-xl bg-slate-900 p-4 ring-1 ring-slate-800">
+            <div class="text-xs text-slate-500">Last frame received</div>
+            <div id="lastFrameLine" class="mt-1 font-mono text-sm text-slate-200">
+              —
+            </div>
+          </div>
+        </div>
+        <div class="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            id="reconnectBtn"
+            type="button"
+            class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Reconnect
+          </button>
+          <span id="metaLine" class="text-xs text-slate-500"></span>
+        </div>
+      </section>
+
+      <section class="flex flex-1 flex-col items-center justify-center">
+        <div
+          class="relative overflow-hidden rounded-2xl border border-slate-800 bg-black shadow-2xl ring-1 ring-white/10"
+        >
+          <canvas
+            id="video"
+            class="block max-h-[70vh] w-full max-w-4xl bg-black"
+            width="960"
+            height="540"
+          ></canvas>
+          <div
+            id="canvasOverlay"
+            class="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50 text-sm text-slate-200 opacity-0 transition-opacity"
+          >
+            Waiting for stream…
+          </div>
+        </div>
+        <p class="mt-3 max-w-xl text-center text-xs text-slate-500">
+          Ensure FFmpeg is installed and reachable from PATH. WebSocket URL uses
+          the same host as this page, port
+          <span id="wsPortHint" class="font-mono text-slate-400">9999</span>.
+        </p>
+      </section>
+    </div>
+
+    <script>
+      (function () {
+        const canvas = document.getElementById('video');
+        const statusLine = document.getElementById('statusLine');
+        const lastFrameLine = document.getElementById('lastFrameLine');
+        const reconnectBtn = document.getElementById('reconnectBtn');
+        const metaLine = document.getElementById('metaLine');
+        const overlay = document.getElementById('canvasOverlay');
+        const wsPortHint = document.getElementById('wsPortHint');
+
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        let wsPort = 9999;
+        let player = null;
+
+        function setOverlay(show, text) {
+          overlay.textContent = text || 'Waiting for stream…';
+          overlay.style.opacity = show ? '1' : '0';
+        }
+
+        function destroyPlayer() {
+          if (player && typeof player.destroy === 'function') {
+            try {
+              player.destroy();
+            } catch (e) {}
+          } else if (player && player.source && player.source.socket) {
+            try {
+              player.source.socket.close();
+            } catch (e) {}
+          }
+          player = null;
+        }
+
+        function startPlayer() {
+          destroyPlayer();
+          setOverlay(true, 'Connecting…');
+          const wsUrl = proto + '//' + window.location.hostname + ':' + wsPort;
+          player = new JSMpeg.Player(wsUrl, {
+            canvas: canvas,
+            autoplay: true,
+            audio: false,
+            videoBufferSize: 512 * 1024,
+          });
+          setTimeout(function () {
+            setOverlay(false);
+          }, 1500);
+        }
+
+        function fmtTime(ts) {
+          if (ts == null) return '—';
+          try {
+            return new Date(ts).toLocaleString();
+          } catch {
+            return String(ts);
+          }
+        }
+
+        async function pollHealth() {
+          try {
+            const r = await fetch('/api/health', { cache: 'no-store' });
+            if (!r.ok) throw new Error('health ' + r.status);
+            const h = await r.json();
+            wsPort = h.wsPort || 9999;
+            wsPortHint.textContent = String(wsPort);
+
+            const now = Date.now();
+            const stale =
+              h.lastFrameAt != null && now - h.lastFrameAt > (h.stallMs || 8000);
+            const online = h.status === 'online' && !stale;
+
+            statusLine.textContent = online
+              ? 'Online'
+              : h.status === 'starting'
+                ? 'Starting…'
+                : 'Offline';
+            statusLine.className =
+              'mt-1 text-lg font-semibold ' +
+              (online
+                ? 'text-emerald-400'
+                : h.status === 'starting'
+                  ? 'text-amber-300'
+                  : 'text-rose-400');
+
+            lastFrameLine.textContent = fmtTime(h.lastFrameAt);
+            metaLine.textContent =
+              'Restarts: ' +
+              (h.restartCount ?? 0) +
+              ' · FFmpeg process: ' +
+              (h.ffmpegRunning ? 'running' : 'not running');
+          } catch (e) {
+            statusLine.textContent = 'Offline';
+            statusLine.className = 'mt-1 text-lg font-semibold text-rose-400';
+            lastFrameLine.textContent = '—';
+            metaLine.textContent = 'Health API unreachable';
+          }
+        }
+
+        reconnectBtn.addEventListener('click', async function () {
+          reconnectBtn.disabled = true;
+          try {
+            const r = await fetch('/api/reconnect', { method: 'POST' });
+            if (!r.ok) throw new Error(String(r.status));
+            setOverlay(true, 'Reconnecting…');
+            setTimeout(function () {
+              startPlayer();
+            }, 800);
+          } catch (e) {
+            alert('Reconnect request failed');
+          } finally {
+            setTimeout(function () {
+              reconnectBtn.disabled = false;
+            }, 1200);
+          }
+        });
+
+        startPlayer();
+        pollHealth();
+        setInterval(pollHealth, 1000);
+      })();
+    </script>
+  </body>
+</html>
