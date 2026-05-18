@@ -9,8 +9,29 @@ import { MAX_MASTER_DESCRIPTION_CHARS, MAX_MASTER_PORT_NAME_CHARS } from '../con
 import { DEFAULT_SCHEDULE_TIMEZONE } from '../utils/scheduleDateTime.js'
 import { getIanaTimeZoneOptions, mergeTimezoneOptionsWithOrphan } from '../utils/ianaTimeZoneOptions.js'
 import SearchableSingleSelect from '../components/SearchableSingleSelect.jsx'
+import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
+import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 
 const PAGE_KEY = 'master-port'
+
+const PORT_COLUMNS = [
+  {
+    key: 'name',
+    label: 'Port Name',
+    getSortValue: (p) => (p.name || '').toLowerCase(),
+  },
+  {
+    key: 'scheduleTimezone',
+    label: 'Schedule TZ',
+    getSortValue: (p) => (p.scheduleTimezone || DEFAULT_SCHEDULE_TIMEZONE).toLowerCase(),
+  },
+  {
+    key: 'description',
+    label: 'Description',
+    getSortValue: (p) => (p.description || '').toLowerCase(),
+    getFilterValue: (p) => p.description || '',
+  },
+]
 
 export default function MasterPort() {
   const { logActivity } = useActivityLog()
@@ -144,6 +165,12 @@ export default function MasterPort() {
     [formScheduleTimezone]
   )
 
+  const { displayRows, filters, updateFilter, sortState, handleSort } = useSortableFilterableRows(
+    ports,
+    PORT_COLUMNS,
+    { key: 'name', dir: 'asc' }
+  )
+
   return (
     <div className="allocation-page">
       <h1 className="page-title">Master – Port</h1>
@@ -195,15 +222,17 @@ export default function MasterPort() {
           <div className="table-wrap">
             <table className="data-table allocation-table">
               <thead>
-                <tr>
-                  <th className="allocation-table__th">Port Name</th>
-                  <th className="allocation-table__th">Schedule TZ</th>
-                  <th className="allocation-table__th">Description</th>
-                  <th className="allocation-table__action-col">Actions</th>
-                </tr>
+                <SortableFilterableTableHead
+                  columns={PORT_COLUMNS}
+                  sortState={sortState}
+                  onSort={handleSort}
+                  filters={filters}
+                  onFilterChange={updateFilter}
+                  trailingBlankCols={1}
+                />
               </thead>
               <tbody>
-                {ports.map((p) => (
+                {displayRows.map((p) => (
                   <tr key={p.id} className="allocation-table__row">
                     <td><strong>{p.name || '—'}</strong></td>
                     <td className="text-steel">{p.scheduleTimezone || DEFAULT_SCHEDULE_TIMEZONE}</td>
@@ -240,6 +269,11 @@ export default function MasterPort() {
                 ))}
               </tbody>
             </table>
+            {displayRows.length === 0 && (
+              <p className="text-steel" style={{ marginTop: 'var(--spacing-3)' }}>
+                No entries match the current filters.
+              </p>
+            )}
           </div>
         )}
       </section>

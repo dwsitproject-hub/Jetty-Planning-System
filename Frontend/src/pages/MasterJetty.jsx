@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { fetchPorts } from '../api/ports'
@@ -9,8 +9,14 @@ import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/shipping-instruction.css'
 import { MAX_MASTER_DESCRIPTION_CHARS, MAX_MASTER_JETTY_NAME_CHARS } from '../constants/inputLimits'
+import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
+import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 
 const JETTY_STATUS_OPTIONS = ['Available', 'Out of Service']
+
+function jettyPortLabel(j, portNameFn) {
+  return j.portName || portNameFn(j.portId)
+}
 
 export default function MasterJetty() {
   const { t } = useTranslation('pages')
@@ -165,12 +171,51 @@ export default function MasterJetty() {
     logActivity,
   ])
 
-  const sortedJetties = [...jetties].sort((a, b) => {
-    const na = a.portName || portName(a.portId)
-    const nb = b.portName || portName(b.portId)
-    if (na !== nb) return na.localeCompare(nb)
-    return (a.orderNo ?? 0) - (b.orderNo ?? 0)
-  })
+  const jettyColumns = useMemo(
+    () => [
+      {
+        key: 'port',
+        label: 'Port',
+        getSortValue: (j) => jettyPortLabel(j, portName).toLowerCase(),
+        getFilterValue: (j) => jettyPortLabel(j, portName),
+      },
+      {
+        key: 'orderNo',
+        label: 'Order',
+        getSortValue: (j) => (j.orderNo != null ? Number(j.orderNo) : Number.POSITIVE_INFINITY),
+        getFilterValue: (j) => `${j.orderNo ?? ''}`,
+      },
+      {
+        key: 'name',
+        label: 'Jetty name',
+        getSortValue: (j) => (j.name || '').toLowerCase(),
+      },
+      {
+        key: 'capacity',
+        label: 'Capacity',
+        getSortValue: (j) => Number(j.capacity ?? 1),
+        getFilterValue: (j) => `${j.capacity ?? 1}`,
+      },
+      {
+        key: 'status',
+        label: 'Status',
+        getSortValue: (j) => (j.status || '').toLowerCase(),
+      },
+      {
+        key: 'description',
+        label: 'Description',
+        getSortValue: (j) => (j.description || '').toLowerCase(),
+        getFilterValue: (j) => j.description || '',
+      },
+    ],
+    [ports]
+  )
+
+  const { displayRows, filters, updateFilter, sortState, handleSort } = useSortableFilterableRows(
+    jetties,
+    jettyColumns,
+    { key: 'port', dir: 'asc' }
+  )
 
   return (
     <div className="allocation-page">
@@ -228,26 +273,25 @@ export default function MasterJetty() {
           <p className="text-steel">Loading…</p>
         ) : ports.length === 0 ? (
           <p className="text-steel">No ports. Add a port in Master – Port first.</p>
-        ) : sortedJetties.length === 0 ? (
+        ) : jetties.length === 0 ? (
           <p className="text-steel">No jetties. Click Add Jetty.</p>
         ) : (
           <div className="table-wrap">
             <table className="data-table allocation-table">
               <thead>
-                <tr>
-                  <th>Port</th>
-                  <th>Order</th>
-                  <th>Jetty name</th>
-                  <th>Capacity</th>
-                  <th>Status</th>
-                  <th>Description</th>
-                  <th>Actions</th>
-                </tr>
+                <SortableFilterableTableHead
+                  columns={jettyColumns}
+                  sortState={sortState}
+                  onSort={handleSort}
+                  filters={filters}
+                  onFilterChange={updateFilter}
+                  trailingBlankCols={1}
+                />
               </thead>
               <tbody>
-                {sortedJetties.map((j) => (
+                {displayRows.map((j) => (
                   <tr key={j.id}>
-                    <td>{j.portName || portName(j.portId)}</td>
+                    <td>{jettyPortLabel(j, portName)}</td>
                     <td>{j.orderNo ?? '—'}</td>
                     <td><strong>{j.name || '—'}</strong></td>
                     <td>{j.capacity ?? 1}</td>
@@ -262,6 +306,11 @@ export default function MasterJetty() {
                 ))}
               </tbody>
             </table>
+            {displayRows.length === 0 && (
+              <p className="text-steel" style={{ marginTop: 'var(--spacing-3)' }}>
+                No entries match the current filters.
+              </p>
+            )}
           </div>
         )}
       </section>
