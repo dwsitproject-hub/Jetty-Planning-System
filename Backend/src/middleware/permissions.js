@@ -44,6 +44,17 @@ export function requirePageEdit(resourceKey) {
   ];
 }
 
+export function requirePageDelete(resourceKey) {
+  return [
+    requireAuth,
+    async (req, res, next) => {
+      const ok = await userHasPageDelete(req.userId, resourceKey);
+      if (!ok) return res.status(403).json({ error: 'Forbidden' });
+      next();
+    },
+  ];
+}
+
 /** Whether the user may approve Shipping Instructions (or other pages using can_approve). */
 export async function userHasPageApprove(userId, resourceKey) {
   if (userId == null) return false;

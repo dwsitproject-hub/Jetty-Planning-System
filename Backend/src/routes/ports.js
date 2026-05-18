@@ -3,7 +3,7 @@
  */
 import express from 'express';
 import { pool } from '../db.js';
-import { requirePageEdit, requirePageView } from '../middleware/permissions.js';
+import { requirePageDelete, requirePageEdit, requirePageView } from '../middleware/permissions.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 
 const router = express.Router();
@@ -91,9 +91,17 @@ router.put('/:id', ...requirePageEdit('master-port'), async (req, res) => {
 });
 
 /** Soft-delete (blocked if non-deleted jetties reference this port). */
-router.delete('/:id', ...requirePageEdit('master-port'), async (req, res) => {
+router.delete('/:id', ...requirePageDelete('master-port'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  const existing = await pool.query(
+    `SELECT id, name FROM ports WHERE id = $1 AND deleted_at IS NULL`,
+    [id]
+  );
+  if (existing.rows.length === 0) return res.status(404).json({ error: 'Port not found' });
+  const portName = existing.rows[0].name;
+
   const j = await pool.query(
     `SELECT 1 FROM jetties WHERE port_id = $1 AND deleted_at IS NULL LIMIT 1`,
     [id]
@@ -101,18 +109,40 @@ router.delete('/:id', ...requirePageEdit('master-port'), async (req, res) => {
   if (j.rows.length > 0) {
     return res.status(409).json({ error: 'Cannot delete port while it has jetties; remove or delete jetties first' });
   }
-  const result = await pool.query(
-    `UPDATE ports SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL RETURNING id`,
-    [id]
-  );
-  if (result.rows.length === 0) return res.status(404).json({ error: 'Port not found' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE user_ports SET deleted_at = NOW(), updated_at = NOW()
+       WHERE port_id = $1 AND deleted_at IS NULL`,
+      [id]
+    );
+    const result = await client.query(
+      `UPDATE ports SET deleted_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND deleted_at IS NULL RETURNING id`,
+      [id]
+    );
+    if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Port not found' });
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+
   writeActivityLog({
     pageKey: 'master-port',
     action: 'delete',
     entityType: 'Port',
     entityId: id,
-    entityLabel: `Port ${id}`,
-    summary: 'Deleted port',
+    entityLabel: portName,
+    summary: `Deleted port "${portName}"`,
+    meta: { portId: id, portName },
     actorUserId: req.userId ?? null,
   }).catch(() => {});
   res.status(204).send();

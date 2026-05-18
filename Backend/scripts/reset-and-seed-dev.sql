@@ -1,5 +1,6 @@
 -- Reset transactional data (keep master tables) and seed fresh demo data.
 -- Target: local docker DB (jps-db). Safe to re-run.
+-- Cleanup only (no seed): Backend/scripts/purge-transactional-data.sql
 
 BEGIN;
 
@@ -7,17 +8,21 @@ BEGIN;
 -- 1) Clean transactional tables
 -- ----------------------------
 TRUNCATE TABLE
+  public.notification_deliveries,
+  public.notifications,
   public.qc_documents,
   public.qc_surveys,
   public.quantity_checks,
-  public.operation_documents,
+  public.operation_cargo_load_lines,
   public.operation_operational_activities,
   public.operation_sub_process_documents,
   public.operation_sub_processes,
   public.operation_nor_details,
+  public.operation_documents,
   public.operation_materials,
   public.jetty_operation_code_counters,
   public.operations,
+  public.shipping_instruction_documents,
   public.shipping_instruction_breakdown,
   public.shipping_instructions,
   public.shipment_plans,

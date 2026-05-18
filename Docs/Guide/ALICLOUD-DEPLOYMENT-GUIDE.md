@@ -549,6 +549,8 @@ docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps
 docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d --build
 ```
 
+**Purge all transactional data (manual only — not a migration):** see [PURGE-TRANSACTIONAL-DATA.md](../Troubleshoot/PURGE-TRANSACTIONAL-DATA.md). On the backend host: `bash Backend/scripts/run-purge-transactional-data.sh` (type `PURGE` when prompted).
+
 **App**
 
 ```bash

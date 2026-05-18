@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { ping, getHealth, getApiOrigin } from '../api/client'
-import { fetchPorts, createPort, updatePortApi } from '../api/ports'
+import { fetchPorts, createPort, updatePortApi, deletePort } from '../api/ports'
 import { useActivityLog } from '../context/ActivityLogContext'
+import { useRbac } from '../context/RbacContext'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import { MAX_MASTER_DESCRIPTION_CHARS, MAX_MASTER_PORT_NAME_CHARS } from '../constants/inputLimits'
@@ -10,13 +10,19 @@ import { DEFAULT_SCHEDULE_TIMEZONE } from '../utils/scheduleDateTime.js'
 import { getIanaTimeZoneOptions, mergeTimezoneOptionsWithOrphan } from '../utils/ianaTimeZoneOptions.js'
 import SearchableSingleSelect from '../components/SearchableSingleSelect.jsx'
 
+const PAGE_KEY = 'master-port'
+
 export default function MasterPort() {
   const { logActivity } = useActivityLog()
+  const { canEdit, canDelete } = useRbac()
+  const canDoEdit = canEdit(PAGE_KEY)
+  const canDoDelete = canDelete(PAGE_KEY)
   const [ports, setPorts] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState(null)
-  const [slice0Status, setSlice0Status] = useState({ health: null, ping: null, message: '' })
+  const [toast, setToast] = useState(null)
 
   const loadPorts = useCallback(async () => {
     setError(null)
@@ -33,37 +39,14 @@ export default function MasterPort() {
   }, [])
 
   useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        await getHealth()
-        if (cancelled) return
-        setSlice0Status((s) => ({ ...s, health: 'ok' }))
-      } catch {
-        if (!cancelled) setSlice0Status((s) => ({ ...s, health: 'fail' }))
-      }
-      try {
-        await ping()
-        if (cancelled) return
-        setSlice0Status((s) => ({ ...s, ping: 'ok', message: 'API reachable' }))
-      } catch {
-        if (!cancelled) {
-          setSlice0Status((s) => ({
-            ...s,
-            ping: 'fail',
-            message: `Check Backend + CORS (${getApiOrigin()})`,
-          }))
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
     loadPorts()
   }, [loadPorts])
+
+  useEffect(() => {
+    if (!toast) return
+    const timer = window.setTimeout(() => setToast(null), 5500)
+    return () => window.clearTimeout(timer)
+  }, [toast])
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState(null)
@@ -107,14 +90,16 @@ export default function MasterPort() {
           description: (formDescription || '').trim() || null,
           scheduleTimezone: (formScheduleTimezone || '').trim() || DEFAULT_SCHEDULE_TIMEZONE,
         })
-        logActivity({ pageKey: 'master-port', action: 'update', entityType: 'Port', entityLabel: name })
+        logActivity({ pageKey: PAGE_KEY, action: 'update', entityType: 'Port', entityLabel: name })
+        setToast({ message: `Port saved: ${name}.`, variant: 'success' })
       } else {
         await createPort({
           name,
           description: (formDescription || '').trim() || null,
           scheduleTimezone: (formScheduleTimezone || '').trim() || DEFAULT_SCHEDULE_TIMEZONE,
         })
-        logActivity({ pageKey: 'master-port', action: 'add', entityType: 'Port', entityLabel: name })
+        logActivity({ pageKey: PAGE_KEY, action: 'add', entityType: 'Port', entityLabel: name })
+        setToast({ message: `Port added: ${name}.`, variant: 'success' })
       }
       await loadPorts()
       closeModal()
@@ -125,24 +110,45 @@ export default function MasterPort() {
     }
   }, [editingId, formName, formDescription, formScheduleTimezone, closeModal, logActivity, loadPorts])
 
+  const handleDelete = useCallback(
+    async (port) => {
+      if (!canDoDelete || !port?.id) return
+      const label = port.name || `Port #${port.id}`
+      // eslint-disable-next-line no-alert
+      const ok = window.confirm(`Are you sure you want to delete port "${label}"?`)
+      if (!ok) return
+
+      setDeleting(true)
+      setError(null)
+      try {
+        await deletePort(port.id)
+        logActivity({
+          pageKey: PAGE_KEY,
+          action: 'delete',
+          entityType: 'Port',
+          entityLabel: label,
+        })
+        setToast({ message: `Deleted port "${label}".`, variant: 'success' })
+        await loadPorts()
+      } catch (e) {
+        setError(e?.message || 'Delete failed')
+      } finally {
+        setDeleting(false)
+      }
+    },
+    [canDoDelete, logActivity, loadPorts]
+  )
+
   const timezoneSelectOptions = useMemo(
     () => mergeTimezoneOptionsWithOrphan(formScheduleTimezone, getIanaTimeZoneOptions()),
     [formScheduleTimezone]
   )
 
-  const apiLine =
-    slice0Status.health === 'ok' && slice0Status.ping === 'ok'
-      ? 'API: health + /ping OK'
-      : `API: health ${slice0Status.health || '…'} · /ping ${slice0Status.ping || '…'}${slice0Status.message ? ` — ${slice0Status.message}` : ''}`
-
   return (
     <div className="allocation-page">
       <h1 className="page-title">Master – Port</h1>
       <p className="allocation-page__intro">
-        Add and manage master port / site data (live API).
-      </p>
-      <p className="text-steel" style={{ fontSize: 'var(--font-size-small)' }}>
-        {apiLine}
+        Add and manage master port / site data.
       </p>
       <p className="text-steel">
         <Link to="/master" className="link">← Back to Master Menu</Link>
@@ -151,6 +157,16 @@ export default function MasterPort() {
       {error && (
         <p className="allocation-page__intro" style={{ color: 'var(--color-danger, #c00)' }} role="alert">
           {error}
+        </p>
+      )}
+
+      {toast && (
+        <p
+          className="allocation-page__intro"
+          style={{ color: toast.variant === 'success' ? 'var(--color-success, #0a7)' : 'var(--color-danger, #c00)' }}
+          role="status"
+        >
+          {toast.message}
         </p>
       )}
 
@@ -166,7 +182,7 @@ export default function MasterPort() {
             >
               Refresh
             </button>
-            <button type="button" className="btn btn--primary" onClick={openAdd}>
+            <button type="button" className="btn btn--primary" onClick={openAdd} disabled={!canDoEdit}>
               Add Port
             </button>
           </div>
@@ -200,8 +216,23 @@ export default function MasterPort() {
                     </td>
                     <td className="allocation-table__action-col">
                       <div className="allocation-table__action-btns">
-                        <button type="button" className="btn btn--small btn--secondary" onClick={() => openEdit(p)}>
+                        <button
+                          type="button"
+                          className="btn btn--small btn--secondary"
+                          onClick={() => openEdit(p)}
+                          disabled={!canDoEdit}
+                          title={!canDoEdit ? 'Edit permission required.' : ''}
+                        >
                           Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn--small btn--secondary"
+                          onClick={() => handleDelete(p)}
+                          disabled={!canDoDelete || deleting}
+                          title={!canDoDelete ? 'Delete permission required.' : ''}
+                        >
+                          Delete
                         </button>
                       </div>
                     </td>

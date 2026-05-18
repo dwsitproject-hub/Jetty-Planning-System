@@ -11,6 +11,42 @@ function formatTime(iso) {
 
 const ACTION_LABELS = { add: 'Added', update: 'Updated', delete: 'Deleted' }
 
+const LEGACY_PORT_ID_LABEL = /^Port\s*#?\d+$/i
+
+/** Resolve display name for port activity rows (never show "Port 4" id-style labels). */
+function resolvePortActivityName(entry) {
+  const metaName = entry.meta?.portName != null ? String(entry.meta.portName).trim() : ''
+  if (metaName) return metaName
+  const quoted = entry.summary?.match(/"([^"]+)"/)?.[1]?.trim()
+  if (quoted) return quoted
+  const summaryTrim = (entry.summary || '').trim()
+  if (
+    summaryTrim &&
+    !/^deleted\b/i.test(summaryTrim) &&
+    !LEGACY_PORT_ID_LABEL.test(summaryTrim) &&
+    !/^\d+$/.test(summaryTrim)
+  ) {
+    return summaryTrim
+  }
+  const label = (entry.entityLabel || '').trim()
+  if (label && !LEGACY_PORT_ID_LABEL.test(label) && !/^\d+$/.test(label)) return label
+  return null
+}
+
+function formatActivityEntityLabel(entry) {
+  const type = (entry.entityType || '').trim()
+  if (type.toLowerCase() === 'port') {
+    return resolvePortActivityName(entry) || ''
+  }
+  const label = (entry.entityLabel || '').trim()
+  if (LEGACY_PORT_ID_LABEL.test(label)) {
+    const resolved = resolvePortActivityName({ ...entry, entityType: 'Port' })
+    if (resolved) return resolved
+    return ''
+  }
+  return label || type || ''
+}
+
 function normalizeDetails(details) {
   if (!details) return null
   if (typeof details === 'string') return { summary: details }
@@ -144,6 +180,7 @@ export default function ActivityLogPanel({ pageKey }) {
                   const d = normalizeDetails(entry.changes || entry.details ? { summary: entry.summary || entry.details, changes: entry.changes } : entry.details)
                   const hasChanges = Array.isArray(d?.changes) && d.changes.length > 0
                   const isOpen = expanded.has(entry.id)
+                  const entityDisplay = formatActivityEntityLabel(entry)
                   return (
                 <div key={entry.id} className="activity-log-entry" data-action={entry.action}>
                   <div className="activity-log-entry__meta">
@@ -151,9 +188,12 @@ export default function ActivityLogPanel({ pageKey }) {
                     <span className="activity-log-entry__time">{formatTime(entry.createdAt || entry.timestamp)}</span>
                   </div>
                   <div className="activity-log-entry__action" data-action={entry.action}>
-                    {ACTION_LABELS[entry.action] || entry.action}{' '}
-                    {entry.entityType ? (
-                      <strong>{entry.entityLabel || entry.entityType}</strong>
+                    {ACTION_LABELS[entry.action] || entry.action}
+                    {entityDisplay ? (
+                      <>
+                        {' '}
+                        <strong>{entityDisplay}</strong>
+                      </>
                     ) : null}
                   </div>
                   {d?.summary && <div className="activity-log-entry__details">{d.summary}</div>}

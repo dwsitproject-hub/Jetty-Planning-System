@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut } from './client.js'
+import { apiGet, apiPost, apiPut, apiDelete } from './client.js'
 
 /** @returns {Promise<Array<{ id: number, name: string, description: string | null, scheduleTimezone: string, createdAt: string, updatedAt: string }>>} */
 export function fetchPorts() {
@@ -25,6 +25,10 @@ export function updatePortApi(id, { name, description, scheduleTimezone } = {}) 
     description: description ?? null,
     scheduleTimezone: bodyScheduleTimezone(scheduleTimezone),
   })
+}
+
+export function deletePort(id) {
+  return apiDelete(`/ports/${id}`)
 }
 
 export function fetchPortUsers(portId) {
