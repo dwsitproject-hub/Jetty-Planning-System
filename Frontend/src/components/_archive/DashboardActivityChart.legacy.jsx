@@ -1,3 +1,4 @@
+/** Legacy dashboard activity chart (retired). Active UI: `pages/DashboardV2.jsx` at `/`. */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { createPortal } from 'react-dom'
@@ -6,7 +7,7 @@ import {
   isPlannedBerthingQueueRow,
   isQueueRowBerthing,
   normalizeQueuePurpose,
-} from '../utils/dashboardQueueClassification'
+} from '../../utils/_archive/dashboardQueueClassification.legacy'
 
 const MODE_OPS = 'operations'
 const MODE_SI = 'si'

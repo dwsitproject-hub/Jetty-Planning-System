@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiDelete, getSelectedPortId } from './client.js'
+import { apiGet, apiPost, apiPut, apiDelete, getSelectedPortId, apiPostForm } from './client.js'
 
 export function fetchShippingInstructions(params = {}) {
   const sp = new URLSearchParams()
@@ -97,4 +97,11 @@ export function updateShippingInstruction(id, body) {
     bl_indicated: body.blIndicated,
     document_date: body.documentDate,
   })
+}
+
+/** POST multipart: field `file` — OCR / PDF text extract for SI draft autofill (large timeout for first Tesseract run). */
+export function extractShippingInstructionFromDocument(file) {
+  const fd = new FormData()
+  fd.append('file', file)
+  return apiPostForm('/si-document-extract', fd, 180000)
 }

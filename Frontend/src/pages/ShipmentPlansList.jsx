@@ -9,7 +9,13 @@ import {
   submitShipmentPlan,
   deleteShipmentPlan,
 } from '../api/shipmentPlans'
-import { createShippingInstruction, fetchSiNpwpMaster } from '../api/shippingInstructions'
+import {
+  createShippingInstruction,
+  fetchShippingInstruction,
+  fetchSiNpwpMaster,
+  updateShippingInstruction,
+} from '../api/shippingInstructions'
+import { attachDraftSiDocuments, deleteSiDocument } from '../api/siDocuments'
 import { fetchSiLookups } from '../api/siLookups'
 import { useRbac } from '../context/RbacContext'
 import { useActivityLog } from '../context/ActivityLogContext'
@@ -22,9 +28,15 @@ import {
   defaultSiDraftForPlanPreview,
   nextDocId,
   planEtaYmd,
+  siDetailToPlanLinkedDraftForm,
+  existingSiIdFromDraftKey,
   validateSiDraftForCreate,
   buildSiCreateApiPayload,
+  buildSiUpdateApiPayload,
 } from '../utils/siPlanLinkedDraft'
+import { useSiDocumentExtract } from '../hooks/useSiDocumentExtract'
+import SiExtractConflictModal from '../components/SiExtractConflictModal'
+import SiExtractResultPanel from '../components/SiExtractResultPanel'
 import { MAX_SI_VESSEL_NAME_CHARS, MAX_SI_VOYAGE_CHARS } from '../constants/inputLimits'
 import '../styles/shipping-instruction.css'
 
@@ -73,6 +85,9 @@ export default function ShipmentPlansList() {
   const [expandLoading, setExpandLoading] = useState(false)
 
   const [isFormOpen, setIsFormOpen] = useState(false)
+  /** 'create' | 'edit' | 'view' — view uses create layout with filled read-only fields */
+  const [formModalMode, setFormModalMode] = useState(null)
+  const [modalSiLoading, setModalSiLoading] = useState(false)
   const [editingPlan, setEditingPlan] = useState(null)
   const [formVessel, setFormVessel] = useState('')
   const [formJettyId, setFormJettyId] = useState('')
@@ -96,7 +111,32 @@ export default function ShipmentPlansList() {
   })
   const [plansListPage, setPlansListPage] = useState(1)
   const [siDocumentModalId, setSiDocumentModalId] = useState(null)
+  const [siDraftOcrIndex, setSiDraftOcrIndex] = useState(null)
   const openedPlanFromQueryRef = useRef(null)
+
+  const getPlanFormForExtract = useCallback(
+    () => ({
+      vesselName: formVessel,
+      voyageNo: formVoyageNo,
+      agentId: formAgentId,
+      eta: formEta,
+    }),
+    [formVessel, formVoyageNo, formAgentId, formEta]
+  )
+
+  const onApplyPlanFieldsFromExtract = useCallback((plan) => {
+    if (plan.vesselName != null) setFormVessel(plan.vesselName)
+    if (plan.voyageNo != null) setFormVoyageNo(plan.voyageNo)
+    if (plan.agentId != null) setFormAgentId(String(plan.agentId))
+    if (plan.eta != null) setFormEta(plan.eta)
+  }, [])
+
+  const siDocExtract = useSiDocumentExtract({
+    lookups,
+    t,
+    getPlanForm: getPlanFormForExtract,
+    onApplyPlanFields: onApplyPlanFieldsFromExtract,
+  })
 
   useEffect(() => {
     const id = window.setTimeout(() => setDebouncedVesselQ(vesselQ.trim()), 350)
@@ -146,7 +186,8 @@ export default function ShipmentPlansList() {
   }, [list])
 
   const planPreviewForSi = useMemo(() => {
-    const etaIso = formEta?.trim() ? new Date(formEta).toISOString() : null
+    const etaDate = formEta?.trim() ? new Date(formEta) : null
+    const etaIso = etaDate && !isNaN(etaDate.getTime()) ? etaDate.toISOString() : null
     const purposePid = formPurposeId ? parseInt(formPurposeId, 10) : null
     const pr = (lookups?.purposes || []).find((p) => String(p.id) === String(formPurposeId)) || null
     const jettyId = formJettyId ? parseInt(formJettyId, 10) : null
@@ -248,34 +289,101 @@ export default function ShipmentPlansList() {
   }, [isFormOpen, createModalPurposeIsLoading])
 
   useEffect(() => {
-    if (!isFormOpen || editingPlan || !lookups) return
+    if (!isFormOpen || formModalMode !== 'create' || !lookups) return
     setSiDrafts((prev) => {
       if (prev.length > 0) return prev
       return [{ id: genSiDraftId(), form: defaultSiDraftForPlanPreview(lookups, planPreviewForSi) }]
     })
-  }, [isFormOpen, editingPlan, lookups, planPreviewForSi])
+  }, [isFormOpen, formModalMode, lookups, planPreviewForSi])
+
+  /** View/edit modal: hydrate SI draft cards when lookups arrive after plan fetch. */
+  useEffect(() => {
+    if ((formModalMode !== 'view' && formModalMode !== 'edit') || !isFormOpen || !lookups || !editingPlanDetail || siDrafts.length > 0)
+      return
+    const children = editingPlanDetail.shippingInstructions || []
+    if (!children.length) return
+    let cancelled = false
+    setModalSiLoading(true)
+    ;(async () => {
+      try {
+        const drafts = await buildSiDraftsFromPlanDetail(editingPlanDetail, editingPlan)
+        if (!cancelled && drafts.length) setSiDrafts(drafts)
+      } catch {
+        if (!cancelled) setToast({ message: t('listLoading'), variant: 'error' })
+      } finally {
+        if (!cancelled) setModalSiLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [formModalMode, isFormOpen, lookups, editingPlanDetail, editingPlan, siDrafts.length, t])
 
   useEffect(() => {
-    if (!isFormOpen || !lookups) return
+    if (!isFormOpen || formModalMode === 'view' || !lookups || siDocExtract.extractBusy) return
     setSiDrafts((drafts) => {
       if (drafts.length === 0) return drafts
+      if (
+        drafts.some((d) =>
+          (d.form.documents || []).some((doc) => doc.pending || doc.failed)
+        )
+      ) {
+        return drafts
+      }
       const ymd = planEtaYmd(planPreviewForSi)
       return drafts.map((d) => ({
         ...d,
         form: {
           ...d.form,
+          documents: Array.isArray(d.form.documents) ? [...d.form.documents] : [],
           vesselName: planPreviewForSi.vesselName || '',
           purposeId: planPreviewForSi.purposeId != null ? String(planPreviewForSi.purposeId) : '',
           preferredJettyId: planPreviewForSi.jettyId != null ? String(planPreviewForSi.jettyId) : '',
           etaFrom: ymd,
           etaTo: ymd,
-          documentDate: ymd || d.form.documentDate,
+          documentDate: d.form.documentDate?.trim()
+            ? d.form.documentDate
+            : ymd || '',
         },
       }))
     })
-  }, [isFormOpen, lookups, planPreviewForSi])
+  }, [isFormOpen, formModalMode, lookups, planPreviewForSi, siDocExtract.extractBusy])
+
+  const applyPlanDetailToFormFields = (d, row) => {
+    setFormVessel(d.vesselName || row?.vesselName || '')
+    setFormJettyId(d.jettyId != null ? String(d.jettyId) : '')
+    setFormEta(toDateTimeLocalValue(d.eta ?? row?.eta))
+    setFormPurposeId(d.purposeId != null ? String(d.purposeId) : '')
+    setFormVoyageNo(d.voyageNo || '')
+    setFormAgentId(d.agentId != null ? String(d.agentId) : '')
+  }
+
+  const buildSiDraftsFromPlanDetail = async (d, row) => {
+    const children = d.shippingInstructions || []
+    if (!children.length || !lookups) return []
+    const purposeRow = (lookups?.purposes || []).find((p) => Number(p.id) === Number(d.purposeId)) || null
+    const linked = {
+      id: d.id,
+      vesselName: d.vesselName,
+      purposeId: d.purposeId,
+      purposeCode: purposeRow?.code ?? d.purposeCode ?? row?.purposeCode ?? null,
+      eta: d.eta,
+      voyageNo: d.voyageNo,
+      jettyId: d.jettyId,
+      planReference: d.planReference,
+      agentId: d.agentId,
+    }
+    const fullRows = await Promise.all(children.map((si) => fetchShippingInstruction(si.id)))
+    return fullRows.map((si) => ({
+      id: `si-existing-${si.id}`,
+      form: siDetailToPlanLinkedDraftForm(si, lookups, linked),
+      existingStatus: si.status || 'Draft',
+    }))
+  }
 
   const openCreateModal = () => {
+    setFormModalMode('create')
+    setModalSiLoading(false)
     setEditingPlan(null)
     setFormVessel('')
     setFormJettyId('')
@@ -288,6 +396,8 @@ export default function ShipmentPlansList() {
   }
 
   const openEditModal = async (row) => {
+    setFormModalMode('edit')
+    setModalSiLoading(true)
     setEditingPlan(row)
     setSiDrafts([])
     setEditingPlanDetail(null)
@@ -301,19 +411,54 @@ export default function ShipmentPlansList() {
     try {
       const d = await fetchShipmentPlan(row.id)
       setEditingPlanDetail(d)
-      setFormAgentId(d.agentId != null ? String(d.agentId) : '')
+      applyPlanDetailToFormFields(d, row)
+      const drafts = await buildSiDraftsFromPlanDetail(d, row)
+      if (drafts.length) setSiDrafts(drafts)
     } catch {
       setEditingPlanDetail(null)
+      setToast({ message: t('listLoading'), variant: 'error' })
+    } finally {
+      setModalSiLoading(false)
+    }
+  }
+
+  const openViewModal = async (row) => {
+    setFormModalMode('view')
+    setModalSiLoading(true)
+    setEditingPlan(row)
+    setSiDrafts([])
+    setEditingPlanDetail(null)
+    setFormVessel(row.vesselName || '')
+    setFormJettyId(row.jettyId != null ? String(row.jettyId) : '')
+    setFormEta(toDateTimeLocalValue(row.eta))
+    setFormPurposeId(row.purposeId != null ? String(row.purposeId) : '')
+    setFormVoyageNo(row.voyageNo || '')
+    setFormAgentId(row.agentId != null ? String(row.agentId) : '')
+    setIsFormOpen(true)
+    try {
+      const d = await fetchShipmentPlan(row.id)
+      setEditingPlanDetail(d)
+      applyPlanDetailToFormFields(d, row)
+      const drafts = await buildSiDraftsFromPlanDetail(d, row)
+      if (drafts.length) setSiDrafts(drafts)
+    } catch {
+      setEditingPlanDetail(null)
+      setToast({ message: t('listLoading'), variant: 'error' })
+    } finally {
+      setModalSiLoading(false)
     }
   }
 
   const handleCloseModal = () => {
     setIsFormOpen(false)
+    setFormModalMode(null)
+    setModalSiLoading(false)
     setEditingPlan(null)
     setSiDrafts([])
     setEditingPlanDetail(null)
     setSiDocumentModalId(null)
     openedPlanFromQueryRef.current = null
+    setSiDraftOcrIndex(null)
     setFormAgentId('')
   }
 
@@ -350,6 +495,7 @@ export default function ShipmentPlansList() {
           approvalStatus: d.approvalStatus,
           agentId: d.agentId,
         }
+        setFormModalMode('edit')
         setEditingPlan(row)
         setSiDrafts([])
         setEditingPlanDetail(d)
@@ -409,6 +555,8 @@ export default function ShipmentPlansList() {
         voyageNo: formVoyageNo.trim() || null,
         agentId: Number.isFinite(agentPidSave) ? agentPidSave : null,
       })
+      let updatedSiCount = 0
+      let createdSiCount = 0
       if (lookups && siDrafts.length > 0) {
         const purposeRow = (lookups?.purposes || []).find((p) => Number(p.id) === purposePid) || null
         const linked = {
@@ -429,15 +577,42 @@ export default function ShipmentPlansList() {
             await loadList()
             return
           }
-          const payload = buildSiCreateApiPayload(siDrafts[i].form, linked, validated)
-          const saved = await createShippingInstruction(payload)
-          logActivity({
-            pageKey: 'shipment-plan',
-            action: 'add',
-            entityType: 'Shipping Instruction',
-            entityLabel: saved.referenceNumber || `SI-${saved.id}`,
-            details: { summary: `Added SI to plan ${editingPlan.planReference || editingPlan.id} (edit modal)` },
-          })
+          const existingId = existingSiIdFromDraftKey(siDrafts[i].id)
+          if (existingId) {
+            const updatePayload = buildSiUpdateApiPayload(siDrafts[i].form, linked, validated)
+            updatePayload.status = siDrafts[i].existingStatus || 'Draft'
+            const saved = await updateShippingInstruction(existingId, updatePayload)
+            updatedSiCount += 1
+            logActivity({
+              pageKey: 'shipment-plan',
+              action: 'update',
+              entityType: 'Shipping Instruction',
+              entityLabel: saved.referenceNumber || `SI-${saved.id}`,
+              details: { summary: `Updated SI on plan ${editingPlan.planReference || editingPlan.id} (edit modal)` },
+            })
+          } else {
+            const payload = buildSiCreateApiPayload(siDrafts[i].form, linked, validated)
+            const saved = await createShippingInstruction(payload)
+            createdSiCount += 1
+            if ((siDrafts[i].form.documents || []).some((doc) => doc.documentId)) {
+              try {
+                await attachDraftSiDocuments({
+                  draftKey: siDrafts[i].id,
+                  shipmentPlanId: editingPlan.id,
+                  shippingInstructionId: saved.id,
+                })
+              } catch {
+                /* non-fatal */
+              }
+            }
+            logActivity({
+              pageKey: 'shipment-plan',
+              action: 'add',
+              entityType: 'Shipping Instruction',
+              entityLabel: saved.referenceNumber || `SI-${saved.id}`,
+              details: { summary: `Added SI to plan ${editingPlan.planReference || editingPlan.id} (edit modal)` },
+            })
+          }
         }
       }
       logActivity({
@@ -445,13 +620,17 @@ export default function ShipmentPlansList() {
         action: 'update',
         entityType: 'ShipmentPlan',
         entityLabel: editingPlan.planReference || `Plan #${editingPlan.id}`,
-        details: { summary: 'Updated shipment plan shell' },
+        details: { summary: 'Updated shipment plan' },
       })
-      setToast({
-        message:
-          siDrafts.length > 0 ? t('editPlanSavedWithNewSis', { count: siDrafts.length }) : t('editPlanSaved'),
-        variant: 'success',
-      })
+      let successMessage = t('editPlanSaved')
+      if (updatedSiCount > 0 && createdSiCount > 0) {
+        successMessage = t('editPlanSavedUpdatedAndCreated', { updated: updatedSiCount, created: createdSiCount })
+      } else if (updatedSiCount > 0) {
+        successMessage = t('editPlanSavedUpdatedSis', { count: updatedSiCount })
+      } else if (createdSiCount > 0) {
+        successMessage = t('editPlanSavedWithNewSis', { count: createdSiCount })
+      }
+      setToast({ message: successMessage, variant: 'success' })
       handleCloseModal()
       await loadList()
     } catch (err) {
@@ -506,6 +685,15 @@ export default function ShipmentPlansList() {
     }
     try {
       const created = await createShipmentPlan(body)
+      for (const d of siDrafts) {
+        if ((d.form.documents || []).some((doc) => doc.documentId)) {
+          try {
+            await attachDraftSiDocuments({ draftKey: d.id, shipmentPlanId: created.id })
+          } catch {
+            /* non-fatal: plan and SIs still created */
+          }
+        }
+      }
       const purposeRow = (lookups?.purposes || []).find((p) => Number(p.id) === Number(created.purposeId)) || null
       const linked = {
         id: created.id,
@@ -557,12 +745,8 @@ export default function ShipmentPlansList() {
     if (!lookups) return
     setSiDrafts((prev) => {
       let form = defaultSiDraftForPlanPreview(lookups, linkedPlanForSiCards)
-      if (prev.length >= 1 && prev[0]?.form) {
-        form = {
-          ...form,
-          shipperId: prev[0].form.shipperId || '',
-          loadingPortId: prev[0].form.loadingPortId || '',
-        }
+      if (prev.length >= 1) {
+        form = { ...form, documentDate: '' }
       } else if (prev.length === 0 && editingPlan && editingPlanDetail?.shippingInstructions?.[0]) {
         const ex = editingPlanDetail.shippingInstructions[0]
         form = {
@@ -577,6 +761,8 @@ export default function ShipmentPlansList() {
 
   const removeSiDraftBlock = (index) => {
     setSiDrafts((prev) => {
+      const block = prev[index]
+      if (block && existingSiIdFromDraftKey(block.id)) return prev
       if (prev.length <= 1 && !editingPlan) return prev
       return prev.filter((_, i) => i !== index)
     })
@@ -592,15 +778,51 @@ export default function ShipmentPlansList() {
     )
   }
 
-  const addSiDraftDocuments = (index, e) => {
-    const files = e.target.files
-    if (!files || files.length === 0) return
-    const newDocs = Array.from(files).map((file) => ({ id: nextDocId(), name: file.name }))
-    setSiDraftForm(index, (f) => ({ ...f, documents: [...(f.documents || []), ...newDocs] }))
+  const addSiDraftDocuments = async (index, e) => {
+    e.preventDefault?.()
+    e.stopPropagation?.()
+    const files = Array.from(e.target.files || [])
     e.target.value = ''
+    if (!files.length) return
+
+    let draftSnapshot = siDrafts[index]
+    if (!draftSnapshot) {
+      setToast({ message: t('createNeedAtLeastOneSi'), variant: 'error' })
+      return
+    }
+    if (!lookups) {
+      setToast({ message: t('siExtractLookupsMissing'), variant: 'error' })
+      return
+    }
+
+    setSiDraftOcrIndex(index)
+    try {
+      await siDocExtract.handleFilesForDraft({
+        files,
+        form: draftSnapshot.form,
+        setForm: (next) =>
+          setSiDraftForm(index, (f) => (typeof next === 'function' ? next(f) : next)),
+        draftKey: draftSnapshot.id,
+        shipmentPlanId: linkedPlanForSiCards?.id ?? null,
+        onToast: setToast,
+      })
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[addSiDraftDocuments]', err)
+      setToast({
+        message: err?.message || t('siExtractFailed'),
+        variant: 'error',
+      })
+    } finally {
+      setSiDraftOcrIndex(null)
+    }
   }
 
   const removeSiDraftDocument = (index, docId) => {
+    const doc = siDrafts[index]?.form?.documents?.find((d) => d.id === docId)
+    if (doc?.documentId) {
+      deleteSiDocument(doc.documentId).catch(() => {})
+    }
     setSiDraftForm(index, (f) => ({ ...f, documents: (f.documents || []).filter((d) => d.id !== docId) }))
   }
 
@@ -624,7 +846,7 @@ export default function ShipmentPlansList() {
           aria-atomic="true"
         >
           <span className="si-toast__icon" aria-hidden>
-            {toast.variant === 'error' ? '!' : '✓'}
+            {toast.variant === 'error' ? '!' : toast.variant === 'warning' ? '!' : '✓'}
           </span>
           <p className="si-toast__message">{toast.message}</p>
           <button type="button" className="si-toast__close" onClick={() => setToast(null)} aria-label={t('dismissNotification')}>
@@ -632,6 +854,15 @@ export default function ShipmentPlansList() {
           </button>
         </div>
       )}
+
+      <SiExtractConflictModal
+        open={siDocExtract.conflictOpen}
+        conflicts={siDocExtract.conflictList}
+        warnings={siDocExtract.conflictWarnings}
+        partialApply={siDocExtract.conflictPartialApply}
+        onCancel={siDocExtract.cancelConflict}
+        onApply={(keys) => siDocExtract.resolveConflict(keys)}
+      />
 
       <header className="si-page-header">
         <div className="si-page-header__text">
@@ -852,7 +1083,7 @@ export default function ShipmentPlansList() {
                         }
                       }}
                       onOpenApproval={() => navigate(`/shipment-plans/approval/${row.id}`)}
-                      onViewHub={() => navigate(`/shipment-plans/${row.id}`)}
+                      onViewHub={() => openViewModal(row)}
                       onDelete={() => {
                         const label = row.planReference || `Plan #${row.id}`
                         if (!window.confirm(t('deletePlanConfirm', { label }))) return
@@ -972,12 +1203,26 @@ export default function ShipmentPlansList() {
             aria-modal="true"
           >
             <h2 className="modal__title">
-              {editingPlan ? t('modalEditTitle', { id: editingPlan.id }) : t('modalCreateCombinedTitle')}
+              {formModalMode === 'view'
+                ? t('modalViewCombinedTitle', {
+                    ref: editingPlan?.planReference || editingPlanDetail?.planReference || `Plan #${editingPlan?.id}`,
+                  })
+                : editingPlan
+                  ? t('modalEditTitle', { id: editingPlan.id })
+                  : t('modalCreateCombinedTitle')}
             </h2>
             <form
-              onSubmit={editingPlan ? handleSavePlan : handleCreatePlanAndSis}
+              onSubmit={(e) => {
+                if (formModalMode === 'view') {
+                  e.preventDefault()
+                  return
+                }
+                if (editingPlan) handleSavePlan(e)
+                else handleCreatePlanAndSis(e)
+              }}
               className="shipping-instruction-form"
             >
+              <fieldset disabled={formModalMode === 'view' || modalSiLoading} style={{ border: 0, padding: 0, margin: 0 }}>
               <div className="shipping-instruction-form__section">
                 <h3 className="shipping-instruction-form__section-title">{t('createPlanSectionTitle')}</h3>
                 <div className="shipping-instruction-form__grid">
@@ -1047,12 +1292,28 @@ export default function ShipmentPlansList() {
                 </div>
               </div>
 
-              {!editingPlan && (
+              {(formModalMode === 'view' || formModalMode === 'edit' || !editingPlan) && (
                 <div className="shipping-instruction-form__section" style={{ marginTop: '1.25rem' }}>
                   <h3 className="shipping-instruction-form__section-title">{t('createSiSectionTitle')}</h3>
-                  <p className="text-steel" style={{ fontSize: '0.9rem', marginBottom: '0.75rem' }}>
-                    {t('createSiSectionHint')}
-                  </p>
+                  {formModalMode !== 'view' && (
+                    <p className="text-steel" style={{ fontSize: '0.9rem', marginBottom: '0.75rem' }}>
+                      {t('createSiSectionHint')}
+                    </p>
+                  )}
+                  {(formModalMode === 'view' || formModalMode === 'edit') && modalSiLoading && (
+                    <p className="text-steel" style={{ marginBottom: '1rem' }}>
+                      {t('viewPlanSiListLoading')}
+                    </p>
+                  )}
+                  {(formModalMode === 'view' || formModalMode === 'edit') &&
+                    !modalSiLoading &&
+                    siDrafts.length === 0 &&
+                    editingPlanDetail &&
+                    !(editingPlanDetail.shippingInstructions?.length) && (
+                    <p className="text-steel" style={{ marginBottom: '1rem' }}>
+                      {t('editPlanSiListEmpty')}
+                    </p>
+                  )}
                   {siDrafts.map((block, index) => (
                     <div
                       key={block.id}
@@ -1075,7 +1336,9 @@ export default function ShipmentPlansList() {
                         }}
                       >
                         <h4 style={{ margin: 0, fontSize: '1rem' }}>{t('createSiBlockTitle', { n: index + 1 })}</h4>
-                        {siDrafts.length > 1 && (
+                        {formModalMode !== 'view' &&
+                          siDrafts.length > 1 &&
+                          !existingSiIdFromDraftKey(block.id) && (
                           <button
                             type="button"
                             className="btn btn--secondary btn--small"
@@ -1085,12 +1348,21 @@ export default function ShipmentPlansList() {
                           </button>
                         )}
                       </div>
+                      {formModalMode !== 'view' && (
+                        <>
                       <ShippingInstructionDocumentUploadSection
                         documents={block.form.documents || []}
-                        onAddFiles={(e) => addSiDraftDocuments(index, e)}
+                        onAddFiles={(ev) => addSiDraftDocuments(index, ev)}
                         onRemove={(id) => removeSiDraftDocument(index, id)}
                         idPrefix={`sp-si-${index}-`}
+                        extractBusy={siDocExtract.extractBusy && siDraftOcrIndex === index}
                       />
+                      <SiExtractResultPanel
+                        report={siDocExtract.getReport(block.id)}
+                        onDismiss={() => siDocExtract.clearReport(block.id)}
+                      />
+                        </>
+                      )}
                       <ShippingInstructionSiLinkedFields
                         lookups={lookups}
                         linkedPlan={linkedPlanForSiCards}
@@ -1104,115 +1376,35 @@ export default function ShipmentPlansList() {
                       />
                     </div>
                   ))}
-                  <button type="button" className="btn btn--secondary" onClick={addSiDraftBlock} disabled={!lookups}>
-                    {t('addAnotherSi')}
-                  </button>
-                </div>
-              )}
-
-              {editingPlan && (
-                <div className="shipping-instruction-form__section" style={{ marginTop: '1.25rem' }}>
-                  <h3 className="shipping-instruction-form__section-title">{t('editExistingSisTitle')}</h3>
-                  {!editingPlanDetail ? (
-                    <p className="text-steel" style={{ marginBottom: '1rem' }}>
-                      {t('editPlanSiListLoading')}
-                    </p>
-                  ) : editingPlanDetail.shippingInstructions?.length ? (
-                    <>
-                      <p style={{ margin: '0 0 0.75rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
-                        <span className="text-steel">{t('editPlanPurposeLabel')}</span>
-                        <PurposeBadge purpose={editingPlanDetail.purposeCode} />
-                      </p>
-                      <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 1rem' }}>
-                        {editingPlanDetail.shippingInstructions.map((si) => (
-                          <li key={si.id} style={{ marginBottom: 6, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                            <a
-                              href="#"
-                              className="link"
-                              onClick={(e) => {
-                                e.preventDefault()
-                                setSiDocumentModalId(si.id)
-                              }}
-                            >
-                              {si.referenceNumber || `SI-${si.id}`}
-                            </a>
-                            <span className="text-steel">{si.status}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  ) : (
-                    <p className="text-steel" style={{ marginBottom: '1rem' }}>
-                      {t('editPlanSiListEmpty')}
-                    </p>
+                  {formModalMode !== 'view' && (
+                    <button type="button" className="btn btn--secondary" onClick={addSiDraftBlock} disabled={!lookups}>
+                      {t('addAnotherSi')}
+                    </button>
                   )}
-
-                  <h3 className="shipping-instruction-form__section-title">{t('editAddNewSisTitle')}</h3>
-                  <p className="text-steel" style={{ fontSize: '0.9rem', marginBottom: '0.75rem' }}>
-                    {t('editAddNewSisHint')}
-                  </p>
-                  {siDrafts.map((block, index) => (
-                    <div
-                      key={block.id}
-                      className="shipping-instruction-form__section"
-                      style={{
-                        border: '1px solid var(--color-border, #c9d1d9)',
-                        borderRadius: 8,
-                        padding: '1rem',
-                        marginBottom: '1rem',
-                        background: 'var(--color-surface-muted, rgba(0,0,0,0.02))',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          gap: '0.75rem',
-                          marginBottom: '0.75rem',
-                        }}
-                      >
-                        <h4 style={{ margin: 0, fontSize: '1rem' }}>{t('createSiBlockTitle', { n: index + 1 })}</h4>
-                        <button type="button" className="btn btn--secondary btn--small" onClick={() => removeSiDraftBlock(index)}>
-                          {t('deleteSiBlock')}
-                        </button>
-                      </div>
-                      <ShippingInstructionDocumentUploadSection
-                        documents={block.form.documents || []}
-                        onAddFiles={(e) => addSiDraftDocuments(index, e)}
-                        onRemove={(id) => removeSiDraftDocument(index, id)}
-                        idPrefix={`sp-si-edit-${index}-`}
-                      />
-                      <ShippingInstructionSiLinkedFields
-                        lookups={lookups}
-                        linkedPlan={linkedPlanForSiCards}
-                        form={block.form}
-                        setForm={(u) => setSiDraftForm(index, u)}
-                        npwpMaster={npwpMaster}
-                        idPrefix={`sp-si-edit-${index}-`}
-                        showPlanLinkedNote={false}
-                        omitVesselAndJetty
-                        omitDocumentUpload
-                      />
-                    </div>
-                  ))}
-                  <button type="button" className="btn btn--secondary" onClick={addSiDraftBlock} disabled={!lookups}>
-                    {t('addAnotherSi')}
-                  </button>
                 </div>
               )}
+
+              </fieldset>
 
               <div className="modal__footer">
-                <button type="button" className="btn btn--secondary" onClick={handleCloseModal}>
-                  {t('cancel')}
-                </button>
-                <button type="submit" className="btn btn--primary">
+                {formModalMode === 'view' ? (
+                  <button type="button" className="btn btn--primary" onClick={handleCloseModal}>
+                    {t('close')}
+                  </button>
+                ) : (
+                  <>
+                    <button type="button" className="btn btn--secondary" onClick={handleCloseModal}>
+                      {t('cancel')}
+                    </button>
+                    <button type="submit" className="btn btn--primary">
                   {editingPlan
                     ? siDrafts.length > 0
-                      ? t('editSaveWithNewSis', { count: siDrafts.length })
+                      ? t('editSaveCombined', { count: siDrafts.length })
                       : t('save')
                     : t('createPlanAndSisSubmit', { count: siDrafts.length || 1 })}
-                </button>
+                    </button>
+                  </>
+                )}
               </div>
             </form>
           </div>

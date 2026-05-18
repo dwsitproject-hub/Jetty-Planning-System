@@ -8,7 +8,7 @@ import { AuthProvider } from './context/AuthContext'
 import { PortScopeProvider } from './context/PortScopeContext'
 import Login from './pages/Login'
 import SelectPort from './pages/SelectPort'
-import Dashboard from './pages/Dashboard'
+import DashboardV2 from './pages/DashboardV2'
 import ShipmentPlansList from './pages/ShipmentPlansList'
 import ShipmentPlanHub from './pages/ShipmentPlanHub'
 import ShipmentPlanApproval from './pages/ShipmentPlanApproval'
@@ -36,6 +36,7 @@ import AdminUsers from './pages/AdminUsers'
 import AdminRoles from './pages/AdminRoles'
 import DemurrageRiskCalculator from './pages/DemurrageRiskCalculator'
 import JettyLive from './pages/JettyLive'
+import DevOcrTest from './pages/DevOcrTest'
 
 function AppShell() {
   const location = useLocation()
@@ -63,7 +64,8 @@ function App() {
                 <Route path="/login" element={<Login />} />
                 <Route path="/select-port" element={<SelectPort />} />
                 <Route element={<AppShell />}>
-                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/" element={<DashboardV2 />} />
+                  <Route path="/dashboard-v2" element={<Navigate to="/" replace />} />
                   <Route path="/jetty-live" element={<JettyLive />} />
                   <Route
                     path="/shipping-instruction"
@@ -193,6 +195,7 @@ function App() {
                   <Route path="/admin" element={<Admin />} />
                   <Route path="/admin/users" element={<AdminUsers />} />
                   <Route path="/admin/roles" element={<AdminRoles />} />
+                  <Route path="/dev/ocr-test" element={<DevOcrTest />} />
                 </Route>
                 </Routes>
               </RbacProvider>

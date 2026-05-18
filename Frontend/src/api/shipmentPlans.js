@@ -5,6 +5,8 @@ export function fetchShipmentPlans(params = {}) {
   if (params.approvalStatus) sp.set('approval_status', params.approvalStatus)
   if (params.q) sp.set('q', params.q)
   if (params.purposeId != null && params.purposeId !== '') sp.set('purpose_id', String(params.purposeId))
+  if (params.startDate) sp.set('start_date', params.startDate)
+  if (params.endDate) sp.set('end_date', params.endDate)
   const q = sp.toString()
   return apiGet(`/shipment-plans${q ? `?${q}` : ''}`)
 }

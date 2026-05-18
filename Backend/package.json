@@ -8,6 +8,7 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "migrate": "node scripts/run-migrations.js",
+    "test:si-parser": "node scripts/test-si-document-parser.mjs",
     "test:notifications": "node scripts/test-notifications-comprehensive.mjs",
     "grant-admin-access": "node scripts/grant-admin-full-access.js",
     "seed:admin": "node scripts/seed-admin-bcrypt.js",
@@ -30,6 +31,8 @@
     "luxon": "^3.5.0",
     "multer": "^2.1.1",
     "nodemailer": "^6.9.16",
-    "pg": "^8.13.0"
+    "pdf-parse": "^2.4.5",
+    "pg": "^8.13.0",
+    "tesseract.js": "^7.0.0"
   }
 }

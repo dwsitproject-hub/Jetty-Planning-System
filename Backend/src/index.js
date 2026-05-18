@@ -20,12 +20,15 @@ import jettiesRoutes from './routes/jetties.js';
 import slaConfigRoutes from './routes/sla-config.js';
 import standardRatesRoutes from './routes/standard-rates.js';
 import shippingInstructionsRoutes from './routes/shipping-instructions.js';
+import siDocumentExtractRoutes from './routes/si-document-extract.js';
+import siDocumentsRoutes from './routes/si-documents.js';
 import siLookupsRoutes from './routes/si-lookups.js';
 import operationsRoutes from './routes/operations.js';
 import qcSurveysRoutes from './routes/qc-surveys.js';
 import quantityChecksRoutes from './routes/quantity-checks.js';
 import activityLogsRoutes from './routes/activity-logs.js';
 import allocationRoutes from './routes/allocation.js';
+import dashboardV2WeeklyRoutes from './routes/dashboard-v2-weekly.js';
 import shipmentPlansRoutes from './routes/shipment-plans.js';
 import operationDocumentsRoutes from './routes/operation-documents.js';
 import operationSubProcessesRoutes from './routes/operation-sub-processes.js';
@@ -41,7 +44,10 @@ import { startNotificationEmailWorker } from './lib/notification-email-worker.js
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
+const corsOrigin =
+  process.env.CORS_ORIGIN ||
+  // Vite + nginx app: allow both hostname spellings (browser fetch to 127.0.0.1:3000 is cross-origin from localhost:5173).
+  'http://localhost:5173,http://127.0.0.1:5173,http://localhost:3001,http://127.0.0.1:3001';
 
 if (process.env.TRUST_PROXY) {
   const n = Number(process.env.TRUST_PROXY);
@@ -86,10 +92,13 @@ apiV1.use('/ports', portsRoutes);
 apiV1.use('/jetties', jettiesRoutes);
 apiV1.use('/sla-config', slaConfigRoutes);
 apiV1.use('/standard-rates', standardRatesRoutes);
+apiV1.use('/si-document-extract', requireAuth, requirePortScope, siDocumentExtractRoutes);
+apiV1.use('/si-documents', requireAuth, requirePortScope, siDocumentsRoutes);
 apiV1.use('/shipping-instructions', requireAuth, requirePortScope, shippingInstructionsRoutes);
 apiV1.use('/si-lookups', requireAuth, siLookupsRoutes);
 apiV1.use('/operations', requireAuth, requirePortScope, operationsRoutes);
 apiV1.use('/allocation', requireAuth, requirePortScope, allocationRoutes);
+apiV1.use('/dashboard-v2', requireAuth, requirePortScope, dashboardV2WeeklyRoutes);
 apiV1.use('/shipment-plans', requireAuth, requirePortScope, shipmentPlansRoutes);
 apiV1.use('/operation-documents', requireAuth, requirePortScope, operationDocumentsRoutes);
 apiV1.use('/jetty-layout', requireAuth, requirePortScope, jettyLayoutRoutes);

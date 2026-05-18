@@ -418,7 +418,7 @@ function VesselDetailCard({ detail }) {
   )
 }
 
-export default function Loading() {
+function Loading() {
   const { vesselId, section } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
@@ -492,6 +492,30 @@ export default function Loading() {
   const apiPurpose = apiOp ? normalizeApiPurpose(apiOp.purpose) : null
   const purposeMismatch = Boolean(apiOp && apiPurpose !== purpose)
   const operationId = apiOp?.id ?? (shouldFetchOp ? opNumericId : null)
+
+  const mergeApiOpPatch = useCallback((patch) => {
+    if (patch == null || typeof patch !== 'object') return
+    setApiOp((prev) => {
+      if (!prev) return patch
+      const next = { ...prev }
+      for (const [k, v] of Object.entries(patch)) {
+        // Do not let `undefined` wipe fields (e.g. `{ ...fullOp, ...partial }` from callers).
+        if (v !== undefined) next[k] = v
+      }
+      return next
+    })
+  }, [])
+
+  const resolvedCargoSiQty = useMemo(() => {
+    const v = apiOp?.cargoSiQty ?? apiOp?.cargo_si_qty
+    if (v == null || v === '') return null
+    if (typeof v === 'number' && Number.isFinite(v)) return v
+    const n = Number(String(v).trim().replace(/\s/g, '').replace(/,/g, '.'))
+    return Number.isFinite(n) ? n : null
+  }, [apiOp])
+
+  const resolvedCargoSiMetricCode = apiOp?.cargoSiMetricCode ?? apiOp?.cargo_si_metric_code ?? null
+  const resolvedCargoSiMetricName = apiOp?.cargoSiMetricName ?? apiOp?.cargo_si_metric_name ?? null
 
   /** Option A: stage counts stay "unknown" until persisted fetch has run (avoids misleading 0/n). */
   const [preCheckPersistHydrated, setPreCheckPersistHydrated] = useState(true)
@@ -1029,7 +1053,7 @@ export default function Loading() {
             basePath={basePath}
             canEditLoading={canEditLoading}
             canApproveLoading={canApproveLoading}
-            onOperationUpdated={setApiOp}
+            onOperationUpdated={mergeApiOpPatch}
           />
         ) : null}
 
@@ -1139,7 +1163,7 @@ export default function Loading() {
           basePath={basePath}
           canEditLoading={canEditLoading}
           canApproveLoading={canApproveLoading}
-          onOperationUpdated={setApiOp}
+          onOperationUpdated={mergeApiOpPatch}
         />
       ) : null}
 
@@ -1199,6 +1223,10 @@ export default function Loading() {
               purpose={purpose}
               operationId={operationId}
               commodityType={apiOp?.commodityType === 'Solid' ? 'Solid' : 'Liquid'}
+              cargoCommodity={apiOp?.commodity ?? null}
+              cargoSiQty={resolvedCargoSiQty}
+              cargoSiMetricCode={resolvedCargoSiMetricCode}
+              cargoSiMetricName={resolvedCargoSiMetricName}
               addActivity={addLoadingActivity}
               setOperationalMilestoneNa={setOperationalMilestoneNa}
               onOperationalSaved={bumpActivityLogRefresh}
@@ -3666,3 +3694,5 @@ function LoadingStepCard({ stepId, config, step, vesselId, resultLabel, resultMu
     </section>
   )
 }
+
+export default Loading

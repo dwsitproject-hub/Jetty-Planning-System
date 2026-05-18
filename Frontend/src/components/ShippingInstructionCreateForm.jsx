@@ -12,6 +12,10 @@ import {
   validateSiDraftForCreate,
   buildSiCreateApiPayload,
 } from '../utils/siPlanLinkedDraft'
+import { attachDraftSiDocuments } from '../api/siDocuments'
+import { useSiDocumentExtract } from '../hooks/useSiDocumentExtract'
+import SiExtractConflictModal from './SiExtractConflictModal'
+import SiExtractResultPanel from './SiExtractResultPanel'
 
 /**
  * @param {{
@@ -25,8 +29,37 @@ import {
  */
 export default function ShippingInstructionCreateForm({ lookups, linkedPlan, onSuccess, onCancel, onErrorToast, logActivity }) {
   const { t } = useTranslation('shippingInstruction')
+  const { t: tPlan } = useTranslation('shipmentPlan')
   const [form, setForm] = useState(() => defaultSiDraftForPlanPreview(null, linkedPlan))
   const [npwpMaster, setNpwpMaster] = useState(null)
+  const [draftDocKey] = useState(
+    () => `si-draft-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  )
+
+  const siDocExtract = useSiDocumentExtract({
+    lookups,
+    t: tPlan,
+    getPlanForm: () => ({
+      vesselName: linkedPlan?.vesselName || '',
+      voyageNo: linkedPlan?.voyageNo || '',
+      agentId: linkedPlan?.agentId != null ? String(linkedPlan.agentId) : '',
+      eta: linkedPlan?.eta ? planEtaYmd(linkedPlan) : '',
+    }),
+  })
+
+  const handleDocumentUpload = (e) => {
+    const files = Array.from(e.target.files || [])
+    e.target.value = ''
+    if (!files.length) return
+    siDocExtract.handleFilesForDraft({
+      files,
+      form,
+      setForm: (next) => setForm((f) => (typeof next === 'function' ? next(f) : next)),
+      draftKey: draftDocKey,
+      shipmentPlanId: linkedPlan?.id ?? null,
+      onToast: (toast) => onErrorToast(toast.message, toast.variant),
+    })
+  }
 
   useEffect(() => {
     if (!lookups || !linkedPlan) return
@@ -92,6 +125,17 @@ export default function ShippingInstructionCreateForm({ lookups, linkedPlan, onS
       }
       try {
         const saved = await createShippingInstruction(payload)
+        if ((form.documents || []).some((d) => d.documentId) && linkedPlan?.id) {
+          try {
+            await attachDraftSiDocuments({
+              draftKey: draftDocKey,
+              shipmentPlanId: linkedPlan.id,
+              shippingInstructionId: saved.id,
+            })
+          } catch {
+            /* non-fatal */
+          }
+        }
         logActivity({
           pageKey: 'shipment-plan',
           action: 'add',
@@ -118,6 +162,14 @@ export default function ShippingInstructionCreateForm({ lookups, linkedPlan, onS
 
   return (
     <>
+      <SiExtractConflictModal
+        open={siDocExtract.conflictOpen}
+        conflicts={siDocExtract.conflictList}
+        warnings={siDocExtract.conflictWarnings}
+        partialApply={siDocExtract.conflictPartialApply}
+        onCancel={siDocExtract.cancelConflict}
+        onApply={(keys) => siDocExtract.resolveConflict(keys)}
+      />
       <form onSubmit={handleSubmit} className="shipping-instruction-form">
         <ShippingInstructionSiLinkedFields
           lookups={lookups}
@@ -128,6 +180,14 @@ export default function ShippingInstructionCreateForm({ lookups, linkedPlan, onS
           idPrefix="sicf-"
           showPlanLinkedNote
           omitVesselAndJetty
+          onDocumentUpload={handleDocumentUpload}
+          documentExtractBusy={siDocExtract.extractBusy}
+          extractResultPanel={
+            <SiExtractResultPanel
+              report={siDocExtract.getReport(draftDocKey)}
+              onDismiss={() => siDocExtract.clearReport(draftDocKey)}
+            />
+          }
         />
         <div className="modal__footer" style={{ marginTop: 'var(--spacing-2)' }}>
           <button type="button" className="btn btn--secondary" onClick={onCancel}>

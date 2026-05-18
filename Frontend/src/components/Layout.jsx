@@ -34,7 +34,7 @@ function isPortScopeBypassed(pathname) {
 
 /** Map pathname to Activity Log pageKey; null = do not show panel (e.g. Reporting). */
 function pathToPageKey(pathname) {
-  if (!pathname || pathname.startsWith('/reporting')) return null
+  if (!pathname || pathname.startsWith('/reporting') || pathname.startsWith('/dev/')) return null
   if (pathname === '/' || pathname === '') return 'dashboard'
   if (pathname.startsWith('/jetty-live')) return 'jetty-live'
   if (pathname.startsWith('/demurrage-risk-calculator')) return 'demurrage-risk-calculator'

@@ -36,6 +36,9 @@ const FREIGHT_TERM_OPTIONS = [
  *   showPlanLinkedNote?: boolean,
  *   omitVesselAndJetty?: boolean,
  *   omitDocumentUpload?: boolean,
+ *   onDocumentUpload?: (e: import('react').ChangeEvent<HTMLInputElement>) => void,
+ *   documentExtractBusy?: boolean,
+ *   extractResultPanel?: import('react').ReactNode,
  * }} props
  */
 export default function ShippingInstructionSiLinkedFields({
@@ -48,6 +51,9 @@ export default function ShippingInstructionSiLinkedFields({
   showPlanLinkedNote = true,
   omitVesselAndJetty = false,
   omitDocumentUpload = false,
+  onDocumentUpload,
+  documentExtractBusy = false,
+  extractResultPanel = null,
 }) {
   const { t } = useTranslation('shippingInstruction')
   const effectivePurposeId = linkedPlan?.purposeId != null ? String(linkedPlan.purposeId) : form.purposeId
@@ -486,12 +492,16 @@ export default function ShippingInstructionSiLinkedFields({
         )}
 
         {!omitDocumentUpload && (
-          <ShippingInstructionDocumentUploadSection
-            documents={form.documents || []}
-            onAddFiles={addDocuments}
-            onRemove={removeDocument}
-            idPrefix={idPrefix}
-          />
+          <>
+            <ShippingInstructionDocumentUploadSection
+              documents={form.documents || []}
+              onAddFiles={onDocumentUpload || addDocuments}
+              onRemove={removeDocument}
+              idPrefix={idPrefix}
+              extractBusy={documentExtractBusy}
+            />
+            {extractResultPanel}
+          </>
         )}
 
         <div className="shipping-instruction-form__section">

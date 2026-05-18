@@ -333,6 +333,55 @@ function formatListRow(r) {
   };
 }
 
+/** Rank for choosing one occupant when several operations share the same shipment plan on one jetty. */
+const OCCUPANT_STATUS_RANK = {
+  SIGNOFF_APPROVED: 6,
+  SIGNOFF_REQUESTED: 5,
+  POST_OPS: 4,
+  IN_PROGRESS: 3,
+  DOCKED: 2,
+  ALLOCATED: 1,
+  PENDING: 0,
+};
+
+function occupantStatusRank(status) {
+  const s = status == null ? '' : String(status);
+  return OCCUPANT_STATUS_RANK[s] ?? 0;
+}
+
+/**
+ * Slot occupancy is one physical berth per shipment plan. Test data (or edge cases) may have
+ * multiple non-sailed operations tied to the same plan; without merging, the same vessel appears
+ * in 2A-01 and 2A-02, etc.
+ */
+function dedupeBerthOccupantsByShipmentPlan(occList) {
+  if (!Array.isArray(occList) || occList.length <= 1) return occList || [];
+  const byPlan = new Map();
+  const unlinked = [];
+  for (const o of occList) {
+    const pid = o.shipmentPlanId != null ? Number(o.shipmentPlanId) : null;
+    if (pid == null || Number.isNaN(pid)) {
+      unlinked.push(o);
+      continue;
+    }
+    const cur = byPlan.get(pid);
+    if (!cur) {
+      byPlan.set(pid, o);
+      continue;
+    }
+    const rNew = occupantStatusRank(o.status);
+    const rCur = occupantStatusRank(cur.status);
+    if (rNew > rCur) {
+      byPlan.set(pid, o);
+    } else if (rNew === rCur) {
+      const oid = o.operationId != null ? Number(o.operationId) : 0;
+      const cid = cur.operationId != null ? Number(cur.operationId) : 0;
+      if (oid > cid) byPlan.set(pid, o);
+    }
+  }
+  return [...byPlan.values(), ...unlinked];
+}
+
 function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = false) {
   const bySelect = includeUpdatedByJoin
     ? `NULLIF(TRIM(COALESCE(u.display_name, u.username, '')), '') AS record_last_updated_by_display_name`
@@ -554,7 +603,7 @@ async function buildAllocationOverviewPayload(selectedPortId) {
 
   const berths = jettiesRes.rows.map((j) => {
     const id = jettyShortName(j.name);
-    const occList = occupantsByJetty.get(id) || [];
+    const occList = dedupeBerthOccupantsByShipmentPlan(occupantsByJetty.get(id) || []);
     const occ0 = occList[0] || null;
     return {
       id,

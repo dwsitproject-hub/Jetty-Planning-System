@@ -61,6 +61,65 @@ export function nextDocId() {
   return 'doc-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
 }
 
+function toDateInputValue(iso) {
+  if (iso == null || iso === '') return ''
+  const s = String(iso).trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toISOString().slice(0, 10)
+}
+
+/** Map GET /shipping-instructions/:id JSON into plan-linked SI draft form shape. */
+export function siDetailToPlanLinkedDraftForm(si, lookups, linkedPlan) {
+  const base = defaultSiDraftForPlanPreview(lookups, linkedPlan)
+  const ymd = planEtaYmd(linkedPlan)
+  const purposeCode = linkedPlan?.purposeCode
+  const isUnloading = purposeCode === 'Unloading'
+  const bd =
+    Array.isArray(si?.breakdown) && si.breakdown.length > 0
+      ? si.breakdown.map((b) => ({
+          commodityId: b.commodityId != null ? String(b.commodityId) : '',
+          metricId: b.metricId != null ? String(b.metricId) : '',
+          qty: b.qty != null && b.qty !== '' ? String(b.qty) : '',
+          contractNo: b.contractNo ?? '',
+          poNo: b.poNo ?? '',
+          soNo: b.soNo ?? '',
+          remarks: b.remarks ?? '',
+        }))
+      : base.breakdown
+  return {
+    ...base,
+    vesselName: si?.vesselName ?? base.vesselName,
+    referenceNumber: si?.referenceNumber ?? '',
+    purposeId: linkedPlan?.purposeId != null ? String(linkedPlan.purposeId) : base.purposeId,
+    tradeTermId:
+      si?.tradeTermId != null
+        ? String(si.tradeTermId)
+        : isUnloading
+          ? base.tradeTermId
+          : '',
+    preferredJettyId:
+      si?.preferredJettyId != null ? String(si.preferredJettyId) : base.preferredJettyId,
+    shipperId: si?.shipperId != null ? String(si.shipperId) : '',
+    loadingPortId: si?.loadingPortId != null ? String(si.loadingPortId) : '',
+    surveyorId: si?.surveyorId != null ? String(si.surveyorId) : '',
+    etaFrom: toDateInputValue(si?.etaFrom) || ymd,
+    etaTo: toDateInputValue(si?.etaTo) || ymd,
+    documentDate: toDateInputValue(si?.documentDate) || ymd,
+    destinationText: si?.destinationText ?? '',
+    freightTerms: si?.freightTerms ?? '',
+    billOfLadingClause: si?.billOfLadingClause ?? '',
+    blSplitText: si?.blSplitText ?? '',
+    consigneeText: si?.consigneeText ?? '',
+    notifyPartyText: si?.notifyPartyText ?? '',
+    blIndicated: si?.blIndicated ?? '',
+    breakdown: bd,
+    note: si?.note ?? '',
+    documents: [],
+  }
+}
+
 /**
  * @param {{ requirePlanId?: boolean }} [options] If requirePlanId is false, skips linkedPlan.id (validate before plan is POSTed).
  * @returns {string|object} error message or validated fields object for buildSiCreateApiPayload
@@ -112,6 +171,12 @@ export function validateSiDraftForCreate(form, lookups, linkedPlan, options = {}
   return { pid, isLoading, isUnloading, ymd, documentDateVal: documentDateVal.trim(), breakdownPayload, num }
 }
 
+/** Draft block id from plan modal when editing an existing SI (`si-existing-<id>`). */
+export function existingSiIdFromDraftKey(draftId) {
+  const m = /^si-existing-(\d+)$/.exec(String(draftId || ''))
+  return m ? parseInt(m[1], 10) : null
+}
+
 /**
  * @param {ReturnType<typeof validateSiDraftForCreate> extends string ? never : object} validated
  */
@@ -145,4 +210,10 @@ export function buildSiCreateApiPayload(form, linkedPlan, validated) {
     note: form.note?.trim() || null,
     shipmentPlanId: linkedPlan.id,
   }
+}
+
+export function buildSiUpdateApiPayload(form, linkedPlan, validated) {
+  const payload = buildSiCreateApiPayload(form, linkedPlan, validated)
+  delete payload.shipmentPlanId
+  return payload
 }

@@ -68,6 +68,8 @@ function toPlanListRow(row) {
     sob: timestampToIso(row.sob),
     estimatedCompletionTime: timestampToIso(row.estimated_completion_time),
     actualCompletionTime: timestampToIso(row.actual_completion_time),
+    castOffAt: timestampToIso(row.cast_off_at),
+    sailedAt: timestampToIso(row.sailed_at),
     purposeId: row.purpose_id != null ? Number(row.purpose_id) : null,
     purposeCode: row.purpose_code ?? null,
     voyageNo: row.voyage_no ?? null,
@@ -207,6 +209,24 @@ router.get('/', async (req, res) => {
     if (!Number.isNaN(pid) && pid > 0) {
       sql += ` AND sp.purpose_id = $${i++}`;
       params.push(pid);
+    }
+  }
+  const { start_date: startDate, end_date: endDate } = req.query;
+  // Plans with eta IS NULL have not been scheduled yet; include them in any date-filtered
+  // query so that Draft/Submitted plans without an ETA are always visible.
+  if (startDate && typeof startDate === 'string' && startDate.trim()) {
+    const d = new Date(startDate.trim());
+    if (!Number.isNaN(d.getTime())) {
+      sql += ` AND (sp.eta IS NULL OR sp.eta >= $${i++}::timestamptz)`;
+      params.push(d.toISOString());
+    }
+  }
+  if (endDate && typeof endDate === 'string' && endDate.trim()) {
+    const d = new Date(endDate.trim());
+    if (!Number.isNaN(d.getTime())) {
+      d.setDate(d.getDate() + 1);
+      sql += ` AND (sp.eta IS NULL OR sp.eta < $${i++}::timestamptz)`;
+      params.push(d.toISOString());
     }
   }
   sql += ` ORDER BY sp.updated_at DESC NULLS LAST, sp.id DESC`;

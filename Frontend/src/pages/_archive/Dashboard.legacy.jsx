@@ -1,24 +1,25 @@
+/** Legacy dashboard (retired). Active UI: `pages/DashboardV2.jsx` at `/`. */
 import { useState, useEffect, useCallback, useMemo, Fragment } from 'react'
 import { Link } from 'react-router-dom'
-import { dashboardWeather } from '../data/mockData'
-import { fetchAtBerth, fetchOperations } from '../api/operations'
-import { fetchShippingInstructions } from '../api/shippingInstructions'
-import { fetchAllocationOverview } from '../api/allocation'
-import { fetchJetties } from '../api/jetties'
-import { fetchActivityLogs } from '../api/activityLogs'
+import { dashboardWeather } from '../../data/mockData'
+import { fetchAtBerth, fetchOperations } from '../../api/operations'
+import { fetchShippingInstructions } from '../../api/shippingInstructions'
+import { fetchAllocationOverview } from '../../api/allocation'
+import { fetchJetties } from '../../api/jetties'
+import { fetchActivityLogs } from '../../api/activityLogs'
 import { useTranslation } from 'react-i18next'
-import { usePortScope } from '../context/PortScopeContext'
-import { useRbac } from '../context/RbacContext'
-import { formatDateTimeDisplay, getAppLocaleTag } from '../utils/formatDateTimeDisplay'
+import { usePortScope } from '../../context/PortScopeContext'
+import { useRbac } from '../../context/RbacContext'
+import { formatDateTimeDisplay, getAppLocaleTag } from '../../utils/formatDateTimeDisplay'
 import {
   allocationQueueVesselCallKey,
   isPlannedBerthingQueueRow,
-} from '../utils/dashboardQueueClassification'
-import { atBerthExecutionOpenPath } from '../utils/atBerthOpenPath'
-import DashboardActivityChart from '../components/DashboardActivityChart'
-import InteractiveTooltip from '../components/InteractiveTooltip'
-import '../styles/dashboard.css'
-import '../styles/allocation.css'
+} from '../../utils/_archive/dashboardQueueClassification.legacy'
+import { atBerthExecutionOpenPath } from '../../utils/atBerthOpenPath'
+import DashboardActivityChart from '../../components/_archive/DashboardActivityChart.legacy'
+import InteractiveTooltip from '../../components/InteractiveTooltip'
+import '../../styles/dashboard.css'
+import '../../styles/allocation.css'
 
 /** "At berth now" compact cards — sign-off phases are under Clearance, not here. */
 const AT_BERTH_SUMMARY_PHASES = ['Pre-Checking', 'Operational', 'Post-Checking']

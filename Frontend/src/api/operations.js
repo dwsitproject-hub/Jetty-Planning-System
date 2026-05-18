@@ -8,6 +8,8 @@ export function fetchOperations(params = {}) {
   if (params.status) sp.set('status', params.status)
   if (params.purpose) sp.set('purpose', params.purpose)
   if (params.signoffRequested) sp.set('signoff_requested', '1')
+  if (params.startDate) sp.set('start_date', params.startDate)
+  if (params.endDate) sp.set('end_date', params.endDate)
   const q = sp.toString()
   return apiGet(`/operations${q ? `?${q}` : ''}`)
 }
@@ -314,8 +316,7 @@ function normalizeOpActivityTs(v, scheduleIana) {
 
 export function createOperationalEntry(operationId, body, opts = {}) {
   const tz = opts.scheduleIana ?? getScheduleEntryTimeZone()
-  // cargo_handling_method_id is server-derived for opening_hatch only; never send from client.
-  return apiPost(`/operations/${operationId}/operational-activities`, {
+  const payload = {
     entryType: body.entryType,
     milestoneKey: body.milestoneKey,
     subStepTitle: body.subStepTitle,
@@ -324,12 +325,22 @@ export function createOperationalEntry(operationId, body, opts = {}) {
     endAt: normalizeOpActivityTs(body.endAt, tz),
     reason: body.reason,
     markedAt: normalizeOpActivityTs(body.markedAt, tz),
-  })
+  }
+  if (Array.isArray(body.cargoLoadLines) && body.cargoLoadLines.length > 0) {
+    payload.cargoLoadLines = body.cargoLoadLines.map((l) => ({
+      qty: Number(l.qty),
+      startAt: normalizeOpActivityTs(l.startAt, tz),
+      endAt: normalizeOpActivityTs(l.endAt, tz),
+    }))
+  } else if (body.cargoMovedQty !== undefined && body.cargoMovedQty !== null) {
+    payload.cargoMovedQty = body.cargoMovedQty
+  }
+  return apiPost(`/operations/${operationId}/operational-activities`, payload)
 }
 
 export function updateOperationalEntry(operationId, entryId, body, opts = {}) {
   const tz = opts.scheduleIana ?? getScheduleEntryTimeZone()
-  return apiPut(`/operations/${operationId}/operational-activities/${entryId}`, {
+  const payload = {
     milestoneKey: body.milestoneKey,
     subStepTitle: body.subStepTitle,
     remark: body.remark,
@@ -337,7 +348,17 @@ export function updateOperationalEntry(operationId, entryId, body, opts = {}) {
     endAt: normalizeOpActivityTs(body.endAt, tz),
     reason: body.reason,
     markedAt: normalizeOpActivityTs(body.markedAt, tz),
-  })
+  }
+  if (Array.isArray(body.cargoLoadLines) && body.cargoLoadLines.length > 0) {
+    payload.cargoLoadLines = body.cargoLoadLines.map((l) => ({
+      qty: Number(l.qty),
+      startAt: normalizeOpActivityTs(l.startAt, tz),
+      endAt: normalizeOpActivityTs(l.endAt, tz),
+    }))
+  } else if (body.cargoMovedQty !== undefined && body.cargoMovedQty !== null) {
+    payload.cargoMovedQty = body.cargoMovedQty
+  }
+  return apiPut(`/operations/${operationId}/operational-activities/${entryId}`, payload)
 }
 
 export function deleteOperationalEntry(operationId, entryId) {

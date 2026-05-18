@@ -7,6 +7,11 @@ export default defineConfig({
     port: 5173,
     host: true,
     proxy: {
+      // SPA using VITE_API_BASE_URL=/api/v1 hits same origin → forward to Express on 3000
+      '/api': {
+        target: 'http://127.0.0.1:3000',
+        changeOrigin: true,
+      },
       // Same host as VITE_API_BASE_URL origin (API serves /uploads). Fixes relative /uploads links in dev.
       '/uploads': {
         target: 'http://127.0.0.1:3000',

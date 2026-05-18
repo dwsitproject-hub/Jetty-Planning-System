@@ -1,4 +1,5 @@
 /**
+ * Legacy dashboard queue helpers (retired). Active UI: `pages/DashboardV2.jsx` at `/`.
  * Queue row classification for Dashboard pipeline parity (allocation overview `queue` rows).
  * @see Docs/Plan/DASHBOARD-ACTIVITY-CHART-PLAN.md
  */

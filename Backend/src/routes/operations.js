@@ -39,8 +39,24 @@ const SI_COMMODITY_TYPE = `COALESCE(
   'Liquid'
 )`;
 
+/** Total cargo quantity on the linked shipping instruction (sum of all SI breakdown lines). */
+const SI_CARGO_TOTAL_QTY = `(SELECT SUM(b.qty::numeric) FROM public.shipping_instruction_breakdown b
+   WHERE b.shipping_instruction_id = si.id AND b.deleted_at IS NULL)`;
+/** Unit label from first SI breakdown line (for display; total qty is SUM). */
+const SI_PRIMARY_METRIC_CODE = `(SELECT m.code FROM public.shipping_instruction_breakdown b
+   LEFT JOIN public.metric m ON m.id = b.metric_id AND m.deleted_at IS NULL
+   WHERE b.shipping_instruction_id = si.id AND b.deleted_at IS NULL
+   ORDER BY b.line_order, b.id LIMIT 1)`;
+const SI_PRIMARY_METRIC_NAME = `(SELECT m.label FROM public.shipping_instruction_breakdown b
+   LEFT JOIN public.metric m ON m.id = b.metric_id AND m.deleted_at IS NULL
+   WHERE b.shipping_instruction_id = si.id AND b.deleted_at IS NULL
+   ORDER BY b.line_order, b.id LIMIT 1)`;
+
 const OP_SELECT = `o.*, si.shipment_plan_id, sp.vessel_name, si.reference_number, ${SI_COMMODITY} AS commodity,
             ${SI_COMMODITY_TYPE} AS commodity_type,
+            ${SI_CARGO_TOTAL_QTY} AS cargo_si_qty,
+            ${SI_PRIMARY_METRIC_CODE} AS cargo_si_metric_code,
+            ${SI_PRIMARY_METRIC_NAME} AS cargo_si_metric_name,
             j.name AS jetty_name, p.id AS port_id, p.name AS port_name`;
 
 const PLAN_TIMELINE_SELECT = `
@@ -423,6 +439,22 @@ router.get('/', async (req, res) => {
   }
   if (String(req.query.signoff_requested || '') === '1') {
     query += ` AND o.signoff_requested_at IS NOT NULL AND o.status = 'SIGNOFF_REQUESTED'`;
+  }
+  const { start_date: startDate, end_date: endDate } = req.query;
+  if (startDate && typeof startDate === 'string' && startDate.trim()) {
+    const d = new Date(startDate.trim());
+    if (!Number.isNaN(d.getTime())) {
+      query += ` AND COALESCE(sp.eta, o.created_at) >= $${i++}::timestamptz`;
+      params.push(d.toISOString());
+    }
+  }
+  if (endDate && typeof endDate === 'string' && endDate.trim()) {
+    const d = new Date(endDate.trim());
+    if (!Number.isNaN(d.getTime())) {
+      d.setDate(d.getDate() + 1);
+      query += ` AND COALESCE(sp.eta, o.created_at) < $${i++}::timestamptz`;
+      params.push(d.toISOString());
+    }
   }
   query += ` ORDER BY o.created_at DESC`;
   const result = await pool.query(query, params);
@@ -1239,6 +1271,13 @@ function planTimeline(row, planKey, opKey) {
   return pv != null ? pv : ov ?? null;
 }
 
+function toFiniteQtyOrNull(v) {
+  if (v == null || v === '') return null
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  const n = Number(String(v).trim().replace(/\s/g, '').replace(/,/g, '.'))
+  return Number.isFinite(n) ? n : null
+}
+
 export function toOp(row) {
   return {
     id: row.id,
@@ -1251,6 +1290,9 @@ export function toOp(row) {
     referenceNumber: row.reference_number ?? undefined,
     commodity: row.commodity ?? undefined,
     commodityType: row.commodity_type === 'Solid' ? 'Solid' : 'Liquid',
+    cargoSiQty: toFiniteQtyOrNull(row.cargo_si_qty ?? row.cargoSiQty),
+    cargoSiMetricCode: row.cargo_si_metric_code ?? null,
+    cargoSiMetricName: row.cargo_si_metric_name ?? null,
     jettyName: planTimeline(row, 'plan_jetty_name', 'jetty_name') ?? undefined,
     portId: row.port_id ?? null,
     portName: row.port_name ?? undefined,
