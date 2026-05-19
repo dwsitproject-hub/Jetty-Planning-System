@@ -516,6 +516,14 @@
 .btn--secondary:hover {
   background: var(--color-secondary-hover);
 }
+.btn--ghost {
+  background: transparent;
+  color: var(--color-text-charcoal);
+  border-color: transparent;
+}
+.btn--ghost:hover {
+  background: var(--color-bg-subtle, #f4f6f8);
+}
 
 /* Forms */
 .input-group {

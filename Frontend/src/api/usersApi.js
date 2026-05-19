@@ -43,6 +43,13 @@ export function fetchMySsoStatus() {
   return apiGet('/users/me/sso-status')
 }
 
+export function changeMyPasswordApi({ currentPassword, newPassword }) {
+  return apiPut('/users/me/password', {
+    current_password: currentPassword,
+    new_password: newPassword,
+  })
+}
+
 export function startMySsoConnect() {
   return apiPost('/users/me/sso-connect/start', {})
 }

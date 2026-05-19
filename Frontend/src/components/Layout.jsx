@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import ActivityLogPanel from './ActivityLogPanel'
 import LanguageSwitch from './LanguageSwitch'
 import NotificationBell from './NotificationBell'
+import UserMenu from './UserMenu'
 import { useRbac } from '../context/RbacContext'
 import { useAuth } from '../context/AuthContext'
 import { usePortScope } from '../context/PortScopeContext'
@@ -80,16 +81,6 @@ function SidebarCollapseFabIcon({ expanded }) {
       ) : (
         <polyline points="9 18 15 12 9 6" />
       )}
-    </svg>
-  )
-}
-
-function LogoutIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-      <polyline points="16 17 21 12 16 7" />
-      <line x1="21" y1="12" x2="9" y2="12" />
     </svg>
   )
 }
@@ -229,15 +220,7 @@ export default function Layout({ children }) {
           )}
           {me && <NotificationBell />}
           <LanguageSwitch />
-          <span className="topbar__greeting">
-            {me ? tCommon('greeting', { name: me.displayName || me.username }) : ''}
-          </span>
-          {me && (
-            <button type="button" className="btn btn--secondary btn--small topbar__logout" onClick={handleLogout} title={tCommon('logout')}>
-              <LogoutIcon />
-              <span>{tCommon('logout')}</span>
-            </button>
-          )}
+          {me && <UserMenu me={me} onLogout={handleLogout} />}
           {!me && (
             <NavLink to="/login" className="btn btn--secondary btn--small">
               {tCommon('login')}

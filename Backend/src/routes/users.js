@@ -117,6 +117,47 @@ router.get('/me/ports', requireAuth, async (req, res) => {
   });
 });
 
+router.put('/me/password', requireAuth, async (req, res) => {
+  const { current_password: currentPassword, new_password: newPassword } = req.body || {};
+
+  if (currentPassword === undefined || currentPassword === null || String(currentPassword).length === 0) {
+    return res.status(400).json({ error: 'current_password is required' });
+  }
+  if (newPassword === undefined || newPassword === null || String(newPassword).length < 6) {
+    return res.status(400).json({ error: 'new_password must be at least 6 characters' });
+  }
+  if (String(newPassword) === String(currentPassword)) {
+    return res.status(400).json({ error: 'new_password must be different from current password' });
+  }
+
+  const result = await pool.query(
+    `SELECT id, password_hash, auth_source, is_active
+     FROM users
+     WHERE id = $1 AND deleted_at IS NULL`,
+    [req.userId]
+  );
+  const row = result.rows[0];
+  if (!row) return res.status(404).json({ error: 'User not found' });
+  if (!row.is_active) return res.status(403).json({ error: 'User is inactive' });
+  if ((row.auth_source || 'local') !== 'local') {
+    return res.status(403).json({ error: 'Password cannot be changed for SSO accounts' });
+  }
+
+  const passwordOk = await bcrypt.compare(String(currentPassword), row.password_hash);
+  if (!passwordOk) {
+    logAuthEvent('local.password.change.failure', { reason: 'bad_current_password', userId: req.userId, ip: req.ip });
+    return res.status(401).json({ error: 'Invalid current password' });
+  }
+
+  const hash = await bcrypt.hash(String(newPassword), 10);
+  await pool.query(
+    `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+    [hash, req.userId]
+  );
+  logAuthEvent('local.password.change', { userId: req.userId, ip: req.ip });
+  res.status(204).send();
+});
+
 // All routes below this line are admin-only.
 router.use(...requireAdminPageView);
 

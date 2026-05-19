@@ -26,5 +26,8 @@ services:
       - "${JPS_FE_PORT:-3001}:80"
     container_name: jps-fe
     restart: unless-stopped
+    # Reach rtsp-stream-viewer on the host (systemd) from nginx inside this container.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./Frontend/nginx.alicloud-app.conf:/etc/nginx/conf.d/default.conf:ro
