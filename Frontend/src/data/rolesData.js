@@ -5,7 +5,6 @@
 
 export const PAGE_OPTIONS = [
   { id: 'dashboard', label: 'Dashboard' },
-  { id: 'jetty-live', label: 'Jetty Live stream' },
   { id: 'shipment-plan', label: 'Shipment Plan' },
   { id: 'allocation-plan', label: 'Allocation & Berthing (by Shipment Plan)' },
   { id: 'at-berth', label: 'At-Berth Executions' },

@@ -18,7 +18,7 @@ Browsers load the built React app from JPS and talk to that helper for video and
 
 Run everything in this section on the **JPS frontend / app ECS** (the host where `docker compose -f docker-compose.app.yml` runs and users open port **3080**). Do **not** install the stream helper on the backend/API server unless that host alone can reach the camera.
 
-**You need (one time, on the backend server):** migration `072` applied and **Jetty Live stream** view enabled for your role in Admin. See [§4 RBAC](#4-rbac-and-database).
+**You need (one time, on the backend server):** migrations **077** and **078** applied; **View Jetty Live stream** enabled under **At-Berth Executions** for your role in Admin. See [§4 RBAC](#4-rbac-and-database).
 
 ### Step 0 — Confirm the app server can reach the camera
 
@@ -187,9 +187,9 @@ Both should return JSON with `"status":"online"` when healthy.
 
 ### Step 8 — Browser
 
-1. Open `http://<APP_PUBLIC_IP>:3080/jetty-live`
-2. Sidebar: **Jetty Live** (only if your role has **Jetty Live stream** view)
-3. Expand **Stream health** if collapsed; use **Reconnect** if needed
+1. Open **Allocation & Berthing → Jetty schematic**, click a **camera** icon on a jetty with an RTSP link (opens **`/jetty-live`** in a new tab)
+2. Grant **View Jetty Live stream** under **At-Berth Executions** in **Admin → Roles** if the camera button is missing
+3. Expand **Stream health** on the viewer if collapsed; use **Reconnect** if needed
 
 **Do not** set `VITE_JETTY_LIVE_HTTP_ORIGIN` in the app `.env` for this layout — the SPA uses same-origin `/jetty-live-stream` and `/jetty-live-ws`.
 
@@ -243,8 +243,8 @@ rtsp-stream-viewer  →  FFmpeg  →  rtsp://<camera>:554/...
 | **FFmpeg** | Must be on `PATH` (`ffmpeg -version`). Ubuntu: `sudo apt-get install -y ffmpeg`. |
 | **Network to camera** | The host running `rtsp-stream-viewer` must reach the camera RTSP URL (e.g. `172.16.247.222` on VPN or site LAN). JPS API/DB hosts do **not** need camera access unless you run the stream there too. |
 | **Free disk on `/`** | FFmpeg + apt need **~1–2 GiB** free on the root filesystem. If `df -h /` shows **100%**, see [ECS-DISK-SPACE-CHECK-AND-EXPAND.md](./ECS-DISK-SPACE-CHECK-AND-EXPAND.md). |
-| **JPS migration 072** | Seeds RBAC catalog key `jetty-live`. Run `npm run migrate` on the backend (see [ALICLOUD-DEPLOYMENT-GUIDE.md](./ALICLOUD-DEPLOYMENT-GUIDE.md) §5.3). |
-| **Role permission** | In **Admin → Roles**, grant **view** on **Jetty Live stream** for roles that should see the nav item. |
+| **JPS migrations 077 + 078** | **077** adds `jetties.rtsp_link`; **078** retires `jetty-live` page permission and migrates grants to **At-Berth `can_approve`**. Run `npm run migrate` on the backend. |
+| **Role permission** | In **Admin → Roles**, under **At-Berth Executions**, enable **View Jetty Live stream** (`can_approve`) for roles that should see schematic camera buttons and open the viewer. |
 
 ---
 
@@ -430,14 +430,17 @@ cd /opt/jetty-planning-system
 docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps-api npm run migrate
 ```
 
-Confirm migration **`072_jetty_live_page_permission.sql`** applied:
+Confirm migrations **`077_jetties_rtsp_link.sql`** and **`078_retire_jetty_live_page_permission.sql`** applied (migrate command above).
+
+Verify **`jetty-live`** is retired:
 
 ```bash
 docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps-db \
-  psql -U jps_user -d jps_db -c "SELECT resource_key FROM permissions WHERE resource_key = 'jetty-live' AND deleted_at IS NULL;"
+  psql -U jps_user -d jps_db -c \
+  "SELECT resource_key, deleted_at IS NOT NULL AS retired FROM permissions WHERE resource_key IN ('jetty-live','at-berth') AND resource_type = 'page';"
 ```
 
-In the JPS UI: **Admin → Role management** → edit role → enable **View** for **Jetty Live stream**.
+In the JPS UI: **Admin → Role management** → edit role → under **At-Berth Executions**, enable **View Jetty Live stream** (sub-checkbox, `can_approve`).
 
 ---
 
@@ -459,7 +462,7 @@ Prefer **one public origin** (nginx on 443 or 3080) that proxies API, SPA, strea
 | Stream process | `systemctl status jps-jetty-live` | `active (running)` |
 | Health (on stream host) | `curl -s http://127.0.0.1:3081/api/health` | `"status":"online"` when camera OK |
 | Health (via nginx) | `curl -s http://127.0.0.1:3080/jetty-live-stream/api/health` | Same JSON (host → `jps-fe` → host stream) |
-| Browser | Open `http://<APP_PUBLIC_IP>:3080/jetty-live` | Nav **Jetty Live** (if RBAC granted), video on canvas |
+| Browser | Allocation schematic → camera on jetty with RTSP | Opens **`/jetty-live`** popup; video on canvas when stream + RBAC OK |
 | Logs | `journalctl -u jps-jetty-live -n 100` | FFmpeg connecting; no repeated `ENOENT` for ffmpeg |
 
 ---
@@ -476,7 +479,7 @@ Prefer **one public origin** (nginx on 443 or 3080) that proxies API, SPA, strea
 | Ping OK, RTSP/ffmpeg fails | Wrong firewall direction or TCP 554 blocked | See [Step 0](#step-0--confirm-the-app-server-can-reach-the-camera); fix **egress** + camera allowlist, not only inbound 554 on FE |
 | `status: starting`, high `restartCount` | FFmpeg cannot read RTSP | `RTSP_TRANSPORT=tcp`; test `ffmpeg` on server; `journalctl -u jps-jetty-live -f` |
 | Port already in use | `HTTP_PORT` clashes with JPS | Use **3081** for stream HTTP; keep JPS on **3080** |
-| Nav item missing | RBAC | Grant `jetty-live` view on role; hard-refresh after login |
+| Camera button missing on schematic | RBAC | Enable **View Jetty Live stream** under **At-Berth Executions** in Admin → Roles; hard-refresh after login |
 | CORS errors in browser | Direct `VITE_JETTY_LIVE_HTTP_ORIGIN` | Add UI origin to `STREAM_CORS_ORIGINS` or switch to nginx proxy (§3.1) |
 | `apt` / **No space left on device** | Root disk `/` full (often 40 GiB ECS) | [ECS-DISK-SPACE-CHECK-AND-EXPAND.md](./ECS-DISK-SPACE-CHECK-AND-EXPAND.md) — check `df -h`, free Docker/apt cache, resize disk |
 
@@ -529,8 +532,9 @@ sudo systemctl enable --now jps-jetty-live
 cd /opt/jetty-planning-system
 docker compose -f docker-compose.app.yml up --build -d
 
-# 4) Backend migration + RBAC (backend host)
+# 4) Backend migrations + RBAC (backend host)
 docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps-api npm run migrate
+# Admin → Roles → At-Berth Executions → View Jetty Live stream
 ```
 
-Users open: **`http://<APP_PUBLIC_IP>:3080/jetty-live`**
+Users open CCTV from **Allocation & Berthing → Jetty schematic** (camera icon → **`/jetty-live`** popup).

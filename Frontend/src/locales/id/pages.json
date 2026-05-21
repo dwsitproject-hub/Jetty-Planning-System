@@ -2,7 +2,7 @@
   "dashboard": "Dasbor",
   "dashboardSelectPortHint": "Pilih pelabuhan dari bilah atas untuk memuat data dasbor.",
   "jettyLiveTitle": "Siaran langsung Jetty",
-  "jettyLiveNoPermission": "Anda tidak memiliki izin untuk membuka halaman ini.",
+  "jettyLiveNoPermission": "Anda tidak memiliki izin untuk melihat CCTV Jetty Live. Minta admin mengaktifkan View Jetty Live stream di At-Berth Executions pada Manajemen Peran.",
   "jettyLiveBackDashboard": "Alokasi & Sandar",
   "jettyLiveHealthTitle": "Kesehatan stream",
   "jettyLiveStatusLabel": "Status saat ini",

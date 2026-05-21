@@ -7,7 +7,7 @@ import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
 import '../styles/jetty-schematic.css'
 
-const JETTY_LIVE_PAGE_KEY = 'jetty-live'
+const AT_BERTH_PAGE_KEY = 'at-berth'
 
 /**
  * LOAD vs DISCH for slot tinting. Must not use naive `includes('LOAD')` — "Unloading" → "UNLOADING" contains "LOAD".
@@ -106,8 +106,8 @@ export default function JettySchematic({
   slotReferenceLabel = 'SI No',
 }) {
   const { t } = useTranslation('pages')
-  const { canView } = useRbac()
-  const canViewJettyLive = canView(JETTY_LIVE_PAGE_KEY)
+  const { canApprove } = useRbac()
+  const canViewJettyLiveCctv = canApprove(AT_BERTH_PAGE_KEY)
   const { selectedPortId, requiresSelection, noPortAssigned } = usePortScope()
   const canLoadLayout = selectedPortId != null && !requiresSelection && !noPortAssigned
 
@@ -190,7 +190,7 @@ export default function JettySchematic({
   }, [])
 
   function renderCctvButton(berthId) {
-    if (!canViewJettyLive) return null
+    if (!canViewJettyLiveCctv) return null
     const rtspLink = berthIdToRtspLink[berthId]
     const hasCctv = Boolean(rtspLink)
     const noCctvLabel = t('jettySchematicNoCctv')

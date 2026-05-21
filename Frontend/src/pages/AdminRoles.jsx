@@ -96,6 +96,34 @@ function LoadingOperationSignoffApproveSubrow({ perm, onToggleApprove }) {
   )
 }
 
+/** Inline under At-Berth Executions: Jetty Live CCTV from Allocation schematic. */
+function AtBerthJettyLiveSubrow({ perm, onToggleApprove }) {
+  return (
+    <tr className="admin-permission-table__si-subrow">
+      <td colSpan={4}>
+        <label className="admin-permission-table__si-approve-label">
+          <span className="admin-permission-table__si-subindent" aria-hidden>
+            ↳
+          </span>
+          <input
+            type="checkbox"
+            checked={!!perm.approve}
+            onChange={(e) => onToggleApprove(e.target.checked)}
+            aria-label="View Jetty Live stream (CCTV from Allocation schematic)"
+          />
+          <span className="admin-permission-table__si-approve-text">
+            <strong>View Jetty Live stream</strong>
+            <span className="admin-permission-table__si-approve-hint">
+              {' '}
+              — opens live CCTV from the Allocation & Berthing jetty schematic. Separate from View/Edit/Delete above.
+            </span>
+          </span>
+        </label>
+      </td>
+    </tr>
+  )
+}
+
 /** Inline under Shipment Plan only: plan-level approve / reject (vessel call). */
 function ShipmentPlanApproveSubrow({ perm, onToggleApprove }) {
   return (
@@ -677,6 +705,12 @@ export default function AdminRoles() {
                                   onToggleApprove={(approve) => updatePerm('page', 'shipment-plan', { ...perm, approve })}
                                 />
                               )}
+                              {p.id === 'at-berth' && (
+                                <AtBerthJettyLiveSubrow
+                                  perm={perm}
+                                  onToggleApprove={(approve) => updatePerm('page', 'at-berth', { ...perm, approve })}
+                                />
+                              )}
                             </Fragment>
                           )
                         })}
@@ -867,6 +901,19 @@ export default function AdminRoles() {
                                                   </span>
                                                   <span className="text-steel">
                                                     Approve shipment plan:{' '}
+                                                    <strong>{row.approve ? 'Yes' : 'No'}</strong>
+                                                  </span>
+                                                </td>
+                                              </tr>
+                                            )}
+                                            {row.key === 'at-berth' && (
+                                              <tr className="admin-permission-table__si-subrow admin-permission-table__si-subrow--readonly">
+                                                <td colSpan={4}>
+                                                  <span className="admin-permission-table__si-subindent" aria-hidden>
+                                                    ↳
+                                                  </span>
+                                                  <span className="text-steel">
+                                                    View Jetty Live stream:{' '}
                                                     <strong>{row.approve ? 'Yes' : 'No'}</strong>
                                                   </span>
                                                 </td>

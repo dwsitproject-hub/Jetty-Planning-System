@@ -43,46 +43,34 @@
 
 ### 0.26 Jetty Live CCTV — `jetties.rtsp_link` + `rtsp-stream-viewer` (2026-05-21)
 
-**Purpose:** Per-jetty optional RTSP URLs for live CCTV; browser playback via a host-side stream helper (FFmpeg → MPEG1 WebSocket), not embedded in the API container.
+**Purpose:** Per-jetty optional RTSP URLs for live CCTV; browser playback via a host-side stream helper (FFmpeg → MPEG1 WebSocket), not embedded in the API container. Opened from **Allocation → Jetty schematic** (popup **`/jetty-live`**), not a dedicated sidebar page.
 
 **Database (migration `077_jetties_rtsp_link.sql`):**
 
 - Column **`jetties.rtsp_link`** (`TEXT`, nullable) — full RTSP URL including credentials when required by the camera.
 - Rollback: **`Backend/rollback/077_rollback_jetties_rtsp_link.sql`**.
 
-**RBAC (migration `072_jetty_live_page_permission.sql`):**
+**RBAC (migration `078_retire_jetty_live_page_permission.sql`; supersedes `072`):**
 
-- Catalog page key **`jetty-live`** (`permissions.resource_type = 'page'`). Admin assigns **view** per role for sidebar **Jetty Live** and schematic camera buttons. Master RTSP configuration remains under **`master-jetty`** edit.
+- Standalone page key **`jetty-live`** is **retired** (soft-deleted). Existing **`jetty-live` can_view** grants are migrated to **`at-berth` can_approve**.
+- **View Jetty Live stream** is configured in **Admin → Roles** as an **`can_approve`** sub-checkbox under **At-Berth Executions** (same UX pattern as **Approve shipment plan** under Shipment Plan).
+- Schematic camera buttons and **`/jetty-live`** viewer gate on **`useRbac().canApprove('at-berth')`**. Master RTSP configuration remains under **`master-jetty`** edit.
 
 **API — `Backend/src/routes/jetties.js`:**
 
 - **`GET /jetties`**, **`GET /jetties/:id`**, **`POST /jetties`**, **`PUT /jetties/:id`** include **`rtsp_link`** in SQL; JSON camelCase **`rtspLink`** (`null` when unset).
-- **`normalizeRtspLink`:** trim; empty → `null`; max **512** characters → **400** if exceeded. No scheme validation on the API (client may still send non-RTSP strings; stream service validates on reconnect).
+- **`normalizeRtspLink`:** trim; empty → `null`; max **512** characters → **400** if exceeded.
 - **`PUT`** activity log may record **RTSP link** field changes.
 
 **Frontend:**
 
 - **`Frontend/src/pages/MasterJetty.jsx`** — optional **RTSP link (CCTV)** on add/edit; **`MAX_RTSP_LINK_CHARS`** from **`inputLimits.js`**.
-- **`Frontend/src/api/jetties.js`** — `createJetty` / `updateJettyApi` send **`rtsp_link`**.
-- **`Frontend/src/components/JettySchematic.jsx`** — loads **`fetchJetties`**, maps short berth id → **`rtspLink`**; **`useRbac().canView('jetty-live')`** gates **`renderCctvButton`**; opens **`/jetty-live?rtsp=…&label=…`** in a new tab.
-- **`Frontend/src/pages/JettyLive.jsx`** — reads query params; **`POST`** stream **`/api/reconnect`** with **`rtspUrl`** before JSMpeg attach; health via **`/jetty-live-stream/api/health`** (prod nginx) or Vite proxy (dev).
-- Route: **`Frontend/src/App.jsx`** — **`/jetty-live`**; nav label **`jetty-live`** in **`rolesData.js`**.
+- **`Frontend/src/components/JettySchematic.jsx`** — **`canApprove('at-berth')`** gates **`renderCctvButton`**; opens **`/jetty-live?rtsp=…&label=…`** in a new tab.
+- **`Frontend/src/pages/JettyLive.jsx`** — same **`canApprove('at-berth')`** gate; **`POST`** stream **`/api/reconnect`** with **`rtspUrl`** before JSMpeg attach.
+- **`Frontend/src/pages/AdminRoles.jsx`** — **View Jetty Live stream** sub-row under **At-Berth Executions**.
+- Route: **`Frontend/src/App.jsx`** — **`/jetty-live`** (no sidebar nav entry in **`Layout.jsx`**).
 
-**Stream helper — `rtsp-stream-viewer/` (separate Node process on app host):**
-
-- **Not** in `jps-api` or `jps-fe` containers. Runs on the **app server** with **FFmpeg** installed on the host.
-- **Architecture:** one persistent **WebSocket** server (`WS_PORT`, default **9999**); FFmpeg process is restarted on reconnect — avoids rebinding WS port on rapid restarts.
-- **`POST /api/reconnect`** body `{ rtspUrl?: string }` (alias **`rtsp_url`**): if value matches **`^rtsp://`**, updates **`currentRtspUrl`** and restarts FFmpeg; otherwise reconnects with the current URL.
-- **`GET /api/health`** — `status`, `lastFrameAt`, `ffmpegRunning`, `restartCount`, `stallMs`, masked **`rtspSource`**.
-- Env: **`RTSP_URL`** (default/fallback), **`HTTP_PORT`** (**3081** on app server — **3080** is `jps-fe`), **`WS_PORT`**, optional **`RTSP_TRANSPORT=tcp`** (sets FFmpeg **`-rtsp_transport`** before **`-i`**), **`STREAM_LOG_FFMPEG=1`** for debug.
-- Custom **`lib/mpeg1Muxer.js`** — input FFmpeg flags before **`-i`** (required for TCP RTSP on VPN paths).
-
-**Nginx / compose (app server):**
-
-- **`Frontend/nginx.alicloud-app.conf`:** **`/jetty-live-stream/`** → **`host.docker.internal:3081`**, **`/jetty-live-ws`** → WS **9999** on host.
-- **`docker-compose.app.yml`:** **`extra_hosts: host.docker.internal:host-gateway`** so nginx inside **`jps-fe`** reaches the host stream process.
-
-**Network:** App server initiates **outbound TCP** to camera **`host:554`**. Inbound “port 554 on FE” security group rules do **not** substitute for egress + camera-side allowlist. See **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md** Step 0.
+**Stream helper — `rtsp-stream-viewer/`** (separate Node process on app host): see **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**.
 
 **Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.15**.
 

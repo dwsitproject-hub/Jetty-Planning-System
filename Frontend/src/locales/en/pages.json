@@ -2,7 +2,7 @@
   "dashboard": "Dashboard",
   "dashboardSelectPortHint": "Select a port from the header to load dashboard data.",
   "jettyLiveTitle": "Jetty Live stream",
-  "jettyLiveNoPermission": "You do not have permission to view this page.",
+  "jettyLiveNoPermission": "You do not have permission to view Jetty Live CCTV. Ask an admin to enable View Jetty Live stream under At-Berth Executions in Role Management.",
   "jettyLiveBackDashboard": "Allocation & Berthing",
   "jettyLiveHealthTitle": "Stream health",
   "jettyLiveStatusLabel": "Current status",

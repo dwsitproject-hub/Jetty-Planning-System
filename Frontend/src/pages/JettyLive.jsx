@@ -13,7 +13,7 @@ import { useRbac } from '../context/RbacContext'
 import '../styles/dashboard.css'
 import '../styles/jetty-live.css'
 
-const PAGE_KEY = 'jetty-live'
+const AT_BERTH_PAGE_KEY = 'at-berth'
 const JSMPEG_SCRIPT =
   'https://cdn.jsdelivr.net/gh/phoboslab/jsmpeg@master/jsmpeg.min.js'
 
@@ -106,8 +106,8 @@ function fmtTime(ts, locale) {
 
 export default function JettyLive() {
   const { t } = useTranslation('pages')
-  const { canView } = useRbac()
-  const canDoView = canView(PAGE_KEY)
+  const { canApprove } = useRbac()
+  const canViewStream = canApprove(AT_BERTH_PAGE_KEY)
   const [searchParams] = useSearchParams()
   const rtspFromQuery = useMemo(() => parseRtspFromSearch(searchParams), [searchParams])
   const jettyLabel = (searchParams.get('label') || '').trim() || null
@@ -175,7 +175,7 @@ export default function JettyLive() {
   }, [destroyPlayer])
 
   useEffect(() => {
-    if (!canDoView) return undefined
+    if (!canViewStream) return undefined
     let cancelled = false
 
     ;(async () => {
@@ -198,7 +198,7 @@ export default function JettyLive() {
       cancelled = true
       destroyPlayer()
     }
-  }, [canDoView, rtspFromQuery, destroyPlayer, startPlayer])
+  }, [canViewStream, rtspFromQuery, destroyPlayer, startPlayer])
 
   useEffect(() => {
     let alive = true
@@ -247,7 +247,7 @@ export default function JettyLive() {
 
   /** Re-attach JSMpeg when the stream service starts delivering frames. */
   useEffect(() => {
-    if (!canDoView) return undefined
+    if (!canViewStream) return undefined
     const key = displayStatus.key
     const prev = lastHealthKeyRef.current
     lastHealthKeyRef.current = key
@@ -266,7 +266,7 @@ export default function JettyLive() {
       }
     }
     return undefined
-  }, [canDoView, displayStatus.key, destroyPlayer, startPlayer])
+  }, [canViewStream, displayStatus.key, destroyPlayer, startPlayer])
 
   const onReconnect = useCallback(async () => {
     setReconnectBusy(true)
@@ -284,7 +284,7 @@ export default function JettyLive() {
     }
   }, [rtspFromQuery, destroyPlayer, startPlayer])
 
-  if (!canDoView) {
+  if (!canViewStream) {
     return (
       <div className="dashboard">
         <header className="dashboard-header">
