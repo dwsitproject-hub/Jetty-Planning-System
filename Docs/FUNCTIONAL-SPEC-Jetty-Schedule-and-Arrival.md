@@ -1,9 +1,9 @@
 # Functional specification — Jetty schedule Gantt & arrival updates
 
 **Product:** Jetty Planning & Monitoring System (JPS)  
-**Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, **Jetty Live CCTV** (per-jetty RTSP links, schematic camera control, browser stream page), and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
+**Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, **Jetty Live CCTV** (per-jetty RTSP links, schematic camera control, browser stream page), **self-service change password** (header user menu), and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.44 (see document history at end).
+**Version:** 1.45 (see document history at end).
 
 ---
 
@@ -27,6 +27,8 @@ This document describes **behaviour that is implemented in code**, including:
 - **Jetty Operation ID:** external formatted id for each operation (**§2.10**); shown in Allocation, At-Berth, and Clearance main tables **before** SI.
 - **Input maximum lengths (UI):** free-text fields use HTML **`maxLength`** caps for consistent UX and safer payloads (**§2.11**).
 - **Jetty Live CCTV:** optional **RTSP link** per master jetty; **Allocation → Jetty Schematic** camera control opens **`/jetty-live`** in a new tab; shared stream service switches camera URL (**last opened wins**) (**§2.15**).
+- **Self-service change password:** header **user menu** (name + initials avatar) with **Change Password** for **local** accounts and **Logout**; modal verifies current password before save (**§2.16**, **§14**).
+- **Master Menu list tables:** client-side **column sort** and **per-column text filters** on Port, Jetty, SI lookup masters, and Freight Terms; SI lookup pages do **not** display **Sort order** (**§2.17**).
 
 For API field names, database columns, and shared code modules, see **TECH-SPEC-Jetty-Planning-System.md** and **§6** below for arrival/estimated completion mapping. Jetty Live deployment: **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**.
 
@@ -182,7 +184,7 @@ The browser enforces these limits on the relevant controls (HTML **`maxLength`**
 | **Operational milestone composer** | **100** / **500** | Sub-step title (optional); **Reason** when marking N/A. |
 | **Shipping Instruction** | See TECH-SPEC **§0.18** table | Vessel / SI ref / voyage caps; destination; B/L block textareas; breakdown Contract / PO / **Remarks** column (50 each); SI **Note** (500); SI Approval **Approval comments** (500). |
 
-**Note:** Table **filter** inputs (Allocation, At-Berth, SI list, etc.) are not capped in this release. Backend validation of string lengths remains a recommended hardening step (TECH-SPEC **§0.18**).
+**Note:** Table **filter** inputs (Allocation, At-Berth, SI list, **Master Menu** list tables, etc.) are not capped in this release. Backend validation of string lengths remains a recommended hardening step (TECH-SPEC **§0.18**).
 
 ### 2.12 OIDC SSO integration (strict mode) — user-visible behavior
 
@@ -238,6 +240,34 @@ This section documents implemented sign-in behavior for Downstream Hub OIDC inte
 | **Jetty Live page** | Route **`/jetty-live`**. On load, if **`rtsp`** query param is present and valid (`rtsp://…`), the UI calls the stream helper **`POST /api/reconnect`** with that URL (switches the shared FFmpeg source), then attaches **JSMpeg** to the WebSocket video feed. Optional **`label`** sets the page heading (e.g. *Jetty Live — 1A*). If the link has no **`rtsp`** param, the user sees guidance to configure master data or open from the schematic. |
 | **Stream service** | Separate host process **`rtsp-stream-viewer`** (not inside API or frontend containers): FFmpeg pulls RTSP → MPEG1 over WebSocket. **One active RTSP source at a time** on a given instance; opening CCTV for another jetty **replaces** the URL (**last opened wins**). Health card shows status, last frame time, restart count, masked RTSP source; **Reconnect** repeats the current URL (or query URL when opened from schematic). |
 | **Deployment** | On the **app server**, stream HTTP listens on **3081** (JPS UI uses **3080**); nginx proxies **`/jetty-live-stream/`** and **`/jetty-live-ws`** to the host process. The app server must reach the camera on **TCP 554** (ping alone is insufficient). See **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**. |
+
+### 2.16 Self-service change password
+
+| Area | Behaviour |
+|------|------------|
+| **Where** | **Top bar** — when signed in, the greeting + standalone **Logout** control is replaced by a **user menu** trigger: **display name** + circular **initials** avatar (derived from display name or username). |
+| **Dropdown** | Clicking the trigger opens a panel below the trigger (right-aligned): **bold name**, **email** (when set), divider, then actions. |
+| **Change Password** | Shown only for accounts with **`auth_source = 'local'`** (resolved via **`GET /users/me/sso-status`**). **Hidden** for **SSO-only** users (`auth_source = 'sso'`) — they manage credentials via their identity provider. |
+| **Change Password modal** | **Current Password**, **New Password**, **Confirm Password** — each with label, placeholder, and **show/hide** (eye) toggle. **Cancel** closes without saving. **Save Password** submits when validation passes. |
+| **Client validation** | All three fields required; new password **≥ 6** characters (same minimum as admin user create); confirm must match new; new must differ from current. Errors appear in the modal before submit. |
+| **Server validation** | **`PUT /api/v1/users/me/password`** with **`current_password`** and **`new_password`**; wrong current password → **401**; SSO account → **403**; new same as current or &lt; 6 chars → **400**. |
+| **Success** | On success, a short **success** message is shown in the modal, then the modal closes and fields are cleared. The user **remains signed in** (session cookies unchanged). |
+| **Logout** | **Logout** in the dropdown (destructive/red styling) uses the same flow as before: clears session cookies, clears selected port in session storage, redirects to **`/login`**. |
+
+Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.27**, **§3.1**.
+
+### 2.17 Master Menu — list tables (sort and filter)
+
+| Area | Behaviour |
+|------|------------|
+| **Where** | **Master** hub (`/master`) links to list pages: **Port**, **Preferred Jetty**, **Term**, **Shipper**, **Loading Port**, **Surveyor**, **Agent**, **Commodity**, **Freight Terms** (read-only). **Jetty Layout** is unchanged (not a sortable data table). |
+| **UX pattern** | Same as **Allocation → Shipment plans — incoming vessel & berthing queue**: clickable column headers toggle **ascending / descending** sort (⇅ / ↑ / ↓); a second header row provides **text filters** per column (case-insensitive substring match). Styling reuses **`allocation-table__sort`** / **`allocation-table__filter`** (see TECH-SPEC **§0.28**). |
+| **Port** | Columns: **Port Name**, **Schedule TZ**, **Description** (filter matches **full** description even when the cell is truncated). Default sort: name A→Z. |
+| **Preferred Jetty** | Columns: **Port**, **Order**, **Jetty name**, **Capacity**, **Status**, **Description** (full text for filter). Default sort: **Port** A→Z. Add/edit still includes **RTSP link** and operational status (**§2.15**). |
+| **SI lookups** (Term, Shipper, Loading Port, Surveyor, Agent, Commodity) | Columns: primary **value** label for that page; **Commodity** also **Type** and optional **loading/unloading rate** columns when enabled. **Sort order is not shown** in the UI (no column, filter, or cell); backend **`sort_order`** still drives API list order and SI dropdown ordering. Default table sort: **value** A→Z. |
+| **Freight Terms** | Read-only table: **Code**, **Label**; sort/filter on the four fixed enum rows. Default sort: code A→Z. |
+| **Empty filters** | When rows exist but every row is excluded by filters, the page shows *No entries match the current filters.* |
+| **Actions** | **Edit** / **Delete** (where RBAC allows) remain in the rightmost column; filter inputs do not intercept button clicks. |
 
 ---
 
@@ -362,6 +392,8 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | Client jetty OOS messages | `Frontend/src/utils/jettyAvailability.js` |
 | Master jetty status UI | `Frontend/src/pages/MasterJetty.jsx`, `Frontend/src/api/jetties.js` → `PUT /jetties/:id/status` |
 | Jetty Live CCTV (master RTSP, schematic camera, viewer) | `Backend/migrations/077_jetties_rtsp_link.sql`, `Backend/src/routes/jetties.js`; `Frontend/src/pages/MasterJetty.jsx`, `Frontend/src/components/JettySchematic.jsx`, `Frontend/src/pages/JettyLive.jsx`, `Frontend/src/styles/jetty-schematic.css`, `Frontend/src/styles/jetty-live.css`; `rtsp-stream-viewer/` (`server.js`, `lib/mpeg1Muxer.js`); RBAC **`072_jetty_live_page_permission.sql`**; deploy **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md** |
+| Master Menu list sort/filter | `Frontend/src/utils/sortableFilterableTable.js`, `Frontend/src/hooks/useSortableFilterableRows.js`, `Frontend/src/components/SortableFilterableTableHead.jsx`; `Frontend/src/pages/MasterPort.jsx`, `MasterJetty.jsx`, `MasterSiLookup.jsx`, `MasterFreightTerms.jsx`, hub `Frontend/src/pages/Master.jsx` |
+| Self-service change password (header menu + modal) | `Backend/src/routes/users.js` — **`PUT /users/me/password`**; `Frontend/src/components/UserMenu.jsx`, `ChangePasswordModal.jsx`, `PasswordField.jsx`; `Frontend/src/api/usersApi.js` — **`changeMyPasswordApi`**; `Frontend/src/styles/user-menu.css`, `Frontend/src/styles/modal.css`; i18n **`common.json`** (`changePassword.*`); wired in **`Layout.jsx`** |
 | Dashboard slot KPI, Port activity chart, weather footer | `Frontend/src/pages/Dashboard.jsx`, `Frontend/src/components/DashboardActivityChart.jsx`, `Frontend/src/utils/dashboardQueueClassification.js` |
 | Shift-out route | `Backend/src/routes/operations.js` |
 | Demurrage Risk Calculator UI | `Frontend/src/pages/DemurrageRiskCalculator.jsx`, `Frontend/src/styles/demurrage-risk-calculator.css` |
@@ -504,6 +536,8 @@ Cross-reference: **TECH-SPEC §0.20**, **`Backend/src/lib/schedule-instant.js`**
 
 | Version | Date | Notes |
 |---------|------|--------|
+| 1.46 | 2026-05-22 | **§2.17 Master Menu list tables:** client-side column **sort** and **filter** (shared table head; same UX as plan-centric Allocation queue). **Sort order** column **removed** from SI lookup master UI (Term–Commodity); backend **`sort_order`** unchanged. **§2.11** filter note; **§7** map. TECH-SPEC **§0.28**. |
+| 1.45 | 2026-05-19 | **§2.16 Self-service change password:** header **user menu** (name + initials), **Change Password** modal (current / new / confirm, show-hide toggles) for **`auth_source = local`** only; **`PUT /api/v1/users/me/password`**. **§14** shell updated (user menu replaces greeting + logout button). **§7** implementation map. TECH-SPEC **§0.27**. |
 | 1.44 | 2026-05-21 | **§2.15 Jetty Live CCTV:** optional **`jetties.rtsp_link`** in Master – Preferred Jetty; schematic **camera** button (RBAC **`jetty-live`**, disabled when no link); **`/jetty-live`** with **`?rtsp=`** / **`?label=`**; shared **`rtsp-stream-viewer`** (single RTSP source, last opened wins). **§2.7**, **§2.11**, **§17.6**, **§7** map. Migration **077**, RBAC **072**. Deploy **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**. TECH-SPEC **§0.26**. |
 | 1.43 | 2026-05-13 | **Shipment plan:** vessel-call **agent** is edited on the **plan** (modal + hub); child SIs inherit **`agent_id`** from the plan on create / plan patch sync. **Plan-linked SI UI:** **surveyor** per shipping instruction; **document upload** sits under each “Shipping instruction *N*” heading (names only; OCR later). Allocation agent label uses plan agent when SI row has no agent. Migration **071**, TECH-SPEC **§0.25**. |
 | 1.42 | 2026-05-11 | **Retire legacy list URLs** **`/allocation`** and **`/shipping-instruction`** (placeholder pages → **`/allocation-plans`** / **`/shipment-plans`**). RBAC catalog keys **`allocation`** / **`shipping-instruction`** retired; canonical **`allocation-plan`** / **`shipment-plan`** (migrations **068** / optional rollback **069**). **`GET /allocation/overview`** gated like **`plan-overview`**. Activity / SI approve paths re-keyed. **§2.13–2.14**, **§6**, **§13**, Shipping Instruction approval bullets, TECH-SPEC **§0.22**. |
@@ -629,7 +663,7 @@ Technical contract: **TECH-SPEC-Jetty-Planning-System.md §3.8A**.
 | Element | Behaviour |
 |---------|-----------|
 | **Sidebar** | Primary navigation uses an updated layout (card-style on desktop, collapsible). |
-| **Logout** | **Logout** sits in the **top bar** next to the greeting (**Hi, &lt;user&gt;**), not in the sidebar footer. |
+| **User menu & logout** | When signed in, the **top bar** shows a **user menu** (name + initials avatar), not a separate greeting line and logout button. The menu lists identity (name, email), **Change Password** (local accounts only — **§2.16**), and **Logout** (red). **Logout** is not in the sidebar footer. |
 
 ### 14.1 Multi-port selection (operational scope)
 

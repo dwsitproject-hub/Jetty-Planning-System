@@ -177,6 +177,15 @@ Details: **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md** (what it does for use
 | **Multi-port shell** | Dedicated **Choose port** flow (`/select-port`) with session-scoped active port and header-based Change port behavior. |
 | **At-berth and SI detail alignment** | At-berth full-details timing order is standardized; SI hyperlink opens shared modal across Shipping Instruction, Allocation, and At-Berth pages. |
 
+### 6.8 Master Menu list tables (2026-05-22)
+
+| Topic | In short |
+|-------|-----------|
+| **Sort and filter** | Master list pages (Port, Jetty, Term–Commodity, Freight Terms) use the same column sort + per-column text filters as the Allocation incoming queue. |
+| **SI lookup UI** | **Sort order** is hidden on Term/Shipper/Loading Port/Surveyor/Agent/Commodity admin tables; API **`sort_order`** still orders dropdowns. |
+
+See **FUNCTIONAL-SPEC §2.17** and **TECH-SPEC §0.28**.
+
 ---
 
 ## 7. Next steps (full application)

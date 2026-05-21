@@ -1,12 +1,45 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.36
-**Last Updated**: 2026-05-21  
+**Version**: 1.38
+**Last Updated**: 2026-05-22  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
 
 ## 0. Addendum (2026-03-31)
+
+### 0.27 Self-service change password — `PUT /users/me/password` (2026-05-19)
+
+**Purpose:** Authenticated **local** users change their own password without admin involvement. SSO-only accounts (`auth_source = 'sso'`) cannot use this endpoint; the UI hides **Change Password** in the header menu.
+
+**API — `Backend/src/routes/users.js` (before admin `router.use(...requireAdminPageView)`):**
+
+- **`PUT /api/v1/users/me/password`** — `requireAuth` only (not admin-gated).
+- Body (snake_case): **`current_password`**, **`new_password`**.
+- Validation:
+  - **`current_password`** required.
+  - **`new_password`** required, min **6** characters (same rule as admin **`POST /users`** / **`PUT /users/:id`** optional password).
+  - **`new_password`** must differ from **`current_password`** → **400**.
+- Load user: **`password_hash`**, **`auth_source`**, **`is_active`**.
+  - Inactive → **403**; missing row → **404**.
+  - **`auth_source !== 'local'`** → **403** `{ error: 'Password cannot be changed for SSO accounts' }`.
+  - **`bcrypt.compare`** on current → **401** `{ error: 'Invalid current password' }` + **`logAuthEvent('local.password.change.failure', …)`**.
+- Success: **`bcrypt.hash`** (cost **10**), **`UPDATE users SET password_hash, updated_at`**, **`logAuthEvent('local.password.change', { userId, ip })`**, **204** (no body).
+- Session cookies are **not** invalidated on success (user stays logged in).
+
+**Frontend:**
+
+- **`Frontend/src/components/UserMenu.jsx`** — top-bar trigger (display name + initials); dropdown with name, email, **Change Password** (when **`fetchMySsoStatus()`** → **`authSource === 'local'`**), **Logout** (callback to existing **`handleLogout`** in **`Layout.jsx`**). Click-outside + **Escape** to close (pattern aligned with **`NotificationBell.jsx`**).
+- **`Frontend/src/components/ChangePasswordModal.jsx`** — overlay modal; client validation; **`changeMyPasswordApi`**; success banner then auto-close.
+- **`Frontend/src/components/PasswordField.jsx`** — password input + visibility toggle.
+- **`Frontend/src/api/usersApi.js`** — **`changeMyPasswordApi({ currentPassword, newPassword })`** → **`apiPut('/users/me/password', { current_password, new_password })`** (CSRF + cookie session per **§0.10**).
+- **`Frontend/src/components/Layout.jsx`** — replaces inline greeting + logout button with **`<UserMenu me={me} onLogout={handleLogout} />`** when **`me`** is set.
+- Styles: **`Frontend/src/styles/user-menu.css`**, **`modal.css`** (`.modal__header`, `.modal__close`, `.password-field__*`).
+- i18n: **`Frontend/src/locales/en/common.json`**, **`id/common.json`** — namespace key **`changePassword.*`**.
+
+**Admin password reset unchanged:** **`PUT /api/v1/users/:id`** with optional **`password`** remains **admin-only** and does not require the user’s current password.
+
+**Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.16**, **§14**.
 
 ### 0.26 Jetty Live CCTV — `jetties.rtsp_link` + `rtsp-stream-viewer` (2026-05-21)
 
@@ -52,6 +85,37 @@
 **Network:** App server initiates **outbound TCP** to camera **`host:554`**. Inbound “port 554 on FE” security group rules do **not** substitute for egress + camera-side allowlist. See **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md** Step 0.
 
 **Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.15**.
+
+### 0.28 Master data list tables — client sort and filter (2026-05-22)
+
+**Purpose:** Consistent **client-side** column sorting and per-column text filtering on **Master Menu** list pages, matching the Allocation / Shipping Instruction table pattern (no new API query parameters).
+
+**Shared frontend modules:**
+
+| Module | Role |
+|--------|------|
+| **`Frontend/src/utils/sortableFilterableTable.js`** | Pure **`filterRows`**, **`sortRows`**, **`filterAndSortRows`**; optional per-column **`getFilterValue`** (defaults to stringified **`getSortValue`**). |
+| **`Frontend/src/hooks/useSortableFilterableRows.js`** | React state: **`filters`**, **`sortState`**, **`displayRows`**, **`updateFilter`**, **`handleSort`** (toggle asc/desc on same column key). |
+| **`Frontend/src/components/SortableFilterableTableHead.jsx`** | Renders sort buttons + filter inputs in **`<thead>`** using **`allocation-table__sort`**, **`allocation-table__filter-row`**, **`allocation-table__filter`** from **`allocation.css`**. Supports **`leadingBlankCols`** / **`trailingBlankCols`** for non-data columns (e.g. **Actions** on the right). |
+
+**Pages wired:**
+
+| Page | File | Default sort | Notes |
+|------|------|--------------|--------|
+| Master – Port | `MasterPort.jsx` | `name` asc | Columns: name, scheduleTimezone, description |
+| Master – Preferred Jetty | `MasterJetty.jsx` | `port` asc | Replaces fixed client sort by port+order only |
+| Term, Shipper, Loading Port, Surveyor, Agent, Commodity | `MasterSiLookup.jsx` (props per route) | `value` asc | Dynamic columns: value; commodity **Type** + rate fields when `enableStandardRateFields`; **no `sortOrder` column in UI** |
+| Master – Freight Terms | `MasterFreightTerms.jsx` | `code` asc | Static enum rows; read-only |
+
+**SI lookup — `sort_order` vs UI:**
+
+- **`GET /si-lookups/:type`** (and aggregate **`GET /si-lookups`**) still **`ORDER BY sort_order`** in SQL (`Backend/src/routes/si-lookups.js`); JSON may include **`sortOrder`**.
+- Admin **MasterSiLookup** tables **do not** render, sort, or filter on **Sort order**; dropdown order elsewhere still follows API **`sort_order`**.
+- New creates still set **`sort_order`** on insert (backend default **0**); no admin UI to edit sort order.
+
+**Filter inputs:** Not subject to **`inputLimits.js`** caps (same as Allocation / SI list filters). See FUNCTIONAL-SPEC **§2.11** note.
+
+**Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.17**.
 
 ### 0.24 Shipping instruction vessel-call columns removed (canonical `shipment_plans`) (2026-05-11)
 
@@ -365,7 +429,7 @@ This addendum updates key requirements/implementation details.
   - >1 assigned ports -> force port selection before entering operational modules.
 - **Choose-port UX (2026-04-02):** Multi-port users use a **dedicated route** **`/select-port`** (no `Layout` shell). The main app **`Layout`** **`useLayoutEffect`** redirects to **`/select-port?returnTo=<encoded path>`** when `PortScopeContext` reports **`requiresSelection`** and the path is not already bypassed (`/admin`, `/master`). **Login** (`Login.jsx`) after a **successful login** (session cookies set; see **§0.10**) calls **`fetchMyPorts`**; if **`assignedPorts.length > 1`** and **`sessionStorage`** has **no** valid stored id for that list, **`navigate('/select-port')`**; otherwise **`navigate('/')`**. **`returnTo`** is validated on the choose-port page (same-origin path only; rejects `//`).
 - **Changing port:** Header **no longer** uses an inline `<select>` for multi-port users. A **button** navigates to **`/select-port?returnTo=…`** so selection happens only on the landing page.
-- Selected port persistence: **browser `sessionStorage`** key **`jps_selected_port_id`** (see `Frontend/src/api/client.js`: **`getSelectedPortId`**, **`setSelectedPortId`**). Every **`authHeaders()`** request adds **`X-Selected-Port-Id`** when set and **`X-XSRF-TOKEN`** when the CSRF cookie is present (see **§0.10**). **Logout** (`Frontend/src/api/auth.js` **`logout`**) calls **`POST /auth/logout`** (clears HttpOnly session cookies), clears any legacy **`localStorage`** token, and calls **`setSelectedPortId(null)`**.
+- Selected port persistence: **browser `sessionStorage`** key **`jps_selected_port_id`** (see `Frontend/src/api/client.js`: **`getSelectedPortId`**, **`setSelectedPortId`**). Every **`authHeaders()`** request adds **`X-Selected-Port-Id`** when set and **`X-XSRF-TOKEN`** when the CSRF cookie is present (see **§0.10**). **Logout** (`Frontend/src/api/auth.js` **`logout`**) calls **`POST /auth/logout`** (clears HttpOnly session cookies), clears any legacy **`localStorage`** token, and calls **`setSelectedPortId(null)`**. The shell invokes logout from **`UserMenu`** in the top bar (**§0.27**), not a standalone header logout button beside a greeting.
 - **`PortScopeContext` bugfix:** When **`me` is temporarily null** (auth still loading after reload), **`refreshPorts` must not** call **`persistSelectedPortId(null)`**—that had been clearing the user’s choice on full page load. The **`!me`** branch only resets in-memory lists and syncs **`selectedPortId` state** from **`getSelectedPortId()`**.
 - Scope enforcement applies in both frontend and backend for operational modules; Admin/Master remain configuration surfaces.
 
@@ -376,6 +440,7 @@ This addendum updates key requirements/implementation details.
 | Choose-port page | `Frontend/src/pages/SelectPort.jsx` |
 | Route registration | `Frontend/src/App.jsx` — **`/select-port`** sibling to **`/login`**, outside **`AppShell` / Layout** |
 | Redirect guard | `Frontend/src/components/Layout.jsx` — **`useLayoutEffect`**, **`navigate(..., { replace: true })`** |
+| Header user menu | `Frontend/src/components/UserMenu.jsx`, `ChangePasswordModal.jsx`, `PasswordField.jsx` — **§0.27** |
 | Port state + API header | `Frontend/src/context/PortScopeContext.jsx`, `Frontend/src/api/client.js` |
 | Post-login branch | `Frontend/src/pages/Login.jsx` — **`fetchMyPorts`** after **`refreshMe` / `refreshRbac`** |
 | Backend scope | `Backend/src/middleware/port-scope.js` — **`requirePortScope`**, **`req.selectedPortId`** |
@@ -511,7 +576,7 @@ Operational ownership note:
 
 - **Login** `POST /api/v1/auth/login`: on success, response JSON is **`{ user }`** by default; **`Set-Cookie`** sets **`jps_at`** (HttpOnly JWT) and **`jps_xsrf`** (readable anti-CSRF token). Cookie **`maxAge`** follows **`JWT_EXPIRES_IN`** (default **8h** in code / `.env.example`).
 - **Optional:** `AUTH_RETURN_TOKEN_BODY=true` adds **`token`** to the JSON for non-browser API clients that cannot use cookies.
-- **Logout** `POST /api/v1/auth/logout`: clears both cookies (**204**). Frontend **`Frontend/src/api/auth.js`** calls this, clears legacy **`jps_token`** in `localStorage` if present, and **`setSelectedPortId(null)`**.
+- **Logout** `POST /api/v1/auth/logout`: clears both cookies (**204**). Frontend **`Frontend/src/api/auth.js`** calls this, clears legacy **`jps_token`** in `localStorage` if present, and **`setSelectedPortId(null)`**. Entry point in the authenticated shell: **`UserMenu`** dropdown (**§0.27**).
 - **Authorisation header:** `Backend/src/middleware/auth.js` accepts **`Authorization: Bearer <jwt>`** **or** cookie **`jps_at`**. Bearer-only requests **skip** CSRF verification (integrations/scripts).
 - **CSRF:** For unsafe methods (`POST`, `PUT`, `PATCH`, `DELETE`), when the session cookie **`jps_at`** is present **and** there is **no** Bearer header, middleware **`Backend/src/middleware/csrf.js`** requires **`X-XSRF-TOKEN`** to match cookie **`jps_xsrf`**. **`POST /auth/login`** is exempt.
 - **Frontend:** `Frontend/src/api/client.js` uses **`credentials: 'include'`** on all `fetch` calls and sends **`X-XSRF-TOKEN`** when the `jps_xsrf` cookie exists. **`AuthContext`** / **`RbacContext`** rely on **`GET /users/me`** and RBAC endpoints with cookie session (not `localStorage` token checks).
@@ -669,7 +734,9 @@ SI dropdown values are sourced from master tables and managed via Master Menu pa
 - Agent
 - Commodity
 
-Freight terms are currently fixed (frontend constant + backend validation), so the UI exposes them as a read-only master page.
+Each SI lookup master list uses **`MasterSiLookup.jsx`** with client-side **sort** and **filter** on displayed columns (**§0.28**). **Sort order** is **not** shown in those admin tables; list APIs still order by **`sort_order`** for dropdowns.
+
+Freight terms are currently fixed (frontend constant + backend validation), so the UI exposes them as a read-only master page with the same sort/filter table pattern (**`MasterFreightTerms.jsx`**).
 
 #### 2.2.2 Allocation & Berthing
 
@@ -854,7 +921,9 @@ All endpoints under `/api/v1`.
 - `GET /auth/oidc/callback` – OIDC callback; validates token/JWKS; sets session cookies; redirects to public origin.
 - `GET /auth/oidc/ready` – plain readiness probe for OIDC auth route reachability.
 - `GET /users/me` – current user profile (session cookie or Bearer); same for effective permissions context elsewhere.
-- `GET /users`, `GET /users/:id`, `POST /users`, `PUT /users/:id`, `DELETE /users/:id` (soft) – authentication required; cannot delete self.
+- `GET /users/me/sso-status` – linked OIDC state and **`authSource`** (`local` \| `sso`); used by **`UserMenu`** to show or hide self-service change password (**§0.27**).
+- `PUT /users/me/password` – self-service password change for **`auth_source = 'local'`** only; body **`current_password`**, **`new_password`**; **204** on success (**§0.27**).
+- `GET /users`, `GET /users/:id`, `POST /users`, `PUT /users/:id`, `DELETE /users/:id` (soft) – authentication required; cannot delete self. Admin **`PUT /users/:id`** optional **`password`** (min 6) does **not** require current password.
 - **RBAC:** base path `/rbac` — `GET/POST /rbac/roles`, `GET/PUT/DELETE /rbac/roles/:id` (system roles not deletable); `GET/POST/DELETE /rbac/roles/:roleId/permissions[/:permissionId]`; `GET/POST/PUT/DELETE /rbac/permissions[/:id]`; `GET/POST/DELETE /rbac/users/:userId/roles[/:roleId]`.
 
 ### 3.2 Shipping Instructions
@@ -878,6 +947,8 @@ Base: `/si-lookups` — **all routes require an authenticated session** (includi
 - `DELETE /si-lookups/:type/:id` – delete (blocked when referenced by SI or SI breakdown)
 
 Types are whitelisted by backend config (`Backend/src/routes/si-lookups.js`) and map to the corresponding SI master tables.
+
+**List responses** include **`sortOrder`** (DB **`sort_order`**) and are ordered **`ORDER BY sort_order, <value column>`**. The **MasterSiLookup** UI does not expose **Sort order** for editing or table display (**§0.28**).
 
 ### 3.2.2 Demurrage Risk Calculator — candidates list & save ETC
 
@@ -1304,6 +1375,7 @@ Indexes:
 - Target availability: 99.5%+ in Production.
 - HTTPS in Testing and Production (required for **`Secure`** session cookies in production builds).
 - Passwords with strong hashing (**bcrypt**); **JWT** carried in **HttpOnly cookie** for browser SPA, optional Bearer for scripts; **CSRF** protection on unsafe API methods when using cookie session (**§0.10**).
+- Self-service password change requires verifying **current password**; SSO accounts blocked at API and UI (**§0.27**).
 - **Login** endpoint rate-limited per IP; **`trust proxy`** configurable behind load balancers.
 - **SI master aggregate** and upload pipelines include additional hardening (auth on **`GET /si-lookups`**, magic-byte checks on uploads).
 - Production **nginx** template includes baseline **security headers** / **CSP** (`nginx.conf`); validate in staging per deployment hostname.
@@ -1497,7 +1569,7 @@ Selected, testable criteria:
 
 11. **Ports & Jetties backend**
     - Implement `/ports` and `/jetties` endpoints.
-    - Connect `MasterPort` and `MasterJetty` UIs.
+    - Connect `MasterPort` and `MasterJetty` UIs (list tables: client sort/filter per **§0.28**).
 
 12. **Jetty status**
     - Extend `jetties` with status field.
