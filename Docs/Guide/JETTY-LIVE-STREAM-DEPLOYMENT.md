@@ -31,6 +31,20 @@ ffmpeg -rtsp_transport tcp -i "rtsp://USER:PASS@172.16.247.222:554/Stream1" -t 5
 
 If this fails (timeout / connection refused), fix VPN/peering first — Jetty Live will stay **Offline** even when the stream service is running.
 
+**Ping is not enough.** ICMP can succeed while TCP **554** (RTSP) is blocked. Always run the `ffmpeg` test above on the **app server**, not only `ping`.
+
+**Security group direction (common mistake):** Jetty Live **pulls** video from the camera. The app server is the **client** connecting **outbound** to `172.16.247.222:554`.
+
+| Rule you often need | Direction | What it does |
+|---------------------|-----------|--------------|
+| App server → camera | **Egress (outbound)** from app server to `172.16.247.222/32` (or `172.16.0.0/16`) port **554** | Lets FFmpeg open RTSP to the camera |
+| Camera allows app server | On camera / camera VLAN firewall | Allow **source IP = app server private IP** to destination **554** |
+| Inbound 554 on **Jetty FE** | **Inbound** to ECS on port 554 | Only needed if something connects **to** the FE host on 554 (not for pull-from-camera) |
+
+An inbound rule like “Source `172.16.0.0/16` → Destination port **554** on current instance” allows cameras **in** that range to connect **to your server** on 554. It does **not** by itself allow your server to connect **out** to `172.16.247.222:554`. Confirm **outbound** on the app server security group (often default allow) and that the **camera side** permits your app server’s IP.
+
+High RTT (e.g. ping ~800 ms) is normal over VPN/peering but can make the stream slow to start; set `RTSP_TRANSPORT=tcp` in `.env` and use the `ffmpeg` test with a longer `-t` if needed.
+
 ### Step 1 — SSH to the frontend server
 
 ```bash
@@ -44,6 +58,8 @@ Use your real repo path if different (see [ALICLOUD-DEPLOYMENT-GUIDE.md](./ALICL
 ### Step 2 — Install Node.js and FFmpeg on the host (not inside Docker)
 
 Docker runs **only** the JPS SPA/nginx container. The stream service runs **on the Ubuntu host** via systemd.
+
+Before installing, confirm free space on `/` (`df -h /`). If the disk is full, follow [ECS-DISK-SPACE-CHECK-AND-EXPAND.md](./ECS-DISK-SPACE-CHECK-AND-EXPAND.md) first.
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
@@ -65,6 +81,7 @@ Paste and edit ( **required** ):
 
 ```bash
 RTSP_URL=rtsp://<user>:<password>@<camera-ip>:554/Stream1
+RTSP_TRANSPORT=tcp
 HTTP_PORT=3081
 WS_PORT=9999
 STREAM_CORS_ORIGINS=http://<APP_PUBLIC_IP>:3080,http://172.28.92.56:3080
@@ -72,6 +89,7 @@ STREAM_CORS_ORIGINS=http://<APP_PUBLIC_IP>:3080,http://172.28.92.56:3080
 
 | Variable | Why |
 |----------|-----|
+| `RTSP_TRANSPORT=tcp` | Required on many VPN/cloud paths; without it FFmpeg may hang on UDP. |
 | `HTTP_PORT=3081` | Host port **3080** is already used by `jps-fe` (`JPS_FE_PORT=3080`). |
 | `WS_PORT=9999` | WebSocket for video; nginx proxies `/jetty-live-ws` to this port on the host. |
 | `STREAM_CORS_ORIGINS` | Only needed if you bypass nginx; safe to set to your real UI URL(s). |
@@ -224,6 +242,7 @@ rtsp-stream-viewer  →  FFmpeg  →  rtsp://<camera>:554/...
 | **Node.js 18+** | LTS recommended on the server (`node -v`). |
 | **FFmpeg** | Must be on `PATH` (`ffmpeg -version`). Ubuntu: `sudo apt-get install -y ffmpeg`. |
 | **Network to camera** | The host running `rtsp-stream-viewer` must reach the camera RTSP URL (e.g. `172.16.247.222` on VPN or site LAN). JPS API/DB hosts do **not** need camera access unless you run the stream there too. |
+| **Free disk on `/`** | FFmpeg + apt need **~1–2 GiB** free on the root filesystem. If `df -h /` shows **100%**, see [ECS-DISK-SPACE-CHECK-AND-EXPAND.md](./ECS-DISK-SPACE-CHECK-AND-EXPAND.md). |
 | **JPS migration 072** | Seeds RBAC catalog key `jetty-live`. Run `npm run migrate` on the backend (see [ALICLOUD-DEPLOYMENT-GUIDE.md](./ALICLOUD-DEPLOYMENT-GUIDE.md) §5.3). |
 | **Role permission** | In **Admin → Roles**, grant **view** on **Jetty Live stream** for roles that should see the nav item. |
 
@@ -454,9 +473,12 @@ Prefer **one public origin** (nginx on 443 or 3080) that proxies API, SPA, strea
 | Health via nginx fails, direct :3081 OK | nginx points at `127.0.0.1` inside container | Use `host.docker.internal` + `extra_hosts` (see [Frontend server steps](#frontend-app-server--exact-steps)) |
 | **Offline**, `ffmpegRunning: false` | FFmpeg missing or RTSP failed | `which ffmpeg`; test `ffmpeg -rtsp_transport tcp -i "$RTSP_URL" -t 5 -f null -` |
 | Worked locally, fails on server | Camera IP not routable from ECS | Run stream on a host with VPN/LAN to `172.16.x.x`; or fix peering |
+| Ping OK, RTSP/ffmpeg fails | Wrong firewall direction or TCP 554 blocked | See [Step 0](#step-0--confirm-the-app-server-can-reach-the-camera); fix **egress** + camera allowlist, not only inbound 554 on FE |
+| `status: starting`, high `restartCount` | FFmpeg cannot read RTSP | `RTSP_TRANSPORT=tcp`; test `ffmpeg` on server; `journalctl -u jps-jetty-live -f` |
 | Port already in use | `HTTP_PORT` clashes with JPS | Use **3081** for stream HTTP; keep JPS on **3080** |
 | Nav item missing | RBAC | Grant `jetty-live` view on role; hard-refresh after login |
 | CORS errors in browser | Direct `VITE_JETTY_LIVE_HTTP_ORIGIN` | Add UI origin to `STREAM_CORS_ORIGINS` or switch to nginx proxy (§3.1) |
+| `apt` / **No space left on device** | Root disk `/` full (often 40 GiB ECS) | [ECS-DISK-SPACE-CHECK-AND-EXPAND.md](./ECS-DISK-SPACE-CHECK-AND-EXPAND.md) — check `df -h`, free Docker/apt cache, resize disk |
 
 ---
 
@@ -465,6 +487,7 @@ Prefer **one public origin** (nginx on 443 or 3080) that proxies API, SPA, strea
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RTSP_URL` | (dev default in code) | Full RTSP URL including credentials. **Set in production `.env`.** |
+| `RTSP_TRANSPORT` | (unset) | Set to `tcp` on app server / VPN when UDP RTSP fails. |
 | `HTTP_PORT` | `3080` | Health + reconnect HTTP. Use **3081** on app server. |
 | `WS_PORT` | `9999` | MPEG1 WebSocket port. |
 | `STREAM_CORS_ORIGINS` | localhost Vite ports | Comma-separated origins for browser `fetch` to `/api/*`. |
@@ -485,6 +508,7 @@ Frontend (build-time only, optional):
 ## 9. Related documentation
 
 - [ALICLOUD-DEPLOYMENT-GUIDE.md](./ALICLOUD-DEPLOYMENT-GUIDE.md) — JPS app + backend ECS layout  
+- [ECS-DISK-SPACE-CHECK-AND-EXPAND.md](./ECS-DISK-SPACE-CHECK-AND-EXPAND.md) — Check usage, free space, resize ECS disk  
 - [REBUILD-GUIDE.md](./REBUILD-GUIDE.md) — Rebuild frontend/backend after code changes  
 - [LOCAL-FRONTEND-BACKEND-STARTUP.md](../Troubleshoot/LOCAL-FRONTEND-BACKEND-STARTUP.md) — Local port checks  
 - `rtsp-stream-viewer/.env.example` — Stream service env template  

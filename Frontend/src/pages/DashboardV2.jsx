@@ -10,6 +10,7 @@ import { usePortScope } from '../context/PortScopeContext'
 import { getAppLocaleTag } from '../utils/formatDateTimeDisplay'
 import InteractiveTooltip from '../components/InteractiveTooltip'
 import DashboardV2WeeklyTrends from '../components/DashboardV2WeeklyTrends'
+import { computePipelinePartition } from '../utils/dashboardPipelinePartition'
 import '../styles/dashboard.css'
 import '../styles/allocation.css'
 
@@ -17,104 +18,6 @@ import '../styles/allocation.css'
 const AT_BERTH_PHASES = ['Pre-Checking', 'Operational', 'Post-Checking']
 const PHASE_EMOJI = { 'Pre-Checking': '📋', Operational: '⚙️', 'Post-Checking': '✅' }
 // SIGNOFF_APPROVED is separated into its own "Ready to Sail" pipeline stage
-const AT_BERTH_OP_STATUSES = new Set(['DOCKED', 'IN_PROGRESS', 'POST_OPS', 'SIGNOFF_REQUESTED'])
-const READY_TO_SAIL_OP_STATUSES = new Set(['SIGNOFF_APPROVED'])
-const SAILED_OP_STATUSES = new Set(['SAILED'])
-const PIPELINE_ORPHAN_OP_STATUSES = new Set([
-  ...AT_BERTH_OP_STATUSES,
-  ...READY_TO_SAIL_OP_STATUSES,
-  ...SAILED_OP_STATUSES,
-])
-
-function maxOpStageRank(planOps) {
-  let r = 0
-  for (const o of planOps) {
-    const s = o?.status
-    if (SAILED_OP_STATUSES.has(s)) r = Math.max(r, 4)
-    else if (READY_TO_SAIL_OP_STATUSES.has(s)) r = Math.max(r, 3)
-    else if (AT_BERTH_OP_STATUSES.has(s)) r = Math.max(r, 2)
-  }
-  return r
-}
-
-/**
- * Mutually exclusive pipeline buckets for non-rejected plans (filtered list = ETA window).
- * Stages 5–7 use operations linked via shipmentPlanId first; plan fallbacks:
- * - At Berth: Approved + plan.tb when no qualifying op rows
- * - Sailed: plan.sailedAt when op not yet SAILED
- * Ops with shipmentPlanId == null are excluded (counted separately as orphanPipelineOps).
- */
-function computePipelinePartition(plans, ops) {
-  const opsByPlan = new Map()
-  for (const o of ops) {
-    const pid = o.shipmentPlanId
-    if (pid == null) continue
-    if (!opsByPlan.has(pid)) opsByPlan.set(pid, [])
-    opsByPlan.get(pid).push(o)
-  }
-
-  let orphanPipelineOps = 0
-  for (const o of ops) {
-    if (o.shipmentPlanId != null) continue
-    if (PIPELINE_ORPHAN_OP_STATUSES.has(o.status)) orphanPipelineOps += 1
-  }
-
-  let shipmentRequest = 0
-  let incoming = 0
-  let plannedBerthing = 0
-  let atBerthCount = 0
-  let readyToSail = 0
-  let sailed = 0
-  let unclassified = 0
-  let rejectedPlans = 0
-  let approvedPlans = 0
-
-  for (const p of plans) {
-    const st = p.approvalStatus
-    if (st === 'Approved') approvedPlans += 1
-    if (st === 'Rejected') {
-      rejectedPlans += 1
-      continue
-    }
-
-    const planOps = opsByPlan.get(p.id) || []
-    const opRank = maxOpStageRank(planOps)
-    const hasTb = !!parseIso(p.tb)
-    const sailedByPlan = !!parseIso(p.sailedAt)
-
-    if (opRank >= 4 || sailedByPlan) sailed += 1
-    else if (opRank >= 3) readyToSail += 1
-    else if (opRank >= 2 || (st === 'Approved' && hasTb)) atBerthCount += 1
-    else if (st === 'Approved' && p.jettyId != null && !hasTb) plannedBerthing += 1
-    else if (st === 'Approved' && !p.jettyId && !hasTb) incoming += 1
-    else if ((st === 'Draft' || st === 'Submitted') && !p.jettyId && !hasTb) shipmentRequest += 1
-    else if ((st === 'Draft' || st === 'Submitted') && p.jettyId != null && !hasTb) plannedBerthing += 1
-    else if (hasTb) atBerthCount += 1
-    else unclassified += 1
-  }
-
-  const planCountTotal = plans.length
-  const planPipelineTotal = planCountTotal - rejectedPlans
-  const stageSum =
-    shipmentRequest + incoming + plannedBerthing + atBerthCount + readyToSail + sailed + unclassified
-
-  return {
-    planCountTotal,
-    planPipelineTotal,
-    rejectedPlans,
-    approvedPlans,
-    shipmentRequest,
-    incoming,
-    plannedBerthing,
-    atBerthCount,
-    readyToSail,
-    sailed,
-    unclassified,
-    orphanPipelineOps,
-    partitionBalanced: stageSum === planPipelineTotal,
-  }
-}
-
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 /** Format a local Date to YYYY-MM-DD without UTC conversion. */
 function fmtLocalDate(d) {
@@ -610,9 +513,11 @@ export default function DashboardV2() {
         </div>
         <div className={`v2-pipeline__flow${loading ? ' v2-pipeline__flow--loading' : ''}`} role="navigation" aria-label={t('vesselPipeline')}>
           {/*
-            Stages 2–4: shipment plan fields only (approval, jettyId, tb).
-            Stages 5–7: operation.status on rows linked by shipmentPlanId; plan.tb / plan.sailedAt
-            are fallbacks when ops are missing or lagging (see computePipelinePartition).
+            Stage 1: planPipelineTotal (non-rejected in ETA window) — unchanged.
+            Stage 2: Draft/Submitted pending approval (jettyId ignored).
+            Stage 3: Approved, no jetty, not alongside.
+            Stage 4: Approved + jetty assigned only (not Draft/Submitted).
+            Stages 5–7: ops by shipmentPlanId; plan.tb / plan.sailedAt fallbacks (dashboardPipelinePartition).
           */}
 
           {/* Stage 1: Shipment Plans */}
@@ -633,7 +538,7 @@ export default function DashboardV2() {
 
           <span className="v2-pipeline__arrow" aria-hidden>›</span>
 
-          {/* Stage 2: Shipment Request (Draft/Submitted, no jetty, not berthed) */}
+          {/* Stage 2: Shipment Request (Draft/Submitted pending approval, not berthed) */}
           <Link to="/shipment-plans" className="v2-pipeline__stage v2-pipeline__stage--request">
             <div className="v2-pipeline__stage-icon">📝</div>
             <div className="v2-pipeline__stage-body">
@@ -657,7 +562,7 @@ export default function DashboardV2() {
 
           <span className="v2-pipeline__arrow" aria-hidden>›</span>
 
-          {/* Stage 4: Planned Berthing (jetty assigned, not berthed) */}
+          {/* Stage 4: Planned Berthing (Approved + jetty assigned, not berthed) */}
           <Link to="/allocation-plans" className="v2-pipeline__stage v2-pipeline__stage--planned">
             <div className="v2-pipeline__stage-icon">⚓</div>
             <div className="v2-pipeline__stage-body">

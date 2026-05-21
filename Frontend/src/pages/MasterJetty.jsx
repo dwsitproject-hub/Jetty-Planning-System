@@ -8,7 +8,11 @@ import { useActivityLog } from '../context/ActivityLogContext'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/shipping-instruction.css'
-import { MAX_MASTER_DESCRIPTION_CHARS, MAX_MASTER_JETTY_NAME_CHARS } from '../constants/inputLimits'
+import {
+  MAX_MASTER_DESCRIPTION_CHARS,
+  MAX_MASTER_JETTY_NAME_CHARS,
+  MAX_RTSP_LINK_CHARS,
+} from '../constants/inputLimits'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 
@@ -33,6 +37,7 @@ export default function MasterJetty() {
   const [formJettyName, setFormJettyName] = useState('')
   const [formCapacity, setFormCapacity] = useState('1')
   const [formDescription, setFormDescription] = useState('')
+  const [formRtspLink, setFormRtspLink] = useState('')
   const [formStatus, setFormStatus] = useState('Available')
   const [statusWhenOpened, setStatusWhenOpened] = useState('Available')
   const [toast, setToast] = useState(null)
@@ -72,6 +77,7 @@ export default function MasterJetty() {
     setFormJettyName('')
     setFormCapacity('1')
     setFormDescription('')
+    setFormRtspLink('')
     setFormStatus('Available')
     setStatusWhenOpened('Available')
     setModalOpen(true)
@@ -84,6 +90,7 @@ export default function MasterJetty() {
     setFormJettyName(jetty.name || '')
     setFormCapacity(String(jetty.capacity ?? 1))
     setFormDescription(jetty.description ?? '')
+    setFormRtspLink(jetty.rtspLink ?? '')
     const st = jetty.status && JETTY_STATUS_OPTIONS.includes(jetty.status) ? jetty.status : 'Available'
     setFormStatus(st)
     setStatusWhenOpened(st)
@@ -111,6 +118,7 @@ export default function MasterJetty() {
           capacity,
           name: jettyName,
           description: (formDescription || '').trim() || null,
+          rtspLink: (formRtspLink || '').trim() || null,
         })
         if (formStatus !== statusWhenOpened) {
           await updateJettyStatus(editingId, formStatus)
@@ -130,6 +138,7 @@ export default function MasterJetty() {
           capacity,
           name: jettyName,
           description: (formDescription || '').trim() || null,
+          rtspLink: (formRtspLink || '').trim() || null,
         })
         const newId = created?.id
         if (newId != null && formStatus !== 'Available') {
@@ -164,6 +173,7 @@ export default function MasterJetty() {
     formJettyName,
     formCapacity,
     formDescription,
+    formRtspLink,
     formStatus,
     statusWhenOpened,
     loadAll,
@@ -395,6 +405,24 @@ export default function MasterJetty() {
                 maxLength={MAX_MASTER_DESCRIPTION_CHARS}
                 rows={3}
               />
+            </div>
+            <div className="modal__section">
+              <label className="modal__label" htmlFor="master-jetty-rtsp">
+                RTSP link (CCTV)
+              </label>
+              <input
+                id="master-jetty-rtsp"
+                className="modal__input"
+                type="text"
+                value={formRtspLink}
+                onChange={(e) => setFormRtspLink(e.target.value)}
+                maxLength={MAX_RTSP_LINK_CHARS}
+                placeholder="rtsp://testing:KPN00000eup@172.16.247.222:554/Stream1"
+                autoComplete="off"
+              />
+              <p className="text-steel" style={{ marginTop: '0.25rem' }}>
+                Optional. Used by Jetty Live CCTV from the allocation schematic.
+              </p>
             </div>
             <div className="modal__footer">
               <button type="button" className="btn btn--secondary" onClick={closeModal} disabled={saving}>Cancel</button>

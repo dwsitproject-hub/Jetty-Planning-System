@@ -1,12 +1,57 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.35
-**Last Updated**: 2026-05-11  
+**Version**: 1.36
+**Last Updated**: 2026-05-21  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
 
 ## 0. Addendum (2026-03-31)
+
+### 0.26 Jetty Live CCTV — `jetties.rtsp_link` + `rtsp-stream-viewer` (2026-05-21)
+
+**Purpose:** Per-jetty optional RTSP URLs for live CCTV; browser playback via a host-side stream helper (FFmpeg → MPEG1 WebSocket), not embedded in the API container.
+
+**Database (migration `077_jetties_rtsp_link.sql`):**
+
+- Column **`jetties.rtsp_link`** (`TEXT`, nullable) — full RTSP URL including credentials when required by the camera.
+- Rollback: **`Backend/rollback/077_rollback_jetties_rtsp_link.sql`**.
+
+**RBAC (migration `072_jetty_live_page_permission.sql`):**
+
+- Catalog page key **`jetty-live`** (`permissions.resource_type = 'page'`). Admin assigns **view** per role for sidebar **Jetty Live** and schematic camera buttons. Master RTSP configuration remains under **`master-jetty`** edit.
+
+**API — `Backend/src/routes/jetties.js`:**
+
+- **`GET /jetties`**, **`GET /jetties/:id`**, **`POST /jetties`**, **`PUT /jetties/:id`** include **`rtsp_link`** in SQL; JSON camelCase **`rtspLink`** (`null` when unset).
+- **`normalizeRtspLink`:** trim; empty → `null`; max **512** characters → **400** if exceeded. No scheme validation on the API (client may still send non-RTSP strings; stream service validates on reconnect).
+- **`PUT`** activity log may record **RTSP link** field changes.
+
+**Frontend:**
+
+- **`Frontend/src/pages/MasterJetty.jsx`** — optional **RTSP link (CCTV)** on add/edit; **`MAX_RTSP_LINK_CHARS`** from **`inputLimits.js`**.
+- **`Frontend/src/api/jetties.js`** — `createJetty` / `updateJettyApi` send **`rtsp_link`**.
+- **`Frontend/src/components/JettySchematic.jsx`** — loads **`fetchJetties`**, maps short berth id → **`rtspLink`**; **`useRbac().canView('jetty-live')`** gates **`renderCctvButton`**; opens **`/jetty-live?rtsp=…&label=…`** in a new tab.
+- **`Frontend/src/pages/JettyLive.jsx`** — reads query params; **`POST`** stream **`/api/reconnect`** with **`rtspUrl`** before JSMpeg attach; health via **`/jetty-live-stream/api/health`** (prod nginx) or Vite proxy (dev).
+- Route: **`Frontend/src/App.jsx`** — **`/jetty-live`**; nav label **`jetty-live`** in **`rolesData.js`**.
+
+**Stream helper — `rtsp-stream-viewer/` (separate Node process on app host):**
+
+- **Not** in `jps-api` or `jps-fe` containers. Runs on the **app server** with **FFmpeg** installed on the host.
+- **Architecture:** one persistent **WebSocket** server (`WS_PORT`, default **9999**); FFmpeg process is restarted on reconnect — avoids rebinding WS port on rapid restarts.
+- **`POST /api/reconnect`** body `{ rtspUrl?: string }` (alias **`rtsp_url`**): if value matches **`^rtsp://`**, updates **`currentRtspUrl`** and restarts FFmpeg; otherwise reconnects with the current URL.
+- **`GET /api/health`** — `status`, `lastFrameAt`, `ffmpegRunning`, `restartCount`, `stallMs`, masked **`rtspSource`**.
+- Env: **`RTSP_URL`** (default/fallback), **`HTTP_PORT`** (**3081** on app server — **3080** is `jps-fe`), **`WS_PORT`**, optional **`RTSP_TRANSPORT=tcp`** (sets FFmpeg **`-rtsp_transport`** before **`-i`**), **`STREAM_LOG_FFMPEG=1`** for debug.
+- Custom **`lib/mpeg1Muxer.js`** — input FFmpeg flags before **`-i`** (required for TCP RTSP on VPN paths).
+
+**Nginx / compose (app server):**
+
+- **`Frontend/nginx.alicloud-app.conf`:** **`/jetty-live-stream/`** → **`host.docker.internal:3081`**, **`/jetty-live-ws`** → WS **9999** on host.
+- **`docker-compose.app.yml`:** **`extra_hosts: host.docker.internal:host-gateway`** so nginx inside **`jps-fe`** reaches the host stream process.
+
+**Network:** App server initiates **outbound TCP** to camera **`host:554`**. Inbound “port 554 on FE” security group rules do **not** substitute for egress + camera-side allowlist. See **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md** Step 0.
+
+**Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.15**.
 
 ### 0.24 Shipping instruction vessel-call columns removed (canonical `shipment_plans`) (2026-05-11)
 
@@ -107,6 +152,7 @@ This change is presentation-only for schedule explainability; API contracts rema
 | `MAX_LOGIN_USERNAME_CHARS` / `MAX_LOGIN_PASSWORD_CHARS` | 50 | `/login` |
 | `MAX_MASTER_JETTY_NAME_CHARS` / `MAX_MASTER_PORT_NAME_CHARS` | 100 | Master modals |
 | `MAX_MASTER_DESCRIPTION_CHARS` | 100 | Master Port / Master Jetty **Description** |
+| `MAX_RTSP_LINK_CHARS` | 512 | Master – Preferred Jetty **RTSP link (CCTV)**; mirrors **`jetties.js`** `MAX_RTSP_LINK_CHARS` |
 | `MAX_ROLE_NAME_CHARS` / `MAX_ROLE_DESCRIPTION_CHARS` | 50 / 100 | Admin Roles |
 | `MAX_MILESTONE_SUBSTEP_TITLE_CHARS` / `MAX_MILESTONE_REASON_CHARS` | 100 / 500 | Operational milestone composer |
 | `MAX_SI_*` (see module) | varies | Shipping Instruction form + breakdown row short fields |
@@ -373,7 +419,7 @@ Operational ownership note:
 
 **Frontend implementation (Option B — self-contained widget):**
 
-- **`JettySchematic`** (`Frontend/src/components/JettySchematic.jsx`) uses **`usePortScope()`** and, when an operational port is selected, loads **`fetchJettyLayout()`** and **`fetchJetties(selectedPortId)`** in parallel, then renders columns from the API.
+- **`JettySchematic`** (`Frontend/src/components/JettySchematic.jsx`) uses **`usePortScope()`** and, when an operational port is selected, loads **`fetchJettyLayout()`** and **`fetchJetties(selectedPortId)`** in parallel, then renders columns from the API. The jetty list also builds **`berthId → rtspLink`** for optional CCTV buttons on each name band (**§0.26**).
 - **No saved layout:** If `columns.length === 0`, the UI shows a single user-facing placeholder (functional copy in **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md**); there is **no** hardcoded fallback grid (e.g. old `1A/2A/3A` default).
 - **Errors:** Network/API failure shows a distinct “unable to load” message (not the admin placeholder).
 - **Dashboard (future):** To embed the same schematic, render **`JettySchematic`** with the same **`PortScopeProvider`** context and pass **`berths` / `vesselById` / handlers** as today on Allocation — **no duplicate layout-fetch parent** required because the component owns layout loading.
@@ -1064,9 +1110,23 @@ Notes:
 
 - `GET /ports`, `POST /ports`, `PUT /ports/:id`.
 - `GET /jetties`, `POST /jetties`, `PUT /jetties/:id`.
+  - JSON includes optional **`rtspLink`** from **`jetties.rtsp_link`** (migration **077**). Create/update accept body **`rtsp_link`**; trimmed empty string → `NULL`; max **512** chars (**400** if longer). See **§0.26**.
 - `PUT /jetties/:id/status` – status = Available / Out of Service.
   - Before applying **Out of Service**, the handler counts **blocking** `operations` for that `jetty_id`: `deleted_at IS NULL`, `status <> 'SAILED'`, `COALESCE(shifting_out, false) = false` (`Backend/src/lib/jetty-blocking.js`).
   - If count **> 0**, responds **409** — client must reassign or complete operations on Allocation first.
+
+#### 3.5.5 Jetty Live stream helper (host process, not JPS API)
+
+Deployed per **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**. Summary:
+
+| Endpoint (on stream host) | Method | Purpose |
+|---------------------------|--------|---------|
+| `/api/health` | GET | JSON health for Jetty Live UI card |
+| `/api/reconnect` | POST | Optional `{ rtspUrl }` — switch RTSP source and restart FFmpeg |
+
+Browser access in production: same origin **`/jetty-live-stream/*`** and **`/jetty-live-ws`** via nginx → host **3081** / **9999**. Dev: Vite proxy to **3080** / **9999** on localhost.
+
+**Single-stream policy:** one FFmpeg input per `rtsp-stream-viewer` instance; schematic / Jetty Live reconnect with a new jetty URL replaces the previous camera (**last opened wins**).
 
 #### 3.5.1 `GET /allocation/overview`
 
@@ -1207,7 +1267,7 @@ Backward compatibility note:
 Entities follow the design already outlined in the previous answer; key ones:
 
 - `users`, `roles`, `permissions`, `role_permissions`, `user_roles`.
-- `ports`, `jetties`, `jetty_status_history`.
+- `ports`, `jetties`, `jetty_status_history`. **`jetties.rtsp_link`** (`TEXT`, nullable, migration **077**) — optional RTSP URL for Jetty Live CCTV (**§0.26**).
 - `shipping_instructions` — includes **`approval_id`** (migration **`019`**). Migration **`025_si_loading_document_and_approve_rbac.sql`** adds Loading document fields: **`voyage_no`**, **`destination_text`**, **`freight_terms`** (check: PREPAID, COLLECT, AS_PER_CHARTER_PARTY, OTHER), **`bill_of_lading_clause`**, **`consignee_text`**, **`notify_party_text`**, **`bl_indicated`**, **`document_date`**, and approval audit: **`approved_by_user_id`**, **`approved_at`**, **`approver_name_snapshot`**, **`approver_title_snapshot`**. API exposes camelCase equivalents (e.g. **`destinationText`**, **`freightTerms`**, **`approverNameSnapshot`**).
 - `si_port_npwp` — per-port **NPWP master** used for Shipping Instruction display (read-only in SI form/view/approval); unique active row per `port_id` (migration **`047_si_port_npwp.sql`**).
 - `users` — optional **`job_title`** (migration **`025`**) used when populating approver title snapshot (fallback: `OPERATION HEAD`).

@@ -87,7 +87,9 @@ Shipping Instruction → Allocation & Berthing → At-Berth → Loading/Unloadin
 | **TECH-SPEC-Jetty-Planning-System.md** | Technical specification: domains, workflows, API design, data model, RBAC, NFRs, implementation backlog, allocation overview & at-berth API details, shared datetime util. |
 | **technical-architecture.md** | Technical architecture: stack, environments, data model, APIs, security, deployment. |
 | **Dev-Notes.md** | Dev handover: branch status, local run, staging deployment, docs reference, next steps. |
-| **ALICLOUD-DEPLOYMENT-GUIDE.md** | Deployment on Alicloud Ubuntu: security group, Docker, optional PostgreSQL, migrations, troubleshooting. |
+| **Guide/ALICLOUD-DEPLOYMENT-GUIDE.md** | Deployment on Alicloud Ubuntu: security group, Docker, optional PostgreSQL, migrations, troubleshooting. |
+| **Guide/ECS-DISK-SPACE-CHECK-AND-EXPAND.md** | ECS disk full (`No space left on device`): check `df`/`lsblk`, free Docker/apt space, resize or attach disks (FFmpeg / Jetty Live). |
+| **Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md** | Jetty Live RTSP stream on the app server (`rtsp-stream-viewer`, nginx, systemd). |
 | **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md** | **Functional spec:** Jetty schedule Gantt, arrival/berthing modals, **At-Berth Executions** list behaviour, **date/time display** rules (no “LT”), and related user-visible logic. |
 | **UAT-PRE-TRAINING-Scripts.md** | **Pre-UAT training:** facilitator scripts module-by-module (starts with **Shipping Instruction**); Pass/Fail tables and links to functional/technical specs. |
 | **Plan/UAT-COMMODITY-PRECHECK-OPERATIONAL-PLAN.md** | **UAT rollout:** commodity type, pre-check subprocess merges (`inspection`, `initial_cargo_checking`), operational **OPENING** / start-only rules, cargo handling method on Opening (server-derived), migrations `051`–`055`, short test matrix. |

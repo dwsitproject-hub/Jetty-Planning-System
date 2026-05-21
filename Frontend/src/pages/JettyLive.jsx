@@ -7,7 +7,7 @@
  * - HTTPS UI + plain ws/http stream may be blocked by the browser; use TLS or reverse-proxy both apps.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useRbac } from '../context/RbacContext'
 import '../styles/dashboard.css'
@@ -72,6 +72,29 @@ function loadJsmpegScript() {
   return p
 }
 
+function parseRtspFromSearch(params) {
+  const raw = params.get('rtsp')
+  if (!raw) return null
+  try {
+    const decoded = decodeURIComponent(raw).trim()
+    if (/^rtsp:\/\//i.test(decoded)) return decoded
+  } catch {
+    return null
+  }
+  return null
+}
+
+async function postStreamReconnect(rtspUrl) {
+  const body = rtspUrl ? { rtspUrl } : {}
+  const r = await fetch(streamApiUrl('/api/reconnect'), {
+    method: 'POST',
+    credentials: 'omit',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) throw new Error(`HTTP ${r.status}`)
+}
+
 function fmtTime(ts, locale) {
   if (ts == null) return '—'
   try {
@@ -85,10 +108,16 @@ export default function JettyLive() {
   const { t } = useTranslation('pages')
   const { canView } = useRbac()
   const canDoView = canView(PAGE_KEY)
+  const [searchParams] = useSearchParams()
+  const rtspFromQuery = useMemo(() => parseRtspFromSearch(searchParams), [searchParams])
+  const jettyLabel = (searchParams.get('label') || '').trim() || null
+  const rtspParamPresent = searchParams.has('rtsp')
+  const showNoCameraHint = rtspParamPresent && !rtspFromQuery
 
   const canvasRef = useRef(null)
   const playerRef = useRef(null)
   const wsPortRef = useRef(null)
+  const lastHealthKeyRef = useRef(null)
 
   const [health, setHealth] = useState(null)
   const [healthErr, setHealthErr] = useState(null)
@@ -146,11 +175,18 @@ export default function JettyLive() {
   }, [destroyPlayer])
 
   useEffect(() => {
+    if (!canDoView) return undefined
     let cancelled = false
 
     ;(async () => {
       try {
         setOverlayKind('boot')
+        if (rtspFromQuery) {
+          await postStreamReconnect(rtspFromQuery)
+          if (cancelled) return
+          await new Promise((r) => setTimeout(r, 2000))
+        }
+        if (cancelled) return
         await startPlayer()
       } catch (e) {
         if (!cancelled) console.warn('[JettyLive] player start', e)
@@ -162,7 +198,7 @@ export default function JettyLive() {
       cancelled = true
       destroyPlayer()
     }
-  }, [destroyPlayer, startPlayer])
+  }, [canDoView, rtspFromQuery, destroyPlayer, startPlayer])
 
   useEffect(() => {
     let alive = true
@@ -209,17 +245,35 @@ export default function JettyLive() {
     return { key: 'offline', label: t('jettyLiveOffline') }
   }, [health, t])
 
+  /** Re-attach JSMpeg when the stream service starts delivering frames. */
+  useEffect(() => {
+    if (!canDoView) return undefined
+    const key = displayStatus.key
+    const prev = lastHealthKeyRef.current
+    lastHealthKeyRef.current = key
+    if (key === 'online' && prev !== 'online') {
+      let cancelled = false
+      ;(async () => {
+        try {
+          destroyPlayer()
+          if (!cancelled) await startPlayer()
+        } catch (e) {
+          console.warn('[JettyLive] player refresh on online', e)
+        }
+      })()
+      return () => {
+        cancelled = true
+      }
+    }
+    return undefined
+  }, [canDoView, displayStatus.key, destroyPlayer, startPlayer])
+
   const onReconnect = useCallback(async () => {
     setReconnectBusy(true)
     try {
-      await fetch(streamApiUrl('/api/reconnect'), {
-        method: 'POST',
-        credentials: 'omit',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      })
+      await postStreamReconnect(rtspFromQuery)
       setOverlayKind('reconnect')
-      await new Promise((r) => setTimeout(r, 800))
+      await new Promise((r) => setTimeout(r, 2000))
       destroyPlayer()
       await startPlayer()
     } catch (e) {
@@ -228,7 +282,7 @@ export default function JettyLive() {
     } finally {
       setReconnectBusy(false)
     }
-  }, [destroyPlayer, startPlayer])
+  }, [rtspFromQuery, destroyPlayer, startPlayer])
 
   if (!canDoView) {
     return (
@@ -239,7 +293,7 @@ export default function JettyLive() {
         <section className="card">
           <p style={{ color: 'var(--color-danger, #c00)' }}>{t('jettyLiveNoPermission')}</p>
           <p className="text-steel">
-            <Link to="/" className="link">
+            <Link to="/allocation-plans" className="link">
               ← {t('jettyLiveBackDashboard')}
             </Link>
           </p>
@@ -249,17 +303,45 @@ export default function JettyLive() {
   }
 
   const usingProxy = !getStreamHttpBase()
+  const streamStruggling =
+    !healthErr &&
+    health &&
+    (health.restartCount ?? 0) >= 3 &&
+    displayStatus.key !== 'online'
 
   return (
     <div className="dashboard">
       <header className="dashboard-header">
-        <h1 className="page-title">{t('jettyLiveTitle')}</h1>
+        <h1 className="page-title">
+          {jettyLabel ? t('jettyLiveForJetty', { label: jettyLabel }) : t('jettyLiveTitle')}
+        </h1>
         <span className="dashboard-header__meta text-steel" style={{ fontSize: 'var(--font-size-small)' }}>
-          <Link to="/" className="link">
+          <Link to="/allocation-plans" className="link">
             ← {t('jettyLiveBackDashboard')}
           </Link>
         </span>
       </header>
+
+      {showNoCameraHint && (
+        <section className="card" style={{ marginBottom: '1rem' }}>
+          <p className="text-steel" role="status">
+            {t('jettyLiveNoCameraUrl')}
+          </p>
+        </section>
+      )}
+
+      {streamStruggling && (
+        <section className="card" style={{ marginBottom: '1rem' }}>
+          <p className="text-steel" role="status">
+            {t('jettyLiveStreamStruggling')}
+          </p>
+          {health?.rtspSource && (
+            <p className="jetty-live-meta" style={{ marginTop: '0.5rem' }}>
+              {t('jettyLiveStreamSource', { source: health.rtspSource })}
+            </p>
+          )}
+        </section>
+      )}
 
       <section
         className={`card jetty-live-health-card ${healthExpanded ? 'jetty-live-health-card--open' : 'jetty-live-health-card--collapsible'}`}

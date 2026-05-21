@@ -1,9 +1,9 @@
 # Functional specification — Jetty schedule Gantt & arrival updates
 
 **Product:** Jetty Planning & Monitoring System (JPS)  
-**Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
+**Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, **Jetty Live CCTV** (per-jetty RTSP links, schematic camera control, browser stream page), and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.41 (see document history at end).
+**Version:** 1.44 (see document history at end).
 
 ---
 
@@ -26,8 +26,9 @@ This document describes **behaviour that is implemented in code**, including:
 - **SI hyperlink detail modal:** clicking SI number in table rows opens a shared **SI Detail** modal across Shipping Instructions, Allocation & Berthing, and At-Berth Executions (**§2.9**, **§7**).
 - **Jetty Operation ID:** external formatted id for each operation (**§2.10**); shown in Allocation, At-Berth, and Clearance main tables **before** SI.
 - **Input maximum lengths (UI):** free-text fields use HTML **`maxLength`** caps for consistent UX and safer payloads (**§2.11**).
+- **Jetty Live CCTV:** optional **RTSP link** per master jetty; **Allocation → Jetty Schematic** camera control opens **`/jetty-live`** in a new tab; shared stream service switches camera URL (**last opened wins**) (**§2.15**).
 
-For API field names, database columns, and shared code modules, see **TECH-SPEC-Jetty-Planning-System.md** and **§6** below for arrival/estimated completion mapping.
+For API field names, database columns, and shared code modules, see **TECH-SPEC-Jetty-Planning-System.md** and **§6** below for arrival/estimated completion mapping. Jetty Live deployment: **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**.
 
 ---
 
@@ -123,7 +124,7 @@ Technical contract (endpoints, columns, persistence order): **TECH-SPEC-Jetty-Pl
 | **Dashboard — jetty status** | The KPI grid includes a **Jetty status** card showing **Available** and **Out of Service** counts. Counts come from **`GET /jetties?port_id=…`**. Hover or keyboard focus on each status chip shows a tooltip listing the jetties in that bucket. |
 | **Dashboard — SLA at risk** | The KPI **SLA at risk** shows a count of operations past estimated completion. Hover or keyboard focus on the KPI value shows a tooltip listing `Vessel Name, Jetty No, +Xh over ETC` for each risk item (same items as the “SLA & schedule risk” list). |
 | **Dashboard — performance** | The Dashboard includes a **Performance** card (non‑SLA) with a toggle **24h / 7d** and three KPIs: **Waiting to berth** (median **TA→TB**, from allocation overview queue), **Turnaround** (median **TB→Cast‑off**, fallback **TB→Actual completion**; computed from operations so **sailed vessels are included**), and **On‑time berthing** (% where **TB ≤ planned ETB + 6h**, from allocation overview queue). Each KPI supports hover/keyboard tooltip drill‑down showing the worst/late cases in the selected window (vessel, jetty, duration). |
-| **Master — Preferred Jetty** | Users set **Operational status** (**Available** / **Out of Service**) in the add/edit modal. **Out of Service** cannot be saved while a **blocking** operation still uses that jetty (**non-SAILED**, **`shifting_out` false**); the API returns **409** and the UI explains planners must **reassign or complete** on **Allocation & Berthing** first. New jetties default to **Available**; non-default status on create is applied via a follow-up status call. |
+| **Master — Preferred Jetty** | Users set **Operational status** (**Available** / **Out of Service**) in the add/edit modal. Optional **RTSP link (CCTV)** (max **512** characters) is stored per jetty for Jetty Live; empty means no CCTV on that jetty (**§2.15**). **Out of Service** cannot be saved while a **blocking** operation still uses that jetty (**non-SAILED**, **`shifting_out` false**); the API returns **409** and the UI explains planners must **reassign or complete** on **Allocation & Berthing** first. New jetties default to **Available**; non-default status on create is applied via a follow-up status call. |
 | **Allocation — copy & validation** | Short intro under **Incoming vessel & berthing plan** states that **out of service** jetties cannot receive new allocations. **Log arrival update**, **Confirm Berthing**, and **Active Vessel Detail** saves that assign a **resolved** jetty whose overview berth is **Out of Service** are **blocked client-side** with RBAC-aware wording (users **with** master-jetty view are pointed to **Master – Preferred Jetty**; others to **contact an admin**). Server **409** on `PUT /allocation/arrival` enforces the same. |
 | **Allocation — queue table** | Includes **Jetty Operation ID** before **Shipping Instruction** when the row has an operation; see **§2.10**. Jetty column may show a small **OOS** badge when the row’s jetty maps to an out-of-service berth in overview (e.g. legacy assignment). |
 | **Jetty schematic** | Stacks for **Out of Service** berths are **muted**, show an **OOS** badge, and tooltips state the jetty is **not available for new allocation**. |
@@ -176,6 +177,7 @@ The browser enforces these limits on the relevant controls (HTML **`maxLength`**
 | **Sampling (per palka)** | **20** each | Loading **No. Palka**, **(%), FFA**, **(%), Moisture**. |
 | **Login** | **50** each | Username, Password on `/login`. |
 | **Master Jetty / Master Port** | **100** | Jetty name, port name, and **Description** textareas on master modals. |
+| **RTSP link (CCTV)** | **512** | Master – Preferred Jetty add/edit modal (**§2.15**). |
 | **Admin Roles** | **50** / **100** | Role name; role description (optional). |
 | **Operational milestone composer** | **100** / **500** | Sub-step title (optional); **Reason** when marking N/A. |
 | **Shipping Instruction** | See TECH-SPEC **§0.18** table | Vessel / SI ref / voyage caps; destination; B/L block textareas; breakdown Contract / PO / **Remarks** column (50 each); SI **Note** (500); SI Approval **Approval comments** (500). |
@@ -224,6 +226,18 @@ This section documents implemented sign-in behavior for Downstream Hub OIDC inte
 | **Retired `/allocation` URL** | Schematic / Gantt clicks that resolve to a **single** `op-*` / `si-*` id keep the existing **Active Vessel Detail** behaviour (**§2.4**); no plan-detail fetch. The bookmark **`/allocation`** itself no longer renders the legacy list. |
 | **Saving arrival / berthing** | **`PUT /allocation/arrival`** requires **`allocation-plan`** **edit**; activity log **`page_key`** is **`allocation-plan`**. |
 | **Re-dock (shift-out clear)** | **`POST /operations/:id/shifting-out`** accepts **`activityLogPage`** **`allocation-plan`** for audit consistency when used from this page. |
+
+### 2.15 Jetty Live CCTV (per-jetty RTSP)
+
+| Area | Behaviour |
+|------|------------|
+| **Master data** | **Master – Preferred Jetty** add/edit modal includes optional **RTSP link (CCTV)** (placeholder example: `rtsp://user:pass@host:554/Stream1`). Value is trimmed on save; empty clears the link. Max **512** characters in the UI. |
+| **RBAC — nav & schematic** | Sidebar **Jetty Live** and schematic **camera** buttons render only when the user’s role has **view** on page key **`jetty-live`** (migration **072**). Users without permission do not see the nav item or camera controls. |
+| **RBAC — master** | Configuring RTSP links uses existing **Master – Preferred Jetty** permissions (`master-jetty` view/edit); no separate CCTV master page. |
+| **Jetty Schematic** | Each configured jetty **name band** (short id, e.g. **1A**) shows a small **camera** control beside the label. **Enabled** when that jetty has a non-empty RTSP link in master data. **Disabled** with tooltip *There's no CCTV on this jetty* when the link is missing. **Enabled** click opens a **new browser tab** to **`/jetty-live?rtsp=<url>&label=<berthId>`** (`label` is the short berth id for the page title). |
+| **Jetty Live page** | Route **`/jetty-live`**. On load, if **`rtsp`** query param is present and valid (`rtsp://…`), the UI calls the stream helper **`POST /api/reconnect`** with that URL (switches the shared FFmpeg source), then attaches **JSMpeg** to the WebSocket video feed. Optional **`label`** sets the page heading (e.g. *Jetty Live — 1A*). If the link has no **`rtsp`** param, the user sees guidance to configure master data or open from the schematic. |
+| **Stream service** | Separate host process **`rtsp-stream-viewer`** (not inside API or frontend containers): FFmpeg pulls RTSP → MPEG1 over WebSocket. **One active RTSP source at a time** on a given instance; opening CCTV for another jetty **replaces** the URL (**last opened wins**). Health card shows status, last frame time, restart count, masked RTSP source; **Reconnect** repeats the current URL (or query URL when opened from schematic). |
+| **Deployment** | On the **app server**, stream HTTP listens on **3081** (JPS UI uses **3080**); nginx proxies **`/jetty-live-stream/`** and **`/jetty-live-ws`** to the host process. The app server must reach the camera on **TCP 554** (ping alone is insufficient). See **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**. |
 
 ---
 
@@ -347,6 +361,7 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | Jetty blocking queries (master status / allocation guard) | `Backend/src/lib/jetty-blocking.js` |
 | Client jetty OOS messages | `Frontend/src/utils/jettyAvailability.js` |
 | Master jetty status UI | `Frontend/src/pages/MasterJetty.jsx`, `Frontend/src/api/jetties.js` → `PUT /jetties/:id/status` |
+| Jetty Live CCTV (master RTSP, schematic camera, viewer) | `Backend/migrations/077_jetties_rtsp_link.sql`, `Backend/src/routes/jetties.js`; `Frontend/src/pages/MasterJetty.jsx`, `Frontend/src/components/JettySchematic.jsx`, `Frontend/src/pages/JettyLive.jsx`, `Frontend/src/styles/jetty-schematic.css`, `Frontend/src/styles/jetty-live.css`; `rtsp-stream-viewer/` (`server.js`, `lib/mpeg1Muxer.js`); RBAC **`072_jetty_live_page_permission.sql`**; deploy **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md** |
 | Dashboard slot KPI, Port activity chart, weather footer | `Frontend/src/pages/Dashboard.jsx`, `Frontend/src/components/DashboardActivityChart.jsx`, `Frontend/src/utils/dashboardQueueClassification.js` |
 | Shift-out route | `Backend/src/routes/operations.js` |
 | Demurrage Risk Calculator UI | `Frontend/src/pages/DemurrageRiskCalculator.jsx`, `Frontend/src/styles/demurrage-risk-calculator.css` |
@@ -489,6 +504,7 @@ Cross-reference: **TECH-SPEC §0.20**, **`Backend/src/lib/schedule-instant.js`**
 
 | Version | Date | Notes |
 |---------|------|--------|
+| 1.44 | 2026-05-21 | **§2.15 Jetty Live CCTV:** optional **`jetties.rtsp_link`** in Master – Preferred Jetty; schematic **camera** button (RBAC **`jetty-live`**, disabled when no link); **`/jetty-live`** with **`?rtsp=`** / **`?label=`**; shared **`rtsp-stream-viewer`** (single RTSP source, last opened wins). **§2.7**, **§2.11**, **§17.6**, **§7** map. Migration **077**, RBAC **072**. Deploy **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**. TECH-SPEC **§0.26**. |
 | 1.43 | 2026-05-13 | **Shipment plan:** vessel-call **agent** is edited on the **plan** (modal + hub); child SIs inherit **`agent_id`** from the plan on create / plan patch sync. **Plan-linked SI UI:** **surveyor** per shipping instruction; **document upload** sits under each “Shipping instruction *N*” heading (names only; OCR later). Allocation agent label uses plan agent when SI row has no agent. Migration **071**, TECH-SPEC **§0.25**. |
 | 1.42 | 2026-05-11 | **Retire legacy list URLs** **`/allocation`** and **`/shipping-instruction`** (placeholder pages → **`/allocation-plans`** / **`/shipment-plans`**). RBAC catalog keys **`allocation`** / **`shipping-instruction`** retired; canonical **`allocation-plan`** / **`shipment-plan`** (migrations **068** / optional rollback **069**). **`GET /allocation/overview`** gated like **`plan-overview`**. Activity / SI approve paths re-keyed. **§2.13–2.14**, **§6**, **§13**, Shipping Instruction approval bullets, TECH-SPEC **§0.22**. |
 | 1.41 | 2026-05-11 | **Data model (vessel call):** **Shipment plan** is the sole persisted home for **vessel name, purpose, ETA, voyage, preferred jetty, approval id, approver timestamps** shared by sibling SIs; **`shipping_instructions`** keeps SI-specific document/party/breakdown fields and **`eta_from` / `eta_to`** window. Migrations **066** (plan `approval_id` + backfill, relax SI nullability) and **067** (drop duplicate SI columns). **Rollback:** restore from backup or run **`Backend/rollback/067_rollback_restore_si_vessel_columns.sql`** before redeploying older API builds. TECH-SPEC **§0.24**. |
@@ -714,7 +730,7 @@ Double-banking (multiple vessels per jetty, schedule `01`/`02` lanes, one-vessel
 
 ### 17.6 Schematic bank lanes (inner `01`, jetty name band)
 
-On **Allocation → Jetty Schematic**, each configured jetty **top** or **bottom** cell is a **zone** containing: (1) a **jetty name band** showing the short **berth id** (e.g. **1A**, **1B**) flush against the central **pipeline** (black bar), and (2) **`capacity`** lane boxes. Each lane shows the **bank suffix** only (**`01`**, **`02`**, **`03`**, …); the full lane id **`{berthId}-NN`** appears on **hover** (e.g. tooltip **`1A-01`**). **Inner bank** is **`01`** (closest to the pipeline on **both** top and bottom); **`02`** is the next **outward**, **`03`** outward again for triple bank. The **top** lane stack uses reversed vertical order so **`01`** stays inner toward the pipeline (the **bottom** stack keeps natural order). Each box holds **at most one** displayed vessel (vacant otherwise). Occupants are ordered like the Jetty schedule Gantt: **TB** ascending, then **operation id**, then **vessel id** (see TECH-SPEC **§0.6**). If more occupied vessels than **capacity**, the last lane shows **+N more** after the representative vessel for that lane. **Incoming** names (queue) are hinted on the **first vacant** lane only to avoid clutter.
+On **Allocation → Jetty Schematic**, each configured jetty **top** or **bottom** cell is a **zone** containing: (1) a **jetty name band** showing the short **berth id** (e.g. **1A**, **1B**) flush against the central **pipeline** (black bar), plus an optional **CCTV camera** control when the user has **`jetty-live`** view and master data defines an RTSP link for that jetty (**§2.15**), and (2) **`capacity`** lane boxes. Each lane shows the **bank suffix** only (**`01`**, **`02`**, **`03`**, …); the full lane id **`{berthId}-NN`** appears on **hover** (e.g. tooltip **`1A-01`**). **Inner bank** is **`01`** (closest to the pipeline on **both** top and bottom); **`02`** is the next **outward**, **`03`** outward again for triple bank. The **top** lane stack uses reversed vertical order so **`01`** stays inner toward the pipeline (the **bottom** stack keeps natural order). Each box holds **at most one** displayed vessel (vacant otherwise). Occupants are ordered like the Jetty schedule Gantt: **TB** ascending, then **operation id**, then **vessel id** (see TECH-SPEC **§0.6**). If more occupied vessels than **capacity**, the last lane shows **+N more** after the representative vessel for that lane. **Incoming** names (queue) are hinted on the **first vacant** lane only to avoid clutter.
 
 ### 17.7 Schematic layout & lane sizing (UX)
 

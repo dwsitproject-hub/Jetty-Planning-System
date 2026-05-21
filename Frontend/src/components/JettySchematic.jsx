@@ -1,9 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { berths as defaultBerths, vessels as mockVessels } from '../data/mockData'
 import { fetchJettyLayout } from '../api/jettyLayout'
 import { fetchJetties } from '../api/jetties'
 import { usePortScope } from '../context/PortScopeContext'
+import { useRbac } from '../context/RbacContext'
 import '../styles/jetty-schematic.css'
+
+const JETTY_LIVE_PAGE_KEY = 'jetty-live'
 
 /**
  * LOAD vs DISCH for slot tinting. Must not use naive `includes('LOAD')` — "Unloading" → "UNLOADING" contains "LOAD".
@@ -101,18 +105,23 @@ export default function JettySchematic({
   /** Label for the second line in an occupied slot (default: SI number). */
   slotReferenceLabel = 'SI No',
 }) {
+  const { t } = useTranslation('pages')
+  const { canView } = useRbac()
+  const canViewJettyLive = canView(JETTY_LIVE_PAGE_KEY)
   const { selectedPortId, requiresSelection, noPortAssigned } = usePortScope()
   const canLoadLayout = selectedPortId != null && !requiresSelection && !noPortAssigned
 
   const [layoutColumns, setLayoutColumns] = useState(null)
   const [layoutPhase, setLayoutPhase] = useState('idle')
   const [jettyIdToBerthId, setJettyIdToBerthId] = useState({})
+  const [berthIdToRtspLink, setBerthIdToRtspLink] = useState({})
 
   useEffect(() => {
     if (!canLoadLayout) {
       setLayoutColumns(null)
       setLayoutPhase('no-port')
       setJettyIdToBerthId({})
+      setBerthIdToRtspLink({})
       return undefined
     }
 
@@ -125,13 +134,19 @@ export default function JettySchematic({
         if (cancelled) return
 
         const cols = Array.isArray(layoutRes?.columns) ? layoutRes.columns : []
-        const map = {}
+        const idMap = {}
+        const rtspMap = {}
         for (const j of Array.isArray(jetList) ? jetList : []) {
           if (j?.id == null) continue
           const bid = jettyNameToBerthId(j.name)
-          if (bid) map[String(j.id)] = bid
+          if (bid) {
+            idMap[String(j.id)] = bid
+            const link = typeof j.rtspLink === 'string' ? j.rtspLink.trim() : ''
+            if (link) rtspMap[bid] = link
+          }
         }
-        setJettyIdToBerthId(map)
+        setJettyIdToBerthId(idMap)
+        setBerthIdToRtspLink(rtspMap)
 
         if (cols.length === 0) {
           setLayoutColumns([])
@@ -164,6 +179,38 @@ export default function JettySchematic({
   function resolveBerthId(dbJettyId) {
     if (dbJettyId == null || dbJettyId === '') return null
     return jettyIdToBerthId[String(dbJettyId)] ?? null
+  }
+
+  const openJettyLiveCctv = useCallback((berthId, rtspLink) => {
+    const params = new URLSearchParams()
+    params.set('rtsp', rtspLink)
+    params.set('label', berthId)
+    const url = `${window.location.origin}/jetty-live?${params.toString()}`
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }, [])
+
+  function renderCctvButton(berthId) {
+    if (!canViewJettyLive) return null
+    const rtspLink = berthIdToRtspLink[berthId]
+    const hasCctv = Boolean(rtspLink)
+    const noCctvLabel = t('jettySchematicNoCctv')
+    return (
+      <button
+        type="button"
+        className="jetty-schematic__cctv-btn"
+        disabled={!hasCctv}
+        title={hasCctv ? t('jettySchematicViewCctv', { label: berthId }) : noCctvLabel}
+        aria-label={hasCctv ? t('jettySchematicViewCctv', { label: berthId }) : noCctvLabel}
+        onClick={(e) => {
+          e.stopPropagation()
+          if (hasCctv) openJettyLiveCctv(berthId, rtspLink)
+        }}
+      >
+        <span className="jetty-schematic__cctv-btn-icon" aria-hidden>
+          📹
+        </span>
+      </button>
+    )
   }
 
   function berthOccupantIds(berth) {
@@ -320,8 +367,11 @@ export default function JettySchematic({
   function renderBerthZone(stackPlacement, berthId, berth) {
     const stack = renderBerthLaneStack(berthId, berth, stackPlacement)
     const nameBand = (
-      <div className="jetty-schematic__jetty-name-band" aria-hidden>
-        {berthId}
+      <div className="jetty-schematic__jetty-name-band">
+        <span className="jetty-schematic__jetty-name-label" aria-hidden>
+          {berthId}
+        </span>
+        {renderCctvButton(berthId)}
       </div>
     )
     if (stackPlacement === 'top') {
