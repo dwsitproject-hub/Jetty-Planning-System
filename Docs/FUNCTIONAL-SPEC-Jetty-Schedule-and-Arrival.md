@@ -3,7 +3,7 @@
 **Product:** Jetty Planning & Monitoring System (JPS)  
 **Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, **Jetty Live CCTV** (per-jetty RTSP links, schematic camera control, browser stream page), **self-service change password** (header user menu), and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.45 (see document history at end).
+**Version:** 1.47 (see document history at end).
 
 ---
 
@@ -29,6 +29,7 @@ This document describes **behaviour that is implemented in code**, including:
 - **Jetty Live CCTV:** optional **RTSP link** per master jetty; **Allocation → Jetty Schematic** camera control opens **`/jetty-live`** in a new tab; shared stream service switches camera URL (**last opened wins**) (**§2.15**).
 - **Self-service change password:** header **user menu** (name + initials avatar) with **Change Password** for **local** accounts and **Logout**; modal verifies current password before save (**§2.16**, **§14**).
 - **Master Menu list tables:** client-side **column sort** and **per-column text filters** on Port, Jetty, SI lookup masters, and Freight Terms; SI lookup pages do **not** display **Sort order** (**§2.17**).
+- **Dashboard V2 filters:** **Purpose** and **Commodity Type** multi-select filters on the main dashboard (`/`), with date range, instant apply, and filtered pipeline / KPI / at-berth / weekly-trends views (**§2.18**).
 
 For API field names, database columns, and shared code modules, see **TECH-SPEC-Jetty-Planning-System.md** and **§6** below for arrival/estimated completion mapping. Jetty Live deployment: **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**.
 
@@ -116,6 +117,8 @@ Technical contract (endpoints, columns, persistence order): **TECH-SPEC-Jetty-Pl
 **Related:** Detailed API and port/sailed rules: **TECH-SPEC §3.2.2**; UX notes: **Docs/Plan/DEMURRAGE-RISK-CALCULATOR-PLAN.md**.
 
 ### 2.7 Dashboard slot occupancy, jetty out of service, and allocation guardrails
+
+**Note:** The live dashboard (`/`) is **Dashboard V2**. **Purpose** and **Commodity Type** multi-select filters (with date range) are documented in **§2.18**. Rows below describe KPI and chart behaviour; where Dashboard V2 differs (e.g. date-scoped performance KPIs, weekly trends server filters), see **§2.18** and TECH-SPEC **§0.29**.
 
 | Area | Behaviour |
 |------|------------|
@@ -269,6 +272,25 @@ Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.27**, **§3.1**.
 | **Empty filters** | When rows exist but every row is excluded by filters, the page shows *No entries match the current filters.* |
 | **Actions** | **Edit** / **Delete** (where RBAC allows) remain in the rightmost column; filter inputs do not intercept button clicks. |
 
+### 2.18 Dashboard V2 — Purpose and Commodity Type filters
+
+The live dashboard route **`/`** is implemented as **Dashboard V2** (`Frontend/src/pages/DashboardV2.jsx`). The filter bar sits in the page header, **to the left** of the existing date-range control (presets + From/To).
+
+| Area | Behaviour |
+|------|------------|
+| **Purpose filter** | Multi-select **checkbox dropdown**. Options: **Loading**, **Unloading** (from plan **`purposeCode`** / operation **`purpose`**). **Empty selection** = all purposes. When one or more values are selected, the trigger shows **Purpose (n)** with a red count accent. |
+| **Commodity Type filter** | Multi-select **checkbox dropdown**. Options come from **Master Commodity** (`GET /si-lookups` → **`commodities`**: Batu Bara Curah, CPKO, CPO, etc.), ordered by master **`sort_order`** then name. **Empty selection** = all commodities. Active trigger shows **Commodity Type (n)**. |
+| **Date range** | Unchanged: **This month**, **Last month**, **Last 7 days**, **Last 30 days**, plus **From** / **To** date inputs. Changing the date range refetches dashboard data and repopulates commodity options; commodity selections that are no longer valid are cleared automatically. |
+| **Apply behaviour** | **Instant** on each checkbox toggle (no separate Apply button). |
+| **Filter logic** | **OR** within a category (e.g. Loading **or** Unloading). **AND** across categories (selected Purpose **and** selected Commodity Type must both match). |
+| **Sections that update** | **Vessel pipeline** (all seven stages), **Slot occupancy**, **Waiting to berth**, **Turnaround**, **On-time berthing**, **SLA at risk**, **Ready to Sail** (clearance row), **At berth now** (Loading / Unloading summary cards and phase breakdown). |
+| **Sections not filtered** | **Jetty status** (Available / Out of Service) — port infrastructure, not vessel-scoped. |
+| **Weekly trends** | Refetched from the server when Purpose, Commodity, date range, or port changes. Charts and tooltips reflect the active filters. While refetching, the section shows **Updating charts…** and dims briefly; when filters are active, the hint reads that charts follow the selected Purpose and Commodity filters. |
+| **Empty / no-match state** | When filters are active but nothing matches: a banner **No data available for selected filters** appears below the filter bar; KPI cards show the same message instead of **—** where there is no sample; **At berth now** shows the message instead of empty phase grids; pipeline cards show **0**. |
+| **Responsive layout** | Filter bar wraps on narrow viewports (Purpose, Commodity, then date controls stack without breaking the page layout). |
+
+Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.29**, **§2.3**, **§3.7**.
+
 ---
 
 ## 3. Gantt data inputs (per queue row)
@@ -395,6 +417,7 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | Master Menu list sort/filter | `Frontend/src/utils/sortableFilterableTable.js`, `Frontend/src/hooks/useSortableFilterableRows.js`, `Frontend/src/components/SortableFilterableTableHead.jsx`; `Frontend/src/pages/MasterPort.jsx`, `MasterJetty.jsx`, `MasterSiLookup.jsx`, `MasterFreightTerms.jsx`, hub `Frontend/src/pages/Master.jsx` |
 | Self-service change password (header menu + modal) | `Backend/src/routes/users.js` — **`PUT /users/me/password`**; `Frontend/src/components/UserMenu.jsx`, `ChangePasswordModal.jsx`, `PasswordField.jsx`; `Frontend/src/api/usersApi.js` — **`changeMyPasswordApi`**; `Frontend/src/styles/user-menu.css`, `Frontend/src/styles/modal.css`; i18n **`common.json`** (`changePassword.*`); wired in **`Layout.jsx`** |
 | Dashboard slot KPI, Port activity chart, weather footer | `Frontend/src/pages/Dashboard.jsx`, `Frontend/src/components/DashboardActivityChart.jsx`, `Frontend/src/utils/dashboardQueueClassification.js` |
+| **Dashboard V2 — Purpose / Commodity filters, weekly trends refetch** | `Frontend/src/pages/DashboardV2.jsx`, `Frontend/src/utils/dashboardFilters.js`, `Frontend/src/components/DropdownMultiSelect.jsx`, `Frontend/src/components/DashboardV2WeeklyTrends.jsx`, `Frontend/src/api/dashboardV2.js`; styles **`Frontend/src/styles/dashboard.css`** (`.v2-filters`); backend **`Backend/src/routes/dashboard-v2-weekly.js`**, **`Backend/src/routes/shipment-plans.js`** (SI **`breakdown`** on list). See **§2.18**, TECH-SPEC **§0.29**. |
 | Shift-out route | `Backend/src/routes/operations.js` |
 | Demurrage Risk Calculator UI | `Frontend/src/pages/DemurrageRiskCalculator.jsx`, `Frontend/src/styles/demurrage-risk-calculator.css` |
 | Shipment plan depart API + shared transaction | `Backend/src/routes/shipment-plans.js`, `Backend/src/lib/shipment-plan-depart.js`; mount in `Backend/src/index.js` — **`POST /shipment-plans/:id/depart`** |
@@ -536,6 +559,7 @@ Cross-reference: **TECH-SPEC §0.20**, **`Backend/src/lib/schedule-instant.js`**
 
 | Version | Date | Notes |
 |---------|------|--------|
+| 1.47 | 2026-05-22 | **§2.18 Dashboard V2 — Purpose and Commodity Type filters:** multi-select filter bar (Purpose, Commodity from Master Commodity, date range); OR/AND logic; instant apply; filtered pipeline, KPIs, at-berth, weekly trends; jetty status unfiltered; empty-state banner. **§1**, **§7** map. TECH-SPEC **§0.29**, **§2.3**, **§3.7**. |
 | 1.46 | 2026-05-22 | **§2.17 Master Menu list tables:** client-side column **sort** and **filter** (shared table head; same UX as plan-centric Allocation queue). **Sort order** column **removed** from SI lookup master UI (Term–Commodity); backend **`sort_order`** unchanged. **§2.11** filter note; **§7** map. TECH-SPEC **§0.28**. |
 | 1.45 | 2026-05-19 | **§2.16 Self-service change password:** header **user menu** (name + initials), **Change Password** modal (current / new / confirm, show-hide toggles) for **`auth_source = local`** only; **`PUT /api/v1/users/me/password`**. **§14** shell updated (user menu replaces greeting + logout button). **§7** implementation map. TECH-SPEC **§0.27**. |
 | 1.45 | 2026-05-21 | **§2.15 RBAC refactor:** retire sidebar **Jetty Live** and **`jetty-live`** page permission; **View Jetty Live stream** is **`can_approve`** under **At-Berth Executions** (camera + `/jetty-live` popup). Migration **078**. TECH-SPEC **§0.26**. |

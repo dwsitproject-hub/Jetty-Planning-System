@@ -28,6 +28,21 @@ function timestampToIso(v) {
   return null
 }
 
+function parseSiBreakdownLiteJson(val) {
+  if (val == null) return [];
+  try {
+    const arr = Array.isArray(val) ? val : typeof val === 'string' ? JSON.parse(val) : [];
+    if (!Array.isArray(arr)) return [];
+    return arr.map((r) => ({
+      commodityId: r.commodity_id != null ? Number(r.commodity_id) : null,
+      commodityName: r.commodity_name ?? null,
+      commodityType: r.commodity_type ?? null,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 function parseSiChildrenJson(val) {
   if (val == null) return [];
   try {
@@ -43,6 +58,7 @@ function parseSiChildrenJson(val) {
       etaTo: r.eta_to ?? null,
       shipperId: r.shipper_id != null ? Number(r.shipper_id) : null,
       loadingPortId: r.loading_port_id != null ? Number(r.loading_port_id) : null,
+      breakdown: parseSiBreakdownLiteJson(r.breakdown),
     }));
   } catch {
     return [];
@@ -178,7 +194,22 @@ router.get('/', async (req, res) => {
                   'eta_from', si.eta_from,
                   'eta_to', si.eta_to,
                   'shipper_id', si.shipper_id,
-                  'loading_port_id', si.loading_port_id
+                  'loading_port_id', si.loading_port_id,
+                  'breakdown', (
+                    SELECT COALESCE(
+                      json_agg(
+                        json_build_object(
+                          'commodity_id', c.id,
+                          'commodity_name', c.name,
+                          'commodity_type', c.commodity_type
+                        ) ORDER BY b.line_order
+                      ),
+                      '[]'::json
+                    )
+                    FROM shipping_instruction_breakdown b
+                    JOIN si_commodities c ON c.id = b.commodity_id AND c.deleted_at IS NULL
+                    WHERE b.shipping_instruction_id = si.id AND b.deleted_at IS NULL
+                  )
                 ) ORDER BY si.id
               ),
               '[]'::json

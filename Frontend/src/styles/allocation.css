@@ -4054,6 +4054,20 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   max-height: 220px;
   overflow-y: auto;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity var(--duration-fast) var(--easing-default),
+    transform var(--duration-fast) var(--easing-default),
+    visibility var(--duration-fast) var(--easing-default);
+}
+
+.dropdown-multi__panel.is-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
 }
 
 .dropdown-multi__list {

@@ -5,12 +5,24 @@ import { fetchShipmentPlans } from '../api/shipmentPlans'
 import { fetchAllocationOverview } from '../api/allocation'
 import { fetchDashboardV2Weekly } from '../api/dashboardV2'
 import { fetchJetties } from '../api/jetties'
+import { fetchSiLookups } from '../api/siLookups'
 import { useTranslation } from 'react-i18next'
 import { usePortScope } from '../context/PortScopeContext'
 import { getAppLocaleTag } from '../utils/formatDateTimeDisplay'
 import InteractiveTooltip from '../components/InteractiveTooltip'
 import DashboardV2WeeklyTrends from '../components/DashboardV2WeeklyTrends'
+import DropdownMultiSelect from '../components/DropdownMultiSelect'
 import { computePipelinePartition } from '../utils/dashboardPipelinePartition'
+import {
+  buildPlanCommodityIndex,
+  buildCommodityIdByName,
+  buildCommodityNameById,
+  extractCommodityOptionsFromMaster,
+  filterPlans,
+  filterOps,
+  planMatchesFilters,
+  pruneInvalidCommoditySelection,
+} from '../utils/dashboardFilters'
 import '../styles/dashboard.css'
 import '../styles/allocation.css'
 
@@ -176,6 +188,9 @@ export default function DashboardV2() {
   const { selectedPortId, selectedPort } = usePortScope()
   const defaultRange = getMonthRange(0)
   const [dateRange, setDateRange] = useState(defaultRange)
+  const [selectedPurposes, setSelectedPurposes] = useState([])
+  const [selectedCommodityIds, setSelectedCommodityIds] = useState([])
+  const [masterCommodities, setMasterCommodities] = useState([])
 
   const [plans, setPlans] = useState([])
   const [ops, setOps] = useState([])
@@ -183,11 +198,30 @@ export default function DashboardV2() {
   const [berths, setBerths] = useState([])
   const [jetties, setJetties] = useState([])
   const [loading, setLoading] = useState(true)
+  const [weeklyLoading, setWeeklyLoading] = useState(false)
   const [apiErr, setApiErr] = useState(null)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [weeklyTrends, setWeeklyTrends] = useState(null)
 
   const { startDate, endDate } = dateRange
+
+  useEffect(() => {
+    if (selectedPortId == null) {
+      setMasterCommodities([])
+      return undefined
+    }
+    let cancelled = false
+    fetchSiLookups()
+      .then((data) => {
+        if (!cancelled) {
+          setMasterCommodities(Array.isArray(data?.commodities) ? data.commodities : [])
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setMasterCommodities([])
+      })
+    return () => { cancelled = true }
+  }, [selectedPortId])
 
   const refresh = useCallback(async () => {
     if (selectedPortId == null) {
@@ -213,13 +247,12 @@ export default function DashboardV2() {
       }
     }
 
-    const [rPlans, rOps, rAtBerth, rAlloc, rJetties, rWeekly] = await Promise.all([
+    const [rPlans, rOps, rAtBerth, rAlloc, rJetties] = await Promise.all([
       run('plans', () => fetchShipmentPlans({ startDate, endDate })),
       run('operations', () => fetchOperations({ startDate, endDate })),
       run('at-berth', fetchAtBerth),
       run('allocation', fetchAllocationOverview),
       run('jetties', () => fetchJetties(selectedPortId)),
-      run('weekly-trends', () => fetchDashboardV2Weekly({ startDate, endDate })),
     ])
 
     setPlans(Array.isArray(rPlans.v) ? rPlans.v : [])
@@ -231,43 +264,124 @@ export default function DashboardV2() {
       setBerths([])
     }
     setJetties(Array.isArray(rJetties.v) ? rJetties.v : [])
-    if (rWeekly.ok && rWeekly.v && Array.isArray(rWeekly.v.weeks)) {
-      setWeeklyTrends({ weeks: rWeekly.v.weeks, totalSlots: rWeekly.v.totalSlots ?? 0 })
-    } else {
-      setWeeklyTrends(null)
-    }
+    if (errs.length > 0) setApiErr(errs.join('; '))
+    else setApiErr(null)
     setLastUpdated(new Date())
     setLoading(false)
   }, [selectedPortId, startDate, endDate])
 
+  const refreshWeekly = useCallback(async () => {
+    if (selectedPortId == null) {
+      setWeeklyTrends(null)
+      return
+    }
+    setWeeklyLoading(true)
+    try {
+      const data = await fetchDashboardV2Weekly({
+        startDate,
+        endDate,
+        purposes: selectedPurposes,
+        commodityIds: selectedCommodityIds,
+      })
+      if (data && Array.isArray(data.weeks)) {
+        setWeeklyTrends({ weeks: data.weeks, totalSlots: data.totalSlots ?? 0 })
+      } else {
+        setWeeklyTrends(null)
+      }
+    } catch (e) {
+      setWeeklyTrends(null)
+      setApiErr((prev) => {
+        const msg = `weekly-trends: ${e?.message || 'failed'}`
+        return prev ? `${prev}; ${msg}` : msg
+      })
+    } finally {
+      setWeeklyLoading(false)
+    }
+  }, [selectedPortId, startDate, endDate, selectedPurposes, selectedCommodityIds])
+
   useEffect(() => { refresh() }, [refresh])
+  useEffect(() => { refreshWeekly() }, [refreshWeekly])
+
+  const commodityOptions = useMemo(
+    () => extractCommodityOptionsFromMaster(masterCommodities),
+    [masterCommodities]
+  )
+
+  useEffect(() => {
+    const avail = new Set(commodityOptions.map((o) => o.value))
+    setSelectedCommodityIds((prev) => pruneInvalidCommoditySelection(prev, avail))
+  }, [commodityOptions])
+
+  const commodityNameById = useMemo(
+    () => buildCommodityNameById(masterCommodities),
+    [masterCommodities]
+  )
+  const commodityIdByName = useMemo(
+    () => buildCommodityIdByName(masterCommodities),
+    [masterCommodities]
+  )
+  const commodityIndex = useMemo(
+    () => buildPlanCommodityIndex(plans, ops, commodityIdByName),
+    [plans, ops, commodityIdByName]
+  )
+
+  const filters = useMemo(() => ({
+    purposes: selectedPurposes,
+    commodityIds: selectedCommodityIds,
+    commodityIndex,
+    commodityNameById,
+  }), [selectedPurposes, selectedCommodityIds, commodityIndex, commodityNameById])
+
+  const filteredPlans = useMemo(() => filterPlans(plans, filters), [plans, filters])
+  const filteredOps = useMemo(
+    () => filterOps(ops, filters, commodityIndex, plans),
+    [ops, filters, commodityIndex, plans]
+  )
+  const filteredAtBerth = useMemo(
+    () => filterOps(atBerth, filters, commodityIndex, plans),
+    [atBerth, filters, commodityIndex, plans]
+  )
+
+  const hasActiveFilters = selectedPurposes.length > 0 || selectedCommodityIds.length > 0
+  const isFilteredEmpty = hasActiveFilters
+    && filteredPlans.length === 0
+    && filteredOps.length === 0
+    && filteredAtBerth.length === 0
+
+  const purposeOptions = useMemo(() => [
+    { value: 'Loading', label: t('purposeLoading') },
+    { value: 'Unloading', label: t('purposeUnloading') },
+  ], [t])
 
   // ─── Pipeline (7 stages): mutually exclusive non-rejected plans; rejected only in card 1 sub ──
-  const pipelineCounts = useMemo(() => computePipelinePartition(plans, ops), [plans, ops])
+  const pipelineCounts = useMemo(
+    () => computePipelinePartition(filteredPlans, filteredOps),
+    [filteredPlans, filteredOps]
+  )
 
   const plansForMetrics = useMemo(
-    () => plans.filter((p) => p.approvalStatus !== 'Rejected'),
-    [plans]
+    () => filteredPlans.filter((p) => p.approvalStatus !== 'Rejected'),
+    [filteredPlans]
   )
 
   const rejectedPlanIds = useMemo(() => {
     const s = new Set()
-    for (const p of plans) {
+    for (const p of filteredPlans) {
       if (p.approvalStatus === 'Rejected') s.add(p.id)
     }
     return s
-  }, [plans])
+  }, [filteredPlans])
 
   // ─── At-berth phase counts (from live at-berth data) ─────────────────────
   const atBerthCounts = useMemo(() => {
     const empty = () => AT_BERTH_PHASES.reduce((acc, ph) => { acc[ph] = 0; return acc }, {})
     const counts = { Loading: empty(), Unloading: empty() }
-    for (const o of atBerth) {
+    for (const o of filteredAtBerth) {
       const phase = phaseForCard(o.status)
       if (phase && counts[o.purpose]) counts[o.purpose][phase] += 1
     }
     return counts
-  }, [atBerth])
+  }, [filteredAtBerth])
 
   const atBerthTotals = useMemo(() => ({
     Loading: AT_BERTH_PHASES.reduce((s, ph) => s + (atBerthCounts.Loading[ph] || 0), 0),
@@ -276,7 +390,7 @@ export default function DashboardV2() {
 
   // Bottom clearance row — use pipeline counts for consistency
   const opStats = useMemo(() => {
-    const signoffRequested = ops.filter(
+    const signoffRequested = filteredOps.filter(
       (o) =>
         o.status === 'SIGNOFF_REQUESTED' &&
         (o.shipmentPlanId == null || !rejectedPlanIds.has(o.shipmentPlanId))
@@ -286,13 +400,34 @@ export default function DashboardV2() {
       signoffRequested,
       sailed: pipelineCounts.sailed,
     }
-  }, [ops, rejectedPlanIds, pipelineCounts.readyToSail, pipelineCounts.sailed])
+  }, [filteredOps, rejectedPlanIds, pipelineCounts.readyToSail, pipelineCounts.sailed])
+
+  const filteredBerths = useMemo(() => {
+    if (!hasActiveFilters) return berths
+    return berths.map((b) => {
+      const occs = Array.isArray(b?.occupants) ? b.occupants : []
+      const filteredOccs = occs.filter((occ) => {
+        const pid = occ?.shipmentPlanId
+        if (pid == null) return false
+        const plan = plans.find((p) => Number(p.id) === Number(pid))
+        return plan && planMatchesFilters(plan, filters)
+      })
+      return {
+        ...b,
+        occupants: filteredOccs,
+        occupiedCount: filteredOccs.length,
+        currentVesselId: filteredOccs[0]?.vesselId ?? null,
+        currentVesselName: filteredOccs[0]?.vesselName ?? null,
+        currentOperationId: filteredOccs[0]?.operationId ?? null,
+      }
+    })
+  }, [berths, plans, filters, hasActiveFilters])
 
   // ─── Slot occupancy (from live allocation berths) ─────────────────────────
   const slotOccupancy = useMemo(() => {
     let totalSlots = 0
     let usedSlots = 0
-    for (const b of berths) {
+    for (const b of filteredBerths) {
       if ((b?.status || '') === 'Out of Service') continue
       const cap = Number.isFinite(Number(b?.capacity)) && Number(b?.capacity) >= 1 ? Number(b.capacity) : 1
       const occ = b?.occupiedCount != null && Number.isFinite(Number(b.occupiedCount))
@@ -303,11 +438,11 @@ export default function DashboardV2() {
     }
     const pct = totalSlots > 0 ? Math.round((usedSlots / totalSlots) * 100) : 0
     return { totalSlots, usedSlots, pct, overCapacity: usedSlots > totalSlots && totalSlots > 0 }
-  }, [berths])
+  }, [filteredBerths])
 
   const slotOccupancyItems = useMemo(() => {
     const out = []
-    for (const b of berths) {
+    for (const b of filteredBerths) {
       const cap = Number.isFinite(Number(b?.capacity)) && Number(b?.capacity) >= 1 ? Number(b.capacity) : 1
       const occs = Array.isArray(b?.occupants) ? b.occupants : []
       for (let i = 0; i < Math.min(cap, occs.length); i++) {
@@ -318,7 +453,7 @@ export default function DashboardV2() {
       }
     }
     return out
-  }, [berths])
+  }, [filteredBerths])
 
   // ─── Jetty status ─────────────────────────────────────────────────────────
   const jettyStatusCounts = useMemo(() => {
@@ -349,7 +484,7 @@ export default function DashboardV2() {
     const now = Date.now()
     const byPlan = new Map()
     const unlinked = []
-    for (const o of ops) {
+    for (const o of filteredOps) {
       if (o.shipmentPlanId != null && rejectedPlanIds.has(o.shipmentPlanId)) continue
       if (['SAILED', 'PENDING', 'ALLOCATED'].includes(o.status)) continue
       const etc = parseIso(o.estimatedCompletionTime)
@@ -374,7 +509,7 @@ export default function DashboardV2() {
     const risky = [...byPlan.values(), ...unlinkedByKey.values()]
     risky.sort((a, b) => b.overHours - a.overHours)
     return risky.slice(0, 5)
-  }, [ops, rejectedPlanIds])
+  }, [filteredOps, rejectedPlanIds])
 
   // ─── Performance (from plans + ops, both filtered by date range) ──────────
   const performance = useMemo(() => {
@@ -406,7 +541,7 @@ export default function DashboardV2() {
     }
 
     // Turnaround (TB → cast-off) from ops (excl. rejected plans)
-    for (const o of ops) {
+    for (const o of filteredOps) {
       if (o?.shiftingOut) continue
       if (o.shipmentPlanId != null && rejectedPlanIds.has(o.shipmentPlanId)) continue
       const vesselName = (o?.vesselName || '').trim() || `Op #${o?.id}`
@@ -429,7 +564,9 @@ export default function DashboardV2() {
       turnaround: { medianHours: median(turnaroundHrs), sampleSize: turnaroundHrs.length, worst: turnaroundWorst.slice(0, 10) },
       onTime: { ratePct: onTimeEligible >= 1 ? Math.round((onTimeCount / Math.max(1, onTimeEligible)) * 100) : null, eligible: onTimeEligible, onTime: onTimeCount, late: onTimeLateList.slice(0, 10) },
     }
-  }, [plansForMetrics, ops, rejectedPlanIds])
+  }, [plansForMetrics, filteredOps, rejectedPlanIds])
+
+  const kpiNoData = hasActiveFilters ? t('v2FilterNoData') : '—'
 
   const phaseShortLabel = useMemo(() => ({
     'Pre-Checking': t('phasePre'),
@@ -488,13 +625,43 @@ export default function DashboardV2() {
           </span>
         </div>
 
-        <DateRangePicker
-          startDate={startDate}
-          endDate={endDate}
-          onChange={setDateRange}
-          t={t}
-        />
+        <div className="v2-filters">
+          <DropdownMultiSelect
+            id="dashboard-filter-purpose"
+            className="v2-filters__dropdown"
+            titleLabel={t('v2FilterPurpose')}
+            placeholder={t('v2FilterSelectPurpose')}
+            options={purposeOptions}
+            selectedValues={selectedPurposes}
+            onChange={setSelectedPurposes}
+            panelClassName="v2-filters__panel"
+          />
+          <DropdownMultiSelect
+            id="dashboard-filter-commodity"
+            className="v2-filters__dropdown"
+            titleLabel={t('v2FilterCommodityType')}
+            placeholder={t('v2FilterSelectCommodity')}
+            options={commodityOptions}
+            selectedValues={selectedCommodityIds}
+            onChange={setSelectedCommodityIds}
+            panelClassName="v2-filters__panel"
+            emptyText={t('v2FilterNoCommodities')}
+            disabled={loading}
+          />
+          <DateRangePicker
+            startDate={startDate}
+            endDate={endDate}
+            onChange={setDateRange}
+            t={t}
+          />
+        </div>
       </header>
+
+      {isFilteredEmpty && (
+        <div className="v2-filter-empty-banner" role="status">
+          {t('v2FilterNoData')}
+        </div>
+      )}
 
       {apiErr && (
         <div className="dashboard-api-banner" role="alert">
@@ -627,9 +794,13 @@ export default function DashboardV2() {
         <div className="v2-kpi-card">
           <div className="v2-kpi-card__label">{t('slotOccupancy')}</div>
           <div className="v2-kpi-card__value">
-            {slotOccupancy.totalSlots > 0
-              ? <>{slotOccupancy.usedSlots}/{slotOccupancy.totalSlots} <span className="v2-kpi-card__unit">{slotOccupancy.pct}%</span></>
-              : '—'}
+            {loading
+              ? '—'
+              : hasActiveFilters && slotOccupancy.usedSlots === 0 && slotOccupancy.totalSlots > 0
+                ? kpiNoData
+                : slotOccupancy.totalSlots > 0
+                  ? <>{slotOccupancy.usedSlots}/{slotOccupancy.totalSlots} <span className="v2-kpi-card__unit">{slotOccupancy.pct}%</span></>
+                  : '—'}
           </div>
           <div className="v2-kpi-card__bar-wrap">
             <div
@@ -666,7 +837,13 @@ export default function DashboardV2() {
             maxWidth={360}
           >
             <div className="v2-kpi-card__value">
-              {loading ? '—' : performance.waiting.medianHours == null ? '—' : formatDurationHours(performance.waiting.medianHours)}
+              {loading
+                ? '—'
+                : hasActiveFilters && performance.waiting.sampleSize === 0
+                  ? kpiNoData
+                  : performance.waiting.medianHours == null
+                    ? '—'
+                    : formatDurationHours(performance.waiting.medianHours)}
             </div>
           </InteractiveTooltip>
           <div className="v2-kpi-card__sub">{t('v2PerfWaitingSub', { n: performance.waiting.sampleSize })}</div>
@@ -686,7 +863,13 @@ export default function DashboardV2() {
             maxWidth={360}
           >
             <div className="v2-kpi-card__value">
-              {loading ? '—' : performance.turnaround.medianHours == null ? '—' : formatDurationHours(performance.turnaround.medianHours)}
+              {loading
+                ? '—'
+                : hasActiveFilters && performance.turnaround.sampleSize === 0
+                  ? kpiNoData
+                  : performance.turnaround.medianHours == null
+                    ? '—'
+                    : formatDurationHours(performance.turnaround.medianHours)}
             </div>
           </InteractiveTooltip>
           <div className="v2-kpi-card__sub">{t('v2PerfTurnaroundSub', { n: performance.turnaround.sampleSize })}</div>
@@ -706,7 +889,13 @@ export default function DashboardV2() {
             maxWidth={360}
           >
             <div className={`v2-kpi-card__value${performance.onTime.ratePct != null && performance.onTime.ratePct < 80 ? ' v2-kpi-card__value--warn' : ''}`}>
-              {loading ? '—' : performance.onTime.ratePct == null ? '—' : `${performance.onTime.ratePct}%`}
+              {loading
+                ? '—'
+                : hasActiveFilters && performance.onTime.eligible === 0
+                  ? kpiNoData
+                  : performance.onTime.ratePct == null
+                    ? '—'
+                    : `${performance.onTime.ratePct}%`}
             </div>
           </InteractiveTooltip>
           <div className="v2-kpi-card__sub">{t('v2PerfOnTimeSub', { eligible: performance.onTime.eligible })}</div>
@@ -725,7 +914,9 @@ export default function DashboardV2() {
             emptyText={t('slaEmpty')}
             maxWidth={360}
           >
-            <div className="v2-kpi-card__value">{slaAtRisk.length}</div>
+            <div className="v2-kpi-card__value">
+              {loading ? '—' : isFilteredEmpty ? kpiNoData : slaAtRisk.length}
+            </div>
           </InteractiveTooltip>
           <div className="v2-kpi-card__sub">{t('slaSub')}</div>
         </div>
@@ -766,6 +957,8 @@ export default function DashboardV2() {
         </div>
         {loading ? (
           <p className="text-steel">{t('loadingEllipsis')}</p>
+        ) : isFilteredEmpty ? (
+          <p className="text-steel v2-atberth__empty">{t('v2FilterNoData')}</p>
         ) : (
           <>
             <div className="v2-atberth__summary-row">
@@ -807,7 +1000,9 @@ export default function DashboardV2() {
       <DashboardV2WeeklyTrends
         data={weeklyTrends?.weeks}
         totalSlots={weeklyTrends?.totalSlots}
-        loading={loading}
+        loading={loading && !weeklyTrends}
+        refreshing={weeklyLoading}
+        filtered={hasActiveFilters}
         dateRangeLabel={dateRangeLabel}
       />
     </div>

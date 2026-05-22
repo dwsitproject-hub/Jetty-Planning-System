@@ -1,6 +1,6 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.38
+**Version**: 1.39
 **Last Updated**: 2026-05-22  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
@@ -104,6 +104,61 @@
 **Filter inputs:** Not subject to **`inputLimits.js`** caps (same as Allocation / SI list filters). See FUNCTIONAL-SPEC **§2.11** note.
 
 **Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.17**.
+
+### 0.29 Dashboard V2 — Purpose and Commodity Type filters (2026-05-22)
+
+**Purpose:** The live dashboard (`/`, **`DashboardV2.jsx`**) adds **Purpose** and **Commodity Type** multi-select filters beside the date range. Most metrics filter **client-side** on data already fetched for the selected port and date window; **Weekly trends** filter **server-side** via **`GET /dashboard-v2/weekly-trends`**.
+
+**Frontend modules:**
+
+| Module | Role |
+|--------|------|
+| **`Frontend/src/pages/DashboardV2.jsx`** | Filter state (`selectedPurposes`, `selectedCommodityIds`); **`refresh()`** (plans, ops, at-berth, allocation, jetties) on port/date change; **`refreshWeekly()`** on port/date/**filter** change; derived **`filteredPlans`**, **`filteredOps`**, **`filteredAtBerth`**, slot occupancy via filtered berth occupants. |
+| **`Frontend/src/utils/dashboardFilters.js`** | **`planMatchesFilters`**, **`opMatchesFilters`**, **`filterPlans`**, **`filterOps`**, **`buildPlanCommodityIndex`**, **`extractCommodityOptionsFromMaster`**, **`buildCommodityNameById`**, **`buildCommodityIdByName`**, **`pruneInvalidCommoditySelection`**. |
+| **`Frontend/src/components/DropdownMultiSelect.jsx`** | Reusable multi-select; optional **`titleLabel`** → trigger **Purpose (n)** / **Commodity Type (n)**; **`emptyText`**; panel open animation via **`.is-open`**. |
+| **`Frontend/src/components/DashboardV2WeeklyTrends.jsx`** | Props **`refreshing`**, **`filtered`**; **Updating charts…** status; filtered hint text when filters active. |
+| **`Frontend/src/api/dashboardV2.js`** | **`fetchDashboardV2Weekly({ startDate, endDate, purposes, commodityIds })`**. |
+| **`Frontend/src/api/siLookups.js`** | **`fetchSiLookups()`** → master **`commodities`** for dropdown labels. |
+| **`Frontend/src/styles/dashboard.css`** | **`.v2-filters`**, **`.v2-filter-empty-banner`**, **`.v2-weekly--refreshing`**. |
+
+**Filter semantics:**
+
+- Empty selection in a category → no constraint.
+- Multiple values in one category → **OR**.
+- Purpose + Commodity together → **AND**.
+- **Purpose:** match **`shipment_plans.purpose_id`** → **`purposeCode`** on plans; **`operations.purpose`** on ops.
+- **Commodity:** match **`shipping_instruction_breakdown.commodity_id`** on plan child SIs (list payload **`breakdown[]`**) and/or operation **`commodity`** name fallback via master id map.
+
+**Data fetches (dashboard `refresh()`):**
+
+| Endpoint | Query | Used for |
+|----------|-------|----------|
+| **`GET /shipment-plans`** | `start_date`, `end_date` | Pipeline, performance (plan-side), commodity index |
+| **`GET /operations`** | `start_date`, `end_date` | Pipeline, SLA, turnaround, at-berth clearance stats |
+| **`GET /operations/at-berth`** | (live snapshot) | At berth now |
+| **`GET /allocation/overview`** | — | Slot occupancy berths/occupants |
+| **`GET /jetties`** | port id | Jetty status (**unfiltered**) |
+| **`GET /si-lookups`** | — | Master commodity dropdown |
+| **`GET /dashboard-v2/weekly-trends`** | `start_date`, `end_date`, optional **`purpose`**, **`commodity_id`** | Weekly trends only |
+
+**Backend — weekly trends filters (`Backend/src/routes/dashboard-v2-weekly.js`):**
+
+- Mount: **`/api/v1/dashboard-v2`** (`requireAuth`, `requirePortScope`).
+- **`GET /dashboard-v2/weekly-trends`**
+  - Required: **`start_date`**, **`end_date`** (YYYY-MM-DD).
+  - Optional (repeatable or comma-separated): **`purpose`** (`Loading` \| `Unloading`), **`commodity_id`** (positive int, **`si_commodities.id`**).
+  - **`parseDashboardFilters(req)`** → `{ purposeCodes, commodityIds }` (null when omitted).
+  - Filter SQL applied to **`berthOccupiedPlansAt`**, **`countApprovedPlansInRange`**, **`countSailedPlansInRange`**, **`slaAtRiskAtSnapshot`** via **`EXISTS`** on plan purpose and SI breakdown.
+  - **`totalSlots`** (jetty capacity denominator for occupancy %) remains **unfiltered** port capacity; occupied numerators respect filters.
+
+**Backend — shipment plan list commodity breakdown (`Backend/src/routes/shipment-plans.js`):**
+
+- **`GET /shipment-plans`** list embeds per-SI **`breakdown`** in **`si_children_json`**: `{ commodity_id, commodity_name, commodity_type }[]` from **`shipping_instruction_breakdown`**.
+- **`parseSiChildrenJson`** maps to **`shippingInstructions[].breakdown[]`** with **`commodityId`**, **`commodityName`**, **`commodityType`** for client commodity index (early pipeline stages).
+
+**Deploy note:** Weekly trends filtering requires a backend build that includes **`dashboard-v2-weekly.js`** filter changes. Frontend-only deploy updates pipeline/KPI/at-berth filtering but not weekly charts until the API is restarted/redeployed.
+
+**Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.18**.
 
 ### 0.24 Shipping instruction vessel-call columns removed (canonical `shipment_plans`) (2026-05-11)
 
@@ -856,7 +911,17 @@ Freight terms are currently fixed (frontend constant + backend validation), so t
 
 **User Story**: As a Manager, I want weekly trends (occupied jetties, demurrage, incidents) and weather.
 
-**Workflow (current frontend: `Dashboard.jsx`)**:
+**Live dashboard:** Route **`/`** → **`Frontend/src/pages/DashboardV2.jsx`** (legacy **`Dashboard.jsx`** archived). Header filter bar: **Purpose** + **Commodity Type** multi-select + date range (**§0.29**, FUNCTIONAL-SPEC **§2.18**).
+
+**Workflow (Dashboard V2 — `DashboardV2.jsx`)**:
+- **Filter bar** (`.v2-filters`): **`DropdownMultiSelect`** for Purpose (`Loading` / `Unloading`) and Commodity Type (master **`GET /si-lookups`** **`commodities`**); **`DateRangePicker`** presets + From/To. Filters apply instantly; **`dashboardFilters.js`** derives **`filteredPlans`** / **`filteredOps`** / **`filteredAtBerth`**.
+- **Vessel pipeline** (seven stages): **`computePipelinePartition(filteredPlans, filteredOps)`** — Shipment Plans through Sailed; links unchanged (`/shipment-plans`, `/allocation-plans`, `/at-berth`, `/verification`).
+- **KPI row:** Slot occupancy (filtered berth occupants), Waiting to berth / Turnaround / On-time berthing (date-scoped plans + ops, filtered), SLA at risk (filtered ops). **Jetty status** uses raw **`GET /jetties`** (not filter-scoped).
+- **At berth now:** Loading / Unloading phase counts from **`filteredAtBerth`**; clearance row from filtered pipeline/op stats.
+- **Weekly trends** (`DashboardV2WeeklyTrends.jsx`): **`GET /dashboard-v2/weekly-trends`** with optional **`purpose`** / **`commodity_id`**; refetch on filter change; **`refreshing`** UI state.
+- **Empty filter state:** Banner + KPI placeholders when active filters match no data.
+
+**Workflow (legacy `Dashboard.jsx` — archived, reference only)**:
 - **Vessel pipeline** card (`section.dashboard-pipeline`) is rendered **first** in the main column (after header, port chip, and optional API error banner), then the **Port activity chart + KPI grid** row — pipeline is the top-level summary of port flow.
 - **Port activity chart** (`DashboardActivityChart.jsx`) in the **second row** left column (beside the KPI grid):
   - **Operations** mode: classifies `GET /allocation/overview` **`queue`** rows by **`purpose`** (Loading / Unloading; unknown purpose omitted) and by stage using shared helpers in `Frontend/src/utils/dashboardQueueClassification.js`. Counts **deduplicate** rows that share **`shipmentPlanId`** via **`allocationQueueVesselCallKey`** so one vessel call does not inflate **Planned berthing** / **Berthing** bars.
@@ -1236,8 +1301,19 @@ Ensures berthed vessels appear even if status and TB were temporarily out of syn
 
 ### 3.7 Dashboard & Weather
 
-- `GET /dashboard/summary` – pipeline counts, occupancy, SLA metrics (target; not required for current Port activity chart, which uses existing `GET /allocation/overview` + `GET /shipping-instructions`).
-- `GET /dashboard/weather?port_id=...` – proxy to Google Weather API (target). **Current UI:** mock weather at bottom of `Dashboard.jsx` until this is wired.
+**Implemented (Dashboard V2):**
+
+- **`GET /dashboard-v2/weekly-trends`** — port-scoped (`requirePortScope`). Query: **`start_date`**, **`end_date`** (required); optional **`purpose`** (`Loading` \| `Unloading`, repeatable); optional **`commodity_id`** (int, repeatable). Response: `{ totalSlots, weeks: [{ startDate, endDate, slotOccupancyPct, berthOccupiedPlans, approvedPlans, sailedCount, slaAtRiskCount, slaOverHoursSum }] }`. Week chunks are consecutive segments of up to 7 UTC days within the requested range. Filter SQL: **§0.29**. Client: **`Frontend/src/api/dashboardV2.js`**.
+
+**Supporting list data (client-side dashboard filtering, not weekly API):**
+
+- **`GET /shipment-plans?start_date&end_date`** — plan list includes **`shippingInstructions[].breakdown[]`** with **`commodityId`** for commodity matching on early pipeline stages (**§0.29**).
+- **`GET /operations?start_date&end_date`**, **`GET /operations/at-berth`**, **`GET /allocation/overview`**, **`GET /jetties`**, **`GET /si-lookups`** — see **§0.29** fetch table.
+
+**Target / not yet wired:**
+
+- `GET /dashboard/summary` – pipeline counts, occupancy, SLA metrics (target; Dashboard V2 computes most KPIs client-side from existing endpoints).
+- `GET /dashboard/weather?port_id=...` – proxy to Google Weather API (target). **Legacy UI:** mock weather at bottom of archived **`Dashboard.jsx`** until this is wired.
 
 ### 3.8 Audit Trail
 

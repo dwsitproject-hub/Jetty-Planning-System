@@ -111,6 +111,13 @@
   "v2DateFrom": "Dari",
   "v2DateTo": "Sampai",
 
+  "v2FilterPurpose": "Purpose",
+  "v2FilterCommodityType": "Jenis Komoditas",
+  "v2FilterSelectPurpose": "Semua purpose",
+  "v2FilterSelectCommodity": "Semua komoditas",
+  "v2FilterNoCommodities": "Tidak ada komoditas pada rencana saat ini",
+  "v2FilterNoData": "Tidak ada data untuk filter yang dipilih",
+
   "v2PipelinePlans": "Rencana Pengiriman",
   "v2PipelinePlansSub": "{{approved}} disetujui · {{rejected}} ditolak · {{total}} total",
   "v2PipelineUnclassified": "{{n}} rencana tidak dapat ditempatkan di pipeline — periksa data rencana dan operasi.",
@@ -143,6 +150,8 @@
   "v2PerfOnTimeSub": "TB dalam +6j dari ETB rencana · eligible={{eligible}}",
 
   "v2WeeklyTitle": "Tren mingguan",
+  "v2WeeklyRefreshing": "Memperbarui grafik…",
+  "v2WeeklyFilteredHint": "Grafik mengikuti filter Purpose dan Komoditas yang dipilih.",
   "v2WeeklyAxisWeek": "Minggu",
   "v2WeeklyAxisCount": "Jumlah",
   "v2WeeklyTipOccSecondary": "{{used}} rencana terisi / {{total}} slot aktif",

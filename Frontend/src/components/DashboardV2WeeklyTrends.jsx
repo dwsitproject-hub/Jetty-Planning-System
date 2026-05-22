@@ -211,7 +211,14 @@ function WeeklyLineChart({ weekLabels, yTitle, xAxisTitle, series, ariaLabel, we
   )
 }
 
-export default function DashboardV2WeeklyTrends({ data, totalSlots, loading, dateRangeLabel }) {
+export default function DashboardV2WeeklyTrends({
+  data,
+  totalSlots,
+  loading,
+  refreshing = false,
+  filtered = false,
+  dateRangeLabel,
+}) {
   const { t, i18n } = useTranslation('dashboard')
 
   const weekLabels = useMemo(
@@ -235,13 +242,20 @@ export default function DashboardV2WeeklyTrends({ data, totalSlots, loading, dat
   }
 
   return (
-    <section className="card v2-weekly">
+    <section className={`card v2-weekly${refreshing ? ' v2-weekly--refreshing' : ''}`}>
       <div className="v2-weekly__head">
         <h2 className="card__title">{t('v2WeeklyTitle')}</h2>
-        <span className="v2-weekly__period">{dateRangeLabel}</span>
+        <div className="v2-weekly__head-right">
+          {refreshing && (
+            <span className="v2-weekly__refreshing" role="status">{t('v2WeeklyRefreshing')}</span>
+          )}
+          <span className="v2-weekly__period">{dateRangeLabel}</span>
+        </div>
       </div>
-      <p className="v2-weekly__hint">{t('v2WeeklyHint')}</p>
-
+      <p className="v2-weekly__hint">
+        {filtered ? t('v2WeeklyFilteredHint') : t('v2WeeklyHint')}
+      </p>
+      <div className="v2-weekly__body">
       <div className="v2-weekly__block">
         <div className="v2-weekly__block-title">{t('v2WeeklyOccupancy')}</div>
         <WeeklyLineChart
@@ -380,6 +394,7 @@ export default function DashboardV2WeeklyTrends({ data, totalSlots, loading, dat
           ]}
         />
         <div className="v2-weekly__subnote">{t('v2WeeklySlaSub')}</div>
+      </div>
       </div>
     </section>
   )

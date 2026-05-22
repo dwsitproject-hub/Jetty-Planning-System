@@ -111,6 +111,13 @@
   "v2DateFrom": "From",
   "v2DateTo": "To",
 
+  "v2FilterPurpose": "Purpose",
+  "v2FilterCommodityType": "Commodity Type",
+  "v2FilterSelectPurpose": "All purposes",
+  "v2FilterSelectCommodity": "All commodities",
+  "v2FilterNoCommodities": "No commodities in current plans",
+  "v2FilterNoData": "No data available for selected filters",
+
   "v2PipelinePlans": "Shipment Plans",
   "v2PipelinePlansSub": "{{approved}} approved · {{rejected}} rejected · {{total}} total",
   "v2PipelineUnclassified": "{{n}} plans could not be placed in the pipeline — check plan and operation data.",
@@ -143,6 +150,8 @@
   "v2PerfOnTimeSub": "TB within +6h of planned ETB · eligible={{eligible}}",
 
   "v2WeeklyTitle": "Weekly trends",
+  "v2WeeklyRefreshing": "Updating charts…",
+  "v2WeeklyFilteredHint": "Charts reflect selected Purpose and Commodity filters.",
   "v2WeeklyAxisWeek": "Week",
   "v2WeeklyAxisCount": "Count",
   "v2WeeklyTipOccSecondary": "{{used}} occupied plans / {{total}} service slots",
