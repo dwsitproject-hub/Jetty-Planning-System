@@ -437,6 +437,46 @@ docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d
 docker compose --env-file Backend/.env -f docker-compose.backend.yml ps
 ```
 
+### 5.2A Persistent uploads volume
+
+Uploaded files (berthing photos, NOR attachments, SI PDFs, sub-process documents) are stored on disk under **`UPLOAD_DIR`** (default **`/var/jps/uploads`** inside **`jps-api`**). Compose mounts a **named Docker volume** **`jps_uploads`** at that path so files survive container rebuilds and redeploys — same persistence model as **`jps_pgdata`** for Postgres.
+
+**Do not** use ephemeral paths such as **`/tmp/jps-uploads`** without a volume: a container recreate wipes **`/tmp`** while DB metadata remains, causing filenames to appear in the UI with broken preview/download.
+
+**Never run `docker compose down -v` on production** — the **`-v`** flag deletes named volumes, including **`jps_pgdata`** and **`jps_uploads`**.
+
+After **`docker compose up`**, confirm startup logs show:
+
+```text
+Upload directory: /var/jps/uploads (writable)
+```
+
+#### One-time migration from `/tmp/jps-uploads` (existing servers)
+
+If the API previously used **`/tmp/jps-uploads`** without a volume, rescue any files still in the running container **before** recreating **`jps-api`** with the updated compose:
+
+```bash
+cd /opt/jetty-planning-system
+docker exec jps-api find /tmp/jps-uploads -type f 2>/dev/null || true
+mkdir -p ./upload-rescue
+docker cp jps-api:/tmp/jps-uploads/. ./upload-rescue/ 2>/dev/null || true
+git pull   # or deploy updated docker-compose.backend.yml
+docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d --build jps-api
+docker cp ./upload-rescue/. jps-api:/var/jps/uploads/
+docker exec jps-api find /var/jps/uploads -type f
+```
+
+Files uploaded before the last container recreate that were already lost from **`/tmp`** cannot be recovered from disk — users must re-upload those documents (DB rows may still show filenames until replaced or deleted).
+
+#### Backup uploads
+
+Schedule periodic backups alongside Postgres:
+
+```bash
+docker run --rm -v jps_uploads:/data -v $(pwd):/backup alpine \
+  tar czf /backup/jps-uploads-$(date +%F).tar.gz -C /data .
+```
+
 ### 5.3 Migrations
 
 ```bash

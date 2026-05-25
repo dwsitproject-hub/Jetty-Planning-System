@@ -7,6 +7,7 @@ import 'express-async-errors';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
+import fs from 'fs';
 import http from 'http';
 import { verifyConnection } from './db.js';
 import { UPLOAD_ROOT } from './paths.js';
@@ -148,6 +149,18 @@ async function start() {
   } catch (err) {
     console.error('FATAL: Database connection failed:', err.message);
     process.exit(1);
+  }
+  try {
+    fs.mkdirSync(UPLOAD_ROOT, { recursive: true });
+    fs.accessSync(UPLOAD_ROOT, fs.constants.W_OK);
+    console.log(`Upload directory: ${UPLOAD_ROOT} (writable)`);
+  } catch (err) {
+    const msg = `Upload directory not writable (${UPLOAD_ROOT}): ${err.message}`;
+    if (process.env.NODE_ENV === 'production') {
+      console.error(`FATAL: ${msg}`);
+      process.exit(1);
+    }
+    console.warn(`WARNING: ${msg}`);
   }
   let maxHeaderSize = Number(process.env.HTTP_MAX_HEADER_SIZE);
   if (!Number.isFinite(maxHeaderSize) || maxHeaderSize < 8192) maxHeaderSize = 131072;

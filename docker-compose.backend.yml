@@ -63,7 +63,9 @@ services:
       OIDC_ALLOW_QUERY_CODE_VERIFIER: ${OIDC_ALLOW_QUERY_CODE_VERIFIER:-false}
       SSO_OIDC_ENABLED: ${SSO_OIDC_ENABLED:-false}
       SSO_LEGACY_BRIDGE_ENABLED: ${SSO_LEGACY_BRIDGE_ENABLED:-true}
-      UPLOAD_DIR: /tmp/jps-uploads
+      UPLOAD_DIR: ${UPLOAD_DIR:-/var/jps/uploads}
+    volumes:
+      - jps_uploads:/var/jps/uploads
     command: ["npm", "run", "start"]
     depends_on:
       jps-db:
@@ -71,3 +73,4 @@ services:
 
 volumes:
   jps_pgdata:
+  jps_uploads:

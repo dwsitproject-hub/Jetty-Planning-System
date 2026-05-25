@@ -1502,7 +1502,9 @@ See **§0.30**. Summary:
 
 - **Upload root**: `Backend/src/paths.js` exports `UPLOAD_ROOT` from `process.env.UPLOAD_DIR` when set, otherwise `Backend/uploads` resolved from the backend package (not `process.cwd()`), so static serving and multer paths stay consistent regardless of start directory.
 - **Express**: `app.use('/uploads', express.static(UPLOAD_ROOT))` in `Backend/src/index.js`.
-- **Docker (local dev)**: `Backend/docker-compose.yml` may set `UPLOAD_DIR` to a container-local directory to avoid Windows host bind-mount stalls during large or concurrent writes; adjust for production (named volume or object storage strategy).
+- **Startup**: `Backend/src/index.js` creates `UPLOAD_ROOT` if missing and verifies writability; in **`NODE_ENV=production`**, a non-writable upload directory is fatal.
+- **Docker (production / Alicloud)**: `docker-compose.backend.yml` sets **`UPLOAD_DIR=/var/jps/uploads`** and mounts named volume **`jps_uploads:/var/jps/uploads`** on **`jps-api`**. Files persist across container rebuilds. See **ALICLOUD-DEPLOYMENT-GUIDE §5.2A** for migration from ephemeral `/tmp` paths and backup procedure. **Never `docker compose down -v`** on production (deletes **`jps_uploads`** and **`jps_pgdata`**).
+- **Docker (local dev)**: `Backend/docker-compose.yml` uses the same **`jps_uploads`** named volume at **`/var/jps/uploads`** — avoids Windows host bind-mount stalls while keeping uploads across restarts.
 - **Frontend**: `resolveUploadUrl()` in `Frontend/src/api/client.js` prefixes relative `/uploads/...` paths with the API **origin** derived from `VITE_API_BASE_URL`, so links opened from the Vite dev server hit the API host.
 - **Vite dev**: `Frontend/vite.config.js` may proxy `/uploads` to the API for any remaining relative requests.
 
