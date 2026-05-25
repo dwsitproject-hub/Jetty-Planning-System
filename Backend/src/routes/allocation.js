@@ -425,7 +425,10 @@ function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = 
           WHERE d.operation_id = o.id AND d.deleted_at IS NULL AND d.kind = 'NOR'
         ), '[]'::jsonb) AS nor_documents,
         COALESCE(sp.no_pkk, o.no_pkk) AS no_pkk,
-        sh.name AS shipper_name,
+        (SELECT STRING_AGG(DISTINCT sh2.name, ', ' ORDER BY sh2.name)
+         FROM public.shipping_instruction_breakdown b2
+         JOIN public.si_shippers sh2 ON sh2.id = b2.shipper_id AND sh2.deleted_at IS NULL
+         WHERE b2.shipping_instruction_id = si.id AND b2.deleted_at IS NULL) AS shipper_name,
         ag.name AS agent_name,
         sv.name AS surveyor_name,
         COALESCE(sp.eta, o.eta, (si.eta_to::timestamptz), (si.eta_from::timestamptz)) AS eta_datetime,
@@ -455,7 +458,6 @@ function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = 
      LEFT JOIN shipment_plans sp ON sp.id = si.shipment_plan_id AND sp.deleted_at IS NULL
      LEFT JOIN si_purposes spur ON spur.id = sp.purpose_id AND spur.deleted_at IS NULL
      ${joinUsers}
-     LEFT JOIN si_shippers sh ON sh.id = si.shipper_id AND sh.deleted_at IS NULL
      LEFT JOIN si_agents ag ON ag.id = COALESCE(si.agent_id, sp.agent_id) AND ag.deleted_at IS NULL
      LEFT JOIN si_surveyors sv ON sv.id = si.surveyor_id AND sv.deleted_at IS NULL
      LEFT JOIN jetties j ON j.id = COALESCE(sp.jetty_id, o.jetty_id) AND j.deleted_at IS NULL
@@ -523,7 +525,10 @@ async function buildAllocationOverviewPayload(selectedPortId) {
         si.reference_number,
         ${SI_COMMODITY} AS commodity,
         sp.no_pkk AS no_pkk,
-        sh.name AS shipper_name,
+        (SELECT STRING_AGG(DISTINCT sh2.name, ', ' ORDER BY sh2.name)
+         FROM public.shipping_instruction_breakdown b2
+         JOIN public.si_shippers sh2 ON sh2.id = b2.shipper_id AND sh2.deleted_at IS NULL
+         WHERE b2.shipping_instruction_id = si.id AND b2.deleted_at IS NULL) AS shipper_name,
         ag.name AS agent_name,
         sv.name AS surveyor_name,
         COALESCE(sp.eta, (si.eta_to::timestamptz), (si.eta_from::timestamptz)) AS eta_datetime,
@@ -549,9 +554,8 @@ async function buildAllocationOverviewPayload(selectedPortId) {
         (regexp_replace(j.name, '^Jetty\\s+', '', 'i'))::text AS jetty_display,
         si.id::text AS row_id
      FROM shipping_instructions si
-     LEFT JOIN shipment_plans sp ON sp.id = si.shipment_plan_id AND sp.deleted_at IS NULL
+     LEFT      JOIN shipment_plans sp ON sp.id = si.shipment_plan_id AND sp.deleted_at IS NULL
      LEFT JOIN si_purposes spur ON spur.id = sp.purpose_id AND spur.deleted_at IS NULL
-     LEFT JOIN si_shippers sh ON sh.id = si.shipper_id AND sh.deleted_at IS NULL
      LEFT JOIN si_agents ag ON ag.id = COALESCE(si.agent_id, sp.agent_id) AND ag.deleted_at IS NULL
      LEFT JOIN si_surveyors sv ON sv.id = si.surveyor_id AND sv.deleted_at IS NULL
      LEFT JOIN jetties j ON j.id = sp.jetty_id AND j.deleted_at IS NULL

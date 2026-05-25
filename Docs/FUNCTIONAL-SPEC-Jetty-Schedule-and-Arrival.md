@@ -1,9 +1,9 @@
 # Functional specification — Jetty schedule Gantt & arrival updates
 
 **Product:** Jetty Planning & Monitoring System (JPS)  
-**Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, **Jetty Live CCTV** (per-jetty RTSP links, schematic camera control, browser stream page), **self-service change password** (header user menu), and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
+**Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, **uploaded document preview & download**, **Jetty Live CCTV** (per-jetty RTSP links, schematic camera control, browser stream page), **self-service change password** (header user menu), and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.47 (see document history at end).
+**Version:** 1.49 (see document history at end).
 
 ---
 
@@ -30,6 +30,8 @@ This document describes **behaviour that is implemented in code**, including:
 - **Self-service change password:** header **user menu** (name + initials avatar) with **Change Password** for **local** accounts and **Logout**; modal verifies current password before save (**§2.16**, **§14**).
 - **Master Menu list tables:** client-side **column sort** and **per-column text filters** on Port, Jetty, SI lookup masters, and Freight Terms; SI lookup pages do **not** display **Sort order** (**§2.17**).
 - **Dashboard V2 filters:** **Purpose** and **Commodity Type** multi-select filters on the main dashboard (`/`), with date range, instant apply, and filtered pipeline / KPI / at-berth / weekly-trends views (**§2.18**).
+- **Uploaded document preview:** shared in-app preview modal for uploaded **images** and **PDFs** with explicit **Download**; replaces immediate browser download when clicking file links (**§2.19**).
+- **SI shipper per breakdown line:** shipper is chosen **per commodity/contract row** in the Shipment breakdown table (not a single Party & port field); one SI may show **multiple shippers**; Allocation queue **Shipper** column aggregates distinct names (**§2.20**, **§16**).
 
 For API field names, database columns, and shared code modules, see **TECH-SPEC-Jetty-Planning-System.md** and **§6** below for arrival/estimated completion mapping. Jetty Live deployment: **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**.
 
@@ -151,7 +153,7 @@ Technical contract (endpoints, columns, persistence order): **TECH-SPEC-Jetty-Pl
 | **Trigger** | In table rows only, the **SI number/value is rendered as hyperlink text** (not a button). |
 | **Where** | Implemented on **Shipping Instructions**, **Allocation & Berthing**, and **At-Berth Executions** tables. |
 | **Scope rule** | Click target is SI in the table only; expanded **Full details** SI labels are not converted to modal triggers in this release. |
-| **Modal content** | Shared SI detail modal shows: SI No, Status, Source, Vessel, Purpose, Jetty, ETA From, ETA To, ETB, TB, ETC, Term, Voyage, Destination, Freight terms, Document date, B/L clause, B/L split, Consignee, Notify party, BL indicated, Shipper, Loading port, Surveyor, Agent, Note, Approver, Approval date, and Contract / PO breakdown. |
+| **Modal content** | Shared SI detail modal shows: SI No, Status, Source, Vessel, Purpose, Jetty, ETA From, ETA To, ETB, TB, ETC, Term, Voyage, Destination, Freight terms, Document date, B/L clause, B/L split, Consignee, Notify party, BL indicated, **Shipper** (comma-separated distinct names when lines differ), Loading port, Surveyor, Agent, Note, Approver, Approval date, and **Contract / PO breakdown** (each line includes **Shipper** when set). |
 | **At-berth process (summary)** | When the SI is linked to an **operation** (`operationId` present), the modal includes an **At-berth process** table (Pre-Checking / Operational / Post-Checking) with progress and state, loaded from the same hub-stage rules as the Loading/Unloading workspace. |
 | **Detailed executions log (nested)** | In that section, **View detailed executions log** opens a **second** modal on top with the **Detailed At-Berth Executions Log** (same table as the Loading/Unloading hub: `OperationActivityTimeline`, fed by `GET /operations/:id/activity-timeline`). Closing the inner modal (**Close**, overlay click, or **Escape**) returns the user to the **Operation Detail** modal without closing it; closing Operation Detail behaves as before. |
 | **Fallbacks** | Missing values render as **`—`**. |
@@ -217,6 +219,7 @@ This section documents implemented sign-in behavior for Downstream Hub OIDC inte
 | **Loading / Unloading hub** | When multiple operations share a plan, a compact **Shipping instruction** selector switches the route’s **`op-<id>`** segment only; hub chrome is unchanged. |
 | **Clearance** | **Ready to Sail** and **Sailed** lists **collapse to one row per shipment plan** (SI column summarises multiple references). **Record depart** uses the **plan depart** API when **`shipmentPlanId`** is present; **CAST Off** must be on or after the **latest** timestamp across **all** sibling operations’ **Detailed At-Berth Executions Log** timelines. Document uploads still attach via a representative **operation id** (primary row). |
 | **Dashboard — Port activity** | Operations-mode counts **deduplicate** queue rows by **`shipmentPlanId`** so a multi-SI call is not double-counted in **Planned berthing** / **Berthing** bars. **Performance** waiting / on-time metrics use the same dedupe rule for TA→TB and on-time berthing. |
+| **Plan-linked SI form — shipper** | On **`/shipment-plans`**, each child **Shipping instruction** form places **Shipper** as the **first column** of the **Shipment breakdown** table (master dropdown per line). **Party & port** retains loading port, **surveyor** (per SI), trade term (Unloading), and agent (inherited from plan). One SI may list **different shippers** on different breakdown lines. See **§2.20**. |
 
 ### 2.14 Allocation & Berthing — plan-centric queue (second page)
 
@@ -290,6 +293,60 @@ The live dashboard route **`/`** is implemented as **Dashboard V2** (`Frontend/s
 | **Responsive layout** | Filter bar wraps on narrow viewports (Purpose, Commodity, then date controls stack without breaking the page layout). |
 
 Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.29**, **§2.3**, **§3.7**.
+
+### 2.19 Uploaded document preview & download
+
+Uploaded **images** (JPEG, PNG, GIF, WebP) and **PDFs** attached in operational workflows open in a **shared preview modal** instead of triggering an immediate browser download or navigating away in a new tab. Users can still **Download** the file or **Open in new tab** from the modal footer.
+
+| Area | Behaviour |
+|------|------------|
+| **Trigger** | Click a **document file name** (hyperlink-style control) or a **berthing vessel photo** thumbnail. |
+| **Preview modal** | Shows filename in the header; **images** render inline; **PDFs** render in an embedded viewer (iframe). **Escape**, overlay click, or **×** closes the modal. |
+| **Loading / errors** | A loading state appears while the file is fetched. If preview fails (unsupported type or load error), a short message is shown; **Download** remains available. |
+| **Unsupported types** | Office formats (e.g. `.doc`, `.docx`) and other non-previewable uploads show a message that the browser cannot preview the file; user may **Download** only. |
+| **Download** | Footer **Download** saves the file using the authenticated download endpoint (attachment disposition). |
+| **Open in new tab** | Footer **Open in new tab** opens the inline **`/view`** URL in a separate browser tab. |
+| **Multi-port users** | Preview fetches files with the same session and **port scope** headers as other API calls (required when a user has more than one assigned port). |
+
+**Modules / pages where preview + download is available**
+
+| Module | Route / surface | What can be previewed |
+|--------|-----------------|------------------------|
+| **Allocation & Berthing (Plans)** | `/allocation-plans` — vessel detail modal | **NOR documents** (Arrival documents); **Berthing vessel photos** (thumbnail + click-to-expand) |
+| | Confirm berthing / arrival-update modals | Pending **berthing photo** thumbnails; **NOR** document links |
+| **Loading / Unloading** | `/loading`, `/unloading`, operation workspace | **Pre-Checking** and **Post-Checking** section documents (edit + read); **Detailed At-Berth Executions Log** document links |
+| **Clearance** | `/verification` — depart modal (after sailed) | Recorded **clearance document** and **vessel photo** links |
+| **Shipment Plans** | `/shipment-plans` — create/edit plan modal | **SI source document** uploads (OCR pipeline) |
+| **SI Approval** | `/shipping-instruction/approval/:siId` | **Verified Attachments** sidebar (click name to preview; ⬇ to download) |
+| **At-Berth Executions** | `/at-berth` → **SI Detail** modal → nested executions log | Sub-process documents on the activity timeline (same as Loading log) |
+| **Allocation / Clearance / At-Berth** | **SI Detail** modal → **Detailed At-Berth Executions Log** | Sub-process documents per log row |
+
+**Not in scope for preview (upload UI only, or generated exports)**
+
+- Loading **C1/C2** step cards (filename list only, no open link).
+- Clearance **depart** modal before submit (pending local files, names only).
+- SI Approval **manual signing** upload (local state until persisted).
+- **CSV / Excel** report downloads and **Print SI PDF** (browser print dialog) — not uploaded attachments.
+
+Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.30**, **§3.10**, **§3.10C**.
+
+### 2.20 SI shipper per breakdown line
+
+Shipper is no longer a single field under **Party & port** on a Shipping Instruction. Each **commodity / contract line** in the **Shipment breakdown** table may have its own shipper from the **Master – Shipper** list.
+
+| Area | Behaviour |
+|------|------------|
+| **Create / edit (plan-linked)** | On **`/shipment-plans`** (create or edit plan modal), open a child **Shipping instruction** section. The breakdown table columns are, in order: **Shipper**, Commodity, Metric, Qty, Contract, PO, SO, Remarks. Shipper is **optional** per row (same as the former header dropdown). |
+| **Party & port** | **Loading port**, **Surveyor** (per SI), **Term** (Unloading), and **Agent** (from plan) remain here. **Shipper is not shown** in this block. |
+| **Multiple shippers on one SI** | When breakdown lines use different shippers, read-only views show a **comma-separated** list of distinct shipper names at SI level; the breakdown table shows **per-line** shipper. |
+| **Allocation & Berthing queue** | The **Shipper** column on incoming / berthed rows shows the same aggregated label (distinct names from that SI’s breakdown lines). |
+| **SI document view (Loading)** | Printed / preview document still uses the **company legal entity** as shipper on the header block (unchanged product rule); the breakdown section reflects line-level shippers where applicable. |
+| **Unloading document view** | Breakdown table includes a **Shipper** column per line. |
+| **OCR autofill** | When a source document is parsed, extracted shipper is applied to the **first breakdown row** that has no shipper yet. |
+| **Existing data after upgrade** | Migration **079** copies each SI’s former header shipper onto **every** active breakdown line so behaviour matches the old single-dropdown default until users edit lines individually. |
+| **Master delete guard** | A shipper master row cannot be deleted while any breakdown line still references it. |
+
+Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.31**, migration **`079_si_breakdown_shipper_id.sql`**. Deploy: run migration **079** before or with an API build that expects line-level shipper (see TECH-SPEC deploy note).
 
 ---
 
@@ -426,6 +483,8 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | Dashboard queue dedupe by plan | `Frontend/src/pages/Dashboard.jsx`, `Frontend/src/utils/dashboardQueueClassification.js` — **`allocationQueueVesselCallKey`** |
 | SI candidates + port/sailed rules | `Backend/src/routes/shipping-instructions.js` — `GET /shipping-instructions/candidates` |
 | Shared SI detail modal (hyperlink trigger target) | `Frontend/src/components/SiDetailModal.jsx`, `Frontend/src/styles/si-detail-modal.css`; nested **Detailed At-Berth Executions Log** via `OperationActivityTimeline.jsx` |
+| **Uploaded document preview & download** | **§2.19** — `Frontend/src/context/FilePreviewContext.jsx`, `Frontend/src/components/FilePreviewModal.jsx`, `FilePreviewLink.jsx`, `AuthenticatedFileImage.jsx`, `Frontend/src/utils/filePreview.js`, `Frontend/src/styles/file-preview.css`, i18n **`filePreview.json`**; backend **`GET .../view`** on operation, sub-process, and SI document routes — TECH-SPEC **§0.30**, **§3.10**, **§3.10C** |
+| **SI shipper per breakdown line** | **§2.20** — `Backend/migrations/079_si_breakdown_shipper_id.sql`, `Backend/src/routes/shipping-instructions.js`, `allocation.js`, `shipment-plans.js`, `si-lookups.js`; `Frontend/src/components/ShippingInstructionSiLinkedFields.jsx`, `Frontend/src/utils/siPlanLinkedDraft.js`, `Frontend/src/api/shippingInstructions.js`, `siViewModel.js`, `SiDetailModal.jsx`, `SiDocumentView.jsx`, `SIApproval.jsx`, `siExtractMerge.js`; TECH-SPEC **§0.31** |
 | Save estimation of completion | `Frontend/src/api/operations.js` → `PUT /operations/:id/estimated-completion`; `Backend/src/routes/operations.js` |
 | DB — operations estimated completion | Migrations defining `operations.estimated_completion_time` (e.g. `Backend/migrations/004_shipping_operations_tables.sql` and related) |
 | Operation sign-off (request → approve) + Clearance pending queue | `Frontend/src/pages/Loading.jsx`, `Frontend/src/pages/Verification.jsx`, `Frontend/src/api/operations.js`; `Backend/src/routes/operations.js` (`POST .../signoff-request`, `POST .../signoff`, `GET .../pending-signoff-requests`); `Backend/migrations/049_operations_signoff_request.sql`; RBAC sub-row **Approve operation sign-off** — `Frontend/src/pages/AdminRoles.jsx`. Plan: **Docs/Plan/OPERATION-SIGNOFF-REQUEST-AND-APPROVAL-PLAN.md**. |
@@ -457,7 +516,7 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | **Action** | **Open** → `/{loading|unloading}/:vesselId` (purpose-based hub entry; API-backed rows may use `op-<operationId>` vessel id form). **Shifting Out** / **Undo Shift Out** → see **§2.5** (modal + required remark for shift-out; **Undo** clears shift-out without modal). |
 | **Removed from page** | Intro line (“Live data from GET…”) and **Refresh** button; list still loads on visit. |
 | **Layout** | Loading / Unloading summary groups use a **two-column** grid on wide screens so phase cards do not overlap. |
-| **Detailed executions log** | In the Loading/Unloading operation workspace, the **Detailed At-Berth Executions Log** lists operational milestones, operational activities, and Pre-/Post-Checking sub-process rows. The table shows **Phase**, **Title**, **Status**, **Remark**, **Documents** (links for files attached to that sub-process step; operational rows show **—** when there are no attachments), **Start time**, **End time**, **Duration**, and **Actions**. **Status** is the sub-process status for Pre/Post rows; for **Operational** activity rows it is derived from timestamps (**Done** when an end time exists, **In Progress** when only a start exists). **Remark** holds free text (and sub-process **skip** reason on a second line when present). **Start time**, **End time**, and **Duration** use the same formatting rules for **operational activities** and **sub-process** rows when the backend supplies a closed interval (`start_at` / `end_at` on sub-processes, or activity start/end). If only a single instant is recorded (no end), **End** and **Duration** show **—**. Document links open in a **new browser tab**; PDFs and other non-image types follow the same pattern so users keep the log visible (the browser may show the PDF inline in the new tab). |
+| **Detailed executions log** | In the Loading/Unloading operation workspace, the **Detailed At-Berth Executions Log** lists operational milestones, operational activities, and Pre-/Post-Checking sub-process rows. The table shows **Phase**, **Title**, **Status**, **Remark**, **Documents** (clickable file names for attachments on that sub-process step; operational rows show **—** when there are no attachments), **Start time**, **End time**, **Duration**, and **Actions**. **Status** is the sub-process status for Pre/Post rows; for **Operational** activity rows it is derived from timestamps (**Done** when an end time exists, **In Progress** when only a start exists). **Remark** holds free text (and sub-process **skip** reason on a second line when present). **Start time**, **End time**, and **Duration** use the same formatting rules for **operational activities** and **sub-process** rows when the backend supplies a closed interval (`start_at` / `end_at` on sub-processes, or activity start/end). If only a single instant is recorded (no end), **End** and **Duration** show **—**. Document names open the **shared preview modal** (**§2.19**); users may **Download** or **Open in new tab** from the modal. |
 
 **Allocation — incoming & re-dock:** When an operation is shifted out, it appears under the **Incoming** plan status with a **Shifted** badge; **Re-dock** opens the same confirmation + remark pattern as shift-out. After re-dock, the voyage can appear again under **Berthed** when the existing rules say it is berthed.
 
@@ -559,6 +618,8 @@ Cross-reference: **TECH-SPEC §0.20**, **`Backend/src/lib/schedule-instant.js`**
 
 | Version | Date | Notes |
 |---------|------|--------|
+| 1.49 | 2026-05-25 | **§2.20 SI shipper per breakdown line:** shipper moved from SI header / Party & port to **first column** of Shipment breakdown table on plan-linked SI forms; optional per line; multi-shipper aggregation in Allocation queue, SI Detail modal, and list **`shipperNames`**. OCR autofill targets first empty breakdown row. Migration **079** backfills header shipper to all lines. **§1**, **§2.9**, **§2.13**, **§16**, **§7** map. TECH-SPEC **§0.31**, **§3.2**, **§3.5.1**, **§4**. |
+| 1.48 | 2026-05-25 | **§2.19 Uploaded document preview & download:** shared in-app preview modal for images and PDFs (click file name or berthing photo thumbnail); footer **Download** and **Open in new tab**; authenticated fetch for multi-port users. Covers Allocation (NOR, berthing photos), Loading/Unloading (Pre/Post documents, executions log), Clearance (sailed docs), Shipment Plans (SI source docs), SI Approval attachments, and nested log in **SI Detail** modal. **§9** executions log updated. **§7** map. TECH-SPEC **§0.30**, **§3.10**, **§3.10C**. |
 | 1.47 | 2026-05-22 | **§2.18 Dashboard V2 — Purpose and Commodity Type filters:** multi-select filter bar (Purpose, Commodity from Master Commodity, date range); OR/AND logic; instant apply; filtered pipeline, KPIs, at-berth, weekly trends; jetty status unfiltered; empty-state banner. **§1**, **§7** map. TECH-SPEC **§0.29**, **§2.3**, **§3.7**. |
 | 1.46 | 2026-05-22 | **§2.17 Master Menu list tables:** client-side column **sort** and **filter** (shared table head; same UX as plan-centric Allocation queue). **Sort order** column **removed** from SI lookup master UI (Term–Commodity); backend **`sort_order`** unchanged. **§2.11** filter note; **§7** map. TECH-SPEC **§0.28**. |
 | 1.45 | 2026-05-19 | **§2.16 Self-service change password:** header **user menu** (name + initials), **Change Password** modal (current / new / confirm, show-hide toggles) for **`auth_source = local`** only; **`PUT /api/v1/users/me/password`**. **§14** shell updated (user menu replaces greeting + logout button). **§7** implementation map. TECH-SPEC **§0.27**. |
@@ -738,7 +799,7 @@ This script truncates **transactional tables only** (operations/SI/workflow data
 |------|-----------|
 | **Extra draft fields** | Optional: **voyage no.**, **document date**, **destination**, **freight terms** (PREPAID / COLLECT / AS PER CHARTER PARTY / OTHER), **B/L clause**, **consignee**, **notify party**, **BL indicated**. |
 | **Purpose-first form** | In **Create Vessel Trip / New Shipping Instruction**, user must choose **Purpose** (**Loading** or **Unloading**) first; until selected, the rest of the form is disabled. |
-| **Loading vs Unloading field sets** | **Loading** shows Route/Freight + B/L fields; **Unloading** hides those and instead shows **Term** (trade term) under Party & Port. **Agent** is available under **Party & Port** for both Loading and Unloading forms. Both use the same submit/approval pipeline. |
+| **Loading vs Unloading field sets** | **Loading** shows Route/Freight + B/L fields; **Unloading** hides those and instead shows **Term** (trade term) under Party & Port. **Agent** is available under **Party & Port** for both Loading and Unloading forms. **Shipper** is **not** under Party & Port — it is selected **per breakdown row** (**§2.20**). Both use the same submit/approval pipeline. |
 | **B/L split text** | Create/edit modal provides an editable **B/L Split** textarea (not auto-generated), persisted on the SI record and shown on the document view. |
 | **NPWP (read-only)** | NPWP is **not** a free-text SI field. The UI shows NPWP as **read-only** from a **per-port master** (based on the active selected port). |
 | **Submit for approval** | **Request approval** calls the API to set status **Submitted** (not only local UI state). |
@@ -746,9 +807,9 @@ This script truncates **transactional tables only** (operations/SI/workflow data
 | **Approval API** | Transition **Draft → Approved** requires prior **Submitted**; **PUT** with `status: Approved` checks **`can_approve`** for page **`shipment-plan`**. **403** if missing. |
 | **Approver on document** | On approval, the system stores **approver name/title snapshots** (from `users.display_name` / `users.job_title`, default title **OPERATION HEAD** if job title empty). The **SI document view** shows these instead of a fixed name. |
 | **Printed SI number** | Document **No.** prefers stored **`reference_number`** when set; otherwise legacy synthetic numbering. |
-| **SI quick detail (list table)** | SI values in table rows are hyperlink-style and open a shared **SI Detail** modal (non-document view) with operational fields and Contract/PO breakdown. |
+| **SI quick detail (list table)** | SI values in table rows are hyperlink-style and open a shared **SI Detail** modal (non-document view) with operational fields and Contract/PO breakdown (including **per-line shipper**). |
 
-Technical contract: **TECH-SPEC-Jetty-Planning-System.md** (§2.2.1, §4 `shipping_instructions`, §6 RBAC, migration **`025_si_loading_document_and_approve_rbac.sql`**).
+Technical contract: **TECH-SPEC-Jetty-Planning-System.md** (§2.2.1, §3.2, §4 `shipping_instruction_breakdown.shipper_id`, §6 RBAC, migration **`025_si_loading_document_and_approve_rbac.sql`**, **`079_si_breakdown_shipper_id.sql`** — **§0.31**).
 
 ---
 

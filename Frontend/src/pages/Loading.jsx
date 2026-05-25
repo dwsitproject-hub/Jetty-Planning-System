@@ -29,6 +29,8 @@ import {
   signoffRequest,
 } from '../api/operations'
 import { resolveUploadUrl } from '../api/client'
+import FilePreviewLink from '../components/FilePreviewLink'
+import { useFilePreview } from '../context/FilePreviewContext'
 import {
   fetchAllocationOverview,
   saveArrivalUpdate as saveArrivalUpdateApi,
@@ -1527,6 +1529,7 @@ function OpenDocumentIcon() {
 
 /** Edit mode: pick files, list pending + saved; remove uses NOR modal trash icon */
 function PrecheckDocumentsEdit({ sectionKey, documents, onAddFiles, onRemoveIndex, removingKey }) {
+  const { openFilePreview } = useFilePreview()
   const list = documents || []
   return (
     <div className="berthing-modal__field">
@@ -1559,7 +1562,9 @@ function PrecheckDocumentsEdit({ sectionKey, documents, onAddFiles, onRemoveInde
                   aria-label={`Open document: ${f.name || 'file'}`}
                   onClick={() => {
                     const href = precheckDocumentHref(f.url)
-                    if (href && href !== '#') window.open(href, '_blank', 'noopener,noreferrer')
+                    if (href && href !== '#') {
+                      openFilePreview({ url: href, name: f.name, mimeType: f.mimeType ?? null })
+                    }
                   }}
                 >
                   <OpenDocumentIcon />
@@ -1596,14 +1601,12 @@ function PrecheckDocumentsRead({ documents }) {
           <ul className="precheck-doc-list">
             {list.map((f, i) => (
               <li key={f.id ?? `rv-${i}-${f.name}`} className="precheck-doc-list__item">
-                <a
-                  href={precheckDocumentHref(f.url)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="precheck-doc-list__link"
-                >
-                  {f.name}
-                </a>
+                <FilePreviewLink
+                  url={precheckDocumentHref(f.url)}
+                  name={f.name}
+                  mimeType={f.mimeType ?? null}
+                  className="precheck-doc-list__link file-preview-link"
+                />
               </li>
             ))}
           </ul>

@@ -14,6 +14,7 @@ import { writeActivityLog } from '../lib/activity-log.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { UPLOAD_ROOT } from '../paths.js';
 import { validateMulterFileList } from '../lib/upload-mime.js';
+import { sendStoredFileAttachment, sendStoredFileInline } from '../lib/send-stored-file.js';
 
 const router = express.Router();
 router.use(optionalAuth);
@@ -115,23 +116,40 @@ router.delete('/:id', async (req, res) => {
   res.status(204).send();
 });
 
-router.get('/:id/download', async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+async function loadOperationDocumentRow(id) {
   const r = await pool.query(
     `SELECT id, operation_id, original_name, stored_path
      FROM operation_documents
      WHERE id = $1 AND deleted_at IS NULL`,
     [id]
   );
-  if (r.rows.length === 0) return res.status(404).json({ error: 'Document not found' });
-  const row = r.rows[0];
+  return r.rows[0] || null;
+}
+
+router.get('/:id/view', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  const row = await loadOperationDocumentRow(id);
+  if (!row) return res.status(404).json({ error: 'Document not found' });
   await assertOperationInSelectedPort(row.operation_id, req.selectedPortId);
   const full = resolveStoredPath(row.stored_path);
   if (!full || !fsSync.existsSync(full)) {
     return res.status(404).json({ error: 'Document file not found' });
   }
-  return res.download(full, row.original_name || `operation-document-${id}`);
+  return sendStoredFileInline(res, full, row.original_name, `operation-document-${id}`);
+});
+
+router.get('/:id/download', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  const row = await loadOperationDocumentRow(id);
+  if (!row) return res.status(404).json({ error: 'Document not found' });
+  await assertOperationInSelectedPort(row.operation_id, req.selectedPortId);
+  const full = resolveStoredPath(row.stored_path);
+  if (!full || !fsSync.existsSync(full)) {
+    return res.status(404).json({ error: 'Document file not found' });
+  }
+  return sendStoredFileAttachment(res, full, row.original_name, `operation-document-${id}`);
 });
 
 router.get('/operations/:operationId/:kind', async (req, res) => {

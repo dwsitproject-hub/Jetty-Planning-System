@@ -18,6 +18,7 @@ import { UPLOAD_ROOT } from '../paths.js';
 import { validateMulterFileList } from '../lib/upload-mime.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { optionalAuth } from '../middleware/auth.js';
+import { sendStoredFileAttachment, sendStoredFileInline } from '../lib/send-stored-file.js';
 import { promoteInProgressToPostOpsIfInProgress } from '../lib/operation-auto-status.js';
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
 
@@ -616,9 +617,7 @@ router.post('/operations/:operationId/sub-processes/:subProcessKey/documents', u
   res.status(201).json({ items: inserted });
 });
 
-router.get('/sub-process-documents/:documentId/download', async (req, res) => {
-  const documentId = parseInt(req.params.documentId, 10);
-  if (!Number.isFinite(documentId)) return res.status(400).json({ error: 'Invalid document id' });
+async function loadSubProcessDocumentRow(documentId) {
   const r = await pool.query(
     `SELECT d.id, d.original_name, d.stored_path, sp.operation_id
      FROM operation_sub_process_documents d
@@ -629,14 +628,33 @@ router.get('/sub-process-documents/:documentId/download', async (req, res) => {
        AND d.deleted_at IS NULL`,
     [documentId]
   );
-  if (r.rows.length === 0) return res.status(404).json({ error: 'Document not found' });
-  const row = r.rows[0];
+  return r.rows[0] || null;
+}
+
+router.get('/sub-process-documents/:documentId/view', async (req, res) => {
+  const documentId = parseInt(req.params.documentId, 10);
+  if (!Number.isFinite(documentId)) return res.status(400).json({ error: 'Invalid document id' });
+  const row = await loadSubProcessDocumentRow(documentId);
+  if (!row) return res.status(404).json({ error: 'Document not found' });
   await assertOperationInSelectedPort(row.operation_id, req.selectedPortId);
   const full = resolveStoredPath(row.stored_path);
   if (!full || !fsSync.existsSync(full)) {
     return res.status(404).json({ error: 'Document file not found' });
   }
-  return res.download(full, row.original_name || `sub-process-document-${documentId}`);
+  return sendStoredFileInline(res, full, row.original_name, `sub-process-document-${documentId}`);
+});
+
+router.get('/sub-process-documents/:documentId/download', async (req, res) => {
+  const documentId = parseInt(req.params.documentId, 10);
+  if (!Number.isFinite(documentId)) return res.status(400).json({ error: 'Invalid document id' });
+  const row = await loadSubProcessDocumentRow(documentId);
+  if (!row) return res.status(404).json({ error: 'Document not found' });
+  await assertOperationInSelectedPort(row.operation_id, req.selectedPortId);
+  const full = resolveStoredPath(row.stored_path);
+  if (!full || !fsSync.existsSync(full)) {
+    return res.status(404).json({ error: 'Document file not found' });
+  }
+  return sendStoredFileAttachment(res, full, row.original_name, `sub-process-document-${documentId}`);
 });
 
 router.delete(

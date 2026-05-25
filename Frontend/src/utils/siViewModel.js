@@ -26,14 +26,25 @@ export function formatEtaBontang(si) {
 }
 
 export function getShipperLines(si) {
-  const main = (si.shipper || '').trim()
-  const fromBreakdown = (si.breakdown || []).map((b) => (b.shipper || '').trim()).filter(Boolean)
-  const combined = main ? [main, ...fromBreakdown.filter((s) => s !== main)] : [...new Set(fromBreakdown)]
-  return combined.length ? combined : ['—']
+  const fromBreakdown = (si.breakdown || [])
+    .map((b) => (b.shipperName || b.shipper || '').trim())
+    .filter(Boolean)
+  const combined = [...new Set(fromBreakdown)]
+  if (combined.length) return combined
+  const aggregated = (si.shipperNames || si.shipper || '').trim()
+  return aggregated ? aggregated.split(',').map((s) => s.trim()).filter(Boolean) : ['—']
 }
 
 export function mapApiToSi(row) {
   if (!row) return null
+  const breakdown = Array.isArray(row.breakdown) ? row.breakdown : []
+  const shipperFromLines = [
+    ...new Set(breakdown.map((b) => (b.shipperName || '').trim()).filter(Boolean)),
+  ]
+  const shipperDisplay =
+    shipperFromLines.length > 0
+      ? shipperFromLines.join(', ')
+      : row.shipperNames ?? '—'
   return {
     id: row.id,
     siId: row.referenceNumber || `SI-${row.id}`,
@@ -59,8 +70,9 @@ export function mapApiToSi(row) {
     blIndicated: row.blIndicated ?? null,
     approverNameSnapshot: row.approverNameSnapshot ?? null,
     approverTitleSnapshot: row.approverTitleSnapshot ?? null,
-    breakdown: Array.isArray(row.breakdown) ? row.breakdown : [],
-    shipper: row.shipperName ?? '—',
+    breakdown,
+    shipper: shipperDisplay,
+    shipperNames: row.shipperNames ?? (shipperFromLines.length ? shipperFromLines.join(', ') : null),
     loadingPort: row.loadingPortName ?? '—',
     agent: row.agentName ?? '—',
     surveyor: row.surveyorName ?? '—',

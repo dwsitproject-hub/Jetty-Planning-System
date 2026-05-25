@@ -155,6 +155,7 @@
   "formLoadingPort": "Pelabuhan muat / Shipment From",
   "formTerm": "Term",
   "formBreakdownSection": "Rincian pengapalan (Kontrak / PO)",
+  "formBreakdownShipper": "Shipper",
   "formBreakdownCommodityReq": "Komoditas *",
   "formBreakdownQtyReq": "Jml *",
   "formBreakdownUnitReq": "Satuan *",

@@ -203,3 +203,28 @@ export async function apiDelete(path) {
   if (res.status === 204) return null
   return parseResponse(res)
 }
+
+/**
+ * Fetch a binary file with session cookie + port scope headers (for img/iframe preview).
+ * Returns a blob: URL the caller must revoke when done.
+ */
+export async function fetchAuthenticatedBlobUrl(absoluteUrl, timeoutMs = 60000) {
+  if (!absoluteUrl || absoluteUrl.startsWith('blob:')) return absoluteUrl
+  const res = await fetchWithTimeout(
+    absoluteUrl,
+    { headers: authHeaders({ Accept: '*/*' }) },
+    timeoutMs
+  )
+  if (!res.ok) {
+    let msg = res.statusText
+    try {
+      const data = await res.json()
+      msg = data?.error || data?.message || msg
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(res.status, msg, null)
+  }
+  const blob = await res.blob()
+  return URL.createObjectURL(blob)
+}

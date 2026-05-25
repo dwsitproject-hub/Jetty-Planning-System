@@ -1,0 +1,11 @@
+{
+  "close": "Tutup pratinjau",
+  "download": "Unduh",
+  "openNewTab": "Buka di tab baru",
+  "loading": "Memuat pratinjau…",
+  "loadError": "Pratinjau gagal dimuat. Coba unduh file.",
+  "unsupportedType": "Jenis file ini tidak dapat ditampilkan di browser. Gunakan Unduh untuk menyimpan file.",
+  "untitled": "Dokumen",
+  "previewDocument": "Pratinjau dokumen: {{name}}",
+  "previewImage": "Pratinjau gambar: {{name}}"
+}

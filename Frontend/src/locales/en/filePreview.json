@@ -1,0 +1,11 @@
+{
+  "close": "Close preview",
+  "download": "Download",
+  "openNewTab": "Open in new tab",
+  "loading": "Loading preview…",
+  "loadError": "Could not load preview. Try downloading the file instead.",
+  "unsupportedType": "This file type cannot be previewed in the browser. Use Download to save the file.",
+  "untitled": "Document",
+  "previewDocument": "Preview document: {{name}}",
+  "previewImage": "Preview image: {{name}}"
+}

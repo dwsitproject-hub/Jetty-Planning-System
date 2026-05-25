@@ -216,22 +216,6 @@ export default function ShippingInstructionSiLinkedFields({
           <h3 className="shipping-instruction-form__section-title">{t('formPartyPortSection')}</h3>
           <div className="shipping-instruction-form__grid">
             <div className="input-group">
-              <label htmlFor={`${idPrefix}shipper`}>{t('formShipper')}</label>
-              <select
-                id={`${idPrefix}shipper`}
-                value={form.shipperId}
-                onChange={(e) => updateForm({ shipperId: e.target.value })}
-                disabled={!lookups}
-              >
-                <option value="">—</option>
-                {(lookups?.shippers || []).map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="input-group">
               <label htmlFor={`${idPrefix}loadingPort`}>{t('formLoadingPort')}</label>
               <select
                 id={`${idPrefix}loadingPort`}
@@ -299,6 +283,7 @@ export default function ShippingInstructionSiLinkedFields({
             <table className="data-table shipping-instruction-breakdown-table">
               <thead>
                 <tr>
+                  <th>{t('formBreakdownShipper')}</th>
                   <th>{t('formBreakdownCommodityReq')}</th>
                   <th>{t('formBreakdownQtyReq')}</th>
                   <th>{t('formBreakdownUnitReq')}</th>
@@ -312,6 +297,21 @@ export default function ShippingInstructionSiLinkedFields({
               <tbody>
                 {(form.breakdown || []).map((row, i) => (
                   <tr key={i}>
+                    <td>
+                      <select
+                        value={row.shipperId}
+                        onChange={(e) => updateBreakdownRow(i, 'shipperId', e.target.value)}
+                        className="shipping-instruction-inline-input"
+                        disabled={!lookups}
+                      >
+                        <option value="">—</option>
+                        {(lookups?.shippers || []).map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
                     <td>
                       <select
                         value={row.commodityId}
@@ -403,7 +403,7 @@ export default function ShippingInstructionSiLinkedFields({
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={2} className="shipping-instruction-total-label">
+                  <td colSpan={3} className="shipping-instruction-total-label">
                     {t('formTotalsByUnit')}
                   </td>
                   <td colSpan={5} className="shipping-instruction-total-value">

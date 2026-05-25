@@ -130,6 +130,12 @@ function pushDropdownConflict(conflicts, warnings, key, label, scope, currentId,
  * @param {object} lookups
  * @param {{ planForm?: { vesselName?: string, voyageNo?: string, agentId?: string, eta?: string } }} [options]
  */
+function firstBreakdownRowWithoutShipper(form) {
+  const rows = form?.breakdown || []
+  const idx = rows.findIndex((r) => isEmpty(r?.shipperId))
+  return idx >= 0 ? idx : rows.length > 0 ? 0 : -1
+}
+
 export function proposeSiExtractMerge(form, fields, lookups, options = {}) {
   const conflicts = /** @type {ExtractConflict[]} */ ([])
   const warnings = /** @type {Array<{ key: string, label: string, extractedLabel: string, scope: string }>} */ ([])
@@ -157,19 +163,24 @@ export function proposeSiExtractMerge(form, fields, lookups, options = {}) {
     else pushTextConflict(conflicts, 'si.documentDate', 'Document date', 'si', form.documentDate, p, null)
   }
 
+  const shipRowIdx = firstBreakdownRowWithoutShipper(form)
+  const currentShipperId =
+    shipRowIdx >= 0 ? form.breakdown?.[shipRowIdx]?.shipperId : ''
   const shipMatch = fields.shipper
     ? pushDropdownConflict(
         conflicts,
         warnings,
-        'si.shipperId',
+        'si.breakdown.shipperId',
         'Shipper',
         'si',
-        form.shipperId,
+        currentShipperId,
         fields.shipper,
         lookups.shippers || []
       )
     : ''
-  if (shipMatch && isEmpty(form.shipperId)) setFill('shipperId', shipMatch)
+  if (shipMatch && isEmpty(currentShipperId) && shipRowIdx >= 0) {
+    fills.breakdownShipper = { rowIndex: shipRowIdx, shipperId: shipMatch }
+  }
 
   const lpMatch = fields.loadingPort
     ? pushDropdownConflict(
@@ -249,6 +260,7 @@ export function proposeSiExtractMerge(form, fields, lookups, options = {}) {
   if (rows.length > 0) {
     const cur = form.breakdown || []
     const rowUnused = (row) =>
+      !String(row?.shipperId || '').trim() &&
       !String(row?.contractNo || '').trim() &&
       !String(row?.poNo || '').trim() &&
       !String(row?.qty || '').trim()
@@ -316,6 +328,13 @@ export function applySiExtractMerge(form, proposal) {
   }
 
   for (const [k, v] of Object.entries(proposal.fills || {})) {
+    if (k === 'breakdownShipper' && allow('si.breakdown.shipperId')) {
+      const { rowIndex, shipperId } = v
+      next.breakdown = (form.breakdown || []).map((row, i) =>
+        i === rowIndex ? { ...row, shipperId: String(shipperId) } : row
+      )
+      continue
+    }
     if (k === 'breakdown' && allow('si.breakdown')) {
       next.breakdown = v
       continue
@@ -335,7 +354,16 @@ export function applySiExtractMerge(form, proposal) {
     if (c.scope !== 'si') continue
     if (c.kind === 'dropdown' && c.proposedValue != null) {
       const field = c.key.replace(/^si\./, '')
-      next[field] = String(c.proposedValue)
+      if (c.key === 'si.breakdown.shipperId') {
+        const idx = firstBreakdownRowWithoutShipper(form)
+        if (idx >= 0) {
+          next.breakdown = (form.breakdown || []).map((row, i) =>
+            i === idx ? { ...row, shipperId: String(c.proposedValue) } : row
+          )
+        }
+      } else {
+        next[field] = String(c.proposedValue)
+      }
     } else if (c.kind === 'text') {
       const field = c.key.replace(/^si\./, '')
       next[field] = c.proposed
@@ -420,7 +448,7 @@ const EXTRACT_FIELD_SPECS = [
 const SI_FILL_LABELS = {
   referenceNumber: 'Shipping Instructions No.',
   documentDate: 'Document date',
-  shipperId: 'Shipper',
+  shipperId: 'Shipper (breakdown)',
   loadingPortId: 'Loading port',
   surveyorId: 'Surveyor',
   destinationText: 'Destination',
@@ -462,6 +490,10 @@ function fieldHasSignal(fields, specKey) {
 }
 
 function formatSiFillValue(key, value, lookups) {
+  if (key === 'breakdownShipper') {
+    const { rowIndex, shipperId } = value || {}
+    return `Row ${Number(rowIndex) + 1}: ${lookupDisplayName(shipperId, lookups?.shippers)}`
+  }
   if (key === 'shipperId') return lookupDisplayName(value, lookups?.shippers)
   if (key === 'loadingPortId') return lookupDisplayName(value, lookups?.loadingPorts)
   if (key === 'surveyorId') return lookupDisplayName(value, lookups?.surveyors)

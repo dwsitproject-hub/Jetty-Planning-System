@@ -43,6 +43,11 @@ const COMMODITY_DISPLAY = `COALESCE(
   si.commodity
 )`;
 
+const SI_SHIPPER_NAMES = `(SELECT STRING_AGG(DISTINCT shs.name, ', ' ORDER BY shs.name)
+  FROM public.shipping_instruction_breakdown bs
+  JOIN public.si_shippers shs ON shs.id = bs.shipper_id AND shs.deleted_at IS NULL
+  WHERE bs.shipping_instruction_id = si.id AND bs.deleted_at IS NULL)`;
+
 const SI_FROM = `
   FROM shipping_instructions si
   LEFT JOIN shipment_plans spl ON spl.id = si.shipment_plan_id AND spl.deleted_at IS NULL
@@ -50,7 +55,6 @@ const SI_FROM = `
   LEFT JOIN si_purposes spp ON spp.id = spl.purpose_id AND spp.deleted_at IS NULL
   LEFT JOIN jetties j ON j.id = spl.jetty_id AND j.deleted_at IS NULL
   LEFT JOIN ports p ON p.id = COALESCE(spl.port_id, j.port_id) AND p.deleted_at IS NULL
-  LEFT JOIN si_shippers sh ON si.shipper_id = sh.id AND sh.deleted_at IS NULL
   LEFT JOIN si_loading_ports lp ON si.loading_port_id = lp.id AND lp.deleted_at IS NULL
   LEFT JOIN si_surveyors sv ON si.surveyor_id = sv.id AND sv.deleted_at IS NULL
   LEFT JOIN si_agents ag ON si.agent_id = ag.id AND ag.deleted_at IS NULL
@@ -66,16 +70,16 @@ const SI_SELECT = `
     si.note,
     spl.port_id,
     si.commodity_id, si.trade_term_id, spl.purpose_id, spl.jetty_id AS preferred_jetty_id,
-    si.shipper_id, si.loading_port_id, si.surveyor_id, si.agent_id,
+    si.loading_port_id, si.surveyor_id, si.agent_id,
     spl.voyage_no, si.destination_text, si.freight_terms, si.bill_of_lading_clause, si.consignee_text,
     si.notify_party_text, si.bl_split_text, si.bl_indicated, si.document_date::text AS document_date,
     spl.approved_by_user_id, spl.approved_at, si.approver_name_snapshot, si.approver_title_snapshot,
     ${COMMODITY_DISPLAY} AS commodity_display,
+    ${SI_SHIPPER_NAMES} AS shipper_names,
     tt.code AS trade_term_code,
     spp.code AS purpose_code,
     j.name AS preferred_jetty_name,
     COALESCE(spl.port_id, p.id) AS preferred_port_id,
-    sh.name AS shipper_name,
     lp.name AS loading_port_name,
     sv.name AS surveyor_name,
     ag.name AS agent_name,
@@ -95,12 +99,28 @@ async function assertActiveRow(table, id, label) {
   return r.rows.length > 0;
 }
 
+function rejectHeaderShipperId(body, res) {
+  if (body?.shipper_id != null && body.shipper_id !== '') {
+    res.status(400).json({
+      error: 'shipper_id must be set on each breakdown row, not on the shipping instruction header',
+    });
+    return true;
+  }
+  return false;
+}
+
+function parseBreakdownShipperId(row) {
+  const raw = row.shipper_id ?? row.shipperId;
+  if (raw == null || raw === '') return null;
+  const n = parseInt(raw, 10);
+  return Number.isNaN(n) || n < 1 ? null : n;
+}
+
 async function validateSiFks(body) {
   const checks = [
     ['si_trade_terms', body.trade_term_id, 'trade_term_id'],
     ['si_purposes', body.purpose_id, 'purpose_id'],
     ['jetties', body.preferred_jetty_id, 'preferred_jetty_id'],
-    ['si_shippers', body.shipper_id, 'shipper_id'],
     ['si_loading_ports', body.loading_port_id, 'loading_port_id'],
     ['si_surveyors', body.surveyor_id, 'surveyor_id'],
     ['si_agents', body.agent_id, 'agent_id'],
@@ -116,11 +136,13 @@ async function validateSiFks(body) {
 async function loadBreakdown(siId) {
   const r = await pool.query(
     `SELECT b.id, b.shipping_instruction_id, b.commodity_id, b.metric_id, b.qty,
-            b.contract_no, b.po_no, b.so_no, b.remarks, b.shipper_text, b.line_order,
-            c.name AS commodity_name, m.code AS metric_code, m.label AS metric_label
+            b.contract_no, b.po_no, b.so_no, b.remarks, b.shipper_id, b.line_order,
+            c.name AS commodity_name, m.code AS metric_code, m.label AS metric_label,
+            sh.name AS shipper_name
      FROM public.shipping_instruction_breakdown b
      JOIN public.si_commodities c ON c.id = b.commodity_id AND c.deleted_at IS NULL
      JOIN public.metric m ON m.id = b.metric_id AND m.deleted_at IS NULL
+     LEFT JOIN public.si_shippers sh ON sh.id = b.shipper_id AND sh.deleted_at IS NULL
      WHERE b.shipping_instruction_id = $1 AND b.deleted_at IS NULL
      ORDER BY b.line_order, b.id`,
     [siId]
@@ -137,7 +159,8 @@ async function loadBreakdown(siId) {
     poNo: row.po_no ?? null,
     soNo: row.so_no ?? null,
     remarks: row.remarks ?? null,
-    shipperText: row.shipper_text ?? null,
+    shipperId: row.shipper_id ?? null,
+    shipperName: row.shipper_name ?? null,
     lineOrder: row.line_order,
   }));
 }
@@ -197,13 +220,18 @@ async function replaceBreakdown(client, siId, breakdown) {
     const cid = parseInt(row.commodity_id ?? row.commodityId, 10);
     const mid = parseInt(row.metric_id ?? row.metricId, 10);
     const qty = Number(row.qty);
+    const sid = parseBreakdownShipperId(row);
     const cOk = await client.query(`SELECT 1 FROM public.si_commodities WHERE id = $1 AND deleted_at IS NULL`, [cid]);
     const mOk = await client.query(`SELECT 1 FROM public.metric WHERE id = $1 AND deleted_at IS NULL`, [mid]);
     if (cOk.rows.length === 0) throw new Error(`Invalid commodity_id ${cid}`);
     if (mOk.rows.length === 0) throw new Error(`Invalid metric_id ${mid}`);
+    if (sid != null) {
+      const sOk = await client.query(`SELECT 1 FROM public.si_shippers WHERE id = $1 AND deleted_at IS NULL`, [sid]);
+      if (sOk.rows.length === 0) throw new Error(`Invalid shipper_id ${sid}`);
+    }
     await client.query(
       `INSERT INTO public.shipping_instruction_breakdown (
-         shipping_instruction_id, commodity_id, metric_id, qty, contract_no, po_no, so_no, remarks, shipper_text, line_order
+         shipping_instruction_id, commodity_id, metric_id, qty, contract_no, po_no, so_no, remarks, shipper_id, line_order
        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [
         siId,
@@ -214,9 +242,7 @@ async function replaceBreakdown(client, siId, breakdown) {
         row.po_no != null ? String(row.po_no).trim() || null : row.poNo?.trim() || null,
         row.so_no != null ? String(row.so_no).trim() || null : row.soNo?.trim() || null,
         row.remarks != null ? String(row.remarks).trim() || null : null,
-        row.shipper_text != null
-          ? String(row.shipper_text).trim() || null
-          : row.shipperText?.trim() || null,
+        sid,
         ord++,
       ]
     );
@@ -227,6 +253,17 @@ function summarizeBreakdown(breakdownRows) {
   const r = Array.isArray(breakdownRows) ? breakdownRows : [];
   if (r.length === 0) return '—';
   return `${r.length} line(s)`;
+}
+
+function summarizeShippers(breakdownRows) {
+  const names = [
+    ...new Set(
+      (Array.isArray(breakdownRows) ? breakdownRows : [])
+        .map((b) => (b.shipperName || '').trim())
+        .filter(Boolean)
+    ),
+  ];
+  return names.length ? names.join(', ') : null;
 }
 
 function diffFields(before, after) {
@@ -242,7 +279,7 @@ function diffFields(before, after) {
   add('Purpose', before.purpose, after.purpose);
   add('Term', before.tradeTermCode, after.tradeTermCode);
   add('Preferred jetty', before.preferredJettyName, after.preferredJettyName);
-  add('Shipper', before.shipperName, after.shipperName);
+  add('Shipper', summarizeShippers(before.breakdown), summarizeShippers(after.breakdown));
   add('Loading port', before.loadingPortName, after.loadingPortName);
   add('Surveyor', before.surveyorName, after.surveyorName);
   add('Agent', before.agentName, after.agentName);
@@ -481,6 +518,13 @@ router.get('/:id', async (req, res) => {
     return res.status(404).json({ error: 'Shipping instruction not found' });
   }
   const breakdown = await loadBreakdown(id);
+  const docRes = await pool.query(
+    `SELECT id, original_name, mime_type, size_bytes
+     FROM shipping_instruction_documents
+     WHERE shipping_instruction_id = $1 AND deleted_at IS NULL
+     ORDER BY created_at ASC, id ASC`,
+    [id]
+  );
   const opRes = await pool.query(
     `SELECT
        o.id,
@@ -505,6 +549,14 @@ router.get('/:id', async (req, res) => {
   res.json({
     ...toSIList(row),
     breakdown,
+    documents: docRes.rows.map((d) => ({
+      id: d.id,
+      documentId: d.id,
+      name: d.original_name,
+      mimeType: d.mime_type,
+      sizeBytes: d.size_bytes != null ? Number(d.size_bytes) : null,
+      downloadUrl: `/api/v1/si-documents/${d.id}/download`,
+    })),
     operationId: op?.id ?? null,
     operationStatus: op?.status ?? null,
     etaDateTime: op?.eta ?? null,
@@ -518,6 +570,7 @@ router.get('/:id', async (req, res) => {
 router.post('/', requireAuth, async (req, res) => {
   const selectedPortId = Number(req.selectedPortId);
   const b = req.body || {};
+  if (rejectHeaderShipperId(b, res)) return;
   const {
     shipment_plan_id: shipment_plan_id_raw,
     reference_number,
@@ -532,7 +585,6 @@ router.post('/', requireAuth, async (req, res) => {
     status,
     approval_id,
     preferred_jetty_id,
-    shipper_id,
     loading_port_id,
     surveyor_id,
     agent_id,
@@ -651,7 +703,6 @@ router.post('/', requireAuth, async (req, res) => {
     trade_term_id,
     purpose_id: purposeIdVal,
     preferred_jetty_id,
-    shipper_id,
     loading_port_id,
     surveyor_id,
     agent_id: insertAgentId,
@@ -747,9 +798,9 @@ router.post('/', requireAuth, async (req, res) => {
       `INSERT INTO shipping_instructions (
          reference_number, commodity, trade_term_id, eta_from, eta_to, status,
          destination_text, freight_terms, bill_of_lading_clause, consignee_text, notify_party_text, bl_split_text, bl_indicated, document_date,
-         shipper_id, loading_port_id, surveyor_id, agent_id, note,
+         loading_port_id, surveyor_id, agent_id, note,
          shipment_plan_id
-       ) VALUES ($1,NULL,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+       ) VALUES ($1,NULL,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
        RETURNING id`,
       [
         reference_number?.trim() ?? null,
@@ -765,7 +816,6 @@ router.post('/', requireAuth, async (req, res) => {
         trimText(bl_split_text, 4000),
         trimText(bl_indicated, 4000),
         documentDateIn,
-        shipper_id != null && shipper_id !== '' ? parseInt(shipper_id, 10) : null,
         loading_port_id != null && loading_port_id !== '' ? parseInt(loading_port_id, 10) : null,
         surveyor_id != null && surveyor_id !== '' ? parseInt(surveyor_id, 10) : null,
         insertAgentId,
@@ -815,6 +865,7 @@ router.put('/:id', requireAuth, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const b = req.body || {};
+  if (rejectHeaderShipperId(b, res)) return;
   const {
     reference_number,
     vessel_name,
@@ -828,7 +879,6 @@ router.put('/:id', requireAuth, async (req, res) => {
     status,
     approval_id,
     preferred_jetty_id,
-    shipper_id,
     loading_port_id,
     surveyor_id,
     agent_id,
@@ -909,7 +959,6 @@ router.put('/:id', requireAuth, async (req, res) => {
     trade_term_id,
     purpose_id: purposeIdVal,
     preferred_jetty_id,
-    shipper_id,
     loading_port_id,
     surveyor_id,
     agent_id: planRowBound?.agent_id != null ? Number(planRowBound.agent_id) : null,
@@ -991,7 +1040,6 @@ router.put('/:id', requireAuth, async (req, res) => {
     reference_number !== undefined ? reference_number?.trim() || null : beforeRow.reference_number;
   const nextTradeTermId = optInt(trade_term_id, beforeRow.trade_term_id);
   const nextPreferredJetty = optInt(preferred_jetty_id, beforeRow.preferred_jetty_id);
-  const nextShipper = optInt(shipper_id, beforeRow.shipper_id);
   const nextLoadingPort = optInt(loading_port_id, beforeRow.loading_port_id);
   const nextSurveyor = optInt(surveyor_id, beforeRow.surveyor_id);
   const nextAgent =
@@ -1099,13 +1147,12 @@ router.put('/:id', requireAuth, async (req, res) => {
          document_date = $13,
          approver_name_snapshot = $14,
          approver_title_snapshot = $15,
-         shipper_id = $16,
-         loading_port_id = $17,
-         surveyor_id = $18,
-         agent_id = $19,
-         note = $20,
+         loading_port_id = $16,
+         surveyor_id = $17,
+         agent_id = $18,
+         note = $19,
          updated_at = NOW()
-       WHERE id = $21 AND deleted_at IS NULL`,
+       WHERE id = $20 AND deleted_at IS NULL`,
       [
         nextRef,
         nextTradeTermId,
@@ -1122,7 +1169,6 @@ router.put('/:id', requireAuth, async (req, res) => {
         nextDocDate,
         nextApproverName,
         nextApproverTitle,
-        nextShipper,
         nextLoadingPort,
         nextSurveyor,
         nextAgent,
@@ -1256,8 +1302,7 @@ function toSIList(row) {
     note: row.note ?? null,
     preferredJettyId: row.preferred_jetty_id ?? null,
     preferredJettyName: row.preferred_jetty_name ?? null,
-    shipperId: row.shipper_id ?? null,
-    shipperName: row.shipper_name ?? null,
+    shipperNames: row.shipper_names ?? null,
     loadingPortId: row.loading_port_id ?? null,
     loadingPortName: row.loading_port_name ?? null,
     surveyorId: row.surveyor_id ?? null,

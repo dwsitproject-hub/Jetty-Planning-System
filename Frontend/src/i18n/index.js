@@ -24,6 +24,8 @@ import enAtBerth from '../locales/en/atBerth.json'
 import idAtBerth from '../locales/id/atBerth.json'
 import enNotifications from '../locales/en/notifications.json'
 import idNotifications from '../locales/id/notifications.json'
+import enFilePreview from '../locales/en/filePreview.json'
+import idFilePreview from '../locales/id/filePreview.json'
 
 export function getInitialLanguage() {
   try {
@@ -52,6 +54,7 @@ i18n.use(initReactI18next).init({
       allocation: enAllocation,
       atBerth: enAtBerth,
       notifications: enNotifications,
+      filePreview: enFilePreview,
     },
     id: {
       common: idCommon,
@@ -65,12 +68,13 @@ i18n.use(initReactI18next).init({
       allocation: idAllocation,
       atBerth: idAtBerth,
       notifications: idNotifications,
+      filePreview: idFilePreview,
     },
   },
   lng: getInitialLanguage(),
   fallbackLng: 'en',
   defaultNS: 'common',
-  ns: ['common', 'nav', 'auth', 'terms', 'pages', 'dashboard', 'shippingInstruction', 'shipmentPlan', 'allocation', 'atBerth', 'notifications'],
+  ns: ['common', 'nav', 'auth', 'terms', 'pages', 'dashboard', 'shippingInstruction', 'shipmentPlan', 'allocation', 'atBerth', 'notifications', 'filePreview'],
   interpolation: {
     escapeValue: false,
   },

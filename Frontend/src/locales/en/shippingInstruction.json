@@ -154,6 +154,7 @@
   "formLoadingPort": "Loading Port / Shipment From",
   "formTerm": "Term",
   "formBreakdownSection": "Shipment breakdown (Contract / PO)",
+  "formBreakdownShipper": "Shipper",
   "formBreakdownCommodityReq": "Commodity *",
   "formBreakdownQtyReq": "Qty *",
   "formBreakdownUnitReq": "Unit *",

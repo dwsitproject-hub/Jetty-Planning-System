@@ -17,6 +17,7 @@ import {
   storeSiDocumentAndMaybeExtract,
   toSiDocumentDownloadUrl,
 } from '../lib/si-document-storage.js';
+import { sendStoredFileAttachment, sendStoredFileInline } from '../lib/send-stored-file.js';
 const router = express.Router();
 
 const upload = multer({
@@ -85,24 +86,43 @@ router.post('/attach-draft', express.json(), async (req, res) => {
   res.json({ items });
 });
 
-router.get('/:id/download', async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
-
+async function loadSiDocumentRow(id) {
   const r = await pool.query(
     `SELECT id, original_name, stored_path FROM shipping_instruction_documents
      WHERE id = $1 AND deleted_at IS NULL`,
     [id]
   );
-  if (r.rows.length === 0) return res.status(404).json({ error: 'Document not found' });
+  return r.rows[0] || null;
+}
+
+router.get('/:id/view', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  const row = await loadSiDocumentRow(id);
+  if (!row) return res.status(404).json({ error: 'Document not found' });
 
   await assertSiDocumentInSelectedPort(id, req.selectedPortId);
-  const row = r.rows[0];
   const full = resolveSiStoredPath(row.stored_path);
   if (!full || !fsSync.existsSync(full)) {
     return res.status(404).json({ error: 'Document file not found' });
   }
-  return res.download(full, row.original_name || `si-document-${id}`);
+  return sendStoredFileInline(res, full, row.original_name, `si-document-${id}`);
+});
+
+router.get('/:id/download', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  const row = await loadSiDocumentRow(id);
+  if (!row) return res.status(404).json({ error: 'Document not found' });
+
+  await assertSiDocumentInSelectedPort(id, req.selectedPortId);
+  const full = resolveSiStoredPath(row.stored_path);
+  if (!full || !fsSync.existsSync(full)) {
+    return res.status(404).json({ error: 'Document file not found' });
+  }
+  return sendStoredFileAttachment(res, full, row.original_name, `si-document-${id}`);
 });
 
 router.delete('/:id', async (req, res) => {

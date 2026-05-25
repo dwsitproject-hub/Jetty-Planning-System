@@ -751,7 +751,6 @@ export default function ShipmentPlansList() {
         const ex = editingPlanDetail.shippingInstructions[0]
         form = {
           ...form,
-          shipperId: ex.shipperId != null ? String(ex.shipperId) : '',
           loadingPortId: ex.loadingPortId != null ? String(ex.loadingPortId) : '',
         }
       }

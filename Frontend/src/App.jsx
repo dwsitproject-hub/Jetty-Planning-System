@@ -6,6 +6,7 @@ import { ActivityLogProvider } from './context/ActivityLogContext'
 import { RbacProvider } from './context/RbacContext'
 import { AuthProvider } from './context/AuthContext'
 import { PortScopeProvider } from './context/PortScopeContext'
+import { FilePreviewProvider } from './context/FilePreviewContext'
 import Login from './pages/Login'
 import SelectPort from './pages/SelectPort'
 import DashboardV2 from './pages/DashboardV2'
@@ -59,6 +60,7 @@ function App() {
         <ActivityLogProvider>
           <AuthProvider>
             <PortScopeProvider>
+              <FilePreviewProvider>
               <RbacProvider>
                 <Routes>
                 <Route path="/login" element={<Login />} />
@@ -198,7 +200,8 @@ function App() {
                   <Route path="/dev/ocr-test" element={<DevOcrTest />} />
                 </Route>
                 </Routes>
-              </RbacProvider>
+                </RbacProvider>
+              </FilePreviewProvider>
             </PortScopeProvider>
           </AuthProvider>
         </ActivityLogProvider>

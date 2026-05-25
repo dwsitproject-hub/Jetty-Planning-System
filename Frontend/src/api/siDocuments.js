@@ -36,3 +36,8 @@ export function siDocumentDownloadUrl(documentId) {
   const base = API_BASE
   return `${base}/si-documents/${documentId}/download`
 }
+
+export function siDocumentViewUrl(documentId) {
+  const base = API_BASE
+  return `${base}/si-documents/${documentId}/view`
+}

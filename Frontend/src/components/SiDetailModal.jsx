@@ -52,7 +52,7 @@ function normalizeSiDetail(row) {
     consignee: row.consigneeText || '—',
     notifyParty: row.notifyPartyText || '—',
     blIndicated: row.blIndicated || '—',
-    shipper: row.shipperName || '—',
+    shipper: row.shipperNames || '—',
     loadingPort: row.loadingPortName || '—',
     surveyor: row.surveyorName || '—',
     agent: row.agentName || '—',

@@ -1,7 +1,7 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.39
-**Last Updated**: 2026-05-22  
+**Version**: 1.41
+**Last Updated**: 2026-05-25  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
@@ -153,12 +153,99 @@
 
 **Backend — shipment plan list commodity breakdown (`Backend/src/routes/shipment-plans.js`):**
 
-- **`GET /shipment-plans`** list embeds per-SI **`breakdown`** in **`si_children_json`**: `{ commodity_id, commodity_name, commodity_type }[]` from **`shipping_instruction_breakdown`**.
-- **`parseSiChildrenJson`** maps to **`shippingInstructions[].breakdown[]`** with **`commodityId`**, **`commodityName`**, **`commodityType`** for client commodity index (early pipeline stages).
+- **`GET /shipment-plans`** list embeds per-SI **`breakdown`** in **`si_children_json`**: `{ commodity_id, commodity_name, commodity_type, shipper_id, shipper_name }[]` from **`shipping_instruction_breakdown`** (LEFT JOIN **`si_shippers`**).
+- **`parseSiChildrenJson`** maps to **`shippingInstructions[].breakdown[]`** with **`commodityId`**, **`commodityName`**, **`commodityType`**, **`shipperId`**, **`shipperName`** for client commodity index and plan-modal SI drafts (early pipeline stages).
 
 **Deploy note:** Weekly trends filtering requires a backend build that includes **`dashboard-v2-weekly.js`** filter changes. Frontend-only deploy updates pipeline/KPI/at-berth filtering but not weekly charts until the API is restarted/redeployed.
 
 **Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.18**.
+
+### 0.30 Uploaded document preview — `/view` routes and `FilePreviewModal` (2026-05-25)
+
+**Purpose:** Replace immediate browser download when users click uploaded file links. Persisted files open in a **shared preview modal** (images inline, PDF in iframe). **Download** and **Open in new tab** remain explicit footer actions.
+
+**Problem addressed:** List APIs return **`/download`** URLs (`Content-Disposition: attachment`). Plain `<img src>` / `<iframe src>` cannot send **`X-Selected-Port-Id`**, which **`requirePortScope`** requires for users with multiple assigned ports. The SPA therefore **fetches file bytes with authenticated headers** and displays them via temporary **`blob:`** URLs for API-backed files.
+
+**Backend — inline view routes** (`Backend/src/lib/send-stored-file.js`):
+
+| Route | File | Disposition |
+|-------|------|-------------|
+| `GET /api/v1/operation-documents/:id/view` | `Backend/src/routes/operation-documents.js` | `inline` |
+| `GET /api/v1/operation-documents/:id/download` | same | `attachment` (unchanged) |
+| `GET /api/v1/sub-process-documents/:documentId/view` | `Backend/src/routes/operation-sub-processes.js` | `inline` |
+| `GET /api/v1/sub-process-documents/:documentId/download` | same | `attachment` |
+| `GET /api/v1/si-documents/:id/view` | `Backend/src/routes/si-documents.js` | `inline` |
+| `GET /api/v1/si-documents/:id/download` | same | `attachment` |
+
+- Shared helpers: **`sendStoredFileInline`**, **`sendStoredFileAttachment`**, **`mimeFromFilename`**, **`safeContentDispositionFilename`**.
+- Same auth stack as existing download routes: **`requireAuth`**, **`requirePortScope`** (mounted on `/api/v1/...` in `Backend/src/index.js`).
+- **`GET /uploads/...`** (static, **§3.10A**) remains unauthenticated inline; preview uses direct URL when not an API document path.
+
+**SI Approval attachments:** **`GET /shipping-instructions/:id`** includes a **`documents`** array (`id`, `name`, `mimeType`, `sizeBytes`, `downloadUrl`) from **`shipping_instruction_documents`** (`Backend/src/routes/shipping-instructions.js`).
+
+**Frontend modules:**
+
+| Module | Role |
+|--------|------|
+| **`Frontend/src/context/FilePreviewContext.jsx`** | App-wide **`openFilePreview({ url, name, mimeType })`**; mounts **`FilePreviewModal`**. Wrapped in **`App.jsx`** inside **`PortScopeProvider`**. |
+| **`Frontend/src/components/FilePreviewModal.jsx`** | Preview UI: header (filename + close), body (image / PDF iframe / unsupported message), footer (**Open in new tab**, **Download**). |
+| **`Frontend/src/components/FilePreviewLink.jsx`** | Drop-in replacement for document name anchors. |
+| **`Frontend/src/components/AuthenticatedFileImage.jsx`** | Thumbnails for API-backed images (berthing photos); fetches with auth before render. |
+| **`Frontend/src/utils/filePreview.js`** | **`toViewUrl`** / **`toDownloadUrl`** (maps `.../download` → `.../view`); **`resolvePreviewSrc`**; **`triggerFileDownload`**. |
+| **`Frontend/src/api/client.js`** | **`fetchAuthenticatedBlobUrl(absoluteUrl)`** — `credentials: 'include'`, **`authHeaders({ Accept: '*/*' })`** including **`X-Selected-Port-Id`**. |
+| **`Frontend/src/api/siDocuments.js`** | **`siDocumentViewUrl(id)`**. |
+| **`Frontend/src/styles/file-preview.css`** | Modal layout (`.modal--file-preview`, preview image/iframe). |
+| i18n **`Frontend/src/locales/{en,id}/filePreview.json`** | Modal strings. |
+
+**Integrated surfaces:** see FUNCTIONAL-SPEC **§2.19** — **`Allocation.jsx`**, **`Loading.jsx`**, **`Verification.jsx`**, **`ShippingInstructionDocumentUploadSection.jsx`**, **`SIApproval.jsx`**, **`OperationActivityTimeline.jsx`**.
+
+**Out of scope:** generated CSV/Excel exports, SI print/PDF (`window.print()`), upload-only filename lists without persisted URLs.
+
+**Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.19**.
+
+### 0.31 SI shipper at breakdown line level (2026-05-25)
+
+**Purpose:** One Shipping Instruction can assign a **different shipper per commodity / contract line**. Shipper is no longer a single header field on **`shipping_instructions`**.
+
+**Migration:** **`079_si_breakdown_shipper_id.sql`**
+
+- Adds **`shipping_instruction_breakdown.shipper_id`** (`BIGINT`, nullable FK → **`si_shippers.id`**).
+- **Backfill:** copies legacy **`shipping_instructions.shipper_id`** to **every active breakdown row** on that SI (preserves old single-dropdown behaviour on existing data).
+- Secondary backfill: matches legacy **`shipper_text`** on breakdown lines to **`si_shippers.name`** where possible.
+- Drops **`shipping_instructions.shipper_id`** and **`shipping_instruction_breakdown.shipper_text`**.
+- Rollback: **`Backend/rollback/079_rollback_si_header_shipper.sql`** (restores header column from first breakdown line per SI).
+
+**Deploy order:** Run **079** before or with an API build that reads/writes **`breakdown[].shipperId`**. Running **079** against an old API (still querying **`si.shipper_id`**) causes **500** errors on allocation and shipment-plan list routes until the API container is rebuilt.
+
+**API — `POST` / `PUT /shipping-instructions`:**
+
+- **Remove** top-level **`shipper_id`** from accepted body. If present → **400** (`shipper_id must be set on each breakdown row, not on the shipping instruction header`).
+- **Add** optional **`shipperId`** / **`shipper_id`** on each **`breakdown[]`** row; validated against active **`si_shippers`** when non-null.
+- Shipper remains **optional** per row (same as prior header behaviour).
+
+**API — `GET /shipping-instructions`, `GET /shipping-instructions/:id`:**
+
+- **Remove** top-level **`shipperId`** / **`shipperName`** from SI header JSON.
+- **Add** per breakdown row: **`shipperId`**, **`shipperName`** (JOIN **`si_shippers`**).
+- **Add** aggregated **`shipperNames`** on list/detail (distinct shipper names, comma-separated) for tables and read-only views.
+
+**API — allocation / plans:**
+
+- **`GET /allocation/overview`**, **`GET /allocation/plan-overview`**: queue row **`shipper`** = comma-separated distinct names from breakdown lines (`STRING_AGG` subquery), not a join on **`si.shipper_id`**.
+- **`GET /shipment-plans`**: nested **`shippingInstructions[].breakdown[]`** includes **`shipperId`** / **`shipperName`**; header **`shipperId`** removed from child SI JSON.
+- **`DELETE /si-lookups/shippers/:id`**: blocked when referenced by **`shipping_instruction_breakdown.shipper_id`** (in addition to any legacy header checks removed by **079**).
+
+**Frontend (plan-linked SI — primary path):**
+
+- **`Frontend/src/components/ShippingInstructionSiLinkedFields.jsx`** — Shipper **`<select>`** is the **first column** of the **Shipment breakdown** table (not **Party & port**).
+- **`Frontend/src/utils/siPlanLinkedDraft.js`** — **`shipperId`** on each breakdown row; removed from form root; payload builder sends **`shipperId`** inside **`breakdown[]`** only.
+- **`Frontend/src/api/shippingInstructions.js`** — no header **`shipper_id`** on create/update.
+- **OCR autofill:** **`Frontend/src/utils/siExtractMerge.js`** applies extracted shipper to the **first breakdown row** with an empty **`shipperId`**.
+- **Display:** **`siViewModel.js`**, **`SiDocumentView.jsx`**, **`SIApproval.jsx`**, **`SiDetailModal.jsx`** — shipper from line **`shipperName`**; Unloading document breakdown table includes a **Shipper** column.
+
+**Activity log:** SI update diff tracks **Shipper** via aggregated breakdown shipper names (not header **`shipperName`**).
+
+**Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.20**, **§16**.
 
 ### 0.24 Shipping instruction vessel-call columns removed (canonical `shipment_plans`) (2026-05-11)
 
@@ -685,7 +772,7 @@ After the **root four-folder reorg**, ownership is explicit; root remains a thin
   - Table SI values only (expanded detail blocks are not modal triggers in this release).
 - Localization:
   - Modal labels/chrome use `shippingInstruction` i18n namespace (EN/ID keys, including modal title/loading/error/close text).
-- **Nested executions log (2026-05-04):** When the loaded SI has **`operationId`**, the modal’s **At-berth process** block includes a control that opens a **second** full-screen overlay (higher `z-index` than the default `.modal-overlay`, see `.si-detail-modal__nested-overlay` in `si-detail-modal.css`). The inner dialog embeds **`Frontend/src/components/OperationActivityTimeline.jsx`** with `operationId`, `vesselId` = `op-{operationId}`, and `basePath` = `/loading` or `/unloading` from **`normalizeHubPurpose`** (SI purpose or `fetchOperation` snapshot) so **Edit** deep-links match the hub. Inner close / backdrop / **Escape** dismiss only the nested layer; parent **Operation Detail** stays open. Timeline refresh uses the component’s `refreshToken` / `onActivityLogRefresh` pattern.
+- **Nested executions log (2026-05-04):** When the loaded SI has **`operationId`**, the modal’s **At-berth process** block includes a control that opens a **second** full-screen overlay (higher `z-index` than the default `.modal-overlay`, see `.si-detail-modal__nested-overlay` in `si-detail-modal.css`). The inner dialog embeds **`Frontend/src/components/OperationActivityTimeline.jsx`** with `operationId`, `vesselId` = `op-{operationId}`, and `basePath` = `/loading` or `/unloading` from **`normalizeHubPurpose`** (SI purpose or `fetchOperation` snapshot) so **Edit** deep-links match the hub. Inner close / backdrop / **Escape** dismiss only the nested layer; parent **Operation Detail** stays open. Timeline refresh uses the component’s `refreshToken` / `onActivityLogRefresh` pattern. Document names in the timeline use **`FilePreviewLink`** (**§0.30**).
 
 ---
 
@@ -741,12 +828,13 @@ RBAC is defined at **department**, **page**, and **field** level (see §6).
 
 **User Story**: As a Jetty Operator, I want to view incoming SIs so I can see vessel, material, and purpose details.
 
-**Workflow (current frontend: `ShippingInstruction.jsx`, `SIApproval.jsx`, `SIView.jsx`)**:
+**Workflow (current frontend: plan-linked **`ShipmentPlansList.jsx`** + **`ShippingInstructionSiLinkedFields.jsx`**; legacy **`ShippingInstruction.jsx`** retired route; **`SIApproval.jsx`**, **`SIView.jsx`**)**:
 1. SIs are listed with filters (purpose, status, search by SI, vessel, agent).
 2. For each SI:
    - Show vessel, commodity, purpose (Loading/Unloading), ETA, status.
    - Expand row for full details (breakdown, documents; extended header fields as implemented).
-3. Loading SIs: create/edit includes **destination**, **freight_terms**, **B/L & consignee** text fields, **voyage**, **document date**; modal shows **B/L split preview** from breakdown.
+3. **Shipper** is selected **per breakdown row** (master **`si_shippers`** dropdown in the breakdown table). One SI may therefore list **multiple shippers** when it has multiple commodity/contract lines. **Party & port** retains loading port, surveyor, trade term (Unloading), and NPWP display (Loading) — not shipper.
+4. Loading SIs: create/edit includes **destination**, **freight_terms**, **B/L & consignee** text fields, **voyage**, **document date**; modal shows **B/L split preview** from breakdown.
 4. Internal approval (Loading + Unloading): **Submit for approval** persists **Submitted** via API; **Approve/Sign-off** requires RBAC **`can_approve`** on page **`shipment-plan`** (see §6). On approve, API sets **`approved_by_user_id`**, **`approved_at`**, **snapshots**, **`approval_id`**; document view uses **reference_number** as **No.** when set.
 5. Document view/approval templates:
    - **Loading** uses the full template (header + full field set).
@@ -771,7 +859,7 @@ RBAC is defined at **department**, **page**, and **field** level (see §6).
 SI dropdown values are sourced from master tables and managed via Master Menu pages:
 
 - Term
-- Shipper
+- Shipper (used on **breakdown lines**, not SI header — **§0.31**)
 - Loading Port
 - Surveyor
 - Agent
@@ -981,11 +1069,11 @@ All endpoints under `/api/v1`.
 
 ### 3.2 Shipping Instructions
 
-- `GET /shipping-instructions` – list SIs, with filters.
-- `GET /shipping-instructions/:id`.
+- `GET /shipping-instructions` – list SIs, with filters. Response rows include **`shipperNames`** (aggregated from breakdown lines) and **`breakdown[]`** with **`shipperId`** / **`shipperName`** per line. **No** header **`shipperId`**.
+- `GET /shipping-instructions/:id` — same breakdown shipper shape; **`documents[]`** when applicable.
 - `GET /shipping-instructions/npwp-master` – get **NPWP master** for the active port (or `?port_id=` when user is assigned to that port); returns `{ npwp, portId }`.
-- `POST /shipping-instructions` – create (for manual entry).
-- `PUT /shipping-instructions/:id` — body may include **`approval_id`** / persisted **`approvalId`** for approved flows.
+- `POST /shipping-instructions` – create. **`breakdown[]`** rows accept optional **`shipperId`**. **Reject** top-level **`shipper_id`** (**400**).
+- `PUT /shipping-instructions/:id` — body may include **`approval_id`** / persisted **`approvalId`** for approved flows; **`breakdown[]`** with per-line **`shipperId`**; **reject** header **`shipper_id`**.
 - `DELETE /shipping-instructions/:id` — guarded by RBAC `can_delete` and status rules (Draft/Submitted only).
 
 ### 3.2.1 SI lookups (master dropdown CRUD)
@@ -997,7 +1085,7 @@ Base: `/si-lookups` — **all routes require an authenticated session** (includi
 - `GET /si-lookups/:type/:id` – get item
 - `POST /si-lookups/:type` – create `{ value }`
 - `PUT /si-lookups/:type/:id` – update `{ value }`
-- `DELETE /si-lookups/:type/:id` – delete (blocked when referenced by SI or SI breakdown)
+- `DELETE /si-lookups/:type/:id` – delete (blocked when referenced by SI breakdown or other master FKs; **shippers** blocked when **`shipping_instruction_breakdown.shipper_id`** references the row — **§0.31**)
 
 Types are whitelisted by backend config (`Backend/src/routes/si-lookups.js`) and map to the corresponding SI master tables.
 
@@ -1098,7 +1186,7 @@ This subsection describes the **implemented** hybrid persistence for Pre-Checkin
 - Generalized sub-process:
   - `GET /operations/:id/sub-processes?phase=Pre-Checking`
   - `PUT /operations/:id/sub-processes/:subProcessKey` (upsert semantics)
-- **Activity timeline (merged log):** `GET /operations/:id/activity-timeline` (`Backend/src/routes/operation-operational-activities.js`) returns a sorted list of events for the **Detailed At-Berth Executions Log**. Sub-process events use `source: 'sub_process'` with `startAt` = `start_at ?? occurred_at`, `endAt` = `end_at`, and `occurredAt` for sorting/legacy; the frontend maps these to **Start**, **End**, and **Duration** the same way as operational activity rows when both interval ends are present. Each event includes **`status`** (sub-process row status), **`remark`**, and **`documents`**: for `sub_process`, `documents` is an ordered array of `{ id, name, url, mimeType, createdAt }` (same download path as `GET .../sub-processes/:key/documents`), populated in the same SQL read as the sub-process row via `LEFT JOIN LATERAL` + `jsonb_agg` so document rows always match the correct `operation_sub_processes.id`; for operational rows `documents` is `[]`. If a legacy server omits `documents` on sub-process events, the SPA may backfill via `GET .../sub-processes/:key/documents` per row. The **Detailed At-Berth Executions Log** table (`Frontend/src/components/OperationActivityTimeline.jsx`) shows **Status**, **Remark**, and **Documents** as separate columns; document links use `target="_blank"` and `rel="noopener noreferrer"` (images and PDFs open in a new tab; PDFs typically use the browser’s built-in viewer when `Content-Disposition` allows inline display).
+- **Activity timeline (merged log):** `GET /operations/:id/activity-timeline` (`Backend/src/routes/operation-operational-activities.js`) returns a sorted list of events for the **Detailed At-Berth Executions Log**. Sub-process events use `source: 'sub_process'` with `startAt` = `start_at ?? occurred_at`, `endAt` = `end_at`, and `occurredAt` for sorting/legacy; the frontend maps these to **Start**, **End**, and **Duration** the same way as operational activity rows when both interval ends are present. Each event includes **`status`** (sub-process row status), **`remark`**, and **`documents`**: for `sub_process`, `documents` is an ordered array of `{ id, name, url, mimeType, createdAt }` (download URL in **`url`**; preview maps to **`/view`** — **§0.30**), populated in the same SQL read as the sub-process row via `LEFT JOIN LATERAL` + `jsonb_agg` so document rows always match the correct `operation_sub_processes.id`; for operational rows `documents` is `[]`. If a legacy server omits `documents` on sub-process events, the SPA may backfill via `GET .../sub-processes/:key/documents` per row. The **Detailed At-Berth Executions Log** table (`Frontend/src/components/OperationActivityTimeline.jsx`) shows **Status**, **Remark**, and **Documents** as separate columns; document names use **`FilePreviewLink`** to open the shared preview modal (**§0.30**, FUNCTIONAL-SPEC **§2.19**).
 - Sub-process documents:
   - `GET /operations/:id/sub-processes/:subProcessKey/documents`
   - `POST /operations/:id/sub-processes/:subProcessKey/documents`
@@ -1261,7 +1349,7 @@ Returns `{ queue, berths, scheduleQueue }`.
   - non-`SAILED` operations, plus
   - `SAILED` operations within configured lookback (`COALESCE(cast_off_at, actual_completion_time, updated_at)` >= `NOW() - lookbackDays`).
   Incoming approved SI rows are included here as well.
-- **Key camelCase fields** (non-exhaustive): `id`, `vesselId`, `operationId`, **`shipmentPlanId`**, `shippingInstructionId`, `vesselName`, `shippingInstruction`, `commodity`, `purpose`, `priority`, `noPkk`, `remark`, **`shiftingOut`**, **`shiftingOutAt`**, `eta`, `etb`, `jetty`, `etaDateTime`, `taDateTime`, `etbDateTime`, `tbDateTime`, `pobDateTime`, `sobDateTime`, `estimatedCompletionDateTime`, `actualCompletionDateTime`, `castOffDateTime`, `status`, `norDocuments`, **`recordLastUpdatedAt`**, **`recordLastUpdatedByDisplayName`**, **`shipper`**, **`agent`**, **`surveyor`** (from `si_shippers`, `si_agents`, `si_surveyors` joins on `shipping_instructions`).
+- **Key camelCase fields** (non-exhaustive): `id`, `vesselId`, `operationId`, **`shipmentPlanId`**, `shippingInstructionId`, `vesselName`, `shippingInstruction`, `commodity`, `purpose`, `priority`, `noPkk`, `remark`, **`shiftingOut`**, **`shiftingOutAt`**, `eta`, `etb`, `jetty`, `etaDateTime`, `taDateTime`, `etbDateTime`, `tbDateTime`, `pobDateTime`, `sobDateTime`, `estimatedCompletionDateTime`, `actualCompletionDateTime`, `castOffDateTime`, `status`, `norDocuments`, **`recordLastUpdatedAt`**, **`recordLastUpdatedByDisplayName`**, **`shipper`** (comma-separated distinct names from **`shipping_instruction_breakdown.shipper_id`** — **§0.31**), **`agent`**, **`surveyor`** (from `si_agents` / `si_surveyors` joins; agent may fall back to **`shipment_plans.agent_id`**).
 - **`eta` / `etb`**: short display strings from SQL `to_char(… AT TIME ZONE 'UTC', 'DD/MM HH24:MI')` — **no** trailing ` LT` suffix.
 - **`berths`**: jetty list with occupancy derived from operations where **TB is set** and/or status in DOCKED / IN_PROGRESS / POST_OPS / SIGNOFF_REQUESTED / SIGNOFF_APPROVED **and `shifting_out` is false** (shifted-out vessels must not occupy a bank slot).
 
@@ -1378,9 +1466,37 @@ Backward compatibility note:
 
 **Current import sites:** `Allocation.jsx`, `AtBerthExecutions.jsx`, `Loading.jsx`, `VesselReport.jsx`, `DailyActivitiesReport.jsx`. Prefer this module for new UI datetime display.
 
-### 3.10 Operation documents (upload)
+### 3.10 Operation documents (upload & download)
 
 - `POST /api/v1/operation-documents/operations/:operationId/:kind` — multipart `files`; kinds used in UI include **`NOR`** (Log arrival update) and **`BERTHING`** (Confirm Berthing / vessel photos), stored in **`operation_documents`** with paths under uploads. **Server validates file content** (magic bytes) against an allowlist (**§0.10**); invalid types rejected with **400**.
+- `GET /api/v1/operation-documents/operations/:operationId/:kind` — list metadata; each item includes **`url`** pointing at **`.../:id/download`**.
+- `GET /api/v1/operation-documents/:id/view` — **inline preview** (`Content-Disposition: inline`); same auth + port scope as download (**§0.30**).
+- `GET /api/v1/operation-documents/:id/download` — **attachment download** (`Content-Disposition: attachment` via **`sendStoredFileAttachment`**).
+- `DELETE /api/v1/operation-documents/:id` — soft-delete metadata + best-effort disk remove.
+
+**Sub-process documents** (`Backend/src/routes/operation-sub-processes.js`):
+
+- `GET /api/v1/operations/:operationId/sub-processes/:subProcessKey/documents` — list.
+- `POST /api/v1/operations/:operationId/sub-processes/:subProcessKey/documents` — upload.
+- `GET /api/v1/sub-process-documents/:documentId/view` — inline preview.
+- `GET /api/v1/sub-process-documents/:documentId/download` — attachment download.
+
+**SI source documents** (`Backend/src/routes/si-documents.js`):
+
+- `POST /api/v1/si-documents/extract` — upload + optional OCR.
+- `GET /api/v1/si-documents/:id/view` — inline preview.
+- `GET /api/v1/si-documents/:id/download` — attachment download.
+- `DELETE /api/v1/si-documents/:id` — soft-delete.
+
+### 3.10C SPA file preview (2026-05-25)
+
+See **§0.30**. Summary:
+
+- **`FilePreviewProvider`** in **`App.jsx`** exposes **`openFilePreview`** app-wide.
+- Document links use **`FilePreviewLink`** instead of **`<a target="_blank">`** to **`/download`** URLs.
+- Berthing photo thumbnails use **`AuthenticatedFileImage`** + click → preview modal.
+- **`resolvePreviewSrc`** maps download URLs to **`/view`**, then **`fetchAuthenticatedBlobUrl`** when the target is an API document path (session cookie + **`X-Selected-Port-Id`**).
+- Modal footer **Download** calls **`triggerFileDownload`**, which also uses authenticated fetch for API URLs before programmatic save.
 
 ### 3.10A Static file serving (`/uploads`)
 
@@ -1403,7 +1519,9 @@ Entities follow the design already outlined in the previous answer; key ones:
 
 - `users`, `roles`, `permissions`, `role_permissions`, `user_roles`.
 - `ports`, `jetties`, `jetty_status_history`. **`jetties.rtsp_link`** (`TEXT`, nullable, migration **077**) — optional RTSP URL for Jetty Live CCTV (**§0.26**).
-- `shipping_instructions` — includes **`approval_id`** (migration **`019`**). Migration **`025_si_loading_document_and_approve_rbac.sql`** adds Loading document fields: **`voyage_no`**, **`destination_text`**, **`freight_terms`** (check: PREPAID, COLLECT, AS_PER_CHARTER_PARTY, OTHER), **`bill_of_lading_clause`**, **`consignee_text`**, **`notify_party_text`**, **`bl_indicated`**, **`document_date`**, and approval audit: **`approved_by_user_id`**, **`approved_at`**, **`approver_name_snapshot`**, **`approver_title_snapshot`**. API exposes camelCase equivalents (e.g. **`destinationText`**, **`freightTerms`**, **`approverNameSnapshot`**).
+- `shipping_instructions` — includes **`approval_id`** (migration **`019`**). Migration **`025_si_loading_document_and_approve_rbac.sql`** adds Loading document fields: **`voyage_no`**, **`destination_text`**, **`freight_terms`** (check: PREPAID, COLLECT, AS_PER_CHARTER_PARTY, OTHER), **`bill_of_lading_clause`**, **`consignee_text`**, **`notify_party_text`**, **`bl_indicated`**, **`document_date`**, and approval audit: **`approved_by_user_id`**, **`approved_at`**, **`approver_name_snapshot`**, **`approver_title_snapshot`**. API exposes camelCase equivalents (e.g. **`destinationText`**, **`freightTerms`**, **`approverNameSnapshot`**). **Header `shipper_id` removed** by migration **079** (**§0.31**).
+- `shipping_instruction_breakdown` — one row per commodity/contract line: **`commodity_id`**, **`metric_id`**, **`qty`**, contract/PO/SO text fields, **`line_order`**, and **`shipper_id`** (nullable FK → **`si_shippers`**, migration **079**). Legacy **`shipper_text`** dropped in **079**.
+- `si_shippers` — master lookup for shipper names; referenced by **`shipping_instruction_breakdown.shipper_id`** only (post-079).
 - `si_port_npwp` — per-port **NPWP master** used for Shipping Instruction display (read-only in SI form/view/approval); unique active row per `port_id` (migration **`047_si_port_npwp.sql`**).
 - `users` — optional **`job_title`** (migration **`025`**) used when populating approver title snapshot (fallback: `OPERATION HEAD`).
 - `role_permissions` — **`can_approve`** boolean (migration **`025`**); merged in **`GET /rbac/me/page-permissions`** as **`canApprove`** per page. Shipping Instruction approval on **PUT** `/shipping-instructions/:id` when transitioning to **Approved** requires **`can_approve`** for resource_key **`shipment-plan`**. **Operation sign-off** (**`POST /operations/:id/signoff`**) requires **`can_approve`** for resource_key **`loading`** (Admin UI: **Approve operation sign-off** under Loading / Unloading).

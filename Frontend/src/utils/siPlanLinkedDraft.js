@@ -14,6 +14,7 @@ export function emptyBreakdownRow(lookups) {
   const mt = lookups?.metrics?.find((m) => m.code === 'MT') || lookups?.metrics?.[0]
   const comm = lookups?.commodities?.[0]
   return {
+    shipperId: '',
     commodityId: comm?.id != null ? String(comm.id) : '',
     metricId: mt?.id != null ? String(mt.id) : '',
     qty: '',
@@ -33,7 +34,6 @@ export function defaultSiDraftForPlanPreview(lookups, linkedPlan) {
     purposeId: linkedPlan?.purposeId != null ? String(linkedPlan.purposeId) : '',
     tradeTermId: '',
     preferredJettyId: linkedPlan?.jettyId != null ? String(linkedPlan.jettyId) : '',
-    shipperId: '',
     loadingPortId: '',
     surveyorId: '',
     etaFrom: ymd,
@@ -79,6 +79,7 @@ export function siDetailToPlanLinkedDraftForm(si, lookups, linkedPlan) {
   const bd =
     Array.isArray(si?.breakdown) && si.breakdown.length > 0
       ? si.breakdown.map((b) => ({
+          shipperId: b.shipperId != null ? String(b.shipperId) : '',
           commodityId: b.commodityId != null ? String(b.commodityId) : '',
           metricId: b.metricId != null ? String(b.metricId) : '',
           qty: b.qty != null && b.qty !== '' ? String(b.qty) : '',
@@ -101,7 +102,6 @@ export function siDetailToPlanLinkedDraftForm(si, lookups, linkedPlan) {
           : '',
     preferredJettyId:
       si?.preferredJettyId != null ? String(si.preferredJettyId) : base.preferredJettyId,
-    shipperId: si?.shipperId != null ? String(si.shipperId) : '',
     loadingPortId: si?.loadingPortId != null ? String(si.loadingPortId) : '',
     surveyorId: si?.surveyorId != null ? String(si.surveyorId) : '',
     etaFrom: toDateInputValue(si?.etaFrom) || ymd,
@@ -140,7 +140,12 @@ export function validateSiDraftForCreate(form, lookups, linkedPlan, options = {}
   if (!ymd) return 'Shipment plan has no ETA.'
   let documentDateVal = form.documentDate
   if (!documentDateVal?.trim()) documentDateVal = ymd
+  const num = (v) => {
+    const n = parseInt(v, 10)
+    return v !== '' && !Number.isNaN(n) ? n : null
+  }
   const breakdownPayload = (form.breakdown || []).map((row) => ({
+    shipperId: num(row.shipperId),
     commodityId: parseInt(row.commodityId, 10),
     metricId: parseInt(row.metricId, 10),
     qty: Number(row.qty) || 0,
@@ -163,10 +168,6 @@ export function validateSiDraftForCreate(form, lookups, linkedPlan, options = {}
   if (distinctCommodityTypes.size > 1) {
     return 'All commodities on one shipping instruction must be the same type (Solid or Liquid).'
   }
-  const num = (v) => {
-    const n = parseInt(v, 10)
-    return v !== '' && !Number.isNaN(n) ? n : null
-  }
   if (!form.vesselName?.trim()) return 'Vessel name is required.'
   return { pid, isLoading, isUnloading, ymd, documentDateVal: documentDateVal.trim(), breakdownPayload, num }
 }
@@ -188,7 +189,6 @@ export function buildSiCreateApiPayload(form, linkedPlan, validated) {
     purposeId: pid,
     tradeTermId: isUnloading ? num(form.tradeTermId) : null,
     preferredJettyId: num(form.preferredJettyId),
-    shipperId: num(form.shipperId),
     loadingPortId: num(form.loadingPortId),
     surveyorId: num(form.surveyorId),
     agentId: linkedPlan?.agentId != null && linkedPlan.agentId !== '' ? num(String(linkedPlan.agentId)) : null,

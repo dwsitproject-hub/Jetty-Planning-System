@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { siDocumentDownloadUrl } from '../api/siDocuments'
+import FilePreviewLink from './FilePreviewLink'
 
 /**
  * SI draft document list; upload triggers OCR + storage when parent handles onAddFiles.
@@ -56,14 +57,12 @@ export default function ShippingInstructionDocumentUploadSection({
             return (
               <li key={d.id} className="shipping-instruction-docs__item">
                 {href ? (
-                  <a
-                    className="shipping-instruction-docs__name"
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {d.name}
-                  </a>
+                  <FilePreviewLink
+                    className="shipping-instruction-docs__name file-preview-link"
+                    url={href}
+                    name={d.name}
+                    mimeType={d.mimeType ?? null}
+                  />
                 ) : (
                   <span
                     className="shipping-instruction-docs__name"

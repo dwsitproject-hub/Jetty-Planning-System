@@ -8,6 +8,7 @@ import {
   fetchSubProcessDocuments,
 } from '../api/operations'
 import { resolveUploadUrl } from '../api/client'
+import FilePreviewLink from './FilePreviewLink'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import {
   buildActivityLogEditPath,
@@ -376,19 +377,17 @@ export default function OperationActivityTimeline({
                 const isImage = mime.startsWith('image/')
                 return (
                   <li key={d.id ?? `${ev.id}-${d.name}`}>
-                    <a
-                      href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="operation-activity-timeline__doc-link"
+                    <FilePreviewLink
+                      url={href}
+                      name={d.name || `Document ${d.id}`}
+                      mimeType={mime || null}
+                      className="operation-activity-timeline__doc-link file-preview-link"
                       title={
                         isImage
-                          ? 'Open image in a new tab'
-                          : 'Open file in a new tab (browser may show PDF inline)'
+                          ? 'Open image preview'
+                          : 'Open document preview'
                       }
-                    >
-                      {d.name || `Document ${d.id}`}
-                    </a>
+                    />
                   </li>
                 )
               })}
@@ -462,19 +461,17 @@ export default function OperationActivityTimeline({
                   const isImage = mime.startsWith('image/')
                   return (
                     <li key={d.id ?? `${ev.id}-${d.name}`}>
-                      <a
-                        href={href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="operation-activity-timeline__doc-link"
+                      <FilePreviewLink
+                        url={href}
+                        name={d.name || `Document ${d.id}`}
+                        mimeType={mime || null}
+                        className="operation-activity-timeline__doc-link file-preview-link"
                         title={
                           isImage
-                            ? 'Open image in a new tab'
-                            : 'Open file in a new tab (browser may show PDF inline)'
+                            ? 'Open image preview'
+                            : 'Open document preview'
                         }
-                      >
-                        {d.name || `Document ${d.id}`}
-                      </a>
+                      />
                     </li>
                   )
                 })}

@@ -136,13 +136,13 @@ async function main() {
     status: 'Draft',
     preferred_jetty_id: jetty?.id ?? null,
     approval_id: 'TEST-APPROVAL-REF',
-    shipper_id: shipper?.id ?? null,
     loading_port_id: port?.id ?? null,
     document_date: '2026-06-10',
     destination_text: 'Canonicalization test',
     freight_terms: 'PREPAID',
     breakdown: [
       {
+        shipperId: shipper?.id ?? null,
         commodityId: commodity.id,
         metricId: metric.id,
         qty: 100,
@@ -185,7 +185,6 @@ async function main() {
       eta_to: '2026-06-11',
       status: 'Draft',
       preferred_jetty_id: siLinked.preferredJettyId,
-      shipper_id: siLinked.shipperId,
       loading_port_id: siLinked.loadingPortId,
       destination_text: 'PUT destination',
       freight_terms: 'PREPAID',

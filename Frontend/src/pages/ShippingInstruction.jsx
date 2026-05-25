@@ -55,7 +55,7 @@ function mapSiFromApi(row) {
       row.estimatedCompletionDateTime ?? row.estimationOfCompletion ?? row.etcDateTime ?? null,
     etaFrom: toDateInputValue(row.etaFrom) || toDateInputValue(row.eta),
     etaTo: toDateInputValue(row.etaTo) || toDateInputValue(row.eta),
-    shipper: row.shipperName ?? '—',
+    shipper: row.shipperNames ?? '—',
     loadingPort: row.loadingPortName ?? '—',
     agent: row.agentName ?? '—',
     surveyor: row.surveyorName ?? '—',
@@ -457,6 +457,7 @@ function emptyBreakdownRow(lookups) {
   const mt = lookups?.metrics?.find((m) => m.code === 'MT') || lookups?.metrics?.[0]
   const comm = lookups?.commodities?.[0]
   return {
+    shipperId: '',
     commodityId: comm?.id != null ? String(comm.id) : '',
     metricId: mt?.id != null ? String(mt.id) : '',
     qty: '',
@@ -512,7 +513,6 @@ export default function ShippingInstruction() {
       purposeId: '',
       tradeTermId: '',
       preferredJettyId: '',
-      shipperId: '',
       loadingPortId: '',
       surveyorId: '',
       agentId: '',
@@ -682,7 +682,12 @@ export default function ShippingInstruction() {
       setToast({ message: 'Document date is required.', variant: 'error' })
       return
     }
+    const num = (v) => {
+      const n = parseInt(v, 10)
+      return v !== '' && !Number.isNaN(n) ? n : null
+    }
     const breakdownPayload = form.breakdown.map((row) => ({
+      shipperId: num(row.shipperId),
       commodityId: parseInt(row.commodityId, 10),
       metricId: parseInt(row.metricId, 10),
       qty: Number(row.qty) || 0,
@@ -714,16 +719,11 @@ export default function ShippingInstruction() {
     }
     try {
       const etaIso = form.etaFrom ? new Date(`${form.etaFrom}T12:00:00`).toISOString() : null
-      const num = (v) => {
-        const n = parseInt(v, 10)
-        return v !== '' && !Number.isNaN(n) ? n : null
-      }
       const payload = {
         vesselName: form.vesselName.trim(),
         purposeId: pid,
         tradeTermId: isUnloading ? num(form.tradeTermId) : null,
         preferredJettyId: num(form.preferredJettyId),
-        shipperId: num(form.shipperId),
         loadingPortId: num(form.loadingPortId),
         surveyorId: null,
         agentId: num(form.agentId),
@@ -774,7 +774,6 @@ export default function ShippingInstruction() {
           purposeId: String(payload.purposeId || ''),
           tradeTermId: String(payload.tradeTermId || ''),
           preferredJettyId: String(payload.preferredJettyId || ''),
-          shipperId: String(payload.shipperId || ''),
           loadingPortId: String(payload.loadingPortId || ''),
           surveyorId: String(payload.surveyorId || ''),
           agentId: String(payload.agentId || ''),
@@ -800,7 +799,6 @@ export default function ShippingInstruction() {
         addChange('Purpose', toLabel(before.purposeId, lookups?.purposes), toLabel(after.purposeId, lookups?.purposes))
         addChange('Term', toLabel(before.tradeTermId, lookups?.tradeTerms), toLabel(after.tradeTermId, lookups?.tradeTerms))
         addChange('Preferred jetty', toLabel(before.preferredJettyId, lookups?.jetties), toLabel(after.preferredJettyId, lookups?.jetties))
-        addChange('Shipper', toLabel(before.shipperId, lookups?.shippers), toLabel(after.shipperId, lookups?.shippers))
         addChange('Loading port', toLabel(before.loadingPortId, lookups?.loadingPorts), toLabel(after.loadingPortId, lookups?.loadingPorts))
         addChange('Surveyor', toLabel(before.surveyorId, lookups?.surveyors), toLabel(after.surveyorId, lookups?.surveyors))
         addChange('Agent', toLabel(before.agentId, lookups?.agents), toLabel(after.agentId, lookups?.agents))
@@ -863,6 +861,7 @@ export default function ShippingInstruction() {
       const bd =
         Array.isArray(row?.breakdown) && row.breakdown.length
           ? row.breakdown.map((b) => ({
+              shipperId: b.shipperId != null ? String(b.shipperId) : '',
               commodityId: b.commodityId != null ? String(b.commodityId) : '',
               metricId: b.metricId != null ? String(b.metricId) : '',
               qty: b.qty != null ? String(b.qty) : '',
@@ -879,7 +878,6 @@ export default function ShippingInstruction() {
         purposeId: row.purposeId != null ? String(row.purposeId) : '',
         tradeTermId: row.tradeTermId != null ? String(row.tradeTermId) : '',
         preferredJettyId: row.preferredJettyId != null ? String(row.preferredJettyId) : '',
-        shipperId: row.shipperId != null ? String(row.shipperId) : '',
         loadingPortId: row.loadingPortId != null ? String(row.loadingPortId) : '',
         surveyorId: row.surveyorId != null ? String(row.surveyorId) : '',
         agentId: row.agentId != null ? String(row.agentId) : '',
@@ -905,7 +903,6 @@ export default function ShippingInstruction() {
         purposeId: row.purposeId != null ? String(row.purposeId) : '',
         tradeTermId: row.tradeTermId != null ? String(row.tradeTermId) : '',
         preferredJettyId: row.preferredJettyId != null ? String(row.preferredJettyId) : '',
-        shipperId: row.shipperId != null ? String(row.shipperId) : '',
         loadingPortId: row.loadingPortId != null ? String(row.loadingPortId) : '',
         surveyorId: row.surveyorId != null ? String(row.surveyorId) : '',
         agentId: row.agentId != null ? String(row.agentId) : '',
@@ -1403,15 +1400,6 @@ export default function ShippingInstruction() {
                 <h3 className="shipping-instruction-form__section-title">{t('formPartyPortSection')}</h3>
                 <div className="shipping-instruction-form__grid">
                   <div className="input-group">
-                    <label htmlFor="shipper">{t('formShipper')}</label>
-                    <select id="shipper" value={form.shipperId} onChange={(e) => updateForm({ shipperId: e.target.value })} disabled={!lookups}>
-                      <option value="">—</option>
-                      {(lookups?.shippers || []).map((s) => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="input-group">
                     <label htmlFor="agent">{t('formAgent')}</label>
                     <select id="agent" value={form.agentId} onChange={(e) => updateForm({ agentId: e.target.value })} disabled={!lookups}>
                       <option value="">—</option>
@@ -1458,6 +1446,7 @@ export default function ShippingInstruction() {
                   <table className="data-table shipping-instruction-breakdown-table">
                     <thead>
                       <tr>
+                        <th>{t('formBreakdownShipper')}</th>
                         <th>{t('formBreakdownCommodityReq')}</th>
                         <th>{t('formBreakdownQtyReq')}</th>
                         <th>{t('formBreakdownUnitReq')}</th>
@@ -1470,6 +1459,19 @@ export default function ShippingInstruction() {
                     <tbody>
                       {form.breakdown.map((row, i) => (
                         <tr key={i}>
+                          <td>
+                            <select
+                              value={row.shipperId}
+                              onChange={(e) => updateBreakdownRow(i, 'shipperId', e.target.value)}
+                              className="shipping-instruction-inline-input"
+                              disabled={!lookups}
+                            >
+                              <option value="">—</option>
+                              {(lookups?.shippers || []).map((s) => (
+                                <option key={s.id} value={s.id}>{s.name}</option>
+                              ))}
+                            </select>
+                          </td>
                           <td>
                             <select
                               value={row.commodityId}

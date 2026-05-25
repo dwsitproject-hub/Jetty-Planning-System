@@ -37,6 +37,8 @@ function parseSiBreakdownLiteJson(val) {
       commodityId: r.commodity_id != null ? Number(r.commodity_id) : null,
       commodityName: r.commodity_name ?? null,
       commodityType: r.commodity_type ?? null,
+      shipperId: r.shipper_id != null ? Number(r.shipper_id) : null,
+      shipperName: r.shipper_name ?? null,
     }));
   } catch {
     return [];
@@ -56,7 +58,6 @@ function parseSiChildrenJson(val) {
       status: r.status ?? null,
       etaFrom: r.eta_from ?? null,
       etaTo: r.eta_to ?? null,
-      shipperId: r.shipper_id != null ? Number(r.shipper_id) : null,
       loadingPortId: r.loading_port_id != null ? Number(r.loading_port_id) : null,
       breakdown: parseSiBreakdownLiteJson(r.breakdown),
     }));
@@ -116,6 +117,8 @@ function parseSiBreakdownJson(val) {
       poNo: r.po_no ?? null,
       soNo: r.so_no ?? null,
       remarks: r.remarks ?? null,
+      shipperId: r.shipper_id != null ? Number(r.shipper_id) : null,
+      shipperName: r.shipper_name ?? null,
     }));
   } catch {
     return [];
@@ -134,7 +137,6 @@ function toSiChildRow(row) {
     eta: row.eta != null ? row.eta.toISOString?.() ?? row.eta : null,
     etaFrom: row.eta_from ?? null,
     etaTo: row.eta_to ?? null,
-    shipperId: row.shipper_id != null ? Number(row.shipper_id) : null,
     loadingPortId: row.loading_port_id != null ? Number(row.loading_port_id) : null,
     breakdown,
   };
@@ -193,7 +195,6 @@ router.get('/', async (req, res) => {
                   'vessel_name', sp.vessel_name,
                   'eta_from', si.eta_from,
                   'eta_to', si.eta_to,
-                  'shipper_id', si.shipper_id,
                   'loading_port_id', si.loading_port_id,
                   'breakdown', (
                     SELECT COALESCE(
@@ -201,13 +202,16 @@ router.get('/', async (req, res) => {
                         json_build_object(
                           'commodity_id', c.id,
                           'commodity_name', c.name,
-                          'commodity_type', c.commodity_type
+                          'commodity_type', c.commodity_type,
+                          'shipper_id', b.shipper_id,
+                          'shipper_name', sh.name
                         ) ORDER BY b.line_order
                       ),
                       '[]'::json
                     )
                     FROM shipping_instruction_breakdown b
                     JOIN si_commodities c ON c.id = b.commodity_id AND c.deleted_at IS NULL
+                    LEFT JOIN si_shippers sh ON sh.id = b.shipper_id AND sh.deleted_at IS NULL
                     WHERE b.shipping_instruction_id = si.id AND b.deleted_at IS NULL
                   )
                 ) ORDER BY si.id
@@ -362,7 +366,7 @@ router.get('/:id', async (req, res) => {
 
   const sis = await pool.query(
     `SELECT si.id, si.reference_number, spl.vessel_name, si.commodity, spp2.code AS purpose, si.status, spl.eta, si.eta_from, si.eta_to,
-            si.shipper_id, si.loading_port_id,
+            si.loading_port_id,
             (
               SELECT COALESCE(
                 json_agg(
@@ -373,7 +377,9 @@ router.get('/:id', async (req, res) => {
                     'contract_no', b.contract_no,
                     'po_no', b.po_no,
                     'so_no', b.so_no,
-                    'remarks', b.remarks
+                    'remarks', b.remarks,
+                    'shipper_id', b.shipper_id,
+                    'shipper_name', sh.name
                   ) ORDER BY b.line_order, b.id
                 ),
                 '[]'::json
@@ -381,6 +387,7 @@ router.get('/:id', async (req, res) => {
               FROM shipping_instruction_breakdown b
               JOIN si_commodities c ON c.id = b.commodity_id AND c.deleted_at IS NULL
               JOIN metric m ON m.id = b.metric_id AND m.deleted_at IS NULL
+              LEFT JOIN si_shippers sh ON sh.id = b.shipper_id AND sh.deleted_at IS NULL
               WHERE b.shipping_instruction_id = si.id AND b.deleted_at IS NULL
             ) AS breakdown_json
      FROM shipping_instructions si

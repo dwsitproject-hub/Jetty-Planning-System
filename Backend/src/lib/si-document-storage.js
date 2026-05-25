@@ -14,6 +14,10 @@ export function toSiDocumentDownloadUrl(id) {
   return `/api/v1/si-documents/${id}/download`;
 }
 
+export function toSiDocumentViewUrl(id) {
+  return `/api/v1/si-documents/${id}/view`;
+}
+
 export function resolveSiStoredPath(storedPath) {
   const full = path.resolve(UPLOAD_ROOT, String(storedPath || ''));
   const root = path.resolve(UPLOAD_ROOT);

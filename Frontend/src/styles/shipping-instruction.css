@@ -472,39 +472,42 @@
 }
 
 /*
- * Breakdown row: Commodity, Qty, Unit, Contract, PO, SO, Remarks, Remove.
- * Min-widths sized so the table fits ~900px viewports; narrower widths scroll inside .table-wrap only.
+ * Breakdown row: Shipper, Commodity, Qty, Unit, Contract, PO, SO, Remarks, Remove.
  */
 .shipping-instruction-breakdown-table th:nth-child(1),
 .shipping-instruction-breakdown-table td:nth-child(1) {
-  min-width: 11rem; /* Commodity */
+  min-width: 9rem; /* Shipper */
 }
 .shipping-instruction-breakdown-table th:nth-child(2),
 .shipping-instruction-breakdown-table td:nth-child(2) {
-  min-width: 5.5rem; /* Qty */
+  min-width: 11rem; /* Commodity */
 }
 .shipping-instruction-breakdown-table th:nth-child(3),
 .shipping-instruction-breakdown-table td:nth-child(3) {
-  min-width: 8.5rem; /* Unit */
+  min-width: 5.5rem; /* Qty */
 }
 .shipping-instruction-breakdown-table th:nth-child(4),
 .shipping-instruction-breakdown-table td:nth-child(4) {
-  min-width: 7rem; /* Contract */
+  min-width: 8.5rem; /* Unit */
 }
 .shipping-instruction-breakdown-table th:nth-child(5),
 .shipping-instruction-breakdown-table td:nth-child(5) {
-  min-width: 6rem; /* PO */
+  min-width: 7rem; /* Contract */
 }
 .shipping-instruction-breakdown-table th:nth-child(6),
 .shipping-instruction-breakdown-table td:nth-child(6) {
-  min-width: 6rem; /* SO */
+  min-width: 6rem; /* PO */
 }
 .shipping-instruction-breakdown-table th:nth-child(7),
 .shipping-instruction-breakdown-table td:nth-child(7) {
-  min-width: 8rem; /* Remarks */
+  min-width: 6rem; /* SO */
 }
 .shipping-instruction-breakdown-table th:nth-child(8),
 .shipping-instruction-breakdown-table td:nth-child(8) {
+  min-width: 8rem; /* Remarks */
+}
+.shipping-instruction-breakdown-table th:nth-child(9),
+.shipping-instruction-breakdown-table td:nth-child(9) {
   width: 1%;
   min-width: 4.5rem; /* Remove */
   white-space: nowrap;

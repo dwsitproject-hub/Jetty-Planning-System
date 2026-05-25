@@ -15,6 +15,9 @@ import {
 import { setOperationShiftingOut } from '../api/operations'
 import { fetchShipmentPlan } from '../api/shipmentPlans'
 import { ApiError, resolveUploadUrl } from '../api/client'
+import FilePreviewLink from '../components/FilePreviewLink'
+import AuthenticatedFileImage from '../components/AuthenticatedFileImage'
+import { useFilePreview } from '../context/FilePreviewContext'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import {
   getScheduleEntryTimeZone,
@@ -292,6 +295,7 @@ function AllocationDetailPanel({ r, tAlloc, onOpenSiDetail, queueList }) {
 }
 
 export default function Allocation({ pageProfile = 'legacy' } = {}) {
+  const { openFilePreview } = useFilePreview()
   const { t } = useTranslation('pages')
   const { t: tAlloc } = useTranslation('allocation')
   const location = useLocation()
@@ -715,7 +719,11 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         if (!alive) return
         const items = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : []
         const mapped = items
-          .map((d) => ({ url: fileUrl(d.url), name: d.name || 'Berthing photo' }))
+          .map((d) => ({
+            url: fileUrl(d.url),
+            name: d.name || 'Berthing photo',
+            mimeType: d.mimeType ?? null,
+          }))
           .filter((x) => x.url)
         if (mapped.length === 0) return
         setVesselPhotosByVesselId((prev) => ({ ...prev, [key]: mapped }))
@@ -2458,9 +2466,12 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                             >
                               {vessel.norDocuments.map((doc) => (
                                 <li key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  <a href={fileUrl(doc.url)} target="_blank" rel="noreferrer">
-                                    {doc.name || 'NOR document'}
-                                  </a>
+                                  <FilePreviewLink
+                                    url={fileUrl(doc.url)}
+                                    name={doc.name || 'NOR document'}
+                                    mimeType={doc.mimeType ?? null}
+                                    className="file-preview-link"
+                                  />
                                   <button
                                     type="button"
                                     className="berthing-modal__nor-delete-btn"
@@ -2567,14 +2578,12 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                               <ul className="berthing-modal__docs-list">
                                 {vessel.norDocuments.map((doc) => (
                                   <li key={doc.id || doc.url || doc.name}>
-                                    <a
-                                      href={fileUrl(doc.url)}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="berthing-modal__doc-link"
-                                    >
-                                      {doc.name || 'NOR document'}
-                                    </a>
+                                    <FilePreviewLink
+                                      url={fileUrl(doc.url)}
+                                      name={doc.name || 'NOR document'}
+                                      mimeType={doc.mimeType ?? null}
+                                      className="berthing-modal__doc-link file-preview-link"
+                                    />
                                   </li>
                                 ))}
                               </ul>
@@ -2606,7 +2615,30 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                         <ul className="vessel-detail-modal__photos">
                           {existingBerthPhotos.map((photo, i) => (
                             <li key={i} className="vessel-detail-modal__photo-item">
-                              <img src={photo.url} alt={photo.name || 'Vessel'} className="vessel-detail-modal__photo-img" />
+                              <AuthenticatedFileImage
+                                url={photo.url}
+                                alt={photo.name || 'Vessel'}
+                                className="vessel-detail-modal__photo-img vessel-detail-modal__photo-img--clickable"
+                                role="button"
+                                tabIndex={0}
+                                onClick={() =>
+                                  openFilePreview({
+                                    url: photo.url,
+                                    name: photo.name || 'Vessel photo',
+                                    mimeType: photo.mimeType || 'image/jpeg',
+                                  })
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault()
+                                    openFilePreview({
+                                      url: photo.url,
+                                      name: photo.name || 'Vessel photo',
+                                      mimeType: photo.mimeType || 'image/jpeg',
+                                    })
+                                  }
+                                }}
+                              />
                               {photo.name ? <span className="vessel-detail-modal__photo-caption">{photo.name}</span> : null}
                             </li>
                           ))}
@@ -2637,7 +2669,30 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                             <ul className="berthing-modal__photo-list" aria-label="New vessel photos">
                               {vesselDetailBerthingNewPhotos.map((p) => (
                                 <li key={p.id} className="berthing-modal__photo-item">
-                                  <img src={p.previewUrl} alt={p.file.name} className="berthing-modal__photo-thumb" />
+                                  <img
+                                    src={p.previewUrl}
+                                    alt={p.file.name}
+                                    className="berthing-modal__photo-thumb berthing-modal__photo-preview--clickable"
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() =>
+                                      openFilePreview({
+                                        url: p.previewUrl,
+                                        name: p.file.name,
+                                        mimeType: p.file.type || 'image/jpeg',
+                                      })
+                                    }
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault()
+                                        openFilePreview({
+                                          url: p.previewUrl,
+                                          name: p.file.name,
+                                          mimeType: p.file.type || 'image/jpeg',
+                                        })
+                                      }
+                                    }}
+                                  />
                                   <span className="berthing-modal__photo-name" title={p.file.name}>{p.file.name}</span>
                                   <button
                                     type="button"
@@ -2876,7 +2931,30 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                     <ul className="berthing-modal__photo-list" aria-label="Uploaded vessel photos">
                       {berthingPhotos.map((p) => (
                         <li key={p.id} className="berthing-modal__photo-item">
-                          <img src={p.previewUrl} alt={p.file.name} className="berthing-modal__photo-thumb" />
+                          <img
+                            src={p.previewUrl}
+                            alt={p.file.name}
+                            className="berthing-modal__photo-thumb berthing-modal__photo-preview--clickable"
+                            role="button"
+                            tabIndex={0}
+                            onClick={() =>
+                              openFilePreview({
+                                url: p.previewUrl,
+                                name: p.file.name,
+                                mimeType: p.file.type || 'image/jpeg',
+                              })
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                openFilePreview({
+                                  url: p.previewUrl,
+                                  name: p.file.name,
+                                  mimeType: p.file.type || 'image/jpeg',
+                                })
+                              }
+                            }}
+                          />
                           <span className="berthing-modal__photo-name" title={p.file.name}>{p.file.name}</span>
                           <button
                             type="button"
@@ -3057,9 +3135,12 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                     >
                       {arrivalUpdateForm.norDocuments.map((d) => (
                         <li key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <a href={fileUrl(d.url)} target="_blank" rel="noreferrer">
-                            {d.name || 'NOR document'}
-                          </a>
+                          <FilePreviewLink
+                            url={fileUrl(d.url)}
+                            name={d.name || 'NOR document'}
+                            mimeType={d.mimeType ?? null}
+                            className="file-preview-link"
+                          />
                           <button
                             type="button"
                             className="berthing-modal__nor-delete-btn"

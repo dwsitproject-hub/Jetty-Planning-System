@@ -11,6 +11,7 @@ import {
   utcIsoToNaiveLocal,
 } from '../utils/scheduleDateTime.js'
 import { resolveUploadUrl } from '../api/client'
+import FilePreviewLink from '../components/FilePreviewLink'
 import SiDetailModal from '../components/SiDetailModal'
 import SiDocumentModal from '../components/SiDocumentModal'
 import '../styles/allocation.css'
@@ -935,9 +936,11 @@ export default function Verification() {
                   <li>
                     Clearance document:{' '}
                     {modalRow?.clearanceDocumentUrl ? (
-                      <a href={resolveUploadUrl(modalRow.clearanceDocumentUrl)} target="_blank" rel="noreferrer">
-                        Open file
-                      </a>
+                      <FilePreviewLink
+                        url={resolveUploadUrl(modalRow.clearanceDocumentUrl)}
+                        name="Clearance document"
+                        className="file-preview-link"
+                      />
                     ) : (
                       '—'
                     )}
@@ -945,9 +948,12 @@ export default function Verification() {
                   <li>
                     Vessel photo:{' '}
                     {modalRow?.vesselPhotoUrl ? (
-                      <a href={resolveUploadUrl(modalRow.vesselPhotoUrl)} target="_blank" rel="noreferrer">
-                        Open file
-                      </a>
+                      <FilePreviewLink
+                        url={resolveUploadUrl(modalRow.vesselPhotoUrl)}
+                        name="Vessel photo"
+                        mimeType="image/jpeg"
+                        className="file-preview-link"
+                      />
                     ) : (
                       '—'
                     )}
