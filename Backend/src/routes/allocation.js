@@ -14,6 +14,7 @@ import { writeActivityLog } from '../lib/activity-log.js';
 import { requirePageView, userHasPageEdit } from '../middleware/permissions.js';
 import { JETTY_OUT_OF_SERVICE } from '../lib/jetty-blocking.js';
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
+import { enrichRowsWithCargoDisplay } from '../lib/siBreakdownDisplay.js';
 
 const router = express.Router();
 const SCHEDULE_SAILED_LOOKBACK_DAYS = 90;
@@ -291,7 +292,10 @@ function formatListRow(r) {
     shippingInstruction: r.reference_number || (r.shipping_instruction_id ? `SI-${r.shipping_instruction_id}` : '—'),
     priority: r.priority || null,
     purpose: r.purpose || null,
-    commodity: r.commodity || null,
+    commodity: r.commodity_display || r.commodity || null,
+    commodityDisplay: r.commodity_display || r.commodity || null,
+    totalQtyDisplay: r.total_qty_display || null,
+    cargoBreakdownSummary: Array.isArray(r.cargo_breakdown_summary) ? r.cargo_breakdown_summary : [],
     norDocuments: r.nor_documents ?? [],
     noPkk: r.no_pkk || null,
     shipper: r.shipper_name || null,
@@ -624,8 +628,14 @@ async function buildAllocationOverviewPayload(selectedPortId) {
     };
   });
 
-  const queue = [...ops, ...incomingSiRes.rows].map(formatListRow);
-  const scheduleQueue = [...(scheduleOpsRes?.rows || []), ...incomingSiRes.rows].map(formatListRow);
+  const scheduleOps = scheduleOpsRes?.rows || [];
+  const [enrichedOps, enrichedScheduleOps, enrichedIncoming] = await Promise.all([
+    enrichRowsWithCargoDisplay(pool, ops),
+    enrichRowsWithCargoDisplay(pool, scheduleOps),
+    enrichRowsWithCargoDisplay(pool, incomingSiRes.rows),
+  ]);
+  const queue = [...enrichedOps, ...enrichedIncoming].map(formatListRow);
+  const scheduleQueue = [...enrichedScheduleOps, ...enrichedIncoming].map(formatListRow);
   return { queue, berths, scheduleQueue };
 }
 

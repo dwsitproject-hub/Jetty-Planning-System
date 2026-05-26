@@ -466,7 +466,7 @@ docker cp ./upload-rescue/. jps-api:/var/jps/uploads/
 docker exec jps-api find /var/jps/uploads -type f
 ```
 
-Files uploaded before the last container recreate that were already lost from **`/tmp`** cannot be recovered from disk — users must re-upload those documents (DB rows may still show filenames until replaced or deleted).
+Files uploaded before the last container recreate that were already lost from **`/tmp`** cannot be recovered from disk — users must re-upload those documents (DB rows may still show filenames until replaced or deleted). Step-by-step manual restore (SQL lookup, `scp`, `docker cp`, verification): [MANUAL-UPLOAD-RESTORE-GUIDE.md](./MANUAL-UPLOAD-RESTORE-GUIDE.md).
 
 #### Backup uploads
 

@@ -24,7 +24,7 @@
   "colVessel": "Kapal",
   "colJettyOperationId": "ID Operasi Jetty",
   "colSi": "SI",
-  "colCommodity": "Komoditas",
+  "colCommodityQty": "Commodity Qty",
   "colPurpose": "Tujuan",
   "colPhase": "Fase",
   "colStatus": "Status",

@@ -12,6 +12,7 @@ import { departShipmentPlanInTransaction } from '../lib/shipment-plan-depart.js'
 import { optionalAuth } from '../middleware/auth.js';
 import { userHasPageApprove, userHasPageEdit } from '../middleware/permissions.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
+import { enrichRowsWithCargoDisplay } from '../lib/siBreakdownDisplay.js';
 
 const router = express.Router();
 router.use(optionalAuth);
@@ -458,7 +459,8 @@ router.get('/', async (req, res) => {
   }
   query += ` ORDER BY o.created_at DESC`;
   const result = await pool.query(query, params);
-  res.json(result.rows.map(toOp));
+  const enriched = await enrichRowsWithCargoDisplay(pool, result.rows);
+  res.json(enriched.map(toOp));
 });
 
 /** Approvers: operations awaiting sign-off approval (SIGNOFF_REQUESTED). */
@@ -482,7 +484,8 @@ router.get('/pending-signoff-requests', async (req, res) => {
      ORDER BY o.signoff_requested_at ASC NULLS LAST`,
     [selectedPortId]
   );
-  res.json(result.rows.map(toOp));
+  const enriched = await enrichRowsWithCargoDisplay(pool, result.rows);
+  res.json(enriched.map(toOp));
 });
 
 router.get('/:id', async (req, res) => {
@@ -1288,7 +1291,12 @@ export function toOp(row) {
     purpose: row.purpose,
     vesselName: row.vessel_name ?? undefined,
     referenceNumber: row.reference_number ?? undefined,
-    commodity: row.commodity ?? undefined,
+    commodity: row.commodity_display || row.commodity || undefined,
+    commodityDisplay: row.commodity_display || row.commodity || undefined,
+    totalQtyDisplay: row.total_qty_display || undefined,
+    cargoBreakdownSummary: Array.isArray(row.cargo_breakdown_summary)
+      ? row.cargo_breakdown_summary
+      : [],
     commodityType: row.commodity_type === 'Solid' ? 'Solid' : 'Liquid',
     cargoSiQty: toFiniteQtyOrNull(row.cargo_si_qty ?? row.cargoSiQty),
     cargoSiMetricCode: row.cargo_si_metric_code ?? null,

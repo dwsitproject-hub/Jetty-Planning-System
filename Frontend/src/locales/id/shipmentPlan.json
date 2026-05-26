@@ -91,6 +91,8 @@
   "colVessel": "Kapal",
   "colSiCount": "# SI",
   "colSiRefs": "Shipping instruction",
+  "colCommodityQty": "Commodity Qty",
+  "filterCommodityQty": "Filter commodity qty",
   "tableSectionTitle": "Rencana pengiriman",
   "filterPlaceholderShort": "Saring…",
   "filterPlanRef": "Saring ref rencana",

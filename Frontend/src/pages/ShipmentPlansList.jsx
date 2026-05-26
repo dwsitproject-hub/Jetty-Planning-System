@@ -39,6 +39,7 @@ import SiExtractConflictModal from '../components/SiExtractConflictModal'
 import SiExtractResultPanel from '../components/SiExtractResultPanel'
 import { MAX_SI_VESSEL_NAME_CHARS, MAX_SI_VOYAGE_CHARS } from '../constants/inputLimits'
 import '../styles/shipping-instruction.css'
+import '../styles/allocation.css'
 
 function formatEta(iso) {
   if (!iso) return '—'
@@ -104,6 +105,7 @@ export default function ShipmentPlansList() {
     planRef: '',
     vessel: '',
     siRefs: '',
+    commodityQty: '',
     purpose: '',
     approval: '',
     jetty: '',
@@ -226,6 +228,8 @@ export default function ShipmentPlansList() {
       if (!inc(row.vesselName, f.vessel)) return false
       const siStr = (row.shippingInstructions || []).map((s) => s.referenceNumber || `SI-${s.id}`).join(' ')
       if (!inc(siStr, f.siRefs)) return false
+      const qtyStr = (row.shippingInstructions || []).map((s) => s.commodityQtyDisplay || '').join(' ')
+      if (!inc(qtyStr, f.commodityQty)) return false
       const planPurposeStr = resolvePurposeLabel(row.purposeCode, null)
       if (!inc(planPurposeStr, f.purpose)) return false
       if (!inc(row.approvalStatus, f.approval)) return false
@@ -982,6 +986,7 @@ export default function ShipmentPlansList() {
                 <th className="shipping-instruction-table__th">{t('colPlanRef')}</th>
                 <th className="shipping-instruction-table__th">{t('colVessel')}</th>
                 <th className="shipping-instruction-table__th">{t('colSiRefs')}</th>
+                <th className="shipping-instruction-table__th">{t('colCommodityQty')}</th>
                 <th className="shipping-instruction-table__th">{t('colPurpose')}</th>
                 <th className="shipping-instruction-table__th">{t('colApproval')}</th>
                 <th className="shipping-instruction-table__th">{t('colJetty')}</th>
@@ -1017,6 +1022,16 @@ export default function ShipmentPlansList() {
                     value={tableFilters.siRefs}
                     onChange={(e) => setTableFilters((f) => ({ ...f, siRefs: e.target.value }))}
                     aria-label={t('filterSiRefs')}
+                  />
+                </th>
+                <th>
+                  <input
+                    type="text"
+                    className="shipping-instruction-table__filter"
+                    placeholder={t('filterPlaceholderShort')}
+                    value={tableFilters.commodityQty}
+                    onChange={(e) => setTableFilters((f) => ({ ...f, commodityQty: e.target.value }))}
+                    aria-label={t('filterCommodityQty')}
                   />
                 </th>
                 <th>
@@ -1123,6 +1138,26 @@ export default function ShipmentPlansList() {
                           >
                             {si.referenceNumber || `SI-${si.id}`}
                           </a>
+                        ))}
+                      </div>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  <td>
+                    {(row.shippingInstructions || []).length ? (
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.35rem',
+                          alignItems: 'flex-start',
+                        }}
+                      >
+                        {(row.shippingInstructions || []).map((si) => (
+                          <span key={`qty-${si.id}`} className="si-cargo-qty-cell">
+                            {si.commodityQtyDisplay || '—'}
+                          </span>
                         ))}
                       </div>
                     ) : (

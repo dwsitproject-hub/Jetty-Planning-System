@@ -705,6 +705,10 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   color: var(--color-text-steel);
 }
 
+.si-cargo-qty-cell {
+  white-space: pre-line;
+}
+
 .allocation-table__expand-col {
   width: 36px;
   text-align: center;

@@ -9,6 +9,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { userHasPageApprove, userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
 import { loadOperationJoined, toOp } from './operations.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
+import { formatSiCargoDisplay } from '../lib/siBreakdownDisplay.js';
 
 const router = express.Router();
 const PAGE_KEY = 'shipment-plan';
@@ -37,6 +38,9 @@ function parseSiBreakdownLiteJson(val) {
       commodityId: r.commodity_id != null ? Number(r.commodity_id) : null,
       commodityName: r.commodity_name ?? null,
       commodityType: r.commodity_type ?? null,
+      metricId: r.metric_id != null ? Number(r.metric_id) : null,
+      metricCode: r.metric_code ?? null,
+      qty: r.qty != null ? Number(r.qty) : 0,
       shipperId: r.shipper_id != null ? Number(r.shipper_id) : null,
       shipperName: r.shipper_name ?? null,
     }));
@@ -50,17 +54,22 @@ function parseSiChildrenJson(val) {
   try {
     const arr = Array.isArray(val) ? val : typeof val === 'string' ? JSON.parse(val) : [];
     if (!Array.isArray(arr)) return [];
-    return arr.map((r) => ({
-      id: Number(r.id),
-      referenceNumber: r.reference_number ?? null,
-      vesselName: r.vessel_name ?? null,
-      purpose: r.purpose ?? null,
-      status: r.status ?? null,
-      etaFrom: r.eta_from ?? null,
-      etaTo: r.eta_to ?? null,
-      loadingPortId: r.loading_port_id != null ? Number(r.loading_port_id) : null,
-      breakdown: parseSiBreakdownLiteJson(r.breakdown),
-    }));
+    return arr.map((r) => {
+      const breakdown = parseSiBreakdownLiteJson(r.breakdown);
+      const { totalQtyDisplay } = formatSiCargoDisplay(breakdown);
+      return {
+        id: Number(r.id),
+        referenceNumber: r.reference_number ?? null,
+        vesselName: r.vessel_name ?? null,
+        purpose: r.purpose ?? null,
+        status: r.status ?? null,
+        etaFrom: r.eta_from ?? null,
+        etaTo: r.eta_to ?? null,
+        loadingPortId: r.loading_port_id != null ? Number(r.loading_port_id) : null,
+        breakdown,
+        commodityQtyDisplay: totalQtyDisplay,
+      };
+    });
   } catch {
     return [];
   }
@@ -203,6 +212,9 @@ router.get('/', async (req, res) => {
                           'commodity_id', c.id,
                           'commodity_name', c.name,
                           'commodity_type', c.commodity_type,
+                          'metric_id', b.metric_id,
+                          'metric_code', m.code,
+                          'qty', b.qty,
                           'shipper_id', b.shipper_id,
                           'shipper_name', sh.name
                         ) ORDER BY b.line_order
@@ -211,6 +223,7 @@ router.get('/', async (req, res) => {
                     )
                     FROM shipping_instruction_breakdown b
                     JOIN si_commodities c ON c.id = b.commodity_id AND c.deleted_at IS NULL
+                    JOIN metric m ON m.id = b.metric_id AND m.deleted_at IS NULL
                     LEFT JOIN si_shippers sh ON sh.id = b.shipper_id AND sh.deleted_at IS NULL
                     WHERE b.shipping_instruction_id = si.id AND b.deleted_at IS NULL
                   )

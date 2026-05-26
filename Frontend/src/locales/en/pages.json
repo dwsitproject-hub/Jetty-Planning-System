@@ -113,6 +113,7 @@
   "clearanceColVessel": "Vessel",
   "clearanceColJettyOperationId": "Jetty Operation ID",
   "clearanceColSi": "SI",
+  "clearanceColCommodityQty": "Commodity Qty",
   "clearanceColPurpose": "Purpose",
   "clearanceColStatus": "Status",
   "clearanceColAction": "Action",

@@ -14,6 +14,7 @@ import { resolveUploadUrl } from '../api/client'
 import FilePreviewLink from '../components/FilePreviewLink'
 import SiDetailModal from '../components/SiDetailModal'
 import SiDocumentModal from '../components/SiDocumentModal'
+import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 
@@ -25,7 +26,18 @@ const CLEARANCE_COLUMNS = [
     getValue: (r) => r.jettyOperationCode || '—',
     getSortValue: (r) => (r.jettyOperationCode || '').toLowerCase(),
   },
-  { key: 'si', label: 'SI', getValue: (r) => r.si || '—', getSortValue: (r) => (r.si || '').toLowerCase() },
+  {
+    key: 'si',
+    label: 'SI',
+    getValue: (r) => r.si || r.referenceNumber || '—',
+    getSortValue: (r) => (r.si || r.referenceNumber || '').toLowerCase(),
+  },
+  {
+    key: 'commodityQty',
+    label: 'Commodity Qty',
+    getValue: (r) => r.totalQtyDisplay || r.totalQty || '—',
+    getSortValue: (r) => (r.totalQtyDisplay || r.totalQty || '').toLowerCase(),
+  },
   { key: 'purpose', label: 'Purpose', getValue: (r) => (
     <span className="loading-list__badge loading-list__badge--purpose" data-purpose={r.purpose}>{r.purpose}</span>
   ), getSortValue: (r) => (r.purpose || '').toLowerCase() },
@@ -60,11 +72,19 @@ function collapseVerificationRowsByPlan(rows) {
   for (const grp of byPlan.values()) {
     const primary = grp.reduce((a, b) => (Number(a.operationId) < Number(b.operationId) ? a : b))
     const refs = [...new Set(grp.map((g) => g.referenceNumber).filter(Boolean))]
+    const totalQtyValues = [...new Set(grp.map((g) => g.totalQtyDisplay || g.totalQty).filter(Boolean))]
+    const qtyJoined =
+      totalQtyValues.length > 1
+        ? totalQtyValues.join('\n')
+        : totalQtyValues[0] || primary.totalQtyDisplay || primary.totalQty || '—'
     merged.push({
       ...primary,
       operationId: primary.operationId,
       siblingOperationIds: grp.map((g) => g.operationId),
-      si: refs.length > 1 ? `${refs.length} SIs: ${refs.join(' · ')}` : primary.si,
+      si: refs.length > 1 ? `${refs.length} SIs: ${refs.join(' · ')}` : primary.referenceNumber || primary.si || '—',
+      totalQty: qtyJoined,
+      totalQtyDisplay: qtyJoined,
+      commodityQty: qtyJoined,
     })
   }
   return [...singles, ...merged]
@@ -149,9 +169,13 @@ export default function Verification() {
         shippingInstructionId: o.shippingInstructionId ?? null,
         vesselName: o.vesselName,
         purpose: o.purpose,
-        si: `${o.referenceNumber ?? ''} · ${o.commodity ?? ''}`.trim() || '—',
+        si: o.referenceNumber ?? '—',
         referenceNumber: o.referenceNumber,
-        commodity: o.commodity,
+        commodity: o.commodityDisplay || o.commodity || '—',
+        commodityDisplay: o.commodityDisplay || o.commodity || '—',
+        totalQty: o.totalQtyDisplay || '—',
+        totalQtyDisplay: o.totalQtyDisplay || '—',
+        commodityQty: o.totalQtyDisplay || '—',
         jettyName: o.jettyName,
         status: 'Pending sign-off',
         apiStatus: 'PENDING_SIGNOFF',
@@ -170,9 +194,13 @@ export default function Verification() {
         shippingInstructionId: o.shippingInstructionId ?? null,
         vesselName: o.vesselName,
         purpose: o.purpose,
-        si: `${o.referenceNumber ?? ''} · ${o.commodity ?? ''}`.trim() || '—',
+        si: o.referenceNumber ?? '—',
         referenceNumber: o.referenceNumber,
-        commodity: o.commodity,
+        commodity: o.commodityDisplay || o.commodity || '—',
+        commodityDisplay: o.commodityDisplay || o.commodity || '—',
+        totalQty: o.totalQtyDisplay || '—',
+        totalQtyDisplay: o.totalQtyDisplay || '—',
+        commodityQty: o.totalQtyDisplay || '—',
         jettyName: o.jettyName,
         status: 'Ready to Sail',
         apiStatus: o.status,
@@ -188,9 +216,13 @@ export default function Verification() {
         shippingInstructionId: o.shippingInstructionId ?? null,
         vesselName: o.vesselName,
         purpose: o.purpose,
-        si: `${o.referenceNumber ?? ''} · ${o.commodity ?? ''}`.trim() || '—',
+        si: o.referenceNumber ?? '—',
         referenceNumber: o.referenceNumber,
-        commodity: o.commodity,
+        commodity: o.commodityDisplay || o.commodity || '—',
+        commodityDisplay: o.commodityDisplay || o.commodity || '—',
+        totalQty: o.totalQtyDisplay || '—',
+        totalQtyDisplay: o.totalQtyDisplay || '—',
+        commodityQty: o.totalQtyDisplay || '—',
         jettyName: o.jettyName,
         status: 'Sailed',
         apiStatus: o.status,
@@ -526,6 +558,8 @@ export default function Verification() {
                             ? t('clearanceColJettyOperationId')
                             : col.key === 'si'
                             ? t('clearanceColSi')
+                            : col.key === 'commodityQty'
+                              ? t('clearanceColCommodityQty')
                             : col.key === 'purpose'
                               ? t('clearanceColPurpose')
                               : col.key === 'status'
@@ -603,6 +637,8 @@ export default function Verification() {
                             ) : (
                               v.si || '—'
                             )
+                          ) : col.key === 'commodityQty' ? (
+                            renderCommodityQtyCell(v)
                           ) : (
                             col.getValue(v)
                           )}
@@ -749,6 +785,8 @@ export default function Verification() {
                       v.si || '—'
                     )}
                   </dd>
+                  <dt>{t('clearanceColCommodityQty')}</dt>
+                  <dd className="si-cargo-qty-cell">{v.totalQtyDisplay || v.totalQty || '—'}</dd>
                   <dt>{t('clearanceColPurpose')}</dt>
                   <dd>{v.purpose || '—'}</dd>
                   <dt>{t('clearanceColStatus')}</dt>

@@ -8,6 +8,7 @@ import SiDetailModal from '../components/SiDetailModal'
 import SiDocumentModal from '../components/SiDocumentModal'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { atBerthExecutionOpenPath } from '../utils/atBerthOpenPath'
+import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import { MAX_REMARK_CHARS } from '../constants/inputLimits'
@@ -104,7 +105,7 @@ function buildAtBerthGroups(sortedRows, t) {
     })
     const shiftRow = children[0]
     const purposes = new Set(children.map((c) => c.purpose).filter(Boolean))
-    const commodities = new Set(children.map((c) => c.commodity).filter(Boolean))
+    const totalQtyValues = new Set(children.map((c) => c.totalQtyDisplay).filter(Boolean))
     const statuses = new Set(children.map((c) => c.status).filter(Boolean))
     const phases = new Set(children.map((c) => statusToPhase(c.status)))
     const minTaMs = minDateMs(children, (x) => x.taDateTime)
@@ -129,8 +130,12 @@ function buildAtBerthGroups(sortedRows, t) {
         ) : (
           t('groupMixed')
         ),
-      commodityDisplay:
-        commodities.size === 0 ? '—' : commodities.size === 1 ? [...commodities][0] || '—' : t('groupMixedCommodity'),
+      totalQtyDisplay:
+        totalQtyValues.size === 0
+          ? '—'
+          : totalQtyValues.size === 1
+            ? [...totalQtyValues][0] || '—'
+            : t('groupMixed'),
       phaseDisplay: phases.size <= 1 ? [...phases][0] || '—' : t('groupMixed'),
       statusDisplay: statuses.size <= 1 ? [...statuses][0] || '—' : t('groupMixed'),
       taDisplay: formatDateTimeDisplay(minTaIso),
@@ -163,11 +168,11 @@ const AT_BERTH_COLUMNS = [
     getFilterValue: (r) => r.shippingInstruction,
   },
   {
-    key: 'commodity',
-    label: 'Commodity',
-    getValue: (r) => r.commodity || '—',
-    getSortValue: (r) => (r.commodity || '').toLowerCase(),
-    getFilterValue: (r) => r.commodity,
+    key: 'commodityQty',
+    label: 'Commodity Qty',
+    getValue: (r) => r.totalQtyDisplay || '—',
+    getSortValue: (r) => (r.totalQtyDisplay || '').toLowerCase(),
+    getFilterValue: (r) => r.totalQtyDisplay || '',
   },
   {
     key: 'purpose',
@@ -325,7 +330,7 @@ export default function AtBerthExecutions() {
           vesselName: 'colVessel',
           jettyOperationCode: 'colJettyOperationId',
           shippingInstruction: 'colSi',
-          commodity: 'colCommodity',
+          commodityQty: 'colCommodityQty',
           purpose: 'colPurpose',
           jetty: 'colJetty',
           ta: 'colTa',
@@ -669,6 +674,8 @@ export default function AtBerthExecutions() {
                                 ) : (
                                   r.shippingInstruction || '—'
                                 )
+                              ) : col.key === 'commodityQty' ? (
+                                renderCommodityQtyCell(r)
                               ) : (
                                 col.getValue(r)
                               )}
@@ -727,8 +734,8 @@ export default function AtBerthExecutions() {
                               '—'
                             ) : col.key === 'shippingInstruction' ? (
                               t('groupSiCount', { count: g.siCount })
-                            ) : col.key === 'commodity' ? (
-                              g.commodityDisplay
+                            ) : col.key === 'commodityQty' ? (
+                              <span className="si-cargo-qty-cell">{g.totalQtyDisplay}</span>
                             ) : col.key === 'purpose' ? (
                               g.purposeDisplay
                             ) : col.key === 'jetty' ? (
@@ -798,6 +805,8 @@ export default function AtBerthExecutions() {
                                     ) : (
                                       r.shippingInstruction || '—'
                                     )
+                                  ) : col.key === 'commodityQty' ? (
+                                    renderCommodityQtyCell(r)
                                   ) : (
                                     col.getValue(r)
                                   )}
@@ -864,6 +873,8 @@ export default function AtBerthExecutions() {
                           r.shippingInstruction || '—'
                         )}
                       </dd>
+                      <dt>{t('colCommodityQty')}</dt>
+                      <dd className="si-cargo-qty-cell">{r.totalQtyDisplay || '—'}</dd>
                       <dt>{t('colPurpose')}</dt>
                       <dd>{r.purpose || '—'}</dd>
                       <dt>{t('colJetty')}</dt>
@@ -922,6 +933,8 @@ export default function AtBerthExecutions() {
                   <dl className="allocation-mobile-card__grid">
                     <dt>{t('colJetty')}</dt>
                     <dd>{g.jetty}</dd>
+                    <dt>{t('colCommodityQty')}</dt>
+                    <dd className="si-cargo-qty-cell">{g.totalQtyDisplay}</dd>
                     <dt>{t('colPhase')}</dt>
                     <dd>{g.phaseDisplay}</dd>
                     <dt>{t('colTa')}</dt>
@@ -964,6 +977,7 @@ export default function AtBerthExecutions() {
                         <div key={r.id} className="at-berth-mobile-child">
                           <div className="at-berth-mobile-child__head">
                             <span className="text-steel">{r.shippingInstruction || '—'}</span>
+                            <span className="text-steel si-cargo-qty-cell">{r.totalQtyDisplay || '—'}</span>
                             <Link to={atBerthExecutionOpenPath(r)} className="btn btn--small btn--primary">
                               {t('open')}
                             </Link>

@@ -91,6 +91,8 @@
   "colVessel": "Vessel",
   "colSiCount": "# SI",
   "colSiRefs": "Shipping instructions",
+  "colCommodityQty": "Commodity Qty",
+  "filterCommodityQty": "Filter commodity qty",
   "tableSectionTitle": "Shipment plans",
   "filterPlaceholderShort": "Filter…",
   "filterPlanRef": "Filter plan ref",

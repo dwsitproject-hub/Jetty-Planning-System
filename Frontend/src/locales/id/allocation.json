@@ -26,6 +26,7 @@
   "colPlanRef": "Ref rencana",
   "colJettyOperationId": "ID Operasi Jetty",
   "colShippingInstruction": "Shipping Instruction",
+  "colCommodityQty": "Commodity Qty",
   "colPriority": "Prioritas",
   "colPurpose": "Tujuan",
   "colRemark": "Keterangan",

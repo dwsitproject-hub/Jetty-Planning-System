@@ -35,6 +35,7 @@ import '../styles/allocation.css'
 import '../styles/modal.css'
 import { MAX_REMARK_CHARS } from '../constants/inputLimits'
 import { mergeBerthsStateForPlanPov, mergeQueueRowsForPlanPov } from '../utils/allocationPlanPovMerge'
+import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
 
 /** Standardized pipeline flow (match Dashboard Vessel pipeline) */
 const UNIFIED_PHASES = ['Shipping Instruction', 'Planned berthing', 'At-Berth', 'Clearance']
@@ -90,6 +91,13 @@ const ALLOCATION_COLUMNS = [
     getSortValue: (r) => (r.jettyOperationCode || '').toLowerCase(),
   },
   { key: 'shippingInstruction', label: 'Shipping Instruction', getValue: (r) => r.shippingInstruction || '—', getSortValue: (r) => (r.shippingInstruction || '').toLowerCase() },
+  {
+    key: 'commodityQty',
+    label: 'Commodity Qty',
+    getValue: (r) => r.totalQtyDisplay || '—',
+    getSortValue: (r) => (r.totalQtyDisplay || '').toLowerCase(),
+    getFilterValue: (r) => r.totalQtyDisplay || '',
+  },
   { key: 'priority', label: 'Priority', getValue: (r) => r.priority || '—', getSortValue: (r) => (r.priority || '').toLowerCase() },
   {
     key: 'purpose',
@@ -686,6 +694,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
           planReference: 'colPlanRef',
           jettyOperationCode: 'colJettyOperationId',
           shippingInstruction: 'colShippingInstruction',
+          commodityQty: 'colCommodityQty',
           priority: 'colPriority',
           purpose: 'colPurpose',
           remark: 'colRemark',
@@ -1724,6 +1733,8 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                 ) : (
                   r.shippingInstruction || '—'
                 )
+              ) : col.key === 'commodityQty' ? (
+                renderCommodityQtyCell(r)
               ) : (
                 col.getValue(r)
               )}
@@ -3596,6 +3607,8 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                           ) : (
                             r.shippingInstruction || '—'
                           )
+                        ) : col.key === 'commodityQty' ? (
+                          renderCommodityQtyCell(r)
                         ) : (
                           col.getValue(r)
                         )}

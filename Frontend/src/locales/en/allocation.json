@@ -26,6 +26,7 @@
   "colPlanRef": "Plan ref",
   "colJettyOperationId": "Jetty Operation ID",
   "colShippingInstruction": "Shipping Instruction",
+  "colCommodityQty": "Commodity Qty",
   "colPriority": "Priority",
   "colPurpose": "Purpose",
   "colRemark": "Remark",

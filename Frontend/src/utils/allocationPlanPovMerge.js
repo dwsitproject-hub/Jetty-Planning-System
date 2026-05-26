@@ -119,7 +119,12 @@ function mergePlanChildrenToQueueRow(children, planId, repMapOut, options = {}) 
     if (seenSi.has(num)) continue
     seenSi.add(num)
     const label = (c.shippingInstruction || '').trim() || `SI-${num}`
-    planQueueSiEntries.push({ shippingInstructionId: num, label })
+    planQueueSiEntries.push({
+      shippingInstructionId: num,
+      label,
+      commodityDisplay: c.commodityDisplay || c.commodity || '—',
+      totalQtyDisplay: c.totalQtyDisplay || '—',
+    })
   }
 
   const jettySet = new Set()
@@ -187,7 +192,26 @@ function mergePlanChildrenToQueueRow(children, planId, repMapOut, options = {}) 
     shipper: rep?.shipper ?? null,
     agent: rep?.agent ?? null,
     surveyor: rep?.surveyor ?? null,
-    commodity: [...new Set(children.map((c) => c.commodity).filter(Boolean))].join(' · ') || rep?.commodity || null,
+    commodity:
+      [...new Set(planQueueSiEntries.map((e) => e.commodityDisplay).filter((v) => v && v !== '—'))].join(' · ') ||
+      [...new Set(children.map((c) => c.commodityDisplay || c.commodity).filter(Boolean))].join(' · ') ||
+      rep?.commodityDisplay ||
+      rep?.commodity ||
+      null,
+    commodityDisplay:
+      [...new Set(planQueueSiEntries.map((e) => e.commodityDisplay).filter((v) => v && v !== '—'))].join(' · ') ||
+      [...new Set(children.map((c) => c.commodityDisplay || c.commodity).filter(Boolean))].join(' · ') ||
+      rep?.commodityDisplay ||
+      rep?.commodity ||
+      null,
+    totalQtyDisplay:
+      planQueueSiEntries
+        .map((e) => e.totalQtyDisplay)
+        .filter((v) => v && v !== '—')
+        .join('\n') ||
+      [...new Set(children.map((c) => c.totalQtyDisplay).filter((v) => v && v !== '—'))].join('\n') ||
+      rep?.totalQtyDisplay ||
+      null,
     source: children.some((c) => c.source === 'operation') ? 'operation' : rep?.source || 'incoming-si',
     eta: rep?.eta ?? first.eta ?? null,
     etb: rep?.etb ?? first.etb ?? null,

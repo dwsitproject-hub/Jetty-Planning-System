@@ -113,6 +113,7 @@
   "clearanceColVessel": "Kapal",
   "clearanceColJettyOperationId": "ID Operasi Jetty",
   "clearanceColSi": "SI",
+  "clearanceColCommodityQty": "Commodity Qty",
   "clearanceColPurpose": "Purpose",
   "clearanceColStatus": "Status",
   "clearanceColAction": "Aksi",

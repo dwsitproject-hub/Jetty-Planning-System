@@ -24,7 +24,7 @@
   "colVessel": "Vessel",
   "colJettyOperationId": "Jetty Operation ID",
   "colSi": "SI",
-  "colCommodity": "Commodity",
+  "colCommodityQty": "Commodity Qty",
   "colPurpose": "Purpose",
   "colPhase": "Phase",
   "colStatus": "Status",
