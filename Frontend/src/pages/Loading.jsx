@@ -867,16 +867,15 @@ function Loading() {
       .sort((a, b) => Number(a.operationId) - Number(b.operationId))
   }, [apiOp?.shipmentPlanId, allocationQueue])
 
-  /** Same shipment plan: peers not yet ready for sign-off (status / completion from allocation queue). */
+  /** Same shipment plan: peers not yet ready for sign-off (status from allocation queue). */
   const incompletePlanPeers = useMemo(() => {
     if (mockMatchesRoutePurpose) return []
     if (siblingOpsOnPlan.length <= 1) return []
-    const terminal = new Set(['SIGNOFF_REQUESTED', 'SIGNOFF_APPROVED'])
+    const terminal = new Set(['SIGNOFF_REQUESTED', 'SIGNOFF_APPROVED', 'POST_OPS'])
     return siblingOpsOnPlan.filter((row) => {
       if (Number(row.operationId) === Number(operationId)) return false
       const st = String(row.status || '')
       if (terminal.has(st)) return false
-      if (st === 'POST_OPS' && Number(row.completionPercent ?? 0) >= 100) return false
       return true
     })
   }, [mockMatchesRoutePurpose, siblingOpsOnPlan, operationId])

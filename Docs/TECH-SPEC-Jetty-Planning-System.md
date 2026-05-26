@@ -1,12 +1,63 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.41
-**Last Updated**: 2026-05-25  
+**Version**: 1.42
+**Last Updated**: 2026-05-26  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
 
 ## 0. Addendum (2026-03-31)
+
+### 0.32 Overview tables — Commodity Qty column (`siBreakdownDisplay`) (2026-05-26)
+
+**Purpose:** Show **SI-declared cargo** (commodity name + quantity per breakdown line) in main overview tables without opening SI modals. A single **Commodity Qty** column replaces a separate **Commodity** + **Total Qty** pair because each cell already embeds the commodity name (e.g. `RPO 5.000 MT`).
+
+**Data source:** Active rows in **`shipping_instruction_breakdown`** (`commodity_id`, `metric_id`, `qty`, `line_order`) joined to **`si_commodities`** and **`metric`**.
+
+**Shared formatter — `Backend/src/lib/siBreakdownDisplay.js`:**
+
+| Function | Role |
+|----------|------|
+| **`formatSiCargoDisplay(breakdownRows)`** | Groups lines by **`commodity_id`**; within each group sums **`qty`** per **`metric_id`** (separate subtotals if mixed units on one commodity). Formats qty with **`id-ID`** locale and **`metric.code`**. Returns **`commodityDisplay`** (distinct names joined ` · `) and **`totalQtyDisplay`** (per-commodity strings like `RPO 5.000 MT`, joined with **`\n`**). |
+| **`loadBreakdownBySiIds(pool, siIds)`** | Single batch query for many SIs (avoids N+1). |
+| **`enrichRowsWithCargoDisplay(pool, rows)`** | Attaches **`commodity_display`**, **`total_qty_display`**, **`cargo_breakdown_summary[]`** to SQL rows before JSON mapping. |
+| **`buildCargoBreakdownSummary(siId, ref, breakdown)`** | One summary object per SI: `{ shippingInstructionId, referenceNumber, commodityDisplay, totalQtyDisplay }`. |
+
+**Unit test:** **`npm run test:si-breakdown-display`** (`Backend/scripts/test-si-breakdown-display.mjs`).
+
+**API — allocation overview (`Backend/src/routes/allocation.js`):**
+
+- After **`operationsOverviewSql`** / incoming-SI queries, **`buildAllocationOverviewPayload`** calls **`enrichRowsWithCargoDisplay`** on ops, schedule ops, and incoming SI rows (parallel batch).
+- **`formatListRow`** exposes camelCase: **`commodityDisplay`**, **`totalQtyDisplay`**, **`cargoBreakdownSummary`**; **`commodity`** prefers **`commodity_display`** for backward compatibility.
+- Endpoints: **`GET /allocation/overview`**, **`GET /allocation/plan-overview`** (same payload builder).
+
+**API — operations list (`Backend/src/routes/operations.js`):**
+
+- **`GET /operations`** (incl. Clearance status filters) and **`GET /operations/pending-signoff-requests`** enrich rows before **`toOp()`**.
+- **`toOp`** adds **`commodityDisplay`**, **`totalQtyDisplay`**, **`cargoBreakdownSummary`** (legacy **`cargoSiQty`** / **`cargoSiMetricCode`** remain for other consumers).
+
+**API — shipment plan list (`Backend/src/routes/shipment-plans.js`):**
+
+- List SQL **`si_children_json`** breakdown objects now include **`qty`**, **`metric_id`**, **`metric_code`** (JOIN **`metric`**).
+- **`parseSiChildrenJson`** maps **`commodityQtyDisplay`** per child SI via **`formatSiCargoDisplay`**.
+
+**Frontend:**
+
+| Module | Role |
+|--------|------|
+| **`Frontend/src/utils/siCargoTableDisplay.jsx`** | **`renderCommodityQtyCell(row)`** — **`white-space: pre-line`** via **`.si-cargo-qty-cell`**; stacked multi-SI via **`planQueueSiEntries[].totalQtyDisplay`**. |
+| **`Frontend/src/styles/allocation.css`** | **`.si-cargo-qty-cell { white-space: pre-line; }`** |
+| **`Frontend/src/pages/Allocation.jsx`** | Column **`commodityQty`** after **`shippingInstruction`**; i18n **`colCommodityQty`**. |
+| **`Frontend/src/pages/AtBerthExecutions.jsx`** | Same column; group header shows **`totalQtyDisplay`** or localized **Mixed**. |
+| **`Frontend/src/pages/Verification.jsx`** | SI column reference-only; **`commodityQty`** column; merged plan rows join qty with **`\n`**. |
+| **`Frontend/src/pages/ShipmentPlansList.jsx`** | Column after SI refs; stacked **`si.commodityQtyDisplay`** per child SI. |
+| **`Frontend/src/utils/allocationPlanPovMerge.js`** | **`planQueueSiEntries[]`** includes **`commodityDisplay`**, **`totalQtyDisplay`** per SI. |
+
+**i18n:** **`colCommodityQty`** / **`clearanceColCommodityQty`** (EN/ID) in **`allocation.json`**, **`atBerth.json`**, **`pages.json`**, **`shipmentPlan.json`**.
+
+**Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.21**.
+
+**Update to §0.29 shipment-plan list breakdown:** **`GET /shipment-plans`** embeds **`qty`**, **`metric_id`**, **`metric_code`** in list **`breakdown[]`** (in addition to commodity/shipper fields documented in **§0.29**).
 
 ### 0.27 Self-service change password — `PUT /users/me/password` (2026-05-19)
 
@@ -153,8 +204,8 @@
 
 **Backend — shipment plan list commodity breakdown (`Backend/src/routes/shipment-plans.js`):**
 
-- **`GET /shipment-plans`** list embeds per-SI **`breakdown`** in **`si_children_json`**: `{ commodity_id, commodity_name, commodity_type, shipper_id, shipper_name }[]` from **`shipping_instruction_breakdown`** (LEFT JOIN **`si_shippers`**).
-- **`parseSiChildrenJson`** maps to **`shippingInstructions[].breakdown[]`** with **`commodityId`**, **`commodityName`**, **`commodityType`**, **`shipperId`**, **`shipperName`** for client commodity index and plan-modal SI drafts (early pipeline stages).
+- **`GET /shipment-plans`** list embeds per-SI **`breakdown`** in **`si_children_json`**: `{ commodity_id, commodity_name, commodity_type, metric_id, metric_code, qty, shipper_id, shipper_name }[]` from **`shipping_instruction_breakdown`** (JOIN **`metric`**; LEFT JOIN **`si_shippers`**).
+- **`parseSiChildrenJson`** maps to **`shippingInstructions[].breakdown[]`** with **`commodityId`**, **`commodityName`**, **`commodityType`**, **`metricId`**, **`metricCode`**, **`qty`**, **`shipperId`**, **`shipperName`**, plus **`commodityQtyDisplay`** (formatted per **§0.32**) for list tables and dashboard commodity index.
 
 **Deploy note:** Weekly trends filtering requires a backend build that includes **`dashboard-v2-weekly.js`** filter changes. Frontend-only deploy updates pipeline/KPI/at-berth filtering but not weekly charts until the API is restarted/redeployed.
 

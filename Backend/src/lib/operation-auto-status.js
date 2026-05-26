@@ -27,7 +27,9 @@ export async function promoteDockedToInProgressIfDocked(client, operationId) {
 export async function promoteInProgressToPostOpsIfInProgress(client, operationId) {
   const r = await client.query(
     `UPDATE operations
-     SET status = 'POST_OPS', updated_at = NOW()
+     SET status = 'POST_OPS',
+         completion_percent = 100,
+         updated_at = NOW()
      WHERE id = $1 AND deleted_at IS NULL AND status = 'IN_PROGRESS'
      RETURNING id`,
     [operationId]
