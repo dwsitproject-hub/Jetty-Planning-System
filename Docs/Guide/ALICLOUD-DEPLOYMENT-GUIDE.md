@@ -107,6 +107,8 @@ Users open only the **app** URL (public IP / domain + port or HTTPS). The browse
 
 **Single-server alternative (all-in-one on one VM):** use `docker-compose.production.yml` as documented in git history or enable `jps-web` + `jps-api` + `jps-db` on one host; this guide focuses on the **two-server** split.
 
+**Three-server split (dedicated database host):** when scaling API and PostgreSQL onto separate ECS instances, follow [THREE-SERVER-DB-SPLIT-GUIDE.md](./THREE-SERVER-DB-SPLIT-GUIDE.md) (host readiness, practice migration). **Cutover:** [THREE-SERVER-DB-CUTOVER-RUNBOOK.md](./THREE-SERVER-DB-CUTOVER-RUNBOOK.md).
+
 \---
 
 ## 1\. Security groups (two SGs)

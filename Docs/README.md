@@ -88,6 +88,8 @@ Shipping Instruction → Allocation & Berthing → At-Berth → Loading/Unloadin
 | **technical-architecture.md** | Technical architecture: stack, environments, data model, APIs, security, deployment. |
 | **Dev-Notes.md** | Dev handover: branch status, local run, staging deployment, docs reference, next steps. |
 | **Guide/ALICLOUD-DEPLOYMENT-GUIDE.md** | Deployment on Alicloud Ubuntu: security group, Docker, optional PostgreSQL, migrations, troubleshooting. |
+| **Guide/THREE-SERVER-DB-SPLIT-GUIDE.md** | Migrate from two-server (app + API/DB) to three-server (app, API, dedicated PostgreSQL): host audit, Compose split, networking, practice migration. |
+| **Guide/THREE-SERVER-DB-CUTOVER-RUNBOOK.md** | After-hours production cutover: prerequisites, final dump/restore, API-only compose, smoke test, rollback. |
 | **Guide/ECS-DISK-SPACE-CHECK-AND-EXPAND.md** | ECS disk full (`No space left on device`): check `df`/`lsblk`, free Docker/apt space, resize or attach disks (FFmpeg / Jetty Live). |
 | **Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md** | Jetty Live RTSP stream on the app server (`rtsp-stream-viewer`, nginx, systemd). |
 | **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md** | **Functional spec:** Jetty schedule Gantt, arrival/berthing modals, **At-Berth Executions** list behaviour, **date/time display** rules (no “LT”), and related user-visible logic. |
