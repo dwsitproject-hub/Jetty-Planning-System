@@ -406,6 +406,8 @@ button.jetty-schematic__lane:focus-visible {
   background: rgba(255, 251, 240, 0.98);
 }
 .jetty-schematic__slot--disch.jetty-schematic__slot--rag-green {
+  /* On-track: left accent follows purpose (blue), not RAG green */
+  border-left-color: rgba(33, 115, 199, 0.85);
   background: rgba(239, 246, 255, 0.95);
 }
 
@@ -416,6 +418,7 @@ button.jetty-schematic__lane:focus-visible {
   background: rgba(255, 251, 240, 0.98);
 }
 .jetty-schematic__slot--load.jetty-schematic__slot--rag-green {
+  border-left-color: rgba(45, 122, 62, 0.85);
   background: rgba(240, 253, 244, 0.95);
 }
 
