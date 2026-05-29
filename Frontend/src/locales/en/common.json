@@ -25,6 +25,13 @@
     "enShort": "EN",
     "idShort": "ID"
   },
+  "etcBreach": {
+    "overdue": "{{duration}} over ETC",
+    "tooltip": "ETC breached · {{duration}} · Est. completion {{etc}}",
+    "ariaLabel": "ETC breached, {{duration}} over estimated completion",
+    "filterLabel": "ETC breached only",
+    "openWorkspaceHint": "Open workspace to progress operation"
+  },
   "changePassword": {
     "menuItem": "Change Password",
     "title": "Change Password",

@@ -25,6 +25,7 @@ import {
 } from '../utils/dashboardFilters'
 import '../styles/dashboard.css'
 import '../styles/allocation.css'
+import { getEtcBreach } from '../utils/etcBreach'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const AT_BERTH_PHASES = ['Pre-Checking', 'Operational', 'Post-Checking']
@@ -486,15 +487,13 @@ export default function DashboardV2() {
     const unlinked = []
     for (const o of filteredOps) {
       if (o.shipmentPlanId != null && rejectedPlanIds.has(o.shipmentPlanId)) continue
-      if (['SAILED', 'PENDING', 'ALLOCATED'].includes(o.status)) continue
-      const etc = parseIso(o.estimatedCompletionTime)
-      if (!etc || etc.getTime() >= now) continue
-      const overHours = (now - etc.getTime()) / 3600000
-      const row = { ...o, overHours }
+      const breach = getEtcBreach(o, now)
+      if (!breach) continue
+      const row = { ...o, overHours: breach.overHours, overMs: breach.overMs }
       const pid = o.shipmentPlanId != null ? Number(o.shipmentPlanId) : null
       if (pid != null && !Number.isNaN(pid)) {
         const prev = byPlan.get(pid)
-        if (!prev || overHours > prev.overHours) byPlan.set(pid, row)
+        if (!prev || breach.overHours > prev.overHours) byPlan.set(pid, row)
       } else {
         unlinked.push(row)
       }

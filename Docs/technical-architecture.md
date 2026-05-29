@@ -1,7 +1,7 @@
 # Jetty Planning System — Technical Architecture
 
-**Version**: 1.0  
-**Last Updated**: 2026-05-11  
+**Version**: 1.1  
+**Last Updated**: 2026-05-28  
 **Sources**: TECH-SPEC-Jetty-Planning-System.md, Feature-Module-Summary.md, Dev-Notes.md, Jetty PRD vRian - 1.0
 
 ---
@@ -62,6 +62,29 @@ Current UI ownership:
 - **`POST /shipment-plans/:id/depart`** (+ **`POST /operations/:id/depart`** with plan siblings): single clearance action sails **all** ready child operations and updates the plan row.
 - **`GET /operations` / `:id`**: JSON merges **`shipment_plans`** timeline over **`operations`** when **`shipmentPlanId`** is present so hubs and calculators see one voyage clock.
 
+### 0.6 Alicloud deployment topology (2026-05-28)
+
+Production and SIT on Alicloud ECS use **Docker Compose** in the same VPC. Two layouts are supported:
+
+| Layout | Servers | Compose (repo root unless noted) |
+|--------|---------|----------------------------------|
+| **Two-server** (default bootstrap) | App (nginx + SPA) \| API + PostgreSQL | `docker-compose.app.yml`, `docker-compose.backend.yml` |
+| **Three-server** (recommended at scale) | App \| API only \| PostgreSQL only | `docker-compose.app.yml`, `docker-compose.backend-api-only.yml`, `Backend/infra/docker-compose.db.yml` |
+
+**Three-server traffic path** (example private IPs):
+
+```text
+Browser → Server 1 (nginx :3080, public EIP or VPC)
+              → Server 2 (jps-api :3000)          [VPC only]
+                    → Server 3 (jps-db :5432)     [VPC only; SG: API host only]
+```
+
+- **Server 1 (app):** unchanged for users — nginx proxies `/api/` and `/uploads/` to Server 2. See `Frontend/nginx.alicloud-app.conf`.
+- **Server 2 (API):** `jps-api` + **`jps_uploads`** volume (SI/operation documents); **`DATABASE_URL`** points at Server 3 via `DB_HOST` / `DB_PORT` in `Backend/.env`.
+- **Server 3 (DB):** `jps-db` only; **not** exposed to the internet. Inbound **5432** from Server 2 private IP only.
+
+**Migration from two- to three-server:** [Guide/THREE-SERVER-DB-SPLIT-GUIDE.md](./Guide/THREE-SERVER-DB-SPLIT-GUIDE.md). **Production cutover:** [Guide/THREE-SERVER-DB-CUTOVER-RUNBOOK.md](./Guide/THREE-SERVER-DB-CUTOVER-RUNBOOK.md). Initial install and security groups: [Guide/ALICLOUD-DEPLOYMENT-GUIDE.md](./Guide/ALICLOUD-DEPLOYMENT-GUIDE.md) (two-server baseline; links to split guides).
+
 ---
 
 ## 1. Overview
@@ -76,28 +99,47 @@ Digitize and streamline end-to-end jetty operations (loading and unloading) by p
 
 ### 1.2 High-level architecture
 
+**Logical view** (application layers):
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                           CLIENT (Browser)                               │
 │  React 18 + Vite 5 SPA  │  Design tokens  │  React Router 6             │
 └─────────────────────────────────┬───────────────────────────────────────┘
-                                   │ HTTPS
+                                   │ HTTPS (or HTTP on internal SIT)
                                    ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                                BACKEND                                   │
-│  Node.js REST API /api/v1  │  optionalAuth  │  Activity log (audit-like) │
+│                     APP TIER (nginx + static SPA)                        │
+│  Same-origin /api/v1 and /uploads proxied to API tier (Alicloud app ECS)│
+└─────────────────────────────────┬───────────────────────────────────────┘
+                                   │ VPC private :3000
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          API TIER (Node.js)                              │
+│  REST /api/v1  │  JWT + cookies  │  RBAC  │  file uploads (local volume)│
 └─────────────────────────────────┬───────────────────────────────────────┘
                                    │
                     ┌──────────────┼──────────────┐
                     ▼              ▼              ▼
 ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
 │  PostgreSQL  │  │ File storage  │  │ External     │
-│  (primary DB)│  │ (docs/photos)│  │ (Weather,    │
-│              │  │              │  │  EXIM/API)   │
+│  (primary DB)│  │ on API host   │  │ (Weather,    │
+│  own ECS in  │  │ jps_uploads   │  │  SSO/OIDC)   │
+│  3-server    │  │               │  │              │
 └──────────────┘  └──────────────┘  └──────────────┘
 ```
 
-**Current state**: React SPA + Node.js backend exist. Some at-berth flows now persist to PostgreSQL (sub-processes, operational activities, NOR details) and are surfaced in a unified Activity Log timeline on the Loading/Unloading pages.
+**Alicloud physical layout (three-server, typical SIT/production):**
+
+| Server | Role | Example IP | Published ports (host) |
+|--------|------|--------------|-------------------------|
+| **1 — App** | nginx + built React SPA | `172.28.92.56` + EIP | **3080** → users; proxies to Server 2 |
+| **2 — API** | `jps-api` only (after split) | `172.28.92.57` | **3000** → app SG only |
+| **3 — DB** | `jps-db` only | `172.28.92.60` | **5432** → API SG only |
+
+Two-server bootstrap colocates API + Postgres on Server 2 (`docker-compose.backend.yml`); cutover moves Postgres to Server 3 without changing the browser URL or nginx upstream (still Server 2 `:3000`). See **§0.6** and **§10**.
+
+**Current state**: Full-stack React SPA + Node API + PostgreSQL; operational modules persist to the database (at-berth sub-processes, operational activities, shipment plans, SI documents, etc.).
 
 ---
 
@@ -138,27 +180,29 @@ The sections below detail each layer.
 
 | Component | Technology |
 |-----------|------------|
-| Database | PostgreSQL |
-| Deployment | Docker / Docker Compose; Alicloud ECS (Ubuntu) |
-| Web server (frontend) | nginx (static build) |
-| Environments | Dev (local), Testing (Alicloud), Production (Alicloud) |
+| Database | PostgreSQL 16 (Docker `jps-db`) |
+| Deployment | Docker Compose on Alicloud ECS (Ubuntu); optional local Compose for dev |
+| Web server (frontend) | nginx (static Vite build in `jps-fe` container) |
+| Upload storage | Docker volume **`jps_uploads`** on **API server** (`UPLOAD_DIR`, default `/var/jps/uploads`) |
+| Environments | Dev (local), Testing / SIT (Alicloud), Production (Alicloud) |
+| Topology | **Two-server** (app + API/DB) or **three-server** (app + API + dedicated DB) — **§0.6**, **§10** |
 
 ---
 
 ## 3. Environments
 
-| Environment | Purpose | Frontend | Backend | Database |
-|-------------|---------|----------|---------|----------|
-| **Dev (local)** | Development | Vite dev server (e.g. :5173) | **Docker-only**: API + PostgreSQL in containers (`Backend/docker-compose up`) | PostgreSQL in same compose |
-| **Testing (Alicloud)** | SIT / UAT | ECS/ACK; test build | Test API | Managed DB; `.env.testing` |
-| **Production (Alicloud)** | Live | HA deployment | HA API | Managed DB; `.env.production` |
+| Environment | Purpose | Frontend | API | Database |
+|-------------|---------|----------|-----|----------|
+| **Dev (local)** | Development | Vite dev server (e.g. :5173) | Docker: `docker-compose.backend.yml` (API + DB on one host) | Same compose as API |
+| **Testing (Alicloud SIT)** | SIT / UAT | ECS app host; `docker-compose.app.yml` (:3080 typical) | ECS API host; `docker-compose.backend.yml` **or** `docker-compose.backend-api-only.yml` | Colocated on API host **or** dedicated DB ECS (`Backend/infra/docker-compose.db.yml`) |
+| **Production (Alicloud)** | Live | Same as SIT pattern | Same as SIT pattern | Dedicated DB host recommended (**three-server**) |
 
-Configuration per environment (e.g. `.env` / `.env.*`):
+Configuration per environment (e.g. `Backend/.env`, repo root `.env` for Vite build):
 
-- `APP_ENV`, `VITE_API_BASE_URL`  
-- `DB_*` (host, port, user, password, database name)  
-- `JWT_SECRET`  
-- External: `EXIM_API_URL`, `GOOGLE_WEATHER_API_KEY`, etc.
+- **App:** `VITE_API_BASE_URL` (production: `/api/v1` on same host users open), `JPS_FE_PORT`
+- **API:** `DATABASE_URL` or `DB_HOST` + `DB_PORT` + `POSTGRES_*`, `JWT_SECRET`, `CORS_ORIGIN`, `COOKIE_SECURE`, SSO/OIDC vars
+- **DB server:** `POSTGRES_*`, `DB_BIND_IP` (VPC private IP of DB host for `:5432` publish)
+- External: `EXIM_API_URL`, weather keys, Hub/OIDC secrets as applicable
 
 ---
 
@@ -373,10 +417,37 @@ Seeded active values:
 
 ## 10. Deployment (summary)
 
-- **Frontend**: Built with Vite (`npm run build`); served by nginx in Docker (e.g. port 3001 locally, configurable on server).  
-- **Backend**: Node.js API in container; connects to PostgreSQL (same host or managed).  
-- **Database**: PostgreSQL; migrations run after deploy (e.g. `docker compose exec jps-api npm run migrate` or equivalent).  
-- **Alicloud**: See **ALICLOUD-DEPLOYMENT-GUIDE.md** for security group, Docker install, `.env`, and troubleshooting.
+### 10.1 Local development
+
+- **Frontend:** `npm run dev` (Vite, e.g. :5173); `VITE_API_BASE_URL=http://localhost:3000/api/v1`
+- **Backend + DB:** `docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d`
+- **Migrations:** `docker compose ... exec -T jps-api npm run migrate`
+
+### 10.2 Alicloud — two-server (bootstrap)
+
+| Host | Compose | Notes |
+|------|---------|--------|
+| **App** | `docker-compose.app.yml` | Build with `VITE_API_BASE_URL=/api/v1`; nginx → API private IP :3000 |
+| **API + DB** | `docker-compose.backend.yml` | `jps-api` + `jps-db`; Postgres on loopback **5436** optional for admin tools |
+
+Step-by-step: [Guide/ALICLOUD-DEPLOYMENT-GUIDE.md](./Guide/ALICLOUD-DEPLOYMENT-GUIDE.md). Public URL / CORS / cookies: [Guide/Allowing-Public-Access.md](./Guide/Allowing-Public-Access.md).
+
+### 10.3 Alicloud — three-server (API / DB split)
+
+| Host | Compose | Notes |
+|------|---------|--------|
+| **App** | `docker-compose.app.yml` | **Unchanged** after DB split |
+| **API only** | `docker-compose.backend-api-only.yml` | `DB_HOST` = Server 3 private IP; **`jps_uploads`** stays here |
+| **DB only** | `Backend/infra/docker-compose.db.yml` | Run on Server 3; SG allows **5432** from Server 2 only |
+
+Playbook: [Guide/THREE-SERVER-DB-SPLIT-GUIDE.md](./Guide/THREE-SERVER-DB-SPLIT-GUIDE.md). Cutover: [Guide/THREE-SERVER-DB-CUTOVER-RUNBOOK.md](./Guide/THREE-SERVER-DB-CUTOVER-RUNBOOK.md). Upload backup/restore: [Guide/MANUAL-UPLOAD-RESTORE-GUIDE.md](./Guide/MANUAL-UPLOAD-RESTORE-GUIDE.md).
+
+### 10.4 Post-deploy (all layouts)
+
+- **Migrations** run on the **API** container after each deploy that includes new SQL under `Backend/migrations/`.
+- **Frontend** image must be **rebuilt** when `VITE_*` or UI code changes; API env changes alone do not update the SPA bundle.
+- **Jetty Live / RTSP** (optional sidecar on app host): [Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md](./Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md).
+- **Rebuild helpers:** [Guide/REBUILD-GUIDE.md](./Guide/REBUILD-GUIDE.md).
 
 ---
 
@@ -428,7 +499,12 @@ Replacing remaining in-memory modules with API calls and adding AuthContext + pe
 | **TECH-SPEC-Jetty-Planning-System.md** | Full API, workflows, acceptance criteria, implementation backlog |
 | **Feature-Module-Summary.md** | Page-by-page feature and data summary |
 | **Docs/README.md** | Documentation index and product overview |
-| **ALICLOUD-DEPLOYMENT-GUIDE.md** | Step-by-step deployment on Alicloud |
+| **Guide/ALICLOUD-DEPLOYMENT-GUIDE.md** | Two-server Alicloud install, security groups, Docker, `.env` |
+| **Guide/THREE-SERVER-DB-SPLIT-GUIDE.md** | Three-server layout: DB host readiness, compose split, practice migration |
+| **Guide/THREE-SERVER-DB-CUTOVER-RUNBOOK.md** | Production cutover from two- to three-server |
+| **Guide/Allowing-Public-Access.md** | EIP, dual URL (private + public), CORS, cookies |
+| **Guide/REBUILD-GUIDE.md** | Rebuild API and frontend after code changes |
+| **Guide/MANUAL-UPLOAD-RESTORE-GUIDE.md** | Upload volume backup and restore (API server) |
 | **Dev-Notes.md** | Branch, run instructions, staging flow |
 
-This technical-architecture document is the single place for **stack, environments, data model, API summary, security, and deployment**; refer to the above for detailed behaviour and implementation order.
+This technical-architecture document is the single place for **stack, environments, data model, API summary, security, and deployment topology**; refer to the above for detailed behaviour, cutover steps, and implementation order.

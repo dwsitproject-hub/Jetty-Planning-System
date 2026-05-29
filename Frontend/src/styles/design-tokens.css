@@ -25,6 +25,21 @@
   --color-destructive: var(--color-brand-red);
   --color-destructive-foreground: var(--color-text-white);
 
+  /* ETC breach / SLA overdue */
+  --color-etc-breach: #C43A31;
+  --color-etc-breach-deep: #9E2C25;
+  --color-etc-breach-bg: rgba(196, 58, 49, 0.07);
+  --color-etc-breach-bg-strong: rgba(196, 58, 49, 0.14);
+  --color-etc-breach-stripe: rgba(196, 58, 49, 0.22);
+
+  /* Jetty Schedule Gantt — timeline layer (not purpose/load-discharge) */
+  --gantt-planned: #ea580c;
+  --gantt-planned-text: #9a3412;
+  --gantt-planned-rgb: 234, 88, 12;
+  --gantt-actual: #7c3aed;
+  --gantt-actual-text: #5b21b6;
+  --gantt-actual-rgb: 124, 58, 237;
+
   /* Typography */
   --font-primary: 'Inter', system-ui, -apple-system, sans-serif;
   --font-heading: 'Merriweather', Georgia, serif;

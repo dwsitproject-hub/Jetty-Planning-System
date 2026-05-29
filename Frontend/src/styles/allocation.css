@@ -54,9 +54,9 @@
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: var(--spacing-3);
+  gap: var(--spacing-2);
   margin-bottom: var(--spacing-3);
-  padding: var(--spacing-3);
+  padding: var(--spacing-2) var(--spacing-3);
   background: var(--color-bg-subtle, #f5f5f5);
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-sm);
@@ -65,27 +65,35 @@
 .jetty-schedule-gantt__filter-field {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-1);
+  gap: 2px;
+  flex: 0 0 auto;
 }
 
 .jetty-schedule-gantt__filter-field label {
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
   color: var(--color-text-steel);
+  line-height: 1.2;
 }
 
 .jetty-schedule-gantt__date-input {
   font-family: var(--font-primary);
-  font-size: var(--font-size-small);
-  padding: var(--spacing-2) var(--spacing-3);
+  font-size: var(--font-size-xs);
+  padding: 4px 8px;
   border: 1px solid var(--color-border-medium);
   border-radius: var(--radius-sm);
-  min-height: 40px;
-  min-width: 11rem;
+  box-sizing: border-box;
+  width: 9.25rem;
+  max-width: 100%;
+  min-height: 0;
+  height: 32px;
 }
 
-.jetty-schedule-gantt__reset {
-  min-height: 40px;
+.jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__reset {
+  min-height: 32px;
+  height: 32px;
+  padding: 4px 12px;
+  font-size: var(--font-size-small);
   margin-bottom: 0;
 }
 
@@ -222,7 +230,7 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   display: grid;
   align-items: stretch;
   border-bottom: 1px solid var(--color-border-light);
-  min-height: 72px;
+  min-height: 48px;
 }
 
 .jetty-schedule-gantt__row:last-child {
@@ -277,20 +285,20 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   font-size: var(--font-size-small);
 }
 
-.jetty-schedule-gantt__jetty-status {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-steel);
-  margin-top: 4px;
-}
-
 .jetty-schedule-gantt__lane-label {
   font-size: 10px;
   font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--color-text-steel);
-  margin-top: 4px;
-  line-height: 1.2;
+  margin-top: 2px;
+  line-height: 1.1;
+}
+
+.jetty-schedule-gantt__jetty-status {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-steel);
+  margin-top: 2px;
 }
 
 /* One cell spans all day columns; bars use % of full filtered range */
@@ -328,17 +336,17 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: var(--spacing-1) 0;
+  gap: 2px;
+  padding: 2px 0;
 }
 
 .jetty-schedule-gantt__timeline-tracks--dual {
-  gap: 8px;
+  gap: 4px;
 }
 
 .jetty-schedule-gantt__timeline-tracks--dual .jetty-schedule-gantt__track--planned {
   border-bottom: 1px dashed var(--color-border-light);
-  padding-bottom: 2px;
+  padding-bottom: 0;
   margin-bottom: 0;
 }
 
@@ -366,33 +374,18 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   max-width: 100%;
 }
 
-/* Very short spans: solid sliver, no hollow “empty checkbox” look */
-.jetty-schedule-gantt__bar--minimal {
-  padding: 0;
-  min-width: 3px;
-  height: 10px;
-  border: none;
-  border-radius: 2px;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
-}
-
-.jetty-schedule-gantt__bar--minimal.jetty-schedule-gantt__bar--planned-solid,
-.jetty-schedule-gantt__bar--minimal.jetty-schedule-gantt__bar--planned-grad {
-  box-shadow: 0 0 0 1px rgba(33, 115, 199, 0.35);
-}
-
-.jetty-schedule-gantt__bar--minimal.jetty-schedule-gantt__bar--actual-solid,
-.jetty-schedule-gantt__bar--minimal.jetty-schedule-gantt__bar--actual-grad {
-  box-shadow: 0 0 0 1px rgba(5, 150, 105, 0.35);
-}
-
-.jetty-schedule-gantt__bar--minimal.jetty-schedule-gantt__bar--st-active {
-  box-shadow: 0 0 0 1px rgba(196, 58, 49, 0.35);
+.jetty-schedule-gantt__bar .loading-list__badge--purpose {
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 1.3;
+  flex-shrink: 0;
 }
 
 .jetty-schedule-gantt__bar-text {
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .jetty-schedule-gantt__bar-ship {
@@ -400,53 +393,29 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   opacity: 0.9;
 }
 
-/* Option B: planned (blue) vs actual (green), solid vs gradient tail */
+/* Planned (orange) vs actual (purple), solid vs gradient tail */
 .jetty-schedule-gantt__bar--planned-solid {
-  background: rgba(33, 115, 199, 0.2);
-  border: 1px solid rgba(33, 115, 199, 0.5);
-  color: #0b4a8a;
+  background: rgba(var(--gantt-planned-rgb), 0.2);
+  border: 1px solid rgba(var(--gantt-planned-rgb), 0.5);
+  color: var(--gantt-planned-text);
 }
 
 .jetty-schedule-gantt__bar--planned-grad {
-  border: 1px solid rgba(33, 115, 199, 0.35);
-  color: #0b4a8a;
-  background: linear-gradient(to right, rgba(33, 115, 199, 0.78), rgba(33, 115, 199, 0.06));
+  border: 1px solid rgba(var(--gantt-planned-rgb), 0.35);
+  color: var(--gantt-planned-text);
+  background: linear-gradient(to right, rgba(var(--gantt-planned-rgb), 0.78), rgba(var(--gantt-planned-rgb), 0.06));
 }
 
 .jetty-schedule-gantt__bar--actual-solid {
-  background: rgba(5, 150, 105, 0.16);
-  border: 1px solid rgba(5, 150, 105, 0.5);
-  color: #065f46;
+  background: rgba(var(--gantt-actual-rgb), 0.16);
+  border: 1px solid rgba(var(--gantt-actual-rgb), 0.5);
+  color: var(--gantt-actual-text);
 }
 
 .jetty-schedule-gantt__bar--actual-grad {
-  border: 1px solid rgba(5, 150, 105, 0.38);
-  color: #065f46;
-  background: linear-gradient(to right, rgba(5, 150, 105, 0.72), rgba(5, 150, 105, 0.06));
-}
-
-.jetty-schedule-gantt__bar--st-active.jetty-schedule-gantt__bar--planned-solid {
-  background: rgba(196, 58, 49, 0.14);
-  border-color: rgba(196, 58, 49, 0.45);
-  color: #8f2a28;
-}
-
-.jetty-schedule-gantt__bar--st-active.jetty-schedule-gantt__bar--planned-grad {
-  color: #8f2a28;
-  border-color: rgba(196, 58, 49, 0.35);
-  background: linear-gradient(to right, rgba(196, 58, 49, 0.55), rgba(196, 58, 49, 0.06));
-}
-
-.jetty-schedule-gantt__bar--st-active.jetty-schedule-gantt__bar--actual-solid {
-  background: rgba(180, 83, 9, 0.18);
-  border-color: rgba(180, 83, 9, 0.5);
-  color: #92400e;
-}
-
-.jetty-schedule-gantt__bar--st-active.jetty-schedule-gantt__bar--actual-grad {
-  color: #92400e;
-  border-color: rgba(180, 83, 9, 0.4);
-  background: linear-gradient(to right, rgba(180, 83, 9, 0.55), rgba(180, 83, 9, 0.06));
+  border: 1px solid rgba(var(--gantt-actual-rgb), 0.38);
+  color: var(--gantt-actual-text);
+  background: linear-gradient(to right, rgba(var(--gantt-actual-rgb), 0.72), rgba(var(--gantt-actual-rgb), 0.06));
 }
 
 /* Status overlays: Arriving (dashed), Berthing (default), Sailed off (muted). */
@@ -470,15 +439,6 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   color: #4b5563;
 }
 
-.jetty-schedule-gantt__bar--minimal.jetty-schedule-gantt__bar--st-arriving {
-  border-style: solid;
-}
-
-.jetty-schedule-gantt__bar--minimal.jetty-schedule-gantt__bar--st-sailed-off {
-  opacity: 0.85;
-  box-shadow: 0 0 0 1px rgba(107, 114, 128, 0.55);
-}
-
 .jetty-schedule-gantt__legend--two {
   flex-wrap: wrap;
   gap: var(--spacing-2) var(--spacing-4);
@@ -493,23 +453,41 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 }
 
 .jetty-schedule-gantt__swatch--planned-solid {
-  background: rgba(33, 115, 199, 0.45);
-  border: 1px solid rgba(33, 115, 199, 0.6);
+  background: rgba(var(--gantt-planned-rgb), 0.45);
+  border: 1px solid rgba(var(--gantt-planned-rgb), 0.6);
 }
 
 .jetty-schedule-gantt__swatch--planned-grad {
-  background: linear-gradient(to right, rgba(33, 115, 199, 0.75), rgba(33, 115, 199, 0.1));
-  border: 1px solid rgba(33, 115, 199, 0.35);
+  background: linear-gradient(to right, rgba(var(--gantt-planned-rgb), 0.75), rgba(var(--gantt-planned-rgb), 0.1));
+  border: 1px solid rgba(var(--gantt-planned-rgb), 0.35);
 }
 
 .jetty-schedule-gantt__swatch--actual-solid {
-  background: rgba(5, 150, 105, 0.4);
-  border: 1px solid rgba(5, 150, 105, 0.55);
+  background: rgba(var(--gantt-actual-rgb), 0.4);
+  border: 1px solid rgba(var(--gantt-actual-rgb), 0.55);
 }
 
 .jetty-schedule-gantt__swatch--actual-grad {
-  background: linear-gradient(to right, rgba(5, 150, 105, 0.7), rgba(5, 150, 105, 0.1));
-  border: 1px solid rgba(5, 150, 105, 0.35);
+  background: linear-gradient(to right, rgba(var(--gantt-actual-rgb), 0.7), rgba(var(--gantt-actual-rgb), 0.1));
+  border: 1px solid rgba(var(--gantt-actual-rgb), 0.35);
+}
+
+.jetty-schedule-gantt__swatch--actual-etc-overdue {
+  --etc-overdue-start: 55%;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(196, 58, 49, 0.14) 0 3px,
+      rgba(196, 58, 49, 0.22) 3px 6px
+    ),
+    linear-gradient(
+      to right,
+      rgba(var(--gantt-actual-rgb), 0.4) 0%,
+      rgba(var(--gantt-actual-rgb), 0.4) var(--etc-overdue-start, 55%),
+      rgba(196, 58, 49, 0.25) var(--etc-overdue-start, 55%),
+      rgba(196, 58, 49, 0.25) 100%
+    );
+  border: 1px solid rgba(196, 58, 49, 0.5);
 }
 
 .jetty-schedule-gantt__swatch--status-arriving {
@@ -522,8 +500,8 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 }
 
 .jetty-schedule-gantt__swatch--status-berthing {
-  background: rgba(5, 150, 105, 0.3);
-  border: 1px solid rgba(5, 150, 105, 0.55);
+  background: rgba(var(--gantt-actual-rgb), 0.3);
+  border: 1px solid rgba(var(--gantt-actual-rgb), 0.55);
 }
 
 .jetty-schedule-gantt__swatch--status-sailed-off {
@@ -719,6 +697,22 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   padding: var(--spacing-2) var(--spacing-3);
 }
 
+.allocation-table__th-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.allocation-table__th-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85em;
+  line-height: 1;
+  color: var(--color-text-steel);
+  cursor: help;
+}
+
 .allocation-table__sort {
   display: inline-flex;
   align-items: center;
@@ -763,6 +757,18 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 .allocation-table__row {
   cursor: pointer;
   transition: background var(--duration-fast) var(--easing-default);
+}
+
+.allocation-table__vessel-cell {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-1, 4px);
+}
+
+.allocation-table__vessel-etc-badge {
+  display: inline-flex;
+  margin-left: var(--spacing-1, 4px);
 }
 
 .allocation-table__row:hover {
@@ -4414,6 +4420,13 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   justify-content: space-between;
   gap: var(--spacing-2);
   margin-bottom: var(--spacing-2);
+}
+
+.allocation-mobile-card__header-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2, 8px);
 }
 
 .allocation-mobile-card__grid {

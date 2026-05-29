@@ -1,0 +1,182 @@
+/* ETC breach indicators — shared across Allocation, Gantt, Schematic, At-Berth */
+
+.etc-breach-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-etc-breach, #C43A31);
+  background: var(--color-etc-breach-bg, rgba(196, 58, 49, 0.07));
+  color: var(--color-etc-breach, #C43A31);
+  font-size: var(--font-size-xs, 10px);
+  font-weight: var(--font-weight-semibold, 600);
+  line-height: 1.2;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.etc-breach-badge--md {
+  min-height: 22px;
+  padding: 0 8px;
+  font-size: var(--font-size-sm, 12px);
+}
+
+.etc-breach-badge--icon-only {
+  padding: 0 4px;
+  min-width: 18px;
+  justify-content: center;
+}
+
+.etc-breach-badge--interactive {
+  cursor: pointer;
+  font-family: inherit;
+  transition:
+    background var(--duration-fast, 150ms) var(--easing-default, ease-out),
+    border-color var(--duration-fast, 150ms) var(--easing-default, ease-out);
+}
+
+.etc-breach-badge--interactive:hover {
+  background: var(--color-etc-breach-bg-strong, rgba(196, 58, 49, 0.14));
+  border-color: var(--color-etc-breach-deep, #9E2C25);
+}
+
+.etc-breach-badge--interactive:focus-visible {
+  outline: 2px solid var(--color-etc-breach, #C43A31);
+  outline-offset: 2px;
+}
+
+.etc-breach-badge__icon {
+  flex-shrink: 0;
+}
+
+.etc-breach-badge__text {
+  letter-spacing: 0.02em;
+}
+
+/* Row / card accent modifiers */
+.allocation-table__row--etc-breach {
+  border-left: 3px solid var(--color-etc-breach, #C43A31);
+  background: var(--color-etc-breach-bg, rgba(196, 58, 49, 0.07));
+}
+
+.allocation-table__row--etc-breach:hover {
+  background: var(--color-etc-breach-bg-strong, rgba(196, 58, 49, 0.12));
+}
+
+.allocation-mobile-card--etc-breach {
+  border-left: 3px solid var(--color-etc-breach, #C43A31);
+}
+
+.allocation-detail__dd--etc-breach {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2, 8px);
+}
+
+/* Gantt actual bar — single-segment ETC overdue (no split bar) */
+.jetty-schedule-gantt__bar--actual-etc-overdue.jetty-schedule-gantt__bar--actual-solid {
+  background:
+    repeating-linear-gradient(
+      135deg,
+      var(--color-etc-breach-bg-strong, rgba(196, 58, 49, 0.14)) 0,
+      var(--color-etc-breach-bg-strong, rgba(196, 58, 49, 0.14)) 4px,
+      var(--color-etc-breach-stripe, rgba(196, 58, 49, 0.22)) 4px,
+      var(--color-etc-breach-stripe, rgba(196, 58, 49, 0.22)) 8px
+    ),
+    linear-gradient(
+      to right,
+      rgba(var(--gantt-actual-rgb), 0.16) 0%,
+      rgba(var(--gantt-actual-rgb), 0.16) var(--etc-overdue-start, 100%),
+      rgba(196, 58, 49, 0.12) var(--etc-overdue-start, 100%),
+      rgba(196, 58, 49, 0.12) 100%
+    );
+  border-color: rgba(196, 58, 49, 0.5);
+  color: var(--color-etc-breach-deep, #9E2C25);
+}
+
+.jetty-schedule-gantt__bar--actual-etc-overdue.jetty-schedule-gantt__bar--actual-grad {
+  background:
+    repeating-linear-gradient(
+      135deg,
+      var(--color-etc-breach-bg-strong, rgba(196, 58, 49, 0.14)) 0,
+      var(--color-etc-breach-bg-strong, rgba(196, 58, 49, 0.14)) 4px,
+      var(--color-etc-breach-stripe, rgba(196, 58, 49, 0.22)) 4px,
+      var(--color-etc-breach-stripe, rgba(196, 58, 49, 0.22)) 8px
+    ),
+    linear-gradient(
+      to right,
+      rgba(var(--gantt-actual-rgb), 0.72) 0%,
+      rgba(var(--gantt-actual-rgb), 0.16) var(--etc-overdue-start, 100%),
+      rgba(196, 58, 49, 0.35) var(--etc-overdue-start, 100%),
+      rgba(196, 58, 49, 0.06) 100%
+    );
+  border-color: rgba(196, 58, 49, 0.45);
+  color: var(--color-etc-breach-deep, #9E2C25);
+}
+
+/* Schematic slot — badge in title row */
+.jetty-slot__title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-1, 4px);
+  width: 100%;
+}
+
+.jetty-slot__title-row .jetty-slot__title {
+  flex: 1;
+  min-width: 0;
+}
+
+@container (max-width: 400px) {
+  .jetty-schematic__slot .etc-breach-badge__text {
+    font-size: 9px;
+  }
+}
+
+/* Mobile touch target wrapper */
+.etc-breach-badge-hit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  margin: -12px -8px;
+  padding: 12px 8px;
+}
+
+@media (min-width: 769px) {
+  .etc-breach-badge-hit {
+    min-width: 0;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+  }
+}
+
+.at-berth-etc-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-1, 4px);
+}
+
+.at-berth-etc-cell__badge {
+  display: inline-flex;
+}
+
+.at-berth-overdue-filter {
+  margin-left: var(--spacing-2, 8px);
+}
+
+.at-berth-summary-card__overdue-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--spacing-2, 8px);
+  font-size: var(--font-size-xs, 10px);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-etc-breach, #C43A31);
+}

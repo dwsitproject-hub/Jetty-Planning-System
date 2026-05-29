@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import EtcBreachBadge from './EtcBreachBadge'
+import PurposeBadge from './PurposeBadge'
 import { berths as defaultBerths, vessels as mockVessels } from '../data/mockData'
 import { fetchJettyLayout } from '../api/jettyLayout'
 import { fetchJetties } from '../api/jetties'
@@ -232,24 +234,51 @@ export default function JettySchematic({
     return `Jetty ${berthId}\nOccupied: ${occIds.length}/${cap}\nCurrent : ${occLabel}\nIncoming : ${incomingLabel}`
   }
 
+  function formatMaterialDisplay(v) {
+    return v?.materialDisplay ?? v?.product ?? v?.commodity ?? '—'
+  }
+
   function slotContentForSingleVessel(vesselId, occupant, overflowCount) {
     const v = getVessel(vesselId)
     const displayName = v?.vesselName || occupant?.vesselName || String(vesselId || '—')
     if (!vesselId) return 'Vacant'
-    const op = getOperationType(v, occupant)
+    const siRef = v?.siId ?? '—'
+    const materialDisplay = formatMaterialDisplay(v)
     return (
       <span className="jetty-slot__inner">
         <span className="jetty-slot__title">{displayName}</span>
-        <span className="jetty-slot__line">
-          {slotReferenceLabel}: {v?.siId ?? '—'}
+        <span className="jetty-slot__line jetty-slot__line--purpose">
+          <PurposeBadge purpose={v?.purpose} loadDischarge={v?.loadDischarge} />
         </span>
-        <span className="jetty-slot__line">
-          Purpose: {v?.purpose ?? (op === 'LOAD' ? 'Loading' : 'Unloading')}
+        <span className="jetty-slot__line jetty-slot__line--plan-ref">
+          {slotReferenceLabel}: {siRef}
         </span>
-        <span className="jetty-slot__line">Material: {v?.product ?? v?.commodity ?? '—'}</span>
+        <span className="jetty-slot__line jetty-slot__line--material">
+          Material : {materialDisplay}
+        </span>
         {overflowCount > 0 && (
           <span className="jetty-slot__line jetty-slot__line--overflow">+{overflowCount} more</span>
         )}
+      </span>
+    )
+  }
+
+  function renderLaneEtcBadge(v) {
+    if (!v?.etcBreach) return null
+    return (
+      <EtcBreachBadge
+        overMs={v.etcBreach.overMs}
+        etcMs={v.etcBreach.etcMs}
+        size="icon-only"
+        className="jetty-schematic__lane-etc"
+      />
+    )
+  }
+
+  function renderLaneSuffix(laneLabel, laneSuffix) {
+    return (
+      <span className="jetty-schematic__lane-suffix" title={laneLabel} aria-hidden>
+        {laneSuffix}
       </span>
     )
   }
@@ -297,6 +326,7 @@ export default function JettySchematic({
 
           let slotClassName = isVacant ? vacantClass : occClass
           if (selectedBerthId === berthId) slotClassName += ' jetty-schematic__slot--selected'
+          if (v?.etcBreach) slotClassName += ' jetty-schematic__lane--etc-breach'
 
           const showIncomingThisVacant = isVacant && incomingNames.length > 0 && !firstVacantIncomingShown
           if (showIncomingThisVacant) firstVacantIncomingShown = true
@@ -305,13 +335,15 @@ export default function JettySchematic({
             ? `${baseTooltip}\nThis lane: incoming — ${incomingLabel}`
             : isVacant
               ? `${baseTooltip}\nLane ${laneLabel}: vacant`
-              : `${baseTooltip}\nLane ${laneLabel}: ${v?.vesselName || slot.occupant?.vesselName || slot.vesselId}`
+              : `${baseTooltip}\nLane ${laneLabel}: ${v?.vesselName || slot.occupant?.vesselName || slot.vesselId}${
+                  v?.etcBreach
+                    ? `\nETC breached · ${Math.round(v.etcBreach.overHours * 10) / 10}h over`
+                    : ''
+                }`
 
           const inner = isVacant ? (
             <>
-              <span className="jetty-schematic__slot-jetty-name" title={laneLabel} aria-hidden>
-                {laneSuffix}
-              </span>
+              {renderLaneSuffix(laneLabel, laneSuffix)}
               <span className="jetty-slot__inner">
                 <span className="jetty-slot__line">Vacant</span>
                 {showIncomingThisVacant && (
@@ -321,9 +353,8 @@ export default function JettySchematic({
             </>
           ) : (
             <>
-              <span className="jetty-schematic__slot-jetty-name" title={laneLabel} aria-hidden>
-                {laneSuffix}
-              </span>
+              {renderLaneSuffix(laneLabel, laneSuffix)}
+              {renderLaneEtcBadge(v)}
               <span className="jetty-slot__vessel-block">
                 {slotContentForSingleVessel(slot.vesselId, slot.occupant, slot.overflowCount)}
               </span>

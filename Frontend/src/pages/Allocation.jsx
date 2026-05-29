@@ -36,9 +36,20 @@ import '../styles/modal.css'
 import { MAX_REMARK_CHARS } from '../constants/inputLimits'
 import { mergeBerthsStateForPlanPov, mergeQueueRowsForPlanPov } from '../utils/allocationPlanPovMerge'
 import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
+import EtcBreachBadge from '../components/EtcBreachBadge'
+import { getEtcBreach, getEtcBreachRagStatus } from '../utils/etcBreach'
+import '../styles/etc-breach.css'
 
 /** Standardized pipeline flow (match Dashboard Vessel pipeline) */
 const UNIFIED_PHASES = ['Shipping Instruction', 'Planned berthing', 'At-Berth', 'Clearance']
+
+function schematicMaterialDisplay(r) {
+  if (Array.isArray(r?.shippingTable) && r.shippingTable.length) {
+    const names = [...new Set(r.shippingTable.map((row) => row.material).filter(Boolean))]
+    if (names.length) return names.join(' - ')
+  }
+  return r?.commodity || null
+}
 
 function getPhaseLink(label, vessel, plannedBerthingPath = '/allocation-plans') {
   const phaseRoutes = {
@@ -77,17 +88,25 @@ function parseDateMs(val) {
   return Number.isNaN(t) ? null : t
 }
 
+function renderAllocationVesselCell(r) {
+  return (
+    <strong className="allocation-table__vessel-cell">
+      <span>{r.vesselName || '—'}</span>
+      {r.shiftingOut ? (
+        <span className="si-status-badge si-status-badge--external" style={{ marginLeft: 8 }}>
+          Shifted
+        </span>
+      ) : null}
+    </strong>
+  )
+}
+
 const ALLOCATION_COLUMNS = [
   { key: 'sequence', label: 'Berthing sequence', getValue: () => '—', getSortValue: (r) => seqSortKey(r), getFilterValue: (r) => `${r.sequence ?? ''}` },
   {
     key: 'vesselName',
     label: 'Vessel Name',
-    getValue: (r) => (
-      <strong>
-        {r.vesselName || '—'}
-        {r.shiftingOut ? <span className="si-status-badge si-status-badge--external" style={{ marginLeft: 8 }}>Shifted</span> : null}
-      </strong>
-    ),
+    getValue: (r) => renderAllocationVesselCell(r),
     getSortValue: (r) => (r.vesselName || '').toLowerCase(),
   },
   {
@@ -120,12 +139,7 @@ const ALLOCATION_COLUMNS = [
 const PLAN_CENTRIC_VESSEL_COLUMN = {
   key: 'vesselName',
   label: 'Vessel',
-  getValue: (r) => (
-    <strong>
-      {r.vesselName || '—'}
-      {r.shiftingOut ? <span className="si-status-badge si-status-badge--external" style={{ marginLeft: 8 }}>Shifted</span> : null}
-    </strong>
-  ),
+  getValue: (r) => renderAllocationVesselCell(r),
   getSortValue: (r) => (r.vesselName || '').toLowerCase(),
 }
 
@@ -207,6 +221,15 @@ const PLAN_CENTRIC_ALLOCATION_COLUMNS = [
     getValue: (r) => formatDateTimeDisplay(r.tbDateTime) || '—',
     getSortValue: (r) => parseDateMs(r.tbDateTime) ?? Number.NEGATIVE_INFINITY,
     getFilterValue: (r) => formatDateTimeDisplay(r.tbDateTime) || '',
+  },
+  {
+    key: 'etc',
+    label: 'ETC',
+    getValue: (r) =>
+      formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion) || '—',
+    getSortValue: (r) => parseDateMs(r.estimatedCompletionDateTime) ?? Number.NEGATIVE_INFINITY,
+    getFilterValue: (r) =>
+      formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion) || '',
   },
   { key: 'jetty', label: 'Jetty', getValue: (r) => r.jetty || '—', getSortValue: (r) => (r.jetty || '').toLowerCase() },
   {
@@ -307,7 +330,8 @@ function getCompletionMsForJettyValidation(row) {
   return parseDateMs(row?.actualCompletionDateTime) ?? parseDateMs(row?.estimatedCompletionDateTime) ?? null
 }
 
-function AllocationDetailPanel({ r, tAlloc, onOpenSiDetail, queueList }) {
+function AllocationDetailPanel({ r, tAlloc, onOpenSiDetail, queueList, nowMs = Date.now() }) {
+  const breach = getEtcBreach(r, nowMs)
   const planSis =
     r?.shipmentPlanId != null && Array.isArray(queueList)
       ? queueList.filter((row) => Number(row?.shipmentPlanId) === Number(r.shipmentPlanId))
@@ -352,7 +376,13 @@ function AllocationDetailPanel({ r, tAlloc, onOpenSiDetail, queueList }) {
         <dt>{tAlloc('dtTa', { defaultValue: 'TA' })}</dt><dd>{formatDateTimeDisplay(r.taDateTime)}</dd>
         <dt>{tAlloc('dtEtb', { defaultValue: 'ETB' })}</dt><dd>{formatDateTimeDisplay(r.etbDateTime || r.etb)}</dd>
         <dt>{tAlloc('dtTb', { defaultValue: 'TB' })}</dt><dd>{formatDateTimeDisplay(r.tbDateTime)}</dd>
-        <dt>{tAlloc('dtEstimatedCompletion', { defaultValue: 'Estimation of Completion' })}</dt><dd>{formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion)}</dd>
+        <dt>{tAlloc('dtEstimatedCompletion', { defaultValue: 'Estimation of Completion' })}</dt>
+        <dd className={breach ? 'allocation-detail__dd--etc-breach' : undefined}>
+          {formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion)}
+          {breach ? (
+            <EtcBreachBadge overMs={breach.overMs} etcMs={breach.etcMs} size="sm" />
+          ) : null}
+        </dd>
         <dt>{tAlloc('dtRemark', { defaultValue: 'Remark' })}</dt><dd>{r.remark || r.remarks || '—'}</dd>
       </dl>
       {planSiLabels.length > 1 && (
@@ -429,6 +459,8 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     Object.fromEntries(ALLOCATION_FILTER_STATE_KEYS.map((k) => [k, '']))
   )
   const [statusFilter, setStatusFilter] = useState({ incoming: true, berthed: false })
+  const [etcBreachFilter, setEtcBreachFilter] = useState(false)
+  const [breachNowMs, setBreachNowMs] = useState(() => Date.now())
   const [sortState, setSortState] = useState({ key: 'sequence', dir: 'asc' })
   const [expandedId, setExpandedId] = useState(null)
   const [expandedMobileId, setExpandedMobileId] = useState(null)
@@ -625,6 +657,11 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [selectedPortId, overviewFetcher])
 
+  useEffect(() => {
+    const id = setInterval(() => setBreachNowMs(Date.now()), 30_000)
+    return () => clearInterval(id)
+  }, [])
+
   const vesselById = useMemo(() => {
     const map = {}
     const srcList = planViz.mergedList
@@ -645,9 +682,12 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         vesselName: r.vesselName || r.vesselId,
         siId: refLabel(r),
         purpose: r.purpose || null,
+        loadDischarge: r.loadDischarge ?? null,
         commodity: r.commodity || null,
+        materialDisplay: schematicMaterialDisplay(r),
         etaToCompletion: r.estimatedCompletionDateTime ? new Date(r.estimatedCompletionDateTime).toLocaleString() : '—',
-        ragStatus: 'green',
+        ragStatus: getEtcBreachRagStatus(r, breachNowMs),
+        etcBreach: getEtcBreach(r, breachNowMs),
         status: r.status || null,
       }
     }
@@ -660,9 +700,12 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         vesselName: r.vesselName || r.vesselId,
         siId: refLabel(r),
         purpose: r.purpose || null,
+        loadDischarge: r.loadDischarge ?? null,
         commodity: r.commodity || null,
+        materialDisplay: schematicMaterialDisplay(r),
         etaToCompletion: r.estimatedCompletionDateTime ? new Date(r.estimatedCompletionDateTime).toLocaleString() : '—',
-        ragStatus: 'green',
+        ragStatus: getEtcBreachRagStatus(r, breachNowMs),
+        etcBreach: getEtcBreach(r, breachNowMs),
         status: r.status || null,
       }
     }
@@ -676,17 +719,20 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         map[o.vesselId] = {
           vesselName: o.vesselName || o.vesselId,
           siId: '—',
-          purpose: null,
+          purpose: o.purpose || null,
+          loadDischarge: o.loadDischarge ?? null,
           commodity: null,
+          materialDisplay: schematicMaterialDisplay(o),
           etaToCompletion: o.estimatedCompletionDateTime ? new Date(o.estimatedCompletionDateTime).toLocaleString() : '—',
-          ragStatus: 'green',
+          ragStatus: getEtcBreachRagStatus(o, breachNowMs),
+          etcBreach: getEtcBreach(o, breachNowMs),
           status: o.status || null,
         }
       }
     }
 
     return map
-  }, [planViz, isPlanCentric])
+  }, [planViz, isPlanCentric, breachNowMs])
 
   const vesselDetailRows = useMemo(() => {
     const byId = new Map()
@@ -722,6 +768,31 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   const allocationTableColumns = useMemo(() => {
     const berthById = new Map((berthsState || []).map((b) => [b.id, b]))
     return allocationColumnDefsBase.map((c) => {
+      if (c.key === 'vesselName') {
+        return {
+          ...c,
+          getValue: (r) => renderAllocationVesselCell(r),
+        }
+      }
+      if (c.key === 'etc') {
+        return {
+          ...c,
+          getValue: (r) => {
+            const breach = getEtcBreach(r, breachNowMs)
+            return (
+              <span className="at-berth-etc-cell">
+                {formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion) || '—'}
+                {breach ? (
+                  <span className="at-berth-etc-cell__badge">
+                    <EtcBreachBadge overMs={breach.overMs} etcMs={breach.etcMs} size="sm" />
+                  </span>
+                ) : null}
+              </span>
+            )
+          },
+          getSortValue: (r) => getEtcBreach(r, breachNowMs)?.overMs ?? 0,
+        }
+      }
       if (c.key !== 'jetty') return c
       return {
         ...c,
@@ -746,7 +817,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         },
       }
     })
-  }, [berthsState, allocationColumnDefsBase])
+  }, [berthsState, allocationColumnDefsBase, breachNowMs])
 
   const getVesselName = useCallback(
     (vesselId) => {
@@ -802,6 +873,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
           ta: 'colTa',
           etb: 'colEtb',
           tb: 'colTb',
+          etc: 'colEtc',
           jetty: 'colJetty',
         })[key] || '',
         { defaultValue: fallback }
@@ -1613,7 +1685,11 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
 
   const filteredList = list.filter((r) => {
     const rowStatus = getBerthingPlanStatus(r)
-    if (!statusFilter[rowStatus]) return false
+    if (etcBreachFilter) {
+      if (rowStatus !== 'berthed' || !getEtcBreach(r, breachNowMs)) return false
+    } else if (!statusFilter[rowStatus]) {
+      return false
+    }
     return filterKeys.every((key) => {
       const f = (filters[key] || '').trim().toLowerCase()
       if (!f) return true
@@ -1657,12 +1733,14 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   const hasQueueRows = isPlanCentric ? (sortedPlanQueueList?.length ?? 0) > 0 : sortedList.length > 0
 
   const renderOneDesktopRow = (r) => {
+    const rowBreach = getEtcBreach(r, breachNowMs)
     return (
       <Fragment key={r.id}>
         <tr
           className={[
             'allocation-table__row',
             expandedId === r.id ? 'allocation-table__row--expanded' : '',
+            rowBreach ? 'allocation-table__row--etc-breach' : '',
           ]
             .filter(Boolean)
             .join(' ')}
@@ -1859,7 +1937,13 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         {expandedId === r.id && (
           <tr className="allocation-table__detail-row">
             <td colSpan={allocationTableColumns.length + 2} className="allocation-table__detail-cell">
-              <AllocationDetailPanel r={r} tAlloc={tAlloc} onOpenSiDetail={openSiDetailModal} queueList={list} />
+              <AllocationDetailPanel
+                r={r}
+                tAlloc={tAlloc}
+                onOpenSiDetail={openSiDetailModal}
+                queueList={list}
+                nowMs={breachNowMs}
+              />
             </td>
           </tr>
         )}
@@ -3536,6 +3620,20 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
             />
             {tAlloc('statusBerthed')}
           </label>
+          <label className="allocation-plan-status-filter__option">
+            <input
+              type="checkbox"
+              checked={etcBreachFilter}
+              onChange={(e) => {
+                const checked = e.target.checked
+                setEtcBreachFilter(checked)
+                if (checked) {
+                  setStatusFilter({ incoming: false, berthed: true })
+                }
+              }}
+            />
+            {tAlloc('statusEtcBreach')}
+          </label>
         </div>
         {isPlanCentric && planSequenceSwapError ? (
           <p role="alert" style={{ color: 'var(--danger-600, #c00)', marginBottom: 'var(--spacing-2)' }}>
@@ -3590,8 +3688,13 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         </div>
         {hasQueueRows && (
           <div className="allocation-mobile-cards" aria-label="Incoming vessel cards">
-            {(isPlanCentric && sortedPlanQueueList ? sortedPlanQueueList : sortedList).map((r) => (
-              <article key={`mobile-${r.id}`} className="allocation-mobile-card">
+            {(isPlanCentric && sortedPlanQueueList ? sortedPlanQueueList : sortedList).map((r) => {
+              const mobileBreach = getEtcBreach(r, breachNowMs)
+              return (
+              <article
+                key={`mobile-${r.id}`}
+                className={`allocation-mobile-card${mobileBreach ? ' allocation-mobile-card--etc-breach' : ''}`}
+              >
                 <header className="allocation-mobile-card__header">
                   <strong>{r.vesselName || '—'}</strong>
                   <span className="text-steel">{r.jetty || '—'}</span>
@@ -3757,6 +3860,15 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                       </dd>
                     </Fragment>
                   ))}
+                  <dt>{allocColLabel('etc', 'ETC')}</dt>
+                  <dd>
+                    {formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion) || '—'}
+                    {mobileBreach ? (
+                      <span className="at-berth-etc-cell__badge">
+                        <EtcBreachBadge overMs={mobileBreach.overMs} etcMs={mobileBreach.etcMs} size="sm" />
+                      </span>
+                    ) : null}
+                  </dd>
                 </dl>
                 <div className="allocation-mobile-card__actions">
                   <button
@@ -3786,11 +3898,18 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                 </div>
                 {expandedMobileId === r.id ? (
                   <div className="allocation-mobile-card__detail">
-                    <AllocationDetailPanel r={r} tAlloc={tAlloc} onOpenSiDetail={openSiDetailModal} queueList={list} />
+                    <AllocationDetailPanel
+                r={r}
+                tAlloc={tAlloc}
+                onOpenSiDetail={openSiDetailModal}
+                queueList={list}
+                nowMs={breachNowMs}
+              />
                   </div>
                 ) : null}
               </article>
-            ))}
+              )
+            })}
           </div>
         )}
         {!hasQueueRows && (

@@ -1355,6 +1355,7 @@
   font-size: var(--font-size-xs);
   color: var(--color-text-steel);
   margin-top: 2px;
+  white-space: pre-line;
 }
 
 .jps-tooltip__empty {

@@ -1,6 +1,11 @@
 import { useMemo, useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import InteractiveTooltip from './InteractiveTooltip'
+import PurposeBadge, { resolvePurposeLabel } from './PurposeBadge'
+import EtcBreachBadge from './EtcBreachBadge'
+import { formatOverdueDuration } from '../utils/etcBreach'
 import '../styles/dashboard.css'
+import '../styles/etc-breach.css'
 
 /** Replaces emoji (often renders as empty box on Windows) */
 function GanttVesselIcon() {
@@ -169,6 +174,10 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
         ? `plan-${r.shipmentPlanId}`
         : r.vesselId
     const vesselName = r.vesselName || r.vesselId || '—'
+    const purposeLabel = resolvePurposeLabel(r.planPurposeLabel || r.purpose, r.loadDischarge)
+    const loadDischarge = r.loadDischarge ?? null
+    const cargoDisplay = r.totalQtyDisplay || null
+    const rowMeta = { purposeLabel, loadDischarge, cargoDisplay }
     const plannedEtb = parseMs(r.plannedEtbDateTime) ?? parseMs(r.etbDateTime)
     const eta = parseMs(r.etaDateTime)
     const ta = parseMs(r.taDateTime)
@@ -209,6 +218,7 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
           bankLaneKey,
           vesselId,
           vesselName,
+          ...rowMeta,
           gradient,
           status,
           label,
@@ -278,6 +288,7 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
           bankLaneKey,
           vesselId,
           vesselName,
+          ...rowMeta,
           gradient: transitGradient,
           status,
           label: transitLabel,
@@ -305,6 +316,11 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
         nowMs,
       })
 
+      const isBreached = !isSailed && estComp != null && nowMs > estComp
+      const spanMs = opsEnd - tb
+      const etcOverduePct =
+        isBreached && spanMs > 0 ? Math.min(100, Math.max(0, ((estComp - tb) / spanMs) * 100)) : null
+
       pushSegment(
         out,
         {
@@ -314,15 +330,20 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
           bankLaneKey,
           vesselId,
           vesselName,
+          ...rowMeta,
           gradient,
           status,
-          label,
+          label: isBreached ? 'Actual · alongside (past est. completion)' : label,
           startMs: tb,
           endMs: opsEnd,
           plannedEtbMs: plannedEtb,
           etaMs: eta,
           tbMs: tb,
           taMs: ta,
+          estCompMs: estComp,
+          etcOverdue: isBreached,
+          etcOverduePct,
+          overMs: isBreached ? nowMs - estComp : null,
           startSource: 'TB',
         },
         windowStartMs,
@@ -348,11 +369,81 @@ function segmentTrackStyle(seg, windowStartMs, totalMs) {
   }
 }
 
-function segmentPillClass(seg) {
+function segmentColorClass(seg) {
   const st = (seg.status || 'arriving').toLowerCase().replace(/[^a-z0-9]+/g, '-')
   const layer = seg.layer
   const grad = seg.gradient ? 'grad' : 'solid'
-  return `jetty-schedule-gantt__bar jetty-schedule-gantt__bar--${layer}-${grad} jetty-schedule-gantt__bar--st-${st}`
+  return `jetty-schedule-gantt__bar--${layer}-${grad} jetty-schedule-gantt__bar--st-${st}`
+}
+
+function segmentPillClass(seg) {
+  const overdueMod = seg.etcOverdue ? ' jetty-schedule-gantt__bar--actual-etc-overdue' : ''
+  return `jetty-schedule-gantt__bar ${segmentColorClass(seg)}${overdueMod}`
+}
+
+function ganttBarInlineStyle(seg, posStyle, stackIndex) {
+  return {
+    ...posStyle,
+    top: `${6 + stackIndex * 26}px`,
+    ...(seg.etcOverdue && seg.etcOverduePct != null
+      ? { '--etc-overdue-start': `${seg.etcOverduePct}%` }
+      : {}),
+  }
+}
+
+function ganttBarAriaLabel(seg) {
+  return [seg.vesselName, seg.purposeLabel, seg.status].filter(Boolean).join(', ')
+}
+
+function buildGanttTooltipItems(seg, canClick) {
+  const fmt = (ms) => (ms == null ? '—' : new Date(ms).toLocaleString())
+  const items = []
+  if (seg.cargoDisplay) {
+    items.push({ primary: 'Cargo', secondary: seg.cargoDisplay })
+  }
+  items.push({ primary: seg.label || '—' })
+  items.push({ primary: `Status: ${seg.status || '—'}` })
+  items.push({
+    primary: `Start: ${new Date(seg.startMs).toLocaleString()}${seg.startSource ? ` (from ${seg.startSource})` : ''}`,
+    secondary: `End: ${new Date(seg.endMs).toLocaleString()}`,
+  })
+  items.push({
+    primary: `Planned refs — ETB: ${fmt(seg.plannedEtbMs)} · ETA: ${fmt(seg.etaMs)}`,
+  })
+  items.push({
+    primary: `Actual refs — TB: ${fmt(seg.tbMs)} · TA: ${fmt(seg.taMs)}`,
+  })
+  if (seg.estCompMs != null) {
+    items.push({ primary: `Est. completion: ${fmt(seg.estCompMs)}` })
+  }
+  if (seg.overMs != null && seg.overMs > 0) {
+    items.push({
+      primary: 'ETC breached',
+      secondary: `${formatOverdueDuration(seg.overMs)} over est. completion (${fmt(seg.estCompMs)})`,
+    })
+  }
+  if (canClick) items.push({ primary: 'Click to open vessel details.' })
+  return items
+}
+
+function GanttBarContent({ seg, barWidthPct }) {
+  const statusIcon = seg.status === 'Sailed off' ? <GanttCompletedIcon /> : <GanttVesselIcon />
+  const purposeEl = seg.purposeLabel ? (
+    <PurposeBadge purpose={seg.purposeLabel} loadDischarge={seg.loadDischarge} />
+  ) : null
+  const showOverdueBadge =
+    seg.etcOverdue && seg.overMs != null && (barWidthPct == null || barWidthPct >= 0.48)
+
+  return (
+    <>
+      {statusIcon}
+      <span className="jetty-schedule-gantt__bar-text">{seg.vesselName}</span>
+      {purposeEl}
+      {showOverdueBadge && seg.overMs != null ? (
+        <EtcBreachBadge overMs={seg.overMs} etcMs={seg.estCompMs} size="icon-only" />
+      ) : null}
+    </>
+  )
 }
 
 /** Short jetty id from allocation list row (matches segment jettyId). */
@@ -428,6 +519,7 @@ function assignBankLanesByVessel(baseSegments, rowDefs, listRows) {
 }
 
 export default function JettyScheduleGantt({ berthIds, berthsState, list, onSelectVessel }) {
+  const { t: tAlloc } = useTranslation('allocation')
   const def = useMemo(() => defaultDateRangeInputs(), [])
   const [dateFrom, setDateFrom] = useState(def.from)
   const [dateTo, setDateTo] = useState(def.to)
@@ -554,43 +646,20 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
         {segs.map((seg, i) => {
           const pos = segmentTrackStyle(seg, windowStartMs, totalMs)
           if (!pos) return null
-          const { rawWidthPct, ...posStyle } = pos
-          const style = {
-            ...posStyle,
-            top: `${6 + i * 26}px`,
-          }
-          const minimal = rawWidthPct < 6
+          const { rawWidthPct: _rawWidthPct, ...posStyle } = pos
+          const style = ganttBarInlineStyle(seg, posStyle, i)
           const pillClass = segmentPillClass(seg)
           const canClick = Boolean(seg.vesselId && typeof onSelectVessel === 'function')
-          const fmt = (ms) => (ms == null ? '—' : new Date(ms).toLocaleString())
-          const tooltipItems = [
-            { primary: `Status: ${seg.status || '—'}` },
-            {
-              primary: `Start: ${new Date(seg.startMs).toLocaleString()}${seg.startSource ? ` (from ${seg.startSource})` : ''}`,
-              secondary: `End: ${new Date(seg.endMs).toLocaleString()}`,
-            },
-            {
-              primary: `Planned refs — ETB: ${fmt(seg.plannedEtbMs)} · ETA: ${fmt(seg.etaMs)}`,
-            },
-            {
-              primary: `Actual refs — TB: ${fmt(seg.tbMs)} · TA: ${fmt(seg.taMs)}`,
-            },
-          ]
-          if (canClick) tooltipItems.push({ primary: 'Click to open vessel details.' })
-
-          const inner = minimal ? null : (
-            <>
-              {seg.status === 'Sailed off' ? <GanttCompletedIcon /> : <GanttVesselIcon />}
-              <span className="jetty-schedule-gantt__bar-text">{seg.vesselName}</span>
-            </>
-          )
+          const tooltipItems = buildGanttTooltipItems(seg, canClick)
+          const ariaLabel = ganttBarAriaLabel(seg)
+          const barClassName = `${pillClass}${canClick ? ' jetty-schedule-gantt__bar--btn' : ''}`
 
           if (canClick) {
             return (
               <InteractiveTooltip
                 key={`${layer}-${seg.phase}-${seg.vesselName}-${seg.startMs}-${i}`}
                 title={seg.vesselName}
-                subtitle={seg.label}
+                subtitle={seg.purposeLabel || undefined}
                 items={tooltipItems}
                 emptyText="No details."
                 placement="right"
@@ -598,12 +667,12 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
               >
                 <button
                   type="button"
-                  className={`${pillClass} jetty-schedule-gantt__bar--btn${minimal ? ' jetty-schedule-gantt__bar--minimal' : ''}`}
+                  className={barClassName}
                   style={style}
-                  aria-label={minimal ? `${seg.vesselName}: ${seg.label}` : undefined}
+                  aria-label={ariaLabel}
                   onClick={() => onSelectVessel(seg.vesselId)}
                 >
-                  {inner}
+                  <GanttBarContent seg={seg} barWidthPct={_rawWidthPct} />
                 </button>
               </InteractiveTooltip>
             )
@@ -612,18 +681,18 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
             <InteractiveTooltip
               key={`${layer}-${seg.phase}-${seg.vesselName}-${seg.startMs}-${i}`}
               title={seg.vesselName}
-              subtitle={seg.label}
+              subtitle={seg.purposeLabel || undefined}
               items={tooltipItems}
               emptyText="No details."
               placement="right"
             >
               <span
-                className={`${pillClass}${minimal ? ' jetty-schedule-gantt__bar--minimal' : ''}`}
+                className={barClassName}
                 style={style}
-                role={minimal ? 'img' : undefined}
-                aria-label={minimal ? `${seg.vesselName}: ${seg.label}` : undefined}
+                role="img"
+                aria-label={ariaLabel}
               >
-                {inner}
+                <GanttBarContent seg={seg} barWidthPct={_rawWidthPct} />
               </span>
             </InteractiveTooltip>
           )
@@ -696,6 +765,13 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
             <span className="allocation-schedule__legend-item">
               <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-grad" /> Actual (open
               end)
+            </span>
+            <span className="allocation-schedule__legend-item">
+              <span
+                className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-etc-overdue"
+                aria-hidden
+              />
+              {tAlloc('ganttLegendLatePastEtc', { defaultValue: 'Late (past ETC)' })}
             </span>
           </>
         )}
