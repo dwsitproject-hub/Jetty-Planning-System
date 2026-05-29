@@ -37,6 +37,11 @@ function maxIsoDateTime(rows, key) {
   return best
 }
 
+function joinDistinctField(children, key) {
+  const vals = [...new Set(children.map((c) => String(c?.[key] || '').trim()).filter(Boolean))]
+  return vals.length ? vals.join(', ') : null
+}
+
 const STATUS_RANK = {
   SAILED: 100,
   SIGNOFF_APPROVED: 90,
@@ -189,9 +194,11 @@ function mergePlanChildrenToQueueRow(children, planId, repMapOut, options = {}) 
     priority: rep?.priority ?? null,
     remark: rep?.remark ?? rep?.remarks ?? null,
     remarks: rep?.remarks ?? rep?.remark ?? null,
-    shipper: rep?.shipper ?? null,
-    agent: rep?.agent ?? null,
-    surveyor: rep?.surveyor ?? null,
+    shipper: joinDistinctField(children, 'shipper') ?? rep?.shipper ?? null,
+    tradeTerm: joinDistinctField(children, 'tradeTerm') ?? rep?.tradeTerm ?? null,
+    loadingPort: joinDistinctField(children, 'loadingPort') ?? rep?.loadingPort ?? null,
+    agent: joinDistinctField(children, 'agent') ?? rep?.agent ?? null,
+    surveyor: joinDistinctField(children, 'surveyor') ?? rep?.surveyor ?? null,
     commodity:
       [...new Set(planQueueSiEntries.map((e) => e.commodityDisplay).filter((v) => v && v !== '—'))].join(' · ') ||
       [...new Set(children.map((c) => c.commodityDisplay || c.commodity).filter(Boolean))].join(' · ') ||

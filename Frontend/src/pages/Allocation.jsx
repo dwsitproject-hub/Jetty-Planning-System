@@ -71,6 +71,12 @@ function seqSortKey(row) {
   return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY
 }
 
+function parseDateMs(val) {
+  if (!val) return null
+  const t = new Date(val).getTime()
+  return Number.isNaN(t) ? null : t
+}
+
 const ALLOCATION_COLUMNS = [
   { key: 'sequence', label: 'Berthing sequence', getValue: () => '—', getSortValue: (r) => seqSortKey(r), getFilterValue: (r) => `${r.sequence ?? ''}` },
   {
@@ -111,24 +117,118 @@ const ALLOCATION_COLUMNS = [
   { key: 'jetty', label: 'Jetty', getValue: (r) => r.jetty || '—', getSortValue: (r) => (r.jetty || '').toLowerCase() },
 ]
 
-/** Plan ref column only on allocation-plans; inserted before Vessel to mirror Shipment plans list. */
-function buildAllocationColumnDefs(isPlanCentric) {
-  const cols = ALLOCATION_COLUMNS.map((c) => ({ ...c }))
-  if (!isPlanCentric) return cols
-  const vi = cols.findIndex((c) => c.key === 'vesselName')
-  const idx = vi >= 0 ? vi : 0
-  cols.splice(idx, 0, {
+const PLAN_CENTRIC_VESSEL_COLUMN = {
+  key: 'vesselName',
+  label: 'Vessel',
+  getValue: (r) => (
+    <strong>
+      {r.vesselName || '—'}
+      {r.shiftingOut ? <span className="si-status-badge si-status-badge--external" style={{ marginLeft: 8 }}>Shifted</span> : null}
+    </strong>
+  ),
+  getSortValue: (r) => (r.vesselName || '').toLowerCase(),
+}
+
+const PLAN_CENTRIC_ALLOCATION_COLUMNS = [
+  { key: 'sequence', label: 'Berthing sequence', getValue: () => '—', getSortValue: (r) => seqSortKey(r), getFilterValue: (r) => `${r.sequence ?? ''}` },
+  {
     key: 'planReference',
     label: 'Plan ref',
     getValue: (r) =>
       r.shipmentPlanId != null ? r.planReference || `Plan #${r.shipmentPlanId}` : '—',
     getSortValue: (r) =>
       (r.planReference || (r.shipmentPlanId != null ? `Plan #${r.shipmentPlanId}` : '') || '').toLowerCase(),
-  })
-  return cols
+    getFilterValue: (r) =>
+      r.planReference || (r.shipmentPlanId != null ? `Plan #${r.shipmentPlanId}` : ''),
+  },
+  PLAN_CENTRIC_VESSEL_COLUMN,
+  {
+    key: 'shippingInstruction',
+    label: 'Shipping Instructions',
+    getValue: (r) => r.shippingInstruction || '—',
+    getSortValue: (r) => (r.shippingInstruction || '').toLowerCase(),
+  },
+  {
+    key: 'commodityQty',
+    label: 'Commodity Qty',
+    getValue: (r) => r.totalQtyDisplay || '—',
+    getSortValue: (r) => (r.totalQtyDisplay || '').toLowerCase(),
+    getFilterValue: (r) => r.totalQtyDisplay || '',
+  },
+  {
+    key: 'purpose',
+    label: 'Purpose',
+    getValue: (r) => <PurposeBadge purpose={r.purpose} loadDischarge={r.loadDischarge} />,
+    getSortValue: (r) => resolvePurposeLabel(r.purpose, r.loadDischarge).toLowerCase(),
+    getFilterValue: (r) => resolvePurposeLabel(r.purpose, r.loadDischarge),
+  },
+  {
+    key: 'shipper',
+    label: 'Shipper',
+    getValue: (r) => r.shipper || '—',
+    getSortValue: (r) => (r.shipper || '').toLowerCase(),
+  },
+  {
+    key: 'tradeTerm',
+    label: 'Term',
+    getValue: (r) => r.tradeTerm || '—',
+    getSortValue: (r) => (r.tradeTerm || '').toLowerCase(),
+  },
+  {
+    key: 'loadingPort',
+    label: 'Port of Loading',
+    getValue: (r) => r.loadingPort || '—',
+    getSortValue: (r) => (r.loadingPort || '').toLowerCase(),
+  },
+  {
+    key: 'agent',
+    label: 'Agent',
+    getValue: (r) => r.agent || '—',
+    getSortValue: (r) => (r.agent || '').toLowerCase(),
+  },
+  {
+    key: 'surveyor',
+    label: 'Surveyor',
+    getValue: (r) => r.surveyor || '—',
+    getSortValue: (r) => (r.surveyor || '').toLowerCase(),
+  },
+  { key: 'eta', label: 'ETA', getValue: (r) => r.eta || '—', getSortValue: (r) => (r.eta || '').toLowerCase(), getFilterValue: (r) => r.eta || '' },
+  {
+    key: 'ta',
+    label: 'TA',
+    getValue: (r) => formatDateTimeDisplay(r.taDateTime) || '—',
+    getSortValue: (r) => parseDateMs(r.taDateTime) ?? Number.NEGATIVE_INFINITY,
+    getFilterValue: (r) => formatDateTimeDisplay(r.taDateTime) || '',
+  },
+  { key: 'etb', label: 'ETB', getValue: (r) => r.etb || '—', getSortValue: (r) => (r.etb || '').toLowerCase(), getFilterValue: (r) => r.etb || '' },
+  {
+    key: 'tb',
+    label: 'TB',
+    getValue: (r) => formatDateTimeDisplay(r.tbDateTime) || '—',
+    getSortValue: (r) => parseDateMs(r.tbDateTime) ?? Number.NEGATIVE_INFINITY,
+    getFilterValue: (r) => formatDateTimeDisplay(r.tbDateTime) || '',
+  },
+  { key: 'jetty', label: 'Jetty', getValue: (r) => r.jetty || '—', getSortValue: (r) => (r.jetty || '').toLowerCase() },
+  {
+    key: 'remark',
+    label: 'Remarks',
+    getValue: (r) => r.remark || r.remarks || '—',
+    getSortValue: (r) => (r.remark || r.remarks || '').toLowerCase(),
+    getFilterValue: (r) => r.remark || r.remarks || '',
+  },
+]
+
+function buildAllocationColumnDefs(isPlanCentric) {
+  const source = isPlanCentric ? PLAN_CENTRIC_ALLOCATION_COLUMNS : ALLOCATION_COLUMNS
+  return source.map((c) => ({ ...c }))
 }
 
-const ALLOCATION_FILTER_STATE_KEYS = [...ALLOCATION_COLUMNS.map((c) => c.key), 'planReference']
+const ALLOCATION_FILTER_STATE_KEYS = [
+  ...new Set([
+    ...ALLOCATION_COLUMNS.map((c) => c.key),
+    ...PLAN_CENTRIC_ALLOCATION_COLUMNS.map((c) => c.key),
+  ]),
+]
 
 /** Next / previous displayed queue row that has a shipment plan (for plan-centric ↑/↓). */
 function findAdjacentPlanRowInDisplay(rows, fromIdx, dir) {
@@ -139,12 +239,6 @@ function findAdjacentPlanRowInDisplay(rows, fromIdx, dir) {
     if (Number.isFinite(pid) && pid > 0) return x
   }
   return null
-}
-
-function parseDateMs(val) {
-  if (!val) return null
-  const t = new Date(val).getTime()
-  return Number.isNaN(t) ? null : t
 }
 
 function formatDuration(ms) {
@@ -349,6 +443,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   const [berthingErrors, setBerthingErrors] = useState([])
   const [berthingSelectedJetty, setBerthingSelectedJetty] = useState('')
   const [berthingPob, setBerthingPob] = useState('')
+  const [berthingTa, setBerthingTa] = useState('')
   const [berthingTb, setBerthingTb] = useState('')
   const [berthingSob, setBerthingSob] = useState('')
   const [berthingPhotos, setBerthingPhotos] = useState([]) // { id, file, previewUrl }[]
@@ -690,21 +785,28 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       tAlloc(
         ({
           sequence: 'colBerthingSequence',
-          vesselName: 'colVesselName',
+          vesselName: isPlanCentric ? 'colVessel' : 'colVesselName',
           planReference: 'colPlanRef',
           jettyOperationCode: 'colJettyOperationId',
-          shippingInstruction: 'colShippingInstruction',
+          shippingInstruction: isPlanCentric ? 'colShippingInstructions' : 'colShippingInstruction',
           commodityQty: 'colCommodityQty',
           priority: 'colPriority',
           purpose: 'colPurpose',
-          remark: 'colRemark',
+          shipper: 'colShipper',
+          tradeTerm: 'colTerm',
+          loadingPort: 'colPortOfLoading',
+          agent: 'colAgent',
+          surveyor: 'colSurveyor',
+          remark: isPlanCentric ? 'colRemarks' : 'colRemark',
           eta: 'colEta',
+          ta: 'colTa',
           etb: 'colEtb',
+          tb: 'colTb',
           jetty: 'colJetty',
         })[key] || '',
         { defaultValue: fallback }
       ),
-    [tAlloc]
+    [tAlloc, isPlanCentric]
   )
 
   const fileUrl = (p) => resolveUploadUrl(p)
@@ -1051,6 +1153,15 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         }
       }
     }
+    if (!(berthingTa || '').trim()) {
+      errors.push('Please enter Actual Time of Arrival (TA).')
+    }
+    if (!(berthingTb || '').trim()) {
+      errors.push('Please enter Actual Time of Berthing (TB).')
+    }
+    if (!(berthingEstimatedCompletion || '').trim()) {
+      errors.push('Please enter Estimated completion.')
+    }
     if (berthingPhotos.length === 0) {
       errors.push('Please upload at least one vessel photo.')
     }
@@ -1079,7 +1190,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         jetty: targetJettyId,
         priority: berthingConfirmRow.priority || '',
         etaDateTime: normalizeForApiOrEmpty(berthingConfirmRow.etaDateTime, scheduleEntryTz),
-        taDateTime: normalizeForApiOrEmpty(berthingConfirmRow.taDateTime, scheduleEntryTz),
+        taDateTime: normalizeForApiOrEmpty(berthingTa, scheduleEntryTz),
         etbDateTime: normalizeForApiOrEmpty(berthingConfirmRow.etbDateTime, scheduleEntryTz),
         pobDateTime: normalizeForApiOrEmpty(berthingPob, scheduleEntryTz),
         tbDateTime: normalizeForApiOrEmpty(berthingTb, scheduleEntryTz),
@@ -1161,6 +1272,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     setBerthingConfirmRow(r)
     setBerthingSelectedJetty(getTargetJettyId(r) || '')
     setBerthingPob(r.pobDateTime || '')
+    setBerthingTa(toDateTimeLocalValue(r.taDateTime))
     setBerthingTb(toDateTimeLocalValue(r.tbDateTime) || getNowForDateTimeLocal())
     setBerthingSob(r.sobDateTime || '')
     setBerthingEstimatedCompletion(toDateTimeLocalValue(r.estimatedCompletionDateTime))
@@ -1179,6 +1291,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     setBerthingErrors([])
     setBerthingSelectedJetty('')
     setBerthingPob('')
+    setBerthingTa('')
     setBerthingTb('')
     setBerthingSob('')
     setBerthingEstimatedCompletion('')
@@ -1504,8 +1617,10 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     return filterKeys.every((key) => {
       const f = (filters[key] || '').trim().toLowerCase()
       if (!f) return true
-      const val =
-        key === 'purpose'
+      const col = allocationColumnDefsBase.find((c) => c.key === key)
+      const val = col?.getFilterValue
+        ? col.getFilterValue(r)
+        : key === 'purpose'
           ? resolvePurposeLabel(r.purpose, r.loadDischarge) || r[key]
           : key === 'planReference'
             ? r.planReference || (r.shipmentPlanId != null ? `Plan #${r.shipmentPlanId}` : '')
@@ -2844,13 +2959,16 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                 <section className="berthing-modal__form-section">
                   <h3 className="berthing-modal__form-section-title">Berthing details</h3>
                   <div className="berthing-modal__field">
-                    <label htmlFor="berthing-jetty" className="berthing-modal__label">Jetty allocation</label>
+                    <label htmlFor="berthing-jetty" className="berthing-modal__label">
+                      Jetty allocation <span className="required-star">*</span>
+                    </label>
                     <select
                       id="berthing-jetty"
                       className="berthing-modal__input"
                       value={berthingSelectedJetty}
                       onChange={(e) => setBerthingSelectedJetty(e.target.value)}
                       aria-describedby={berthingErrors.length > 0 ? 'berthing-errors' : undefined}
+                      aria-required="true"
                     >
                       <option value="">— Select jetty —</option>
                       {berthIds.map((jid) => {
@@ -2886,7 +3004,23 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                     />
                   </div>
                   <div className="berthing-modal__field">
-                    <label htmlFor="berthing-tb" className="berthing-modal__label">Actual Time of Berthing (TB)</label>
+                    <label htmlFor="berthing-ta" className="berthing-modal__label">
+                      Actual Time of Arrival (TA) <span className="required-star">*</span>
+                    </label>
+                    <input
+                      id="berthing-ta"
+                      type="datetime-local"
+                      className="berthing-modal__input"
+                      value={berthingTa}
+                      onChange={(e) => setBerthingTa(e.target.value)}
+                      aria-label="Actual Time of Arrival"
+                      aria-required="true"
+                    />
+                  </div>
+                  <div className="berthing-modal__field">
+                    <label htmlFor="berthing-tb" className="berthing-modal__label">
+                      Actual Time of Berthing (TB) <span className="required-star">*</span>
+                    </label>
                     <input
                       id="berthing-tb"
                       type="datetime-local"
@@ -2894,6 +3028,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                       value={berthingTb}
                       onChange={(e) => setBerthingTb(e.target.value)}
                       aria-label="Actual Time of Berthing"
+                      aria-required="true"
                     />
                   </div>
                   <div className="berthing-modal__field">
@@ -2909,7 +3044,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                   </div>
                   <div className="berthing-modal__field">
                     <label htmlFor="berthing-estimated-completion" className="berthing-modal__label">
-                      Estimated completion
+                      Estimated completion <span className="required-star">*</span>
                     </label>
                     <input
                       id="berthing-estimated-completion"
@@ -2918,12 +3053,15 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                       value={berthingEstimatedCompletion}
                       onChange={(e) => setBerthingEstimatedCompletion(e.target.value)}
                       aria-label="Estimated completion"
+                      aria-required="true"
                     />
                   </div>
                 </section>
 
                 <section className="berthing-modal__form-section">
-                  <label className="berthing-modal__label">Vessel photo (at least one required)</label>
+                  <label className="berthing-modal__label">
+                    Vessel photo <span className="required-star">*</span>
+                  </label>
                   <label htmlFor="berthing-photos" className="berthing-modal__file-zone">
                     <span className="berthing-modal__file-zone-text">
                       {berthingPhotos.length > 0 ? `${berthingPhotos.length} file(s) chosen` : 'Choose files or drop here'}
@@ -2936,6 +3074,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                       onChange={addBerthingPhotos}
                       className="berthing-modal__file-input"
                       aria-label="Upload vessel photos"
+                      aria-required="true"
                     />
                   </label>
                   {berthingPhotos.length > 0 && (
@@ -2982,7 +3121,9 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                 </section>
 
                 <section className="berthing-modal__form-section">
-                  <label htmlFor="berthing-remarks" className="berthing-modal__label">Remarks (required)</label>
+                  <label htmlFor="berthing-remarks" className="berthing-modal__label">
+                    Remarks <span className="required-star">*</span>
+                  </label>
                   <textarea
                     id="berthing-remarks"
                     className="berthing-modal__textarea"
@@ -2992,6 +3133,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                     maxLength={MAX_REMARK_CHARS}
                     placeholder="Enter remark for this berthing"
                     aria-describedby={berthingErrors.length > 0 ? 'berthing-errors' : undefined}
+                    aria-required="true"
                   />
                 </section>
               </div>

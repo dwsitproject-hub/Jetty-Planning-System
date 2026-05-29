@@ -299,6 +299,8 @@ function formatListRow(r) {
     norDocuments: r.nor_documents ?? [],
     noPkk: r.no_pkk || null,
     shipper: r.shipper_name || null,
+    tradeTerm: r.trade_term_code ?? null,
+    loadingPort: r.loading_port_name ?? null,
     agent: r.agent_name || null,
     surveyor: r.surveyor_name || null,
     remark: r.remark ?? null,
@@ -435,6 +437,8 @@ function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = 
          WHERE b2.shipping_instruction_id = si.id AND b2.deleted_at IS NULL) AS shipper_name,
         ag.name AS agent_name,
         sv.name AS surveyor_name,
+        tt.code AS trade_term_code,
+        lp.name AS loading_port_name,
         COALESCE(sp.eta, o.eta, (si.eta_to::timestamptz), (si.eta_from::timestamptz)) AS eta_datetime,
         COALESCE(sp.ta, o.ta) AS ta_datetime,
         COALESCE(sp.etb, o.etb) AS planned_etb_datetime,
@@ -464,6 +468,8 @@ function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = 
      ${joinUsers}
      LEFT JOIN si_agents ag ON ag.id = COALESCE(si.agent_id, sp.agent_id) AND ag.deleted_at IS NULL
      LEFT JOIN si_surveyors sv ON sv.id = si.surveyor_id AND sv.deleted_at IS NULL
+     LEFT JOIN si_trade_terms tt ON tt.id = si.trade_term_id AND tt.deleted_at IS NULL
+     LEFT JOIN si_loading_ports lp ON lp.id = si.loading_port_id AND lp.deleted_at IS NULL
      LEFT JOIN jetties j ON j.id = COALESCE(sp.jetty_id, o.jetty_id) AND j.deleted_at IS NULL
      LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
      WHERE o.deleted_at IS NULL
@@ -535,6 +541,8 @@ async function buildAllocationOverviewPayload(selectedPortId) {
          WHERE b2.shipping_instruction_id = si.id AND b2.deleted_at IS NULL) AS shipper_name,
         ag.name AS agent_name,
         sv.name AS surveyor_name,
+        tt.code AS trade_term_code,
+        lp.name AS loading_port_name,
         COALESCE(sp.eta, (si.eta_to::timestamptz), (si.eta_from::timestamptz)) AS eta_datetime,
         sp.ta AS ta_datetime,
         sp.etb AS planned_etb_datetime,
@@ -562,6 +570,8 @@ async function buildAllocationOverviewPayload(selectedPortId) {
      LEFT JOIN si_purposes spur ON spur.id = sp.purpose_id AND spur.deleted_at IS NULL
      LEFT JOIN si_agents ag ON ag.id = COALESCE(si.agent_id, sp.agent_id) AND ag.deleted_at IS NULL
      LEFT JOIN si_surveyors sv ON sv.id = si.surveyor_id AND sv.deleted_at IS NULL
+     LEFT JOIN si_trade_terms tt ON tt.id = si.trade_term_id AND tt.deleted_at IS NULL
+     LEFT JOIN si_loading_ports lp ON lp.id = si.loading_port_id AND lp.deleted_at IS NULL
      LEFT JOIN jetties j ON j.id = sp.jetty_id AND j.deleted_at IS NULL
      LEFT JOIN ports p ON p.id = COALESCE(sp.port_id, j.port_id) AND p.deleted_at IS NULL
      WHERE si.deleted_at IS NULL

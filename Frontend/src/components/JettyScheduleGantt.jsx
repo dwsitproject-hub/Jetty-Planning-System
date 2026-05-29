@@ -131,7 +131,31 @@ function pushSegment(out, base, wStart, wEnd) {
   out.push({ ...base, startMs: c.startMs, endMs: c.endMs })
 }
 
-function buildScheduleSegments(plan, windowStartMs, windowEndMs) {
+function resolveActualAlongsideEnd({ tb, estComp, isSailed, actComp, castOff, nowMs }) {
+  if (isSailed) {
+    const knownEnd = actComp ?? castOff ?? null
+    if (knownEnd != null && knownEnd > tb) {
+      return { endMs: knownEnd, gradient: false, label: 'Actual · alongside → completion / cast-off' }
+    }
+    return {
+      endMs: Math.max(tb + 60_000, nowMs),
+      gradient: true,
+      label: 'Actual · alongside (completion time invalid — open end)',
+    }
+  }
+
+  const endMs = estComp != null ? Math.max(estComp, nowMs) : nowMs
+  return {
+    endMs: Math.max(endMs, tb + 60_000),
+    gradient: true,
+    label:
+      estComp != null
+        ? 'Actual · alongside → open end (max of est. completion and now)'
+        : 'Actual · alongside → open end (still at berth; est. completion not set)',
+  }
+}
+
+function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
   const sorted = [...plan].sort((a, b) => (a.sequence ?? 99) - (b.sequence ?? 99))
   const out = []
 
@@ -155,8 +179,6 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs) {
     const sourceStatus = String(r.status || '').trim().toUpperCase()
     const isSailed = sourceStatus === 'SAILED' || actComp != null || castOff != null
     const status = isSailed ? 'Sailed off' : tb != null ? 'Berthing' : 'Arriving'
-    /** Known end of alongside ops when recorded (cast-off can stand in if completion time missing) */
-    const actualEnd = actComp ?? castOff ?? null
 
     // Planned: ETB → est. completion when set; else +3 days from ETB (open end).
     // (Independent of actual completion — matches “planned” semantics.)
@@ -273,61 +295,15 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs) {
     }
 
     // Actual alongside: only after TB exists (do not draw ops bar until alongside started).
-    // Matrix uses estimatedCompletionDateTime + actualCompletionDateTime; cast-off fills in
-    // a known end only when both completion fields are empty (branch 1).
     if (tb != null) {
-      const hasEst = estComp != null
-      const hasAct = actComp != null
-      let opsEnd
-      let gradient
-      let label
-
-      if (hasEst && hasAct) {
-        // Both filled → actual end is actual completion (known)
-        if (actComp > tb) {
-          opsEnd = actComp
-          gradient = false
-          label = 'Actual · alongside → actual completion'
-        } else {
-          opsEnd = tb + DEFAULT_TAIL_MS
-          gradient = true
-          label = 'Actual · alongside (actual completion not after TB — tail is indicative)'
-        }
-      } else if (hasEst && !hasAct) {
-        // Est filled, actual completion NULL → show to est. completion, open-ended (provisional)
-        if (estComp > tb) {
-          opsEnd = estComp
-          gradient = true
-          label =
-            'Actual · alongside → est. completion (actual completion not recorded — open end)'
-        } else {
-          opsEnd = tb + DEFAULT_TAIL_MS
-          gradient = true
-          label = 'Actual · alongside (est. completion not after TB — tail is indicative)'
-        }
-      } else if (!hasEst && hasAct) {
-        // Est NULL, actual completion filled → solid to actual completion
-        if (actComp > tb) {
-          opsEnd = actComp
-          gradient = false
-          label = 'Actual · alongside → actual completion'
-        } else {
-          opsEnd = tb + DEFAULT_TAIL_MS
-          gradient = true
-          label = 'Actual · alongside (actual completion not after TB — tail is indicative)'
-        }
-      } else {
-        // Both NULL → +3 days from TB, or cast-off / completion from actualEnd if present
-        if (actualEnd != null && actualEnd > tb) {
-          opsEnd = actualEnd
-          gradient = false
-          label = 'Actual · alongside → completion / cast-off'
-        } else {
-          opsEnd = tb + DEFAULT_TAIL_MS
-          gradient = true
-          label = 'Actual · alongside (+3 days — completion not set)'
-        }
-      }
+      const { endMs: opsEnd, gradient, label } = resolveActualAlongsideEnd({
+        tb,
+        estComp,
+        isSailed,
+        actComp,
+        castOff,
+        nowMs,
+      })
 
       pushSegment(
         out,
@@ -469,6 +445,14 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
 
   const showDualLanes = isWide || comparePlanActual
 
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30000)
+    return () => clearInterval(id)
+  }, [])
+
+  const nowMs = Date.now()
+
   const { windowStartMs, windowEndMs, dateColumns, baseSegments, totalMs, rangeError } = useMemo(() => {
     const plan = Array.isArray(list) ? list : []
     const wStart = parseDateInputStart(dateFrom)
@@ -504,7 +488,7 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
       }
     }
     const cols = buildDateColumns(wStart, wEnd)
-    const barList = buildScheduleSegments(plan, wStart, wEnd)
+    const barList = buildScheduleSegments(plan, wStart, wEnd, nowMs)
     return {
       windowStartMs: wStart,
       windowEndMs: wEnd,
@@ -513,7 +497,7 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
       totalMs: wEnd - wStart,
       rangeError: null,
     }
-  }, [list, dateFrom, dateTo])
+  }, [list, dateFrom, dateTo, tick])
 
   const rowDefs = useMemo(() => {
     const berths = Array.isArray(berthsState) ? berthsState : []
@@ -541,13 +525,6 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
     return assignBankLanesByVessel(baseSegments, rowDefs, listRows)
   }, [baseSegments, rowDefs, list])
 
-  const [, setTick] = useState(0)
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 30000)
-    return () => clearInterval(id)
-  }, [])
-
-  const nowMs = Date.now()
   const nowFraction =
     totalMs > 0 ? Math.min(1, Math.max(0, (nowMs - windowStartMs) / totalMs)) : 0
   const showNowLine = rangeError == null && nowMs >= windowStartMs && nowMs <= windowEndMs
