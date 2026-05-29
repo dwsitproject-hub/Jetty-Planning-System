@@ -1250,6 +1250,7 @@ export default function AtBerthExecutions() {
         isOpen={Boolean(siDocumentModalId)}
         siId={siDocumentModalId}
         onClose={() => setSiDocumentModalId(null)}
+        allowPreApprovalPreview
       />
     </div>
   )
