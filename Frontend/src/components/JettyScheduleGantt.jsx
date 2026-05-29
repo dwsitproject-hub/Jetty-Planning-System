@@ -4,6 +4,13 @@ import InteractiveTooltip from './InteractiveTooltip'
 import PurposeBadge, { resolvePurposeLabel } from './PurposeBadge'
 import EtcBreachBadge from './EtcBreachBadge'
 import { formatOverdueDuration } from '../utils/etcBreach'
+import {
+  parseMs,
+  toDateInputValue,
+  parseDateInputStart,
+  parseDateInputEndExclusive,
+  resolveActualAlongsideEnd,
+} from '../utils/jettyScheduleOccupancy'
 import '../styles/dashboard.css'
 import '../styles/etc-breach.css'
 
@@ -59,39 +66,11 @@ function startOfDay(d) {
   return x
 }
 
-function toDateInputValue(d) {
-  const x = startOfDay(d)
-  const y = x.getFullYear()
-  const m = String(x.getMonth() + 1).padStart(2, '0')
-  const day = String(x.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
 function defaultDateRangeInputs() {
   const today = new Date()
   const from = new Date(today.getFullYear(), today.getMonth(), 1, 0, 0, 0, 0)
   const to = new Date(today.getFullYear(), today.getMonth() + 1, 0, 0, 0, 0, 0)
   return { from: toDateInputValue(from), to: toDateInputValue(to) }
-}
-
-function parseDateInputStart(str) {
-  if (!str || !/^\d{4}-\d{2}-\d{2}$/.test(str)) return null
-  const [y, m, d] = str.split('-').map(Number)
-  return new Date(y, m - 1, d, 0, 0, 0, 0).getTime()
-}
-
-function parseDateInputEndExclusive(str) {
-  if (!str || !/^\d{4}-\d{2}-\d{2}$/.test(str)) return null
-  const [y, m, d] = str.split('-').map(Number)
-  const day = new Date(y, m - 1, d, 0, 0, 0, 0)
-  day.setDate(day.getDate() + 1)
-  return day.getTime()
-}
-
-function parseMs(v) {
-  if (v == null || v === '') return null
-  const t = new Date(v).getTime()
-  return Number.isNaN(t) ? null : t
 }
 
 function buildDateColumns(windowStartMs, windowEndMs) {
@@ -134,30 +113,6 @@ function pushSegment(out, base, wStart, wEnd) {
   const c = clipToWindow(base.startMs, base.endMs, wStart, wEnd)
   if (!c || c.endMs <= c.startMs) return
   out.push({ ...base, startMs: c.startMs, endMs: c.endMs })
-}
-
-function resolveActualAlongsideEnd({ tb, estComp, isSailed, actComp, castOff, nowMs }) {
-  if (isSailed) {
-    const knownEnd = actComp ?? castOff ?? null
-    if (knownEnd != null && knownEnd > tb) {
-      return { endMs: knownEnd, gradient: false, label: 'Actual · alongside → completion / cast-off' }
-    }
-    return {
-      endMs: Math.max(tb + 60_000, nowMs),
-      gradient: true,
-      label: 'Actual · alongside (completion time invalid — open end)',
-    }
-  }
-
-  const endMs = estComp != null ? Math.max(estComp, nowMs) : nowMs
-  return {
-    endMs: Math.max(endMs, tb + 60_000),
-    gradient: true,
-    label:
-      estComp != null
-        ? 'Actual · alongside → open end (max of est. completion and now)'
-        : 'Actual · alongside → open end (still at berth; est. completion not set)',
-  }
 }
 
 function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {

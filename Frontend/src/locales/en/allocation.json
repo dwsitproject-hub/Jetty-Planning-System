@@ -1,6 +1,9 @@
 {
   "jettySchematic": "Jetty schematic",
   "jettySchedule": "Jetty schedule",
+  "jettySchematicViewAsOf": "View as of",
+  "jettySchematicResetDate": "Reset",
+  "jettySchematicHistoricalHint": "Showing allocation for {{date}}",
   "ganttLegendLatePastEtc": "Late (past ETC)",
   "visualizationAria": "Visualization",
   "incomingTitle": "Incoming vessel & berthing plan",

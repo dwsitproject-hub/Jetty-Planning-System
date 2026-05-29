@@ -1,9 +1,9 @@
 # Functional specification — Jetty schedule Gantt & arrival updates
 
 **Product:** Jetty Planning & Monitoring System (JPS)  
-**Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, **uploaded document preview & download**, **Jetty Live CCTV** (per-jetty RTSP links, schematic camera control, browser stream page), **self-service change password** (header user menu), and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
+**Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, **uploaded document preview & download**, **Jetty Live CCTV** (per-jetty RTSP links, schematic camera control, browser stream page), **self-service change password** (header user menu), **Reporting → Jetty – Vessel Report** (jetty utilization summary and vessel detail), and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.50 (see document history at end).
+**Version:** 1.53 (see document history at end).
 
 ---
 
@@ -12,6 +12,7 @@
 This document describes **behaviour that is implemented in code**, including:
 
 - Jetty schedule **Gantt** rendering rules (planned vs actual, segment types, end dates).
+- **Jetty Schematic — View as of** date control, schedule-derived berth occupancy, occupied-lane content layout, and purpose / ETC styling (**§17.7–17.8**).
 - **Estimated completion** capture in UI and persistence via the allocation API.
 - **Confirm Berthing** saving arrival-related fields (including estimated completion) to the backend.
 - Related **cosmetic** behaviour on the Gantt (reset control, intro area, removal of a confusing planned segment).
@@ -33,6 +34,7 @@ This document describes **behaviour that is implemented in code**, including:
 - **Uploaded document preview:** shared in-app preview modal for uploaded **images** and **PDFs** with explicit **Download**; replaces immediate browser download when clicking file links (**§2.19**).
 - **SI shipper per breakdown line:** shipper is chosen **per commodity/contract row** in the Shipment breakdown table (not a single Party & port field); one SI may show **multiple shippers**; Allocation queue **Shipper** column aggregates distinct names (**§2.20**, **§16**).
 - **Commodity Qty in overview tables:** a single **Commodity Qty** column after **Shipping Instruction** on **Allocation & Berthing**, **At-Berth Executions**, **Clearance**, and **Shipment Plans** list; values come from SI breakdown lines; multiple commodities within one SI appear on **separate lines** in the cell (**§2.21**).
+- **Jetty – Vessel Report:** port-scoped reporting on jetty allocation and **utilization summary** with column-header tooltips; detail rows from live operations and incoming SIs assigned to a jetty (**§2.22**).
 
 For API field names, database columns, and shared code modules, see **TECH-SPEC-Jetty-Planning-System.md** and **§6** below for arrival/estimated completion mapping. Jetty Live deployment: **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**.
 
@@ -48,10 +50,15 @@ For API field names, database columns, and shared code modules, see **TECH-SPEC-
 | **Reset** | Button label **Reset** — restores the default range (**today** → **today + 1 month**). |
 | **Intro line** | The schedule keeps an intro `<p>` wrapper for layout; **long instructional copy was removed**. Only **validation errors** (invalid range, range too large) appear there. |
 | **Compare plan vs actual** | On narrow viewports, a checkbox toggles dual **Planned** / **Actual** lanes; wide viewports show both by default. |
-| **Legend** | Explains **Planned (known)** vs **Planned (open end)**, **Actual (known)** vs **Actual (open end)**, **Now**, and **Sailed off** status color. |
+| **Legend** | Explains **Planned (known)** vs **Planned (open end)**, **Actual (known)** vs **Actual (open end)**, **Late (past ETC)**, **Now**, and **Sailed off** status color. |
+| **Bar colours (planned vs actual)** | **Planned** segments use **orange** (`#ea580c`); **Actual** segments use **purple** (`#7c3aed`). These colours are **intentionally distinct** from **Loading** (green) and **Unloading** (blue) **purpose** badges on bars and elsewhere, so planners can read schedule layer vs cargo purpose at a glance. **Late (past ETC)** on an in-progress Actual bar transitions from purple toward **red** on the overdue portion (legend swatch matches). **Sailed off** bars remain **muted grey**. Tokens: **`--gantt-planned-*`**, **`--gantt-actual-*`** in **`design-tokens.css`**. |
+| **Date range controls** | **From** / **To** use compact **`type="date"`** fields (~**9.25rem** wide, **32px** height) and a matching **Reset** button in the filter bar (shared styling with schematic **View as of**). |
 | **Vessel icon** | Bars use an **inline SVG** ship icon (avoids emoji rendering issues on Windows). |
 | **Click vessel** | Where configured, clicking a bar selects the vessel for details. |
-| **Sailed visibility scope** | **Jetty Schedule** is a time-series surface and can include **SAILED** operation rows (bounded history from backend) when they intersect the selected date window. **Jetty Schematic** remains a **live occupancy** surface and excludes SAILED by design. |
+| **Sailed visibility scope** | **Jetty Schedule** is a time-series surface and can include **SAILED** operation rows (bounded history from backend) when they intersect the selected date window. **Jetty Schematic** uses the same **`scheduleQueue`** dataset and **Actual · alongside** overlap rules (**§17.8**) so **historical** days can show vessels that were alongside (including sailed rows within the backend lookback); it is not limited to live API **`berths.occupants`**. |
+| **Actual open end (in progress)** | For **Actual · alongside** while the vessel is **still at berth** (no `actualCompletionDateTime`, no `castOffDateTime`, status not **SAILED**), the bar end is **`max(estimatedCompletionDateTime, now)`** (or **`now`** when estimate is missing)—not a fixed **+3-day** tail—so in-progress bars stay aligned with physical occupancy. Open-end Actual bars **recompute** on a ~**30s** tick with the red **Now** line. |
+| **ETC past estimate (Actual bar)** | When **`now > estimatedCompletionDateTime`** and the vessel has not sailed, the Actual alongside segment uses **overdue** styling (distinct bar treatment), tooltip copy, and—when the bar is wide enough—a compact **ETC breached** indicator. Legend includes **Late (past ETC)** where applicable. |
+| **Purpose on bars** | Gantt bars may show a compact **purpose** badge (Loading / Unloading) when space permits; tooltips include **cargo** summary when present on the queue row. |
 | **Removed segment** | The **planned “transit” sliver** from **ETA → planned ETB** was **removed** — it was visually confusing; the Gantt does not draw that segment anymore. |
 | **Tooltip source context** | Hover tooltip shows source references for derived bars: **Planned refs** (`ETB`, `ETA`) and **Actual refs** (`TB`, `TA`). Start line indicates which source is used, e.g. **Start ... (from ETB/ETA/TB/TA)**. |
 | **Status color source of truth** | Gantt bar status color treats a vessel as **Sailed off** when any of these are true: operation status is `SAILED`, `actualCompletionDateTime` is set, or `castOffDateTime` is set. |
@@ -230,7 +237,7 @@ This section documents implemented sign-in behavior for Downstream Hub OIDC inte
 | **Data** | **`GET /allocation/plan-overview`** and **`GET /allocation/overview`** return the **same JSON shape** (`queue`, `scheduleQueue`, `berths`) and both require **`allocation-plan`** **view** after migration **068**. Each flat queue row includes **`planReference`** and **`planPurposeLabel`** when the shipment plan and purpose master rows are present. Incoming SI rows without an operation use **`source`** = **`incoming-si`**. |
 | **Queue table** | The **Incoming** table is **grouped by `shipmentPlanId`**: one **summary** row per plan (reference links to **`/shipment-plans/:id`**, vessel name, purpose badge when available, jetty summary, berthed vs total line count), then **nested child rows** per SI/operation with the **same columns, filters, sort, expand row, and actions** as the legacy Allocation page (including **Commodity Qty** after **Shipping Instruction** — **§2.21**). Rows with no plan id are listed in an **ungrouped** block after grouped plans (normally empty when all SIs are plan-backed). |
 | **Actions on children** | **Log arrival update**, **Confirm Berthing**, **Re-dock**, berthing sequence controls, **Full details**, and SI / Jetty Operation ID links behave like the legacy page and target the **child** SI/operation only. |
-| **Jetty schematic & Jetty schedule (Gantt) — data** | Both consume the **flat** **`queue`** / **`scheduleQueue`** from the same response so berth occupancy, sailed schedule rules, and tooltips match the legacy Allocation page. |
+| **Jetty schematic & Jetty schedule (Gantt) — data** | Both consume **`scheduleQueue`** (and plan-centric merges of the same rows) from **`GET /allocation/overview`** or **`plan-overview`**. **Jetty schedule** filters by its **From / To** range. **Jetty schematic** filters occupancy by **View as of** calendar day (**§17.8**). The incoming queue table still uses flat **`queue`**. |
 | **Jetty schematic / Gantt — merged plan selection** | Slots keyed **`plan-<shipmentPlanId>`** open the **Active vessel call** modal in **plan-first** mode: title links to **`/shipment-plans/:id`**; **Time & status (shipment plan)** is read-only and sourced from **`GET /api/v1/shipment-plans/:id`** (plan-level ISO timestamps); **derived** rows (**Time since berthing**, **Est. time remaining**) use the same display rules as the operation modal but **inputs are plan fields**. Short **source / derivation** text appears on **`<dt>` tooltips** only (not in the value column). A **Shipping instructions on this plan** table lists every child row from the current **`queue`** ∪ **`scheduleQueue`** (deduped). If the plan fetch fails, an inline error appears in the plan **Time & status** block; the SI table still renders from the overview. **Phase A:** **Current Phase**, **Edit** (including operation **Times & status**), **NOR**, and **berthing photos** remain tied to the **representative** operation resolved for that merged slot, with a short explanatory subtitle in the modal; the operation-level **Times & status** card is **hidden in read-only plan mode** to avoid duplicate/conflicting numbers and **shown again when editing** so saves stay operation-scoped. |
 | **Retired `/allocation` URL** | Schematic / Gantt clicks that resolve to a **single** `op-*` / `si-*` id keep the existing **Active Vessel Detail** behaviour (**§2.4**); no plan-detail fetch. The bookmark **`/allocation`** itself no longer renders the legacy list. |
 | **Saving arrival / berthing** | **`PUT /allocation/arrival`** requires **`allocation-plan`** **edit**; activity log **`page_key`** is **`allocation-plan`**. |
@@ -371,6 +378,25 @@ Cargo declared on each **Shipping Instruction** is visible in the main queue tab
 
 Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.32** (`siBreakdownDisplay.js`, allocation/operations/shipment-plans APIs, `siCargoTableDisplay.jsx`).
 
+### 2.22 Jetty – Vessel Report (Reporting)
+
+Port-scoped report for **which vessel is on which jetty** and **jetty utilization** over a selected date window. Data is built client-side from live APIs (not mock contexts): **`GET /operations`**, **`GET /allocation/overview`** (queue), **`GET /shipping-instructions/:id`** (per operation SI), and **`GET /jetties?port_id=…`**.
+
+| Area | Behaviour |
+|------|------------|
+| **Where** | **Reporting** hub → **Jetty – Vessel Report** (`/reporting/vessel`). Requires an active port in the header. |
+| **Filters** | **Start date** / **End date** (default **last 7 days** through today). Optional **Jetty** multi-select (all jetties when empty). **Generate Report** loads data; **Download Excel** is enabled after a successful run. |
+| **Row inclusion** | **Operations** with a **jetty** assigned. **Incoming shipping instructions** on the allocation **queue** that have a jetty but **no operation yet** are included. A row appears when any key timestamp overlaps the filter window, or when a **berth interval** (TB → cast-off) overlaps the window. |
+| **Report layout** | Three blocks: **Jetty utilization (summary)** table; **By jetty** collapsible vessel lists; **Detail** sortable/filterable table (jetty, SI/ref, vessel, purpose, ETA/TA/ETB/TB/sailed, cargo and party fields). |
+| **Utilization summary — columns** | **Jetty**, **Calls**, **Berth hours**, **Utilization %**. The former **Hours in window** column is **not shown** in the UI or Excel export (the window length is still used internally for **Utilization %**). |
+| **Column header tooltips** | **Calls**, **Berth hours**, and **Utilization %** each show an **ⓘ** icon beside the header label. Hover or keyboard focus opens a short definition (shared **`InteractiveTooltip`**). Intro copy under the summary title points users to these icons. |
+| **Calls** | Count of report rows (operations + incoming SIs) assigned to that jetty in the filtered set. Tooltip: *The total number of vessel arrivals or port calls recorded during the specified period.* |
+| **Berth hours** | Sum of **clipped alongside hours** per call on that jetty within the filter window. Interval start = **TB** (berthed date time); end = **cast-off** when set, otherwise **end of the report End date** (UTC day boundary) for vessels still alongside. Hours outside Start/End dates are clipped. Rows with **no TB** contribute **0** berth hours but may still increment **Calls**. Tooltip: *The total duration (in hours) that vessels occupied the berth, from first line to last line.* |
+| **Utilization %** | **Berth hours ÷ (hours in report window × jetty capacity) × 100**, rounded to one decimal, **capped at 100%** for display. **Hours in report window** = inclusive calendar span from start of **Start date** through end of **End date** (UTC), same value for every jetty row. **Jetty capacity** comes from master **`jetties.capacity`** (default **1**). Berth hours from overlapping calls are **summed** (not merged), so utilization can reflect stacked time when multiple calls overlap. Tooltip: *The percentage of time the berth was actively utilized relative to the available window hours.* |
+| **Excel export** | Two sheets: **summary** (same four columns as the UI table; date range in header; **no** separate “hours in window” metadata row) and **detail** (full vessel rows). File via **`jettyVesselReportExcel.js`**. |
+
+Technical contract: **`Frontend/src/data/jettyVesselReportFromApi.js`** (`computeJettyUtilizationSummary`, `clippedBerthHours`, `detailRowOverlapsRange`), **`Frontend/src/pages/VesselReport.jsx`**, **`Frontend/src/data/jettyVesselReportExcel.js`**.
+
 ---
 
 ## 3. Gantt data inputs (per queue row)
@@ -389,8 +415,9 @@ Segments are built from allocation overview **queue** rows. Relevant fields:
 
 **Display-only constants**
 
-- **Default tail:** **+3 calendar days** from a reference start when an end is unknown (72 hours in milliseconds in code).
+- **Default tail:** **+3 calendar days** from a reference start when an end is unknown (**planned · alongside** and **Actual · transit** only). **Actual · alongside** for **in-progress** berths does **not** use this tail (see **§5.2**).
 - **“Known” vs “open end”** is expressed visually: **solid** bar vs **gradient** (faded tail).
+- **Live “now” for open Actual alongside:** segment geometry uses **`Date.now()`** (refreshed ~every **30s** on the Gantt) when computing **`max(estimate, now)`** for vessels still at berth.
 
 ---
 
@@ -411,10 +438,10 @@ For each vessel row with a jetty id, the chart may draw:
 The matrix uses:
 
 - **Estimated completion** = `estimatedCompletionDateTime` parsed as time (`estComp`).
-- **Actual completion** = `actualCompletionDateTime` parsed as time (`actComp`) for branch selection.
-- **Cast-off** = `castOffDateTime` — used as a **fallback known end** for the **alongside** bar when **both** completion fields are empty (see §5.2 branch “both NULL”).
+- **Actual completion** = `actualCompletionDateTime` parsed as time (`actComp`).
+- **Cast-off** = `castOffDateTime` — with **actual completion**, marks **sailed / completed** alongside end (**§5.2**); not used as a +3-day fallback for in-progress berths.
 
-Invalid dates (e.g. end **not after** start) fall back to **+3 days** from the relevant start with an **open end** / indicative behaviour so bars never go “backwards”.
+Invalid dates (e.g. end **not after** start) fall back to **+3 days** from the relevant start with an **open end** / indicative behaviour so bars never go “backwards” (**planned · alongside** and **Actual · transit**). **Actual · alongside** for in-progress berths uses **§5.2** instead of the +3-day fallback.
 
 ### 5.1 Planned · alongside (from planned ETB)
 
@@ -427,14 +454,17 @@ Planned end **does not** depend on whether actual completion is filled; it refle
 
 ### 5.2 Actual · alongside (only if **TB** is set)
 
-Let `actualEnd = actComp ?? castOff` (known physical end when completion field empty but cast-off recorded).
+**Sailed / completed** — treat as **Sailed off** when **`status === 'SAILED'`**, or **`actualCompletionDateTime`** is set, or **`castOffDateTime`** is set (same rule as **§2.1** status colour).
 
-| # | Estimated | Actual completion (field) | Alongside end | Style |
-|---|-----------|----------------------------|---------------|--------|
-| 1 | NULL | NULL | If `actualEnd > TB` → `actualEnd`; else **TB + 3 days** | Solid if `actualEnd`; else open end |
-| 2 | Set | NULL | If `estComp > TB` → `estComp`; else **TB + 3 days** | **Open end** (provisional to estimate) |
-| 3 | NULL | Set | If `actComp > TB` → `actComp`; else **TB + 3 days** | Solid if valid |
-| 4 | Set | Set | If `actComp > TB` → `actComp`; else **TB + 3 days** | Solid if valid |
+| State | Alongside end | Style |
+|-------|----------------|--------|
+| **Sailed / completed** | **`actualCompletionDateTime`**, else **`castOffDateTime`**, when that instant is **after TB** | **Known** (solid); **Sailed off** muted styling when applicable |
+| **Sailed / completed** (invalid end ≤ TB) | Minimal open segment anchored at **TB** / **now** (display fallback) | Open end (gradient) |
+| **Still at berth** (none of the sailed signals above) | **`max(estimatedCompletionDateTime, now)`**; if estimate is **null**, **`now`** | **Open end** (gradient) — provisional until cast-off / actual completion |
+
+**`now`** for Gantt segment building is the live clock at render time (~**30s** refresh). Shared logic lives in **`Frontend/src/utils/jettyScheduleOccupancy.js`** (`resolveActualAlongsideEnd`).
+
+**Previous behaviour (superseded):** in-progress Actual alongside used a **+3-day** tail when estimate was missing or past; that caused bars to **end prematurely** while the vessel was still alongside. That tail is **removed** for **still-at-berth** Actual · alongside.
 
 ### 5.3 Actual · transit when **TA** set and **TB** not set
 
@@ -484,6 +514,9 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | Area | Location |
 |------|----------|
 | Gantt UI & segment logic | `Frontend/src/components/JettyScheduleGantt.jsx` |
+| Shared schedule occupancy / Actual alongside end math | `Frontend/src/utils/jettyScheduleOccupancy.js` — used by Gantt (**§5.2**) and Jetty Schematic (**§17.8**) |
+| Jetty Schematic (layout, **View as of**, date-filtered occupancy, lane content / purpose–RAG styling) | `Frontend/src/components/JettySchematic.jsx`, `Frontend/src/styles/jetty-schematic.css`, `Frontend/src/components/PurposeBadge.jsx`, `Frontend/src/components/EtcBreachBadge.jsx`; schematic **`materialDisplay`** / **`ragStatus`** on `Frontend/src/pages/Allocation.jsx` (`schematicMaterialDisplay`, `getEtcBreachRagStatus`) |
+| Gantt bar colours (planned orange / actual purple) | `Frontend/src/styles/design-tokens.css` (`--gantt-planned-*`, `--gantt-actual-*`), `Frontend/src/styles/allocation.css`, `Frontend/src/styles/etc-breach.css` |
 | Allocation page, modals, berthing confirm, **re-dock** modal | `Frontend/src/pages/Allocation.jsx` |
 | At-Berth list, **shift-out** modal | `Frontend/src/pages/AtBerthExecutions.jsx` |
 | Shift-out / re-dock API | `Frontend/src/api/operations.js` → `POST /operations/:id/shifting-out` |
@@ -509,6 +542,7 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | **Uploaded document preview & download** | **§2.19** — `Frontend/src/context/FilePreviewContext.jsx`, `Frontend/src/components/FilePreviewModal.jsx`, `FilePreviewLink.jsx`, `AuthenticatedFileImage.jsx`, `Frontend/src/utils/filePreview.js`, `Frontend/src/styles/file-preview.css`, i18n **`filePreview.json`**; backend **`GET .../view`** on operation, sub-process, and SI document routes — TECH-SPEC **§0.30**, **§3.10**, **§3.10C** |
 | **SI shipper per breakdown line** | **§2.20** — `Backend/migrations/079_si_breakdown_shipper_id.sql`, `Backend/src/routes/shipping-instructions.js`, `allocation.js`, `shipment-plans.js`, `si-lookups.js`; `Frontend/src/components/ShippingInstructionSiLinkedFields.jsx`, `Frontend/src/utils/siPlanLinkedDraft.js`, `Frontend/src/api/shippingInstructions.js`, `siViewModel.js`, `SiDetailModal.jsx`, `SiDocumentView.jsx`, `SIApproval.jsx`, `siExtractMerge.js`; TECH-SPEC **§0.31** |
 | **Commodity Qty overview columns** | **§2.21** — `Backend/src/lib/siBreakdownDisplay.js`, `Backend/src/routes/allocation.js`, `operations.js`, `shipment-plans.js`; `Frontend/src/utils/siCargoTableDisplay.jsx`, `allocationPlanPovMerge.js`, `Allocation.jsx`, `AtBerthExecutions.jsx`, `Verification.jsx`, `ShipmentPlansList.jsx`, `allocation.css`; i18n **`colCommodityQty`** / **`clearanceColCommodityQty`**. TECH-SPEC **§0.32** |
+| **Jetty – Vessel Report** | **§2.22** — `Frontend/src/pages/VesselReport.jsx`, `Frontend/src/data/jettyVesselReportFromApi.js`, `Frontend/src/data/jettyVesselReportExcel.js`; APIs **`operations`**, **`allocation/overview`**, **`shipping-instructions/:id`**, **`jetties`**; summary header tooltips via **`InteractiveTooltip`**; styles **`allocation-table__th-label`**, **`allocation-table__th-info`** in **`allocation.css`** |
 | Save estimation of completion | `Frontend/src/api/operations.js` → `PUT /operations/:id/estimated-completion`; `Backend/src/routes/operations.js` |
 | DB — operations estimated completion | Migrations defining `operations.estimated_completion_time` (e.g. `Backend/migrations/004_shipping_operations_tables.sql` and related) |
 | Operation sign-off (request → approve) + Clearance pending queue | `Frontend/src/pages/Loading.jsx`, `Frontend/src/pages/Verification.jsx`, `Frontend/src/api/operations.js`; `Backend/src/routes/operations.js` (`POST .../signoff-request`, `POST .../signoff`, `GET .../pending-signoff-requests`); `Backend/migrations/049_operations_signoff_request.sql`; RBAC sub-row **Approve operation sign-off** — `Frontend/src/pages/AdminRoles.jsx`. Plan: **Docs/Plan/OPERATION-SIGNOFF-REQUEST-AND-APPROVAL-PLAN.md**. |
@@ -642,6 +676,9 @@ Cross-reference: **TECH-SPEC §0.20**, **`Backend/src/lib/schedule-instant.js`**
 
 | Version | Date | Notes |
 |---------|------|--------|
+| 1.53 | 2026-05-29 | **§2.22 Jetty – Vessel Report:** utilization summary table columns **Jetty**, **Calls**, **Berth hours**, **Utilization %**; **Hours in window** removed from UI and Excel (still used internally for **Utilization %**); **ⓘ** header tooltips on the three metric columns; live API data sources and berth-hour / utilization formulas documented. **§1**, **§7** map. |
+| 1.52 | 2026-05-29 | **Jetty schedule Gantt:** **Planned** bars **orange**, **Actual** bars **purple** (distinct from Loading/Unloading purpose colours); **Late (past ETC)** overdue gradient from purple to red. Compact **From / To** date inputs (**§2.1**). **Jetty Schematic:** occupied-lane layout (vessel name → purpose line → plan ref / SI → material); bank suffix chip; **icon-only** ETC breach (today only); **on-track** left accent follows **purpose** (blue unloading / green loading); zone height **220px** and lane clipping fixes (**§17.7–17.8**). **`materialDisplay`** on schematic map. **§7** map. |
+| 1.51 | 2026-05-28 | **Jetty schedule — Actual · alongside (in progress):** end is **`max(estimatedCompletionDateTime, now)`** (or **`now`** if estimate missing); removed **+3-day** tail for still-at-berth Actual bars; ~**30s** refresh with **Now** line. **§2.1**, **§3**, **§5.2**, **§7** (`jettyScheduleOccupancy.js`). **Gantt:** ETC overdue styling / purpose badge on bars (**§2.1**). **Jetty Schematic — View as of (**§17.8**): date picker (default today, **future dates disabled**); occupancy + **Incoming** from **`scheduleQueue`** using **§5.2** overlap; **ETC breach** styling **today only**; **§2.14**, **§17.5–17.7** updated (no longer live-`berths.occupants`-only). |
 | 1.50 | 2026-05-26 | **§2.21 Commodity Qty column:** single **Commodity Qty** column after **Shipping Instruction** on Allocation & Berthing (`/allocation-plans`), At-Berth, Clearance, and Shipment Plans list; per-commodity lines with line breaks inside the cell; stacked blocks for multi-SI plan rows; Clearance SI column reference-only. **§1**, **§2.7**, **§2.10**, **§9.2**, **§7** map. TECH-SPEC **§0.32**; updates **§0.29** list breakdown fields (`qty`, `metric_code`). |
 | 1.49 | 2026-05-25 | **§2.20 SI shipper per breakdown line:** shipper moved from SI header / Party & port to **first column** of Shipment breakdown table on plan-linked SI forms; optional per line; multi-shipper aggregation in Allocation queue, SI Detail modal, and list **`shipperNames`**. OCR autofill targets first empty breakdown row. Migration **079** backfills header shipper to all lines. **§1**, **§2.9**, **§2.13**, **§16**, **§7** map. TECH-SPEC **§0.31**, **§3.2**, **§3.5.1**, **§4**. |
 | 1.48 | 2026-05-25 | **§2.19 Uploaded document preview & download:** shared in-app preview modal for images and PDFs (click file name or berthing photo thumbnail); footer **Download** and **Open in new tab**; authenticated fetch for multi-port users. Covers Allocation (NOR, berthing photos), Loading/Unloading (Pre/Post documents, executions log), Clearance (sailed docs), Shipment Plans (SI source docs), SI Approval attachments, and nested log in **SI Detail** modal. **§9** executions log updated. **§7** map. TECH-SPEC **§0.30**, **§3.10**, **§3.10C**. |
@@ -871,17 +908,33 @@ If the backend returns **no columns** (no configuration saved for that port):
 
 ### 17.5 Relationship to double bank (forward reference)
 
-Double-banking (multiple vessels per jetty, schedule `01`/`02` lanes, one-vessel-per-box schematic) is documented and implemented separately. Jetty **layout** only controls **which jetty** sits in which **schematic cell**; **capacity** and **occupancy** still come from overview **`berths`**. **Shifted-out** operations are **not** counted as occupying a berth slot (see **§2.5**, TECH-SPEC **§0.9** / **`berths`** derivation).
+Double-banking (multiple vessels per jetty, schedule `01`/`02` lanes, one-vessel-per-box schematic) is documented and implemented separately. Jetty **layout** only controls **which jetty** sits in which **schematic cell**; **capacity**, **Out of Service** status, and **CCTV** links still come from overview **`berths`**. **Occupants** shown in lane boxes are **derived from `scheduleQueue`** for the selected **View as of** day (**§17.8**), not from live **`berths.occupants`**. **Shifted-out** rows are excluded from schematic occupancy (`shifting_out`); they may still appear as **incoming** hints when date rules match (see **§2.5**, TECH-SPEC **§0.9**).
 
 ### 17.6 Schematic bank lanes (inner `01`, jetty name band)
 
-On **Allocation → Jetty Schematic**, each configured jetty **top** or **bottom** cell is a **zone** containing: (1) a **jetty name band** showing the short **berth id** (e.g. **1A**, **1B**) flush against the central **pipeline** (black bar), plus an optional **CCTV camera** control when the user has **View Jetty Live stream** (`can_approve` on **At-Berth Executions**) and master data defines an RTSP link for that jetty (**§2.15**), and (2) **`capacity`** lane boxes. Each lane shows the **bank suffix** only (**`01`**, **`02`**, **`03`**, …); the full lane id **`{berthId}-NN`** appears on **hover** (e.g. tooltip **`1A-01`**). **Inner bank** is **`01`** (closest to the pipeline on **both** top and bottom); **`02`** is the next **outward**, **`03`** outward again for triple bank. The **top** lane stack uses reversed vertical order so **`01`** stays inner toward the pipeline (the **bottom** stack keeps natural order). Each box holds **at most one** displayed vessel (vacant otherwise). Occupants are ordered like the Jetty schedule Gantt: **TB** ascending, then **operation id**, then **vessel id** (see TECH-SPEC **§0.6**). If more occupied vessels than **capacity**, the last lane shows **+N more** after the representative vessel for that lane. **Incoming** names (queue) are hinted on the **first vacant** lane only to avoid clutter.
+On **Allocation → Jetty Schematic**, each configured jetty **top** or **bottom** cell is a **zone** containing: (1) a **jetty name band** showing the short **berth id** (e.g. **1A**, **1B**) flush against the central **pipeline** (black bar), plus an optional **CCTV camera** control when the user has **View Jetty Live stream** (`can_approve` on **At-Berth Executions**) and master data defines an RTSP link for that jetty (**§2.15**), and (2) **`capacity`** lane boxes. Each lane shows the **bank suffix** only (**`01`**, **`02`**, **`03`**, …); the full lane id **`{berthId}-NN`** appears on **hover** (e.g. tooltip **`1A-01`**). **Inner bank** is **`01`** (closest to the pipeline on **both** top and bottom); **`02`** is the next **outward**, **`03`** outward again for triple bank. The **top** lane stack uses reversed vertical order so **`01`** stays inner toward the pipeline (the **bottom** stack keeps natural order). Each box holds **at most one** displayed vessel (vacant otherwise). Occupants for the selected day are ordered like the Jetty schedule Gantt: **TB** ascending, then **operation id**, then **vessel id** (see TECH-SPEC **§0.6**). If more occupied vessels than **capacity**, the last lane shows **+N more** after the representative vessel for that lane. **Incoming** names are hinted on the **first vacant** lane only (**§17.8**).
 
 ### 17.7 Schematic layout & lane sizing (UX)
 
-- **Pipeline alignment:** Each schematic **column** uses a **fixed-height** top band, **fixed** middle (pipeline) band, and **fixed-height** bottom band so the black **pipeline** segment stays **level across columns**, including columns whose top or bottom cell is a non-dockable placeholder (`—`).
-- **Consistent lane box height:** Each lane’s height is derived from the **lane stack** area (the fixed band height **minus** the jetty name strip and spacing) divided by **max(jetty `capacity`, 2)**. A jetty with **capacity 1** therefore uses the **same lane band height** as a single lane on a double-bank jetty (the vessel card does not stretch to the full top/bottom band).
-- **Readability:** Lane copy (vessel name, SI, purpose, material) uses **compact** typography and padding; lanes may **scroll vertically** if content exceeds the band (edge case).
+- **Pipeline alignment:** Each schematic **column** uses a **fixed-height** top band, **fixed** middle (pipeline) band, and **fixed-height** bottom band so the black **pipeline** segment stays **level across columns**, including columns whose top or bottom cell is a non-dockable placeholder (`—`). Each top/bottom band uses **`--jetty-schematic-zone-height: 220px`** (jetty name strip + lane stack).
+- **Consistent lane box height:** Each lane’s height is derived from the **lane stack** area (the fixed band height **minus** the jetty name strip and spacing) divided by **max(jetty `capacity`, 2)**. A jetty with **capacity 1** therefore uses the **same lane band height** as a single lane on a double-bank jetty (the vessel card does not stretch to the full top/bottom band). Lane stacks use **`min-height: 0`** and **`overflow: hidden`** so top/bottom rows are not clipped when the schematic scrolls vertically.
+- **Lane chrome:** The **bank suffix** (`01`, `02`, …) appears as a small **chip** in the lane’s **top-left** corner (full `{berthId}-NN` remains on hover/tooltip), freeing vertical space for vessel copy.
+- **Readability:** Lane copy uses **compact** typography and padding; occupied lanes may **scroll vertically** inside the fixed lane height if content exceeds the band (edge case).
+
+### 17.8 View as of — date-filtered occupancy
+
+| Area | Behaviour |
+|------|-----------|
+| **Control** | **View as of** — single **`type="date"`** input below the schematic title, plus **Reset** (returns to **today**). Default on load: **today** (local calendar). **Future dates are disabled** (`max` = today; manual entry is clamped). |
+| **Historical hint** | When the selected date is **not** today, a short status line shows *Showing allocation for &lt;date&gt;* (i18n). |
+| **Data source** | Occupied lanes and **Incoming** hints are computed from **`scheduleQueue`** (plan-centric **`mergedSchedule`** on **`/allocation-plans`**) using the **same Actual · alongside interval** as **§5.2** (`resolveActualAlongsideEnd` in **`jettyScheduleOccupancy.js`**). Master **`berths`** still supplies **capacity**, **Out of Service**, and layout binding only. |
+| **Reference time (`asOfMs`)** | **Today:** live clock from Allocation **`breachNowMs`** (~**30s** tick). **Past days:** end of the selected calendar day (local). |
+| **Occupied lane** | A row occupies a lane on day **D** when **`tbDateTime`** is set and the Actual alongside interval **overlaps** day **D** (`start < endOfDay(D)` and `end > startOfDay(D)`). **Planned-only** rows (ETB without TB) do **not** fill occupied slots. |
+| **Incoming hint** | On the **first vacant** lane per jetty, show **Incoming: …** when a **`scheduleQueue`** row is assigned to that jetty, is **not** alongside-occupied on **D**, has **not** departed before **D**, and has **ETA / ETB / TA** on or before end of **D**. Sorted by earliest arrival. Source is **`scheduleQueue`** (not the separate incoming **`queue`** list). |
+| **ETC breach on schematic** | **ETC breached** lane styling and an **icon-only** breach indicator (top-right corner) appear **only when View as of = today** (live operational signal). Past/future dates do not show breach styling even if the vessel was past ETC on that day. |
+| **Lane content (occupied)** | Each occupied lane shows, in order: **vessel name**; **purpose** badge (**Loading** / **Unloading**, full label on its **own line** under the name); **Plan ref** or **SI No** (plan-centric Allocation uses **Plan ref:** + **`planReference`**; legacy path uses **SI No:**); **Material :** line from joined SI breakdown commodity names (fallback **commodity** on the queue row). Data comes from Allocation **`vesselById`** when available; occupant fallback supports historical rows not in the live map. |
+| **Purpose / schedule-health styling** | Occupied lanes combine **purpose** tint (**Loading** → green family, **Unloading** → blue family) with a **left accent** for schedule health when **View as of = today**: **ETC breached** → **red** accent and breach background; **warning** → **amber**; **on-track** → accent matches **purpose** (**blue** for Unloading, **green** for Loading)—not a generic “all clear” green bar, so on-track unloading does not look like Loading. Historical dates use purpose tint only (no live RAG accent). **Operation type** for tinting uses explicit **`purpose`** / **`loadDischarge`** (not naive substring match on “Unloading”). |
+| **Independence** | Schematic **View as of** and Jetty schedule **From / To** filters are **independent** tabs. |
 
 ---
 

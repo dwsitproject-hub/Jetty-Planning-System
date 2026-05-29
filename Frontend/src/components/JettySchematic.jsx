@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import EtcBreachBadge from './EtcBreachBadge'
 import PurposeBadge from './PurposeBadge'
@@ -7,6 +7,13 @@ import { fetchJettyLayout } from '../api/jettyLayout'
 import { fetchJetties } from '../api/jetties'
 import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
+import {
+  toDateInputValue,
+  parseDateInputStart,
+  asOfMsForSelectedDate,
+  buildBerthsForSchematicDate,
+  buildIncomingByJettyForDate,
+} from '../utils/jettyScheduleOccupancy'
 import '../styles/jetty-schematic.css'
 
 const AT_BERTH_PAGE_KEY = 'at-berth'
@@ -99,8 +106,9 @@ const ADMIN_LAYOUT_PLACEHOLDER =
 
 export default function JettySchematic({
   berths: berthsProp,
+  scheduleList = [],
+  viewAsOfMs = Date.now(),
   vesselById = {},
-  incomingByJetty = {},
   selectedBerthId,
   onSelectBerth,
   onSelectVessel,
@@ -108,6 +116,7 @@ export default function JettySchematic({
   slotReferenceLabel = 'SI No',
 }) {
   const { t } = useTranslation('pages')
+  const { t: tAlloc } = useTranslation('allocation')
   const { canApprove } = useRbac()
   const canViewJettyLiveCctv = canApprove(AT_BERTH_PAGE_KEY)
   const { selectedPortId, requiresSelection, noPortAssigned } = usePortScope()
@@ -170,7 +179,34 @@ export default function JettySchematic({
     }
   }, [canLoadLayout, selectedPortId])
 
-  const berths = berthsProp ?? defaultBerths
+  const [selectedDate, setSelectedDate] = useState(() => toDateInputValue(new Date()))
+  const todayYmd = toDateInputValue(new Date(viewAsOfMs))
+  const isTodaySelected = selectedDate === todayYmd
+  const asOfMs = asOfMsForSelectedDate(selectedDate, viewAsOfMs)
+
+  const handleDateChange = (e) => {
+    const next = e.target.value
+    if (!next) return
+    setSelectedDate(next > todayYmd ? todayYmd : next)
+  }
+
+  const displayBerths = useMemo(
+    () =>
+      buildBerthsForSchematicDate({
+        scheduleRows: scheduleList,
+        berthsMaster: berthsProp ?? defaultBerths,
+        dateYmd: selectedDate,
+        asOfMs,
+      }),
+    [scheduleList, berthsProp, selectedDate, asOfMs]
+  )
+
+  const displayIncoming = useMemo(
+    () => buildIncomingByJettyForDate(scheduleList, selectedDate, asOfMs),
+    [scheduleList, selectedDate, asOfMs]
+  )
+
+  const berths = displayBerths
   const interactive = typeof onSelectBerth === 'function'
   const canSelectVessel = typeof onSelectVessel === 'function'
   const getVessel = (id) => {
@@ -264,7 +300,7 @@ export default function JettySchematic({
   }
 
   function renderLaneEtcBadge(v) {
-    if (!v?.etcBreach) return null
+    if (!isTodaySelected || !v?.etcBreach) return null
     return (
       <EtcBreachBadge
         overMs={v.etcBreach.overMs}
@@ -288,7 +324,7 @@ export default function JettySchematic({
     const cap = berthCapacity(berth)
     const occIds = berthOccupantIds(berth)
     const occNames = occIds.map((id) => getVessel(id)?.vesselName || berth?.currentVesselName || id).filter(Boolean)
-    const incomingNames = formatIncomingList(incomingByJetty[berthId])
+    const incomingNames = formatIncomingList(displayIncoming[berthId])
     const incomingLabel = incomingNames.length ? incomingNames.join(', ') : '—'
     const isOos = (berth?.status || '') === 'Out of Service'
     const baseTooltip = isOos
@@ -318,15 +354,17 @@ export default function JettySchematic({
           const laneSuffix = String(slot.laneIndex + 1).padStart(2, '0')
           const isVacant = !slot.vesselId
           const v = slot.vesselId ? getVessel(slot.vesselId) : null
-          const op = v ? getOperationType(v, slot.occupant) : null
+          const op = v || slot.occupant ? getOperationType(v, slot.occupant) : null
           const vacantClass = 'jetty-schematic__slot jetty-schematic__slot--vacant'
-          const occClass = v
-            ? `jetty-schematic__slot jetty-schematic__slot--${op === 'LOAD' ? 'load' : 'disch'} jetty-schematic__slot--rag-${v.ragStatus || 'green'}`
-            : vacantClass
+          const ragKey = v && isTodaySelected ? v.ragStatus || 'green' : 'green'
+          const occClass =
+            !isVacant && (v || slot.occupant)
+              ? `jetty-schematic__slot jetty-schematic__slot--${op === 'LOAD' ? 'load' : 'disch'} jetty-schematic__slot--rag-${ragKey}`
+              : vacantClass
 
           let slotClassName = isVacant ? vacantClass : occClass
           if (selectedBerthId === berthId) slotClassName += ' jetty-schematic__slot--selected'
-          if (v?.etcBreach) slotClassName += ' jetty-schematic__lane--etc-breach'
+          if (isTodaySelected && v?.etcBreach) slotClassName += ' jetty-schematic__lane--etc-breach'
 
           const showIncomingThisVacant = isVacant && incomingNames.length > 0 && !firstVacantIncomingShown
           if (showIncomingThisVacant) firstVacantIncomingShown = true
@@ -336,7 +374,7 @@ export default function JettySchematic({
             : isVacant
               ? `${baseTooltip}\nLane ${laneLabel}: vacant`
               : `${baseTooltip}\nLane ${laneLabel}: ${v?.vesselName || slot.occupant?.vesselName || slot.vesselId}${
-                  v?.etcBreach
+                  isTodaySelected && v?.etcBreach
                     ? `\nETC breached · ${Math.round(v.etcBreach.overHours * 10) / 10}h over`
                     : ''
                 }`
@@ -468,9 +506,54 @@ export default function JettySchematic({
     )
   }
 
+  const handleResetDate = () => {
+    setSelectedDate(todayYmd)
+  }
+
+  const historicalHint =
+    !isTodaySelected && selectedDate
+      ? tAlloc('jettySchematicHistoricalHint', {
+          date: new Date(parseDateInputStart(selectedDate) ?? Date.now()).toLocaleDateString(undefined, {
+            dateStyle: 'medium',
+          }),
+          defaultValue: `Showing allocation for ${selectedDate}`,
+        })
+      : null
+
   return (
     <section className="card jetty-schematic-section">
       <h2 className="card__title">Jetty Schematic</h2>
+      <div
+        className="jetty-schematic__filters jetty-schedule-gantt__filters"
+        role="search"
+        aria-label={tAlloc('jettySchematicViewAsOf', { defaultValue: 'View as of date' })}
+      >
+        <div className="jetty-schedule-gantt__filter-field">
+          <label htmlFor="jetty-schematic-date">
+            {tAlloc('jettySchematicViewAsOf', { defaultValue: 'View as of' })}
+          </label>
+          <input
+            id="jetty-schematic-date"
+            type="date"
+            className="jetty-schedule-gantt__date-input"
+            max={todayYmd}
+            value={selectedDate}
+            onChange={handleDateChange}
+          />
+        </div>
+        <button
+          type="button"
+          className="btn btn--secondary jetty-schedule-gantt__reset"
+          onClick={handleResetDate}
+        >
+          {tAlloc('jettySchematicResetDate', { defaultValue: 'Reset' })}
+        </button>
+      </div>
+      {historicalHint ? (
+        <p className="jetty-schematic__historical-hint" role="status">
+          {historicalHint}
+        </p>
+      ) : null}
       <div className="jetty-schematic-wrap">
         <div className="jetty-schematic">
           {layoutColumns.map((col, colIndex) => {

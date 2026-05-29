@@ -1,6 +1,9 @@
 {
   "jettySchematic": "Skematik jetty",
   "jettySchedule": "Jadwal jetty",
+  "jettySchematicViewAsOf": "Tampilkan per",
+  "jettySchematicResetDate": "Reset",
+  "jettySchematicHistoricalHint": "Menampilkan alokasi untuk {{date}}",
   "visualizationAria": "Visualisasi",
   "incomingTitle": "Kapal masuk & rencana sandar",
   "statusFilterAria": "Filter kapal masuk dan sandar",

@@ -4,6 +4,16 @@
   margin-bottom: var(--spacing-3);
 }
 
+.jetty-schematic__filters {
+  margin-bottom: var(--spacing-3);
+}
+
+.jetty-schematic__historical-hint {
+  margin: 0 0 var(--spacing-3);
+  font-size: var(--font-size-sm);
+  color: #6b7280;
+}
+
 .jetty-schematic-wrap {
   overflow-x: auto;
   overflow-y: visible;

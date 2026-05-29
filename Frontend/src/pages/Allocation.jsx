@@ -828,25 +828,6 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     [vesselById]
   )
 
-  const incomingByJetty = useMemo(() => {
-    const byJetty = {}
-    const incomingRows = [...planViz.mergedList]
-      .filter((r) => getBerthingPlanStatus(r) === 'incoming')
-      .sort((a, b) => {
-        const aMs = getArrivalMsForJettyValidation(a) ?? Number.MAX_SAFE_INTEGER
-        const bMs = getArrivalMsForJettyValidation(b) ?? Number.MAX_SAFE_INTEGER
-        return aMs - bMs
-      })
-    for (const r of incomingRows) {
-      const jettyId = (r.jetty || '').trim().split('/')[0].trim()
-      if (!jettyId) continue
-      const name = r.vesselName || r.vesselId || '—'
-      if (!byJetty[jettyId]) byJetty[jettyId] = []
-      byJetty[jettyId].push(name)
-    }
-    return byJetty
-  }, [planViz.mergedList])
-
   const [arrivalNorFiles, setArrivalNorFiles] = useState([]) // [{ name, url }] for NOR document preview
   const [arrivalNorRawFiles, setArrivalNorRawFiles] = useState([]) // File[]
   const [arrivalSaving, setArrivalSaving] = useState(false)
@@ -2053,8 +2034,9 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         >
           <JettySchematic
             berths={planViz.mergedBerths}
+            scheduleList={planViz.mergedSchedule}
+            viewAsOfMs={breachNowMs}
             vesselById={vesselById}
-            incomingByJetty={incomingByJetty}
             onSelectBerth={handleBerthClick}
             onSelectVessel={(vesselId) => vesselId && selectVesselFromVisualization(vesselId)}
             slotReferenceLabel={isPlanCentric ? tAlloc('planRefSchematicLabel') : 'SI No'}
