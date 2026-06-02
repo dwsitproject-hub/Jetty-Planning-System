@@ -39,16 +39,18 @@ services:
       PORT: 3000
       DATABASE_URL: postgresql://${POSTGRES_USER:-jps_user}:${POSTGRES_PASSWORD:-jps_dev_password}@jps-db:5432/${POSTGRES_DB:-jps_db}
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
-      UPLOAD_DIR: /tmp/jps-uploads
+      UPLOAD_DIR: ${UPLOAD_DIR:-/var/jps/uploads}
     volumes:
       # Live code (no rebuild on file change) without overwriting node_modules
       - ./src:/app/src
       - ./scripts:/app/scripts
       - ./migrations:/app/migrations
       - ./package.json:/app/package.json
+      - jps_uploads:/var/jps/uploads
     depends_on:
       jps-db:
         condition: service_healthy
 
 volumes:
   jps_db_data:
+  jps_uploads:

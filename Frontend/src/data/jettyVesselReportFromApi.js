@@ -109,7 +109,7 @@ export function buildDetailRowFromOperation(op, si, overviewRow) {
   const quantity = summarizeQuantityFromSiBreakdown(si?.breakdown)
   const loadPort = si?.loadingPortName || '—'
   const dischPort = si?.destinationText || '—'
-  const shipper = si?.shipperName || overviewRow?.shipper || '—'
+  const shipper = si?.shipperNames || overviewRow?.shipper || '—'
   const consignee = si?.consigneeText || '—'
   const surveyor = si?.surveyorName || overviewRow?.surveyor || '—'
   const agent = si?.agentName || overviewRow?.agent || '—'

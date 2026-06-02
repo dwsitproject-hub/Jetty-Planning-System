@@ -1,6 +1,18 @@
 import { useMemo, useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import InteractiveTooltip from './InteractiveTooltip'
+import PurposeBadge, { resolvePurposeLabel } from './PurposeBadge'
+import EtcBreachBadge from './EtcBreachBadge'
+import { formatOverdueDuration } from '../utils/etcBreach'
+import {
+  parseMs,
+  toDateInputValue,
+  parseDateInputStart,
+  parseDateInputEndExclusive,
+  resolveActualAlongsideEnd,
+} from '../utils/jettyScheduleOccupancy'
 import '../styles/dashboard.css'
+import '../styles/etc-breach.css'
 
 /** Replaces emoji (often renders as empty box on Windows) */
 function GanttVesselIcon() {
@@ -54,45 +66,11 @@ function startOfDay(d) {
   return x
 }
 
-function addMonths(date, delta) {
-  const x = new Date(date.getTime())
-  x.setMonth(x.getMonth() + delta)
-  return x
-}
-
-function toDateInputValue(d) {
-  const x = startOfDay(d)
-  const y = x.getFullYear()
-  const m = String(x.getMonth() + 1).padStart(2, '0')
-  const day = String(x.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
 function defaultDateRangeInputs() {
   const today = new Date()
-  const from = startOfDay(today)
-  const to = startOfDay(addMonths(today, 1))
+  const from = new Date(today.getFullYear(), today.getMonth(), 1, 0, 0, 0, 0)
+  const to = new Date(today.getFullYear(), today.getMonth() + 1, 0, 0, 0, 0, 0)
   return { from: toDateInputValue(from), to: toDateInputValue(to) }
-}
-
-function parseDateInputStart(str) {
-  if (!str || !/^\d{4}-\d{2}-\d{2}$/.test(str)) return null
-  const [y, m, d] = str.split('-').map(Number)
-  return new Date(y, m - 1, d, 0, 0, 0, 0).getTime()
-}
-
-function parseDateInputEndExclusive(str) {
-  if (!str || !/^\d{4}-\d{2}-\d{2}$/.test(str)) return null
-  const [y, m, d] = str.split('-').map(Number)
-  const day = new Date(y, m - 1, d, 0, 0, 0, 0)
-  day.setDate(day.getDate() + 1)
-  return day.getTime()
-}
-
-function parseMs(v) {
-  if (v == null || v === '') return null
-  const t = new Date(v).getTime()
-  return Number.isNaN(t) ? null : t
 }
 
 function buildDateColumns(windowStartMs, windowEndMs) {
@@ -137,7 +115,7 @@ function pushSegment(out, base, wStart, wEnd) {
   out.push({ ...base, startMs: c.startMs, endMs: c.endMs })
 }
 
-function buildScheduleSegments(plan, windowStartMs, windowEndMs) {
+function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
   const sorted = [...plan].sort((a, b) => (a.sequence ?? 99) - (b.sequence ?? 99))
   const out = []
 
@@ -146,7 +124,15 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs) {
     if (!jettyId) return
 
     const vesselId = r.vesselId
+    const bankLaneKey =
+      r.shipmentPlanId != null && r.shipmentPlanId !== ''
+        ? `plan-${r.shipmentPlanId}`
+        : r.vesselId
     const vesselName = r.vesselName || r.vesselId || '—'
+    const purposeLabel = resolvePurposeLabel(r.planPurposeLabel || r.purpose, r.loadDischarge)
+    const loadDischarge = r.loadDischarge ?? null
+    const cargoDisplay = r.totalQtyDisplay || null
+    const rowMeta = { purposeLabel, loadDischarge, cargoDisplay }
     const plannedEtb = parseMs(r.plannedEtbDateTime) ?? parseMs(r.etbDateTime)
     const eta = parseMs(r.etaDateTime)
     const ta = parseMs(r.taDateTime)
@@ -157,8 +143,6 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs) {
     const sourceStatus = String(r.status || '').trim().toUpperCase()
     const isSailed = sourceStatus === 'SAILED' || actComp != null || castOff != null
     const status = isSailed ? 'Sailed off' : tb != null ? 'Berthing' : 'Arriving'
-    /** Known end of alongside ops when recorded (cast-off can stand in if completion time missing) */
-    const actualEnd = actComp ?? castOff ?? null
 
     // Planned: ETB → est. completion when set; else +3 days from ETB (open end).
     // (Independent of actual completion — matches “planned” semantics.)
@@ -186,8 +170,10 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs) {
           layer: 'planned',
           phase: 'ops',
           jettyId,
+          bankLaneKey,
           vesselId,
           vesselName,
+          ...rowMeta,
           gradient,
           status,
           label,
@@ -254,8 +240,10 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs) {
           layer: 'actual',
           phase: 'transit',
           jettyId,
+          bankLaneKey,
           vesselId,
           vesselName,
+          ...rowMeta,
           gradient: transitGradient,
           status,
           label: transitLabel,
@@ -273,61 +261,20 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs) {
     }
 
     // Actual alongside: only after TB exists (do not draw ops bar until alongside started).
-    // Matrix uses estimatedCompletionDateTime + actualCompletionDateTime; cast-off fills in
-    // a known end only when both completion fields are empty (branch 1).
     if (tb != null) {
-      const hasEst = estComp != null
-      const hasAct = actComp != null
-      let opsEnd
-      let gradient
-      let label
+      const { endMs: opsEnd, gradient, label } = resolveActualAlongsideEnd({
+        tb,
+        estComp,
+        isSailed,
+        actComp,
+        castOff,
+        nowMs,
+      })
 
-      if (hasEst && hasAct) {
-        // Both filled → actual end is actual completion (known)
-        if (actComp > tb) {
-          opsEnd = actComp
-          gradient = false
-          label = 'Actual · alongside → actual completion'
-        } else {
-          opsEnd = tb + DEFAULT_TAIL_MS
-          gradient = true
-          label = 'Actual · alongside (actual completion not after TB — tail is indicative)'
-        }
-      } else if (hasEst && !hasAct) {
-        // Est filled, actual completion NULL → show to est. completion, open-ended (provisional)
-        if (estComp > tb) {
-          opsEnd = estComp
-          gradient = true
-          label =
-            'Actual · alongside → est. completion (actual completion not recorded — open end)'
-        } else {
-          opsEnd = tb + DEFAULT_TAIL_MS
-          gradient = true
-          label = 'Actual · alongside (est. completion not after TB — tail is indicative)'
-        }
-      } else if (!hasEst && hasAct) {
-        // Est NULL, actual completion filled → solid to actual completion
-        if (actComp > tb) {
-          opsEnd = actComp
-          gradient = false
-          label = 'Actual · alongside → actual completion'
-        } else {
-          opsEnd = tb + DEFAULT_TAIL_MS
-          gradient = true
-          label = 'Actual · alongside (actual completion not after TB — tail is indicative)'
-        }
-      } else {
-        // Both NULL → +3 days from TB, or cast-off / completion from actualEnd if present
-        if (actualEnd != null && actualEnd > tb) {
-          opsEnd = actualEnd
-          gradient = false
-          label = 'Actual · alongside → completion / cast-off'
-        } else {
-          opsEnd = tb + DEFAULT_TAIL_MS
-          gradient = true
-          label = 'Actual · alongside (+3 days — completion not set)'
-        }
-      }
+      const isBreached = !isSailed && estComp != null && nowMs > estComp
+      const spanMs = opsEnd - tb
+      const etcOverduePct =
+        isBreached && spanMs > 0 ? Math.min(100, Math.max(0, ((estComp - tb) / spanMs) * 100)) : null
 
       pushSegment(
         out,
@@ -335,17 +282,23 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs) {
           layer: 'actual',
           phase: 'ops',
           jettyId,
+          bankLaneKey,
           vesselId,
           vesselName,
+          ...rowMeta,
           gradient,
           status,
-          label,
+          label: isBreached ? 'Actual · alongside (past est. completion)' : label,
           startMs: tb,
           endMs: opsEnd,
           plannedEtbMs: plannedEtb,
           etaMs: eta,
           tbMs: tb,
           taMs: ta,
+          estCompMs: estComp,
+          etcOverdue: isBreached,
+          etcOverduePct,
+          overMs: isBreached ? nowMs - estComp : null,
           startSource: 'TB',
         },
         windowStartMs,
@@ -371,11 +324,81 @@ function segmentTrackStyle(seg, windowStartMs, totalMs) {
   }
 }
 
-function segmentPillClass(seg) {
+function segmentColorClass(seg) {
   const st = (seg.status || 'arriving').toLowerCase().replace(/[^a-z0-9]+/g, '-')
   const layer = seg.layer
   const grad = seg.gradient ? 'grad' : 'solid'
-  return `jetty-schedule-gantt__bar jetty-schedule-gantt__bar--${layer}-${grad} jetty-schedule-gantt__bar--st-${st}`
+  return `jetty-schedule-gantt__bar--${layer}-${grad} jetty-schedule-gantt__bar--st-${st}`
+}
+
+function segmentPillClass(seg) {
+  const overdueMod = seg.etcOverdue ? ' jetty-schedule-gantt__bar--actual-etc-overdue' : ''
+  return `jetty-schedule-gantt__bar ${segmentColorClass(seg)}${overdueMod}`
+}
+
+function ganttBarInlineStyle(seg, posStyle, stackIndex) {
+  return {
+    ...posStyle,
+    top: `${6 + stackIndex * 26}px`,
+    ...(seg.etcOverdue && seg.etcOverduePct != null
+      ? { '--etc-overdue-start': `${seg.etcOverduePct}%` }
+      : {}),
+  }
+}
+
+function ganttBarAriaLabel(seg) {
+  return [seg.vesselName, seg.purposeLabel, seg.status].filter(Boolean).join(', ')
+}
+
+function buildGanttTooltipItems(seg, canClick) {
+  const fmt = (ms) => (ms == null ? '—' : new Date(ms).toLocaleString())
+  const items = []
+  if (seg.cargoDisplay) {
+    items.push({ primary: 'Cargo', secondary: seg.cargoDisplay })
+  }
+  items.push({ primary: seg.label || '—' })
+  items.push({ primary: `Status: ${seg.status || '—'}` })
+  items.push({
+    primary: `Start: ${new Date(seg.startMs).toLocaleString()}${seg.startSource ? ` (from ${seg.startSource})` : ''}`,
+    secondary: `End: ${new Date(seg.endMs).toLocaleString()}`,
+  })
+  items.push({
+    primary: `Planned refs — ETB: ${fmt(seg.plannedEtbMs)} · ETA: ${fmt(seg.etaMs)}`,
+  })
+  items.push({
+    primary: `Actual refs — TB: ${fmt(seg.tbMs)} · TA: ${fmt(seg.taMs)}`,
+  })
+  if (seg.estCompMs != null) {
+    items.push({ primary: `Est. completion: ${fmt(seg.estCompMs)}` })
+  }
+  if (seg.overMs != null && seg.overMs > 0) {
+    items.push({
+      primary: 'ETC breached',
+      secondary: `${formatOverdueDuration(seg.overMs)} over est. completion (${fmt(seg.estCompMs)})`,
+    })
+  }
+  if (canClick) items.push({ primary: 'Click to open vessel details.' })
+  return items
+}
+
+function GanttBarContent({ seg, barWidthPct }) {
+  const statusIcon = seg.status === 'Sailed off' ? <GanttCompletedIcon /> : <GanttVesselIcon />
+  const purposeEl = seg.purposeLabel ? (
+    <PurposeBadge purpose={seg.purposeLabel} loadDischarge={seg.loadDischarge} />
+  ) : null
+  const showOverdueBadge =
+    seg.etcOverdue && seg.overMs != null && (barWidthPct == null || barWidthPct >= 0.48)
+
+  return (
+    <>
+      {statusIcon}
+      <span className="jetty-schedule-gantt__bar-text">{seg.vesselName}</span>
+      {purposeEl}
+      {showOverdueBadge && seg.overMs != null ? (
+        <EtcBreachBadge overMs={seg.overMs} etcMs={seg.estCompMs} size="icon-only" />
+      ) : null}
+    </>
+  )
 }
 
 /** Short jetty id from allocation list row (matches segment jettyId). */
@@ -391,11 +414,17 @@ function assignBankLanesByVessel(baseSegments, rowDefs, listRows) {
   const caps = new Map()
   for (const r of rowDefs) caps.set(r.jettyId, r.capacity)
 
+  const rowBankKey = (row) =>
+    row?.shipmentPlanId != null && row.shipmentPlanId !== ''
+      ? `plan-${row.shipmentPlanId}`
+      : row?.vesselId
+
   const metaByJettyVessel = new Map()
   for (const row of listRows) {
     const jid = jettyIdFromListRow(row)
-    if (!jid || !row?.vesselId) continue
-    const k = `${jid}\0${row.vesselId}`
+    const bk = rowBankKey(row)
+    if (!jid || !bk) continue
+    const k = `${jid}\0${bk}`
     const tbMs = parseMs(row.tbDateTime)
     const opRaw = row.operationId
     const opId = opRaw != null && !Number.isNaN(Number(opRaw)) ? Number(opRaw) : null
@@ -404,9 +433,10 @@ function assignBankLanesByVessel(baseSegments, rowDefs, listRows) {
 
   const vesselsByJetty = new Map()
   for (const s of baseSegments) {
-    if (!s.vesselId) continue
+    const bk = s.bankLaneKey ?? s.vesselId
+    if (!bk) continue
     if (!vesselsByJetty.has(s.jettyId)) vesselsByJetty.set(s.jettyId, new Set())
-    vesselsByJetty.get(s.jettyId).add(s.vesselId)
+    vesselsByJetty.get(s.jettyId).add(bk)
   }
 
   const laneByJettyVessel = new Map()
@@ -436,13 +466,15 @@ function assignBankLanesByVessel(baseSegments, rowDefs, listRows) {
 
   const out = []
   for (const s of baseSegments) {
-    const lane = laneByJettyVessel.get(`${s.jettyId}\0${s.vesselId}`) ?? 0
+    const bk = s.bankLaneKey ?? s.vesselId
+    const lane = laneByJettyVessel.get(`${s.jettyId}\0${bk}`) ?? 0
     out.push({ ...s, laneIndex: lane, rowKey: `${s.jettyId}__${lane}` })
   }
   return out
 }
 
 export default function JettyScheduleGantt({ berthIds, berthsState, list, onSelectVessel }) {
+  const { t: tAlloc } = useTranslation('allocation')
   const def = useMemo(() => defaultDateRangeInputs(), [])
   const [dateFrom, setDateFrom] = useState(def.from)
   const [dateTo, setDateTo] = useState(def.to)
@@ -459,6 +491,14 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
   }, [])
 
   const showDualLanes = isWide || comparePlanActual
+
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30000)
+    return () => clearInterval(id)
+  }, [])
+
+  const nowMs = Date.now()
 
   const { windowStartMs, windowEndMs, dateColumns, baseSegments, totalMs, rangeError } = useMemo(() => {
     const plan = Array.isArray(list) ? list : []
@@ -495,7 +535,7 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
       }
     }
     const cols = buildDateColumns(wStart, wEnd)
-    const barList = buildScheduleSegments(plan, wStart, wEnd)
+    const barList = buildScheduleSegments(plan, wStart, wEnd, nowMs)
     return {
       windowStartMs: wStart,
       windowEndMs: wEnd,
@@ -504,7 +544,7 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
       totalMs: wEnd - wStart,
       rangeError: null,
     }
-  }, [list, dateFrom, dateTo])
+  }, [list, dateFrom, dateTo, tick])
 
   const rowDefs = useMemo(() => {
     const berths = Array.isArray(berthsState) ? berthsState : []
@@ -532,13 +572,6 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
     return assignBankLanesByVessel(baseSegments, rowDefs, listRows)
   }, [baseSegments, rowDefs, list])
 
-  const [, setTick] = useState(0)
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 30000)
-    return () => clearInterval(id)
-  }, [])
-
-  const nowMs = Date.now()
   const nowFraction =
     totalMs > 0 ? Math.min(1, Math.max(0, (nowMs - windowStartMs) / totalMs)) : 0
   const showNowLine = rangeError == null && nowMs >= windowStartMs && nowMs <= windowEndMs
@@ -568,43 +601,20 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
         {segs.map((seg, i) => {
           const pos = segmentTrackStyle(seg, windowStartMs, totalMs)
           if (!pos) return null
-          const { rawWidthPct, ...posStyle } = pos
-          const style = {
-            ...posStyle,
-            top: `${6 + i * 26}px`,
-          }
-          const minimal = rawWidthPct < 6
+          const { rawWidthPct: _rawWidthPct, ...posStyle } = pos
+          const style = ganttBarInlineStyle(seg, posStyle, i)
           const pillClass = segmentPillClass(seg)
           const canClick = Boolean(seg.vesselId && typeof onSelectVessel === 'function')
-          const fmt = (ms) => (ms == null ? '—' : new Date(ms).toLocaleString())
-          const tooltipItems = [
-            { primary: `Status: ${seg.status || '—'}` },
-            {
-              primary: `Start: ${new Date(seg.startMs).toLocaleString()}${seg.startSource ? ` (from ${seg.startSource})` : ''}`,
-              secondary: `End: ${new Date(seg.endMs).toLocaleString()}`,
-            },
-            {
-              primary: `Planned refs — ETB: ${fmt(seg.plannedEtbMs)} · ETA: ${fmt(seg.etaMs)}`,
-            },
-            {
-              primary: `Actual refs — TB: ${fmt(seg.tbMs)} · TA: ${fmt(seg.taMs)}`,
-            },
-          ]
-          if (canClick) tooltipItems.push({ primary: 'Click to open vessel details.' })
-
-          const inner = minimal ? null : (
-            <>
-              {seg.status === 'Sailed off' ? <GanttCompletedIcon /> : <GanttVesselIcon />}
-              <span className="jetty-schedule-gantt__bar-text">{seg.vesselName}</span>
-            </>
-          )
+          const tooltipItems = buildGanttTooltipItems(seg, canClick)
+          const ariaLabel = ganttBarAriaLabel(seg)
+          const barClassName = `${pillClass}${canClick ? ' jetty-schedule-gantt__bar--btn' : ''}`
 
           if (canClick) {
             return (
               <InteractiveTooltip
                 key={`${layer}-${seg.phase}-${seg.vesselName}-${seg.startMs}-${i}`}
                 title={seg.vesselName}
-                subtitle={seg.label}
+                subtitle={seg.purposeLabel || undefined}
                 items={tooltipItems}
                 emptyText="No details."
                 placement="right"
@@ -612,12 +622,12 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
               >
                 <button
                   type="button"
-                  className={`${pillClass} jetty-schedule-gantt__bar--btn${minimal ? ' jetty-schedule-gantt__bar--minimal' : ''}`}
+                  className={barClassName}
                   style={style}
-                  aria-label={minimal ? `${seg.vesselName}: ${seg.label}` : undefined}
+                  aria-label={ariaLabel}
                   onClick={() => onSelectVessel(seg.vesselId)}
                 >
-                  {inner}
+                  <GanttBarContent seg={seg} barWidthPct={_rawWidthPct} />
                 </button>
               </InteractiveTooltip>
             )
@@ -626,18 +636,18 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
             <InteractiveTooltip
               key={`${layer}-${seg.phase}-${seg.vesselName}-${seg.startMs}-${i}`}
               title={seg.vesselName}
-              subtitle={seg.label}
+              subtitle={seg.purposeLabel || undefined}
               items={tooltipItems}
               emptyText="No details."
               placement="right"
             >
               <span
-                className={`${pillClass}${minimal ? ' jetty-schedule-gantt__bar--minimal' : ''}`}
+                className={barClassName}
                 style={style}
-                role={minimal ? 'img' : undefined}
-                aria-label={minimal ? `${seg.vesselName}: ${seg.label}` : undefined}
+                role="img"
+                aria-label={ariaLabel}
               >
-                {inner}
+                <GanttBarContent seg={seg} barWidthPct={_rawWidthPct} />
               </span>
             </InteractiveTooltip>
           )
@@ -710,6 +720,13 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
             <span className="allocation-schedule__legend-item">
               <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-grad" /> Actual (open
               end)
+            </span>
+            <span className="allocation-schedule__legend-item">
+              <span
+                className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-etc-overdue"
+                aria-hidden
+              />
+              {tAlloc('ganttLegendLatePastEtc', { defaultValue: 'Late (past ETC)' })}
             </span>
           </>
         )}

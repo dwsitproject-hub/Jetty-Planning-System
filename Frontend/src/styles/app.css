@@ -134,6 +134,17 @@
   color: var(--color-text-steel);
 }
 
+.topbar__tz-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  max-width: 280px;
+}
+
+.topbar__tz-seg {
+  cursor: help;
+}
+
 .topbar__logout {
   display: inline-flex;
   align-items: center;
@@ -505,6 +516,14 @@
 .btn--secondary:hover {
   background: var(--color-secondary-hover);
 }
+.btn--ghost {
+  background: transparent;
+  color: var(--color-text-charcoal);
+  border-color: transparent;
+}
+.btn--ghost:hover {
+  background: var(--color-bg-subtle, #f4f6f8);
+}
 
 /* Forms */
 .input-group {
@@ -540,6 +559,10 @@
 /* Tables */
 .table-wrap {
   overflow-x: auto;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Shared responsive baseline and mobile-safe content spacing. */

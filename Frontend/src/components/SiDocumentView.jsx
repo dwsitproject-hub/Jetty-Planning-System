@@ -6,8 +6,8 @@ import '../styles/si-view.css'
 import '../styles/si-approval.css'
 
 /**
- * Approved SI printable / summary document (Loading letterhead vs Unloading summary + table).
- * Parent must ensure `si` is approved (`canViewAsDocument`).
+ * SI printable / summary document (Loading letterhead vs Unloading summary + table).
+ * `SiDocumentModal` normally gates on `canViewAsDocument`; callers may pass `allowPreApprovalPreview` to show this for drafts.
  */
 export default function SiDocumentView({ si, npwpMaster }) {
   const isLoading = (si?.purpose || '').toLowerCase() === 'loading'
@@ -144,6 +144,7 @@ export default function SiDocumentView({ si, npwpMaster }) {
         <table className="si-view-table">
           <thead>
             <tr>
+              <th className="si-view-table__th">Shipper</th>
               <th className="si-view-table__th">Commodity</th>
               <th className="si-view-table__th si-view-table__th--num">Qty</th>
               <th className="si-view-table__th">Unit</th>
@@ -156,6 +157,7 @@ export default function SiDocumentView({ si, npwpMaster }) {
             {breakdown.length > 0 ? (
               breakdown.map((row, i) => (
                 <tr key={i}>
+                  <td className="si-view-table__cell">{row.shipperName || '—'}</td>
                   <td className="si-view-table__cell">{row.commodityName || '—'}</td>
                   <td className="si-view-table__cell si-view-table__cell--num">
                     {row.qty != null ? Number(row.qty).toLocaleString('id-ID') : '—'}
@@ -169,6 +171,7 @@ export default function SiDocumentView({ si, npwpMaster }) {
             ) : (
               <tr>
                 <td className="si-view-table__cell">—</td>
+                <td className="si-view-table__cell">—</td>
                 <td className="si-view-table__cell si-view-table__cell--num">—</td>
                 <td className="si-view-table__cell">—</td>
                 <td className="si-view-table__cell">—</td>
@@ -177,7 +180,7 @@ export default function SiDocumentView({ si, npwpMaster }) {
               </tr>
             )}
             <tr className="si-view-table__total">
-              <td colSpan={5} className="si-view-table__cell si-view-table__cell--total-label">
+              <td colSpan={6} className="si-view-table__cell si-view-table__cell--total-label">
                 TOTAL
               </td>
               <td className="si-view-table__cell si-view-table__cell--total">{totalQtyLabel}</td>

@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiDelete, getSelectedPortId } from './client.js'
+import { apiGet, apiPost, apiPut, apiDelete, getSelectedPortId, apiPostForm } from './client.js'
 
 export function fetchShippingInstructions(params = {}) {
   const sp = new URLSearchParams()
@@ -30,7 +30,7 @@ export function fetchSiNpwpMaster(portId) {
 }
 
 export function createShippingInstruction(body) {
-  return apiPost('/shipping-instructions', {
+  const payload = {
     reference_number: body.referenceNumber ?? null,
     vessel_name: body.vesselName,
     voyage_no: body.voyageNo ?? null,
@@ -43,7 +43,6 @@ export function createShippingInstruction(body) {
     status: body.status ?? 'Draft',
     approval_id: body.approvalId ?? null,
     preferred_jetty_id: body.preferredJettyId ?? null,
-    shipper_id: body.shipperId ?? null,
     loading_port_id: body.loadingPortId ?? null,
     surveyor_id: body.surveyorId ?? null,
     agent_id: body.agentId ?? null,
@@ -57,7 +56,11 @@ export function createShippingInstruction(body) {
     notify_party_text: body.notifyPartyText ?? null,
     bl_indicated: body.blIndicated ?? null,
     document_date: body.documentDate ?? null,
-  })
+  }
+  if (body.shipmentPlanId != null && body.shipmentPlanId !== '') {
+    payload.shipment_plan_id = body.shipmentPlanId
+  }
+  return apiPost('/shipping-instructions', payload)
 }
 
 export function deleteShippingInstruction(id) {
@@ -78,7 +81,6 @@ export function updateShippingInstruction(id, body) {
     status: body.status,
     approval_id: body.approvalId,
     preferred_jetty_id: body.preferredJettyId,
-    shipper_id: body.shipperId,
     loading_port_id: body.loadingPortId,
     surveyor_id: body.surveyorId,
     agent_id: body.agentId,
@@ -93,4 +95,11 @@ export function updateShippingInstruction(id, body) {
     bl_indicated: body.blIndicated,
     document_date: body.documentDate,
   })
+}
+
+/** POST multipart: field `file` — OCR / PDF text extract for SI draft autofill (large timeout for first Tesseract run). */
+export function extractShippingInstructionFromDocument(file) {
+  const fd = new FormData()
+  fd.append('file', file)
+  return apiPostForm('/si-document-extract', fd, 180000)
 }

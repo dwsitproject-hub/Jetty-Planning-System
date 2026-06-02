@@ -655,7 +655,7 @@ export default function DemurrageRiskCalculator() {
                   <p className="drc-voyage-context__hint">Loading commodity rates…</p>
                 )}
                 <div className="drc-voyage-context__edit">
-                  <Link to="/shipping-instruction" className="link">
+                  <Link to="/shipment-plans" className="link">
                     Open Shipping Instruction
                   </Link>{' '}
                   to edit commodity, lines, or ETA.

@@ -16,8 +16,28 @@ import {
 import { downloadJettyVesselReportExcel } from '../data/jettyVesselReportExcel'
 import { usePortScope } from '../context/PortScopeContext'
 import DropdownMultiSelect from '../components/DropdownMultiSelect'
+import InteractiveTooltip from '../components/InteractiveTooltip'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import '../styles/allocation.css'
+
+const UTIL_SUMMARY_TOOLTIPS = {
+  calls: 'The total number of vessel arrivals or port calls recorded during the specified period.',
+  berthHours: 'The total duration (in hours) that vessels occupied the berth, from first line to last line.',
+  utilizationPct: 'The percentage of time the berth was actively utilized relative to the available window hours.',
+}
+
+function UtilSummaryTh({ label, tooltip }) {
+  return (
+    <span className="allocation-table__th-label">
+      {label}
+      <InteractiveTooltip items={[{ primary: tooltip }]} maxWidth={300} placement="right">
+        <span className="allocation-table__th-info" aria-label={tooltip}>
+          ⓘ
+        </span>
+      </InteractiveTooltip>
+    </span>
+  )
+}
 
 function getDefaultDateRange() {
   const end = new Date()
@@ -366,17 +386,22 @@ export default function VesselReport() {
               <h2 className="card__title">Jetty utilization (summary)</h2>
               <p className="text-steel allocation-page__intro" style={{ marginTop: 0 }}>
                 Berth hours count time alongside through sailed (or end of the report window if still berthed).
-                Utilization % = berth hours ÷ hours in the report window (per jetty; one vessel at a time per jetty).
+                Hover ⓘ on column headers for definitions.
               </p>
               <div className="table-wrap">
                 <table className="data-table allocation-table">
                   <thead>
                     <tr>
                       <th className="allocation-table__th">Jetty</th>
-                      <th className="allocation-table__th">Calls</th>
-                      <th className="allocation-table__th">Berth hours (in range)</th>
-                      <th className="allocation-table__th">Hours in window</th>
-                      <th className="allocation-table__th">Utilization %</th>
+                      <th className="allocation-table__th">
+                        <UtilSummaryTh label="Calls" tooltip={UTIL_SUMMARY_TOOLTIPS.calls} />
+                      </th>
+                      <th className="allocation-table__th">
+                        <UtilSummaryTh label="Berth hours" tooltip={UTIL_SUMMARY_TOOLTIPS.berthHours} />
+                      </th>
+                      <th className="allocation-table__th">
+                        <UtilSummaryTh label="Utilization %" tooltip={UTIL_SUMMARY_TOOLTIPS.utilizationPct} />
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -385,7 +410,6 @@ export default function VesselReport() {
                         <td>{j.jettyName}</td>
                         <td>{j.calls}</td>
                         <td>{j.berthHoursRounded}</td>
-                        <td>{j.hoursInWindow}</td>
                         <td>{j.utilizationPct}</td>
                       </tr>
                     ))}

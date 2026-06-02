@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from 'react'
+import { createContext, useContext, useState, useCallback, useRef } from 'react'
 import { initialLoadingStepsByVesselId, initialLoadingOperationByVesselId, defaultPreCheckingSection, defaultPostCheckingSection } from '../data/mockData'
 
 const defaultSteps = () =>
@@ -24,6 +24,11 @@ export function LoadingProvider({ children }) {
   const [loadingOpsByVesselId, setLoadingOpsByVesselId] = useState(defaultLoadingOps)
   const [preCheckingByVesselId, setPreCheckingByVesselId] = useState({})
   const [postCheckingByVesselId, setPostCheckingByVesselId] = useState({})
+  /** Keep latest maps on stable refs so getters do not change identity when state updates (avoids effect loops in Loading.jsx). */
+  const preCheckingByVesselIdRef = useRef(preCheckingByVesselId)
+  preCheckingByVesselIdRef.current = preCheckingByVesselId
+  const postCheckingByVesselIdRef = useRef(postCheckingByVesselId)
+  postCheckingByVesselIdRef.current = postCheckingByVesselId
 
   const getSteps = useCallback((vesselId) => {
     return stepsByVesselId[vesselId] ?? initialLoadingStepsByVesselId[vesselId] ?? null
@@ -61,6 +66,8 @@ export function LoadingProvider({ children }) {
       subStepTitle: activity.subStepTitle || '',
       startTime: activity.startTime || null,
       endTime: activity.endTime || null,
+      ...(Array.isArray(activity.cargoLoadLines) ? { cargoLoadLines: activity.cargoLoadLines } : {}),
+      ...(activity.cargoMovedQty != null ? { cargoMovedQty: activity.cargoMovedQty } : {}),
     }
     setLoadingOpsByVesselId((prev) => {
       const op = prev[vesselId] ?? { activities: [], milestoneNa: {} }
@@ -104,8 +111,8 @@ export function LoadingProvider({ children }) {
   }, [])
 
   const getPreChecking = useCallback((vesselId) => {
-    return preCheckingByVesselId[vesselId] ?? defaultPreCheckingSection()
-  }, [preCheckingByVesselId])
+    return preCheckingByVesselIdRef.current[vesselId] ?? defaultPreCheckingSection()
+  }, [])
 
   const setPreCheckingSection = useCallback((vesselId, sectionKey, data) => {
     setPreCheckingByVesselId((prev) => {
@@ -118,8 +125,8 @@ export function LoadingProvider({ children }) {
   }, [])
 
   const getPostChecking = useCallback((vesselId) => {
-    return postCheckingByVesselId[vesselId] ?? defaultPostCheckingSection()
-  }, [postCheckingByVesselId])
+    return postCheckingByVesselIdRef.current[vesselId] ?? defaultPostCheckingSection()
+  }, [])
 
   const setPostCheckingSection = useCallback((vesselId, sectionKey, data) => {
     setPostCheckingByVesselId((prev) => {

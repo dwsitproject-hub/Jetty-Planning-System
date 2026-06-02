@@ -1,15 +1,24 @@
 # Jetty Planning System — Alicloud Ubuntu Deployment Guide
 
-This guide deploys JPS on **two separate ECS instances** in the same VPC:
+This guide deploys JPS on **two or three ECS instances** in the same VPC:
+
+|Layout|Servers|Compose (repo root)|
+|-|-|-|
+|**Two-server** (bootstrap)|App \| API + PostgreSQL|`docker-compose.app.yml`, `docker-compose.backend.yml`|
+|**Three-server** (after DB split)|App \| API only \| PostgreSQL only|`docker-compose.app.yml`, `docker-compose.backend-api-only.yml`, `Backend/infra/docker-compose.db.yml`|
+
+**Two-server roles (example IPs):**
 
 |Server|Role|What runs there|
 |-|-|-|
-|**App server** (example private IP `172.28.92.56`)|**Frontend only**|Docker: **nginx + built React SPA** (`docker-compose.app.yml`). Proxies `/api/` and `/uploads/` to the backend over the **private network**.|
-|**Backend server** (example private IP `172.28.92.57`)|**API + database**|Docker: **Node API** (`jps-api`) + **PostgreSQL** (`jps-db`) (`docker-compose.backend.yml`). **Do not** install the JPS frontend container on this host for the standard layout.|
+|**App server** (`172.28.92.56`)|**Frontend only**|Docker: **nginx + built React SPA** (`docker-compose.app.yml`). Proxies `/api/` and `/uploads/` to the API over the **private network**.|
+|**Backend server** (`172.28.92.57`)|**API + database**|Docker: **Node API** (`jps-api`) + **PostgreSQL** (`jps-db`) (`docker-compose.backend.yml`). **Do not** install the JPS frontend container on this host.|
+
+**Three-server:** add **DB server** (`172.28.92.60` example) — PostgreSQL only. App and nginx are **unchanged**; API uses `DB\_HOST` pointing at the DB host. See [THREE-SERVER-DB-SPLIT-GUIDE.md](./THREE-SERVER-DB-SPLIT-GUIDE.md) and [THREE-SERVER-DB-CUTOVER-RUNBOOK.md](./THREE-SERVER-DB-CUTOVER-RUNBOOK.md). Topology summary: [technical-architecture.md](../technical-architecture.md) §0.6.
 
 Users reach **only** the app server URL (public IP or DNS + port). They never call the backend IP directly from the browser.
 
-**Public internet access (EIP, security group, dual URL private + public, `VITE\_API\_BASE\_URL`, `CORS\_ORIGIN`, cookies):** see [Allowing Public Access](./Allowing-Public-Access.md).
+**Public internet access (EIP, security group, dual URL private + public, `VITE\\\_API\\\_BASE\\\_URL`, `CORS\\\_ORIGIN`, cookies):** see [Allowing Public Access](./Allowing-Public-Access.md).
 
 All **shell commands** below are intended to be run in an SSH session on the correct host (**PuTTY**, `ssh`, etc.).
 
@@ -19,7 +28,7 @@ All **shell commands** below are intended to be run in an SSH session on the cor
 
 |#|Requirement|How this guide covers it|
 |-|-|-|
-|**1**|**Target directory:** `/opt/\\\\\\\[project-name]`|Use **`/opt/jetty-planning-system`** on **both** servers (`\\\\\\\[project-name]` = `jetty-planning-system`). All `cd` and `docker compose` commands assume this path.|
+|**1**|**Target directory:** `/opt/\\\\\\\\\\\\\\\[project-name]`|Use **`/opt/jetty-planning-system`** on **both** servers (`\\\\\\\\\\\\\\\[project-name]` = `jetty-planning-system`). All `cd` and `docker compose` commands assume this path.|
 |**2**|**Docker** + **PostgreSQL migrations**|**Backend server:** `docker compose --env-file Backend/.env -f docker-compose.backend.yml` (API + `jps-db`), then `docker compose ... exec -T jps-api npm run migrate` (§5). **App server:** `docker compose -f docker-compose.app.yml` (§6).|
 |**3**|**Security Group ports**|**Consolidated table** below; details per server in §1. **JPS Postgres** is **not** opened on any SG (Docker internal only).|
 |**4**|**Exact shell commands (PuTTY)**|§3 (Docker install), §4 (GitHub + directory), §5–§6 (deploy + migrate), §8 (operations). Copy/paste each block on the correct server.|
@@ -36,7 +45,7 @@ Apply these in the **Alibaba Cloud ECS console** → Security Group → **Inboun
 |**5432**|—|JPS PostgreSQL|**Do not open** (DB is internal to Docker on the backend host)|
 |**80** / **443**|App|Optional: TLS or existing reverse proxy|As needed for your org|
 
-If your app host uses **`JPS\\\\\\\_FE\\\\\\\_PORT=3001`** (clean server) instead of **3080**, open **3001** instead of **3080** in the app SG.
+If your app host uses **`JPS\\\\\\\\\\\\\\\_FE\\\\\\\\\\\\\\\_PORT=3001`** (clean server) instead of **3080**, open **3001** instead of **3080** in the app SG.
 
 **Outbound:** On the **app** SG, allow TCP **3000** (or your API host port) toward **172.28.92.57** so nginx can reach the API.
 
@@ -48,14 +57,14 @@ If your app host uses **`JPS\\\\\\\_FE\\\\\\\_PORT=3001`** (clean server) instea
 
 |Order|Instance (private IP)|Role|Why first / second|
 |-|-|-|-|
-|**1st**|**Backend** `172.28.92.57`|API + PostgreSQL (Docker)|Database and API must exist before migrations; the app server only proxies to this API. Set `CORS\\\\\\\_ORIGIN` to the **app** URL you plan to use (decide app public IP and port **3080** before deploying the app).|
-|**2nd**|**App** `172.28.92.56`|React + nginx reverse proxy|Needs a **running** API to proxy `/api/` and `/uploads/`. `VITE\\\\\\\_API\\\\\\\_BASE\\\\\\\_URL` must point at the **same** host:port users open (e.g. `http://<APP\\\\\\\_PUBLIC>:3080/api/v1`).|
+|**1st**|**Backend** `172.28.92.57`|API + PostgreSQL (Docker)|Database and API must exist before migrations; the app server only proxies to this API. Set `CORS\\\\\\\\\\\\\\\_ORIGIN` to the **app** URL you plan to use (decide app public IP and port **3080** before deploying the app).|
+|**2nd**|**App** `172.28.92.56`|React + nginx reverse proxy|Needs a **running** API to proxy `/api/` and `/uploads/`. `VITE\\\\\\\\\\\\\\\_API\\\\\\\\\\\\\\\_BASE\\\\\\\\\\\\\\\_URL` must point at the **same** host:port users open (e.g. `http://<APP\\\\\\\\\\\\\\\_PUBLIC>:3080/api/v1`).|
 
 \---
 
 ## Step-by-step checklist (copy order)
 
-Do **A → N** in sequence. Use **PuTTY** (or `ssh`) on each host. Replace placeholders: `<APP\\\\\\\_PUBLIC\\\\\\\_IP>`, GitHub URL, passwords.
+Do **A → N** in sequence. Use **PuTTY** (or `ssh`) on each host. Replace placeholders: `<APP\\\\\\\\\\\\\\\_PUBLIC\\\\\\\\\\\\\\\_IP>`, GitHub URL, passwords.
 
 ### A. Alicloud console (before logging in)
 
@@ -67,7 +76,7 @@ Do **A → N** in sequence. Use **PuTTY** (or `ssh`) on each host. Replace place
 3. SSH to backend (PuTTY → public or bastion IP for that host).
 4. Install Docker — run the full block in **§3**.
 5. Create directory and clone GitHub — **§4.1** then **§4.2** (or **§4.3** if private).
-6. Create `/opt/jetty-planning-system/.env` — **§5.1**. Use a real **`CORS\\\\\\\_ORIGIN`** matching the app, e.g. `http://<APP\\\\\\\_PUBLIC\\\\\\\_IP>:3080` (set `<APP\\\\\\\_PUBLIC\\\\\\\_IP>` to your app ECS **EIP**).
+6. Create `/opt/jetty-planning-system/.env` — **§5.1**. Use a real **`CORS\\\\\\\\\\\\\\\_ORIGIN`** matching the app, e.g. `http://<APP\\\\\\\\\\\\\\\_PUBLIC\\\\\\\\\\\\\\\_IP>:3080` (set `<APP\\\\\\\\\\\\\\\_PUBLIC\\\\\\\\\\\\\\\_IP>` to your app ECS **EIP**).
 7. Start stack and run migrations — **§5.2** and **§5.3**.
 8. Optional: from **app** server, run **§5.4** `curl` to confirm API responds.
 
@@ -77,12 +86,12 @@ Do **A → N** in sequence. Use **PuTTY** (or `ssh`) on each host. Replace place
 10. Install Docker — **§3** again on this host.
 11. Directory + GitHub — **§4.1** + **§4.2** / **§4.3** (same repo).
 12. Edit **`Frontend/nginx.alicloud-app.conf`**: upstream **`172.28.92.57:3000`** — **§6.1**.
-13. Create app **`.env`**: **`JPS\\\\\\\_FE\\\\\\\_PORT=3080`** and **`VITE\\\\\\\_API\\\\\\\_BASE\\\\\\\_URL=http://<APP\\\\\\\_PUBLIC\\\\\\\_IP>:3080/api/v1`** plus match **§6.2**.
+13. Create app **`.env`**: **`JPS\\\\\\\\\\\\\\\_FE\\\\\\\\\\\\\\\_PORT=3080`** and **`VITE\\\\\\\\\\\\\\\_API\\\\\\\\\\\\\\\_BASE\\\\\\\\\\\\\\\_URL=http://<APP\\\\\\\\\\\\\\\_PUBLIC\\\\\\\\\\\\\\\_IP>:3080/api/v1`** plus match **§6.2**.
 14. Build and start frontend — **§6.3**.
 
 ### D. Validate
 
-15. Browser: `http://<APP\\\\\\\_PUBLIC\\\\\\\_IP>:3080` — login / API should work via same origin.
+15. Browser: `http://<APP\\\\\\\\\\\\\\\_PUBLIC\\\\\\\\\\\\\\\_IP>:3080` — login / API should work via same origin.
 16. Later updates: **§4.4** (`git pull` + rebuild + migrate on backend).
 
 **Full command text** for each step lives in the sections referenced (**§3–§6**). Use this checklist as the **order**; use those sections as the **exact commands**.
@@ -98,14 +107,16 @@ Do **A → N** in sequence. Use **PuTTY** (or `ssh`) on each host. Replace place
 
 Users open only the **app** URL (public IP / domain + port or HTTPS). The browser calls **`/api/v1`** on **that same origin**; nginx on the app server forwards requests to the API over the **private** network.
 
-**Target directory (both servers):** `/opt/jetty-planning-system` (i.e. `/opt/\\\\\\\[project-name]` with `project-name=jetty-planning-system`).
+**Target directory (both servers):** `/opt/jetty-planning-system` (i.e. `/opt/\\\\\\\\\\\\\\\[project-name]` with `project-name=jetty-planning-system`).
 
 **Repo files used:**
 
-* **App server:** `Frontend/Dockerfile`, `docker-compose.app.yml`, `Frontend/nginx.alicloud-app.conf`, root `.env` (for `VITE\\\\\\\_API\\\\\\\_BASE\\\\\\\_URL` and compose)
-* **Backend server:** `Backend/`, `docker-compose.backend.yml`, **`Backend/.env`** (DB + JWT + `CORS\\\\\\\_ORIGIN`). Run Compose with `--env-file Backend/.env` so `${POSTGRES\\\\\\\_PASSWORD}` and other vars interpolate from that file.
+* **App server:** `Frontend/Dockerfile`, `docker-compose.app.yml`, `Frontend/nginx.alicloud-app.conf`, root `.env` (for `VITE\\\\\\\\\\\\\\\_API\\\\\\\\\\\\\\\_BASE\\\\\\\\\\\\\\\_URL` and compose)
+* **Backend server:** `Backend/`, `docker-compose.backend.yml`, **`Backend/.env`** (DB + JWT + `CORS\\\\\\\\\\\\\\\_ORIGIN`). Run Compose with `--env-file Backend/.env` so `${POSTGRES\\\\\\\\\\\\\\\_PASSWORD}` and other vars interpolate from that file.
 
 **Single-server alternative (all-in-one on one VM):** use `docker-compose.production.yml` as documented in git history or enable `jps-web` + `jps-api` + `jps-db` on one host; this guide focuses on the **two-server** split.
+
+**Three-server split (dedicated database host):** when scaling API and PostgreSQL onto separate ECS instances, follow [THREE-SERVER-DB-SPLIT-GUIDE.md](./THREE-SERVER-DB-SPLIT-GUIDE.md) (host readiness, practice migration). **Cutover:** [THREE-SERVER-DB-CUTOVER-RUNBOOK.md](./THREE-SERVER-DB-CUTOVER-RUNBOOK.md).
 
 \---
 
@@ -129,7 +140,7 @@ On a **shared** app ECS, check what is already listening:
 sudo ss -tuln
 ```
 
-On **`172.28.92.56`** the following TCP ports were observed in use on **all interfaces** (`0.0.0.0` / `\\\\\\\[::]`), so **do not** bind JPS to them:
+On **`172.28.92.56`** the following TCP ports were observed in use on **all interfaces** (`0.0.0.0` / `\\\\\\\\\\\\\\\[::]`), so **do not** bind JPS to them:
 
 |Already in use|Typical role|
 |-|-|
@@ -143,15 +154,15 @@ On **`172.28.92.56`** the following TCP ports were observed in use on **all inte
 
 **Recommendation for this host:** expose JPS on **`3080`** (host) → container **80**:
 
-* Set `JPS\\\\\\\_FE\\\\\\\_PORT=3080` in the app server `.env` (same directory as `docker-compose.app.yml`), **or** run:
+* Set `JPS\\\\\\\\\\\\\\\_FE\\\\\\\\\\\\\\\_PORT=3080` in the app server `.env` (same directory as `docker-compose.app.yml`), **or** run:
 
-  * `JPS\\\\\\\_FE\\\\\\\_PORT=3080 docker compose -f docker-compose.app.yml up -d --build`
+  * `JPS\\\\\\\\\\\\\\\_FE\\\\\\\\\\\\\\\_PORT=3080 docker compose -f docker-compose.app.yml up -d --build`
 * Open **TCP 3080** in the app security group for users.
-* Set `VITE\\\\\\\_API\\\\\\\_BASE\\\\\\\_URL` and backend `CORS\\\\\\\_ORIGIN` to use **`:3080`** (same scheme, host, and port the browser uses).
+* Set `VITE\\\\\\\\\\\\\\\_API\\\\\\\\\\\\\\\_BASE\\\\\\\\\\\\\\\_URL` and backend `CORS\\\\\\\\\\\\\\\_ORIGIN` to use **`:3080`** (same scheme, host, and port the browser uses).
 
-If **3080** is ever taken, choose another free port (e.g. **8080**, **3003**) and use it consistently for `JPS\\\\\\\_FE\\\\\\\_PORT`, the security group, `VITE\\\\\\\_API\\\\\\\_BASE\\\\\\\_URL`, and `CORS\\\\\\\_ORIGIN`.
+If **3080** is ever taken, choose another free port (e.g. **8080**, **3003**) and use it consistently for `JPS\\\\\\\\\\\\\\\_FE\\\\\\\\\\\\\\\_PORT`, the security group, `VITE\\\\\\\\\\\\\\\_API\\\\\\\\\\\\\\\_BASE\\\\\\\\\\\\\\\_URL`, and `CORS\\\\\\\\\\\\\\\_ORIGIN`.
 
-On a **dedicated** app server with no conflicts, you may keep the compose default **`JPS\\\\\\\_FE\\\\\\\_PORT=3001`** instead.
+On a **dedicated** app server with no conflicts, you may keep the compose default **`JPS\\\\\\\\\\\\\\\_FE\\\\\\\\\\\\\\\_PORT=3001`** instead.
 
 ### Backend server (`172.28.92.57`)
 
@@ -163,7 +174,7 @@ On a **dedicated** app server with no conflicts, you may keep the compose defaul
 
 ### 1.2 Backend server (`172.28.92.57`): API port and host Postgres
 
-Run `sudo ss -tuln` on the backend host and pick a **host port** for **`jps-api`** that is **not** already listening on `0.0.0.0` / `\\\\\\\[::]`.
+Run `sudo ss -tuln` on the backend host and pick a **host port** for **`jps-api`** that is **not** already listening on `0.0.0.0` / `\\\\\\\\\\\\\\\[::]`.
 
 On **`172.28.92.57`** the following TCP ports were observed **in use** (do **not** use the same host port for JPS API unless you remap compose):
 
@@ -178,7 +189,7 @@ On **`172.28.92.57`** the following TCP ports were observed **in use** (do **not
 
 **Recommendation:** **`3000` is free** on this host — keep **`docker-compose.backend.yml`** as **`3000:3000`** and keep **`Frontend/nginx.alicloud-app.conf`** upstream as **`172.28.92.57:3000`**.
 
-**JPS Postgres in Docker:** do **not** publish container **5432** on host **`0.0.0.0`** (would conflict with other Postgres on the host and is unnecessary). The checked-in compose maps **`127.0.0.1:5436:5432`** so **inside the container** Postgres remains on **5432** (what `jps-api` uses via `DATABASE\\\\\\\_URL` → `jps-db:5432`), while **on the Linux host** you connect to **127.0.0.1 port 5436** for admin tools after an SSH tunnel. See **§1.3** and [PGADMIN-ALICLOUD-DB-TUNNEL.md](PGADMIN-ALICLOUD-DB-TUNNEL.md).
+**JPS Postgres in Docker:** do **not** publish container **5432** on host **`0.0.0.0`** (would conflict with other Postgres on the host and is unnecessary). The checked-in compose maps **`127.0.0.1:5436:5432`** so **inside the container** Postgres remains on **5432** (what `jps-api` uses via `DATABASE\\\\\\\\\\\\\\\_URL` → `jps-db:5432`), while **on the Linux host** you connect to **127.0.0.1 port 5436** for admin tools after an SSH tunnel. See **§1.3** and [PGADMIN-ALICLOUD-DB-TUNNEL.md](PGADMIN-ALICLOUD-DB-TUNNEL.md).
 
 ### 1.3 Backend host port **5436** (pgAdmin / DBA tools)
 
@@ -186,7 +197,7 @@ On **`172.28.92.57`** the following TCP ports were observed **in use** (do **not
 |-|-|
 |**Why not host :5432?**|Many ECS images already run PostgreSQL or other services on **5432**. Binding JPS there causes conflicts; tools like pgAdmin may attach to the **wrong** instance.|
 |**Chosen host port**|**`5436`** on **127.0.0.1 only** in `docker-compose.backend.yml` (`127.0.0.1:5436:5432`).|
-|**API unchanged**|`DATABASE\\\\\\\_URL` uses hostname **`jps-db`** and port **5432** (Docker DNS). Only **your PC → SSH → backend `127.0.0.1:5436`** uses the host mapping.|
+|**API unchanged**|`DATABASE\\\\\\\\\\\\\\\_URL` uses hostname **`jps-db`** and port **5432** (Docker DNS). Only **your PC → SSH → backend `127.0.0.1:5436`** uses the host mapping.|
 |**Security**|Keep **5436** off public SGs. Access is **SSH + local forward** (see PGADMIN doc).|
 |**After `git pull`**|If compose changed ports, run `docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d` so `jps-db` recreates with the new mapping (data volume is preserved).|
 
@@ -219,14 +230,14 @@ sudo apt-get install -y ca-certificates curl gnupg git nano
 sudo install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 sudo chmod a+r /etc/apt/keyrings/docker.gpg
-echo "deb \\\\\\\[arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release \\\\\\\&\\\\\\\& echo "$VERSION\\\\\\\_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+echo "deb \\\\\\\\\\\\\\\[arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release \\\\\\\\\\\\\\\&\\\\\\\\\\\\\\\& echo "$VERSION\\\\\\\\\\\\\\\_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 sudo apt-get update -y
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 sudo systemctl enable docker
 sudo systemctl start docker
 sudo usermod -aG docker $USER
 newgrp docker
-docker --version \\\\\\\&\\\\\\\& docker compose version
+docker --version \\\\\\\\\\\\\\\&\\\\\\\\\\\\\\\& docker compose version
 ```
 
 \---
@@ -235,7 +246,7 @@ docker --version \\\\\\\&\\\\\\\& docker compose version
 
 Use the same path on **app** and **backend** so documentation and scripts match.
 
-### 4.1 Create `/opt/\\\\\\\[project-name]`
+### 4.1 Create `/opt/\\\\\\\\\\\\\\\[project-name]`
 
 **Project name** for this repo: `jetty-planning-system` → full path **`/opt/jetty-planning-system`**.
 
@@ -253,7 +264,7 @@ If the repository is **public**, clone into the empty directory:
 
 ```bash
 cd /opt/jetty-planning-system
-git clone https://github.com/<YOUR\\\\\\\_ORG\\\\\\\_OR\\\\\\\_USER>/<YOUR\\\\\\\_REPO\\\\\\\_NAME>.git .
+git clone https://github.com/<YOUR\\\\\\\\\\\\\\\_ORG\\\\\\\\\\\\\\\_OR\\\\\\\\\\\\\\\_USER>/<YOUR\\\\\\\\\\\\\\\_REPO\\\\\\\\\\\\\\\_NAME>.git .
 ```
 
 Example (replace with your real URL):
@@ -278,13 +289,13 @@ ls -la
 
 ```bash
 cd /opt/jetty-planning-system
-git clone https://github.com/<YOUR\\\\\\\_ORG\\\\\\\_OR\\\\\\\_USER>/<YOUR\\\\\\\_REPO\\\\\\\_NAME>.git .
+git clone https://github.com/<YOUR\\\\\\\\\\\\\\\_ORG\\\\\\\\\\\\\\\_OR\\\\\\\\\\\\\\\_USER>/<YOUR\\\\\\\\\\\\\\\_REPO\\\\\\\\\\\\\\\_NAME>.git .
 ```
 
 When prompted for password, paste the **token** (not your GitHub password). To avoid storing the token in shell history, you can use:
 
 ```bash
-git clone https://<YOUR\\\\\\\_GITHUB\\\\\\\_USERNAME>@github.com/<YOUR\\\\\\\_ORG\\\\\\\_OR\\\\\\\_USER>/<YOUR\\\\\\\_REPO\\\\\\\_NAME>.git .
+git clone https://<YOUR\\\\\\\\\\\\\\\_GITHUB\\\\\\\\\\\\\\\_USERNAME>@github.com/<YOUR\\\\\\\\\\\\\\\_ORG\\\\\\\\\\\\\\\_OR\\\\\\\\\\\\\\\_USER>/<YOUR\\\\\\\\\\\\\\\_REPO\\\\\\\\\\\\\\\_NAME>.git .
 # Password prompt: paste PAT
 ```
 
@@ -293,8 +304,8 @@ git clone https://<YOUR\\\\\\\_GITHUB\\\\\\\_USERNAME>@github.com/<YOUR\\\\\\\_O
 1. On the server (PuTTY):
 
 ```bash
-ssh-keygen -t ed25519 -C "jps-deploy-jps" -f \\\\\\\~/.ssh/github\\\\\\\_jps -N ""
-cat \\\\\\\~/.ssh/github\\\\\\\_jps.pub
+ssh-keygen -t ed25519 -C "jps-deploy-jps" -f \\\\\\\\\\\\\\\~/.ssh/github\\\\\\\\\\\\\\\_jps -N ""
+cat \\\\\\\\\\\\\\\~/.ssh/github\\\\\\\\\\\\\\\_jps.pub
 ```
 
 2. In GitHub: repo **Settings → Deploy keys → Add deploy key** — paste the public key, allow read access.
@@ -302,13 +313,13 @@ cat \\\\\\\~/.ssh/github\\\\\\\_jps.pub
 
 ```bash
 cd /opt/jetty-planning-system
-GIT\\\\\\\_SSH\\\\\\\_COMMAND='ssh -i \\\\\\\~/.ssh/github\\\\\\\_jps -o IdentitiesOnly=yes' git clone git@github.com:<YOUR\\\\\\\_ORG\\\\\\\_OR\\\\\\\_USER>/<YOUR\\\\\\\_REPO\\\\\\\_NAME>.git .
+GIT\\\\\\\\\\\\\\\_SSH\\\\\\\\\\\\\\\_COMMAND='ssh -i \\\\\\\\\\\\\\\~/.ssh/github\\\\\\\\\\\\\\\_jps -o IdentitiesOnly=yes' git clone git@github.com:<YOUR\\\\\\\\\\\\\\\_ORG\\\\\\\\\\\\\\\_OR\\\\\\\\\\\\\\\_USER>/<YOUR\\\\\\\\\\\\\\\_REPO\\\\\\\\\\\\\\\_NAME>.git .
 ```
 
 For a **persistent** SSH config (optional):
 
 ```bash
-nano \\\\\\\~/.ssh/config
+nano \\\\\\\\\\\\\\\~/.ssh/config
 ```
 
 Add:
@@ -317,7 +328,7 @@ Add:
 Host github.com
   HostName github.com
   User git
-  IdentityFile \\\\\\\~/.ssh/github\\\\\\\_jps
+  IdentityFile \\\\\\\\\\\\\\\~/.ssh/github\\\\\\\\\\\\\\\_jps
   IdentitiesOnly yes
 ```
 
@@ -325,37 +336,71 @@ Then:
 
 ```bash
 cd /opt/jetty-planning-system
-git clone git@github.com:<YOUR\\\\\\\_ORG\\\\\\\_OR\\\\\\\_USER>/<YOUR\\\\\\\_REPO\\\\\\\_NAME>.git .
+git clone git@github.com:<YOUR\\\\\\\\\\\\\\\_ORG\\\\\\\\\\\\\\\_OR\\\\\\\\\\\\\\\_USER>/<YOUR\\\\\\\\\\\\\\\_REPO\\\\\\\\\\\\\\\_NAME>.git .
 ```
 
-### 4.4 Update code with `git pull` (both servers)
+### 4.4 Update code with `git pull` (app, API, and DB servers)
 
-After the initial clone, deploy updates **without** SCP:
+After the initial clone, deploy updates **without** SCP.
 
-**Notes (to keep deployments consistent + safe):**
-
-* **Run on both servers only if needed**:
-
-  * If the change is **frontend-only**, you can update only the **App server** (§6).
-  * If the change touches **Backend/**, DB schema, or API routes, update the **Backend server first** (§5), then the App server.
-* **This guide builds Docker images on the server from this repo** (frontend build context is `./Frontend`). That means the server has a checkout under `/opt/jetty-planning-system` for build-time only. At runtime, containers should **not** mount the whole repo (the app compose mounts only `Frontend/nginx.alicloud-app.conf`).
-* **Database safety**: `docker compose up -d` does **not** wipe Postgres data. Do **not** run `docker compose down -v` unless you intentionally want to delete volumes.
-* **Browser cache**: favicon changes often require a **hard refresh** (Chrome: `Ctrl+Shift+R`) or opening in an incognito window.
-
-**Backend server (PuTTY):**
+**Repo root on each host:** use the directory that contains `docker-compose.app.yml` or `docker-compose.backend.yml` at the top level. The standard path is:
 
 ```bash
 cd /opt/jetty-planning-system
-git pull
+```
+
+If you cloned into a **nested** folder on one host only (e.g. `/opt/jetty-planning-system/Jetty-Planning-System`), use that path on **that** host — but prefer one consistent root on all servers to avoid confusion.
+
+**Deploy branch (SIT example):** checkout the branch you deploy from GitHub before `pull`:
+
+```bash
+git fetch origin
+git checkout sit-post-bontang-visit   # or your branch name
+git pull origin sit-post-bontang-visit
+git log -1 --oneline                  # confirm commit matches GitHub
+```
+
+**Notes (to keep deployments consistent + safe):**
+
+* **Run on each server only if needed**:
+
+  * **Frontend-only** change → **App server** only (§6).
+  * **Backend/**, migrations, or API routes → **API server first** (§5), then App.
+  * **DB compose / Postgres config** → **DB server** only (three-server); see [THREE-SERVER-DB-SPLIT-GUIDE.md](./THREE-SERVER-DB-SPLIT-GUIDE.md).
+* Builds use this checkout on the server; runtime containers do **not** mount the whole repo (app compose mounts only `Frontend/nginx.alicloud-app.conf`).
+* **Database safety**: `docker compose up -d` does **not** wipe Postgres data. Do **not** run `docker compose down -v` unless you intentionally want to delete volumes.
+* **Browser cache**: hard refresh (Chrome: `Ctrl+Shift+R`) after frontend deploys.
+
+**API server — two-server layout** (`jps-api` + `jps-db` on same host):
+
+```bash
+cd /opt/jetty-planning-system
+git fetch origin
+git checkout sit-post-bontang-visit
+git pull origin sit-post-bontang-visit
 docker compose --env-file Backend/.env -f docker-compose.backend.yml build --no-cache
 docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d
 docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps-api npm run migrate
 ```
 
-If you want a quick health check after update:
+**API server — three-server layout** (API only; Postgres on Server 3):
 
 ```bash
-docker compose --env-file Backend/.env -f docker-compose.backend.yml ps
+cd /opt/jetty-planning-system
+git fetch origin
+git checkout sit-post-bontang-visit
+git pull origin sit-post-bontang-visit
+docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml build --no-cache
+docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml up -d
+docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml exec -T jps-api npm run migrate
+```
+
+Quick health check (API server):
+
+```bash
+docker compose --env-file Backend/.env -f docker-compose.backend.yml ps    # two-server
+# or: ... -f docker-compose.backend-api-only.yml ps                         # three-server
+curl -sS http://127.0.0.1:3000/health
 docker compose --env-file Backend/.env -f docker-compose.backend.yml logs --tail=50 jps-api
 ```
 
@@ -363,7 +408,9 @@ docker compose --env-file Backend/.env -f docker-compose.backend.yml logs --tail
 
 ```bash
 cd /opt/jetty-planning-system/Jetty-Planning-System
-git pull
+git fetch origin
+git checkout sit-post-bontang-visit
+git pull origin sit-post-bontang-visit
 docker compose -f docker-compose.app.yml build --no-cache
 docker compose -f docker-compose.app.yml up -d
 ```
@@ -372,17 +419,21 @@ Quick check:
 
 ```bash
 docker compose -f docker-compose.app.yml ps
+curl -sS -o /dev/null -w "%{http\_code}\\n" http://127.0.0.1:3080/
+curl -sS http://127.0.0.1:3080/api/v1/health
 docker compose -f docker-compose.app.yml logs --tail=50 jps-fe
 ```
 
-If you changed only server-local files (`.env`, `Frontend/nginx.alicloud-app.conf`), **do not** commit secrets to GitHub — keep them only on the server and run `git pull` carefully (resolve conflicts if any).
+Use **`3001`** instead of **`3080`** in `curl` if `JPS\_FE\_PORT=3001`.
+
+If you changed only server-local files (`.env`, `Frontend/nginx.alicloud-app.conf`), **do not** commit secrets to GitHub — keep them on the server and resolve merge conflicts carefully after `git pull`.
 
 ### 4.5 Alternative: copy from PC (no Git)
 
 If GitHub is not used on a host, from **Windows PowerShell**:
 
 ```powershell
-scp -r "D:\\\\\\\\path\\\\\\\\to\\\\\\\\Jetty Planning System\\\\\\\\\\\\\\\*" ubuntu@<ECS\\\\\\\_PUBLIC\\\\\\\_IP>:/opt/jetty-planning-system/
+scp -r "D:\\\\\\\\\\\\\\\\path\\\\\\\\\\\\\\\\to\\\\\\\\\\\\\\\\Jetty Planning System\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\*" ubuntu@<ECS\\\\\\\\\\\\\\\_PUBLIC\\\\\\\\\\\\\\\_IP>:/opt/jetty-planning-system/
 ```
 
 Then continue with §5 / §6 using the same paths.
@@ -398,17 +449,26 @@ cd /opt/jetty-planning-system
 nano Backend/.env
 ```
 
-Use strong values. **`CORS\\\\\\\_ORIGIN`** must match the URL users use for the SPA (scheme + host + port), e.g. `http://<APP\\\\\\\_PUBLIC\\\\\\\_IP>:3080` when JPS listens on **3080**, or `https://app.example.com` behind TLS.
+Use strong values. **`CORS\\\\\\\\\\\\\\\_ORIGIN`** must match the URL users use for the SPA (scheme + host + port), e.g. `http://<APP\\\\\\\\\\\\\\\_PUBLIC\\\\\\\\\\\\\\\_IP>:3080` when JPS listens on **3080**, or `https://app.example.com` behind TLS.
 
 ```bash
-POSTGRES\\\\\\\_USER=jps\\\\\\\_user
-POSTGRES\\\\\\\_PASSWORD=CHANGE\\\\\\\_ME\\\\\\\_STRONG\\\\\\\_DB\\\\\\\_PASSWORD
-POSTGRES\\\\\\\_DB=jps\\\\\\\_db
+POSTGRES\\\\\\\\\\\\\\\_USER=jps\\\\\\\\\\\\\\\_user
+POSTGRES\\\\\\\\\\\\\\\_PASSWORD=CHANGE\\\\\\\\\\\\\\\_ME\\\\\\\\\\\\\\\_STRONG\\\\\\\\\\\\\\\_DB\\\\\\\\\\\\\\\_PASSWORD
+POSTGRES\\\\\\\\\\\\\\\_DB=jps\\\\\\\\\\\\\\\_db
 
-JWT\\\\\\\_SECRET=CHANGE\\\\\\\_ME\\\\\\\_STRONG\\\\\\\_JWT\\\\\\\_SECRET
+JWT\\\\\\\\\\\\\\\_SECRET=CHANGE\\\\\\\\\\\\\\\_ME\\\\\\\\\\\\\\\_STRONG\\\\\\\\\\\\\\\_JWT\\\\\\\\\\\\\\\_SECRET
 
-# Origin of the SPA as seen by the browser (must match JPS\\\\\\\_FE\\\\\\\_PORT on app server)
-CORS\\\\\\\_ORIGIN=http://<APP\\\\\\\_PUBLIC\\\\\\\_IP\\\\\\\_OR\\\\\\\_DOMAIN>:3080
+# Origin of the SPA as seen by the browser (must match JPS\\\\\\\\\\\\\\\_FE\\\\\\\\\\\\\\\_PORT on app server)
+CORS\\\\\\\\\\\\\\\_ORIGIN=http://<APP\\\\\\\\\\\\\\\_PUBLIC\\\\\\\\\\\\\\\_IP\\\\\\\\\\\\\\\_OR\\\\\\\\\\\\\\\_DOMAIN>:3080
+
+# Strict OIDC SSO (keep disabled until staging verification is complete)
+OIDC\_ISSUER=https://<HUB\_HOST>
+OIDC\_DISCOVERY\_URL=https://<HUB\_HOST>/api/sso/.well-known/openid-configuration
+OIDC\_CLIENT\_ID=<REGISTERED\_APP\_CLIENT\_ID>
+OIDC\_REDIRECT\_URI=https://<APP\_PUBLIC\_DOMAIN\_OR\_IP>/auth/oidc/callback
+OIDC\_SCOPES=openid profile email
+SSO\_OIDC\_ENABLED=false
+SSO\_LEGACY\_BRIDGE\_ENABLED=true
 ```
 
 ```bash
@@ -416,6 +476,8 @@ chmod 600 Backend/.env
 ```
 
 If you already have secrets in a **root** `.env` from an older layout, either move those keys into **`Backend/.env`** or run Compose with `--env-file` pointing at your file; interpolation only reads the env file you pass (or the default **root** `.env` if you omit `--env-file`).
+
+OIDC prerequisite: register the exact callback URI from `OIDC\_REDIRECT\_URI` in Hub application settings (`sso\_mode=oidc`, `oauth\_client\_id`, redirect URI allowlist) before setting `SSO\_OIDC\_ENABLED=true`.
 
 ### 5.2 Start API + database
 
@@ -426,11 +488,51 @@ docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d
 docker compose --env-file Backend/.env -f docker-compose.backend.yml ps
 ```
 
+### 5.2A Persistent uploads volume
+
+Uploaded files (berthing photos, NOR attachments, SI PDFs, sub-process documents) are stored on disk under **`UPLOAD\_DIR`** (default **`/var/jps/uploads`** inside **`jps-api`**). Compose mounts a **named Docker volume** **`jps\_uploads`** at that path so files survive container rebuilds and redeploys — same persistence model as **`jps\_pgdata`** for Postgres.
+
+**Do not** use ephemeral paths such as **`/tmp/jps-uploads`** without a volume: a container recreate wipes **`/tmp`** while DB metadata remains, causing filenames to appear in the UI with broken preview/download.
+
+**Never run `docker compose down -v` on production** — the **`-v`** flag deletes named volumes, including **`jps\_pgdata`** and **`jps\_uploads`**.
+
+After **`docker compose up`**, confirm startup logs show:
+
+```text
+Upload directory: /var/jps/uploads (writable)
+```
+
+#### One-time migration from `/tmp/jps-uploads` (existing servers)
+
+If the API previously used **`/tmp/jps-uploads`** without a volume, rescue any files still in the running container **before** recreating **`jps-api`** with the updated compose:
+
+```bash
+cd /opt/jetty-planning-system
+docker exec jps-api find /tmp/jps-uploads -type f 2>/dev/null || true
+mkdir -p ./upload-rescue
+docker cp jps-api:/tmp/jps-uploads/. ./upload-rescue/ 2>/dev/null || true
+git pull   # or deploy updated docker-compose.backend.yml
+docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d --build jps-api
+docker cp ./upload-rescue/. jps-api:/var/jps/uploads/
+docker exec jps-api find /var/jps/uploads -type f
+```
+
+Files uploaded before the last container recreate that were already lost from **`/tmp`** cannot be recovered from disk — users must re-upload those documents (DB rows may still show filenames until replaced or deleted). Step-by-step manual restore (SQL lookup, `scp`, `docker cp`, verification): [MANUAL-UPLOAD-RESTORE-GUIDE.md](./MANUAL-UPLOAD-RESTORE-GUIDE.md).
+
+#### Backup uploads
+
+Schedule periodic backups alongside Postgres:
+
+```bash
+docker run --rm -v jps\_uploads:/data -v $(pwd):/backup alpine \\
+  tar czf /backup/jps-uploads-$(date +%F).tar.gz -C /data .
+```
+
 ### 5.3 Migrations
 
 ```bash
 cd /opt/jetty-planning-system
-docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps-db pg\\\\\\\_isready -U ${POSTGRES\\\\\\\_USER:-jps\\\\\\\_user} -d ${POSTGRES\\\\\\\_DB:-jps\\\\\\\_db}
+docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps-db pg\\\\\\\\\\\\\\\_isready -U ${POSTGRES\\\\\\\\\\\\\\\_USER:-jps\\\\\\\\\\\\\\\_user} -d ${POSTGRES\\\\\\\\\\\\\\\_DB:-jps\\\\\\\\\\\\\\\_db}
 docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps-api npm run migrate
 ```
 
@@ -439,7 +541,7 @@ docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps
 From **app** server (SSH):
 
 ```bash
-curl -sS -o /dev/null -w "%{http\\\\\\\_code}\\\\\\\\n" http://172.28.92.57:3000/api/v1/
+curl -sS -o /dev/null -w "%{http\\\\\\\\\\\\\\\_code}\\\\\\\\\\\\\\\\n" http://172.28.92.57:3000/api/v1/
 ```
 
 You should get a non-connection-refused response (e.g. **401** or **404** on a sub-path is fine; **000** means network/SG).
@@ -460,29 +562,29 @@ nano Frontend/nginx.alicloud-app.conf
 Ensure:
 
 ```nginx
-upstream jps\\\\\\\_backend {
+upstream jps\\\\\\\\\\\\\\\_backend {
     server 172.28.92.57:3000;
 ```
 
 (use your real **backend** private IP)
 
-### 6.2 Root `.env` — `VITE\\\\\\\_API\\\\\\\_BASE\\\\\\\_URL` + `JPS\\\\\\\_FE\\\\\\\_PORT` (same origin)
+### 6.2 Root `.env` — `VITE\\\\\\\\\\\\\\\_API\\\\\\\\\\\\\\\_BASE\\\\\\\\\\\\\\\_URL` + `JPS\\\\\\\\\\\\\\\_FE\\\\\\\\\\\\\\\_PORT` (same origin)
 
 The SPA must call the API **through the app host** (so paths match nginx). On **`172.28.92.56`** use host port **3080** (see §1.1). Example if the app’s public IP is `203.0.113.10`:
 
 ```bash
 cd /opt/jetty-planning-system
 cat << 'EOF' > .env
-JPS\\\\\\\_FE\\\\\\\_PORT=3080
-VITE\\\\\\\_API\\\\\\\_BASE\\\\\\\_URL=http://203.0.113.10:3080/api/v1
+JPS\\\\\\\\\\\\\\\_FE\\\\\\\\\\\\\\\_PORT=3080
+VITE\\\\\\\\\\\\\\\_API\\\\\\\\\\\\\\\_BASE\\\\\\\\\\\\\\\_URL=http://203.0.113.10:3080/api/v1
 EOF
 chmod 600 .env
 nano .env
 ```
 
-Replace with your **public** app IP or DNS and the **same** port as `JPS\\\\\\\_FE\\\\\\\_PORT`. With HTTPS later: `https://app.example.com/api/v1` and terminate TLS on the app server (or a load balancer).
+Replace with your **public** app IP or DNS and the **same** port as `JPS\\\\\\\\\\\\\\\_FE\\\\\\\\\\\\\\\_PORT`. With HTTPS later: `https://app.example.com/api/v1` and terminate TLS on the app server (or a load balancer).
 
-> Root `.env` is \\\\\\\*\\\\\\\*not\\\\\\\*\\\\\\\* copied into the Docker build context (`Frontend/.dockerignore`). Compose passes `VITE\\\\\\\_API\\\\\\\_BASE\\\\\\\_URL` as a \\\\\\\*\\\\\\\*build-arg\\\\\\\*\\\\\\\* (see `Frontend/Dockerfile`). `JPS\\\\\\\_FE\\\\\\\_PORT` controls the host port mapping in `docker-compose.app.yml`.
+> Root `.env` is \\\\\\\\\\\\\\\*\\\\\\\\\\\\\\\*not\\\\\\\\\\\\\\\*\\\\\\\\\\\\\\\* copied into the Docker build context (`Frontend/.dockerignore`). Compose passes `VITE\\\\\\\\\\\\\\\_API\\\\\\\\\\\\\\\_BASE\\\\\\\\\\\\\\\_URL` as a \\\\\\\\\\\\\\\*\\\\\\\\\\\\\\\*build-arg\\\\\\\\\\\\\\\*\\\\\\\\\\\\\\\* (see `Frontend/Dockerfile`). `JPS\\\\\\\\\\\\\\\_FE\\\\\\\\\\\\\\\_PORT` controls the host port mapping in `docker-compose.app.yml`.
 
 ### 6.3 Build and run frontend
 
@@ -493,7 +595,7 @@ docker compose -f docker-compose.app.yml up -d
 docker compose -f docker-compose.app.yml ps
 ```
 
-Open in a browser: `http://<APP\\\\\\\_PUBLIC\\\\\\\_IP>:3080` (or your domain and chosen port). If you use the default **`JPS\\\\\\\_FE\\\\\\\_PORT=3001`** on a clean host, use `:3001` instead everywhere.
+Open in a browser: `http://<APP\\\\\\\\\\\\\\\_PUBLIC\\\\\\\\\\\\\\\_IP>:3080` (or your domain and chosen port). If you use the default **`JPS\\\\\\\\\\\\\\\_FE\\\\\\\\\\\\\\\_PORT=3001`** on a clean host, use `:3001` instead everywhere.
 
 \---
 
@@ -519,11 +621,11 @@ Use this when JPS is **already** running on staging and you are deploying **new 
 |-|-|
 |On **backend:** `git pull` → `docker compose --env-file Backend/.env -f docker-compose.backend.yml build` → `up -d` → **`docker compose ... exec -T jps-api npm run migrate`**|**`docker compose down -v`** (destroys Postgres volume and all data).|
 |On **app:** `git pull` → rebuild and `up -d` for `docker-compose.app.yml`|Re-run **user \& role bootstrap** SQL or **dev seed** scripts (`reset-and-seed-dev.sql`, `023`/`024` seeds) on staging **unless** you intentionally reset a **non-production** database.|
-|Expect **`npm run migrate`** to apply **only migrations that have not yet run** (tracked in **`schema\\\\\\\_migrations`**; see `Backend/scripts/run-migrations.js`). Already-applied files — including schema for **`users`**, **`roles`**, **`permissions`**, **seed users** — are **not** executed again.|Manually re-import **`002\\\\\\\_seed\\\\\\\_first\\\\\\\_user.sql`**-style dumps if accounts already exist (risk duplicate or conflicting ids).|
+|Expect **`npm run migrate`** to apply **only migrations that have not yet run** (tracked in **`schema\\\\\\\\\\\\\\\_migrations`**; see `Backend/scripts/run-migrations.js`). Already-applied files — including schema for **`users`**, **`roles`**, **`permissions`**, **seed users** — are **not** executed again.|Manually re-import **`002\\\\\\\\\\\\\\\_seed\\\\\\\\\\\\\\\_first\\\\\\\\\\\\\\\_user.sql`**-style dumps if accounts already exist (risk duplicate or conflicting ids).|
 
-**Staging RBAC:** If users and roles are **already** configured on the server, a normal **`git pull` + `migrate`** is enough for new feature migrations (e.g. jetty layout, `shifting\\\\\\\_out`, `updated\\\\\\\_by`). Reserve full re-seed for **new environments only**, documented in §2 / reset scripts.
+**Staging RBAC:** If users and roles are **already** configured on the server, a normal **`git pull` + `migrate`** is enough for new feature migrations (e.g. jetty layout, `shifting\\\\\\\\\\\\\\\_out`, `updated\\\\\\\\\\\\\\\_by`). Reserve full re-seed for **new environments only**, documented in §2 / reset scripts.
 
-**Order for an update:** **Backend server first** (API + DB + migrate), then **App server** (rebuild SPA if `VITE\\\\\\\_API\\\\\\\_BASE\\\\\\\_URL` or frontend changed).
+**Order for an update:** **Backend server first** (API + DB + migrate), then **App server** (rebuild SPA if `VITE\\\\\\\\\\\\\\\_API\\\\\\\\\\\\\\\_BASE\\\\\\\\\\\\\\\_URL` or frontend changed).
 
 \---
 
@@ -538,10 +640,12 @@ docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps
 docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d --build
 ```
 
+**Purge all transactional data (manual only — not a migration):** see [PURGE-TRANSACTIONAL-DATA.md](../Troubleshoot/PURGE-TRANSACTIONAL-DATA.md). On the backend host: `bash Backend/scripts/run-purge-transactional-data.sh` (type `PURGE` when prompted).
+
 **App**
 
 ```bash
-cd /opt/jetty-planning-system/Jetty-Planning-System 
+cd /opt/jetty-planning-system
 docker compose -f docker-compose.app.yml logs -f
 docker compose -f docker-compose.app.yml up -d --build
 ```
@@ -552,12 +656,12 @@ docker compose -f docker-compose.app.yml up -d --build
 
 * \[ ] **Directory:** `/opt/jetty-planning-system` created on **both** servers
 * \[ ] **GitHub:** `git clone` or `git pull` works on both servers (HTTPS/PAT or SSH deploy key)
-* \[ ] VPC: app can `curl` backend `http://<BACKEND\\\\\\\_PRIVATE\\\\\\\_IP>:3000/...`
+* \[ ] VPC: app can `curl` backend `http://<BACKEND\\\\\\\\\\\\\\\_PRIVATE\\\\\\\\\\\\\\\_IP>:3000/...`
 * \[ ] Backend SG: **3000** from **app private IP** only; **5432** not open
-* \[ ] App SG: **3080** (or chosen `JPS\\\\\\\_FE\\\\\\\_PORT`) for JPS users; **22** restricted
-* \[ ] Backend `.env`: `POSTGRES\\\\\\\_PASSWORD`, `JWT\\\\\\\_SECRET`, `CORS\\\\\\\_ORIGIN` matches SPA URL (including **:3080** if used)
+* \[ ] App SG: **3080** (or chosen `JPS\\\\\\\\\\\\\\\_FE\\\\\\\\\\\\\\\_PORT`) for JPS users; **22** restricted
+* \[ ] Backend `.env`: `POSTGRES\\\\\\\\\\\\\\\_PASSWORD`, `JWT\\\\\\\\\\\\\\\_SECRET`, `CORS\\\\\\\\\\\\\\\_ORIGIN` matches SPA URL (including **:3080** if used)
 * \[ ] `Frontend/nginx.alicloud-app.conf` upstream = backend private IP
-* \[ ] App `.env`: `VITE\\\\\\\_API\\\\\\\_BASE\\\\\\\_URL` = `http(s)://<same-host-as-SPA>/api/v1`
+* \[ ] App `.env`: `VITE\\\\\\\\\\\\\\\_API\\\\\\\\\\\\\\\_BASE\\\\\\\\\\\\\\\_URL` = `http(s)://<same-host-as-SPA>/api/v1`
 * \[ ] Migrations ran on backend: `docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps-api npm run migrate`
 * \[ ] UI loads and login/API works through **one** browser origin
 
@@ -565,10 +669,10 @@ docker compose -f docker-compose.app.yml up -d --build
 
 ## 10\. Troubleshooting
 
-* **Browser CORS errors:** `CORS\\\\\\\_ORIGIN` on backend must exactly match the SPA origin (scheme, host, port).
+* **Browser CORS errors:** `CORS\\\\\\\\\\\\\\\_ORIGIN` on backend must exactly match the SPA origin (scheme, host, port).
 * **API 502 from nginx:** Backend container down, wrong private IP in `Frontend/nginx.alicloud-app.conf`, or SG blocks **app → backend:3000**.
-* **Wrong API host in SPA:** Rebuild app image after changing `VITE\\\\\\\_API\\\\\\\_BASE\\\\\\\_URL`: `docker compose -f docker-compose.app.yml up -d --build`.
-* **Bind / start fails (“port already allocated”):** Run `sudo ss -tuln`, pick a host port not listed, set `JPS\\\\\\\_FE\\\\\\\_PORT`, update SG + `VITE\\\\\\\_API\\\\\\\_BASE\\\\\\\_URL` + backend `CORS\\\\\\\_ORIGIN`, then rebuild.
+* **Wrong API host in SPA:** Rebuild app image after changing `VITE\\\\\\\\\\\\\\\_API\\\\\\\\\\\\\\\_BASE\\\\\\\\\\\\\\\_URL`: `docker compose -f docker-compose.app.yml up -d --build`.
+* **Bind / start fails (“port already allocated”):** Run `sudo ss -tuln`, pick a host port not listed, set `JPS\\\\\\\\\\\\\\\_FE\\\\\\\\\\\\\\\_PORT`, update SG + `VITE\\\\\\\\\\\\\\\_API\\\\\\\\\\\\\\\_BASE\\\\\\\\\\\\\\\_URL` + backend `CORS\\\\\\\\\\\\\\\_ORIGIN`, then rebuild.
 * **DB errors on backend:** `docker compose --env-file Backend/.env -f docker-compose.backend.yml logs jps-db jps-api`.
 * **pgAdmin or desktop tools → remote JPS Postgres:** Use an SSH tunnel and optional localhost-only Docker port mapping; full steps and “where we left off” are in [PGADMIN-ALICLOUD-DB-TUNNEL.md](PGADMIN-ALICLOUD-DB-TUNNEL.md).
 
@@ -581,5 +685,5 @@ Terminate HTTPS on the **app** server (nginx on host or container + certificates
 * Serve the SPA over **443**
 * Keep proxying `/api/` and `/uploads/` to `https://` or `http://` backend as appropriate (internal VPC often stays HTTP)
 
-Update `VITE\\\\\\\_API\\\\\\\_BASE\\\\\\\_URL` and `CORS\\\\\\\_ORIGIN` to use **`https://`**. If users reach JPS only on **443**, you may drop a high port like **3080** from the public URL or hide it behind a load balancer.
+Update `VITE\\\\\\\\\\\\\\\_API\\\\\\\\\\\\\\\_BASE\\\\\\\\\\\\\\\_URL` and `CORS\\\\\\\\\\\\\\\_ORIGIN` to use **`https://`**. If users reach JPS only on **443**, you may drop a high port like **3080** from the public URL or hide it behind a load balancer.
 

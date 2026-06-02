@@ -1,0 +1,9 @@
+{
+  "bellAria": "Notifikasi",
+  "unreadBadge": "{{count}} belum dibaca",
+  "empty": "Tidak ada notifikasi",
+  "markAllRead": "Tandai semua sudah dibaca",
+  "actionApproveReject": "Setujui / Tolak",
+  "actionReviewClearance": "Tinjau clearance",
+  "loading": "Memuat…"
+}

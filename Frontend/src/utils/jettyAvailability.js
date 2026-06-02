@@ -7,7 +7,7 @@ export function isBerthOutOfService(berth) {
 export function jettyOosAllocationMessage(jettyId, canEditMasterJetty) {
   const j = jettyId || '—'
   if (canEditMasterJetty) {
-    return `Jetty ${j} is out of service. Select another jetty or restore service in Master – Preferred Jetty.`
+    return `Jetty ${j} is out of service. Select another jetty or restore service in Master – Jetty.`
   }
   return `Jetty ${j} is out of service. Select another jetty or contact an admin to restore the jetty.`
 }

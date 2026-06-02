@@ -54,9 +54,9 @@
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: var(--spacing-3);
+  gap: var(--spacing-2);
   margin-bottom: var(--spacing-3);
-  padding: var(--spacing-3);
+  padding: var(--spacing-2) var(--spacing-3);
   background: var(--color-bg-subtle, #f5f5f5);
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-sm);
@@ -65,27 +65,35 @@
 .jetty-schedule-gantt__filter-field {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-1);
+  gap: 2px;
+  flex: 0 0 auto;
 }
 
 .jetty-schedule-gantt__filter-field label {
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
   color: var(--color-text-steel);
+  line-height: 1.2;
 }
 
 .jetty-schedule-gantt__date-input {
   font-family: var(--font-primary);
-  font-size: var(--font-size-small);
-  padding: var(--spacing-2) var(--spacing-3);
+  font-size: var(--font-size-xs);
+  padding: 4px 8px;
   border: 1px solid var(--color-border-medium);
   border-radius: var(--radius-sm);
-  min-height: 40px;
-  min-width: 11rem;
+  box-sizing: border-box;
+  width: 9.25rem;
+  max-width: 100%;
+  min-height: 0;
+  height: 32px;
 }
 
-.jetty-schedule-gantt__reset {
-  min-height: 40px;
+.jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__reset {
+  min-height: 32px;
+  height: 32px;
+  padding: 4px 12px;
+  font-size: var(--font-size-small);
   margin-bottom: 0;
 }
 
@@ -222,7 +230,7 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   display: grid;
   align-items: stretch;
   border-bottom: 1px solid var(--color-border-light);
-  min-height: 72px;
+  min-height: 48px;
 }
 
 .jetty-schedule-gantt__row:last-child {
@@ -277,20 +285,20 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   font-size: var(--font-size-small);
 }
 
-.jetty-schedule-gantt__jetty-status {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-steel);
-  margin-top: 4px;
-}
-
 .jetty-schedule-gantt__lane-label {
   font-size: 10px;
   font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--color-text-steel);
-  margin-top: 4px;
-  line-height: 1.2;
+  margin-top: 2px;
+  line-height: 1.1;
+}
+
+.jetty-schedule-gantt__jetty-status {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-steel);
+  margin-top: 2px;
 }
 
 /* One cell spans all day columns; bars use % of full filtered range */
@@ -328,17 +336,17 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: var(--spacing-1) 0;
+  gap: 2px;
+  padding: 2px 0;
 }
 
 .jetty-schedule-gantt__timeline-tracks--dual {
-  gap: 8px;
+  gap: 4px;
 }
 
 .jetty-schedule-gantt__timeline-tracks--dual .jetty-schedule-gantt__track--planned {
   border-bottom: 1px dashed var(--color-border-light);
-  padding-bottom: 2px;
+  padding-bottom: 0;
   margin-bottom: 0;
 }
 
@@ -366,33 +374,18 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   max-width: 100%;
 }
 
-/* Very short spans: solid sliver, no hollow “empty checkbox” look */
-.jetty-schedule-gantt__bar--minimal {
-  padding: 0;
-  min-width: 3px;
-  height: 10px;
-  border: none;
-  border-radius: 2px;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
-}
-
-.jetty-schedule-gantt__bar--minimal.jetty-schedule-gantt__bar--planned-solid,
-.jetty-schedule-gantt__bar--minimal.jetty-schedule-gantt__bar--planned-grad {
-  box-shadow: 0 0 0 1px rgba(33, 115, 199, 0.35);
-}
-
-.jetty-schedule-gantt__bar--minimal.jetty-schedule-gantt__bar--actual-solid,
-.jetty-schedule-gantt__bar--minimal.jetty-schedule-gantt__bar--actual-grad {
-  box-shadow: 0 0 0 1px rgba(5, 150, 105, 0.35);
-}
-
-.jetty-schedule-gantt__bar--minimal.jetty-schedule-gantt__bar--st-active {
-  box-shadow: 0 0 0 1px rgba(196, 58, 49, 0.35);
+.jetty-schedule-gantt__bar .loading-list__badge--purpose {
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 1.3;
+  flex-shrink: 0;
 }
 
 .jetty-schedule-gantt__bar-text {
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .jetty-schedule-gantt__bar-ship {
@@ -400,53 +393,29 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   opacity: 0.9;
 }
 
-/* Option B: planned (blue) vs actual (green), solid vs gradient tail */
+/* Planned (orange) vs actual (purple), solid vs gradient tail */
 .jetty-schedule-gantt__bar--planned-solid {
-  background: rgba(33, 115, 199, 0.2);
-  border: 1px solid rgba(33, 115, 199, 0.5);
-  color: #0b4a8a;
+  background: rgba(var(--gantt-planned-rgb), 0.2);
+  border: 1px solid rgba(var(--gantt-planned-rgb), 0.5);
+  color: var(--gantt-planned-text);
 }
 
 .jetty-schedule-gantt__bar--planned-grad {
-  border: 1px solid rgba(33, 115, 199, 0.35);
-  color: #0b4a8a;
-  background: linear-gradient(to right, rgba(33, 115, 199, 0.78), rgba(33, 115, 199, 0.06));
+  border: 1px solid rgba(var(--gantt-planned-rgb), 0.35);
+  color: var(--gantt-planned-text);
+  background: linear-gradient(to right, rgba(var(--gantt-planned-rgb), 0.78), rgba(var(--gantt-planned-rgb), 0.06));
 }
 
 .jetty-schedule-gantt__bar--actual-solid {
-  background: rgba(5, 150, 105, 0.16);
-  border: 1px solid rgba(5, 150, 105, 0.5);
-  color: #065f46;
+  background: rgba(var(--gantt-actual-rgb), 0.16);
+  border: 1px solid rgba(var(--gantt-actual-rgb), 0.5);
+  color: var(--gantt-actual-text);
 }
 
 .jetty-schedule-gantt__bar--actual-grad {
-  border: 1px solid rgba(5, 150, 105, 0.38);
-  color: #065f46;
-  background: linear-gradient(to right, rgba(5, 150, 105, 0.72), rgba(5, 150, 105, 0.06));
-}
-
-.jetty-schedule-gantt__bar--st-active.jetty-schedule-gantt__bar--planned-solid {
-  background: rgba(196, 58, 49, 0.14);
-  border-color: rgba(196, 58, 49, 0.45);
-  color: #8f2a28;
-}
-
-.jetty-schedule-gantt__bar--st-active.jetty-schedule-gantt__bar--planned-grad {
-  color: #8f2a28;
-  border-color: rgba(196, 58, 49, 0.35);
-  background: linear-gradient(to right, rgba(196, 58, 49, 0.55), rgba(196, 58, 49, 0.06));
-}
-
-.jetty-schedule-gantt__bar--st-active.jetty-schedule-gantt__bar--actual-solid {
-  background: rgba(180, 83, 9, 0.18);
-  border-color: rgba(180, 83, 9, 0.5);
-  color: #92400e;
-}
-
-.jetty-schedule-gantt__bar--st-active.jetty-schedule-gantt__bar--actual-grad {
-  color: #92400e;
-  border-color: rgba(180, 83, 9, 0.4);
-  background: linear-gradient(to right, rgba(180, 83, 9, 0.55), rgba(180, 83, 9, 0.06));
+  border: 1px solid rgba(var(--gantt-actual-rgb), 0.38);
+  color: var(--gantt-actual-text);
+  background: linear-gradient(to right, rgba(var(--gantt-actual-rgb), 0.72), rgba(var(--gantt-actual-rgb), 0.06));
 }
 
 /* Status overlays: Arriving (dashed), Berthing (default), Sailed off (muted). */
@@ -470,15 +439,6 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   color: #4b5563;
 }
 
-.jetty-schedule-gantt__bar--minimal.jetty-schedule-gantt__bar--st-arriving {
-  border-style: solid;
-}
-
-.jetty-schedule-gantt__bar--minimal.jetty-schedule-gantt__bar--st-sailed-off {
-  opacity: 0.85;
-  box-shadow: 0 0 0 1px rgba(107, 114, 128, 0.55);
-}
-
 .jetty-schedule-gantt__legend--two {
   flex-wrap: wrap;
   gap: var(--spacing-2) var(--spacing-4);
@@ -493,23 +453,41 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 }
 
 .jetty-schedule-gantt__swatch--planned-solid {
-  background: rgba(33, 115, 199, 0.45);
-  border: 1px solid rgba(33, 115, 199, 0.6);
+  background: rgba(var(--gantt-planned-rgb), 0.45);
+  border: 1px solid rgba(var(--gantt-planned-rgb), 0.6);
 }
 
 .jetty-schedule-gantt__swatch--planned-grad {
-  background: linear-gradient(to right, rgba(33, 115, 199, 0.75), rgba(33, 115, 199, 0.1));
-  border: 1px solid rgba(33, 115, 199, 0.35);
+  background: linear-gradient(to right, rgba(var(--gantt-planned-rgb), 0.75), rgba(var(--gantt-planned-rgb), 0.1));
+  border: 1px solid rgba(var(--gantt-planned-rgb), 0.35);
 }
 
 .jetty-schedule-gantt__swatch--actual-solid {
-  background: rgba(5, 150, 105, 0.4);
-  border: 1px solid rgba(5, 150, 105, 0.55);
+  background: rgba(var(--gantt-actual-rgb), 0.4);
+  border: 1px solid rgba(var(--gantt-actual-rgb), 0.55);
 }
 
 .jetty-schedule-gantt__swatch--actual-grad {
-  background: linear-gradient(to right, rgba(5, 150, 105, 0.7), rgba(5, 150, 105, 0.1));
-  border: 1px solid rgba(5, 150, 105, 0.35);
+  background: linear-gradient(to right, rgba(var(--gantt-actual-rgb), 0.7), rgba(var(--gantt-actual-rgb), 0.1));
+  border: 1px solid rgba(var(--gantt-actual-rgb), 0.35);
+}
+
+.jetty-schedule-gantt__swatch--actual-etc-overdue {
+  --etc-overdue-start: 55%;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(196, 58, 49, 0.14) 0 3px,
+      rgba(196, 58, 49, 0.22) 3px 6px
+    ),
+    linear-gradient(
+      to right,
+      rgba(var(--gantt-actual-rgb), 0.4) 0%,
+      rgba(var(--gantt-actual-rgb), 0.4) var(--etc-overdue-start, 55%),
+      rgba(196, 58, 49, 0.25) var(--etc-overdue-start, 55%),
+      rgba(196, 58, 49, 0.25) 100%
+    );
+  border: 1px solid rgba(196, 58, 49, 0.5);
 }
 
 .jetty-schedule-gantt__swatch--status-arriving {
@@ -522,8 +500,8 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 }
 
 .jetty-schedule-gantt__swatch--status-berthing {
-  background: rgba(5, 150, 105, 0.3);
-  border: 1px solid rgba(5, 150, 105, 0.55);
+  background: rgba(var(--gantt-actual-rgb), 0.3);
+  border: 1px solid rgba(var(--gantt-actual-rgb), 0.55);
 }
 
 .jetty-schedule-gantt__swatch--status-sailed-off {
@@ -705,6 +683,10 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   color: var(--color-text-steel);
 }
 
+.si-cargo-qty-cell {
+  white-space: pre-line;
+}
+
 .allocation-table__expand-col {
   width: 36px;
   text-align: center;
@@ -713,6 +695,22 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 
 .allocation-table__th {
   padding: var(--spacing-2) var(--spacing-3);
+}
+
+.allocation-table__th-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.allocation-table__th-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85em;
+  line-height: 1;
+  color: var(--color-text-steel);
+  cursor: help;
 }
 
 .allocation-table__sort {
@@ -761,12 +759,75 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   transition: background var(--duration-fast) var(--easing-default);
 }
 
+.allocation-table__vessel-cell {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-1, 4px);
+}
+
+.allocation-table__vessel-etc-badge {
+  display: inline-flex;
+  margin-left: var(--spacing-1, 4px);
+}
+
 .allocation-table__row:hover {
   background: var(--color-bg-lighter);
 }
 
 .allocation-table__row--expanded {
   background: var(--color-bg-lighter);
+}
+
+.allocation-table__row--plan-summary {
+  cursor: default;
+  background: var(--color-bg-subtle, #f4f6f8);
+  font-size: var(--font-size-small);
+}
+
+.allocation-table__row--plan-summary:hover {
+  background: var(--color-bg-subtle, #f4f6f8);
+}
+
+.allocation-table__plan-summary-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem 0.35rem;
+}
+
+.allocation-table__plan-ref {
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.allocation-table__row--plan-child td:not(.allocation-table__expand-col):not(.allocation-table__action-col) {
+  padding-left: var(--spacing-4);
+}
+
+.allocation-mobile-card--plan {
+  border-left: 3px solid var(--color-primary);
+}
+
+.at-berth__group-header {
+  background: var(--color-surface-muted, rgba(0, 0, 0, 0.03));
+}
+
+.at-berth-mobile-group-children {
+  margin-top: var(--spacing-3);
+  padding-top: var(--spacing-3);
+  border-top: 1px solid var(--color-border-light, #e5e7eb);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+}
+
+.at-berth-mobile-child {
+  padding-left: var(--spacing-2);
+  border-left: 2px solid var(--color-border-medium, #d1d5db);
+}
+
+.at-berth-mobile-child__actions {
+  margin-top: 0.35rem;
 }
 
 .allocation-table__action-btns {
@@ -815,16 +876,11 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   gap: var(--spacing-2);
 }
 
-/* Berthing sequence column: number + up/down buttons */
+/* Berthing sequence column: up/down controls */
 .allocation-table__sequence-cell {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-2);
-}
-
-.allocation-table__sequence-num {
-  font-weight: var(--font-weight-semibold);
-  min-width: 1.25rem;
 }
 
 .allocation-table__sequence-btns {
@@ -1170,7 +1226,7 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   position: absolute;
   top: -4px;
   right: -2px;
-  font-size: 12px;
+  font-size: 10px;
   line-height: 1;
   color: #d97706;
 }
@@ -1768,6 +1824,66 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   border-bottom-color: var(--color-primary);
 }
 
+/* Multi-SI same plan: switch shipping instruction / operation under hub header */
+.loading-si-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2) var(--spacing-3);
+  margin-bottom: var(--spacing-3);
+}
+
+.loading-si-switcher__label {
+  margin: 0;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-charcoal);
+  flex-shrink: 0;
+}
+
+.loading-si-switcher__select {
+  min-width: min(100%, 20rem);
+  max-width: 100%;
+  padding: var(--spacing-2) 2.25rem var(--spacing-2) var(--spacing-3);
+  font-size: var(--font-size-small);
+  font-family: var(--font-primary);
+  line-height: 1.35;
+  color: var(--color-text-charcoal);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-base);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  background-size: 0.75rem;
+  box-sizing: border-box;
+  cursor: pointer;
+  appearance: none;
+  transition: border-color var(--duration-fast) var(--easing-default), box-shadow var(--duration-fast) var(--easing-default);
+}
+
+.loading-si-switcher__select::-ms-expand {
+  display: none;
+}
+
+.loading-si-switcher__select:hover {
+  border-color: var(--color-primary);
+}
+
+.loading-si-switcher__select:focus {
+  outline: none;
+}
+
+.loading-si-switcher__select:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 22%, transparent);
+}
+
+.loading-si-switcher__select:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
 /* At-berth stage tabs (detail page): horizontal strip under vessel detail */
 .loading-stage-tabs {
   display: flex;
@@ -1902,7 +2018,7 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 
 .rail-chevron {
   display: inline-block;
-  font-size: 18px;
+  font-size: 15px;
   line-height: 1;
   font-weight: 700;
   transform: translateY(-1px);
@@ -2076,7 +2192,7 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 }
 
 .precheck-checklist__code {
-  font-size: 12px;
+  font-size: 10px;
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0.04em;
 }
@@ -2213,6 +2329,81 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   margin: 0 0 var(--spacing-1);
 }
 
+.operational-milestone-composer__title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-1);
+}
+
+.operational-milestone-composer__title-row .operational-milestone-composer__title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.operational-milestone-composer__title-group {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.operational-milestone-composer__title-group .operational-milestone-composer__title {
+  flex: unset;
+}
+
+.field-help-btn {
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-border-medium);
+  border-radius: 50%;
+  background: var(--color-bg-elevated, #f1f5f9);
+  color: var(--color-text-steel);
+  font: inherit;
+  cursor: help;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.field-help-btn:hover,
+.field-help-btn:focus-visible {
+  border-color: var(--color-text-steel);
+  color: var(--color-text-charcoal);
+  outline: none;
+}
+
+.field-help-btn__glyph {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  font-style: italic;
+  line-height: 1;
+}
+
+.field-help-btn--inline {
+  width: 1.375rem;
+  height: 1.375rem;
+  vertical-align: middle;
+}
+
+.operational-cargo-ops-basis-label-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  flex-wrap: wrap;
+}
+
+.operational-cargo-ops-inline-hint {
+  font-size: var(--font-size-xs);
+  margin: var(--spacing-1) 0 0;
+  line-height: 1.35;
+}
+
 .operational-milestone-composer__subtitle {
   font-size: var(--font-size-small);
   margin: 0 0 var(--spacing-3);
@@ -2222,6 +2413,305 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 .operational-milestone-active__na {
   color: var(--color-text-steel);
   font-weight: normal;
+}
+
+.operational-cargo-ops-block {
+  margin-bottom: var(--spacing-2);
+}
+
+.operational-cargo-ops-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--spacing-2);
+}
+
+.operational-cargo-line-card__grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+@media (max-width: 640px) {
+  .operational-cargo-line-card__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.operational-milestone-composer .operational-cargo-line-card .berthing-modal__input {
+  max-width: 100%;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 520px) {
+  .operational-cargo-ops-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.operational-cargo-ops-readonly {
+  font-weight: 600;
+  margin-top: var(--spacing-1);
+}
+
+.operational-cargo-ops-hint {
+  font-size: var(--font-size-xs);
+  margin: var(--spacing-1) 0 0;
+  line-height: 1.35;
+}
+
+.operational-cargo-ops-basis {
+  margin-bottom: var(--spacing-2);
+}
+
+/* ── Cargo ops loading progress bar ─────────────────────────────── */
+.cargo-ops-progress {
+  margin-bottom: var(--spacing-3);
+}
+
+.cargo-ops-progress__labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-1);
+  font-size: var(--font-size-small);
+}
+
+.cargo-ops-progress__loaded {
+  font-weight: 600;
+  color: var(--color-text-primary, #1a1a1a);
+}
+
+.cargo-ops-progress__balance {
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.cargo-ops-progress__bar-track {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--color-border-light, #e2e8f0);
+  overflow: hidden;
+}
+
+.cargo-ops-progress__bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-primary, #c41e3a);
+  transition: width 0.3s ease;
+  min-width: 0;
+}
+
+.cargo-ops-progress__totals {
+  margin-top: var(--spacing-1);
+  font-size: 0.78rem;
+  text-align: right;
+}
+
+.operational-cargo-line-card {
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  padding: var(--spacing-2);
+  margin-bottom: var(--spacing-2);
+  background: var(--color-bg-elevated, #f8fafc);
+}
+
+.operational-cargo-line-card__title {
+  margin-bottom: var(--spacing-1);
+}
+
+.operational-cargo-line-actions {
+  margin-top: var(--spacing-1);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-1);
+}
+
+/* ── Cargo ops redesign ───────────────────────────────────────────── */
+
+/* Modal subtitle: commodity · qty cargo */
+.cargo-ops-modal-meta {
+  font-size: var(--font-size-small, 0.85rem);
+  margin: 2px 0 0;
+  line-height: 1.4;
+}
+.cargo-ops-modal-meta__sep {
+  opacity: 0.5;
+}
+
+/* Section wrapper with divider label */
+.cargo-ops-section {
+  margin-bottom: var(--spacing-3);
+}
+.cargo-ops-section__label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted, #94a3b8);
+  margin: 0 0 var(--spacing-2);
+  padding-bottom: var(--spacing-1);
+  border-bottom: 1px solid var(--color-border-light, #e2e8f0);
+}
+.cargo-ops-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-2);
+}
+.cargo-ops-section__label--inline {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+.cargo-ops-section--progress {
+  background: var(--color-bg-subtle, #f8fafc);
+  border: 1px solid var(--color-border-light, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  padding: var(--spacing-2) var(--spacing-3);
+  margin-bottom: var(--spacing-3);
+}
+.cargo-ops-section--progress .cargo-ops-section__label {
+  border-bottom: none;
+  margin-bottom: var(--spacing-1);
+  padding-bottom: 0;
+}
+
+/* Time range: Start → End on one row */
+.cargo-ops-time-range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--spacing-1);
+  margin-bottom: var(--spacing-2);
+}
+.cargo-ops-time-range--start-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+.cargo-ops-time-range__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+.cargo-ops-time-range__field .berthing-modal__input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.cargo-ops-time-range__caption {
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #94a3b8);
+  padding-left: 2px;
+}
+.cargo-ops-time-range__arrow {
+  font-size: 0.9rem;
+  color: var(--color-text-muted, #94a3b8);
+  padding-top: 11px;
+  user-select: none;
+  flex-shrink: 0;
+}
+@media (max-width: 580px) {
+  .cargo-ops-time-range {
+    grid-template-columns: 1fr;
+  }
+  .cargo-ops-time-range__arrow {
+    display: none;
+  }
+}
+
+/* Redesigned line card */
+.cargo-line-card {
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  margin-bottom: var(--spacing-2);
+  overflow: hidden;
+  background: var(--color-bg-surface, #fff);
+}
+.cargo-line-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-1) var(--spacing-2);
+  background: var(--color-bg-elevated, #f8fafc);
+  border-bottom: 1px solid var(--color-border-light, #e2e8f0);
+}
+.cargo-line-card__entry-chip {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary, #64748b);
+}
+.cargo-line-card__remove {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 4px);
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--color-text-muted, #94a3b8);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.cargo-line-card__remove:hover {
+  color: var(--color-danger, #c41e3a);
+  border-color: var(--color-danger-light, #fecdd3);
+  background: var(--color-danger-bg, #fff1f2);
+}
+.cargo-line-card__body {
+  padding: var(--spacing-2) var(--spacing-2) var(--spacing-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+.cargo-line-card__qty-field {
+  margin-bottom: 0 !important;
+}
+.cargo-line-card__qty-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+}
+.cargo-line-card__qty-input-wrap .berthing-modal__input {
+  flex: 1;
+  min-width: 0;
+}
+.cargo-line-card__unit {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-secondary, #64748b);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.cargo-line-card__derived {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-1);
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #94a3b8);
+  padding-top: var(--spacing-1);
+  border-top: 1px solid var(--color-border-light, #e2e8f0);
+}
+.cargo-line-card__derived strong {
+  color: var(--color-text-secondary, #64748b);
+  font-weight: 600;
+}
+.cargo-line-card__derived-sep {
+  opacity: 0.4;
+}
+
+/* Notes & Save section */
+.cargo-ops-notes-section {
+  border-top: 1px solid var(--color-border-light, #e2e8f0);
+  padding-top: var(--spacing-3);
+  margin-top: var(--spacing-1);
 }
 
 .operational-duration-hint {
@@ -2301,11 +2791,150 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   background: var(--color-bg-lighter);
 }
 
-.operation-activity-timeline__detail {
-  max-width: 28rem;
+.operation-activity-timeline__row--cargo-group {
+  background: var(--color-bg-subtle, #f5f5f5);
+}
+
+.operation-activity-timeline__row--cargo-group > td {
+  border-bottom-color: var(--color-border-light, #e8e8e8);
+}
+
+.operation-activity-timeline__row--cargo-children-wrap > td {
+  padding: 0;
+  border-bottom: 1px solid var(--color-border-medium, #ddd);
+  background: var(--color-bg-lighter, #fafafa);
+}
+
+.operation-activity-timeline__cargo-children-cell {
+  vertical-align: top;
+}
+
+.operation-activity-timeline__cargo-children {
+  padding: var(--spacing-2) var(--spacing-2) var(--spacing-3);
+}
+
+.operation-activity-timeline__nested-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-small);
+}
+
+.operation-activity-timeline__nested-table thead th {
+  position: static;
+  background: var(--color-bg-subtle, #f0f0f0);
+  font-weight: 600;
+  text-align: left;
+  padding: var(--spacing-1) var(--spacing-2);
+  border-bottom: 1px solid var(--color-border-medium, #ccc);
+}
+
+.operation-activity-timeline__nested-table tbody tr:hover {
+  background: #fff;
+}
+
+.operation-activity-timeline__row--cargo-nested > td:first-child {
+  padding-left: var(--spacing-3);
+  box-shadow: inset 3px 0 0 var(--color-primary, #c41e3a);
+}
+
+.operation-activity-timeline__group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  max-width: 100%;
+}
+
+.operation-activity-timeline__group-toggle:hover .operation-activity-timeline__group-title-text {
+  text-decoration: underline;
+}
+
+.operation-activity-timeline__group-toggle--mobile {
+  flex: 1;
+  min-width: 0;
+}
+
+.operation-activity-timeline__group-toggle--mobile strong {
+  text-align: left;
+}
+
+.operation-activity-timeline__group-chevron {
+  flex-shrink: 0;
+  width: 1.1em;
+  font-size: 0.75em;
+  opacity: 0.85;
+}
+
+.operation-activity-timeline__group-title-text {
+  font-weight: 600;
+}
+
+.operation-activity-timeline__mobile-card--cargo-group {
+  border-left: 3px solid var(--color-primary, #c41e3a);
+}
+
+.operation-activity-timeline__mobile-cargo-children {
+  margin-top: var(--spacing-2);
+  padding-top: var(--spacing-2);
+  border-top: 1px dashed var(--color-border-medium, #ccc);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.operation-activity-timeline__mobile-card--nested {
+  margin-left: var(--spacing-2);
+  padding-left: var(--spacing-2);
+  border-left: 2px solid var(--color-border-medium, #ddd);
+}
+
+.operation-activity-timeline__detail,
+.operation-activity-timeline__status,
+.operation-activity-timeline__remark,
+.operation-activity-timeline__documents {
+  max-width: 20rem;
   word-break: break-word;
   font-size: var(--font-size-small);
   line-height: 1.45;
+}
+
+.operation-activity-timeline__status {
+  white-space: nowrap;
+}
+
+.operation-activity-timeline__remark {
+  white-space: pre-line;
+}
+
+.operation-activity-timeline__documents {
+  max-width: 14rem;
+}
+
+.operation-activity-timeline__doc-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  list-style: disc;
+}
+
+.operation-activity-timeline__doc-list li {
+  margin-bottom: 0.2rem;
+}
+
+.operation-activity-timeline__doc-link {
+  color: var(--color-primary, #0d6efd);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.operation-activity-timeline__doc-link:hover {
+  text-decoration-thickness: 2px;
 }
 
 .operation-activity-timeline__time {
@@ -2783,6 +3412,27 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   max-width: 220px;
 }
 
+/* Cargo ops modal: stack activity times full-width so datetime inputs never overlap */
+.operational-milestone-composer .loading-detail-activity-times {
+  flex-direction: column;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  gap: var(--spacing-2);
+  width: 100%;
+}
+
+.operational-milestone-composer .loading-detail-activity-times .berthing-modal__field {
+  width: 100%;
+  max-width: 100%;
+}
+
+.operational-milestone-composer .loading-detail-activity-times .berthing-modal__input {
+  max-width: 100%;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
 .loading-detail-activity-table-wrap {
   overflow-x: auto;
   margin-top: var(--spacing-2);
@@ -2925,7 +3575,7 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 
 /* At-Berth Executions summary (grouped: Loading + Unloading, 3 phases each) */
 .at-berth-summary {
-  margin-bottom: var(--spacing-5);
+  margin-bottom: var(--spacing-3);
 }
 
 .at-berth-summary__groups {
@@ -2933,7 +3583,7 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   /* Always two logical groups (Loading | Unloading). Avoid auto-fill tracks that can
      squeeze sibling columns and let inner 3-up grids overflow on top of each other. */
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--spacing-5);
+  gap: var(--spacing-3);
   align-items: start;
 }
 
@@ -2972,7 +3622,7 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 .at-berth-summary__grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--spacing-3);
+  gap: var(--spacing-2);
   width: 100%;
   min-width: 0;
 }
@@ -2989,7 +3639,7 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 }
 
 .at-berth-card {
-  padding: var(--spacing-4);
+  padding: var(--spacing-2) var(--spacing-3);
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border-light);
   background: var(--color-bg-white);
@@ -3002,15 +3652,25 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-charcoal);
-  margin: 0 0 var(--spacing-2);
+  margin: 0 0 var(--spacing-1);
   line-height: 1.3;
 }
 
 .at-berth-card__count {
-  font-size: var(--font-size-h2);
+  font-size: var(--font-size-h3);
   font-weight: var(--font-weight-bold);
   margin: 0;
   line-height: 1.2;
+}
+
+.at-berth-card--loading {
+  background: rgba(45, 122, 62, 0.07);
+  border-color: rgba(45, 122, 62, 0.22);
+}
+
+.at-berth-card--unloading {
+  background: rgba(33, 115, 199, 0.07);
+  border-color: rgba(33, 115, 199, 0.24);
 }
 
 .at-berth-card--loading .at-berth-card__title {
@@ -3225,7 +3885,7 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   color: #fff;
   border-radius: 50%;
   font-weight: var(--font-weight-semibold);
-  font-size: 14px;
+  font-size: 11px;
 }
 
 .toast__message {
@@ -3242,7 +3902,7 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   border: none;
   background: transparent;
   color: inherit;
-  font-size: 20px;
+  font-size: 16px;
   line-height: 1;
   cursor: pointer;
   opacity: 0.8;
@@ -3404,6 +4064,20 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   max-height: 220px;
   overflow-y: auto;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity var(--duration-fast) var(--easing-default),
+    transform var(--duration-fast) var(--easing-default),
+    visibility var(--duration-fast) var(--easing-default);
+}
+
+.dropdown-multi__panel.is-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
 }
 
 .dropdown-multi__list {
@@ -3438,6 +4112,86 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 }
 
 .dropdown-multi__empty {
+  padding: var(--spacing-3);
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+/* Searchable single-select (portal panel — z-index above .modal-overlay 1000) */
+.searchable-select {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+.searchable-select__trigger {
+  width: 100%;
+}
+
+.searchable-select__portal-root {
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+
+.searchable-select__search-wrap {
+  padding: var(--spacing-2);
+  border-bottom: 1px solid var(--color-border-medium);
+  flex-shrink: 0;
+}
+
+.searchable-select__search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--spacing-2) var(--spacing-2);
+  font-size: var(--font-size-small);
+  font-family: var(--font-primary);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+}
+
+.searchable-select__list {
+  list-style: none;
+  margin: 0;
+  padding: var(--spacing-1);
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.searchable-select__list li {
+  margin: 0;
+}
+
+.searchable-select__option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--spacing-2) var(--spacing-2);
+  font-size: var(--font-size-small);
+  font-family: var(--font-primary);
+  color: var(--color-text-charcoal);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.searchable-select__option:hover,
+.searchable-select__option:focus-visible {
+  background: var(--color-bg-subtle, #f5f5f5);
+  outline: none;
+}
+
+.searchable-select__option--selected {
+  font-weight: var(--font-weight-semibold);
+}
+
+.searchable-select__empty {
   padding: var(--spacing-3);
   font-size: var(--font-size-small);
   color: var(--color-text-steel);
@@ -3666,6 +4420,13 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   justify-content: space-between;
   gap: var(--spacing-2);
   margin-bottom: var(--spacing-2);
+}
+
+.allocation-mobile-card__header-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2, 8px);
 }
 
 .allocation-mobile-card__grid {

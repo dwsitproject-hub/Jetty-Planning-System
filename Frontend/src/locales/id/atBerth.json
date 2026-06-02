@@ -24,7 +24,7 @@
   "colVessel": "Kapal",
   "colJettyOperationId": "ID Operasi Jetty",
   "colSi": "SI",
-  "colCommodity": "Komoditas",
+  "colCommodityQty": "Commodity Qty",
   "colPurpose": "Tujuan",
   "colPhase": "Fase",
   "colStatus": "Status",
@@ -58,5 +58,14 @@
   "dtRemark": "Keterangan",
   "dismissNotification": "Tutup notifikasi",
   "openSiDocument": "Buka dokumen shipping instruction",
-  "openSiDetailFromJettyOp": "Buka detail shipping instruction"
+  "openSiDetailFromJettyOp": "Buka detail shipping instruction",
+  "groupExpand": "Tampilkan instruksi untuk kapal ini",
+  "groupCollapse": "Sembunyikan instruksi",
+  "groupSiCount": "{{count}} instruksi",
+  "groupMixedPurpose": "Campuran",
+  "groupMixedCommodity": "Beragam",
+  "groupMixed": "Campuran",
+  "shiftOutAffectsIntro": "Berlaku untuk panggilan kapal ini (semua instruksi):",
+  "fullDetail": "Detail lengkap",
+  "hideDetail": "Sembunyikan detail"
 }

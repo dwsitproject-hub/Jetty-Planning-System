@@ -119,7 +119,7 @@ function summarizeQuantityFromSiBreakdown(breakdown) {
  * @param {object|undefined} overviewRow - allocation overview queue row for same operationId
  */
 export function buildDailyReportHeader(op, si, overviewRow) {
-  const shipper = si?.shipperName || overviewRow?.shipper || '—'
+  const shipper = si?.shipperNames || overviewRow?.shipper || '—'
   const surveyor = si?.surveyorName || overviewRow?.surveyor || '—'
   const agent = si?.agentName || overviewRow?.agent || '—'
   const commodity = op.commodity || si?.commodity || '—'

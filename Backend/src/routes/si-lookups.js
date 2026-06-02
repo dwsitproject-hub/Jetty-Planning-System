@@ -211,6 +211,21 @@ async function assertDeletable(pool, type, id) {
     return { ok: true };
   }
 
+  if (type === 'shippers') {
+    const q1 = await pool.query(
+      `SELECT 1
+       FROM shipping_instruction_breakdown b
+       JOIN shipping_instructions si ON si.id = b.shipping_instruction_id AND si.deleted_at IS NULL
+       WHERE b.shipper_id = $1 AND b.deleted_at IS NULL
+       LIMIT 1`,
+      [id],
+    );
+    if (q1.rows.length > 0) {
+      return { ok: false, reason: 'Cannot delete while master value is used by shipping instruction breakdown lines' };
+    }
+    return { ok: true };
+  }
+
   // Standard: referenced by shipping_instructions.<refCol>
   const refQuery = await pool.query(
     `SELECT 1 FROM shipping_instructions

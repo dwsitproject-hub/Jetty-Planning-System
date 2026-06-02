@@ -1,0 +1,149 @@
+/**
+ * Polls notification_deliveries (email, queued), sends via SMTP when configured.
+ */
+import nodemailer from 'nodemailer';
+import { pool } from '../db.js';
+import { loadNotificationTemplate, renderTemplate, insertInAppNotificationForUser } from './notifications.js';
+
+let transport = null;
+
+function getSmtpTransport() {
+  const host = process.env.SMTP_HOST;
+  if (!host || !String(host).trim()) return null;
+  if (transport) return transport;
+  const port = parseInt(process.env.SMTP_PORT || '587', 10);
+  const secure = String(process.env.SMTP_SECURE || '').toLowerCase() === 'true' || port === 465;
+  const user = process.env.SMTP_USER || '';
+  const pass = process.env.SMTP_PASS || '';
+  transport = nodemailer.createTransport({
+    host: String(host).trim(),
+    port: Number.isFinite(port) ? port : 587,
+    secure,
+    auth: user ? { user, pass } : undefined,
+  });
+  return transport;
+}
+
+function fromAddress() {
+  return process.env.SMTP_FROM || process.env.SMTP_USER || 'jetty-planning@localhost';
+}
+
+/**
+ * @returns {Promise<number>} processed count
+ */
+export async function processNotificationEmailQueueOnce(limit = 15) {
+  const { rows } = await pool.query(
+    `SELECT nd.id AS delivery_id, nd.notification_id, n.user_id, n.port_id, n.event_key, n.payload,
+            u.email AS user_email, u.username
+     FROM notification_deliveries nd
+     JOIN notifications n ON n.id = nd.notification_id
+     JOIN users u ON u.id = n.user_id AND u.deleted_at IS NULL
+     WHERE nd.channel = 'email' AND nd.status = 'queued'
+     ORDER BY nd.id ASC
+     LIMIT $1`,
+    [limit]
+  );
+
+  let processed = 0;
+  const smtp = getSmtpTransport();
+
+  for (const row of rows) {
+    const payload = row.payload && typeof row.payload === 'object' ? row.payload : {};
+    const strVars = Object.fromEntries(
+      Object.entries(payload).map(([k, v]) => [k, v == null ? '' : String(v)])
+    );
+    const emailTpl = await loadNotificationTemplate(pool, row.event_key, 'email');
+    if (!emailTpl) {
+      await pool.query(
+        `UPDATE notification_deliveries SET status = 'failed', error_text = $2, updated_at = NOW() WHERE id = $1`,
+        [row.delivery_id, 'No email template']
+      );
+      processed += 1;
+      continue;
+    }
+    const subject = renderTemplate(emailTpl.title_template, strVars);
+    const text = renderTemplate(emailTpl.body_template, strVars);
+    const to = row.user_email;
+
+    if (!smtp) {
+      await pool.query(
+        `UPDATE notification_deliveries
+         SET status = 'skipped', error_text = $2, updated_at = NOW()
+         WHERE id = $1`,
+        [row.delivery_id, 'SMTP not configured (set SMTP_HOST, etc.)']
+      );
+      processed += 1;
+      continue;
+    }
+
+    if (!to || !String(to).trim()) {
+      await pool.query(
+        `UPDATE notification_deliveries SET status = 'skipped', error_text = $2, updated_at = NOW() WHERE id = $1`,
+        [row.delivery_id, 'User has no email address']
+      );
+      processed += 1;
+      continue;
+    }
+
+    try {
+      const info = await smtp.sendMail({
+        from: fromAddress(),
+        to: String(to).trim(),
+        subject,
+        text,
+      });
+      await pool.query(
+        `UPDATE notification_deliveries
+         SET status = 'sent', provider_message_id = $2, updated_at = NOW()
+         WHERE id = $1`,
+        [row.delivery_id, info?.messageId ?? null]
+      );
+      processed += 1;
+
+      const echoTpl = await loadNotificationTemplate(pool, 'notification.email_echo', 'in_app');
+      if (echoTpl) {
+        const detail =
+          row.event_key === 'shipment_plan.submitted'
+            ? `We emailed you about shipment plan ${strVars.planReference || ''}. Check your inbox.`.trim()
+            : row.event_key === 'operation.signoff_requested'
+              ? `We emailed you about clearance / sign-off for ${strVars.vesselName || 'a vessel'}. Check your inbox.`.trim()
+              : 'A notification email was sent. Check your inbox.';
+        const echoTitle = renderTemplate(echoTpl.title_template, { detail });
+        const echoBody = renderTemplate(echoTpl.body_template, { detail });
+        const echoCorrelation = `email_echo:${row.delivery_id}`;
+        await insertInAppNotificationForUser(pool, {
+          userId: row.user_id,
+          portId: row.port_id,
+          eventKey: 'notification.email_echo',
+          correlationId: echoCorrelation,
+          title: echoTitle,
+          body: echoBody,
+          kind: 'email_sent',
+          payload: { detail, parentEventKey: row.event_key },
+        });
+      }
+    } catch (err) {
+      const msg = err?.message || String(err);
+      await pool.query(
+        `UPDATE notification_deliveries SET status = 'failed', error_text = $2, updated_at = NOW() WHERE id = $1`,
+        [row.delivery_id, msg.slice(0, 2000)]
+      );
+      processed += 1;
+    }
+  }
+
+  return processed;
+}
+
+let intervalId = null;
+
+export function startNotificationEmailWorker() {
+  const intervalMs = Math.max(5000, parseInt(process.env.NOTIFICATION_EMAIL_POLL_MS || '20000', 10) || 20000);
+  if (intervalId) return;
+  intervalId = setInterval(() => {
+    processNotificationEmailQueueOnce(20).catch((err) => {
+      console.error('[notifications] email worker', err?.message || err);
+    });
+  }, intervalMs);
+  intervalId.unref?.();
+}

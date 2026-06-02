@@ -15,6 +15,7 @@ import {
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/admin.css'
+import { MAX_ROLE_DESCRIPTION_CHARS, MAX_ROLE_NAME_CHARS } from '../constants/inputLimits'
 
 function Toast({ message, variant = 'success', onDismiss, stacked = false }) {
   if (!message) return null
@@ -95,8 +96,8 @@ function LoadingOperationSignoffApproveSubrow({ perm, onToggleApprove }) {
   )
 }
 
-/** Inline under Shipping Instruction only: internal Loading SI sign-off. */
-function ShippingInstructionApproveSubrow({ perm, onToggleApprove }) {
+/** Inline under At-Berth Executions: Jetty Live CCTV from Allocation schematic. */
+function AtBerthJettyLiveSubrow({ perm, onToggleApprove }) {
   return (
     <tr className="admin-permission-table__si-subrow">
       <td colSpan={4}>
@@ -108,13 +109,42 @@ function ShippingInstructionApproveSubrow({ perm, onToggleApprove }) {
             type="checkbox"
             checked={!!perm.approve}
             onChange={(e) => onToggleApprove(e.target.checked)}
-            aria-label="Approve internal Shipping Instruction (Loading sign-off)"
+            aria-label="View Jetty Live stream (CCTV from Allocation schematic)"
           />
           <span className="admin-permission-table__si-approve-text">
-            <strong>Approve internal SI</strong>
+            <strong>View Jetty Live stream</strong>
             <span className="admin-permission-table__si-approve-hint">
               {' '}
-              — allows completing the Loading SI approval sign-off (separate from View/Edit/Delete above).
+              — opens live CCTV from the Allocation & Berthing jetty schematic. Separate from View/Edit/Delete above.
+            </span>
+          </span>
+        </label>
+      </td>
+    </tr>
+  )
+}
+
+/** Inline under Shipment Plan only: plan-level approve / reject (vessel call). */
+function ShipmentPlanApproveSubrow({ perm, onToggleApprove }) {
+  return (
+    <tr className="admin-permission-table__si-subrow">
+      <td colSpan={4}>
+        <label className="admin-permission-table__si-approve-label">
+          <span className="admin-permission-table__si-subindent" aria-hidden>
+            ↳
+          </span>
+          <input
+            type="checkbox"
+            checked={!!perm.approve}
+            onChange={(e) => onToggleApprove(e.target.checked)}
+            aria-label="Approve or reject submitted shipment plans (vessel call)"
+          />
+          <span className="admin-permission-table__si-approve-text">
+            <strong>Approve shipment plan</strong>
+            <span className="admin-permission-table__si-approve-hint">
+              {' '}
+              — allows approving or rejecting a submitted shipment plan (one decision per vessel call). Separate from
+              View/Edit/Delete above.
             </span>
           </span>
         </label>
@@ -519,6 +549,7 @@ export default function AdminRoles() {
               className="modal__input"
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
+              maxLength={MAX_ROLE_NAME_CHARS}
               placeholder="e.g. Allocator"
             />
           </div>
@@ -529,6 +560,7 @@ export default function AdminRoles() {
               className="modal__input modal__textarea"
               value={formDescription}
               onChange={(e) => setFormDescription(e.target.value)}
+              maxLength={MAX_ROLE_DESCRIPTION_CHARS}
               placeholder="Brief description"
               rows={2}
             />
@@ -538,8 +570,9 @@ export default function AdminRoles() {
         <section className="card admin-role-form__pages">
           <h2 className="card__title admin-role-form__section-title">Pages</h2>
           <p className="text-steel" style={{ marginBottom: 'var(--spacing-3)' }}>
-            Which pages this role can view, edit, or delete. For <strong>Shipping Instruction</strong> only, an extra
-            option appears below that row to allow <strong>internal SI approval</strong> sign-off.
+            Which pages this role can view, edit, or delete. For <strong>Shipping Instruction</strong>, an extra option
+            appears below that row for <strong>internal SI approval</strong> sign-off. For <strong>Shipment Plan</strong>,
+            an extra option appears for <strong>plan-level approval</strong> (approve or reject a submitted vessel call).
           </p>
           <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 'var(--spacing-3)' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 260 }}>
@@ -666,10 +699,16 @@ export default function AdminRoles() {
                                   onToggleApprove={(approve) => updatePerm('page', 'loading', { ...perm, approve })}
                                 />
                               )}
-                              {p.id === 'shipping-instruction' && (
-                                <ShippingInstructionApproveSubrow
+                              {p.id === 'shipment-plan' && (
+                                <ShipmentPlanApproveSubrow
                                   perm={perm}
-                                  onToggleApprove={(approve) => updatePerm('page', 'shipping-instruction', { ...perm, approve })}
+                                  onToggleApprove={(approve) => updatePerm('page', 'shipment-plan', { ...perm, approve })}
+                                />
+                              )}
+                              {p.id === 'at-berth' && (
+                                <AtBerthJettyLiveSubrow
+                                  perm={perm}
+                                  onToggleApprove={(approve) => updatePerm('page', 'at-berth', { ...perm, approve })}
                                 />
                               )}
                             </Fragment>
@@ -854,14 +893,27 @@ export default function AdminRoles() {
                                                 </td>
                                               </tr>
                                             )}
-                                            {row.key === 'shipping-instruction' && (
+                                            {row.key === 'shipment-plan' && (
                                               <tr className="admin-permission-table__si-subrow admin-permission-table__si-subrow--readonly">
                                                 <td colSpan={4}>
                                                   <span className="admin-permission-table__si-subindent" aria-hidden>
                                                     ↳
                                                   </span>
                                                   <span className="text-steel">
-                                                    Approve internal SI:{' '}
+                                                    Approve shipment plan:{' '}
+                                                    <strong>{row.approve ? 'Yes' : 'No'}</strong>
+                                                  </span>
+                                                </td>
+                                              </tr>
+                                            )}
+                                            {row.key === 'at-berth' && (
+                                              <tr className="admin-permission-table__si-subrow admin-permission-table__si-subrow--readonly">
+                                                <td colSpan={4}>
+                                                  <span className="admin-permission-table__si-subindent" aria-hidden>
+                                                    ↳
+                                                  </span>
+                                                  <span className="text-steel">
+                                                    View Jetty Live stream:{' '}
                                                     <strong>{row.approve ? 'Yes' : 'No'}</strong>
                                                   </span>
                                                 </td>

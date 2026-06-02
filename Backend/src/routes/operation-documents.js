@@ -4,23 +4,37 @@
  */
 import express from 'express';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import multer from 'multer';
 import { pool } from '../db.js';
+import { assertOperationInSelectedPort } from '../lib/operation-access.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { UPLOAD_ROOT } from '../paths.js';
 import { validateMulterFileList } from '../lib/upload-mime.js';
+import { sendStoredFileAttachment, sendStoredFileInline } from '../lib/send-stored-file.js';
 
 const router = express.Router();
 router.use(optionalAuth);
 
+function toDownloadUrl(id) {
+  return `/api/v1/operation-documents/${id}/download`;
+}
+
+function resolveStoredPath(storedPath) {
+  const full = path.resolve(UPLOAD_ROOT, String(storedPath || ''));
+  const root = path.resolve(UPLOAD_ROOT);
+  if (!full.startsWith(root)) return null;
+  return full;
+}
+
 /** Activity log page keys for uploads (NOR appears in both Allocation and Pre-Checking). */
 function pageKeysForOperationDocKind(kind) {
   const k = String(kind || '').toUpperCase();
-  if (k === 'NOR') return ['allocation', 'loading'];
-  if (k === 'BERTHING') return ['allocation'];
+  if (k === 'NOR') return ['allocation-plan', 'loading'];
+  if (k === 'BERTHING') return ['allocation-plan'];
   return ['loading'];
 }
 
@@ -71,6 +85,7 @@ router.delete('/:id', async (req, res) => {
   if (r.rows.length === 0) return res.status(404).json({ error: 'Document not found' });
 
   const row = r.rows[0];
+  await assertOperationInSelectedPort(row.operation_id, req.selectedPortId);
   await pool.query(`UPDATE operation_documents SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`, [id]);
 
   // Best-effort delete from disk (do not fail request if missing).
@@ -101,11 +116,48 @@ router.delete('/:id', async (req, res) => {
   res.status(204).send();
 });
 
+async function loadOperationDocumentRow(id) {
+  const r = await pool.query(
+    `SELECT id, operation_id, original_name, stored_path
+     FROM operation_documents
+     WHERE id = $1 AND deleted_at IS NULL`,
+    [id]
+  );
+  return r.rows[0] || null;
+}
+
+router.get('/:id/view', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  const row = await loadOperationDocumentRow(id);
+  if (!row) return res.status(404).json({ error: 'Document not found' });
+  await assertOperationInSelectedPort(row.operation_id, req.selectedPortId);
+  const full = resolveStoredPath(row.stored_path);
+  if (!full || !fsSync.existsSync(full)) {
+    return res.status(404).json({ error: 'Document file not found' });
+  }
+  return sendStoredFileInline(res, full, row.original_name, `operation-document-${id}`);
+});
+
+router.get('/:id/download', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  const row = await loadOperationDocumentRow(id);
+  if (!row) return res.status(404).json({ error: 'Document not found' });
+  await assertOperationInSelectedPort(row.operation_id, req.selectedPortId);
+  const full = resolveStoredPath(row.stored_path);
+  if (!full || !fsSync.existsSync(full)) {
+    return res.status(404).json({ error: 'Document file not found' });
+  }
+  return sendStoredFileAttachment(res, full, row.original_name, `operation-document-${id}`);
+});
+
 router.get('/operations/:operationId/:kind', async (req, res) => {
   const operationId = parseInt(req.params.operationId, 10);
   const kind = String(req.params.kind || '').trim().toUpperCase();
   if (Number.isNaN(operationId)) return res.status(400).json({ error: 'Invalid operationId' });
   if (!kind) return res.status(400).json({ error: 'kind required' });
+  await assertOperationInSelectedPort(operationId, req.selectedPortId);
 
   const r = await pool.query(
     `SELECT id, operation_id, kind, original_name, stored_name, stored_path, mime_type, size_bytes, created_at
@@ -121,7 +173,7 @@ router.get('/operations/:operationId/:kind', async (req, res) => {
       operationId: d.operation_id,
       kind: d.kind,
       name: d.original_name,
-      url: `/uploads/${d.stored_path.replace(/\\/g, '/')}`,
+      url: toDownloadUrl(d.id),
       mimeType: d.mime_type,
       sizeBytes: d.size_bytes != null ? Number(d.size_bytes) : null,
       createdAt: d.created_at,
@@ -134,9 +186,7 @@ router.post('/operations/:operationId/:kind', upload.array('files', 10), async (
   const kind = String(req.params.kind || '').trim().toUpperCase();
   if (Number.isNaN(operationId)) return res.status(400).json({ error: 'Invalid operationId' });
   if (!kind) return res.status(400).json({ error: 'kind required' });
-
-  const op = await pool.query(`SELECT 1 FROM operations WHERE id = $1 AND deleted_at IS NULL`, [operationId]);
-  if (op.rows.length === 0) return res.status(404).json({ error: 'Operation not found' });
+  await assertOperationInSelectedPort(operationId, req.selectedPortId);
 
   const files = Array.isArray(req.files) ? req.files : [];
   if (files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
@@ -166,7 +216,7 @@ router.post('/operations/:operationId/:kind', upload.array('files', 10), async (
       operationId,
       kind,
       name: original,
-      url: `/uploads/${rel.replace(/\\/g, '/')}`,
+      url: toDownloadUrl(r.rows[0].id),
       createdAt: r.rows[0].created_at,
     });
   }

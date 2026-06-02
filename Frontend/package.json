@@ -7,9 +7,13 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:e2e": "playwright test"
+    "test": "node --test src/utils/dashboardPipelinePartition.test.js",
+    "test:e2e": "playwright test",
+    "test:e2e:notifications": "playwright test e2e/notifications-bell.spec.js",
+    "rebuild": "node scripts/rebuild.mjs"
   },
   "dependencies": {
+    "luxon": "^3.5.0",
     "exceljs": "^4.4.0",
     "i18next": "^26.0.5",
     "pdf-parse": "^2.4.5",

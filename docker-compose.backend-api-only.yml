@@ -1,0 +1,46 @@
+# Backend API only (remote PostgreSQL). Canonical: Backend/infra/docker-compose.backend-api-only.yml
+#
+#   docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml up -d
+#
+# Requires in Backend/.env: DB_HOST, DB_PORT, POSTGRES_*, JWT_SECRET, CORS_ORIGIN
+# See Docs/Guide/THREE-SERVER-DB-CUTOVER-RUNBOOK.md
+
+services:
+  jps-api:
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile
+    container_name: jps-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-jps_user}:${POSTGRES_PASSWORD}@${DB_HOST:?Set DB_HOST in Backend/.env}:${DB_PORT:-5432}/${POSTGRES_DB:-jps_db}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      CORS_ORIGIN: ${CORS_ORIGIN:?Set CORS_ORIGIN to the APP origin users use in the browser}
+      COOKIE_SECURE: ${COOKIE_SECURE:-}
+      SSO_TOKEN_SECRET: ${SSO_TOKEN_SECRET:-}
+      JPS_PUBLIC_ORIGIN: ${JPS_PUBLIC_ORIGIN:-http://localhost:5173}
+      HUB_SSO_JIT_PROVISION: ${HUB_SSO_JIT_PROVISION:-}
+      HUB_SSO_JIT_ROLE_NAME: ${HUB_SSO_JIT_ROLE_NAME:-}
+      HUB_SSO_JIT_ASSIGN_PORTS: ${HUB_SSO_JIT_ASSIGN_PORTS:-}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_DISCOVERY_URL: ${OIDC_DISCOVERY_URL:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
+      OIDC_SCOPES: ${OIDC_SCOPES:-openid profile email}
+      OIDC_JIT_PROVISION: ${OIDC_JIT_PROVISION:-}
+      OIDC_V2_SILENT_LINK: ${OIDC_V2_SILENT_LINK:-false}
+      OIDC_EMAIL_DOMAIN_ALLOWLIST: ${OIDC_EMAIL_DOMAIN_ALLOWLIST:-}
+      OIDC_ALLOW_QUERY_CODE_VERIFIER: ${OIDC_ALLOW_QUERY_CODE_VERIFIER:-false}
+      SSO_OIDC_ENABLED: ${SSO_OIDC_ENABLED:-false}
+      SSO_LEGACY_BRIDGE_ENABLED: ${SSO_LEGACY_BRIDGE_ENABLED:-true}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/var/jps/uploads}
+    volumes:
+      - jps_uploads:/var/jps/uploads
+    command: ["npm", "run", "start"]
+
+volumes:
+  jps_uploads:

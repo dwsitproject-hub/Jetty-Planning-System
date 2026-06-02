@@ -58,8 +58,8 @@ export default function SIView() {
       <div className="si-view-page">
         <div className="card">
           <p className="text-steel">Shipping Instruction not found for ID: {siId || '—'}.</p>
-          <button type="button" className="btn btn--primary" onClick={() => navigate('/shipping-instruction')}>
-            Back to Shipping Instructions
+          <button type="button" className="btn btn--primary" onClick={() => navigate('/shipment-plans')}>
+            Back to Shipment plans
           </button>
         </div>
       </div>
@@ -74,8 +74,8 @@ export default function SIView() {
           <p className="text-steel">
             This Shipping Instruction is not available for document view. The printable form is available after <strong>approval sign-off</strong> (status Approved — for Unloading this shows as <strong>Confirmed</strong> in the list).
           </p>
-          <button type="button" className="btn btn--primary" onClick={() => navigate('/shipping-instruction')}>
-            Back to Shipping Instructions
+          <button type="button" className="btn btn--primary" onClick={() => navigate('/shipment-plans')}>
+            Back to Shipment plans
           </button>
         </div>
       </div>
@@ -89,8 +89,8 @@ export default function SIView() {
           <button
             type="button"
             className="btn btn--secondary btn--small"
-            onClick={() => navigate('/shipping-instruction')}
-            aria-label="Back to Shipping Instructions"
+            onClick={() => navigate('/shipment-plans')}
+            aria-label="Back to Shipment plans"
           >
             ← Back
           </button>

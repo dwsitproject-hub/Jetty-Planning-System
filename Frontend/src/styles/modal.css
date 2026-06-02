@@ -33,6 +33,20 @@
   max-width: 720px;
 }
 
+/* Shipment plan create/edit + embedded SI fields: wide breakdown table needs room and horizontal scroll contained inside the form, not on the modal chrome. */
+.modal--shipment-plan-form {
+  max-width: min(96vw, 1080px);
+  width: 100%;
+  max-height: 92vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.modal--shipment-plan-form .shipping-instruction-form {
+  min-width: 0;
+}
+
 .modal__title {
   font-size: var(--font-size-h3);
   font-weight: var(--font-weight-semibold);
@@ -94,4 +108,117 @@
   justify-content: flex-end;
   gap: var(--spacing-2);
   margin-top: var(--spacing-4);
+}
+
+.modal--password {
+  max-width: 440px;
+  padding: 0;
+}
+
+.modal--password .modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  padding: var(--spacing-4) var(--spacing-4) 0;
+}
+
+.modal--password form {
+  padding: 0 var(--spacing-4) var(--spacing-4);
+}
+
+.modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+}
+
+.modal__title--flush {
+  margin: 0;
+}
+
+.modal__close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-steel, #6b7280);
+  cursor: pointer;
+}
+
+.modal__close:hover {
+  background: var(--color-bg-subtle, #f4f6f8);
+  color: var(--color-text-charcoal);
+}
+
+.modal__divider {
+  margin: var(--spacing-3) 0 0;
+  border: none;
+  border-top: 1px solid var(--color-border-light, #e5e9ef);
+}
+
+.modal--password .modal__divider {
+  margin-left: var(--spacing-4);
+  margin-right: var(--spacing-4);
+}
+
+.modal__alert {
+  margin: var(--spacing-3) 0 0;
+  padding: var(--spacing-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-small);
+}
+
+.modal__alert--error {
+  background: rgba(196, 30, 58, 0.08);
+  color: var(--color-destructive, #c41e3a);
+  border: 1px solid rgba(196, 30, 58, 0.2);
+}
+
+.modal__alert--success {
+  background: rgba(45, 122, 62, 0.1);
+  color: #1a5f2a;
+  border: 1px solid rgba(45, 122, 62, 0.25);
+}
+
+.password-field__wrap {
+  position: relative;
+}
+
+.password-field__input {
+  padding-right: 2.5rem;
+}
+
+.password-field__toggle {
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-steel, #6b7280);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.password-field__toggle:hover {
+  color: var(--color-text-charcoal);
+}
+
+.password-field__toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

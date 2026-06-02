@@ -24,5 +24,29 @@
     "label": "Bahasa",
     "enShort": "EN",
     "idShort": "ID"
+  },
+  "changePassword": {
+    "menuItem": "Ubah Kata Sandi",
+    "title": "Ubah Kata Sandi",
+    "currentLabel": "Kata Sandi Saat Ini",
+    "currentPlaceholder": "Masukkan kata sandi saat ini",
+    "newLabel": "Kata Sandi Baru",
+    "newPlaceholder": "Masukkan kata sandi baru",
+    "confirmLabel": "Konfirmasi Kata Sandi",
+    "confirmPlaceholder": "Ulangi kata sandi baru",
+    "cancel": "Batal",
+    "save": "Simpan Kata Sandi",
+    "saving": "Menyimpan…",
+    "success": "Kata sandi Anda telah diperbarui.",
+    "showPassword": "Tampilkan kata sandi",
+    "hidePassword": "Sembunyikan kata sandi",
+    "errors": {
+      "currentRequired": "Kata sandi saat ini wajib diisi.",
+      "newRequired": "Kata sandi baru wajib diisi.",
+      "newMinLength": "Kata sandi baru minimal 6 karakter.",
+      "confirmMismatch": "Kata sandi baru dan konfirmasi tidak cocok.",
+      "sameAsCurrent": "Kata sandi baru harus berbeda dari kata sandi saat ini.",
+      "generic": "Gagal mengubah kata sandi. Silakan coba lagi."
+    }
   }
 }

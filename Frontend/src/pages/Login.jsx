@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { login } from '../api/auth'
+import { getOidcStartUrl, login } from '../api/auth'
 import { fetchMyPorts } from '../api/usersApi'
 import { getSelectedPortId } from '../api/client'
 import { useAuth } from '../context/AuthContext'
@@ -8,6 +8,7 @@ import { useRbac } from '../context/RbacContext'
 import { ApiError } from '../api/client'
 import GuestBrandedShell from '../components/GuestBrandedShell'
 import { useTranslation } from 'react-i18next'
+import { MAX_LOGIN_PASSWORD_CHARS, MAX_LOGIN_USERNAME_CHARS } from '../constants/inputLimits'
 
 export default function Login() {
   const { t } = useTranslation('auth')
@@ -18,6 +19,15 @@ export default function Login() {
   const navigate = useNavigate()
   const { refreshMe } = useAuth()
   const { refresh: refreshRbac } = useRbac()
+
+  const handleSsoClick = () => {
+    const url = getOidcStartUrl()
+    try {
+      window.top.location.assign(url)
+    } catch {
+      window.location.assign(url)
+    }
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -62,6 +72,7 @@ export default function Login() {
           className="guest-branded__input"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
+          maxLength={MAX_LOGIN_USERNAME_CHARS}
           autoComplete="username"
           disabled={busy}
         />
@@ -74,6 +85,7 @@ export default function Login() {
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          maxLength={MAX_LOGIN_PASSWORD_CHARS}
           autoComplete="current-password"
           disabled={busy}
         />
@@ -81,6 +93,15 @@ export default function Login() {
           {busy ? t('signingIn') : t('signIn')}
         </button>
       </form>
+      <button
+        type="button"
+        className="btn guest-branded__submit"
+        style={{ marginTop: 8 }}
+        onClick={handleSsoClick}
+        disabled={busy}
+      >
+        Sign in with SSO
+      </button>
     </GuestBrandedShell>
   )
 }

@@ -6,9 +6,13 @@ import express from 'express';
 import { pool } from '../db.js';
 import { computeSlaHours } from '../lib/sla.js';
 import { assignJettyOperationCode } from '../lib/jetty-operation-code.js';
+import { canAccessOperationForSelectedPort } from '../lib/operation-access.js';
 import { writeActivityLog } from '../lib/activity-log.js';
+import { departShipmentPlanInTransaction } from '../lib/shipment-plan-depart.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { userHasPageApprove, userHasPageEdit } from '../middleware/permissions.js';
+import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
+import { enrichRowsWithCargoDisplay } from '../lib/siBreakdownDisplay.js';
 
 const router = express.Router();
 router.use(optionalAuth);
@@ -36,24 +40,56 @@ const SI_COMMODITY_TYPE = `COALESCE(
   'Liquid'
 )`;
 
-const OP_SELECT = `o.*, si.vessel_name, si.reference_number, ${SI_COMMODITY} AS commodity,
+/** Total cargo quantity on the linked shipping instruction (sum of all SI breakdown lines). */
+const SI_CARGO_TOTAL_QTY = `(SELECT SUM(b.qty::numeric) FROM public.shipping_instruction_breakdown b
+   WHERE b.shipping_instruction_id = si.id AND b.deleted_at IS NULL)`;
+/** Unit label from first SI breakdown line (for display; total qty is SUM). */
+const SI_PRIMARY_METRIC_CODE = `(SELECT m.code FROM public.shipping_instruction_breakdown b
+   LEFT JOIN public.metric m ON m.id = b.metric_id AND m.deleted_at IS NULL
+   WHERE b.shipping_instruction_id = si.id AND b.deleted_at IS NULL
+   ORDER BY b.line_order, b.id LIMIT 1)`;
+const SI_PRIMARY_METRIC_NAME = `(SELECT m.label FROM public.shipping_instruction_breakdown b
+   LEFT JOIN public.metric m ON m.id = b.metric_id AND m.deleted_at IS NULL
+   WHERE b.shipping_instruction_id = si.id AND b.deleted_at IS NULL
+   ORDER BY b.line_order, b.id LIMIT 1)`;
+
+const OP_SELECT = `o.*, si.shipment_plan_id, sp.vessel_name, si.reference_number, ${SI_COMMODITY} AS commodity,
             ${SI_COMMODITY_TYPE} AS commodity_type,
+            ${SI_CARGO_TOTAL_QTY} AS cargo_si_qty,
+            ${SI_PRIMARY_METRIC_CODE} AS cargo_si_metric_code,
+            ${SI_PRIMARY_METRIC_NAME} AS cargo_si_metric_name,
             j.name AS jetty_name, p.id AS port_id, p.name AS port_name`;
 
-function canAccessOperationForSelectedPort(opRow, selectedPortId) {
-  const selected = Number(selectedPortId);
-  const opPort = opRow?.port_id != null ? Number(opRow.port_id) : null;
-  if (!Number.isFinite(selected)) return false;
-  // Legacy rows may have null jetty/port before allocation; allow access.
-  if (opPort == null) return true;
-  return opPort === selected;
-}
+const PLAN_TIMELINE_SELECT = `
+     sp.jetty_id AS plan_jetty_id,
+     jplan.name AS plan_jetty_name,
+     sp.eta AS plan_eta,
+     sp.ta AS plan_ta,
+     sp.etb AS plan_etb,
+     sp.pob AS plan_pob,
+     sp.sob AS plan_sob,
+     sp.tb AS plan_tb,
+     sp.docking_start_time AS plan_docking_start_time,
+     sp.estimated_completion_time AS plan_estimated_completion_time,
+     sp.actual_completion_time AS plan_actual_completion_time,
+     sp.nor_tendered_at AS plan_nor_tendered_at,
+     sp.nor_accepted_at AS plan_nor_accepted_at,
+     sp.demurrage_liability_from_at AS plan_demurrage_liability_from_at,
+     sp.cast_off_at AS plan_cast_off_at,
+     sp.clearance_document_url AS plan_clearance_document_url,
+     sp.vessel_photo_url AS plan_vessel_photo_url,
+     sp.sailed_at AS plan_sailed_at,
+     sp.shifting_out AS plan_shifting_out,
+     sp.shifting_out_at AS plan_shifting_out_at`;
 
-async function loadOperationJoined(id) {
+export async function loadOperationJoined(id) {
   const r = await pool.query(
-    `SELECT ${OP_SELECT}, signoff_req_user.username AS signoff_requested_by_username
+    `SELECT ${OP_SELECT}, signoff_req_user.username AS signoff_requested_by_username,
+            ${PLAN_TIMELINE_SELECT}
      FROM operations o
      JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
+     LEFT JOIN shipment_plans sp ON sp.id = si.shipment_plan_id
+     LEFT JOIN jetties jplan ON jplan.id = sp.jetty_id AND jplan.deleted_at IS NULL
      LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
      LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
      LEFT JOIN users signoff_req_user ON signoff_req_user.id = o.signoff_requested_by AND signoff_req_user.deleted_at IS NULL
@@ -104,12 +140,72 @@ async function checkSignoffEligible(operationId, op) {
   return { ok: true };
 }
 
+/**
+ * When a shipment plan has multiple operations (SIs), sign-off must not be requested
+ * until every peer operation is at least as far as POST_OPS and passes the same
+ * completion/QC/qty gates (or is already in the sign-off pipeline / approved).
+ */
+async function checkPlanPeersReadyForSignoffRequest(requestedOpId, opRow, selectedPortId) {
+  const planId = opRow.shipment_plan_id != null ? Number(opRow.shipment_plan_id) : null;
+  if (!planId || Number.isNaN(planId)) return { ok: true };
+
+  const portId = Number(selectedPortId);
+  if (Number.isNaN(portId)) return { ok: true };
+
+  const r = await pool.query(
+    `SELECT o.id
+     FROM operations o
+     JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
+     LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
+     LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
+     WHERE si.shipment_plan_id = $1 AND o.deleted_at IS NULL AND o.id <> $2
+       AND COALESCE(o.port_id, p.id) = $3`,
+    [planId, requestedOpId, portId]
+  );
+  const peerIds = (r.rows || []).map((row) => Number(row.id)).filter((n) => !Number.isNaN(n));
+  for (const oid of peerIds) {
+    const peer = await loadOperationJoined(oid);
+    if (!peer) continue;
+    const st = String(peer.status || '');
+    if (st === 'SAILED') continue;
+    if (st === 'SIGNOFF_APPROVED' || st === 'SIGNOFF_REQUESTED') continue;
+    if (st !== 'POST_OPS') {
+      const label = peer.reference_number || `Operation #${oid}`;
+      return {
+        ok: false,
+        reason: `All instructions on this vessel call must finish through Post-Checking before sign-off (${label} is still ${st}).`,
+      };
+    }
+    if ((Number(peer.completion_percent) || 0) < 100) {
+      await pool.query(
+        `UPDATE operations
+         SET completion_percent = 100,
+             updated_at = NOW()
+         WHERE id = $1 AND deleted_at IS NULL`,
+        [oid]
+      );
+      peer.completion_percent = 100;
+    }
+    const gate = await checkSignoffEligible(oid, peer);
+    if (!gate.ok) {
+      const label = peer.reference_number || `Operation #${oid}`;
+      return {
+        ok: false,
+        reason: `All instructions on this vessel call must be ready for sign-off (${label}: ${gate.reason})`,
+      };
+    }
+  }
+  return { ok: true };
+}
+
 router.get('/at-berth', async (req, res) => {
   const selectedPortId = Number(req.selectedPortId);
   const result = await pool.query(
-    `SELECT ${OP_SELECT}
+    `SELECT ${OP_SELECT}, ${PLAN_TIMELINE_SELECT}
      FROM operations o
      JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
+     LEFT JOIN shipment_plans sp ON sp.id = si.shipment_plan_id
+     LEFT JOIN jetties jplan ON jplan.id = sp.jetty_id AND jplan.deleted_at IS NULL
      LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
      LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
      WHERE o.deleted_at IS NULL
@@ -140,7 +236,10 @@ router.post('/:id/shifting-out', async (req, res) => {
   if (typeof shiftingOut !== 'boolean') {
     return res.status(400).json({ error: 'shiftingOut must be boolean' });
   }
-  const activityLogPage = activityLogPageRaw === 'allocation' ? 'allocation' : 'at-berth';
+  const activityLogPage =
+    activityLogPageRaw === 'allocation-plan' || activityLogPageRaw === 'allocation'
+      ? 'allocation-plan'
+      : 'at-berth';
   let remarkUpdate = null;
   if (shiftingOut) {
     if (remarkBody == null || typeof remarkBody !== 'string') {
@@ -211,6 +310,21 @@ router.post('/:id/shifting-out', async (req, res) => {
       await client.query(
         `UPDATE operations SET remark = $1::text, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
         [remarkBind, id]
+      );
+    }
+    if (op.shipment_plan_id != null) {
+      await client.query(
+        `UPDATE shipment_plans SET
+           shifting_out = $1,
+           shifting_out_at = CASE
+             WHEN $1 = true AND shifting_out_at IS NULL THEN NOW()
+             WHEN $1 = false THEN NULL
+             ELSE shifting_out_at
+           END,
+           remark = CASE WHEN $2::text IS NOT NULL THEN $2::text ELSE remark END,
+           updated_at = NOW()
+         WHERE id = $3 AND deleted_at IS NULL`,
+        [shiftingOut, remarkBind, op.shipment_plan_id]
       );
     }
 
@@ -298,9 +412,11 @@ router.get('/', async (req, res) => {
   const { port_id, jetty_id, status, purpose } = req.query;
   const selectedPortId = Number(req.selectedPortId);
   let query = `
-    SELECT ${OP_SELECT}
+    SELECT ${OP_SELECT}, ${PLAN_TIMELINE_SELECT}
     FROM operations o
     JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
+    LEFT JOIN shipment_plans sp ON sp.id = si.shipment_plan_id
+    LEFT JOIN jetties jplan ON jplan.id = sp.jetty_id AND jplan.deleted_at IS NULL
     LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
     LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
     WHERE o.deleted_at IS NULL`;
@@ -325,9 +441,26 @@ router.get('/', async (req, res) => {
   if (String(req.query.signoff_requested || '') === '1') {
     query += ` AND o.signoff_requested_at IS NOT NULL AND o.status = 'SIGNOFF_REQUESTED'`;
   }
+  const { start_date: startDate, end_date: endDate } = req.query;
+  if (startDate && typeof startDate === 'string' && startDate.trim()) {
+    const d = new Date(startDate.trim());
+    if (!Number.isNaN(d.getTime())) {
+      query += ` AND COALESCE(sp.eta, o.created_at) >= $${i++}::timestamptz`;
+      params.push(d.toISOString());
+    }
+  }
+  if (endDate && typeof endDate === 'string' && endDate.trim()) {
+    const d = new Date(endDate.trim());
+    if (!Number.isNaN(d.getTime())) {
+      d.setDate(d.getDate() + 1);
+      query += ` AND COALESCE(sp.eta, o.created_at) < $${i++}::timestamptz`;
+      params.push(d.toISOString());
+    }
+  }
   query += ` ORDER BY o.created_at DESC`;
   const result = await pool.query(query, params);
-  res.json(result.rows.map(toOp));
+  const enriched = await enrichRowsWithCargoDisplay(pool, result.rows);
+  res.json(enriched.map(toOp));
 });
 
 /** Approvers: operations awaiting sign-off approval (SIGNOFF_REQUESTED). */
@@ -337,9 +470,11 @@ router.get('/pending-signoff-requests', async (req, res) => {
   }
   const selectedPortId = Number(req.selectedPortId);
   const result = await pool.query(
-    `SELECT ${OP_SELECT}
+    `SELECT ${OP_SELECT}, ${PLAN_TIMELINE_SELECT}
      FROM operations o
      JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
+     LEFT JOIN shipment_plans sp ON sp.id = si.shipment_plan_id
+     LEFT JOIN jetties jplan ON jplan.id = sp.jetty_id AND jplan.deleted_at IS NULL
      LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
      LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
      WHERE o.deleted_at IS NULL
@@ -349,7 +484,8 @@ router.get('/pending-signoff-requests', async (req, res) => {
      ORDER BY o.signoff_requested_at ASC NULLS LAST`,
     [selectedPortId]
   );
-  res.json(result.rows.map(toOp));
+  const enriched = await enrichRowsWithCargoDisplay(pool, result.rows);
+  res.json(enriched.map(toOp));
 });
 
 router.get('/:id', async (req, res) => {
@@ -375,11 +511,21 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'Invalid shipping_instruction_id or jetty_id' });
   }
   const siRes = await pool.query(
-    'SELECT purpose FROM shipping_instructions WHERE id = $1 AND deleted_at IS NULL',
+    `SELECT spp.code AS purpose
+     FROM shipping_instructions si
+     LEFT JOIN shipment_plans sp ON sp.id = si.shipment_plan_id AND sp.deleted_at IS NULL
+     LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
+     WHERE si.id = $1 AND si.deleted_at IS NULL`,
     [siId]
   );
   if (siRes.rows.length === 0) {
     return res.status(404).json({ error: 'Shipping instruction not found' });
+  }
+  const purpose = siRes.rows[0].purpose;
+  if (!purpose) {
+    return res.status(400).json({
+      error: 'Shipping instruction must be linked to a shipment plan with a purpose before creating an operation',
+    });
   }
   if (jId != null) {
     const jettyOk = await pool.query(
@@ -390,7 +536,6 @@ router.post('/', async (req, res) => {
       return res.status(404).json({ error: 'Jetty not found for selected port' });
     }
   }
-  const purpose = siRes.rows[0].purpose;
   const client = await pool.connect();
   let newId;
   try {
@@ -412,7 +557,7 @@ router.post('/', async (req, res) => {
   }
   const row = await loadOperationJoined(newId);
   writeActivityLog({
-    pageKey: 'allocation',
+    pageKey: 'allocation-plan',
     action: 'add',
     entityType: 'Operation',
     entityId: String(newId),
@@ -612,6 +757,13 @@ router.put('/:id/estimated-completion', async (req, res) => {
     [dt, id],
   );
   if (result.rowCount === 0) return res.status(404).json({ error: 'Operation not found' });
+
+  if (before.shipment_plan_id != null) {
+    await pool.query(
+      `UPDATE shipment_plans SET estimated_completion_time = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
+      [dt, before.shipment_plan_id]
+    );
+  }
 
   const row = await loadOperationJoined(id);
   writeActivityLog({
@@ -828,6 +980,8 @@ router.post('/:id/signoff-request', async (req, res) => {
       error: `Sign-off request requires status POST_OPS (current: ${opRow.status})`,
     });
   }
+  const peersGate = await checkPlanPeersReadyForSignoffRequest(id, opRow, req.selectedPortId);
+  if (!peersGate.ok) return res.status(400).json({ error: peersGate.reason });
   // Legacy/seed data may still have completion_percent < 100 even after POST_OPS.
   // Normalize here so eligible post-check-complete operations are not blocked.
   if ((Number(opRow.completion_percent) || 0) < 100 && opRow.status === 'POST_OPS') {
@@ -874,6 +1028,24 @@ router.post('/:id/signoff-request', async (req, res) => {
     meta: { operationId: id },
     actorUserId: req.userId ?? null,
   }).catch(() => {});
+  const appBase = getPublicAppBaseUrl();
+  const jettyCode =
+    row?.jetty_operation_code != null && String(row.jetty_operation_code).trim()
+      ? String(row.jetty_operation_code).trim()
+      : `OP-${id}`;
+  triggerNotificationDeferred(pool, {
+    eventKey: 'operation.signoff_requested',
+    correlationId: `operation.signoff_requested:${id}`,
+    portId: Number(row.port_id) || Number(req.selectedPortId),
+    excludeUserId: req.userId ?? null,
+    payloadVars: {
+      vesselName: row?.vessel_name || '',
+      jettyOperationCode: jettyCode,
+      operationId: String(id),
+      primaryHref: `${appBase}/verification?filter=pending`,
+      actionUrl: `${appBase}/verification?filter=pending`,
+    },
+  });
   res.json(toOp(row));
 });
 
@@ -928,7 +1100,7 @@ router.post('/:id/signoff', async (req, res) => {
   res.json(toOp(signedRow));
 });
 
-/** Record cast-off and mark vessel SAILED (after SIGNOFF_APPROVED). */
+/** Record cast-off and mark vessel SAILED (after SIGNOFF_APPROVED). Sails all operations on the same Shipment Plan. */
 router.post('/:id/depart', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
@@ -957,17 +1129,50 @@ router.post('/:id/depart', async (req, res) => {
       : null;
   const photoUrl =
     vessel_photo_url && typeof vessel_photo_url === 'string' ? vessel_photo_url.trim() : null;
-  await pool.query(
-    `UPDATE operations SET
-       status = 'SAILED',
-       cast_off_at = $1,
-       clearance_document_url = $2,
-       vessel_photo_url = $3,
-       sailed_at = NOW(),
-       updated_at = NOW()
-     WHERE id = $4 AND deleted_at IS NULL`,
-    [cast, clearanceUrl, photoUrl, id]
-  );
+
+  const planId = opRow.shipment_plan_id != null ? Number(opRow.shipment_plan_id) : null;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const selectedPortId = Number(req.selectedPortId);
+    if (planId != null && !Number.isNaN(planId)) {
+      const dep = await departShipmentPlanInTransaction(client, {
+        planId,
+        castOffAt: cast,
+        clearanceDocumentUrl: clearanceUrl,
+        vesselPhotoUrl: photoUrl,
+        portId: selectedPortId,
+      });
+      if (!dep.ok) {
+        await client.query('ROLLBACK');
+        return res.status(dep.status).json({ error: dep.error });
+      }
+      if (dep.toSailIds.length === 0) {
+        await client.query('COMMIT');
+        const sailRow = await loadOperationJoined(id);
+        return res.json(toOp(sailRow));
+      }
+    } else {
+      await client.query(
+        `UPDATE operations SET
+           status = 'SAILED',
+           cast_off_at = $1,
+           clearance_document_url = $2,
+           vessel_photo_url = $3,
+           sailed_at = NOW(),
+           updated_at = NOW()
+         WHERE id = $4 AND deleted_at IS NULL AND status = 'SIGNOFF_APPROVED'`,
+        [cast, clearanceUrl, photoUrl, id]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+
   const sailRow = await loadOperationJoined(id);
   writeActivityLog({
     pageKey: 'verification',
@@ -980,7 +1185,10 @@ router.post('/:id/depart', async (req, res) => {
       { field: 'Status', from: opRow?.status ?? null, to: 'SAILED' },
       { field: 'Cast Off', from: opRow?.cast_off_at ?? null, to: sailRow?.cast_off_at ?? null },
     ],
-    meta: { operationId: id },
+    meta: {
+      operationId: id,
+      shipmentPlanId: planId != null && !Number.isNaN(planId) ? planId : undefined,
+    },
     actorUserId: req.userId ?? null,
   }).catch(() => {});
   res.json(toOp(sailRow));
@@ -1056,46 +1264,71 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-function toOp(row) {
+/** Prefer `shipment_plans` timestamps when the SI is linked to a plan (multi-SI vessel call). */
+function planTimeline(row, planKey, opKey) {
+  if (row.shipment_plan_id == null || row.shipment_plan_id === '') {
+    return row[opKey] ?? null;
+  }
+  const pv = row[planKey];
+  const ov = row[opKey];
+  return pv != null ? pv : ov ?? null;
+}
+
+function toFiniteQtyOrNull(v) {
+  if (v == null || v === '') return null
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  const n = Number(String(v).trim().replace(/\s/g, '').replace(/,/g, '.'))
+  return Number.isFinite(n) ? n : null
+}
+
+export function toOp(row) {
   return {
     id: row.id,
     jettyOperationCode: row.jetty_operation_code ?? undefined,
     shippingInstructionId: row.shipping_instruction_id,
-    jettyId: row.jetty_id,
+    jettyId: planTimeline(row, 'plan_jetty_id', 'jetty_id'),
     status: row.status,
     purpose: row.purpose,
     vesselName: row.vessel_name ?? undefined,
     referenceNumber: row.reference_number ?? undefined,
-    commodity: row.commodity ?? undefined,
+    commodity: row.commodity_display || row.commodity || undefined,
+    commodityDisplay: row.commodity_display || row.commodity || undefined,
+    totalQtyDisplay: row.total_qty_display || undefined,
+    cargoBreakdownSummary: Array.isArray(row.cargo_breakdown_summary)
+      ? row.cargo_breakdown_summary
+      : [],
     commodityType: row.commodity_type === 'Solid' ? 'Solid' : 'Liquid',
-    jettyName: row.jetty_name ?? undefined,
+    cargoSiQty: toFiniteQtyOrNull(row.cargo_si_qty ?? row.cargoSiQty),
+    cargoSiMetricCode: row.cargo_si_metric_code ?? null,
+    cargoSiMetricName: row.cargo_si_metric_name ?? null,
+    jettyName: planTimeline(row, 'plan_jetty_name', 'jetty_name') ?? undefined,
     portId: row.port_id ?? null,
     portName: row.port_name ?? undefined,
-    eta: row.eta ?? null,
-    ta: row.ta ?? null,
-    etb: row.etb ?? null,
-    pob: row.pob ?? null,
-    sob: row.sob ?? null,
-    dockingStartTime: row.docking_start_time ?? null,
-    estimatedCompletionTime: row.estimated_completion_time ?? null,
-    actualCompletionTime: row.actual_completion_time ?? null,
-    norTenderedAt: row.nor_tendered_at ?? null,
-    norAcceptedAt: row.nor_accepted_at ?? null,
-    tbAt: row.tb ?? null,
-    demurrageLiabilityFromAt: row.demurrage_liability_from_at ?? null,
+    eta: planTimeline(row, 'plan_eta', 'eta'),
+    ta: planTimeline(row, 'plan_ta', 'ta'),
+    etb: planTimeline(row, 'plan_etb', 'etb'),
+    pob: planTimeline(row, 'plan_pob', 'pob'),
+    sob: planTimeline(row, 'plan_sob', 'sob'),
+    dockingStartTime: planTimeline(row, 'plan_docking_start_time', 'docking_start_time'),
+    estimatedCompletionTime: planTimeline(row, 'plan_estimated_completion_time', 'estimated_completion_time'),
+    actualCompletionTime: planTimeline(row, 'plan_actual_completion_time', 'actual_completion_time'),
+    norTenderedAt: planTimeline(row, 'plan_nor_tendered_at', 'nor_tendered_at'),
+    norAcceptedAt: planTimeline(row, 'plan_nor_accepted_at', 'nor_accepted_at'),
+    tbAt: planTimeline(row, 'plan_tb', 'tb'),
+    demurrageLiabilityFromAt: planTimeline(row, 'plan_demurrage_liability_from_at', 'demurrage_liability_from_at'),
     completionPercent: row.completion_percent ?? 0,
-    castOffAt: row.cast_off_at ?? null,
-    clearanceDocumentUrl: row.clearance_document_url ?? null,
-    vesselPhotoUrl: row.vessel_photo_url ?? null,
-    sailedAt: row.sailed_at ?? null,
+    castOffAt: planTimeline(row, 'plan_cast_off_at', 'cast_off_at'),
+    clearanceDocumentUrl: planTimeline(row, 'plan_clearance_document_url', 'clearance_document_url'),
+    vesselPhotoUrl: planTimeline(row, 'plan_vessel_photo_url', 'vessel_photo_url'),
+    sailedAt: planTimeline(row, 'plan_sailed_at', 'sailed_at'),
     exceptionStatus: row.exception_status ?? null,
     exceptionJustification: row.exception_justification ?? null,
     exceptionDocumentUrl: row.exception_document_url ?? null,
     exceptionRequestedAt: row.exception_requested_at ?? null,
     exceptionResolvedAt: row.exception_resolved_at ?? null,
     exceptionApproverUserId: row.exception_approver_user_id ?? null,
-    shiftingOut: row.shifting_out ?? false,
-    shiftingOutAt: row.shifting_out_at ?? null,
+    shiftingOut: Boolean(planTimeline(row, 'plan_shifting_out', 'shifting_out')),
+    shiftingOutAt: planTimeline(row, 'plan_shifting_out_at', 'shifting_out_at'),
     remark: row.remark ?? null,
     signoffRequestedAt: row.signoff_requested_at ?? null,
     signoffRequestedByUserId: row.signoff_requested_by ?? null,
@@ -1103,6 +1336,7 @@ function toOp(row) {
     signoffRequestRemark: row.signoff_request_remark ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    shipmentPlanId: row.shipment_plan_id != null ? Number(row.shipment_plan_id) : null,
   };
 }
 

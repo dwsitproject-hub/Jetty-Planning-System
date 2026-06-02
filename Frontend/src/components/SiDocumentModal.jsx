@@ -7,7 +7,7 @@ import '../styles/modal.css'
 import '../styles/si-view.css'
 import '../styles/si-approval.css'
 
-export default function SiDocumentModal({ isOpen, siId, onClose }) {
+export default function SiDocumentModal({ isOpen, siId, onClose, allowPreApprovalPreview = false }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [si, setSi] = useState(null)
@@ -55,7 +55,7 @@ export default function SiDocumentModal({ isOpen, siId, onClose }) {
 
   if (!isOpen) return null
 
-  const canView = si && canViewAsDocument(si)
+  const canView = si && (allowPreApprovalPreview || canViewAsDocument(si))
 
   return (
     <div className="modal-overlay" onClick={onClose} aria-hidden="true">

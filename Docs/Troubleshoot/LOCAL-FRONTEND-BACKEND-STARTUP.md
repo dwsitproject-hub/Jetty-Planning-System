@@ -84,3 +84,25 @@ Expected for local dev:
 - **3000**: backend API
 - **5436**: Postgres (Docker-published host port; maps to container 5432)
 
+### Symptom C — API returns 404 for new routes (e.g. SI document OCR) but Docker was “restarted”
+
+**Cause**
+
+- Only one process should listen on **port 3000**. A stray local `node.exe` (old API without new routes) can answer before the Docker `jps-api` container.
+- Docker **restart** reuses the old image; **`docker compose ... up --build -d jps-api`** is required after backend code changes.
+
+**Fix**
+
+```powershell
+# See what owns :3000 (optional)
+netstat -ano | findstr ":3000"
+
+# Rebuild and start API only (from repo root)
+docker compose --env-file Backend/.env -f docker-compose.backend.yml up --build -d jps-api
+
+# Run migration 076 if not applied yet
+docker compose --env-file Backend/.env -f docker-compose.backend.yml exec jps-api npm run migrate
+```
+
+If a local Node API is running on 3000, stop that process so Docker receives browser traffic.
+

@@ -1,0 +1,43 @@
+# PostgreSQL only (three-server layout). Run on the DB server (e.g. 172.28.92.60):
+#   docker compose --env-file Backend/.env -f Backend/infra/docker-compose.db.yml up -d
+#
+# Before first start:
+#   sudo mkdir -p /data/jps-postgres/docker-volumes/jps_pgdata
+#   sudo chown -R 999:999 /data/jps-postgres/docker-volumes/jps_pgdata
+#
+# See Docs/Guide/THREE-SERVER-DB-SPLIT-GUIDE.md and THREE-SERVER-DB-CUTOVER-RUNBOOK.md
+
+services:
+  jps-db:
+    image: postgres:16-alpine
+    container_name: jps-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jps_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-jps_db}
+    volumes:
+      - jps_pgdata:/var/lib/postgresql/data
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+    ports:
+      - "${DB_BIND_IP:?Set DB_BIND_IP in Backend/.env}:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jps_user} -d ${POSTGRES_DB:-jps_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  jps_pgdata:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/jps-postgres/docker-volumes/jps_pgdata

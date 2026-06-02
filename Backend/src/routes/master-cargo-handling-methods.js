@@ -1,9 +1,9 @@
 import express from 'express';
 import { pool } from '../db.js';
-import { optionalAuth } from '../middleware/auth.js';
+import { requireAuth } from '../middleware/auth.js';
 
 const router = express.Router();
-router.use(optionalAuth);
+router.use(requireAuth);
 
 router.get('/master/cargo-handling-methods', async (_req, res) => {
   const r = await pool.query(

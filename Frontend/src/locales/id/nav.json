@@ -1,7 +1,10 @@
 {
   "dashboard": "Dasbor",
+  "jettyLive": "Jetty Live",
   "shippingInstruction": "Shipping Instruction",
+  "shipmentPlans": "Rencana pengiriman",
   "allocation": "Alokasi & Sandar",
+  "allocationPlan": "Alokasi & Sandar",
   "atBerth": "Eksekusi di Dermaga",
   "clearance": "Clearance",
   "demurrageCalculator": "Kalkulator Risiko Demurrage",

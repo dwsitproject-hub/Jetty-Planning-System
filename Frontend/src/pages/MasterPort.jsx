@@ -1,18 +1,49 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { ping, getHealth, getApiOrigin } from '../api/client'
-import { fetchPorts, createPort, updatePortApi } from '../api/ports'
+import { fetchPorts, createPort, updatePortApi, deletePort } from '../api/ports'
 import { useActivityLog } from '../context/ActivityLogContext'
+import { useRbac } from '../context/RbacContext'
 import '../styles/allocation.css'
 import '../styles/modal.css'
+import { MAX_MASTER_DESCRIPTION_CHARS, MAX_MASTER_PORT_NAME_CHARS } from '../constants/inputLimits'
+import { DEFAULT_SCHEDULE_TIMEZONE } from '../utils/scheduleDateTime.js'
+import { getIanaTimeZoneOptions, mergeTimezoneOptionsWithOrphan } from '../utils/ianaTimeZoneOptions.js'
+import SearchableSingleSelect from '../components/SearchableSingleSelect.jsx'
+import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
+import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
+
+const PAGE_KEY = 'master-port'
+
+const PORT_COLUMNS = [
+  {
+    key: 'name',
+    label: 'Port Name',
+    getSortValue: (p) => (p.name || '').toLowerCase(),
+  },
+  {
+    key: 'scheduleTimezone',
+    label: 'Schedule TZ',
+    getSortValue: (p) => (p.scheduleTimezone || DEFAULT_SCHEDULE_TIMEZONE).toLowerCase(),
+  },
+  {
+    key: 'description',
+    label: 'Description',
+    getSortValue: (p) => (p.description || '').toLowerCase(),
+    getFilterValue: (p) => p.description || '',
+  },
+]
 
 export default function MasterPort() {
   const { logActivity } = useActivityLog()
+  const { canEdit, canDelete } = useRbac()
+  const canDoEdit = canEdit(PAGE_KEY)
+  const canDoDelete = canDelete(PAGE_KEY)
   const [ports, setPorts] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState(null)
-  const [slice0Status, setSlice0Status] = useState({ health: null, ping: null, message: '' })
+  const [toast, setToast] = useState(null)
 
   const loadPorts = useCallback(async () => {
     setError(null)
@@ -29,47 +60,26 @@ export default function MasterPort() {
   }, [])
 
   useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        await getHealth()
-        if (cancelled) return
-        setSlice0Status((s) => ({ ...s, health: 'ok' }))
-      } catch {
-        if (!cancelled) setSlice0Status((s) => ({ ...s, health: 'fail' }))
-      }
-      try {
-        await ping()
-        if (cancelled) return
-        setSlice0Status((s) => ({ ...s, ping: 'ok', message: 'API reachable' }))
-      } catch {
-        if (!cancelled) {
-          setSlice0Status((s) => ({
-            ...s,
-            ping: 'fail',
-            message: `Check Backend + CORS (${getApiOrigin()})`,
-          }))
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
     loadPorts()
   }, [loadPorts])
+
+  useEffect(() => {
+    if (!toast) return
+    const timer = window.setTimeout(() => setToast(null), 5500)
+    return () => window.clearTimeout(timer)
+  }, [toast])
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [formName, setFormName] = useState('')
   const [formDescription, setFormDescription] = useState('')
+  const [formScheduleTimezone, setFormScheduleTimezone] = useState(DEFAULT_SCHEDULE_TIMEZONE)
 
   const openAdd = useCallback(() => {
     setEditingId(null)
     setFormName('')
     setFormDescription('')
+    setFormScheduleTimezone(DEFAULT_SCHEDULE_TIMEZONE)
     setModalOpen(true)
   }, [])
 
@@ -77,6 +87,7 @@ export default function MasterPort() {
     setEditingId(port.id)
     setFormName(port.name || '')
     setFormDescription(port.description ?? '')
+    setFormScheduleTimezone(port.scheduleTimezone || DEFAULT_SCHEDULE_TIMEZONE)
     setModalOpen(true)
   }, [])
 
@@ -85,6 +96,7 @@ export default function MasterPort() {
     setEditingId(null)
     setFormName('')
     setFormDescription('')
+    setFormScheduleTimezone(DEFAULT_SCHEDULE_TIMEZONE)
   }, [])
 
   const handleSubmit = useCallback(async () => {
@@ -97,14 +109,18 @@ export default function MasterPort() {
         await updatePortApi(editingId, {
           name,
           description: (formDescription || '').trim() || null,
+          scheduleTimezone: (formScheduleTimezone || '').trim() || DEFAULT_SCHEDULE_TIMEZONE,
         })
-        logActivity({ pageKey: 'master-port', action: 'update', entityType: 'Port', entityLabel: name })
+        logActivity({ pageKey: PAGE_KEY, action: 'update', entityType: 'Port', entityLabel: name })
+        setToast({ message: `Port saved: ${name}.`, variant: 'success' })
       } else {
         await createPort({
           name,
           description: (formDescription || '').trim() || null,
+          scheduleTimezone: (formScheduleTimezone || '').trim() || DEFAULT_SCHEDULE_TIMEZONE,
         })
-        logActivity({ pageKey: 'master-port', action: 'add', entityType: 'Port', entityLabel: name })
+        logActivity({ pageKey: PAGE_KEY, action: 'add', entityType: 'Port', entityLabel: name })
+        setToast({ message: `Port added: ${name}.`, variant: 'success' })
       }
       await loadPorts()
       closeModal()
@@ -113,21 +129,53 @@ export default function MasterPort() {
     } finally {
       setSaving(false)
     }
-  }, [editingId, formName, formDescription, closeModal, logActivity, loadPorts])
+  }, [editingId, formName, formDescription, formScheduleTimezone, closeModal, logActivity, loadPorts])
 
-  const apiLine =
-    slice0Status.health === 'ok' && slice0Status.ping === 'ok'
-      ? 'API: health + /ping OK'
-      : `API: health ${slice0Status.health || '…'} · /ping ${slice0Status.ping || '…'}${slice0Status.message ? ` — ${slice0Status.message}` : ''}`
+  const handleDelete = useCallback(
+    async (port) => {
+      if (!canDoDelete || !port?.id) return
+      const label = port.name || `Port #${port.id}`
+      // eslint-disable-next-line no-alert
+      const ok = window.confirm(`Are you sure you want to delete port "${label}"?`)
+      if (!ok) return
+
+      setDeleting(true)
+      setError(null)
+      try {
+        await deletePort(port.id)
+        logActivity({
+          pageKey: PAGE_KEY,
+          action: 'delete',
+          entityType: 'Port',
+          entityLabel: label,
+        })
+        setToast({ message: `Deleted port "${label}".`, variant: 'success' })
+        await loadPorts()
+      } catch (e) {
+        setError(e?.message || 'Delete failed')
+      } finally {
+        setDeleting(false)
+      }
+    },
+    [canDoDelete, logActivity, loadPorts]
+  )
+
+  const timezoneSelectOptions = useMemo(
+    () => mergeTimezoneOptionsWithOrphan(formScheduleTimezone, getIanaTimeZoneOptions()),
+    [formScheduleTimezone]
+  )
+
+  const { displayRows, filters, updateFilter, sortState, handleSort } = useSortableFilterableRows(
+    ports,
+    PORT_COLUMNS,
+    { key: 'name', dir: 'asc' }
+  )
 
   return (
     <div className="allocation-page">
       <h1 className="page-title">Master – Port</h1>
       <p className="allocation-page__intro">
-        Add and manage master port / site data (live API).
-      </p>
-      <p className="text-steel" style={{ fontSize: 'var(--font-size-small)' }}>
-        {apiLine}
+        Add and manage master port / site data.
       </p>
       <p className="text-steel">
         <Link to="/master" className="link">← Back to Master Menu</Link>
@@ -136,6 +184,16 @@ export default function MasterPort() {
       {error && (
         <p className="allocation-page__intro" style={{ color: 'var(--color-danger, #c00)' }} role="alert">
           {error}
+        </p>
+      )}
+
+      {toast && (
+        <p
+          className="allocation-page__intro"
+          style={{ color: toast.variant === 'success' ? 'var(--color-success, #0a7)' : 'var(--color-danger, #c00)' }}
+          role="status"
+        >
+          {toast.message}
         </p>
       )}
 
@@ -151,7 +209,7 @@ export default function MasterPort() {
             >
               Refresh
             </button>
-            <button type="button" className="btn btn--primary" onClick={openAdd}>
+            <button type="button" className="btn btn--primary" onClick={openAdd} disabled={!canDoEdit}>
               Add Port
             </button>
           </div>
@@ -164,16 +222,20 @@ export default function MasterPort() {
           <div className="table-wrap">
             <table className="data-table allocation-table">
               <thead>
-                <tr>
-                  <th className="allocation-table__th">Port Name</th>
-                  <th className="allocation-table__th">Description</th>
-                  <th className="allocation-table__action-col">Actions</th>
-                </tr>
+                <SortableFilterableTableHead
+                  columns={PORT_COLUMNS}
+                  sortState={sortState}
+                  onSort={handleSort}
+                  filters={filters}
+                  onFilterChange={updateFilter}
+                  trailingBlankCols={1}
+                />
               </thead>
               <tbody>
-                {ports.map((p) => (
+                {displayRows.map((p) => (
                   <tr key={p.id} className="allocation-table__row">
                     <td><strong>{p.name || '—'}</strong></td>
+                    <td className="text-steel">{p.scheduleTimezone || DEFAULT_SCHEDULE_TIMEZONE}</td>
                     <td>
                       {p.description
                         ? p.description.length > 60
@@ -183,8 +245,23 @@ export default function MasterPort() {
                     </td>
                     <td className="allocation-table__action-col">
                       <div className="allocation-table__action-btns">
-                        <button type="button" className="btn btn--small btn--secondary" onClick={() => openEdit(p)}>
+                        <button
+                          type="button"
+                          className="btn btn--small btn--secondary"
+                          onClick={() => openEdit(p)}
+                          disabled={!canDoEdit}
+                          title={!canDoEdit ? 'Edit permission required.' : ''}
+                        >
                           Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn--small btn--secondary"
+                          onClick={() => handleDelete(p)}
+                          disabled={!canDoDelete || deleting}
+                          title={!canDoDelete ? 'Delete permission required.' : ''}
+                        >
+                          Delete
                         </button>
                       </div>
                     </td>
@@ -192,6 +269,11 @@ export default function MasterPort() {
                 ))}
               </tbody>
             </table>
+            {displayRows.length === 0 && (
+              <p className="text-steel" style={{ marginTop: 'var(--spacing-3)' }}>
+                No entries match the current filters.
+              </p>
+            )}
           </div>
         )}
       </section>
@@ -216,7 +298,19 @@ export default function MasterPort() {
                 className="modal__input"
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
+                maxLength={MAX_MASTER_PORT_NAME_CHARS}
                 placeholder="e.g. Bontang"
+              />
+            </div>
+            <div className="modal__section">
+              <SearchableSingleSelect
+                id="port-schedule-tz"
+                label="Schedule timezone (IANA)"
+                options={timezoneSelectOptions}
+                value={formScheduleTimezone}
+                onChange={setFormScheduleTimezone}
+                placeholder="Select timezone…"
+                disabled={saving}
               />
             </div>
             <div className="modal__section">
@@ -226,6 +320,7 @@ export default function MasterPort() {
                 className="modal__input modal__textarea"
                 value={formDescription}
                 onChange={(e) => setFormDescription(e.target.value)}
+                maxLength={MAX_MASTER_DESCRIPTION_CHARS}
                 placeholder="Optional description"
                 rows={4}
               />

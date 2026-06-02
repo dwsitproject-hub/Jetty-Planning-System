@@ -1,10 +1,12 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useActivityLog } from '../context/ActivityLogContext'
 import { useRbac } from '../context/RbacContext'
 import { createSiLookupItem, deleteSiLookupItem, fetchSiLookupList, updateSiLookupItem } from '../api/siLookupCrud'
 import '../styles/allocation.css'
 import '../styles/modal.css'
+import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
+import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 
 const RATE_METRIC_OPTIONS = [
   { value: 'KLPH', label: 'KLPH' },
@@ -52,6 +54,67 @@ export default function MasterSiLookup({
   const [formCommodityType, setFormCommodityType] = useState('Liquid')
 
   const isCommodityMaster = apiType === 'commodities'
+
+  const tableColumns = useMemo(() => {
+    const cols = [
+      {
+        key: 'value',
+        label: valueLabel,
+        getSortValue: (it) => (it.value || '').toLowerCase(),
+      },
+    ]
+    if (isCommodityMaster) {
+      cols.push({
+        key: 'commodityType',
+        label: 'Type',
+        getSortValue: (it) => (it.commodityType === 'Solid' ? 'Solid' : 'Liquid').toLowerCase(),
+      })
+    }
+    if (enableStandardRateFields) {
+      cols.push(
+        {
+          key: 'loadingRate',
+          label: 'Loading rate',
+          getSortValue: (it) => {
+            const r = it?.portRates?.loading?.rate
+            return r != null ? Number(r) : Number.POSITIVE_INFINITY
+          },
+          getFilterValue: (it) =>
+            it?.portRates?.loading != null ? String(it.portRates.loading.rate) : '',
+        },
+        {
+          key: 'loadingMetric',
+          label: 'Loading metric',
+          getSortValue: (it) => (it?.portRates?.loading?.rateMetric || '').toLowerCase(),
+          getFilterValue: (it) => (it?.portRates?.loading != null ? it.portRates.loading.rateMetric : '') || '',
+        },
+        {
+          key: 'unloadingRate',
+          label: 'Unloading rate',
+          getSortValue: (it) => {
+            const r = it?.portRates?.unloading?.rate
+            return r != null ? Number(r) : Number.POSITIVE_INFINITY
+          },
+          getFilterValue: (it) =>
+            it?.portRates?.unloading != null ? String(it.portRates.unloading.rate) : '',
+        },
+        {
+          key: 'unloadingMetric',
+          label: 'Unloading metric',
+          getSortValue: (it) => (it?.portRates?.unloading?.rateMetric || '').toLowerCase(),
+          getFilterValue: (it) =>
+            (it?.portRates?.unloading != null ? it.portRates.unloading.rateMetric : '') || '',
+        }
+      )
+    }
+    return cols
+  }, [valueLabel, isCommodityMaster, enableStandardRateFields])
+
+  const { displayRows, filters, updateFilter, sortState, handleSort } = useSortableFilterableRows(
+    items,
+    tableColumns,
+    { key: 'value', dir: 'asc' }
+  )
 
   const load = useCallback(async () => {
     setError(null)
@@ -325,23 +388,17 @@ export default function MasterSiLookup({
           <div className="table-wrap">
             <table className="data-table allocation-table">
               <thead>
-                <tr>
-                  <th>{valueLabel}</th>
-                  {isCommodityMaster && <th>Type</th>}
-                  {enableStandardRateFields && (
-                    <>
-                      <th>Loading rate</th>
-                      <th>Loading metric</th>
-                      <th>Unloading rate</th>
-                      <th>Unloading metric</th>
-                    </>
-                  )}
-                  <th>Sort order</th>
-                  <th className="allocation-table__action-col">Actions</th>
-                </tr>
+                <SortableFilterableTableHead
+                  columns={tableColumns}
+                  sortState={sortState}
+                  onSort={handleSort}
+                  filters={filters}
+                  onFilterChange={updateFilter}
+                  trailingBlankCols={1}
+                />
               </thead>
               <tbody>
-                {items.map((it) => (
+                {displayRows.map((it) => (
                   <tr key={it.id} className="allocation-table__row">
                     <td>
                       <strong>{it.value ?? '—'}</strong>
@@ -357,7 +414,6 @@ export default function MasterSiLookup({
                         <td>{it?.portRates?.unloading != null ? it.portRates.unloading.rateMetric : '—'}</td>
                       </>
                     )}
-                    <td>{it.sortOrder ?? '—'}</td>
                     <td className="allocation-table__action-col">
                       <div style={{ display: 'inline-flex', gap: '0.5rem' }}>
                         <button
@@ -386,6 +442,11 @@ export default function MasterSiLookup({
                 ))}
               </tbody>
             </table>
+            {displayRows.length === 0 && (
+              <p className="text-steel" style={{ marginTop: 'var(--spacing-3)' }}>
+                No entries match the current filters.
+              </p>
+            )}
           </div>
         )}
       </section>

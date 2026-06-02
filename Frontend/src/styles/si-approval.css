@@ -481,3 +481,133 @@
   color: inherit;
   opacity: 0.9;
 }
+
+/* ----- Shipment plan approval (summary + SI breakdown) ----- */
+.shipment-plan-approval__section {
+  padding: var(--spacing-5);
+}
+
+.shipment-plan-approval__section-title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0 0 var(--spacing-4);
+  padding-bottom: var(--spacing-2);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.shipment-plan-approval__si-count {
+  margin: 0 0 var(--spacing-4);
+  font-size: var(--font-size-small);
+}
+
+.shipment-plan-approval__si-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-5);
+}
+
+.shipment-plan-approval__si-card {
+  margin: 0;
+  border: 1px solid var(--color-border-medium);
+  border-radius: 6px;
+}
+
+.shipment-plan-approval__si-title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  margin: 0 0 var(--spacing-3);
+  color: var(--color-text-charcoal);
+}
+
+.shipment-plan-approval__si-status {
+  font-weight: var(--font-weight-regular);
+  font-size: var(--font-size-small);
+}
+
+.shipment-plan-approval__si-summary {
+  margin-bottom: var(--spacing-4);
+}
+
+.shipment-plan-approval__actions-card {
+  padding: var(--spacing-5);
+}
+
+.shipment-plan-approval__certify-box {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-3);
+  padding: var(--spacing-4);
+  margin-bottom: var(--spacing-5);
+  background: var(--color-bg-subtle, #f7f9f8);
+  border: 1px solid var(--color-border-light);
+  border-radius: 6px;
+  max-width: 52rem;
+}
+
+.shipment-plan-approval__certify-checkbox {
+  width: 1.125rem;
+  height: 1.125rem;
+  min-width: 1.125rem;
+  margin: 0.2rem 0 0;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: #2d7a3e;
+}
+
+.shipment-plan-approval__certify-label {
+  margin: 0;
+  font-size: var(--font-size-base);
+  line-height: 1.45;
+  color: var(--color-text-charcoal);
+  cursor: pointer;
+  flex: 1;
+}
+
+.shipment-plan-approval__reason-group {
+  max-width: 52rem;
+  margin-bottom: var(--spacing-2);
+}
+
+.shipment-plan-approval__reason-group label {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+}
+
+.shipment-plan-approval__reason-textarea {
+  width: 100%;
+  margin-top: var(--spacing-2);
+  box-sizing: border-box;
+}
+
+.shipment-plan-approval__error {
+  color: #a32d2d;
+  margin-top: var(--spacing-3);
+}
+
+.shipment-plan-approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-3);
+  margin-top: var(--spacing-4);
+  align-items: center;
+}
+
+.shipment-plan-approval-actions__approve {
+  background: #2d7a3e;
+  border: 1px solid #2d7a3e;
+  color: #fff;
+}
+
+.shipment-plan-approval-actions__approve:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.shipment-plan-approval-actions__approve:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.shipment-plan-approval-actions__reject {
+  border-color: var(--color-border-medium);
+}

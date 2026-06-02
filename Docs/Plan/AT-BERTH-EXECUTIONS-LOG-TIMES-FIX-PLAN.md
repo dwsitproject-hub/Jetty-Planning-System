@@ -1,7 +1,7 @@
 # Plan — Detailed At-Berth Executions Log: Start / End / Duration (Pre + Post)
 
 **Status:** fixed (implemented)  
-**Last updated:** 2026-04-09  
+**Last updated:** 2026-05-04  
 **Owner:** Engineering
 
 ---
@@ -117,3 +117,4 @@ After **3.1** is deployed:
 ## 7. Resolution (implemented)
 
 - **2026-04-09:** **§3.1** applied in `OperationActivityTimeline.jsx`: `sub_process` rows use `startAt ?? occurredAt`, `endAt`, and `formatTimelineDuration` like operational activities. Specs updated: **TECH-SPEC-Jetty-Planning-System.md** §3.4A (columns + `activity-timeline` contract), **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md** §9 (detailed log row). Follow-up **§3.3** remains optional if some saves still omit `endAt`.
+- **2026-05-04:** **Status / Remark / Documents** columns in the same log; `activity-timeline` sub-process events include **`documents`** (see TECH-SPEC §3.4A.3, FUNCTIONAL-SPEC §9 changelog **1.34**).

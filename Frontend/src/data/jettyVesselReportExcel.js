@@ -42,13 +42,9 @@ function writeSummarySheet(sheet, summary, startDate, endDate) {
     sheet.getCell(row, 1).font = { italic: true }
     row += 1
   }
-  if (summary?.hoursInWindow != null) {
-    sheet.getCell(row, 1).value = `Hours in window (per jetty, for %): ${summary.hoursInWindow}`
-    row += 1
-  }
   row += 1
 
-  const headers = ['Jetty', 'Calls', 'Berth hours (in range)', 'Hours in window', 'Utilization %']
+  const headers = ['Jetty', 'Calls', 'Berth hours', 'Utilization %']
   headers.forEach((h, i) => {
     sheet.getCell(row, i + 1).value = h
     sheet.getCell(row, i + 1).font = { bold: true }
@@ -59,16 +55,14 @@ function writeSummarySheet(sheet, summary, startDate, endDate) {
     sheet.getCell(row, 1).value = j.jettyName ?? '—'
     sheet.getCell(row, 2).value = j.calls ?? 0
     sheet.getCell(row, 3).value = j.berthHoursRounded ?? 0
-    sheet.getCell(row, 4).value = j.hoursInWindow ?? summary?.hoursInWindow ?? '—'
-    sheet.getCell(row, 5).value = j.utilizationPct ?? 0
+    sheet.getCell(row, 4).value = j.utilizationPct ?? 0
     row += 1
   }
 
   sheet.getColumn(1).width = 28
   sheet.getColumn(2).width = 10
   sheet.getColumn(3).width = 22
-  sheet.getColumn(4).width = 18
-  sheet.getColumn(5).width = 14
+  sheet.getColumn(4).width = 14
 }
 
 function writeDetailSheet(sheet, rows, startDate, endDate) {

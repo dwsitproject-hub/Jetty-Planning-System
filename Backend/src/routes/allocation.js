@@ -3,7 +3,7 @@
  *
  * - Queue rows come from:
  *   1) Operations that are not SAILED (already allocated / at-berth)
- *   2) Approved Shipping Instructions that don't have an operation yet (incoming vessels)
+ *   2) Shipping instructions whose shipment plan is Approved and have no operation yet (incoming vessels)
  *
  * Base path: /api/v1/allocation
  */
@@ -11,14 +11,88 @@ import express from 'express';
 import { pool } from '../db.js';
 import { assignJettyOperationCode } from '../lib/jetty-operation-code.js';
 import { writeActivityLog } from '../lib/activity-log.js';
-import { userHasPageEdit } from '../middleware/permissions.js';
+import { requirePageView, userHasPageEdit } from '../middleware/permissions.js';
 import { JETTY_OUT_OF_SERVICE } from '../lib/jetty-blocking.js';
+import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
+import { enrichRowsWithCargoDisplay } from '../lib/siBreakdownDisplay.js';
 
 const router = express.Router();
 const SCHEDULE_SAILED_LOOKBACK_DAYS = 90;
 
 /** null = unknown; set false if DB has no operations.updated_by (migration 044 not applied). */
 let allocationOpsHasUpdatedByColumn = null;
+let allocationPlanHasUpdatedByColumn = null;
+
+const UPDATE_SHIPMENT_PLAN_ARRIVAL_WITH_UPDATED_BY = `UPDATE shipment_plans SET
+         eta = $1,
+         ta = $2,
+         etb = $3,
+         pob = $4,
+         tb = $5,
+         docking_start_time = COALESCE($5, docking_start_time),
+         sob = $6,
+         nor_tendered_at = $7,
+         nor_accepted_at = $8,
+         demurrage_liability_from_at = CASE
+           WHEN $9::boolean THEN $10::timestamptz
+           ELSE demurrage_liability_from_at
+         END,
+         remark = COALESCE($11, remark),
+         priority = COALESCE($12, priority),
+         no_pkk = COALESCE($13, no_pkk),
+         jetty_id = COALESCE($14, jetty_id),
+         estimated_completion_time = $15,
+         actual_completion_time = $16,
+         updated_at = NOW(),
+         updated_by = $17
+       WHERE id = $18`;
+
+const UPDATE_SHIPMENT_PLAN_ARRIVAL_NO_UPDATED_BY = `UPDATE shipment_plans SET
+         eta = $1,
+         ta = $2,
+         etb = $3,
+         pob = $4,
+         tb = $5,
+         docking_start_time = COALESCE($5, docking_start_time),
+         sob = $6,
+         nor_tendered_at = $7,
+         nor_accepted_at = $8,
+         demurrage_liability_from_at = CASE
+           WHEN $9::boolean THEN $10::timestamptz
+           ELSE demurrage_liability_from_at
+         END,
+         remark = COALESCE($11, remark),
+         priority = COALESCE($12, priority),
+         no_pkk = COALESCE($13, no_pkk),
+         jetty_id = COALESCE($14, jetty_id),
+         estimated_completion_time = $15,
+         actual_completion_time = $16,
+         updated_at = NOW()
+       WHERE id = $17`;
+
+async function runArrivalShipmentPlanUpdate(client, paramsWithUpdatedBy, paramsWithoutUpdatedBy) {
+  if (allocationPlanHasUpdatedByColumn === false) {
+    return client.query(UPDATE_SHIPMENT_PLAN_ARRIVAL_NO_UPDATED_BY, paramsWithoutUpdatedBy);
+  }
+  await client.query('SAVEPOINT allocation_arrival_plan_upd');
+  try {
+    const r = await client.query(UPDATE_SHIPMENT_PLAN_ARRIVAL_WITH_UPDATED_BY, paramsWithUpdatedBy);
+    allocationPlanHasUpdatedByColumn = true;
+    await client.query('RELEASE SAVEPOINT allocation_arrival_plan_upd');
+    return r;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (e?.code === '42703' && msg.includes('updated_by')) {
+      await client.query('ROLLBACK TO SAVEPOINT allocation_arrival_plan_upd');
+      allocationPlanHasUpdatedByColumn = false;
+      const r = await client.query(UPDATE_SHIPMENT_PLAN_ARRIVAL_NO_UPDATED_BY, paramsWithoutUpdatedBy);
+      await client.query('RELEASE SAVEPOINT allocation_arrival_plan_upd');
+      return r;
+    }
+    await client.query('ROLLBACK TO SAVEPOINT allocation_arrival_plan_upd');
+    throw e;
+  }
+}
 
 const UPDATE_ARRIVAL_WITH_UPDATED_BY = `UPDATE operations SET
          eta = $1,
@@ -101,6 +175,56 @@ async function runArrivalOperationUpdate(client, paramsWithUpdatedBy, paramsWith
   }
 }
 
+/**
+ * Insert a new operation for an SI on an Approved shipment plan (same rules as PUT /allocation/arrival).
+ * @returns {{ id: number, shipping_instruction_id: number, jetty_id: unknown } | null}
+ */
+async function insertOperationForApprovedPlanSi(client, shippingInstructionId, selectedPortId, userId) {
+  const si = await client.query(
+    `SELECT si.id, spp.code AS purpose
+     FROM shipping_instructions si
+     JOIN shipment_plans sp ON sp.id = si.shipment_plan_id AND sp.deleted_at IS NULL
+     LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
+     WHERE si.id = $1 AND si.deleted_at IS NULL AND sp.approval_status = 'Approved'`,
+    [shippingInstructionId]
+  );
+  if (si.rows.length === 0) return null;
+  let ins;
+  await client.query('SAVEPOINT allocation_arrival_plan_si_ins');
+  try {
+    ins = await client.query(
+      `INSERT INTO operations (shipping_instruction_id, jetty_id, purpose, status, port_id, updated_by)
+       VALUES ($1, NULL, $2, 'PENDING', $3, $4)
+       RETURNING id, shipping_instruction_id, jetty_id`,
+      [shippingInstructionId, si.rows[0].purpose, selectedPortId, userId ?? null]
+    );
+    allocationOpsHasUpdatedByColumn = true;
+    await client.query('RELEASE SAVEPOINT allocation_arrival_plan_si_ins');
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (e?.code === '42703' && msg.includes('updated_by')) {
+      await client.query('ROLLBACK TO SAVEPOINT allocation_arrival_plan_si_ins');
+      allocationOpsHasUpdatedByColumn = false;
+      ins = await client.query(
+        `INSERT INTO operations (shipping_instruction_id, jetty_id, purpose, status, port_id)
+         VALUES ($1, NULL, $2, 'PENDING', $3)
+         RETURNING id, shipping_instruction_id, jetty_id`,
+        [shippingInstructionId, si.rows[0].purpose, selectedPortId]
+      );
+      await client.query('RELEASE SAVEPOINT allocation_arrival_plan_si_ins');
+    } else {
+      await client.query('ROLLBACK TO SAVEPOINT allocation_arrival_plan_si_ins');
+      throw e;
+    }
+  }
+  return ins.rows[0] ?? null;
+}
+
+async function userHasAllocationPlanEdit(userId) {
+  if (userId == null) return false;
+  return userHasPageEdit(userId, 'allocation-plan');
+}
+
 const SI_COMMODITY = `COALESCE(
   (SELECT sc.name FROM public.shipping_instruction_breakdown b
    JOIN public.si_commodities sc ON sc.id = b.commodity_id AND sc.deleted_at IS NULL
@@ -168,10 +292,15 @@ function formatListRow(r) {
     shippingInstruction: r.reference_number || (r.shipping_instruction_id ? `SI-${r.shipping_instruction_id}` : '—'),
     priority: r.priority || null,
     purpose: r.purpose || null,
-    commodity: r.commodity || null,
+    commodity: r.commodity_display || r.commodity || null,
+    commodityDisplay: r.commodity_display || r.commodity || null,
+    totalQtyDisplay: r.total_qty_display || null,
+    cargoBreakdownSummary: Array.isArray(r.cargo_breakdown_summary) ? r.cargo_breakdown_summary : [],
     norDocuments: r.nor_documents ?? [],
     noPkk: r.no_pkk || null,
     shipper: r.shipper_name || null,
+    tradeTerm: r.trade_term_code ?? null,
+    loadingPort: r.loading_port_name ?? null,
     agent: r.agent_name || null,
     surveyor: r.surveyor_name || null,
     remark: r.remark ?? null,
@@ -199,12 +328,64 @@ function formatListRow(r) {
     source: r.source_kind,
     operationId: r.operation_id != null ? Number(r.operation_id) : null,
     shippingInstructionId: r.shipping_instruction_id != null ? Number(r.shipping_instruction_id) : null,
+    shipmentPlanId: r.shipment_plan_id != null ? Number(r.shipment_plan_id) : null,
+    planReference: r.plan_reference ?? null,
+    planPurposeLabel: r.plan_purpose_label ?? null,
     recordLastUpdatedAt: pgTimestampToIsoString(
       r.record_last_updated_at ?? r.recordLastUpdatedAt ?? null
     ),
     recordLastUpdatedByDisplayName:
       r.record_last_updated_by_display_name ?? r.recordLastUpdatedByDisplayName ?? null,
   };
+}
+
+/** Rank for choosing one occupant when several operations share the same shipment plan on one jetty. */
+const OCCUPANT_STATUS_RANK = {
+  SIGNOFF_APPROVED: 6,
+  SIGNOFF_REQUESTED: 5,
+  POST_OPS: 4,
+  IN_PROGRESS: 3,
+  DOCKED: 2,
+  ALLOCATED: 1,
+  PENDING: 0,
+};
+
+function occupantStatusRank(status) {
+  const s = status == null ? '' : String(status);
+  return OCCUPANT_STATUS_RANK[s] ?? 0;
+}
+
+/**
+ * Slot occupancy is one physical berth per shipment plan. Test data (or edge cases) may have
+ * multiple non-sailed operations tied to the same plan; without merging, the same vessel appears
+ * in 2A-01 and 2A-02, etc.
+ */
+function dedupeBerthOccupantsByShipmentPlan(occList) {
+  if (!Array.isArray(occList) || occList.length <= 1) return occList || [];
+  const byPlan = new Map();
+  const unlinked = [];
+  for (const o of occList) {
+    const pid = o.shipmentPlanId != null ? Number(o.shipmentPlanId) : null;
+    if (pid == null || Number.isNaN(pid)) {
+      unlinked.push(o);
+      continue;
+    }
+    const cur = byPlan.get(pid);
+    if (!cur) {
+      byPlan.set(pid, o);
+      continue;
+    }
+    const rNew = occupantStatusRank(o.status);
+    const rCur = occupantStatusRank(cur.status);
+    if (rNew > rCur) {
+      byPlan.set(pid, o);
+    } else if (rNew === rCur) {
+      const oid = o.operationId != null ? Number(o.operationId) : 0;
+      const cid = cur.operationId != null ? Number(cur.operationId) : 0;
+      if (oid > cid) byPlan.set(pid, o);
+    }
+  }
+  return [...byPlan.values(), ...unlinked];
 }
 
 function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = false) {
@@ -228,69 +409,77 @@ function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = 
         o.shipping_instruction_id,
         o.purpose,
         o.status AS source_status,
-        o.shifting_out AS shifting_out,
-        o.shifting_out_at AS shifting_out_at,
+        COALESCE(sp.shifting_out, o.shifting_out) AS shifting_out,
+        COALESCE(sp.shifting_out_at, o.shifting_out_at) AS shifting_out_at,
         o.completion_percent AS completion_percent,
-        NULL::int AS sequence,
-        o.priority AS priority,
-        o.remark AS remark,
-        si.vessel_name,
+        COALESCE(sp.sequence, o.sequence) AS sequence,
+        si.shipment_plan_id::bigint AS shipment_plan_id,
+        sp.plan_reference AS plan_reference,
+        spur.label AS plan_purpose_label,
+        COALESCE(sp.priority, o.priority) AS priority,
+        COALESCE(sp.remark, o.remark) AS remark,
+        sp.vessel_name,
         si.reference_number,
         ${SI_COMMODITY} AS commodity,
         COALESCE((
           SELECT jsonb_agg(jsonb_build_object(
             'id', d.id,
             'name', d.original_name,
-            'url', ('/uploads/' || replace(d.stored_path, '\\\\', '/'))
+            'url', ('/api/v1/operation-documents/' || d.id::text || '/download')
           ) ORDER BY d.created_at DESC, d.id DESC)
           FROM public.operation_documents d
           WHERE d.operation_id = o.id AND d.deleted_at IS NULL AND d.kind = 'NOR'
         ), '[]'::jsonb) AS nor_documents,
-        o.no_pkk AS no_pkk,
-        sh.name AS shipper_name,
+        COALESCE(sp.no_pkk, o.no_pkk) AS no_pkk,
+        (SELECT STRING_AGG(DISTINCT sh2.name, ', ' ORDER BY sh2.name)
+         FROM public.shipping_instruction_breakdown b2
+         JOIN public.si_shippers sh2 ON sh2.id = b2.shipper_id AND sh2.deleted_at IS NULL
+         WHERE b2.shipping_instruction_id = si.id AND b2.deleted_at IS NULL) AS shipper_name,
         ag.name AS agent_name,
         sv.name AS surveyor_name,
-        COALESCE(o.eta, si.eta, (si.eta_to::timestamptz), (si.eta_from::timestamptz)) AS eta_datetime,
-        o.ta AS ta_datetime,
-        o.etb AS planned_etb_datetime,
-        COALESCE(o.etb, o.tb, o.docking_start_time) AS etb_datetime,
-        o.pob AS pob_datetime,
-        o.sob AS sob_datetime,
-        COALESCE(o.tb, o.docking_start_time) AS tb_datetime,
-        o.estimated_completion_time AS estimated_completion_datetime,
-        o.actual_completion_time AS actual_completion_datetime,
-        o.cast_off_at AS cast_off_datetime,
-        o.nor_tendered_at AS nor_tendered_datetime,
-        o.nor_accepted_at AS nor_accepted_datetime,
-        o.demurrage_liability_from_at AS demurrage_liability_from_datetime,
-        o.updated_at AS record_last_updated_at,
+        tt.code AS trade_term_code,
+        lp.name AS loading_port_name,
+        COALESCE(sp.eta, o.eta, (si.eta_to::timestamptz), (si.eta_from::timestamptz)) AS eta_datetime,
+        COALESCE(sp.ta, o.ta) AS ta_datetime,
+        COALESCE(sp.etb, o.etb) AS planned_etb_datetime,
+        COALESCE(sp.etb, sp.tb, sp.docking_start_time, o.etb, o.tb, o.docking_start_time) AS etb_datetime,
+        COALESCE(sp.pob, o.pob) AS pob_datetime,
+        COALESCE(sp.sob, o.sob) AS sob_datetime,
+        COALESCE(sp.tb, sp.docking_start_time, o.tb, o.docking_start_time) AS tb_datetime,
+        COALESCE(sp.estimated_completion_time, o.estimated_completion_time) AS estimated_completion_datetime,
+        COALESCE(sp.actual_completion_time, o.actual_completion_time) AS actual_completion_datetime,
+        COALESCE(sp.cast_off_at, o.cast_off_at) AS cast_off_datetime,
+        COALESCE(sp.nor_tendered_at, o.nor_tendered_at) AS nor_tendered_datetime,
+        COALESCE(sp.nor_accepted_at, o.nor_accepted_at) AS nor_accepted_datetime,
+        COALESCE(sp.demurrage_liability_from_at, o.demurrage_liability_from_at) AS demurrage_liability_from_datetime,
+        GREATEST(o.updated_at, sp.updated_at) AS record_last_updated_at,
         ${bySelect},
-        (to_char(COALESCE(o.eta, si.eta, (si.eta_to::timestamptz), (si.eta_from::timestamptz)) AT TIME ZONE 'UTC', 'DD/MM HH24:MI'))::text AS eta_display,
-        CASE WHEN COALESCE(o.etb, o.docking_start_time) IS NULL THEN NULL
-             ELSE (to_char(COALESCE(o.etb, o.docking_start_time) AT TIME ZONE 'UTC', 'DD/MM HH24:MI'))
+        (to_char(COALESCE(sp.eta, o.eta, (si.eta_to::timestamptz), (si.eta_from::timestamptz)) AT TIME ZONE 'UTC', 'DD/MM HH24:MI'))::text AS eta_display,
+        CASE WHEN COALESCE(sp.etb, sp.docking_start_time, o.etb, o.docking_start_time) IS NULL THEN NULL
+             ELSE (to_char(COALESCE(sp.etb, sp.docking_start_time, o.etb, o.docking_start_time) AT TIME ZONE 'UTC', 'DD/MM HH24:MI'))
         END AS etb_display,
         $1::text AS source_kind,
         (regexp_replace(j.name, '^Jetty\\s+', '', 'i'))::text AS jetty_display,
         o.id::text AS row_id
      FROM operations o
      JOIN shipping_instructions si ON si.id = o.shipping_instruction_id AND si.deleted_at IS NULL
+     LEFT JOIN shipment_plans sp ON sp.id = si.shipment_plan_id AND sp.deleted_at IS NULL
+     LEFT JOIN si_purposes spur ON spur.id = sp.purpose_id AND spur.deleted_at IS NULL
      ${joinUsers}
-     LEFT JOIN si_shippers sh ON sh.id = si.shipper_id AND sh.deleted_at IS NULL
-     LEFT JOIN si_agents ag ON ag.id = si.agent_id AND ag.deleted_at IS NULL
+     LEFT JOIN si_agents ag ON ag.id = COALESCE(si.agent_id, sp.agent_id) AND ag.deleted_at IS NULL
      LEFT JOIN si_surveyors sv ON sv.id = si.surveyor_id AND sv.deleted_at IS NULL
-     LEFT JOIN jetties j ON j.id = o.jetty_id AND j.deleted_at IS NULL
+     LEFT JOIN si_trade_terms tt ON tt.id = si.trade_term_id AND tt.deleted_at IS NULL
+     LEFT JOIN si_loading_ports lp ON lp.id = si.loading_port_id AND lp.deleted_at IS NULL
+     LEFT JOIN jetties j ON j.id = COALESCE(sp.jetty_id, o.jetty_id) AND j.deleted_at IS NULL
      LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
      WHERE o.deleted_at IS NULL
        AND COALESCE(o.port_id, p.id) = $2
        ${statusFilter}
-     ORDER BY COALESCE(o.docking_start_time, si.eta, si.eta_from::timestamptz) ASC NULLS LAST, o.id ASC`;
+     ORDER BY COALESCE(COALESCE(sp.sequence, o.sequence)) ASC NULLS LAST,
+              COALESCE(o.docking_start_time, sp.eta, o.eta, si.eta_from::timestamptz) ASC NULLS LAST, o.id ASC`;
 }
 
-router.get('/overview', async (req, res) => {
-  const selectedPortId = Number(req.selectedPortId);
-  // NOTE: Allocation page is already hidden by frontend RBAC, but we still keep API auth optional for now.
-  // If you want server-side enforcement, add requireAuth + requirePageView('allocation') here.
-
+async function buildAllocationOverviewPayload(selectedPortId) {
   const jettiesRes = await pool.query(
     `SELECT j.id, j.name, j.status, j.capacity, p.name AS port_name
      FROM jetties j
@@ -332,50 +521,69 @@ router.get('/overview', async (req, res) => {
         ('si-' || si.id)::text AS vessel_id,
         NULL::bigint AS operation_id,
         si.id AS shipping_instruction_id,
-        si.purpose,
+        spur.code AS purpose,
         si.status AS source_status,
-        NULL::boolean AS shifting_out,
-        NULL::timestamptz AS shifting_out_at,
-        NULL::int AS sequence,
-        NULL::text AS priority,
-        NULL::text AS remark,
-        si.vessel_name,
+        COALESCE(sp.shifting_out, false) AS shifting_out,
+        sp.shifting_out_at AS shifting_out_at,
+        sp.sequence AS sequence,
+        si.shipment_plan_id::bigint AS shipment_plan_id,
+        sp.plan_reference AS plan_reference,
+        spur.label AS plan_purpose_label,
+        sp.priority AS priority,
+        sp.remark AS remark,
+        sp.vessel_name,
         si.reference_number,
         ${SI_COMMODITY} AS commodity,
-        NULL::text AS no_pkk,
-        sh.name AS shipper_name,
+        sp.no_pkk AS no_pkk,
+        (SELECT STRING_AGG(DISTINCT sh2.name, ', ' ORDER BY sh2.name)
+         FROM public.shipping_instruction_breakdown b2
+         JOIN public.si_shippers sh2 ON sh2.id = b2.shipper_id AND sh2.deleted_at IS NULL
+         WHERE b2.shipping_instruction_id = si.id AND b2.deleted_at IS NULL) AS shipper_name,
         ag.name AS agent_name,
         sv.name AS surveyor_name,
-        COALESCE(si.eta, (si.eta_to::timestamptz), (si.eta_from::timestamptz)) AS eta_datetime,
-        NULL::timestamptz AS ta_datetime,
-        NULL::timestamptz AS etb_datetime,
-        NULL::timestamptz AS pob_datetime,
-        NULL::timestamptz AS sob_datetime,
-        NULL::timestamptz AS nor_tendered_datetime,
-        NULL::timestamptz AS nor_accepted_datetime,
-        NULL::timestamptz AS demurrage_liability_from_datetime,
-        si.updated_at AS record_last_updated_at,
+        tt.code AS trade_term_code,
+        lp.name AS loading_port_name,
+        COALESCE(sp.eta, (si.eta_to::timestamptz), (si.eta_from::timestamptz)) AS eta_datetime,
+        sp.ta AS ta_datetime,
+        sp.etb AS planned_etb_datetime,
+        COALESCE(sp.etb, sp.tb, sp.docking_start_time) AS etb_datetime,
+        sp.pob AS pob_datetime,
+        sp.sob AS sob_datetime,
+        COALESCE(sp.tb, sp.docking_start_time) AS tb_datetime,
+        sp.estimated_completion_time AS estimated_completion_datetime,
+        sp.actual_completion_time AS actual_completion_datetime,
+        sp.cast_off_at AS cast_off_datetime,
+        sp.nor_tendered_at AS nor_tendered_datetime,
+        sp.nor_accepted_at AS nor_accepted_datetime,
+        sp.demurrage_liability_from_at AS demurrage_liability_from_datetime,
+        GREATEST(si.updated_at, sp.updated_at) AS record_last_updated_at,
         NULL::text AS record_last_updated_by_display_name,
-        (to_char(COALESCE(si.eta, (si.eta_to::timestamptz), (si.eta_from::timestamptz)) AT TIME ZONE 'UTC', 'DD/MM HH24:MI'))::text AS eta_display,
-        NULL::text AS etb_display,
+        (to_char(COALESCE(sp.eta, (si.eta_to::timestamptz), (si.eta_from::timestamptz)) AT TIME ZONE 'UTC', 'DD/MM HH24:MI'))::text AS eta_display,
+        CASE WHEN COALESCE(sp.etb, sp.docking_start_time) IS NULL THEN NULL
+             ELSE (to_char(COALESCE(sp.etb, sp.docking_start_time) AT TIME ZONE 'UTC', 'DD/MM HH24:MI'))
+        END AS etb_display,
         $1::text AS source_kind,
         (regexp_replace(j.name, '^Jetty\\s+', '', 'i'))::text AS jetty_display,
         si.id::text AS row_id
      FROM shipping_instructions si
-     LEFT JOIN si_shippers sh ON sh.id = si.shipper_id AND sh.deleted_at IS NULL
-     LEFT JOIN si_agents ag ON ag.id = si.agent_id AND ag.deleted_at IS NULL
+     LEFT      JOIN shipment_plans sp ON sp.id = si.shipment_plan_id AND sp.deleted_at IS NULL
+     LEFT JOIN si_purposes spur ON spur.id = sp.purpose_id AND spur.deleted_at IS NULL
+     LEFT JOIN si_agents ag ON ag.id = COALESCE(si.agent_id, sp.agent_id) AND ag.deleted_at IS NULL
      LEFT JOIN si_surveyors sv ON sv.id = si.surveyor_id AND sv.deleted_at IS NULL
-     LEFT JOIN jetties j ON j.id = si.preferred_jetty_id AND j.deleted_at IS NULL
-     LEFT JOIN ports p ON p.id = COALESCE(si.port_id, j.port_id) AND p.deleted_at IS NULL
+     LEFT JOIN si_trade_terms tt ON tt.id = si.trade_term_id AND tt.deleted_at IS NULL
+     LEFT JOIN si_loading_ports lp ON lp.id = si.loading_port_id AND lp.deleted_at IS NULL
+     LEFT JOIN jetties j ON j.id = sp.jetty_id AND j.deleted_at IS NULL
+     LEFT JOIN ports p ON p.id = COALESCE(sp.port_id, j.port_id) AND p.deleted_at IS NULL
      WHERE si.deleted_at IS NULL
-       AND si.status = 'Approved'
-       AND COALESCE(si.port_id, p.id) = $2
+       AND sp.approval_status = 'Approved'
+       AND COALESCE(sp.port_id, p.id) = $2
        AND NOT EXISTS (
          SELECT 1 FROM operations o
          WHERE o.deleted_at IS NULL AND o.shipping_instruction_id = si.id
        )
-     ORDER BY COALESCE(si.eta, (si.eta_to::timestamptz), (si.eta_from::timestamptz)) ASC NULLS LAST, si.id ASC`,
-    ['shipping-instruction', selectedPortId]
+     ORDER BY sp.sequence ASC NULLS LAST,
+              COALESCE(sp.eta, (si.eta_to::timestamptz), (si.eta_from::timestamptz)) ASC NULLS LAST, si.id ASC`,
+    ['incoming-si', selectedPortId]
   );
 
   // Build berths occupancy from active operations.
@@ -400,6 +608,7 @@ router.get('/overview', async (req, res) => {
       vesselId: o.vessel_id,
       vesselName: o.vessel_name,
       operationId: o.operation_id != null ? Number(o.operation_id) : null,
+      shipmentPlanId: o.shipment_plan_id != null ? Number(o.shipment_plan_id) : null,
       status: o.source_status || null,
       taDateTime: o.ta_datetime || null,
       tbDateTime: o.tb_datetime || null,
@@ -412,7 +621,7 @@ router.get('/overview', async (req, res) => {
 
   const berths = jettiesRes.rows.map((j) => {
     const id = jettyShortName(j.name);
-    const occList = occupantsByJetty.get(id) || [];
+    const occList = dedupeBerthOccupantsByShipmentPlan(occupantsByJetty.get(id) || []);
     const occ0 = occList[0] || null;
     return {
       id,
@@ -429,20 +638,151 @@ router.get('/overview', async (req, res) => {
     };
   });
 
-  const queue = [...ops, ...incomingSiRes.rows].map(formatListRow);
-  const scheduleQueue = [...(scheduleOpsRes?.rows || []), ...incomingSiRes.rows].map(formatListRow);
-  res.json({ queue, berths, scheduleQueue });
+  const scheduleOps = scheduleOpsRes?.rows || [];
+  const [enrichedOps, enrichedScheduleOps, enrichedIncoming] = await Promise.all([
+    enrichRowsWithCargoDisplay(pool, ops),
+    enrichRowsWithCargoDisplay(pool, scheduleOps),
+    enrichRowsWithCargoDisplay(pool, incomingSiRes.rows),
+  ]);
+  const queue = [...enrichedOps, ...enrichedIncoming].map(formatListRow);
+  const scheduleQueue = [...enrichedScheduleOps, ...enrichedIncoming].map(formatListRow);
+  return { queue, berths, scheduleQueue };
+}
+
+router.get('/overview', ...requirePageView('allocation-plan'), async (req, res) => {
+  // Same payload as legacy; now gated by `allocation-plan` view (mirrored from retired `allocation` in migration 068).
+  const selectedPortId = Number(req.selectedPortId);
+  const payload = await buildAllocationOverviewPayload(selectedPortId);
+  res.json(payload);
+});
+
+router.get('/plan-overview', ...requirePageView('allocation-plan'), async (req, res) => {
+  const selectedPortId = Number(req.selectedPortId);
+  const payload = await buildAllocationOverviewPayload(selectedPortId);
+  res.json(payload);
+});
+
+/**
+ * Swap `shipment_plans.sequence` between two plans (same port). Used by plan-centric
+ * Allocation & Berthing queue ↑/↓ only — does not touch `operations.sequence`.
+ */
+router.post('/shipment-plans/swap-berthing-sequence', async (req, res) => {
+  if (!(await userHasAllocationPlanEdit(req.userId))) {
+    return res.status(403).json({ error: 'Forbidden: allocation edit permission required' });
+  }
+  const selectedPortId = Number(req.selectedPortId);
+  const b = req.body || {};
+  const idA = parseInt(b.shipment_plan_id_a ?? b.shipmentPlanIdA, 10);
+  const idB = parseInt(b.shipment_plan_id_b ?? b.shipmentPlanIdB, 10);
+  if (Number.isNaN(idA) || Number.isNaN(idB) || idA === idB) {
+    return res.status(400).json({ error: 'Two distinct shipment_plan_id values are required' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const sel = await client.query(
+      `SELECT id, sequence, vessel_name FROM shipment_plans
+       WHERE id = ANY($1::bigint[]) AND port_id = $2 AND deleted_at IS NULL`,
+      [[idA, idB], selectedPortId]
+    );
+    if (sel.rows.length !== 2) {
+      await client.query('ROLLBACK').catch(() => {});
+      return res.status(404).json({ error: 'One or both shipment plans not found for this port' });
+    }
+    const rowA = sel.rows.find((x) => Number(x.id) === idA);
+    const rowB = sel.rows.find((x) => Number(x.id) === idB);
+    const sa = rowA?.sequence ?? null;
+    const sb = rowB?.sequence ?? null;
+
+    const earlierRaw = b.earlier_plan_id ?? b.earlierPlanId;
+    const earlierId =
+      earlierRaw != null && String(earlierRaw).trim() !== '' ? parseInt(String(earlierRaw), 10) : NaN;
+    const hasEarlier = Number.isFinite(earlierId) && (earlierId === idA || earlierId === idB);
+
+    let newSeqA;
+    let newSeqB;
+
+    if (sa == null && sb == null) {
+      if (!hasEarlier) {
+        await client.query('ROLLBACK').catch(() => {});
+        return res.status(400).json({
+          error:
+            'earlier_plan_id is required when both shipment plans have no berthing sequence yet (so order can be applied)',
+        });
+      }
+      const laterId = earlierId === idA ? idB : idA;
+      const maxRes = await client.query(
+        `SELECT COALESCE(MAX(sequence), 0)::int AS m FROM shipment_plans WHERE port_id = $1 AND deleted_at IS NULL`,
+        [selectedPortId]
+      );
+      const m = Number(maxRes.rows[0]?.m) || 0;
+      const lo = m + 1;
+      const hi = m + 2;
+      await client.query(
+        `UPDATE shipment_plans
+         SET sequence = CASE id WHEN $1::bigint THEN $3::int WHEN $2::bigint THEN $4::int END,
+             updated_at = NOW(), updated_by = $5
+         WHERE id IN ($1::bigint, $2::bigint) AND port_id = $6 AND deleted_at IS NULL`,
+        [earlierId, laterId, lo, hi, req.userId ?? null, selectedPortId]
+      );
+      newSeqA = idA === earlierId ? lo : hi;
+      newSeqB = idB === earlierId ? lo : hi;
+    } else {
+      await client.query(
+        `UPDATE shipment_plans
+         SET sequence = $1, updated_at = NOW(), updated_by = $2
+         WHERE id = $3 AND port_id = $4 AND deleted_at IS NULL`,
+        [sb, req.userId ?? null, idA, selectedPortId]
+      );
+      await client.query(
+        `UPDATE shipment_plans
+         SET sequence = $1, updated_at = NOW(), updated_by = $2
+         WHERE id = $3 AND port_id = $4 AND deleted_at IS NULL`,
+        [sa, req.userId ?? null, idB, selectedPortId]
+      );
+      newSeqA = sb;
+      newSeqB = sa;
+    }
+    await client.query('COMMIT');
+
+    const activityPageKey = 'allocation-plan';
+    writeActivityLog({
+      pageKey: activityPageKey,
+      action: 'update',
+      entityType: 'ShipmentPlan',
+      entityId: String(idA),
+      entityLabel: rowA?.vessel_name || `Shipment plan #${idA}`,
+      summary:
+        sa == null && sb == null
+          ? 'Set berthing sequence for shipment plans (first explicit order)'
+          : 'Swapped berthing sequence between shipment plans',
+      changes: [
+        { field: `Plan ${idA} sequence`, from: sa, to: newSeqA },
+        { field: `Plan ${idB} sequence`, from: sb, to: newSeqB },
+      ],
+      meta: { shipmentPlanIdA: idA, shipmentPlanIdB: idB },
+      actorUserId: req.userId ?? null,
+    }).catch(() => {});
+
+    res.json({ ok: true });
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    return res.status(500).json({ error: String(e?.message || e || 'Swap failed') });
+  } finally {
+    client.release();
+  }
 });
 
 /**
  * Persist "Log arrival update" into operations.
  *
- * If operation doesn't exist yet for an Approved SI, we create it (jetty_id nullable).
+ * If operation doesn't exist yet for an SI on an Approved shipment plan, we create it (jetty_id nullable).
  * ETA rule: client can send ETA; if empty, we derive from SI.eta_to (or eta/eta_from).
  */
 router.put('/arrival', async (req, res) => {
   const selectedPortId = Number(req.selectedPortId);
-  if (!(await userHasPageEdit(req.userId, 'allocation'))) {
+  if (!(await userHasAllocationPlanEdit(req.userId))) {
     return res.status(403).json({ error: 'Forbidden: allocation edit permission required' });
   }
   const b = req.body || {};
@@ -489,45 +829,17 @@ router.put('/arrival', async (req, res) => {
       );
       opRow = ex.rows[0] ?? null;
       if (!opRow) {
-        const si = await client.query(
-          `SELECT id, purpose
-           FROM shipping_instructions
-           WHERE id = $1 AND deleted_at IS NULL AND status = 'Approved'`,
-          [shippingInstructionId]
+        const insRow = await insertOperationForApprovedPlanSi(
+          client,
+          shippingInstructionId,
+          selectedPortId,
+          req.userId
         );
-        if (si.rows.length === 0) {
+        if (!insRow) {
           await client.query('ROLLBACK');
-          return res.status(404).json({ error: 'Approved shipping instruction not found' });
+          return res.status(404).json({ error: 'Shipment plan not approved or shipping instruction not found' });
         }
-        let ins;
-        await client.query('SAVEPOINT allocation_arrival_op_ins');
-        try {
-          ins = await client.query(
-            `INSERT INTO operations (shipping_instruction_id, jetty_id, purpose, status, port_id, updated_by)
-             VALUES ($1, NULL, $2, 'PENDING', $3, $4)
-             RETURNING id, shipping_instruction_id, jetty_id`,
-            [shippingInstructionId, si.rows[0].purpose, selectedPortId, req.userId ?? null]
-          );
-          allocationOpsHasUpdatedByColumn = true;
-          await client.query('RELEASE SAVEPOINT allocation_arrival_op_ins');
-        } catch (e) {
-          const msg = String(e?.message || '');
-          if (e?.code === '42703' && msg.includes('updated_by')) {
-            await client.query('ROLLBACK TO SAVEPOINT allocation_arrival_op_ins');
-            allocationOpsHasUpdatedByColumn = false;
-            ins = await client.query(
-              `INSERT INTO operations (shipping_instruction_id, jetty_id, purpose, status, port_id)
-               VALUES ($1, NULL, $2, 'PENDING', $3)
-               RETURNING id, shipping_instruction_id, jetty_id`,
-              [shippingInstructionId, si.rows[0].purpose, selectedPortId]
-            );
-            await client.query('RELEASE SAVEPOINT allocation_arrival_op_ins');
-          } else {
-            await client.query('ROLLBACK TO SAVEPOINT allocation_arrival_op_ins');
-            throw e;
-          }
-        }
-        opRow = ins.rows[0];
+        opRow = insRow;
         createdNewOperation = true;
       }
       if (createdNewOperation) {
@@ -536,9 +848,10 @@ router.put('/arrival', async (req, res) => {
     }
 
     const siDetails = await client.query(
-      `SELECT eta, eta_from, eta_to
-       FROM shipping_instructions
-       WHERE id = $1 AND deleted_at IS NULL`,
+      `SELECT si.eta_from, si.eta_to, sp.eta AS plan_eta
+       FROM shipping_instructions si
+       LEFT JOIN shipment_plans sp ON sp.id = si.shipment_plan_id AND sp.deleted_at IS NULL
+       WHERE si.id = $1 AND si.deleted_at IS NULL`,
       [opRow.shipping_instruction_id]
     );
     const si = siDetails.rows[0] ?? {};
@@ -553,11 +866,29 @@ router.put('/arrival', async (req, res) => {
     );
     const opBefore = opBeforeRes.rows[0] ?? null;
 
+    const spiRes = await client.query(
+      `SELECT shipment_plan_id FROM shipping_instructions WHERE id = $1 AND deleted_at IS NULL`,
+      [opRow.shipping_instruction_id]
+    );
+    const shipmentPlanId = spiRes.rows[0]?.shipment_plan_id ?? null;
+    let planBefore = null;
+    if (shipmentPlanId != null) {
+      const pbr = await client.query(
+        `SELECT eta, ta, etb, pob, tb, sob,
+                nor_tendered_at, nor_accepted_at, demurrage_liability_from_at,
+                no_pkk, priority, remark, jetty_id, estimated_completion_time, actual_completion_time
+         FROM shipment_plans WHERE id = $1 AND deleted_at IS NULL`,
+        [shipmentPlanId]
+      );
+      planBefore = pbr.rows[0] ?? null;
+    }
+
+    const scheduleTz = await loadOperationScheduleTimezone(client, opRow.id);
+
     const parseTs = (v) => {
       if (!v) return null;
-      const d = new Date(v);
-      if (Number.isNaN(d.getTime())) return null;
-      return d.toISOString();
+      const out = parseScheduleInstantToIso(v, scheduleTz);
+      return out === undefined ? null : out;
     };
 
     const colToIso = (v) => {
@@ -572,9 +903,9 @@ router.put('/arrival', async (req, res) => {
       Object.prototype.hasOwnProperty.call(b, bodyKey) ? parseTs(bodyVal) : colToIso(existingCol);
 
     const derivedEta =
-      si.eta ??
-      (si.eta_to ? new Date(si.eta_to).toISOString() : null) ??
-      (si.eta_from ? new Date(si.eta_from).toISOString() : null);
+      colToIso(si.plan_eta) ??
+      (si.eta_to ? new Date(`${String(si.eta_to).slice(0, 10)}T12:00:00Z`).toISOString() : null) ??
+      (si.eta_from ? new Date(`${String(si.eta_from).slice(0, 10)}T12:00:00Z`).toISOString() : null);
 
     const eta = Object.prototype.hasOwnProperty.call(b, 'etaDateTime')
       ? parseTs(b.etaDateTime) ?? derivedEta
@@ -632,7 +963,7 @@ router.put('/arrival', async (req, res) => {
         await client.query('ROLLBACK');
         return res.status(409).json({
           error:
-            'Jetty is out of service. Select another jetty or restore service in Master – Preferred Jetty.',
+            'Jetty is out of service. Select another jetty or restore service in Master – Jetty.',
         });
       }
     }
@@ -655,6 +986,17 @@ router.put('/arrival', async (req, res) => {
       estimatedCompletion,
       actualCompletion,
     ];
+    if (shipmentPlanId != null) {
+      const planUpd = await runArrivalShipmentPlanUpdate(
+        client,
+        [...arrivalUpdateParamsBase, req.userId ?? null, shipmentPlanId],
+        [...arrivalUpdateParamsBase, shipmentPlanId]
+      );
+      if (planUpd.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Shipment plan not found' });
+      }
+    }
     const updRes = await runArrivalOperationUpdate(
       client,
       [...arrivalUpdateParamsBase, req.userId ?? null, opRow.id],
@@ -663,6 +1005,64 @@ router.put('/arrival', async (req, res) => {
     if (updRes.rowCount === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Operation not found' });
+    }
+
+    if (shipmentPlanId != null && tb != null) {
+      const planSis = await client.query(
+        `SELECT si.id
+         FROM shipping_instructions si
+         JOIN shipment_plans sp ON sp.id = si.shipment_plan_id AND sp.deleted_at IS NULL
+         WHERE si.shipment_plan_id = $1
+           AND si.deleted_at IS NULL
+           AND sp.approval_status = 'Approved'`,
+        [shipmentPlanId]
+      );
+      for (const row of planSis.rows) {
+        const siId = Number(row.id);
+        if (siId === Number(opRow.shipping_instruction_id)) continue;
+
+        const exSib = await client.query(
+          `SELECT o.id, o.shipping_instruction_id
+           FROM operations o
+           WHERE o.shipping_instruction_id = $1 AND o.deleted_at IS NULL
+           ORDER BY o.id DESC
+           LIMIT 1`,
+          [siId]
+        );
+        let sibOpRow = exSib.rows[0] ?? null;
+        let sibCreated = false;
+        if (!sibOpRow) {
+          const insRow = await insertOperationForApprovedPlanSi(client, siId, selectedPortId, req.userId);
+          if (!insRow) continue;
+          sibOpRow = insRow;
+          sibCreated = true;
+        }
+        if (sibCreated) {
+          await assignJettyOperationCode(client, sibOpRow.id);
+        }
+
+        const stRes = await client.query(
+          `SELECT status, actual_completion_time FROM operations WHERE id = $1 AND deleted_at IS NULL`,
+          [sibOpRow.id]
+        );
+        const stRow = stRes.rows[0];
+        if (!stRow || stRow.status === 'SAILED') continue;
+
+        const actualCompletionSibling = actualCompletionExplicit
+          ? actualCompletion
+          : colToIso(stRow.actual_completion_time ?? null);
+
+        const siblingParams = [...arrivalUpdateParamsBase.slice(0, 15), actualCompletionSibling];
+        const sibUpd = await runArrivalOperationUpdate(
+          client,
+          [...siblingParams, req.userId ?? null, sibOpRow.id],
+          [...siblingParams, sibOpRow.id]
+        );
+        if (sibUpd.rowCount === 0) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: 'Operation not found' });
+        }
+      }
     }
 
     const shouldUpsertNorMeta =
@@ -735,16 +1135,29 @@ router.put('/arrival', async (req, res) => {
       { field: 'Remark', from: opBefore?.remark ?? null, to: remark ?? null },
     ].filter((c) => c.from !== c.to);
 
+    const planChanges =
+      shipmentPlanId != null && planBefore
+        ? [
+            { field: 'Plan ETA', from: planBefore?.eta ?? null, to: eta ?? null },
+            { field: 'Plan TA', from: planBefore?.ta ?? null, to: ta ?? null },
+            { field: 'Plan ETB', from: planBefore?.etb ?? null, to: etb ?? null },
+            { field: 'Plan Jetty ID', from: planBefore?.jetty_id ?? null, to: jettyId ?? null },
+          ].filter((c) => c.from !== c.to)
+        : [];
+
+    const activityPageKey = 'allocation-plan';
+
     writeActivityLog({
-      pageKey: 'allocation',
+      pageKey: activityPageKey,
       action: 'update',
       entityType: 'Operation',
       entityId: String(opRow.id),
       entityLabel: `Operation #${opRow.id}`,
       summary: 'Saved arrival / allocation update',
-      changes,
+      changes: [...planChanges, ...changes],
       meta: {
         operationId: opRow.id,
+        shipmentPlanId: shipmentPlanId ?? undefined,
         ...(b.source === 'active_vessel_detail' ? { source: 'active_vessel_detail' } : {}),
         norTenderedSet: norTendered != null,
         norAcceptedSet: norAccepted != null,

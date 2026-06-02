@@ -1,4 +1,5 @@
 import { apiGet, apiPost, apiPut, apiDelete, apiPostForm } from './client.js'
+import { getScheduleEntryTimeZone, normalizeForApi } from '../utils/scheduleDateTime.js'
 
 export function fetchOperations(params = {}) {
   const sp = new URLSearchParams()
@@ -7,6 +8,8 @@ export function fetchOperations(params = {}) {
   if (params.status) sp.set('status', params.status)
   if (params.purpose) sp.set('purpose', params.purpose)
   if (params.signoffRequested) sp.set('signoff_requested', '1')
+  if (params.startDate) sp.set('start_date', params.startDate)
+  if (params.endDate) sp.set('end_date', params.endDate)
   const q = sp.toString()
   return apiGet(`/operations${q ? `?${q}` : ''}`)
 }
@@ -46,7 +49,7 @@ export function updateOperation(id, body) {
 
 /**
  * @param {object} [options]
- * @param {'allocation'|'at-berth'} [options.activityLogPage] — where this action is initiated (for activity log page filter).
+ * @param {'allocation-plan'|'at-berth'} [options.activityLogPage] — where this action is initiated (for activity log page filter).
  */
 export function setOperationShiftingOut(operationId, shiftingOut, remark, options) {
   const shift = Boolean(shiftingOut)
@@ -57,7 +60,7 @@ export function setOperationShiftingOut(operationId, shiftingOut, remark, option
     body.remark = remark != null ? String(remark) : ''
   }
   const logPage = options?.activityLogPage
-  if (logPage === 'allocation' || logPage === 'at-berth') {
+  if (logPage === 'allocation-plan' || logPage === 'at-berth') {
     body.activityLogPage = logPage
   }
   return apiPost(`/operations/${operationId}/shifting-out`, body)
@@ -194,22 +197,23 @@ export function fetchSubProcesses(operationId, phase) {
  * so the server receives an unambiguous instant (RFC3339). Otherwise Node may treat
  * `YYYY-MM-DDTHH:mm` as UTC while the user entered local time, or merge logic can break ranges.
  */
-function normalizeSubProcessTimestampForApi(v) {
+function normalizeSubProcessTimestampForApi(v, scheduleIana = getScheduleEntryTimeZone()) {
   if (v === undefined) return undefined
   if (v === null || v === '') return null
   const s = String(v).trim()
   if (!s) return null
-  const d = new Date(s)
-  if (Number.isNaN(d.getTime())) {
+  try {
+    return normalizeForApi(s, scheduleIana)
+  } catch {
     throw new Error('Invalid date or time')
   }
-  return d.toISOString()
 }
 
-export function upsertSubProcess(operationId, subProcessKey, body) {
-  const nOcc = normalizeSubProcessTimestampForApi(body.occurredAt)
-  const nStart = normalizeSubProcessTimestampForApi(body.startAt)
-  const nEnd = normalizeSubProcessTimestampForApi(body.endAt)
+export function upsertSubProcess(operationId, subProcessKey, body, opts = {}) {
+  const tz = opts.scheduleIana ?? getScheduleEntryTimeZone()
+  const nOcc = normalizeSubProcessTimestampForApi(body.occurredAt, tz)
+  const nStart = normalizeSubProcessTimestampForApi(body.startAt, tz)
+  const nEnd = normalizeSubProcessTimestampForApi(body.endAt, tz)
 
   const base = {
     phase: body.phase,
@@ -274,13 +278,23 @@ export function fetchNorDetails(operationId) {
   return apiGet(`/operations/${operationId}/nor-details`)
 }
 
-export function updateNorDetails(operationId, body) {
+export function updateNorDetails(operationId, body, opts = {}) {
+  const tz = opts.scheduleIana ?? getScheduleEntryTimeZone()
   const req = {
     remark: body?.remark ?? '',
     payload: body?.payload ?? null,
   }
   if (body && Object.prototype.hasOwnProperty.call(body, 'demurrageLiabilityFromAt')) {
-    req.demurrageLiabilityFromAt = body.demurrageLiabilityFromAt
+    const raw = body.demurrageLiabilityFromAt
+    if (raw === null || raw === undefined || raw === '') {
+      req.demurrageLiabilityFromAt = raw
+    } else {
+      try {
+        req.demurrageLiabilityFromAt = normalizeForApi(raw, tz)
+      } catch {
+        throw new Error('Invalid demurrageLiabilityFromAt')
+      }
+    }
   }
   return apiPut(`/operations/${operationId}/nor-details`, req)
 }
@@ -290,30 +304,61 @@ export function fetchOperationalActivities(operationId) {
   return apiGet(`/operations/${operationId}/operational-activities`)
 }
 
-export function createOperationalEntry(operationId, body) {
-  // cargo_handling_method_id is server-derived for opening_hatch only; never send from client.
-  return apiPost(`/operations/${operationId}/operational-activities`, {
+function normalizeOpActivityTs(v, scheduleIana) {
+  if (v === undefined) return undefined
+  if (v === null || v === '') return null
+  try {
+    return normalizeForApi(v, scheduleIana)
+  } catch {
+    throw new Error('Invalid date or time')
+  }
+}
+
+export function createOperationalEntry(operationId, body, opts = {}) {
+  const tz = opts.scheduleIana ?? getScheduleEntryTimeZone()
+  const payload = {
     entryType: body.entryType,
     milestoneKey: body.milestoneKey,
     subStepTitle: body.subStepTitle,
     remark: body.remark,
-    startAt: body.startAt,
-    endAt: body.endAt,
+    startAt: normalizeOpActivityTs(body.startAt, tz),
+    endAt: normalizeOpActivityTs(body.endAt, tz),
     reason: body.reason,
-    markedAt: body.markedAt,
-  })
+    markedAt: normalizeOpActivityTs(body.markedAt, tz),
+  }
+  if (Array.isArray(body.cargoLoadLines) && body.cargoLoadLines.length > 0) {
+    payload.cargoLoadLines = body.cargoLoadLines.map((l) => ({
+      qty: Number(l.qty),
+      startAt: normalizeOpActivityTs(l.startAt, tz),
+      endAt: normalizeOpActivityTs(l.endAt, tz),
+    }))
+  } else if (body.cargoMovedQty !== undefined && body.cargoMovedQty !== null) {
+    payload.cargoMovedQty = body.cargoMovedQty
+  }
+  return apiPost(`/operations/${operationId}/operational-activities`, payload)
 }
 
-export function updateOperationalEntry(operationId, entryId, body) {
-  return apiPut(`/operations/${operationId}/operational-activities/${entryId}`, {
+export function updateOperationalEntry(operationId, entryId, body, opts = {}) {
+  const tz = opts.scheduleIana ?? getScheduleEntryTimeZone()
+  const payload = {
     milestoneKey: body.milestoneKey,
     subStepTitle: body.subStepTitle,
     remark: body.remark,
-    startAt: body.startAt,
-    endAt: body.endAt,
+    startAt: normalizeOpActivityTs(body.startAt, tz),
+    endAt: normalizeOpActivityTs(body.endAt, tz),
     reason: body.reason,
-    markedAt: body.markedAt,
-  })
+    markedAt: normalizeOpActivityTs(body.markedAt, tz),
+  }
+  if (Array.isArray(body.cargoLoadLines) && body.cargoLoadLines.length > 0) {
+    payload.cargoLoadLines = body.cargoLoadLines.map((l) => ({
+      qty: Number(l.qty),
+      startAt: normalizeOpActivityTs(l.startAt, tz),
+      endAt: normalizeOpActivityTs(l.endAt, tz),
+    }))
+  } else if (body.cargoMovedQty !== undefined && body.cargoMovedQty !== null) {
+    payload.cargoMovedQty = body.cargoMovedQty
+  }
+  return apiPut(`/operations/${operationId}/operational-activities/${entryId}`, payload)
 }
 
 export function deleteOperationalEntry(operationId, entryId) {

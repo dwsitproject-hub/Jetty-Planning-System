@@ -15,6 +15,19 @@ import { useRbac } from '../context/RbacContext'
 import PurposeBadge from '../components/PurposeBadge'
 import SiDetailModal from '../components/SiDetailModal'
 import { formatSiCalendarDateOnly } from '../utils/siFormPlaceDate'
+import {
+  MAX_SI_BL_INDICATED_CHARS,
+  MAX_SI_BL_SPLIT_CHARS,
+  MAX_SI_BILL_OF_LADING_CLAUSE_CHARS,
+  MAX_SI_BREAKDOWN_SHORT_CHARS,
+  MAX_SI_CONSIGNEE_CHARS,
+  MAX_SI_DESTINATION_CHARS,
+  MAX_SI_NOTE_CHARS,
+  MAX_SI_NOTIFY_PARTY_CHARS,
+  MAX_SI_REFERENCE_CHARS,
+  MAX_SI_VESSEL_NAME_CHARS,
+  MAX_SI_VOYAGE_CHARS,
+} from '../constants/inputLimits'
 
 /** `YYYY-MM-DD` for `<input type="date" />` — API may return full ISO timestamps (e.g. from Postgres DATE via JSON). */
 function toDateInputValue(v) {
@@ -42,7 +55,7 @@ function mapSiFromApi(row) {
       row.estimatedCompletionDateTime ?? row.estimationOfCompletion ?? row.etcDateTime ?? null,
     etaFrom: toDateInputValue(row.etaFrom) || toDateInputValue(row.eta),
     etaTo: toDateInputValue(row.etaTo) || toDateInputValue(row.eta),
-    shipper: row.shipperName ?? '—',
+    shipper: row.shipperNames ?? '—',
     loadingPort: row.loadingPortName ?? '—',
     agent: row.agentName ?? '—',
     surveyor: row.surveyorName ?? '—',
@@ -444,6 +457,7 @@ function emptyBreakdownRow(lookups) {
   const mt = lookups?.metrics?.find((m) => m.code === 'MT') || lookups?.metrics?.[0]
   const comm = lookups?.commodities?.[0]
   return {
+    shipperId: '',
     commodityId: comm?.id != null ? String(comm.id) : '',
     metricId: mt?.id != null ? String(mt.id) : '',
     qty: '',
@@ -499,7 +513,6 @@ export default function ShippingInstruction() {
       purposeId: '',
       tradeTermId: '',
       preferredJettyId: '',
-      shipperId: '',
       loadingPortId: '',
       surveyorId: '',
       agentId: '',
@@ -669,7 +682,12 @@ export default function ShippingInstruction() {
       setToast({ message: 'Document date is required.', variant: 'error' })
       return
     }
+    const num = (v) => {
+      const n = parseInt(v, 10)
+      return v !== '' && !Number.isNaN(n) ? n : null
+    }
     const breakdownPayload = form.breakdown.map((row) => ({
+      shipperId: num(row.shipperId),
       commodityId: parseInt(row.commodityId, 10),
       metricId: parseInt(row.metricId, 10),
       qty: Number(row.qty) || 0,
@@ -701,16 +719,11 @@ export default function ShippingInstruction() {
     }
     try {
       const etaIso = form.etaFrom ? new Date(`${form.etaFrom}T12:00:00`).toISOString() : null
-      const num = (v) => {
-        const n = parseInt(v, 10)
-        return v !== '' && !Number.isNaN(n) ? n : null
-      }
       const payload = {
         vesselName: form.vesselName.trim(),
         purposeId: pid,
         tradeTermId: isUnloading ? num(form.tradeTermId) : null,
         preferredJettyId: num(form.preferredJettyId),
-        shipperId: num(form.shipperId),
         loadingPortId: num(form.loadingPortId),
         surveyorId: null,
         agentId: num(form.agentId),
@@ -761,7 +774,6 @@ export default function ShippingInstruction() {
           purposeId: String(payload.purposeId || ''),
           tradeTermId: String(payload.tradeTermId || ''),
           preferredJettyId: String(payload.preferredJettyId || ''),
-          shipperId: String(payload.shipperId || ''),
           loadingPortId: String(payload.loadingPortId || ''),
           surveyorId: String(payload.surveyorId || ''),
           agentId: String(payload.agentId || ''),
@@ -787,7 +799,6 @@ export default function ShippingInstruction() {
         addChange('Purpose', toLabel(before.purposeId, lookups?.purposes), toLabel(after.purposeId, lookups?.purposes))
         addChange('Term', toLabel(before.tradeTermId, lookups?.tradeTerms), toLabel(after.tradeTermId, lookups?.tradeTerms))
         addChange('Preferred jetty', toLabel(before.preferredJettyId, lookups?.jetties), toLabel(after.preferredJettyId, lookups?.jetties))
-        addChange('Shipper', toLabel(before.shipperId, lookups?.shippers), toLabel(after.shipperId, lookups?.shippers))
         addChange('Loading port', toLabel(before.loadingPortId, lookups?.loadingPorts), toLabel(after.loadingPortId, lookups?.loadingPorts))
         addChange('Surveyor', toLabel(before.surveyorId, lookups?.surveyors), toLabel(after.surveyorId, lookups?.surveyors))
         addChange('Agent', toLabel(before.agentId, lookups?.agents), toLabel(after.agentId, lookups?.agents))
@@ -807,7 +818,7 @@ export default function ShippingInstruction() {
       }
 
       logActivity({
-        pageKey: 'shipping-instruction',
+        pageKey: 'shipment-plan',
         action: editingId ? 'update' : 'add',
         entityType: 'Shipping Instruction',
         entityLabel: saved.referenceNumber || `SI-${saved.id}`,
@@ -850,6 +861,7 @@ export default function ShippingInstruction() {
       const bd =
         Array.isArray(row?.breakdown) && row.breakdown.length
           ? row.breakdown.map((b) => ({
+              shipperId: b.shipperId != null ? String(b.shipperId) : '',
               commodityId: b.commodityId != null ? String(b.commodityId) : '',
               metricId: b.metricId != null ? String(b.metricId) : '',
               qty: b.qty != null ? String(b.qty) : '',
@@ -866,7 +878,6 @@ export default function ShippingInstruction() {
         purposeId: row.purposeId != null ? String(row.purposeId) : '',
         tradeTermId: row.tradeTermId != null ? String(row.tradeTermId) : '',
         preferredJettyId: row.preferredJettyId != null ? String(row.preferredJettyId) : '',
-        shipperId: row.shipperId != null ? String(row.shipperId) : '',
         loadingPortId: row.loadingPortId != null ? String(row.loadingPortId) : '',
         surveyorId: row.surveyorId != null ? String(row.surveyorId) : '',
         agentId: row.agentId != null ? String(row.agentId) : '',
@@ -892,7 +903,6 @@ export default function ShippingInstruction() {
         purposeId: row.purposeId != null ? String(row.purposeId) : '',
         tradeTermId: row.tradeTermId != null ? String(row.tradeTermId) : '',
         preferredJettyId: row.preferredJettyId != null ? String(row.preferredJettyId) : '',
-        shipperId: row.shipperId != null ? String(row.shipperId) : '',
         loadingPortId: row.loadingPortId != null ? String(row.loadingPortId) : '',
         surveyorId: row.surveyorId != null ? String(row.surveyorId) : '',
         agentId: row.agentId != null ? String(row.agentId) : '',
@@ -1009,7 +1019,7 @@ export default function ShippingInstruction() {
       })
       setList((prev) => prev.map((r) => (r.id === n.id ? mapSiFromApi(saved) : r)))
       logActivity({
-        pageKey: 'shipping-instruction',
+        pageKey: 'shipment-plan',
         action: 'update',
         entityType: 'Shipping Instruction',
         entityLabel: n.siId || `SI-${n.id}`,
@@ -1024,7 +1034,7 @@ export default function ShippingInstruction() {
 
   const handleDeleteSi = async (n, e) => {
     e.stopPropagation()
-    if (siDeleteDisabledReason(n, canDelete('shipping-instruction'))) return
+    if (siDeleteDisabledReason(n, canDelete('shipment-plan'))) return
     const label = n.referenceNumber || n.siId || `SI-${n.id}`
     if (
       !window.confirm(
@@ -1044,7 +1054,7 @@ export default function ShippingInstruction() {
         return next
       })
       logActivity({
-        pageKey: 'shipping-instruction',
+        pageKey: 'shipment-plan',
         action: 'delete',
         entityType: 'Shipping Instruction',
         entityLabel: label,
@@ -1294,6 +1304,7 @@ export default function ShippingInstruction() {
                       id="vesselName"
                       value={form.vesselName}
                       onChange={(e) => updateForm({ vesselName: e.target.value })}
+                      maxLength={MAX_SI_VESSEL_NAME_CHARS}
                       required
                       placeholder="e.g. TB. ARIA CITRA IV / BG. MULIA VII"
                       disabled={!lookups}
@@ -1305,6 +1316,7 @@ export default function ShippingInstruction() {
                       id="siRef"
                       value={form.referenceNumber}
                       onChange={(e) => updateForm({ referenceNumber: e.target.value })}
+                      maxLength={MAX_SI_REFERENCE_CHARS}
                       required
                       placeholder="e.g. SI/EUP/2026/1/003"
                       disabled={!lookups}
@@ -1344,6 +1356,7 @@ export default function ShippingInstruction() {
                       id="voyageNo"
                       value={form.voyageNo}
                       onChange={(e) => updateForm({ voyageNo: e.target.value })}
+                      maxLength={MAX_SI_VOYAGE_CHARS}
                       placeholder="e.g. V.2601"
                       disabled={!lookups}
                     />
@@ -1361,6 +1374,7 @@ export default function ShippingInstruction() {
                         id="destinationText"
                         value={form.destinationText}
                         onChange={(e) => updateForm({ destinationText: e.target.value })}
+                        maxLength={MAX_SI_DESTINATION_CHARS}
                         placeholder="e.g. NANSHA, CHINA"
                         disabled={!lookups}
                       />
@@ -1385,15 +1399,6 @@ export default function ShippingInstruction() {
               <div className="shipping-instruction-form__section">
                 <h3 className="shipping-instruction-form__section-title">{t('formPartyPortSection')}</h3>
                 <div className="shipping-instruction-form__grid">
-                  <div className="input-group">
-                    <label htmlFor="shipper">{t('formShipper')}</label>
-                    <select id="shipper" value={form.shipperId} onChange={(e) => updateForm({ shipperId: e.target.value })} disabled={!lookups}>
-                      <option value="">—</option>
-                      {(lookups?.shippers || []).map((s) => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
-                  </div>
                   <div className="input-group">
                     <label htmlFor="agent">{t('formAgent')}</label>
                     <select id="agent" value={form.agentId} onChange={(e) => updateForm({ agentId: e.target.value })} disabled={!lookups}>
@@ -1441,6 +1446,7 @@ export default function ShippingInstruction() {
                   <table className="data-table shipping-instruction-breakdown-table">
                     <thead>
                       <tr>
+                        <th>{t('formBreakdownShipper')}</th>
                         <th>{t('formBreakdownCommodityReq')}</th>
                         <th>{t('formBreakdownQtyReq')}</th>
                         <th>{t('formBreakdownUnitReq')}</th>
@@ -1453,6 +1459,19 @@ export default function ShippingInstruction() {
                     <tbody>
                       {form.breakdown.map((row, i) => (
                         <tr key={i}>
+                          <td>
+                            <select
+                              value={row.shipperId}
+                              onChange={(e) => updateBreakdownRow(i, 'shipperId', e.target.value)}
+                              className="shipping-instruction-inline-input"
+                              disabled={!lookups}
+                            >
+                              <option value="">—</option>
+                              {(lookups?.shippers || []).map((s) => (
+                                <option key={s.id} value={s.id}>{s.name}</option>
+                              ))}
+                            </select>
+                          </td>
                           <td>
                             <select
                               value={row.commodityId}
@@ -1497,6 +1516,7 @@ export default function ShippingInstruction() {
                             <input
                               value={row.contractNo}
                               onChange={(e) => updateBreakdownRow(i, 'contractNo', e.target.value)}
+                              maxLength={MAX_SI_BREAKDOWN_SHORT_CHARS}
                               className="shipping-instruction-inline-input"
                             />
                           </td>
@@ -1504,6 +1524,7 @@ export default function ShippingInstruction() {
                             <input
                               value={row.poNo}
                               onChange={(e) => updateBreakdownRow(i, 'poNo', e.target.value)}
+                              maxLength={MAX_SI_BREAKDOWN_SHORT_CHARS}
                               className="shipping-instruction-inline-input"
                             />
                           </td>
@@ -1511,6 +1532,7 @@ export default function ShippingInstruction() {
                             <input
                               value={row.remarks}
                               onChange={(e) => updateBreakdownRow(i, 'remarks', e.target.value)}
+                              maxLength={MAX_SI_BREAKDOWN_SHORT_CHARS}
                               className="shipping-instruction-inline-input"
                             />
                           </td>
@@ -1560,6 +1582,7 @@ export default function ShippingInstruction() {
                       style={{ minHeight: 56, resize: 'vertical' }}
                       value={form.blSplitText}
                       onChange={(e) => updateForm({ blSplitText: e.target.value })}
+                      maxLength={MAX_SI_BL_SPLIT_CHARS}
                       placeholder="e.g  1 X 1,430 MTS ..."
                       disabled={!lookups}
                     />
@@ -1572,6 +1595,7 @@ export default function ShippingInstruction() {
                       style={{ minHeight: 72, resize: 'vertical' }}
                       value={form.billOfLadingClause}
                       onChange={(e) => updateForm({ billOfLadingClause: e.target.value })}
+                      maxLength={MAX_SI_BILL_OF_LADING_CLAUSE_CHARS}
                       placeholder="e.g. 3 ORIGINAL and 3 NON-NEGOTIABLE…"
                       disabled={!lookups}
                     />
@@ -1584,6 +1608,7 @@ export default function ShippingInstruction() {
                       style={{ minHeight: 56, resize: 'vertical' }}
                       value={form.consigneeText}
                       onChange={(e) => updateForm({ consigneeText: e.target.value })}
+                      maxLength={MAX_SI_CONSIGNEE_CHARS}
                       placeholder="e.g. TO ORDER"
                       disabled={!lookups}
                     />
@@ -1596,6 +1621,7 @@ export default function ShippingInstruction() {
                       style={{ minHeight: 72, resize: 'vertical' }}
                       value={form.notifyPartyText}
                       onChange={(e) => updateForm({ notifyPartyText: e.target.value })}
+                      maxLength={MAX_SI_NOTIFY_PARTY_CHARS}
                       disabled={!lookups}
                     />
                   </div>
@@ -1607,6 +1633,7 @@ export default function ShippingInstruction() {
                       style={{ minHeight: 56, resize: 'vertical' }}
                       value={form.blIndicated}
                       onChange={(e) => updateForm({ blIndicated: e.target.value })}
+                      maxLength={MAX_SI_BL_INDICATED_CHARS}
                       placeholder="e.g. CLEAN SHIPPED ON BOARD FREIGHT PREPAID"
                       disabled={!lookups}
                     />
@@ -1653,6 +1680,7 @@ export default function ShippingInstruction() {
                     style={{ minHeight: 96, resize: 'vertical' }}
                     value={form.note}
                     onChange={(e) => updateForm({ note: e.target.value })}
+                    maxLength={MAX_SI_NOTE_CHARS}
                     placeholder="Write any notes here…"
                     disabled={!lookups}
                   />
@@ -1730,8 +1758,8 @@ export default function ShippingInstruction() {
                     <td className="si-table__col-actions" onClick={(e) => e.stopPropagation()}>
                       <SiRowActions
                         row={n}
-                        canApproveSi={canApprove('shipping-instruction')}
-                        canDeleteSi={canDelete('shipping-instruction')}
+                        canApproveSi={canApprove('shipment-plan')}
+                        canDeleteSi={canDelete('shipment-plan')}
                         onEdit={(e) => {
                           e.stopPropagation()
                           openEditModal(n.id)
@@ -1911,8 +1939,8 @@ export default function ShippingInstruction() {
                 </button>
                 <SiRowActions
                   row={n}
-                  canApproveSi={canApprove('shipping-instruction')}
-                  canDeleteSi={canDelete('shipping-instruction')}
+                  canApproveSi={canApprove('shipment-plan')}
+                  canDeleteSi={canDelete('shipment-plan')}
                   onEdit={(e) => {
                     e.stopPropagation()
                     openEditModal(n.id)
