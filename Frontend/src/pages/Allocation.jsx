@@ -38,6 +38,22 @@ import { mergeBerthsStateForPlanPov, mergeQueueRowsForPlanPov } from '../utils/a
 import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
 import EtcBreachBadge from '../components/EtcBreachBadge'
 import { getEtcBreach, getEtcBreachRagStatus } from '../utils/etcBreach'
+import AllocationLateSiNotice from '../components/AllocationLateSiNotice'
+import BerthingActionButton from '../components/BerthingActionButton'
+import {
+  berthingDisabledReason,
+  getBerthingPlanStatus,
+  isPlanOnlySchedulingRow,
+  showLateSiBerthingGateNotice,
+} from '../utils/berthingEligibility'
+import {
+  ETC_BREACH_STATUS_FILTER_LEGACY,
+  ETC_BREACH_STATUS_FILTER_PLAN,
+  LEGACY_STATUS_FILTER_DEFAULT,
+  PLAN_CENTRIC_STATUS_FILTER_DEFAULT,
+  planCentricSiColumnDisplay,
+  rowPassesAllocationStatusFilter,
+} from '../utils/allocationQueueStatusFilter'
 import '../styles/etc-breach.css'
 
 /** Standardized pipeline flow (match Dashboard Vessel pipeline) */
@@ -69,9 +85,7 @@ function getPhaseLink(label, vessel, plannedBerthingPath = '/allocation-plans') 
 
 function isVesselReadyToSail(vessel) {
   const opStatus = String(vessel?.status || '').toUpperCase()
-  return (
-    ['SIGNOFF_REQUESTED', 'SIGNOFF_APPROVED'].includes(opStatus) || Boolean(vessel?.actualCompletionDateTime)
-  )
+  return ['SIGNOFF_REQUESTED', 'SIGNOFF_APPROVED'].includes(opStatus)
 }
 
 const PRIORITY_OPTIONS = ['Low', 'Moderate', 'High', 'Critical']
@@ -131,8 +145,8 @@ const ALLOCATION_COLUMNS = [
     getSortValue: (r) => resolvePurposeLabel(r.purpose, r.loadDischarge).toLowerCase(),
   },
   { key: 'remark', label: 'Remark', getValue: (r) => r.remark || r.remarks || '—', getSortValue: (r) => (r.remark || r.remarks || '').toLowerCase() },
-  { key: 'eta', label: 'ETA', getValue: (r) => r.eta || '—', getSortValue: (r) => (r.eta || '').toLowerCase() },
-  { key: 'etb', label: 'ETB', getValue: (r) => r.etb || '—', getSortValue: (r) => (r.etb || '').toLowerCase() },
+  { key: 'eta', label: 'ETA', getValue: (r) => formatDateTimeDisplay(r.etaDateTime || r.eta) || '—', getSortValue: (r) => parseDateMs(r.etaDateTime || r.eta) ?? Number.NEGATIVE_INFINITY },
+  { key: 'etb', label: 'ETB', getValue: (r) => formatDateTimeDisplay(r.etbDateTime || r.etb) || '—', getSortValue: (r) => parseDateMs(r.etbDateTime || r.etb) ?? Number.NEGATIVE_INFINITY },
   { key: 'jetty', label: 'Jetty', getValue: (r) => r.jetty || '—', getSortValue: (r) => (r.jetty || '').toLowerCase() },
 ]
 
@@ -159,8 +173,8 @@ const PLAN_CENTRIC_ALLOCATION_COLUMNS = [
   {
     key: 'shippingInstruction',
     label: 'Shipping Instructions',
-    getValue: (r) => r.shippingInstruction || '—',
-    getSortValue: (r) => (r.shippingInstruction || '').toLowerCase(),
+    getValue: (r) => planCentricSiColumnDisplay(r),
+    getSortValue: (r) => planCentricSiColumnDisplay(r).toLowerCase(),
   },
   {
     key: 'commodityQty',
@@ -206,7 +220,7 @@ const PLAN_CENTRIC_ALLOCATION_COLUMNS = [
     getValue: (r) => r.surveyor || '—',
     getSortValue: (r) => (r.surveyor || '').toLowerCase(),
   },
-  { key: 'eta', label: 'ETA', getValue: (r) => r.eta || '—', getSortValue: (r) => (r.eta || '').toLowerCase(), getFilterValue: (r) => r.eta || '' },
+  { key: 'eta', label: 'ETA', getValue: (r) => formatDateTimeDisplay(r.etaDateTime || r.eta) || '—', getSortValue: (r) => parseDateMs(r.etaDateTime || r.eta) ?? Number.NEGATIVE_INFINITY, getFilterValue: (r) => formatDateTimeDisplay(r.etaDateTime || r.eta) || '' },
   {
     key: 'ta',
     label: 'TA',
@@ -214,7 +228,7 @@ const PLAN_CENTRIC_ALLOCATION_COLUMNS = [
     getSortValue: (r) => parseDateMs(r.taDateTime) ?? Number.NEGATIVE_INFINITY,
     getFilterValue: (r) => formatDateTimeDisplay(r.taDateTime) || '',
   },
-  { key: 'etb', label: 'ETB', getValue: (r) => r.etb || '—', getSortValue: (r) => (r.etb || '').toLowerCase(), getFilterValue: (r) => r.etb || '' },
+  { key: 'etb', label: 'ETB', getValue: (r) => formatDateTimeDisplay(r.etbDateTime || r.etb) || '—', getSortValue: (r) => parseDateMs(r.etbDateTime || r.etb) ?? Number.NEGATIVE_INFINITY, getFilterValue: (r) => formatDateTimeDisplay(r.etbDateTime || r.etb) || '' },
   {
     key: 'tb',
     label: 'TB',
@@ -282,7 +296,7 @@ function formatVesselRecordLastUpdatedLine(vessel) {
   if (raw == null || raw === '') return null
   const d = new Date(raw)
   if (Number.isNaN(d.getTime())) return null
-  return `Last updated on ${d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}${by ? ` by ${by}` : ''}`
+  return `Last updated on ${formatDateTimeDisplay(raw)}${by ? ` by ${by}` : ''}`
 }
 
 function deriveCurrentPhaseIndex(vessel) {
@@ -298,23 +312,6 @@ function deriveCurrentPhaseIndex(vessel) {
   if (!atBerthDone) return 2 // At-Berth (not started / in progress until TB recorded)
   if (!readyToSail) return 2 // At-Berth (still in progress)
   return 3 // Clearance (in progress/done depending on downstream meaning)
-}
-
-function getBerthingPlanStatus(row) {
-  if (row?.shiftingOut) return 'incoming'
-  const hasTb = Boolean(row?.tbDateTime)
-  const opStatus = String(row?.status || '').toUpperCase()
-  if (
-    hasTb ||
-    opStatus === 'DOCKED' ||
-    opStatus === 'IN_PROGRESS' ||
-    opStatus === 'POST_OPS' ||
-    opStatus === 'SIGNOFF_REQUESTED' ||
-    opStatus === 'SIGNOFF_APPROVED'
-  ) {
-    return 'berthed'
-  }
-  return 'incoming'
 }
 
 function getArrivalMsForJettyValidation(row) {
@@ -458,7 +455,9 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   const [filters, setFilters] = useState(() =>
     Object.fromEntries(ALLOCATION_FILTER_STATE_KEYS.map((k) => [k, '']))
   )
-  const [statusFilter, setStatusFilter] = useState({ incoming: true, berthed: false })
+  const [statusFilter, setStatusFilter] = useState(() =>
+    isPlanCentric ? { ...PLAN_CENTRIC_STATUS_FILTER_DEFAULT } : { ...LEGACY_STATUS_FILTER_DEFAULT }
+  )
   const [etcBreachFilter, setEtcBreachFilter] = useState(false)
   const [breachNowMs, setBreachNowMs] = useState(() => Date.now())
   const [sortState, setSortState] = useState({ key: 'sequence', dir: 'asc' })
@@ -685,7 +684,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         loadDischarge: r.loadDischarge ?? null,
         commodity: r.commodity || null,
         materialDisplay: schematicMaterialDisplay(r),
-        etaToCompletion: r.estimatedCompletionDateTime ? new Date(r.estimatedCompletionDateTime).toLocaleString() : '—',
+        etaToCompletion: r.estimatedCompletionDateTime ? formatDateTimeDisplay(r.estimatedCompletionDateTime) : '—',
         ragStatus: getEtcBreachRagStatus(r, breachNowMs),
         etcBreach: getEtcBreach(r, breachNowMs),
         status: r.status || null,
@@ -703,7 +702,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         loadDischarge: r.loadDischarge ?? null,
         commodity: r.commodity || null,
         materialDisplay: schematicMaterialDisplay(r),
-        etaToCompletion: r.estimatedCompletionDateTime ? new Date(r.estimatedCompletionDateTime).toLocaleString() : '—',
+        etaToCompletion: r.estimatedCompletionDateTime ? formatDateTimeDisplay(r.estimatedCompletionDateTime) : '—',
         ragStatus: getEtcBreachRagStatus(r, breachNowMs),
         etcBreach: getEtcBreach(r, breachNowMs),
         status: r.status || null,
@@ -723,7 +722,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
           loadDischarge: o.loadDischarge ?? null,
           commodity: null,
           materialDisplay: schematicMaterialDisplay(o),
-          etaToCompletion: o.estimatedCompletionDateTime ? new Date(o.estimatedCompletionDateTime).toLocaleString() : '—',
+          etaToCompletion: o.estimatedCompletionDateTime ? formatDateTimeDisplay(o.estimatedCompletionDateTime) : '—',
           ragStatus: getEtcBreachRagStatus(o, breachNowMs),
           etcBreach: getEtcBreach(o, breachNowMs),
           status: o.status || null,
@@ -1045,7 +1044,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         if (!canAllocateAfterCompletion) {
           const completionHint =
             earliestFreeMs != null
-              ? ` Earliest estimated completion: ${new Date(earliestFreeMs).toLocaleString()}.`
+              ? ` Earliest estimated completion: ${formatDateTimeDisplay(new Date(earliestFreeMs).toISOString())}.`
               : ' Estimated/actual completion for current occupants is not set.'
           setArrivalSaveMsg(
             `Jetty ${targetJettyId} is full (${others.length}/${Math.max(1, capacity)}). Example occupant: ${occupantName}.${completionHint} Please choose another jetty or set a later arrival.`
@@ -1069,33 +1068,48 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       demurrageLiabilityFromDateTime: arrivalUpdateForm.demurrageLiabilityFromDateTime || undefined,
       norDocumentNames: arrivalNorFiles.length > 0 ? arrivalNorFiles.map((f) => f.name) : undefined,
     }
-    const listWithUpdate = list.map((row) => (row.id === arrivalUpdateForm.id ? updated : row))
-    const bySequence = [...listWithUpdate].sort((a, b) => seqSortKey(a) - seqSortKey(b))
-    const renumbered = bySequence.map((row, i) => ({ ...row, sequence: i + 1 }))
-    setList(renumbered)
+    // Plan-centric table rows are merged; do not write them back into the flat API queue.
+    if (!isPlanCentric) {
+      const listWithUpdate = list.map((row) => (row.id === arrivalUpdateForm.id ? updated : row))
+      const bySequence = [...listWithUpdate].sort((a, b) => seqSortKey(a) - seqSortKey(b))
+      const renumbered = bySequence.map((row, i) => ({ ...row, sequence: i + 1 }))
+      setList(renumbered)
+    }
 
+    const planOnlySave = isPlanOnlySchedulingRow(updated)
     let saveRes
     try {
-      saveRes = await saveArrivalUpdateApi({
+      const arrivalPayload = {
         activityLogPage: activityLogPageKey,
         operationId: updated.operationId,
         shippingInstructionId: updated.shippingInstructionId,
+        shipmentPlanId: planOnlySave ? updated.shipmentPlanId : undefined,
         noPkk: updated.noPkk ?? '',
         jetty: updated.jetty ?? '',
         priority: updated.priority || '',
         etaDateTime: normalizeForApiOrEmpty(updated.etaDateTime, scheduleEntryTz),
-        taDateTime: normalizeForApiOrEmpty(updated.taDateTime, scheduleEntryTz),
         etbDateTime: normalizeForApiOrEmpty(updated.etbDateTime, scheduleEntryTz),
-        pobDateTime: normalizeForApiOrEmpty(updated.pobDateTime, scheduleEntryTz),
-        tbDateTime: normalizeForApiOrEmpty(updated.tbDateTime, scheduleEntryTz),
-        sobDateTime: normalizeForApiOrEmpty(updated.sobDateTime, scheduleEntryTz),
-        estimatedCompletionDateTime: normalizeForApiOrEmpty(updated.estimatedCompletionDateTime, scheduleEntryTz),
-        actualCompletionDateTime: normalizeForApiOrEmpty(updated.actualCompletionDateTime, scheduleEntryTz),
-        norTenderedDateTime: normalizeForApiOrEmpty(updated.norTenderedDateTime, scheduleEntryTz),
-        norAcceptedDateTime: normalizeForApiOrEmpty(updated.norAcceptedDateTime, scheduleEntryTz),
-        demurrageLiabilityFromDateTime: normalizeForApiOrEmpty(updated.demurrageLiabilityFromDateTime, scheduleEntryTz),
         remark: updated.remark ?? updated.remarks ?? '',
-      })
+      }
+      if (!planOnlySave) {
+        Object.assign(arrivalPayload, {
+          taDateTime: normalizeForApiOrEmpty(updated.taDateTime, scheduleEntryTz),
+          pobDateTime: normalizeForApiOrEmpty(updated.pobDateTime, scheduleEntryTz),
+          tbDateTime: normalizeForApiOrEmpty(updated.tbDateTime, scheduleEntryTz),
+          sobDateTime: normalizeForApiOrEmpty(updated.sobDateTime, scheduleEntryTz),
+          estimatedCompletionDateTime: normalizeForApiOrEmpty(
+            updated.estimatedCompletionDateTime,
+            scheduleEntryTz
+          ),
+          norTenderedDateTime: normalizeForApiOrEmpty(updated.norTenderedDateTime, scheduleEntryTz),
+          norAcceptedDateTime: normalizeForApiOrEmpty(updated.norAcceptedDateTime, scheduleEntryTz),
+          demurrageLiabilityFromDateTime: normalizeForApiOrEmpty(
+            updated.demurrageLiabilityFromDateTime,
+            scheduleEntryTz
+          ),
+        })
+      }
+      saveRes = await saveArrivalUpdateApi(arrivalPayload)
     } catch (e) {
       const msg =
         e instanceof ApiError
@@ -1249,7 +1263,6 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         tbDateTime: normalizeForApiOrEmpty(berthingTb, scheduleEntryTz),
         sobDateTime: normalizeForApiOrEmpty(berthingSob, scheduleEntryTz),
         estimatedCompletionDateTime: normalizeForApiOrEmpty(berthingEstimatedCompletion, scheduleEntryTz),
-        actualCompletionDateTime: normalizeForApiOrEmpty(berthingConfirmRow.actualCompletionDateTime, scheduleEntryTz),
         norTenderedDateTime: normalizeForApiOrEmpty(berthingConfirmRow.norTenderedDateTime, scheduleEntryTz),
         norAcceptedDateTime: normalizeForApiOrEmpty(berthingConfirmRow.norAcceptedDateTime, scheduleEntryTz),
         demurrageLiabilityFromDateTime: normalizeForApiOrEmpty(
@@ -1321,6 +1334,8 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
 
   const openBerthingConfirm = (r, e) => {
     e.stopPropagation()
+    const berthBlock = berthingDisabledReason(r, { planCentric: isPlanCentric })
+    if (berthBlock) return
     setBerthingErrors([])
     setBerthingConfirmRow(r)
     setBerthingSelectedJetty(getTargetJettyId(r) || '')
@@ -1462,7 +1477,6 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       tbDateTime: toDateTimeLocalValue(vessel.tbDateTime),
       sobDateTime: toDateTimeLocalValue(vessel.sobDateTime),
       estimatedCompletionDateTime: toDateTimeLocalValue(vessel.estimatedCompletionDateTime),
-      actualCompletionDateTime: toDateTimeLocalValue(vessel.actualCompletionDateTime),
       norTenderedDateTime: toDateTimeLocalValue(vessel.norTenderedDateTime),
       norAcceptedDateTime: toDateTimeLocalValue(vessel.norAcceptedDateTime),
       demurrageLiabilityFromDateTime: toDateTimeLocalValue(vessel.demurrageLiabilityFromDateTime),
@@ -1525,7 +1539,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         if (!canAllocateAfterCompletion) {
           const completionHint =
             earliestFreeMs != null
-              ? ` Earliest estimated completion: ${new Date(earliestFreeMs).toLocaleString()}.`
+              ? ` Earliest estimated completion: ${formatDateTimeDisplay(new Date(earliestFreeMs).toISOString())}.`
               : ' Estimated/actual completion for current occupants is not set.'
           setVesselDetailEditError(
             `Jetty ${targetJettyId} is full (${others.length}/${Math.max(1, capacity)}). Example occupant: ${occupantName}.${completionHint} Please choose another jetty or set a later arrival.`
@@ -1555,10 +1569,6 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         sobDateTime: normalizeForApiOrEmpty(vesselDetailDraft.sobDateTime, scheduleEntryTz),
         estimatedCompletionDateTime: normalizeForApiOrEmpty(
           vesselDetailDraft.estimatedCompletionDateTime,
-          scheduleEntryTz
-        ),
-        actualCompletionDateTime: normalizeForApiOrEmpty(
-          vesselDetailDraft.actualCompletionDateTime,
           scheduleEntryTz
         ),
         norTenderedDateTime: normalizeForApiOrEmpty(vesselDetailDraft.norTenderedDateTime, scheduleEntryTz),
@@ -1664,27 +1674,56 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
 
   const filterKeys = useMemo(() => allocationColumnDefsBase.map((c) => c.key), [allocationColumnDefsBase])
 
-  const filteredList = list.filter((r) => {
-    const rowStatus = getBerthingPlanStatus(r)
-    if (etcBreachFilter) {
-      if (rowStatus !== 'berthed' || !getEtcBreach(r, breachNowMs)) return false
-    } else if (!statusFilter[rowStatus]) {
-      return false
-    }
-    return filterKeys.every((key) => {
-      const f = (filters[key] || '').trim().toLowerCase()
-      if (!f) return true
-      const col = allocationColumnDefsBase.find((c) => c.key === key)
-      const val = col?.getFilterValue
-        ? col.getFilterValue(r)
-        : key === 'purpose'
-          ? resolvePurposeLabel(r.purpose, r.loadDischarge) || r[key]
-          : key === 'planReference'
-            ? r.planReference || (r.shipmentPlanId != null ? `Plan #${r.shipmentPlanId}` : '')
-            : r[key]
-      return String(val ?? '').toLowerCase().includes(f)
+  /** Plan-centric table is one row per plan — merge before status/SI slice filters. */
+  const planCentricMergedQueue = useMemo(() => {
+    if (!isPlanCentric) return []
+    const { mergedRows } = mergeQueueRowsForPlanPov(list, { idMode: 'representative' })
+    // Safety dedup: the merge should already produce one row per plan, but guard
+    // against any raw rows that slipped through with a duplicate shipmentPlanId.
+    const seenPlanIds = new Set()
+    return mergedRows.filter((r) => {
+      const pid = r?.shipmentPlanId != null ? Number(r.shipmentPlanId) : null
+      if (pid == null || Number.isNaN(pid)) return true  // unlinked rows always pass
+      if (seenPlanIds.has(pid)) return false
+      seenPlanIds.add(pid)
+      return true
     })
-  })
+  }, [isPlanCentric, list])
+
+  const filteredList = useMemo(() => {
+    const source = isPlanCentric ? planCentricMergedQueue : list
+    return source.filter((r) => {
+      const rowStatus = getBerthingPlanStatus(r, { planCentric: isPlanCentric })
+      if (etcBreachFilter) {
+        if (rowStatus !== 'berthed' || !getEtcBreach(r, breachNowMs)) return false
+      } else if (!rowPassesAllocationStatusFilter(r, rowStatus, statusFilter, isPlanCentric)) {
+        return false
+      }
+      return filterKeys.every((key) => {
+        const f = (filters[key] || '').trim().toLowerCase()
+        if (!f) return true
+        const col = allocationColumnDefsBase.find((c) => c.key === key)
+        const val = col?.getFilterValue
+          ? col.getFilterValue(r)
+          : key === 'purpose'
+            ? resolvePurposeLabel(r.purpose, r.loadDischarge) || r[key]
+            : key === 'planReference'
+              ? r.planReference || (r.shipmentPlanId != null ? `Plan #${r.shipmentPlanId}` : '')
+              : r[key]
+        return String(val ?? '').toLowerCase().includes(f)
+      })
+    })
+  }, [
+    isPlanCentric,
+    planCentricMergedQueue,
+    list,
+    etcBreachFilter,
+    breachNowMs,
+    statusFilter,
+    filterKeys,
+    filters,
+    allocationColumnDefsBase,
+  ])
 
   const sortedList = [...filteredList].sort((a, b) => {
     const col = allocationColumnDefsBase.find((c) => c.key === sortState.key)
@@ -1696,11 +1735,10 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     return sortState.dir === 'asc' ? cmp : -cmp
   })
 
-  /** One row per shipment plan (merged SIs), same ordering as filters; rep row id for forms / optimistic updates. */
+  /** Plan-centric queue: already merged + filtered in filteredList. */
   const sortedPlanQueueList = useMemo(() => {
     if (!isPlanCentric) return null
-    const merged = mergeQueueRowsForPlanPov(filteredList, { idMode: 'representative' }).mergedRows
-    return [...merged].sort((a, b) => {
+    return [...filteredList].sort((a, b) => {
       const col = allocationColumnDefsBase.find((c) => c.key === sortState.key)
       if (!col) return 0
       const va = col.getSortValue(a)
@@ -1748,9 +1786,12 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                   {shiftSavingByOpId[r.operationId] ? tAlloc('saving') : tAlloc('reDock')}
                 </button>
               ) : (
-                <button type="button" className="btn btn--success btn--small" onClick={(e) => openBerthingConfirm(r, e)}>
-                  {tAlloc('berthing')}
-                </button>
+                <BerthingActionButton
+                  row={r}
+                  isPlanCentric={isPlanCentric}
+                  label={tAlloc('berthing')}
+                  onBerthing={openBerthingConfirm}
+                />
               )}
             </div>
           </td>
@@ -1902,10 +1943,10 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                     }}
                     aria-label={tAlloc('openSiDocument')}
                   >
-                    {r.shippingInstruction || '—'}
+                    {isPlanCentric ? planCentricSiColumnDisplay(r) : r.shippingInstruction || '—'}
                   </a>
                 ) : (
-                  r.shippingInstruction || '—'
+                  isPlanCentric ? planCentricSiColumnDisplay(r) : r.shippingInstruction || '—'
                 )
               ) : col.key === 'commodityQty' ? (
                 renderCommodityQtyCell(r)
@@ -2094,40 +2135,45 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
               const currentPhaseIndex = deriveCurrentPhaseIndex(vessel)
               const currentPhaseLabel = phases[Math.min(Math.max(currentPhaseIndex, 0), phases.length - 1)] || '—'
               const readyToSail = isVesselReadyToSail(vessel)
-              const formatDateTime = (val) => {
+              const formatModalDateTime = (val) => {
                 if (val == null || val === '') return '—'
-                if (typeof val === 'string' && val.includes('T')) return new Date(val).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
-                return String(val)
+                return formatDateTimeDisplay(val)
               }
-              const eta = formatDateTime(vessel?.etaDateTime)
-              const ta = formatDateTime(vessel?.taDateTime)
-              const etb = formatDateTime(vessel?.etbDateTime)
-              const pob = formatDateTime(vessel?.pobDateTime)
-              const tb = formatDateTime(vessel?.tbDateTime)
-              const sob = formatDateTime(vessel?.sobDateTime)
-              const norTendered = formatDateTime(vessel?.norTenderedDateTime)
-              const norAccepted = formatDateTime(vessel?.norAcceptedDateTime)
-              const demurrageFrom = formatDateTime(vessel?.demurrageLiabilityFromDateTime)
-              const estCompletion = formatDateTime(vessel?.estimatedCompletionDateTime)
-              const actualCompletion = formatDateTime(vessel?.actualCompletionDateTime)
+              const eta = formatModalDateTime(vessel?.etaDateTime)
+              const ta = formatModalDateTime(vessel?.taDateTime)
+              const etb = formatModalDateTime(vessel?.etbDateTime)
+              const pob = formatModalDateTime(vessel?.pobDateTime)
+              const tb = formatModalDateTime(vessel?.tbDateTime)
+              const sob = formatModalDateTime(vessel?.sobDateTime)
+              const norTendered = formatModalDateTime(vessel?.norTenderedDateTime)
+              const norAccepted = formatModalDateTime(vessel?.norAcceptedDateTime)
+              const demurrageFrom = formatModalDateTime(vessel?.demurrageLiabilityFromDateTime)
+              const estCompletion = formatModalDateTime(vessel?.estimatedCompletionDateTime)
+              const operationsCompleted = formatModalDateTime(vessel?.operationsCompletedDateTime)
+              const actualCompletion = formatModalDateTime(vessel?.actualCompletionDateTime)
               const tbMs = parseDateMs(vessel?.tbDateTime)
               const estCompMs = parseDateMs(vessel?.estimatedCompletionDateTime)
+              const opsCompMs = parseDateMs(vessel?.operationsCompletedDateTime)
               const actualCompMs = parseDateMs(vessel?.actualCompletionDateTime)
               const nowMs = Date.now()
               const isPlanDetailMode = Boolean(isPlanCentric && vesselDetailPlanId != null)
               const planTbEffective = planDetail?.tb ?? planDetail?.dockingStartTime
-              const planEta = formatDateTime(planDetail?.eta)
-              const planTa = formatDateTime(planDetail?.ta)
-              const planEtb = formatDateTime(planDetail?.etb)
-              const planTb = formatDateTime(planTbEffective)
-              const planEstCompletion = formatDateTime(planDetail?.estimatedCompletionTime)
+              const planEta = formatModalDateTime(planDetail?.eta)
+              const planTa = formatModalDateTime(planDetail?.ta)
+              const planEtb = formatModalDateTime(planDetail?.etb)
+              const planTb = formatModalDateTime(planTbEffective)
+              const planEstCompletion = formatModalDateTime(planDetail?.estimatedCompletionTime)
+              const planOpsCompleted = formatModalDateTime(planDetail?.operationsCompletedAt)
               const planTbMs = parseDateMs(planTbEffective)
               const planEstCompMs = parseDateMs(planDetail?.estimatedCompletionTime)
+              const planOpsCompMs = parseDateMs(planDetail?.operationsCompletedAt)
               const planActCompMs = parseDateMs(planDetail?.actualCompletionTime)
               const planTimeSinceBerthing =
-                planTbMs != null ? formatDuration(Math.max(0, (planActCompMs ?? nowMs) - planTbMs)) : '—'
+                planTbMs != null
+                  ? formatDuration(Math.max(0, (planActCompMs ?? planOpsCompMs ?? nowMs) - planTbMs))
+                  : '—'
               const planEstTimeRemaining =
-                planActCompMs != null
+                planOpsCompMs != null
                   ? tAlloc('planModalCompleted', { defaultValue: 'Completed' })
                   : planEstCompMs != null
                     ? planEstCompMs > nowMs
@@ -2135,10 +2181,12 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                       : tAlloc('planModalOverdue', { defaultValue: 'Overdue' })
                     : '—'
               const timeSinceBerthing =
-                tbMs != null ? formatDuration(Math.max(0, (actualCompMs ?? nowMs) - tbMs)) : '—'
+                tbMs != null
+                  ? formatDuration(Math.max(0, (actualCompMs ?? opsCompMs ?? nowMs) - tbMs))
+                  : '—'
               const estTimeRemaining =
-                actualCompMs != null
-                  ? 'Completed'
+                opsCompMs != null
+                  ? tAlloc('planModalCompleted', { defaultValue: 'Completed' })
                   : estCompMs != null
                     ? estCompMs > nowMs
                       ? formatDuration(estCompMs - nowMs)
@@ -2369,6 +2417,14 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                             <div className="berthing-modal__vessel-row">
                               <dt title={tAlloc('ttPlanEstCompletion')}>{tAlloc('planModalLblEstCompletion', { defaultValue: 'Est. Completion' })}</dt>
                               <dd>{planEstCompletion}</dd>
+                            </div>
+                            <div className="berthing-modal__vessel-row">
+                              <dt>{tAlloc('operationsCompleted')}</dt>
+                              <dd>{planOpsCompleted || '—'}</dd>
+                            </div>
+                            <div className="berthing-modal__vessel-row">
+                              <dt>{tAlloc('actualCompletion')}</dt>
+                              <dd>{formatModalDateTime(planDetail?.actualCompletionTime) || '—'}</dd>
                             </div>
                             <div className="berthing-modal__vessel-row">
                               <dt title={tAlloc('ttPlanEstRemaining')}>{tAlloc('planModalLblEstRemaining', { defaultValue: 'Est. Time Remaining' })}</dt>
@@ -2605,24 +2661,12 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                         </dd>
                       </div>
                       <div className="berthing-modal__vessel-row">
-                        <dt>Actual Completion</dt>
-                        <dd>
-                          {vesselDetailEditing && d ? (
-                            <input
-                              type="datetime-local"
-                              className="berthing-modal__input"
-                              value={d.actualCompletionDateTime}
-                              onChange={(e) =>
-                                setVesselDetailDraft((prev) =>
-                                  prev ? { ...prev, actualCompletionDateTime: e.target.value } : prev
-                                )
-                              }
-                              aria-label="Actual completion"
-                            />
-                          ) : (
-                            actualCompletion
-                          )}
-                        </dd>
+                        <dt>{tAlloc('operationsCompleted')}</dt>
+                        <dd>{operationsCompleted || '—'}</dd>
+                      </div>
+                      <div className="berthing-modal__vessel-row">
+                        <dt>{tAlloc('actualCompletion')}</dt>
+                        <dd>{actualCompletion || '—'}</dd>
                       </div>
                       <div className="berthing-modal__vessel-row">
                         <dt>Est. Time Remaining</dt>
@@ -3303,6 +3347,12 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
             </h2>
 
             <div className="vessel-detail-modal__body">
+              {isPlanCentric && showLateSiBerthingGateNotice(arrivalUpdateForm, { planCentric: true }) && (
+                <AllocationLateSiNotice
+                  title={tAlloc('lateSiSchedulingNoticeTitle')}
+                  body={tAlloc('lateSiSchedulingNoticeBody')}
+                />
+              )}
               <section className="berthing-modal__card berthing-modal__card--vessel">
                 <h3 className="berthing-modal__card-title">Vessel info</h3>
                 <dl className="berthing-modal__vessel-dl">
@@ -3327,6 +3377,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                 </dl>
               </section>
 
+              {!isPlanOnlySchedulingRow(arrivalUpdateForm) && (
               <section className="berthing-modal__form-section">
                 <h3 className="berthing-modal__form-section-title">Arrival Documents</h3>
                 {arrivalSaveMsg && (
@@ -3470,9 +3521,23 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                   </p>
                 </div>
               </section>
+              )}
 
               <section className="berthing-modal__form-section">
                 <h3 className="berthing-modal__form-section-title">Times & jetty</h3>
+                {isPlanOnlySchedulingRow(arrivalUpdateForm) && (
+                  <div className="berthing-modal__field">
+                    <label htmlFor="arrival-noPkk-plan" className="berthing-modal__label">No PKK</label>
+                    <input
+                      id="arrival-noPkk-plan"
+                      type="text"
+                      className="berthing-modal__input"
+                      value={arrivalUpdateForm.noPkk ?? ''}
+                      onChange={(e) => setArrivalUpdateForm((f) => ({ ...f, noPkk: e.target.value }))}
+                      placeholder="e.g. PKK-2026-001"
+                    />
+                  </div>
+                )}
                 <div className="berthing-modal__field">
                   <label htmlFor="arrival-priority" className="berthing-modal__label">Priority</label>
                   <select
@@ -3497,6 +3562,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                     onChange={(e) => setArrivalUpdateForm((f) => ({ ...f, etaDateTime: e.target.value }))}
                   />
                 </div>
+                {!isPlanOnlySchedulingRow(arrivalUpdateForm) && (
                 <div className="berthing-modal__field">
                   <label htmlFor="arrival-ta" className="berthing-modal__label">TA</label>
                   <input
@@ -3507,6 +3573,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                     onChange={(e) => setArrivalUpdateForm((f) => ({ ...f, taDateTime: e.target.value }))}
                   />
                 </div>
+                )}
                 <div className="berthing-modal__field">
                   <label htmlFor="arrival-etb" className="berthing-modal__label">ETB</label>
                   <input
@@ -3517,6 +3584,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                     onChange={(e) => setArrivalUpdateForm((f) => ({ ...f, etbDateTime: e.target.value }))}
                   />
                 </div>
+                {!isPlanOnlySchedulingRow(arrivalUpdateForm) && (
                 <div className="berthing-modal__field">
                   <label htmlFor="arrival-estimated-completion" className="berthing-modal__label">
                     Estimated completion
@@ -3531,6 +3599,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                     }
                   />
                 </div>
+                )}
                 <div className="berthing-modal__field">
                   <label htmlFor="arrival-jetty" className="berthing-modal__label">Jetty</label>
                   <select
@@ -3584,38 +3653,60 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
 
       <section className="card">
         <h2 className="card__title">{isPlanCentric ? tAlloc('incomingTitlePlan') : tAlloc('incomingTitle')}</h2>
-        <div className="allocation-plan-status-filter" role="group" aria-label={tAlloc('statusFilterAria')}>
-          <span className="allocation-plan-status-filter__label">{tAlloc('statusLabel')}</span>
-          <label className="allocation-plan-status-filter__option">
-            <input
-              type="checkbox"
-              checked={statusFilter.incoming}
-              onChange={(e) => setStatusFilter((prev) => ({ ...prev, incoming: e.target.checked }))}
-            />
-            {tAlloc('statusIncoming')}
-          </label>
-          <label className="allocation-plan-status-filter__option">
-            <input
-              type="checkbox"
-              checked={statusFilter.berthed}
-              onChange={(e) => setStatusFilter((prev) => ({ ...prev, berthed: e.target.checked }))}
-            />
-            {tAlloc('statusBerthed')}
-          </label>
-          <label className="allocation-plan-status-filter__option">
-            <input
-              type="checkbox"
-              checked={etcBreachFilter}
-              onChange={(e) => {
-                const checked = e.target.checked
-                setEtcBreachFilter(checked)
-                if (checked) {
-                  setStatusFilter({ incoming: false, berthed: true })
+        <div className="allocation-plan-status-filter">
+          <div className="allocation-plan-status-filter__row">
+            <span className="allocation-plan-status-filter__label">{tAlloc('statusLabel')}</span>
+            <div
+              className="allocation-plan-status-filter__toggles"
+              role="group"
+              aria-label={isPlanCentric ? tAlloc('statusFilterAriaPlan') : tAlloc('statusFilterAria')}
+            >
+              <button
+                type="button"
+                className={`btn btn--small ${statusFilter.showIncoming && !etcBreachFilter ? 'btn--primary' : 'btn--ghost'}`}
+                aria-pressed={Boolean(statusFilter.showIncoming) && !etcBreachFilter}
+                disabled={etcBreachFilter}
+                onClick={() =>
+                  setStatusFilter((prev) => ({ ...prev, showIncoming: !prev.showIncoming }))
                 }
-              }}
-            />
-            {tAlloc('statusEtcBreach')}
-          </label>
+              >
+                {isPlanCentric ? tAlloc('statusShowIncoming') : tAlloc('statusIncoming')}
+              </button>
+              <button
+                type="button"
+                className={`btn btn--small ${statusFilter.showBerthed || etcBreachFilter ? 'btn--primary' : 'btn--ghost'}`}
+                aria-pressed={Boolean(statusFilter.showBerthed) || etcBreachFilter}
+                onClick={() => {
+                  if (etcBreachFilter) {
+                    setEtcBreachFilter(false)
+                    setStatusFilter((prev) => ({ ...prev, showBerthed: true, showIncoming: false }))
+                    return
+                  }
+                  setStatusFilter((prev) => ({ ...prev, showBerthed: !prev.showBerthed }))
+                }}
+              >
+                {tAlloc('statusBerthed')}
+              </button>
+              <button
+                type="button"
+                className={`btn btn--small ${etcBreachFilter ? 'btn--primary' : 'btn--ghost'}`}
+                aria-pressed={etcBreachFilter}
+                onClick={() => {
+                  const next = !etcBreachFilter
+                  setEtcBreachFilter(next)
+                  if (next) {
+                    setStatusFilter(
+                      isPlanCentric
+                        ? { ...ETC_BREACH_STATUS_FILTER_PLAN }
+                        : { ...ETC_BREACH_STATUS_FILTER_LEGACY }
+                    )
+                  }
+                }}
+              >
+                {tAlloc('statusEtcBreach')}
+              </button>
+            </div>
+          </div>
         </div>
         {isPlanCentric && planSequenceSwapError ? (
           <p role="alert" style={{ color: 'var(--danger-600, #c00)', marginBottom: 'var(--spacing-2)' }}>
@@ -3829,10 +3920,10 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                               }}
                               aria-label={tAlloc('openSiDocument')}
                             >
-                              {r.shippingInstruction || '—'}
+                              {isPlanCentric ? planCentricSiColumnDisplay(r) : r.shippingInstruction || '—'}
                             </a>
                           ) : (
-                            r.shippingInstruction || '—'
+                            isPlanCentric ? planCentricSiColumnDisplay(r) : r.shippingInstruction || '—'
                           )
                         ) : col.key === 'commodityQty' ? (
                           renderCommodityQtyCell(r)
@@ -3873,9 +3964,12 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                       {shiftSavingByOpId[r.operationId] ? tAlloc('saving') : tAlloc('reDock')}
                     </button>
                   ) : (
-                    <button type="button" className="btn btn--success btn--small" onClick={(e) => openBerthingConfirm(r, e)}>
-                      {tAlloc('berthing')}
-                    </button>
+                    <BerthingActionButton
+                      row={r}
+                      isPlanCentric={isPlanCentric}
+                      label={tAlloc('berthing')}
+                      onBerthing={openBerthingConfirm}
+                    />
                   )}
                 </div>
                 {expandedMobileId === r.id ? (

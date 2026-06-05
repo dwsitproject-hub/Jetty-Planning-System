@@ -1,20 +1,15 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import InteractiveTooltip from './InteractiveTooltip'
+import { formatDateDisplay } from '../utils/formatDateTimeDisplay'
 
 const CHART_W = 760
 const CHART_H = 268
 const M = { left: 48, right: 24, top: 24, bottom: 76, yLabelX: 18 }
 
-function formatWeekRangeLabel(startIso, endIso, lang) {
+function formatWeekRangeLabel(startIso, endIso) {
   if (!startIso || !endIso) return '—'
-  const locale = lang?.startsWith('id') ? 'id-ID' : 'en-US'
-  const opts = { month: 'short', day: 'numeric', year: 'numeric' }
-  const d1 = new Date(`${startIso}T12:00:00`)
-  const d2 = new Date(`${endIso}T12:00:00`)
-  if (Number.isNaN(d1.getTime()) || Number.isNaN(d2.getTime())) return '—'
-  const f = new Intl.DateTimeFormat(locale, opts)
-  return `${f.format(d1)} - ${f.format(d2)}`
+  return `${formatDateDisplay(startIso)} - ${formatDateDisplay(endIso)}`
 }
 
 function buildYAxis(maxValue) {
@@ -222,7 +217,7 @@ export default function DashboardV2WeeklyTrends({
   const { t, i18n } = useTranslation('dashboard')
 
   const weekLabels = useMemo(
-    () => (data || []).map((w) => formatWeekRangeLabel(w.startDate, w.endDate, i18n.language)),
+    () => (data || []).map((w) => formatWeekRangeLabel(w.startDate, w.endDate)),
     [data, i18n.language],
   )
 

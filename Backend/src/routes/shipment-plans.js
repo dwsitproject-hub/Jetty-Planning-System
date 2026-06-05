@@ -93,6 +93,7 @@ function toPlanListRow(row) {
     pob: timestampToIso(row.pob),
     sob: timestampToIso(row.sob),
     estimatedCompletionTime: timestampToIso(row.estimated_completion_time),
+    operationsCompletedAt: timestampToIso(row.operations_completed_at),
     actualCompletionTime: timestampToIso(row.actual_completion_time),
     castOffAt: timestampToIso(row.cast_off_at),
     sailedAt: timestampToIso(row.sailed_at),
@@ -690,6 +691,12 @@ router.post('/:id/approve', requireAuth, async (req, res) => {
        WHERE id = $1`,
       [planId, req.userId ?? null]
     );
+    await client.query(
+      `UPDATE shipping_instructions
+       SET status = 'Approved', updated_at = NOW()
+       WHERE shipment_plan_id = $1 AND deleted_at IS NULL`,
+      [planId]
+    );
     await client.query('COMMIT');
     writeActivityLog({
       pageKey: PAGE_KEY,
@@ -758,6 +765,12 @@ router.post('/:id/reject', requireAuth, async (req, res) => {
          updated_by = $3
        WHERE id = $1`,
       [planId, reason, req.userId ?? null]
+    );
+    await client.query(
+      `UPDATE shipping_instructions
+       SET status = 'Draft', updated_at = NOW()
+       WHERE shipment_plan_id = $1 AND deleted_at IS NULL`,
+      [planId]
     );
     await client.query('COMMIT');
     writeActivityLog({

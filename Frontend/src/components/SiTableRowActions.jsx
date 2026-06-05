@@ -128,7 +128,7 @@ export function siApproveDisabledReason(n, canApproveSi) {
 
 export function siViewDocDisabledReason(n) {
   if (canViewAsDocument(n)) return null
-  return 'Disabled: open the SI document after the instruction is approved (sign-off complete).'
+  return 'Disabled: open the SI document after the shipment plan is approved.'
 }
 
 export function siDeleteDisabledReason(n, canDeleteSi) {
@@ -141,17 +141,15 @@ export function siDeleteDisabledReason(n, canDeleteSi) {
   return null
 }
 
-/** Actions column: Edit | Submit | Approve | View SI | Delete — same button sizing as SI table. */
-export function SiRowActions({ row: n, canApproveSi, canDeleteSi, onEdit, onRequestApproval, onOpenApprove, onViewDocument, onDelete }) {
+/** Actions column: Edit | View SI | Delete — SI approval is managed at shipment plan level. */
+export function SiRowActions({ row: n, canDeleteSi, onEdit, onViewDocument, onDelete }) {
   const { t } = useTranslation('shippingInstruction')
   const editReason = siEditDisabledReason(n)
-  const submitReason = siSubmitDisabledReason(n)
-  const approveReason = siApproveDisabledReason(n, canApproveSi)
   const viewReason = siViewDocDisabledReason(n)
   const deleteReason = siDeleteDisabledReason(n, canDeleteSi)
 
   return (
-    <div className="si-table__action-slots">
+    <div className="si-table__action-slots si-table__action-slots--si-docs">
       <div className="si-table__action-slot">
         <button
           type="button"
@@ -162,30 +160,6 @@ export function SiRowActions({ row: n, canApproveSi, canDeleteSi, onEdit, onRequ
           onClick={onEdit}
         >
           <IconEdit />
-        </button>
-      </div>
-      <div className="si-table__action-slot">
-        <button
-          type="button"
-          className="btn btn--primary btn--small si-table__action-btn si-table__action-icon"
-          disabled={Boolean(submitReason)}
-          title={submitReason || t('actionSubmitForApproval')}
-          aria-label={submitReason || t('actionSubmitForApproval')}
-          onClick={onRequestApproval}
-        >
-          <IconRequestApproval />
-        </button>
-      </div>
-      <div className="si-table__action-slot">
-        <button
-          type="button"
-          className="btn btn--primary btn--small si-table__action-btn si-table__action-icon"
-          disabled={Boolean(approveReason)}
-          title={approveReason || t('actionOpenApproval')}
-          aria-label={approveReason || t('actionOpenApproval')}
-          onClick={onOpenApprove}
-        >
-          <IconApprove />
         </button>
       </div>
       <div className="si-table__action-slot">

@@ -14,6 +14,8 @@
   "addAnotherSi": "+ Add another shipping instruction",
   "deleteSiBlock": "Delete",
   "createPlanAndSisSubmit": "Create plan & {{count}} SI(s)",
+  "createPlanOnlySubmit": "Create plan only",
+  "createPlanOnlySuccess": "Shipment plan created. Assign jetty on Allocation & Berthing, then add shipping instructions when ready.",
   "createNeedAtLeastOneSi": "Add at least one shipping instruction before saving.",
   "createSiValidationError": "Shipping instruction {{n}}: {{message}}",
   "createPlanSavedSiFailed": "Plan {{planRef}} was created, but SI {{n}} failed: {{message}}. Add the remaining SIs from the plan hub.",

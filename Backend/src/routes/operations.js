@@ -72,6 +72,7 @@ const PLAN_TIMELINE_SELECT = `
      sp.docking_start_time AS plan_docking_start_time,
      sp.estimated_completion_time AS plan_estimated_completion_time,
      sp.actual_completion_time AS plan_actual_completion_time,
+     sp.operations_completed_at AS plan_operations_completed_at,
      sp.nor_tendered_at AS plan_nor_tendered_at,
      sp.nor_accepted_at AS plan_nor_accepted_at,
      sp.demurrage_liability_from_at AS plan_demurrage_liability_from_at,
@@ -1077,7 +1078,7 @@ router.post('/:id/signoff', async (req, res) => {
   await pool.query(
     `UPDATE operations SET
        status = 'SIGNOFF_APPROVED',
-       actual_completion_time = COALESCE(actual_completion_time, NOW()),
+       operations_completed_at = COALESCE(operations_completed_at, NOW()),
        updated_at = NOW()
      WHERE id = $1 AND deleted_at IS NULL`,
     [id]
@@ -1092,7 +1093,11 @@ router.post('/:id/signoff', async (req, res) => {
     summary: 'Signed off operation (SIGNOFF_APPROVED)',
     changes: [
       { field: 'Status', from: opRow?.status ?? null, to: 'SIGNOFF_APPROVED' },
-      { field: 'Actual Completion', from: opRow?.actual_completion_time ?? null, to: signedRow?.actual_completion_time ?? null },
+      {
+        field: 'Operations completed',
+        from: opRow?.operations_completed_at ?? null,
+        to: signedRow?.operations_completed_at ?? null,
+      },
     ],
     meta: { operationId: id },
     actorUserId: req.userId ?? null,
@@ -1157,6 +1162,7 @@ router.post('/:id/depart', async (req, res) => {
         `UPDATE operations SET
            status = 'SAILED',
            cast_off_at = $1,
+           actual_completion_time = COALESCE(actual_completion_time, $1),
            clearance_document_url = $2,
            vessel_photo_url = $3,
            sailed_at = NOW(),
@@ -1312,6 +1318,7 @@ export function toOp(row) {
     dockingStartTime: planTimeline(row, 'plan_docking_start_time', 'docking_start_time'),
     estimatedCompletionTime: planTimeline(row, 'plan_estimated_completion_time', 'estimated_completion_time'),
     actualCompletionTime: planTimeline(row, 'plan_actual_completion_time', 'actual_completion_time'),
+    operationsCompletedAt: planTimeline(row, 'plan_operations_completed_at', 'operations_completed_at'),
     norTenderedAt: planTimeline(row, 'plan_nor_tendered_at', 'nor_tendered_at'),
     norAcceptedAt: planTimeline(row, 'plan_nor_accepted_at', 'nor_accepted_at'),
     tbAt: planTimeline(row, 'plan_tb', 'tb'),

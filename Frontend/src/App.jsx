@@ -13,7 +13,6 @@ import DashboardV2 from './pages/DashboardV2'
 import ShipmentPlansList from './pages/ShipmentPlansList'
 import ShipmentPlanHub from './pages/ShipmentPlanHub'
 import ShipmentPlanApproval from './pages/ShipmentPlanApproval'
-import SIApproval from './pages/SIApproval'
 import SIView from './pages/SIView'
 import Allocation from './pages/Allocation'
 import AllocationPlanBerthing from './pages/AllocationPlanBerthing'
@@ -82,7 +81,17 @@ function App() {
                       />
                     }
                   />
-                  <Route path="/shipping-instruction/approval/:siId" element={<SIApproval />} />
+                  <Route
+                    path="/shipping-instruction/approval/:siId"
+                    element={
+                      <RetiredPage
+                        title="SI approval (retired)"
+                        body="Shipping instruction approval is managed at shipment plan level. Open the parent shipment plan and use Plan approval instead."
+                        primaryHref="/shipment-plans"
+                        primaryLabel="Open Shipment plans"
+                      />
+                    }
+                  />
                   <Route path="/shipping-instruction/view/:siId" element={<SIView />} />
                   <Route path="/shipment-plans/approval/:planId" element={<ShipmentPlanApproval />} />
                   <Route path="/shipment-plans/:planId" element={<ShipmentPlanHub />} />

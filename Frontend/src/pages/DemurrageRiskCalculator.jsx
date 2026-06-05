@@ -7,6 +7,7 @@ import { fetchSiLookupList } from '../api/siLookupCrud'
 import { fetchShippingInstruction, fetchShippingInstructionCandidates } from '../api/shippingInstructions'
 import { useRbac } from '../context/RbacContext'
 import '../styles/allocation.css'
+import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import '../styles/demurrage-risk-calculator.css'
 
 const METRIC_OPTIONS = ['KLPH', 'MTPH', 'MTPD']
@@ -23,13 +24,6 @@ function formatLocalInput(dt) {
   if (Number.isNaN(d.getTime())) return ''
   const pad = (x) => String(x).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function formatDisplayDateTime(dt) {
-  if (!dt) return '—'
-  const d = new Date(dt)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
 }
 
 function formatFixed2(value) {
@@ -240,7 +234,7 @@ export default function DemurrageRiskCalculator() {
     return Number.isNaN(d.getTime()) ? null : d.toISOString()
   }, [operation?.dockingStartTime, operation?.tbAt, operation?.etb, shippingInstruction?.etaFrom, shippingInstruction?.etaTo])
 
-  const startForCalcDisplay = useMemo(() => formatDisplayDateTime(startInstantIso), [startInstantIso])
+  const startForCalcDisplay = useMemo(() => formatDateTimeDisplay(startInstantIso), [startInstantIso])
 
   /** First MT line port rate — hint when metric is KLPH (needs density / override). */
   const firstLinePortRate = useMemo(() => {
@@ -804,15 +798,15 @@ export default function DemurrageRiskCalculator() {
 
           <div className="modal__section">
             <p className="text-steel">
-              ETB: <strong>{operation?.etb ? new Date(operation.etb).toLocaleString() : '—'}</strong>
+              ETB: <strong>{operation?.etb ? formatDateTimeDisplay(operation.etb) : '—'}</strong>
             </p>
             <p className="text-steel">
               TB:{' '}
               <strong>
                 {operation?.tbAt
-                  ? new Date(operation.tbAt).toLocaleString()
-                  : operation?.dockingStartTime
-                    ? new Date(operation.dockingStartTime).toLocaleString()
+? formatDateTimeDisplay(operation.tbAt)
+                    : operation?.dockingStartTime
+                    ? formatDateTimeDisplay(operation.dockingStartTime)
                     : '—'}
               </strong>
             </p>
@@ -834,7 +828,7 @@ export default function DemurrageRiskCalculator() {
               Estimated SLA duration: <strong>{result ? `${formatFixed2(result.durationHours)} hours` : '—'}</strong>
             </p>
             <p className="text-steel">
-              Estimated completion: <strong>{result ? new Date(result.estimatedCompletionIso).toLocaleString() : '—'}</strong>
+              Estimated completion: <strong>{result ? formatDateTimeDisplay(result.estimatedCompletionIso) : '—'}</strong>
             </p>
           </div>
 

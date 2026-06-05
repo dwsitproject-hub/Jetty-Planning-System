@@ -60,6 +60,7 @@ export async function departShipmentPlanInTransaction(client, args) {
     `UPDATE operations SET
        status = 'SAILED',
        cast_off_at = $1,
+       actual_completion_time = COALESCE(actual_completion_time, $1),
        clearance_document_url = $2,
        vessel_photo_url = $3,
        sailed_at = NOW(),
@@ -71,6 +72,7 @@ export async function departShipmentPlanInTransaction(client, args) {
   await client.query(
     `UPDATE shipment_plans SET
        cast_off_at = $1,
+       actual_completion_time = COALESCE(actual_completion_time, $1),
        clearance_document_url = $2,
        vessel_photo_url = $3,
        sailed_at = COALESCE(sailed_at, NOW()),

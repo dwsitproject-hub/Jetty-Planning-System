@@ -1,3 +1,5 @@
+import { formatDateDisplay } from './formatDateTimeDisplay.js'
+
 /** Shared SI document view model (SIView page + SiDocumentModal). */
 
 export const SI_FORM_COMPANY = {
@@ -14,15 +16,14 @@ export function canViewAsDocument(si) {
 export function formatEtaBontang(si) {
   const from = si.etaFrom
   const to = si.etaTo
-  if (!from && !to) return si.etaDateTime ? new Date(si.etaDateTime).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
+  if (!from && !to) return si.etaDateTime ? formatDateDisplay(si.etaDateTime) : '—'
   if (from && to && from !== to) {
     const d1 = new Date(from)
     const d2 = new Date(to)
     const mon2 = d2.toLocaleString('en-GB', { month: 'short' }).toUpperCase()
     return `${d1.getDate()} - ${d2.getDate()} ${mon2} ${d2.getFullYear()}`
   }
-  const d = new Date(from || to)
-  return d.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  return formatDateDisplay(from || to)
 }
 
 export function getShipperLines(si) {

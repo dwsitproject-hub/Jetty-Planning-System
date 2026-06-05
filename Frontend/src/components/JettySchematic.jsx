@@ -14,6 +14,7 @@ import {
   buildBerthsForSchematicDate,
   buildIncomingByJettyForDate,
 } from '../utils/jettyScheduleOccupancy'
+import { formatDateDisplay } from '../utils/formatDateTimeDisplay'
 import '../styles/jetty-schematic.css'
 
 const AT_BERTH_PAGE_KEY = 'at-berth'
@@ -513,9 +514,7 @@ export default function JettySchematic({
   const historicalHint =
     !isTodaySelected && selectedDate
       ? tAlloc('jettySchematicHistoricalHint', {
-          date: new Date(parseDateInputStart(selectedDate) ?? Date.now()).toLocaleDateString(undefined, {
-            dateStyle: 'medium',
-          }),
+          date: formatDateDisplay(selectedDate),
           defaultValue: `Showing allocation for ${selectedDate}`,
         })
       : null

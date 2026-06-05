@@ -14,6 +14,8 @@
   "addAnotherSi": "+ Tambah shipping instruction lain",
   "deleteSiBlock": "Hapus",
   "createPlanAndSisSubmit": "Buat rencana & {{count}} SI",
+  "createPlanOnlySubmit": "Buat rencana saja",
+  "createPlanOnlySuccess": "Rencana kapal dibuat. Tetapkan jetty di Allocation & Berthing, lalu tambahkan SI saat siap.",
   "createNeedAtLeastOneSi": "Tambahkan minimal satu shipping instruction sebelum menyimpan.",
   "createSiValidationError": "Shipping instruction {{n}}: {{message}}",
   "createPlanSavedSiFailed": "Rencana {{planRef}} sudah dibuat, tetapi SI {{n}} gagal: {{message}}. Tambahkan SI yang tersisa dari hub rencana.",

@@ -10,6 +10,7 @@ import { fetchSiLookups } from '../api/siLookups'
 import { useRbac } from '../context/RbacContext'
 import PurposeBadge from '../components/PurposeBadge'
 import { MAX_SI_VESSEL_NAME_CHARS, MAX_SI_VOYAGE_CHARS } from '../constants/inputLimits'
+import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import '../styles/shipping-instruction.css'
 
 function approvalBadgeClass(status) {
@@ -235,19 +236,19 @@ export default function ShipmentPlanHub() {
         {plan.submittedAt && (
           <div className="si-summary-card">
             <span className="si-summary-card__label">{t('submittedAt')}</span>
-            <span className="si-summary-card__value" style={{ fontSize: '0.95rem' }}>{new Date(plan.submittedAt).toLocaleString('en-GB')}</span>
+            <span className="si-summary-card__value" style={{ fontSize: '0.95rem' }}>{formatDateTimeDisplay(plan.submittedAt)}</span>
           </div>
         )}
         {plan.approvedAt && (
           <div className="si-summary-card">
             <span className="si-summary-card__label">{t('approvedAt')}</span>
-            <span className="si-summary-card__value" style={{ fontSize: '0.95rem' }}>{new Date(plan.approvedAt).toLocaleString('en-GB')}</span>
+            <span className="si-summary-card__value" style={{ fontSize: '0.95rem' }}>{formatDateTimeDisplay(plan.approvedAt)}</span>
           </div>
         )}
         {plan.rejectedAt && (
           <div className="si-summary-card">
             <span className="si-summary-card__label">{t('rejectedAt')}</span>
-            <span className="si-summary-card__value" style={{ fontSize: '0.95rem' }}>{new Date(plan.rejectedAt).toLocaleString('en-GB')}</span>
+            <span className="si-summary-card__value" style={{ fontSize: '0.95rem' }}>{formatDateTimeDisplay(plan.rejectedAt)}</span>
           </div>
         )}
       </div>
@@ -281,7 +282,7 @@ export default function ShipmentPlanHub() {
               <tr key={si.id}>
                 <td>{si.referenceNumber || `SI-${si.id}`}</td>
                 <td><PurposeBadge purpose={si.purpose} /></td>
-                <td>{si.status}</td>
+                <td className="text-steel" title="Approval follows shipment plan">—</td>
                 <td>
                   <Link className="btn btn--secondary btn--small" to={`/shipping-instruction/view/${si.id}`}>
                     {t('openSi')}

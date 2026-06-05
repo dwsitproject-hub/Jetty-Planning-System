@@ -1,0 +1,14 @@
+1. 'hendra.hendra@energi-up.com' = Approver -> VRrkYFf3rWIbAVGy
+2. 'rudi.hartono@energi-up.com' = Approver -> &vBuqrQ@qKY#b#Sx
+3. yusuf.efendi@energi-up.com = Approver -> KzK7A*P6C@@9tE98
+4. umar.piyadi@energi-up.com = User -> Li81tTyw6sSt5cAk
+5. 'khorifathul.khoiriyah@energi-up.com' = User -> VC2nRJ%$Gb0QwNk%
+6. gilang.ramadhan = User -> l7o0W3iBTYmH#ox1
+7. agril.gabriel = User -> qA6yk@!@51#qKNhr
+8. rizqi.muhammad = User -> UDo38GFZgh7^k3
+9. admin = admin -> DNHjh7YzyICdDT*b
+
+
+
+
+issue management & work order approval 

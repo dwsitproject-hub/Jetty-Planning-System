@@ -353,9 +353,9 @@ This change is presentation-only for schedule explainability; API contracts rema
 
 `Frontend/src/components/JettyScheduleGantt.jsx` now closes remaining legend-alignment gaps:
 
-- **Sailed status source-of-truth**:
-  - `isSailed = (status === 'SAILED') OR actualCompletionDateTime IS NOT NULL OR castOffDateTime IS NOT NULL`
-  - This avoids misclassifying sailed rows when actual completion is empty but cast-off/status indicates completion.
+- **Sailed status source-of-truth** (updated migration **082**):
+  - `isSailed = (status === 'SAILED') OR castOffDateTime IS NOT NULL`
+  - `operations_completed_at` (sign-off) does **not** end alongside occupancy; `actual_completion_time` is set at depart (`= cast_off_at`).
 - **Legend simplification**:
   - Removed legend items: `Arriving / allocated`, `Berthing`.
   - Retained legend items: Planned known/open-end, Actual known/open-end, Now, Sailed off.
@@ -1186,7 +1186,7 @@ Types are whitelisted by backend config (`Backend/src/routes/si-lookups.js`) and
     - Set `estimated_completion_time = docking_start_time + SLA`.
 - `POST /operations/:id/recalculate-sla` – if volumes or config change.
 - `POST /operations/:id/signoff-request` – berth team **requests** final sign-off. **RBAC:** **`can_edit`** on page **`loading`**. **Body:** optional `remark` (trimmed, max 4000 chars). **Rules:** `status` must be **`POST_OPS`**; **`signoff_requested_at` must be null**; before eligibility check, backend normalizes legacy rows by setting `completion_percent = 100` when status is `POST_OPS` but completion remains below 100; then **`checkSignoffEligible`** must pass (same gates as sign-off). Sets **`status` = `SIGNOFF_REQUESTED`**, **`signoff_requested_at`**, **`signoff_requested_by`**, **`signoff_request_remark`**; activity log **`pageKey`:** `loading`.
-- `POST /operations/:id/signoff` – **final approval:** sets **`SIGNOFF_APPROVED`** + `actual_completion_time` when:
+- `POST /operations/:id/signoff` – **final approval:** sets **`SIGNOFF_APPROVED`** + `operations_completed_at` when:
   - **RBAC:** **`can_approve`** on page **`loading`** (**403** if missing).
   - **`status` must be `SIGNOFF_REQUESTED`** (a prior **signoff-request**).
   - Gates: **`checkSignoffEligible`** as below (re-checked at approve time).
@@ -1197,7 +1197,7 @@ Types are whitelisted by backend config (`Backend/src/routes/si-lookups.js`) and
 - `POST /operations/:id/request-exception` – body `justification`, optional `exception_document_url`; sets `PENDING` (before terminal at-berth statuses / `SAILED`).
 - `POST /operations/:id/approve-exception` – body optional `approver_user_id`.
 - `POST /operations/:id/reject-exception` – body optional `approver_user_id`.
-- `POST /operations/:id/depart` – after the operation is **`SIGNOFF_APPROVED`**; body `cast_off_at` (ISO, required), optional `clearance_document_url`, `vessel_photo_url`. When **`shipping_instructions.shipment_plan_id`** is set, the backend sails **all** sibling **`SIGNOFF_APPROVED`** operations and updates **`shipment_plans`** using the same transaction helper as **`POST /shipment-plans/:id/depart`**.
+- `POST /operations/:id/depart` – after the operation is **`SIGNOFF_APPROVED`**; body `cast_off_at` (ISO, required), optional `clearance_document_url`, `vessel_photo_url`. Sets **`actual_completion_time = COALESCE(actual_completion_time, cast_off_at)`** on sailed operations (and plan mirror). When **`shipping_instructions.shipment_plan_id`** is set, the backend sails **all** sibling **`SIGNOFF_APPROVED`** operations and updates **`shipment_plans`** using the same transaction helper as **`POST /shipment-plans/:id/depart`**.
 - `POST /shipment-plans/:id/depart` – plan-first depart endpoint (see **§3.5.3A**); preferred from **Clearance** when the UI row carries **`shipmentPlanId`**.
 - **Clearance UI rule (frontend guard):** before calling depart, `Verification.jsx` loads **`GET /operations/:id/activity-timeline`** for **each** sibling operation on the plan (when collapsed) and rejects `cast_off_at` earlier than the **maximum** latest timestamp. This aligns cast-off with the **combined** **Detailed At-Berth Executions Log** across SIs on the call.
 - **UI entrypoint policy:** Loading/Unloading hub (`Loading.jsx`) supports **request sign-off** and pending-state visibility only; final approval action is routed through **Clearance** (`Verification.jsx`) as the single approval entry point.
@@ -1510,7 +1510,8 @@ Backward compatibility note:
 
 | Export | Module | Behaviour |
 |--------|--------|-----------|
-| `formatDateTimeDisplay` | `Frontend/src/utils/formatDateTimeDisplay.js` | Parses ISO / timestamps / `datetime-local`-like prefixes → **`dd/mm HH:mm`** in **browser local** time. If unparseable, returns string with trailing **` LT`** removed (legacy API text). Empty → `—`. |
+| `formatDateTimeDisplay` | `Frontend/src/utils/formatDateTimeDisplay.js` | Parses ISO / timestamps / `datetime-local`-like prefixes → **`DD/MMM/YYYY HH:mm`** (24-hour) in **browser local** time. Locale-aware month abbreviations via `jps_locale` (`en` → `en-GB`, `id` → `id-ID`). If unparseable, returns string with trailing **` LT`** removed (legacy API text). Empty → `—`. |
+| `formatDateDisplay` | `Frontend/src/utils/formatDateTimeDisplay.js` | Date-only values (`YYYY-MM-DD` or ISO) → **`DD/MMM/YYYY`**. Same locale rules as `formatDateTimeDisplay`. Empty → `—`. |
 | `stripLegacyDatetimeLt` | same | Removes trailing **` LT`** (case-insensitive) only. |
 | `getClientIanaTimeZone` / `getScheduleEntryTimeZone` | `Frontend/src/utils/scheduleDateTime.js` | Resolved **browser IANA** zone (`Intl`). **`getScheduleEntryTimeZone`** is the zone used when converting **naive** `datetime-local` values to/from API ISO for schedule fields (see **§0.20**). |
 | `normalizeForApi` / `normalizeForApiOrEmpty` | same | Normalises schedule strings for PUT/POST: zoned/UTC ISO passes through; naive `YYYY-MM-DDTHH:mm` is interpreted in the **second-arg IANA zone** (callers pass **`getScheduleEntryTimeZone()`** for operational schedules). |

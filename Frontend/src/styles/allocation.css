@@ -677,6 +677,55 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   height: 14px;
 }
 
+.allocation-plan-status-filter__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2) var(--spacing-3);
+  width: 100%;
+}
+
+.allocation-plan-status-filter__toggles {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.allocation-plan-status-filter__incoming-slice {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding-left: var(--spacing-2);
+  border-left: 2px solid var(--color-border-medium, #d1d5db);
+}
+
+.allocation-plan-status-filter__slice-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-steel);
+  margin-right: var(--spacing-1);
+}
+
+/* Override global .btn min-height (44px touch target) for dense queue toolbar + row actions */
+.allocation-plan-status-filter .btn,
+.allocation-table__action-col .btn,
+.allocation-mobile-card__actions .btn {
+  min-height: 0;
+  line-height: 1.25;
+  border-radius: var(--radius-sm);
+}
+
+.allocation-plan-status-filter .btn {
+  padding: 3px 10px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+.allocation-plan-status-filter__incoming-slice {
+  padding-left: var(--spacing-2);
+}
+
 .allocation-plan-status-filter__empty {
   margin: var(--spacing-3) 0 0;
   font-size: var(--font-size-small);
@@ -831,10 +880,11 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 }
 
 .allocation-table__action-btns {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--spacing-2);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  max-width: 6.75rem;
 }
 
 .allocation-table__action-btns .btn--success {
@@ -846,6 +896,68 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 .allocation-table__action-btns .btn--success:hover {
   background: #246b32;
   border-color: #246b32;
+}
+
+/* Berthing blocked until SI approved (late SI) — must read as disabled, not active green */
+.allocation-table__action-btns .btn--berthing-disabled,
+.allocation-table__action-btns .btn--success:disabled,
+.allocation-mobile-card__actions .btn--berthing-disabled,
+.allocation-mobile-card__actions .btn--success:disabled {
+  background: #e8eaed;
+  color: #6b7280;
+  border: 1px solid #c5cdd6;
+  cursor: not-allowed;
+  box-shadow: none;
+  opacity: 1;
+}
+
+.allocation-table__action-btns .btn--berthing-disabled:hover,
+.allocation-table__action-btns .btn--success:disabled:hover,
+.allocation-mobile-card__actions .btn--berthing-disabled:hover,
+.allocation-mobile-card__actions .btn--success:disabled:hover {
+  background: #e8eaed;
+  color: #6b7280;
+  border-color: #c5cdd6;
+}
+
+/* Late SI — scheduling-only notice in Log arrival update modal */
+.allocation-late-si-notice {
+  display: flex;
+  gap: var(--spacing-3);
+  align-items: flex-start;
+  margin-bottom: var(--spacing-4);
+  padding: var(--spacing-3) var(--spacing-4);
+  background: rgba(180, 120, 0, 0.1);
+  border: 1px solid rgba(180, 120, 0, 0.45);
+  border-left: 4px solid #b45309;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-charcoal);
+}
+
+.allocation-late-si-notice__icon {
+  flex-shrink: 0;
+  font-size: 1.25rem;
+  line-height: 1.2;
+  color: #b45309;
+}
+
+.allocation-late-si-notice__content {
+  flex: 1;
+  min-width: 0;
+}
+
+.allocation-late-si-notice__title {
+  margin: 0 0 var(--spacing-1);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: #92400e;
+}
+
+.allocation-late-si-notice__text {
+  margin: 0;
+  font-size: var(--font-size-small);
+  line-height: 1.5;
+  color: var(--color-text-charcoal);
 }
 
 .allocation-table__expand-icon {
@@ -871,11 +983,6 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   vertical-align: middle;
 }
 
-.allocation-table__action-btns {
-  display: inline-flex;
-  gap: var(--spacing-2);
-}
-
 /* Berthing sequence column: up/down controls */
 .allocation-table__sequence-cell {
   display: inline-flex;
@@ -890,9 +997,10 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 }
 
 .allocation-table__sequence-btn {
-  padding: 2px 6px;
-  min-height: auto;
-  line-height: 1;
+  padding: 1px 5px;
+  min-height: 0;
+  line-height: 1.1;
+  font-size: 10px;
 }
 
 .allocation-table__sequence-btn:disabled {
@@ -901,8 +1009,11 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 }
 
 .allocation-table__action-col .btn--small {
-  padding: var(--spacing-1) var(--spacing-2);
+  padding: 4px 8px;
   font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  white-space: normal;
+  text-align: center;
 }
 
 .allocation-table__row--editing {

@@ -16,6 +16,7 @@ import SiDetailModal from '../components/SiDetailModal'
 import SiDocumentModal from '../components/SiDocumentModal'
 import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
 import '../styles/allocation.css'
+import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import '../styles/modal.css'
 
 const CLEARANCE_COLUMNS = [
@@ -43,13 +44,6 @@ const CLEARANCE_COLUMNS = [
   ), getSortValue: (r) => (r.purpose || '').toLowerCase() },
   { key: 'status', label: 'Status', getValue: (r) => r.status || '—', getSortValue: (r) => (r.status || '').toLowerCase() },
 ]
-
-function formatDateTime(iso) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleString()
-}
 
 /** One clearance row per shipment plan for Ready / Sailed; pending sign-off stays per SI. */
 function collapseVerificationRowsByPlan(rows) {
@@ -412,7 +406,7 @@ export default function Verification() {
       if (latestIso) {
         const latest = new Date(latestIso)
         if (!Number.isNaN(latest.getTime()) && cast.getTime() < latest.getTime()) {
-          return `CAST Off must be on or after the latest execution log time (${formatDateTime(latestIso)}).`
+          return `CAST Off must be on or after the latest execution log time (${formatDateTimeDisplay(latestIso)}).`
         }
       }
     }
@@ -714,7 +708,7 @@ export default function Verification() {
                             {v.apiStatus === 'PENDING_SIGNOFF' ? (
                               <>
                                 <dt>Sign-off requested</dt>
-                                <dd>{formatDateTime(v.signoffRequestedAt)}</dd>
+                                <dd>{formatDateTimeDisplay(v.signoffRequestedAt)}</dd>
                                 {v.signoffRequestedByUsername ? (
                                   <>
                                     <dt>Requested by</dt>
@@ -730,9 +724,9 @@ export default function Verification() {
                               </>
                             ) : null}
                             <dt>CAST Off</dt>
-                            <dd>{formatDateTime(v.castOffAt)}</dd>
+                            <dd>{formatDateTimeDisplay(v.castOffAt)}</dd>
                             <dt>Sailed At</dt>
-                            <dd>{formatDateTime(v.sailedAt)}</dd>
+                            <dd>{formatDateTimeDisplay(v.sailedAt)}</dd>
                           </dl>
                         </div>
                       </td>
@@ -792,7 +786,7 @@ export default function Verification() {
                   <dt>{t('clearanceColStatus')}</dt>
                   <dd>{v.status || '—'}</dd>
                   <dt>{t('clearanceCastOff')}</dt>
-                  <dd>{formatDateTime(v.castOffAt)}</dd>
+                  <dd>{formatDateTimeDisplay(v.castOffAt)}</dd>
                 </dl>
                 <div className="allocation-mobile-card__actions">
                   <button
@@ -865,7 +859,7 @@ export default function Verification() {
                         {v.apiStatus === 'PENDING_SIGNOFF' ? (
                           <>
                             <dt>Sign-off requested</dt>
-                            <dd>{formatDateTime(v.signoffRequestedAt)}</dd>
+                            <dd>{formatDateTimeDisplay(v.signoffRequestedAt)}</dd>
                             {v.signoffRequestedByUsername ? (
                               <>
                                 <dt>Requested by</dt>
@@ -881,9 +875,9 @@ export default function Verification() {
                           </>
                         ) : null}
                         <dt>CAST Off</dt>
-                        <dd>{formatDateTime(v.castOffAt)}</dd>
+                        <dd>{formatDateTimeDisplay(v.castOffAt)}</dd>
                         <dt>Sailed At</dt>
-                        <dd>{formatDateTime(v.sailedAt)}</dd>
+                        <dd>{formatDateTimeDisplay(v.sailedAt)}</dd>
                       </dl>
                     </div>
                   </div>
@@ -924,7 +918,7 @@ export default function Verification() {
               />
               {modalTimelineMaxAt ? (
                 <p className="text-steel" style={{ marginTop: 6, fontSize: 'var(--font-size-small)' }}>
-                  Must be on/after latest execution log time: <strong>{formatDateTime(modalTimelineMaxAt)}</strong>
+                  Must be on/after latest execution log time: <strong>{formatDateTimeDisplay(modalTimelineMaxAt)}</strong>
                 </p>
               ) : null}
             </div>
@@ -969,7 +963,7 @@ export default function Verification() {
             {isSailed ? (
               <div className="modal__section">
                 <h3 className="modal__label">Recorded departure</h3>
-                <p className="text-steel">Sailed at: {formatDateTime(modalRow?.sailedAt)}</p>
+                <p className="text-steel">Sailed at: {formatDateTimeDisplay(modalRow?.sailedAt)}</p>
                 <ul className="loading-step-card__file-list">
                   <li>
                     Clearance document:{' '}

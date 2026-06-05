@@ -533,6 +533,7 @@ router.get('/:id', async (req, res) => {
        o.etb,
        o.tb,
        o.estimated_completion_time,
+       o.operations_completed_at,
        o.actual_completion_time,
        o.updated_at
      FROM operations o
@@ -563,6 +564,7 @@ router.get('/:id', async (req, res) => {
     etbDateTime: op?.etb ?? null,
     tbDateTime: op?.tb ?? null,
     estimatedCompletionDateTime: op?.estimated_completion_time ?? null,
+    operationsCompletedDateTime: op?.operations_completed_at ?? null,
     actualCompletionDateTime: op?.actual_completion_time ?? null,
   });
 });
@@ -619,12 +621,6 @@ router.post('/', requireAuth, async (req, res) => {
     );
     if (pr.rows.length === 0) {
       return res.status(400).json({ error: 'shipment_plan_id not found for selected port' });
-    }
-    const pst = pr.rows[0].approval_status;
-    if (pst !== 'Draft' && pst !== 'Rejected') {
-      return res.status(400).json({
-        error: 'New shipping instructions can only be linked to a plan in Draft or Rejected approval state',
-      });
     }
     planRowForLink = pr.rows[0];
     shipmentPlanIdFromBody = pid;
@@ -740,11 +736,35 @@ router.post('/', requireAuth, async (req, res) => {
           : null;
 
   const client = await pool.connect();
+  let planReopened = false;
   try {
     await client.query('BEGIN');
     let shipmentPlanId;
     if (shipmentPlanIdFromBody != null) {
       shipmentPlanId = shipmentPlanIdFromBody;
+      const pst = planRowForLink?.approval_status;
+      if (pst === 'Approved' || pst === 'Submitted') {
+        await client.query(
+          `UPDATE shipment_plans SET
+             approval_status = 'Draft',
+             approved_at = NULL,
+             approved_by_user_id = NULL,
+             submitted_at = NULL,
+             rejection_reason = NULL,
+             rejected_at = NULL,
+             updated_at = NOW()
+           WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
+          [shipmentPlanId, selectedPortId]
+        );
+        await client.query(
+          `UPDATE shipping_instructions
+           SET status = 'Draft', updated_at = NOW()
+           WHERE shipment_plan_id = $1 AND deleted_at IS NULL`,
+          [shipmentPlanId]
+        );
+        planReopened = true;
+        if (planRowForLink) planRowForLink.approval_status = 'Draft';
+      }
       const voyageOverride =
         voyage_no != null && String(voyage_no).trim() !== '' ? trimText(voyage_no, 64) : null;
       const aid = typeof approval_id === 'string' ? approval_id.trim() || null : null;
@@ -828,7 +848,7 @@ router.post('/', requireAuth, async (req, res) => {
     await client.query('COMMIT');
     const row = await pool.query(`${SI_SELECT} WHERE si.id = $1`, [newId]);
     const bd = await loadBreakdown(newId);
-    const response = { ...toSIList(row.rows[0]), breakdown: bd };
+    const response = { ...toSIList(row.rows[0]), breakdown: bd, planReopened };
     // Best-effort activity log (append-only)
     writeActivityLog({
       pageKey: 'shipment-plan',
@@ -989,16 +1009,15 @@ router.put('/:id', requireAuth, async (req, res) => {
     status !== undefined && status !== null && ['Draft', 'Submitted', 'Approved'].includes(String(status))
       ? String(status)
       : beforeRow.status;
-  const transitioningToApproved = requestedStatus === 'Approved' && beforeRow.status !== 'Approved';
-
-  if (transitioningToApproved) {
-    const ok = await userHasPageApprove(req.userId, SI_APPROVE_PAGE_KEY);
-    if (!ok) {
-      return res.status(403).json({ error: 'Forbidden: shipping instruction approval permission required' });
-    }
-    if (beforeRow.status !== 'Submitted') {
-      return res.status(400).json({ error: 'Shipping instruction must be Submitted before approval' });
-    }
+  if (
+    status !== undefined &&
+    status !== null &&
+    (requestedStatus === 'Submitted' || requestedStatus === 'Approved') &&
+    requestedStatus !== beforeRow.status
+  ) {
+    return res.status(400).json({
+      error: 'SI approval is managed at shipment plan level. Submit and approve the shipment plan instead.',
+    });
   }
 
   let nextApprovalId = beforeRow.approval_id ?? null;
@@ -1007,23 +1026,7 @@ router.put('/:id', requireAuth, async (req, res) => {
   let nextApproverName = beforeRow.approver_name_snapshot ?? null;
   let nextApproverTitle = beforeRow.approver_title_snapshot ?? null;
 
-  if (transitioningToApproved) {
-    const uid = req.userId;
-    const urow = await pool.query(
-      `SELECT display_name, username, job_title FROM users WHERE id = $1 AND deleted_at IS NULL`,
-      [uid]
-    );
-    const ur = urow.rows[0];
-    nextApproverName = ur?.display_name?.trim() || ur?.username || '—';
-    nextApproverTitle = ur?.job_title?.trim() || 'OPERATION HEAD';
-    nextApprovedBy = uid;
-    nextApprovedAt = new Date();
-    const incomingId = typeof approval_id === 'string' ? approval_id.trim() : '';
-    nextApprovalId = incomingId || generateApprovalId();
-  } else if (requestedStatus === 'Approved' && beforeRow.status === 'Approved') {
-    const incomingId = typeof approval_id === 'string' ? approval_id.trim() : '';
-    if (incomingId) nextApprovalId = incomingId;
-  } else if (typeof approval_id === 'string' && approval_id.trim()) {
+  if (typeof approval_id === 'string' && approval_id.trim()) {
     nextApprovalId = approval_id.trim();
   }
 

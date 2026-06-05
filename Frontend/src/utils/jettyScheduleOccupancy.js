@@ -69,10 +69,7 @@ export function jettyIdFromScheduleRow(row) {
 }
 
 function isSailedRow(row) {
-  const actComp = parseMs(row?.actualCompletionDateTime)
-  const castOff = parseMs(row?.castOffDateTime)
-  const sourceStatus = String(row?.status || '').trim().toUpperCase()
-  return sourceStatus === 'SAILED' || actComp != null || castOff != null
+  return String(row?.status || '').trim().toUpperCase() === 'SAILED'
 }
 
 export function getActualAlongsideInterval(row, asOfMs) {
@@ -93,10 +90,22 @@ export function getActualAlongsideInterval(row, asOfMs) {
   return { startMs: tb, endMs }
 }
 
+/**
+ * Whether a row occupies a berth slot on the selected calendar day.
+ * - **Today** (`dateYmd` = current local date): point-in-time using `asOfMs` (live "right now").
+ * - **Past days**: any overlap with the full calendar day (midnight–midnight).
+ */
 export function isAlongsideOccupiedOnDate(row, dateYmd, asOfMs) {
   if (row?.shiftingOut) return false
   const interval = getActualAlongsideInterval(row, asOfMs)
   if (!interval) return false
+
+  const todayYmd = toDateInputValue(new Date(asOfMs))
+  if (dateYmd === todayYmd) {
+    // Inclusive end: open-at-berth intervals use endMs = now, so strict `<` would hide active vessels.
+    return interval.startMs <= asOfMs && asOfMs <= interval.endMs
+  }
+
   const dayStart = parseDateInputStart(dateYmd)
   const dayEnd = parseDateInputEndExclusive(dateYmd)
   if (dayStart == null || dayEnd == null) return false
@@ -110,6 +119,7 @@ export function getArrivalMsForScheduleRow(row) {
 }
 
 function departedBeforeDay(row, dayStartMs) {
+  if (String(row?.status || '').trim().toUpperCase() !== 'SAILED') return false
   const actComp = parseMs(row?.actualCompletionDateTime)
   const castOff = parseMs(row?.castOffDateTime)
   const end = actComp ?? castOff

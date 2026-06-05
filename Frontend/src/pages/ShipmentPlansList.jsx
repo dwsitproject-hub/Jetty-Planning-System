@@ -38,15 +38,9 @@ import { useSiDocumentExtract } from '../hooks/useSiDocumentExtract'
 import SiExtractConflictModal from '../components/SiExtractConflictModal'
 import SiExtractResultPanel from '../components/SiExtractResultPanel'
 import { MAX_SI_VESSEL_NAME_CHARS, MAX_SI_VOYAGE_CHARS } from '../constants/inputLimits'
+import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import '../styles/shipping-instruction.css'
 import '../styles/allocation.css'
-
-function formatEta(iso) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
-}
 
 function approvalBadgeClass(status) {
   const s = (status || 'draft').toLowerCase()
@@ -234,7 +228,7 @@ export default function ShipmentPlansList() {
       if (!inc(planPurposeStr, f.purpose)) return false
       if (!inc(row.approvalStatus, f.approval)) return false
       if (!inc(row.jettyName || '—', f.jetty)) return false
-      if (!inc(formatEta(row.eta), f.eta)) return false
+      if (!inc(formatDateTimeDisplay(row.eta), f.eta)) return false
       return true
     })
   }, [list, tableFilters])
@@ -292,13 +286,7 @@ export default function ShipmentPlansList() {
     }
   }, [isFormOpen, createModalPurposeIsLoading])
 
-  useEffect(() => {
-    if (!isFormOpen || formModalMode !== 'create' || !lookups) return
-    setSiDrafts((prev) => {
-      if (prev.length > 0) return prev
-      return [{ id: genSiDraftId(), form: defaultSiDraftForPlanPreview(lookups, planPreviewForSi) }]
-    })
-  }, [isFormOpen, formModalMode, lookups, planPreviewForSi])
+  /** Late SI: do not auto-add an SI card — user may save plan-only and add SIs later. */
 
   /** View/edit modal: hydrate SI draft cards when lookups arrive after plan fetch. */
   useEffect(() => {
@@ -642,29 +630,68 @@ export default function ShipmentPlansList() {
     }
   }
 
-  const handleCreatePlanAndSis = async (e) => {
-    e.preventDefault()
-    const v = formVessel.trim()
-    if (!v) {
+  const buildCreatePlanBody = () => {
+    const jettyId = formJettyId ? parseInt(formJettyId, 10) : null
+    const purposePid = parseInt(formPurposeId, 10)
+    const agentPidCreate = formAgentId.trim() ? parseInt(formAgentId, 10) : NaN
+    return {
+      vesselName: formVessel.trim(),
+      jettyId: Number.isNaN(jettyId) ? null : jettyId,
+      eta: new Date(formEta).toISOString(),
+      purposeId: purposePid,
+      voyageNo: formVoyageNo.trim() || null,
+      agentId: Number.isFinite(agentPidCreate) ? agentPidCreate : null,
+    }
+  }
+
+  const validateCreatePlanFields = () => {
+    if (!formVessel.trim()) {
       setToast({ message: t('formVesselRequired'), variant: 'error' })
-      return
+      return false
     }
     if (!formEta?.trim()) {
       setToast({ message: t('formEtaRequired'), variant: 'error' })
-      return
+      return false
     }
     if (!formPurposeId) {
       setToast({ message: t('formPurposeRequired'), variant: 'error' })
-      return
+      return false
+    }
+    const purposePid = parseInt(formPurposeId, 10)
+    if (Number.isNaN(purposePid)) {
+      setToast({ message: t('formPurposeRequired'), variant: 'error' })
+      return false
     }
     if (!lookups) {
       setToast({ message: 'Form options not loaded yet.', variant: 'error' })
-      return
+      return false
     }
-    if (!siDrafts.length) {
-      setToast({ message: t('createNeedAtLeastOneSi'), variant: 'error' })
-      return
+    return true
+  }
+
+  const handleCreatePlanOnly = async (e) => {
+    e.preventDefault()
+    if (!validateCreatePlanFields()) return
+    try {
+      const created = await createShipmentPlan(buildCreatePlanBody())
+      logActivity({
+        pageKey: 'shipment-plan',
+        action: 'add',
+        entityType: 'ShipmentPlan',
+        entityLabel: created.planReference || `Plan #${created.id}`,
+        details: { summary: 'Created shipment plan (no SI yet — late SI)' },
+      })
+      setToast({ message: t('createPlanOnlySuccess'), variant: 'success' })
+      handleCloseModal()
+      await loadList()
+    } catch (err) {
+      setToast({ message: err?.message || 'Save failed', variant: 'error' })
     }
+  }
+
+  const handleCreatePlanAndSis = async (e) => {
+    e.preventDefault()
+    if (!validateCreatePlanFields()) return
     for (let i = 0; i < siDrafts.length; i += 1) {
       const err = validateSiDraftForCreate(siDrafts[i].form, lookups, planPreviewForSi, { requirePlanId: false })
       if (typeof err === 'string') {
@@ -672,23 +699,8 @@ export default function ShipmentPlansList() {
         return
       }
     }
-    const jettyId = formJettyId ? parseInt(formJettyId, 10) : null
-    const purposePid = parseInt(formPurposeId, 10)
-    if (Number.isNaN(purposePid)) {
-      setToast({ message: t('formPurposeRequired'), variant: 'error' })
-      return
-    }
-    const agentPidCreate = formAgentId.trim() ? parseInt(formAgentId, 10) : NaN
-    const body = {
-      vesselName: v,
-      jettyId: Number.isNaN(jettyId) ? null : jettyId,
-      eta: new Date(formEta).toISOString(),
-      purposeId: purposePid,
-      voyageNo: formVoyageNo.trim() || null,
-      agentId: Number.isFinite(agentPidCreate) ? agentPidCreate : null,
-    }
     try {
-      const created = await createShipmentPlan(body)
+      const created = await createShipmentPlan(buildCreatePlanBody())
       for (const d of siDrafts) {
         if ((d.form.documents || []).some((doc) => doc.documentId)) {
           try {
@@ -766,7 +778,6 @@ export default function ShipmentPlansList() {
     setSiDrafts((prev) => {
       const block = prev[index]
       if (block && existingSiIdFromDraftKey(block.id)) return prev
-      if (prev.length <= 1 && !editingPlan) return prev
       return prev.filter((_, i) => i !== index)
     })
   }
@@ -1171,7 +1182,7 @@ export default function ShipmentPlansList() {
                     <span className={approvalBadgeClass(row.approvalStatus)}>{row.approvalStatus}</span>
                   </td>
                   <td>{row.jettyName || '—'}</td>
-                  <td>{formatEta(row.eta)}</td>
+                  <td>{formatDateTimeDisplay(row.eta)}</td>
                 </tr>
               ))}
             </tbody>
@@ -1252,6 +1263,7 @@ export default function ShipmentPlansList() {
                   return
                 }
                 if (editingPlan) handleSavePlan(e)
+                else if (siDrafts.length === 0) handleCreatePlanOnly(e)
                 else handleCreatePlanAndSis(e)
               }}
               className="shipping-instruction-form"
@@ -1435,7 +1447,9 @@ export default function ShipmentPlansList() {
                     ? siDrafts.length > 0
                       ? t('editSaveCombined', { count: siDrafts.length })
                       : t('save')
-                    : t('createPlanAndSisSubmit', { count: siDrafts.length || 1 })}
+                    : siDrafts.length > 0
+                      ? t('createPlanAndSisSubmit', { count: siDrafts.length })
+                      : t('createPlanOnlySubmit')}
                     </button>
                   </>
                 )}

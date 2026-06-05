@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs'
+import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay.js'
 
 const DETAIL_COLUMNS = [
   { key: 'jetty', label: 'Jetty' },
@@ -24,13 +25,6 @@ const DETAIL_COLUMNS = [
 const DETAIL_COLS = DETAIL_COLUMNS
 
 const DATE_KEYS = ['eta', 'arrivalDateTime', 'etb', 'berthedDateTime', 'sailedOffDateTime']
-
-function formatDateTimeForExcel(value) {
-  if (!value || !String(value).trim()) return '—'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return value
-  return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
-}
 
 function writeSummarySheet(sheet, summary, startDate, endDate) {
   let row = 1
@@ -88,7 +82,7 @@ function writeDetailSheet(sheet, rows, startDate, endDate) {
     DETAIL_COLS.forEach((col, i) => {
       let val = r[col.key] ?? '—'
       if (DATE_KEYS.includes(col.key) && val && val !== '—') {
-        val = formatDateTimeForExcel(val)
+        val = formatDateTimeDisplay(val)
       }
       sheet.getCell(row, i + 1).value = val
     })

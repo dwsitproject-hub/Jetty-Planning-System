@@ -8,7 +8,7 @@ import { fetchJetties } from '../api/jetties'
 import { fetchSiLookups } from '../api/siLookups'
 import { useTranslation } from 'react-i18next'
 import { usePortScope } from '../context/PortScopeContext'
-import { getAppLocaleTag } from '../utils/formatDateTimeDisplay'
+import { formatDateDisplay, formatDateTimeDisplay, getAppLocaleTag } from '../utils/formatDateTimeDisplay'
 import InteractiveTooltip from '../components/InteractiveTooltip'
 import DashboardV2WeeklyTrends from '../components/DashboardV2WeeklyTrends'
 import DropdownMultiSelect from '../components/DropdownMultiSelect'
@@ -52,12 +52,6 @@ function getRelativeRange(days) {
   const start = new Date()
   start.setDate(end.getDate() - (days - 1))
   return { startDate: fmtLocalDate(start), endDate: fmtLocalDate(end) }
-}
-
-function formatDisplayDate(isoDate) {
-  if (!isoDate) return ''
-  const [y, m, d] = isoDate.split('-')
-  return `${d}/${m}/${y}`
 }
 
 function parseDateLocal(isoDate) {
@@ -582,7 +576,7 @@ export default function DashboardV2() {
     const s = parseDateLocal(startDate)
     const e = parseDateLocal(endDate)
     if (!s || !e) return ''
-    return `${s.toLocaleDateString(getAppLocaleTag(), { day: '2-digit', month: 'short', year: 'numeric' })} – ${e.toLocaleDateString(getAppLocaleTag(), { day: '2-digit', month: 'short', year: 'numeric' })}`
+    return `${formatDateDisplay(startDate)} – ${formatDateDisplay(endDate)}`
   }, [startDate, endDate])
 
   // ─── Render ───────────────────────────────────────────────────────────────
@@ -619,7 +613,7 @@ export default function DashboardV2() {
           </div>
           <span className="dashboard-header__meta">
             {lastUpdated && (
-              <>{t('lastUpdated')} {lastUpdated.toLocaleString(getAppLocaleTag(), { dateStyle: 'short', timeStyle: 'short' })}</>
+              <>{t('lastUpdated')} {formatDateTimeDisplay(lastUpdated.toISOString())}</>
             )}
           </span>
         </div>

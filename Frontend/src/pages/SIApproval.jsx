@@ -4,6 +4,7 @@ import { fetchShippingInstruction, fetchSiNpwpMaster, updateShippingInstruction 
 import { useRbac } from '../context/RbacContext'
 import { formatBlSplitFromBreakdown, getPrintedSiNumber, formatFreightForSi } from '../utils/siBlSplit'
 import { formatSiSignOffDate } from '../utils/siFormPlaceDate'
+import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { getShipperLines } from '../utils/siViewModel'
 import SiFormReferenceDates from '../components/SiFormReferenceDates'
 import FlowPill from '../components/FlowPill'
@@ -19,17 +20,11 @@ const SI_FORM_COMPANY = {
   address: 'GAMA TOWER, LT 41, JL HR RASUNA SAID, KAV C 22, KARET KUNINGAN, SETIABUDI, KOTA ADM. JAKARTA SELATAN, DKI JAKARTA, 12940',
 }
 
-function formatDate(iso) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  return d.toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
-}
-
 function formatEtaBontang(si) {
   const from = si.etaFrom
   const to = si.etaTo
   if (!from && !to) {
-    return si.etaDateTime ? new Date(si.etaDateTime).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
+    return si.etaDateTime ? formatDateDisplay(si.etaDateTime) : '—'
   }
   if (from && to && from !== to) {
     const d1 = new Date(from)
@@ -37,8 +32,7 @@ function formatEtaBontang(si) {
     const mon2 = d2.toLocaleString('en-GB', { month: 'short' }).toUpperCase()
     return `${d1.getDate()} - ${d2.getDate()} ${mon2} ${d2.getFullYear()}`
   }
-  const d = new Date(from || to)
-  return d.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  return formatDateDisplay(from || to)
 }
 
 function mapShippingInstructionRow(row) {
@@ -95,8 +89,8 @@ function getMockLifecycle(si) {
   const received = si.receivedAt ? new Date(si.receivedAt) : null
   return [
     { label: 'Operation Head Review', by: 'Ops Commander (You)', time: 'Now', current: true },
-    { label: 'QC Certification Uploaded', by: `QC / ${si.surveyor || '—'}`, time: received ? formatDate(si.receivedAt) : '—', current: false },
-    { label: 'SI Draft Submitted', by: `Agent ${si.agent || '—'}`, time: received ? formatDate(si.receivedAt) : '—', current: false },
+    { label: 'QC Certification Uploaded', by: `QC / ${si.surveyor || '—'}`, time: received ? formatDateTimeDisplay(si.receivedAt) : '—', current: false },
+    { label: 'SI Draft Submitted', by: `Agent ${si.agent || '—'}`, time: received ? formatDateTimeDisplay(si.receivedAt) : '—', current: false },
   ]
 }
 

@@ -10,6 +10,8 @@
     "migrate": "node scripts/run-migrations.js",
     "test:si-parser": "node scripts/test-si-document-parser.mjs",
     "test:si-breakdown-display": "node scripts/test-si-breakdown-display.mjs",
+    "test:late-si-berthing-gate": "node scripts/test-late-si-berthing-gate.mjs",
+    "test:incoming-si-filter": "node scripts/test-incoming-si-filter.mjs",
     "test:notifications": "node scripts/test-notifications-comprehensive.mjs",
     "grant-admin-access": "node scripts/grant-admin-full-access.js",
     "seed:admin": "node scripts/seed-admin-bcrypt.js",
