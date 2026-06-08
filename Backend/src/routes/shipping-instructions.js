@@ -5,7 +5,7 @@ import express from 'express';
 import { pool } from '../db.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { requireAuth } from '../middleware/auth.js';
-import { userHasPageApprove, userHasPageDelete } from '../middleware/permissions.js';
+import { userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
 
 const FREIGHT_TERMS = ['PREPAID', 'COLLECT', 'AS_PER_CHARTER_PARTY', 'OTHER'];
 const SI_APPROVE_PAGE_KEY = 'shipment-plan';
@@ -570,6 +570,9 @@ router.get('/:id', async (req, res) => {
 });
 
 router.post('/', requireAuth, async (req, res) => {
+  if (!(await userHasPageEdit(req.userId, SI_APPROVE_PAGE_KEY))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const selectedPortId = Number(req.selectedPortId);
   const b = req.body || {};
   if (rejectHeaderShipperId(b, res)) return;
@@ -881,6 +884,9 @@ router.post('/', requireAuth, async (req, res) => {
 });
 
 router.put('/:id', requireAuth, async (req, res) => {
+  if (!(await userHasPageEdit(req.userId, SI_APPROVE_PAGE_KEY))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const selectedPortId = Number(req.selectedPortId);
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
@@ -1219,13 +1225,21 @@ router.put('/:id', requireAuth, async (req, res) => {
 });
 
 router.delete('/:id', requireAuth, async (req, res) => {
+  if (!(await userHasPageDelete(req.userId, SI_APPROVE_PAGE_KEY))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const selectedPortId = Number(req.selectedPortId);
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const siCheck = await pool.query(
-    `SELECT reference_number FROM shipping_instructions WHERE id = $1 AND deleted_at IS NULL`,
+    `${SI_SELECT} WHERE si.id = $1 AND si.deleted_at IS NULL`,
     [id]
   );
   if (siCheck.rows.length === 0) {
+    return res.status(404).json({ error: 'Shipping instruction not found' });
+  }
+  const beforeRow = siCheck.rows[0];
+  if (beforeRow.preferred_port_id != null && Number(beforeRow.preferred_port_id) !== selectedPortId) {
     return res.status(404).json({ error: 'Shipping instruction not found' });
   }
   const op = await pool.query(
@@ -1235,7 +1249,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
   if (op.rows.length > 0) {
     return res.status(409).json({ error: 'Cannot delete shipping instruction while operations reference it' });
   }
-  const entityLabel = siCheck.rows[0].reference_number?.trim() || `SI-${id}`;
+  const entityLabel = beforeRow.reference_number?.trim() || `SI-${id}`;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

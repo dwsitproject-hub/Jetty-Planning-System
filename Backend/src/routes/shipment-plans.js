@@ -10,6 +10,7 @@ import { userHasPageApprove, userHasPageDelete, userHasPageEdit } from '../middl
 import { loadOperationJoined, toOp } from './operations.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
 import { formatSiCargoDisplay } from '../lib/siBreakdownDisplay.js';
+import { validateDepartDocumentUrls } from '../lib/depart-document-url.js';
 
 const router = express.Router();
 const PAGE_KEY = 'shipment-plan';
@@ -812,14 +813,25 @@ router.post('/:id/depart', requireAuth, async (req, res) => {
   if (Number.isNaN(cast.getTime())) {
     return res.status(400).json({ error: 'Invalid cast_off_at' });
   }
-  const clearanceUrl =
-    clearance_document_url && typeof clearance_document_url === 'string'
-      ? clearance_document_url.trim()
-      : null;
-  const photoUrl =
-    vessel_photo_url && typeof vessel_photo_url === 'string' ? vessel_photo_url.trim() : null;
-
   const selectedPortId = Number(req.selectedPortId);
+  let clearanceUrl;
+  let photoUrl;
+  try {
+    ({ clearanceUrl, photoUrl } = await validateDepartDocumentUrls({
+      clearanceUrl:
+        clearance_document_url && typeof clearance_document_url === 'string'
+          ? clearance_document_url.trim()
+          : null,
+      photoUrl:
+        vessel_photo_url && typeof vessel_photo_url === 'string' ? vessel_photo_url.trim() : null,
+      planId,
+      selectedPortId,
+    }));
+  } catch (e) {
+    const status = e?.statusCode ?? 400;
+    return res.status(status).json({ error: e.message || 'Invalid document URL' });
+  }
+
   const ap = await pool.query(
     `SELECT approval_status FROM shipment_plans WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
     [planId, selectedPortId]

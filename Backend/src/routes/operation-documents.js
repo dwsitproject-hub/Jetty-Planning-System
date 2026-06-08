@@ -11,13 +11,11 @@ import multer from 'multer';
 import { pool } from '../db.js';
 import { assertOperationInSelectedPort } from '../lib/operation-access.js';
 import { writeActivityLog } from '../lib/activity-log.js';
-import { optionalAuth } from '../middleware/auth.js';
 import { UPLOAD_ROOT } from '../paths.js';
 import { validateMulterFileList } from '../lib/upload-mime.js';
 import { sendStoredFileAttachment, sendStoredFileInline } from '../lib/send-stored-file.js';
 
 const router = express.Router();
-router.use(optionalAuth);
 
 function toDownloadUrl(id) {
   return `/api/v1/operation-documents/${id}/download`;
@@ -202,7 +200,7 @@ router.post('/operations/:operationId/:kind', upload.array('files', 10), async (
   for (const f of files) {
     const original = safeBaseName(f.originalname);
     const storedName = f.filename;
-    // stored_path is relative to UPLOAD_ROOT so we can serve it via /uploads
+    // stored_path is relative to UPLOAD_ROOT; served via /api/v1/operation-documents/:id/download
     const rel = path.relative(UPLOAD_ROOT, f.path);
 
     const r = await pool.query(

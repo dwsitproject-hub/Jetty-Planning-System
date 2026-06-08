@@ -7,6 +7,7 @@ import {
   createPlanWithSi,
   submitAndApprovePlan,
   addSiApproveLatePlan,
+  LATE_SI_BERTHING_TOOLTIP_SPEC,
 } from './helpers/shipment-plan';
 import {
   gotoAllocationPlans,
@@ -22,7 +23,7 @@ test.use({
   video: 'on',
   contextOptions: {
     recordVideo: {
-      dir: 'videos/',
+      dir: 'videos/post-pentest/',
       size: { width: 1280, height: 720 },
     },
   },
@@ -71,7 +72,7 @@ test.describe('Normal vs Late SI berthing gate', () => {
       await modal.locator('.modal__footer button.btn--secondary').click();
       await expect(modal).toBeHidden();
 
-      await assertBerthingDisabledWithTooltip(row);
+      await assertBerthingDisabledWithTooltip(row, LATE_SI_BERTHING_TOOLTIP_SPEC);
     });
 
     test('Test Case 3 — Late SI unlocked: add & approve SI → Berthing enabled → complete arrival', async ({ page }) => {

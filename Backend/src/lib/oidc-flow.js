@@ -3,6 +3,8 @@ import jwt from 'jsonwebtoken';
 import { cookieBaseOptions } from './auth-cookies.js';
 
 export const OIDC_FLOW_COOKIE = 'jps_oidc_flow';
+const JWT_SIGN_OPTS = { algorithm: 'HS256' };
+const JWT_VERIFY_OPTS = { algorithms: ['HS256'] };
 
 function b64url(input) {
   return input.toString('base64url');
@@ -42,7 +44,7 @@ export function createSignedState(payload = {}) {
       expectedEmail,
     },
     secret,
-    { expiresIn: '10m' }
+    { ...JWT_SIGN_OPTS, expiresIn: '10m' }
   );
 }
 
@@ -50,7 +52,7 @@ export function readSignedState(stateToken) {
   const secret = process.env.JWT_SECRET;
   if (!secret || !stateToken) return null;
   try {
-    const decoded = jwt.verify(stateToken, secret);
+    const decoded = jwt.verify(stateToken, secret, JWT_VERIFY_OPTS);
     if (decoded?.type !== 'oidc_state') return null;
     if (typeof decoded?.verifier !== 'string' || !decoded.verifier) return null;
     return decoded;
@@ -62,7 +64,7 @@ export function readSignedState(stateToken) {
 export function setOidcFlowCookie(res, payload) {
   const secret = process.env.JWT_SECRET;
   if (!secret) throw new Error('JWT_SECRET is required');
-  const token = jwt.sign(payload, secret, { expiresIn: '10m' });
+  const token = jwt.sign(payload, secret, { ...JWT_SIGN_OPTS, expiresIn: '10m' });
   const base = cookieBaseOptions();
   res.cookie(OIDC_FLOW_COOKIE, token, {
     ...base,
@@ -77,7 +79,7 @@ export function readOidcFlowCookie(req) {
   const token = req?.cookies?.[OIDC_FLOW_COOKIE];
   if (!secret || !token) return null;
   try {
-    return jwt.verify(token, secret);
+    return jwt.verify(token, secret, JWT_VERIFY_OPTS);
   } catch {
     return null;
   }

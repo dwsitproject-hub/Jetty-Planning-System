@@ -4,7 +4,7 @@ This guide deploys JPS on **two separate ECS instances** in the same VPC:
 
 |Server|Role|What runs there|
 |-|-|-|
-|**App server** (example private IP `172.28.92.56`)|**Frontend only**|Docker: **nginx + built React SPA** (`docker-compose.app.yml`). Proxies `/api/` and `/uploads/` to the backend over the **private network**.|
+|**App server** (example private IP `172.28.92.56`)|**Frontend only**|Docker: **nginx + built React SPA** (`docker-compose.app.yml`). Proxies `/api/` to the backend over the **private network** (file access via authenticated API routes only).|
 |**Backend server** (example private IP `172.28.92.57`)|**API + database**|Docker: **Node API** (`jps-api`) + **PostgreSQL** (`jps-db`) (`docker-compose.backend.yml`). **Do not** install the JPS frontend container on this host for the standard layout.|
 
 Users reach **only** the app server URL (public IP or DNS + port). They never call the backend IP directly from the browser.
@@ -49,7 +49,7 @@ If your app host uses **`JPS\\\\\\\_FE\\\\\\\_PORT=3001`** (clean server) instea
 |Order|Instance (private IP)|Role|Why first / second|
 |-|-|-|-|
 |**1st**|**Backend** `172.28.92.57`|API + PostgreSQL (Docker)|Database and API must exist before migrations; the app server only proxies to this API. Set `CORS\\\\\\\_ORIGIN` to the **app** URL you plan to use (decide app public IP and port **3080** before deploying the app).|
-|**2nd**|**App** `172.28.92.56`|React + nginx reverse proxy|Needs a **running** API to proxy `/api/` and `/uploads/`. `VITE\\\\\\\_API\\\\\\\_BASE\\\\\\\_URL` must point at the **same** host:port users open (e.g. `http://<APP\\\\\\\_PUBLIC>:3080/api/v1`).|
+|**2nd**|**App** `172.28.92.56`|React + nginx reverse proxy|Needs a **running** API to proxy `/api/`. `VITE\\\\\\\_API\\\\\\\_BASE\\\\\\\_URL` must point at the **same** host:port users open (e.g. `http://<APP\\\\\\\_PUBLIC>:3080/api/v1`).|
 
 \---
 
@@ -93,7 +93,7 @@ Do **A → N** in sequence. Use **PuTTY** (or `ssh`) on each host. Replace place
 
 |Server|Private IP (example)|Role|
 |-|-|-|
-|**App**|`172.28.92.56`|React SPA (nginx) + **reverse proxy** to the API (`/api/`, `/uploads/`)|
+|**App**|`172.28.92.56`|React SPA (nginx) + **reverse proxy** to the API (`/api/` only)|
 |**Backend**|`172.28.92.57`|Node **API** + **PostgreSQL** (Docker). **No** public database port.|
 
 Users open only the **app** URL (public IP / domain + port or HTTPS). The browser calls **`/api/v1`** on **that same origin**; nginx on the app server forwards requests to the API over the **private** network.
@@ -118,7 +118,7 @@ Users open only the **app** URL (public IP / domain + port or HTTPS). The browse
 |Port|Protocol|Purpose|Source|
 |-|-|-|-|
 |**22**|TCP|SSH|Your admin IP / VPN only|
-|**3080** (recommended)|TCP|HTTP (JPS SPA + proxied `/api/` + `/uploads/`)|Users (or restrict); see §1.1 if your host is already busy|
+|**3080** (recommended)|TCP|HTTP (JPS SPA + proxied `/api/`)|Users (or restrict); see §1.1 if your host is already busy|
 |**80** / **443**|TCP|Often already used by other stacks; optional later: reverse proxy + TLS for JPS|As needed|
 
 **Outbound:** allow TCP **3000** to **backend private IP** `172.28.92.57` (nginx → API).
@@ -634,7 +634,7 @@ docker compose -f docker-compose.app.yml up -d --build
 Terminate HTTPS on the **app** server (nginx on host or container + certificates) and:
 
 * Serve the SPA over **443**
-* Keep proxying `/api/` and `/uploads/` to `https://` or `http://` backend as appropriate (internal VPC often stays HTTP)
+* Keep proxying `/api/` to `https://` or `http://` backend as appropriate (internal VPC often stays HTTP). File downloads use authenticated API paths (`/api/v1/stored-files`, document view/download routes).
 
 Update `VITE\\\\\\\_API\\\\\\\_BASE\\\\\\\_URL` and `CORS\\\\\\\_ORIGIN` to use **`https://`**. If users reach JPS only on **443**, you may drop a high port like **3080** from the public URL or hide it behind a load balancer.
 

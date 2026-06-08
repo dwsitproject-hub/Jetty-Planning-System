@@ -38,6 +38,7 @@ import masterCargoHandlingMethodsRoutes from './routes/master-cargo-handling-met
 import jettyLayoutRoutes from './routes/jetty-layout.js';
 import adminSsoLinkingRoutes from './routes/admin-sso-linking.js';
 import notificationsRoutes from './routes/notifications.js';
+import storedFilesRoutes from './routes/stored-files.js';
 import { requireAuth } from './middleware/auth.js';
 import { requirePortScope } from './middleware/port-scope.js';
 import { csrfProtection } from './middleware/csrf.js';
@@ -68,7 +69,10 @@ app.use(express.json());
 /** Downstream Hub bridge: POST /auth/hub (urlencoded body); separate from /api/v1/auth/login */
 app.use('/auth', hubSsoRoutes);
 app.use('/auth', oidcSsoRoutes);
-app.use('/uploads', express.static(UPLOAD_ROOT));
+/** C-01: public static uploads retired; use /api/v1/stored-files or document routes */
+app.use('/uploads', (_req, res) => {
+  res.status(404).json({ error: 'Uploads are not served publicly; use authenticated API endpoints' });
+});
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -102,6 +106,7 @@ apiV1.use('/allocation', requireAuth, requirePortScope, allocationRoutes);
 apiV1.use('/dashboard-v2', requireAuth, requirePortScope, dashboardV2WeeklyRoutes);
 apiV1.use('/shipment-plans', requireAuth, requirePortScope, shipmentPlansRoutes);
 apiV1.use('/operation-documents', requireAuth, requirePortScope, operationDocumentsRoutes);
+apiV1.use('/stored-files', requireAuth, requirePortScope, storedFilesRoutes);
 apiV1.use('/jetty-layout', requireAuth, requirePortScope, jettyLayoutRoutes);
 apiV1.use('/activity-logs', requireAuth, requirePortScope, activityLogsRoutes);
 apiV1.use('/notifications', requireAuth, notificationsRoutes);

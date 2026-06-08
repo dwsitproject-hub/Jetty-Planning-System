@@ -79,7 +79,7 @@ Browser → Server 1 (nginx :3080, public EIP or VPC)
                     → Server 3 (jps-db :5432)     [VPC only; SG: API host only]
 ```
 
-- **Server 1 (app):** unchanged for users — nginx proxies `/api/` and `/uploads/` to Server 2. See `Frontend/nginx.alicloud-app.conf`.
+- **Server 1 (app):** unchanged for users — nginx proxies `/api/` to Server 2 (uploads served only via authenticated API routes, not public `/uploads/`). See `Frontend/nginx.alicloud-app.conf`.
 - **Server 2 (API):** `jps-api` + **`jps_uploads`** volume (SI/operation documents); **`DATABASE_URL`** points at Server 3 via `DB_HOST` / `DB_PORT` in `Backend/.env`.
 - **Server 3 (DB):** `jps-db` only; **not** exposed to the internet. Inbound **5432** from Server 2 private IP only.
 
@@ -110,7 +110,7 @@ Digitize and streamline end-to-end jetty operations (loading and unloading) by p
                                    ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                     APP TIER (nginx + static SPA)                        │
-│  Same-origin /api/v1 and /uploads proxied to API tier (Alicloud app ECS)│
+│  Same-origin /api/v1 proxied to API tier (files via stored-files / docs) │
 └─────────────────────────────────┬───────────────────────────────────────┘
                                    │ VPC private :3000
                                    ▼
