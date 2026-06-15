@@ -5,9 +5,14 @@ BEGIN;
 ALTER TABLE public.si_commodities
   ADD COLUMN IF NOT EXISTS short_name TEXT;
 
+-- Backfill all rows (including soft-deleted) before SET NOT NULL.
 UPDATE public.si_commodities
 SET short_name = name
-WHERE deleted_at IS NULL AND short_name IS NULL;
+WHERE short_name IS NULL AND name IS NOT NULL;
+
+UPDATE public.si_commodities
+SET short_name = 'COMMODITY-' || id::text
+WHERE short_name IS NULL;
 
 ALTER TABLE public.si_commodities
   ALTER COLUMN short_name SET NOT NULL;
