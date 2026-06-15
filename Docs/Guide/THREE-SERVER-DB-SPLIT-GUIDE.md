@@ -15,7 +15,7 @@ This guide describes how to move JPS from a **two-server** layout (app + API/DB 
 
 - [THREE-SERVER-DB-CUTOVER-RUNBOOK.md](./THREE-SERVER-DB-CUTOVER-RUNBOOK.md) — after-hours switchover only
 - [ALICLOUD-DEPLOYMENT-GUIDE.md](./ALICLOUD-DEPLOYMENT-GUIDE.md) — initial two-server deploy, Docker install, security groups
-- [MANUAL-UPLOAD-RESTORE-GUIDE.md](./MANUAL-UPLOAD-RESTORE-GUIDE.md) — uploads stay on the API server (`jps_uploads`)
+- [MANUAL-UPLOAD-RESTORE-GUIDE.md](./MANUAL-UPLOAD-RESTORE-GUIDE.md) — uploads on Synology NAS (`UPLOAD_HOST_PATH`) or local `jps_uploads` volume
 - [ECS-DISK-SPACE-CHECK-AND-EXPAND.md](./ECS-DISK-SPACE-CHECK-AND-EXPAND.md) — sizing and expanding the DB data disk
 - [PGADMIN-STAGING-DB-TUNNEL-WINDOWS.md](./PGADMIN-STAGING-DB-TUNNEL-WINDOWS.md) — SSH tunnel pattern (adapt host/port after split)
 
@@ -33,7 +33,7 @@ Browser → Server 1 (nginx :3080)
 
 - Users and the public internet **never** connect to PostgreSQL.
 - Server 1 configuration is **unchanged** (nginx still proxies to Server 2 `:3000`).
-- Upload files remain on Server 2 (`jps_uploads` volume); only the database moves.
+- Upload files remain on Server 2 (Synology NAS via `UPLOAD_HOST_PATH`, or `jps_uploads` volume before NAS cutover); only the database moves.
 
 ---
 
@@ -451,7 +451,7 @@ docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps
 
 4. Re-enable app traffic on Server 1.
 
-**Uploads:** `jps_uploads` remains on Server 2. See [MANUAL-UPLOAD-RESTORE-GUIDE.md](./MANUAL-UPLOAD-RESTORE-GUIDE.md) if files are missing after container changes.
+**Uploads:** Synology NAS bind on Server 2 (`UPLOAD_HOST_PATH`); see [SYNOLOGY-INTEGRATION.md](../Plan/SYNOLOGY-INTEGRATION.md). See [MANUAL-UPLOAD-RESTORE-GUIDE.md](./MANUAL-UPLOAD-RESTORE-GUIDE.md) if files are missing after container changes.
 
 ---
 

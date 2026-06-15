@@ -6,7 +6,7 @@ Use this guide when uploaded files are **missing from disk** but the **database 
 
 **Run shell commands on the backend server** (e.g. `172.28.92.57`). Replace placeholders (`<BACKEND_IP>`, vessel names, paths) with your environment values.
 
-**Related:** [ALICLOUD-DEPLOYMENT-GUIDE §5.2A](./ALICLOUD-DEPLOYMENT-GUIDE.md) (persistent uploads volume and migration).
+**Related:** [ALICLOUD-DEPLOYMENT-GUIDE §5.2A](./ALICLOUD-DEPLOYMENT-GUIDE.md) (NAS upload storage and migration). [SYNOLOGY-INTEGRATION.md](../Plan/SYNOLOGY-INTEGRATION.md) for NAS cutover.
 
 ---
 

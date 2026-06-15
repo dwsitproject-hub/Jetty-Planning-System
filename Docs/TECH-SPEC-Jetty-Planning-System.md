@@ -1,12 +1,74 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.42
-**Last Updated**: 2026-05-26  
+**Version**: 1.43
+**Last Updated**: 2026-06-12  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
 
 ## 0. Addendum (2026-03-31)
+
+### 0.33 Inbound Shipping Instruction integration API (`/api/v1/integrations`) (2026-06-12)
+
+**Purpose:** Machine-to-machine API for external partners (EOS Export/Import, KLIPS, etc.) to submit **Shipping Instructions** into JPS. Creates real **`shipment_plans`** + **`shipping_instructions`** + breakdown rows; operators review via existing **`shipment-plan`** approval UI. Partner contract: **Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md**; local test walkthrough: **Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-API-TEST-GUIDE.md**. Functional behaviour: **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.23**.
+
+**Mount (`Backend/src/index.js`):**
+
+- **`apiV1.use('/integrations', integrationsRoutes)`** — registered **before** **`csrfProtection`** and **before** JWT-gated routes. Partner clients use **`x-api-key`** only (no cookie session, no CSRF).
+
+**Database (migrations):**
+
+| Migration | Objects |
+|-----------|---------|
+| **`084_integration_partner_api.sql`** | **`integration_api_keys`** (`partner_name`, `key_prefix`, `key_hash` SHA-256 hex, `allowed_port_ids BIGINT[]`, `active`, `last_used_at`); **`integration_submissions`** (`api_key_id`, `external_reference`, `shipping_instruction_id`, `shipment_plan_id`, `payload JSONB`, `received_at`; **`UNIQUE (api_key_id, external_reference)`** for idempotency). |
+| **`085_shipment_plan_integration_source.sql`** | **`shipment_plans.external_reference`**, **`shipment_plans.requested_by`** (TEXT, nullable); index on **`external_reference`** where not null. |
+
+**Key provisioning:**
+
+- **`node scripts/create-integration-api-key.mjs --partner "EOS-EXPORT" --ports 3`** — generates **`jps_live_<hex>`**, stores hash only, prints plaintext once.
+- **`--list`**, **`--deactivate <id>`** for ops.
+
+**Auth middleware — `Backend/src/middleware/integration-auth.js`:**
+
+- Header **`x-api-key`** → SHA-256 lookup in **`integration_api_keys`** (`active`).
+- Sets **`req.integrationKey = { id, partnerName, allowedPortIds }`**.
+- Rate limit **120 req/min** per key (`express-rate-limit`, env **`INTEGRATION_RATE_LIMIT_PER_MINUTE`**).
+- Response envelope: **`{ success: true, data }`** / **`{ success: false, error: { code, message, details }, request_id }`**.
+
+**Routes — `Backend/src/routes/integrations.js`:**
+
+| Method | Path | Behaviour |
+|--------|------|-----------|
+| **`POST`** | **`/shipping-instructions`** | Validates payload (vessel, purpose, eta, cargo lines with **`cargo_type`** → **`si_commodities.name`**, **`unit`** → **`metric.code`**). **`port_id`** must be in key’s **`allowed_port_ids`**. Transaction: insert **`shipment_plans`** (`approval_status` **`Submitted`**, **`external_reference`**, **`requested_by`** = payload **`requested_by`** or **`partnerName`**), **`shipping_instructions`** (`status` **`Submitted`**), **`shipping_instruction_breakdown`**, **`integration_submissions`**. Triggers **`shipment_plan.submitted`** notification + activity log. Returns **201** with partner status **`Pending`**. Duplicate **`external_reference`** → **409** **`DUPLICATE_REFERENCE`**. |
+| **`GET`** | **`/shipping-instructions/:id`** | Lookup by SI id scoped to caller’s **`api_key_id`** via **`integration_submissions`**. |
+| **`GET`** | **`/shipping-instructions?external_reference=`** | Same payload shape; lookup by partner reference. |
+
+**External status derivation (partner-facing):**
+
+| Partner status | Internal rule |
+|----------------|---------------|
+| **`Pending`** | Plan not **Rejected**; no operation beyond **`PENDING`**; plan not **Approved** (or still **Submitted**). |
+| **`Approved`** | **`shipment_plans.approval_status` = `Approved`**; no allocated operation yet. |
+| **`Rejected`** | Plan **`approval_status` = `Rejected`**; includes **`rejection_reason`**. |
+| **`Allocated`** | Active **`operations`** row with **`status` ≠ `PENDING`**; returns **`allocation.jetty_name`**, **`planned_berthing_time`** (`docking_start_time`). |
+
+**Manual plan create — `requested_by` on `shipment_plans`:**
+
+- **`Backend/src/lib/resolve-requested-by.js`** — **`resolveUserRequestedBy(db, userId)`** → **`users.display_name`** or **`users.username`**.
+- Set on **`POST /shipment-plans`** (`Backend/src/routes/shipment-plans.js`) and on implicit plan create in **`POST /shipping-instructions`** when no **`shipment_plan_id`** (`Backend/src/routes/shipping-instructions.js`).
+- **`external_reference`** remains **null** for manual creates (integration-only).
+- **`requested_by`** is **not** updated on plan edit — captures **initiator at create time** only.
+
+**Internal API — shipment plan list (`Backend/src/routes/shipment-plans.js`):**
+
+- **`toPlanListRow`** exposes **`externalReference`**, **`requestedBy`** from **`sp.*`** (list/detail SQL already selects plan columns).
+
+**Frontend — `Frontend/src/pages/ShipmentPlansList.jsx`:**
+
+- Table columns after **ETA**: **External reference**, **Requested by**; client-side filters **`externalReference`**, **`requestedBy`**.
+- i18n **`colExternalReference`**, **`colRequestedBy`**, **`filterExternalReference`**, **`filterRequestedBy`** in **`Frontend/src/locales/en/shipmentPlan.json`** and **`id/shipmentPlan.json`**.
+
+**Error codes (integration envelope):** **`INVALID_API_KEY`**, **`FORBIDDEN_PORT`**, **`VALIDATION_ERROR`**, **`DUPLICATE_REFERENCE`**, **`NOT_FOUND`**, **`RATE_LIMITED`**, **`INTERNAL_ERROR`**.
 
 ### 0.32 Overview tables — Commodity Qty column (`siBreakdownDisplay`) (2026-05-26)
 

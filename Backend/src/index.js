@@ -39,6 +39,7 @@ import jettyLayoutRoutes from './routes/jetty-layout.js';
 import adminSsoLinkingRoutes from './routes/admin-sso-linking.js';
 import notificationsRoutes from './routes/notifications.js';
 import storedFilesRoutes from './routes/stored-files.js';
+import integrationsRoutes from './routes/integrations.js';
 import { requireAuth } from './middleware/auth.js';
 import { requirePortScope } from './middleware/port-scope.js';
 import { csrfProtection } from './middleware/csrf.js';
@@ -89,6 +90,8 @@ apiV1.get('/ping', (req, res) => {
 });
 
 apiV1.use('/auth', authRoutes);
+/** Partner machine-to-machine API (x-api-key auth); mounted before CSRF since partners have no cookie session. */
+apiV1.use('/integrations', integrationsRoutes);
 apiV1.use(csrfProtection);
 apiV1.use('/users', userRoutes);
 apiV1.use('/admin', adminSsoLinkingRoutes);

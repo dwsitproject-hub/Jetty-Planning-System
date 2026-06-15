@@ -104,6 +104,8 @@ export default function ShipmentPlansList() {
     approval: '',
     jetty: '',
     eta: '',
+    externalReference: '',
+    requestedBy: '',
   })
   const [plansListPage, setPlansListPage] = useState(1)
   const [siDocumentModalId, setSiDocumentModalId] = useState(null)
@@ -229,6 +231,8 @@ export default function ShipmentPlansList() {
       if (!inc(row.approvalStatus, f.approval)) return false
       if (!inc(row.jettyName || '—', f.jetty)) return false
       if (!inc(formatDateTimeDisplay(row.eta), f.eta)) return false
+      if (!inc(row.externalReference, f.externalReference)) return false
+      if (!inc(row.requestedBy, f.requestedBy)) return false
       return true
     })
   }, [list, tableFilters])
@@ -1002,6 +1006,8 @@ export default function ShipmentPlansList() {
                 <th className="shipping-instruction-table__th">{t('colApproval')}</th>
                 <th className="shipping-instruction-table__th">{t('colJetty')}</th>
                 <th className="shipping-instruction-table__th">{t('colEta')}</th>
+                <th className="shipping-instruction-table__th">{t('colExternalReference')}</th>
+                <th className="shipping-instruction-table__th">{t('colRequestedBy')}</th>
               </tr>
               <tr className="shipping-instruction-table__filter-row">
                 <th className="si-table__col-actions" aria-hidden />
@@ -1083,6 +1089,26 @@ export default function ShipmentPlansList() {
                     value={tableFilters.eta}
                     onChange={(e) => setTableFilters((f) => ({ ...f, eta: e.target.value }))}
                     aria-label={t('filterEta')}
+                  />
+                </th>
+                <th>
+                  <input
+                    type="text"
+                    className="shipping-instruction-table__filter"
+                    placeholder={t('filterPlaceholderShort')}
+                    value={tableFilters.externalReference}
+                    onChange={(e) => setTableFilters((f) => ({ ...f, externalReference: e.target.value }))}
+                    aria-label={t('filterExternalReference')}
+                  />
+                </th>
+                <th>
+                  <input
+                    type="text"
+                    className="shipping-instruction-table__filter"
+                    placeholder={t('filterPlaceholderShort')}
+                    value={tableFilters.requestedBy}
+                    onChange={(e) => setTableFilters((f) => ({ ...f, requestedBy: e.target.value }))}
+                    aria-label={t('filterRequestedBy')}
                   />
                 </th>
               </tr>
@@ -1183,6 +1209,8 @@ export default function ShipmentPlansList() {
                   </td>
                   <td>{row.jettyName || '—'}</td>
                   <td>{formatDateTimeDisplay(row.eta)}</td>
+                  <td>{row.externalReference || '—'}</td>
+                  <td>{row.requestedBy || '—'}</td>
                 </tr>
               ))}
             </tbody>

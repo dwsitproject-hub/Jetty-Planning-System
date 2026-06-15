@@ -4,6 +4,7 @@
 import express from 'express';
 import { pool } from '../db.js';
 import { writeActivityLog } from '../lib/activity-log.js';
+import { resolveUserRequestedBy } from '../lib/resolve-requested-by.js';
 import { requireAuth } from '../middleware/auth.js';
 import { userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
 
@@ -738,6 +739,8 @@ router.post('/', requireAuth, async (req, res) => {
           ? new Date(`${etaFromIn}T12:00:00Z`)
           : null;
 
+  const requestedBy = await resolveUserRequestedBy(pool, req.userId);
+
   const client = await pool.connect();
   let planReopened = false;
   try {
@@ -790,8 +793,9 @@ router.post('/', requireAuth, async (req, res) => {
       );
     } else {
       const planIns = await client.query(
-        `INSERT INTO shipment_plans (port_id, vessel_name, jetty_id, eta, purpose_id, voyage_no, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+        `INSERT INTO shipment_plans (
+           port_id, vessel_name, jetty_id, eta, purpose_id, voyage_no, requested_by, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
          RETURNING id`,
         [
           selectedPortId,
@@ -800,6 +804,7 @@ router.post('/', requireAuth, async (req, res) => {
           etaInstant,
           purposeIdVal,
           trimText(voyage_no, 64),
+          requestedBy,
         ]
       );
       shipmentPlanId = planIns.rows[0].id;

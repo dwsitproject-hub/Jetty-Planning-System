@@ -177,9 +177,21 @@ docker exec -T jps-db psql -U jps_user -d jps_db -c "SELECT COUNT(*) FROM users;
 docker exec -T jps-db psql -U jps_user -d jps_db -c "SELECT name FROM schema_migrations ORDER BY name DESC LIMIT 10;"
 ```
 
-### 5.5 Upload files (documents/photos) — staging → production API host
+### 5.5 Upload files (documents/photos) — staging → production
 
-If you want **attachments** to match staging, copy the **uploads volume** from staging to production **API host** (uploads remain on Server 2; DB-only host does not store files).
+If you want **attachments** to match staging, copy uploads from staging to production. Uploads remain on the **API server** (Server 2 in three-server layout); the DB-only host does not store files.
+
+**When both environments use Synology NAS** (recommended), copy between NAS folders on the share or rsync from staging mount to production mount — no Docker volume tar needed:
+
+```bash
+# Staging → production on NAS (host mount root: /mnt/synology)
+rsync -a /mnt/synology/dev/JETTYPLANNING/ \
+         /mnt/synology/JETTYPLANNING/
+```
+
+Ensure production `Backend/.env` has `UPLOAD_HOST_PATH` pointing at the production NAS folder. See [SYNOLOGY-INTEGRATION.md](../Plan/SYNOLOGY-INTEGRATION.md).
+
+**Legacy: Docker volume `jps_uploads`** (before NAS cutover):
 
 On **staging API host**:
 
@@ -188,14 +200,9 @@ docker run --rm -v jps_uploads:/data -v $(pwd):/backup alpine \
   tar czf /backup/jps-uploads-staging.tar.gz -C /data .
 ```
 
-Copy to production API host (`172.28.80.51`), then restore:
+Copy to production API host, then restore into the volume or NAS path per [SYNOLOGY-INTEGRATION.md §5](../Plan/SYNOLOGY-INTEGRATION.md).
 
-```bash
-docker run --rm -v jps_uploads:/data -v $(pwd):/backup alpine \
-  sh -c "rm -rf /data/* && tar xzf /backup/jps-uploads-staging.tar.gz -C /data"
-```
-
-For detailed, step-by-step restore and verification: `MANUAL-UPLOAD-RESTORE-GUIDE.md`.
+For detailed, step-by-step restore and verification: [MANUAL-UPLOAD-RESTORE-GUIDE.md](./MANUAL-UPLOAD-RESTORE-GUIDE.md).
 
 ---
 

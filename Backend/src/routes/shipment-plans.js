@@ -11,6 +11,7 @@ import { loadOperationJoined, toOp } from './operations.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
 import { formatSiCargoDisplay } from '../lib/siBreakdownDisplay.js';
 import { validateDepartDocumentUrls } from '../lib/depart-document-url.js';
+import { resolveUserRequestedBy } from '../lib/resolve-requested-by.js';
 
 const router = express.Router();
 const PAGE_KEY = 'shipment-plan';
@@ -103,6 +104,8 @@ function toPlanListRow(row) {
     voyageNo: row.voyage_no ?? null,
     agentId: row.agent_id != null ? Number(row.agent_id) : null,
     agentName: row.agent_name ?? null,
+    externalReference: row.external_reference ?? null,
+    requestedBy: row.requested_by ?? null,
     approvalStatus: row.approval_status,
     siCount,
     shippingInstructions,
@@ -335,14 +338,18 @@ router.post('/', requireAuth, async (req, res) => {
     if (am.rows.length === 0) return res.status(400).json({ error: 'Invalid agent_id' });
   }
 
+  const requestedBy = await resolveUserRequestedBy(pool, req.userId);
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const ins = await client.query(
-      `INSERT INTO shipment_plans (port_id, vessel_name, jetty_id, eta, purpose_id, voyage_no, agent_id, created_at, updated_at, updated_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), $8)
+      `INSERT INTO shipment_plans (
+         port_id, vessel_name, jetty_id, eta, purpose_id, voyage_no, agent_id,
+         requested_by, created_at, updated_at, updated_by
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW(), $9)
        RETURNING id`,
-      [selectedPortId, vesselName, jettyId, eta, purposeId, voyageNo, agentId, req.userId ?? null]
+      [selectedPortId, vesselName, jettyId, eta, purposeId, voyageNo, agentId, requestedBy, req.userId ?? null]
     );
     const planId = ins.rows[0].id;
     const ref = buildPlanReference(planId);

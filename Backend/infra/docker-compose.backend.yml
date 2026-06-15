@@ -56,7 +56,9 @@ services:
       SSO_LEGACY_BRIDGE_ENABLED: ${SSO_LEGACY_BRIDGE_ENABLED:-true}
       UPLOAD_DIR: ${UPLOAD_DIR:-/var/jps/uploads}
     volumes:
-      - jps_uploads:/var/jps/uploads
+      # Omit UPLOAD_HOST_PATH for local Docker (uses named volume jps_uploads).
+      # Staging/production: set UPLOAD_HOST_PATH to the NAS mount on the host.
+      - ${UPLOAD_HOST_PATH:-jps_uploads}:/var/jps/uploads
     command: ["npm", "run", "start"]
     depends_on:
       jps-db:

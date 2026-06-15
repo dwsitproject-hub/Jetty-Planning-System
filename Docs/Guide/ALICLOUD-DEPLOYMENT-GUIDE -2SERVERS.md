@@ -439,13 +439,24 @@ docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d
 docker compose --env-file Backend/.env -f docker-compose.backend.yml ps
 ```
 
-### 5.2A Persistent uploads volume
+### 5.2A Upload storage (Synology NAS on staging/production)
 
-Uploaded files (berthing photos, NOR attachments, SI PDFs, sub-process documents) are stored on disk under **`UPLOAD_DIR`** (default **`/var/jps/uploads`** inside **`jps-api`**). Compose mounts a **named Docker volume** **`jps_uploads`** at that path so files survive container rebuilds and redeploys — same persistence model as **`jps_pgdata`** for Postgres.
+Uploaded files (berthing photos, NOR attachments, SI PDFs, sub-process documents) are stored on disk under **`UPLOAD_DIR`** (default **`/var/jps/uploads`** inside **`jps-api`**). PostgreSQL stores relative `stored_path` metadata only.
 
-**Do not** use ephemeral paths such as **`/tmp/jps-uploads`** without a volume: a container recreate wipes **`/tmp`** while DB metadata remains, causing filenames to appear in the UI with broken preview/download.
+**Staging and production** use the shared Synology NAS. Set **`UPLOAD_HOST_PATH`** in **`Backend/.env`** to the NAS folder mounted on the API host; compose bind-mounts it into the container:
 
-**Never run `docker compose down -v` on production** — the **`-v`** flag deletes named volumes, including **`jps_pgdata`** and **`jps_uploads`**.
+| Environment | File Station | Example `UPLOAD_HOST_PATH` |
+|-------------|--------------|----------------------------|
+| Staging | `172.30.1.94/dev/JETTYPLANNING` | `/mnt/synology/dev/JETTYPLANNING` |
+| Production | `172.30.1.94/JETTYPLANNING` | `/mnt/synology/JETTYPLANNING` |
+
+Full cutover and migration steps: [SYNOLOGY-INTEGRATION.md](../Plan/SYNOLOGY-INTEGRATION.md).
+
+**Local dev / machines without NAS:** omit `UPLOAD_HOST_PATH` — compose uses named volume **`jps_uploads`** at `/var/jps/uploads` so files survive container rebuilds.
+
+**Do not** use ephemeral paths such as **`/tmp/jps-uploads`** without a volume or NAS bind: a container recreate wipes **`/tmp`** while DB metadata remains, causing filenames to appear in the UI with broken preview/download.
+
+**Never run `docker compose down -v` on production** — the **`-v`** flag deletes named volumes, including **`jps_pgdata`**. With NAS, uploads live on the share; **`jps_uploads`** may still exist as an unused fallback volume until removed manually.
 
 After **`docker compose up`**, confirm startup logs show:
 
@@ -470,9 +481,13 @@ docker exec jps-api find /var/jps/uploads -type f
 
 Files uploaded before the last container recreate that were already lost from **`/tmp`** cannot be recovered from disk — users must re-upload those documents (DB rows may still show filenames until replaced or deleted). Step-by-step manual restore (SQL lookup, `scp`, `docker cp`, verification): [MANUAL-UPLOAD-RESTORE-GUIDE.md](./MANUAL-UPLOAD-RESTORE-GUIDE.md).
 
+#### One-time migration from `jps_uploads` volume to NAS
+
+When moving from the Docker volume to Synology, see [SYNOLOGY-INTEGRATION.md §5](../Plan/SYNOLOGY-INTEGRATION.md) (backup, copy to NAS, set `UPLOAD_HOST_PATH`, recreate `jps-api`).
+
 #### Backup uploads
 
-Schedule periodic backups alongside Postgres:
+**NAS (staging/production):** back up the host mount path (e.g. rsync or Synology snapshot). Example if still using the named volume locally:
 
 ```bash
 docker run --rm -v jps_uploads:/data -v $(pwd):/backup alpine \

@@ -92,6 +92,8 @@ Shipping Instruction → Allocation & Berthing → At-Berth → Loading/Unloadin
 | **Guide/THREE-SERVER-DB-CUTOVER-RUNBOOK.md** | After-hours production cutover: prerequisites, final dump/restore, API-only compose, smoke test, rollback. |
 | **Guide/ECS-DISK-SPACE-CHECK-AND-EXPAND.md** | ECS disk full (`No space left on device`): check `df`/`lsblk`, free Docker/apt space, resize or attach disks (FFmpeg / Jetty Live). |
 | **Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md** | Jetty Live RTSP stream on the app server (`rtsp-stream-viewer`, nginx, systemd). |
+| **Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md** | **External integration:** REST API for partners to submit Shipping Instructions (`x-api-key` auth, submit + status-check endpoints, `Pending`/`Approved`/`Rejected`/`Allocated` lifecycle). |
+| **Guide/INBOUND-SHIPPING-INSTRUCTION-API-TEST-GUIDE.md** | **Integration API testing:** step-by-step local/staging test guide (curl, Postman, API key setup, error cases, operator lifecycle simulation). |
 | **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md** | **Functional spec:** Jetty schedule Gantt, arrival/berthing modals, **At-Berth Executions** list behaviour, **date/time display** rules (no “LT”), and related user-visible logic. |
 | **UAT-PRE-TRAINING-Scripts.md** | **Pre-UAT training:** facilitator scripts module-by-module (starts with **Shipping Instruction**); Pass/Fail tables and links to functional/technical specs. |
 | **Plan/UAT-COMMODITY-PRECHECK-OPERATIONAL-PLAN.md** | **UAT rollout:** commodity type, pre-check subprocess merges (`inspection`, `initial_cargo_checking`), operational **OPENING** / start-only rules, cargo handling method on Opening (server-derived), migrations `051`–`055`, short test matrix. |
