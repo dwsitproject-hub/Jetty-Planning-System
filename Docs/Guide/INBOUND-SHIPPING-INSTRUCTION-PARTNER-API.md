@@ -1,107 +1,156 @@
 # Jetty Planning System — Shipping Instruction API Integration Guide
 
-> **Audience:** External developers integrating their system (ERP, TMS, agency software) with the Jetty Planning System (JPS).
-> **What you can do:** Submit Shipping Instructions automatically and check their review status — no more manual re-entry by jetty operators.
-> **Testing this API:** See [INBOUND-SHIPPING-INSTRUCTION-API-TEST-GUIDE.md](./INBOUND-SHIPPING-INSTRUCTION-API-TEST-GUIDE.md) for a step-by-step local test walkthrough (curl, Postman, operator lifecycle).
+> **Audience:** External full-stack developers building an integration from your system (EOS Export/Import, KLIPS, ERP, TMS, etc.) into the Jetty Planning System (JPS).
+>
+> **What you can do:** Submit Shipping Instructions automatically and poll their review status. JPS operators review, approve, and allocate jetty resources in the web app — your system does not need to implement that workflow.
+>
+> **This document is self-contained:** API contract, staging environment details, and step-by-step tests you can run yourself.
 
 ---
 
-## 1. Overview & Base URL
+## 1. Overview
 
-### How it works
+### 1.1 How it works
 
 1. Your system **submits** a Shipping Instruction via `POST`.
-2. The instruction lands in JPS with status **`Pending`**.
-3. A JPS operator **reviews** it and either **Approves** or **Rejects** it.
-4. Once approved, the operator **allocates** a jetty/berth slot → status becomes **`Allocated`**.
-5. Your system **polls** the `GET` endpoint to track this lifecycle.
+2. JPS creates a real **Shipment Plan** + **Shipping Instruction** with partner status **`Pending`**.
+3. A JPS operator **reviews** in the web app and **Approves** or **Rejects**.
+4. Once approved, an operator **allocates** a jetty/berth → status becomes **`Allocated`**.
+5. Your system **polls** `GET` to track the lifecycle.
 
 ```mermaid
 flowchart LR
-    submitSI[POST instruction] --> pendingState[Pending]
-    pendingState -->|Operator approves| approvedState[Approved]
-    pendingState -->|Operator rejects| rejectedState[Rejected]
-    approvedState -->|Jetty slot assigned| allocatedState[Allocated]
+    yourSystem[Your system POST] --> pendingState[Pending]
+    pendingState -->|JPS operator approves| approvedState[Approved]
+    pendingState -->|JPS operator rejects| rejectedState[Rejected]
+    approvedState -->|Jetty allocated| allocatedState[Allocated]
+    allocatedState --> yourPoll[Your system GET]
+    approvedState --> yourPoll
+    rejectedState --> yourPoll
+    pendingState --> yourPoll
 ```
 
-### Base URL
+### 1.2 Source identification
 
-| Environment | Base URL |
-|-------------|----------|
-| Staging (test) | `https://staging.jps.example.com/api/v1/integrations` |
-| Production | `https://jps.example.com/api/v1/integrations` |
+JPS records three layers on every submission:
 
-> Replace `jps.example.com` with the domain provided during onboarding.
+| Layer | How it is captured | Example |
+|-------|-------------------|---------|
+| Source system | API key (assigned per integrating system) | `EOS-EXPORT`, `EOS-IMPORT`, `KLIPS` |
+| Source document | `external_reference` in your payload | `EOS-EXPORT-2026-091` |
+| Requestor | `requested_by` in your payload (optional) | `budi.santoso@kpn.com` |
 
-### Basics
+Provision **one API key per integrating system**. Use `external_reference` for your document/order number — no separate document field is needed.
 
-- **Protocol:** HTTPS only. Plain HTTP requests are rejected.
+### 1.3 Environments
+
+| Environment | Integration base URL | Web app (operator UI) | Notes |
+|-------------|---------------------|----------------------|-------|
+| **Staging** | `http://172.28.92.56:3080/api/v1/integrations` | `http://172.28.92.56:3080` | Use for development and UAT |
+| Production | `https://<production-host>/api/v1/integrations` | `https://<production-host>` | Provided at go-live |
+
+**Staging server layout:**
+
+| Server | IP | Role |
+|--------|-----|------|
+| Frontend | `172.28.92.56` | Nginx + React UI (port **3080**); proxies `/api/` to backend |
+| Backend | `172.28.92.57` | Node API (port **3000**, private network) |
+| Database | `172.28.92.60` | PostgreSQL (private network) |
+
+**Call the API through the frontend proxy** (`172.28.92.56:3080`) — that is the URL external integrators should use. Direct backend access (`172.28.92.57:3000`) is only available from inside the private network.
+
+**Network access:** Your workstation or integration server must reach `172.28.92.56:3080` (VPN, bastion, or corporate network). Confirm connectivity before coding:
+
+```bash
+curl -sS http://172.28.92.56:3080/api/v1/health
+```
+
+Expected: `{"status":"ok","timestamp":"..."}`
+
+### 1.4 Basics
+
+- **Protocol:** HTTP on staging (HTTPS on production when TLS is configured).
 - **Content type:** `application/json` (request and response).
 - **Encoding:** UTF-8.
-- **Dates:** `YYYY-MM-DD` (date) and ISO 8601 UTC `YYYY-MM-DDTHH:mm:ssZ` (datetime).
-- **Rate limit:** 120 requests per minute per API key. Exceeding it returns HTTP `429`.
+- **Dates:** ISO 8601 UTC, e.g. `2026-07-01T08:00:00Z`.
+- **Rate limit:** 120 requests per minute per API key → HTTP `429` if exceeded.
 
 ---
 
-## 2. Authentication Guide
+## 2. Authentication
 
-Authentication uses a single API key passed in the `x-api-key` request header. That's it — no OAuth, no token refresh, no request signing.
+Authentication uses a single API key in the `x-api-key` header. No OAuth, no token refresh, no request signing.
 
-During onboarding you will receive:
+### 2.1 What you receive at onboarding
 
 | Item | Example | Notes |
 |------|---------|-------|
-| API key | `jps_live_4f8a2b...` | Keep it secret. Server-side only. Identifies **which system** submitted the request (e.g. `EOS-EXPORT`, `KLIPS`). |
-| Allowed `port_id`(s) | `3` | Your key only works for the port(s) assigned to you. |
+| API key | `jps_live_a73fc30d...` | **Server-side only.** Never commit to git or expose in browser code. |
+| Partner name | `EOS-EXPORT` | Identifies your system on the JPS side (not sent in requests). |
+| Allowed `port_id`(s) | `1` | Your key only works for these port(s). Staging currently uses port **`1`** (BONTANG). |
 
-**Source identification:** JPS records three layers on every submission:
-
-| Layer | How it's captured | Example |
-|-------|-------------------|---------|
-| Source system | API key (`partner_name` on our side) | `EOS-EXPORT`, `EOS-IMPORT`, `KLIPS` |
-| Source document | `external_reference` in the payload | `EOS-EXPORT-2026-091` |
-| Requestor | `requested_by` in the payload (optional) | `budi.santoso@kpn.com` |
-
-Provision one API key per integrating system. Use `external_reference` for your document/order number — no separate document field is needed.
-
-### Example: curl
+**Request your staging API key** from the JPS team. They create it with:
 
 ```bash
-curl -X GET "https://jps.example.com/api/v1/integrations/shipping-instructions/1289" \
-  -H "x-api-key: jps_live_4f8a2b1c9d0e..."
+# (JPS admin only — run on backend server)
+docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps-api \
+  node scripts/create-integration-api-key.mjs --partner "YOUR-SYSTEM-NAME" --ports 1
 ```
 
-### Example: JavaScript (fetch)
+The plaintext key is shown **once**. Store it in your secrets manager or `.env` file immediately.
+
+### 2.2 Header
+
+Every request must include:
+
+```
+x-api-key: jps_live_<your-key>
+Content-Type: application/json   # required on POST
+```
+
+### 2.3 Code examples
+
+**curl:**
+
+```bash
+curl -sS "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions/10" \
+  -H "x-api-key: $JPS_API_KEY"
+```
+
+**JavaScript (Node / server-side fetch):**
 
 ```javascript
-const response = await fetch(
-  "https://jps.example.com/api/v1/integrations/shipping-instructions/1289",
-  {
-    headers: { "x-api-key": process.env.JPS_API_KEY },
-  }
-);
-const result = await response.json();
+const BASE = process.env.JPS_API_BASE_URL; // http://172.28.92.56:3080/api/v1/integrations
+const KEY  = process.env.JPS_API_KEY;
+
+const res = await fetch(`${BASE}/shipping-instructions/10`, {
+  headers: { "x-api-key": KEY },
+});
+const result = await res.json();
 ```
 
-### Example: Python (requests)
+**Python:**
 
 ```python
-import os
-import requests
+import os, requests
 
-response = requests.get(
-    "https://jps.example.com/api/v1/integrations/shipping-instructions/1289",
-    headers={"x-api-key": os.environ["JPS_API_KEY"]},
+BASE = os.environ["JPS_API_BASE_URL"]
+KEY  = os.environ["JPS_API_KEY"]
+
+r = requests.get(
+    f"{BASE}/shipping-instructions/10",
+    headers={"x-api-key": KEY},
+    timeout=30,
 )
-result = response.json()
+result = r.json()
 ```
 
-### Key handling rules
+### 2.4 Key handling rules
 
-- Send the key on **every** request. A missing or invalid key returns HTTP `401`.
-- Store the key in environment variables or a secrets manager — never in source code, mobile apps, or browser JavaScript.
-- Keys can be rotated on request: we issue a new key, both keys work during a short grace period, then the old key is revoked.
-- If you suspect a key is leaked, contact the JPS team immediately to revoke it.
+- Send the key on **every** request. Missing/invalid key → HTTP `401`.
+- Store in environment variables or a secrets manager — not in frontend bundles.
+- Contact JPS to rotate or revoke a compromised key.
+- Each partner can only read submissions made with **their own** API key.
 
 ---
 
@@ -110,190 +159,178 @@ result = response.json()
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/shipping-instructions` | Submit a new Shipping Instruction |
-| `GET` | `/shipping-instructions/{id}` | Check the status of a submitted instruction |
+| `GET` | `/shipping-instructions/{id}` | Check status by JPS id (returned from POST) |
+| `GET` | `/shipping-instructions?external_reference={ref}` | Check status by your own reference |
 
-All paths are relative to the base URL, e.g. the full submit URL is:
-`https://jps.example.com/api/v1/integrations/shipping-instructions`
+Full staging submit URL:
+
+```
+http://172.28.92.56:3080/api/v1/integrations/shipping-instructions
+```
 
 ---
 
-### 3.1 `POST /shipping-instructions` — Submit instruction
+### 3.1 `POST /shipping-instructions` — Submit
 
-Submits a Shipping Instruction for operator review. On success, JPS returns an `id` — **store it**, you will use it to check status.
+Creates a Shipment Plan (`Submitted`) + linked Shipping Instruction + cargo breakdown. Returns JPS id and status `Pending`.
 
-#### Request
+**Request example (staging-valid payload):**
 
 ```bash
-curl -X POST "https://jps.example.com/api/v1/integrations/shipping-instructions" \
-  -H "x-api-key: jps_live_4f8a2b1c9d0e..." \
+curl -sS -X POST "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions" \
+  -H "x-api-key: $JPS_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "external_reference": "EOS-EXPORT-2026-091",
-    "requested_by": "budi.santoso@kpn.com",
-    "port_id": 3,
+    "requested_by": "developer@your-company.com",
+    "port_id": 1,
     "vessel_name": "MV NUSANTARA",
     "voyage_no": "VY-8891",
     "purpose": "Loading",
-    "eta": "2026-06-20T08:00:00Z",
-    "etd": "2026-06-22T18:00:00Z",
+    "eta": "2026-07-01T08:00:00Z",
+    "etd": "2026-07-03T18:00:00Z",
     "agent_name": "PT Samudera Agency",
-    "agent_contact": "ops@samudera-agency.example.com",
-    "notes": "Auto-submitted from ERP",
+    "agent_contact": "ops@agency.example.com",
+    "notes": "Submitted from EOS Export",
     "cargo": [
       {
-        "cargo_type": "CPO",
-        "description": "Crude Palm Oil - main lot",
+        "cargo_type": "CRUDE PALM OIL",
+        "description": "Main lot",
         "tonnage": 25000,
         "unit": "MT",
         "contract_no": "CTR-7788"
-      },
-      {
-        "cargo_type": "PKO",
-        "description": "Palm Kernel Oil",
-        "tonnage": 5000,
-        "unit": "MT",
-        "contract_no": "CTR-7790"
       }
     ]
   }'
 ```
 
-#### Success response — `201 Created`
+**Success — `201 Created`:**
 
 ```json
 {
   "success": true,
   "data": {
-    "id": 1289,
+    "id": 10,
     "external_reference": "EOS-EXPORT-2026-091",
-    "requested_by": "budi.santoso@kpn.com",
+    "requested_by": "developer@your-company.com",
     "status": "Pending",
     "vessel_name": "MV NUSANTARA",
-    "port_id": 3,
-    "received_at": "2026-06-12T07:15:32Z"
+    "port_id": 1,
+    "received_at": "2026-06-15T06:53:59.935Z"
   }
 }
 ```
 
+**Store `data.id`** — you need it for status polling. Also store `external_reference` in your system.
+
 #### Idempotency
 
-`external_reference` is your own unique identifier for the instruction (e.g. your ERP document number). It must be **unique per API key**.
+`external_reference` must be **unique per API key**.
 
-- Submitting the **same** `external_reference` twice returns HTTP `409 DUPLICATE_REFERENCE` — the original submission is untouched.
-- This makes retries safe: if you get a timeout or `5xx` and don't know whether the submission succeeded, simply retry. You will get either `201` (it hadn't arrived) or `409` (it had — recover the `id` via `GET /shipping-instructions?external_reference=...`, see below).
+- Resubmitting the same reference → HTTP `409 DUPLICATE_REFERENCE` (original untouched).
+- Safe to retry on timeout/`5xx`: you get either `201` (new) or `409` (already exists — then `GET ?external_reference=` to recover the id).
 
 ---
 
 ### 3.2 `GET /shipping-instructions/{id}` — Check status
 
-Returns the current status of a submitted instruction. Use the `id` returned by the `POST` call.
-
-#### Request
-
 ```bash
-curl -X GET "https://jps.example.com/api/v1/integrations/shipping-instructions/1289" \
-  -H "x-api-key: jps_live_4f8a2b1c9d0e..."
+curl -sS "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions/10" \
+  -H "x-api-key: $JPS_API_KEY"
 ```
 
-#### Success response — `200 OK`
+**Success — `200 OK` (allocated example):**
 
 ```json
 {
   "success": true,
   "data": {
-    "id": 1289,
+    "id": 10,
     "external_reference": "EOS-EXPORT-2026-091",
-    "requested_by": "budi.santoso@kpn.com",
+    "requested_by": "developer@your-company.com",
     "status": "Allocated",
     "vessel_name": "MV NUSANTARA",
     "voyage_no": "VY-8891",
     "purpose": "Loading",
-    "eta": "2026-06-20T08:00:00Z",
-    "etd": "2026-06-22T18:00:00Z",
-    "port_id": 3,
+    "eta": "2026-07-01T08:00:00.000Z",
+    "etd": "2026-07-03T18:00:00Z",
+    "port_id": 1,
     "allocation": {
-      "jetty_name": "Jetty 2",
-      "planned_berthing_time": "2026-06-20T10:00:00Z"
+      "jetty_name": "Jetty 1A",
+      "planned_berthing_time": "2026-07-01T10:00:00.000Z"
     },
     "rejection_reason": null,
-    "submitted_at": "2026-06-12T07:15:32Z",
-    "last_updated_at": "2026-06-13T02:40:11Z"
+    "submitted_at": "2026-06-15T06:53:59.935Z",
+    "last_updated_at": "2026-06-16T02:40:11.000Z"
   }
 }
 ```
 
-Notes:
+- `allocation` is `null` until status is `Allocated`.
+- `rejection_reason` is set only when status is `Rejected`.
 
-- `allocation` is `null` until the status reaches `Allocated`.
-- `rejection_reason` is populated only when the status is `Rejected`.
-
-#### Lookup by your own reference
-
-If you lost the JPS `id` (e.g. after a timed-out submit), you can look it up by your reference:
+#### Lookup by your reference
 
 ```bash
-curl -X GET "https://jps.example.com/api/v1/integrations/shipping-instructions?external_reference=SI-ERP-20260612-0001" \
-  -H "x-api-key: jps_live_4f8a2b1c9d0e..."
+curl -sS "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions?external_reference=EOS-EXPORT-2026-091" \
+  -H "x-api-key: $JPS_API_KEY"
 ```
 
-Returns the same response shape as `GET /{id}` (HTTP `404` if no match).
+Same response shape as `GET /{id}`. HTTP `404` if not found or not yours.
 
 #### Polling guidance
 
-- Poll **at most once every 5 minutes** per instruction. Operator review is a human process — status changes take minutes to hours, not seconds.
-- Stop polling once the status reaches a terminal state for your workflow (`Rejected`, or `Allocated` if that's all you need).
+- Poll **at most once every 5 minutes** per instruction.
+- Stop when status is `Rejected`, or `Allocated` if that completes your workflow.
 
 ---
 
-## 4. Request & Response Payloads
+## 4. Request & response reference
 
 ### 4.1 Submission fields (`POST` body)
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `external_reference` | string (max 100) | Yes | Your unique document/order ID in the source system. Used for idempotency and source tracing (e.g. `EOS-EXPORT-2026-091`). |
-| `requested_by` | string (max 200) | No | Person or service account in your system who triggered the submission (e.g. email, username, or service id). Shown to JPS operators. |
-| `port_id` | integer | Yes | JPS port ID. Must be one of your allowed ports (given at onboarding). |
-| `vessel_name` | string (max 200) | Yes | Vessel name, e.g. `"MV NUSANTARA"`. |
+| `external_reference` | string (max 100) | Yes | Your unique document/order ID. Idempotency key. |
+| `requested_by` | string (max 200) | No | Person or service account in your system. Shown to JPS operators. If omitted, JPS stores the API partner name. |
+| `port_id` | integer | Yes | JPS port ID. Staging: **`1`** (BONTANG). Must match your key's allowed ports. |
+| `vessel_name` | string (max 200) | Yes | Vessel name. |
 | `voyage_no` | string (max 50) | No | Voyage number. |
 | `purpose` | string | Yes | `"Loading"` or `"Unloading"`. |
 | `eta` | datetime (ISO 8601 UTC) | Yes | Estimated time of arrival. |
-| `etd` | datetime (ISO 8601 UTC) | No | Estimated time of departure. Must be after `eta` when provided. |
-| `agent_name` | string (max 200) | Yes | Shipping agent / sender company name. |
-| `agent_contact` | string (max 200) | No | Agent email or phone for operator follow-up. |
-| `notes` | string (max 2000) | No | Free-text remarks for the operator. |
+| `etd` | datetime (ISO 8601 UTC) | No | Estimated departure. Must be after `eta` when provided. |
+| `agent_name` | string (max 200) | Yes | Shipping agent / sender company. |
+| `agent_contact` | string (max 200) | No | Agent email or phone. |
+| `notes` | string (max 2000) | No | Free-text remarks for operators. |
 | `cargo` | array | Yes | At least one cargo line (see below). |
 
 **Cargo line fields** (`cargo[]`):
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `cargo_type` | string (max 100) | Yes | Cargo/commodity name, e.g. `"CPO"`, `"PKO"`, `"Olein"`. |
+| `cargo_type` | string (max 100) | Yes | Must match a **JPS commodity name** exactly (case-insensitive). See §5.1. |
 | `description` | string (max 500) | No | Extra detail about the lot. |
-| `tonnage` | number ≥ 0 | Yes | Quantity in the given unit. |
-| `unit` | string | Yes | `"MT"` (metric tons) or `"KL"` (kiloliters). |
-| `contract_no` | string (max 100) | No | Your contract / PO reference for this line. |
+| `tonnage` | number ≥ 0 | Yes | Quantity. |
+| `unit` | string | Yes | `"MT"` or `"KL"` only. |
+| `contract_no` | string (max 100) | No | Your contract / PO reference. |
 
-### 4.2 Instruction status values
+All cargo lines on one instruction must be the same commodity type category (Solid or Liquid).
 
-| Status | Meaning | What to do |
-|--------|---------|------------|
-| `Pending` | Received, waiting for operator review. | Keep polling. |
-| `Approved` | Operator accepted the instruction. Awaiting jetty allocation. | Keep polling if you need the berth slot. |
-| `Rejected` | Operator declined it. See `rejection_reason`. | Fix and submit a **new** instruction with a **new** `external_reference`. |
-| `Allocated` | A jetty/berth slot has been assigned. See `allocation`. | Done — vessel is scheduled. |
+### 4.2 Partner status values
+
+| Status | Meaning | Your action |
+|--------|---------|-------------|
+| `Pending` | Received, awaiting operator review. | Keep polling. |
+| `Approved` | Operator accepted. Awaiting jetty allocation. | Keep polling if you need berth info. |
+| `Rejected` | Operator declined. See `rejection_reason`. | Fix data; submit **new** instruction with **new** `external_reference`. |
+| `Allocated` | Jetty/berth assigned. See `allocation`. | Done for scheduling workflow. |
 
 ### 4.3 Response envelope
-
-Every response uses the same envelope.
 
 **Success:**
 
 ```json
-{
-  "success": true,
-  "data": { "...": "..." }
-}
+{ "success": true, "data": { } }
 ```
 
 **Error:**
@@ -303,107 +340,294 @@ Every response uses the same envelope.
   "success": false,
   "error": {
     "code": "VALIDATION_ERROR",
-    "message": "Field 'eta' is required",
+    "message": "Payload validation failed",
     "details": [
-      { "field": "eta", "issue": "required" },
-      { "field": "cargo[0].unit", "issue": "must be one of: MT, KL" }
+      { "field": "cargo[0].cargo_type", "issue": "unknown cargo type(s): CPO", "valid_cargo_types": ["CRUDE PALM OIL", "..."] }
     ]
   },
   "request_id": "req_01HXYZABC123"
 }
 ```
 
-> Always log `request_id` — include it when contacting JPS support so we can trace the exact request.
+Always log `request_id` when reporting issues to JPS support.
 
-### 4.4 Error examples
-
-**Invalid API key — `401`:**
-
-```json
-{
-  "success": false,
-  "error": {
-    "code": "INVALID_API_KEY",
-    "message": "API key is missing or invalid",
-    "details": null
-  },
-  "request_id": "req_01HXYZABC124"
-}
-```
-
-**Duplicate submission — `409`:**
-
-```json
-{
-  "success": false,
-  "error": {
-    "code": "DUPLICATE_REFERENCE",
-    "message": "An instruction with external_reference 'SI-ERP-20260612-0001' already exists",
-    "details": { "existing_id": 1289, "status": "Pending" }
-  },
-  "request_id": "req_01HXYZABC125"
-}
-```
-
-**Unknown instruction — `404`:**
-
-```json
-{
-  "success": false,
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Shipping instruction 9999 not found",
-    "details": null
-  },
-  "request_id": "req_01HXYZABC126"
-}
-```
-
----
-
-## 5. Status Codes & Error Handling
-
-### HTTP status codes
+### 4.4 HTTP status codes
 
 | HTTP | Error code | When | Retry? |
 |------|------------|------|--------|
-| `201` | — | Instruction created. | — |
-| `200` | — | Status retrieved. | — |
-| `400` | `VALIDATION_ERROR` | Payload failed validation. See `error.details`. | No — fix the payload first. |
-| `401` | `INVALID_API_KEY` | Missing/invalid `x-api-key` header. | No — fix the key first. |
-| `403` | `FORBIDDEN_PORT` | `port_id` not allowed for your API key. | No — check your allowed ports. |
-| `404` | `NOT_FOUND` | Instruction `id` / `external_reference` unknown (or not yours). | No. |
-| `409` | `DUPLICATE_REFERENCE` | `external_reference` already submitted. | No — it already exists. |
-| `429` | `RATE_LIMITED` | Over 120 requests/minute. | Yes — wait and retry (see `Retry-After` header). |
-| `500` | `INTERNAL_ERROR` | Unexpected JPS error. | Yes — retry with backoff. |
+| `201` | — | Created | — |
+| `200` | — | Status retrieved | — |
+| `400` | `VALIDATION_ERROR` | Bad payload | No — fix payload |
+| `401` | `INVALID_API_KEY` | Missing/wrong key | No |
+| `403` | `FORBIDDEN_PORT` | `port_id` not allowed for your key | No |
+| `404` | `NOT_FOUND` | Unknown id/reference | No |
+| `409` | `DUPLICATE_REFERENCE` | `external_reference` already used | No — use GET to recover |
+| `429` | `RATE_LIMITED` | Rate limit exceeded | Yes — backoff |
+| `500` | `INTERNAL_ERROR` | Server error | Yes — backoff |
 
-### Retry policy (recommended)
-
-- **Retry** only on `429` and `5xx`, with exponential backoff (e.g. 5s, 30s, 2min, max 5 attempts).
-- **Never retry** `4xx` errors without correcting the request — the result will not change.
-- Retries of `POST` are safe thanks to `external_reference` idempotency (worst case you get a `409`, which means the original submission succeeded).
+**Retry policy:** Retry only `429` and `5xx` with exponential backoff. `POST` retries are safe (idempotent via `external_reference`).
 
 ---
 
-## 6. Quick-start checklist
+## 5. Staging master data
 
-- [ ] Receive your API key, allowed `port_id`(s), and staging base URL from the JPS team
-- [ ] Store the key in an environment variable / secrets manager
-- [ ] Submit a test instruction on **staging** and confirm you get `201` with an `id`
-- [ ] Poll `GET /shipping-instructions/{id}` and confirm `status: "Pending"`
-- [ ] Ask the JPS team to approve/reject/allocate the test instruction and verify each status appears
-- [ ] Test error paths: missing key (`401`), bad payload (`400`), duplicate `external_reference` (`409`)
-- [ ] Implement retry with backoff for `429`/`5xx` only
-- [ ] Agree on a support contact channel and go live on production
+### 5.1 Valid `cargo_type` values (staging)
+
+`cargo_type` must match a name in JPS commodity master data. On **staging**, use the **full name**, not abbreviations:
+
+| Do not use | Use instead (staging) |
+|------------|----------------------|
+| `CPO` | `CRUDE PALM OIL` |
+| `PKO` | `CRUDE PALM KERNEL OIL` or `SPLIT CRUDE PALM KERNEL OIL FATTY ACID` |
+| `POME` | `POME` |
+
+**Staging commodity list (as of deploy):**
+
+```
+CRUDE GLYCERINE, CRUDE PALM KERNEL OIL, CRUDE PALM OIL, FAME,
+INS PALM OIL MILL EFFLUENT FATTY ACID DISTILLATE, INS REFINED PALM OIL MILL EFFLUENT,
+ISCC PALM OIL MILL EFFLUENT FATTY ACID DISTILLATE (POMEPFAD), ISCC REFINED PALM OIL MILL EFFLUENT,
+METHANOL, PFAD, PKE, PKM, PKS, POME, RBD PO, REFINED GLYCERINE,
+REFINED PALM OIL MILL EFFLUENT, ROL, SPLIT CRUDE PALM KERNEL OIL FATTY ACID,
+SPLIT RBD PALM KERNEL OIL FATTY ACID
+```
+
+If you send an unknown `cargo_type`, the API returns `400` with `valid_cargo_types` in `error.details` — use that list to fix your mapping.
+
+### 5.2 Staging port
+
+| `port_id` | Name |
+|-----------|------|
+| `1` | BONTANG |
+
+Your API key must include `port_id` **1** for staging tests.
+
+### 5.3 Map your system's commodity codes
+
+Build a lookup table in your integration layer, e.g.:
+
+```javascript
+const JPS_COMMODITY_MAP = {
+  CPO: "CRUDE PALM OIL",
+  PKO: "CRUDE PALM KERNEL OIL",
+  POME: "POME",
+  // ...
+};
+```
+
+Production may use the same or different names — confirm with JPS before go-live.
 
 ---
 
-## 7. Versioning & document history
+## 6. Self-service testing on staging
+
+Follow these steps to verify your integration **before** writing application code.
+
+### 6.1 Prerequisites
+
+- [ ] Network access to `http://172.28.92.56:3080`
+- [ ] Staging API key from JPS team (`jps_live_...`)
+- [ ] `curl` or Postman installed
+
+### 6.2 Environment variables
+
+```bash
+export JPS_API_BASE_URL="http://172.28.92.56:3080/api/v1/integrations"
+export JPS_API_KEY="jps_live_PASTE_YOUR_KEY"
+```
+
+PowerShell:
+
+```powershell
+$env:JPS_API_BASE_URL = "http://172.28.92.56:3080/api/v1/integrations"
+$env:JPS_API_KEY      = "jps_live_PASTE_YOUR_KEY"
+```
+
+### 6.3 Test 1 — Health check
+
+```bash
+curl -sS http://172.28.92.56:3080/api/v1/health
+```
+
+### 6.4 Test 2 — Submit instruction (`201`)
+
+Use a **unique** `external_reference` each time:
+
+```bash
+REF="YOUR-SYSTEM-TEST-$(date +%Y%m%d-%H%M%S)"
+
+curl -sS -X POST "$JPS_API_BASE_URL/shipping-instructions" \
+  -H "x-api-key: $JPS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"external_reference\": \"$REF\",
+    \"requested_by\": \"developer@your-company.com\",
+    \"port_id\": 1,
+    \"vessel_name\": \"MV INTEGRATION TEST\",
+    \"voyage_no\": \"VY-001\",
+    \"purpose\": \"Loading\",
+    \"eta\": \"2026-07-01T08:00:00Z\",
+    \"etd\": \"2026-07-03T18:00:00Z\",
+    \"agent_name\": \"PT Test Agency\",
+    \"agent_contact\": \"ops@test.example.com\",
+    \"notes\": \"Self-service API test\",
+    \"cargo\": [{
+      \"cargo_type\": \"CRUDE PALM OIL\",
+      \"tonnage\": 25000,
+      \"unit\": \"MT\",
+      \"contract_no\": \"CTR-001\"
+    }]
+  }"
+```
+
+**Check:** `"success": true`, `"status": "Pending"`, note `data.id` (e.g. `10`).
+
+### 6.5 Test 3 — Poll status (`200`)
+
+```bash
+SI_ID=10   # replace with your id from Test 2
+
+curl -sS "$JPS_API_BASE_URL/shipping-instructions/$SI_ID" \
+  -H "x-api-key: $JPS_API_KEY"
+
+curl -sS "$JPS_API_BASE_URL/shipping-instructions?external_reference=$REF" \
+  -H "x-api-key: $JPS_API_KEY"
+```
+
+**Check:** `"status": "Pending"`.
+
+### 6.6 Test 4 — Error paths
+
+```bash
+# Bad key → 401
+curl -sS "$JPS_API_BASE_URL/shipping-instructions/$SI_ID" \
+  -H "x-api-key: jps_live_invalid"
+
+# Duplicate reference → 409 (re-run Test 2 POST with same $REF)
+# Wrong port → 403 (use port_id 99 if your key only allows 1)
+# Unknown cargo → 400 (use cargo_type "FAKE_CARGO")
+```
+
+### 6.7 Test 5 — Full lifecycle (with JPS operator)
+
+API tests alone stop at `Pending`. To see `Approved` / `Allocated`:
+
+| Step | Who | Action |
+|------|-----|--------|
+| 1 | You | `POST` → `Pending` |
+| 2 | JPS operator | Log in to `http://172.28.92.56:3080` → **Shipment Plans** → find your vessel |
+| 3 | JPS operator | Verify **External reference** and **Requested by** columns |
+| 4 | JPS operator | **Approve** the plan |
+| 5 | You | `GET` → expect `"status": "Approved"` |
+| 6 | JPS operator | **Allocation** → assign jetty |
+| 7 | You | `GET` → expect `"status": "Allocated"` with `allocation.jetty_name` |
+
+Coordinate with the JPS team for operator steps, or request a test login if you need to observe the UI yourself.
+
+### 6.8 Postman setup
+
+1. Create collection **JPS Integration API (Staging)**.
+2. Collection variables:
+
+| Variable | Value |
+|----------|-------|
+| `baseUrl` | `http://172.28.92.56:3080/api/v1/integrations` |
+| `apiKey` | your `jps_live_...` key |
+| `siId` | (fill after first POST) |
+| `externalRef` | (fill after first POST) |
+
+3. Add requests:
+   - **POST** `{{baseUrl}}/shipping-instructions` — headers: `x-api-key: {{apiKey}}`, body: JSON from Test 2
+   - **GET** `{{baseUrl}}/shipping-instructions/{{siId}}` — header: `x-api-key: {{apiKey}}`
+   - **GET** `{{baseUrl}}/shipping-instructions?external_reference={{externalRef}}`
+
+---
+
+## 7. Building your integration
+
+### 7.1 Recommended environment variables
+
+| Variable | Staging example |
+|----------|-----------------|
+| `JPS_API_BASE_URL` | `http://172.28.92.56:3080/api/v1/integrations` |
+| `JPS_API_KEY` | `jps_live_...` |
+| `JPS_PORT_ID` | `1` |
+
+### 7.2 Minimal submit + poll flow (pseudocode)
+
+```
+function submitInstruction(order):
+    payload = mapOrderToJpsPayload(order)   // your mapping layer
+    response = POST /shipping-instructions
+    if response.status == 201:
+        save jps_id and external_reference in your DB
+    if response.status == 409:
+        ref = GET ?external_reference=order.ref
+        save jps_id from ref.data.id
+    if response.status >= 500 or 429:
+        retry with backoff
+
+function pollStatus(jps_id):
+    response = GET /shipping-instructions/{jps_id}
+    update your DB with response.data.status
+    if status == Rejected:
+        notify user with rejection_reason
+    if status == Allocated:
+        notify user with allocation.jetty_name
+```
+
+### 7.3 Mapping checklist
+
+- [ ] `external_reference` ← your document / order / SI number (unique per submission)
+- [ ] `requested_by` ← user email or service account from your system
+- [ ] `cargo_type` ← mapped to JPS commodity name (§5.1)
+- [ ] `purpose` ← `"Loading"` or `"Unloading"` from your business logic
+- [ ] `eta` / `etd` ← ISO 8601 UTC
+- [ ] `port_id` ← `1` on staging (confirm for production)
+
+### 7.4 What you do not need to build
+
+- Operator approval UI (JPS web app)
+- Jetty allocation logic (JPS Allocation module)
+- OAuth or token refresh
+- Webhook receiver (polling only for v1)
+
+---
+
+## 8. Go-live checklist
+
+- [ ] Staging API key received and stored securely
+- [ ] Health check passes from your integration server
+- [ ] `POST` returns `201` with valid staging payload
+- [ ] `GET` by id and by `external_reference` work
+- [ ] Duplicate `POST` returns `409` (idempotency verified)
+- [ ] Error paths tested (`401`, `400`, `403`)
+- [ ] Commodity mapping table built and validated against staging list
+- [ ] Full lifecycle observed (`Pending` → `Approved` → `Allocated`) with JPS operator
+- [ ] Production API key, base URL, and `port_id` received from JPS
+- [ ] Support contact agreed for incidents (include `request_id` from errors)
+
+---
+
+## 9. Support
+
+When reporting issues, include:
+
+- `request_id` from the error response
+- Timestamp (UTC)
+- `external_reference` and/or JPS `id`
+- HTTP status and `error.code`
+- Whether the call was to staging or production
+
+---
+
+## 10. Document history
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 2.1 | 2026-06-12 | Added optional `requested_by` field; clarified source identification (API key = system, `external_reference` = document). |
-| 2.0 | 2026-06-12 | Rewritten for simple `x-api-key` authentication; flat payload; external status lifecycle (`Pending` / `Approved` / `Rejected` / `Allocated`); replaces the previous HMAC-signature design. |
-| 1.0 | 2026-04-23 | Initial draft (HMAC-SHA256 request signing). |
+| 3.0 | 2026-06-15 | Staging environment details (`172.28.92.56:3080`), self-service test walkthrough, staging commodity names, integration build guide for external full-stack developers. Consolidated testing into this document. |
+| 2.1 | 2026-06-12 | Added `requested_by`; source identification table. |
+| 2.0 | 2026-06-12 | Rewritten for `x-api-key` auth; flat payload; partner status lifecycle. |
+| 1.0 | 2026-04-23 | Initial draft (HMAC-SHA256). |
 
 Owner: JPS Backend/API Team

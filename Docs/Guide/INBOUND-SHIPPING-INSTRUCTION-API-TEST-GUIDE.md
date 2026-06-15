@@ -1,7 +1,7 @@
 # Inbound Shipping Instruction API — Test Guide
 
-> **Audience:** JPS developers and operators who need to test the partner integration API locally or on staging — no prior API testing experience required.
-> **Related doc:** [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) (the full API contract for external partners).
+> **Audience:** JPS developers and operators who need to test the partner integration API locally.
+> **Hand off to external developers:** Use [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) (v3.0) — it includes the full API contract, **staging environment**, and self-service test walkthrough.
 
 ---
 

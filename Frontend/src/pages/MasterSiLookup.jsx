@@ -52,17 +52,24 @@ export default function MasterSiLookup({
   const [formClearUnloadingRate, setFormClearUnloadingRate] = useState(false)
   const [editingHadUnloadingRate, setEditingHadUnloadingRate] = useState(false)
   const [formCommodityType, setFormCommodityType] = useState('Liquid')
+  const [formShortName, setFormShortName] = useState('')
 
   const isCommodityMaster = apiType === 'commodities'
 
   const tableColumns = useMemo(() => {
-    const cols = [
-      {
-        key: 'value',
-        label: valueLabel,
-        getSortValue: (it) => (it.value || '').toLowerCase(),
-      },
-    ]
+    const cols = []
+    if (isCommodityMaster) {
+      cols.push({
+        key: 'shortName',
+        label: 'Short commodity name',
+        getSortValue: (it) => (it.shortName || '').toLowerCase(),
+      })
+    }
+    cols.push({
+      key: 'value',
+      label: isCommodityMaster ? 'Commodity name' : valueLabel,
+      getSortValue: (it) => (it.value || '').toLowerCase(),
+    })
     if (isCommodityMaster) {
       cols.push({
         key: 'commodityType',
@@ -113,7 +120,7 @@ export default function MasterSiLookup({
   const { displayRows, filters, updateFilter, sortState, handleSort } = useSortableFilterableRows(
     items,
     tableColumns,
-    { key: 'value', dir: 'asc' }
+    { key: isCommodityMaster ? 'shortName' : 'value', dir: 'asc' }
   )
 
   const load = useCallback(async () => {
@@ -143,6 +150,7 @@ export default function MasterSiLookup({
   const openAdd = useCallback(() => {
     setEditingId(null)
     setFormValue('')
+    setFormShortName('')
     setFormCommodityType('Liquid')
     setFormLoadingRate('')
     setFormLoadingMetric('MTPH')
@@ -158,6 +166,7 @@ export default function MasterSiLookup({
   const openEdit = useCallback((item) => {
     setEditingId(item.id)
     setFormValue(item.value ?? '')
+    setFormShortName(item.shortName ?? '')
     setFormCommodityType(item.commodityType === 'Solid' ? 'Solid' : 'Liquid')
     const lr = item?.portRates?.loading ?? null
     const ur = item?.portRates?.unloading ?? null
@@ -179,6 +188,7 @@ export default function MasterSiLookup({
     setModalOpen(false)
     setEditingId(null)
     setFormValue('')
+    setFormShortName('')
     setFormCommodityType('Liquid')
     setFormLoadingRate('')
     setFormLoadingMetric('MTPH')
@@ -200,6 +210,11 @@ export default function MasterSiLookup({
     if (isCommodityMaster) {
       if (formCommodityType !== 'Solid' && formCommodityType !== 'Liquid') {
         setError('Commodity type must be Solid or Liquid.')
+        return
+      }
+      const shortName = (formShortName || '').trim().toUpperCase()
+      if (!shortName) {
+        setError('Short commodity name is required.')
         return
       }
     }
@@ -245,6 +260,7 @@ export default function MasterSiLookup({
       const payload = { value }
       if (isCommodityMaster) {
         payload.commodityType = formCommodityType
+        payload.shortName = (formShortName || '').trim().toUpperCase()
       }
       if (enableStandardRateFields) {
         if (formClearLoadingRate) {
@@ -307,6 +323,7 @@ export default function MasterSiLookup({
     valueLabel,
     isCommodityMaster,
     formCommodityType,
+    formShortName,
   ])
 
   const handleDelete = useCallback(
@@ -400,9 +417,12 @@ export default function MasterSiLookup({
               <tbody>
                 {displayRows.map((it) => (
                   <tr key={it.id} className="allocation-table__row">
-                    <td>
-                      <strong>{it.value ?? '—'}</strong>
-                    </td>
+                    {isCommodityMaster && (
+                      <td>
+                        <strong>{it.shortName ?? '—'}</strong>
+                      </td>
+                    )}
+                    <td>{it.value ?? '—'}</td>
                     {isCommodityMaster && (
                       <td>{it.commodityType === 'Solid' ? 'Solid' : 'Liquid'}</td>
                     )}
@@ -460,6 +480,22 @@ export default function MasterSiLookup({
             aria-modal="true"
           >
             <h2 className="modal__title">{editingId != null ? `Edit ${valueLabel}` : `Add ${valueLabel}`}</h2>
+            {isCommodityMaster && (
+              <div className="modal__section">
+                <label htmlFor="si-commodity-short-name" className="modal__label">
+                  Short commodity name
+                </label>
+                <input
+                  id="si-commodity-short-name"
+                  type="text"
+                  className="modal__input"
+                  value={formShortName}
+                  onChange={(e) => setFormShortName(e.target.value)}
+                  placeholder="e.g. CPO"
+                  disabled={!canDoEdit}
+                />
+              </div>
+            )}
             <div className="modal__section">
               <label htmlFor="si-lookup-value" className="modal__label">
                 {valueLabel}

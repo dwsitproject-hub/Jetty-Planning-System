@@ -195,8 +195,8 @@ function App() {
                       <MasterSiLookup
                         apiType="commodities"
                         title="Master – Commodity"
-                        valueLabel="Commodity"
-                        placeholder="e.g. LNG"
+                        valueLabel="Commodity name"
+                        placeholder="e.g. Crude Palm Oil"
                         pageKey="master-si-commodity"
                         enableStandardRateFields
                       />
