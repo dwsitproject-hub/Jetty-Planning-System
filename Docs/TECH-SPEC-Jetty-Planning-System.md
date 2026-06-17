@@ -1,6 +1,6 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.43
+**Version**: 1.44
 **Last Updated**: 2026-06-12  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
@@ -20,18 +20,19 @@
 
 | Migration | Objects |
 |-----------|---------|
-| **`084_integration_partner_api.sql`** | **`integration_api_keys`** (`partner_name`, `key_prefix`, `key_hash` SHA-256 hex, `allowed_port_ids BIGINT[]`, `active`, `last_used_at`); **`integration_submissions`** (`api_key_id`, `external_reference`, `shipping_instruction_id`, `shipment_plan_id`, `payload JSONB`, `received_at`; **`UNIQUE (api_key_id, external_reference)`** for idempotency). |
+| **`084_integration_partner_api.sql`** | **`integration_api_keys`** (`partner_name`, `key_prefix`, `key_hash` SHA-256 hex, `allowed_port_ids BIGINT[]` — **deprecated/unused**, keys are not port-scoped, `active`, `last_used_at`); **`integration_submissions`** (`api_key_id`, `external_reference`, `shipping_instruction_id`, `shipment_plan_id`, `payload JSONB`, `received_at`; **`UNIQUE (api_key_id, external_reference)`** for idempotency). |
 | **`085_shipment_plan_integration_source.sql`** | **`shipment_plans.external_reference`**, **`shipment_plans.requested_by`** (TEXT, nullable); index on **`external_reference`** where not null. |
+| **`086_si_commodity_short_name.sql`** | **`si_commodities.short_name`** (TEXT NOT NULL, unique among active rows on **`LOWER(short_name)`**). Integration API resolves **`cargo_type`** against this column. |
 
 **Key provisioning:**
 
-- **`node scripts/create-integration-api-key.mjs --partner "EOS-EXPORT" --ports 3`** — generates **`jps_live_<hex>`**, stores hash only, prints plaintext once.
+- **`node scripts/create-integration-api-key.mjs --partner "EOS-EXPORT"`** — generates **`jps_live_<hex>`**, stores hash only, prints plaintext once. Keys are not port-scoped.
 - **`--list`**, **`--deactivate <id>`** for ops.
 
 **Auth middleware — `Backend/src/middleware/integration-auth.js`:**
 
 - Header **`x-api-key`** → SHA-256 lookup in **`integration_api_keys`** (`active`).
-- Sets **`req.integrationKey = { id, partnerName, allowedPortIds }`**.
+- Sets **`req.integrationKey = { id, partnerName, allowedPortIds }`** (**`allowedPortIds`** retained for compatibility but no longer enforced — keys are not port-scoped).
 - Rate limit **120 req/min** per key (`express-rate-limit`, env **`INTEGRATION_RATE_LIMIT_PER_MINUTE`**).
 - Response envelope: **`{ success: true, data }`** / **`{ success: false, error: { code, message, details }, request_id }`**.
 
@@ -39,7 +40,7 @@
 
 | Method | Path | Behaviour |
 |--------|------|-----------|
-| **`POST`** | **`/shipping-instructions`** | Validates payload (vessel, purpose, eta, cargo lines with **`cargo_type`** → **`si_commodities.name`**, **`unit`** → **`metric.code`**). **`port_id`** must be in key’s **`allowed_port_ids`**. Transaction: insert **`shipment_plans`** (`approval_status` **`Submitted`**, **`external_reference`**, **`requested_by`** = payload **`requested_by`** or **`partnerName`**), **`shipping_instructions`** (`status` **`Submitted`**), **`shipping_instruction_breakdown`**, **`integration_submissions`**. Triggers **`shipment_plan.submitted`** notification + activity log. Returns **201** with partner status **`Pending`**. Duplicate **`external_reference`** → **409** **`DUPLICATE_REFERENCE`**. |
+| **`POST`** | **`/shipping-instructions`** | Validates payload (vessel, purpose, eta, cargo lines with **`cargo_type`** → **`si_commodities.short_name`** (case-insensitive, normalized uppercase), **`unit`** → **`metric.code`**). **`port_id`** must be a valid (non-deleted) **`ports`** row; unknown port → **400** **`VALIDATION_ERROR`**. Keys are **not** port-scoped. Transaction: insert **`shipment_plans`** (`approval_status` **`Submitted`**, **`external_reference`**, **`requested_by`** = payload **`requested_by`** or **`partnerName`**), **`shipping_instructions`** (`status` **`Submitted`**), **`shipping_instruction_breakdown`**, **`integration_submissions`**. Triggers **`shipment_plan.submitted`** notification + activity log. Returns **201** with partner status **`Pending`**. Duplicate **`external_reference`** → **409** **`DUPLICATE_REFERENCE`**. Unknown **`cargo_type`** → **400** with **`valid_cargo_types`** listing active **`short_name`** values. |
 | **`GET`** | **`/shipping-instructions/:id`** | Lookup by SI id scoped to caller’s **`api_key_id`** via **`integration_submissions`**. |
 | **`GET`** | **`/shipping-instructions?external_reference=`** | Same payload shape; lookup by partner reference. |
 
@@ -68,7 +69,7 @@
 - Table columns after **ETA**: **External reference**, **Requested by**; client-side filters **`externalReference`**, **`requestedBy`**.
 - i18n **`colExternalReference`**, **`colRequestedBy`**, **`filterExternalReference`**, **`filterRequestedBy`** in **`Frontend/src/locales/en/shipmentPlan.json`** and **`id/shipmentPlan.json`**.
 
-**Error codes (integration envelope):** **`INVALID_API_KEY`**, **`FORBIDDEN_PORT`**, **`VALIDATION_ERROR`**, **`DUPLICATE_REFERENCE`**, **`NOT_FOUND`**, **`RATE_LIMITED`**, **`INTERNAL_ERROR`**.
+**Error codes (integration envelope):** **`INVALID_API_KEY`**, **`VALIDATION_ERROR`**, **`DUPLICATE_REFERENCE`**, **`NOT_FOUND`**, **`RATE_LIMITED`**, **`INTERNAL_ERROR`**.
 
 ### 0.32 Overview tables — Commodity Qty column (`siBreakdownDisplay`) (2026-05-26)
 
@@ -184,6 +185,10 @@
 - Route: **`Frontend/src/App.jsx`** — **`/jetty-live`** (no sidebar nav entry in **`Layout.jsx`**).
 
 **Stream helper — `rtsp-stream-viewer/`** (separate Node process on app host): see **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**.
+
+- **On-demand FFmpeg:** starts when the first WebSocket viewer connects to **`/jetty-live-ws`**; stops **`STREAM_IDLE_STOP_MS`** (default **30 s**) after the last viewer disconnects. Node + WS server stay up under systemd; idle health shows **`ffmpegRunning: false`**, **`viewerCount: 0`**.
+- **Output rate:** **`STREAM_OUTPUT_FPS`** (default **1**) — FFmpeg transcodes to MPEG1 at that frame rate (was hardcoded **25**).
+- **`GET /api/health`** includes **`viewerCount`**, **`outputFps`**, **`idleStopMs`** in addition to status / restart count.
 
 **Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.15**.
 
@@ -1446,12 +1451,16 @@ Deployed per **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**. Summary:
 
 | Endpoint (on stream host) | Method | Purpose |
 |---------------------------|--------|---------|
-| `/api/health` | GET | JSON health for Jetty Live UI card |
-| `/api/reconnect` | POST | Optional `{ rtspUrl }` — switch RTSP source and restart FFmpeg |
+| `/api/health` | GET | JSON health for Jetty Live UI card (`viewerCount`, `outputFps`, `idleStopMs`, `ffmpegRunning`, …) |
+| `/api/reconnect` | POST | Optional `{ rtspUrl }` — switch RTSP source; restarts FFmpeg **only if** at least one WebSocket viewer is connected |
 
 Browser access in production: same origin **`/jetty-live-stream/*`** and **`/jetty-live-ws`** via nginx → host **3081** / **9999**. Dev: Vite proxy to **3080** / **9999** on localhost.
 
-**Single-stream policy:** one FFmpeg input per `rtsp-stream-viewer` instance; schematic / Jetty Live reconnect with a new jetty URL replaces the previous camera (**last opened wins**).
+**On-demand policy:** FFmpeg runs only while **`viewerCount > 0`**; idle stop after **`STREAM_IDLE_STOP_MS`** (default **30 s**) when the last viewer disconnects.
+
+**Single-stream policy:** one FFmpeg input per `rtsp-stream-viewer` instance while viewers are connected; schematic / Jetty Live reconnect with a new jetty URL replaces the previous camera (**last opened wins**).
+
+**Transcode rate:** **`STREAM_OUTPUT_FPS`** env (default **1**).
 
 #### 3.5.1 `GET /allocation/overview`
 

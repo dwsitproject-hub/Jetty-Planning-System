@@ -3,7 +3,7 @@
 **Product:** Jetty Planning & Monitoring System (JPS)  
 **Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, **uploaded document preview & download**, **Jetty Live CCTV** (per-jetty RTSP links, schematic camera control, browser stream page), **self-service change password** (header user menu), **Reporting → Jetty – Vessel Report** (jetty utilization summary and vessel detail), and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.56 (see document history at end).
+**Version:** 1.59 (see document history at end).
 
 ---
 
@@ -256,8 +256,8 @@ This section documents implemented sign-in behavior for Downstream Hub OIDC inte
 | **RBAC — schematic & viewer** | No dedicated sidebar item. Schematic **camera** buttons and the **`/jetty-live`** popup require **View Jetty Live stream** — an **`can_approve`** sub-flag on **At-Berth Executions** in Admin → Roles (same pattern as **Approve shipment plan**). Migration **078** retires standalone **`jetty-live`** page permission (**072**). Users without the flag do not see camera controls. |
 | **RBAC — master** | Configuring RTSP links uses existing **Master – Preferred Jetty** permissions (`master-jetty` view/edit); no separate CCTV master page. |
 | **Jetty Schematic** | Each configured jetty **name band** (short id, e.g. **1A**) shows a small **camera** control beside the label. **Enabled** when that jetty has a non-empty RTSP link in master data. **Disabled** with tooltip *There's no CCTV on this jetty* when the link is missing. **Enabled** click opens a **new browser tab** to **`/jetty-live?rtsp=<url>&label=<berthId>`** (`label` is the short berth id for the page title). |
-| **Jetty Live page** | Route **`/jetty-live`**. On load, if **`rtsp`** query param is present and valid (`rtsp://…`), the UI calls the stream helper **`POST /api/reconnect`** with that URL (switches the shared FFmpeg source), then attaches **JSMpeg** to the WebSocket video feed. Optional **`label`** sets the page heading (e.g. *Jetty Live — 1A*). If the link has no **`rtsp`** param, the user sees guidance to configure master data or open from the schematic. |
-| **Stream service** | Separate host process **`rtsp-stream-viewer`** (not inside API or frontend containers): FFmpeg pulls RTSP → MPEG1 over WebSocket. **One active RTSP source at a time** on a given instance; opening CCTV for another jetty **replaces** the URL (**last opened wins**). Health card shows status, last frame time, restart count, masked RTSP source; **Reconnect** repeats the current URL (or query URL when opened from schematic). |
+| **Jetty Live page** | Route **`/jetty-live`**. On load, if **`rtsp`** query param is present and valid (`rtsp://…`), the UI calls the stream helper **`POST /api/reconnect`** with that URL (stores/switches the shared RTSP source), then attaches **JSMpeg** to the WebSocket video feed (WebSocket connect **starts** FFmpeg when the first viewer is present). Optional **`label`** sets the page heading (e.g. *Jetty Live — 1A*). If the link has no **`rtsp`** param, the user sees guidance to configure master data or open from the schematic. |
+| **Stream service** | Separate host process **`rtsp-stream-viewer`** (not inside API or frontend containers): FFmpeg pulls RTSP → MPEG1 over WebSocket at **1 fps** by default (configurable). **On-demand:** FFmpeg runs only while at least one viewer has an open WebSocket; when the **last** viewer closes the Jetty Live tab, FFmpeg stops after a **30 s** idle grace (tab refresh within that window avoids a cold start). **One active RTSP source at a time** on a given instance; opening CCTV for another jetty **replaces** the URL (**last opened wins**). Health card shows status, viewer count, last frame time, restart count, masked RTSP source; **Reconnect** repeats the current URL when a viewer is connected. |
 | **Deployment** | On the **app server**, stream HTTP listens on **3081** (JPS UI uses **3080**); nginx proxies **`/jetty-live-stream/`** and **`/jetty-live-ws`** to the host process. The app server must reach the camera on **TCP 554** (ping alone is insufficient). See **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**. |
 
 ### 2.16 Self-service change password
@@ -415,9 +415,37 @@ External business systems can submit **Shipping Instructions** into JPS without 
 | **Operator review** | No new approval screen: operators use **`/shipment-plans`**, notifications (**Approval request: SP-…**), and **`/shipment-plans/approval/:id`** to **approve** or **reject** as today. Approved plans follow the normal allocation path; when a jetty slot is assigned, partner status becomes **Allocated**. |
 | **Plans list columns** | On **`/shipment-plans`**, after **ETA**: **External reference** and **Requested by**. Both are **filterable** (substring match). Empty **`—`** for older manual plans created before this feature or plans without integration metadata. |
 | **What partners see** | Partners call **`POST /api/v1/integrations/shipping-instructions`** to submit and **`GET …/shipping-instructions/{id}`** (or **`?external_reference=`**) to poll **Pending** / **Approved** / **Rejected** / **Allocated**. They cannot see other partners’ submissions. |
-| **Security (summary)** | HTTPS + **`x-api-key`** header per partner; rate limit **120 requests/minute** per key; each key is scoped to allowed **port_id** list. |
+| **Cargo lines** | Partner **`cargo[].cargo_type`** must match **`si_commodities.short_name`** (case-insensitive). Full display names are not accepted. Validation errors include **`valid_cargo_types`** with active short codes. See commodity mapping table below and **INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md §5.1**. |
+| **Security (summary)** | HTTPS + **`x-api-key`** header per partner; rate limit **120 requests/minute** per key. Keys are **not** port-scoped; each request must include a valid **`port_id`** (unknown port is rejected). |
 
-Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.33**. Migrations **084** (`integration_api_keys`, `integration_submissions`), **085** (`shipment_plans.external_reference`, `shipment_plans.requested_by`).
+Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.33**. Migrations **084** (`integration_api_keys`, `integration_submissions`), **085** (`shipment_plans.external_reference`, `shipment_plans.requested_by`), **086** (`si_commodities.short_name`).
+
+**Commodity mapping for partner `cargo_type`** (send **short_name**; operators see **display name** in the app):
+
+| JPS short_name (`cargo_type`) | JPS display name | Type |
+|-------------------------------|------------------|------|
+| `CG` | CRUDE GLYCERINE | Liquid |
+| `CPKO` | CRUDE PALM KERNEL OIL | Liquid |
+| `CPO` | CRUDE PALM OIL | Liquid |
+| `FAME` | Fatty Acid Methyl Ester | Liquid |
+| `INS POME FAD` | INS PALM OIL MILL EFFLUENT FATTY ACID DISTILLATE | Liquid |
+| `INS RPOME` | INS REFINED PALM OIL MILL EFFLUENT | Liquid |
+| `ISCC POMEPFAD` | ISCC PALM OIL MILL EFFLUENT FATTY ACID DISTILLATE (POMEPFAD) | Liquid |
+| `ISCC RPOME` | ISCC REFINED PALM OIL MILL EFFLUENT | Liquid |
+| `METHANOL` | METHANOL | Liquid |
+| `PFAD` | Palm Fatty Acid Distillate | Liquid |
+| `PKE` | Palm Kernel Expeller | Solid |
+| `PKM` | Palm Kernel Meal | Solid |
+| `PKS` | Palm Kernel Shell | Solid |
+| `POME` | Palm Oil Mill Effluent | Liquid |
+| `RBD PO` | RBD PO | Liquid |
+| `RG` | REFINED GLYCERINE | Liquid |
+| `ROL` | Refined Olein | Liquid |
+| `RPOME` | REFINED PALM OIL MILL EFFLUENT | Liquid |
+| `SPLIT CPKO FA` | SPLIT CRUDE PALM KERNEL OIL FATTY ACID | Liquid |
+| `SPLIT RBD PKO FA` | SPLIT RBD PALM KERNEL OIL FATTY ACID | Liquid |
+
+*20 commodities as of master data export. Partners should use **`valid_cargo_types`** from API errors or **§5.1** of the partner guide if the list changes.*
 
 ---
 
@@ -706,6 +734,9 @@ Cross-reference: **TECH-SPEC §0.20**, **`Backend/src/lib/schedule-instant.js`**
 
 | Version | Date | Notes |
 |---------|------|--------|
+| 1.59 | 2026-06-15 | **§2.23** partner API keys are no longer port-scoped (removed `FORBIDDEN_PORT`); each request must pass a valid **`port_id`**. Partner API guide v3.3; TECH-SPEC **§0.33** updated. |
+| 1.58 | 2026-06-12 | **§2.23** commodity mapping table for partner **`cargo_type`** (short_name → display name → Solid/Liquid). Partner API guide **§5.1** / **§5.3**; test guide **§2.4**. |
+| 1.57 | 2026-06-12 | **§2.23** partner **`cargo_type`** uses commodity **short name** (`si_commodities.short_name`), not full display name. Partner API guide v3.1. TECH-SPEC **§0.33** updated; migration **086**. |
 | 1.56 | 2026-06-12 | **§2.23 Inbound Shipping Instruction integration (partner API):** external systems submit plans via **`x-api-key`**; operators use existing approval flow; plans list **External reference** and **Requested by** after **ETA**; manual creates capture requestor from logged-in user. **§1**, **§2.13**, **§2.21**, **§7** map. TECH-SPEC **§0.33**. Migrations **084**, **085**. Partner guides **`INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md`**, **`INBOUND-SHIPPING-INSTRUCTION-API-TEST-GUIDE.md`**. |
 | 1.55 | 2026-06-05 | **Operations completed vs actual completion:** migration **082** (`operations_completed_at` on operations + shipment plans; backfill); migration **083** (clear orphan **`cast_off_at`** on sign-off rows). Sign-off stamps **`operations_completed_at`**; depart sets **`actual_completion_time = cast_off_at`** and **`SAILED`**. **§2.1** sailed = **`SAILED`** only; ETC breach excludes sign-off. **§2.4** modal: **Operations completed** / **Actual completion** read-only. **§2.7** schematic today aligns with slot occupancy. **§5.2**, **§6**, **§9.2** updated. **§17.8** schematic occupancy: **today** = point-in-time with **inclusive** interval end; **past** = full calendar-day overlap; sailed-after-cast-off shows under **Incoming**. **`jettyScheduleOccupancy.test.js`**, **`etcBreach.js`**. **§7** map. |
 | 1.54 | 2026-06-05 | **§2.13–2.14 Adding SIs after approval / during operations:** document UI limitation (Add SI only on Draft/Rejected plans), API reopen + **`planReopened`** behaviour, berthing gate until re-approval, in-flight operations preserved, and deep-link edge case. **§1** version bump. |
@@ -714,6 +745,7 @@ Cross-reference: **TECH-SPEC §0.20**, **`Backend/src/lib/schedule-instant.js`**
 | 1.51 | 2026-05-28 | **Jetty schedule — Actual · alongside (in progress):** end is **`max(estimatedCompletionDateTime, now)`** (or **`now`** if estimate missing); removed **+3-day** tail for still-at-berth Actual bars; ~**30s** refresh with **Now** line. **§2.1**, **§3**, **§5.2**, **§7** (`jettyScheduleOccupancy.js`). **Gantt:** ETC overdue styling / purpose badge on bars (**§2.1**). **Jetty Schematic — View as of (**§17.8**): date picker (default today, **future dates disabled**); occupancy + **Incoming** from **`scheduleQueue`** using **§5.2** overlap; **ETC breach** styling **today only**; **§2.14**, **§17.5–17.7** updated (no longer live-`berths.occupants`-only). |
 | 1.50 | 2026-05-26 | **§2.21 Commodity Qty column:** single **Commodity Qty** column after **Shipping Instruction** on Allocation & Berthing (`/allocation-plans`), At-Berth, Clearance, and Shipment Plans list; per-commodity lines with line breaks inside the cell; stacked blocks for multi-SI plan rows; Clearance SI column reference-only. **§1**, **§2.7**, **§2.10**, **§9.2**, **§7** map. TECH-SPEC **§0.32**; updates **§0.29** list breakdown fields (`qty`, `metric_code`). |
 | 1.49 | 2026-05-25 | **§2.20 SI shipper per breakdown line:** shipper moved from SI header / Party & port to **first column** of Shipment breakdown table on plan-linked SI forms; optional per line; multi-shipper aggregation in Allocation queue, SI Detail modal, and list **`shipperNames`**. OCR autofill targets first empty breakdown row. Migration **079** backfills header shipper to all lines. **§1**, **§2.9**, **§2.13**, **§16**, **§7** map. TECH-SPEC **§0.31**, **§3.2**, **§3.5.1**, **§4**. |
+| 1.49 | 2026-06-17 | **§2.15 Jetty Live — on-demand stream:** FFmpeg starts when the first **`/jetty-live`** WebSocket viewer connects and stops **30 s** after the last disconnect; default **1 fps** output (was 24/7 @ 25 fps). Reduces app-server CPU when CCTV is unused. TECH-SPEC **§0.26**, **§3.5.5**. Deploy **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**. |
 | 1.48 | 2026-05-25 | **§2.19 Uploaded document preview & download:** shared in-app preview modal for images and PDFs (click file name or berthing photo thumbnail); footer **Download** and **Open in new tab**; authenticated fetch for multi-port users. Covers Allocation (NOR, berthing photos), Loading/Unloading (Pre/Post documents, executions log), Clearance (sailed docs), Shipment Plans (SI source docs), SI Approval attachments, and nested log in **SI Detail** modal. **§9** executions log updated. **§7** map. TECH-SPEC **§0.30**, **§3.10**, **§3.10C**. |
 | 1.47 | 2026-05-22 | **§2.18 Dashboard V2 — Purpose and Commodity Type filters:** multi-select filter bar (Purpose, Commodity from Master Commodity, date range); OR/AND logic; instant apply; filtered pipeline, KPIs, at-berth, weekly trends; jetty status unfiltered; empty-state banner. **§1**, **§7** map. TECH-SPEC **§0.29**, **§2.3**, **§3.7**. |
 | 1.46 | 2026-05-22 | **§2.17 Master Menu list tables:** client-side column **sort** and **filter** (shared table head; same UX as plan-centric Allocation queue). **Sort order** column **removed** from SI lookup master UI (Term–Commodity); backend **`sort_order`** unchanged. **§2.11** filter note; **§7** map. TECH-SPEC **§0.28**. |

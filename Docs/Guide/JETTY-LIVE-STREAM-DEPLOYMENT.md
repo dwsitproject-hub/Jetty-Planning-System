@@ -84,14 +84,20 @@ RTSP_URL=rtsp://<user>:<password>@<camera-ip>:554/Stream1
 RTSP_TRANSPORT=tcp
 HTTP_PORT=3081
 WS_PORT=9999
+STREAM_OUTPUT_FPS=1
+STREAM_IDLE_STOP_MS=30000
 STREAM_CORS_ORIGINS=http://<APP_PUBLIC_IP>:3080,http://172.28.92.56:3080
 ```
+
+Or copy the template: `cp .env.example .env` then edit.
 
 | Variable | Why |
 |----------|-----|
 | `RTSP_TRANSPORT=tcp` | Required on many VPN/cloud paths; without it FFmpeg may hang on UDP. |
 | `HTTP_PORT=3081` | Host port **3080** is already used by `jps-fe` (`JPS_FE_PORT=3080`). |
 | `WS_PORT=9999` | WebSocket for video; nginx proxies `/jetty-live-ws` to this port on the host. |
+| `STREAM_OUTPUT_FPS=1` | Output frame rate for FFmpeg (default **1**; was 25). Lower = less CPU. |
+| `STREAM_IDLE_STOP_MS=30000` | Stop FFmpeg 30 s after the last WebSocket viewer disconnects. |
 | `STREAM_CORS_ORIGINS` | Only needed if you bypass nginx; safe to set to your real UI URL(s). |
 
 Save the file. Restrict permissions:
@@ -222,8 +228,10 @@ Browser  →  JPS frontend (nginx / Vite)     /jetty-live  (React + JSMpeg)
               ├─ /jetty-live-stream/* →  rtsp-stream-viewer HTTP (health)
               └─ /jetty-live-ws      →  rtsp-stream-viewer WebSocket (video)
 
-rtsp-stream-viewer  →  FFmpeg  →  rtsp://<camera>:554/...
+rtsp-stream-viewer  →  FFmpeg (on-demand)  →  rtsp://<camera>:554/...
 ```
+
+**On-demand FFmpeg:** the Node process and WebSocket server run continuously (systemd), but **FFmpeg starts only when the first viewer connects** to `/jetty-live-ws` and **stops 30 s after the last viewer disconnects**. Default transcode output is **1 fps** (`STREAM_OUTPUT_FPS=1`), not 25 fps.
 
 | Component | Repo path | Typical ports |
 |-----------|-----------|----------------|
@@ -460,10 +468,12 @@ Prefer **one public origin** (nginx on 443 or 3080) that proxies API, SPA, strea
 | Step | Command / action | Expected |
 |------|------------------|----------|
 | Stream process | `systemctl status jps-jetty-live` | `active (running)` |
-| Health (on stream host) | `curl -s http://127.0.0.1:3081/api/health` | `"status":"online"` when camera OK |
+| Idle (no viewers) | `curl -s http://127.0.0.1:3081/api/health` | `"ffmpegRunning":false`, `"viewerCount":0` — normal when nobody is watching |
+| Idle CPU | `ps aux \| grep '[f]fmpeg'` | No ffmpeg process when no Jetty Live viewers |
+| With viewer | Open **`/jetty-live`**, then `curl …/api/health` | `"viewerCount":≥1`, `"ffmpegRunning":true`, `"outputFps":1` when camera OK |
 | Health (via nginx) | `curl -s http://127.0.0.1:3080/jetty-live-stream/api/health` | Same JSON (host → `jps-fe` → host stream) |
 | Browser | Allocation schematic → camera on jetty with RTSP | Opens **`/jetty-live`** popup; video on canvas when stream + RBAC OK |
-| Logs | `journalctl -u jps-jetty-live -n 100` | FFmpeg connecting; no repeated `ENOENT` for ffmpeg |
+| Logs | `journalctl -u jps-jetty-live -n 100` | `[stream] start: viewer_connect` when a tab opens; `idle stop` after last tab closes |
 
 ---
 
@@ -471,8 +481,10 @@ Prefer **one public origin** (nginx on 443 or 3080) that proxies API, SPA, strea
 
 | Symptom | Likely cause | What to do |
 |---------|--------------|------------|
+| **Offline**, `ffmpegRunning: false`, `viewerCount: 0` | No Jetty Live viewers (on-demand idle) | **Expected** when nobody is watching; open **`/jetty-live`** to start FFmpeg |
 | **Offline**, health unreachable | Stream service not running | `sudo systemctl start jps-jetty-live`; check `journalctl` |
-| **Offline**, health OK but no video | WebSocket blocked or wrong URL | Confirm nginx `location /jetty-live-ws` and `host.docker.internal` in compose; browser devtools → Network → WS |
+| High CPU when CCTV unused | Old build ran FFmpeg 24/7 @ 25 fps | Deploy on-demand + `STREAM_OUTPUT_FPS=1`; verify no `ffmpeg` when idle |
+| **Offline**, health OK but no video | WebSocket blocked or wrong URL | Confirm nginx `location /jetty-live-ws` and UFW allows Docker network → **9999**; browser devtools → Network → WS |
 | Health via nginx fails, direct :3081 OK | nginx points at `127.0.0.1` inside container | Use `host.docker.internal` + `extra_hosts` (see [Frontend server steps](#frontend-app-server--exact-steps)) |
 | **Offline**, `ffmpegRunning: false` | FFmpeg missing or RTSP failed | `which ffmpeg`; test `ffmpeg -rtsp_transport tcp -i "$RTSP_URL" -t 5 -f null -` |
 | Worked locally, fails on server | Camera IP not routable from ECS | Run stream on a host with VPN/LAN to `172.16.x.x`; or fix peering |
@@ -493,6 +505,8 @@ Prefer **one public origin** (nginx on 443 or 3080) that proxies API, SPA, strea
 | `RTSP_TRANSPORT` | (unset) | Set to `tcp` on app server / VPN when UDP RTSP fails. |
 | `HTTP_PORT` | `3080` | Health + reconnect HTTP. Use **3081** on app server. |
 | `WS_PORT` | `9999` | MPEG1 WebSocket port. |
+| `STREAM_OUTPUT_FPS` | `1` | FFmpeg MPEG1 output frame rate (was hardcoded **25**). |
+| `STREAM_IDLE_STOP_MS` | `30000` | Stop FFmpeg this many ms after the last WebSocket viewer disconnects. |
 | `STREAM_CORS_ORIGINS` | localhost Vite ports | Comma-separated origins for browser `fetch` to `/api/*`. |
 | `FFMPEG_PATH` | `ffmpeg` | Path to ffmpeg binary. |
 | `WATCHDOG_RESTART_MS` | `3000` | Delay before auto-restart after failure. |
