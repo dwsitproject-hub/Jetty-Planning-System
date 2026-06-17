@@ -94,6 +94,8 @@
   "adminHubUsersDesc": "Kelola pengguna dan tetapkan peran.",
   "adminHubRolesTitle": "Manajemen Peran",
   "adminHubRolesDesc": "Definisikan peran dan izin halaman.",
+  "adminHubPartnerApiTitle": "Kunci API Mitra",
+  "adminHubPartnerApiDesc": "Buat dan cabut kunci API untuk sistem eksternal yang mengirim Shipping Instruction.",
   "qualityTableParameter": "Parameter",
   "qualityTableLoadingQuality": "Mutu Loading",
   "qualityTableDischargeQuality": "Mutu Discharge",

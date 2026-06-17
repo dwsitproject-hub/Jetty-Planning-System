@@ -2,9 +2,9 @@
  * Provision (or revoke) partner API keys for the inbound integration API.
  * The plaintext key is printed ONCE and never stored; share it via a secure channel.
  *
+ * Keys are not port-scoped; partners pass a valid port_id on each request.
  * Run inside the API container (DATABASE_URL is set there):
- *   docker exec jps-api node scripts/create-integration-api-key.mjs --partner "ERP_A" --ports 3
- *   docker exec jps-api node scripts/create-integration-api-key.mjs --partner "ERP_A" --ports 3,5
+ *   docker exec jps-api node scripts/create-integration-api-key.mjs --partner "ERP_A"
  *   docker exec jps-api node scripts/create-integration-api-key.mjs --list
  *   docker exec jps-api node scripts/create-integration-api-key.mjs --deactivate 2
  */
@@ -55,25 +55,10 @@ async function main() {
   }
 
   const partner = (getArg('partner') || '').trim();
-  const portsRaw = (getArg('ports') || '').trim();
-  if (!partner || !portsRaw) {
-    console.error('Usage: node scripts/create-integration-api-key.mjs --partner "ERP_A" --ports 3[,5,...]');
+  if (!partner) {
+    console.error('Usage: node scripts/create-integration-api-key.mjs --partner "ERP_A"');
     console.error('       node scripts/create-integration-api-key.mjs --list');
     console.error('       node scripts/create-integration-api-key.mjs --deactivate <id>');
-    process.exitCode = 1;
-    return;
-  }
-  const portIds = portsRaw.split(',').map((s) => Number.parseInt(s.trim(), 10));
-  if (portIds.some((p) => !Number.isFinite(p) || Number.isNaN(p))) {
-    console.error(`Invalid --ports value: ${portsRaw}`);
-    process.exitCode = 1;
-    return;
-  }
-  const known = await pool.query(`SELECT id FROM ports WHERE id = ANY($1) AND deleted_at IS NULL`, [portIds]);
-  const knownIds = new Set(known.rows.map((r) => Number(r.id)));
-  const missing = portIds.filter((p) => !knownIds.has(p));
-  if (missing.length > 0) {
-    console.error(`Unknown or inactive port id(s): ${missing.join(', ')}`);
     process.exitCode = 1;
     return;
   }
@@ -82,17 +67,17 @@ async function main() {
   const keyHash = crypto.createHash('sha256').update(plaintext, 'utf8').digest('hex');
   const keyPrefix = plaintext.slice(0, 13);
 
+  // Keys are not port-scoped; partners pass a valid port_id per request.
   const ins = await pool.query(
-    `INSERT INTO integration_api_keys (partner_name, key_prefix, key_hash, allowed_port_ids)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO integration_api_keys (partner_name, key_prefix, key_hash)
+     VALUES ($1, $2, $3)
      RETURNING id`,
-    [partner, keyPrefix, keyHash, portIds]
+    [partner, keyPrefix, keyHash]
   );
 
   console.log('API key created.');
   console.log(`  id:        ${ins.rows[0].id}`);
   console.log(`  partner:   ${partner}`);
-  console.log(`  ports:     ${portIds.join(', ')}`);
   console.log('');
   console.log('  Plaintext key (shown ONCE, share securely, never commit):');
   console.log(`  ${plaintext}`);

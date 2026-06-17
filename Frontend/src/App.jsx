@@ -34,6 +34,7 @@ import MasterFreightTerms from './pages/MasterFreightTerms'
 import Admin from './pages/Admin'
 import AdminUsers from './pages/AdminUsers'
 import AdminRoles from './pages/AdminRoles'
+import AdminPartnerApi from './pages/AdminPartnerApi'
 import DemurrageRiskCalculator from './pages/DemurrageRiskCalculator'
 import JettyLive from './pages/JettyLive'
 import DevOcrTest from './pages/DevOcrTest'
@@ -206,6 +207,7 @@ function App() {
                   <Route path="/admin" element={<Admin />} />
                   <Route path="/admin/users" element={<AdminUsers />} />
                   <Route path="/admin/roles" element={<AdminRoles />} />
+                  <Route path="/admin/partner-api" element={<AdminPartnerApi />} />
                   <Route path="/dev/ocr-test" element={<DevOcrTest />} />
                 </Route>
                 </Routes>

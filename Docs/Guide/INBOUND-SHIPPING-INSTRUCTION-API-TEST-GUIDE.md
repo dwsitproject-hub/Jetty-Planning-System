@@ -63,7 +63,7 @@ You should see `Applying migration: 084_integration_partner_api.sql` if it had n
 Each test partner needs an API key. Create one inside the API container:
 
 ```powershell
-docker exec jps-api node scripts/create-integration-api-key.mjs --partner "MY_TEST_ERP" --ports 1
+docker exec jps-api node scripts/create-integration-api-key.mjs --partner "MY_TEST_ERP"
 ```
 
 **Copy the plaintext key immediately** — it is shown only once, for example:
@@ -82,7 +82,7 @@ docker exec jps-api node scripts/create-integration-api-key.mjs --list
 docker exec jps-api node scripts/create-integration-api-key.mjs --deactivate 1
 ```
 
-Replace `--ports 1` with the port id(s) your environment uses. On a typical local dev database, port `1` is **BONTANG**. Use a comma for multiple ports: `--ports 1,3`.
+Keys are not port-scoped. Partners pass a valid `port_id` in each request payload; on a typical local dev database, port `1` is **BONTANG**.
 
 ### 2.4 Valid master data
 
@@ -90,18 +90,47 @@ Your test payload must use values that exist in JPS master data:
 
 | Field | Rule |
 |-------|------|
-| `port_id` | Must be in the key's allowed ports (e.g. `1`) |
-| `cargo[].cargo_type` | Must match a commodity name in JPS (case-insensitive), e.g. `CPO`, `CPKO`, `POME` |
+| `port_id` | Must be a valid JPS port (e.g. `1`); keys are not port-scoped |
+| `cargo[].cargo_type` | Must match a commodity **short name** in JPS (case-insensitive), e.g. `CPO`, `CPKO`, `POME` |
 | `cargo[].unit` | `MT` or `KL` only |
 | `purpose` | `Loading` or `Unloading` |
 
-To list commodities in your database:
+#### Commodity mapping (`cargo_type` → JPS short name)
+
+Send the **JPS short_name** value in `cargo_type`. Full display names are **not** accepted.
+
+| JPS short_name (`cargo_type`) | JPS display name | Type |
+|-------------------------------|------------------|------|
+| `CG` | CRUDE GLYCERINE | Liquid |
+| `CPKO` | CRUDE PALM KERNEL OIL | Liquid |
+| `CPO` | CRUDE PALM OIL | Liquid |
+| `FAME` | Fatty Acid Methyl Ester | Liquid |
+| `INS POME FAD` | INS PALM OIL MILL EFFLUENT FATTY ACID DISTILLATE | Liquid |
+| `INS RPOME` | INS REFINED PALM OIL MILL EFFLUENT | Liquid |
+| `ISCC POMEPFAD` | ISCC PALM OIL MILL EFFLUENT FATTY ACID DISTILLATE (POMEPFAD) | Liquid |
+| `ISCC RPOME` | ISCC REFINED PALM OIL MILL EFFLUENT | Liquid |
+| `METHANOL` | METHANOL | Liquid |
+| `PFAD` | Palm Fatty Acid Distillate | Liquid |
+| `PKE` | Palm Kernel Expeller | Solid |
+| `PKM` | Palm Kernel Meal | Solid |
+| `PKS` | Palm Kernel Shell | Solid |
+| `POME` | Palm Oil Mill Effluent | Liquid |
+| `RBD PO` | RBD PO | Liquid |
+| `RG` | REFINED GLYCERINE | Liquid |
+| `ROL` | Refined Olein | Liquid |
+| `RPOME` | REFINED PALM OIL MILL EFFLUENT | Liquid |
+| `SPLIT CPKO FA` | SPLIT CRUDE PALM KERNEL OIL FATTY ACID | Liquid |
+| `SPLIT RBD PKO FA` | SPLIT RBD PALM KERNEL OIL FATTY ACID | Liquid |
+
+*20 commodities as of master data export. Re-query if commodities are added or changed.*
+
+To refresh this list from your database:
 
 ```powershell
-docker exec jps-api node -e "import('pg').then(async ({default:pg})=>{const p=new pg.Pool({connectionString:process.env.DATABASE_URL});const r=await p.query('SELECT name FROM si_commodities WHERE deleted_at IS NULL ORDER BY name');console.log(r.rows.map(x=>x.name).join(', '));await p.end();})"
+docker exec jps-api node -e "import('pg').then(async ({default:pg})=>{const p=new pg.Pool({connectionString:process.env.DATABASE_URL});const r=await p.query('SELECT short_name, name, commodity_type FROM si_commodities WHERE deleted_at IS NULL ORDER BY short_name');r.rows.forEach(x=>console.log(x.short_name+' | '+x.name+' | '+x.commodity_type));await p.end();})"
 ```
 
-If you send an unknown `cargo_type`, the API returns `400` with a list of valid names — use that list to fix your payload.
+If you send an unknown `cargo_type`, the API returns `400` with a list of valid short names in `valid_cargo_types` — use that list to fix your payload.
 
 ---
 
@@ -220,9 +249,9 @@ curl.exe "$BASE/shipping-instructions/41" -H "x-api-key: jps_live_wrong"
 
 Expected: `"code": "INVALID_API_KEY"`.
 
-### 4.7 Test 6 — Forbidden port (expect `403`)
+### 4.7 Test 6 — Unknown port (expect `400`)
 
-Copy the JSON file, change `"port_id": 1` to `"port_id": 99`, and use a new `external_reference` (e.g. `SI-TEST-003`):
+Copy the JSON file, change `"port_id": 1` to `"port_id": 99` (a port that does not exist), and use a new `external_reference` (e.g. `SI-TEST-003`):
 
 ```powershell
 curl.exe -X POST "$BASE/shipping-instructions" `
@@ -231,7 +260,7 @@ curl.exe -X POST "$BASE/shipping-instructions" `
   --data "@$env:TEMP\si-bad-port.json"
 ```
 
-Expected: `"code": "FORBIDDEN_PORT"`.
+Expected: `"code": "VALIDATION_ERROR"` with an `unknown port` issue in `details`.
 
 ### 4.8 Test 7 — Unknown cargo type (expect `400`)
 
@@ -349,7 +378,6 @@ Always note `request_id` when reporting failures — it helps trace the request 
 | `200` | — | Status retrieved |
 | `400` | `VALIDATION_ERROR` | Fix the JSON payload |
 | `401` | `INVALID_API_KEY` | Missing or wrong `x-api-key` |
-| `403` | `FORBIDDEN_PORT` | `port_id` not allowed for this key |
 | `404` | `NOT_FOUND` | Unknown id or reference (or not yours) |
 | `409` | `DUPLICATE_REFERENCE` | Same `external_reference` already submitted |
 | `429` | `RATE_LIMITED` | Over 120 requests/minute — wait and retry |
@@ -377,8 +405,8 @@ Always note `request_id` when reporting failures — it helps trace the request 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
 | `401 INVALID_API_KEY` | Missing/wrong header | Add `-H "x-api-key: jps_live_..."` |
-| `403 FORBIDDEN_PORT` | Port not in key scope | Use allowed `port_id` or recreate key with `--ports` |
-| `400` unknown cargo | Typo in `cargo_type` | Use exact master data name (see section 2.4) |
+| `400` unknown port | `port_id` is not a valid JPS port | Use a real `port_id` (e.g. `1` on staging) |
+| `400` unknown cargo | Typo in `cargo_type` or full name instead of short code | Use commodity short name from §2.4 mapping table or `valid_cargo_types` in the error |
 | `409 DUPLICATE_REFERENCE` | Reused `external_reference` | Change to a new reference for each test |
 | Status stuck on `Pending` | No operator action yet | Approve/reject in JPS web app |
 | Status never `Allocated` | No jetty assigned | Complete allocation in JPS after approval |

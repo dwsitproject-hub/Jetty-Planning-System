@@ -87,14 +87,14 @@ Authentication uses a single API key in the `x-api-key` header. No OAuth, no tok
 |------|---------|-------|
 | API key | `jps_live_a73fc30d...` | **Server-side only.** Never commit to git or expose in browser code. |
 | Partner name | `EOS-EXPORT` | Identifies your system on the JPS side (not sent in requests). |
-| Allowed `port_id`(s) | `1` | Your key only works for these port(s). Staging currently uses port **`1`** (BONTANG). |
+| Port access | any | Keys are not port-scoped. You pass a valid `port_id` on each request. Staging uses port **`1`** (BONTANG). |
 
 **Request your staging API key** from the JPS team. They create it with:
 
 ```bash
 # (JPS admin only — run on backend server)
 docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps-api \
-  node scripts/create-integration-api-key.mjs --partner "YOUR-SYSTEM-NAME" --ports 1
+  node scripts/create-integration-api-key.mjs --partner "YOUR-SYSTEM-NAME"
 ```
 
 The plaintext key is shown **once**. Store it in your secrets manager or `.env` file immediately.
@@ -194,7 +194,7 @@ curl -sS -X POST "http://172.28.92.56:3080/api/v1/integrations/shipping-instruct
     "notes": "Submitted from EOS Export",
     "cargo": [
       {
-        "cargo_type": "CRUDE PALM OIL",
+        "cargo_type": "CPO",
         "description": "Main lot",
         "tonnage": 25000,
         "unit": "MT",
@@ -293,7 +293,7 @@ Same response shape as `GET /{id}`. HTTP `404` if not found or not yours.
 |-------|------|----------|-------------|
 | `external_reference` | string (max 100) | Yes | Your unique document/order ID. Idempotency key. |
 | `requested_by` | string (max 200) | No | Person or service account in your system. Shown to JPS operators. If omitted, JPS stores the API partner name. |
-| `port_id` | integer | Yes | JPS port ID. Staging: **`1`** (BONTANG). Must match your key's allowed ports. |
+| `port_id` | integer | Yes | JPS port ID. Staging: **`1`** (BONTANG). Must be a valid JPS port; an unknown `port_id` returns `400`. |
 | `vessel_name` | string (max 200) | Yes | Vessel name. |
 | `voyage_no` | string (max 50) | No | Voyage number. |
 | `purpose` | string | Yes | `"Loading"` or `"Unloading"`. |
@@ -308,7 +308,7 @@ Same response shape as `GET /{id}`. HTTP `404` if not found or not yours.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `cargo_type` | string (max 100) | Yes | Must match a **JPS commodity name** exactly (case-insensitive). See §5.1. |
+| `cargo_type` | string (max 100) | Yes | Must match a **JPS commodity short name** (case-insensitive). See §5.1. |
 | `description` | string (max 500) | No | Extra detail about the lot. |
 | `tonnage` | number ≥ 0 | Yes | Quantity. |
 | `unit` | string | Yes | `"MT"` or `"KL"` only. |
@@ -342,7 +342,7 @@ All cargo lines on one instruction must be the same commodity type category (Sol
     "code": "VALIDATION_ERROR",
     "message": "Payload validation failed",
     "details": [
-      { "field": "cargo[0].cargo_type", "issue": "unknown cargo type(s): CPO", "valid_cargo_types": ["CRUDE PALM OIL", "..."] }
+      { "field": "cargo[0].cargo_type", "issue": "unknown cargo type(s): FAKE_CARGO", "valid_cargo_types": ["CPO", "POME", "..."] }
     ]
   },
   "request_id": "req_01HXYZABC123"
@@ -359,7 +359,6 @@ Always log `request_id` when reporting issues to JPS support.
 | `200` | — | Status retrieved | — |
 | `400` | `VALIDATION_ERROR` | Bad payload | No — fix payload |
 | `401` | `INVALID_API_KEY` | Missing/wrong key | No |
-| `403` | `FORBIDDEN_PORT` | `port_id` not allowed for your key | No |
 | `404` | `NOT_FOUND` | Unknown id/reference | No |
 | `409` | `DUPLICATE_REFERENCE` | `external_reference` already used | No — use GET to recover |
 | `429` | `RATE_LIMITED` | Rate limit exceeded | Yes — backoff |
@@ -371,28 +370,40 @@ Always log `request_id` when reporting issues to JPS support.
 
 ## 5. Staging master data
 
-### 5.1 Valid `cargo_type` values (staging)
+### 5.1 Valid `cargo_type` values — commodity mapping
 
-`cargo_type` must match a name in JPS commodity master data. On **staging**, use the **full name**, not abbreviations:
+`cargo_type` must match the **short name** (`short_name`) of a commodity in JPS master data — not the full display name. Matching is case-insensitive (e.g. `cpo` and `CPO` both work).
 
-| Do not use | Use instead (staging) |
-|------------|----------------------|
-| `CPO` | `CRUDE PALM OIL` |
-| `PKO` | `CRUDE PALM KERNEL OIL` or `SPLIT CRUDE PALM KERNEL OIL FATTY ACID` |
-| `POME` | `POME` |
+**Send the value in the `JPS short_name` column** in your `cargo_type` field:
 
-**Staging commodity list (as of deploy):**
+| JPS short_name (`cargo_type`) | JPS display name | Type |
+|-------------------------------|------------------|------|
+| `CG` | CRUDE GLYCERINE | Liquid |
+| `CPKO` | CRUDE PALM KERNEL OIL | Liquid |
+| `CPO` | CRUDE PALM OIL | Liquid |
+| `FAME` | Fatty Acid Methyl Ester | Liquid |
+| `INS POME FAD` | INS PALM OIL MILL EFFLUENT FATTY ACID DISTILLATE | Liquid |
+| `INS RPOME` | INS REFINED PALM OIL MILL EFFLUENT | Liquid |
+| `ISCC POMEPFAD` | ISCC PALM OIL MILL EFFLUENT FATTY ACID DISTILLATE (POMEPFAD) | Liquid |
+| `ISCC RPOME` | ISCC REFINED PALM OIL MILL EFFLUENT | Liquid |
+| `METHANOL` | METHANOL | Liquid |
+| `PFAD` | Palm Fatty Acid Distillate | Liquid |
+| `PKE` | Palm Kernel Expeller | Solid |
+| `PKM` | Palm Kernel Meal | Solid |
+| `PKS` | Palm Kernel Shell | Solid |
+| `POME` | Palm Oil Mill Effluent | Liquid |
+| `RBD PO` | RBD PO | Liquid |
+| `RG` | REFINED GLYCERINE | Liquid |
+| `ROL` | Refined Olein | Liquid |
+| `RPOME` | REFINED PALM OIL MILL EFFLUENT | Liquid |
+| `SPLIT CPKO FA` | SPLIT CRUDE PALM KERNEL OIL FATTY ACID | Liquid |
+| `SPLIT RBD PKO FA` | SPLIT RBD PALM KERNEL OIL FATTY ACID | Liquid |
 
-```
-CRUDE GLYCERINE, CRUDE PALM KERNEL OIL, CRUDE PALM OIL, FAME,
-INS PALM OIL MILL EFFLUENT FATTY ACID DISTILLATE, INS REFINED PALM OIL MILL EFFLUENT,
-ISCC PALM OIL MILL EFFLUENT FATTY ACID DISTILLATE (POMEPFAD), ISCC REFINED PALM OIL MILL EFFLUENT,
-METHANOL, PFAD, PKE, PKM, PKS, POME, RBD PO, REFINED GLYCERINE,
-REFINED PALM OIL MILL EFFLUENT, ROL, SPLIT CRUDE PALM KERNEL OIL FATTY ACID,
-SPLIT RBD PALM KERNEL OIL FATTY ACID
-```
+*List as of JPS master data export (20 commodities). JPS operators may add or update commodities over time.*
 
-If you send an unknown `cargo_type`, the API returns `400` with `valid_cargo_types` in `error.details` — use that list to fix your mapping.
+If you send an unknown `cargo_type`, the API returns `400` with `valid_cargo_types` in `error.details` — that list contains the current short codes for your environment. Use it to fix your payload.
+
+**Do not send full commodity names** (e.g. `CRUDE PALM OIL`) — they are rejected.
 
 ### 5.2 Staging port
 
@@ -400,22 +411,51 @@ If you send an unknown `cargo_type`, the API returns `400` with `valid_cargo_typ
 |-----------|------|
 | `1` | BONTANG |
 
-Your API key must include `port_id` **1** for staging tests.
+Pass `port_id` **1** in your payload for staging tests. Keys are not port-scoped, but `port_id` must be a valid JPS port.
 
-### 5.3 Map your system's commodity codes
+### 5.3 Map your system's commodity codes to JPS
 
-Build a lookup table in your integration layer, e.g.:
+Send your commodity code in `cargo_type` when it matches the JPS short name. When your internal code differs, map it in your integration layer:
+
+| Your system code (example) | JPS `cargo_type` | JPS display name |
+|----------------------------|------------------|------------------|
+| `CPO` | `CPO` | CRUDE PALM OIL |
+| `PKO` | `CPKO` | CRUDE PALM KERNEL OIL |
+| `POME` | `POME` | Palm Oil Mill Effluent |
+| `PKE` | `PKE` | Palm Kernel Expeller |
+| `PKS` | `PKS` | Palm Kernel Shell |
+| `PKM` | `PKM` | Palm Kernel Meal |
+| `PFAD` | `PFAD` | Palm Fatty Acid Distillate |
+| `FAME` | `FAME` | Fatty Acid Methyl Ester |
+| `RBDPO` / `RBD PO` | `RBD PO` | RBD PO |
+| `ROL` | `ROL` | Refined Olein |
+| `METHANOL` | `METHANOL` | METHANOL |
+
+Example integration mapping:
 
 ```javascript
 const JPS_COMMODITY_MAP = {
-  CPO: "CRUDE PALM OIL",
-  PKO: "CRUDE PALM KERNEL OIL",
+  CPO: "CPO",
+  PKO: "CPKO",           // your PKO → JPS short_name CPKO
   POME: "POME",
-  // ...
+  PKE: "PKE",
+  PKS: "PKS",
+  PFAD: "PFAD",
+  // add entries for products you ship; see §5.1 for full list
+};
+
+function mapCargoType(yourCode) {
+  const jpsCode = JPS_COMMODITY_MAP[yourCode.toUpperCase()];
+  if (!jpsCode) throw new Error(`No JPS mapping for commodity: ${yourCode}`);
+  return jpsCode;
+}
+
+const payload = {
+  cargo: [{ cargo_type: mapCargoType(order.commodityCode), tonnage: 25000, unit: "MT" }],
 };
 ```
 
-Production may use the same or different names — confirm with JPS before go-live.
+Confirm any ambiguous mappings (e.g. which PKOFA variant maps to `SPLIT CPKO FA` vs `SPLIT RBD PKO FA`) with JPS before production go-live.
 
 ---
 
@@ -472,7 +512,7 @@ curl -sS -X POST "$JPS_API_BASE_URL/shipping-instructions" \
     \"agent_contact\": \"ops@test.example.com\",
     \"notes\": \"Self-service API test\",
     \"cargo\": [{
-      \"cargo_type\": \"CRUDE PALM OIL\",
+      \"cargo_type\": \"CPO\",
       \"tonnage\": 25000,
       \"unit\": \"MT\",
       \"contract_no\": \"CTR-001\"
@@ -580,7 +620,7 @@ function pollStatus(jps_id):
 
 - [ ] `external_reference` ← your document / order / SI number (unique per submission)
 - [ ] `requested_by` ← user email or service account from your system
-- [ ] `cargo_type` ← mapped to JPS commodity name (§5.1)
+- [ ] `cargo_type` ← JPS commodity short name (§5.1)
 - [ ] `purpose` ← `"Loading"` or `"Unloading"` from your business logic
 - [ ] `eta` / `etd` ← ISO 8601 UTC
 - [ ] `port_id` ← `1` on staging (confirm for production)
@@ -602,7 +642,7 @@ function pollStatus(jps_id):
 - [ ] `GET` by id and by `external_reference` work
 - [ ] Duplicate `POST` returns `409` (idempotency verified)
 - [ ] Error paths tested (`401`, `400`, `403`)
-- [ ] Commodity mapping table built and validated against staging list
+- [ ] Commodity mapping table built from §5.1 and validated on staging
 - [ ] Full lifecycle observed (`Pending` → `Approved` → `Allocated`) with JPS operator
 - [ ] Production API key, base URL, and `port_id` received from JPS
 - [ ] Support contact agreed for incidents (include `request_id` from errors)
@@ -625,6 +665,9 @@ When reporting issues, include:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.3 | 2026-06-15 | API keys are no longer port-scoped: removed `403 FORBIDDEN_PORT`; `port_id` is still required and must be a valid JPS port (unknown port returns `400`). Key creation no longer uses `--ports`. |
+| 3.2 | 2026-06-12 | §5.1 full commodity mapping table (short_name → display name → type) from JPS master data. §5.3 partner-to-JPS mapping examples. |
+| 3.1 | 2026-06-12 | `cargo_type` now resolves against JPS commodity **short name** (not full display name). `valid_cargo_types` in errors lists short codes. Breaking change for partners sending full names. |
 | 3.0 | 2026-06-15 | Staging environment details (`172.28.92.56:3080`), self-service test walkthrough, staging commodity names, integration build guide for external full-stack developers. Consolidated testing into this document. |
 | 2.1 | 2026-06-12 | Added `requested_by`; source identification table. |
 | 2.0 | 2026-06-12 | Rewritten for `x-api-key` auth; flat payload; partner status lifecycle. |

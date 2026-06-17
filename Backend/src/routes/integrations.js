@@ -38,6 +38,12 @@ function asTrimmedString(v) {
   return typeof v === 'string' ? v.trim() : '';
 }
 
+/** Same normalization as si-lookups master data (short_name is stored uppercase). */
+function normalizeCargoShortName(raw) {
+  const v = String(raw ?? '').trim().toUpperCase();
+  return v || null;
+}
+
 function parseIsoDateTime(v) {
   if (typeof v !== 'string' || !v.trim()) return null;
   const d = new Date(v);
@@ -219,14 +225,6 @@ router.post('/shipping-instructions', async (req, res) => {
     return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', errors);
   }
 
-  if (!key.allowedPortIds.includes(value.portId)) {
-    return sendIntegrationError(
-      res,
-      403,
-      'FORBIDDEN_PORT',
-      `port_id ${value.portId} is not allowed for this API key`
-    );
-  }
   const portOk = await pool.query(`SELECT 1 FROM ports WHERE id = $1 AND deleted_at IS NULL`, [value.portId]);
   if (portOk.rows.length === 0) {
     return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
@@ -256,30 +254,38 @@ router.post('/shipping-instructions', async (req, res) => {
   }
   const purposeId = Number(pr.rows[0].id);
 
-  // Resolve cargo_type -> si_commodities (case-insensitive) and unit -> metric by code.
-  const cargoTypes = [...new Set(value.cargo.map((c) => c.cargoType.toLowerCase()))];
+  // Resolve cargo_type -> si_commodities.short_name (case-insensitive; not full display name).
+  const cargoTypes = [
+    ...new Set(value.cargo.map((c) => normalizeCargoShortName(c.cargoType)).filter(Boolean)),
+  ];
   const cm = await pool.query(
-    `SELECT id, name, commodity_type FROM si_commodities WHERE LOWER(name) = ANY($1) AND deleted_at IS NULL`,
+    `SELECT id, short_name, commodity_type FROM si_commodities WHERE UPPER(short_name) = ANY($1) AND deleted_at IS NULL`,
     [cargoTypes]
   );
-  const commodityByName = new Map(cm.rows.map((r) => [r.name.toLowerCase(), r]));
+  const commodityByShortName = new Map(cm.rows.map((r) => [r.short_name.toUpperCase(), r]));
   const unknownTypes = [
-    ...new Set(value.cargo.map((c) => c.cargoType).filter((t) => !commodityByName.has(t.toLowerCase()))),
+    ...new Set(
+      value.cargo
+        .map((c) => c.cargoType)
+        .filter((t) => !commodityByShortName.has(normalizeCargoShortName(t)))
+    ),
   ];
   if (unknownTypes.length > 0) {
     const valid = await pool.query(
-      `SELECT name FROM si_commodities WHERE deleted_at IS NULL ORDER BY name`
+      `SELECT short_name FROM si_commodities WHERE deleted_at IS NULL ORDER BY short_name`
     );
     return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
       {
         field: 'cargo[].cargo_type',
         issue: `unknown cargo type(s): ${unknownTypes.join(', ')}`,
-        valid_cargo_types: valid.rows.map((r) => r.name),
+        valid_cargo_types: valid.rows.map((r) => r.short_name),
       },
     ]);
   }
   const commodityTypes = [
-    ...new Set(value.cargo.map((c) => commodityByName.get(c.cargoType.toLowerCase()).commodity_type)),
+    ...new Set(
+      value.cargo.map((c) => commodityByShortName.get(normalizeCargoShortName(c.cargoType)).commodity_type)
+    ),
   ];
   if (commodityTypes.length > 1) {
     return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
@@ -363,7 +369,7 @@ router.post('/shipping-instructions', async (req, res) => {
 
     let lineOrder = 0;
     for (const line of value.cargo) {
-      const commodity = commodityByName.get(line.cargoType.toLowerCase());
+      const commodity = commodityByShortName.get(normalizeCargoShortName(line.cargoType));
       await client.query(
         `INSERT INTO public.shipping_instruction_breakdown (
            shipping_instruction_id, commodity_id, metric_id, qty, contract_no, remarks, line_order
