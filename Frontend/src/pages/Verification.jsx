@@ -17,6 +17,7 @@ import SiDocumentModal from '../components/SiDocumentModal'
 import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
 import '../styles/allocation.css'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import { validateCastOffDepart } from '../utils/validateCastOffDepart'
 import '../styles/modal.css'
 
 const CLEARANCE_COLUMNS = [
@@ -178,6 +179,7 @@ export default function Verification() {
         signoffRequestedByUsername: o.signoffRequestedByUsername,
         castOffAt: o.castOffAt,
         sailedAt: o.sailedAt,
+        tbAt: o.tbAt,
         clearanceDocumentUrl: o.clearanceDocumentUrl,
         vesselPhotoUrl: o.vesselPhotoUrl,
       }))
@@ -200,6 +202,7 @@ export default function Verification() {
         apiStatus: o.status,
         castOffAt: o.castOffAt,
         sailedAt: o.sailedAt,
+        tbAt: o.tbAt,
         clearanceDocumentUrl: o.clearanceDocumentUrl,
         vesselPhotoUrl: o.vesselPhotoUrl,
       }))
@@ -222,6 +225,7 @@ export default function Verification() {
         apiStatus: o.status,
         castOffAt: o.castOffAt,
         sailedAt: o.sailedAt,
+        tbAt: o.tbAt,
         clearanceDocumentUrl: o.clearanceDocumentUrl,
         vesselPhotoUrl: o.vesselPhotoUrl,
       }))
@@ -403,14 +407,12 @@ export default function Verification() {
       const op = rows.find((r) => r.operationId === modalOpId)
       const cacheKey = op?.shipmentPlanId != null ? `sp:${op.shipmentPlanId}` : `op:${modalOpId}`
       const latestIso = timelineMaxAtByKey[cacheKey]
-      if (latestIso) {
-        const latest = new Date(latestIso)
-        if (!Number.isNaN(latest.getTime()) && cast.getTime() < latest.getTime()) {
-          return `CAST Off must be on or after the latest execution log time (${formatDateTimeDisplay(latestIso)}).`
-        }
-      }
+      return validateCastOffDepart(cast, {
+        tbAt: op?.tbAt ?? null,
+        latestExecutionAt: latestIso ?? null,
+      })
     }
-    return null
+    return validateCastOffDepart(cast, {})
   }, [formCastOff, modalOpId, rows, timelineMaxAtByKey, parseLocalTime])
 
   const handleSubmit = async () => {
@@ -908,14 +910,25 @@ export default function Verification() {
 
             <div className="modal__section">
               <label htmlFor="clearance-cast-off" className="modal__label">CAST Off</label>
-              <input
-                id="clearance-cast-off"
-                type="datetime-local"
-                className="modal__input"
-                value={formCastOff}
-                onChange={(e) => setFormCastOff(e.target.value)}
-                disabled={isSailed}
-              />
+              {isSailed ? (
+                <input
+                  id="clearance-cast-off"
+                  type="text"
+                  className="modal__input"
+                  value={formatDateTimeDisplay(modalRow?.castOffAt)}
+                  readOnly
+                  disabled
+                  aria-readonly="true"
+                />
+              ) : (
+                <input
+                  id="clearance-cast-off"
+                  type="datetime-local"
+                  className="modal__input"
+                  value={formCastOff}
+                  onChange={(e) => setFormCastOff(e.target.value)}
+                />
+              )}
               {modalTimelineMaxAt ? (
                 <p className="text-steel" style={{ marginTop: 6, fontSize: 'var(--font-size-small)' }}>
                   Must be on/after latest execution log time: <strong>{formatDateTimeDisplay(modalTimelineMaxAt)}</strong>

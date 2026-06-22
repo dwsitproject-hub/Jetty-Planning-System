@@ -10,6 +10,10 @@ import { canAccessOperationForSelectedPort } from '../lib/operation-access.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { departShipmentPlanInTransaction } from '../lib/shipment-plan-depart.js';
 import { validateDepartDocumentUrls } from '../lib/depart-document-url.js';
+import {
+  resolveTbInstantFromOperationRow,
+  validateCastOffAt,
+} from '../lib/validate-cast-off.js';
 import { userHasPageApprove, userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
 import { enrichRowsWithCargoDisplay } from '../lib/siBreakdownDisplay.js';
@@ -1132,6 +1136,11 @@ router.post('/:id/depart', async (req, res) => {
   const cast = new Date(cast_off_at);
   if (Number.isNaN(cast.getTime())) {
     return res.status(400).json({ error: 'Invalid cast_off_at' });
+  }
+  const tbAt = resolveTbInstantFromOperationRow(opRow);
+  const castValidation = validateCastOffAt(cast, { tbAt });
+  if (!castValidation.ok) {
+    return res.status(400).json({ error: castValidation.error });
   }
   const selectedPortId = Number(req.selectedPortId);
   const planId = opRow.shipment_plan_id != null ? Number(opRow.shipment_plan_id) : null;

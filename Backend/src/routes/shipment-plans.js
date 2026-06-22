@@ -11,6 +11,7 @@ import { loadOperationJoined, toOp } from './operations.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
 import { formatSiCargoDisplay } from '../lib/siBreakdownDisplay.js';
 import { validateDepartDocumentUrls } from '../lib/depart-document-url.js';
+import { validateCastOffAt } from '../lib/validate-cast-off.js';
 import { resolveUserRequestedBy } from '../lib/resolve-requested-by.js';
 
 const router = express.Router();
@@ -821,6 +822,24 @@ router.post('/:id/depart', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Invalid cast_off_at' });
   }
   const selectedPortId = Number(req.selectedPortId);
+
+  const planTbRes = await pool.query(
+    `SELECT tb, docking_start_time FROM shipment_plans WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
+    [planId, selectedPortId]
+  );
+  if (planTbRes.rows.length === 0) return res.status(404).json({ error: 'Shipment plan not found' });
+  const planRow = planTbRes.rows[0];
+  const pickTb = (v) => {
+    if (v == null) return null;
+    const d = v instanceof Date ? v : new Date(v);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+  const tbAt = pickTb(planRow.tb) ?? pickTb(planRow.docking_start_time);
+  const castValidation = validateCastOffAt(cast, { tbAt });
+  if (!castValidation.ok) {
+    return res.status(400).json({ error: castValidation.error });
+  }
+
   let clearanceUrl;
   let photoUrl;
   try {
