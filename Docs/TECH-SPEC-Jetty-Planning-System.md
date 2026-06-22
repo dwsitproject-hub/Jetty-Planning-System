@@ -1,12 +1,75 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.42
-**Last Updated**: 2026-05-26  
+**Version**: 1.44
+**Last Updated**: 2026-06-12  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
 
 ## 0. Addendum (2026-03-31)
+
+### 0.33 Inbound Shipping Instruction integration API (`/api/v1/integrations`) (2026-06-12)
+
+**Purpose:** Machine-to-machine API for external partners (EOS Export/Import, KLIPS, etc.) to submit **Shipping Instructions** into JPS. Creates real **`shipment_plans`** + **`shipping_instructions`** + breakdown rows; operators review via existing **`shipment-plan`** approval UI. Partner contract: **Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md**; local test walkthrough: **Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-API-TEST-GUIDE.md**. Functional behaviour: **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.23**.
+
+**Mount (`Backend/src/index.js`):**
+
+- **`apiV1.use('/integrations', integrationsRoutes)`** — registered **before** **`csrfProtection`** and **before** JWT-gated routes. Partner clients use **`x-api-key`** only (no cookie session, no CSRF).
+
+**Database (migrations):**
+
+| Migration | Objects |
+|-----------|---------|
+| **`084_integration_partner_api.sql`** | **`integration_api_keys`** (`partner_name`, `key_prefix`, `key_hash` SHA-256 hex, `allowed_port_ids BIGINT[]` — **deprecated/unused**, keys are not port-scoped, `active`, `last_used_at`); **`integration_submissions`** (`api_key_id`, `external_reference`, `shipping_instruction_id`, `shipment_plan_id`, `payload JSONB`, `received_at`; **`UNIQUE (api_key_id, external_reference)`** for idempotency). |
+| **`085_shipment_plan_integration_source.sql`** | **`shipment_plans.external_reference`**, **`shipment_plans.requested_by`** (TEXT, nullable); index on **`external_reference`** where not null. |
+| **`086_si_commodity_short_name.sql`** | **`si_commodities.short_name`** (TEXT NOT NULL, unique among active rows on **`LOWER(short_name)`**). Integration API resolves **`cargo_type`** against this column. |
+
+**Key provisioning:**
+
+- **`node scripts/create-integration-api-key.mjs --partner "EOS-EXPORT"`** — generates **`jps_live_<hex>`**, stores hash only, prints plaintext once. Keys are not port-scoped.
+- **`--list`**, **`--deactivate <id>`** for ops.
+
+**Auth middleware — `Backend/src/middleware/integration-auth.js`:**
+
+- Header **`x-api-key`** → SHA-256 lookup in **`integration_api_keys`** (`active`).
+- Sets **`req.integrationKey = { id, partnerName, allowedPortIds }`** (**`allowedPortIds`** retained for compatibility but no longer enforced — keys are not port-scoped).
+- Rate limit **120 req/min** per key (`express-rate-limit`, env **`INTEGRATION_RATE_LIMIT_PER_MINUTE`**).
+- Response envelope: **`{ success: true, data }`** / **`{ success: false, error: { code, message, details }, request_id }`**.
+
+**Routes — `Backend/src/routes/integrations.js`:**
+
+| Method | Path | Behaviour |
+|--------|------|-----------|
+| **`POST`** | **`/shipping-instructions`** | Validates payload (vessel, purpose, eta, cargo lines with **`cargo_type`** → **`si_commodities.short_name`** (case-insensitive, normalized uppercase), **`unit`** → **`metric.code`**). **`port_id`** must be a valid (non-deleted) **`ports`** row; unknown port → **400** **`VALIDATION_ERROR`**. Keys are **not** port-scoped. Transaction: insert **`shipment_plans`** (`approval_status` **`Submitted`**, **`external_reference`**, **`requested_by`** = payload **`requested_by`** or **`partnerName`**), **`shipping_instructions`** (`status` **`Submitted`**), **`shipping_instruction_breakdown`**, **`integration_submissions`**. Triggers **`shipment_plan.submitted`** notification + activity log. Returns **201** with partner status **`Pending`**. Duplicate **`external_reference`** → **409** **`DUPLICATE_REFERENCE`**. Unknown **`cargo_type`** → **400** with **`valid_cargo_types`** listing active **`short_name`** values. |
+| **`GET`** | **`/shipping-instructions/:id`** | Lookup by SI id scoped to caller’s **`api_key_id`** via **`integration_submissions`**. |
+| **`GET`** | **`/shipping-instructions?external_reference=`** | Same payload shape; lookup by partner reference. |
+
+**External status derivation (partner-facing):**
+
+| Partner status | Internal rule |
+|----------------|---------------|
+| **`Pending`** | Plan not **Rejected**; no operation beyond **`PENDING`**; plan not **Approved** (or still **Submitted**). |
+| **`Approved`** | **`shipment_plans.approval_status` = `Approved`**; no allocated operation yet. |
+| **`Rejected`** | Plan **`approval_status` = `Rejected`**; includes **`rejection_reason`**. |
+| **`Allocated`** | Active **`operations`** row with **`status` ≠ `PENDING`**; returns **`allocation.jetty_name`**, **`planned_berthing_time`** (`docking_start_time`). |
+
+**Manual plan create — `requested_by` on `shipment_plans`:**
+
+- **`Backend/src/lib/resolve-requested-by.js`** — **`resolveUserRequestedBy(db, userId)`** → **`users.display_name`** or **`users.username`**.
+- Set on **`POST /shipment-plans`** (`Backend/src/routes/shipment-plans.js`) and on implicit plan create in **`POST /shipping-instructions`** when no **`shipment_plan_id`** (`Backend/src/routes/shipping-instructions.js`).
+- **`external_reference`** remains **null** for manual creates (integration-only).
+- **`requested_by`** is **not** updated on plan edit — captures **initiator at create time** only.
+
+**Internal API — shipment plan list (`Backend/src/routes/shipment-plans.js`):**
+
+- **`toPlanListRow`** exposes **`externalReference`**, **`requestedBy`** from **`sp.*`** (list/detail SQL already selects plan columns).
+
+**Frontend — `Frontend/src/pages/ShipmentPlansList.jsx`:**
+
+- Table columns after **ETA**: **External reference**, **Requested by**; client-side filters **`externalReference`**, **`requestedBy`**.
+- i18n **`colExternalReference`**, **`colRequestedBy`**, **`filterExternalReference`**, **`filterRequestedBy`** in **`Frontend/src/locales/en/shipmentPlan.json`** and **`id/shipmentPlan.json`**.
+
+**Error codes (integration envelope):** **`INVALID_API_KEY`**, **`VALIDATION_ERROR`**, **`DUPLICATE_REFERENCE`**, **`NOT_FOUND`**, **`RATE_LIMITED`**, **`INTERNAL_ERROR`**.
 
 ### 0.32 Overview tables — Commodity Qty column (`siBreakdownDisplay`) (2026-05-26)
 
@@ -122,6 +185,10 @@
 - Route: **`Frontend/src/App.jsx`** — **`/jetty-live`** (no sidebar nav entry in **`Layout.jsx`**).
 
 **Stream helper — `rtsp-stream-viewer/`** (separate Node process on app host): see **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**.
+
+- **On-demand FFmpeg:** starts when the first WebSocket viewer connects to **`/jetty-live-ws`**; stops **`STREAM_IDLE_STOP_MS`** (default **30 s**) after the last viewer disconnects. Node + WS server stay up under systemd; idle health shows **`ffmpegRunning: false`**, **`viewerCount: 0`**.
+- **Output rate:** **`STREAM_OUTPUT_FPS`** (default **1**) — FFmpeg transcodes to MPEG1 at that frame rate (was hardcoded **25**).
+- **`GET /api/health`** includes **`viewerCount`**, **`outputFps`**, **`idleStopMs`** in addition to status / restart count.
 
 **Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.15**.
 
@@ -353,9 +420,9 @@ This change is presentation-only for schedule explainability; API contracts rema
 
 `Frontend/src/components/JettyScheduleGantt.jsx` now closes remaining legend-alignment gaps:
 
-- **Sailed status source-of-truth**:
-  - `isSailed = (status === 'SAILED') OR actualCompletionDateTime IS NOT NULL OR castOffDateTime IS NOT NULL`
-  - This avoids misclassifying sailed rows when actual completion is empty but cast-off/status indicates completion.
+- **Sailed status source-of-truth** (updated migration **082**):
+  - `isSailed = (status === 'SAILED') OR castOffDateTime IS NOT NULL`
+  - `operations_completed_at` (sign-off) does **not** end alongside occupancy; `actual_completion_time` is set at depart (`= cast_off_at`).
 - **Legend simplification**:
   - Removed legend items: `Arriving / allocated`, `Berthing`.
   - Retained legend items: Planned known/open-end, Actual known/open-end, Now, Sailed off.
@@ -1186,7 +1253,7 @@ Types are whitelisted by backend config (`Backend/src/routes/si-lookups.js`) and
     - Set `estimated_completion_time = docking_start_time + SLA`.
 - `POST /operations/:id/recalculate-sla` – if volumes or config change.
 - `POST /operations/:id/signoff-request` – berth team **requests** final sign-off. **RBAC:** **`can_edit`** on page **`loading`**. **Body:** optional `remark` (trimmed, max 4000 chars). **Rules:** `status` must be **`POST_OPS`**; **`signoff_requested_at` must be null**; before eligibility check, backend normalizes legacy rows by setting `completion_percent = 100` when status is `POST_OPS` but completion remains below 100; then **`checkSignoffEligible`** must pass (same gates as sign-off). Sets **`status` = `SIGNOFF_REQUESTED`**, **`signoff_requested_at`**, **`signoff_requested_by`**, **`signoff_request_remark`**; activity log **`pageKey`:** `loading`.
-- `POST /operations/:id/signoff` – **final approval:** sets **`SIGNOFF_APPROVED`** + `actual_completion_time` when:
+- `POST /operations/:id/signoff` – **final approval:** sets **`SIGNOFF_APPROVED`** + `operations_completed_at` when:
   - **RBAC:** **`can_approve`** on page **`loading`** (**403** if missing).
   - **`status` must be `SIGNOFF_REQUESTED`** (a prior **signoff-request**).
   - Gates: **`checkSignoffEligible`** as below (re-checked at approve time).
@@ -1197,7 +1264,7 @@ Types are whitelisted by backend config (`Backend/src/routes/si-lookups.js`) and
 - `POST /operations/:id/request-exception` – body `justification`, optional `exception_document_url`; sets `PENDING` (before terminal at-berth statuses / `SAILED`).
 - `POST /operations/:id/approve-exception` – body optional `approver_user_id`.
 - `POST /operations/:id/reject-exception` – body optional `approver_user_id`.
-- `POST /operations/:id/depart` – after the operation is **`SIGNOFF_APPROVED`**; body `cast_off_at` (ISO, required), optional `clearance_document_url`, `vessel_photo_url`. When **`shipping_instructions.shipment_plan_id`** is set, the backend sails **all** sibling **`SIGNOFF_APPROVED`** operations and updates **`shipment_plans`** using the same transaction helper as **`POST /shipment-plans/:id/depart`**.
+- `POST /operations/:id/depart` – after the operation is **`SIGNOFF_APPROVED`**; body `cast_off_at` (ISO, required), optional `clearance_document_url`, `vessel_photo_url`. Sets **`actual_completion_time = COALESCE(actual_completion_time, cast_off_at)`** on sailed operations (and plan mirror). When **`shipping_instructions.shipment_plan_id`** is set, the backend sails **all** sibling **`SIGNOFF_APPROVED`** operations and updates **`shipment_plans`** using the same transaction helper as **`POST /shipment-plans/:id/depart`**.
 - `POST /shipment-plans/:id/depart` – plan-first depart endpoint (see **§3.5.3A**); preferred from **Clearance** when the UI row carries **`shipmentPlanId`**.
 - **Clearance UI rule (frontend guard):** before calling depart, `Verification.jsx` loads **`GET /operations/:id/activity-timeline`** for **each** sibling operation on the plan (when collapsed) and rejects `cast_off_at` earlier than the **maximum** latest timestamp. This aligns cast-off with the **combined** **Detailed At-Berth Executions Log** across SIs on the call.
 - **UI entrypoint policy:** Loading/Unloading hub (`Loading.jsx`) supports **request sign-off** and pending-state visibility only; final approval action is routed through **Clearance** (`Verification.jsx`) as the single approval entry point.
@@ -1384,12 +1451,16 @@ Deployed per **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**. Summary:
 
 | Endpoint (on stream host) | Method | Purpose |
 |---------------------------|--------|---------|
-| `/api/health` | GET | JSON health for Jetty Live UI card |
-| `/api/reconnect` | POST | Optional `{ rtspUrl }` — switch RTSP source and restart FFmpeg |
+| `/api/health` | GET | JSON health for Jetty Live UI card (`viewerCount`, `outputFps`, `idleStopMs`, `ffmpegRunning`, …) |
+| `/api/reconnect` | POST | Optional `{ rtspUrl }` — switch RTSP source; restarts FFmpeg **only if** at least one WebSocket viewer is connected |
 
 Browser access in production: same origin **`/jetty-live-stream/*`** and **`/jetty-live-ws`** via nginx → host **3081** / **9999**. Dev: Vite proxy to **3080** / **9999** on localhost.
 
-**Single-stream policy:** one FFmpeg input per `rtsp-stream-viewer` instance; schematic / Jetty Live reconnect with a new jetty URL replaces the previous camera (**last opened wins**).
+**On-demand policy:** FFmpeg runs only while **`viewerCount > 0`**; idle stop after **`STREAM_IDLE_STOP_MS`** (default **30 s**) when the last viewer disconnects.
+
+**Single-stream policy:** one FFmpeg input per `rtsp-stream-viewer` instance while viewers are connected; schematic / Jetty Live reconnect with a new jetty URL replaces the previous camera (**last opened wins**).
+
+**Transcode rate:** **`STREAM_OUTPUT_FPS`** env (default **1**).
 
 #### 3.5.1 `GET /allocation/overview`
 
@@ -1510,7 +1581,8 @@ Backward compatibility note:
 
 | Export | Module | Behaviour |
 |--------|--------|-----------|
-| `formatDateTimeDisplay` | `Frontend/src/utils/formatDateTimeDisplay.js` | Parses ISO / timestamps / `datetime-local`-like prefixes → **`dd/mm HH:mm`** in **browser local** time. If unparseable, returns string with trailing **` LT`** removed (legacy API text). Empty → `—`. |
+| `formatDateTimeDisplay` | `Frontend/src/utils/formatDateTimeDisplay.js` | Parses ISO / timestamps / `datetime-local`-like prefixes → **`DD/MMM/YYYY HH:mm`** (24-hour) in **browser local** time. Locale-aware month abbreviations via `jps_locale` (`en` → `en-GB`, `id` → `id-ID`). If unparseable, returns string with trailing **` LT`** removed (legacy API text). Empty → `—`. |
+| `formatDateDisplay` | `Frontend/src/utils/formatDateTimeDisplay.js` | Date-only values (`YYYY-MM-DD` or ISO) → **`DD/MMM/YYYY`**. Same locale rules as `formatDateTimeDisplay`. Empty → `—`. |
 | `stripLegacyDatetimeLt` | same | Removes trailing **` LT`** (case-insensitive) only. |
 | `getClientIanaTimeZone` / `getScheduleEntryTimeZone` | `Frontend/src/utils/scheduleDateTime.js` | Resolved **browser IANA** zone (`Intl`). **`getScheduleEntryTimeZone`** is the zone used when converting **naive** `datetime-local` values to/from API ISO for schedule fields (see **§0.20**). |
 | `normalizeForApi` / `normalizeForApiOrEmpty` | same | Normalises schedule strings for PUT/POST: zoned/UTC ISO passes through; naive `YYYY-MM-DDTHH:mm` is interpreted in the **second-arg IANA zone** (callers pass **`getScheduleEntryTimeZone()`** for operational schedules). |

@@ -22,7 +22,10 @@ export function setSessionCookiesForUserId(res, userId) {
   if (!JWT_SECRET) {
     throw new Error('JWT_SECRET not configured');
   }
-  const token = jwt.sign({ userId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  const token = jwt.sign({ userId }, JWT_SECRET, {
+    algorithm: 'HS256',
+    expiresIn: JWT_EXPIRES_IN,
+  });
   const base = cookieBaseOptions();
   const maxAge = jwtExpiresInToMs(JWT_EXPIRES_IN);
   const xsrf = crypto.randomBytes(32).toString('hex');

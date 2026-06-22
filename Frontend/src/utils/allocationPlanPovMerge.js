@@ -100,10 +100,22 @@ function mergePlanChildrenToQueueRow(children, planId, repMapOut, options = {}) 
 
   const first = children[0] || {}
   const planRef = first.planReference || `Plan #${planId}`
-  const siLabels = [...new Set(children.map((c) => (c.shippingInstruction || '').trim()).filter(Boolean))]
+  const planRefNorm = String(planRef).trim()
+  const siLabels = [
+    ...new Set(
+      children
+        .map((c) => (c.shippingInstruction || '').trim())
+        .filter((label) => {
+          if (!label || label === '—') return false
+          if (planRefNorm && label === planRefNorm) return false
+          if (label === `Plan #${planId}`) return false
+          return true
+        })
+    ),
+  ]
   const siJoined = siLabels.length ? siLabels.join(', ') : ''
-  /** Single-line text for sort/filter (plan ref column shows ref separately on allocation-plans). */
-  const shippingInstruction = siJoined || planRef || '—'
+  /** Single-line text for sort/filter; plan ref lives in planReference column only. */
+  const shippingInstruction = siJoined || '—'
 
   const sortedCh = [...children].sort((a, b) => {
     const va = Number.isFinite(Number(a?.sequence)) ? Number(a.sequence) : Number.POSITIVE_INFINITY
@@ -118,18 +130,33 @@ function mergePlanChildrenToQueueRow(children, planId, repMapOut, options = {}) 
   const planQueueSiEntries = []
   for (const c of sortedCh) {
     const sid = c?.shippingInstructionId
-    if (sid == null || sid === '') continue
-    const num = Number(sid)
-    if (!Number.isFinite(num)) continue
-    if (seenSi.has(num)) continue
-    seenSi.add(num)
-    const label = (c.shippingInstruction || '').trim() || `SI-${num}`
-    planQueueSiEntries.push({
-      shippingInstructionId: num,
-      label,
-      commodityDisplay: c.commodityDisplay || c.commodity || '—',
-      totalQtyDisplay: c.totalQtyDisplay || '—',
-    })
+    const num = sid != null && sid !== '' ? Number(sid) : NaN
+    const label = (c.shippingInstruction || '').trim()
+    const labelIsPlanRef =
+      Boolean(label) &&
+      (label === planRefNorm || label === `Plan #${planId}` || label === '—')
+    if (Number.isFinite(num)) {
+      if (seenSi.has(num)) continue
+      seenSi.add(num)
+      planQueueSiEntries.push({
+        shippingInstructionId: num,
+        label: label || `SI-${num}`,
+        siStatus: c.siStatus ?? c.status ?? null,
+        commodityDisplay: c.commodityDisplay || c.commodity || '—',
+        totalQtyDisplay: c.totalQtyDisplay || '—',
+      })
+    } else if (label && !labelIsPlanRef) {
+      const synthKey = `label:${label}`
+      if (seenSi.has(synthKey)) continue
+      seenSi.add(synthKey)
+      planQueueSiEntries.push({
+        shippingInstructionId: null,
+        label,
+        siStatus: c.siStatus ?? c.status ?? null,
+        commodityDisplay: c.commodityDisplay || c.commodity || '—',
+        totalQtyDisplay: c.totalQtyDisplay || '—',
+      })
+    }
   }
 
   const jettySet = new Set()
@@ -179,6 +206,7 @@ function mergePlanChildrenToQueueRow(children, planId, repMapOut, options = {}) 
     tbDateTime: minIsoDateTime(children, 'tbDateTime'),
     sobDateTime: maxIsoDateTime(children, 'sobDateTime'),
     estimatedCompletionDateTime: maxIsoDateTime(children, 'estimatedCompletionDateTime'),
+    operationsCompletedDateTime: maxIsoDateTime(children, 'operationsCompletedDateTime'),
     actualCompletionDateTime: maxIsoDateTime(children, 'actualCompletionDateTime'),
     castOffDateTime: maxIsoDateTime(children, 'castOffDateTime'),
     norTenderedDateTime: minIsoDateTime(children, 'norTenderedDateTime'),
@@ -219,10 +247,27 @@ function mergePlanChildrenToQueueRow(children, planId, repMapOut, options = {}) 
       [...new Set(children.map((c) => c.totalQtyDisplay).filter((v) => v && v !== '—'))].join('\n') ||
       rep?.totalQtyDisplay ||
       null,
-    source: children.some((c) => c.source === 'operation') ? 'operation' : rep?.source || 'incoming-si',
+    // Priority: operation > incoming-si > incoming-plan.
+    // Prefer planQueueSiEntries / child ids over row.source — flat queue rows may omit source.
+    source: children.some((c) => c.source === 'operation')
+      ? 'operation'
+      : planQueueSiEntries.length > 0 ||
+          sortedCh.some(
+            (c) =>
+              c?.source === 'incoming-si' ||
+              c?.source === 'operation' ||
+              (c?.shippingInstructionId != null &&
+                c.shippingInstructionId !== '' &&
+                Number.isFinite(Number(c.shippingInstructionId)))
+          )
+        ? 'incoming-si'
+        : 'incoming-plan',
     eta: rep?.eta ?? first.eta ?? null,
     etb: rep?.etb ?? first.etb ?? null,
     planQueueSiEntries,
+    hasShippingInstructions:
+      planQueueSiEntries.length > 0 ||
+      sortedCh.some((c) => c?.source === 'incoming-si' || c?.source === 'operation'),
   }
 }
 
@@ -285,6 +330,7 @@ function mergeOccupantGroup(group, planId, repMapFromQueue) {
     taDateTime: minIsoDateTime(group, 'taDateTime'),
     tbDateTime: minIsoDateTime(group, 'tbDateTime'),
     estimatedCompletionDateTime: maxIsoDateTime(group, 'estimatedCompletionDateTime'),
+    operationsCompletedDateTime: maxIsoDateTime(group, 'operationsCompletedDateTime'),
     actualCompletionDateTime: maxIsoDateTime(group, 'actualCompletionDateTime'),
     castOffDateTime: maxIsoDateTime(group, 'castOffDateTime'),
   }

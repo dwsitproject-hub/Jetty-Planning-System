@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import { COOKIE_ACCESS_TOKEN } from '../lib/auth-cookies.js';
 
 const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_VERIFY_OPTS = { algorithms: ['HS256'] };
 
 function getTokenFromRequest(req) {
   const authHeader = req.headers.authorization;
@@ -25,10 +26,13 @@ export function optionalAuth(req, res, next) {
     return next();
   }
   if (!JWT_SECRET) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('JWT_SECRET not configured; optionalAuth cannot verify tokens');
+    }
     return next();
   }
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
+    const payload = jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTS);
     const userId = payload.userId ?? payload.sub;
     if (userId != null) {
       req.userId = Number(userId);
@@ -48,7 +52,7 @@ export function requireAuth(req, res, next) {
     return res.status(500).json({ error: 'Server misconfiguration' });
   }
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
+    const payload = jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTS);
     const userId = payload.userId ?? payload.sub;
     if (!userId) {
       return res.status(401).json({ error: 'Invalid token' });

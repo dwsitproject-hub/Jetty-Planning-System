@@ -94,6 +94,8 @@
   "adminHubUsersDesc": "Manage users and assign roles.",
   "adminHubRolesTitle": "Role Management",
   "adminHubRolesDesc": "Define roles and page permissions.",
+  "adminHubPartnerApiTitle": "Partner API Keys",
+  "adminHubPartnerApiDesc": "Provision and revoke API keys for external systems that submit Shipping Instructions.",
   "qualityTableParameter": "Parameter",
   "qualityTableLoadingQuality": "Loading Quality",
   "qualityTableDischargeQuality": "Discharge Quality",

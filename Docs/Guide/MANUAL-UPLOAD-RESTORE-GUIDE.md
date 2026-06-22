@@ -6,7 +6,7 @@ Use this guide when uploaded files are **missing from disk** but the **database 
 
 **Run shell commands on the backend server** (e.g. `172.28.92.57`). Replace placeholders (`<BACKEND_IP>`, vessel names, paths) with your environment values.
 
-**Related:** [ALICLOUD-DEPLOYMENT-GUIDE §5.2A](./ALICLOUD-DEPLOYMENT-GUIDE.md) (persistent uploads volume and migration).
+**Related:** [ALICLOUD-DEPLOYMENT-GUIDE §5.2A](./ALICLOUD-DEPLOYMENT-GUIDE.md) (NAS upload storage and migration). [SYNOLOGY-INTEGRATION.md](../Plan/SYNOLOGY-INTEGRATION.md) for NAS cutover.
 
 ---
 
@@ -18,7 +18,7 @@ Use this guide when uploaded files are **missing from disk** but the **database 
 | **B. Restore file to existing DB row** | UI shows filename but image/PDF is broken. SQL returns a `document_id` and `stored_path`, but the file is missing on disk. **No SQL change** if you restore to the exact `stored_path`. |
 | **C. Insert new DB row + file** | No active row in the database for that upload. Requires `INSERT` and placing a new file under `operations/{id}/berthing/...`. |
 
-For **berthing vessel photos**, the app stores metadata in **`operation_documents`** with **`kind = 'BERTHING'`**. The Allocation vessel detail modal loads them via `GET /api/v1/operation-documents/operations/{operationId}/BERTHING` and serves preview through `GET /api/v1/operation-documents/{id}/view`.
+For **berthing vessel photos**, the app stores metadata in **`operation_documents`** with **`kind = 'BERTHING'`**. The Allocation vessel detail modal loads them via `GET /api/v1/operation-documents/operations/{operationId}/BERTHING` and serves preview through `GET /api/v1/operation-documents/{id}/view`. Public `/uploads/` URLs are **not** served; access requires an authenticated session (and port scope where applicable).
 
 ---
 

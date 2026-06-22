@@ -1,3 +1,5 @@
+import { formatDateDisplay, formatDateTimeDisplay } from './formatDateTimeDisplay.js'
+
 /**
  * Printed SI sign-off date line (no place name): "25 MARCH 2026".
  *
@@ -64,24 +66,10 @@ export function formatSiSignOffDate(documentDate, receivedAt, approvedAt) {
 
 /** Document date on the SI (calendar day only; safe for YYYY-MM-DD or ISO). */
 export function formatSiCalendarDateOnly(value) {
-  if (value == null || value === '') return '—'
-  const s = String(value).trim()
-  const head = s.length >= 10 ? s.slice(0, 10) : s
-  if (YMD.test(head)) {
-    const d = new Date(`${head}T12:00:00`)
-    if (!Number.isNaN(d.getTime())) {
-      return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-    }
-  }
-  const d = new Date(s)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  return formatDateDisplay(value)
 }
 
 /** System timestamps (created / updated / approved). */
 export function formatSiDateTime(iso) {
-  if (iso == null || iso === '') return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
+  return formatDateTimeDisplay(iso)
 }

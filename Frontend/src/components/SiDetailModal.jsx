@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { fetchShippingInstruction } from '../api/shippingInstructions'
 import { fetchOperation } from '../api/operations'
-import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import {
   loadHubProcessStagesFromApi,
   mapOperationStatusToClearanceI18nKey,
@@ -17,13 +17,6 @@ function emptyToDash(value) {
   if (value == null) return '—'
   const text = String(value).trim()
   return text ? text : '—'
-}
-
-function formatDateOnly(value) {
-  if (!value) return '—'
-  const text = String(value).trim()
-  if (!text) return '—'
-  return text.length >= 10 ? text.slice(0, 10) : text
 }
 
 function normalizeSiDetail(row) {
@@ -41,6 +34,8 @@ function normalizeSiDetail(row) {
     etb: row.etbDateTime || row.etb || null,
     tb: row.tbDateTime || row.tb || null,
     etc: row.estimatedCompletionDateTime || row.estimationOfCompletion || row.etcDateTime || null,
+    operationsCompleted:
+      row.operationsCompletedDateTime || row.operationsCompletedAt || row.operationsCompletedTime || null,
     actualCompletion: row.actualCompletionDateTime || row.actualCompletionTime || null,
     term: row.tradeTermCode || row.term || '—',
     voyage: row.voyageNo || '—',
@@ -247,18 +242,19 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
               <dt>{t('dtVessel')}</dt><dd>{emptyToDash(detail.vessel)}</dd>
               <dt>{t('dtPurpose')}</dt><dd>{emptyToDash(detail.purpose)}</dd>
               <dt>{t('dtJetty')}</dt><dd>{emptyToDash(detail.jetty)}</dd>
-              <dt>{t('dtEtaFrom')}</dt><dd>{formatDateOnly(detail.etaFrom)}</dd>
-              <dt>{t('dtEtaTo')}</dt><dd>{formatDateOnly(detail.etaTo)}</dd>
+              <dt>{t('dtEtaFrom')}</dt><dd>{formatDateDisplay(detail.etaFrom)}</dd>
+              <dt>{t('dtEtaTo')}</dt><dd>{formatDateDisplay(detail.etaTo)}</dd>
               <dt>{t('dtEta')}</dt><dd>{formatDateTimeDisplay(detail.eta)}</dd>
               <dt>{t('dtEtb')}</dt><dd>{formatDateTimeDisplay(detail.etb)}</dd>
               <dt>{t('dtTb')}</dt><dd>{formatDateTimeDisplay(detail.tb)}</dd>
               <dt>{t('dtEstimatedCompletion')}</dt><dd>{formatDateTimeDisplay(detail.etc)}</dd>
+              <dt>{t('dtOperationsCompleted')}</dt><dd>{formatDateTimeDisplay(detail.operationsCompleted)}</dd>
               <dt>{t('dtActualCompletion')}</dt><dd>{formatDateTimeDisplay(detail.actualCompletion)}</dd>
               <dt>{t('dtTerm')}</dt><dd>{emptyToDash(detail.term)}</dd>
               <dt>{t('dtVoyage')}</dt><dd>{emptyToDash(detail.voyage)}</dd>
               <dt>{t('dtDestination')}</dt><dd>{emptyToDash(detail.destination)}</dd>
               <dt>{t('dtFreightTerms')}</dt><dd>{emptyToDash(detail.freightTerms)}</dd>
-              <dt>{t('dtDocumentDate')}</dt><dd>{formatDateOnly(detail.documentDate)}</dd>
+              <dt>{t('dtDocumentDate')}</dt><dd>{formatDateDisplay(detail.documentDate)}</dd>
               <dt>{t('dtBlClause')}</dt><dd className="si-detail-modal__pre">{emptyToDash(detail.blClause)}</dd>
               <dt>{t('dtBlSplit')}</dt><dd className="si-detail-modal__pre">{emptyToDash(detail.blSplit)}</dd>
               <dt>{t('dtConsignee')}</dt><dd className="si-detail-modal__pre">{emptyToDash(detail.consignee)}</dd>

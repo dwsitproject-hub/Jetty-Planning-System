@@ -119,13 +119,29 @@ export function getApiOrigin() {
 }
 
 /**
- * Build an absolute URL for files under `/uploads` so links work from the Vite dev
- * server (e.g. localhost:5173) and always hit the API host that serves static uploads.
+ * Build an absolute URL for stored files. Legacy `/uploads/...` paths are rewritten to
+ * authenticated `/api/v1/stored-files/view` (C-01).
  */
 export function resolveUploadUrl(urlOrPath) {
   if (urlOrPath == null || urlOrPath === '') return '#'
   const u = String(urlOrPath).trim()
   if (u.startsWith('http://') || u.startsWith('https://') || u.startsWith('blob:')) return u
+  if (u.startsWith('/uploads/') || u.startsWith('uploads/')) {
+    const rel = u.replace(/^\/?uploads\//, '')
+    const storedPath = `${BASE}/stored-files/view?path=${encodeURIComponent(rel)}`
+    if (isRelativeApiBase()) {
+      const origin =
+        typeof window !== 'undefined' && window.location?.origin
+          ? window.location.origin
+          : 'http://localhost:3000'
+      return `${origin}${storedPath}`
+    }
+    return storedPath
+  }
+  if (u.startsWith('/api/v1/')) {
+    const origin = getApiOrigin()
+    return `${origin}${u}`
+  }
   const origin = getApiOrigin()
   const path = u.startsWith('/') ? u : `/${u}`
   return `${origin}${path}`

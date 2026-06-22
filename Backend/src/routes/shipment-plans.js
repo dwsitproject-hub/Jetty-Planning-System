@@ -10,6 +10,8 @@ import { userHasPageApprove, userHasPageDelete, userHasPageEdit } from '../middl
 import { loadOperationJoined, toOp } from './operations.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
 import { formatSiCargoDisplay } from '../lib/siBreakdownDisplay.js';
+import { validateDepartDocumentUrls } from '../lib/depart-document-url.js';
+import { resolveUserRequestedBy } from '../lib/resolve-requested-by.js';
 
 const router = express.Router();
 const PAGE_KEY = 'shipment-plan';
@@ -93,6 +95,7 @@ function toPlanListRow(row) {
     pob: timestampToIso(row.pob),
     sob: timestampToIso(row.sob),
     estimatedCompletionTime: timestampToIso(row.estimated_completion_time),
+    operationsCompletedAt: timestampToIso(row.operations_completed_at),
     actualCompletionTime: timestampToIso(row.actual_completion_time),
     castOffAt: timestampToIso(row.cast_off_at),
     sailedAt: timestampToIso(row.sailed_at),
@@ -101,6 +104,8 @@ function toPlanListRow(row) {
     voyageNo: row.voyage_no ?? null,
     agentId: row.agent_id != null ? Number(row.agent_id) : null,
     agentName: row.agent_name ?? null,
+    externalReference: row.external_reference ?? null,
+    requestedBy: row.requested_by ?? null,
     approvalStatus: row.approval_status,
     siCount,
     shippingInstructions,
@@ -333,14 +338,18 @@ router.post('/', requireAuth, async (req, res) => {
     if (am.rows.length === 0) return res.status(400).json({ error: 'Invalid agent_id' });
   }
 
+  const requestedBy = await resolveUserRequestedBy(pool, req.userId);
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const ins = await client.query(
-      `INSERT INTO shipment_plans (port_id, vessel_name, jetty_id, eta, purpose_id, voyage_no, agent_id, created_at, updated_at, updated_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), $8)
+      `INSERT INTO shipment_plans (
+         port_id, vessel_name, jetty_id, eta, purpose_id, voyage_no, agent_id,
+         requested_by, created_at, updated_at, updated_by
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW(), $9)
        RETURNING id`,
-      [selectedPortId, vesselName, jettyId, eta, purposeId, voyageNo, agentId, req.userId ?? null]
+      [selectedPortId, vesselName, jettyId, eta, purposeId, voyageNo, agentId, requestedBy, req.userId ?? null]
     );
     const planId = ins.rows[0].id;
     const ref = buildPlanReference(planId);
@@ -690,6 +699,12 @@ router.post('/:id/approve', requireAuth, async (req, res) => {
        WHERE id = $1`,
       [planId, req.userId ?? null]
     );
+    await client.query(
+      `UPDATE shipping_instructions
+       SET status = 'Approved', updated_at = NOW()
+       WHERE shipment_plan_id = $1 AND deleted_at IS NULL`,
+      [planId]
+    );
     await client.query('COMMIT');
     writeActivityLog({
       pageKey: PAGE_KEY,
@@ -759,6 +774,12 @@ router.post('/:id/reject', requireAuth, async (req, res) => {
        WHERE id = $1`,
       [planId, reason, req.userId ?? null]
     );
+    await client.query(
+      `UPDATE shipping_instructions
+       SET status = 'Draft', updated_at = NOW()
+       WHERE shipment_plan_id = $1 AND deleted_at IS NULL`,
+      [planId]
+    );
     await client.query('COMMIT');
     writeActivityLog({
       pageKey: PAGE_KEY,
@@ -799,14 +820,25 @@ router.post('/:id/depart', requireAuth, async (req, res) => {
   if (Number.isNaN(cast.getTime())) {
     return res.status(400).json({ error: 'Invalid cast_off_at' });
   }
-  const clearanceUrl =
-    clearance_document_url && typeof clearance_document_url === 'string'
-      ? clearance_document_url.trim()
-      : null;
-  const photoUrl =
-    vessel_photo_url && typeof vessel_photo_url === 'string' ? vessel_photo_url.trim() : null;
-
   const selectedPortId = Number(req.selectedPortId);
+  let clearanceUrl;
+  let photoUrl;
+  try {
+    ({ clearanceUrl, photoUrl } = await validateDepartDocumentUrls({
+      clearanceUrl:
+        clearance_document_url && typeof clearance_document_url === 'string'
+          ? clearance_document_url.trim()
+          : null,
+      photoUrl:
+        vessel_photo_url && typeof vessel_photo_url === 'string' ? vessel_photo_url.trim() : null,
+      planId,
+      selectedPortId,
+    }));
+  } catch (e) {
+    const status = e?.statusCode ?? 400;
+    return res.status(status).json({ error: e.message || 'Invalid document URL' });
+  }
+
   const ap = await pool.query(
     `SELECT approval_status FROM shipment_plans WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
     [planId, selectedPortId]

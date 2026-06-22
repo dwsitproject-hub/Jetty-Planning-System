@@ -79,8 +79,8 @@ Browser → Server 1 (nginx :3080, public EIP or VPC)
                     → Server 3 (jps-db :5432)     [VPC only; SG: API host only]
 ```
 
-- **Server 1 (app):** unchanged for users — nginx proxies `/api/` and `/uploads/` to Server 2. See `Frontend/nginx.alicloud-app.conf`.
-- **Server 2 (API):** `jps-api` + **`jps_uploads`** volume (SI/operation documents); **`DATABASE_URL`** points at Server 3 via `DB_HOST` / `DB_PORT` in `Backend/.env`.
+- **Server 1 (app):** unchanged for users — nginx proxies `/api/` to Server 2 (uploads served only via authenticated API routes, not public `/uploads/`). See `Frontend/nginx.alicloud-app.conf`.
+- **Server 2 (API):** `jps-api` + **Synology NAS** bind mount via `UPLOAD_HOST_PATH` (SI/operation documents); **`DATABASE_URL`** points at Server 3 via `DB_HOST` / `DB_PORT` in `Backend/.env`. Local dev falls back to **`jps_uploads`** volume.
 - **Server 3 (DB):** `jps-db` only; **not** exposed to the internet. Inbound **5432** from Server 2 private IP only.
 
 **Migration from two- to three-server:** [Guide/THREE-SERVER-DB-SPLIT-GUIDE.md](./Guide/THREE-SERVER-DB-SPLIT-GUIDE.md). **Production cutover:** [Guide/THREE-SERVER-DB-CUTOVER-RUNBOOK.md](./Guide/THREE-SERVER-DB-CUTOVER-RUNBOOK.md). Initial install and security groups: [Guide/ALICLOUD-DEPLOYMENT-GUIDE.md](./Guide/ALICLOUD-DEPLOYMENT-GUIDE.md) (two-server baseline; links to split guides).
@@ -110,21 +110,21 @@ Digitize and streamline end-to-end jetty operations (loading and unloading) by p
                                    ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                     APP TIER (nginx + static SPA)                        │
-│  Same-origin /api/v1 and /uploads proxied to API tier (Alicloud app ECS)│
+│  Same-origin /api/v1 proxied to API tier (files via stored-files / docs) │
 └─────────────────────────────────┬───────────────────────────────────────┘
                                    │ VPC private :3000
                                    ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                          API TIER (Node.js)                              │
-│  REST /api/v1  │  JWT + cookies  │  RBAC  │  file uploads (local volume)│
+│  REST /api/v1  │  JWT + cookies  │  RBAC  │  file uploads (NAS / local)│
 └─────────────────────────────────┬───────────────────────────────────────┘
                                    │
                     ┌──────────────┼──────────────┐
                     ▼              ▼              ▼
 ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│  PostgreSQL  │  │ File storage  │  │ External     │
-│  (primary DB)│  │ on API host   │  │ (Weather,    │
-│  own ECS in  │  │ jps_uploads   │  │  SSO/OIDC)   │
+│  PostgreSQL  │  │ Synology NAS  │  │ External     │
+│  (primary DB)│  │ (staging/prod)│  │ (Weather,    │
+│  own ECS in  │  │ or jps_uploads│  │  SSO/OIDC)   │
 │  3-server    │  │               │  │              │
 └──────────────┘  └──────────────┘  └──────────────┘
 ```
@@ -183,7 +183,7 @@ The sections below detail each layer.
 | Database | PostgreSQL 16 (Docker `jps-db`) |
 | Deployment | Docker Compose on Alicloud ECS (Ubuntu); optional local Compose for dev |
 | Web server (frontend) | nginx (static Vite build in `jps-fe` container) |
-| Upload storage | Docker volume **`jps_uploads`** on **API server** (`UPLOAD_DIR`, default `/var/jps/uploads`) |
+| Upload storage | **Synology NAS** on staging/production (`UPLOAD_HOST_PATH` → `/var/jps/uploads` in container); local dev uses Docker volume **`jps_uploads`** or `Backend/uploads` |
 | Environments | Dev (local), Testing / SIT (Alicloud), Production (Alicloud) |
 | Topology | **Two-server** (app + API/DB) or **three-server** (app + API + dedicated DB) — **§0.6**, **§10** |
 
@@ -437,7 +437,7 @@ Step-by-step: [Guide/ALICLOUD-DEPLOYMENT-GUIDE.md](./Guide/ALICLOUD-DEPLOYMENT-G
 | Host | Compose | Notes |
 |------|---------|--------|
 | **App** | `docker-compose.app.yml` | **Unchanged** after DB split |
-| **API only** | `docker-compose.backend-api-only.yml` | `DB_HOST` = Server 3 private IP; **`jps_uploads`** stays here |
+| **API only** | `docker-compose.backend-api-only.yml` | `DB_HOST` = Server 3 private IP; **NAS upload bind** via `UPLOAD_HOST_PATH` |
 | **DB only** | `Backend/infra/docker-compose.db.yml` | Run on Server 3; SG allows **5432** from Server 2 only |
 
 Playbook: [Guide/THREE-SERVER-DB-SPLIT-GUIDE.md](./Guide/THREE-SERVER-DB-SPLIT-GUIDE.md). Cutover: [Guide/THREE-SERVER-DB-CUTOVER-RUNBOOK.md](./Guide/THREE-SERVER-DB-CUTOVER-RUNBOOK.md). Upload backup/restore: [Guide/MANUAL-UPLOAD-RESTORE-GUIDE.md](./Guide/MANUAL-UPLOAD-RESTORE-GUIDE.md).

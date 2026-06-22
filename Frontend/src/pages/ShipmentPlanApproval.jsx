@@ -8,12 +8,7 @@ import '../styles/si-approval.css'
 import '../styles/shipping-instruction.css'
 import '../styles/si-view.css'
 
-function formatPlanEta(iso) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
-}
+import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 
 function breakdownTotalLabel(breakdown) {
   const rows = Array.isArray(breakdown) ? breakdown : []
@@ -208,7 +203,7 @@ export default function ShipmentPlanApproval() {
           </div>
           <div className="si-view-summary__row">
             <span className="si-view-summary__label">{t('approvalPlanEta')}</span>
-            <span className="si-view-summary__value">{formatPlanEta(plan.eta)}</span>
+            <span className="si-view-summary__value">{formatDateTimeDisplay(plan.eta)}</span>
           </div>
         </div>
       </section>
@@ -226,7 +221,6 @@ export default function ShipmentPlanApproval() {
               <article key={si.id} className="si-view-doc shipment-plan-approval__si-card">
                 <h3 className="shipment-plan-approval__si-title">
                   {t('approvalSiNoLabel')}: {si.referenceNumber || `SI-${si.id}`}
-                  <span className="text-steel shipment-plan-approval__si-status"> — {si.status || '—'}</span>
                 </h3>
                 <div className="si-view-summary shipment-plan-approval__si-summary">
                   <div className="si-view-summary__row">

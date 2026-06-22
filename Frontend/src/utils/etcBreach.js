@@ -16,6 +16,14 @@ function hasAlongsideTime(row) {
   return Boolean(row?.tbDateTime || row?.tb || row?.tbAt || row?.dockingStartTime)
 }
 
+function hasOperationsCompleted(row) {
+  return Boolean(
+    row?.operationsCompletedDateTime ||
+      row?.operationsCompletedAt ||
+      row?.operationsCompletedTime
+  )
+}
+
 function hasActualCompletion(row) {
   return Boolean(
     row?.actualCompletionDateTime ||
@@ -28,11 +36,19 @@ function hasCastOff(row) {
   return Boolean(row?.castOffDateTime || row?.castOffAt)
 }
 
+function isOpsFinishedAtBerth(row) {
+  const status = String(row?.status || '').toUpperCase()
+  return (
+    ['SIGNOFF_REQUESTED', 'SIGNOFF_APPROVED'].includes(status) || hasOperationsCompleted(row)
+  )
+}
+
 /** Whether row can be evaluated for operational ETC breach (alongside, not departed). */
 export function isEtcBreachEligible(row) {
   if (!row) return false
   const status = String(row?.status || '').toUpperCase()
   if (['SAILED', 'PENDING', 'ALLOCATED'].includes(status)) return false
+  if (isOpsFinishedAtBerth(row)) return false
   if (hasActualCompletion(row)) return false
   if (hasCastOff(row)) return false
   if (!hasAlongsideTime(row)) return false
@@ -46,6 +62,7 @@ export function isEtcBreachEligible(row) {
 export function getEtcBreach(row, nowMs = Date.now()) {
   const status = String(row?.status || '').toUpperCase()
   if (['SAILED', 'PENDING', 'ALLOCATED'].includes(status)) return null
+  if (isOpsFinishedAtBerth(row)) return null
   if (hasActualCompletion(row)) return null
   if (hasCastOff(row)) return null
   if (!hasAlongsideTime(row)) return null

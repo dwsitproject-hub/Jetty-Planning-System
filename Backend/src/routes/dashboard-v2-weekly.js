@@ -78,7 +78,8 @@ function buildWeekChunks(startIso, endIso) {
       rangeEndExclusiveIso: we.toISOString(),
       snapshotIso: snapshot.toISOString(),
     });
-    cur.setUTCDate(chunkEnd.getUTCDate() + 1);
+    cur.setTime(chunkEnd.getTime());
+    cur.setUTCDate(cur.getUTCDate() + 1);
   }
   return chunks;
 }

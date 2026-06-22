@@ -1,13 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { fetchActivityLogs } from '../api/activityLogs'
+import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import '../styles/activity-log.css'
-
-function formatTime(iso) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
-}
 
 const ACTION_LABELS = { add: 'Added', update: 'Updated', delete: 'Deleted' }
 
@@ -185,7 +179,7 @@ export default function ActivityLogPanel({ pageKey }) {
                 <div key={entry.id} className="activity-log-entry" data-action={entry.action}>
                   <div className="activity-log-entry__meta">
                     <span className="activity-log-entry__user">{entry.actorUsername || '—'}</span>
-                    <span className="activity-log-entry__time">{formatTime(entry.createdAt || entry.timestamp)}</span>
+                    <span className="activity-log-entry__time">{formatDateTimeDisplay(entry.createdAt || entry.timestamp)}</span>
                   </div>
                   <div className="activity-log-entry__action" data-action={entry.action}>
                     {ACTION_LABELS[entry.action] || entry.action}

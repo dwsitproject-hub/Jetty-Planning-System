@@ -48,10 +48,15 @@ function normalizeCommodityType(raw) {
   return null;
 }
 
+function normalizeShortName(raw) {
+  const v = String(raw ?? '').trim().toUpperCase();
+  return v || null;
+}
+
 async function selectCommoditiesWithRates({ portId, whereSql, params = [] }) {
   const portParam = portId == null ? null : Number(portId);
   return pool.query(
-    `SELECT c.id, c.name AS value, c.sort_order, c.commodity_type, c.created_at, c.updated_at,
+    `SELECT c.id, c.name AS value, c.short_name, c.sort_order, c.commodity_type, c.created_at, c.updated_at,
             srl.id AS loading_standard_rate_id, srl.rate_value AS loading_rate_value, srl.rate_metric AS loading_rate_metric,
             sru.id AS unloading_standard_rate_id, sru.rate_value AS unloading_rate_value, sru.rate_metric AS unloading_rate_metric
      FROM si_commodities c
@@ -108,6 +113,7 @@ function toCommodityListItem(row) {
     id: row.id,
     value: row.value,
     name: row.value,
+    shortName: row.short_name,
     commodityType: row.commodity_type ?? 'Liquid',
     sortOrder: row.sort_order ?? null,
     createdAt: row.created_at,
@@ -252,7 +258,7 @@ router.get('/', async (_req, res) => {
     metrics,
   ] = await Promise.all([
     pool.query(
-      `SELECT id, name, sort_order, commodity_type FROM si_commodities WHERE deleted_at IS NULL ORDER BY sort_order, name`
+      `SELECT id, name, short_name, sort_order, commodity_type FROM si_commodities WHERE deleted_at IS NULL ORDER BY sort_order, name`
     ),
     pool.query(
       `SELECT id, code, sort_order FROM si_trade_terms WHERE deleted_at IS NULL ORDER BY sort_order, code`
@@ -286,6 +292,7 @@ router.get('/', async (_req, res) => {
     commodities: commodities.rows.map((r) => ({
       id: r.id,
       name: r.name,
+      shortName: r.short_name,
       commodityType: r.commodity_type ?? 'Liquid',
       sortOrder: r.sort_order,
     })),
@@ -417,12 +424,14 @@ router.post('/:type', async (req, res) => {
   if (type === 'commodities') {
     if (!req.userId) return res.status(401).json({ error: 'Authentication required' });
     return requirePortScope(req, res, async () => {
+      const shortName = normalizeShortName(req.body.shortName ?? req.body.short_name);
+      if (!shortName) return res.status(400).json({ error: 'shortName is required' });
       const ct = normalizeCommodityType(req.body.commodityType ?? req.body.commodity_type);
       if (!ct) return res.status(400).json({ error: 'commodityType must be Solid or Liquid' });
       const ins = await pool.query(
-        `INSERT INTO si_commodities (name, sort_order, commodity_type) VALUES ($1, 0, $2)
-         RETURNING id, name AS value, sort_order, commodity_type, created_at, updated_at`,
-        [cleaned, ct]
+        `INSERT INTO si_commodities (name, short_name, sort_order, commodity_type) VALUES ($1, $2, 0, $3)
+         RETURNING id, name AS value, short_name, sort_order, commodity_type, created_at, updated_at`,
+        [cleaned, shortName, ct]
       );
       const row = ins.rows[0];
       const portId = req.selectedPortId;
@@ -488,7 +497,7 @@ router.post('/:type', async (req, res) => {
       const uSnap = createdItem.portRates.unloading
         ? formatRateSnapshot(createdItem.portRates.unloading.rate, createdItem.portRates.unloading.rateMetric)
         : null;
-      let summary = `Created ${tm.noun} "${cleaned}" (${ct})`;
+      let summary = `Created ${tm.noun} "${cleaned}" (${shortName}, ${ct})`;
       if (lSnap || uSnap) summary += ` — rates (L: ${lSnap ?? '—'}, U: ${uSnap ?? '—'})`;
 
       writeActivityLog({
@@ -555,6 +564,7 @@ router.put('/:type/:id', async (req, res) => {
   const cleaned = type === 'trade-terms' ? value.trim().toUpperCase() : value.trim();
 
   let prevName;
+  let prevShortName = null;
   let prevCommodityType = null;
   let prevLoadingValue = null;
   let prevLoadingMetric = null;
@@ -572,6 +582,7 @@ router.put('/:type/:id', async (req, res) => {
     });
     if (prevQ.rows.length === 0) return res.status(404).json({ error: 'Item not found' });
     prevName = prevQ.rows[0].value;
+    prevShortName = prevQ.rows[0].short_name;
     prevCommodityType = prevQ.rows[0].commodity_type ?? 'Liquid';
     prevLoadingValue = prevQ.rows[0].loading_rate_value;
     prevLoadingMetric = prevQ.rows[0].loading_rate_metric;
@@ -588,24 +599,26 @@ router.put('/:type/:id', async (req, res) => {
 
   let result;
   if (type === 'commodities') {
+    const shortName = normalizeShortName(req.body.shortName ?? req.body.short_name);
+    if (!shortName) return res.status(400).json({ error: 'shortName is required' });
     const ctRaw = req.body.commodityType ?? req.body.commodity_type;
     if (ctRaw !== undefined && ctRaw !== null && String(ctRaw).trim() !== '') {
       const ct = normalizeCommodityType(ctRaw);
       if (!ct) return res.status(400).json({ error: 'commodityType must be Solid or Liquid' });
       result = await pool.query(
         `UPDATE si_commodities
-         SET name = $1, commodity_type = $2, updated_at = NOW()
-         WHERE id = $3 AND deleted_at IS NULL
-         RETURNING id, name AS value, sort_order, commodity_type, created_at, updated_at`,
-        [cleaned, ct, id]
+         SET name = $1, short_name = $2, commodity_type = $3, updated_at = NOW()
+         WHERE id = $4 AND deleted_at IS NULL
+         RETURNING id, name AS value, short_name, sort_order, commodity_type, created_at, updated_at`,
+        [cleaned, shortName, ct, id]
       );
     } else {
       result = await pool.query(
         `UPDATE si_commodities
-         SET name = $1, updated_at = NOW()
-         WHERE id = $2 AND deleted_at IS NULL
-         RETURNING id, name AS value, sort_order, commodity_type, created_at, updated_at`,
-        [cleaned, id]
+         SET name = $1, short_name = $2, updated_at = NOW()
+         WHERE id = $3 AND deleted_at IS NULL
+         RETURNING id, name AS value, short_name, sort_order, commodity_type, created_at, updated_at`,
+        [cleaned, shortName, id]
       );
     }
   } else {
@@ -687,6 +700,9 @@ router.put('/:type/:id', async (req, res) => {
     const tmC = getTypeMeta(type);
     const changesC = [];
     if (prevName !== cleaned) changesC.push({ field: 'Name', from: prevName, to: cleaned });
+    if (prevShortName != null && updatedItem.shortName && prevShortName !== updatedItem.shortName) {
+      changesC.push({ field: 'Short name', from: prevShortName, to: updatedItem.shortName });
+    }
     if (prevCommodityType && updatedItem.commodityType && prevCommodityType !== updatedItem.commodityType) {
       changesC.push({ field: 'Commodity type', from: prevCommodityType, to: updatedItem.commodityType });
     }

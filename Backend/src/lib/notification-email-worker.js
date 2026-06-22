@@ -28,6 +28,14 @@ function fromAddress() {
   return process.env.SMTP_FROM || process.env.SMTP_USER || 'jetty-planning@localhost';
 }
 
+/** Reject malformed or injection-prone recipient addresses before SMTP send. */
+export function isValidRecipientEmail(address) {
+  const a = String(address || '').trim();
+  if (!a || a.length > 254) return false;
+  if (/[\r\n]/.test(a) || /[<>]/.test(a)) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a);
+}
+
 /**
  * @returns {Promise<number>} processed count
  */
@@ -85,10 +93,20 @@ export async function processNotificationEmailQueueOnce(limit = 15) {
       continue;
     }
 
+    const toAddress = String(to).trim();
+    if (!isValidRecipientEmail(toAddress)) {
+      await pool.query(
+        `UPDATE notification_deliveries SET status = 'failed', error_text = $2, updated_at = NOW() WHERE id = $1`,
+        [row.delivery_id, 'Invalid recipient email address']
+      );
+      processed += 1;
+      continue;
+    }
+
     try {
       const info = await smtp.sendMail({
         from: fromAddress(),
-        to: String(to).trim(),
+        to: toAddress,
         subject,
         text,
       });

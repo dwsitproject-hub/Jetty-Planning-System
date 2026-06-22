@@ -8,6 +8,8 @@
 #   docker compose logs -f
 #
 # API: http://localhost:3000  |  PostgreSQL: localhost:5433
+# Requires Backend/.env (copy from .env.example) with POSTGRES_PASSWORD and JWT_SECRET set.
+# Never deploy this file to shared/staging/production hosts.
 
 services:
   jps-db:
@@ -15,10 +17,10 @@ services:
     container_name: jps-db
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-jps_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jps_dev_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: ${POSTGRES_DB:-jps_db}
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - jps_db_data:/var/lib/postgresql/data
     healthcheck:
@@ -37,8 +39,8 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3000
-      DATABASE_URL: postgresql://${POSTGRES_USER:-jps_user}:${POSTGRES_PASSWORD:-jps_dev_password}@jps-db:5432/${POSTGRES_DB:-jps_db}
-      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-jps_user}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@jps-db:5432/${POSTGRES_DB:-jps_db}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       UPLOAD_DIR: ${UPLOAD_DIR:-/var/jps/uploads}
     volumes:
       # Live code (no rebuild on file change) without overwriting node_modules

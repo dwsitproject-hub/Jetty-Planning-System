@@ -17,7 +17,6 @@ import { assertOperationInSelectedPort } from '../lib/operation-access.js';
 import { UPLOAD_ROOT } from '../paths.js';
 import { validateMulterFileList } from '../lib/upload-mime.js';
 import { writeActivityLog } from '../lib/activity-log.js';
-import { optionalAuth } from '../middleware/auth.js';
 import { sendStoredFileAttachment, sendStoredFileInline } from '../lib/send-stored-file.js';
 import { promoteInProgressToPostOpsIfInProgress } from '../lib/operation-auto-status.js';
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
@@ -30,7 +29,6 @@ const POST_CHECK_AUTO_KEYS = new Set([
 ]);
 
 const router = express.Router();
-router.use(optionalAuth);
 const ALLOWED_PHASES = new Set(['Pre-Checking', 'Operational', 'Post-Checking']);
 
 function toSubProcessDocumentDownloadUrl(id) {

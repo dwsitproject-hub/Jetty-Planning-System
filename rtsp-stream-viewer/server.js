@@ -2,11 +2,12 @@
 /**
  * RTSP → WebSocket MPEG1 stream service for Jetty Live CCTV.
  *
- * Architecture: one persistent WebSocket server (WS_PORT) + one FFmpeg process.
- * Restarting the stream only recycles the FFmpeg process — the WS server stays
- * alive so browsers never hit EADDRINUSE on rapid reconnects.
+ * Architecture: one persistent WebSocket server (WS_PORT) + on-demand FFmpeg.
+ * FFmpeg starts when the first viewer connects and stops after an idle grace
+ * period when the last viewer disconnects. The WS server stays alive so
+ * browsers never hit EADDRINUSE on rapid reconnects.
  *
- * POST /api/reconnect { rtspUrl?: string }  — optionally switch RTSP URL then restart.
+ * POST /api/reconnect { rtspUrl?: string }  — optionally switch RTSP URL; restarts FFmpeg only if viewers are connected.
  * GET  /api/health                          — JSON status for the UI health card.
  */
 
@@ -19,12 +20,14 @@ const DEFAULT_RTSP_URL =
   process.env.RTSP_URL ||
   'rtsp://testing:KPN00000eup@172.16.247.222:554/Stream1';
 
-const WS_PORT          = parseInt(process.env.WS_PORT          || '9999',  10);
-const HTTP_PORT        = parseInt(process.env.HTTP_PORT        || '3080',  10);
-const WATCHDOG_MS      = parseInt(process.env.WATCHDOG_RESTART_MS || '3000', 10);
-const STALL_MS         = parseInt(process.env.STALL_MS         || '8000',  10);
-const STALL_KILL_MS    = parseInt(process.env.STALL_KILL_MS    || '30000', 10);
-const FFMPEG_PATH      = process.env.FFMPEG_PATH || 'ffmpeg';
+const WS_PORT           = parseInt(process.env.WS_PORT           || '9999',  10);
+const HTTP_PORT         = parseInt(process.env.HTTP_PORT         || '3080',  10);
+const WATCHDOG_MS       = parseInt(process.env.WATCHDOG_RESTART_MS || '3000', 10);
+const STALL_MS          = parseInt(process.env.STALL_MS          || '8000',  10);
+const STALL_KILL_MS     = parseInt(process.env.STALL_KILL_MS     || '30000', 10);
+const IDLE_STOP_MS      = parseInt(process.env.STREAM_IDLE_STOP_MS || '30000', 10);
+const STREAM_OUTPUT_FPS = process.env.STREAM_OUTPUT_FPS || '1';
+const FFMPEG_PATH       = process.env.FFMPEG_PATH || 'ffmpeg';
 
 // Input flags placed BEFORE -i (e.g. -rtsp_transport must come before -i).
 // Default: no extra input flags so the camera works with UDP (original behaviour).
@@ -34,31 +37,64 @@ if (process.env.RTSP_TRANSPORT) {
   INPUT_FLAGS['-rtsp_transport'] = process.env.RTSP_TRANSPORT;
 }
 
-const OUTPUT_FLAGS = { '-r': '25', '-stats': '' };
+const OUTPUT_FLAGS = { '-r': STREAM_OUTPUT_FPS, '-stats': '' };
 
 // ── mutable state ─────────────────────────────────────────────────────────────
-let currentRtspUrl = DEFAULT_RTSP_URL;
-let muxer          = null;
-let restartTimer   = null;
-let restartCount   = 0;
-let lastFrameAt    = null;
-let serverStatus   = 'offline';
-let bootAt         = 0;
+let currentRtspUrl   = DEFAULT_RTSP_URL;
+let muxer            = null;
+let restartTimer     = null;
+let idleStopTimer    = null;
+let activeViewerCount = 0;
+let restartCount     = 0;
+let lastFrameAt      = null;
+let serverStatus     = 'offline';
+let bootAt           = 0;
 
 // ── persistent WebSocket server (created once, never torn down) ──────────────
 const STREAM_MAGIC = 'jsmp';
 const wsServer = new ws.Server({ port: WS_PORT });
 
+function clearIdleStopTimer() {
+  if (idleStopTimer) {
+    clearTimeout(idleStopTimer);
+    idleStopTimer = null;
+  }
+}
+
+function scheduleIdleStop() {
+  clearIdleStopTimer();
+  idleStopTimer = setTimeout(() => {
+    idleStopTimer = null;
+    if (activeViewerCount === 0) {
+      console.log(`[stream] idle stop after ${IDLE_STOP_MS}ms with no viewers`);
+      stopStream();
+    }
+  }, IDLE_STOP_MS);
+}
+
+function onViewerConnect() {
+  clearIdleStopTimer();
+  activeViewerCount += 1;
+  console.log(`[ws] client connected (${activeViewerCount} tracked, ${wsServer.clients.size} on server)`);
+  if (activeViewerCount === 1) {
+    startStream({ reason: 'viewer_connect' });
+  }
+}
+
+function onViewerDisconnect() {
+  activeViewerCount = Math.max(0, activeViewerCount - 1);
+  console.log(`[ws] client disconnected (${activeViewerCount} tracked, ${wsServer.clients.size} on server)`);
+  if (activeViewerCount === 0) {
+    scheduleIdleStop();
+  }
+}
+
 wsServer.on('connection', (socket) => {
-  // Send JSMpeg magic header (8 bytes: magic[4] + width[2] + height[2]).
-  // Width/height 0 is fine — JSMpeg reads them from the stream.
   const header = Buffer.alloc(8);
   header.write(STREAM_MAGIC);
   socket.send(header, { binary: true });
-  console.log(`[ws] client connected (${wsServer.clients.size} total)`);
-  socket.on('close', () =>
-    console.log(`[ws] client disconnected (${wsServer.clients.size} total)`)
-  );
+  onViewerConnect();
+  socket.on('close', () => onViewerDisconnect());
 });
 
 function broadcast(data) {
@@ -78,10 +114,12 @@ function clearRestartTimer() {
 }
 
 function scheduleRestart(reason) {
+  if (activeViewerCount === 0) return;
   clearRestartTimer();
   console.warn(`[watchdog] restart in ${WATCHDOG_MS}ms (${reason})`);
   restartTimer = setTimeout(() => {
     restartTimer = null;
+    if (activeViewerCount === 0) return;
     restartCount += 1;
     startStream({ reason: `watchdog:${reason}` });
   }, WATCHDOG_MS);
@@ -98,6 +136,7 @@ function stopStream() {
 
 function startStream(opts = {}) {
   const { reason } = opts;
+  if (activeViewerCount === 0) return;
   if (reason) console.log(`[stream] start: ${reason}`);
 
   stopStream();
@@ -152,9 +191,9 @@ function startStream(opts = {}) {
   }
 }
 
-// Stall watchdog — recycle FFmpeg if frames stop arriving.
+// Stall watchdog — recycle FFmpeg if frames stop arriving (only while streaming).
 setInterval(() => {
-  if (!muxer) return;
+  if (!muxer || activeViewerCount === 0) return;
   const now = Date.now();
   if (lastFrameAt == null) {
     if (serverStatus === 'starting' && now - bootAt > STALL_KILL_MS) {
@@ -223,20 +262,23 @@ app.get('/api/health', (_req, res) => {
   const effective =
     serverStatus === 'online' && !stale ? 'online' : serverStatus;
   res.json({
-    status:       effective,
+    status:        effective,
     serverStatus,
     lastFrameAt,
     ffmpegRunning: Boolean(muxer?.stream && !muxer.stream.killed),
-    wsPort:       WS_PORT,
+    viewerCount:   activeViewerCount,
+    outputFps:     Number(STREAM_OUTPUT_FPS),
+    idleStopMs:    IDLE_STOP_MS,
+    wsPort:        WS_PORT,
     restartCount,
-    stallMs:      STALL_MS,
-    rtspSource:   maskRtsp(currentRtspUrl),
+    stallMs:       STALL_MS,
+    rtspSource:    maskRtsp(currentRtspUrl),
   });
 });
 
 app.post('/api/reconnect', (req, res) => {
-  const raw     = (req.body || {}).rtspUrl ?? (req.body || {}).rtsp_url;
-  let switched  = false;
+  const raw    = (req.body || {}).rtspUrl ?? (req.body || {}).rtsp_url;
+  let switched = false;
   if (raw != null && String(raw).trim() !== '') {
     const next = String(raw).trim();
     if (isValidRtsp(next)) {
@@ -244,14 +286,20 @@ app.post('/api/reconnect', (req, res) => {
       switched = true;
     }
   }
-  restartCount += 1;
-  stopStream();
-  setTimeout(() => {
-    startStream({ reason: switched ? 'manual_reconnect_new_url' : 'manual_reconnect' });
-  }, 800);
+
+  if (activeViewerCount > 0) {
+    restartCount += 1;
+    stopStream();
+    setTimeout(() => {
+      if (activeViewerCount > 0) {
+        startStream({ reason: switched ? 'manual_reconnect_new_url' : 'manual_reconnect' });
+      }
+    }, 800);
+  }
+
   res.json({
     ok:         true,
-    message:    'Reconnect scheduled',
+    message:    activeViewerCount > 0 ? 'Reconnect scheduled' : 'URL updated; stream starts when a viewer connects',
     rtspSource: maskRtsp(currentRtspUrl),
     urlUpdated: switched,
   });
@@ -261,5 +309,5 @@ app.listen(HTTP_PORT, () => {
   console.log(`HTTP  : http://localhost:${HTTP_PORT}`);
   console.log(`WS    : ws://localhost:${WS_PORT}`);
   console.log(`RTSP  : ${maskRtsp(currentRtspUrl)}`);
-  startStream({ reason: 'boot' });
+  console.log(`FPS   : ${STREAM_OUTPUT_FPS} (on-demand; idle stop ${IDLE_STOP_MS}ms)`);
 });

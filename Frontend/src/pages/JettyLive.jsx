@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useRbac } from '../context/RbacContext'
+import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import '../styles/dashboard.css'
 import '../styles/jetty-live.css'
 
@@ -95,15 +96,6 @@ async function postStreamReconnect(rtspUrl) {
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
 }
 
-function fmtTime(ts, locale) {
-  if (ts == null) return '—'
-  try {
-    return new Date(ts).toLocaleString(locale)
-  } catch {
-    return String(ts)
-  }
-}
-
 export default function JettyLive() {
   const { t } = useTranslation('pages')
   const { canApprove } = useRbac()
@@ -126,14 +118,6 @@ export default function JettyLive() {
   const [healthExpanded, setHealthExpanded] = useState(false)
   /** 'boot' | 'reconnect' | null */
   const [overlayKind, setOverlayKind] = useState('boot')
-
-  const locale = useMemo(() => {
-    try {
-      return navigator.language || 'en-US'
-    } catch {
-      return 'en-US'
-    }
-  }, [])
 
   const destroyPlayer = useCallback(() => {
     const p = playerRef.current
@@ -389,7 +373,7 @@ export default function JettyLive() {
               <div>
                 <div className="jetty-live-meta">{t('jettyLiveLastFrameLabel')}</div>
                 <div className="font-mono" style={{ fontSize: '0.9rem' }}>
-                  {fmtTime(health?.lastFrameAt, locale)}
+                  {formatDateTimeDisplay(health?.lastFrameAt)}
                 </div>
               </div>
               <div>

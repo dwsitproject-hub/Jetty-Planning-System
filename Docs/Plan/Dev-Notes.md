@@ -45,10 +45,11 @@ The `docker-compose.yml` in the repo builds from `Frontend/Dockerfile` and serve
 **Date/time display (no ` LT` suffix):** Use the shared helper so formatting and legacy string cleanup stay consistent:
 
 ```js
-import { formatDateTimeDisplay, stripLegacyDatetimeLt } from '../utils/formatDateTimeDisplay'
+import { formatDateDisplay, formatDateTimeDisplay, stripLegacyDatetimeLt } from '../utils/formatDateTimeDisplay'
 ```
 
-- `formatDateTimeDisplay(value)` — ISO / timestamps → `dd/mm HH:mm` (browser local). If the value is an unparseable string (e.g. old API text), a trailing ` LT` is stripped.
+- `formatDateTimeDisplay(value)` — ISO / timestamps → `DD/MMM/YYYY HH:mm` (24-hour, browser local). If the value is an unparseable string (e.g. old API text), a trailing ` LT` is stripped.
+- `formatDateDisplay(value)` — date-only values → `DD/MMM/YYYY` (locale-aware via `jps_locale`).
 - `stripLegacyDatetimeLt(value)` — only removes trailing ` LT` when you must show a string as-is.
 
 ---

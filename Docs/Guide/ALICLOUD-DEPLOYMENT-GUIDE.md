@@ -29,7 +29,7 @@ All **shell commands** below are intended to be run in an SSH session on the cor
 |#|Requirement|How this guide covers it|
 |-|-|-|
 |**1**|**Target directory:** `/opt/\\\\\\\\\\\\\\\[project-name]`|Use **`/opt/jetty-planning-system`** on **both** servers (`\\\\\\\\\\\\\\\[project-name]` = `jetty-planning-system`). All `cd` and `docker compose` commands assume this path.|
-|**2**|**Docker** + **PostgreSQL migrations**|**Backend server:** `docker compose --env-file Backend/.env -f docker-compose.backend.yml` (API + `jps-db`), then `docker compose ... exec -T jps-api npm run migrate` (§5). **App server:** `docker compose -f docker-compose.app.yml` (§6).|
+|**2**|**Docker** + **PostgreSQL migrations**|**Backend server:** `docker compose --env-file Backend/.env -f docker-compose.backend.yml` (API + `jps-db`), then `docker compose ... exec -T jps-api npm run migrate` (§5). **App server:** `docker-compose.app.yml` (§6) + **`rtsp-stream-viewer/.env`** on the host for Jetty Live (§6.2A).|
 |**3**|**Security Group ports**|**Consolidated table** below; details per server in §1. **JPS Postgres** is **not** opened on any SG (Docker internal only).|
 |**4**|**Exact shell commands (PuTTY)**|§3 (Docker install), §4 (GitHub + directory), §5–§6 (deploy + migrate), §8 (operations). Copy/paste each block on the correct server.|
 
@@ -86,13 +86,15 @@ Do **A → N** in sequence. Use **PuTTY** (or `ssh`) on each host. Replace place
 10. Install Docker — **§3** again on this host.
 11. Directory + GitHub — **§4.1** + **§4.2** / **§4.3** (same repo).
 12. Edit **`Frontend/nginx.alicloud-app.conf`**: upstream **`172.28.92.57:3000`** — **§6.1**.
-13. Create app **`.env`**: **`JPS\\\\\\\\\\\\\\\_FE\\\\\\\\\\\\\\\_PORT=3080`** and **`VITE\\\\\\\\\\\\\\\_API\\\\\\\\\\\\\\\_BASE\\\\\\\\\\\\\\\_URL=http://<APP\\\\\\\\\\\\\\\_PUBLIC\\\\\\\\\\\\\\\_IP>:3080/api/v1`** plus match **§6.2**.
-14. Build and start frontend — **§6.3**.
+13. Create app **`.env`**: **`JPS_FE_PORT=3080`** and **`VITE_API_BASE_URL=http://<APP_PUBLIC_IP>:3080/api/v1`** — **§6.2**.
+14. Create **`rtsp-stream-viewer/.env`** (Jetty Live CCTV on the **host**, not Docker) — **§6.2A**. Copy from **`.env.example`**, set camera **`RTSP_URL`**, then install/enable **`jps-jetty-live`** if not already done — [JETTY-LIVE-STREAM-DEPLOYMENT.md](./JETTY-LIVE-STREAM-DEPLOYMENT.md).
+15. Build and start frontend — **§6.3**.
 
 ### D. Validate
 
-15. Browser: `http://<APP\\\\\\\\\\\\\\\_PUBLIC\\\\\\\\\\\\\\\_IP>:3080` — login / API should work via same origin.
-16. Later updates: **§4.4** (`git pull` + rebuild + migrate on backend).
+16. Browser: `http://<APP_PUBLIC_IP>:3080` — login / API should work via same origin.
+17. Jetty Live (optional): with **View Jetty Live stream** RBAC, open CCTV from Allocation schematic; `curl -s http://127.0.0.1:3081/api/health` on app host shows `viewerCount` / `ffmpegRunning` when a viewer is connected — **§6.2A**.
+18. Later updates: **§4.4** (`git pull` + rebuild + migrate on backend).
 
 **Full command text** for each step lives in the sections referenced (**§3–§6**). Use this checklist as the **order**; use those sections as the **exact commands**.
 
@@ -111,8 +113,8 @@ Users open only the **app** URL (public IP / domain + port or HTTPS). The browse
 
 **Repo files used:**
 
-* **App server:** `Frontend/Dockerfile`, `docker-compose.app.yml`, `Frontend/nginx.alicloud-app.conf`, root `.env` (for `VITE\\\\\\\\\\\\\\\_API\\\\\\\\\\\\\\\_BASE\\\\\\\\\\\\\\\_URL` and compose)
-* **Backend server:** `Backend/`, `docker-compose.backend.yml`, **`Backend/.env`** (DB + JWT + `CORS\\\\\\\\\\\\\\\_ORIGIN`). Run Compose with `--env-file Backend/.env` so `${POSTGRES\\\\\\\\\\\\\\\_PASSWORD}` and other vars interpolate from that file.
+* **App server:** `Frontend/Dockerfile`, `docker-compose.app.yml`, `Frontend/nginx.alicloud-app.conf`, root `.env` (for `VITE_API_BASE_URL` and compose), **`rtsp-stream-viewer/.env`** (Jetty Live stream helper on the **host** — **§6.2A**; not committed to Git)
+* **Backend server:** `Backend/`, `docker-compose.backend.yml`, **`Backend/.env`** (DB + JWT + `CORS_ORIGIN`). Run Compose with `--env-file Backend/.env` so `${POSTGRES_PASSWORD}` and other vars interpolate from that file.
 
 **Single-server alternative (all-in-one on one VM):** use `docker-compose.production.yml` as documented in git history or enable `jps-web` + `jps-api` + `jps-db` on one host; this guide focuses on the **two-server** split.
 
@@ -415,6 +417,13 @@ docker compose -f docker-compose.app.yml build --no-cache
 docker compose -f docker-compose.app.yml up -d
 ```
 
+If **`rtsp-stream-viewer/`** changed, ensure **`rtsp-stream-viewer/.env`** exists (**§6.2A**), then:
+
+```bash
+cd rtsp-stream-viewer && npm ci
+sudo systemctl restart jps-jetty-live
+```
+
 Quick check:
 
 ```bash
@@ -488,13 +497,34 @@ docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d
 docker compose --env-file Backend/.env -f docker-compose.backend.yml ps
 ```
 
-### 5.2A Persistent uploads volume
+### 5.2A Upload storage (Synology NAS on staging/production)
 
-Uploaded files (berthing photos, NOR attachments, SI PDFs, sub-process documents) are stored on disk under **`UPLOAD\_DIR`** (default **`/var/jps/uploads`** inside **`jps-api`**). Compose mounts a **named Docker volume** **`jps\_uploads`** at that path so files survive container rebuilds and redeploys — same persistence model as **`jps\_pgdata`** for Postgres.
+Uploaded files (berthing photos, NOR attachments, SI PDFs, sub-process documents) are stored on disk under **`UPLOAD\_DIR`** (default **`/var/jps/uploads`** inside **`jps-api`**). PostgreSQL stores relative `stored_path` metadata only.
 
-**Do not** use ephemeral paths such as **`/tmp/jps-uploads`** without a volume: a container recreate wipes **`/tmp`** while DB metadata remains, causing filenames to appear in the UI with broken preview/download.
+**Staging and production** use the shared Synology NAS. Set **`UPLOAD\_HOST\_PATH`** in **`Backend/.env`** to the NAS folder mounted on the API host; compose bind-mounts it into the container:
 
-**Never run `docker compose down -v` on production** — the **`-v`** flag deletes named volumes, including **`jps\_pgdata`** and **`jps\_uploads`**.
+| Environment | File Station | Example `UPLOAD_HOST_PATH` |
+|-------------|--------------|----------------------------|
+| Staging | `172.30.1.94/dev/JETTYPLANNING` | `/mnt/synology/dev/JETTYPLANNING` |
+| Production | `172.30.1.94/JETTYPLANNING` | `/mnt/synology/JETTYPLANNING` |
+
+Full cutover and migration steps: [SYNOLOGY-INTEGRATION.md](../Plan/SYNOLOGY-INTEGRATION.md).
+
+> **Docker Compose v5 — `UPLOAD_HOST_PATH` not interpolated via `--env-file`**
+> On Docker Compose v5 (verified on v5.0.2), the `--env-file` flag does **not** propagate variables into compose-file volume interpolation. `UPLOAD_HOST_PATH` will silently fall back to the `jps_uploads` named volume even when correctly set in `Backend/.env`. To ensure the bind mount is applied, **source the env file into the shell first** before any `up --force-recreate` or `up -d` that changes the volume:
+>
+> ```bash
+> set -a && source Backend/.env && set +a
+> docker compose -f docker-compose.backend-api-only.yml up -d --force-recreate jps-api
+> ```
+>
+> Confirm with `docker inspect jps-api | grep -A 10 '"Mounts"'` — you must see `"Type": "bind"` and the correct `"Source"` path. This applies any time `UPLOAD_HOST_PATH` changes (e.g. switching from host disk to NAS, or updating the NAS path).
+
+**Local dev / machines without NAS:** omit `UPLOAD\_HOST\_PATH` — compose uses named volume **`jps\_uploads`** at `/var/jps/uploads` so files survive container rebuilds.
+
+**Do not** use ephemeral paths such as **`/tmp/jps-uploads`** without a volume or NAS bind: a container recreate wipes **`/tmp`** while DB metadata remains, causing filenames to appear in the UI with broken preview/download.
+
+**Never run `docker compose down -v` on production** — the **`-v`** flag deletes named volumes, including **`jps\_pgdata`**. With NAS, uploads live on the share; **`jps\_uploads`** may still exist as an unused fallback volume until removed manually.
 
 After **`docker compose up`**, confirm startup logs show:
 
@@ -519,9 +549,13 @@ docker exec jps-api find /var/jps/uploads -type f
 
 Files uploaded before the last container recreate that were already lost from **`/tmp`** cannot be recovered from disk — users must re-upload those documents (DB rows may still show filenames until replaced or deleted). Step-by-step manual restore (SQL lookup, `scp`, `docker cp`, verification): [MANUAL-UPLOAD-RESTORE-GUIDE.md](./MANUAL-UPLOAD-RESTORE-GUIDE.md).
 
+#### One-time migration from `jps_uploads` volume to NAS
+
+When moving from the Docker volume to Synology, see [SYNOLOGY-INTEGRATION.md §5](../Plan/SYNOLOGY-INTEGRATION.md) (backup, copy to NAS, set `UPLOAD\_HOST\_PATH`, recreate `jps-api`).
+
 #### Backup uploads
 
-Schedule periodic backups alongside Postgres:
+**NAS (staging/production):** back up the host mount path (e.g. rsync or Synology snapshot). Example if still using the named volume locally:
 
 ```bash
 docker run --rm -v jps\_uploads:/data -v $(pwd):/backup alpine \\
@@ -584,7 +618,61 @@ nano .env
 
 Replace with your **public** app IP or DNS and the **same** port as `JPS\\\\\\\\\\\\\\\_FE\\\\\\\\\\\\\\\_PORT`. With HTTPS later: `https://app.example.com/api/v1` and terminate TLS on the app server (or a load balancer).
 
-> Root `.env` is \\\\\\\\\\\\\\\*\\\\\\\\\\\\\\\*not\\\\\\\\\\\\\\\*\\\\\\\\\\\\\\\* copied into the Docker build context (`Frontend/.dockerignore`). Compose passes `VITE\\\\\\\\\\\\\\\_API\\\\\\\\\\\\\\\_BASE\\\\\\\\\\\\\\\_URL` as a \\\\\\\\\\\\\\\*\\\\\\\\\\\\\\\*build-arg\\\\\\\\\\\\\\\*\\\\\\\\\\\\\\\* (see `Frontend/Dockerfile`). `JPS\\\\\\\\\\\\\\\_FE\\\\\\\\\\\\\\\_PORT` controls the host port mapping in `docker-compose.app.yml`.
+> Root `.env` is **not** copied into the Docker build context (`Frontend/.dockerignore`). Compose passes `VITE_API_BASE_URL` as a **build-arg** (see `Frontend/Dockerfile`). `JPS_FE_PORT` controls the host port mapping in `docker-compose.app.yml`.
+
+### 6.2A Jetty Live — create `rtsp-stream-viewer/.env` (app host only)
+
+Jetty Live CCTV uses a **separate host process** (`rtsp-stream-viewer`), not the `jps-fe` Docker container. This file is **gitignored** — you must create it on **every app server** (greenfield and after clone). Do **not** skip it when deploying.
+
+**Repo path:** if you cloned into a nested folder, use e.g. `/opt/jetty-planning-system/Jetty-Planning-System/rtsp-stream-viewer`; otherwise `/opt/jetty-planning-system/rtsp-stream-viewer`.
+
+```bash
+cd /opt/jetty-planning-system/rtsp-stream-viewer
+# or: cd /opt/jetty-planning-system/Jetty-Planning-System/rtsp-stream-viewer
+
+cp .env.example .env
+nano .env
+chmod 600 .env
+```
+
+Edit **`.env`** (required keys):
+
+```bash
+RTSP_URL=rtsp://<user>:<password>@<camera-ip>:554/Stream1
+RTSP_TRANSPORT=tcp
+HTTP_PORT=3081
+WS_PORT=9999
+STREAM_OUTPUT_FPS=1
+STREAM_IDLE_STOP_MS=30000
+STREAM_CORS_ORIGINS=http://<APP_PUBLIC_IP>:3080,http://172.28.92.56:3080
+```
+
+| Variable | Why |
+|----------|-----|
+| `RTSP_URL` | Default camera when no jetty URL is passed; jetty-specific URLs come from Master Jetty / schematic. |
+| `HTTP_PORT=3081` | **3080** is used by `jps-fe`; stream HTTP must not conflict. |
+| `WS_PORT=9999` | nginx proxies `/jetty-live-ws` to this port on the host. |
+| `STREAM_OUTPUT_FPS=1` | Transcode at 1 fps (lower CPU than 25 fps). |
+| `STREAM_IDLE_STOP_MS=30000` | Stop FFmpeg 30 s after the last viewer closes the Jetty Live tab. |
+
+Install dependencies and enable the systemd unit (first time only):
+
+```bash
+cd /opt/jetty-planning-system/rtsp-stream-viewer   # adjust nested path if needed
+npm ci
+sudo systemctl enable --now jps-jetty-live
+```
+
+After **any** change to **`rtsp-stream-viewer/.env`** or stream code:
+
+```bash
+sudo systemctl restart jps-jetty-live
+curl -s http://127.0.0.1:3081/api/health
+```
+
+Idle (no viewers): `"ffmpegRunning": false`, `"viewerCount": 0` is **normal**. Open **`/jetty-live`** from the schematic to start FFmpeg.
+
+Full steps (systemd unit file, UFW for Docker → host **3081/9999**, camera network tests): **[JETTY-LIVE-STREAM-DEPLOYMENT.md](./JETTY-LIVE-STREAM-DEPLOYMENT.md)**.
 
 ### 6.3 Build and run frontend
 
@@ -604,6 +692,8 @@ Open in a browser: `http://<APP\\\\\\\\\\\\\\\_PUBLIC\\\\\\\\\\\\\\\_IP>:3080` (
 |Location|Service|Host port|Who can reach it|
 |-|-|-|-|
 |App|nginx (SPA + proxy)|**3080** (recommended on busy host `172.28.92.56`); **3001** (compose default on a clean host)|Internet (or restricted SG)|
+|App|Jetty Live stream HTTP (host, systemd)|**3081**|localhost + Docker bridge only (nginx → host); **§6.2A**|
+|App|Jetty Live WebSocket (host, systemd)|**9999**|localhost + Docker bridge only (nginx → host); **§6.2A**|
 |Backend|Node API|**3000** (default; free on `172.28.92.57` per §1.2)|**App private IP only** (SG)|
 |Backend|PostgreSQL|(Docker internal)|**Not** exposed on SG|
 
@@ -621,6 +711,7 @@ Use this when JPS is **already** running on staging and you are deploying **new 
 |-|-|
 |On **backend:** `git pull` → `docker compose --env-file Backend/.env -f docker-compose.backend.yml build` → `up -d` → **`docker compose ... exec -T jps-api npm run migrate`**|**`docker compose down -v`** (destroys Postgres volume and all data).|
 |On **app:** `git pull` → rebuild and `up -d` for `docker-compose.app.yml`|Re-run **user \& role bootstrap** SQL or **dev seed** scripts (`reset-and-seed-dev.sql`, `023`/`024` seeds) on staging **unless** you intentionally reset a **non-production** database.|
+|On **app:** confirm **`rtsp-stream-viewer/.env`** exists (**§6.2A**); after stream code changes: `npm ci` in that folder + **`sudo systemctl restart jps-jetty-live`**|Assume `.env.example` alone is enough — **`.env` is gitignored** and must be created on the server.|
 |Expect **`npm run migrate`** to apply **only migrations that have not yet run** (tracked in **`schema\\\\\\\\\\\\\\\_migrations`**; see `Backend/scripts/run-migrations.js`). Already-applied files — including schema for **`users`**, **`roles`**, **`permissions`**, **seed users** — are **not** executed again.|Manually re-import **`002\\\\\\\\\\\\\\\_seed\\\\\\\\\\\\\\\_first\\\\\\\\\\\\\\\_user.sql`**-style dumps if accounts already exist (risk duplicate or conflicting ids).|
 
 **Staging RBAC:** If users and roles are **already** configured on the server, a normal **`git pull` + `migrate`** is enough for new feature migrations (e.g. jetty layout, `shifting\\\\\\\\\\\\\\\_out`, `updated\\\\\\\\\\\\\\\_by`). Reserve full re-seed for **new environments only**, documented in §2 / reset scripts.

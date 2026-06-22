@@ -7,7 +7,7 @@ const DOWNLOAD_TO_VIEW = [
 ]
 
 const API_FILE_URL =
-  /\/api\/v1\/(?:si-documents|operation-documents|sub-process-documents)\/\d+\/(?:view|download)/i
+  /\/api\/v1\/(?:(?:si-documents|operation-documents|sub-process-documents)\/\d+\/(?:view|download)|stored-files\/(?:view|download))/i
 
 /** True when the URL targets an authenticated API file endpoint (not static /uploads). */
 export function isAuthenticatedApiFileUrl(url) {

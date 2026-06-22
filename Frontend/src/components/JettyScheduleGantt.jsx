@@ -4,6 +4,7 @@ import InteractiveTooltip from './InteractiveTooltip'
 import PurposeBadge, { resolvePurposeLabel } from './PurposeBadge'
 import EtcBreachBadge from './EtcBreachBadge'
 import { formatOverdueDuration } from '../utils/etcBreach'
+import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import {
   parseMs,
   toDateInputValue,
@@ -86,12 +87,7 @@ function buildDateColumns(windowStartMs, windowEndMs) {
     if (colStart < colEnd) {
       cols.push({
         key: `${dayStart.getFullYear()}-${dayStart.getMonth() + 1}-${dayStart.getDate()}`,
-        label: dayStart.toLocaleDateString('en-GB', {
-          weekday: 'short',
-          day: 'numeric',
-          month: 'short',
-          year: 'numeric',
-        }),
+        label: `${dayStart.toLocaleDateString('en-GB', { weekday: 'short' })}, ${formatDateDisplay(dayStart)}`,
         startMs: colStart,
         endMs: colEnd,
       })
@@ -141,7 +137,7 @@ function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
     const actComp = parseMs(r.actualCompletionDateTime)
     const castOff = parseMs(r.castOffDateTime)
     const sourceStatus = String(r.status || '').trim().toUpperCase()
-    const isSailed = sourceStatus === 'SAILED' || actComp != null || castOff != null
+    const isSailed = sourceStatus === 'SAILED'
     const status = isSailed ? 'Sailed off' : tb != null ? 'Berthing' : 'Arriving'
 
     // Planned: ETB → est. completion when set; else +3 days from ETB (open end).
@@ -351,7 +347,7 @@ function ganttBarAriaLabel(seg) {
 }
 
 function buildGanttTooltipItems(seg, canClick) {
-  const fmt = (ms) => (ms == null ? '—' : new Date(ms).toLocaleString())
+  const fmt = (ms) => (ms == null ? '—' : formatDateTimeDisplay(new Date(ms).toISOString()))
   const items = []
   if (seg.cargoDisplay) {
     items.push({ primary: 'Cargo', secondary: seg.cargoDisplay })
@@ -359,8 +355,8 @@ function buildGanttTooltipItems(seg, canClick) {
   items.push({ primary: seg.label || '—' })
   items.push({ primary: `Status: ${seg.status || '—'}` })
   items.push({
-    primary: `Start: ${new Date(seg.startMs).toLocaleString()}${seg.startSource ? ` (from ${seg.startSource})` : ''}`,
-    secondary: `End: ${new Date(seg.endMs).toLocaleString()}`,
+    primary: `Start: ${formatDateTimeDisplay(new Date(seg.startMs).toISOString())}${seg.startSource ? ` (from ${seg.startSource})` : ''}`,
+    secondary: `End: ${formatDateTimeDisplay(new Date(seg.endMs).toISOString())}`,
   })
   items.push({
     primary: `Planned refs — ETB: ${fmt(seg.plannedEtbMs)} · ETA: ${fmt(seg.etaMs)}`,
@@ -764,7 +760,7 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
                   {showNowLine && (
                     <div
                       className="jetty-schedule-gantt__now-line"
-                      title={`Now: ${new Date(nowMs).toLocaleString()}`}
+                      title={`Now: ${formatDateTimeDisplay(new Date(nowMs).toISOString())}`}
                       style={{
                         left: `calc(var(--jetty-schedule-id-col, 200px) + (100% - var(--jetty-schedule-id-col, 200px)) * ${nowFraction})`,
                       }}

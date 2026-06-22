@@ -4,7 +4,7 @@ This guide deploys JPS on **two separate ECS instances** in the same VPC:
 
 |Server|Role|What runs there|
 |-|-|-|
-|**App server** (example private IP `172.28.92.56`)|**Frontend only**|Docker: **nginx + built React SPA** (`docker-compose.app.yml`). Proxies `/api/` and `/uploads/` to the backend over the **private network**.|
+|**App server** (example private IP `172.28.92.56`)|**Frontend only**|Docker: **nginx + built React SPA** (`docker-compose.app.yml`). Proxies `/api/` to the backend over the **private network** (file access via authenticated API routes only).|
 |**Backend server** (example private IP `172.28.92.57`)|**API + database**|Docker: **Node API** (`jps-api`) + **PostgreSQL** (`jps-db`) (`docker-compose.backend.yml`). **Do not** install the JPS frontend container on this host for the standard layout.|
 
 Users reach **only** the app server URL (public IP or DNS + port). They never call the backend IP directly from the browser.
@@ -49,7 +49,7 @@ If your app host uses **`JPS\\\\\\\_FE\\\\\\\_PORT=3001`** (clean server) instea
 |Order|Instance (private IP)|Role|Why first / second|
 |-|-|-|-|
 |**1st**|**Backend** `172.28.92.57`|API + PostgreSQL (Docker)|Database and API must exist before migrations; the app server only proxies to this API. Set `CORS\\\\\\\_ORIGIN` to the **app** URL you plan to use (decide app public IP and port **3080** before deploying the app).|
-|**2nd**|**App** `172.28.92.56`|React + nginx reverse proxy|Needs a **running** API to proxy `/api/` and `/uploads/`. `VITE\\\\\\\_API\\\\\\\_BASE\\\\\\\_URL` must point at the **same** host:port users open (e.g. `http://<APP\\\\\\\_PUBLIC>:3080/api/v1`).|
+|**2nd**|**App** `172.28.92.56`|React + nginx reverse proxy|Needs a **running** API to proxy `/api/`. `VITE\\\\\\\_API\\\\\\\_BASE\\\\\\\_URL` must point at the **same** host:port users open (e.g. `http://<APP\\\\\\\_PUBLIC>:3080/api/v1`).|
 
 \---
 
@@ -93,7 +93,7 @@ Do **A → N** in sequence. Use **PuTTY** (or `ssh`) on each host. Replace place
 
 |Server|Private IP (example)|Role|
 |-|-|-|
-|**App**|`172.28.92.56`|React SPA (nginx) + **reverse proxy** to the API (`/api/`, `/uploads/`)|
+|**App**|`172.28.92.56`|React SPA (nginx) + **reverse proxy** to the API (`/api/` only)|
 |**Backend**|`172.28.92.57`|Node **API** + **PostgreSQL** (Docker). **No** public database port.|
 
 Users open only the **app** URL (public IP / domain + port or HTTPS). The browser calls **`/api/v1`** on **that same origin**; nginx on the app server forwards requests to the API over the **private** network.
@@ -118,7 +118,7 @@ Users open only the **app** URL (public IP / domain + port or HTTPS). The browse
 |Port|Protocol|Purpose|Source|
 |-|-|-|-|
 |**22**|TCP|SSH|Your admin IP / VPN only|
-|**3080** (recommended)|TCP|HTTP (JPS SPA + proxied `/api/` + `/uploads/`)|Users (or restrict); see §1.1 if your host is already busy|
+|**3080** (recommended)|TCP|HTTP (JPS SPA + proxied `/api/`)|Users (or restrict); see §1.1 if your host is already busy|
 |**80** / **443**|TCP|Often already used by other stacks; optional later: reverse proxy + TLS for JPS|As needed|
 
 **Outbound:** allow TCP **3000** to **backend private IP** `172.28.92.57` (nginx → API).
@@ -439,13 +439,24 @@ docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d
 docker compose --env-file Backend/.env -f docker-compose.backend.yml ps
 ```
 
-### 5.2A Persistent uploads volume
+### 5.2A Upload storage (Synology NAS on staging/production)
 
-Uploaded files (berthing photos, NOR attachments, SI PDFs, sub-process documents) are stored on disk under **`UPLOAD_DIR`** (default **`/var/jps/uploads`** inside **`jps-api`**). Compose mounts a **named Docker volume** **`jps_uploads`** at that path so files survive container rebuilds and redeploys — same persistence model as **`jps_pgdata`** for Postgres.
+Uploaded files (berthing photos, NOR attachments, SI PDFs, sub-process documents) are stored on disk under **`UPLOAD_DIR`** (default **`/var/jps/uploads`** inside **`jps-api`**). PostgreSQL stores relative `stored_path` metadata only.
 
-**Do not** use ephemeral paths such as **`/tmp/jps-uploads`** without a volume: a container recreate wipes **`/tmp`** while DB metadata remains, causing filenames to appear in the UI with broken preview/download.
+**Staging and production** use the shared Synology NAS. Set **`UPLOAD_HOST_PATH`** in **`Backend/.env`** to the NAS folder mounted on the API host; compose bind-mounts it into the container:
 
-**Never run `docker compose down -v` on production** — the **`-v`** flag deletes named volumes, including **`jps_pgdata`** and **`jps_uploads`**.
+| Environment | File Station | Example `UPLOAD_HOST_PATH` |
+|-------------|--------------|----------------------------|
+| Staging | `172.30.1.94/dev/JETTYPLANNING` | `/mnt/synology/dev/JETTYPLANNING` |
+| Production | `172.30.1.94/JETTYPLANNING` | `/mnt/synology/JETTYPLANNING` |
+
+Full cutover and migration steps: [SYNOLOGY-INTEGRATION.md](../Plan/SYNOLOGY-INTEGRATION.md).
+
+**Local dev / machines without NAS:** omit `UPLOAD_HOST_PATH` — compose uses named volume **`jps_uploads`** at `/var/jps/uploads` so files survive container rebuilds.
+
+**Do not** use ephemeral paths such as **`/tmp/jps-uploads`** without a volume or NAS bind: a container recreate wipes **`/tmp`** while DB metadata remains, causing filenames to appear in the UI with broken preview/download.
+
+**Never run `docker compose down -v` on production** — the **`-v`** flag deletes named volumes, including **`jps_pgdata`**. With NAS, uploads live on the share; **`jps_uploads`** may still exist as an unused fallback volume until removed manually.
 
 After **`docker compose up`**, confirm startup logs show:
 
@@ -470,9 +481,13 @@ docker exec jps-api find /var/jps/uploads -type f
 
 Files uploaded before the last container recreate that were already lost from **`/tmp`** cannot be recovered from disk — users must re-upload those documents (DB rows may still show filenames until replaced or deleted). Step-by-step manual restore (SQL lookup, `scp`, `docker cp`, verification): [MANUAL-UPLOAD-RESTORE-GUIDE.md](./MANUAL-UPLOAD-RESTORE-GUIDE.md).
 
+#### One-time migration from `jps_uploads` volume to NAS
+
+When moving from the Docker volume to Synology, see [SYNOLOGY-INTEGRATION.md §5](../Plan/SYNOLOGY-INTEGRATION.md) (backup, copy to NAS, set `UPLOAD_HOST_PATH`, recreate `jps-api`).
+
 #### Backup uploads
 
-Schedule periodic backups alongside Postgres:
+**NAS (staging/production):** back up the host mount path (e.g. rsync or Synology snapshot). Example if still using the named volume locally:
 
 ```bash
 docker run --rm -v jps_uploads:/data -v $(pwd):/backup alpine \
@@ -634,7 +649,7 @@ docker compose -f docker-compose.app.yml up -d --build
 Terminate HTTPS on the **app** server (nginx on host or container + certificates) and:
 
 * Serve the SPA over **443**
-* Keep proxying `/api/` and `/uploads/` to `https://` or `http://` backend as appropriate (internal VPC often stays HTTP)
+* Keep proxying `/api/` to `https://` or `http://` backend as appropriate (internal VPC often stays HTTP). File downloads use authenticated API paths (`/api/v1/stored-files`, document view/download routes).
 
 Update `VITE\\\\\\\_API\\\\\\\_BASE\\\\\\\_URL` and `CORS\\\\\\\_ORIGIN` to use **`https://`**. If users reach JPS only on **443**, you may drop a high port like **3080** from the public URL or hide it behind a load balancer.
 

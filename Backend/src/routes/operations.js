@@ -9,13 +9,12 @@ import { assignJettyOperationCode } from '../lib/jetty-operation-code.js';
 import { canAccessOperationForSelectedPort } from '../lib/operation-access.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { departShipmentPlanInTransaction } from '../lib/shipment-plan-depart.js';
-import { optionalAuth } from '../middleware/auth.js';
-import { userHasPageApprove, userHasPageEdit } from '../middleware/permissions.js';
+import { validateDepartDocumentUrls } from '../lib/depart-document-url.js';
+import { userHasPageApprove, userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
 import { enrichRowsWithCargoDisplay } from '../lib/siBreakdownDisplay.js';
 
 const router = express.Router();
-router.use(optionalAuth);
 const AT_BERTH_STATUSES = [
   'DOCKED',
   'IN_PROGRESS',
@@ -72,6 +71,7 @@ const PLAN_TIMELINE_SELECT = `
      sp.docking_start_time AS plan_docking_start_time,
      sp.estimated_completion_time AS plan_estimated_completion_time,
      sp.actual_completion_time AS plan_actual_completion_time,
+     sp.operations_completed_at AS plan_operations_completed_at,
      sp.nor_tendered_at AS plan_nor_tendered_at,
      sp.nor_accepted_at AS plan_nor_accepted_at,
      sp.demurrage_liability_from_at AS plan_demurrage_liability_from_at,
@@ -849,6 +849,9 @@ router.post('/:id/request-exception', async (req, res) => {
 });
 
 router.post('/:id/approve-exception', async (req, res) => {
+  if (!(await userHasPageApprove(req.userId, 'verification'))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const op = await pool.query(
@@ -903,6 +906,9 @@ router.post('/:id/approve-exception', async (req, res) => {
 });
 
 router.post('/:id/reject-exception', async (req, res) => {
+  if (!(await userHasPageApprove(req.userId, 'verification'))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const op = await pool.query(
@@ -1077,7 +1083,7 @@ router.post('/:id/signoff', async (req, res) => {
   await pool.query(
     `UPDATE operations SET
        status = 'SIGNOFF_APPROVED',
-       actual_completion_time = COALESCE(actual_completion_time, NOW()),
+       operations_completed_at = COALESCE(operations_completed_at, NOW()),
        updated_at = NOW()
      WHERE id = $1 AND deleted_at IS NULL`,
     [id]
@@ -1092,7 +1098,11 @@ router.post('/:id/signoff', async (req, res) => {
     summary: 'Signed off operation (SIGNOFF_APPROVED)',
     changes: [
       { field: 'Status', from: opRow?.status ?? null, to: 'SIGNOFF_APPROVED' },
-      { field: 'Actual Completion', from: opRow?.actual_completion_time ?? null, to: signedRow?.actual_completion_time ?? null },
+      {
+        field: 'Operations completed',
+        from: opRow?.operations_completed_at ?? null,
+        to: signedRow?.operations_completed_at ?? null,
+      },
     ],
     meta: { operationId: id },
     actorUserId: req.userId ?? null,
@@ -1123,18 +1133,30 @@ router.post('/:id/depart', async (req, res) => {
   if (Number.isNaN(cast.getTime())) {
     return res.status(400).json({ error: 'Invalid cast_off_at' });
   }
-  const clearanceUrl =
-    clearance_document_url && typeof clearance_document_url === 'string'
-      ? clearance_document_url.trim()
-      : null;
-  const photoUrl =
-    vessel_photo_url && typeof vessel_photo_url === 'string' ? vessel_photo_url.trim() : null;
-
+  const selectedPortId = Number(req.selectedPortId);
   const planId = opRow.shipment_plan_id != null ? Number(opRow.shipment_plan_id) : null;
+  let clearanceUrl;
+  let photoUrl;
+  try {
+    ({ clearanceUrl, photoUrl } = await validateDepartDocumentUrls({
+      clearanceUrl:
+        clearance_document_url && typeof clearance_document_url === 'string'
+          ? clearance_document_url.trim()
+          : null,
+      photoUrl:
+        vessel_photo_url && typeof vessel_photo_url === 'string' ? vessel_photo_url.trim() : null,
+      operationId: id,
+      planId: planId != null && !Number.isNaN(planId) ? planId : null,
+      selectedPortId,
+    }));
+  } catch (e) {
+    const status = e?.statusCode ?? 400;
+    return res.status(status).json({ error: e.message || 'Invalid document URL' });
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const selectedPortId = Number(req.selectedPortId);
     if (planId != null && !Number.isNaN(planId)) {
       const dep = await departShipmentPlanInTransaction(client, {
         planId,
@@ -1157,6 +1179,7 @@ router.post('/:id/depart', async (req, res) => {
         `UPDATE operations SET
            status = 'SAILED',
            cast_off_at = $1,
+           actual_completion_time = COALESCE(actual_completion_time, $1),
            clearance_document_url = $2,
            vessel_photo_url = $3,
            sailed_at = NOW(),
@@ -1220,6 +1243,10 @@ router.delete('/:id', async (req, res) => {
   const opRow = await loadOperationJoined(id);
   if (!opRow || !canAccessOperationForSelectedPort(opRow, req.selectedPortId)) {
     return res.status(404).json({ error: 'Operation not found' });
+  }
+  const pageKey = opRow.purpose === 'Unloading' ? 'unloading' : 'loading';
+  if (!(await userHasPageDelete(req.userId, pageKey))) {
+    return res.status(403).json({ error: 'Forbidden' });
   }
   const client = await pool.connect();
   try {
@@ -1312,6 +1339,7 @@ export function toOp(row) {
     dockingStartTime: planTimeline(row, 'plan_docking_start_time', 'docking_start_time'),
     estimatedCompletionTime: planTimeline(row, 'plan_estimated_completion_time', 'estimated_completion_time'),
     actualCompletionTime: planTimeline(row, 'plan_actual_completion_time', 'actual_completion_time'),
+    operationsCompletedAt: planTimeline(row, 'plan_operations_completed_at', 'operations_completed_at'),
     norTenderedAt: planTimeline(row, 'plan_nor_tendered_at', 'nor_tendered_at'),
     norAcceptedAt: planTimeline(row, 'plan_nor_accepted_at', 'nor_accepted_at'),
     tbAt: planTimeline(row, 'plan_tb', 'tb'),
