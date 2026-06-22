@@ -12,6 +12,8 @@
   "jettyLiveLastFrameLabel": "Last frame received",
   "jettyLiveRestartsLabel": "Restart attempts (watchdog)",
   "jettyLiveHealthUnreachable": "Cannot reach stream health API. Is the RTSP helper running?",
+  "jettyLiveHealthUnreachableBanner": "Stream helper is not running — video cannot start.",
+  "jettyLiveHealthUnreachableDevHint": "From the repo root, run npm run dev:stream in a separate terminal (or npm run dev:jetty-live to start stream + UI together). Requires FFmpeg on PATH and network/VPN access to the camera RTSP URL.",
   "jettyLiveHealthUnreachableShort": "Health API unreachable",
   "jettyLiveExpandHealth": "Expand stream health",
   "jettyLiveCollapseHealth": "Collapse stream health",

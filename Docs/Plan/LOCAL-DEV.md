@@ -39,6 +39,48 @@ No need to run `npm install` in **Backend** on your PC; dependencies install ins
 
 ---
 
+## Jetty Live CCTV (optional third process)
+
+The **Jetty Live** page (`/jetty-live`) needs the **`rtsp-stream-viewer`** helper on the host (FFmpeg → WebSocket). It is **not** inside the JPS API or Frontend Docker containers.
+
+**Prerequisites:** [FFmpeg](https://ffmpeg.org/) on `PATH`; VPN/site network so your PC can reach the camera RTSP URL (e.g. `172.16.x.x:554`).
+
+1. **One-time setup**
+
+   ```powershell
+   cd "d:\Cursor\Jetty Planning System\rtsp-stream-viewer"
+   copy .env.example .env
+   # Edit .env: RTSP_URL, RTSP_TRANSPORT=tcp, HTTP_PORT=3080, WS_PORT=9999
+   npm install
+   ```
+
+2. **Start the stream helper** (pick one)
+
+   | Approach | Command |
+   |----------|---------|
+   | Separate terminal | From repo root: `npm run dev:stream` — or `cd rtsp-stream-viewer` → `.\start.bat` |
+   | Stream + UI together | From repo root: `npm install` (installs `concurrently`), then `npm run dev:jetty-live` |
+
+   Backend (Option A or B above) must still be running for login/RBAC.
+
+3. **Open Jetty Live**
+
+   - Direct: `http://127.0.0.1:5173/jetty-live?rtsp=rtsp://…&label=2B`
+   - Or **Allocation → Jetty schematic** → camera icon (needs RTSP link in Master – Jetty and **View Jetty Live stream** permission)
+
+4. **Verify**
+
+   ```powershell
+   Invoke-RestMethod http://127.0.0.1:3080/api/health
+   netstat -ano | findstr ":3080 :9999"
+   ```
+
+   If health fails, the Jetty Live page shows a red banner with `npm run dev:stream` instructions.
+
+   Full deploy runbook (Docker **`jps-jetty-live`** + nginx on app server, ports **3081**/9999 internal): [JETTY-LIVE-STREAM-DEPLOYMENT.md](../Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md).
+
+---
+
 ## Option B — API on Node (no Docker for API)
 
 1. **Install deps only in Backend:**
@@ -63,7 +105,10 @@ No need to run `npm install` in **Backend** on your PC; dependencies install ins
 |-----------|---------|---------|
 | `d:\Cursor\Jetty Planning System\Frontend\` | `npm run dev` | **Frontend** (Vite, preferred) |
 | `d:\Cursor\Jetty Planning System\` | `npm run dev` | **Frontend** (compatibility wrapper) |
+| `d:\Cursor\Jetty Planning System\` | `npm run dev:stream` | **Jetty Live** RTSP helper (ports 3080 / 9999) |
+| `d:\Cursor\Jetty Planning System\` | `npm run dev:jetty-live` | **Stream helper + Frontend** together |
 | `d:\Cursor\Jetty Planning System\Backend\` | `npm run dev` | **API** (only if Option B) |
+| `d:\Cursor\Jetty Planning System\rtsp-stream-viewer\` | `npm start` or `.\start.bat` | **Jetty Live** RTSP helper (same as `dev:stream`) |
 
 Root `npm install` does **not** install Backend packages.
 

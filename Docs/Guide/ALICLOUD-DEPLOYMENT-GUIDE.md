@@ -87,7 +87,7 @@ Do **A → N** in sequence. Use **PuTTY** (or `ssh`) on each host. Replace place
 11. Directory + GitHub — **§4.1** + **§4.2** / **§4.3** (same repo).
 12. Edit **`Frontend/nginx.alicloud-app.conf`**: upstream **`172.28.92.57:3000`** — **§6.1**.
 13. Create app **`.env`**: **`JPS_FE_PORT=3080`** and **`VITE_API_BASE_URL=http://<APP_PUBLIC_IP>:3080/api/v1`** — **§6.2**.
-14. Create **`rtsp-stream-viewer/.env`** (Jetty Live CCTV on the **host**, not Docker) — **§6.2A**. Copy from **`.env.example`**, set camera **`RTSP_URL`**, then install/enable **`jps-jetty-live`** if not already done — [JETTY-LIVE-STREAM-DEPLOYMENT.md](./JETTY-LIVE-STREAM-DEPLOYMENT.md).
+14. Create **`rtsp-stream-viewer/.env`** (Jetty Live — loaded by **`jps-jetty-live`** in **`docker-compose.app.yml`**) — **§6.2A**. Copy from **`.env.example`**, set camera **`RTSP_URL`**, then deploy with **`docker compose -f docker-compose.app.yml up -d --build`** — [JETTY-LIVE-STREAM-DEPLOYMENT.md](./JETTY-LIVE-STREAM-DEPLOYMENT.md).
 15. Build and start frontend — **§6.3**.
 
 ### D. Validate
@@ -417,11 +417,10 @@ docker compose -f docker-compose.app.yml build --no-cache
 docker compose -f docker-compose.app.yml up -d
 ```
 
-If **`rtsp-stream-viewer/`** changed, ensure **`rtsp-stream-viewer/.env`** exists (**§6.2A**), then:
+If **`rtsp-stream-viewer/`** changed, ensure **`rtsp-stream-viewer/.env`** exists (**§6.2A**), then rebuild app stack:
 
 ```bash
-cd rtsp-stream-viewer && npm ci
-sudo systemctl restart jps-jetty-live
+docker compose -f docker-compose.app.yml up -d --build
 ```
 
 Quick check:
@@ -620,9 +619,9 @@ Replace with your **public** app IP or DNS and the **same** port as `JPS\\\\\\\\
 
 > Root `.env` is **not** copied into the Docker build context (`Frontend/.dockerignore`). Compose passes `VITE_API_BASE_URL` as a **build-arg** (see `Frontend/Dockerfile`). `JPS_FE_PORT` controls the host port mapping in `docker-compose.app.yml`.
 
-### 6.2A Jetty Live — create `rtsp-stream-viewer/.env` (app host only)
+### 6.2A Jetty Live — `rtsp-stream-viewer/.env` + Docker (`jps-jetty-live`)
 
-Jetty Live CCTV uses a **separate host process** (`rtsp-stream-viewer`), not the `jps-fe` Docker container. This file is **gitignored** — you must create it on **every app server** (greenfield and after clone). Do **not** skip it when deploying.
+Jetty Live runs as container **`jps-jetty-live`** in **`docker-compose.app.yml`** (same deploy as **`jps-fe`**). Create **`rtsp-stream-viewer/.env`** on **every app server** — it is **gitignored**.
 
 **Repo path:** if you cloned into a nested folder, use e.g. `/opt/jetty-planning-system/Jetty-Planning-System/rtsp-stream-viewer`; otherwise `/opt/jetty-planning-system/rtsp-stream-viewer`.
 
@@ -640,43 +639,36 @@ Edit **`.env`** (required keys):
 ```bash
 RTSP_URL=rtsp://<user>:<password>@<camera-ip>:554/Stream1
 RTSP_TRANSPORT=tcp
-HTTP_PORT=3081
-WS_PORT=9999
 STREAM_OUTPUT_FPS=1
 STREAM_MPEG1_RATE=25
 STREAM_SCALE=640:-1
 STREAM_IDLE_STOP_MS=30000
-STREAM_CORS_ORIGINS=http://<APP_PUBLIC_IP>:3080,http://172.28.92.56:3080
 ```
 
 | Variable | Why |
 |----------|-----|
 | `RTSP_URL` | Default camera when no jetty URL is passed; jetty-specific URLs come from Master Jetty / schematic. |
-| `HTTP_PORT=3081` | **3080** is used by `jps-fe`; stream HTTP must not conflict. |
-| `WS_PORT=9999` | nginx proxies `/jetty-live-ws` to this port on the host. |
+| `RTSP_TRANSPORT=tcp` | Required on VPN/peering when UDP RTSP fails. |
+| `HTTP_PORT` / `WS_PORT` | Set by **`docker-compose.app.yml`** (`3081` / `9999` internal); do not publish to the public internet. |
 | `STREAM_OUTPUT_FPS=1` | Throttle via **`-vf fps=1`** (display rate). |
 | `STREAM_MPEG1_RATE=25` | Valid **mpeg1video** encoder `-r` (MPEG-1 does not support `-r 1`). |
 | `STREAM_SCALE=640:-1` | Downscale for HEVC/H.265 cameras before MPEG-1 encode. |
 | `STREAM_IDLE_STOP_MS=30000` | Stop FFmpeg 30 s after the last viewer closes the Jetty Live tab. |
 
-Install dependencies and enable the systemd unit (first time only):
+**If migrating from host systemd:** `sudo systemctl disable --now jps-jetty-live` before using Docker.
+
+Deploy with frontend (includes stream rebuild):
 
 ```bash
-cd /opt/jetty-planning-system/rtsp-stream-viewer   # adjust nested path if needed
-npm ci
-sudo systemctl enable --now jps-jetty-live
-```
-
-After **any** change to **`rtsp-stream-viewer/.env`** or stream code:
-
-```bash
-sudo systemctl restart jps-jetty-live
-curl -s http://127.0.0.1:3081/api/health
+cd /opt/jetty-planning-system
+docker compose -f docker-compose.app.yml up -d --build
+curl -s http://127.0.0.1:3080/jetty-live-stream/api/health
+docker compose -f docker-compose.app.yml logs -f jps-jetty-live
 ```
 
 Idle (no viewers): `"ffmpegRunning": false`, `"viewerCount": 0` is **normal**. Open **`/jetty-live`** from the schematic to start FFmpeg.
 
-Full steps (systemd unit file, UFW for Docker → host **3081/9999**, camera network tests): **[JETTY-LIVE-STREAM-DEPLOYMENT.md](./JETTY-LIVE-STREAM-DEPLOYMENT.md)**.
+Full steps (legacy systemd, camera network tests): **[JETTY-LIVE-STREAM-DEPLOYMENT.md](./JETTY-LIVE-STREAM-DEPLOYMENT.md)** §2.
 
 ### 6.3 Build and run frontend
 
@@ -696,8 +688,8 @@ Open in a browser: `http://<APP\\\\\\\\\\\\\\\_PUBLIC\\\\\\\\\\\\\\\_IP>:3080` (
 |Location|Service|Host port|Who can reach it|
 |-|-|-|-|
 |App|nginx (SPA + proxy)|**3080** (recommended on busy host `172.28.92.56`); **3001** (compose default on a clean host)|Internet (or restricted SG)|
-|App|Jetty Live stream HTTP (host, systemd)|**3081**|localhost + Docker bridge only (nginx → host); **§6.2A**|
-|App|Jetty Live WebSocket (host, systemd)|**9999**|localhost + Docker bridge only (nginx → host); **§6.2A**|
+|App|Jetty Live stream HTTP (`jps-jetty-live` container)|**3081** (Docker internal only)|`jps-fe` nginx only|
+|App|Jetty Live WebSocket (`jps-jetty-live` container)|**9999** (Docker internal only)|`jps-fe` nginx only|
 |Backend|Node API|**3000** (default; free on `172.28.92.57` per §1.2)|**App private IP only** (SG)|
 |Backend|PostgreSQL|(Docker internal)|**Not** exposed on SG|
 
@@ -715,7 +707,7 @@ Use this when JPS is **already** running on staging and you are deploying **new 
 |-|-|
 |On **backend:** `git pull` → `docker compose --env-file Backend/.env -f docker-compose.backend.yml build` → `up -d` → **`docker compose ... exec -T jps-api npm run migrate`**|**`docker compose down -v`** (destroys Postgres volume and all data).|
 |On **app:** `git pull` → rebuild and `up -d` for `docker-compose.app.yml`|Re-run **user \& role bootstrap** SQL or **dev seed** scripts (`reset-and-seed-dev.sql`, `023`/`024` seeds) on staging **unless** you intentionally reset a **non-production** database.|
-|On **app:** confirm **`rtsp-stream-viewer/.env`** exists (**§6.2A**); after stream code changes: `npm ci` in that folder + **`sudo systemctl restart jps-jetty-live`**|Assume `.env.example` alone is enough — **`.env` is gitignored** and must be created on the server.|
+|On **app:** confirm **`rtsp-stream-viewer/.env`** exists (**§6.2A**); `docker compose -f docker-compose.app.yml up -d --build` (rebuilds **`jps-fe`** + **`jps-jetty-live`**)|Assume `.env.example` alone is enough — **`.env` is gitignored** and must be created on the server.|
 |Expect **`npm run migrate`** to apply **only migrations that have not yet run** (tracked in **`schema\\\\\\\\\\\\\\\_migrations`**; see `Backend/scripts/run-migrations.js`). Already-applied files — including schema for **`users`**, **`roles`**, **`permissions`**, **seed users** — are **not** executed again.|Manually re-import **`002\\\\\\\\\\\\\\\_seed\\\\\\\\\\\\\\\_first\\\\\\\\\\\\\\\_user.sql`**-style dumps if accounts already exist (risk duplicate or conflicting ids).|
 
 **Staging RBAC:** If users and roles are **already** configured on the server, a normal **`git pull` + `migrate`** is enough for new feature migrations (e.g. jetty layout, `shifting\\\\\\\\\\\\\\\_out`, `updated\\\\\\\\\\\\\\\_by`). Reserve full re-seed for **new environments only**, documented in §2 / reset scripts.

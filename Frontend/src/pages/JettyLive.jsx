@@ -109,7 +109,12 @@ export default function JettyLive() {
   const canvasRef = useRef(null)
   const playerRef = useRef(null)
   const wsPortRef = useRef(null)
-  const lastHealthKeyRef = useRef(null)
+
+  const isPlayerConnected = useCallback(() => {
+    const p = playerRef.current
+    const ws = p?.source?.socket ?? p?.source?.ws
+    return ws?.readyState === 1 // WebSocket.OPEN
+  }, [])
 
   const [health, setHealth] = useState(null)
   const [healthErr, setHealthErr] = useState(null)
@@ -137,7 +142,9 @@ export default function JettyLive() {
     }
   }, [])
 
-  const startPlayer = useCallback(async () => {
+  const startPlayer = useCallback(async ({ force = false } = {}) => {
+    if (!force && isPlayerConnected()) return
+
     await loadJsmpegScript()
     const JSMpeg = window.JSMpeg
     if (!JSMpeg?.Player) return
@@ -156,7 +163,7 @@ export default function JettyLive() {
     })
 
     setTimeout(() => setOverlayKind(null), 1200)
-  }, [destroyPlayer])
+  }, [destroyPlayer, isPlayerConnected])
 
   useEffect(() => {
     if (!canViewStream) return undefined
@@ -217,40 +224,19 @@ export default function JettyLive() {
   const displayStatus = useMemo(() => {
     if (!health) return { key: 'offline', label: t('jettyLiveOffline') }
     const now = Date.now()
-    const stallMs = health.stallMs ?? 8000
+    const outputFps = Number(health.outputFps) || 1
+    // Allow several frame intervals before calling stale (1 fps → ~10 s).
+    const stallMs = Math.max(health.stallMs ?? 8000, Math.ceil(10000 / outputFps))
     const stale =
       health.lastFrameAt != null && now - health.lastFrameAt > stallMs
     if (health.status === 'online' && !stale) {
       return { key: 'online', label: t('jettyLiveOnline') }
     }
-    if (health.status === 'starting') {
+    if (health.status === 'starting' || (health.status === 'online' && stale)) {
       return { key: 'starting', label: t('jettyLiveStarting') }
     }
     return { key: 'offline', label: t('jettyLiveOffline') }
   }, [health, t])
-
-  /** Re-attach JSMpeg when the stream service starts delivering frames. */
-  useEffect(() => {
-    if (!canViewStream) return undefined
-    const key = displayStatus.key
-    const prev = lastHealthKeyRef.current
-    lastHealthKeyRef.current = key
-    if (key === 'online' && prev !== 'online') {
-      let cancelled = false
-      ;(async () => {
-        try {
-          destroyPlayer()
-          if (!cancelled) await startPlayer()
-        } catch (e) {
-          console.warn('[JettyLive] player refresh on online', e)
-        }
-      })()
-      return () => {
-        cancelled = true
-      }
-    }
-    return undefined
-  }, [canViewStream, displayStatus.key, destroyPlayer, startPlayer])
 
   const onReconnect = useCallback(async () => {
     setReconnectBusy(true)
@@ -259,7 +245,7 @@ export default function JettyLive() {
       setOverlayKind('reconnect')
       await new Promise((r) => setTimeout(r, 2000))
       destroyPlayer()
-      await startPlayer()
+      await startPlayer({ force: true })
     } catch (e) {
       console.warn('[JettyLive] reconnect', e)
       setOverlayKind(null)
@@ -314,14 +300,12 @@ export default function JettyLive() {
         </section>
       )}
 
-      {streamStruggling && (
-        <section className="card" style={{ marginBottom: '1rem' }}>
-          <p className="text-steel" role="status">
-            {t('jettyLiveStreamStruggling')}
-          </p>
-          {health?.rtspSource && (
-            <p className="jetty-live-meta" style={{ marginTop: '0.5rem' }}>
-              {t('jettyLiveStreamSource', { source: health.rtspSource })}
+      {healthErr && (
+        <section className="card jetty-live-helper-banner" role="alert">
+          <p className="jetty-live-helper-banner__title">{t('jettyLiveHealthUnreachableBanner')}</p>
+          {usingProxy && (
+            <p className="jetty-live-meta jetty-live-helper-banner__hint">
+              {t('jettyLiveHealthUnreachableDevHint')}
             </p>
           )}
         </section>
@@ -341,13 +325,6 @@ export default function JettyLive() {
         >
           <span className="jetty-live-health-card__header-main">
             <h2 className="card__title jetty-live-health-card__title">{t('jettyLiveHealthTitle')}</h2>
-            {!healthExpanded && (
-              <span
-                className={`jetty-live-health-card__summary jetty-live-health-card__summary--${healthErr ? 'offline' : displayStatus.key}`}
-              >
-                {healthErr ? t('jettyLiveHealthUnreachableShort') : displayStatus.label}
-              </span>
-            )}
           </span>
           <span className="jetty-live-health-card__chevron" aria-hidden>
             {healthExpanded ? '▼' : '▶'}
@@ -384,6 +361,16 @@ export default function JettyLive() {
             {healthErr && (
               <p className="text-steel jetty-live-health-card__alert" role="alert">
                 {t('jettyLiveHealthUnreachable')}
+              </p>
+            )}
+            {streamStruggling && (
+              <p className="text-steel jetty-live-health-card__alert" role="status">
+                {t('jettyLiveStreamStruggling')}
+              </p>
+            )}
+            {health?.rtspSource && (
+              <p className="jetty-live-meta jetty-live-health-card__source">
+                {t('jettyLiveStreamSource', { source: health.rtspSource })}
               </p>
             )}
             <div className="jetty-live-health-card__actions">

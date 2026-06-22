@@ -4,11 +4,16 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "npm --prefix Frontend run dev",
+    "dev:stream": "npm --prefix rtsp-stream-viewer run start",
+    "dev:jetty-live": "concurrently -n stream,ui -c blue,green \"npm run dev:stream\" \"npm run dev\"",
     "build": "npm --prefix Frontend run build",
     "preview": "npm --prefix Frontend run preview",
     "test:e2e": "npm --prefix Frontend run test:e2e",
     "rebuild": "node Backend/scripts/rebuild-docker.mjs && node Frontend/scripts/rebuild.mjs",
     "rebuild:backend": "node Backend/scripts/rebuild-docker.mjs",
     "rebuild:frontend": "node Frontend/scripts/rebuild.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
   }
 }
