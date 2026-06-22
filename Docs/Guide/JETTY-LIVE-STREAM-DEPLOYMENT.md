@@ -85,6 +85,8 @@ RTSP_TRANSPORT=tcp
 HTTP_PORT=3081
 WS_PORT=9999
 STREAM_OUTPUT_FPS=1
+STREAM_MPEG1_RATE=25
+STREAM_SCALE=640:-1
 STREAM_IDLE_STOP_MS=30000
 STREAM_CORS_ORIGINS=http://<APP_PUBLIC_IP>:3080,http://172.28.92.56:3080
 ```
@@ -96,7 +98,9 @@ Or copy the template: `cp .env.example .env` then edit.
 | `RTSP_TRANSPORT=tcp` | Required on many VPN/cloud paths; without it FFmpeg may hang on UDP. |
 | `HTTP_PORT=3081` | Host port **3080** is already used by `jps-fe` (`JPS_FE_PORT=3080`). |
 | `WS_PORT=9999` | WebSocket for video; nginx proxies `/jetty-live-ws` to this port on the host. |
-| `STREAM_OUTPUT_FPS=1` | Output frame rate for FFmpeg (default **1**; was 25). Lower = less CPU. |
+| `STREAM_OUTPUT_FPS=1` | Throttle via **`-vf fps=1`** (target display rate). |
+| `STREAM_MPEG1_RATE=25` | **mpeg1video** encoder `-r` (must be 24/25/30 — not `1`). |
+| `STREAM_SCALE=640:-1` | Downscale HEVC/H.265 before MPEG-1; omit only if all cameras are H.264. |
 | `STREAM_IDLE_STOP_MS=30000` | Stop FFmpeg 30 s after the last WebSocket viewer disconnects. |
 | `STREAM_CORS_ORIGINS` | Only needed if you bypass nginx; safe to set to your real UI URL(s). |
 
@@ -505,7 +509,9 @@ Prefer **one public origin** (nginx on 443 or 3080) that proxies API, SPA, strea
 | `RTSP_TRANSPORT` | (unset) | Set to `tcp` on app server / VPN when UDP RTSP fails. |
 | `HTTP_PORT` | `3080` | Health + reconnect HTTP. Use **3081** on app server. |
 | `WS_PORT` | `9999` | MPEG1 WebSocket port. |
-| `STREAM_OUTPUT_FPS` | `1` | FFmpeg MPEG1 output frame rate (was hardcoded **25**). |
+| `STREAM_OUTPUT_FPS` | `1` | Target frames/sec via **`-vf fps=`** (not `-r` on mpeg1video — MPEG-1 only supports rates like 24/25/30). |
+| `STREAM_MPEG1_RATE` | `25` | Encoder `-r` passed to **mpeg1video** (must be a valid MPEG-1 rate). |
+| `STREAM_SCALE` | `640:-1` | Width for **`scale=`** in the video filter (HEVC/H.265 friendly). Override full chain with **`STREAM_VIDEO_FILTER`**. |
 | `STREAM_IDLE_STOP_MS` | `30000` | Stop FFmpeg this many ms after the last WebSocket viewer disconnects. |
 | `STREAM_CORS_ORIGINS` | localhost Vite ports | Comma-separated origins for browser `fetch` to `/api/*`. |
 | `FFMPEG_PATH` | `ffmpeg` | Path to ffmpeg binary. |

@@ -643,6 +643,8 @@ RTSP_TRANSPORT=tcp
 HTTP_PORT=3081
 WS_PORT=9999
 STREAM_OUTPUT_FPS=1
+STREAM_MPEG1_RATE=25
+STREAM_SCALE=640:-1
 STREAM_IDLE_STOP_MS=30000
 STREAM_CORS_ORIGINS=http://<APP_PUBLIC_IP>:3080,http://172.28.92.56:3080
 ```
@@ -652,7 +654,9 @@ STREAM_CORS_ORIGINS=http://<APP_PUBLIC_IP>:3080,http://172.28.92.56:3080
 | `RTSP_URL` | Default camera when no jetty URL is passed; jetty-specific URLs come from Master Jetty / schematic. |
 | `HTTP_PORT=3081` | **3080** is used by `jps-fe`; stream HTTP must not conflict. |
 | `WS_PORT=9999` | nginx proxies `/jetty-live-ws` to this port on the host. |
-| `STREAM_OUTPUT_FPS=1` | Transcode at 1 fps (lower CPU than 25 fps). |
+| `STREAM_OUTPUT_FPS=1` | Throttle via **`-vf fps=1`** (display rate). |
+| `STREAM_MPEG1_RATE=25` | Valid **mpeg1video** encoder `-r` (MPEG-1 does not support `-r 1`). |
+| `STREAM_SCALE=640:-1` | Downscale for HEVC/H.265 cameras before MPEG-1 encode. |
 | `STREAM_IDLE_STOP_MS=30000` | Stop FFmpeg 30 s after the last viewer closes the Jetty Live tab. |
 
 Install dependencies and enable the systemd unit (first time only):

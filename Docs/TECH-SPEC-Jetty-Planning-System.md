@@ -187,7 +187,7 @@
 **Stream helper — `rtsp-stream-viewer/`** (separate Node process on app host): see **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**.
 
 - **On-demand FFmpeg:** starts when the first WebSocket viewer connects to **`/jetty-live-ws`**; stops **`STREAM_IDLE_STOP_MS`** (default **30 s**) after the last viewer disconnects. Node + WS server stay up under systemd; idle health shows **`ffmpegRunning: false`**, **`viewerCount: 0`**.
-- **Output rate:** **`STREAM_OUTPUT_FPS`** (default **1**) — FFmpeg transcodes to MPEG1 at that frame rate (was hardcoded **25**).
+- **Output rate:** **`STREAM_OUTPUT_FPS`** (default **1**) via **`-vf fps=`**; **`STREAM_MPEG1_RATE=25`** for the mpeg1video encoder; **`STREAM_SCALE=640:-1`** for HEVC/H.265 cameras.
 - **`GET /api/health`** includes **`viewerCount`**, **`outputFps`**, **`idleStopMs`** in addition to status / restart count.
 
 **Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.15**.
