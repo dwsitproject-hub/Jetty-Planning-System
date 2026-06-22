@@ -1,5 +1,21 @@
 /* Jetty Live stream — canvas fits Jetty card chrome */
 
+.jetty-live-helper-banner {
+  margin-bottom: 1rem;
+  border-left: 4px solid var(--color-danger, #b91c1c);
+  background: #fef2f2;
+}
+
+.jetty-live-helper-banner__title {
+  margin: 0;
+  color: var(--color-danger, #b91c1c);
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.jetty-live-helper-banner__hint {
+  margin: 0.5rem 0 0;
+}
+
 /* Collapsible stream health (aligns with Loading vessel-detail collapsible pattern) */
 .jetty-live-health-card.jetty-live-health-card--collapsible {
   padding: 0;
@@ -83,6 +99,10 @@
 .jetty-live-health-card__alert {
   margin-top: 0.75rem;
   color: var(--color-danger, #c00);
+}
+
+.jetty-live-health-card__source {
+  margin-top: 0.75rem;
 }
 
 .jetty-live-health-card__actions {

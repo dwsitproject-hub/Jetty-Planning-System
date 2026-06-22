@@ -26,11 +26,22 @@ function Mpeg1Muxer(options) {
   const args = [
     ...inputFlags,
     '-i', this.url,
+  ];
+
+  if (options.noAudio) {
+    args.push('-an');
+  }
+
+  if (options.videoFilter) {
+    args.push('-vf', options.videoFilter);
+  }
+
+  args.push(
     '-f', 'mpegts',
     '-codec:v', 'mpeg1video',
     ...outputFlags,
     '-',
-  ];
+  );
 
   this.stream = child_process.spawn(this.ffmpegPath, args, { detached: false });
 

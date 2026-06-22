@@ -12,6 +12,8 @@
   "jettyLiveLastFrameLabel": "Frame terakhir diterima",
   "jettyLiveRestartsLabel": "Upaya restart (watchdog)",
   "jettyLiveHealthUnreachable": "Tidak dapat menjangkau API health stream. Pastikan layanan RTSP helper berjalan.",
+  "jettyLiveHealthUnreachableBanner": "Layanan stream helper tidak berjalan — video tidak dapat dimulai.",
+  "jettyLiveHealthUnreachableDevHint": "Dari root repo, jalankan npm run dev:stream di terminal terpisah (atau npm run dev:jetty-live untuk stream + UI sekaligus). Memerlukan FFmpeg di PATH dan akses jaringan/VPN ke URL RTSP kamera.",
   "jettyLiveHealthUnreachableShort": "API health tidak terjangkau",
   "jettyLiveExpandHealth": "Buka bagian kesehatan stream",
   "jettyLiveCollapseHealth": "Tutup bagian kesehatan stream",

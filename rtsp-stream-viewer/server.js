@@ -27,6 +27,9 @@ const STALL_MS          = parseInt(process.env.STALL_MS          || '8000',  10)
 const STALL_KILL_MS     = parseInt(process.env.STALL_KILL_MS     || '30000', 10);
 const IDLE_STOP_MS      = parseInt(process.env.STREAM_IDLE_STOP_MS || '30000', 10);
 const STREAM_OUTPUT_FPS = process.env.STREAM_OUTPUT_FPS || '1';
+// mpeg1video only accepts standard MPEG-1 rates (e.g. 25). Throttle via -vf fps=, not -r 1.
+const STREAM_MPEG1_RATE = process.env.STREAM_MPEG1_RATE || '25';
+const STREAM_SCALE      = process.env.STREAM_SCALE || '640:-1';
 const FFMPEG_PATH       = process.env.FFMPEG_PATH || 'ffmpeg';
 
 // Input flags placed BEFORE -i (e.g. -rtsp_transport must come before -i).
@@ -37,7 +40,19 @@ if (process.env.RTSP_TRANSPORT) {
   INPUT_FLAGS['-rtsp_transport'] = process.env.RTSP_TRANSPORT;
 }
 
-const OUTPUT_FLAGS = { '-r': STREAM_OUTPUT_FPS, '-stats': '' };
+function buildVideoFilter() {
+  if (process.env.STREAM_VIDEO_FILTER) {
+    return process.env.STREAM_VIDEO_FILTER;
+  }
+  const parts = [];
+  if (STREAM_SCALE) parts.push(`scale=${STREAM_SCALE}`);
+  parts.push('format=yuv420p');
+  parts.push(`fps=${STREAM_OUTPUT_FPS}`);
+  return parts.join(',');
+}
+
+const VIDEO_FILTER = buildVideoFilter();
+const OUTPUT_FLAGS = { '-r': STREAM_MPEG1_RATE, '-stats': '' };
 
 // ── mutable state ─────────────────────────────────────────────────────────────
 let currentRtspUrl   = DEFAULT_RTSP_URL;
@@ -151,6 +166,8 @@ function startStream(opts = {}) {
       ffmpegPath:         FFMPEG_PATH,
       inputFfmpegOptions: INPUT_FLAGS,
       ffmpegOptions:      OUTPUT_FLAGS,
+      videoFilter:        VIDEO_FILTER,
+      noAudio:            true,
     });
     muxer = m;
 
@@ -309,5 +326,5 @@ app.listen(HTTP_PORT, () => {
   console.log(`HTTP  : http://localhost:${HTTP_PORT}`);
   console.log(`WS    : ws://localhost:${WS_PORT}`);
   console.log(`RTSP  : ${maskRtsp(currentRtspUrl)}`);
-  console.log(`FPS   : ${STREAM_OUTPUT_FPS} (on-demand; idle stop ${IDLE_STOP_MS}ms)`);
+  console.log(`FPS   : ${STREAM_OUTPUT_FPS} (vf fps=; mpeg1 -r ${STREAM_MPEG1_RATE}; idle stop ${IDLE_STOP_MS}ms)`);
 });
