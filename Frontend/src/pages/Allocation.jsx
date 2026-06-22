@@ -35,6 +35,15 @@ import '../styles/allocation.css'
 import '../styles/modal.css'
 import { MAX_REMARK_CHARS } from '../constants/inputLimits'
 import { mergeBerthsStateForPlanPov, mergeQueueRowsForPlanPov } from '../utils/allocationPlanPovMerge'
+import {
+  currentPhaseLabelForVessel,
+  deriveCurrentPhaseIndex,
+  getPlanAlongsideEndMs,
+  getVesselAlongsideEndMs,
+  isPlanOrVesselSailed,
+  isVesselReadyToSail,
+  isVesselSailed,
+} from '../utils/allocationVesselPhase'
 import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
 import EtcBreachBadge from '../components/EtcBreachBadge'
 import { getEtcBreach, getEtcBreachRagStatus } from '../utils/etcBreach'
@@ -81,11 +90,6 @@ function getPhaseLink(label, vessel, plannedBerthingPath = '/allocation-plans') 
     return `${base}/op-${opId}/pre-checking`
   }
   return phaseRoutes[label] || '#'
-}
-
-function isVesselReadyToSail(vessel) {
-  const opStatus = String(vessel?.status || '').toUpperCase()
-  return ['SIGNOFF_REQUESTED', 'SIGNOFF_APPROVED'].includes(opStatus)
 }
 
 const PRIORITY_OPTIONS = ['Low', 'Moderate', 'High', 'Critical']
@@ -297,21 +301,6 @@ function formatVesselRecordLastUpdatedLine(vessel) {
   const d = new Date(raw)
   if (Number.isNaN(d.getTime())) return null
   return `Last updated on ${formatDateTimeDisplay(raw)}${by ? ` by ${by}` : ''}`
-}
-
-function deriveCurrentPhaseIndex(vessel) {
-  const siDone = Boolean(vessel?.shippingInstructionId)
-  const plannedBerthingDone = Boolean((vessel?.jetty || '').trim())
-  const atBerthDone = Boolean(vessel?.tbDateTime)
-  // Clearance interpreted as "Ready to sail" (consistent with Dashboard ready/completed).
-  const readyToSail = isVesselReadyToSail(vessel)
-
-  if (!siDone) return 0 // Shipping Instruction
-  if (!plannedBerthingDone) return 1 // Planned berthing
-  // At-Berth stays "in progress" until Ready-to-sail.
-  if (!atBerthDone) return 2 // At-Berth (not started / in progress until TB recorded)
-  if (!readyToSail) return 2 // At-Berth (still in progress)
-  return 3 // Clearance (in progress/done depending on downstream meaning)
 }
 
 function getArrivalMsForJettyValidation(row) {
@@ -2133,8 +2122,9 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
               const vessel = vesselRow || null
               const phases = UNIFIED_PHASES
               const currentPhaseIndex = deriveCurrentPhaseIndex(vessel)
-              const currentPhaseLabel = phases[Math.min(Math.max(currentPhaseIndex, 0), phases.length - 1)] || '—'
+              const currentPhaseLabel = currentPhaseLabelForVessel(vessel, phases)
               const readyToSail = isVesselReadyToSail(vessel)
+              const hasSailed = isVesselSailed(vessel)
               const formatModalDateTime = (val) => {
                 if (val == null || val === '') return '—'
                 return formatDateTimeDisplay(val)
@@ -2154,7 +2144,6 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
               const tbMs = parseDateMs(vessel?.tbDateTime)
               const estCompMs = parseDateMs(vessel?.estimatedCompletionDateTime)
               const opsCompMs = parseDateMs(vessel?.operationsCompletedDateTime)
-              const actualCompMs = parseDateMs(vessel?.actualCompletionDateTime)
               const nowMs = Date.now()
               const isPlanDetailMode = Boolean(isPlanCentric && vesselDetailPlanId != null)
               const planTbEffective = planDetail?.tb ?? planDetail?.dockingStartTime
@@ -2167,25 +2156,27 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
               const planTbMs = parseDateMs(planTbEffective)
               const planEstCompMs = parseDateMs(planDetail?.estimatedCompletionTime)
               const planOpsCompMs = parseDateMs(planDetail?.operationsCompletedAt)
-              const planActCompMs = parseDateMs(planDetail?.actualCompletionTime)
+              const planAlongsideEndMs = getPlanAlongsideEndMs(planDetail, vessel, nowMs)
               const planTimeSinceBerthing =
                 planTbMs != null
-                  ? formatDuration(Math.max(0, (planActCompMs ?? planOpsCompMs ?? nowMs) - planTbMs))
+                  ? formatDuration(Math.max(0, planAlongsideEndMs - planTbMs))
                   : '—'
-              const planEstTimeRemaining =
-                planOpsCompMs != null
+              const planSailed = isPlanOrVesselSailed(planDetail, vessel)
+              const planEstTimeRemaining = planSailed
+                ? tAlloc('planModalSailed', { defaultValue: 'Sailed' })
+                : planOpsCompMs != null
                   ? tAlloc('planModalCompleted', { defaultValue: 'Completed' })
                   : planEstCompMs != null
                     ? planEstCompMs > nowMs
                       ? formatDuration(planEstCompMs - nowMs)
                       : tAlloc('planModalOverdue', { defaultValue: 'Overdue' })
                     : '—'
+              const vesselAlongsideEndMs = getVesselAlongsideEndMs(vessel, nowMs)
               const timeSinceBerthing =
-                tbMs != null
-                  ? formatDuration(Math.max(0, (actualCompMs ?? opsCompMs ?? nowMs) - tbMs))
-                  : '—'
-              const estTimeRemaining =
-                opsCompMs != null
+                tbMs != null ? formatDuration(Math.max(0, vesselAlongsideEndMs - tbMs)) : '—'
+              const estTimeRemaining = hasSailed
+                ? tAlloc('planModalSailed', { defaultValue: 'Sailed' })
+                : opsCompMs != null
                   ? tAlloc('planModalCompleted', { defaultValue: 'Completed' })
                   : estCompMs != null
                     ? estCompMs > nowMs
@@ -2261,7 +2252,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                           // At-Berth deep link requires an operation id.
                           (label === 'At-Berth' && !vessel?.operationId) ||
                           // Clearance should not be clickable until ready to sail.
-                          (isClearance && !readyToSail) ||
+                          (isClearance && !readyToSail && !hasSailed) ||
                           // If we couldn't resolve a route, disable.
                           !to
                         const content = label === 'Shipping Instruction' ? (
