@@ -1216,6 +1216,83 @@ export default function ShipmentPlansList() {
             </tbody>
           </table>
         </div>
+
+        <div className="allocation-mobile-cards shipping-instruction-mobile-cards" aria-label={t('tableSectionTitle')}>
+          {paginatedFilteredPlans.map((row) => (
+            <article key={`plan-mobile-${row.id}`} className="allocation-mobile-card">
+              <header className="allocation-mobile-card__header">
+                <strong>{row.planReference || `Plan #${row.id}`}</strong>
+                <span className={approvalBadgeClass(row.approvalStatus)}>{row.approvalStatus}</span>
+              </header>
+              <dl className="allocation-mobile-card__grid">
+                <dt>{t('colVessel')}</dt>
+                <dd>{row.vesselName || '—'}</dd>
+                <dt>{t('colPurpose')}</dt>
+                <dd><PurposeBadge purpose={row.purposeCode} /></dd>
+                <dt>{t('colJetty')}</dt>
+                <dd>{row.jettyName || '—'}</dd>
+                <dt>{t('colEta')}</dt>
+                <dd>{formatDateTimeDisplay(row.eta)}</dd>
+                <dt>{t('colSiRefs')}</dt>
+                <dd>
+                  {(row.shippingInstructions || []).length ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                      {(row.shippingInstructions || []).map((si) => (
+                        <a
+                          key={si.id}
+                          href="#"
+                          className="link"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setSiDocumentModalId(si.id)
+                          }}
+                        >
+                          {si.referenceNumber || `SI-${si.id}`}
+                        </a>
+                      ))}
+                    </div>
+                  ) : '—'}
+                </dd>
+              </dl>
+              <div className="allocation-mobile-card__actions" onClick={(e) => e.stopPropagation()}>
+                <ShipmentPlanRowActions
+                  plan={row}
+                  canEdit={canEdit('shipment-plan')}
+                  canApprove={canApprove('shipment-plan')}
+                  canDelete={canDelete('shipment-plan')}
+                  canView={canView('shipment-plan')}
+                  onEdit={() => openEditModal(row)}
+                  onSubmit={async () => {
+                    try {
+                      await submitShipmentPlan(row.id)
+                      setToast({ message: t('submitPlanSuccess'), variant: 'success' })
+                      await loadList()
+                    } catch (err) {
+                      setToast({ message: err?.message || t('submitPlanFailed'), variant: 'error' })
+                    }
+                  }}
+                  onOpenApproval={() => navigate(`/shipment-plans/approval/${row.id}`)}
+                  onViewHub={() => openViewModal(row)}
+                  onDelete={() => {
+                    const label = row.planReference || `Plan #${row.id}`
+                    if (!window.confirm(t('deletePlanConfirm', { label }))) return
+                    void (async () => {
+                      try {
+                        await deleteShipmentPlan(row.id)
+                        setToast({ message: t('deletePlanSuccess'), variant: 'success' })
+                        await loadList()
+                      } catch (err) {
+                        setToast({ message: err?.message || t('deletePlanFailed'), variant: 'error' })
+                      }
+                    })()
+                  }}
+                />
+              </div>
+            </article>
+          ))}
+        </div>
+
         {filteredPlans.length > 0 && (
           <div
             className="shipment-plans-list__pagination"
