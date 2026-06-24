@@ -1,18 +1,7 @@
 import '../styles/purpose-badge.css'
+import { resolvePurposeLabel } from '../utils/resolvePurposeLabel.js'
 
-/** Normalize for badges, filters, and sort (Allocation may only set loadDischarge). */
-export function resolvePurposeLabel(purpose, loadDischarge) {
-  const raw = (purpose ?? '').toString().trim()
-  if (raw) {
-    const lower = raw.toLowerCase()
-    if (lower === 'loading') return 'Loading'
-    if (lower === 'unloading') return 'Unloading'
-    return raw
-  }
-  if (loadDischarge === 'LOAD') return 'Loading'
-  if (loadDischarge === 'DISCH') return 'Unloading'
-  return ''
-}
+export { resolvePurposeLabel }
 
 /**
  * Same visual as At-Berth: green Loading, blue Unloading.

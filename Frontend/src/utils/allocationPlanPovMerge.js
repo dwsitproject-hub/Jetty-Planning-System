@@ -68,7 +68,7 @@ function mergeStatus(children) {
   return best || null
 }
 
-/** Prefer earliest TB among ops, else first row with operationId, else first child. */
+/** Prefer active (non-sailed) op with latest TB; else first row with operationId. */
 export function pickRepresentativeQueueChild(children) {
   const seqRank = (a, b) => {
     const va = Number.isFinite(Number(a?.sequence)) ? Number(a.sequence) : Number.POSITIVE_INFINITY
@@ -77,12 +77,17 @@ export function pickRepresentativeQueueChild(children) {
     return (Number(a?.operationId) || 0) - (Number(b?.operationId) || 0)
   }
   const sorted = [...(children || [])].sort(seqRank)
-  const withTb = sorted.filter((c) => c.tbDateTime && c.operationId != null)
-  if (withTb.length) {
-    return [...withTb].sort((a, b) => parseMs(a.tbDateTime) - parseMs(b.tbDateTime))[0]
-  }
   const withOp = sorted.filter((c) => c.operationId != null)
-  if (withOp.length) return withOp[0]
+  if (withOp.length) {
+    const nonSailed = withOp.filter((c) => String(c?.status || '').trim().toUpperCase() !== 'SAILED')
+    const pool = nonSailed.length ? nonSailed : withOp
+    return [...pool].sort((a, b) => {
+      const r = (STATUS_RANK[String(b?.status || '').trim().toUpperCase()] ?? 0)
+        - (STATUS_RANK[String(a?.status || '').trim().toUpperCase()] ?? 0)
+      if (r !== 0) return r
+      return (parseMs(b.tbDateTime) ?? 0) - (parseMs(a.tbDateTime) ?? 0)
+    })[0]
+  }
   return sorted[0] || null
 }
 
@@ -203,10 +208,11 @@ function mergePlanChildrenToQueueRow(children, planId, repMapOut, options = {}) 
     etbDateTime: minIsoDateTime(children, 'etbDateTime'),
     plannedEtbDateTime: minIsoDateTime(children, 'plannedEtbDateTime') ?? minIsoDateTime(children, 'etbDateTime'),
     pobDateTime: minIsoDateTime(children, 'pobDateTime'),
-    tbDateTime: minIsoDateTime(children, 'tbDateTime'),
+    tbDateTime: rep?.tbDateTime ?? minIsoDateTime(children, 'tbDateTime'),
     sobDateTime: maxIsoDateTime(children, 'sobDateTime'),
     estimatedCompletionDateTime: maxIsoDateTime(children, 'estimatedCompletionDateTime'),
     operationsCompletedDateTime: maxIsoDateTime(children, 'operationsCompletedDateTime'),
+    operationalStartDateTime: minIsoDateTime(children, 'operationalStartDateTime'),
     actualCompletionDateTime: maxIsoDateTime(children, 'actualCompletionDateTime'),
     castOffDateTime: maxIsoDateTime(children, 'castOffDateTime'),
     norTenderedDateTime: minIsoDateTime(children, 'norTenderedDateTime'),
@@ -328,9 +334,10 @@ function mergeOccupantGroup(group, planId, repMapFromQueue) {
     shipmentPlanId: planId,
     status: mergeStatus(group),
     taDateTime: minIsoDateTime(group, 'taDateTime'),
-    tbDateTime: minIsoDateTime(group, 'tbDateTime'),
+    tbDateTime: rep?.tbDateTime ?? minIsoDateTime(group, 'tbDateTime'),
     estimatedCompletionDateTime: maxIsoDateTime(group, 'estimatedCompletionDateTime'),
     operationsCompletedDateTime: maxIsoDateTime(group, 'operationsCompletedDateTime'),
+    operationalStartDateTime: minIsoDateTime(group, 'operationalStartDateTime'),
     actualCompletionDateTime: maxIsoDateTime(group, 'actualCompletionDateTime'),
     castOffDateTime: maxIsoDateTime(group, 'castOffDateTime'),
   }
