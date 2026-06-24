@@ -355,6 +355,11 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   width: 100%;
 }
 
+/* Tooltip wrapper must not block absolute bar positioning on the track */
+.jetty-schedule-gantt__track .jps-tooltip-trigger {
+  display: contents;
+}
+
 .jetty-schedule-gantt__bar {
   position: absolute;
   display: inline-flex;
@@ -439,6 +444,198 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   color: #4b5563;
 }
 
+/* Segmented actual bar (tri-color milestones) */
+.jetty-schedule-gantt__bar-slot {
+  position: absolute;
+  z-index: 1;
+  min-height: 22px;
+  box-sizing: border-box;
+}
+
+.jetty-schedule-gantt__bar-slot .jps-tooltip-trigger {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.jetty-schedule-gantt__bar-host {
+  position: relative;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: none;
+  display: block;
+  font: inherit;
+  text-align: left;
+  z-index: 1;
+  min-height: 22px;
+  box-sizing: border-box;
+}
+
+button.jetty-schedule-gantt__bar-host--btn {
+  cursor: pointer;
+}
+
+button.jetty-schedule-gantt__bar-host--btn:hover .jetty-schedule-gantt__bar--actual-segmented {
+  filter: brightness(1.05);
+}
+
+button.jetty-schedule-gantt__bar-host--btn:focus-visible {
+  outline: 2px solid var(--color-focus-ring, #2563eb);
+  outline-offset: 2px;
+}
+
+.jetty-schedule-gantt__segmented-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.jetty-schedule-gantt__bar--actual-segmented {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 22px;
+  padding: 0;
+  overflow: visible;
+  border: 1px solid rgba(var(--gantt-actual-rgb), 0.55);
+  background: transparent;
+  color: var(--gantt-actual-text);
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.jetty-schedule-gantt__actual-phases {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  z-index: 0;
+}
+
+.jetty-schedule-gantt__actual-phase {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  box-sizing: border-box;
+}
+
+.jetty-schedule-gantt__actual-phase + .jetty-schedule-gantt__actual-phase {
+  border-left: 2px solid rgba(255, 255, 255, 0.85);
+}
+
+.jetty-schedule-gantt__actual-phase--berthing {
+  background: rgba(var(--gantt-actual-phase-berthing-rgb), 0.55);
+}
+
+.jetty-schedule-gantt__actual-phase--atBerthOps {
+  background: rgba(var(--gantt-actual-phase-ops-rgb), 0.72);
+}
+
+.jetty-schedule-gantt__actual-phase--clearance {
+  background: rgba(var(--gantt-actual-phase-clearance-rgb), 0.65);
+}
+
+.jetty-schedule-gantt__actual-phase--open-end.jetty-schedule-gantt__actual-phase--berthing {
+  background: linear-gradient(
+    to right,
+    rgba(var(--gantt-actual-phase-berthing-rgb), 0.72),
+    rgba(var(--gantt-actual-phase-berthing-rgb), 0.08)
+  );
+}
+
+.jetty-schedule-gantt__actual-phase--open-end.jetty-schedule-gantt__actual-phase--atBerthOps {
+  background: linear-gradient(
+    to right,
+    rgba(var(--gantt-actual-phase-ops-rgb), 0.85),
+    rgba(var(--gantt-actual-phase-ops-rgb), 0.08)
+  );
+}
+
+.jetty-schedule-gantt__actual-phase--open-end.jetty-schedule-gantt__actual-phase--clearance {
+  background: linear-gradient(
+    to right,
+    rgba(var(--gantt-actual-phase-clearance-rgb), 0.78),
+    rgba(var(--gantt-actual-phase-clearance-rgb), 0.08)
+  );
+}
+
+.jetty-schedule-gantt__bar-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  pointer-events: none;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: inherit;
+}
+
+.jetty-schedule-gantt__phase-marker {
+  position: absolute;
+  top: -6px;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+
+.jetty-schedule-gantt__phase-marker::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid rgba(var(--gantt-actual-rgb), 0.85);
+}
+
+.jetty-schedule-gantt__phase-marker-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+  color: rgba(var(--gantt-actual-rgb), 0.9);
+}
+
+.jetty-schedule-gantt__phase-labels {
+  position: relative;
+  height: 14px;
+  margin-top: 2px;
+  width: 100%;
+  font-size: 9px;
+  line-height: 1.2;
+  color: var(--color-text-steel);
+  pointer-events: none;
+}
+
+.jetty-schedule-gantt__phase-label {
+  position: absolute;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 2px;
+  box-sizing: border-box;
+}
+
+.jetty-schedule-gantt__bar-host--sailed .jetty-schedule-gantt__bar--actual-segmented {
+  opacity: 0.72;
+  filter: saturate(0.55);
+  border-color: rgba(107, 114, 128, 0.6);
+}
+
+.jetty-schedule-gantt__bar-host--sailed .jetty-schedule-gantt__actual-phase--berthing,
+.jetty-schedule-gantt__bar-host--sailed .jetty-schedule-gantt__actual-phase--atBerthOps,
+.jetty-schedule-gantt__bar-host--sailed .jetty-schedule-gantt__actual-phase--clearance {
+  background: rgba(107, 114, 128, 0.35);
+}
+
 .jetty-schedule-gantt__legend--two {
   flex-wrap: wrap;
   gap: var(--spacing-2) var(--spacing-4);
@@ -470,6 +667,19 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 .jetty-schedule-gantt__swatch--actual-grad {
   background: linear-gradient(to right, rgba(var(--gantt-actual-rgb), 0.7), rgba(var(--gantt-actual-rgb), 0.1));
   border: 1px solid rgba(var(--gantt-actual-rgb), 0.35);
+}
+
+.jetty-schedule-gantt__swatch--actual-milestones {
+  background: linear-gradient(
+    to right,
+    rgba(var(--gantt-actual-phase-berthing-rgb), 0.65) 0%,
+    rgba(var(--gantt-actual-phase-berthing-rgb), 0.65) 33%,
+    rgba(var(--gantt-actual-phase-ops-rgb), 0.75) 33%,
+    rgba(var(--gantt-actual-phase-ops-rgb), 0.75) 66%,
+    rgba(var(--gantt-actual-phase-clearance-rgb), 0.7) 66%,
+    rgba(var(--gantt-actual-phase-clearance-rgb), 0.7) 100%
+  );
+  border: 1px solid rgba(var(--gantt-actual-rgb), 0.45);
 }
 
 .jetty-schedule-gantt__swatch--actual-etc-overdue {

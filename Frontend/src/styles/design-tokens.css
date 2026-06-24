@@ -39,6 +39,11 @@
   --gantt-actual: #7c3aed;
   --gantt-actual-text: #5b21b6;
   --gantt-actual-rgb: 124, 58, 237;
+  --gantt-actual-phase-berthing-rgb: 124, 58, 237;
+  --gantt-actual-phase-ops-rgb: 234, 179, 8;
+  --gantt-actual-phase-ops-text: #713f12;
+  --gantt-actual-phase-clearance-rgb: 34, 197, 94;
+  --gantt-actual-phase-clearance-text: #14532d;
 
   /* Typography */
   --font-primary: 'Inter', system-ui, -apple-system, sans-serif;

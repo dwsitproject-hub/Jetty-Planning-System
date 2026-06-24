@@ -374,6 +374,7 @@ function formatListRow(r) {
     tbDateTime: r.tb_datetime || null,
     estimatedCompletionDateTime: r.estimated_completion_datetime || null,
     operationsCompletedDateTime: r.operations_completed_datetime || null,
+    operationalStartDateTime: r.operational_start_datetime || null,
     actualCompletionDateTime: r.actual_completion_datetime || null,
     castOffDateTime: r.cast_off_datetime || null,
     status: r.source_status || null,
@@ -500,9 +501,17 @@ function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = 
         COALESCE(sp.etb, sp.tb, sp.docking_start_time, o.etb, o.tb, o.docking_start_time) AS etb_datetime,
         COALESCE(sp.pob, o.pob) AS pob_datetime,
         COALESCE(sp.sob, o.sob) AS sob_datetime,
-        COALESCE(sp.tb, sp.docking_start_time, o.tb, o.docking_start_time) AS tb_datetime,
+        COALESCE(sp.tb, o.tb, sp.docking_start_time, o.docking_start_time) AS tb_datetime,
         COALESCE(sp.estimated_completion_time, o.estimated_completion_time) AS estimated_completion_datetime,
         COALESCE(sp.operations_completed_at, o.operations_completed_at) AS operations_completed_datetime,
+        (SELECT MIN(oa.start_at)
+         FROM operation_operational_activities oa
+         WHERE oa.operation_id = o.id
+           AND oa.deleted_at IS NULL
+           AND oa.entry_type = 'activity'
+           AND oa.milestone_key IN ('opening_hatch', 'cargo_pre_conditioning', 'cargo_operations')
+           AND oa.start_at IS NOT NULL
+        ) AS operational_start_datetime,
         COALESCE(sp.actual_completion_time, o.actual_completion_time) AS actual_completion_datetime,
         COALESCE(sp.cast_off_at, o.cast_off_at) AS cast_off_datetime,
         COALESCE(sp.nor_tendered_at, o.nor_tendered_at) AS nor_tendered_datetime,
