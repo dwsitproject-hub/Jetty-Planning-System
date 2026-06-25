@@ -357,8 +357,8 @@ If you cloned into a **nested** folder on one host only (e.g. `/opt/jetty-planni
 
 ```bash
 git fetch origin
-git checkout sit-post-bontang-visit   # or your branch name
-git pull origin sit-post-bontang-visit
+git checkout sit   # or your branch name
+git pull origin sit
 git log -1 --oneline                  # confirm commit matches GitHub
 ```
 
@@ -378,8 +378,8 @@ git log -1 --oneline                  # confirm commit matches GitHub
 ```bash
 cd /opt/jetty-planning-system
 git fetch origin
-git checkout sit-post-bontang-visit
-git pull origin sit-post-bontang-visit
+git checkout sit
+git pull origin sit
 docker compose --env-file Backend/.env -f docker-compose.backend.yml build --no-cache
 docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d
 docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps-api npm run migrate
@@ -390,8 +390,8 @@ docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps
 ```bash
 cd /opt/jetty-planning-system
 git fetch origin
-git checkout sit-post-bontang-visit
-git pull origin sit-post-bontang-visit
+git checkout sit
+git pull origin sit
 docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml build --no-cache
 docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml up -d
 docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml exec -T jps-api npm run migrate
@@ -411,8 +411,8 @@ docker compose --env-file Backend/.env -f docker-compose.backend.yml logs --tail
 ```bash
 cd /opt/jetty-planning-system/Jetty-Planning-System
 git fetch origin
-git checkout sit-post-bontang-visit
-git pull origin sit-post-bontang-visit
+git checkout sit
+git pull origin sit
 docker compose -f docker-compose.app.yml build --no-cache
 docker compose -f docker-compose.app.yml up -d
 ```
