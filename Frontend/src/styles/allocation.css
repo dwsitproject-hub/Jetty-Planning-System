@@ -6,6 +6,252 @@
   margin-bottom: var(--spacing-6);
 }
 
+.card__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--spacing-3);
+}
+
+.card__title-row .card__title {
+  margin-bottom: 0;
+}
+
+.viz-popout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.viz-popout-btn__icon {
+  font-size: 1em;
+  line-height: 1;
+}
+
+/* Gantt layer toggle (Both / Planned / Actual) */
+.jetty-schedule-gantt__layer-toggle-field {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.jetty-schedule-gantt__layer-toggle-legend {
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+  padding: 0;
+  margin: 0 0 4px;
+}
+
+.jetty-schedule-gantt__layer-toggle {
+  display: inline-flex;
+  border: 1px solid var(--color-border-medium);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--color-surface, #fff);
+}
+
+.jetty-schedule-gantt__layer-toggle-option {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  cursor: pointer;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-steel);
+  user-select: none;
+}
+
+.jetty-schedule-gantt__layer-toggle-option input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.jetty-schedule-gantt__layer-toggle-option span {
+  display: block;
+  padding: 6px 12px;
+  border-right: 1px solid var(--color-border-light);
+}
+
+.jetty-schedule-gantt__layer-toggle-option:last-child span {
+  border-right: none;
+}
+
+.jetty-schedule-gantt__layer-toggle-option--active span {
+  background: var(--color-primary, #2563eb);
+  color: #fff;
+}
+
+.jetty-schedule-gantt__layer-toggle-option:hover:not(.jetty-schedule-gantt__layer-toggle-option--active) span {
+  background: var(--color-surface-muted, rgba(0, 0, 0, 0.04));
+}
+
+/* Popout window (embed route) — viewport-maximized layout */
+html.allocation-viz-popout-open,
+html.allocation-viz-popout-open body {
+  overflow: hidden;
+  height: 100%;
+  margin: 0;
+}
+
+html.allocation-viz-popout-open #root {
+  height: 100%;
+}
+
+.allocation-viz-popout {
+  box-sizing: border-box;
+  background: var(--color-page-bg, #f3f4f6);
+}
+
+.allocation-viz-popout--maximized {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  padding: 8px 12px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+}
+
+.allocation-viz-popout__header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2) var(--spacing-3);
+  min-height: 36px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border-light);
+  flex-shrink: 0;
+}
+
+.allocation-viz-popout__title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-base, 1rem);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.allocation-viz-popout__hint-inline {
+  display: none;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-steel);
+  white-space: nowrap;
+}
+
+@media (min-width: 720px) {
+  .allocation-viz-popout__hint-inline {
+    display: inline;
+  }
+}
+
+.allocation-viz-popout__body {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.allocation-viz-popout__body .jetty-schematic-section,
+.allocation-viz-popout__body .jetty-schedule-gantt {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+
+/* Popout: flat viz surface (no nested card chrome) */
+.jetty-schematic-section--popout,
+.jetty-schedule-gantt--popout {
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+}
+
+.jetty-schematic-section--popout .jetty-schematic__filters,
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__filters {
+  flex-shrink: 0;
+  margin-bottom: var(--spacing-2);
+  padding: var(--spacing-1) var(--spacing-2);
+}
+
+.jetty-schematic-section--popout .jetty-schematic__historical-hint {
+  flex-shrink: 0;
+  margin-bottom: var(--spacing-2);
+  font-size: var(--font-size-xs);
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__intro:not(:has(.jetty-schedule-gantt__error)) {
+  display: none;
+  margin: 0;
+  min-height: 0;
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__legend-details {
+  flex-shrink: 0;
+  margin-bottom: var(--spacing-2);
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__legend-details summary {
+  cursor: pointer;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-steel);
+  user-select: none;
+  list-style: none;
+  padding: 2px 0;
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__legend-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__legend-details summary::before {
+  content: '▶ ';
+  font-size: 0.65em;
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__legend-details[open] summary::before {
+  content: '▼ ';
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__legend-details .jetty-schedule-gantt__legend {
+  margin-top: var(--spacing-2);
+  margin-bottom: 0;
+}
+
+/* Single scroll container for chart content */
+.jetty-schematic-section--popout .jetty-schematic-wrap,
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  max-height: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.allocation-viz-popout__status {
+  margin: var(--spacing-4) 0;
+  color: var(--color-text-steel);
+}
+
+.allocation-viz-popout__status--error {
+  color: #991b1b;
+}
+
 .allocation-tabs {
   display: flex;
   gap: 0;
@@ -97,22 +343,8 @@
   margin-bottom: 0;
 }
 
-.jetty-schedule-gantt__compare {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-2);
-  font-size: var(--font-size-small);
-  color: var(--color-text-charcoal);
-  cursor: pointer;
-  user-select: none;
-  margin-bottom: 0;
-}
-
-.jetty-schedule-gantt__compare input {
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
-  accent-color: var(--color-primary);
+.jetty-schedule-gantt__layer-toggle-field {
+  align-self: flex-end;
 }
 
 .jetty-schedule-gantt__intro {
@@ -145,6 +377,10 @@
   -webkit-overflow-scrolling: touch;
   max-height: min(70vh, 720px);
   position: relative;
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__scroll {
+  max-height: none;
 }
 
 .jetty-schedule-gantt__matrix {

@@ -12,7 +12,14 @@ import {
 } from '../utils/jettyScheduleOccupancy'
 import { buildScheduleSegments, assignBankLanesByVessel } from '../utils/jettyScheduleGanttLanes'
 import { canRenderSegmentedActualBar } from '../utils/actualGanttPhases.js'
+import {
+  readGanttLayerMode,
+  resolveGanttLayerVisibility,
+  writeGanttLayerMode,
+} from '../utils/ganttLayerMode.js'
 import ActualSegmentedGanttBar from './ActualSegmentedGanttBar'
+import GanttLayerToggle from './GanttLayerToggle'
+import VisualizationPopoutButton from './VisualizationPopoutButton'
 import '../styles/dashboard.css'
 import '../styles/etc-breach.css'
 
@@ -58,7 +65,7 @@ function GanttCompletedIcon() {
 /** Default +3 calendar days from planned/actual start when completions unknown (display only) */
 const MAX_RANGE_MS = 548 * 24 * 60 * 60 * 1000
 const DAY_COL_MIN = 56
-/** Show planned + actual lanes on viewports ≥ this width, or when user checks "Compare" */
+/** Wide viewport — used for segmented phase labels only */
 const WIDE_BREAKPOINT_MQ = '(min-width: 1100px)'
 
 function startOfDay(d) {
@@ -205,12 +212,22 @@ function findScheduleSourceRow(listRows, seg) {
   })
 }
 
-export default function JettyScheduleGantt({ berthIds, berthsState, list, onSelectVessel }) {
+export default function JettyScheduleGantt({
+  berthIds,
+  berthsState,
+  list,
+  onSelectVessel,
+  layerMode: layerModeProp,
+  onLayerModeChange,
+  popoutProfile = 'plan',
+  hidePopoutButton = false,
+  isPopout = false,
+}) {
   const { t: tAlloc } = useTranslation('allocation')
   const def = useMemo(() => defaultDateRangeInputs(), [])
   const [dateFrom, setDateFrom] = useState(def.from)
   const [dateTo, setDateTo] = useState(def.to)
-  const [comparePlanActual, setComparePlanActual] = useState(false)
+  const [internalLayerMode, setInternalLayerMode] = useState(() => readGanttLayerMode())
   const [isWide, setIsWide] = useState(
     () => typeof window !== 'undefined' && window.matchMedia(WIDE_BREAKPOINT_MQ).matches
   )
@@ -222,7 +239,16 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
     return () => mq.removeEventListener('change', onChange)
   }, [])
 
-  const showDualLanes = isWide || comparePlanActual
+  const layerMode = layerModeProp ?? internalLayerMode
+  const { showPlanned, showActual, showDualLanes } = resolveGanttLayerVisibility(layerMode)
+
+  const handleLayerModeChange = (next) => {
+    writeGanttLayerMode(next)
+    if (layerModeProp == null) {
+      setInternalLayerMode(next)
+    }
+    onLayerModeChange?.(next)
+  }
 
   const [tick, setTick] = useState(0)
   useEffect(() => {
@@ -420,9 +446,60 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
     )
   }
 
+  const legendContent = (
+    <>
+      {showPlanned ? (
+        <>
+          <span className="allocation-schedule__legend-item">
+            <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--planned-solid" /> Planned
+            (known)
+          </span>
+          <span className="allocation-schedule__legend-item">
+            <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--planned-grad" /> Planned (open
+            end)
+          </span>
+        </>
+      ) : null}
+      {showActual ? (
+        <>
+          <span className="allocation-schedule__legend-item">
+            <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-solid" /> Actual (known)
+          </span>
+          <span className="allocation-schedule__legend-item">
+            <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-grad" /> Actual (open end)
+          </span>
+          <span className="allocation-schedule__legend-item">
+            <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-milestones" aria-hidden />
+            {tAlloc('ganttLegendActualMilestones', { defaultValue: 'Actual (detailed milestones)' })}
+          </span>
+          <span className="allocation-schedule__legend-item">
+            <span
+              className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-etc-overdue"
+              aria-hidden
+            />
+            {tAlloc('ganttLegendLatePastEtc', { defaultValue: 'Late (past ETC)' })}
+          </span>
+        </>
+      ) : null}
+      <span className="allocation-schedule__legend-item">
+        <span className="jetty-schedule-gantt__now-dot" aria-hidden /> Now
+      </span>
+      <span className="allocation-schedule__legend-item">
+        <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--status-sailed-off" /> Sailed off
+      </span>
+    </>
+  )
+
   return (
-    <section className="card jetty-schedule-gantt">
-      <h2 className="card__title">Jetty schedule</h2>
+    <section className={`jetty-schedule-gantt${isPopout ? ' jetty-schedule-gantt--popout' : ' card'}`}>
+      {!isPopout ? (
+        <div className="card__title-row">
+          <h2 className="card__title">Jetty schedule</h2>
+          {!hidePopoutButton ? (
+            <VisualizationPopoutButton mode="schedule" profile={popoutProfile} layerMode={layerMode} />
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="jetty-schedule-gantt__filters" role="search" aria-label="Schedule date range">
         <div className="jetty-schedule-gantt__filter-field">
@@ -445,67 +522,32 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
             onChange={(e) => setDateTo(e.target.value)}
           />
         </div>
+        <GanttLayerToggle value={layerMode} onChange={handleLayerModeChange} />
         <button type="button" className="btn btn--secondary jetty-schedule-gantt__reset" onClick={handleResetRange}>
           Reset
         </button>
-        {!isWide && (
-          <label className="jetty-schedule-gantt__compare">
-            <input
-              type="checkbox"
-              checked={comparePlanActual}
-              onChange={(e) => setComparePlanActual(e.target.checked)}
-            />
-            Compare plan vs actual
-          </label>
-        )}
       </div>
 
       <p className="jetty-schedule-gantt__intro">
         {rangeError ? <span className="jetty-schedule-gantt__error">{rangeError}</span> : null}
       </p>
 
-      <div
-        className={`allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two${showDualLanes ? '' : ' jetty-schedule-gantt__legend--planned-only'}`}
-      >
-        <span className="allocation-schedule__legend-item">
-          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--planned-solid" /> Planned
-          (known)
-        </span>
-        <span className="allocation-schedule__legend-item">
-          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--planned-grad" /> Planned (open
-          end)
-        </span>
-        {showDualLanes && (
-          <>
-            <span className="allocation-schedule__legend-item">
-              <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-solid" /> Actual
-              (known)
-            </span>
-            <span className="allocation-schedule__legend-item">
-              <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-grad" /> Actual (open
-              end)
-            </span>
-            <span className="allocation-schedule__legend-item">
-              <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-milestones" aria-hidden />
-              {tAlloc('ganttLegendActualMilestones', { defaultValue: 'Actual (detailed milestones)' })}
-            </span>
-            <span className="allocation-schedule__legend-item">
-              <span
-                className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-etc-overdue"
-                aria-hidden
-              />
-              {tAlloc('ganttLegendLatePastEtc', { defaultValue: 'Late (past ETC)' })}
-            </span>
-          </>
-        )}
-        <span className="allocation-schedule__legend-item">
-          <span className="jetty-schedule-gantt__now-dot" aria-hidden /> Now
-        </span>
-        <span className="allocation-schedule__legend-item">
-          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--status-sailed-off" /> Sailed
-          off
-        </span>
-      </div>
+      {isPopout ? (
+        <details className="jetty-schedule-gantt__legend-details">
+          <summary>{tAlloc('vizPopoutLegend', { defaultValue: 'Legend' })}</summary>
+          <div
+            className={`allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two${showActual ? '' : ' jetty-schedule-gantt__legend--planned-only'}`}
+          >
+            {legendContent}
+          </div>
+        </details>
+      ) : (
+        <div
+          className={`allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two${showActual ? '' : ' jetty-schedule-gantt__legend--planned-only'}`}
+        >
+          {legendContent}
+        </div>
+      )}
 
       <div className="jetty-schedule-gantt__scroll">
         <div
@@ -566,8 +608,10 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
                               <span className="jetty-schedule-gantt__lane-label">Planned</span>
                               <span className="jetty-schedule-gantt__lane-label">Actual</span>
                             </>
-                          ) : (
+                          ) : showPlanned ? (
                             <span className="jetty-schedule-gantt__lane-label">Planned</span>
+                          ) : (
+                            <span className="jetty-schedule-gantt__lane-label">Actual</span>
                           )}
                           <span className="jetty-schedule-gantt__jetty-status">Status: {statusLabel}</span>
                         </div>
@@ -586,8 +630,8 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
                             <div
                               className={`jetty-schedule-gantt__timeline-tracks${showDualLanes ? ' jetty-schedule-gantt__timeline-tracks--dual' : ''}`}
                             >
-                              {renderContinuousLane(row.rowKey, 'planned')}
-                              {showDualLanes && renderContinuousLane(row.rowKey, 'actual')}
+                              {showPlanned && renderContinuousLane(row.rowKey, 'planned')}
+                              {showActual && renderContinuousLane(row.rowKey, 'actual')}
                             </div>
                           </div>
                         </div>

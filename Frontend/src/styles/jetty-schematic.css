@@ -4,6 +4,30 @@
   margin-bottom: var(--spacing-3);
 }
 
+/* Popout full-view: slightly denser but readable */
+.jetty-schematic-section--popout {
+  --jetty-schematic-zone-height: 190px;
+  --jetty-schematic-pipeline-height: 28px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.jetty-schematic-section--popout .jetty-schematic__slot {
+  padding: 4px 6px;
+  font-size: var(--font-size-xs);
+  min-height: 72px;
+}
+
+.jetty-schematic-section--popout .jetty-schematic-wrap {
+  overflow: auto;
+  overflow-x: auto;
+  padding-bottom: var(--spacing-2);
+  flex: 1;
+  min-height: 0;
+}
+
 .jetty-schematic__filters {
   margin-bottom: var(--spacing-3);
 }
