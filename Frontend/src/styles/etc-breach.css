@@ -118,24 +118,24 @@
 }
 
 /* Segmented actual bar — ETC stripes on overdue phase only */
-.jetty-schedule-gantt__actual-phase--overdue.jetty-schedule-gantt__actual-phase--atBerthOps {
+.jetty-schedule-gantt__phase-segment--overdue.jetty-schedule-gantt__phase-segment--atBerthOps {
   background:
     repeating-linear-gradient(
       135deg,
       var(--color-etc-breach-bg-strong, rgba(196, 58, 49, 0.14)) 0 4px,
       var(--color-etc-breach-stripe, rgba(196, 58, 49, 0.22)) 4px 8px
     ),
-    rgba(var(--gantt-actual-phase-ops-rgb), 0.72);
+    rgb(var(--gantt-actual-phase-ops-rgb));
 }
 
-.jetty-schedule-gantt__actual-phase--overdue.jetty-schedule-gantt__actual-phase--clearance {
+.jetty-schedule-gantt__phase-segment--overdue.jetty-schedule-gantt__phase-segment--clearance {
   background:
     repeating-linear-gradient(
       135deg,
       var(--color-etc-breach-bg-strong, rgba(196, 58, 49, 0.14)) 0 4px,
       var(--color-etc-breach-stripe, rgba(196, 58, 49, 0.22)) 4px 8px
     ),
-    rgba(var(--gantt-actual-phase-clearance-rgb), 0.65);
+    rgb(var(--gantt-actual-phase-clearance-rgb));
 }
 
 /* Schematic slot — badge in title row */

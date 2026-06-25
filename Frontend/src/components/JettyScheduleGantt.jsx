@@ -328,10 +328,10 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
     const hasSegmentedActual = layer === 'actual' && segs.some((seg) => {
       if (seg.phase !== 'ops') return false
       const sourceRow = findScheduleSourceRow(listRows, seg)
-      return sourceRow && canRenderSegmentedActualBar(sourceRow, nowMs)
+      return sourceRow && canRenderSegmentedActualBar(sourceRow, nowMs, windowStartMs, windowEndMs)
     })
     const laneExtra = hasSegmentedActual && isWide ? 18 : 0
-    const laneH = Math.max(30 + laneExtra, 8 + segs.length * (26 + laneExtra))
+    const laneH = Math.max(30 + laneExtra, 8 + segs.length * (26 + (hasSegmentedActual ? 8 : 0)))
     return (
       <div
         className={`jetty-schedule-gantt__track jetty-schedule-gantt__track--${layer}`}
@@ -342,45 +342,27 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
           if (!pos) return null
           const { rawWidthPct: _rawWidthPct, ...posStyle } = pos
           const style = ganttBarInlineStyle(seg, posStyle, i)
-          const showPhaseLabels = isWide && (_rawWidthPct == null || _rawWidthPct >= 0.48)
 
           if (layer === 'actual' && seg.phase === 'ops') {
             const sourceRow = findScheduleSourceRow(listRows, seg)
-            const segmented = sourceRow ? canRenderSegmentedActualBar(sourceRow, nowMs) : null
+            const segmented = sourceRow
+              ? canRenderSegmentedActualBar(sourceRow, nowMs, windowStartMs, windowEndMs)
+              : null
             if (segmented) {
-              // Always position the bar from its real TB (phaseModel.barStartMs = sourceRow.tbDateTime)
-              // so the container never misaligns with inner phase colors, even when seg.startMs was
-              // derived from a stale/merged row.
-              const tbSeg = {
-                ...seg,
-                startMs: segmented.phaseModel.barStartMs,
-                endMs: segmented.phaseModel.barEndMs,
-              }
-              const tbPos = segmentTrackStyle(tbSeg, windowStartMs, totalMs)
-              if (!tbPos) return null
-              const { rawWidthPct: _tbW, ...tbPosStyle } = tbPos
-              const tbStyle = ganttBarInlineStyle(tbSeg, tbPosStyle, i)
-              const tbShowPhaseLabels = isWide && (_tbW == null || _tbW >= 0.48)
-              // Position on a track-level slot div — avoids tooltip trigger (display:contents)
-              // breaking percentage-based left/width on the inner button.
-              const { top, ...slotPos } = tbStyle
+              const tbShowPhaseLabels = isWide
               return (
-                <div
+                <ActualSegmentedGanttBar
                   key={`${layer}-${seg.phase}-${seg.vesselName}-${segmented.phaseModel.barStartMs}-${i}`}
-                  className="jetty-schedule-gantt__bar-slot"
-                  style={{ ...slotPos, top }}
-                >
-                  <ActualSegmentedGanttBar
-                    row={sourceRow}
-                    seg={tbSeg}
-                    phaseModel={segmented.phaseModel}
-                    layout={segmented.layout}
-                    posStyle={{ position: 'relative', width: '100%', height: '100%' }}
-                    barWidthPct={_tbW}
-                    showPhaseLabels={tbShowPhaseLabels}
-                    onSelectVessel={onSelectVessel}
-                  />
-                </div>
+                  row={sourceRow}
+                  seg={seg}
+                  phaseModel={segmented.phaseModel}
+                  trackSegments={segmented.trackSegments}
+                  windowStartMs={windowStartMs}
+                  totalMs={totalMs}
+                  stackIndex={i}
+                  showPhaseLabels={tbShowPhaseLabels}
+                  onSelectVessel={onSelectVessel}
+                />
               )
             }
           }

@@ -1,7 +1,5 @@
 import { parseMs, resolveActualAlongsideEnd } from './jettyScheduleOccupancy.js'
 
-const MIN_PHASE_PX = 4
-
 function after(prev, next) {
   if (next == null) return null
   if (prev == null) return next
@@ -29,6 +27,21 @@ function fmtShort(ms) {
   const hh = String(d.getHours()).padStart(2, '0')
   const mm = String(d.getMinutes()).padStart(2, '0')
   return `${day} ${hh}:${mm}`
+}
+
+/** Compact date for milestone markers above the Gantt track (e.g. "19 Jun"). */
+export function formatMarkerDate(ms) {
+  if (ms == null) return '—'
+  const d = new Date(ms)
+  return `${d.getDate()} ${d.toLocaleDateString('en-GB', { month: 'short' })}`
+}
+
+function clipToWindow(startMs, endMs, wStart, wEnd) {
+  if (endMs <= wStart || startMs >= wEnd) return null
+  return {
+    startMs: Math.max(startMs, wStart),
+    endMs: Math.min(endMs, wEnd),
+  }
 }
 
 /**
@@ -81,26 +94,46 @@ export function buildActualPhases(row, nowMs = Date.now()) {
     openEnd: false,
   })
 
-  const opsPhaseEnd = m3 ?? m4
-  phases.push({
-    key: 'atBerthOps',
-    kind: 'atBerthOps',
-    label: 'At Berth Ops',
-    startMs: m2,
-    endMs: opsPhaseEnd,
-    openEnd: m3 == null && openEnd,
-  })
-
-  if (m3 != null && m4 > m3) {
+  if (m3 != null) {
     phases.push({
-      key: 'clearance',
-      kind: 'clearance',
-      label: 'Clearance',
-      startMs: m3,
+      key: 'atBerthOps',
+      kind: 'atBerthOps',
+      label: 'At Berth Ops',
+      startMs: m2,
+      endMs: m3,
+      openEnd: false,
+    })
+    if (clearance != null && clearance > m3) {
+      phases.push({
+        key: 'clearance',
+        kind: 'clearance',
+        label: 'Clearance',
+        startMs: m3,
+        endMs: clearance,
+        openEnd: false,
+      })
+    } else if (m4 > m3) {
+      phases.push({
+        key: 'clearance',
+        kind: 'clearance',
+        label: 'Clearance',
+        startMs: m3,
+        endMs: m4,
+        openEnd: clearance == null && openEnd,
+      })
+    }
+  } else {
+    phases.push({
+      key: 'atBerthOps',
+      kind: 'atBerthOps',
+      label: 'At Berth Ops',
+      startMs: m2,
       endMs: m4,
-      openEnd: clearance == null && openEnd,
+      openEnd,
     })
   }
+
+  const barEndMs = phases[phases.length - 1].endMs
 
   const milestones = {
     tb: m1,
@@ -122,7 +155,7 @@ export function buildActualPhases(row, nowMs = Date.now()) {
 
   return {
     barStartMs: m1,
-    barEndMs: m4,
+    barEndMs,
     openEnd,
     isSailed,
     milestones,
@@ -159,12 +192,57 @@ export function buildActualPhases(row, nowMs = Date.now()) {
 }
 
 /**
- * @param {Array<{ startMs: number, endMs: number }>} phases
- * @param {number} barStartMs
- * @param {number} barEndMs
- * @param {number} [minPx]
+ * Timeline-ready phase segments clipped to the Gantt window (one slot per phase).
+ * @param {ReturnType<typeof buildActualPhases>} phaseModel
+ * @param {number} windowStartMs
+ * @param {number} windowEndMs
  */
-export function phaseLayout(phases, barStartMs, barEndMs, minPx = MIN_PHASE_PX) {
+export function phaseTrackSegments(phaseModel, windowStartMs, windowEndMs) {
+  const phases = phaseModel?.phases
+  if (!Array.isArray(phases) || phases.length === 0) return []
+  const out = []
+  phases.forEach((p, idx) => {
+    const clipped = clipToWindow(p.startMs, p.endMs, windowStartMs, windowEndMs)
+    if (!clipped || clipped.endMs <= clipped.startMs) return
+    out.push({
+      ...p,
+      startMs: clipped.startMs,
+      endMs: clipped.endMs,
+      isFirst: idx === 0,
+      isLast: idx === phases.length - 1,
+    })
+  })
+  return out
+}
+
+/** Milestone marker positions as % of the visible Gantt window. */
+export function markerTrackPositions(phaseModel, windowStartMs, totalMs) {
+  if (!phaseModel?.markers?.length || totalMs <= 0) return []
+  return phaseModel.markers.map((ms, index) => ({
+    ms,
+    index,
+    leftPct: ((ms - windowStartMs) / totalMs) * 100,
+  }))
+}
+
+/** Position a segment on the full Gantt timeline (0–100% of filtered range). */
+export function segmentTrackStyleFromMs(startMs, endMs, windowStartMs, totalMs) {
+  if (totalMs <= 0) return null
+  const leftPct = ((startMs - windowStartMs) / totalMs) * 100
+  const rawWidthPct = ((endMs - startMs) / totalMs) * 100
+  const w = Math.max(0.12, Math.min(100 - Math.max(0, leftPct), rawWidthPct))
+  const l = Math.max(0, Math.min(100 - w, leftPct))
+  return {
+    left: `${l}%`,
+    width: `${w}%`,
+    rawWidthPct,
+  }
+}
+
+/**
+ * @deprecated Use phaseTrackSegments for timeline positioning.
+ */
+export function phaseLayout(phases, barStartMs, barEndMs) {
   const total = barEndMs - barStartMs
   if (total <= 0) return []
   const out = []
@@ -177,17 +255,19 @@ export function phaseLayout(phases, barStartMs, barEndMs, minPx = MIN_PHASE_PX) 
       ...p,
       leftPct: ((startMs - barStartMs) / total) * 100,
       widthPct: Math.max(pct, 0),
-      minWidthPx: minPx,
     })
   }
   return out
 }
 
-/** Returns phase model + layout when tri-color segmented bar can render; else null. */
-export function canRenderSegmentedActualBar(row, nowMs = Date.now()) {
+/** Returns phase model + track segments when tri-color segmented bar can render; else null. */
+export function canRenderSegmentedActualBar(row, nowMs = Date.now(), windowStartMs, windowEndMs) {
   const phaseModel = buildActualPhases(row, nowMs)
   if (!phaseModel) return null
-  const layout = phaseLayout(phaseModel.phases, phaseModel.barStartMs, phaseModel.barEndMs)
-  if (!layout.length) return null
-  return { phaseModel, layout }
+  const trackSegments =
+    windowStartMs != null && windowEndMs != null
+      ? phaseTrackSegments(phaseModel, windowStartMs, windowEndMs)
+      : phaseModel.phases
+  if (!trackSegments.length) return null
+  return { phaseModel, trackSegments }
 }
