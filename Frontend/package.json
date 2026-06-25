@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test src/utils/dashboardPipelinePartition.test.js src/utils/jettyScheduleOccupancy.test.js src/utils/jettyScheduleGanttLanes.test.js src/utils/allocationPlanPovMerge.test.js src/utils/formatDateTimeDisplay.test.js src/utils/allocationVesselPhase.test.js src/utils/validateCastOffDepart.test.js src/utils/actualGanttPhases.test.js src/utils/ganttLayerMode.test.js",
+    "test": "node --test src/utils/dashboardPipelinePartition.test.js src/utils/jettyScheduleOccupancy.test.js src/utils/jettyScheduleGanttLanes.test.js src/utils/allocationPlanPovMerge.test.js src/utils/formatDateTimeDisplay.test.js src/utils/allocationVesselPhase.test.js src/utils/validateCastOffDepart.test.js src/utils/actualGanttPhases.test.js src/utils/ganttLayerMode.test.js src/utils/ganttBarDisplay.test.js",
     "test:e2e": "playwright test",
     "test:e2e:notifications": "playwright test e2e/notifications-bell.spec.js",
     "rebuild": "node scripts/rebuild.mjs"

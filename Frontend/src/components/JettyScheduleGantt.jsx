@@ -1,8 +1,6 @@
 import { useMemo, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import InteractiveTooltip from './InteractiveTooltip'
-import PurposeBadge, { resolvePurposeLabel } from './PurposeBadge'
-import EtcBreachBadge from './EtcBreachBadge'
 import { formatOverdueDuration } from '../utils/etcBreach'
 import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import {
@@ -20,53 +18,19 @@ import {
 import ActualSegmentedGanttBar from './ActualSegmentedGanttBar'
 import GanttLayerToggle from './GanttLayerToggle'
 import VisualizationPopoutButton from './VisualizationPopoutButton'
+import GanttDenseBlock from './GanttDenseBlock'
+import {
+  buildActualBlockModel,
+  buildPlannedBlockModel,
+  ganttDenseBlockAriaLabel,
+  GANTT_BAR_STACK_STEP,
+} from '../utils/ganttBarDisplay.js'
 import '../styles/dashboard.css'
 import '../styles/etc-breach.css'
-
-/** Replaces emoji (often renders as empty box on Windows) */
-function GanttVesselIcon() {
-  return (
-    <svg
-      className="jetty-schedule-gantt__bar-ship"
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      focusable="false"
-    >
-      {/* Simple hull + deck (no emoji — avoids missing-glyph box on Windows) */}
-      <path
-        fill="currentColor"
-        d="M2 20h20v2H2v-2zm2-2h16l-2-6H6L4 18zm2.5-8L8 6h8l.5 2 2.5 4H7L6.5 10z"
-      />
-    </svg>
-  )
-}
-
-/** Small completion marker for sailed-off vessels */
-function GanttCompletedIcon() {
-  return (
-    <svg
-      className="jetty-schedule-gantt__bar-ship"
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path
-        fill="currentColor"
-        d="M9.2 16.6 4.9 12.3l1.4-1.4 2.9 2.9 8-8 1.4 1.4-9.4 9.4z"
-      />
-    </svg>
-  )
-}
 
 /** Default +3 calendar days from planned/actual start when completions unknown (display only) */
 const MAX_RANGE_MS = 548 * 24 * 60 * 60 * 1000
 const DAY_COL_MIN = 56
-/** Wide viewport — used for segmented phase labels only */
-const WIDE_BREAKPOINT_MQ = '(min-width: 1100px)'
 
 function startOfDay(d) {
   const x = new Date(d.getTime())
@@ -134,15 +98,17 @@ function segmentPillClass(seg) {
 function ganttBarInlineStyle(seg, posStyle, stackIndex) {
   return {
     ...posStyle,
-    top: `${6 + stackIndex * 26}px`,
+    top: `${6 + stackIndex * GANTT_BAR_STACK_STEP}px`,
     ...(seg.etcOverdue && seg.etcOverduePct != null
       ? { '--etc-overdue-start': `${seg.etcOverduePct}%` }
       : {}),
   }
 }
 
-function ganttBarAriaLabel(seg) {
-  return [seg.vesselName, seg.purposeLabel, seg.status].filter(Boolean).join(', ')
+function ganttBarAriaLabel(seg, layer) {
+  const model =
+    layer === 'planned' ? buildPlannedBlockModel(seg) : buildActualBlockModel(seg, null)
+  return ganttDenseBlockAriaLabel(model, layer)
 }
 
 function buildGanttTooltipItems(seg, canClick) {
@@ -176,24 +142,12 @@ function buildGanttTooltipItems(seg, canClick) {
   return items
 }
 
-function GanttBarContent({ seg, barWidthPct }) {
-  const statusIcon = seg.status === 'Sailed off' ? <GanttCompletedIcon /> : <GanttVesselIcon />
-  const purposeEl = seg.purposeLabel ? (
-    <PurposeBadge purpose={seg.purposeLabel} loadDischarge={seg.loadDischarge} />
-  ) : null
-  const showOverdueBadge =
-    seg.etcOverdue && seg.overMs != null && (barWidthPct == null || barWidthPct >= 0.48)
-
-  return (
-    <>
-      {statusIcon}
-      <span className="jetty-schedule-gantt__bar-text">{seg.vesselName}</span>
-      {purposeEl}
-      {showOverdueBadge && seg.overMs != null ? (
-        <EtcBreachBadge overMs={seg.overMs} etcMs={seg.estCompMs} size="icon-only" />
-      ) : null}
-    </>
-  )
+function renderDenseBarContent(seg, layer, barWidthPct, sourceRow = null) {
+  const model =
+    layer === 'planned'
+      ? buildPlannedBlockModel(seg)
+      : buildActualBlockModel(seg, sourceRow)
+  return <GanttDenseBlock layer={layer} model={model} barWidthPct={barWidthPct} />
 }
 
 function findScheduleSourceRow(listRows, seg) {
@@ -228,16 +182,6 @@ export default function JettyScheduleGantt({
   const [dateFrom, setDateFrom] = useState(def.from)
   const [dateTo, setDateTo] = useState(def.to)
   const [internalLayerMode, setInternalLayerMode] = useState(() => readGanttLayerMode())
-  const [isWide, setIsWide] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia(WIDE_BREAKPOINT_MQ).matches
-  )
-
-  useEffect(() => {
-    const mq = window.matchMedia(WIDE_BREAKPOINT_MQ)
-    const onChange = () => setIsWide(mq.matches)
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
-  }, [])
 
   const layerMode = layerModeProp ?? internalLayerMode
   const { showPlanned, showActual, showDualLanes } = resolveGanttLayerVisibility(layerMode)
@@ -351,13 +295,7 @@ export default function JettyScheduleGantt({
       .filter((s) => s.rowKey === rowKey && s.layer === layer)
       .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs)
     const listRows = Array.isArray(list) ? list : []
-    const hasSegmentedActual = layer === 'actual' && segs.some((seg) => {
-      if (seg.phase !== 'ops') return false
-      const sourceRow = findScheduleSourceRow(listRows, seg)
-      return sourceRow && canRenderSegmentedActualBar(sourceRow, nowMs, windowStartMs, windowEndMs)
-    })
-    const laneExtra = hasSegmentedActual && isWide ? 18 : 0
-    const laneH = Math.max(30 + laneExtra, 8 + segs.length * (26 + (hasSegmentedActual ? 8 : 0)))
+    const laneH = Math.max(30, 8 + segs.length * GANTT_BAR_STACK_STEP)
     return (
       <div
         className={`jetty-schedule-gantt__track jetty-schedule-gantt__track--${layer}`}
@@ -375,7 +313,6 @@ export default function JettyScheduleGantt({
               ? canRenderSegmentedActualBar(sourceRow, nowMs, windowStartMs, windowEndMs)
               : null
             if (segmented) {
-              const tbShowPhaseLabels = isWide
               return (
                 <ActualSegmentedGanttBar
                   key={`${layer}-${seg.phase}-${seg.vesselName}-${segmented.phaseModel.barStartMs}-${i}`}
@@ -386,7 +323,6 @@ export default function JettyScheduleGantt({
                   windowStartMs={windowStartMs}
                   totalMs={totalMs}
                   stackIndex={i}
-                  showPhaseLabels={tbShowPhaseLabels}
                   onSelectVessel={onSelectVessel}
                 />
               )
@@ -396,8 +332,11 @@ export default function JettyScheduleGantt({
           const pillClass = segmentPillClass(seg)
           const canClick = Boolean(seg.vesselId && typeof onSelectVessel === 'function')
           const tooltipItems = buildGanttTooltipItems(seg, canClick)
-          const ariaLabel = ganttBarAriaLabel(seg)
+          const barLayer = layer === 'planned' ? 'planned' : 'actual'
+          const ariaLabel = ganttBarAriaLabel(seg, barLayer)
           const barClassName = `${pillClass}${canClick ? ' jetty-schedule-gantt__bar--btn' : ''}`
+          const sourceRow = barLayer === 'actual' ? findScheduleSourceRow(listRows, seg) : null
+          const denseContent = renderDenseBarContent(seg, barLayer, _rawWidthPct, sourceRow)
 
           if (canClick) {
             return (
@@ -417,7 +356,7 @@ export default function JettyScheduleGantt({
                   aria-label={ariaLabel}
                   onClick={() => onSelectVessel(seg.vesselId)}
                 >
-                  <GanttBarContent seg={seg} barWidthPct={_rawWidthPct} />
+                  {denseContent}
                 </button>
               </InteractiveTooltip>
             )
@@ -430,6 +369,7 @@ export default function JettyScheduleGantt({
               items={tooltipItems}
               emptyText="No details."
               placement="right"
+              interactiveChild
             >
               <span
                 className={barClassName}
@@ -437,7 +377,7 @@ export default function JettyScheduleGantt({
                 role="img"
                 aria-label={ariaLabel}
               >
-                <GanttBarContent seg={seg} barWidthPct={_rawWidthPct} />
+                {denseContent}
               </span>
             </InteractiveTooltip>
           )

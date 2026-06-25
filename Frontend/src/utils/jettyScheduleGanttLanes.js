@@ -1,4 +1,5 @@
 import { resolvePurposeLabel } from './resolvePurposeLabel.js'
+import { materialDisplayFromRow } from './ganttBarDisplay.js'
 import {
   parseMs,
   resolveActualAlongsideEnd,
@@ -73,7 +74,8 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
     const purposeLabel = resolvePurposeLabel(r.planPurposeLabel || r.purpose, r.loadDischarge)
     const loadDischarge = r.loadDischarge ?? null
     const cargoDisplay = r.totalQtyDisplay || null
-    const rowMeta = { purposeLabel, loadDischarge, cargoDisplay }
+    const materialDisplay = materialDisplayFromRow(r)
+    const rowMeta = { purposeLabel, loadDischarge, cargoDisplay, materialDisplay }
     const plannedEtb = parseMs(r.plannedEtbDateTime) ?? parseMs(r.etbDateTime)
     const eta = parseMs(r.etaDateTime)
     const ta = parseMs(r.taDateTime)
@@ -81,6 +83,7 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
     const estComp = parseMs(r.estimatedCompletionDateTime)
     const actComp = parseMs(r.actualCompletionDateTime)
     const castOff = parseMs(r.castOffDateTime)
+    const actualCompMs = actComp ?? castOff ?? null
     const sourceStatus = String(r.status || '').trim().toUpperCase()
     const isSailed = sourceStatus === 'SAILED'
     const status = isSailed ? 'Sailed off' : tb != null ? 'Berthing' : 'Arriving'
@@ -123,6 +126,7 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
           etaMs: eta,
           tbMs: tb,
           taMs: ta,
+          estCompMs: estComp,
           startSource: plannedEtb != null ? 'ETB' : 'ETA',
         },
         windowStartMs,
@@ -189,6 +193,7 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
           etaMs: eta,
           tbMs: tb,
           taMs: ta,
+          actualCompMs,
           startSource: 'TA',
         },
         windowStartMs,
@@ -235,6 +240,7 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
           tbMs: tb,
           taMs: ta,
           estCompMs: estComp,
+          actualCompMs,
           etcOverdue: isBreached,
           etcOverduePct,
           overMs: isBreached ? nowMs - estComp : null,
