@@ -1,0 +1,41 @@
+{
+  "when": "2026-06-26T03:02:36.994Z",
+  "results": [
+    {
+      "id": "FIX-AUTH",
+      "name": "Logged-out root shows sign-in (not Forbidden)",
+      "status": "PASS",
+      "note": "Jetty Planning System Smart scheduling for smarter ports EN ID Login JPS Jetty Planning Op"
+    },
+    {
+      "id": "FIX-LOGIN",
+      "name": "Login still works after fixes",
+      "status": "PASS",
+      "note": "url=http://localhost:3001/"
+    },
+    {
+      "id": "FIX-JSMPEG",
+      "name": "Jetty Live: no CSP/jsmpeg console error",
+      "status": "FAIL",
+      "note": "PAGEERROR: WebAssembly.instantiate(): Compiling or instantiating WebAssembly module violates the following Content Security policy directive because 'unsafe-eva"
+    },
+    {
+      "id": "FIX-JSMPEG2",
+      "name": "Jetty Live: window.JSMpeg available (script loaded same-origin)",
+      "status": "PASS",
+      "note": "JSMpeg=true"
+    },
+    {
+      "id": "FIX-I18N",
+      "name": "Dashboard in ID shows content (no Forbidden flash)",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "id": "DEM-DATA",
+      "name": "Demurrage shows SIs for March range",
+      "status": "PASS",
+      "note": "range applied"
+    }
+  ]
+}
