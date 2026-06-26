@@ -1,65 +1,35 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import html2canvas from 'html2canvas'
 import InteractiveTooltip from './InteractiveTooltip'
-import PurposeBadge, { resolvePurposeLabel } from './PurposeBadge'
-import EtcBreachBadge from './EtcBreachBadge'
 import { formatOverdueDuration } from '../utils/etcBreach'
 import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import {
-  parseMs,
   toDateInputValue,
   parseDateInputStart,
   parseDateInputEndExclusive,
-  resolveActualAlongsideEnd,
 } from '../utils/jettyScheduleOccupancy'
+import { buildScheduleSegments, assignBankLanesByVessel } from '../utils/jettyScheduleGanttLanes'
+import {
+  readGanttLayerMode,
+  resolveGanttLayerVisibility,
+  writeGanttLayerMode,
+} from '../utils/ganttLayerMode.js'
+import GanttLayerToggle from './GanttLayerToggle'
+import VisualizationPopoutButton from './VisualizationPopoutButton'
+import GanttDenseBlock from './GanttDenseBlock'
+import {
+  buildActualBlockModel,
+  buildPlannedBlockModel,
+  ganttDenseBlockAriaLabel,
+  GANTT_BAR_STACK_STEP,
+} from '../utils/ganttBarDisplay.js'
 import '../styles/dashboard.css'
 import '../styles/etc-breach.css'
 
-/** Replaces emoji (often renders as empty box on Windows) */
-function GanttVesselIcon() {
-  return (
-    <svg
-      className="jetty-schedule-gantt__bar-ship"
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      focusable="false"
-    >
-      {/* Simple hull + deck (no emoji — avoids missing-glyph box on Windows) */}
-      <path
-        fill="currentColor"
-        d="M2 20h20v2H2v-2zm2-2h16l-2-6H6L4 18zm2.5-8L8 6h8l.5 2 2.5 4H7L6.5 10z"
-      />
-    </svg>
-  )
-}
-
-/** Small completion marker for sailed-off vessels */
-function GanttCompletedIcon() {
-  return (
-    <svg
-      className="jetty-schedule-gantt__bar-ship"
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path
-        fill="currentColor"
-        d="M9.2 16.6 4.9 12.3l1.4-1.4 2.9 2.9 8-8 1.4 1.4-9.4 9.4z"
-      />
-    </svg>
-  )
-}
-
 /** Default +3 calendar days from planned/actual start when completions unknown (display only) */
-const DEFAULT_TAIL_MS = 3 * 24 * 60 * 60 * 1000
 const MAX_RANGE_MS = 548 * 24 * 60 * 60 * 1000
 const DAY_COL_MIN = 72
-/** Show planned + actual lanes on viewports ≥ this width, or when user checks "Compare" */
-const WIDE_BREAKPOINT_MQ = '(min-width: 1100px)'
 
 function startOfDay(d) {
   const x = new Date(d.getTime())
@@ -87,7 +57,8 @@ function buildDateColumns(windowStartMs, windowEndMs) {
     if (colStart < colEnd) {
       cols.push({
         key: `${dayStart.getFullYear()}-${dayStart.getMonth() + 1}-${dayStart.getDate()}`,
-        label: `${dayStart.toLocaleDateString('en-GB', { weekday: 'short' })}, ${formatDateDisplay(dayStart)}`,
+        label: `${dayStart.getDate()} ${dayStart.toLocaleDateString('en-GB', { month: 'short' })}`,
+        title: `${dayStart.toLocaleDateString('en-GB', { weekday: 'short' })}, ${formatDateDisplay(dayStart)}`,
         startMs: colStart,
         endMs: colEnd,
       })
@@ -95,215 +66,6 @@ function buildDateColumns(windowStartMs, windowEndMs) {
     cur.setDate(cur.getDate() + 1)
   }
   return cols
-}
-
-function clipToWindow(startMs, endMs, wStart, wEnd) {
-  if (endMs <= wStart || startMs >= wEnd) return null
-  return {
-    startMs: Math.max(startMs, wStart),
-    endMs: Math.min(endMs, wEnd),
-  }
-}
-
-function pushSegment(out, base, wStart, wEnd) {
-  const c = clipToWindow(base.startMs, base.endMs, wStart, wEnd)
-  if (!c || c.endMs <= c.startMs) return
-  out.push({ ...base, startMs: c.startMs, endMs: c.endMs })
-}
-
-function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
-  const sorted = [...plan].sort((a, b) => (a.sequence ?? 99) - (b.sequence ?? 99))
-  const out = []
-
-  sorted.forEach((r) => {
-    const jettyId = (r.jetty || '').trim().split('/')[0].trim()
-    if (!jettyId) return
-
-    const vesselId = r.vesselId
-    const bankLaneKey =
-      r.shipmentPlanId != null && r.shipmentPlanId !== ''
-        ? `plan-${r.shipmentPlanId}`
-        : r.vesselId
-    const vesselName = r.vesselName || r.vesselId || '—'
-    const purposeLabel = resolvePurposeLabel(r.planPurposeLabel || r.purpose, r.loadDischarge)
-    const loadDischarge = r.loadDischarge ?? null
-    const cargoDisplay = r.totalQtyDisplay || null
-    const rowMeta = { purposeLabel, loadDischarge, cargoDisplay }
-    const plannedEtb = parseMs(r.plannedEtbDateTime) ?? parseMs(r.etbDateTime)
-    const eta = parseMs(r.etaDateTime)
-    const ta = parseMs(r.taDateTime)
-    const tb = parseMs(r.tbDateTime)
-    const estComp = parseMs(r.estimatedCompletionDateTime)
-    const actComp = parseMs(r.actualCompletionDateTime)
-    const castOff = parseMs(r.castOffDateTime)
-    const sourceStatus = String(r.status || '').trim().toUpperCase()
-    const isSailed = sourceStatus === 'SAILED'
-    const status = isSailed ? 'Sailed off' : tb != null ? 'Berthing' : 'Arriving'
-
-    // Planned: ETB → est. completion when set; else +3 days from ETB (open end).
-    // (Independent of actual completion — matches “planned” semantics.)
-
-    const plannedStart = plannedEtb ?? eta
-    if (plannedStart != null) {
-      let opsEnd
-      let gradient
-      let label
-      if (estComp != null && estComp > plannedStart) {
-        opsEnd = estComp
-        gradient = false
-        label = 'Planned · alongside → est. completion'
-      } else {
-        opsEnd = plannedStart + DEFAULT_TAIL_MS
-        gradient = true
-        label =
-          estComp == null
-            ? 'Planned · alongside (+3 days — est. completion not set)'
-            : 'Planned · alongside (+3 days — est. completion not after start)'
-      }
-      pushSegment(
-        out,
-        {
-          layer: 'planned',
-          phase: 'ops',
-          jettyId,
-          bankLaneKey,
-          vesselId,
-          vesselName,
-          ...rowMeta,
-          gradient,
-          status,
-          label,
-          startMs: plannedStart,
-          endMs: opsEnd,
-          plannedEtbMs: plannedEtb,
-          etaMs: eta,
-          tbMs: tb,
-          taMs: ta,
-          startSource: plannedEtb != null ? 'ETB' : 'ETA',
-        },
-        windowStartMs,
-        windowEndMs
-      )
-    }
-
-    if (ta != null && tb == null) {
-      // TB not yet recorded: one “actual” bar from TA. Must follow the same completion matrix
-      // as alongside — otherwise (2) looked like +3 days here while planned used est. completion.
-      let transitEnd
-      let transitGradient = true
-      let transitLabel
-      const hasEst = estComp != null
-      const hasAct = actComp != null
-
-      if (hasEst && hasAct) {
-        if (actComp > ta) {
-          transitEnd = actComp
-          transitGradient = false
-          transitLabel = 'Actual · TA → actual completion (berth time TBD)'
-        } else {
-          transitEnd = ta + DEFAULT_TAIL_MS
-          transitLabel = 'Actual · TA recorded (berth time TBD — tail is indicative)'
-        }
-      } else if (hasEst && !hasAct) {
-        // (2) Est filled, actual completion NULL → end at est. completion, open-ended until TB/actual completion
-        if (estComp > ta) {
-          transitEnd = estComp
-          transitGradient = true
-          transitLabel =
-            'Actual · TA → est. completion (berth TBD — open end; actual completion not recorded)'
-        } else {
-          transitEnd = ta + DEFAULT_TAIL_MS
-          transitLabel = 'Actual · TA recorded (berth time TBD — tail is indicative)'
-        }
-      } else if (!hasEst && hasAct) {
-        if (actComp > ta) {
-          transitEnd = actComp
-          transitGradient = false
-          transitLabel = 'Actual · TA → actual completion (berth time TBD)'
-        } else {
-          transitEnd = ta + DEFAULT_TAIL_MS
-          transitLabel = 'Actual · TA recorded (berth time TBD — tail is indicative)'
-        }
-      } else {
-        // (1) both NULL → +3 days from TA
-        transitEnd = ta + DEFAULT_TAIL_MS
-        transitLabel = 'Actual · TA recorded (berth time TBD — tail is indicative)'
-      }
-
-      pushSegment(
-        out,
-        {
-          layer: 'actual',
-          phase: 'transit',
-          jettyId,
-          bankLaneKey,
-          vesselId,
-          vesselName,
-          ...rowMeta,
-          gradient: transitGradient,
-          status,
-          label: transitLabel,
-          startMs: ta,
-          endMs: transitEnd,
-          plannedEtbMs: plannedEtb,
-          etaMs: eta,
-          tbMs: tb,
-          taMs: ta,
-          startSource: 'TA',
-        },
-        windowStartMs,
-        windowEndMs
-      )
-    }
-
-    // Actual alongside: only after TB exists (do not draw ops bar until alongside started).
-    if (tb != null) {
-      const { endMs: opsEnd, gradient, label } = resolveActualAlongsideEnd({
-        tb,
-        estComp,
-        isSailed,
-        actComp,
-        castOff,
-        nowMs,
-      })
-
-      const isBreached = !isSailed && estComp != null && nowMs > estComp
-      const spanMs = opsEnd - tb
-      const etcOverduePct =
-        isBreached && spanMs > 0 ? Math.min(100, Math.max(0, ((estComp - tb) / spanMs) * 100)) : null
-
-      pushSegment(
-        out,
-        {
-          layer: 'actual',
-          phase: 'ops',
-          jettyId,
-          bankLaneKey,
-          vesselId,
-          vesselName,
-          ...rowMeta,
-          gradient,
-          status,
-          label: isBreached ? 'Actual · alongside (past est. completion)' : label,
-          startMs: tb,
-          endMs: opsEnd,
-          plannedEtbMs: plannedEtb,
-          etaMs: eta,
-          tbMs: tb,
-          taMs: ta,
-          estCompMs: estComp,
-          etcOverdue: isBreached,
-          etcOverduePct,
-          overMs: isBreached ? nowMs - estComp : null,
-          startSource: 'TB',
-        },
-        windowStartMs,
-        windowEndMs
-      )
-    }
-  })
-
-  return out
 }
 
 /** Position segment on the full timeline (0–100% of filtered range). */
@@ -335,15 +97,17 @@ function segmentPillClass(seg) {
 function ganttBarInlineStyle(seg, posStyle, stackIndex) {
   return {
     ...posStyle,
-    top: `${6 + stackIndex * 26}px`,
+    top: `${6 + stackIndex * GANTT_BAR_STACK_STEP}px`,
     ...(seg.etcOverdue && seg.etcOverduePct != null
       ? { '--etc-overdue-start': `${seg.etcOverduePct}%` }
       : {}),
   }
 }
 
-function ganttBarAriaLabel(seg) {
-  return [seg.vesselName, seg.purposeLabel, seg.status].filter(Boolean).join(', ')
+function ganttBarAriaLabel(seg, layer) {
+  const model =
+    layer === 'planned' ? buildPlannedBlockModel(seg) : buildActualBlockModel(seg, null)
+  return ganttDenseBlockAriaLabel(model, layer)
 }
 
 function buildGanttTooltipItems(seg, canClick) {
@@ -377,116 +141,57 @@ function buildGanttTooltipItems(seg, canClick) {
   return items
 }
 
-function GanttBarContent({ seg, barWidthPct }) {
-  const statusIcon = seg.status === 'Sailed off' ? <GanttCompletedIcon /> : <GanttVesselIcon />
-  const purposeEl = seg.purposeLabel ? (
-    <PurposeBadge purpose={seg.purposeLabel} loadDischarge={seg.loadDischarge} />
-  ) : null
-  const showOverdueBadge =
-    seg.etcOverdue && seg.overMs != null && (barWidthPct == null || barWidthPct >= 0.48)
-
-  return (
-    <>
-      {statusIcon}
-      <span className="jetty-schedule-gantt__bar-text">{seg.vesselName}</span>
-      {purposeEl}
-      {showOverdueBadge && seg.overMs != null ? (
-        <EtcBreachBadge overMs={seg.overMs} etcMs={seg.estCompMs} size="icon-only" />
-      ) : null}
-    </>
-  )
+function renderDenseBarContent(seg, layer, barWidthPct, sourceRow = null) {
+  const model =
+    layer === 'planned'
+      ? buildPlannedBlockModel(seg)
+      : buildActualBlockModel(seg, sourceRow)
+  return <GanttDenseBlock layer={layer} model={model} barWidthPct={barWidthPct} />
 }
 
-/** Short jetty id from allocation list row (matches segment jettyId). */
-function jettyIdFromListRow(row) {
-  return (row?.jetty || '').trim().split('/')[0].trim()
+function findScheduleSourceRow(listRows, seg) {
+  if (!Array.isArray(listRows)) return null
+  return listRows.find((r) => {
+    if (r.vesselId === seg.vesselId) return true
+    if (seg.bankLaneKey && r.vesselId === seg.bankLaneKey) return true
+    if (
+      seg.bankLaneKey &&
+      r.shipmentPlanId != null &&
+      seg.bankLaneKey === `plan-${r.shipmentPlanId}`
+    ) {
+      return true
+    }
+    return false
+  })
 }
 
-/**
- * Bank lanes (01, 02, …) are per vessel on a jetty, not per planned/actual layer.
- * Sort: earliest TB first, then operation id, then vessel id — then assign lane 0..capacity-1.
- */
-function assignBankLanesByVessel(baseSegments, rowDefs, listRows) {
-  const caps = new Map()
-  for (const r of rowDefs) caps.set(r.jettyId, r.capacity)
-
-  const rowBankKey = (row) =>
-    row?.shipmentPlanId != null && row.shipmentPlanId !== ''
-      ? `plan-${row.shipmentPlanId}`
-      : row?.vesselId
-
-  const metaByJettyVessel = new Map()
-  for (const row of listRows) {
-    const jid = jettyIdFromListRow(row)
-    const bk = rowBankKey(row)
-    if (!jid || !bk) continue
-    const k = `${jid}\0${bk}`
-    const tbMs = parseMs(row.tbDateTime)
-    const opRaw = row.operationId
-    const opId = opRaw != null && !Number.isNaN(Number(opRaw)) ? Number(opRaw) : null
-    metaByJettyVessel.set(k, { tbMs, opId })
-  }
-
-  const vesselsByJetty = new Map()
-  for (const s of baseSegments) {
-    const bk = s.bankLaneKey ?? s.vesselId
-    if (!bk) continue
-    if (!vesselsByJetty.has(s.jettyId)) vesselsByJetty.set(s.jettyId, new Set())
-    vesselsByJetty.get(s.jettyId).add(bk)
-  }
-
-  const laneByJettyVessel = new Map()
-  for (const [jettyId, vesselSet] of vesselsByJetty) {
-    const cap = Math.max(1, caps.get(jettyId) || 1)
-    const vessels = [...vesselSet]
-    vessels.sort((a, b) => {
-      const ka = `${jettyId}\0${a}`
-      const kb = `${jettyId}\0${b}`
-      const ma = metaByJettyVessel.get(ka) || {}
-      const mb = metaByJettyVessel.get(kb) || {}
-      const tbA = ma.tbMs ?? null
-      const tbB = mb.tbMs ?? null
-      if (tbA != null && tbB != null && tbA !== tbB) return tbA - tbB
-      if (tbA != null && tbB == null) return -1
-      if (tbA == null && tbB != null) return 1
-      const opA = ma.opId != null ? ma.opId : Number.MAX_SAFE_INTEGER
-      const opB = mb.opId != null ? mb.opId : Number.MAX_SAFE_INTEGER
-      if (opA !== opB) return opA - opB
-      return String(a).localeCompare(String(b))
-    })
-    vessels.forEach((vid, idx) => {
-      const lane = Math.min(idx, cap - 1)
-      laneByJettyVessel.set(`${jettyId}\0${vid}`, lane)
-    })
-  }
-
-  const out = []
-  for (const s of baseSegments) {
-    const bk = s.bankLaneKey ?? s.vesselId
-    const lane = laneByJettyVessel.get(`${s.jettyId}\0${bk}`) ?? 0
-    out.push({ ...s, laneIndex: lane, rowKey: `${s.jettyId}__${lane}` })
-  }
-  return out
-}
-
-export default function JettyScheduleGantt({ berthIds, berthsState, list, onSelectVessel }) {
+export default function JettyScheduleGantt({
+  berthIds,
+  berthsState,
+  list,
+  onSelectVessel,
+  layerMode: layerModeProp,
+  onLayerModeChange,
+  popoutProfile = 'plan',
+  hidePopoutButton = false,
+  isPopout = false,
+}) {
   const { t: tAlloc } = useTranslation('allocation')
   const def = useMemo(() => defaultDateRangeInputs(), [])
   const [dateFrom, setDateFrom] = useState(def.from)
   const [dateTo, setDateTo] = useState(def.to)
-  const [comparePlanActual, setComparePlanActual] = useState(false)
-  const [isWide, setIsWide] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia(WIDE_BREAKPOINT_MQ).matches
-  )
+  const [internalLayerMode, setInternalLayerMode] = useState(() => readGanttLayerMode())
 
-  useEffect(() => {
-    const mq = window.matchMedia(WIDE_BREAKPOINT_MQ)
-    const onChange = () => setIsWide(mq.matches)
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
-  }, [])
+  const layerMode = layerModeProp ?? internalLayerMode
+  const { showPlanned, showActual, showDualLanes } = resolveGanttLayerVisibility(layerMode)
 
-  const showDualLanes = isWide || comparePlanActual
+  const handleLayerModeChange = (next) => {
+    writeGanttLayerMode(next)
+    if (layerModeProp == null) {
+      setInternalLayerMode(next)
+    }
+    onLayerModeChange?.(next)
+  }
 
   const [tick, setTick] = useState(0)
   useEffect(() => {
@@ -565,8 +270,8 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
 
   const segments = useMemo(() => {
     const listRows = Array.isArray(list) ? list : []
-    return assignBankLanesByVessel(baseSegments, rowDefs, listRows)
-  }, [baseSegments, rowDefs, list])
+    return assignBankLanesByVessel(baseSegments, rowDefs, listRows, Date.now())
+  }, [baseSegments, rowDefs, list, tick])
 
   const nowFraction =
     totalMs > 0 ? Math.min(1, Math.max(0, (nowMs - windowStartMs) / totalMs)) : 0
@@ -584,11 +289,73 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
     setDateTo(next.to)
   }
 
+  const exportRef = useRef(null)
+  const [exporting, setExporting] = useState(false)
+
+  const handleExportJpeg = async () => {
+    const node = exportRef.current
+    if (!node || rangeError) return
+    setExporting(true)
+    // Lay out the full chart (no scroll cap), with an EXPLICIT pixel width taken from the
+    // matrix so we avoid `max-content` intrinsic-sizing (which loops with the bars'
+    // min-width:max-content and hangs the canvas renderer).
+    const matrix = node.querySelector('.jetty-schedule-gantt__matrix')
+    const fullWidth = Math.ceil((matrix ? matrix.scrollWidth : node.scrollWidth) + 16)
+    node.classList.add('jetty-schedule-gantt__export-area--capturing')
+    node.style.width = `${fullWidth}px`
+    let objectUrl = null
+    try {
+      void node.offsetHeight
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+      const width = Math.ceil(node.scrollWidth)
+      const height = Math.ceil(node.scrollHeight)
+      // Guard against any renderer hang so the button never stays stuck on "Exporting…".
+      const canvas = await Promise.race([
+        html2canvas(node, {
+          backgroundColor: '#ffffff',
+          scale: 1.5,
+          useCORS: true,
+          logging: false,
+          width,
+          height,
+          windowWidth: width,
+          windowHeight: height,
+          scrollX: 0,
+          scrollY: 0,
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('export timed out')), 60000)
+        ),
+      ])
+      // Blob + object URL downloads reliably even for large (multi-MB) images, unlike a data URL.
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.95))
+      if (!blob) throw new Error('canvas.toBlob returned null')
+      objectUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      const layerTag =
+        layerMode === 'planned' ? 'planned' : layerMode === 'actual' ? 'actual' : 'both'
+      link.download = `jetty-schedule_${dateFrom}_to_${dateTo}_${layerTag}.jpeg`
+      link.href = objectUrl
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Jetty schedule JPEG export failed:', err)
+    } finally {
+      node.classList.remove('jetty-schedule-gantt__export-area--capturing')
+      node.style.width = ''
+      if (objectUrl) setTimeout(() => URL.revokeObjectURL(objectUrl), 10000)
+      setExporting(false)
+    }
+  }
+
   const renderContinuousLane = (rowKey, layer) => {
     const segs = segments
       .filter((s) => s.rowKey === rowKey && s.layer === layer)
       .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs)
-    const laneH = Math.max(30, 8 + segs.length * 26)
+    const listRows = Array.isArray(list) ? list : []
+    const laneH = Math.max(30, 8 + segs.length * GANTT_BAR_STACK_STEP)
     return (
       <div
         className={`jetty-schedule-gantt__track jetty-schedule-gantt__track--${layer}`}
@@ -599,11 +366,17 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
           if (!pos) return null
           const { rawWidthPct: _rawWidthPct, ...posStyle } = pos
           const style = ganttBarInlineStyle(seg, posStyle, i)
+
+          // All actual bars render as one flat colour (no multi-phase shading) so "Actual"
+          // reads as a single colour across the chart. Phase/milestone detail stays in the tooltip.
           const pillClass = segmentPillClass(seg)
           const canClick = Boolean(seg.vesselId && typeof onSelectVessel === 'function')
           const tooltipItems = buildGanttTooltipItems(seg, canClick)
-          const ariaLabel = ganttBarAriaLabel(seg)
+          const barLayer = layer === 'planned' ? 'planned' : 'actual'
+          const ariaLabel = ganttBarAriaLabel(seg, barLayer)
           const barClassName = `${pillClass}${canClick ? ' jetty-schedule-gantt__bar--btn' : ''}`
+          const sourceRow = barLayer === 'actual' ? findScheduleSourceRow(listRows, seg) : null
+          const denseContent = renderDenseBarContent(seg, barLayer, _rawWidthPct, sourceRow)
 
           if (canClick) {
             return (
@@ -623,7 +396,7 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
                   aria-label={ariaLabel}
                   onClick={() => onSelectVessel(seg.vesselId)}
                 >
-                  <GanttBarContent seg={seg} barWidthPct={_rawWidthPct} />
+                  {denseContent}
                 </button>
               </InteractiveTooltip>
             )
@@ -636,6 +409,7 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
               items={tooltipItems}
               emptyText="No details."
               placement="right"
+              interactiveChild
             >
               <span
                 className={barClassName}
@@ -643,7 +417,7 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
                 role="img"
                 aria-label={ariaLabel}
               >
-                <GanttBarContent seg={seg} barWidthPct={_rawWidthPct} />
+                {denseContent}
               </span>
             </InteractiveTooltip>
           )
@@ -652,9 +426,46 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
     )
   }
 
+  const legendContent = (
+    <>
+      {showPlanned ? (
+        <span className="allocation-schedule__legend-item">
+          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--planned-solid" />
+          {tAlloc('ganttLegendPlanned', { defaultValue: 'Planned' })}
+        </span>
+      ) : null}
+      {showActual ? (
+        <span className="allocation-schedule__legend-item">
+          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-solid" />
+          {tAlloc('ganttLegendActual', { defaultValue: 'Actual' })}
+        </span>
+      ) : null}
+      <span className="allocation-schedule__legend-item">
+        <span className="jetty-schedule-gantt__legend-chip jetty-schedule-gantt__legend-chip--late" aria-hidden>
+          {tAlloc('ganttLateChip', { defaultValue: 'LATE' })}
+        </span>
+        {tAlloc('ganttLegendLatePastEtc', { defaultValue: 'Late (past ETC)' })}
+      </span>
+      <span className="allocation-schedule__legend-item">
+        <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--status-sailed-off" />
+        {tAlloc('ganttLegendSailed', { defaultValue: 'Sailed off' })}
+      </span>
+      <span className="allocation-schedule__legend-item">
+        <span className="jetty-schedule-gantt__now-dot" aria-hidden /> {tAlloc('ganttLegendNow', { defaultValue: 'Now' })}
+      </span>
+    </>
+  )
+
   return (
-    <section className="card jetty-schedule-gantt">
-      <h2 className="card__title">Jetty schedule</h2>
+    <section className={`jetty-schedule-gantt${isPopout ? ' jetty-schedule-gantt--popout' : ' card'}`}>
+      {!isPopout ? (
+        <div className="card__title-row">
+          <h2 className="card__title">Jetty schedule</h2>
+          {!hidePopoutButton ? (
+            <VisualizationPopoutButton mode="schedule" profile={popoutProfile} layerMode={layerMode} />
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="jetty-schedule-gantt__filters" role="search" aria-label="Schedule date range">
         <div className="jetty-schedule-gantt__filter-field">
@@ -677,63 +488,49 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
             onChange={(e) => setDateTo(e.target.value)}
           />
         </div>
+        <GanttLayerToggle value={layerMode} onChange={handleLayerModeChange} />
         <button type="button" className="btn btn--secondary jetty-schedule-gantt__reset" onClick={handleResetRange}>
           Reset
         </button>
-        {!isWide && (
-          <label className="jetty-schedule-gantt__compare">
-            <input
-              type="checkbox"
-              checked={comparePlanActual}
-              onChange={(e) => setComparePlanActual(e.target.checked)}
-            />
-            Compare plan vs actual
-          </label>
-        )}
+        <button
+          type="button"
+          className="btn btn--secondary jetty-schedule-gantt__export"
+          onClick={handleExportJpeg}
+          disabled={exporting || Boolean(rangeError)}
+          title={tAlloc('ganttExportJpegHint', { defaultValue: 'Export the current view (date range + layer) as a JPEG image' })}
+        >
+          {exporting
+            ? tAlloc('ganttExporting', { defaultValue: 'Exporting…' })
+            : tAlloc('ganttExportJpeg', { defaultValue: 'Export JPEG' })}
+        </button>
       </div>
 
       <p className="jetty-schedule-gantt__intro">
         {rangeError ? <span className="jetty-schedule-gantt__error">{rangeError}</span> : null}
       </p>
 
-      <div
-        className={`allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two${showDualLanes ? '' : ' jetty-schedule-gantt__legend--planned-only'}`}
-      >
-        <span className="allocation-schedule__legend-item">
-          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--planned-solid" /> Planned
-          (known)
-        </span>
-        <span className="allocation-schedule__legend-item">
-          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--planned-grad" /> Planned (open
-          end)
-        </span>
-        {showDualLanes && (
-          <>
-            <span className="allocation-schedule__legend-item">
-              <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-solid" /> Actual
-              (known)
-            </span>
-            <span className="allocation-schedule__legend-item">
-              <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-grad" /> Actual (open
-              end)
-            </span>
-            <span className="allocation-schedule__legend-item">
-              <span
-                className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-etc-overdue"
-                aria-hidden
-              />
-              {tAlloc('ganttLegendLatePastEtc', { defaultValue: 'Late (past ETC)' })}
-            </span>
-          </>
-        )}
-        <span className="allocation-schedule__legend-item">
-          <span className="jetty-schedule-gantt__now-dot" aria-hidden /> Now
-        </span>
-        <span className="allocation-schedule__legend-item">
-          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--status-sailed-off" /> Sailed
-          off
-        </span>
-      </div>
+      <div className="jetty-schedule-gantt__export-area" ref={exportRef}>
+        {exporting ? (
+          <div className="jetty-schedule-gantt__export-title">
+            {tAlloc('jettySchedule', { defaultValue: 'Jetty schedule' })} · {dateFrom} → {dateTo}
+          </div>
+        ) : null}
+        {isPopout ? (
+        <details className="jetty-schedule-gantt__legend-details">
+          <summary>{tAlloc('vizPopoutLegend', { defaultValue: 'Legend' })}</summary>
+          <div
+            className={`allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two${showActual ? '' : ' jetty-schedule-gantt__legend--planned-only'}`}
+          >
+            {legendContent}
+          </div>
+        </details>
+      ) : (
+        <div
+          className={`allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two${showActual ? '' : ' jetty-schedule-gantt__legend--planned-only'}`}
+        >
+          {legendContent}
+        </div>
+      )}
 
       <div className="jetty-schedule-gantt__scroll">
         <div
@@ -749,7 +546,7 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
               <div className="jetty-schedule-gantt__header-row" style={{ gridTemplateColumns }}>
                 <div className="jetty-schedule-gantt__corner">JETTY ID</div>
                 {dateColumns.map((col) => (
-                  <div key={col.key} className="jetty-schedule-gantt__th-day">
+                  <div key={col.key} className="jetty-schedule-gantt__th-day" title={col.title}>
                     {col.label}
                   </div>
                 ))}
@@ -794,8 +591,10 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
                               <span className="jetty-schedule-gantt__lane-label">Planned</span>
                               <span className="jetty-schedule-gantt__lane-label">Actual</span>
                             </>
-                          ) : (
+                          ) : showPlanned ? (
                             <span className="jetty-schedule-gantt__lane-label">Planned</span>
+                          ) : (
+                            <span className="jetty-schedule-gantt__lane-label">Actual</span>
                           )}
                           <span className="jetty-schedule-gantt__jetty-status">Status: {statusLabel}</span>
                         </div>
@@ -814,8 +613,8 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
                             <div
                               className={`jetty-schedule-gantt__timeline-tracks${showDualLanes ? ' jetty-schedule-gantt__timeline-tracks--dual' : ''}`}
                             >
-                              {renderContinuousLane(row.rowKey, 'planned')}
-                              {showDualLanes && renderContinuousLane(row.rowKey, 'actual')}
+                              {showPlanned && renderContinuousLane(row.rowKey, 'planned')}
+                              {showActual && renderContinuousLane(row.rowKey, 'actual')}
                             </div>
                           </div>
                         </div>
@@ -827,6 +626,7 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
             </>
           )}
         </div>
+      </div>
       </div>
     </section>
   )

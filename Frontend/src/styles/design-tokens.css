@@ -32,13 +32,23 @@
   --color-etc-breach-bg-strong: rgba(196, 58, 49, 0.14);
   --color-etc-breach-stripe: rgba(196, 58, 49, 0.22);
 
-  /* Jetty Schedule Gantt — timeline layer (not purpose/load-discharge) */
-  --gantt-planned: #ea580c;
-  --gantt-planned-text: #9a3412;
-  --gantt-planned-rgb: 234, 88, 12;
-  --gantt-actual: #7c3aed;
-  --gantt-actual-text: #5b21b6;
-  --gantt-actual-rgb: 124, 58, 237;
+  /* Jetty Schedule Gantt — only two timeline colors: Planned (soft amber) & Actual (soft blue).
+     Kept intentionally low-saturation ("not too bold"). Late/status are shown as chips, not colors. */
+  --gantt-planned: #d97706;
+  --gantt-planned-text: #92400e;
+  --gantt-planned-rgb: 217, 119, 6;
+  --gantt-actual: #2563eb;
+  --gantt-actual-text: #1e3a8a;
+  --gantt-actual-rgb: 37, 99, 235;
+  /* Actual phases are now shades of the SAME blue (no rainbow) so the bar reads as one "Actual" colour. */
+  --gantt-actual-phase-berthing-rgb: 219, 234, 254;
+  --gantt-actual-phase-ops-rgb: 191, 219, 254;
+  --gantt-actual-phase-ops-text: #1e3a8a;
+  --gantt-actual-phase-clearance-rgb: 147, 197, 253;
+  --gantt-actual-phase-clearance-text: #1e3a8a;
+  /* Late (past ETC) accent */
+  --gantt-late-rgb: 220, 38, 38;
+  --gantt-late-text: #b91c1c;
 
   /* Typography */
   --font-primary: 'Inter', system-ui, -apple-system, sans-serif;

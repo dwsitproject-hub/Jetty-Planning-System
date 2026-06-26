@@ -254,7 +254,7 @@ After code changes:
 
 ```bash
 cd /opt/jetty-planning-system
-git pull origin sit-post-bontang-visit
+git pull origin sit
 docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml up -d --build jps-api
 docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml exec -T jps-api npm run migrate
 ```

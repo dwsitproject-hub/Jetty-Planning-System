@@ -5,6 +5,36 @@ function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n))
 }
 
+function hasMeasurableRect(el) {
+  if (!(el instanceof HTMLElement)) return false
+  const r = el.getBoundingClientRect()
+  return r.width > 0 && r.height > 0
+}
+
+/** Pick a child with a real layout box (survives display:contents on the trigger). */
+function resolveAnchorElement(triggerEl, interactiveChild) {
+  if (!triggerEl) return null
+  const candidates = []
+  if (interactiveChild && triggerEl.firstElementChild instanceof HTMLElement) {
+    candidates.push(triggerEl.firstElementChild)
+  }
+  candidates.push(triggerEl)
+  for (const el of triggerEl.querySelectorAll(
+    'button, [role="img"], .jetty-schedule-gantt__bar, .jetty-schedule-gantt__segmented-group'
+  )) {
+    if (el instanceof HTMLElement) candidates.push(el)
+  }
+  const seen = new Set()
+  for (const el of candidates) {
+    if (seen.has(el)) continue
+    seen.add(el)
+    if (hasMeasurableRect(el)) return el
+  }
+  return triggerEl.firstElementChild instanceof HTMLElement
+    ? triggerEl.firstElementChild
+    : triggerEl
+}
+
 /**
  * Lightweight portal tooltip anchored to a trigger element.
  * UX modeled after DashboardActivityChart tooltip (clamp/flip + close on scroll/resize).
@@ -36,8 +66,8 @@ export default function InteractiveTooltip({
     if (!el) return null
     // For absolutely-positioned interactive children (e.g. Gantt bars), measure the child box
     // instead of the inline wrapper span so tooltip anchor follows the visual target.
-    const anchor =
-      interactiveChild && el.firstElementChild instanceof HTMLElement ? el.firstElementChild : el
+    const anchor = resolveAnchorElement(el, interactiveChild)
+    if (!anchor) return null
     const r = anchor.getBoundingClientRect()
     const gap = 10
     const estW = Math.min(maxWidth, 360)

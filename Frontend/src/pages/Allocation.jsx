@@ -2070,6 +2070,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
             onSelectBerth={handleBerthClick}
             onSelectVessel={(vesselId) => vesselId && selectVesselFromVisualization(vesselId)}
             slotReferenceLabel={isPlanCentric ? tAlloc('planRefSchematicLabel') : 'SI No'}
+            popoutProfile={isPlanCentric ? 'plan' : 'legacy'}
           />
         </div>
         <div
@@ -2084,6 +2085,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
             berthsState={berthsState}
             list={planViz.mergedSchedule}
             onSelectVessel={(vesselId) => vesselId && selectVesselFromVisualization(vesselId)}
+            popoutProfile={isPlanCentric ? 'plan' : 'legacy'}
           />
         </div>
       </div>

@@ -127,8 +127,15 @@ function departedBeforeDay(row, dayStartMs) {
   return end < dayStartMs
 }
 
+export function bankLaneKeyFromRow(row) {
+  if (row?.shipmentPlanId != null && row.shipmentPlanId !== '') {
+    return `plan-${row.shipmentPlanId}`
+  }
+  return row?.vesselId ?? null
+}
+
 /** Same ordering as Jetty schedule bank lanes (TB → operationId → vesselId). */
-function sortBerthOccupants(occupants) {
+export function sortBerthOccupants(occupants) {
   const list = Array.isArray(occupants) ? [...occupants] : []
   list.sort((a, b) => {
     const tbA = parseMs(a?.tbDateTime)
@@ -190,6 +197,50 @@ export function buildIncomingByJettyForDate(scheduleRows, dateYmd, asOfMs) {
     byJetty[jettyId].push(name)
   }
   return byJetty
+}
+
+/**
+ * Lane indices for vessels currently alongside (matches Jetty Schematic slot order).
+ * @returns {Map<string, number>} keys `"jettyId\0bankLaneKey"` → lane 0..capacity-1
+ */
+export function buildActiveLaneMap({ scheduleRows, berthCapacities, asOfMs }) {
+  const todayYmd = toDateInputValue(new Date(asOfMs))
+  const rows = Array.isArray(scheduleRows) ? scheduleRows : []
+  const caps =
+    berthCapacities instanceof Map
+      ? berthCapacities
+      : new Map(Object.entries(berthCapacities || {}))
+  const laneMap = new Map()
+
+  const byJetty = new Map()
+  for (const r of rows) {
+    if (!isAlongsideOccupiedOnDate(r, todayYmd, asOfMs)) continue
+    const jettyId = jettyIdFromScheduleRow(r)
+    const bk = bankLaneKeyFromRow(r)
+    if (!jettyId || !bk) continue
+    const list = byJetty.get(jettyId) || []
+    list.push(rowToOccupant(r))
+    byJetty.set(jettyId, list)
+  }
+
+  for (const [jettyId, occupants] of byJetty) {
+    const cap = Math.max(1, Number(caps.get(jettyId)) || 1)
+    const sorted = sortBerthOccupants(occupants)
+    const seen = new Set()
+    let laneIdx = 0
+    for (const occ of sorted) {
+      const bk =
+        occ.shipmentPlanId != null && occ.shipmentPlanId !== ''
+          ? `plan-${occ.shipmentPlanId}`
+          : occ.vesselId
+      if (!bk || seen.has(bk)) continue
+      seen.add(bk)
+      laneMap.set(`${jettyId}\0${bk}`, Math.min(laneIdx, cap - 1))
+      laneIdx += 1
+    }
+  }
+
+  return laneMap
 }
 
 export function buildBerthsForSchematicDate({ scheduleRows, berthsMaster, dateYmd, asOfMs }) {

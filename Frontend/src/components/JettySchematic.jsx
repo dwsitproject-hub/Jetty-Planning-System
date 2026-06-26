@@ -15,6 +15,7 @@ import {
   buildIncomingByJettyForDate,
 } from '../utils/jettyScheduleOccupancy'
 import { formatDateDisplay } from '../utils/formatDateTimeDisplay'
+import VisualizationPopoutButton from './VisualizationPopoutButton'
 import '../styles/jetty-schematic.css'
 
 const AT_BERTH_PAGE_KEY = 'at-berth'
@@ -115,6 +116,9 @@ export default function JettySchematic({
   onSelectVessel,
   /** Label for the second line in an occupied slot (default: SI number). */
   slotReferenceLabel = 'SI No',
+  popoutProfile = 'plan',
+  hidePopoutButton = false,
+  isPopout = false,
 }) {
   const { t } = useTranslation('pages')
   const { t: tAlloc } = useTranslation('allocation')
@@ -463,10 +467,13 @@ export default function JettySchematic({
   const isLoading =
     canLoadLayout && (layoutPhase === 'loading' || (layoutPhase === 'idle' && layoutColumns === null))
 
+  const sectionClassName = `jetty-schematic-section${isPopout ? ' jetty-schematic-section--popout' : ' card'}`
+  const cardTitle = !isPopout ? <h2 className="card__title">Jetty Schematic</h2> : null
+
   if (!canLoadLayout) {
     return (
-      <section className="card jetty-schematic-section">
-        <h2 className="card__title">Jetty Schematic</h2>
+      <section className={sectionClassName}>
+        {cardTitle}
         <p className="jetty-schematic__placeholder" role="status">
           Select an operational port to view the jetty schematic.
         </p>
@@ -476,8 +483,8 @@ export default function JettySchematic({
 
   if (isLoading) {
     return (
-      <section className="card jetty-schematic-section">
-        <h2 className="card__title">Jetty Schematic</h2>
+      <section className={sectionClassName}>
+        {cardTitle}
         <p className="jetty-schematic__placeholder jetty-schematic__placeholder--muted" role="status">
           Loading jetty layout…
         </p>
@@ -487,8 +494,8 @@ export default function JettySchematic({
 
   if (layoutPhase === 'error') {
     return (
-      <section className="card jetty-schematic-section">
-        <h2 className="card__title">Jetty Schematic</h2>
+      <section className={sectionClassName}>
+        {cardTitle}
         <p className="jetty-schematic__placeholder" role="alert">
           Unable to load jetty layout. Please refresh the page or try again later.
         </p>
@@ -498,8 +505,8 @@ export default function JettySchematic({
 
   if (layoutPhase === 'empty' || !layoutColumns?.length) {
     return (
-      <section className="card jetty-schematic-section">
-        <h2 className="card__title">Jetty Schematic</h2>
+      <section className={sectionClassName}>
+        {cardTitle}
         <p className="jetty-schematic__placeholder" role="status">
           {ADMIN_LAYOUT_PLACEHOLDER}
         </p>
@@ -520,8 +527,15 @@ export default function JettySchematic({
       : null
 
   return (
-    <section className="card jetty-schematic-section">
-      <h2 className="card__title">Jetty Schematic</h2>
+    <section className={sectionClassName}>
+      {!isPopout ? (
+        <div className="card__title-row">
+          <h2 className="card__title">Jetty Schematic</h2>
+          {!hidePopoutButton ? (
+            <VisualizationPopoutButton mode="schematic" profile={popoutProfile} />
+          ) : null}
+        </div>
+      ) : null}
       <div
         className="jetty-schematic__filters jetty-schedule-gantt__filters"
         role="search"

@@ -15,8 +15,10 @@ import '../styles/dashboard.css'
 import '../styles/jetty-live.css'
 
 const AT_BERTH_PAGE_KEY = 'at-berth'
-const JSMPEG_SCRIPT =
-  'https://cdn.jsdelivr.net/gh/phoboslab/jsmpeg@master/jsmpeg.min.js'
+// Served same-origin from Frontend/public/jsmpeg.min.js so the app CSP (script-src 'self')
+// allows it and the player works on air-gapped/offline deployments. Previously loaded from
+// cdn.jsdelivr.net, which the CSP blocked (player never initialised).
+const JSMPEG_SCRIPT = '/jsmpeg.min.js'
 
 function getStreamHttpBase() {
   const raw = import.meta.env.VITE_JETTY_LIVE_HTTP_ORIGIN

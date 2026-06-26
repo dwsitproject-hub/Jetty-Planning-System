@@ -92,7 +92,7 @@ export default function Layout({ children }) {
   const location = useLocation()
   const currentPath = location.pathname
   const { loading: rbacLoading, canView, refresh: refreshRbac } = useRbac()
-  const { me, logout } = useAuth()
+  const { me, logout, loading: authLoading } = useAuth()
   const {
     loading: portScopeLoading,
     assignedPorts,
@@ -299,7 +299,19 @@ export default function Layout({ children }) {
         </aside>
 
         <main className="content">
-          {me && !portScopeBypassed && portScopeLoading ? (
+          {authLoading ? (
+            <div className="card">
+              <p className="text-steel">{tCommon('loading')}</p>
+            </div>
+          ) : !me ? (
+            <div className="card" style={{ maxWidth: '40rem' }}>
+              <h2 style={{ marginTop: 0 }}>{tCommon('login')}</h2>
+              <p className="text-steel">{tCommon('sessionRequired')}</p>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <NavLink to="/login" className="btn btn--secondary">{tCommon('login')}</NavLink>
+              </div>
+            </div>
+          ) : me && !portScopeBypassed && portScopeLoading ? (
             <div className="card">
               <p className="text-steel">{tCommon('loadingPorts')}</p>
             </div>

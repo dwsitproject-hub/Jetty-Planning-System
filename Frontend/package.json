@@ -7,15 +7,16 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test src/utils/dashboardPipelinePartition.test.js src/utils/jettyScheduleOccupancy.test.js src/utils/formatDateTimeDisplay.test.js src/utils/allocationVesselPhase.test.js src/utils/validateCastOffDepart.test.js",
+    "test": "node --test src/utils/dashboardPipelinePartition.test.js src/utils/jettyScheduleOccupancy.test.js src/utils/jettyScheduleGanttLanes.test.js src/utils/allocationPlanPovMerge.test.js src/utils/formatDateTimeDisplay.test.js src/utils/allocationVesselPhase.test.js src/utils/validateCastOffDepart.test.js src/utils/actualGanttPhases.test.js src/utils/ganttLayerMode.test.js src/utils/ganttBarDisplay.test.js",
     "test:e2e": "playwright test",
     "test:e2e:notifications": "playwright test e2e/notifications-bell.spec.js",
     "rebuild": "node scripts/rebuild.mjs"
   },
   "dependencies": {
-    "luxon": "^3.5.0",
     "exceljs": "^4.4.0",
+    "html2canvas": "^1.4.1",
     "i18next": "^26.0.5",
+    "luxon": "^3.5.0",
     "pdf-parse": "^2.4.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

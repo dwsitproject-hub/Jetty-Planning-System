@@ -6,6 +6,262 @@
   margin-bottom: var(--spacing-6);
 }
 
+.card__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--spacing-3);
+}
+
+.card__title-row .card__title {
+  margin-bottom: 0;
+}
+
+.viz-popout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.viz-popout-btn__icon {
+  font-size: 1em;
+  line-height: 1;
+}
+
+/* Gantt layer toggle (Both / Planned / Actual) */
+.jetty-schedule-gantt__layer-toggle-field {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.jetty-schedule-gantt__layer-toggle-legend {
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+  padding: 0;
+  margin: 0 0 4px;
+}
+
+.jetty-schedule-gantt__layer-toggle {
+  display: inline-flex;
+  border: 1px solid var(--color-border-medium);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--color-surface, #fff);
+}
+
+.jetty-schedule-gantt__layer-toggle-option {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  cursor: pointer;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-steel);
+  user-select: none;
+}
+
+.jetty-schedule-gantt__layer-toggle-option input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.jetty-schedule-gantt__layer-toggle-option span {
+  display: block;
+  padding: 6px 12px;
+  border-right: 1px solid var(--color-border-light);
+}
+
+.jetty-schedule-gantt__layer-toggle-option:last-child span {
+  border-right: none;
+}
+
+.jetty-schedule-gantt__layer-toggle-option--active span {
+  background: var(--color-primary, #2563eb);
+  color: #fff;
+}
+
+.jetty-schedule-gantt__layer-toggle-option:hover:not(.jetty-schedule-gantt__layer-toggle-option--active) span {
+  background: var(--color-surface-muted, rgba(0, 0, 0, 0.04));
+}
+
+/* Popout window (embed route) — viewport-maximized layout */
+html.allocation-viz-popout-open,
+html.allocation-viz-popout-open body {
+  overflow: hidden;
+  height: 100%;
+  margin: 0;
+}
+
+html.allocation-viz-popout-open #root {
+  height: 100%;
+}
+
+.allocation-viz-popout {
+  box-sizing: border-box;
+  background: var(--color-page-bg, #f3f4f6);
+}
+
+.allocation-viz-popout--maximized {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  padding: 8px 12px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+}
+
+.allocation-viz-popout__header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2) var(--spacing-3);
+  min-height: 36px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border-light);
+  flex-shrink: 0;
+}
+
+.allocation-viz-popout__title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-base, 1rem);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.allocation-viz-popout__hint-inline {
+  display: none;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-steel);
+  white-space: nowrap;
+}
+
+@media (min-width: 720px) {
+  .allocation-viz-popout__hint-inline {
+    display: inline;
+  }
+}
+
+.allocation-viz-popout__body {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.allocation-viz-popout__body .jetty-schematic-section,
+.allocation-viz-popout__body .jetty-schedule-gantt {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+
+/* Popout: flat viz surface (no nested card chrome) */
+.jetty-schematic-section--popout,
+.jetty-schedule-gantt--popout {
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+}
+
+.jetty-schematic-section--popout .jetty-schematic__filters,
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__filters {
+  flex-shrink: 0;
+  margin-bottom: var(--spacing-2);
+  padding: var(--spacing-1) var(--spacing-2);
+}
+
+.jetty-schematic-section--popout .jetty-schematic__historical-hint {
+  flex-shrink: 0;
+  margin-bottom: var(--spacing-2);
+  font-size: var(--font-size-xs);
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__intro:not(:has(.jetty-schedule-gantt__error)) {
+  display: none;
+  margin: 0;
+  min-height: 0;
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__legend-details {
+  flex-shrink: 0;
+  margin-bottom: var(--spacing-2);
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__legend-details summary {
+  cursor: pointer;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-steel);
+  user-select: none;
+  list-style: none;
+  padding: 2px 0;
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__legend-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__legend-details summary::before {
+  content: '▶ ';
+  font-size: 0.65em;
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__legend-details[open] summary::before {
+  content: '▼ ';
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__legend-details .jetty-schedule-gantt__legend {
+  margin-top: var(--spacing-2);
+  margin-bottom: 0;
+}
+
+/* The export wrapper must pass the popout's flex height chain through to the scroll
+   container, otherwise the scroll area loses its bounded box and the scrollbars vanish. */
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__export-area {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* Single scroll container for chart content */
+.jetty-schematic-section--popout .jetty-schematic-wrap,
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  max-height: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.allocation-viz-popout__status {
+  margin: var(--spacing-4) 0;
+  color: var(--color-text-steel);
+}
+
+.allocation-viz-popout__status--error {
+  color: #991b1b;
+}
+
 .allocation-tabs {
   display: flex;
   gap: 0;
@@ -48,6 +304,8 @@
 .jetty-schedule-gantt {
   margin-top: 0;
   --jetty-schedule-id-col: 200px;
+  --gantt-bar-height: 56px;
+  --gantt-bar-stack-step: 62px;
 }
 
 .jetty-schedule-gantt__filters {
@@ -97,22 +355,8 @@
   margin-bottom: 0;
 }
 
-.jetty-schedule-gantt__compare {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-2);
-  font-size: var(--font-size-small);
-  color: var(--color-text-charcoal);
-  cursor: pointer;
-  user-select: none;
-  margin-bottom: 0;
-}
-
-.jetty-schedule-gantt__compare input {
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
-  accent-color: var(--color-primary);
+.jetty-schedule-gantt__layer-toggle-field {
+  align-self: flex-end;
 }
 
 .jetty-schedule-gantt__intro {
@@ -145,6 +389,36 @@
   -webkit-overflow-scrolling: touch;
   max-height: min(70vh, 720px);
   position: relative;
+  /* Always show classic (non-overlay) scrollbars so the horizontal/vertical bars are visible
+     and draggable even when the OS/browser is set to auto-hide overlay scrollbars. */
+  scrollbar-width: auto;
+  scrollbar-color: #9ca3af #eef1f4;
+  scrollbar-gutter: stable;
+}
+
+/* WebKit/Chromium: styling ::-webkit-scrollbar forces classic, always-visible scrollbars. */
+.jetty-schedule-gantt__scroll::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+.jetty-schedule-gantt__scroll::-webkit-scrollbar-track {
+  background: #eef1f4;
+  border-radius: 8px;
+}
+.jetty-schedule-gantt__scroll::-webkit-scrollbar-thumb {
+  background: #9ca3af;
+  border-radius: 8px;
+  border: 3px solid #eef1f4;
+}
+.jetty-schedule-gantt__scroll::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+.jetty-schedule-gantt__scroll::-webkit-scrollbar-corner {
+  background: #eef1f4;
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__scroll {
+  max-height: none;
 }
 
 .jetty-schedule-gantt__matrix {
@@ -355,23 +629,228 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   width: 100%;
 }
 
+/* Tooltip wrapper must not block absolute bar positioning on the track */
+.jetty-schedule-gantt__track .jps-tooltip-trigger {
+  display: contents;
+}
+
 .jetty-schedule-gantt__bar {
   position: absolute;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 22px;
-  padding: 0 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0;
+  height: var(--gantt-bar-height);
+  min-height: var(--gantt-bar-height);
+  padding: 0;
   border-radius: 4px;
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
-  white-space: nowrap;
+  white-space: normal;
+  /* The coloured box grows to fit its label (min-width: max-content) so text stays INSIDE the
+     box and is never cut off and never spills onto the grid. */
+  min-width: max-content;
+  max-width: none;
   overflow: hidden;
-  text-overflow: ellipsis;
   box-sizing: border-box;
   line-height: 1.2;
   z-index: 1;
-  max-width: 100%;
+}
+
+/* Hovered/focused bar floats above neighbours. */
+.jetty-schedule-gantt__bar:hover,
+.jetty-schedule-gantt__bar:focus-within {
+  z-index: 5;
+}
+
+.gantt-dense-block {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  padding: 4px 8px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.gantt-dense-block--overlay {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+  color: #1e293b;
+}
+
+.gantt-dense-block__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.gantt-dense-block__row--title {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.gantt-dense-block__row--dates,
+.gantt-dense-block__row--cargo {
+  display: block;
+}
+
+.gantt-dense-block__icon {
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.gantt-dense-block__vessel {
+  overflow: hidden;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.gantt-dense-block__dates {
+  display: block;
+  font-size: 10px;
+  line-height: 1.25;
+  opacity: 0.95;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.gantt-dense-block__cargo {
+  display: block;
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.25;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.gantt-dense-block__aging {
+  display: none;
+}
+
+/* Current shipment status chip (Arriving / At berth / Sailed) */
+.gantt-dense-block__status-chip {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  line-height: 1.5;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.gantt-dense-block__status-chip--arriving {
+  background: rgba(217, 119, 6, 0.14);
+  border-color: rgba(217, 119, 6, 0.4);
+  color: #92400e;
+}
+
+.gantt-dense-block__status-chip--berthing {
+  background: rgba(37, 99, 235, 0.14);
+  border-color: rgba(37, 99, 235, 0.4);
+  color: #1e40af;
+}
+
+.gantt-dense-block__status-chip--sailed {
+  background: rgba(107, 114, 128, 0.16);
+  border-color: rgba(107, 114, 128, 0.45);
+  color: #4b5563;
+}
+
+/* Late (past ETC) chip — always shown when overdue, regardless of bar width */
+.gantt-dense-block__late-chip {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  line-height: 1.5;
+  white-space: nowrap;
+  background: rgba(var(--gantt-late-rgb), 0.14);
+  border: 1px solid rgba(var(--gantt-late-rgb), 0.55);
+  color: var(--gantt-late-text);
+}
+
+/* Late bars get a clear red left accent so they stand out at a glance. */
+.gantt-dense-block--late {
+  border-left: 3px solid rgb(var(--gantt-late-rgb));
+  padding-left: 5px;
+  margin-left: -1px;
+  border-radius: 3px 0 0 3px;
+}
+
+/* JPEG export: while capturing, let the chart lay out its FULL width AND height so every
+   date column and jetty row is included in the image (not just the visible viewport).
+   `flex: none` + `max-height: none` opt out of the popout's bounded flex/scroll box. */
+.jetty-schedule-gantt__export-area--capturing {
+  /* width is set explicitly (in px) by the export handler — avoid `max-content` here, which
+     creates an intrinsic-sizing loop with the bars' min-width:max-content and hangs the
+     canvas renderer. */
+  height: auto;
+  max-height: none;
+  flex: none;
+  overflow: visible;
+  background: #ffffff;
+  padding: 8px;
+}
+
+.jetty-schedule-gantt__export-area--capturing .jetty-schedule-gantt__scroll {
+  overflow: visible;
+  height: auto;
+  max-height: none;
+  flex: none;
+}
+
+.jetty-schedule-gantt__export-title {
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-strong, #1f2937);
+  margin-bottom: 6px;
+}
+
+/* Small "LATE" pill used in the legend */
+.jetty-schedule-gantt__legend-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  line-height: 1.6;
+}
+
+.jetty-schedule-gantt__legend-chip--late {
+  background: rgba(var(--gantt-late-rgb), 0.14);
+  border: 1px solid rgba(var(--gantt-late-rgb), 0.55);
+  color: var(--gantt-late-text);
+}
+
+.gantt-dense-block .loading-list__badge--purpose {
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 1.3;
+  flex-shrink: 0;
+}
+
+.gantt-dense-block--overlay .gantt-dense-block__vessel,
+.gantt-dense-block--overlay .gantt-dense-block__dates,
+.gantt-dense-block--overlay .gantt-dense-block__cargo {
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.85), 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
 .jetty-schedule-gantt__bar .loading-list__badge--purpose {
@@ -400,22 +879,19 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   color: var(--gantt-planned-text);
 }
 
+/* One flat colour for every Planned bar (solid + open-end look identical). */
 .jetty-schedule-gantt__bar--planned-grad {
-  border: 1px solid rgba(var(--gantt-planned-rgb), 0.35);
+  border: 1px solid rgba(var(--gantt-planned-rgb), 0.5);
   color: var(--gantt-planned-text);
-  background: linear-gradient(to right, rgba(var(--gantt-planned-rgb), 0.78), rgba(var(--gantt-planned-rgb), 0.06));
+  background: rgba(var(--gantt-planned-rgb), 0.2);
 }
 
-.jetty-schedule-gantt__bar--actual-solid {
+/* One flat colour for every Actual bar (solid + open-end look identical). */
+.jetty-schedule-gantt__bar--actual-solid,
+.jetty-schedule-gantt__bar--actual-grad {
   background: rgba(var(--gantt-actual-rgb), 0.16);
   border: 1px solid rgba(var(--gantt-actual-rgb), 0.5);
   color: var(--gantt-actual-text);
-}
-
-.jetty-schedule-gantt__bar--actual-grad {
-  border: 1px solid rgba(var(--gantt-actual-rgb), 0.38);
-  color: var(--gantt-actual-text);
-  background: linear-gradient(to right, rgba(var(--gantt-actual-rgb), 0.72), rgba(var(--gantt-actual-rgb), 0.06));
 }
 
 /* Status overlays: Arriving (dashed), Berthing (default), Sailed off (muted). */
@@ -437,6 +913,298 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   background: rgba(107, 114, 128, 0.18);
   border-color: rgba(107, 114, 128, 0.6);
   color: #4b5563;
+}
+
+/* Segmented actual bar — phase background strips + dense overlay */
+.jetty-schedule-gantt__segmented-group {
+  position: absolute;
+  z-index: 1;
+  min-height: var(--gantt-bar-height);
+  box-sizing: border-box;
+  pointer-events: auto;
+}
+
+.jetty-schedule-gantt__segmented-bg {
+  position: absolute;
+  inset: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.jetty-schedule-gantt__phase-strip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  box-sizing: border-box;
+}
+
+.jetty-schedule-gantt__phase-strip--berthing {
+  background: rgb(var(--gantt-actual-phase-berthing-rgb));
+}
+
+.jetty-schedule-gantt__phase-strip--atBerthOps {
+  background: rgb(var(--gantt-actual-phase-ops-rgb));
+}
+
+.jetty-schedule-gantt__phase-strip--clearance {
+  background: rgb(var(--gantt-actual-phase-clearance-rgb));
+}
+
+.jetty-schedule-gantt__phase-strip--first {
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+}
+
+.jetty-schedule-gantt__phase-strip--last {
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+.jetty-schedule-gantt__phase-strip--open-end {
+  border-right: 2px dashed rgba(var(--gantt-actual-rgb), 0.65);
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.12) 0 4px,
+    transparent 4px 8px
+  );
+}
+
+.jetty-schedule-gantt__phase-strip--open-end.jetty-schedule-gantt__phase-strip--berthing {
+  background-color: rgb(var(--gantt-actual-phase-berthing-rgb));
+}
+
+.jetty-schedule-gantt__phase-strip--open-end.jetty-schedule-gantt__phase-strip--atBerthOps {
+  background-color: rgb(var(--gantt-actual-phase-ops-rgb));
+}
+
+.jetty-schedule-gantt__phase-strip--open-end.jetty-schedule-gantt__phase-strip--clearance {
+  background-color: rgb(var(--gantt-actual-phase-clearance-rgb));
+}
+
+.jetty-schedule-gantt__phase-strip--overdue.jetty-schedule-gantt__phase-strip--open-end {
+  background-image:
+    repeating-linear-gradient(
+      135deg,
+      rgba(196, 58, 49, 0.18) 0 3px,
+      rgba(196, 58, 49, 0.28) 3px 6px
+    ),
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.12) 0 4px,
+      transparent 4px 8px
+    );
+}
+
+.jetty-schedule-gantt__phase-strip--sailed {
+  opacity: 0.72;
+  filter: saturate(0.55);
+}
+
+.jetty-schedule-gantt__phase-strip--sailed.jetty-schedule-gantt__phase-strip--berthing,
+.jetty-schedule-gantt__phase-strip--sailed.jetty-schedule-gantt__phase-strip--atBerthOps,
+.jetty-schedule-gantt__phase-strip--sailed.jetty-schedule-gantt__phase-strip--clearance {
+  background: rgba(107, 114, 128, 0.55);
+}
+
+.jetty-schedule-gantt__segmented-block {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: var(--gantt-bar-height);
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  box-sizing: border-box;
+}
+
+button.jetty-schedule-gantt__segmented-block--btn {
+  appearance: none;
+  cursor: pointer;
+  transition: filter var(--duration-fast), box-shadow var(--duration-fast);
+}
+
+button.jetty-schedule-gantt__segmented-block--btn:hover {
+  filter: brightness(1.02);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
+}
+
+button.jetty-schedule-gantt__segmented-block--btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.jetty-schedule-gantt__segmented-block--sailed {
+  opacity: 0.92;
+}
+
+/* Legacy phase-segment styles (kept for reference / swatches) */
+.jetty-schedule-gantt__bar-slot {
+  position: absolute;
+  z-index: 1;
+  min-height: var(--gantt-bar-height);
+  box-sizing: border-box;
+}
+
+.jetty-schedule-gantt__bar-slot--phase {
+  height: var(--gantt-bar-height);
+  pointer-events: auto;
+}
+
+.jetty-schedule-gantt__phase-segment {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: var(--gantt-bar-height);
+  padding: 0 6px;
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--gantt-actual-text);
+  border: none;
+  background: none;
+}
+
+.jetty-schedule-gantt__phase-segment--berthing {
+  background: rgb(var(--gantt-actual-phase-berthing-rgb));
+}
+
+.jetty-schedule-gantt__phase-segment--atBerthOps {
+  background: rgb(var(--gantt-actual-phase-ops-rgb));
+  color: var(--gantt-actual-phase-ops-text);
+}
+
+.jetty-schedule-gantt__phase-segment--clearance {
+  background: rgb(var(--gantt-actual-phase-clearance-rgb));
+  color: var(--gantt-actual-phase-clearance-text);
+}
+
+.jetty-schedule-gantt__phase-segment--first {
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+}
+
+.jetty-schedule-gantt__phase-segment--last {
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+.jetty-schedule-gantt__phase-segment--open-end {
+  border-right: 2px dashed rgba(var(--gantt-actual-rgb), 0.65);
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.12) 0 4px,
+    transparent 4px 8px
+  );
+}
+
+.jetty-schedule-gantt__phase-segment--open-end.jetty-schedule-gantt__phase-segment--berthing {
+  background-color: rgb(var(--gantt-actual-phase-berthing-rgb));
+}
+
+.jetty-schedule-gantt__phase-segment--open-end.jetty-schedule-gantt__phase-segment--atBerthOps {
+  background-color: rgb(var(--gantt-actual-phase-ops-rgb));
+}
+
+.jetty-schedule-gantt__phase-segment--open-end.jetty-schedule-gantt__phase-segment--clearance {
+  background-color: rgb(var(--gantt-actual-phase-clearance-rgb));
+}
+
+.jetty-schedule-gantt__phase-segment--overdue.jetty-schedule-gantt__phase-segment--open-end {
+  background-image:
+    repeating-linear-gradient(
+      135deg,
+      rgba(196, 58, 49, 0.18) 0 3px,
+      rgba(196, 58, 49, 0.28) 3px 6px
+    ),
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.12) 0 4px,
+      transparent 4px 8px
+    );
+}
+
+.jetty-schedule-gantt__phase-segment-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+button.jetty-schedule-gantt__phase-segment--btn {
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: filter var(--duration-fast), box-shadow var(--duration-fast);
+}
+
+button.jetty-schedule-gantt__phase-segment--btn:hover {
+  filter: brightness(1.05);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  z-index: 2;
+}
+
+button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.jetty-schedule-gantt__phase-segment--sailed {
+  opacity: 0.72;
+  filter: saturate(0.55);
+}
+
+.jetty-schedule-gantt__phase-segment--sailed.jetty-schedule-gantt__phase-segment--berthing,
+.jetty-schedule-gantt__phase-segment--sailed.jetty-schedule-gantt__phase-segment--atBerthOps,
+.jetty-schedule-gantt__phase-segment--sailed.jetty-schedule-gantt__phase-segment--clearance {
+  background: rgba(107, 114, 128, 0.55);
+}
+
+/* Phase labels below segments */
+.jetty-schedule-gantt__phase-labels-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 28px;
+  pointer-events: none;
+}
+
+.jetty-schedule-gantt__phase-label-block {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 2px;
+  box-sizing: border-box;
+  font-size: 9px;
+  line-height: 1.25;
+  color: var(--color-text-steel);
+  text-align: center;
+}
+
+.jetty-schedule-gantt__phase-label-title {
+  font-weight: var(--font-weight-medium);
+}
+
+.jetty-schedule-gantt__phase-label-sub {
+  font-size: 8px;
+  opacity: 0.85;
 }
 
 .jetty-schedule-gantt__legend--two {
@@ -470,6 +1238,19 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 .jetty-schedule-gantt__swatch--actual-grad {
   background: linear-gradient(to right, rgba(var(--gantt-actual-rgb), 0.7), rgba(var(--gantt-actual-rgb), 0.1));
   border: 1px solid rgba(var(--gantt-actual-rgb), 0.35);
+}
+
+.jetty-schedule-gantt__swatch--actual-milestones {
+  background: linear-gradient(
+    to right,
+    rgb(var(--gantt-actual-phase-berthing-rgb)) 0%,
+    rgb(var(--gantt-actual-phase-berthing-rgb)) 33%,
+    rgb(var(--gantt-actual-phase-ops-rgb)) 33%,
+    rgb(var(--gantt-actual-phase-ops-rgb)) 66%,
+    rgb(var(--gantt-actual-phase-clearance-rgb)) 66%,
+    rgb(var(--gantt-actual-phase-clearance-rgb)) 100%
+  );
+  border: 1px solid rgba(var(--gantt-actual-rgb), 0.45);
 }
 
 .jetty-schedule-gantt__swatch--actual-etc-overdue {

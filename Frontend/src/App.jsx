@@ -16,6 +16,7 @@ import ShipmentPlanApproval from './pages/ShipmentPlanApproval'
 import SIView from './pages/SIView'
 import Allocation from './pages/Allocation'
 import AllocationPlanBerthing from './pages/AllocationPlanBerthing'
+import AllocationVisualizationPopout from './pages/AllocationVisualizationPopout'
 import RetiredPage from './pages/RetiredPage'
 import Loading from './pages/Loading'
 import LoadingOperation from './pages/LoadingOperation'
@@ -42,8 +43,9 @@ import DevOcrTest from './pages/DevOcrTest'
 function AppShell() {
   const location = useLocation()
   const isSiView = /^\/shipping-instruction\/view\/[^/]+$/.test(location.pathname)
+  const isVizPopout = /^\/allocation\/visualization\/[^/]+$/.test(location.pathname)
   const isEmbed = new URLSearchParams(location.search).get('embed') === '1'
-  if (isSiView && isEmbed) {
+  if ((isSiView && isEmbed) || (isVizPopout && isEmbed)) {
     return <Outlet />
   }
   return (
@@ -111,6 +113,7 @@ function App() {
                     }
                   />
                   <Route path="/allocation-plans" element={<AllocationPlanBerthing />} />
+                  <Route path="/allocation/visualization/:mode" element={<AllocationVisualizationPopout />} />
                   <Route path="/berthing" element={<Navigate to="/allocation-plans" replace />} />
                   <Route path="/at-berth" element={<AtBerthExecutions />} />
                   <Route path="/loading/operation/:operationId" element={<LoadingOperation />} />

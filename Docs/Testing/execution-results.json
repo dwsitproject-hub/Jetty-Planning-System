@@ -1,0 +1,138 @@
+{
+  "when": "2026-06-26T02:54:37.136Z",
+  "results": [
+    {
+      "id": "AUTH-01",
+      "name": "Login page renders",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "id": "AUTH-02",
+      "name": "Invalid password shows error & stays on login",
+      "status": "PASS",
+      "note": "url=http://localhost:3001/login"
+    },
+    {
+      "id": "AUTH-01b",
+      "name": "Valid login redirects into app",
+      "status": "PASS",
+      "note": "url=http://localhost:3001/"
+    },
+    {
+      "id": "DASH-01",
+      "name": "Dashboard loads with content",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "id": "SP-01",
+      "name": "SP-01 list renders",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "id": "ALLOC-01",
+      "name": "ALLOC-01 queue renders",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "id": "ATB-01",
+      "name": "ATB-01 at-berth renders",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "id": "DEM",
+      "name": "DEM calculator renders",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "id": "Master",
+      "name": "Master hub renders",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "id": "Master",
+      "name": "Master port renders",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "id": "Master",
+      "name": "Master jetty renders",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "id": "Admin",
+      "name": "Admin users renders",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "id": "Admin",
+      "name": "Admin roles renders",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "id": "Reporting",
+      "name": "Reporting hub renders",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "id": "Jetty",
+      "name": "Jetty live renders",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "id": "UX-02",
+      "name": "Language toggle EN/ID works",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "id": "UX-01",
+      "name": "Mobile (375px) no horizontal overflow",
+      "status": "PASS",
+      "note": "scrollW vs innerW"
+    },
+    {
+      "id": "DEM-00",
+      "name": "Demurrage calculator page renders",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "id": "SP-DETAIL",
+      "name": "Shipment plan detail opens",
+      "status": "SKIP",
+      "note": "no plan link"
+    },
+    {
+      "id": "AUTH-07",
+      "name": "Protected route blocked when logged out",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "id": "CONSOLE",
+      "name": "Browser console errors during run",
+      "status": "WARN",
+      "note": "Failed to load resource: the server responded with a status of 401 (Unauthorized) | Failed to load resource: the server responded with a status of 401 (Unauthorized) | Loading the script 'https://cdn.jsdelivr.net/gh/phoboslab/jsmpeg@master/jsmpeg.min.js' violates the following Content Security Polic"
+    }
+  ],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Loading the script 'https://cdn.jsdelivr.net/gh/phoboslab/jsmpeg@master/jsmpeg.min.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked.",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ]
+}

@@ -13,6 +13,8 @@
   "login": "Login",
   "expandSidebar": "Expand sidebar",
   "collapseSidebar": "Collapse sidebar",
+  "loading": "Loading…",
+  "sessionRequired": "Please sign in to continue.",
   "loadingPorts": "Loading assigned ports…",
   "accessNotConfigured": "Access not configured",
   "backToLogin": "Back to Login",
