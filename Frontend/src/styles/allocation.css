@@ -792,17 +792,26 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   border-radius: 3px 0 0 3px;
 }
 
-/* JPEG export: while capturing, let the chart lay out its full width so every
-   date column and jetty row is included in the image (not just the visible viewport). */
+/* JPEG export: while capturing, let the chart lay out its FULL width AND height so every
+   date column and jetty row is included in the image (not just the visible viewport).
+   `flex: none` + `max-height: none` opt out of the popout's bounded flex/scroll box. */
 .jetty-schedule-gantt__export-area--capturing {
-  width: max-content;
+  /* width is set explicitly (in px) by the export handler — avoid `max-content` here, which
+     creates an intrinsic-sizing loop with the bars' min-width:max-content and hangs the
+     canvas renderer. */
+  height: auto;
+  max-height: none;
+  flex: none;
+  overflow: visible;
   background: #ffffff;
   padding: 8px;
 }
 
 .jetty-schedule-gantt__export-area--capturing .jetty-schedule-gantt__scroll {
   overflow: visible;
-  width: max-content;
+  height: auto;
+  max-height: none;
+  flex: none;
 }
 
 .jetty-schedule-gantt__export-title {

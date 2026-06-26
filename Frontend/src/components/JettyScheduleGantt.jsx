@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { toJpeg } from 'html-to-image'
+import html2canvas from 'html2canvas'
 import InteractiveTooltip from './InteractiveTooltip'
 import { formatOverdueDuration } from '../utils/etcBreach'
 import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
@@ -296,29 +296,56 @@ export default function JettyScheduleGantt({
     const node = exportRef.current
     if (!node || rangeError) return
     setExporting(true)
-    // While capturing, let the scroll area lay out its full width so every date column
-    // and row is included (not just the visible scroll viewport).
+    // Lay out the full chart (no scroll cap), with an EXPLICIT pixel width taken from the
+    // matrix so we avoid `max-content` intrinsic-sizing (which loops with the bars'
+    // min-width:max-content and hangs the canvas renderer).
+    const matrix = node.querySelector('.jetty-schedule-gantt__matrix')
+    const fullWidth = Math.ceil((matrix ? matrix.scrollWidth : node.scrollWidth) + 16)
     node.classList.add('jetty-schedule-gantt__export-area--capturing')
+    node.style.width = `${fullWidth}px`
+    let objectUrl = null
     try {
-      // Wait a frame so the layout change applies before the snapshot.
-      await new Promise((r) => requestAnimationFrame(() => r()))
-      const dataUrl = await toJpeg(node, {
-        quality: 0.95,
-        pixelRatio: 2,
-        backgroundColor: '#ffffff',
-        cacheBust: true,
-      })
+      void node.offsetHeight
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+      const width = Math.ceil(node.scrollWidth)
+      const height = Math.ceil(node.scrollHeight)
+      // Guard against any renderer hang so the button never stays stuck on "Exporting…".
+      const canvas = await Promise.race([
+        html2canvas(node, {
+          backgroundColor: '#ffffff',
+          scale: 1.5,
+          useCORS: true,
+          logging: false,
+          width,
+          height,
+          windowWidth: width,
+          windowHeight: height,
+          scrollX: 0,
+          scrollY: 0,
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('export timed out')), 60000)
+        ),
+      ])
+      // Blob + object URL downloads reliably even for large (multi-MB) images, unlike a data URL.
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.95))
+      if (!blob) throw new Error('canvas.toBlob returned null')
+      objectUrl = URL.createObjectURL(blob)
       const link = document.createElement('a')
       const layerTag =
         layerMode === 'planned' ? 'planned' : layerMode === 'actual' ? 'actual' : 'both'
       link.download = `jetty-schedule_${dateFrom}_to_${dateTo}_${layerTag}.jpeg`
-      link.href = dataUrl
+      link.href = objectUrl
+      document.body.appendChild(link)
       link.click()
+      link.remove()
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('Jetty schedule JPEG export failed:', err)
     } finally {
       node.classList.remove('jetty-schedule-gantt__export-area--capturing')
+      node.style.width = ''
+      if (objectUrl) setTimeout(() => URL.revokeObjectURL(objectUrl), 10000)
       setExporting(false)
     }
   }
