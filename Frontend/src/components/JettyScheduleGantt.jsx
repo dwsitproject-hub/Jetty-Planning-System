@@ -1,5 +1,6 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toJpeg } from 'html-to-image'
 import InteractiveTooltip from './InteractiveTooltip'
 import { formatOverdueDuration } from '../utils/etcBreach'
 import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
@@ -9,13 +10,11 @@ import {
   parseDateInputEndExclusive,
 } from '../utils/jettyScheduleOccupancy'
 import { buildScheduleSegments, assignBankLanesByVessel } from '../utils/jettyScheduleGanttLanes'
-import { canRenderSegmentedActualBar } from '../utils/actualGanttPhases.js'
 import {
   readGanttLayerMode,
   resolveGanttLayerVisibility,
   writeGanttLayerMode,
 } from '../utils/ganttLayerMode.js'
-import ActualSegmentedGanttBar from './ActualSegmentedGanttBar'
 import GanttLayerToggle from './GanttLayerToggle'
 import VisualizationPopoutButton from './VisualizationPopoutButton'
 import GanttDenseBlock from './GanttDenseBlock'
@@ -30,7 +29,7 @@ import '../styles/etc-breach.css'
 
 /** Default +3 calendar days from planned/actual start when completions unknown (display only) */
 const MAX_RANGE_MS = 548 * 24 * 60 * 60 * 1000
-const DAY_COL_MIN = 56
+const DAY_COL_MIN = 72
 
 function startOfDay(d) {
   const x = new Date(d.getTime())
@@ -290,6 +289,40 @@ export default function JettyScheduleGantt({
     setDateTo(next.to)
   }
 
+  const exportRef = useRef(null)
+  const [exporting, setExporting] = useState(false)
+
+  const handleExportJpeg = async () => {
+    const node = exportRef.current
+    if (!node || rangeError) return
+    setExporting(true)
+    // While capturing, let the scroll area lay out its full width so every date column
+    // and row is included (not just the visible scroll viewport).
+    node.classList.add('jetty-schedule-gantt__export-area--capturing')
+    try {
+      // Wait a frame so the layout change applies before the snapshot.
+      await new Promise((r) => requestAnimationFrame(() => r()))
+      const dataUrl = await toJpeg(node, {
+        quality: 0.95,
+        pixelRatio: 2,
+        backgroundColor: '#ffffff',
+        cacheBust: true,
+      })
+      const link = document.createElement('a')
+      const layerTag =
+        layerMode === 'planned' ? 'planned' : layerMode === 'actual' ? 'actual' : 'both'
+      link.download = `jetty-schedule_${dateFrom}_to_${dateTo}_${layerTag}.jpeg`
+      link.href = dataUrl
+      link.click()
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Jetty schedule JPEG export failed:', err)
+    } finally {
+      node.classList.remove('jetty-schedule-gantt__export-area--capturing')
+      setExporting(false)
+    }
+  }
+
   const renderContinuousLane = (rowKey, layer) => {
     const segs = segments
       .filter((s) => s.rowKey === rowKey && s.layer === layer)
@@ -307,28 +340,8 @@ export default function JettyScheduleGantt({
           const { rawWidthPct: _rawWidthPct, ...posStyle } = pos
           const style = ganttBarInlineStyle(seg, posStyle, i)
 
-          if (layer === 'actual' && seg.phase === 'ops') {
-            const sourceRow = findScheduleSourceRow(listRows, seg)
-            const segmented = sourceRow
-              ? canRenderSegmentedActualBar(sourceRow, nowMs, windowStartMs, windowEndMs)
-              : null
-            if (segmented) {
-              return (
-                <ActualSegmentedGanttBar
-                  key={`${layer}-${seg.phase}-${seg.vesselName}-${segmented.phaseModel.barStartMs}-${i}`}
-                  row={sourceRow}
-                  seg={seg}
-                  phaseModel={segmented.phaseModel}
-                  trackSegments={segmented.trackSegments}
-                  windowStartMs={windowStartMs}
-                  totalMs={totalMs}
-                  stackIndex={i}
-                  onSelectVessel={onSelectVessel}
-                />
-              )
-            }
-          }
-
+          // All actual bars render as one flat colour (no multi-phase shading) so "Actual"
+          // reads as a single colour across the chart. Phase/milestone detail stays in the tooltip.
           const pillClass = segmentPillClass(seg)
           const canClick = Boolean(seg.vesselId && typeof onSelectVessel === 'function')
           const tooltipItems = buildGanttTooltipItems(seg, canClick)
@@ -389,43 +402,29 @@ export default function JettyScheduleGantt({
   const legendContent = (
     <>
       {showPlanned ? (
-        <>
-          <span className="allocation-schedule__legend-item">
-            <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--planned-solid" /> Planned
-            (known)
-          </span>
-          <span className="allocation-schedule__legend-item">
-            <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--planned-grad" /> Planned (open
-            end)
-          </span>
-        </>
+        <span className="allocation-schedule__legend-item">
+          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--planned-solid" />
+          {tAlloc('ganttLegendPlanned', { defaultValue: 'Planned' })}
+        </span>
       ) : null}
       {showActual ? (
-        <>
-          <span className="allocation-schedule__legend-item">
-            <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-solid" /> Actual (known)
-          </span>
-          <span className="allocation-schedule__legend-item">
-            <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-grad" /> Actual (open end)
-          </span>
-          <span className="allocation-schedule__legend-item">
-            <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-milestones" aria-hidden />
-            {tAlloc('ganttLegendActualMilestones', { defaultValue: 'Actual (detailed milestones)' })}
-          </span>
-          <span className="allocation-schedule__legend-item">
-            <span
-              className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-etc-overdue"
-              aria-hidden
-            />
-            {tAlloc('ganttLegendLatePastEtc', { defaultValue: 'Late (past ETC)' })}
-          </span>
-        </>
+        <span className="allocation-schedule__legend-item">
+          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-solid" />
+          {tAlloc('ganttLegendActual', { defaultValue: 'Actual' })}
+        </span>
       ) : null}
       <span className="allocation-schedule__legend-item">
-        <span className="jetty-schedule-gantt__now-dot" aria-hidden /> Now
+        <span className="jetty-schedule-gantt__legend-chip jetty-schedule-gantt__legend-chip--late" aria-hidden>
+          {tAlloc('ganttLateChip', { defaultValue: 'LATE' })}
+        </span>
+        {tAlloc('ganttLegendLatePastEtc', { defaultValue: 'Late (past ETC)' })}
       </span>
       <span className="allocation-schedule__legend-item">
-        <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--status-sailed-off" /> Sailed off
+        <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--status-sailed-off" />
+        {tAlloc('ganttLegendSailed', { defaultValue: 'Sailed off' })}
+      </span>
+      <span className="allocation-schedule__legend-item">
+        <span className="jetty-schedule-gantt__now-dot" aria-hidden /> {tAlloc('ganttLegendNow', { defaultValue: 'Now' })}
       </span>
     </>
   )
@@ -466,13 +465,30 @@ export default function JettyScheduleGantt({
         <button type="button" className="btn btn--secondary jetty-schedule-gantt__reset" onClick={handleResetRange}>
           Reset
         </button>
+        <button
+          type="button"
+          className="btn btn--secondary jetty-schedule-gantt__export"
+          onClick={handleExportJpeg}
+          disabled={exporting || Boolean(rangeError)}
+          title={tAlloc('ganttExportJpegHint', { defaultValue: 'Export the current view (date range + layer) as a JPEG image' })}
+        >
+          {exporting
+            ? tAlloc('ganttExporting', { defaultValue: 'Exporting…' })
+            : tAlloc('ganttExportJpeg', { defaultValue: 'Export JPEG' })}
+        </button>
       </div>
 
       <p className="jetty-schedule-gantt__intro">
         {rangeError ? <span className="jetty-schedule-gantt__error">{rangeError}</span> : null}
       </p>
 
-      {isPopout ? (
+      <div className="jetty-schedule-gantt__export-area" ref={exportRef}>
+        {exporting ? (
+          <div className="jetty-schedule-gantt__export-title">
+            {tAlloc('jettySchedule', { defaultValue: 'Jetty schedule' })} · {dateFrom} → {dateTo}
+          </div>
+        ) : null}
+        {isPopout ? (
         <details className="jetty-schedule-gantt__legend-details">
           <summary>{tAlloc('vizPopoutLegend', { defaultValue: 'Legend' })}</summary>
           <div
@@ -583,6 +599,7 @@ export default function JettyScheduleGantt({
             </>
           )}
         </div>
+      </div>
       </div>
     </section>
   )

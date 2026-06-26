@@ -64,6 +64,20 @@ describe('formatMaterialQtyLine', () => {
     assert.equal(formatMaterialQtyLine('CPO', '—'), 'CPO')
     assert.equal(formatMaterialQtyLine('—', '—'), null)
   })
+
+  it('does not repeat the material when the cargo already names it', () => {
+    assert.equal(
+      formatMaterialQtyLine('CRUDE PALM OIL', 'CRUDE PALM OIL 2.500 MT'),
+      'CRUDE PALM OIL 2.500 MT'
+    )
+  })
+
+  it('drops a multi-material label when all parts appear in the cargo', () => {
+    assert.equal(
+      formatMaterialQtyLine('CPO - FAME', 'CPO 4.000 MT FAME 500 MT'),
+      'CPO 4.000 MT FAME 500 MT'
+    )
+  })
 })
 
 describe('buildPlannedBlockModel', () => {

@@ -46,6 +46,23 @@ export function formatGanttMilestoneMs(ms) {
 }
 
 /**
+ * Compact label for in-bar milestones: "19 Jun 16:00" (no year/seconds) so text stays short
+ * and is not truncated. Full date/time remains available in the tooltip.
+ * @param {number | null | undefined} ms
+ * @returns {string}
+ */
+export function formatGanttMilestoneShort(ms) {
+  if (ms == null) return '—'
+  const d = new Date(ms)
+  if (Number.isNaN(d.getTime())) return '—'
+  const day = d.getDate()
+  const mon = d.toLocaleDateString('en-GB', { month: 'short' })
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  return `${day} ${mon} ${hh}:${mm}`
+}
+
+/**
  * @param {Array<{ label: string, ms: number | null | undefined }>} entries
  * @returns {string}
  */
@@ -56,14 +73,31 @@ export function formatGanttMilestoneLine(entries) {
 }
 
 /**
+ * Build the "material · qty" line, avoiding a duplicated material name.
+ * The qty/cargo text (totalQtyDisplay) often already contains the material name
+ * (e.g. "CRUDE PALM OIL 2.500 MT"); in that case we show only the cargo line so the
+ * material is not repeated. When the cargo is just a quantity (e.g. "5,000 MT") we
+ * prefix the material name.
  * @param {string | null | undefined} material
  * @param {string | null | undefined} cargo
  * @returns {string | null}
  */
 export function formatMaterialQtyLine(material, cargo) {
-  const parts = [material, cargo].filter(isDisplayValue)
-  if (!parts.length) return null
-  return parts.join(' · ')
+  const m = isDisplayValue(material) ? String(material).trim() : ''
+  const c = isDisplayValue(cargo) ? String(cargo).trim() : ''
+  if (!m && !c) return null
+  if (!c) return m
+  if (!m) return c
+  const cl = c.toLowerCase()
+  // Split a multi-material label ("CPO - FAME") into parts and check the cargo already names them.
+  const parts = m
+    .split(/\s*[-·,/]\s*/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const cargoNamesMaterial =
+    cl.includes(m.toLowerCase()) || (parts.length > 0 && parts.every((p) => cl.includes(p.toLowerCase())))
+  if (cargoNamesMaterial) return c
+  return `${m} · ${c}`
 }
 
 /**

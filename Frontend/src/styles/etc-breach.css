@@ -76,45 +76,13 @@
   gap: var(--spacing-2, 8px);
 }
 
-/* Gantt actual bar — single-segment ETC overdue (no split bar) */
-.jetty-schedule-gantt__bar--actual-etc-overdue.jetty-schedule-gantt__bar--actual-solid {
-  background:
-    repeating-linear-gradient(
-      135deg,
-      var(--color-etc-breach-bg-strong, rgba(196, 58, 49, 0.14)) 0,
-      var(--color-etc-breach-bg-strong, rgba(196, 58, 49, 0.14)) 4px,
-      var(--color-etc-breach-stripe, rgba(196, 58, 49, 0.22)) 4px,
-      var(--color-etc-breach-stripe, rgba(196, 58, 49, 0.22)) 8px
-    ),
-    linear-gradient(
-      to right,
-      rgba(var(--gantt-actual-rgb), 0.16) 0%,
-      rgba(var(--gantt-actual-rgb), 0.16) var(--etc-overdue-start, 100%),
-      rgba(196, 58, 49, 0.12) var(--etc-overdue-start, 100%),
-      rgba(196, 58, 49, 0.12) 100%
-    );
-  border-color: rgba(196, 58, 49, 0.5);
-  color: var(--color-etc-breach-deep, #9E2C25);
-}
-
+/* Gantt actual bar — ETC overdue. The bar body stays the single Actual blue (no red fill);
+   lateness is shown by the red "LATE" chip and a red border/left accent only. */
+.jetty-schedule-gantt__bar--actual-etc-overdue.jetty-schedule-gantt__bar--actual-solid,
 .jetty-schedule-gantt__bar--actual-etc-overdue.jetty-schedule-gantt__bar--actual-grad {
-  background:
-    repeating-linear-gradient(
-      135deg,
-      var(--color-etc-breach-bg-strong, rgba(196, 58, 49, 0.14)) 0,
-      var(--color-etc-breach-bg-strong, rgba(196, 58, 49, 0.14)) 4px,
-      var(--color-etc-breach-stripe, rgba(196, 58, 49, 0.22)) 4px,
-      var(--color-etc-breach-stripe, rgba(196, 58, 49, 0.22)) 8px
-    ),
-    linear-gradient(
-      to right,
-      rgba(var(--gantt-actual-rgb), 0.72) 0%,
-      rgba(var(--gantt-actual-rgb), 0.16) var(--etc-overdue-start, 100%),
-      rgba(196, 58, 49, 0.35) var(--etc-overdue-start, 100%),
-      rgba(196, 58, 49, 0.06) 100%
-    );
-  border-color: rgba(196, 58, 49, 0.45);
-  color: var(--color-etc-breach-deep, #9E2C25);
+  background: rgba(var(--gantt-actual-rgb), 0.16);
+  border: 1px solid rgba(var(--gantt-late-rgb), 0.7);
+  color: var(--gantt-actual-text);
 }
 
 /* Segmented actual bar — ETC stripes on overdue phase only */

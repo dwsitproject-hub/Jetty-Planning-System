@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import PurposeBadge from './PurposeBadge'
-import EtcBreachBadge from './EtcBreachBadge'
-import { formatGanttMilestoneMs, resolveGanttBarDensity } from '../utils/ganttBarDisplay.js'
+import { formatGanttMilestoneShort, resolveGanttBarDensity } from '../utils/ganttBarDisplay.js'
+import { formatOverdueDuration } from '../utils/etcBreach'
 
 function GanttVesselIcon() {
   return (
@@ -23,6 +23,25 @@ function GanttCompletedIcon() {
 }
 
 /**
+ * Map the coarse segment status to a short, readable shipment-status label + style key.
+ * @param {string | null | undefined} status
+ * @param {(k: string, o?: object) => string} t
+ */
+function resolveStatusChip(status, t) {
+  const s = String(status || '').trim().toLowerCase()
+  if (s === 'sailed off' || s === 'sailed') {
+    return { key: 'sailed', label: t('ganttStatusSailed', { defaultValue: 'Sailed' }) }
+  }
+  if (s === 'berthing' || s === 'at berth' || s === 'at-berth') {
+    return { key: 'berthing', label: t('ganttStatusAtBerth', { defaultValue: 'At berth' }) }
+  }
+  if (s === 'arriving' || s === 'arrived') {
+    return { key: 'arriving', label: t('ganttStatusArriving', { defaultValue: 'Arriving' }) }
+  }
+  return null
+}
+
+/**
  * @param {object} props
  * @param {'planned' | 'actual'} props.layer
  * @param {object} props.model from buildPlannedBlockModel / buildActualBlockModel
@@ -41,6 +60,9 @@ export default function GanttDenseBlock({
   const density = densityProp ?? resolveGanttBarDensity(barWidthPct)
   const isSailed = model.status === 'Sailed off'
   const statusIcon = isSailed ? <GanttCompletedIcon /> : <GanttVesselIcon />
+  const statusChip = resolveStatusChip(model.status, t)
+
+  const isLate = layer === 'actual' && model.etcOverdue && model.overMs != null && model.overMs > 0
 
   const milestoneEntries =
     layer === 'planned'
@@ -56,20 +78,14 @@ export default function GanttDenseBlock({
         ]
 
   const milestoneLine = milestoneEntries
-    .map(({ key, label, ms }) => `${t(key, { defaultValue: label })} ${formatGanttMilestoneMs(ms)}`)
+    .map(({ key, label, ms }) => `${t(key, { defaultValue: label })} ${formatGanttMilestoneShort(ms)}`)
     .join(' · ')
 
-  const showDates = true
   const showCargo = Boolean(model.materialQtyLine)
-  const showOverdueBadge =
-    layer === 'actual' &&
-    model.etcOverdue &&
-    model.overMs != null &&
-    (barWidthPct == null || barWidthPct >= 35)
 
   return (
     <div
-      className={`gantt-dense-block gantt-dense-block--${layer} gantt-dense-block--${density}${overlay ? ' gantt-dense-block--overlay' : ''}`}
+      className={`gantt-dense-block gantt-dense-block--${layer} gantt-dense-block--${density}${overlay ? ' gantt-dense-block--overlay' : ''}${isLate ? ' gantt-dense-block--late' : ''}`}
     >
       <div className="gantt-dense-block__row gantt-dense-block__row--title">
         {statusIcon}
@@ -77,26 +93,30 @@ export default function GanttDenseBlock({
         {model.purposeLabel ? (
           <PurposeBadge purpose={model.purposeLabel} loadDischarge={model.loadDischarge} />
         ) : null}
-        {showOverdueBadge ? (
-          <EtcBreachBadge overMs={model.overMs} etcMs={model.estCompMs} size="icon-only" />
+        {statusChip ? (
+          <span
+            className={`gantt-dense-block__status-chip gantt-dense-block__status-chip--${statusChip.key}`}
+          >
+            {statusChip.label}
+          </span>
+        ) : null}
+        {isLate ? (
+          <span
+            className="gantt-dense-block__late-chip"
+            title={`${formatOverdueDuration(model.overMs)} ${t('ganttLatePastEtcTooltip', { defaultValue: 'past estimated completion (ETC)' })}`}
+          >
+            {t('ganttLateChip', { defaultValue: 'LATE' })} {formatOverdueDuration(model.overMs)}
+          </span>
         ) : null}
       </div>
-      {showDates ? (
-        <div className="gantt-dense-block__row gantt-dense-block__row--dates">
-          <span className="gantt-dense-block__dates" title={milestoneLine}>
-            {milestoneLine}
-          </span>
-        </div>
-      ) : null}
+      <div className="gantt-dense-block__row gantt-dense-block__row--dates">
+        <span className="gantt-dense-block__dates">{milestoneLine}</span>
+      </div>
       {showCargo ? (
         <div className="gantt-dense-block__row gantt-dense-block__row--cargo">
-          <span className="gantt-dense-block__cargo" title={model.materialQtyLine}>
-            {model.materialQtyLine}
-          </span>
+          <span className="gantt-dense-block__cargo">{model.materialQtyLine}</span>
         </div>
       ) : null}
-      {/* Aging slot — hidden until business rule is defined */}
-      <span className="gantt-dense-block__aging" aria-hidden="true" />
     </div>
   )
 }
