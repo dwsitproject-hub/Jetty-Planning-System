@@ -13,6 +13,8 @@
   "login": "Masuk",
   "expandSidebar": "Perluas bilah samping",
   "collapseSidebar": "Ciutkan bilah samping",
+  "loading": "Memuat…",
+  "sessionRequired": "Silakan masuk untuk melanjutkan.",
   "loadingPorts": "Memuat pelabuhan yang ditetapkan…",
   "accessNotConfigured": "Akses belum dikonfigurasi",
   "backToLogin": "Kembali ke masuk",
