@@ -11,6 +11,12 @@ import './styles/app.css'
 // HashRouter there. The web build keeps BrowserRouter (clean URLs) unchanged.
 const Router = isNative() ? HashRouter : BrowserRouter
 
+// Tag the root so mobile-app-only CSS (safe areas, tap highlight) can be scoped
+// without ever affecting the web build.
+if (isNative()) {
+  document.documentElement.classList.add('jps-native')
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <Router>

@@ -5,9 +5,10 @@ dist
 .env.*.local
 # Mobile build env (real backend URL); the .example is committed
 .env.mobile
-# Android signing keystores (never commit)
+# Android signing keystores + secrets (never commit)
 *.jks
 *.keystore
+keystore.properties
 *.log
 .DS_Store
 # Word lock files

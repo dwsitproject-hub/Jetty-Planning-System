@@ -187,9 +187,16 @@ offline-grace window (e.g., offline login allowed for N days since last real log
 wipe of cached data on logout, and never storing the plaintext password. This tradeoff is
 called out for sign-off in §12.
 
-**Token expiry offline:** if the cached JWT expires while offline, queued writes still record;
-on reconnect the app re-authenticates (silent re-login) before replaying the outbox, so the
-server always sees a valid token.
+**Token expiry & sync-after-reconnect (implemented reality):** we store only a one-way
+credential hash (never the plaintext password), so the app cannot silently re-mint a JWT
+without a backend refresh endpoint. Instead: the stored Bearer token is reused on reconnect,
+and queued writes replay while it is still valid. So for the sync-on-reconnect path to be
+seamless, the JWT must outlive the offline window — **set `JWT_EXPIRES_IN` on the API to cover
+expected offline durations** (e.g. `7d` for the pilot; default is `8h`). If the token has
+expired server-side, replays return 401 and the items are held (never dropped) until the
+operator does one online login, which refreshes the token and auto-syncs the queue. Offline
+*app entry* is independent of this — it works within `OFFLINE_LOGIN_GRACE_DAYS` via the cached
+hash regardless of token state.
 
 ---
 
@@ -294,9 +301,9 @@ has no history server). One line in `main.jsx`, web unaffected.
 | **P2 — Read offline** ✅ | Registry read policies for field-scope + context reads (users/me, rbac/me/page-permissions, allocation, operations, shipment-plans, shipping-instructions, ports, jetties, jetty-layout, si-lookups, cargo-handling); online writes to cache, offline serves cache (fresh→stale→error); global offline banner is the "offline data" hint. Seam env-injectable; 26 offline unit tests. | M |
 | **P3 — Write offline (outbox)** ✅ | Registry write policies (allocation arrival + sequence-swap, all /operations/<id>/* + quantity-checks/qc-surveys); offline mutations queue and return synthetic success; optimistic read-overlay (arrival → allocation reads) so changes survive refetch; pending badge + queue viewer (discard). apiPostForm offline deferred to P4/P7. 107 unit tests. | M |
 | **P4 — Sync & conflicts** ✅ | Sync runner (mutex) replays the outbox via `rawRequest` (bypasses the seam) on reconnect + app-mount + 60s; conflict/failed items surfaced in the queue viewer with Resend-mine / Keep-server (discard) / Retry; manual "Sync now". 112 unit tests. Offline file uploads (apiPostForm) deferred to P7. | M |
-| **P5 — Offline login** | Cached-credential login, offline-grace window, silent re-login on reconnect. | S–M |
-| **P6 — Mobile UX polish** | Execute the pending `MOBILE-UX-PAGE-BY-PAGE-EXECUTION-PLAN.md` steps for the offline pages; validate 390/430px + tablet. | M |
-| **P7 — Hardening & release** | E2E offline tests, secure-storage review, signed APK/AAB, install/runbook docs. | M |
+| **P5 — Offline login** ✅ | On online login, cache a PBKDF2-SHA256 password hash + profile in secure storage; offline `login()` verifies the hash within `OFFLINE_LOGIN_GRACE_DAYS` (default 1, configurable) and restores the stored session. Reconnect reuses the stored token (see token-TTL note in §6). 120 unit tests. | S–M |
+| **P6 — Mobile UX polish** ◑ | Native shell hardening done: `.jps-native` scope class, `viewport-fit=cover` + theme-color/web-app meta, safe-area insets (status bar / gesture nav) for topbar/content/offline-banner/queue, tap-highlight + overscroll. Per-page 390/430px visual polish is an on-device task (see §15) — the dev browser here can't emulate a phone viewport. | M |
+| **P7 — Hardening & release** ◑ | Offline file uploads (NOR/docs): FormData serialized to base64 in the outbox, rebuilt + replayed on reconnect (apiPostForm now routes through the seam). Signing via gitignored `keystore.properties` + `.example`; signed-build + JWT-window docs in MOBILE-BUILD.md. 126 unit tests. Remaining = actual signed APK/AAB build + on-device QA (needs Android Studio; see §15). | M |
 
 Each phase is independently shippable and leaves web + existing APK working.
 
@@ -328,3 +335,26 @@ Each phase is independently shippable and leaves web + existing APK working.
 ## 14. Explicitly out of scope for v1
 iOS build; full offline mirror of admin/master editing; offline report exports; push
 notifications (can be a fast-follow); server-side idempotency/refresh-token endpoints.
+
+## 15. P6 on-device mobile-UX checklist (Allocation, At-Berth, Clearance)
+
+The shell foundations (safe areas, native scope class, viewport-fit, theme-color, tap
+highlight, overscroll) are implemented and verified not to affect the desktop web. The
+remaining **per-page visual polish must be validated on an emulator or a real device**,
+because the scaffolding browser here cannot render a true phone viewport. Run the app
+(Android Studio emulator: Pixel phone 390–430px + a tablet), sign in, and for each page
+below verify at **390×844, 430×932, and 768×1024 (tablet)**:
+
+- **No horizontal page scroll.** Wide tables/Gantt must scroll inside their own container,
+  not push the page. (Existing responsive CSS + `MOBILE-UX-PAGE-BY-PAGE-EXECUTION-PLAN.md`
+  Steps 0–4 target this; complete any gaps found.)
+- **Allocation & Berthing** — Jetty schedule Gantt: bars/labels legible; the drag-to-reschedule
+  gesture + confirm dialog usable one-handed; the offline banner/queue badge don't cover the
+  tab bar or the "Open full view" control (safe-area padding already applied).
+- **At-Berth Executions** — timestamp/activity forms: inputs full-width, date-time pickers
+  reachable, action buttons ≥44px and not clipped at the inline-end.
+- **Clearance / Verification** — checklists and action buttons reachable; sticky controls don't
+  overlap content.
+- **Offline chrome** — trigger airplane mode: banner shows below the status bar; pending badge
+  sits above the gesture nav; queue panel fits within the viewport and scrolls.
+- **Log the results** back into `MOBILE-UX-PAGE-BY-PAGE-EXECUTION-PLAN.md` step checkboxes.

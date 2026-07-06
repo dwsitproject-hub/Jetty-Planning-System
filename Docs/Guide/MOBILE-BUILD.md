@@ -71,16 +71,71 @@ Install on a connected device: `adb install -r app-debug.apk`.
 
 ## 6. Release (signed) APK/AAB — for distribution
 
-1. Create a keystore (once), keep it **out of git** (already gitignored):
+1. **Create a keystore** (once), keep it **out of git** (`*.jks` is gitignored):
    ```bash
+   cd Frontend/android
    keytool -genkey -v -keystore jps-release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias jps
    ```
-2. Add signing config to `android/app/build.gradle` (or `~/.gradle/gradle.properties`).
-3. Build: `cd android && gradlew.bat assembleRelease` (APK) or `bundleRelease` (AAB).
-4. **Sideloaded (v1):** distribute `app-release.apk` (users enable "install unknown apps").
-   **Google Play (later):** upload the `.aab` to a private/managed Play listing.
+2. **Configure signing** without hardcoding secrets: copy the example and fill it in
+   (the real file is gitignored):
+   ```bash
+   cp keystore.properties.example keystore.properties   # in Frontend/android/
+   # edit storePassword / keyPassword / paths
+   ```
+   Then add this to `Frontend/android/app/build.gradle` — a `signingConfig` that loads
+   `keystore.properties` when present (falls back to an unsigned/debug build otherwise):
+   ```gradle
+   // near the top of app/build.gradle
+   def keystorePropsFile = rootProject.file("keystore.properties")
+   def keystoreProps = new Properties()
+   if (keystorePropsFile.exists()) { keystoreProps.load(new FileInputStream(keystorePropsFile)) }
 
-## 7. Iterating
+   android {
+     // ...
+     signingConfigs {
+       release {
+         if (keystorePropsFile.exists()) {
+           storeFile file(keystoreProps['storeFile'])
+           storePassword keystoreProps['storePassword']
+           keyAlias keystoreProps['keyAlias']
+           keyPassword keystoreProps['keyPassword']
+         }
+       }
+     }
+     buildTypes {
+       release {
+         signingConfig keystorePropsFile.exists() ? signingConfigs.release : signingConfigs.debug
+         minifyEnabled false
+       }
+     }
+   }
+   ```
+   (Or configure signing via Android Studio's Build ▸ Generate Signed Bundle/APK wizard,
+   which manages this for you.)
+3. **Build:**
+   ```bash
+   npm run build:mobile && npm run cap:sync
+   cd android && gradlew.bat assembleRelease   # APK  → app/build/outputs/apk/release/
+   #        or   gradlew.bat bundleRelease      # AAB  → app/build/outputs/bundle/release/
+   ```
+4. **Sideloaded (v1):** distribute `app-release.apk` (users enable "install unknown apps").
+   **Google Play (later):** upload the `.aab` to a private/managed Play listing (Play App
+   Signing will re-sign; keep your upload key safe).
+
+## 7. Offline behavior & the token window (important)
+
+- The app caches reads and **queues field writes** (arrival/berthing, at-berth, clearance,
+  NOR/document uploads) while offline, then **replays them on reconnect** (pending badge +
+  queue viewer show status).
+- **Offline sign-in** works within `VITE_OFFLINE_LOGIN_GRACE_DAYS` (default 1) via an on-device
+  password hash — set it in `.env.mobile`.
+- **Reconnect sync reuses the stored JWT.** So it must outlive the offline window: set
+  **`JWT_EXPIRES_IN` on the API** to cover expected offline durations (e.g. `7d` for the pilot;
+  default `8h`). If the token has expired, queued items are held (never dropped) until one
+  online login refreshes it and the queue auto-syncs.
+- `JettyLive` (RTSP video) and server-side report exports/OCR require connectivity.
+
+## 8. Iterating
 
 After any frontend change: `npm run build:mobile && npm run cap:sync`, then rebuild/run.
 No native code changes are needed for normal UI/logic work.
@@ -88,6 +143,5 @@ No native code changes are needed for normal UI/logic work.
 ## Notes
 
 - Routing uses `HashRouter` inside the app automatically (web keeps clean URLs).
-- Auth uses a Bearer token stored in secure storage; offline features land in later phases
-  (see `Docs/Plan/ANDROID-MOBILE-APP-OFFLINE-PLAN.md`).
-- `JettyLive` (RTSP video) requires connectivity and won't work offline.
+- Auth uses a Bearer token in secure storage; the web build is unchanged (cookies + CSRF).
+- On-device UX validation checklist: see `Docs/Plan/ANDROID-MOBILE-APP-OFFLINE-PLAN.md` §15.

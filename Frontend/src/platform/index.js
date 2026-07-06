@@ -84,6 +84,31 @@ export async function removeStoredAuthToken() {
   await secureRemove(AUTH_TOKEN_KEY)
 }
 
+/* ---- Offline-login credential (PBKDF2 hash + cached profile; native only) ---- */
+
+const OFFLINE_CRED_KEY = 'jps_offline_cred'
+
+export async function storeOfflineCredential(cred) {
+  if (!isNative()) return
+  await secureSet(OFFLINE_CRED_KEY, JSON.stringify(cred))
+}
+
+export async function loadOfflineCredential() {
+  if (!isNative()) return null
+  const raw = await secureGet(OFFLINE_CRED_KEY)
+  if (!raw) return null
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+export async function clearOfflineCredential() {
+  if (!isNative()) return
+  await secureRemove(OFFLINE_CRED_KEY)
+}
+
 /* ---- Network status (Network plugin on native; navigator.onLine on web) ---- */
 
 export async function getOnline() {

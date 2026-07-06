@@ -1,4 +1,4 @@
-import { offlineGet, offlineMutate } from '../offline/index.js'
+import { offlineGet, offlineMutate, offlineMutateForm } from '../offline/index.js'
 
 /**
  * HTTP client for JPS API (Slice 0).
@@ -202,7 +202,7 @@ export async function apiPost(path, body) {
   return offlineMutate('POST', path, getSelectedPortId(), body, () => rawPost(path, body))
 }
 
-export async function apiPostForm(path, formData, timeoutMs = 45000) {
+async function rawPostForm(path, formData, timeoutMs = 45000) {
   const url = `${BASE}${path.startsWith('/') ? path : `/${path}`}`
   const res = await fetchWithTimeout(
     url,
@@ -214,6 +214,21 @@ export async function apiPostForm(path, formData, timeoutMs = 45000) {
     timeoutMs
   )
   return parseResponse(res)
+}
+
+export async function apiPostForm(path, formData, timeoutMs = 45000) {
+  // Offline seam for multipart uploads: on web / online / non-queued endpoints
+  // this passes straight through to rawPostForm. Offline + a write policy queues
+  // the upload (files serialized to base64) for replay on reconnect.
+  return offlineMutateForm(path, getSelectedPortId(), formData, () =>
+    rawPostForm(path, formData, timeoutMs)
+  )
+}
+
+/** Replay a queued multipart upload: rebuild FormData from the serialized body. */
+export async function rawFormReplay(path, serialized) {
+  const { deserializeToFormData } = await import('../offline/formSerialize.js')
+  return rawPostForm(path, deserializeToFormData(serialized))
 }
 
 async function rawPut(path, body) {

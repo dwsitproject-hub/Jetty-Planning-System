@@ -17,8 +17,9 @@ let running = false
 // Lazy import so this module can be unit-tested without loading the API client
 // (which reads Vite's import.meta.env at module load).
 async function defaultSender(row) {
-  const { rawRequest } = await import('../api/client.js')
-  return rawRequest(row.method, row.path, row.body)
+  const client = await import('../api/client.js')
+  if (row.isForm) return client.rawFormReplay(row.path, row.body)
+  return client.rawRequest(row.method, row.path, row.body)
 }
 
 /**

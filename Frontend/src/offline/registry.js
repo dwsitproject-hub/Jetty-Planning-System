@@ -50,6 +50,9 @@ export const OFFLINE_POLICY = [
   { match: /^\/operations\//, write: 'outbox', entity: 'operation' },
   { match: /^\/quantity-checks\//, write: 'outbox', entity: 'operation' },
   { match: /^\/qc-surveys\//, write: 'outbox', entity: 'operation' },
+  // NOR / operation document uploads (multipart) — queued as base64, replayed on
+  // reconnect. SI OCR extract endpoints have no rule → online-only.
+  { match: /^\/operation-documents\/operations\//, write: 'outbox', entity: 'operation-document' },
 
   // Everything else (notifications, activity-logs, dashboard, admin, sla-config,
   // integration-admin, user/role/plan/SI creation) has no rule → stays online-only.

@@ -11,6 +11,7 @@ import { buildCacheKey } from './cacheKey.js'
 import { readFreshCache, readStaleCache, writeCacheEntry } from './cache.js'
 import { enqueueMutation, listReplayable, listAll, countPending, removeMutation } from './outbox.js'
 import { overlayPending } from './optimistic.js'
+import { serializeFormData } from './formSerialize.js'
 
 export class OfflineUnavailableError extends Error {
   constructor(path) {
@@ -93,6 +94,36 @@ export async function offlineMutate(method, path, portId, body, doFetch, env = {
   await enqueueMutation(store, { method, path, body, entity: policy.entity }, { id, nowMs: Date.now() })
   // Synthetic success so the existing UI flow proceeds. The change stays visible
   // because cached reads overlay pending writes (see optimistic.js).
+  return { ok: true, queued: true, outboxId: id }
+}
+
+/**
+ * Route a multipart upload (FormData) to the outbox when offline and a write
+ * policy applies. Files are serialized to base64 and reconstructed on replay.
+ * @param {string} path
+ * @param {number|string|null} portId
+ * @param {FormData} formData
+ * @param {() => Promise<any>} doFetch raw network upload
+ * @param {{isNative?:Function, getOnline?:Function, store?:object, newId?:Function, policies?:Array}} [env]
+ */
+export async function offlineMutateForm(path, portId, formData, doFetch, env = {}) {
+  const nativeFn = env.isNative || isNative
+  const onlineFn = env.getOnline || getOnline
+  if (!nativeFn()) return doFetch()
+  const policy = matchOfflinePolicy('POST', path, env.policies)
+  if (!policy || policy.kind !== 'write') return doFetch()
+
+  const online = await onlineFn()
+  if (online) return doFetch()
+
+  const store = env.store || (await getStore())
+  const id = (env.newId || newId)()
+  const serialized = await serializeFormData(formData)
+  await enqueueMutation(
+    store,
+    { method: 'POST', path, body: serialized, entity: policy.entity, isForm: true },
+    { id, nowMs: Date.now() }
+  )
   return { ok: true, queued: true, outboxId: id }
 }
 

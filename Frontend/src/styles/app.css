@@ -859,3 +859,29 @@ table.data-table tr:hover td { background: var(--color-bg-lighter); }
   cursor: pointer;
 }
 .offline-queue__retry:disabled { opacity: 0.5; cursor: default; }
+
+/* ---- Native app (Capacitor) shell hardening — scoped to .jps-native only ---- */
+.jps-native {
+  -webkit-tap-highlight-color: transparent;
+}
+.jps-native .content {
+  overscroll-behavior: contain;
+}
+/* Respect Android status bar / gesture-nav safe areas so nothing is clipped. */
+@supports (padding: env(safe-area-inset-top)) {
+  .jps-native .topbar {
+    padding-top: calc(var(--spacing-2) + env(safe-area-inset-top));
+  }
+  .jps-native .content {
+    padding-bottom: calc(var(--spacing-4) + env(safe-area-inset-bottom));
+  }
+  .jps-native .offline-banner {
+    padding-top: calc(6px + env(safe-area-inset-top));
+  }
+  .jps-native .offline-queue__badge {
+    bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+  .jps-native .offline-queue__panel {
+    bottom: calc(56px + env(safe-area-inset-bottom));
+  }
+}

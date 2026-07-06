@@ -25,6 +25,7 @@ export async function enqueueMutation(store, req, { id, nowMs }) {
     body: req.body ?? null,
     entity: req.entity ?? null,
     baseVersion: req.baseVersion ?? null,
+    isForm: req.isForm ?? false,
     status: OUTBOX_STATUS.PENDING,
     attempts: 0,
     lastError: null,
