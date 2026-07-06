@@ -139,6 +139,8 @@ export function buildActualBlockModel(seg, row) {
     purposeLabel: seg.purposeLabel || row?.planPurposeLabel || row?.purpose || null,
     loadDischarge: seg.loadDischarge ?? row?.loadDischarge ?? null,
     status: seg.status || null,
+    etaMs: seg.etaMs ?? null,
+    etbMs: seg.plannedEtbMs ?? null,
     taMs: seg.taMs ?? null,
     tbMs: seg.tbMs ?? null,
     actualCompMs,
@@ -148,6 +150,10 @@ export function buildActualBlockModel(seg, row) {
       seg.materialDisplay || (row ? materialDisplayFromRow(row) : null),
       seg.cargoDisplay || row?.totalQtyDisplay
     ),
+    estimateLine: formatGanttMilestoneLine([
+      { label: 'ETA', ms: seg.etaMs },
+      { label: 'ETB', ms: seg.plannedEtbMs },
+    ]),
     milestoneLine: formatGanttMilestoneLine([
       { label: 'TA', ms: seg.taMs },
       { label: 'TB', ms: seg.tbMs },
@@ -182,11 +188,8 @@ export function parseRowActualCompMs(row) {
 export function ganttDenseBlockAriaLabel(model, layer) {
   const parts = [model.vesselName]
   if (model.purposeLabel) parts.push(model.purposeLabel)
-  if (layer === 'planned') {
-    parts.push(model.milestoneLine)
-  } else {
-    parts.push(model.milestoneLine)
-  }
+  if (layer === 'actual' && model.estimateLine) parts.push(model.estimateLine)
+  parts.push(model.milestoneLine)
   if (model.materialQtyLine) parts.push(model.materialQtyLine)
   return parts.filter(Boolean).join(', ')
 }

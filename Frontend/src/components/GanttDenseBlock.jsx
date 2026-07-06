@@ -81,6 +81,20 @@ export default function GanttDenseBlock({
     .map(({ key, label, ms }) => `${t(key, { defaultValue: label })} ${formatGanttMilestoneShort(ms)}`)
     .join(' · ')
 
+  // Actual bars also carry the estimation milestones (ETA/ETB) on their own line.
+  const estimateEntries =
+    layer === 'actual' && (model.etaMs != null || model.etbMs != null)
+      ? [
+          { key: 'ganttBarEta', label: 'ETA', ms: model.etaMs },
+          { key: 'ganttBarEtb', label: 'ETB', ms: model.etbMs },
+        ]
+      : null
+  const estimateLine = estimateEntries
+    ? estimateEntries
+        .map(({ key, label, ms }) => `${t(key, { defaultValue: label })} ${formatGanttMilestoneShort(ms)}`)
+        .join(' · ')
+    : null
+
   const showCargo = Boolean(model.materialQtyLine)
 
   return (
@@ -109,6 +123,11 @@ export default function GanttDenseBlock({
           </span>
         ) : null}
       </div>
+      {estimateLine ? (
+        <div className="gantt-dense-block__row gantt-dense-block__row--dates gantt-dense-block__row--estimates">
+          <span className="gantt-dense-block__dates gantt-dense-block__dates--estimate">{estimateLine}</span>
+        </div>
+      ) : null}
       <div className="gantt-dense-block__row gantt-dense-block__row--dates">
         <span className="gantt-dense-block__dates">{milestoneLine}</span>
       </div>

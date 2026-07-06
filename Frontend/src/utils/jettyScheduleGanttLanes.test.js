@@ -43,6 +43,42 @@ describe('buildScheduleSegments planned dedup', () => {
     const planned = segs.filter((s) => s.layer === 'planned' && s.jettyId === '1B')
     assert.equal(planned.length, 1)
     assert.equal(planned[0].bankLaneKey, 'plan-14')
+    assert.equal(planned[0].estimateOnly, true)
+  })
+
+  it('suppresses the planned (estimate) segment once the vessel has actual milestones', () => {
+    const plan = [
+      row({
+        shipmentPlanId: 14,
+        vesselId: 'op-100',
+        plannedEtbDateTime: JUN_21,
+        etbDateTime: JUN_21,
+        tbDateTime: JUN_21,
+        operationId: 100,
+      }),
+    ]
+    const segs = buildScheduleSegments(plan, WINDOW_START, WINDOW_END, JUN_24)
+    assert.equal(segs.filter((s) => s.layer === 'planned').length, 0, 'no planned bar')
+    const actual = segs.filter((s) => s.layer === 'actual' && s.phase === 'ops')
+    assert.equal(actual.length, 1, 'actual bar still emitted')
+    assert.equal(actual[0].plannedEtbMs, new Date(JUN_21).getTime(), 'actual bar carries ETB')
+  })
+
+  it('suppresses the planned segment when TA exists even without TB (transit)', () => {
+    const plan = [
+      row({
+        shipmentPlanId: 14,
+        vesselId: 'op-100',
+        etaDateTime: JUN_10,
+        taDateTime: JUN_20,
+        operationId: 100,
+      }),
+    ]
+    const segs = buildScheduleSegments(plan, WINDOW_START, WINDOW_END, JUN_24)
+    assert.equal(segs.filter((s) => s.layer === 'planned').length, 0)
+    const transit = segs.filter((s) => s.layer === 'actual' && s.phase === 'transit')
+    assert.equal(transit.length, 1)
+    assert.equal(transit[0].etaMs, new Date(JUN_10).getTime(), 'transit bar carries ETA')
   })
 })
 
@@ -159,6 +195,54 @@ describe('assignBankLanesByVessel', () => {
     assert.equal(warriorActual.rowKey, '1B__0', 'active warrior on 1B-01')
     assert.equal(berlianActual.rowKey, '1B__1', 'active berlian on 1B-02')
     assert.equal(sailedActual?.rowKey, '1B__1', 'sailed vessel prefers free high lane over active 01 row')
+  })
+
+  it('packs a future vessel onto the lane of the vessel it follows in time', () => {
+    // Jetty 1B full: two vessels currently alongside (lane 0 ends earlier, lane 1 ends later).
+    // A third vessel scheduled AFTER lane 1's occupant must land on lane 1, not fall back to lane 0.
+    const TB_LANE0 = new Date('2026-06-10T08:00:00').toISOString()
+    const ETC_LANE0 = new Date('2026-06-22T08:00:00').toISOString()
+    const TB_LANE1 = new Date('2026-06-11T08:00:00').toISOString()
+    const ETC_LANE1 = new Date('2026-06-27T20:00:00').toISOString()
+    const TB_FUTURE = new Date('2026-06-28T06:00:00').toISOString()
+    const listRows = [
+      row({
+        shipmentPlanId: 1,
+        vesselId: 'op-first',
+        status: 'DOCKED',
+        tbDateTime: TB_LANE0,
+        estimatedCompletionDateTime: ETC_LANE0,
+        operationId: 1,
+      }),
+      row({
+        shipmentPlanId: 2,
+        vesselId: 'op-second',
+        status: 'DOCKED',
+        tbDateTime: TB_LANE1,
+        estimatedCompletionDateTime: ETC_LANE1,
+        operationId: 2,
+      }),
+      row({
+        shipmentPlanId: 3,
+        vesselId: 'op-future',
+        status: 'BERTHING_APPROVED',
+        tbDateTime: TB_FUTURE,
+        operationId: 3,
+      }),
+    ]
+    const baseSegments = buildScheduleSegments(listRows, WINDOW_START, new Date('2026-08-01T00:00:00').getTime(), JUN_24)
+    const assigned = assignBankLanesByVessel(baseSegments, rowDefs, listRows, JUN_24)
+
+    const first = assigned.find((s) => s.bankLaneKey === 'plan-1')
+    const second = assigned.find((s) => s.bankLaneKey === 'plan-2')
+    const future = assigned.find((s) => s.bankLaneKey === 'plan-3')
+    assert.ok(first && second && future)
+    assert.notEqual(first.laneIndex, second.laneIndex, 'active vessels occupy different lanes')
+    assert.equal(
+      future.rowKey,
+      `1B__${second.laneIndex}`,
+      'future vessel follows the later-ending occupant on its lane'
+    )
   })
 
   it('actual ops segment starts at tbDateTime (not an earlier docking placeholder)', () => {

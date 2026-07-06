@@ -1,14 +1,12 @@
 import { useTranslation } from 'react-i18next'
-import { normalizeGanttLayerMode } from '../utils/ganttLayerMode.js'
 
 /**
  * Opens jetty schematic or schedule in a chromeless embed route (new browser window).
- * @param {{ mode: 'schematic' | 'schedule', profile?: 'plan' | 'legacy', layerMode?: string, className?: string }} props
+ * @param {{ mode: 'schematic' | 'schedule', profile?: 'plan' | 'legacy', className?: string }} props
  */
 export default function VisualizationPopoutButton({
   mode,
   profile = 'plan',
-  layerMode = 'both',
   className = '',
 }) {
   const { t } = useTranslation('allocation')
@@ -17,9 +15,6 @@ export default function VisualizationPopoutButton({
     const params = new URLSearchParams()
     params.set('embed', '1')
     params.set('profile', profile === 'legacy' ? 'legacy' : 'plan')
-    if (mode === 'schedule') {
-      params.set('layer', normalizeGanttLayerMode(layerMode))
-    }
     const url = `${window.location.origin}/allocation/visualization/${mode}?${params.toString()}`
     window.open(url, '_blank', 'noopener,noreferrer,width=1440,height=900')
   }
