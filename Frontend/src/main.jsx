@@ -1,15 +1,20 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
+import { BrowserRouter, HashRouter } from 'react-router-dom'
 import './i18n'
 import App from './App'
+import { isNative } from './platform'
 import './styles/design-tokens.css'
 import './styles/app.css'
 
+// Native (Capacitor) runs from a file/WebView origin with no history server, so use
+// HashRouter there. The web build keeps BrowserRouter (clean URLs) unchanged.
+const Router = isNative() ? HashRouter : BrowserRouter
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <Router>
       <App />
-    </BrowserRouter>
+    </Router>
   </React.StrictMode>,
 )

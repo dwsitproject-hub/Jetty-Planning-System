@@ -696,3 +696,166 @@ table.data-table tr:hover td { background: var(--color-bg-lighter); }
     padding: var(--spacing-1) var(--spacing-2);
   }
 }
+
+/* Offline banner — visible only while the device is offline (mobile + web). */
+.offline-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 4000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: #b45309;
+  color: #fff;
+  font-size: var(--font-size-small, 0.875rem);
+  font-weight: 600;
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.offline-banner__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fde68a;
+  flex: 0 0 auto;
+}
+
+/* Offline write queue — pending badge + viewer (native app; empty/hidden on web) */
+.offline-queue__badge {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 3900;
+  border: none;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: var(--font-size-small, 0.875rem);
+  font-weight: 600;
+  color: #fff;
+  background: #475569;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+
+.offline-queue__badge--active {
+  background: #b45309;
+}
+
+.offline-queue__panel {
+  position: fixed;
+  left: 12px;
+  bottom: 56px;
+  z-index: 3901;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+  background: var(--color-surface, #fff);
+  color: var(--color-text-charcoal, #1e293b);
+  border: 1px solid var(--color-border-medium, #cbd5e1);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  padding: 12px;
+}
+
+.offline-queue__panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.offline-queue__close {
+  border: none;
+  background: transparent;
+  font-size: 1rem;
+  cursor: pointer;
+  color: inherit;
+}
+
+.offline-queue__hint {
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--color-text-steel, #64748b);
+  margin: 0 0 10px;
+}
+
+.offline-queue__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.offline-queue__item {
+  border: 1px solid var(--color-border-light, #e2e8f0);
+  border-left: 3px solid #64748b;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.offline-queue__item--failed { border-left-color: #dc2626; }
+.offline-queue__item--conflict { border-left-color: #b45309; }
+.offline-queue__item--sending { border-left-color: #2563eb; }
+
+.offline-queue__item-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  font-size: var(--font-size-small, 0.875rem);
+}
+
+.offline-queue__status { font-size: var(--font-size-xs, 0.75rem); color: var(--color-text-steel, #64748b); }
+.offline-queue__item-sub { font-size: var(--font-size-xs, 0.75rem); color: var(--color-text-steel, #64748b); margin-top: 2px; }
+.offline-queue__error { font-size: var(--font-size-xs, 0.75rem); color: #b91c1c; margin-top: 4px; }
+
+.offline-queue__discard {
+  margin-top: 6px;
+  border: 1px solid var(--color-border-medium, #cbd5e1);
+  background: transparent;
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: var(--font-size-xs, 0.75rem);
+  cursor: pointer;
+  color: inherit;
+}
+
+/* P4 sync additions */
+.offline-queue__badge--conflict { background: #b91c1c; }
+
+.offline-queue__sync {
+  width: 100%;
+  margin: 0 0 10px;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 12px;
+  font-size: var(--font-size-small, 0.875rem);
+  font-weight: 600;
+  color: #fff;
+  background: var(--color-primary, #2563eb);
+  cursor: pointer;
+}
+.offline-queue__sync:disabled { opacity: 0.55; cursor: default; }
+
+.offline-queue__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.offline-queue__retry {
+  border: 1px solid var(--color-primary, #2563eb);
+  color: var(--color-primary, #2563eb);
+  background: transparent;
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: var(--font-size-xs, 0.75rem);
+  cursor: pointer;
+}
+.offline-queue__retry:disabled { opacity: 0.5; cursor: default; }

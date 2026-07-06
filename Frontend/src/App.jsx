@@ -39,6 +39,8 @@ import AdminPartnerApi from './pages/AdminPartnerApi'
 import DemurrageRiskCalculator from './pages/DemurrageRiskCalculator'
 import JettyLive from './pages/JettyLive'
 import DevOcrTest from './pages/DevOcrTest'
+import OfflineBanner from './components/OfflineBanner'
+import OfflineQueue from './components/OfflineQueue'
 
 function AppShell() {
   const location = useLocation()
@@ -64,6 +66,8 @@ function App() {
             <PortScopeProvider>
               <FilePreviewProvider>
               <RbacProvider>
+                <OfflineBanner />
+                <OfflineQueue />
                 <Routes>
                 <Route path="/login" element={<Login />} />
                 <Route path="/select-port" element={<SelectPort />} />

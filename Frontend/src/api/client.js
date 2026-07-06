@@ -1,3 +1,5 @@
+import { offlineGet, offlineMutate } from '../offline/index.js'
+
 /**
  * HTTP client for JPS API (Slice 0).
  * Set VITE_API_BASE_URL in project root .env:
@@ -15,6 +17,19 @@ function isRelativeApiBase() {
 }
 const SELECTED_PORT_SESSION_KEY = 'jps_selected_port_id'
 const XSRF_COOKIE = 'jps_xsrf'
+
+/**
+ * Native (Capacitor) Bearer token. Set at login and at app bootstrap from secure
+ * storage; stays null on the web, where auth continues to use HttpOnly cookies.
+ * The backend accepts `Authorization: Bearer <jwt>` and exempts it from CSRF.
+ */
+let mobileAuthToken = null
+export function setMobileAuthToken(token) {
+  mobileAuthToken = token || null
+}
+export function getMobileAuthToken() {
+  return mobileAuthToken
+}
 
 /** Browser fetch can hang indefinitely if the API host is down; cap wait time. */
 const DEFAULT_TIMEOUT_MS = 18000
@@ -59,6 +74,7 @@ export class ApiError extends Error {
 
 function authHeaders(extra = {}) {
   const headers = { Accept: 'application/json', ...extra }
+  if (mobileAuthToken) headers['Authorization'] = `Bearer ${mobileAuthToken}`
   const xsrf = readXsrfCookie()
   if (xsrf) headers['X-XSRF-TOKEN'] = xsrf
   const selectedPortId =
@@ -160,13 +176,19 @@ export async function ping() {
   return apiGet('/ping')
 }
 
-export async function apiGet(path) {
+async function rawGet(path) {
   const url = `${BASE}${path.startsWith('/') ? path : `/${path}`}`
   const res = await fetchWithTimeout(url, { headers: authHeaders() })
   return parseResponse(res)
 }
 
-export async function apiPost(path, body) {
+export async function apiGet(path) {
+  // Offline seam: on web (and on native until an endpoint opts in via the registry)
+  // this passes straight through to rawGet — no behavior change.
+  return offlineGet(path, getSelectedPortId(), () => rawGet(path))
+}
+
+async function rawPost(path, body) {
   const url = `${BASE}${path.startsWith('/') ? path : `/${path}`}`
   const res = await fetchWithTimeout(url, {
     method: 'POST',
@@ -174,6 +196,10 @@ export async function apiPost(path, body) {
     body: JSON.stringify(body ?? {}),
   })
   return parseResponse(res)
+}
+
+export async function apiPost(path, body) {
+  return offlineMutate('POST', path, getSelectedPortId(), body, () => rawPost(path, body))
 }
 
 export async function apiPostForm(path, formData, timeoutMs = 45000) {
@@ -190,7 +216,7 @@ export async function apiPostForm(path, formData, timeoutMs = 45000) {
   return parseResponse(res)
 }
 
-export async function apiPut(path, body) {
+async function rawPut(path, body) {
   const url = `${BASE}${path.startsWith('/') ? path : `/${path}`}`
   const res = await fetchWithTimeout(url, {
     method: 'PUT',
@@ -200,7 +226,11 @@ export async function apiPut(path, body) {
   return parseResponse(res)
 }
 
-export async function apiPatch(path, body) {
+export async function apiPut(path, body) {
+  return offlineMutate('PUT', path, getSelectedPortId(), body, () => rawPut(path, body))
+}
+
+async function rawPatch(path, body) {
   const url = `${BASE}${path.startsWith('/') ? path : `/${path}`}`
   const res = await fetchWithTimeout(url, {
     method: 'PATCH',
@@ -210,7 +240,11 @@ export async function apiPatch(path, body) {
   return parseResponse(res)
 }
 
-export async function apiDelete(path) {
+export async function apiPatch(path, body) {
+  return offlineMutate('PATCH', path, getSelectedPortId(), body, () => rawPatch(path, body))
+}
+
+async function rawDelete(path) {
   const url = `${BASE}${path.startsWith('/') ? path : `/${path}`}`
   const res = await fetchWithTimeout(url, {
     method: 'DELETE',
@@ -218,6 +252,25 @@ export async function apiDelete(path) {
   })
   if (res.status === 204) return null
   return parseResponse(res)
+}
+
+export async function apiDelete(path) {
+  return offlineMutate('DELETE', path, getSelectedPortId(), null, () => rawDelete(path))
+}
+
+/**
+ * Send a request WITHOUT the offline seam (no cache, no queue). Used by the sync
+ * runner to replay queued mutations — routing them through apiPost/etc. would just
+ * re-queue them while offline. Attaches Bearer/port headers like every request.
+ */
+export async function rawRequest(method, path, body) {
+  const m = String(method || 'GET').toUpperCase()
+  if (m === 'GET') return rawGet(path)
+  if (m === 'POST') return rawPost(path, body)
+  if (m === 'PUT') return rawPut(path, body)
+  if (m === 'PATCH') return rawPatch(path, body)
+  if (m === 'DELETE') return rawDelete(path)
+  throw new Error(`Unsupported method for rawRequest: ${method}`)
 }
 
 /**

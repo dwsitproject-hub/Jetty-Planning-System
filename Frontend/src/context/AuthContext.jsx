@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { fetchMe } from '../api/usersApi'
-import { clearLegacyToken, logout as apiLogout } from '../api/auth'
+import { clearLegacyToken, logout as apiLogout, restoreMobileSession } from '../api/auth'
 
 const AuthContext = createContext({
   loading: true,
@@ -41,7 +41,16 @@ export function AuthProvider({ children }) {
   }, [])
 
   useEffect(() => {
-    refreshMe()
+    // Restore a persisted native Bearer token before the first /users/me so the
+    // request is authenticated. On web restoreMobileSession() is a no-op.
+    let cancelled = false
+    ;(async () => {
+      await restoreMobileSession()
+      if (!cancelled) await refreshMe()
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [refreshMe])
 
   const value = useMemo(() => ({ loading, error, me, refreshMe, logout }), [loading, error, me, refreshMe, logout])
