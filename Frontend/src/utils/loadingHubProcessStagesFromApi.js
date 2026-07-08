@@ -14,20 +14,12 @@ import {
   UNLOADING_ACTIVITY_CATEGORIES,
 } from '../data/mockData'
 import { operationalMilestoneDoneCount, viewModelFromOperationalEntries } from '../data/operationalMilestones'
+import { getScheduleEntryTimeZone, utcIsoToNaiveLocal } from './scheduleDateTime.js'
+import { mergeDistinctLines } from './mergeHydrationLines.js'
 
-/** API ISO or datetime-local → `yyyy-mm-ddThh:mm` (same as Loading.jsx). */
-export function isoOrDatetimeToLocal(value) {
-  if (value == null || value === '') return ''
-  const s = String(value).trim()
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) return s
-  const d = new Date(s)
-  if (Number.isNaN(d.getTime())) return ''
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const h = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  return `${y}-${m}-${day}T${h}:${min}`
+/** API ISO or datetime-local → `yyyy-mm-ddThh:mm` in the given IANA zone (default: browser device zone). */
+export function isoOrDatetimeToLocal(value, scheduleIana = getScheduleEntryTimeZone()) {
+  return utcIsoToNaiveLocal(value, scheduleIana)
 }
 
 function laterIso(a, b) {
@@ -81,7 +73,7 @@ function precheckStatusRank(s) {
   return 1
 }
 
-function mergeInitialCargoHydration(current, row) {
+function mergeInitialCargoHydration(current, row, scheduleIana = getScheduleEntryTimeZone()) {
   const p = row.payload && typeof row.payload === 'object' ? row.payload : {}
   const typeFromKey =
     row.subProcessKey === 'initial_draft_survey'
@@ -89,51 +81,55 @@ function mergeInitialCargoHydration(current, row) {
       : row.subProcessKey === 'initial_sounding'
         ? 'Sounding'
         : null
+  const remarkResult = row.remark || p.result || ''
   const next = {
     ...current,
-    remark: [current.remark, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || current.remark || '',
+    remark: mergeDistinctLines(current.remark, remarkResult) || remarkResult || current.remark || '',
     status:
       precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
     lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
   }
   if (row.startAt || row.occurredAt) {
-    const st = isoOrDatetimeToLocal(row.startAt || row.occurredAt)
+    const st = isoOrDatetimeToLocal(row.startAt || row.occurredAt, scheduleIana)
     if (st) next.startTime = next.startTime || st
   }
   if (row.endAt) {
-    const en = isoOrDatetimeToLocal(row.endAt)
+    const en = isoOrDatetimeToLocal(row.endAt, scheduleIana)
     if (en) next.endTime = next.endTime || en
   }
-  const remarkResult = row.remark || p.result || ''
-  if (remarkResult) next.remark = remarkResult
   next.cargoCheckingType = typeFromKey || p.cargoCheckingType || current.cargoCheckingType
   return next
 }
 
-function mergeInspectionHydration(current, row) {
+function mergeInspectionHydration(current, row, scheduleIana = getScheduleEntryTimeZone()) {
   const p = row.payload && typeof row.payload === 'object' ? row.payload : {}
   const typeFromKey =
     row.subProcessKey === 'hold_inspection' ? 'Hold' : row.subProcessKey === 'tank_inspection' ? 'Tank' : null
   const next = {
     ...current,
-    remark: [current.remark, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || current.remark || '',
+    remark: mergeDistinctLines(current.remark, row.remark) || row.remark || current.remark || '',
     status:
       precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
     lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
   }
   if (row.startAt || row.occurredAt) {
-    const st = isoOrDatetimeToLocal(row.startAt || row.occurredAt)
+    const st = isoOrDatetimeToLocal(row.startAt || row.occurredAt, scheduleIana)
     if (st) next.startTime = next.startTime || st
   }
   if (row.endAt) {
-    const en = isoOrDatetimeToLocal(row.endAt)
+    const en = isoOrDatetimeToLocal(row.endAt, scheduleIana)
     if (en) next.endTime = next.endTime || en
   }
   next.inspectionType = typeFromKey || p.inspectionType || current.inspectionType
   return next
 }
 
-function mergeFinalInspectionHydration(current, row, commodityType = 'Liquid') {
+function mergeFinalInspectionHydration(
+  current,
+  row,
+  commodityType = 'Liquid',
+  scheduleIana = getScheduleEntryTimeZone()
+) {
   const p = row.payload && typeof row.payload === 'object' ? row.payload : {}
   const typeFromKey =
     row.subProcessKey === 'final_hold_inspection'
@@ -144,40 +140,45 @@ function mergeFinalInspectionHydration(current, row, commodityType = 'Liquid') {
   const fallbackType = commodityType === 'Solid' ? 'Hold' : 'Tank'
   const next = {
     ...current,
-    result: [current.result, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || current.result || '',
+    result: mergeDistinctLines(current.result, row.remark) || row.remark || current.result || '',
     status:
       precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
     lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
     inspectionType: typeFromKey || p.inspectionType || current.inspectionType || fallbackType,
   }
   if (row.startAt || row.occurredAt) {
-    const st = isoOrDatetimeToLocal(row.startAt || row.occurredAt)
+    const st = isoOrDatetimeToLocal(row.startAt || row.occurredAt, scheduleIana)
     if (st) next.startTime = next.startTime || st
   }
   if (row.endAt) {
-    const en = isoOrDatetimeToLocal(row.endAt)
+    const en = isoOrDatetimeToLocal(row.endAt, scheduleIana)
     if (en) next.endTime = next.endTime || en
   }
   return next
 }
 
-function mergeFinalCargoCheckingHydration(current, row, commodityType = 'Liquid') {
+function mergeFinalCargoCheckingHydration(
+  current,
+  row,
+  commodityType = 'Liquid',
+  scheduleIana = getScheduleEntryTimeZone()
+) {
   const p = row.payload && typeof row.payload === 'object' ? row.payload : {}
   const fallbackType = commodityType === 'Solid' ? 'Draft Survey' : 'Sounding'
   const next = {
     ...current,
-    result: [current.result, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || current.result || '',
+    result: mergeDistinctLines(current.result, row.remark) || row.remark || current.result || '',
     status:
       precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
     lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
     cargoCheckingType: p.cargoCheckingType || current.cargoCheckingType || fallbackType,
   }
   if (row.startAt || row.occurredAt) {
-    const st = isoOrDatetimeToLocal(row.startAt || row.occurredAt)
+    const st = isoOrDatetimeToLocal(row.startAt || row.occurredAt, scheduleIana)
     if (st) next.startTime = next.startTime || st
   }
   if (row.endAt) {
-    const en = isoOrDatetimeToLocal(row.endAt)
+    const en = isoOrDatetimeToLocal(row.endAt, scheduleIana)
     if (en) next.endTime = next.endTime || en
   }
   return next
@@ -299,7 +300,8 @@ async function buildPreCheckingSnapshotFromApi(
   operationId,
   operationNorTenderedAt,
   operationNorAcceptedAt,
-  operationDemurrageLiabilityFromAt
+  operationDemurrageLiabilityFromAt,
+  scheduleIana = getScheduleEntryTimeZone()
 ) {
   const [subRows, nor, norDocsFromOperation] = await Promise.all([
     fetchSubProcesses(operationId, 'Pre-Checking'),
@@ -315,9 +317,9 @@ async function buildPreCheckingSnapshotFromApi(
     const current = bySection[section] || {}
     let merged
     if (section === 'inspection') {
-      merged = mergeInspectionHydration(current, row)
+      merged = mergeInspectionHydration(current, row, scheduleIana)
     } else if (section === 'initialCargoChecking') {
-      merged = mergeInitialCargoHydration(current, row)
+      merged = mergeInitialCargoHydration(current, row, scheduleIana)
     } else {
       merged = {
         ...current,
@@ -326,18 +328,18 @@ async function buildPreCheckingSnapshotFromApi(
         lastSavedAt: row.updatedAt ?? current.lastSavedAt ?? null,
       }
       if (row.startAt || row.occurredAt) {
-        merged.startTime = isoOrDatetimeToLocal(row.startAt || row.occurredAt)
+        merged.startTime = isoOrDatetimeToLocal(row.startAt || row.occurredAt, scheduleIana)
       }
       if (row.endAt) {
-        merged.endTime = isoOrDatetimeToLocal(row.endAt)
+        merged.endTime = isoOrDatetimeToLocal(row.endAt, scheduleIana)
       }
       if (section === 'sampling') {
         merged.records = Array.isArray(row.payload?.records) ? row.payload.records : []
       }
       if (section === 'norAccepted') {
         const p = row.payload && typeof row.payload === 'object' ? row.payload : {}
-        if (p.norTenderedDateTime) merged.norTenderedDateTime = isoOrDatetimeToLocal(p.norTenderedDateTime)
-        if (p.norAcceptedDateTime) merged.norAcceptedDateTime = isoOrDatetimeToLocal(p.norAcceptedDateTime)
+        if (p.norTenderedDateTime) merged.norTenderedDateTime = isoOrDatetimeToLocal(p.norTenderedDateTime, scheduleIana)
+        if (p.norAcceptedDateTime) merged.norAcceptedDateTime = isoOrDatetimeToLocal(p.norAcceptedDateTime, scheduleIana)
       }
     }
     bySection[section] = merged
@@ -390,11 +392,11 @@ async function buildPreCheckingSnapshotFromApi(
   preData.norAccepted = {
     ...norFromSub,
     norTenderedDateTime:
-      isoOrDatetimeToLocal(operationNorTenderedAt) || norFromSub.norTenderedDateTime || '',
+      isoOrDatetimeToLocal(operationNorTenderedAt, scheduleIana) || norFromSub.norTenderedDateTime || '',
     norAcceptedDateTime:
-      isoOrDatetimeToLocal(operationNorAcceptedAt) || norFromSub.norAcceptedDateTime || '',
+      isoOrDatetimeToLocal(operationNorAcceptedAt, scheduleIana) || norFromSub.norAcceptedDateTime || '',
     demurrageLiabilityFromDateTime:
-      isoOrDatetimeToLocal(operationDemurrageLiabilityFromAt) ||
+      isoOrDatetimeToLocal(operationDemurrageLiabilityFromAt, scheduleIana) ||
       norFromSub.demurrageLiabilityFromDateTime ||
       '',
     remark: nor?.remark ?? norFromSub.remark ?? '',
@@ -406,7 +408,11 @@ async function buildPreCheckingSnapshotFromApi(
   return preData
 }
 
-async function buildPostCheckingSnapshotFromApi(operationId, commodityType) {
+async function buildPostCheckingSnapshotFromApi(
+  operationId,
+  commodityType,
+  scheduleIana = getScheduleEntryTimeZone()
+) {
   const subRows = await fetchSubProcesses(operationId, 'Post-Checking')
   const rows = Array.isArray(subRows) ? subRows : []
   const bySection = {
@@ -428,9 +434,9 @@ async function buildPostCheckingSnapshotFromApi(operationId, commodityType) {
   loaded.forEach(({ row, section, docs }) => {
     const current = bySection[section] || {}
     if (section === 'finalInspection') {
-      bySection[section] = mergeFinalInspectionHydration(current, row, commodityType)
+      bySection[section] = mergeFinalInspectionHydration(current, row, commodityType, scheduleIana)
     } else if (section === 'finalCargoChecking') {
-      bySection[section] = mergeFinalCargoCheckingHydration(current, row, commodityType)
+      bySection[section] = mergeFinalCargoCheckingHydration(current, row, commodityType, scheduleIana)
     }
     bySection[section].documents = [
       ...(bySection[section].documents || []),
@@ -457,6 +463,7 @@ export async function loadHubProcessStagesFromApi({
   operationNorTenderedAt,
   operationNorAcceptedAt,
   operationDemurrageLiabilityFromAt,
+  scheduleIana = getScheduleEntryTimeZone(),
 }) {
   const ct = commodityType === 'Solid' ? 'Solid' : 'Liquid'
   const [preData, postData, opRes] = await Promise.all([
@@ -464,9 +471,10 @@ export async function loadHubProcessStagesFromApi({
       operationId,
       operationNorTenderedAt,
       operationNorAcceptedAt,
-      operationDemurrageLiabilityFromAt
+      operationDemurrageLiabilityFromAt,
+      scheduleIana
     ),
-    buildPostCheckingSnapshotFromApi(operationId, ct),
+    buildPostCheckingSnapshotFromApi(operationId, ct, scheduleIana),
     fetchOperationalActivities(operationId),
   ])
   const apiOperationalVm = viewModelFromOperationalEntries(opRes?.entries || [], purpose)

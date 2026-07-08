@@ -45,6 +45,20 @@ docker compose exec jps-api npm run seed:admin
 ```
 Then login with username `admin`, password `admin123`; use the returned `token` as `Authorization: Bearer <token>` for GET /api/v1/users/me.
 
+## Testing — notification center
+
+Automated checks (DB + `renderTemplate` / RBAC resolution + optional HTTP against a running API):
+
+```bash
+# From Backend/ with DATABASE_URL (e.g. local .env or docker exec)
+npm run test:notifications
+```
+
+- **DB-only** (no API on port 3000): `SKIP_HTTP=1 npm run test:notifications`
+- **No trigger insert/delete smoke**: `SKIP_TRIGGER=1 npm run test:notifications`
+
+HTTP tests call `API_BASE` (default `http://localhost:3000/api/v1`). If `/notifications/unread-count` returns **404**, the script skips HTTP assertions (usually an older API process); restart the API after pulling notification routes.
+
 ## See also
 
 - `Docs/README.md` — documentation index  

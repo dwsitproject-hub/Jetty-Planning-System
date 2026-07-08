@@ -5,6 +5,7 @@ import '../styles/allocation.css'
 const ADMIN_ITEMS = [
   { path: '/admin/users', titleKey: 'adminHubUsersTitle', descKey: 'adminHubUsersDesc' },
   { path: '/admin/roles', titleKey: 'adminHubRolesTitle', descKey: 'adminHubRolesDesc' },
+  { path: '/admin/partner-api', titleKey: 'adminHubPartnerApiTitle', descKey: 'adminHubPartnerApiDesc' },
 ]
 
 export default function Admin() {

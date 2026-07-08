@@ -3,14 +3,17 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import ActivityLogPanel from './ActivityLogPanel'
 import LanguageSwitch from './LanguageSwitch'
+import NotificationBell from './NotificationBell'
+import UserMenu from './UserMenu'
 import { useRbac } from '../context/RbacContext'
 import { useAuth } from '../context/AuthContext'
 import { usePortScope } from '../context/PortScopeContext'
+import { getClientIanaTimeZone } from '../utils/scheduleDateTime.js'
 
 const navStructure = [
   { path: '/', labelKey: 'dashboard', icon: '📊' },
-  { path: '/shipping-instruction', labelKey: 'shippingInstruction', icon: '📄' },
-  { path: '/allocation', labelKey: 'allocation', icon: '⚓' },
+  { path: '/shipment-plans', labelKey: 'shipmentPlans', icon: '📦' },
+  { path: '/allocation-plans', labelKey: 'allocationPlan', icon: '⚓' },
   { path: '/at-berth', labelKey: 'atBerth', icon: '🚢' },
   { path: '/verification', labelKey: 'clearance', icon: '🚀' },
   { path: '/demurrage-risk-calculator', labelKey: 'demurrageCalculator', icon: '🧮' },
@@ -31,8 +34,9 @@ function isPortScopeBypassed(pathname) {
 
 /** Map pathname to Activity Log pageKey; null = do not show panel (e.g. Reporting). */
 function pathToPageKey(pathname) {
-  if (!pathname || pathname.startsWith('/reporting')) return null
+  if (!pathname || pathname.startsWith('/reporting') || pathname.startsWith('/dev/')) return null
   if (pathname === '/' || pathname === '') return 'dashboard'
+  if (pathname.startsWith('/jetty-live')) return 'allocation-plan'
   if (pathname.startsWith('/demurrage-risk-calculator')) return 'demurrage-risk-calculator'
   if (pathname.startsWith('/master/port')) return 'master-port'
   if (pathname.startsWith('/master/jetty-layout')) return 'master-jetty-layout'
@@ -45,8 +49,10 @@ function pathToPageKey(pathname) {
   if (pathname.startsWith('/master/si-commodity')) return 'master-si-commodity'
   if (pathname.startsWith('/master/freight-terms')) return 'master-si-freight-terms'
   if (pathname.startsWith('/master')) return 'master'
-  if (pathname.startsWith('/shipping-instruction')) return 'shipping-instruction'
-  if (pathname.startsWith('/allocation') || pathname.startsWith('/berthing')) return 'allocation'
+  if (pathname.startsWith('/shipping-instruction')) return 'shipment-plan'
+  if (pathname.startsWith('/shipment-plans')) return 'shipment-plan'
+  if (pathname.startsWith('/allocation-plans')) return 'allocation-plan'
+  if (pathname.startsWith('/allocation') || pathname.startsWith('/berthing')) return 'allocation-plan'
   if (pathname.startsWith('/at-berth')) return 'at-berth'
   if (pathname.startsWith('/loading/operation')) return 'loading'
   if (pathname.startsWith('/loading') || pathname.startsWith('/unloading')) return 'loading'
@@ -78,16 +84,6 @@ function SidebarCollapseFabIcon({ expanded }) {
   )
 }
 
-function LogoutIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-      <polyline points="16 17 21 12 16 7" />
-      <line x1="21" y1="12" x2="9" y2="12" />
-    </svg>
-  )
-}
-
 export default function Layout({ children }) {
   const { t: tNav, i18n } = useTranslation('nav')
   const { t: tCommon } = useTranslation('common')
@@ -96,7 +92,7 @@ export default function Layout({ children }) {
   const location = useLocation()
   const currentPath = location.pathname
   const { loading: rbacLoading, canView, refresh: refreshRbac } = useRbac()
-  const { me, logout } = useAuth()
+  const { me, logout, loading: authLoading } = useAuth()
   const {
     loading: portScopeLoading,
     assignedPorts,
@@ -190,16 +186,40 @@ export default function Layout({ children }) {
           {me && !portScopeBypassed && assignedPorts.length === 1 && selectedPort && (
             <span className="topbar__greeting">{tCommon('portLabel', { name: selectedPort.name })}</span>
           )}
-          <LanguageSwitch />
-          <span className="topbar__greeting">
-            {me ? tCommon('greeting', { name: me.displayName || me.username }) : ''}
-          </span>
-          {me && (
-            <button type="button" className="btn btn--secondary btn--small topbar__logout" onClick={handleLogout} title={tCommon('logout')}>
-              <LogoutIcon />
-              <span>{tCommon('logout')}</span>
-            </button>
+          {me && !portScopeBypassed && selectedPort && (
+            <div className="topbar__tz-stack">
+              <span
+                className="topbar__greeting text-steel"
+                style={{
+                  fontSize: '0.85rem',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  maxWidth: '100%',
+                }}
+              >
+                <span
+                  className="topbar__tz-seg"
+                  title="Port Timezone — site reference for this port (not used for typed schedule entry)."
+                >
+                  ⚓ {selectedPort.scheduleTimezone ?? 'Asia/Jakarta'}
+                </span>
+                <span className="text-steel" aria-hidden>
+                  {' '}
+                  ·{' '}
+                </span>
+                <span
+                  className="topbar__tz-seg"
+                  title="Your / Browser Timezone — schedule date/times you enter are saved using this zone."
+                >
+                  💻 {getClientIanaTimeZone()}
+                </span>
+              </span>
+            </div>
           )}
+          {me && <NotificationBell />}
+          <LanguageSwitch />
+          {me && <UserMenu me={me} onLogout={handleLogout} />}
           {!me && (
             <NavLink to="/login" className="btn btn--secondary btn--small">
               {tCommon('login')}
@@ -279,7 +299,19 @@ export default function Layout({ children }) {
         </aside>
 
         <main className="content">
-          {me && !portScopeBypassed && portScopeLoading ? (
+          {authLoading ? (
+            <div className="card">
+              <p className="text-steel">{tCommon('loading')}</p>
+            </div>
+          ) : !me ? (
+            <div className="card" style={{ maxWidth: '40rem' }}>
+              <h2 style={{ marginTop: 0 }}>{tCommon('login')}</h2>
+              <p className="text-steel">{tCommon('sessionRequired')}</p>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <NavLink to="/login" className="btn btn--secondary">{tCommon('login')}</NavLink>
+              </div>
+            </div>
+          ) : me && !portScopeBypassed && portScopeLoading ? (
             <div className="card">
               <p className="text-steel">{tCommon('loadingPorts')}</p>
             </div>

@@ -6,13 +6,25 @@ import JettyScheduleGantt from '../components/JettyScheduleGantt'
 import {
   deleteOperationDocument,
   fetchAllocationOverview,
+  fetchAllocationPlanOverview,
   fetchOperationDocuments,
   saveArrivalUpdate as saveArrivalUpdateApi,
+  swapShipmentPlanBerthingSequence,
   uploadOperationDocuments,
 } from '../api/allocation'
 import { setOperationShiftingOut } from '../api/operations'
+import { fetchShipmentPlan } from '../api/shipmentPlans'
 import { ApiError, resolveUploadUrl } from '../api/client'
+import FilePreviewLink from '../components/FilePreviewLink'
+import AuthenticatedFileImage from '../components/AuthenticatedFileImage'
+import { useFilePreview } from '../context/FilePreviewContext'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import {
+  getScheduleEntryTimeZone,
+  normalizeForApiOrEmpty,
+  nowToNaiveLocalInScheduleZone,
+  utcIsoToNaiveLocal,
+} from '../utils/scheduleDateTime'
 import { isBerthOutOfService, jettyOosAllocationMessage } from '../utils/jettyAvailability'
 import PurposeBadge, { resolvePurposeLabel } from '../components/PurposeBadge'
 import SiDetailModal from '../components/SiDetailModal'
@@ -22,17 +34,54 @@ import { useRbac } from '../context/RbacContext'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import { MAX_REMARK_CHARS } from '../constants/inputLimits'
+import { mergeBerthsStateForPlanPov, mergeQueueRowsForPlanPov } from '../utils/allocationPlanPovMerge'
+import {
+  currentPhaseLabelForVessel,
+  deriveCurrentPhaseIndex,
+  getPlanAlongsideEndMs,
+  getVesselAlongsideEndMs,
+  isPlanOrVesselSailed,
+  isVesselReadyToSail,
+  isVesselSailed,
+} from '../utils/allocationVesselPhase'
+import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
+import EtcBreachBadge from '../components/EtcBreachBadge'
+import { getEtcBreach, getEtcBreachRagStatus } from '../utils/etcBreach'
+import AllocationLateSiNotice from '../components/AllocationLateSiNotice'
+import BerthingActionButton from '../components/BerthingActionButton'
+import {
+  berthingDisabledReason,
+  getBerthingPlanStatus,
+  isPlanOnlySchedulingRow,
+  showLateSiBerthingGateNotice,
+} from '../utils/berthingEligibility'
+import {
+  ETC_BREACH_STATUS_FILTER_LEGACY,
+  ETC_BREACH_STATUS_FILTER_PLAN,
+  LEGACY_STATUS_FILTER_DEFAULT,
+  PLAN_CENTRIC_STATUS_FILTER_DEFAULT,
+  planCentricSiColumnDisplay,
+  rowPassesAllocationStatusFilter,
+} from '../utils/allocationQueueStatusFilter'
+import '../styles/etc-breach.css'
 
 /** Standardized pipeline flow (match Dashboard Vessel pipeline) */
 const UNIFIED_PHASES = ['Shipping Instruction', 'Planned berthing', 'At-Berth', 'Clearance']
 
-const PHASE_ROUTES = {
-  'Shipping Instruction': '/shipping-instruction',
-  'Planned berthing': '/allocation',
-  'Clearance': '/verification',
+function schematicMaterialDisplay(r) {
+  if (Array.isArray(r?.shippingTable) && r.shippingTable.length) {
+    const names = [...new Set(r.shippingTable.map((row) => row.material).filter(Boolean))]
+    if (names.length) return names.join(' - ')
+  }
+  return r?.commodity || null
 }
 
-function getPhaseLink(label, vessel) {
+function getPhaseLink(label, vessel, plannedBerthingPath = '/allocation-plans') {
+  const phaseRoutes = {
+    'Shipping Instruction': '/shipment-plans',
+    'Planned berthing': plannedBerthingPath,
+    'Clearance': '/verification',
+  }
   if (label === 'At-Berth') {
     const opId = vessel?.operationId
     if (!opId) return null
@@ -40,29 +89,42 @@ function getPhaseLink(label, vessel) {
     const base = purpose === 'Unloading' ? '/unloading' : '/loading'
     return `${base}/op-${opId}/pre-checking`
   }
-  return PHASE_ROUTES[label] || '#'
-}
-
-function isVesselReadyToSail(vessel) {
-  const opStatus = String(vessel?.status || '').toUpperCase()
-  return (
-    ['SIGNOFF_REQUESTED', 'SIGNOFF_APPROVED'].includes(opStatus) || Boolean(vessel?.actualCompletionDateTime)
-  )
+  return phaseRoutes[label] || '#'
 }
 
 const PRIORITY_OPTIONS = ['Low', 'Moderate', 'High', 'Critical']
 
+/** Missing berthing sequence sorts last (no magic numbers in the UI). */
+function seqSortKey(row) {
+  const n = row?.sequence != null ? Number(row.sequence) : NaN
+  return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY
+}
+
+function parseDateMs(val) {
+  if (!val) return null
+  const t = new Date(val).getTime()
+  return Number.isNaN(t) ? null : t
+}
+
+function renderAllocationVesselCell(r) {
+  return (
+    <strong className="allocation-table__vessel-cell">
+      <span>{r.vesselName || '—'}</span>
+      {r.shiftingOut ? (
+        <span className="si-status-badge si-status-badge--external" style={{ marginLeft: 8 }}>
+          Shifted
+        </span>
+      ) : null}
+    </strong>
+  )
+}
+
 const ALLOCATION_COLUMNS = [
-  { key: 'sequence', label: 'Berthing sequence', getValue: (r) => r.sequence ?? '—', getSortValue: (r) => r.sequence ?? 0 },
+  { key: 'sequence', label: 'Berthing sequence', getValue: () => '—', getSortValue: (r) => seqSortKey(r), getFilterValue: (r) => `${r.sequence ?? ''}` },
   {
     key: 'vesselName',
     label: 'Vessel Name',
-    getValue: (r) => (
-      <strong>
-        {r.vesselName || '—'}
-        {r.shiftingOut ? <span className="si-status-badge si-status-badge--external" style={{ marginLeft: 8 }}>Shifted</span> : null}
-      </strong>
-    ),
+    getValue: (r) => renderAllocationVesselCell(r),
     getSortValue: (r) => (r.vesselName || '').toLowerCase(),
   },
   {
@@ -72,6 +134,13 @@ const ALLOCATION_COLUMNS = [
     getSortValue: (r) => (r.jettyOperationCode || '').toLowerCase(),
   },
   { key: 'shippingInstruction', label: 'Shipping Instruction', getValue: (r) => r.shippingInstruction || '—', getSortValue: (r) => (r.shippingInstruction || '').toLowerCase() },
+  {
+    key: 'commodityQty',
+    label: 'Commodity Qty',
+    getValue: (r) => r.totalQtyDisplay || '—',
+    getSortValue: (r) => (r.totalQtyDisplay || '').toLowerCase(),
+    getFilterValue: (r) => r.totalQtyDisplay || '',
+  },
   { key: 'priority', label: 'Priority', getValue: (r) => r.priority || '—', getSortValue: (r) => (r.priority || '').toLowerCase() },
   {
     key: 'purpose',
@@ -80,43 +149,137 @@ const ALLOCATION_COLUMNS = [
     getSortValue: (r) => resolvePurposeLabel(r.purpose, r.loadDischarge).toLowerCase(),
   },
   { key: 'remark', label: 'Remark', getValue: (r) => r.remark || r.remarks || '—', getSortValue: (r) => (r.remark || r.remarks || '').toLowerCase() },
-  { key: 'eta', label: 'ETA', getValue: (r) => r.eta || '—', getSortValue: (r) => (r.eta || '').toLowerCase() },
-  { key: 'etb', label: 'ETB', getValue: (r) => r.etb || '—', getSortValue: (r) => (r.etb || '').toLowerCase() },
+  { key: 'eta', label: 'ETA', getValue: (r) => formatDateTimeDisplay(r.etaDateTime || r.eta) || '—', getSortValue: (r) => parseDateMs(r.etaDateTime || r.eta) ?? Number.NEGATIVE_INFINITY },
+  { key: 'etb', label: 'ETB', getValue: (r) => formatDateTimeDisplay(r.etbDateTime || r.etb) || '—', getSortValue: (r) => parseDateMs(r.etbDateTime || r.etb) ?? Number.NEGATIVE_INFINITY },
   { key: 'jetty', label: 'Jetty', getValue: (r) => r.jetty || '—', getSortValue: (r) => (r.jetty || '').toLowerCase() },
 ]
 
-/** Return current local date-time as YYYY-MM-DDTHH:mm for datetime-local input */
-function getNowForDateTimeLocal() {
-  const d = new Date()
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const h = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  return `${y}-${m}-${day}T${h}:${min}`
+const PLAN_CENTRIC_VESSEL_COLUMN = {
+  key: 'vesselName',
+  label: 'Vessel',
+  getValue: (r) => renderAllocationVesselCell(r),
+  getSortValue: (r) => (r.vesselName || '').toLowerCase(),
 }
 
-/** Convert ISO / timestamptz string to datetime-local (YYYY-MM-DDTHH:mm). */
-function toDateTimeLocalValue(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) {
-    // If already looks like datetime-local (no timezone), return it.
-    if (typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(iso)) return iso.slice(0, 16)
-    return ''
+const PLAN_CENTRIC_ALLOCATION_COLUMNS = [
+  { key: 'sequence', label: 'Berthing sequence', getValue: () => '—', getSortValue: (r) => seqSortKey(r), getFilterValue: (r) => `${r.sequence ?? ''}` },
+  {
+    key: 'planReference',
+    label: 'Plan ref',
+    getValue: (r) =>
+      r.shipmentPlanId != null ? r.planReference || `Plan #${r.shipmentPlanId}` : '—',
+    getSortValue: (r) =>
+      (r.planReference || (r.shipmentPlanId != null ? `Plan #${r.shipmentPlanId}` : '') || '').toLowerCase(),
+    getFilterValue: (r) =>
+      r.planReference || (r.shipmentPlanId != null ? `Plan #${r.shipmentPlanId}` : ''),
+  },
+  PLAN_CENTRIC_VESSEL_COLUMN,
+  {
+    key: 'shippingInstruction',
+    label: 'Shipping Instructions',
+    getValue: (r) => planCentricSiColumnDisplay(r),
+    getSortValue: (r) => planCentricSiColumnDisplay(r).toLowerCase(),
+  },
+  {
+    key: 'commodityQty',
+    label: 'Commodity Qty',
+    getValue: (r) => r.totalQtyDisplay || '—',
+    getSortValue: (r) => (r.totalQtyDisplay || '').toLowerCase(),
+    getFilterValue: (r) => r.totalQtyDisplay || '',
+  },
+  {
+    key: 'purpose',
+    label: 'Purpose',
+    getValue: (r) => <PurposeBadge purpose={r.purpose} loadDischarge={r.loadDischarge} />,
+    getSortValue: (r) => resolvePurposeLabel(r.purpose, r.loadDischarge).toLowerCase(),
+    getFilterValue: (r) => resolvePurposeLabel(r.purpose, r.loadDischarge),
+  },
+  {
+    key: 'shipper',
+    label: 'Shipper',
+    getValue: (r) => r.shipper || '—',
+    getSortValue: (r) => (r.shipper || '').toLowerCase(),
+  },
+  {
+    key: 'tradeTerm',
+    label: 'Term',
+    getValue: (r) => r.tradeTerm || '—',
+    getSortValue: (r) => (r.tradeTerm || '').toLowerCase(),
+  },
+  {
+    key: 'loadingPort',
+    label: 'Port of Loading',
+    getValue: (r) => r.loadingPort || '—',
+    getSortValue: (r) => (r.loadingPort || '').toLowerCase(),
+  },
+  {
+    key: 'agent',
+    label: 'Agent',
+    getValue: (r) => r.agent || '—',
+    getSortValue: (r) => (r.agent || '').toLowerCase(),
+  },
+  {
+    key: 'surveyor',
+    label: 'Surveyor',
+    getValue: (r) => r.surveyor || '—',
+    getSortValue: (r) => (r.surveyor || '').toLowerCase(),
+  },
+  { key: 'eta', label: 'ETA', getValue: (r) => formatDateTimeDisplay(r.etaDateTime || r.eta) || '—', getSortValue: (r) => parseDateMs(r.etaDateTime || r.eta) ?? Number.NEGATIVE_INFINITY, getFilterValue: (r) => formatDateTimeDisplay(r.etaDateTime || r.eta) || '' },
+  {
+    key: 'ta',
+    label: 'TA',
+    getValue: (r) => formatDateTimeDisplay(r.taDateTime) || '—',
+    getSortValue: (r) => parseDateMs(r.taDateTime) ?? Number.NEGATIVE_INFINITY,
+    getFilterValue: (r) => formatDateTimeDisplay(r.taDateTime) || '',
+  },
+  { key: 'etb', label: 'ETB', getValue: (r) => formatDateTimeDisplay(r.etbDateTime || r.etb) || '—', getSortValue: (r) => parseDateMs(r.etbDateTime || r.etb) ?? Number.NEGATIVE_INFINITY, getFilterValue: (r) => formatDateTimeDisplay(r.etbDateTime || r.etb) || '' },
+  {
+    key: 'tb',
+    label: 'TB',
+    getValue: (r) => formatDateTimeDisplay(r.tbDateTime) || '—',
+    getSortValue: (r) => parseDateMs(r.tbDateTime) ?? Number.NEGATIVE_INFINITY,
+    getFilterValue: (r) => formatDateTimeDisplay(r.tbDateTime) || '',
+  },
+  {
+    key: 'etc',
+    label: 'ETC',
+    getValue: (r) =>
+      formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion) || '—',
+    getSortValue: (r) => parseDateMs(r.estimatedCompletionDateTime) ?? Number.NEGATIVE_INFINITY,
+    getFilterValue: (r) =>
+      formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion) || '',
+  },
+  { key: 'jetty', label: 'Jetty', getValue: (r) => r.jetty || '—', getSortValue: (r) => (r.jetty || '').toLowerCase() },
+  {
+    key: 'remark',
+    label: 'Remarks',
+    getValue: (r) => r.remark || r.remarks || '—',
+    getSortValue: (r) => (r.remark || r.remarks || '').toLowerCase(),
+    getFilterValue: (r) => r.remark || r.remarks || '',
+  },
+]
+
+function buildAllocationColumnDefs(isPlanCentric) {
+  const source = isPlanCentric ? PLAN_CENTRIC_ALLOCATION_COLUMNS : ALLOCATION_COLUMNS
+  return source.map((c) => ({ ...c }))
+}
+
+const ALLOCATION_FILTER_STATE_KEYS = [
+  ...new Set([
+    ...ALLOCATION_COLUMNS.map((c) => c.key),
+    ...PLAN_CENTRIC_ALLOCATION_COLUMNS.map((c) => c.key),
+  ]),
+]
+
+/** Next / previous displayed queue row that has a shipment plan (for plan-centric ↑/↓). */
+function findAdjacentPlanRowInDisplay(rows, fromIdx, dir) {
+  const step = dir < 0 ? -1 : 1
+  for (let i = fromIdx + step; i >= 0 && i < rows.length; i += step) {
+    const x = rows[i]
+    const pid = x?.shipmentPlanId != null ? Number(x.shipmentPlanId) : NaN
+    if (Number.isFinite(pid) && pid > 0) return x
   }
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const h = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  return `${y}-${m}-${day}T${h}:${min}`
-}
-
-function parseDateMs(val) {
-  if (!val) return null
-  const t = new Date(val).getTime()
-  return Number.isNaN(t) ? null : t
+  return null
 }
 
 function formatDuration(ms) {
@@ -137,39 +300,7 @@ function formatVesselRecordLastUpdatedLine(vessel) {
   if (raw == null || raw === '') return null
   const d = new Date(raw)
   if (Number.isNaN(d.getTime())) return null
-  return `Last updated on ${d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}${by ? ` by ${by}` : ''}`
-}
-
-function deriveCurrentPhaseIndex(vessel) {
-  const siDone = Boolean(vessel?.shippingInstructionId)
-  const plannedBerthingDone = Boolean((vessel?.jetty || '').trim())
-  const atBerthDone = Boolean(vessel?.tbDateTime)
-  // Clearance interpreted as "Ready to sail" (consistent with Dashboard ready/completed).
-  const readyToSail = isVesselReadyToSail(vessel)
-
-  if (!siDone) return 0 // Shipping Instruction
-  if (!plannedBerthingDone) return 1 // Planned berthing
-  // At-Berth stays "in progress" until Ready-to-sail.
-  if (!atBerthDone) return 2 // At-Berth (not started / in progress until TB recorded)
-  if (!readyToSail) return 2 // At-Berth (still in progress)
-  return 3 // Clearance (in progress/done depending on downstream meaning)
-}
-
-function getBerthingPlanStatus(row) {
-  if (row?.shiftingOut) return 'incoming'
-  const hasTb = Boolean(row?.tbDateTime)
-  const opStatus = String(row?.status || '').toUpperCase()
-  if (
-    hasTb ||
-    opStatus === 'DOCKED' ||
-    opStatus === 'IN_PROGRESS' ||
-    opStatus === 'POST_OPS' ||
-    opStatus === 'SIGNOFF_REQUESTED' ||
-    opStatus === 'SIGNOFF_APPROVED'
-  ) {
-    return 'berthed'
-  }
-  return 'incoming'
+  return `Last updated on ${formatDateTimeDisplay(raw)}${by ? ` by ${by}` : ''}`
 }
 
 function getArrivalMsForJettyValidation(row) {
@@ -185,7 +316,14 @@ function getCompletionMsForJettyValidation(row) {
   return parseDateMs(row?.actualCompletionDateTime) ?? parseDateMs(row?.estimatedCompletionDateTime) ?? null
 }
 
-function AllocationDetailPanel({ r, tAlloc, onOpenSiDetail }) {
+function AllocationDetailPanel({ r, tAlloc, onOpenSiDetail, queueList, nowMs = Date.now() }) {
+  const breach = getEtcBreach(r, nowMs)
+  const planSis =
+    r?.shipmentPlanId != null && Array.isArray(queueList)
+      ? queueList.filter((row) => Number(row?.shipmentPlanId) === Number(r.shipmentPlanId))
+      : []
+  const planSiLabels = [...new Set(planSis.map((row) => (row.shippingInstruction || '').trim()).filter(Boolean))]
+
   return (
     <div className="allocation-detail">
       <h4 className="allocation-detail__title">{tAlloc('fullDetails', { defaultValue: 'Full details' })}</h4>
@@ -224,9 +362,27 @@ function AllocationDetailPanel({ r, tAlloc, onOpenSiDetail }) {
         <dt>{tAlloc('dtTa', { defaultValue: 'TA' })}</dt><dd>{formatDateTimeDisplay(r.taDateTime)}</dd>
         <dt>{tAlloc('dtEtb', { defaultValue: 'ETB' })}</dt><dd>{formatDateTimeDisplay(r.etbDateTime || r.etb)}</dd>
         <dt>{tAlloc('dtTb', { defaultValue: 'TB' })}</dt><dd>{formatDateTimeDisplay(r.tbDateTime)}</dd>
-        <dt>{tAlloc('dtEstimatedCompletion', { defaultValue: 'Estimation of Completion' })}</dt><dd>{formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion)}</dd>
+        <dt>{tAlloc('dtEstimatedCompletion', { defaultValue: 'Estimation of Completion' })}</dt>
+        <dd className={breach ? 'allocation-detail__dd--etc-breach' : undefined}>
+          {formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion)}
+          {breach ? (
+            <EtcBreachBadge overMs={breach.overMs} etcMs={breach.etcMs} size="sm" />
+          ) : null}
+        </dd>
         <dt>{tAlloc('dtRemark', { defaultValue: 'Remark' })}</dt><dd>{r.remark || r.remarks || '—'}</dd>
       </dl>
+      {planSiLabels.length > 1 && (
+        <div className="allocation-detail__plan-sis">
+          <h5 className="allocation-detail__subtitle">
+            {tAlloc('dtSisOnPlan', { defaultValue: 'SIs on this shipment plan' })}
+          </h5>
+          <ul className="allocation-detail__plan-sis-list">
+            {planSiLabels.map((label) => (
+              <li key={label}>{label}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       {Array.isArray(r.shippingTable) && r.shippingTable.length > 0 && (
         <div className="allocation-detail__shipping-table-wrap">
           <h5 className="allocation-detail__subtitle">Shipping Table</h5>
@@ -256,28 +412,58 @@ function AllocationDetailPanel({ r, tAlloc, onOpenSiDetail }) {
   )
 }
 
-export default function Allocation() {
+export default function Allocation({ pageProfile = 'legacy' } = {}) {
+  const { openFilePreview } = useFilePreview()
   const { t } = useTranslation('pages')
   const { t: tAlloc } = useTranslation('allocation')
-  const { selectedPortId } = usePortScope()
+  const location = useLocation()
+  const isPlanCentric = pageProfile === 'planCentric'
+  const rbacPageKey = 'allocation-plan'
+  const activityLogPageKey = rbacPageKey
+  const plannedBerthingPath = '/allocation-plans'
+  const overviewFetcher = useMemo(
+    () => (isPlanCentric ? fetchAllocationPlanOverview : fetchAllocationOverview),
+    [isPlanCentric]
+  )
+  const { selectedPortId, selectedPort } = usePortScope()
+  const scheduleEntryTz = getScheduleEntryTimeZone()
+  const toDateTimeLocalValue = useCallback(
+    (iso) => utcIsoToNaiveLocal(iso, scheduleEntryTz),
+    [scheduleEntryTz]
+  )
+  const getNowForDateTimeLocal = useCallback(
+    () => nowToNaiveLocalInScheduleZone(scheduleEntryTz),
+    [scheduleEntryTz]
+  )
   const { canEdit, canView } = useRbac()
-  const canEditAllocation = canEdit('allocation')
+  const canEditAllocation = canEdit(rbacPageKey)
   const canViewMasterJetty = canView('master-jetty')
   const [list, setList] = useState([])
   const [scheduleList, setScheduleList] = useState([])
   const [berthsState, setBerthsState] = useState([])
-  const filterKeys = ALLOCATION_COLUMNS.map((c) => c.key)
-  const [filters, setFilters] = useState(Object.fromEntries(filterKeys.map((k) => [k, ''])))
-  const [statusFilter, setStatusFilter] = useState({ incoming: true, berthed: false })
+  const [filters, setFilters] = useState(() =>
+    Object.fromEntries(ALLOCATION_FILTER_STATE_KEYS.map((k) => [k, '']))
+  )
+  const [statusFilter, setStatusFilter] = useState(() =>
+    isPlanCentric ? { ...PLAN_CENTRIC_STATUS_FILTER_DEFAULT } : { ...LEGACY_STATUS_FILTER_DEFAULT }
+  )
+  const [etcBreachFilter, setEtcBreachFilter] = useState(false)
+  const [breachNowMs, setBreachNowMs] = useState(() => Date.now())
   const [sortState, setSortState] = useState({ key: 'sequence', dir: 'asc' })
   const [expandedId, setExpandedId] = useState(null)
   const [expandedMobileId, setExpandedMobileId] = useState(null)
   const [vesselDetailModalVesselId, setVesselDetailModalVesselId] = useState(null)
+  /** When opening from merged jetty slot (`plan-*`), load plan detail for plan-first modal. */
+  const [vesselDetailPlanId, setVesselDetailPlanId] = useState(null)
+  const [planDetail, setPlanDetail] = useState(null)
+  const [planDetailLoading, setPlanDetailLoading] = useState(false)
+  const [planDetailError, setPlanDetailError] = useState(null)
   const [arrivalUpdateForm, setArrivalUpdateForm] = useState(null)
   const [berthingConfirmRow, setBerthingConfirmRow] = useState(null)
   const [berthingErrors, setBerthingErrors] = useState([])
   const [berthingSelectedJetty, setBerthingSelectedJetty] = useState('')
   const [berthingPob, setBerthingPob] = useState('')
+  const [berthingTa, setBerthingTa] = useState('')
   const [berthingTb, setBerthingTb] = useState('')
   const [berthingSob, setBerthingSob] = useState('')
   const [berthingPhotos, setBerthingPhotos] = useState([]) // { id, file, previewUrl }[]
@@ -300,6 +486,9 @@ export default function Allocation() {
     setSiDetailId(id)
   }, [])
   const [shiftSavingByOpId, setShiftSavingByOpId] = useState({})
+  /** `minPlanId-maxPlanId` while swapping berthing sequence (shipment_plans only). */
+  const [planSequenceBusyPair, setPlanSequenceBusyPair] = useState(null)
+  const [planSequenceSwapError, setPlanSequenceSwapError] = useState(null)
   const [reDockModal, setReDockModal] = useState(null)
   const [reDockRemarkDraft, setReDockRemarkDraft] = useState('')
   const [reDockModalError, setReDockModalError] = useState(null)
@@ -317,6 +506,102 @@ export default function Allocation() {
     [berthsState]
   )
 
+  const planViz = useMemo(() => {
+    if (!isPlanCentric) {
+      return {
+        mergedList: list,
+        mergedSchedule: scheduleList,
+        mergedBerths: berthsState,
+        planVesselToRepresentativeVesselId: new Map(),
+      }
+    }
+    const q = mergeQueueRowsForPlanPov(list)
+    const s = mergeQueueRowsForPlanPov(scheduleList)
+    const rep = new Map([...q.planVesselToRepresentativeVesselId, ...s.planVesselToRepresentativeVesselId])
+    return {
+      mergedList: q.mergedRows,
+      mergedSchedule: s.mergedRows,
+      mergedBerths: mergeBerthsStateForPlanPov(berthsState, rep),
+      planVesselToRepresentativeVesselId: rep,
+    }
+  }, [isPlanCentric, list, scheduleList, berthsState])
+
+  const closeVesselDetailModal = useCallback(() => {
+    setVesselDetailModalVesselId(null)
+    setVesselDetailPlanId(null)
+    setPlanDetail(null)
+    setPlanDetailError(null)
+    setPlanDetailLoading(false)
+  }, [])
+
+  const selectVesselFromVisualization = useCallback(
+    (vesselId) => {
+      if (!vesselId) return
+      if (isPlanCentric && typeof vesselId === 'string' && vesselId.startsWith('plan-')) {
+        const n = parseInt(String(vesselId).replace(/^plan-/i, ''), 10)
+        setVesselDetailPlanId(Number.isFinite(n) && n > 0 ? n : null)
+      } else {
+        setVesselDetailPlanId(null)
+        setPlanDetail(null)
+        setPlanDetailError(null)
+        setPlanDetailLoading(false)
+      }
+      let resolved =
+        isPlanCentric &&
+        typeof vesselId === 'string' &&
+        vesselId.startsWith('plan-') &&
+        planViz.planVesselToRepresentativeVesselId.has(vesselId)
+          ? planViz.planVesselToRepresentativeVesselId.get(vesselId)
+          : vesselId
+      if (
+        isPlanCentric &&
+        typeof resolved === 'string' &&
+        resolved.startsWith('plan-')
+      ) {
+        const pid = parseInt(resolved.replace(/^plan-/i, ''), 10)
+        if (Number.isFinite(pid) && pid > 0) {
+          const fallback =
+            list.find(
+              (r) => Number(r?.shipmentPlanId) === pid && r?.operationId != null && r?.vesselId
+            ) ||
+            scheduleList.find(
+              (r) => Number(r?.shipmentPlanId) === pid && r?.operationId != null && r?.vesselId
+            ) ||
+            list.find((r) => Number(r?.shipmentPlanId) === pid && r?.vesselId) ||
+            scheduleList.find((r) => Number(r?.shipmentPlanId) === pid && r?.vesselId)
+          if (fallback?.vesselId) resolved = fallback.vesselId
+        }
+      }
+      setVesselDetailModalVesselId(resolved || vesselId)
+    },
+    [isPlanCentric, planViz.planVesselToRepresentativeVesselId, list]
+  )
+
+  useEffect(() => {
+    if (!isPlanCentric || vesselDetailPlanId == null) {
+      setPlanDetail(null)
+      setPlanDetailError(null)
+      setPlanDetailLoading(false)
+      return undefined
+    }
+    let cancelled = false
+    setPlanDetailLoading(true)
+    setPlanDetailError(null)
+    fetchShipmentPlan(vesselDetailPlanId)
+      .then((data) => {
+        if (!cancelled) setPlanDetail(data)
+      })
+      .catch((err) => {
+        if (!cancelled) setPlanDetailError(err?.message || 'Failed to load shipment plan')
+      })
+      .finally(() => {
+        if (!cancelled) setPlanDetailLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isPlanCentric, vesselDetailPlanId])
+
   useEffect(() => {
     if (!selectedPortId) {
       setList([])
@@ -325,7 +610,7 @@ export default function Allocation() {
       return undefined
     }
     let alive = true
-    fetchAllocationOverview()
+    overviewFetcher()
       .then((data) => {
         if (!alive) return
         setList(Array.isArray(data?.queue) ? data.queue : [])
@@ -342,13 +627,13 @@ export default function Allocation() {
       alive = false
     }
     // location.key: refetch when landing here via navigation (port alone does not change on SPA route change).
-  }, [selectedPortId, location.key])
+  }, [selectedPortId, location.key, overviewFetcher])
 
   useEffect(() => {
     if (!selectedPortId) return undefined
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return
-      fetchAllocationOverview()
+      overviewFetcher()
         .then((data) => {
           setList(Array.isArray(data?.queue) ? data.queue : [])
           setScheduleList(Array.isArray(data?.scheduleQueue) ? data.scheduleQueue : (Array.isArray(data?.queue) ? data.queue : []))
@@ -358,42 +643,63 @@ export default function Allocation() {
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [selectedPortId])
+  }, [selectedPortId, overviewFetcher])
+
+  useEffect(() => {
+    const id = setInterval(() => setBreachNowMs(Date.now()), 30_000)
+    return () => clearInterval(id)
+  }, [])
 
   const vesselById = useMemo(() => {
     const map = {}
+    const srcList = planViz.mergedList
+    const srcSchedule = planViz.mergedSchedule
+    const srcBerths = planViz.mergedBerths
+
+    const refLabel = (r) => {
+      if (isPlanCentric && String(r?.vesselId || '').startsWith('plan-')) {
+        return r.planReference || r.shippingInstruction || '—'
+      }
+      return r.shippingInstruction || '—'
+    }
 
     // From queue rows (incoming + operations list)
-    for (const r of list) {
+    for (const r of srcList) {
       if (!r?.vesselId) continue
       map[r.vesselId] = {
         vesselName: r.vesselName || r.vesselId,
-        siId: r.shippingInstruction || '—',
+        siId: refLabel(r),
         purpose: r.purpose || null,
+        loadDischarge: r.loadDischarge ?? null,
         commodity: r.commodity || null,
-        etaToCompletion: r.estimatedCompletionDateTime ? new Date(r.estimatedCompletionDateTime).toLocaleString() : '—',
-        ragStatus: 'green',
+        materialDisplay: schematicMaterialDisplay(r),
+        etaToCompletion: r.estimatedCompletionDateTime ? formatDateTimeDisplay(r.estimatedCompletionDateTime) : '—',
+        ragStatus: getEtcBreachRagStatus(r, breachNowMs),
+        etcBreach: getEtcBreach(r, breachNowMs),
         status: r.status || null,
       }
     }
 
     // From schedule rows (includes SAILED rows used by Jetty Schedule Gantt)
-    for (const r of scheduleList) {
+    for (const r of srcSchedule) {
       if (!r?.vesselId) continue
       if (map[r.vesselId]) continue
       map[r.vesselId] = {
         vesselName: r.vesselName || r.vesselId,
-        siId: r.shippingInstruction || '—',
+        siId: refLabel(r),
         purpose: r.purpose || null,
+        loadDischarge: r.loadDischarge ?? null,
         commodity: r.commodity || null,
-        etaToCompletion: r.estimatedCompletionDateTime ? new Date(r.estimatedCompletionDateTime).toLocaleString() : '—',
-        ragStatus: 'green',
+        materialDisplay: schematicMaterialDisplay(r),
+        etaToCompletion: r.estimatedCompletionDateTime ? formatDateTimeDisplay(r.estimatedCompletionDateTime) : '—',
+        ragStatus: getEtcBreachRagStatus(r, breachNowMs),
+        etcBreach: getEtcBreach(r, breachNowMs),
         status: r.status || null,
       }
     }
 
     // From berths occupants (berthed vessels might not appear in queue depending on backend rules)
-    for (const b of berthsState || []) {
+    for (const b of srcBerths || []) {
       const occs = Array.isArray(b?.occupants) ? b.occupants : []
       for (const o of occs) {
         if (!o?.vesselId) continue
@@ -401,17 +707,20 @@ export default function Allocation() {
         map[o.vesselId] = {
           vesselName: o.vesselName || o.vesselId,
           siId: '—',
-          purpose: null,
+          purpose: o.purpose || null,
+          loadDischarge: o.loadDischarge ?? null,
           commodity: null,
-          etaToCompletion: o.estimatedCompletionDateTime ? new Date(o.estimatedCompletionDateTime).toLocaleString() : '—',
-          ragStatus: 'green',
+          materialDisplay: schematicMaterialDisplay(o),
+          etaToCompletion: o.estimatedCompletionDateTime ? formatDateTimeDisplay(o.estimatedCompletionDateTime) : '—',
+          ragStatus: getEtcBreachRagStatus(o, breachNowMs),
+          etcBreach: getEtcBreach(o, breachNowMs),
           status: o.status || null,
         }
       }
     }
 
     return map
-  }, [list, scheduleList, berthsState])
+  }, [planViz, isPlanCentric, breachNowMs])
 
   const vesselDetailRows = useMemo(() => {
     const byId = new Map()
@@ -426,9 +735,52 @@ export default function Allocation() {
     return Array.from(byId.values())
   }, [list, scheduleList])
 
+  const vesselDetailPlanQueueRows = useMemo(() => {
+    if (!isPlanCentric || vesselDetailPlanId == null) return []
+    const byKey = new Map()
+    for (const r of [...list, ...scheduleList]) {
+      if (Number(r?.shipmentPlanId) !== Number(vesselDetailPlanId)) continue
+      const k = r.vesselId || r.id || String(r.shippingInstructionId ?? '')
+      if (!k) continue
+      if (!byKey.has(k)) byKey.set(k, r)
+    }
+    return [...byKey.values()].sort((a, b) => {
+      const ds = seqSortKey(a) - seqSortKey(b)
+      if (ds !== 0) return ds
+      return (Number(a.shippingInstructionId) || 0) - (Number(b.shippingInstructionId) || 0)
+    })
+  }, [isPlanCentric, vesselDetailPlanId, list, scheduleList])
+
+  const allocationColumnDefsBase = useMemo(() => buildAllocationColumnDefs(isPlanCentric), [isPlanCentric])
+
   const allocationTableColumns = useMemo(() => {
     const berthById = new Map((berthsState || []).map((b) => [b.id, b]))
-    return ALLOCATION_COLUMNS.map((c) => {
+    return allocationColumnDefsBase.map((c) => {
+      if (c.key === 'vesselName') {
+        return {
+          ...c,
+          getValue: (r) => renderAllocationVesselCell(r),
+        }
+      }
+      if (c.key === 'etc') {
+        return {
+          ...c,
+          getValue: (r) => {
+            const breach = getEtcBreach(r, breachNowMs)
+            return (
+              <span className="at-berth-etc-cell">
+                {formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion) || '—'}
+                {breach ? (
+                  <span className="at-berth-etc-cell__badge">
+                    <EtcBreachBadge overMs={breach.overMs} etcMs={breach.etcMs} size="sm" />
+                  </span>
+                ) : null}
+              </span>
+            )
+          },
+          getSortValue: (r) => getEtcBreach(r, breachNowMs)?.overMs ?? 0,
+        }
+      }
       if (c.key !== 'jetty') return c
       return {
         ...c,
@@ -453,7 +805,7 @@ export default function Allocation() {
         },
       }
     })
-  }, [berthsState])
+  }, [berthsState, allocationColumnDefsBase, breachNowMs])
 
   const getVesselName = useCallback(
     (vesselId) => {
@@ -464,25 +816,6 @@ export default function Allocation() {
     [vesselById]
   )
 
-  const incomingByJetty = useMemo(() => {
-    const byJetty = {}
-    const incomingRows = [...list]
-      .filter((r) => getBerthingPlanStatus(r) === 'incoming')
-      .sort((a, b) => {
-        const aMs = getArrivalMsForJettyValidation(a) ?? Number.MAX_SAFE_INTEGER
-        const bMs = getArrivalMsForJettyValidation(b) ?? Number.MAX_SAFE_INTEGER
-        return aMs - bMs
-      })
-    for (const r of incomingRows) {
-      const jettyId = (r.jetty || '').trim().split('/')[0].trim()
-      if (!jettyId) continue
-      const name = r.vesselName || r.vesselId || '—'
-      if (!byJetty[jettyId]) byJetty[jettyId] = []
-      byJetty[jettyId].push(name)
-    }
-    return byJetty
-  }, [list])
-
   const [arrivalNorFiles, setArrivalNorFiles] = useState([]) // [{ name, url }] for NOR document preview
   const [arrivalNorRawFiles, setArrivalNorRawFiles] = useState([]) // File[]
   const [arrivalSaving, setArrivalSaving] = useState(false)
@@ -492,19 +825,29 @@ export default function Allocation() {
       tAlloc(
         ({
           sequence: 'colBerthingSequence',
-          vesselName: 'colVesselName',
+          vesselName: isPlanCentric ? 'colVessel' : 'colVesselName',
+          planReference: 'colPlanRef',
           jettyOperationCode: 'colJettyOperationId',
-          shippingInstruction: 'colShippingInstruction',
+          shippingInstruction: isPlanCentric ? 'colShippingInstructions' : 'colShippingInstruction',
+          commodityQty: 'colCommodityQty',
           priority: 'colPriority',
           purpose: 'colPurpose',
-          remark: 'colRemark',
+          shipper: 'colShipper',
+          tradeTerm: 'colTerm',
+          loadingPort: 'colPortOfLoading',
+          agent: 'colAgent',
+          surveyor: 'colSurveyor',
+          remark: isPlanCentric ? 'colRemarks' : 'colRemark',
           eta: 'colEta',
+          ta: 'colTa',
           etb: 'colEtb',
+          tb: 'colTb',
+          etc: 'colEtc',
           jetty: 'colJetty',
         })[key] || '',
         { defaultValue: fallback }
       ),
-    [tAlloc]
+    [tAlloc, isPlanCentric]
   )
 
   const fileUrl = (p) => resolveUploadUrl(p)
@@ -528,7 +871,11 @@ export default function Allocation() {
         if (!alive) return
         const items = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : []
         const mapped = items
-          .map((d) => ({ url: fileUrl(d.url), name: d.name || 'Berthing photo' }))
+          .map((d) => ({
+            url: fileUrl(d.url),
+            name: d.name || 'Berthing photo',
+            mimeType: d.mimeType ?? null,
+          }))
           .filter((x) => x.url)
         if (mapped.length === 0) return
         setVesselPhotosByVesselId((prev) => ({ ...prev, [key]: mapped }))
@@ -540,13 +887,41 @@ export default function Allocation() {
     }
   }, [vesselDetailModalVesselId, vesselDetailRows, vesselPhotosByVesselId, fileUrl])
 
-  const refreshOverview = async () => {
-    const data = await fetchAllocationOverview()
+  const refreshOverview = useCallback(async () => {
+    const data = await overviewFetcher()
     const q = Array.isArray(data?.queue) ? data.queue : []
     setList(q)
+    setScheduleList(Array.isArray(data?.scheduleQueue) ? data.scheduleQueue : q)
     setBerthsState(Array.isArray(data?.berths) ? data.berths : [])
     return q
-  }
+  }, [overviewFetcher])
+
+  const swapPlanBerthingSequencePair = useCallback(
+    async (planIdA, planIdB, earlierPlanId) => {
+      const a = Number(planIdA)
+      const b = Number(planIdB)
+      if (!Number.isFinite(a) || !Number.isFinite(b) || a === b) return
+      const busyKey = `${Math.min(a, b)}-${Math.max(a, b)}`
+      setPlanSequenceBusyPair(busyKey)
+      setPlanSequenceSwapError(null)
+      try {
+        const earlier =
+          earlierPlanId != null && Number.isFinite(Number(earlierPlanId)) ? Number(earlierPlanId) : undefined
+        await swapShipmentPlanBerthingSequence(a, b, {
+          activityLogPage: activityLogPageKey,
+          earlierPlanId: earlier,
+        })
+        await refreshOverview()
+      } catch (e) {
+        const msg =
+          e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Sequence update failed'
+        setPlanSequenceSwapError(msg)
+      } finally {
+        setPlanSequenceBusyPair(null)
+      }
+    },
+    [activityLogPageKey, refreshOverview]
+  )
 
   const closeReDockModal = useCallback(() => {
     setReDockModal(null)
@@ -576,7 +951,7 @@ export default function Allocation() {
     setShiftSavingByOpId((m) => ({ ...m, [opId]: true }))
     try {
       const vesselLabel = row.vesselName || row.shippingInstruction || 'Vessel'
-      await setOperationShiftingOut(opId, false, trimmed, { activityLogPage: 'allocation' })
+      await setOperationShiftingOut(opId, false, trimmed, { activityLogPage: activityLogPageKey })
       closeReDockModal()
       setReDockSuccessMessage(
         `Redocking complete for ${vesselLabel}. You may now resume activities via the 'At-Berth Executions'.`
@@ -658,7 +1033,7 @@ export default function Allocation() {
         if (!canAllocateAfterCompletion) {
           const completionHint =
             earliestFreeMs != null
-              ? ` Earliest estimated completion: ${new Date(earliestFreeMs).toLocaleString()}.`
+              ? ` Earliest estimated completion: ${formatDateTimeDisplay(new Date(earliestFreeMs).toISOString())}.`
               : ' Estimated/actual completion for current occupants is not set.'
           setArrivalSaveMsg(
             `Jetty ${targetJettyId} is full (${others.length}/${Math.max(1, capacity)}). Example occupant: ${occupantName}.${completionHint} Please choose another jetty or set a later arrival.`
@@ -682,32 +1057,48 @@ export default function Allocation() {
       demurrageLiabilityFromDateTime: arrivalUpdateForm.demurrageLiabilityFromDateTime || undefined,
       norDocumentNames: arrivalNorFiles.length > 0 ? arrivalNorFiles.map((f) => f.name) : undefined,
     }
-    const listWithUpdate = list.map((row) => (row.id === arrivalUpdateForm.id ? updated : row))
-    const bySequence = [...listWithUpdate].sort((a, b) => (a.sequence ?? 999) - (b.sequence ?? 999))
-    const renumbered = bySequence.map((row, i) => ({ ...row, sequence: i + 1 }))
-    setList(renumbered)
+    // Plan-centric table rows are merged; do not write them back into the flat API queue.
+    if (!isPlanCentric) {
+      const listWithUpdate = list.map((row) => (row.id === arrivalUpdateForm.id ? updated : row))
+      const bySequence = [...listWithUpdate].sort((a, b) => seqSortKey(a) - seqSortKey(b))
+      const renumbered = bySequence.map((row, i) => ({ ...row, sequence: i + 1 }))
+      setList(renumbered)
+    }
 
+    const planOnlySave = isPlanOnlySchedulingRow(updated)
     let saveRes
     try {
-      saveRes = await saveArrivalUpdateApi({
+      const arrivalPayload = {
+        activityLogPage: activityLogPageKey,
         operationId: updated.operationId,
         shippingInstructionId: updated.shippingInstructionId,
+        shipmentPlanId: planOnlySave ? updated.shipmentPlanId : undefined,
         noPkk: updated.noPkk ?? '',
         jetty: updated.jetty ?? '',
         priority: updated.priority || '',
-        etaDateTime: updated.etaDateTime || '',
-        taDateTime: updated.taDateTime || '',
-        etbDateTime: updated.etbDateTime || '',
-        pobDateTime: toDateTimeLocalValue(updated.pobDateTime) || '',
-        tbDateTime: toDateTimeLocalValue(updated.tbDateTime) || '',
-        sobDateTime: toDateTimeLocalValue(updated.sobDateTime) || '',
-        estimatedCompletionDateTime: updated.estimatedCompletionDateTime || '',
-        actualCompletionDateTime: toDateTimeLocalValue(updated.actualCompletionDateTime) || '',
-        norTenderedDateTime: updated.norTenderedDateTime || '',
-        norAcceptedDateTime: updated.norAcceptedDateTime || '',
-        demurrageLiabilityFromDateTime: updated.demurrageLiabilityFromDateTime || '',
+        etaDateTime: normalizeForApiOrEmpty(updated.etaDateTime, scheduleEntryTz),
+        etbDateTime: normalizeForApiOrEmpty(updated.etbDateTime, scheduleEntryTz),
         remark: updated.remark ?? updated.remarks ?? '',
-      })
+      }
+      if (!planOnlySave) {
+        Object.assign(arrivalPayload, {
+          taDateTime: normalizeForApiOrEmpty(updated.taDateTime, scheduleEntryTz),
+          pobDateTime: normalizeForApiOrEmpty(updated.pobDateTime, scheduleEntryTz),
+          tbDateTime: normalizeForApiOrEmpty(updated.tbDateTime, scheduleEntryTz),
+          sobDateTime: normalizeForApiOrEmpty(updated.sobDateTime, scheduleEntryTz),
+          estimatedCompletionDateTime: normalizeForApiOrEmpty(
+            updated.estimatedCompletionDateTime,
+            scheduleEntryTz
+          ),
+          norTenderedDateTime: normalizeForApiOrEmpty(updated.norTenderedDateTime, scheduleEntryTz),
+          norAcceptedDateTime: normalizeForApiOrEmpty(updated.norAcceptedDateTime, scheduleEntryTz),
+          demurrageLiabilityFromDateTime: normalizeForApiOrEmpty(
+            updated.demurrageLiabilityFromDateTime,
+            scheduleEntryTz
+          ),
+        })
+      }
+      saveRes = await saveArrivalUpdateApi(arrivalPayload)
     } catch (e) {
       const msg =
         e instanceof ApiError
@@ -752,7 +1143,7 @@ export default function Allocation() {
 
   const moveSequenceUp = (r, e) => {
     e.stopPropagation()
-    const bySeq = [...list].sort((a, b) => (a.sequence ?? 999) - (b.sequence ?? 999))
+    const bySeq = [...list].sort((a, b) => seqSortKey(a) - seqSortKey(b))
     const i = bySeq.findIndex((row) => row.id === r.id)
     if (i <= 0) return
     ;[bySeq[i - 1], bySeq[i]] = [bySeq[i], bySeq[i - 1]]
@@ -762,7 +1153,7 @@ export default function Allocation() {
 
   const moveSequenceDown = (r, e) => {
     e.stopPropagation()
-    const bySeq = [...list].sort((a, b) => (a.sequence ?? 999) - (b.sequence ?? 999))
+    const bySeq = [...list].sort((a, b) => seqSortKey(a) - seqSortKey(b))
     const i = bySeq.findIndex((row) => row.id === r.id)
     if (i < 0 || i >= bySeq.length - 1) return
     ;[bySeq[i], bySeq[i + 1]] = [bySeq[i + 1], bySeq[i]]
@@ -772,7 +1163,16 @@ export default function Allocation() {
 
   const handleBerthClick = (berthId) => {
     const berth = berthsState.find((b) => b.id === berthId)
-    if (berth?.currentVesselId) setVesselDetailModalVesselId(berth.currentVesselId)
+    const id = berth?.currentVesselId
+    if (!id) return
+    if (isPlanCentric) selectVesselFromVisualization(id)
+    else {
+      setVesselDetailPlanId(null)
+      setPlanDetail(null)
+      setPlanDetailError(null)
+      setPlanDetailLoading(false)
+      setVesselDetailModalVesselId(id)
+    }
   }
 
   /** Resolve row.jetty to a single berth id (e.g. "1A" or "1A/2A" → "1A") */
@@ -809,6 +1209,15 @@ export default function Allocation() {
         }
       }
     }
+    if (!(berthingTa || '').trim()) {
+      errors.push('Please enter Actual Time of Arrival (TA).')
+    }
+    if (!(berthingTb || '').trim()) {
+      errors.push('Please enter Actual Time of Berthing (TB).')
+    }
+    if (!(berthingEstimatedCompletion || '').trim()) {
+      errors.push('Please enter Estimated completion.')
+    }
     if (berthingPhotos.length === 0) {
       errors.push('Please upload at least one vessel photo.')
     }
@@ -830,23 +1239,25 @@ export default function Allocation() {
     let saveRes
     try {
       saveRes = await saveArrivalUpdateApi({
+        activityLogPage: activityLogPageKey,
         operationId: berthingConfirmRow.operationId,
         shippingInstructionId: berthingConfirmRow.shippingInstructionId,
         noPkk: berthingConfirmRow.noPkk ?? '',
         jetty: targetJettyId,
         priority: berthingConfirmRow.priority || '',
-        etaDateTime: toDateTimeLocalValue(berthingConfirmRow.etaDateTime) || '',
-        taDateTime: toDateTimeLocalValue(berthingConfirmRow.taDateTime) || '',
-        etbDateTime: toDateTimeLocalValue(berthingConfirmRow.etbDateTime) || '',
-        pobDateTime: berthingPob || '',
-        tbDateTime: berthingTb || '',
-        sobDateTime: berthingSob || '',
-        estimatedCompletionDateTime: berthingEstimatedCompletion || '',
-        actualCompletionDateTime: toDateTimeLocalValue(berthingConfirmRow.actualCompletionDateTime) || '',
-        norTenderedDateTime: toDateTimeLocalValue(berthingConfirmRow.norTenderedDateTime) || '',
-        norAcceptedDateTime: toDateTimeLocalValue(berthingConfirmRow.norAcceptedDateTime) || '',
-        demurrageLiabilityFromDateTime:
-          toDateTimeLocalValue(berthingConfirmRow.demurrageLiabilityFromDateTime) || '',
+        etaDateTime: normalizeForApiOrEmpty(berthingConfirmRow.etaDateTime, scheduleEntryTz),
+        taDateTime: normalizeForApiOrEmpty(berthingTa, scheduleEntryTz),
+        etbDateTime: normalizeForApiOrEmpty(berthingConfirmRow.etbDateTime, scheduleEntryTz),
+        pobDateTime: normalizeForApiOrEmpty(berthingPob, scheduleEntryTz),
+        tbDateTime: normalizeForApiOrEmpty(berthingTb, scheduleEntryTz),
+        sobDateTime: normalizeForApiOrEmpty(berthingSob, scheduleEntryTz),
+        estimatedCompletionDateTime: normalizeForApiOrEmpty(berthingEstimatedCompletion, scheduleEntryTz),
+        norTenderedDateTime: normalizeForApiOrEmpty(berthingConfirmRow.norTenderedDateTime, scheduleEntryTz),
+        norAcceptedDateTime: normalizeForApiOrEmpty(berthingConfirmRow.norAcceptedDateTime, scheduleEntryTz),
+        demurrageLiabilityFromDateTime: normalizeForApiOrEmpty(
+          berthingConfirmRow.demurrageLiabilityFromDateTime,
+          scheduleEntryTz
+        ),
         remark: (berthingRemarks || '').trim(),
       })
     } catch (e) {
@@ -912,10 +1323,13 @@ export default function Allocation() {
 
   const openBerthingConfirm = (r, e) => {
     e.stopPropagation()
+    const berthBlock = berthingDisabledReason(r, { planCentric: isPlanCentric })
+    if (berthBlock) return
     setBerthingErrors([])
     setBerthingConfirmRow(r)
     setBerthingSelectedJetty(getTargetJettyId(r) || '')
     setBerthingPob(r.pobDateTime || '')
+    setBerthingTa(toDateTimeLocalValue(r.taDateTime))
     setBerthingTb(toDateTimeLocalValue(r.tbDateTime) || getNowForDateTimeLocal())
     setBerthingSob(r.sobDateTime || '')
     setBerthingEstimatedCompletion(toDateTimeLocalValue(r.estimatedCompletionDateTime))
@@ -934,6 +1348,7 @@ export default function Allocation() {
     setBerthingErrors([])
     setBerthingSelectedJetty('')
     setBerthingPob('')
+    setBerthingTa('')
     setBerthingTb('')
     setBerthingSob('')
     setBerthingEstimatedCompletion('')
@@ -969,6 +1384,10 @@ export default function Allocation() {
       setVesselDetailEditSaving(false)
       setVesselDetailNorNewFiles([])
       setVesselDetailNorNewRaw([])
+      setVesselDetailPlanId(null)
+      setPlanDetail(null)
+      setPlanDetailError(null)
+      setPlanDetailLoading(false)
       setVesselDetailBerthingNewPhotos((prev) => {
         prev.forEach((p) => {
           if (p.previewUrl) URL.revokeObjectURL(p.previewUrl)
@@ -1001,11 +1420,11 @@ export default function Allocation() {
         setVesselDetailEditError(null)
         return
       }
-      setVesselDetailModalVesselId(null)
+      closeVesselDetailModal()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [vesselDetailModalVesselId, siDetailId, siDocumentModalId, vesselDetailEditing])
+  }, [vesselDetailModalVesselId, siDetailId, siDocumentModalId, vesselDetailEditing, closeVesselDetailModal])
 
   const addVesselDetailNorNewFiles = (fileList) => {
     if (!fileList?.length) return
@@ -1047,7 +1466,6 @@ export default function Allocation() {
       tbDateTime: toDateTimeLocalValue(vessel.tbDateTime),
       sobDateTime: toDateTimeLocalValue(vessel.sobDateTime),
       estimatedCompletionDateTime: toDateTimeLocalValue(vessel.estimatedCompletionDateTime),
-      actualCompletionDateTime: toDateTimeLocalValue(vessel.actualCompletionDateTime),
       norTenderedDateTime: toDateTimeLocalValue(vessel.norTenderedDateTime),
       norAcceptedDateTime: toDateTimeLocalValue(vessel.norAcceptedDateTime),
       demurrageLiabilityFromDateTime: toDateTimeLocalValue(vessel.demurrageLiabilityFromDateTime),
@@ -1110,7 +1528,7 @@ export default function Allocation() {
         if (!canAllocateAfterCompletion) {
           const completionHint =
             earliestFreeMs != null
-              ? ` Earliest estimated completion: ${new Date(earliestFreeMs).toLocaleString()}.`
+              ? ` Earliest estimated completion: ${formatDateTimeDisplay(new Date(earliestFreeMs).toISOString())}.`
               : ' Estimated/actual completion for current occupants is not set.'
           setVesselDetailEditError(
             `Jetty ${targetJettyId} is full (${others.length}/${Math.max(1, capacity)}). Example occupant: ${occupantName}.${completionHint} Please choose another jetty or set a later arrival.`
@@ -1126,22 +1544,28 @@ export default function Allocation() {
     const berthDraft = vesselDetailBerthingNewPhotos
     try {
       const putRes = await saveArrivalUpdateApi({
+        activityLogPage: activityLogPageKey,
         operationId: vessel.operationId,
         shippingInstructionId: vessel.shippingInstructionId,
         noPkk: vesselDetailDraft.noPkk ?? '',
         jetty: targetJettyId,
         priority: vesselDetailDraft.priority || '',
-        etaDateTime: vesselDetailDraft.etaDateTime || '',
-        taDateTime: vesselDetailDraft.taDateTime || '',
-        etbDateTime: vesselDetailDraft.etbDateTime || '',
-        pobDateTime: vesselDetailDraft.pobDateTime || '',
-        tbDateTime: vesselDetailDraft.tbDateTime || '',
-        sobDateTime: vesselDetailDraft.sobDateTime || '',
-        estimatedCompletionDateTime: vesselDetailDraft.estimatedCompletionDateTime || '',
-        actualCompletionDateTime: vesselDetailDraft.actualCompletionDateTime || '',
-        norTenderedDateTime: vesselDetailDraft.norTenderedDateTime || '',
-        norAcceptedDateTime: vesselDetailDraft.norAcceptedDateTime || '',
-        demurrageLiabilityFromDateTime: vesselDetailDraft.demurrageLiabilityFromDateTime || '',
+        etaDateTime: normalizeForApiOrEmpty(vesselDetailDraft.etaDateTime, scheduleEntryTz),
+        taDateTime: normalizeForApiOrEmpty(vesselDetailDraft.taDateTime, scheduleEntryTz),
+        etbDateTime: normalizeForApiOrEmpty(vesselDetailDraft.etbDateTime, scheduleEntryTz),
+        pobDateTime: normalizeForApiOrEmpty(vesselDetailDraft.pobDateTime, scheduleEntryTz),
+        tbDateTime: normalizeForApiOrEmpty(vesselDetailDraft.tbDateTime, scheduleEntryTz),
+        sobDateTime: normalizeForApiOrEmpty(vesselDetailDraft.sobDateTime, scheduleEntryTz),
+        estimatedCompletionDateTime: normalizeForApiOrEmpty(
+          vesselDetailDraft.estimatedCompletionDateTime,
+          scheduleEntryTz
+        ),
+        norTenderedDateTime: normalizeForApiOrEmpty(vesselDetailDraft.norTenderedDateTime, scheduleEntryTz),
+        norAcceptedDateTime: normalizeForApiOrEmpty(vesselDetailDraft.norAcceptedDateTime, scheduleEntryTz),
+        demurrageLiabilityFromDateTime: normalizeForApiOrEmpty(
+          vesselDetailDraft.demurrageLiabilityFromDateTime,
+          scheduleEntryTz
+        ),
         remark: vesselDetailDraft.remark ?? '',
         source: 'active_vessel_detail',
       })
@@ -1237,20 +1661,61 @@ export default function Allocation() {
   const updateFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }))
   const handleSort = (key) => setSortState((s) => ({ key, dir: s.key === key && s.dir === 'asc' ? 'desc' : 'asc' }))
 
-  const filteredList = list.filter((r) => {
-    const rowStatus = getBerthingPlanStatus(r)
-    if (!statusFilter[rowStatus]) return false
-    return filterKeys.every((key) => {
-      const f = (filters[key] || '').trim().toLowerCase()
-      if (!f) return true
-      const val =
-        key === 'purpose' ? resolvePurposeLabel(r.purpose, r.loadDischarge) || r[key] : r[key]
-      return String(val ?? '').toLowerCase().includes(f)
+  const filterKeys = useMemo(() => allocationColumnDefsBase.map((c) => c.key), [allocationColumnDefsBase])
+
+  /** Plan-centric table is one row per plan — merge before status/SI slice filters. */
+  const planCentricMergedQueue = useMemo(() => {
+    if (!isPlanCentric) return []
+    const { mergedRows } = mergeQueueRowsForPlanPov(list, { idMode: 'representative' })
+    // Safety dedup: the merge should already produce one row per plan, but guard
+    // against any raw rows that slipped through with a duplicate shipmentPlanId.
+    const seenPlanIds = new Set()
+    return mergedRows.filter((r) => {
+      const pid = r?.shipmentPlanId != null ? Number(r.shipmentPlanId) : null
+      if (pid == null || Number.isNaN(pid)) return true  // unlinked rows always pass
+      if (seenPlanIds.has(pid)) return false
+      seenPlanIds.add(pid)
+      return true
     })
-  })
+  }, [isPlanCentric, list])
+
+  const filteredList = useMemo(() => {
+    const source = isPlanCentric ? planCentricMergedQueue : list
+    return source.filter((r) => {
+      const rowStatus = getBerthingPlanStatus(r, { planCentric: isPlanCentric })
+      if (etcBreachFilter) {
+        if (rowStatus !== 'berthed' || !getEtcBreach(r, breachNowMs)) return false
+      } else if (!rowPassesAllocationStatusFilter(r, rowStatus, statusFilter, isPlanCentric)) {
+        return false
+      }
+      return filterKeys.every((key) => {
+        const f = (filters[key] || '').trim().toLowerCase()
+        if (!f) return true
+        const col = allocationColumnDefsBase.find((c) => c.key === key)
+        const val = col?.getFilterValue
+          ? col.getFilterValue(r)
+          : key === 'purpose'
+            ? resolvePurposeLabel(r.purpose, r.loadDischarge) || r[key]
+            : key === 'planReference'
+              ? r.planReference || (r.shipmentPlanId != null ? `Plan #${r.shipmentPlanId}` : '')
+              : r[key]
+        return String(val ?? '').toLowerCase().includes(f)
+      })
+    })
+  }, [
+    isPlanCentric,
+    planCentricMergedQueue,
+    list,
+    etcBreachFilter,
+    breachNowMs,
+    statusFilter,
+    filterKeys,
+    filters,
+    allocationColumnDefsBase,
+  ])
 
   const sortedList = [...filteredList].sort((a, b) => {
-    const col = ALLOCATION_COLUMNS.find((c) => c.key === sortState.key)
+    const col = allocationColumnDefsBase.find((c) => c.key === sortState.key)
     if (!col) return 0
     const va = col.getSortValue(a)
     const vb = col.getSortValue(b)
@@ -1258,6 +1723,244 @@ export default function Allocation() {
     const cmp = isNum ? va - vb : String(va).localeCompare(String(vb), undefined, { numeric: true })
     return sortState.dir === 'asc' ? cmp : -cmp
   })
+
+  /** Plan-centric queue: already merged + filtered in filteredList. */
+  const sortedPlanQueueList = useMemo(() => {
+    if (!isPlanCentric) return null
+    return [...filteredList].sort((a, b) => {
+      const col = allocationColumnDefsBase.find((c) => c.key === sortState.key)
+      if (!col) return 0
+      const va = col.getSortValue(a)
+      const vb = col.getSortValue(b)
+      const isNum = typeof va === 'number' && typeof vb === 'number'
+      const cmp = isNum ? va - vb : String(va).localeCompare(String(vb), undefined, { numeric: true })
+      return sortState.dir === 'asc' ? cmp : -cmp
+    })
+  }, [isPlanCentric, filteredList, sortState, allocationColumnDefsBase])
+
+  const hasQueueRows = isPlanCentric ? (sortedPlanQueueList?.length ?? 0) > 0 : sortedList.length > 0
+
+  const renderOneDesktopRow = (r) => {
+    const rowBreach = getEtcBreach(r, breachNowMs)
+    return (
+      <Fragment key={r.id}>
+        <tr
+          className={[
+            'allocation-table__row',
+            expandedId === r.id ? 'allocation-table__row--expanded' : '',
+            rowBreach ? 'allocation-table__row--etc-breach' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          onClick={() => setExpandedId((id) => (id === r.id ? null : r.id))}
+        >
+          <td className="allocation-table__expand-col">
+            <span className="allocation-table__expand-icon" aria-hidden>
+              {expandedId === r.id ? '▼' : '▶'}
+            </span>
+          </td>
+          <td className="allocation-table__action-col" onClick={(e) => e.stopPropagation()}>
+            <div className="allocation-table__action-btns">
+              <button type="button" className="btn btn--primary btn--small" onClick={() => openArrivalUpdate(r)}>
+                {tAlloc('logArrivalUpdate')}
+              </button>
+              {r.shiftingOut && r.operationId != null ? (
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--small"
+                  onClick={(e) => openReDockModal(r, e)}
+                  disabled={Boolean(shiftSavingByOpId[r.operationId])}
+                  title="Clear shift-out so this vessel can be treated as at-berth again (preserves history)."
+                >
+                  {shiftSavingByOpId[r.operationId] ? tAlloc('saving') : tAlloc('reDock')}
+                </button>
+              ) : (
+                <BerthingActionButton
+                  row={r}
+                  isPlanCentric={isPlanCentric}
+                  label={tAlloc('berthing')}
+                  onBerthing={openBerthingConfirm}
+                />
+              )}
+            </div>
+          </td>
+          {allocationTableColumns.map((col) => (
+            <td key={col.key} onClick={col.key === 'sequence' ? (e) => e.stopPropagation() : undefined}>
+              {col.key === 'sequence' ? (
+                <span className="allocation-table__sequence-cell">
+                  {isPlanCentric && r.shipmentPlanId != null && canEditAllocation && sortedPlanQueueList ? (
+                    (() => {
+                      const displayList = sortedPlanQueueList
+                      const idx = displayList.findIndex((x) => x.id === r.id)
+                      const prevPlan = idx >= 0 ? findAdjacentPlanRowInDisplay(displayList, idx, -1) : null
+                      const nextPlan = idx >= 0 ? findAdjacentPlanRowInDisplay(displayList, idx, 1) : null
+                      const pid = Number(r.shipmentPlanId)
+                      let busyThis = false
+                      if (planSequenceBusyPair) {
+                        const parts = planSequenceBusyPair.split('-').map((p) => parseInt(p, 10))
+                        if (parts.length === 2 && parts.every((n) => Number.isFinite(n))) {
+                          const [ba, bb] = parts
+                          busyThis = pid === ba || pid === bb
+                        }
+                      }
+                      return (
+                        <span className="allocation-table__sequence-btns">
+                          <button
+                            type="button"
+                            className="btn btn--small allocation-table__sequence-btn"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (!prevPlan?.shipmentPlanId) return
+                              void swapPlanBerthingSequencePair(pid, Number(prevPlan.shipmentPlanId), pid)
+                            }}
+                            disabled={!prevPlan || busyThis}
+                            title="Move up"
+                            aria-label="Move berthing sequence up"
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn--small allocation-table__sequence-btn"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (!nextPlan?.shipmentPlanId) return
+                              void swapPlanBerthingSequencePair(
+                                pid,
+                                Number(nextPlan.shipmentPlanId),
+                                Number(nextPlan.shipmentPlanId)
+                              )
+                            }}
+                            disabled={!nextPlan || busyThis}
+                            title="Move down"
+                            aria-label="Move berthing sequence down"
+                          >
+                            ↓
+                          </button>
+                        </span>
+                      )
+                    })()
+                  ) : !isPlanCentric ? (
+                    <span className="allocation-table__sequence-btns">
+                      <button
+                        type="button"
+                        className="btn btn--small allocation-table__sequence-btn"
+                        onClick={(e) => moveSequenceUp(r, e)}
+                        disabled={sortedList.findIndex((x) => x.id === r.id) <= 0}
+                        title="Move up"
+                        aria-label="Move berthing sequence up"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--small allocation-table__sequence-btn"
+                        onClick={(e) => moveSequenceDown(r, e)}
+                        disabled={sortedList.findIndex((x) => x.id === r.id) >= sortedList.length - 1}
+                        title="Move down"
+                        aria-label="Move berthing sequence down"
+                      >
+                        ↓
+                      </button>
+                    </span>
+                  ) : (
+                    '—'
+                  )}
+                </span>
+              ) : col.key === 'planReference' ? (
+                r.shipmentPlanId != null ? (
+                  <Link
+                    to={`/shipment-plans/${r.shipmentPlanId}`}
+                    className="link"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {r.planReference || `Plan #${r.shipmentPlanId}`}
+                  </Link>
+                ) : (
+                  '—'
+                )
+              ) : col.key === 'jettyOperationCode' ? (
+                r.shippingInstructionId ? (
+                  <a
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      openSiDetailModal(r.shippingInstructionId)
+                    }}
+                    aria-label={tAlloc('openSiDetailFromJettyOp')}
+                  >
+                    {r.jettyOperationCode || '—'}
+                  </a>
+                ) : (
+                  r.jettyOperationCode || '—'
+                )
+              ) : col.key === 'shippingInstruction' ? (
+                Array.isArray(r.planQueueSiEntries) && r.planQueueSiEntries.length > 0 ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.35rem',
+                      alignItems: 'flex-start',
+                    }}
+                  >
+                    {r.planQueueSiEntries.map((si) => (
+                      <a
+                        key={si.shippingInstructionId}
+                        href="#"
+                        className="link"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          openSiDocumentModal(si.shippingInstructionId)
+                        }}
+                        aria-label={tAlloc('openSiDocument')}
+                      >
+                        {si.label}
+                      </a>
+                    ))}
+                  </div>
+                ) : r.shippingInstructionId ? (
+                  <a
+                    href="#"
+                    className="link"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      openSiDocumentModal(r.shippingInstructionId)
+                    }}
+                    aria-label={tAlloc('openSiDocument')}
+                  >
+                    {isPlanCentric ? planCentricSiColumnDisplay(r) : r.shippingInstruction || '—'}
+                  </a>
+                ) : (
+                  isPlanCentric ? planCentricSiColumnDisplay(r) : r.shippingInstruction || '—'
+                )
+              ) : col.key === 'commodityQty' ? (
+                renderCommodityQtyCell(r)
+              ) : (
+                col.getValue(r)
+              )}
+            </td>
+          ))}
+        </tr>
+        {expandedId === r.id && (
+          <tr className="allocation-table__detail-row">
+            <td colSpan={allocationTableColumns.length + 2} className="allocation-table__detail-cell">
+              <AllocationDetailPanel
+                r={r}
+                tAlloc={tAlloc}
+                onOpenSiDetail={openSiDetailModal}
+                queueList={list}
+                nowMs={breachNowMs}
+              />
+            </td>
+          </tr>
+        )}
+      </Fragment>
+    )
+  }
 
   return (
     <div className="allocation-page">
@@ -1325,7 +2028,7 @@ export default function Allocation() {
         </div>
       )}
 
-      <h1 className="page-title">{t('allocation')}</h1>
+      <h1 className="page-title">{isPlanCentric ? t('allocationPlanBerthing') : t('allocation')}</h1>
 
       <div className="allocation-visual">
         <div className="allocation-tabs" role="tablist" aria-label={tAlloc('visualizationAria')}>
@@ -1360,11 +2063,14 @@ export default function Allocation() {
           className="allocation-tabpanel"
         >
           <JettySchematic
-            berths={berthsState}
+            berths={planViz.mergedBerths}
+            scheduleList={planViz.mergedSchedule}
+            viewAsOfMs={breachNowMs}
             vesselById={vesselById}
-            incomingByJetty={incomingByJetty}
             onSelectBerth={handleBerthClick}
-            onSelectVessel={(vesselId) => vesselId && setVesselDetailModalVesselId(vesselId)}
+            onSelectVessel={(vesselId) => vesselId && selectVesselFromVisualization(vesselId)}
+            slotReferenceLabel={isPlanCentric ? tAlloc('planRefSchematicLabel') : 'SI No'}
+            popoutProfile={isPlanCentric ? 'plan' : 'legacy'}
           />
         </div>
         <div
@@ -1377,8 +2083,10 @@ export default function Allocation() {
           <JettyScheduleGantt
             berthIds={berthIds}
             berthsState={berthsState}
-            list={scheduleList}
-            onSelectVessel={(vesselId) => vesselId && setVesselDetailModalVesselId(vesselId)}
+            list={planViz.mergedSchedule}
+            onSelectVessel={(vesselId) => vesselId && selectVesselFromVisualization(vesselId)}
+            onScheduleChanged={refreshOverview}
+            popoutProfile={isPlanCentric ? 'plan' : 'legacy'}
           />
         </div>
       </div>
@@ -1387,7 +2095,7 @@ export default function Allocation() {
       {vesselDetailModalVesselId && (
         <div
           className="modal-overlay"
-          onClick={() => setVesselDetailModalVesselId(null)}
+          onClick={() => closeVesselDetailModal()}
           aria-hidden="true"
         >
           <div
@@ -1398,40 +2106,81 @@ export default function Allocation() {
             aria-modal="true"
           >
             <h2 id="vessel-detail-modal-title" className="modal__title">
-              ⚓ Active Vessel Detail: {getVesselName(vesselDetailModalVesselId)}
+              {isPlanCentric && vesselDetailPlanId != null ? (
+                <span>
+                  {tAlloc('planModalTitleWithVessel', {
+                    defaultValue: 'Active vessel - {{name}}',
+                    name: getVesselName(vesselDetailModalVesselId) || '—',
+                  })}
+                </span>
+              ) : (
+                <>
+                  ⚓ {tAlloc('activeVesselDetailTitle', { defaultValue: 'Active Vessel Detail' })}:{' '}
+                  {getVesselName(vesselDetailModalVesselId)}
+                </>
+              )}
             </h2>
             {(() => {
               const vesselRow = vesselDetailRows.find((r) => r.vesselId === vesselDetailModalVesselId)
               const vessel = vesselRow || null
               const phases = UNIFIED_PHASES
               const currentPhaseIndex = deriveCurrentPhaseIndex(vessel)
-              const currentPhaseLabel = phases[Math.min(Math.max(currentPhaseIndex, 0), phases.length - 1)] || '—'
+              const currentPhaseLabel = currentPhaseLabelForVessel(vessel, phases)
               const readyToSail = isVesselReadyToSail(vessel)
-              const formatDateTime = (val) => {
+              const hasSailed = isVesselSailed(vessel)
+              const formatModalDateTime = (val) => {
                 if (val == null || val === '') return '—'
-                if (typeof val === 'string' && val.includes('T')) return new Date(val).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
-                return String(val)
+                return formatDateTimeDisplay(val)
               }
-              const eta = formatDateTime(vessel?.etaDateTime)
-              const ta = formatDateTime(vessel?.taDateTime)
-              const etb = formatDateTime(vessel?.etbDateTime)
-              const pob = formatDateTime(vessel?.pobDateTime)
-              const tb = formatDateTime(vessel?.tbDateTime)
-              const sob = formatDateTime(vessel?.sobDateTime)
-              const norTendered = formatDateTime(vessel?.norTenderedDateTime)
-              const norAccepted = formatDateTime(vessel?.norAcceptedDateTime)
-              const demurrageFrom = formatDateTime(vessel?.demurrageLiabilityFromDateTime)
-              const estCompletion = formatDateTime(vessel?.estimatedCompletionDateTime)
-              const actualCompletion = formatDateTime(vessel?.actualCompletionDateTime)
+              const eta = formatModalDateTime(vessel?.etaDateTime)
+              const ta = formatModalDateTime(vessel?.taDateTime)
+              const etb = formatModalDateTime(vessel?.etbDateTime)
+              const pob = formatModalDateTime(vessel?.pobDateTime)
+              const tb = formatModalDateTime(vessel?.tbDateTime)
+              const sob = formatModalDateTime(vessel?.sobDateTime)
+              const norTendered = formatModalDateTime(vessel?.norTenderedDateTime)
+              const norAccepted = formatModalDateTime(vessel?.norAcceptedDateTime)
+              const demurrageFrom = formatModalDateTime(vessel?.demurrageLiabilityFromDateTime)
+              const estCompletion = formatModalDateTime(vessel?.estimatedCompletionDateTime)
+              const operationsCompleted = formatModalDateTime(vessel?.operationsCompletedDateTime)
+              const actualCompletion = formatModalDateTime(vessel?.actualCompletionDateTime)
               const tbMs = parseDateMs(vessel?.tbDateTime)
               const estCompMs = parseDateMs(vessel?.estimatedCompletionDateTime)
-              const actualCompMs = parseDateMs(vessel?.actualCompletionDateTime)
+              const opsCompMs = parseDateMs(vessel?.operationsCompletedDateTime)
               const nowMs = Date.now()
+              const isPlanDetailMode = Boolean(isPlanCentric && vesselDetailPlanId != null)
+              const planTbEffective = planDetail?.tb ?? planDetail?.dockingStartTime
+              const planEta = formatModalDateTime(planDetail?.eta)
+              const planTa = formatModalDateTime(planDetail?.ta)
+              const planEtb = formatModalDateTime(planDetail?.etb)
+              const planTb = formatModalDateTime(planTbEffective)
+              const planEstCompletion = formatModalDateTime(planDetail?.estimatedCompletionTime)
+              const planOpsCompleted = formatModalDateTime(planDetail?.operationsCompletedAt)
+              const planTbMs = parseDateMs(planTbEffective)
+              const planEstCompMs = parseDateMs(planDetail?.estimatedCompletionTime)
+              const planOpsCompMs = parseDateMs(planDetail?.operationsCompletedAt)
+              const planAlongsideEndMs = getPlanAlongsideEndMs(planDetail, vessel, nowMs)
+              const planTimeSinceBerthing =
+                planTbMs != null
+                  ? formatDuration(Math.max(0, planAlongsideEndMs - planTbMs))
+                  : '—'
+              const planSailed = isPlanOrVesselSailed(planDetail, vessel)
+              const planEstTimeRemaining = planSailed
+                ? tAlloc('planModalSailed', { defaultValue: 'Sailed' })
+                : planOpsCompMs != null
+                  ? tAlloc('planModalCompleted', { defaultValue: 'Completed' })
+                  : planEstCompMs != null
+                    ? planEstCompMs > nowMs
+                      ? formatDuration(planEstCompMs - nowMs)
+                      : tAlloc('planModalOverdue', { defaultValue: 'Overdue' })
+                    : '—'
+              const vesselAlongsideEndMs = getVesselAlongsideEndMs(vessel, nowMs)
               const timeSinceBerthing =
-                tbMs != null ? formatDuration(Math.max(0, (actualCompMs ?? nowMs) - tbMs)) : '—'
-              const estTimeRemaining =
-                actualCompMs != null
-                  ? 'Completed'
+                tbMs != null ? formatDuration(Math.max(0, vesselAlongsideEndMs - tbMs)) : '—'
+              const estTimeRemaining = hasSailed
+                ? tAlloc('planModalSailed', { defaultValue: 'Sailed' })
+                : opsCompMs != null
+                  ? tAlloc('planModalCompleted', { defaultValue: 'Completed' })
                   : estCompMs != null
                     ? estCompMs > nowMs
                       ? formatDuration(estCompMs - nowMs)
@@ -1506,7 +2255,7 @@ export default function Allocation() {
                           // At-Berth deep link requires an operation id.
                           (label === 'At-Berth' && !vessel?.operationId) ||
                           // Clearance should not be clickable until ready to sail.
-                          (isClearance && !readyToSail) ||
+                          (isClearance && !readyToSail && !hasSailed) ||
                           // If we couldn't resolve a route, disable.
                           !to
                         const content = label === 'Shipping Instruction' ? (
@@ -1559,6 +2308,134 @@ export default function Allocation() {
                     </div>
                   </section>
 
+                  {isPlanDetailMode ? (
+                    <>
+                      <section className="berthing-modal__card">
+                        <h3 className="berthing-modal__card-title">
+                          {tAlloc('planModalSiSection', { defaultValue: 'Shipping instructions on this plan' })}
+                        </h3>
+                        {vesselDetailPlanQueueRows.length === 0 ? (
+                          <p className="text-steel">{tAlloc('planModalSiEmpty', { defaultValue: 'No queue rows for this plan in the current overview.' })}</p>
+                        ) : (
+                          <div className="table-wrap">
+                            <table className="data-table vessel-detail-modal__si-table">
+                              <thead>
+                                <tr>
+                                  <th>{tAlloc('colShippingInstruction')}</th>
+                                  <th>{tAlloc('colJettyOperationId')}</th>
+                                  <th>{tAlloc('colBerthingSequence')}</th>
+                                  <th>{tAlloc('planModalColStatus', { defaultValue: 'Status' })}</th>
+                                  <th>{tAlloc('colJetty')}</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {vesselDetailPlanQueueRows.map((row) => (
+                                  <tr key={row.vesselId || row.id}>
+                                    <td>
+                                      {row.shippingInstructionId ? (
+                                        <a
+                                          href="#"
+                                          className="link"
+                                          onClick={(e) => {
+                                            e.preventDefault()
+                                            openSiDocumentModal(row.shippingInstructionId)
+                                          }}
+                                        >
+                                          {row.shippingInstruction || '—'}
+                                        </a>
+                                      ) : (
+                                        row.shippingInstruction || '—'
+                                      )}
+                                    </td>
+                                    <td>
+                                      {row.shippingInstructionId ? (
+                                        <a
+                                          href="#"
+                                          className="link"
+                                          onClick={(e) => {
+                                            e.preventDefault()
+                                            openSiDetailModal(row.shippingInstructionId)
+                                          }}
+                                        >
+                                          {row.jettyOperationCode || '—'}
+                                        </a>
+                                      ) : (
+                                        row.jettyOperationCode || '—'
+                                      )}
+                                    </td>
+                                    <td>—</td>
+                                    <td>{row.status || '—'}</td>
+                                    <td>{row.jetty || '—'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </section>
+                      <section className="berthing-modal__card berthing-modal__card--vessel">
+                        <h3 className="berthing-modal__card-title">
+                          {tAlloc('planModalPlanTimesSection', { defaultValue: 'Time & status (shipment plan)' })}
+                        </h3>
+                        {planDetailLoading ? (
+                          <p className="text-steel">{tAlloc('planModalPlanTimesLoading', { defaultValue: 'Loading plan times…' })}</p>
+                        ) : planDetailError ? (
+                          <p className="allocation-arrival-save-msg allocation-arrival-save-msg--error" role="alert">
+                            {tAlloc('planModalPlanTimesError', {
+                              defaultValue: 'Could not load plan times: {{message}}',
+                              message: planDetailError,
+                            })}
+                          </p>
+                        ) : (
+                          <dl className="berthing-modal__vessel-dl">
+                            <div className="berthing-modal__vessel-row">
+                              <dt title={tAlloc('ttPlanEta')}>{tAlloc('planModalLblEta', { defaultValue: 'Estimated Time of Arrival (ETA)' })}</dt>
+                              <dd>{planEta}</dd>
+                            </div>
+                            <div className="berthing-modal__vessel-row">
+                              <dt title={tAlloc('ttPlanTa')}>{tAlloc('planModalLblTa', { defaultValue: 'Actual Time of Arrival (TA)' })}</dt>
+                              <dd>{planTa}</dd>
+                            </div>
+                            <div className="berthing-modal__vessel-row">
+                              <dt title={tAlloc('ttPlanEtb')}>{tAlloc('planModalLblEtb', { defaultValue: 'Estimated Time of Berthing (ETB)' })}</dt>
+                              <dd>{planEtb}</dd>
+                            </div>
+                            <div className="berthing-modal__vessel-row">
+                              <dt title={tAlloc('ttPlanTb')}>{tAlloc('planModalLblTb', { defaultValue: 'Actual Time of Berthing (TB)' })}</dt>
+                              <dd>{planTb}</dd>
+                            </div>
+                            <div className="berthing-modal__vessel-row">
+                              <dt title={tAlloc('ttPlanTimeSince')}>{tAlloc('planModalLblTimeSinceBerth', { defaultValue: 'Time Since Berthing' })}</dt>
+                              <dd>{planTimeSinceBerthing}</dd>
+                            </div>
+                            <div className="berthing-modal__vessel-row">
+                              <dt title={tAlloc('ttPlanEstCompletion')}>{tAlloc('planModalLblEstCompletion', { defaultValue: 'Est. Completion' })}</dt>
+                              <dd>{planEstCompletion}</dd>
+                            </div>
+                            <div className="berthing-modal__vessel-row">
+                              <dt>{tAlloc('operationsCompleted')}</dt>
+                              <dd>{planOpsCompleted || '—'}</dd>
+                            </div>
+                            <div className="berthing-modal__vessel-row">
+                              <dt>{tAlloc('actualCompletion')}</dt>
+                              <dd>{formatModalDateTime(planDetail?.actualCompletionTime) || '—'}</dd>
+                            </div>
+                            <div className="berthing-modal__vessel-row">
+                              <dt title={tAlloc('ttPlanEstRemaining')}>{tAlloc('planModalLblEstRemaining', { defaultValue: 'Est. Time Remaining' })}</dt>
+                              <dd>{planEstTimeRemaining}</dd>
+                            </div>
+                          </dl>
+                        )}
+                      </section>
+                      <p className="text-steel" style={{ fontSize: '0.9rem', margin: '0 0 0.75rem' }}>
+                        {tAlloc('planModalRepresentativeOpsHint', {
+                          defaultValue:
+                            'Edit, NOR, operation times, documents, and berthing photos in the sections below follow the primary operation on this plan.',
+                        })}
+                      </p>
+                    </>
+                  ) : null}
+
                   <div className="vessel-detail-modal__meta-row" aria-live="polite">
                     <p
                       className="vessel-detail-modal__last-updated"
@@ -1592,6 +2469,7 @@ export default function Allocation() {
                     </p>
                   ) : null}
 
+                  {(!isPlanDetailMode || vesselDetailEditing) && (
                   <section className="berthing-modal__card berthing-modal__card--vessel">
                     <h3 className="berthing-modal__card-title">Times &amp; status</h3>
                     {vesselDetailEditing && d ? (
@@ -1777,24 +2655,12 @@ export default function Allocation() {
                         </dd>
                       </div>
                       <div className="berthing-modal__vessel-row">
-                        <dt>Actual Completion</dt>
-                        <dd>
-                          {vesselDetailEditing && d ? (
-                            <input
-                              type="datetime-local"
-                              className="berthing-modal__input"
-                              value={d.actualCompletionDateTime}
-                              onChange={(e) =>
-                                setVesselDetailDraft((prev) =>
-                                  prev ? { ...prev, actualCompletionDateTime: e.target.value } : prev
-                                )
-                              }
-                              aria-label="Actual completion"
-                            />
-                          ) : (
-                            actualCompletion
-                          )}
-                        </dd>
+                        <dt>{tAlloc('operationsCompleted')}</dt>
+                        <dd>{operationsCompleted || '—'}</dd>
+                      </div>
+                      <div className="berthing-modal__vessel-row">
+                        <dt>{tAlloc('actualCompletion')}</dt>
+                        <dd>{actualCompletion || '—'}</dd>
                       </div>
                       <div className="berthing-modal__vessel-row">
                         <dt>Est. Time Remaining</dt>
@@ -1802,6 +2668,7 @@ export default function Allocation() {
                       </div>
                     </dl>
                   </section>
+                  )}
 
                   <section className="berthing-modal__card">
                     <h3 className="berthing-modal__card-title">Arrival documents</h3>
@@ -1829,9 +2696,12 @@ export default function Allocation() {
                             >
                               {vessel.norDocuments.map((doc) => (
                                 <li key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  <a href={fileUrl(doc.url)} target="_blank" rel="noreferrer">
-                                    {doc.name || 'NOR document'}
-                                  </a>
+                                  <FilePreviewLink
+                                    url={fileUrl(doc.url)}
+                                    name={doc.name || 'NOR document'}
+                                    mimeType={doc.mimeType ?? null}
+                                    className="file-preview-link"
+                                  />
                                   <button
                                     type="button"
                                     className="berthing-modal__nor-delete-btn"
@@ -1938,14 +2808,12 @@ export default function Allocation() {
                               <ul className="berthing-modal__docs-list">
                                 {vessel.norDocuments.map((doc) => (
                                   <li key={doc.id || doc.url || doc.name}>
-                                    <a
-                                      href={fileUrl(doc.url)}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="berthing-modal__doc-link"
-                                    >
-                                      {doc.name || 'NOR document'}
-                                    </a>
+                                    <FilePreviewLink
+                                      url={fileUrl(doc.url)}
+                                      name={doc.name || 'NOR document'}
+                                      mimeType={doc.mimeType ?? null}
+                                      className="berthing-modal__doc-link file-preview-link"
+                                    />
                                   </li>
                                 ))}
                               </ul>
@@ -1977,7 +2845,30 @@ export default function Allocation() {
                         <ul className="vessel-detail-modal__photos">
                           {existingBerthPhotos.map((photo, i) => (
                             <li key={i} className="vessel-detail-modal__photo-item">
-                              <img src={photo.url} alt={photo.name || 'Vessel'} className="vessel-detail-modal__photo-img" />
+                              <AuthenticatedFileImage
+                                url={photo.url}
+                                alt={photo.name || 'Vessel'}
+                                className="vessel-detail-modal__photo-img vessel-detail-modal__photo-img--clickable"
+                                role="button"
+                                tabIndex={0}
+                                onClick={() =>
+                                  openFilePreview({
+                                    url: photo.url,
+                                    name: photo.name || 'Vessel photo',
+                                    mimeType: photo.mimeType || 'image/jpeg',
+                                  })
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault()
+                                    openFilePreview({
+                                      url: photo.url,
+                                      name: photo.name || 'Vessel photo',
+                                      mimeType: photo.mimeType || 'image/jpeg',
+                                    })
+                                  }
+                                }}
+                              />
                               {photo.name ? <span className="vessel-detail-modal__photo-caption">{photo.name}</span> : null}
                             </li>
                           ))}
@@ -2008,7 +2899,30 @@ export default function Allocation() {
                             <ul className="berthing-modal__photo-list" aria-label="New vessel photos">
                               {vesselDetailBerthingNewPhotos.map((p) => (
                                 <li key={p.id} className="berthing-modal__photo-item">
-                                  <img src={p.previewUrl} alt={p.file.name} className="berthing-modal__photo-thumb" />
+                                  <img
+                                    src={p.previewUrl}
+                                    alt={p.file.name}
+                                    className="berthing-modal__photo-thumb berthing-modal__photo-preview--clickable"
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() =>
+                                      openFilePreview({
+                                        url: p.previewUrl,
+                                        name: p.file.name,
+                                        mimeType: p.file.type || 'image/jpeg',
+                                      })
+                                    }
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault()
+                                        openFilePreview({
+                                          url: p.previewUrl,
+                                          name: p.file.name,
+                                          mimeType: p.file.type || 'image/jpeg',
+                                        })
+                                      }
+                                    }}
+                                  />
                                   <span className="berthing-modal__photo-name" title={p.file.name}>{p.file.name}</span>
                                   <button
                                     type="button"
@@ -2071,14 +2985,14 @@ export default function Allocation() {
                       <button
                         type="button"
                         className="btn"
-                        onClick={() => setVesselDetailModalVesselId(null)}
+                        onClick={() => closeVesselDetailModal()}
                         disabled={vesselDetailEditSaving}
                       >
                         Close
                       </button>
                     </>
                   ) : (
-                    <button type="button" className="btn btn--primary" onClick={() => setVesselDetailModalVesselId(null)}>
+                    <button type="button" className="btn btn--primary" onClick={() => closeVesselDetailModal()}>
                       Close
                     </button>
                   )}
@@ -2099,6 +3013,7 @@ export default function Allocation() {
         isOpen={Boolean(siDocumentModalId)}
         siId={siDocumentModalId}
         onClose={() => setSiDocumentModalId(null)}
+        allowPreApprovalPreview={isPlanCentric}
       />
 
       {/* Berthing confirmation modal (extended: jetty allocation, vessel photos, remarks) */}
@@ -2148,13 +3063,16 @@ export default function Allocation() {
                 <section className="berthing-modal__form-section">
                   <h3 className="berthing-modal__form-section-title">Berthing details</h3>
                   <div className="berthing-modal__field">
-                    <label htmlFor="berthing-jetty" className="berthing-modal__label">Jetty allocation</label>
+                    <label htmlFor="berthing-jetty" className="berthing-modal__label">
+                      Jetty allocation <span className="required-star">*</span>
+                    </label>
                     <select
                       id="berthing-jetty"
                       className="berthing-modal__input"
                       value={berthingSelectedJetty}
                       onChange={(e) => setBerthingSelectedJetty(e.target.value)}
                       aria-describedby={berthingErrors.length > 0 ? 'berthing-errors' : undefined}
+                      aria-required="true"
                     >
                       <option value="">— Select jetty —</option>
                       {berthIds.map((jid) => {
@@ -2190,7 +3108,23 @@ export default function Allocation() {
                     />
                   </div>
                   <div className="berthing-modal__field">
-                    <label htmlFor="berthing-tb" className="berthing-modal__label">Actual Time of Berthing (TB)</label>
+                    <label htmlFor="berthing-ta" className="berthing-modal__label">
+                      Actual Time of Arrival (TA) <span className="required-star">*</span>
+                    </label>
+                    <input
+                      id="berthing-ta"
+                      type="datetime-local"
+                      className="berthing-modal__input"
+                      value={berthingTa}
+                      onChange={(e) => setBerthingTa(e.target.value)}
+                      aria-label="Actual Time of Arrival"
+                      aria-required="true"
+                    />
+                  </div>
+                  <div className="berthing-modal__field">
+                    <label htmlFor="berthing-tb" className="berthing-modal__label">
+                      Actual Time of Berthing (TB) <span className="required-star">*</span>
+                    </label>
                     <input
                       id="berthing-tb"
                       type="datetime-local"
@@ -2198,6 +3132,7 @@ export default function Allocation() {
                       value={berthingTb}
                       onChange={(e) => setBerthingTb(e.target.value)}
                       aria-label="Actual Time of Berthing"
+                      aria-required="true"
                     />
                   </div>
                   <div className="berthing-modal__field">
@@ -2213,7 +3148,7 @@ export default function Allocation() {
                   </div>
                   <div className="berthing-modal__field">
                     <label htmlFor="berthing-estimated-completion" className="berthing-modal__label">
-                      Estimated completion
+                      Estimated completion <span className="required-star">*</span>
                     </label>
                     <input
                       id="berthing-estimated-completion"
@@ -2222,12 +3157,15 @@ export default function Allocation() {
                       value={berthingEstimatedCompletion}
                       onChange={(e) => setBerthingEstimatedCompletion(e.target.value)}
                       aria-label="Estimated completion"
+                      aria-required="true"
                     />
                   </div>
                 </section>
 
                 <section className="berthing-modal__form-section">
-                  <label className="berthing-modal__label">Vessel photo (at least one required)</label>
+                  <label className="berthing-modal__label">
+                    Vessel photo <span className="required-star">*</span>
+                  </label>
                   <label htmlFor="berthing-photos" className="berthing-modal__file-zone">
                     <span className="berthing-modal__file-zone-text">
                       {berthingPhotos.length > 0 ? `${berthingPhotos.length} file(s) chosen` : 'Choose files or drop here'}
@@ -2240,13 +3178,37 @@ export default function Allocation() {
                       onChange={addBerthingPhotos}
                       className="berthing-modal__file-input"
                       aria-label="Upload vessel photos"
+                      aria-required="true"
                     />
                   </label>
                   {berthingPhotos.length > 0 && (
                     <ul className="berthing-modal__photo-list" aria-label="Uploaded vessel photos">
                       {berthingPhotos.map((p) => (
                         <li key={p.id} className="berthing-modal__photo-item">
-                          <img src={p.previewUrl} alt={p.file.name} className="berthing-modal__photo-thumb" />
+                          <img
+                            src={p.previewUrl}
+                            alt={p.file.name}
+                            className="berthing-modal__photo-thumb berthing-modal__photo-preview--clickable"
+                            role="button"
+                            tabIndex={0}
+                            onClick={() =>
+                              openFilePreview({
+                                url: p.previewUrl,
+                                name: p.file.name,
+                                mimeType: p.file.type || 'image/jpeg',
+                              })
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                openFilePreview({
+                                  url: p.previewUrl,
+                                  name: p.file.name,
+                                  mimeType: p.file.type || 'image/jpeg',
+                                })
+                              }
+                            }}
+                          />
                           <span className="berthing-modal__photo-name" title={p.file.name}>{p.file.name}</span>
                           <button
                             type="button"
@@ -2263,7 +3225,9 @@ export default function Allocation() {
                 </section>
 
                 <section className="berthing-modal__form-section">
-                  <label htmlFor="berthing-remarks" className="berthing-modal__label">Remarks (required)</label>
+                  <label htmlFor="berthing-remarks" className="berthing-modal__label">
+                    Remarks <span className="required-star">*</span>
+                  </label>
                   <textarea
                     id="berthing-remarks"
                     className="berthing-modal__textarea"
@@ -2273,6 +3237,7 @@ export default function Allocation() {
                     maxLength={MAX_REMARK_CHARS}
                     placeholder="Enter remark for this berthing"
                     aria-describedby={berthingErrors.length > 0 ? 'berthing-errors' : undefined}
+                    aria-required="true"
                   />
                 </section>
               </div>
@@ -2376,6 +3341,12 @@ export default function Allocation() {
             </h2>
 
             <div className="vessel-detail-modal__body">
+              {isPlanCentric && showLateSiBerthingGateNotice(arrivalUpdateForm, { planCentric: true }) && (
+                <AllocationLateSiNotice
+                  title={tAlloc('lateSiSchedulingNoticeTitle')}
+                  body={tAlloc('lateSiSchedulingNoticeBody')}
+                />
+              )}
               <section className="berthing-modal__card berthing-modal__card--vessel">
                 <h3 className="berthing-modal__card-title">Vessel info</h3>
                 <dl className="berthing-modal__vessel-dl">
@@ -2400,6 +3371,7 @@ export default function Allocation() {
                 </dl>
               </section>
 
+              {!isPlanOnlySchedulingRow(arrivalUpdateForm) && (
               <section className="berthing-modal__form-section">
                 <h3 className="berthing-modal__form-section-title">Arrival Documents</h3>
                 {arrivalSaveMsg && (
@@ -2427,9 +3399,12 @@ export default function Allocation() {
                     >
                       {arrivalUpdateForm.norDocuments.map((d) => (
                         <li key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <a href={fileUrl(d.url)} target="_blank" rel="noreferrer">
-                            {d.name || 'NOR document'}
-                          </a>
+                          <FilePreviewLink
+                            url={fileUrl(d.url)}
+                            name={d.name || 'NOR document'}
+                            mimeType={d.mimeType ?? null}
+                            className="file-preview-link"
+                          />
                           <button
                             type="button"
                             className="berthing-modal__nor-delete-btn"
@@ -2540,9 +3515,23 @@ export default function Allocation() {
                   </p>
                 </div>
               </section>
+              )}
 
               <section className="berthing-modal__form-section">
                 <h3 className="berthing-modal__form-section-title">Times & jetty</h3>
+                {isPlanOnlySchedulingRow(arrivalUpdateForm) && (
+                  <div className="berthing-modal__field">
+                    <label htmlFor="arrival-noPkk-plan" className="berthing-modal__label">No PKK</label>
+                    <input
+                      id="arrival-noPkk-plan"
+                      type="text"
+                      className="berthing-modal__input"
+                      value={arrivalUpdateForm.noPkk ?? ''}
+                      onChange={(e) => setArrivalUpdateForm((f) => ({ ...f, noPkk: e.target.value }))}
+                      placeholder="e.g. PKK-2026-001"
+                    />
+                  </div>
+                )}
                 <div className="berthing-modal__field">
                   <label htmlFor="arrival-priority" className="berthing-modal__label">Priority</label>
                   <select
@@ -2567,6 +3556,7 @@ export default function Allocation() {
                     onChange={(e) => setArrivalUpdateForm((f) => ({ ...f, etaDateTime: e.target.value }))}
                   />
                 </div>
+                {!isPlanOnlySchedulingRow(arrivalUpdateForm) && (
                 <div className="berthing-modal__field">
                   <label htmlFor="arrival-ta" className="berthing-modal__label">TA</label>
                   <input
@@ -2577,6 +3567,7 @@ export default function Allocation() {
                     onChange={(e) => setArrivalUpdateForm((f) => ({ ...f, taDateTime: e.target.value }))}
                   />
                 </div>
+                )}
                 <div className="berthing-modal__field">
                   <label htmlFor="arrival-etb" className="berthing-modal__label">ETB</label>
                   <input
@@ -2587,6 +3578,7 @@ export default function Allocation() {
                     onChange={(e) => setArrivalUpdateForm((f) => ({ ...f, etbDateTime: e.target.value }))}
                   />
                 </div>
+                {!isPlanOnlySchedulingRow(arrivalUpdateForm) && (
                 <div className="berthing-modal__field">
                   <label htmlFor="arrival-estimated-completion" className="berthing-modal__label">
                     Estimated completion
@@ -2601,6 +3593,7 @@ export default function Allocation() {
                     }
                   />
                 </div>
+                )}
                 <div className="berthing-modal__field">
                   <label htmlFor="arrival-jetty" className="berthing-modal__label">Jetty</label>
                   <select
@@ -2653,26 +3646,67 @@ export default function Allocation() {
       )}
 
       <section className="card">
-        <h2 className="card__title">{tAlloc('incomingTitle')}</h2>
-        <div className="allocation-plan-status-filter" role="group" aria-label={tAlloc('statusFilterAria')}>
-          <span className="allocation-plan-status-filter__label">{tAlloc('statusLabel')}</span>
-          <label className="allocation-plan-status-filter__option">
-            <input
-              type="checkbox"
-              checked={statusFilter.incoming}
-              onChange={(e) => setStatusFilter((prev) => ({ ...prev, incoming: e.target.checked }))}
-            />
-            {tAlloc('statusIncoming')}
-          </label>
-          <label className="allocation-plan-status-filter__option">
-            <input
-              type="checkbox"
-              checked={statusFilter.berthed}
-              onChange={(e) => setStatusFilter((prev) => ({ ...prev, berthed: e.target.checked }))}
-            />
-            {tAlloc('statusBerthed')}
-          </label>
+        <h2 className="card__title">{isPlanCentric ? tAlloc('incomingTitlePlan') : tAlloc('incomingTitle')}</h2>
+        <div className="allocation-plan-status-filter">
+          <div className="allocation-plan-status-filter__row">
+            <span className="allocation-plan-status-filter__label">{tAlloc('statusLabel')}</span>
+            <div
+              className="allocation-plan-status-filter__toggles"
+              role="group"
+              aria-label={isPlanCentric ? tAlloc('statusFilterAriaPlan') : tAlloc('statusFilterAria')}
+            >
+              <button
+                type="button"
+                className={`btn btn--small ${statusFilter.showIncoming && !etcBreachFilter ? 'btn--primary' : 'btn--ghost'}`}
+                aria-pressed={Boolean(statusFilter.showIncoming) && !etcBreachFilter}
+                disabled={etcBreachFilter}
+                onClick={() =>
+                  setStatusFilter((prev) => ({ ...prev, showIncoming: !prev.showIncoming }))
+                }
+              >
+                {isPlanCentric ? tAlloc('statusShowIncoming') : tAlloc('statusIncoming')}
+              </button>
+              <button
+                type="button"
+                className={`btn btn--small ${statusFilter.showBerthed || etcBreachFilter ? 'btn--primary' : 'btn--ghost'}`}
+                aria-pressed={Boolean(statusFilter.showBerthed) || etcBreachFilter}
+                onClick={() => {
+                  if (etcBreachFilter) {
+                    setEtcBreachFilter(false)
+                    setStatusFilter((prev) => ({ ...prev, showBerthed: true, showIncoming: false }))
+                    return
+                  }
+                  setStatusFilter((prev) => ({ ...prev, showBerthed: !prev.showBerthed }))
+                }}
+              >
+                {tAlloc('statusBerthed')}
+              </button>
+              <button
+                type="button"
+                className={`btn btn--small ${etcBreachFilter ? 'btn--primary' : 'btn--ghost'}`}
+                aria-pressed={etcBreachFilter}
+                onClick={() => {
+                  const next = !etcBreachFilter
+                  setEtcBreachFilter(next)
+                  if (next) {
+                    setStatusFilter(
+                      isPlanCentric
+                        ? { ...ETC_BREACH_STATUS_FILTER_PLAN }
+                        : { ...ETC_BREACH_STATUS_FILTER_LEGACY }
+                    )
+                  }
+                }}
+              >
+                {tAlloc('statusEtcBreach')}
+              </button>
+            </div>
+          </div>
         </div>
+        {isPlanCentric && planSequenceSwapError ? (
+          <p role="alert" style={{ color: 'var(--danger-600, #c00)', marginBottom: 'var(--spacing-2)' }}>
+            {planSequenceSwapError}
+          </p>
+        ) : null}
         <div className="table-wrap allocation-table-desktop">
           <table className="data-table allocation-table">
             <thead>
@@ -2713,121 +3747,21 @@ export default function Allocation() {
               </tr>
             </thead>
             <tbody>
-              {sortedList.map((r) => (
-                <Fragment key={r.id}>
-                  <tr
-                    className={`allocation-table__row ${expandedId === r.id ? 'allocation-table__row--expanded' : ''}`}
-                    onClick={() => setExpandedId((id) => (id === r.id ? null : r.id))}
-                  >
-                    <td className="allocation-table__expand-col">
-                      <span className="allocation-table__expand-icon" aria-hidden>
-                        {expandedId === r.id ? '▼' : '▶'}
-                      </span>
-                    </td>
-                    <td className="allocation-table__action-col" onClick={(e) => e.stopPropagation()}>
-                      <div className="allocation-table__action-btns">
-                        <button type="button" className="btn btn--primary btn--small" onClick={() => openArrivalUpdate(r)}>
-                          {tAlloc('logArrivalUpdate')}
-                        </button>
-                        {r.shiftingOut && r.operationId != null ? (
-                          <button
-                            type="button"
-                            className="btn btn--secondary btn--small"
-                            onClick={(e) => openReDockModal(r, e)}
-                            disabled={Boolean(shiftSavingByOpId[r.operationId])}
-                            title="Clear shift-out so this vessel can be treated as at-berth again (preserves history)."
-                          >
-                            {shiftSavingByOpId[r.operationId] ? tAlloc('saving') : tAlloc('reDock')}
-                          </button>
-                        ) : (
-                          <button type="button" className="btn btn--success btn--small" onClick={(e) => openBerthingConfirm(r, e)}>
-                            {tAlloc('berthing')}
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                    {allocationTableColumns.map((col) => (
-                      <td key={col.key} onClick={col.key === 'sequence' ? (e) => e.stopPropagation() : undefined}>
-                        {col.key === 'sequence' ? (
-                          <span className="allocation-table__sequence-cell">
-                            <span className="allocation-table__sequence-num">{r.sequence ?? '—'}</span>
-                            <span className="allocation-table__sequence-btns">
-                              <button
-                                type="button"
-                                className="btn btn--small allocation-table__sequence-btn"
-                                onClick={(e) => moveSequenceUp(r, e)}
-                                disabled={sortedList.findIndex((x) => x.id === r.id) <= 0}
-                                title="Move up"
-                                aria-label="Move berthing sequence up"
-                              >
-                                ↑
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn--small allocation-table__sequence-btn"
-                                onClick={(e) => moveSequenceDown(r, e)}
-                                disabled={sortedList.findIndex((x) => x.id === r.id) >= sortedList.length - 1}
-                                title="Move down"
-                                aria-label="Move berthing sequence down"
-                              >
-                                ↓
-                              </button>
-                            </span>
-                          </span>
-                        ) : col.key === 'jettyOperationCode' ? (
-                          r.shippingInstructionId ? (
-                            <a
-                              href="#"
-                              onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                openSiDetailModal(r.shippingInstructionId)
-                              }}
-                              aria-label={tAlloc('openSiDetailFromJettyOp')}
-                            >
-                              {r.jettyOperationCode || '—'}
-                            </a>
-                          ) : (
-                            r.jettyOperationCode || '—'
-                          )
-                        ) : col.key === 'shippingInstruction' ? (
-                          r.shippingInstructionId ? (
-                            <a
-                              href="#"
-                              onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                openSiDocumentModal(r.shippingInstructionId)
-                              }}
-                              aria-label={tAlloc('openSiDocument')}
-                            >
-                              {r.shippingInstruction || '—'}
-                            </a>
-                          ) : (
-                            r.shippingInstruction || '—'
-                          )
-                        ) : (
-                          col.getValue(r)
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                  {expandedId === r.id && (
-                    <tr className="allocation-table__detail-row">
-                      <td colSpan={allocationTableColumns.length + 2} className="allocation-table__detail-cell">
-                        <AllocationDetailPanel r={r} tAlloc={tAlloc} onOpenSiDetail={openSiDetailModal} />
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              ))}
+              {isPlanCentric && sortedPlanQueueList
+                ? sortedPlanQueueList.map((r) => renderOneDesktopRow(r))
+                : sortedList.map((r) => renderOneDesktopRow(r))}
             </tbody>
           </table>
         </div>
-        {sortedList.length > 0 && (
+        {hasQueueRows && (
           <div className="allocation-mobile-cards" aria-label="Incoming vessel cards">
-            {sortedList.map((r) => (
-              <article key={`mobile-${r.id}`} className="allocation-mobile-card">
+            {(isPlanCentric && sortedPlanQueueList ? sortedPlanQueueList : sortedList).map((r) => {
+              const mobileBreach = getEtcBreach(r, breachNowMs)
+              return (
+              <article
+                key={`mobile-${r.id}`}
+                className={`allocation-mobile-card${mobileBreach ? ' allocation-mobile-card--etc-breach' : ''}`}
+              >
                 <header className="allocation-mobile-card__header">
                   <strong>{r.vesselName || '—'}</strong>
                   <span className="text-steel">{r.jetty || '—'}</span>
@@ -2837,7 +3771,100 @@ export default function Allocation() {
                     <Fragment key={`mobile-col-${r.id}-${col.key}`}>
                       <dt>{allocColLabel(col.key, col.label)}</dt>
                       <dd>
-                        {col.key === 'jettyOperationCode' ? (
+                        {col.key === 'sequence' ? (
+                          isPlanCentric &&
+                          r.shipmentPlanId != null &&
+                          canEditAllocation &&
+                          sortedPlanQueueList ? (
+                            (() => {
+                              const displayList =
+                                isPlanCentric && sortedPlanQueueList ? sortedPlanQueueList : sortedList
+                              const idx = displayList.findIndex((x) => x.id === r.id)
+                              const prevPlan = idx >= 0 ? findAdjacentPlanRowInDisplay(displayList, idx, -1) : null
+                              const nextPlan = idx >= 0 ? findAdjacentPlanRowInDisplay(displayList, idx, 1) : null
+                              const pid = Number(r.shipmentPlanId)
+                              let busyThis = false
+                              if (planSequenceBusyPair) {
+                                const parts = planSequenceBusyPair.split('-').map((p) => parseInt(p, 10))
+                                if (parts.length === 2 && parts.every((n) => Number.isFinite(n))) {
+                                  const [ba, bb] = parts
+                                  busyThis = pid === ba || pid === bb
+                                }
+                              }
+                              return (
+                                <span className="allocation-table__sequence-cell">
+                                  <span className="allocation-table__sequence-btns">
+                                    <button
+                                      type="button"
+                                      className="btn btn--small allocation-table__sequence-btn"
+                                      onClick={() => {
+                                        if (!prevPlan?.shipmentPlanId) return
+                                        void swapPlanBerthingSequencePair(pid, Number(prevPlan.shipmentPlanId), pid)
+                                      }}
+                                      disabled={!prevPlan || busyThis}
+                                      title="Move up"
+                                      aria-label="Move berthing sequence up"
+                                    >
+                                      ↑
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn btn--small allocation-table__sequence-btn"
+                                      onClick={() => {
+                                        if (!nextPlan?.shipmentPlanId) return
+                                        void swapPlanBerthingSequencePair(
+                                          pid,
+                                          Number(nextPlan.shipmentPlanId),
+                                          Number(nextPlan.shipmentPlanId)
+                                        )
+                                      }}
+                                      disabled={!nextPlan || busyThis}
+                                      title="Move down"
+                                      aria-label="Move berthing sequence down"
+                                    >
+                                      ↓
+                                    </button>
+                                  </span>
+                                </span>
+                              )
+                            })()
+                          ) : !isPlanCentric ? (
+                            <span className="allocation-table__sequence-cell">
+                              <span className="allocation-table__sequence-btns">
+                                <button
+                                  type="button"
+                                  className="btn btn--small allocation-table__sequence-btn"
+                                  onClick={(e) => moveSequenceUp(r, e)}
+                                  disabled={sortedList.findIndex((x) => x.id === r.id) <= 0}
+                                  title="Move up"
+                                  aria-label="Move berthing sequence up"
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn--small allocation-table__sequence-btn"
+                                  onClick={(e) => moveSequenceDown(r, e)}
+                                  disabled={sortedList.findIndex((x) => x.id === r.id) >= sortedList.length - 1}
+                                  title="Move down"
+                                  aria-label="Move berthing sequence down"
+                                >
+                                  ↓
+                                </button>
+                              </span>
+                            </span>
+                          ) : (
+                            '—'
+                          )
+                        ) : col.key === 'planReference' ? (
+                          r.shipmentPlanId != null ? (
+                            <Link to={`/shipment-plans/${r.shipmentPlanId}`} className="link">
+                              {r.planReference || `Plan #${r.shipmentPlanId}`}
+                            </Link>
+                          ) : (
+                            '—'
+                          )
+                        ) : col.key === 'jettyOperationCode' ? (
                           r.shippingInstructionId ? (
                             <a
                               href="#"
@@ -2853,26 +3880,62 @@ export default function Allocation() {
                             r.jettyOperationCode || '—'
                           )
                         ) : col.key === 'shippingInstruction' ? (
-                          r.shippingInstructionId ? (
+                          Array.isArray(r.planQueueSiEntries) && r.planQueueSiEntries.length > 0 ? (
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '0.35rem',
+                                alignItems: 'flex-start',
+                              }}
+                            >
+                              {r.planQueueSiEntries.map((si) => (
+                                <a
+                                  key={si.shippingInstructionId}
+                                  href="#"
+                                  className="link"
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    openSiDocumentModal(si.shippingInstructionId)
+                                  }}
+                                  aria-label={tAlloc('openSiDocument')}
+                                >
+                                  {si.label}
+                                </a>
+                              ))}
+                            </div>
+                          ) : r.shippingInstructionId ? (
                             <a
                               href="#"
+                              className="link"
                               onClick={(e) => {
                                 e.preventDefault()
                                 openSiDocumentModal(r.shippingInstructionId)
                               }}
                               aria-label={tAlloc('openSiDocument')}
                             >
-                              {r.shippingInstruction || '—'}
+                              {isPlanCentric ? planCentricSiColumnDisplay(r) : r.shippingInstruction || '—'}
                             </a>
                           ) : (
-                            r.shippingInstruction || '—'
+                            isPlanCentric ? planCentricSiColumnDisplay(r) : r.shippingInstruction || '—'
                           )
+                        ) : col.key === 'commodityQty' ? (
+                          renderCommodityQtyCell(r)
                         ) : (
                           col.getValue(r)
                         )}
                       </dd>
                     </Fragment>
                   ))}
+                  <dt>{allocColLabel('etc', 'ETC')}</dt>
+                  <dd>
+                    {formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion) || '—'}
+                    {mobileBreach ? (
+                      <span className="at-berth-etc-cell__badge">
+                        <EtcBreachBadge overMs={mobileBreach.overMs} etcMs={mobileBreach.etcMs} size="sm" />
+                      </span>
+                    ) : null}
+                  </dd>
                 </dl>
                 <div className="allocation-mobile-card__actions">
                   <button
@@ -2895,21 +3958,31 @@ export default function Allocation() {
                       {shiftSavingByOpId[r.operationId] ? tAlloc('saving') : tAlloc('reDock')}
                     </button>
                   ) : (
-                    <button type="button" className="btn btn--success btn--small" onClick={(e) => openBerthingConfirm(r, e)}>
-                      {tAlloc('berthing')}
-                    </button>
+                    <BerthingActionButton
+                      row={r}
+                      isPlanCentric={isPlanCentric}
+                      label={tAlloc('berthing')}
+                      onBerthing={openBerthingConfirm}
+                    />
                   )}
                 </div>
                 {expandedMobileId === r.id ? (
                   <div className="allocation-mobile-card__detail">
-                    <AllocationDetailPanel r={r} tAlloc={tAlloc} onOpenSiDetail={openSiDetailModal} />
+                    <AllocationDetailPanel
+                r={r}
+                tAlloc={tAlloc}
+                onOpenSiDetail={openSiDetailModal}
+                queueList={list}
+                nowMs={breachNowMs}
+              />
                   </div>
                 ) : null}
               </article>
-            ))}
+              )
+            })}
           </div>
         )}
-        {sortedList.length === 0 && (
+        {!hasQueueRows && (
           <p className="allocation-plan-status-filter__empty">No vessels match the selected status/filter criteria.</p>
         )}
       </section>

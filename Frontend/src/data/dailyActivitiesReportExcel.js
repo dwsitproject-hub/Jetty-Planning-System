@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs'
+import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay.js'
 
 const HEADER_FIELDS = [
   { key: 'jetty', label: 'Jetty' },
@@ -16,16 +17,9 @@ const HEADER_FIELDS = [
   { key: 'operationStatus', label: 'Operation status' },
 ]
 
-function formatDateTimeForExcel(value) {
-  if (!value || !String(value).trim()) return '—'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return value
-  return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
-}
-
 function headerCellValue(key, header) {
   const raw = header[key]
-  if (key === 'demurrageLiabilityFrom') return formatDateTimeForExcel(raw)
+  if (key === 'demurrageLiabilityFrom') return formatDateTimeDisplay(raw)
   return raw ?? '—'
 }
 
@@ -84,8 +78,8 @@ export function buildDailyActivitiesReportWorkbook(reportVessels, startDate, end
         sheet.getCell(row, 1).value = entry.category || '—'
         sheet.getCell(row, 2).value = entry.remark || '—'
         sheet.getCell(row, 3).value = entry.status || '—'
-        sheet.getCell(row, 4).value = formatDateTimeForExcel(entry.dateTime)
-        sheet.getCell(row, 5).value = formatDateTimeForExcel(entry.endDateTime)
+        sheet.getCell(row, 4).value = formatDateTimeDisplay(entry.dateTime)
+        sheet.getCell(row, 5).value = formatDateTimeDisplay(entry.endDateTime)
         row += 1
       })
     }

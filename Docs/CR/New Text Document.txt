@@ -1,0 +1,58 @@
+# Change Request: Migration to Multi-SI Trip Management
+
+## 1\. Executive Summary
+
+The system is transitioning from a **Shipping Instruction (SI)** centered model to a **Shipment Plan/Vessel-centric** model. This change acknowledges that a single vessel arrival (a "Shipment Plan") can contain multiple SIs. While logistics scheduling (Allocation, Berthing, and Clearance) will now occur at the Vessel level, operational execution (Pre-check, Operational, Post-check) will remain independent for each SI.
+
+## 2\. Process Workflow Comparison
+
+|Stage|Current Logic (As-Is)|New Requirement (To-Be)|
+|-|-|-|
+|**1. Initiation**|Add Shipping Instruction|**Add Shipment Plan** (Define Vessel \& SIs - allowing user to add multiple SIs)|
+|**2. Allocation**|Update ETA, TA, ETB, ETC per SI|Update ETA, TA, ETB, ETC at **Vessel Level**|
+|**3. Berthing**|Update TA, TB per SI|Update TA, TB at **Vessel Level**|
+|**4. Execution**|SI Level: The user must select a specific SI from the Trip list. Stages 4a (Pre-Checking), 4b (Operational), and 4c (Post-Checking) are performed independently for each SI.|**Select specific SI**; Perform 4a, 4b, 4c separately|
+|**5. Clearance**|Clearance per SI|Clearance at **Vessel Level** (Ends the Trip)|
+
+## 3\. Functional Requirements \& Business Rules
+
+### 3.1 Data Relationship \& Shipment Plan logic
+
+* **Parent-Child Mapping:** A **Shipment Plan** is the parent entity for one or multiple SIs.
+* **Shared Data:** All SIs on the same plan share the same vessel-level scheduling fields (ETA, TA, ETB, ETC, TB, etc.) stored on the plan.
+* **Independent Execution:** Each SI can have its own status during at-berth execution (e.g., SI #1 finished while SI #2 is still in progress). Stages **4a / 4b / 4c** are **Pre-Checking**, **Operational**, and **Post-Checking** (existing naming unchanged).
+
+### 3.2 Late SI Additions \& Sail-Off Rules
+
+* **Active plan addition:** If a vessel is in the clearance stage but has not yet sailed off, the system must allow users to add additional SIs to the current **Shipment Plan**.
+* **New plan trigger:** Once a vessel has sailed off, any new SI for that vessel must start under a **new Shipment Plan**.
+
+### 3.3 UI/UX \& Search Behavior
+
+* **Primary Search:** The system should prioritize searching by **Vessel Name**.
+* **SI-to-Plan Resolution:** If a user searches by **Reference Number (SI)** and selects a result, the system must resolve and open the associated **Shipment Plan / vessel** context.
+* **Switching Context:** Within the "At-Berth Execution" screen, users must be able to select and toggle between the different SIs belonging to that vessel.
+
+## 4\. Technical Constraints
+
+* **Primary Keys:** The internal `id \[PK]` remains the unique identifier for database records.
+* **Reference Numbers:** The `reference\_number` (Shipping Instruction Number) remains the unique operational handle for users.
+* **Data Propagation:** Updates to vessel-level timestamps on the Shipment Plan must be reflected across the whole plan view for consistency.
+
+### 3.4 Stakeholder decisions (for implementation \& QA)
+
+| Topic | Decision |
+|--------|----------|
+| Terminology | **Shipment Plan** is official (do not use “Trip” in new work). |
+| Clearance | One clearance per vessel call (plan); only after **all** SIs complete Pre-Checking → Operational → Post-Checking (and existing sign-off rules per SI). If an SI is added before sail-off / clearance completes, clearance stays blocked until that SI completes the same chain. |
+| Timestamps (ETA, TA, ETB, ETC, TB, …) | Stored on **Shipment Plan** only, not as SI-level persisted truth. |
+| QC / quantities | **SI** level. |
+| Allocation | **Shipment Plan** (vessel call) level. |
+| Exceptions | **Both** plan level and SI (`operations`) level. |
+| Search | Primary emphasis **vessel name**; still allow SI reference, purpose, and other parameters. |
+| Allocation overview API | **Flat `queue`** with **`shipmentPlanId`** on each row and **denormalised plan timestamps** on every sibling row (SQL `COALESCE` from `shipment_plans`). |
+| Depart / clearance API | **`POST /shipment-plans/:id/depart`** for plan-scoped sail; **`POST /operations/:id/depart`** remains and uses the same transaction when **`shipment_plan_id`** is set. **Clearance** UI prefers the plan route when **`shipmentPlanId`** is present. |
+| Migration | Existing production shape: **one SI = one plan**; no merge of historical multi-SI trips required initially. |
+| SI detail scope | Do not redesign the **detailed content under the SI** (forms, document blocks) as part of this CR. |
+| Rollback | Keep **`operations`** (and related) legacy columns during rollout; redeploy previous app build; optional `pg_dump` before migrate. See [Docs/Plan/SHIPMENT-PLAN-MULTI-SI-IMPLEMENTATION-PLAN.md](../Plan/SHIPMENT-PLAN-MULTI-SI-IMPLEMENTATION-PLAN.md). |
+

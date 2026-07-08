@@ -1,0 +1,9 @@
+{
+  "bellAria": "Notifications",
+  "unreadBadge": "{{count}} unread",
+  "empty": "No notifications",
+  "markAllRead": "Mark all read",
+  "actionApproveReject": "Approve / Reject",
+  "actionReviewClearance": "Review clearance",
+  "loading": "Loading…"
+}

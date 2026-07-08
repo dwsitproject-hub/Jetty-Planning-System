@@ -1,98 +1,43 @@
-import { useMemo, useState, useEffect } from 'react'
-import InteractiveTooltip from './InteractiveTooltip'
+import { useMemo, useState, useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
+import html2canvas from 'html2canvas'
+import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import {
+  toDateInputValue,
+  parseDateInputStart,
+  parseDateInputEndExclusive,
+} from '../utils/jettyScheduleOccupancy'
+import { buildScheduleSegments, assignBankLanesByVessel } from '../utils/jettyScheduleGanttLanes'
+import VisualizationPopoutButton from './VisualizationPopoutButton'
+import GanttDenseBlock from './GanttDenseBlock'
+import {
+  buildActualBlockModel,
+  buildPlannedBlockModel,
+  ganttDenseBlockAriaLabel,
+  GANTT_BAR_STACK_STEP,
+} from '../utils/ganttBarDisplay.js'
+import {
+  buildGanttDragProposal,
+  buildArrivalPayloadFromProposal,
+  jettyIdFromRowKey,
+  snapDeltaMs,
+  GANTT_DRAG_THRESHOLD_PX,
+} from '../utils/ganttDragProposal.js'
+import { saveArrivalUpdate as saveArrivalUpdateApi } from '../api/allocation'
+import { ApiError } from '../api/client'
+import { useRbac } from '../context/RbacContext'
 import '../styles/dashboard.css'
-
-/** Replaces emoji (often renders as empty box on Windows) */
-function GanttVesselIcon() {
-  return (
-    <svg
-      className="jetty-schedule-gantt__bar-ship"
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      focusable="false"
-    >
-      {/* Simple hull + deck (no emoji — avoids missing-glyph box on Windows) */}
-      <path
-        fill="currentColor"
-        d="M2 20h20v2H2v-2zm2-2h16l-2-6H6L4 18zm2.5-8L8 6h8l.5 2 2.5 4H7L6.5 10z"
-      />
-    </svg>
-  )
-}
-
-/** Small completion marker for sailed-off vessels */
-function GanttCompletedIcon() {
-  return (
-    <svg
-      className="jetty-schedule-gantt__bar-ship"
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path
-        fill="currentColor"
-        d="M9.2 16.6 4.9 12.3l1.4-1.4 2.9 2.9 8-8 1.4 1.4-9.4 9.4z"
-      />
-    </svg>
-  )
-}
+import '../styles/etc-breach.css'
 
 /** Default +3 calendar days from planned/actual start when completions unknown (display only) */
-const DEFAULT_TAIL_MS = 3 * 24 * 60 * 60 * 1000
 const MAX_RANGE_MS = 548 * 24 * 60 * 60 * 1000
 const DAY_COL_MIN = 72
-/** Show planned + actual lanes on viewports ≥ this width, or when user checks "Compare" */
-const WIDE_BREAKPOINT_MQ = '(min-width: 1100px)'
-
-function startOfDay(d) {
-  const x = new Date(d.getTime())
-  x.setHours(0, 0, 0, 0)
-  return x
-}
-
-function addMonths(date, delta) {
-  const x = new Date(date.getTime())
-  x.setMonth(x.getMonth() + delta)
-  return x
-}
-
-function toDateInputValue(d) {
-  const x = startOfDay(d)
-  const y = x.getFullYear()
-  const m = String(x.getMonth() + 1).padStart(2, '0')
-  const day = String(x.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
 
 function defaultDateRangeInputs() {
   const today = new Date()
-  const from = startOfDay(today)
-  const to = startOfDay(addMonths(today, 1))
+  const from = new Date(today.getFullYear(), today.getMonth(), 1, 0, 0, 0, 0)
+  const to = new Date(today.getFullYear(), today.getMonth() + 1, 0, 0, 0, 0, 0)
   return { from: toDateInputValue(from), to: toDateInputValue(to) }
-}
-
-function parseDateInputStart(str) {
-  if (!str || !/^\d{4}-\d{2}-\d{2}$/.test(str)) return null
-  const [y, m, d] = str.split('-').map(Number)
-  return new Date(y, m - 1, d, 0, 0, 0, 0).getTime()
-}
-
-function parseDateInputEndExclusive(str) {
-  if (!str || !/^\d{4}-\d{2}-\d{2}$/.test(str)) return null
-  const [y, m, d] = str.split('-').map(Number)
-  const day = new Date(y, m - 1, d, 0, 0, 0, 0)
-  day.setDate(day.getDate() + 1)
-  return day.getTime()
-}
-
-function parseMs(v) {
-  if (v == null || v === '') return null
-  const t = new Date(v).getTime()
-  return Number.isNaN(t) ? null : t
 }
 
 function buildDateColumns(windowStartMs, windowEndMs) {
@@ -108,12 +53,8 @@ function buildDateColumns(windowStartMs, windowEndMs) {
     if (colStart < colEnd) {
       cols.push({
         key: `${dayStart.getFullYear()}-${dayStart.getMonth() + 1}-${dayStart.getDate()}`,
-        label: dayStart.toLocaleDateString('en-GB', {
-          weekday: 'short',
-          day: 'numeric',
-          month: 'short',
-          year: 'numeric',
-        }),
+        label: `${dayStart.getDate()} ${dayStart.toLocaleDateString('en-GB', { month: 'short' })}`,
+        title: `${dayStart.toLocaleDateString('en-GB', { weekday: 'short' })}, ${formatDateDisplay(dayStart)}`,
         startMs: colStart,
         endMs: colEnd,
       })
@@ -121,240 +62,6 @@ function buildDateColumns(windowStartMs, windowEndMs) {
     cur.setDate(cur.getDate() + 1)
   }
   return cols
-}
-
-function clipToWindow(startMs, endMs, wStart, wEnd) {
-  if (endMs <= wStart || startMs >= wEnd) return null
-  return {
-    startMs: Math.max(startMs, wStart),
-    endMs: Math.min(endMs, wEnd),
-  }
-}
-
-function pushSegment(out, base, wStart, wEnd) {
-  const c = clipToWindow(base.startMs, base.endMs, wStart, wEnd)
-  if (!c || c.endMs <= c.startMs) return
-  out.push({ ...base, startMs: c.startMs, endMs: c.endMs })
-}
-
-function buildScheduleSegments(plan, windowStartMs, windowEndMs) {
-  const sorted = [...plan].sort((a, b) => (a.sequence ?? 99) - (b.sequence ?? 99))
-  const out = []
-
-  sorted.forEach((r) => {
-    const jettyId = (r.jetty || '').trim().split('/')[0].trim()
-    if (!jettyId) return
-
-    const vesselId = r.vesselId
-    const vesselName = r.vesselName || r.vesselId || '—'
-    const plannedEtb = parseMs(r.plannedEtbDateTime) ?? parseMs(r.etbDateTime)
-    const eta = parseMs(r.etaDateTime)
-    const ta = parseMs(r.taDateTime)
-    const tb = parseMs(r.tbDateTime)
-    const estComp = parseMs(r.estimatedCompletionDateTime)
-    const actComp = parseMs(r.actualCompletionDateTime)
-    const castOff = parseMs(r.castOffDateTime)
-    const sourceStatus = String(r.status || '').trim().toUpperCase()
-    const isSailed = sourceStatus === 'SAILED' || actComp != null || castOff != null
-    const status = isSailed ? 'Sailed off' : tb != null ? 'Berthing' : 'Arriving'
-    /** Known end of alongside ops when recorded (cast-off can stand in if completion time missing) */
-    const actualEnd = actComp ?? castOff ?? null
-
-    // Planned: ETB → est. completion when set; else +3 days from ETB (open end).
-    // (Independent of actual completion — matches “planned” semantics.)
-
-    const plannedStart = plannedEtb ?? eta
-    if (plannedStart != null) {
-      let opsEnd
-      let gradient
-      let label
-      if (estComp != null && estComp > plannedStart) {
-        opsEnd = estComp
-        gradient = false
-        label = 'Planned · alongside → est. completion'
-      } else {
-        opsEnd = plannedStart + DEFAULT_TAIL_MS
-        gradient = true
-        label =
-          estComp == null
-            ? 'Planned · alongside (+3 days — est. completion not set)'
-            : 'Planned · alongside (+3 days — est. completion not after start)'
-      }
-      pushSegment(
-        out,
-        {
-          layer: 'planned',
-          phase: 'ops',
-          jettyId,
-          vesselId,
-          vesselName,
-          gradient,
-          status,
-          label,
-          startMs: plannedStart,
-          endMs: opsEnd,
-          plannedEtbMs: plannedEtb,
-          etaMs: eta,
-          tbMs: tb,
-          taMs: ta,
-          startSource: plannedEtb != null ? 'ETB' : 'ETA',
-        },
-        windowStartMs,
-        windowEndMs
-      )
-    }
-
-    if (ta != null && tb == null) {
-      // TB not yet recorded: one “actual” bar from TA. Must follow the same completion matrix
-      // as alongside — otherwise (2) looked like +3 days here while planned used est. completion.
-      let transitEnd
-      let transitGradient = true
-      let transitLabel
-      const hasEst = estComp != null
-      const hasAct = actComp != null
-
-      if (hasEst && hasAct) {
-        if (actComp > ta) {
-          transitEnd = actComp
-          transitGradient = false
-          transitLabel = 'Actual · TA → actual completion (berth time TBD)'
-        } else {
-          transitEnd = ta + DEFAULT_TAIL_MS
-          transitLabel = 'Actual · TA recorded (berth time TBD — tail is indicative)'
-        }
-      } else if (hasEst && !hasAct) {
-        // (2) Est filled, actual completion NULL → end at est. completion, open-ended until TB/actual completion
-        if (estComp > ta) {
-          transitEnd = estComp
-          transitGradient = true
-          transitLabel =
-            'Actual · TA → est. completion (berth TBD — open end; actual completion not recorded)'
-        } else {
-          transitEnd = ta + DEFAULT_TAIL_MS
-          transitLabel = 'Actual · TA recorded (berth time TBD — tail is indicative)'
-        }
-      } else if (!hasEst && hasAct) {
-        if (actComp > ta) {
-          transitEnd = actComp
-          transitGradient = false
-          transitLabel = 'Actual · TA → actual completion (berth time TBD)'
-        } else {
-          transitEnd = ta + DEFAULT_TAIL_MS
-          transitLabel = 'Actual · TA recorded (berth time TBD — tail is indicative)'
-        }
-      } else {
-        // (1) both NULL → +3 days from TA
-        transitEnd = ta + DEFAULT_TAIL_MS
-        transitLabel = 'Actual · TA recorded (berth time TBD — tail is indicative)'
-      }
-
-      pushSegment(
-        out,
-        {
-          layer: 'actual',
-          phase: 'transit',
-          jettyId,
-          vesselId,
-          vesselName,
-          gradient: transitGradient,
-          status,
-          label: transitLabel,
-          startMs: ta,
-          endMs: transitEnd,
-          plannedEtbMs: plannedEtb,
-          etaMs: eta,
-          tbMs: tb,
-          taMs: ta,
-          startSource: 'TA',
-        },
-        windowStartMs,
-        windowEndMs
-      )
-    }
-
-    // Actual alongside: only after TB exists (do not draw ops bar until alongside started).
-    // Matrix uses estimatedCompletionDateTime + actualCompletionDateTime; cast-off fills in
-    // a known end only when both completion fields are empty (branch 1).
-    if (tb != null) {
-      const hasEst = estComp != null
-      const hasAct = actComp != null
-      let opsEnd
-      let gradient
-      let label
-
-      if (hasEst && hasAct) {
-        // Both filled → actual end is actual completion (known)
-        if (actComp > tb) {
-          opsEnd = actComp
-          gradient = false
-          label = 'Actual · alongside → actual completion'
-        } else {
-          opsEnd = tb + DEFAULT_TAIL_MS
-          gradient = true
-          label = 'Actual · alongside (actual completion not after TB — tail is indicative)'
-        }
-      } else if (hasEst && !hasAct) {
-        // Est filled, actual completion NULL → show to est. completion, open-ended (provisional)
-        if (estComp > tb) {
-          opsEnd = estComp
-          gradient = true
-          label =
-            'Actual · alongside → est. completion (actual completion not recorded — open end)'
-        } else {
-          opsEnd = tb + DEFAULT_TAIL_MS
-          gradient = true
-          label = 'Actual · alongside (est. completion not after TB — tail is indicative)'
-        }
-      } else if (!hasEst && hasAct) {
-        // Est NULL, actual completion filled → solid to actual completion
-        if (actComp > tb) {
-          opsEnd = actComp
-          gradient = false
-          label = 'Actual · alongside → actual completion'
-        } else {
-          opsEnd = tb + DEFAULT_TAIL_MS
-          gradient = true
-          label = 'Actual · alongside (actual completion not after TB — tail is indicative)'
-        }
-      } else {
-        // Both NULL → +3 days from TB, or cast-off / completion from actualEnd if present
-        if (actualEnd != null && actualEnd > tb) {
-          opsEnd = actualEnd
-          gradient = false
-          label = 'Actual · alongside → completion / cast-off'
-        } else {
-          opsEnd = tb + DEFAULT_TAIL_MS
-          gradient = true
-          label = 'Actual · alongside (+3 days — completion not set)'
-        }
-      }
-
-      pushSegment(
-        out,
-        {
-          layer: 'actual',
-          phase: 'ops',
-          jettyId,
-          vesselId,
-          vesselName,
-          gradient,
-          status,
-          label,
-          startMs: tb,
-          endMs: opsEnd,
-          plannedEtbMs: plannedEtb,
-          etaMs: eta,
-          tbMs: tb,
-          taMs: ta,
-          startSource: 'TB',
-        },
-        windowStartMs,
-        windowEndMs
-      )
-    }
-  })
-
-  return out
 }
 
 /** Position segment on the full timeline (0–100% of filtered range). */
@@ -371,94 +78,101 @@ function segmentTrackStyle(seg, windowStartMs, totalMs) {
   }
 }
 
-function segmentPillClass(seg) {
+function segmentColorClass(seg) {
   const st = (seg.status || 'arriving').toLowerCase().replace(/[^a-z0-9]+/g, '-')
   const layer = seg.layer
   const grad = seg.gradient ? 'grad' : 'solid'
-  return `jetty-schedule-gantt__bar jetty-schedule-gantt__bar--${layer}-${grad} jetty-schedule-gantt__bar--st-${st}`
+  return `jetty-schedule-gantt__bar--${layer}-${grad} jetty-schedule-gantt__bar--st-${st}`
 }
 
-/** Short jetty id from allocation list row (matches segment jettyId). */
-function jettyIdFromListRow(row) {
-  return (row?.jetty || '').trim().split('/')[0].trim()
+function segmentPillClass(seg) {
+  const overdueMod = seg.etcOverdue ? ' jetty-schedule-gantt__bar--actual-etc-overdue' : ''
+  return `jetty-schedule-gantt__bar ${segmentColorClass(seg)}${overdueMod}`
 }
 
-/**
- * Bank lanes (01, 02, …) are per vessel on a jetty, not per planned/actual layer.
- * Sort: earliest TB first, then operation id, then vessel id — then assign lane 0..capacity-1.
- */
-function assignBankLanesByVessel(baseSegments, rowDefs, listRows) {
-  const caps = new Map()
-  for (const r of rowDefs) caps.set(r.jettyId, r.capacity)
-
-  const metaByJettyVessel = new Map()
-  for (const row of listRows) {
-    const jid = jettyIdFromListRow(row)
-    if (!jid || !row?.vesselId) continue
-    const k = `${jid}\0${row.vesselId}`
-    const tbMs = parseMs(row.tbDateTime)
-    const opRaw = row.operationId
-    const opId = opRaw != null && !Number.isNaN(Number(opRaw)) ? Number(opRaw) : null
-    metaByJettyVessel.set(k, { tbMs, opId })
+function ganttBarInlineStyle(seg, posStyle, stackIndex) {
+  return {
+    ...posStyle,
+    top: `${6 + stackIndex * GANTT_BAR_STACK_STEP}px`,
+    ...(seg.etcOverdue && seg.etcOverduePct != null
+      ? { '--etc-overdue-start': `${seg.etcOverduePct}%` }
+      : {}),
   }
-
-  const vesselsByJetty = new Map()
-  for (const s of baseSegments) {
-    if (!s.vesselId) continue
-    if (!vesselsByJetty.has(s.jettyId)) vesselsByJetty.set(s.jettyId, new Set())
-    vesselsByJetty.get(s.jettyId).add(s.vesselId)
-  }
-
-  const laneByJettyVessel = new Map()
-  for (const [jettyId, vesselSet] of vesselsByJetty) {
-    const cap = Math.max(1, caps.get(jettyId) || 1)
-    const vessels = [...vesselSet]
-    vessels.sort((a, b) => {
-      const ka = `${jettyId}\0${a}`
-      const kb = `${jettyId}\0${b}`
-      const ma = metaByJettyVessel.get(ka) || {}
-      const mb = metaByJettyVessel.get(kb) || {}
-      const tbA = ma.tbMs ?? null
-      const tbB = mb.tbMs ?? null
-      if (tbA != null && tbB != null && tbA !== tbB) return tbA - tbB
-      if (tbA != null && tbB == null) return -1
-      if (tbA == null && tbB != null) return 1
-      const opA = ma.opId != null ? ma.opId : Number.MAX_SAFE_INTEGER
-      const opB = mb.opId != null ? mb.opId : Number.MAX_SAFE_INTEGER
-      if (opA !== opB) return opA - opB
-      return String(a).localeCompare(String(b))
-    })
-    vessels.forEach((vid, idx) => {
-      const lane = Math.min(idx, cap - 1)
-      laneByJettyVessel.set(`${jettyId}\0${vid}`, lane)
-    })
-  }
-
-  const out = []
-  for (const s of baseSegments) {
-    const lane = laneByJettyVessel.get(`${s.jettyId}\0${s.vesselId}`) ?? 0
-    out.push({ ...s, laneIndex: lane, rowKey: `${s.jettyId}__${lane}` })
-  }
-  return out
 }
 
-export default function JettyScheduleGantt({ berthIds, berthsState, list, onSelectVessel }) {
+function ganttBarAriaLabel(seg, layer) {
+  const model =
+    layer === 'planned' ? buildPlannedBlockModel(seg) : buildActualBlockModel(seg, null)
+  return ganttDenseBlockAriaLabel(model, layer)
+}
+
+function renderDenseBarContent(seg, layer, barWidthPct, sourceRow = null) {
+  const model =
+    layer === 'planned'
+      ? buildPlannedBlockModel(seg)
+      : buildActualBlockModel(seg, sourceRow)
+  return <GanttDenseBlock layer={layer} model={model} barWidthPct={barWidthPct} />
+}
+
+function findScheduleSourceRow(listRows, seg) {
+  if (!Array.isArray(listRows)) return null
+  return listRows.find((r) => {
+    if (r.vesselId === seg.vesselId) return true
+    if (seg.bankLaneKey && r.vesselId === seg.bankLaneKey) return true
+    if (
+      seg.bankLaneKey &&
+      r.shipmentPlanId != null &&
+      seg.bankLaneKey === `plan-${r.shipmentPlanId}`
+    ) {
+      return true
+    }
+    return false
+  })
+}
+
+/** "+6h 30m" / "-1d 2h" for the drag badge. */
+function formatDragDelta(deltaMs) {
+  const sign = deltaMs < 0 ? '-' : '+'
+  let rest = Math.abs(deltaMs)
+  const d = Math.floor(rest / 86400000)
+  rest -= d * 86400000
+  const h = Math.floor(rest / 3600000)
+  rest -= h * 3600000
+  const m = Math.round(rest / 60000)
+  const parts = []
+  if (d) parts.push(`${d}d`)
+  if (h) parts.push(`${h}h`)
+  if (m) parts.push(`${m}m`)
+  if (!parts.length) parts.push('0m')
+  return `${sign}${parts.join(' ')}`
+}
+
+export default function JettyScheduleGantt({
+  berthIds,
+  berthsState,
+  list,
+  onSelectVessel,
+  onScheduleChanged,
+  popoutProfile = 'plan',
+  hidePopoutButton = false,
+  isPopout = false,
+}) {
+  const { t: tAlloc } = useTranslation('allocation')
   const def = useMemo(() => defaultDateRangeInputs(), [])
   const [dateFrom, setDateFrom] = useState(def.from)
   const [dateTo, setDateTo] = useState(def.to)
-  const [comparePlanActual, setComparePlanActual] = useState(false)
-  const [isWide, setIsWide] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia(WIDE_BREAKPOINT_MQ).matches
-  )
 
+  const rbac = useRbac() || {}
+  const canEditSchedule =
+    typeof rbac.canEdit === 'function' ? Boolean(rbac.canEdit('allocation-plan')) : false
+
+  const [tick, setTick] = useState(0)
   useEffect(() => {
-    const mq = window.matchMedia(WIDE_BREAKPOINT_MQ)
-    const onChange = () => setIsWide(mq.matches)
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
+    const id = setInterval(() => setTick((t) => t + 1), 30000)
+    return () => clearInterval(id)
   }, [])
 
-  const showDualLanes = isWide || comparePlanActual
+  const nowMs = Date.now()
 
   const { windowStartMs, windowEndMs, dateColumns, baseSegments, totalMs, rangeError } = useMemo(() => {
     const plan = Array.isArray(list) ? list : []
@@ -495,7 +209,7 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
       }
     }
     const cols = buildDateColumns(wStart, wEnd)
-    const barList = buildScheduleSegments(plan, wStart, wEnd)
+    const barList = buildScheduleSegments(plan, wStart, wEnd, nowMs)
     return {
       windowStartMs: wStart,
       windowEndMs: wEnd,
@@ -504,7 +218,7 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
       totalMs: wEnd - wStart,
       rangeError: null,
     }
-  }, [list, dateFrom, dateTo])
+  }, [list, dateFrom, dateTo, tick])
 
   const rowDefs = useMemo(() => {
     const berths = Array.isArray(berthsState) ? berthsState : []
@@ -529,16 +243,9 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
 
   const segments = useMemo(() => {
     const listRows = Array.isArray(list) ? list : []
-    return assignBankLanesByVessel(baseSegments, rowDefs, listRows)
-  }, [baseSegments, rowDefs, list])
+    return assignBankLanesByVessel(baseSegments, rowDefs, listRows, Date.now())
+  }, [baseSegments, rowDefs, list, tick])
 
-  const [, setTick] = useState(0)
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 30000)
-    return () => clearInterval(id)
-  }, [])
-
-  const nowMs = Date.now()
   const nowFraction =
     totalMs > 0 ? Math.min(1, Math.max(0, (nowMs - windowStartMs) / totalMs)) : 0
   const showNowLine = rangeError == null && nowMs >= windowStartMs && nowMs <= windowEndMs
@@ -555,100 +262,517 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
     setDateTo(next.to)
   }
 
-  const renderContinuousLane = (rowKey, layer) => {
+  const exportRef = useRef(null)
+  const [exporting, setExporting] = useState(false)
+
+  // ---- Drag-to-reschedule state ----------------------------------------------------------
+  const dragRef = useRef(null)
+  const suppressClickRef = useRef(false)
+  const pendingOpenedAtRef = useRef(0)
+  const [pendingChange, setPendingChange] = useState(null) // { proposal, seg, row }
+  const [pendingChoice, setPendingChoice] = useState('estimation')
+  const [pendingSaving, setPendingSaving] = useState(false)
+  const [pendingSaveError, setPendingSaveError] = useState(null)
+  const [notice, setNotice] = useState(null)
+  // After a confirmed move the bar can land on another lane/row (lanes are
+  // auto-assigned) — scroll it into view and flash it so it never "disappears".
+  const [flashVesselId, setFlashVesselId] = useState(null)
+
+  useEffect(() => {
+    if (!flashVesselId) return undefined
+    // setTimeout, not requestAnimationFrame: rAF never fires in hidden/background
+    // tabs, which would leave the flash pending forever.
+    const locate = setTimeout(() => {
+      const el = document.querySelector(
+        `.jetty-schedule-gantt__bar[data-vessel-bar="${CSS.escape(String(flashVesselId))}"]`
+      )
+      if (el) {
+        el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
+        el.classList.add('jetty-schedule-gantt__bar--flash')
+        setTimeout(() => el.classList.remove('jetty-schedule-gantt__bar--flash'), 3200)
+      }
+      setFlashVesselId(null)
+    }, 60)
+    return () => clearTimeout(locate)
+  }, [flashVesselId, segments])
+
+  useEffect(() => {
+    if (!notice) return
+    const id = setTimeout(() => setNotice(null), 5000)
+    return () => clearTimeout(id)
+  }, [notice])
+
+  const cleanupDragVisuals = (d) => {
+    if (!d) return
+    if (d.listeners) {
+      window.removeEventListener('pointermove', d.listeners.onMove)
+      window.removeEventListener('pointerup', d.listeners.onUp)
+      window.removeEventListener('pointercancel', d.listeners.onCancel)
+    }
+    if (d.barEl) {
+      d.barEl.classList.remove('jetty-schedule-gantt__bar--dragging')
+      d.barEl.style.transform = ''
+    }
+    if (d.badgeEl && d.badgeEl.parentNode) d.badgeEl.parentNode.removeChild(d.badgeEl)
+    if (d.lastRowEl) d.lastRowEl.classList.remove('jetty-schedule-gantt__row--drop-target')
+  }
+
+  // Safety net: never leave a drag half-finished if the component unmounts mid-gesture.
+  useEffect(
+    () => () => {
+      cleanupDragVisuals(dragRef.current)
+      dragRef.current = null
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  )
+
+  const findDropRowEl = (x, y, ignoreEl) => {
+    const els = document.elementsFromPoint(x, y)
+    for (const el of els) {
+      // The dragged bar is translated under the cursor — resolving through it would
+      // always land on its ORIGINAL row and silently swallow the jetty change.
+      if (ignoreEl && (el === ignoreEl || ignoreEl.contains(el))) continue
+      if (el instanceof HTMLElement && el.dataset && el.dataset.ganttRow) return el
+      const host = el instanceof Element ? el.closest('[data-gantt-row]') : null
+      if (host && (!ignoreEl || !ignoreEl.contains(host))) return host
+    }
+    return null
+  }
+
+  const updateDragBadge = (d, e) => {
+    const snapped = snapDeltaMs(d.rawDeltaMs)
+    const startLabel = formatDateTimeDisplay(new Date(d.seg.startMs + snapped).toISOString())
+    const parts = []
+    if (d.kind === 'resize-end') {
+      const endLabel = formatDateTimeDisplay(new Date(d.seg.endMs + snapped).toISOString())
+      parts.push(`${formatDragDelta(snapped)} → ETC ${endLabel}`)
+    } else {
+      parts.push(`${formatDragDelta(snapped)} → ${startLabel}`)
+    }
+    if (d.kind === 'move' && d.targetJettyId && d.targetJettyId !== d.seg.jettyId) {
+      parts.push(`⚓ ${d.seg.jettyId} → ${d.targetJettyId}`)
+    }
+    d.badgeEl.textContent = parts.join('   ')
+    d.badgeEl.style.left = `${e.clientX + 14}px`
+    d.badgeEl.style.top = `${e.clientY + 16}px`
+  }
+
+  const handleBarPointerDown = (e, seg, row) => {
+    if (!canEditSchedule || exporting || !row) return
+    if (e.button != null && e.button !== 0) return
+    // A previous gesture may not have seen its pointerup (released outside the
+    // window without capture) — never let a stale drag corrupt the new one.
+    if (dragRef.current) {
+      cleanupDragVisuals(dragRef.current)
+      dragRef.current = null
+    }
+    const barEl = e.currentTarget
+    const trackEl = barEl.closest('.jetty-schedule-gantt__track')
+    if (!trackEl || totalMs <= 0) return
+    const handleEl =
+      e.target instanceof Element ? e.target.closest('[data-gantt-handle]') : null
+    // On very narrow bars the edge handles would cover everything — treat as move.
+    const barWide = barEl.getBoundingClientRect().width >= 36
+    const kind =
+      handleEl && barWide
+        ? handleEl.dataset.ganttHandle === 'start'
+          ? 'resize-start'
+          : 'resize-end'
+        : 'move'
+    if (typeof e.preventDefault === 'function') e.preventDefault()
+    const trackRect = trackEl.getBoundingClientRect()
+    // Capture immediately: a real cursor leaves the (thin) bar/handle almost at once,
+    // so waiting for a threshold move ON the element would silently kill the gesture.
+    try {
+      barEl.setPointerCapture(e.pointerId)
+    } catch {
+      /* ignore */
+    }
+    // Track the rest of the gesture on window, not the bar: this survives the cursor
+    // leaving the element, lost/failed pointer capture, and re-renders mid-drag.
+    const onMove = (ev) => handleBarPointerMove(ev)
+    const onUp = (ev) => handleBarPointerEnd(ev)
+    const onCancel = (ev) => handleBarPointerEnd(ev, true)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
+    dragRef.current = {
+      pointerId: e.pointerId,
+      kind,
+      seg,
+      row,
+      barEl,
+      startX: e.clientX,
+      startY: e.clientY,
+      pxPerMs: trackRect.width / totalMs,
+      started: false,
+      rawDeltaMs: 0,
+      targetJettyId: null,
+      badgeEl: null,
+      lastRowEl: null,
+      listeners: { onMove, onUp, onCancel },
+    }
+  }
+
+  const handleBarPointerMove = (e) => {
+    const d = dragRef.current
+    if (!d || e.pointerId !== d.pointerId) return
+    // Button no longer held → we missed the pointerup (released outside the window).
+    // Finish the gesture from where it is instead of ghost-dragging forever.
+    if (e.buttons != null && e.buttons === 0) {
+      handleBarPointerEnd(e, !d.started)
+      return
+    }
+    const dx = e.clientX - d.startX
+    const dy = e.clientY - d.startY
+    if (!d.started) {
+      if (Math.abs(dx) < GANTT_DRAG_THRESHOLD_PX && Math.abs(dy) < GANTT_DRAG_THRESHOLD_PX) return
+      d.started = true
+      const badge = document.createElement('div')
+      badge.className = 'jetty-schedule-gantt__drag-badge'
+      document.body.appendChild(badge)
+      d.badgeEl = badge
+    }
+    // Re-add every move: a data-refresh re-render mid-drag resets className.
+    d.barEl.classList.add('jetty-schedule-gantt__bar--dragging')
+    d.rawDeltaMs = d.pxPerMs > 0 ? dx / d.pxPerMs : 0
+    if (d.kind === 'move') {
+      const snappedPx = snapDeltaMs(d.rawDeltaMs) * d.pxPerMs
+      d.barEl.style.transform = `translate(${snappedPx}px, ${dy}px)`
+      const rowEl = findDropRowEl(e.clientX, e.clientY, d.barEl)
+      if (d.lastRowEl && d.lastRowEl !== rowEl) {
+        d.lastRowEl.classList.remove('jetty-schedule-gantt__row--drop-target')
+      }
+      if (rowEl && rowEl !== d.lastRowEl) {
+        rowEl.classList.add('jetty-schedule-gantt__row--drop-target')
+      }
+      d.lastRowEl = rowEl || null
+      d.targetJettyId = rowEl ? jettyIdFromRowKey(rowEl.dataset.ganttRow) : null
+    }
+    updateDragBadge(d, e)
+  }
+
+  const handleBarPointerEnd = (e, cancelled = false) => {
+    const d = dragRef.current
+    if (!d || e.pointerId !== d.pointerId) return
+    dragRef.current = null
+    cleanupDragVisuals(d)
+    if (!d.started) return
+    suppressClickRef.current = true
+    setTimeout(() => {
+      suppressClickRef.current = false
+    }, 150)
+    if (cancelled) return
+    const proposal = buildGanttDragProposal({
+      kind: d.kind,
+      deltaMs: snapDeltaMs(d.rawDeltaMs),
+      seg: d.seg,
+      row: d.row,
+      targetJettyId: d.targetJettyId,
+    })
+    if (!proposal) {
+      // Give feedback instead of a silent snap-back (e.g. dropped on another lane
+      // of the SAME jetty, or the time shift rounded to zero).
+      setNotice(
+        tAlloc('ganttDragNoChange', {
+          defaultValue:
+            'No change to apply — same jetty and no time shift (lanes within a jetty are assigned automatically).',
+        })
+      )
+      return
+    }
+    // Default to the family that positions the bar: blue (actual) bars sit on TA/TB,
+    // so confirming the default makes the bar stay where it was dropped.
+    const preferActual = d.seg.layer === 'actual' && proposal.canActual
+    setPendingChoice(
+      preferActual
+        ? 'actual'
+        : proposal.canEstimation
+          ? 'estimation'
+          : proposal.canActual
+            ? 'actual'
+            : 'estimation'
+    )
+    setPendingSaveError(null)
+    pendingOpenedAtRef.current = Date.now()
+    setPendingChange({ proposal, seg: d.seg, row: d.row })
+  }
+
+  const closePendingChange = () => {
+    if (pendingSaving) return
+    setPendingChange(null)
+    setPendingSaveError(null)
+  }
+
+  // The dialog renders synchronously between the drop's pointerup and the browser's
+  // trailing click — that click can land on the full-screen overlay and close the
+  // dialog before the user ever sees it. Ignore overlay clicks right after opening,
+  // and only close when the click is on the overlay itself (not bubbled/retargeted).
+  const handleOverlayClick = (e) => {
+    if (e.target !== e.currentTarget) return
+    if (Date.now() - pendingOpenedAtRef.current < 400) return
+    closePendingChange()
+  }
+
+  const handleConfirmPendingChange = async () => {
+    if (!pendingChange) return
+    const { proposal, row } = pendingChange
+    const choice = proposal.needsChoice
+      ? pendingChoice
+      : proposal.canEstimation
+        ? 'estimation'
+        : proposal.canActual
+          ? 'actual'
+          : 'none'
+    setPendingSaving(true)
+    setPendingSaveError(null)
+    try {
+      await saveArrivalUpdateApi(
+        buildArrivalPayloadFromProposal(proposal, choice, row, 'allocation-plan')
+      )
+      setPendingChange(null)
+      setNotice(tAlloc('ganttDragSaved', { defaultValue: 'Schedule updated.' }))
+      if (typeof onScheduleChanged === 'function') {
+        await Promise.resolve(onScheduleChanged()).catch(() => {})
+      }
+      setFlashVesselId(row?.vesselId ?? null)
+    } catch (err) {
+      const msg =
+        err instanceof ApiError || err instanceof Error
+          ? err.message
+          : tAlloc('ganttDragSaveFailed', { defaultValue: 'Update failed. Please try again.' })
+      setPendingSaveError(msg)
+    } finally {
+      setPendingSaving(false)
+    }
+  }
+  // ----------------------------------------------------------------------------------------
+
+  const handleExportJpeg = async () => {
+    const node = exportRef.current
+    if (!node || rangeError) return
+    setExporting(true)
+    // Lay out the full chart (no scroll cap), with an EXPLICIT pixel width taken from the
+    // matrix so we avoid `max-content` intrinsic-sizing (which loops with the bars'
+    // min-width:max-content and hangs the canvas renderer).
+    const matrix = node.querySelector('.jetty-schedule-gantt__matrix')
+    const fullWidth = Math.ceil((matrix ? matrix.scrollWidth : node.scrollWidth) + 16)
+    node.classList.add('jetty-schedule-gantt__export-area--capturing')
+    node.style.width = `${fullWidth}px`
+    let objectUrl = null
+    try {
+      void node.offsetHeight
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+      const width = Math.ceil(node.scrollWidth)
+      const height = Math.ceil(node.scrollHeight)
+      // Guard against any renderer hang so the button never stays stuck on "Exporting…".
+      const canvas = await Promise.race([
+        html2canvas(node, {
+          backgroundColor: '#ffffff',
+          scale: 1.5,
+          useCORS: true,
+          logging: false,
+          width,
+          height,
+          windowWidth: width,
+          windowHeight: height,
+          scrollX: 0,
+          scrollY: 0,
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('export timed out')), 60000)
+        ),
+      ])
+      // Blob + object URL downloads reliably even for large (multi-MB) images, unlike a data URL.
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.95))
+      if (!blob) throw new Error('canvas.toBlob returned null')
+      objectUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.download = `jetty-schedule_${dateFrom}_to_${dateTo}.jpeg`
+      link.href = objectUrl
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Jetty schedule JPEG export failed:', err)
+    } finally {
+      node.classList.remove('jetty-schedule-gantt__export-area--capturing')
+      node.style.width = ''
+      if (objectUrl) setTimeout(() => URL.revokeObjectURL(objectUrl), 10000)
+      setExporting(false)
+    }
+  }
+
+  const renderScheduleLane = (rowKey) => {
     const segs = segments
-      .filter((s) => s.rowKey === rowKey && s.layer === layer)
+      .filter((s) => s.rowKey === rowKey)
       .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs)
-    const laneH = Math.max(30, 8 + segs.length * 26)
+    const listRows = Array.isArray(list) ? list : []
+    // Bars only stack vertically when they OVERLAP in time; sequential vessels
+    // share the same baseline so "after" reads as one continuous lane.
+    const levelEnds = []
+    const stackIndexBySeg = segs.map((seg) => {
+      let level = levelEnds.findIndex((endMs) => seg.startMs >= endMs)
+      if (level === -1) {
+        level = levelEnds.length
+        levelEnds.push(seg.endMs)
+      } else {
+        levelEnds[level] = seg.endMs
+      }
+      return level
+    })
+    const laneH = Math.max(30, 8 + Math.max(1, levelEnds.length) * GANTT_BAR_STACK_STEP)
     return (
       <div
-        className={`jetty-schedule-gantt__track jetty-schedule-gantt__track--${layer}`}
+        className="jetty-schedule-gantt__track jetty-schedule-gantt__track--actual"
         style={{ minHeight: `${laneH}px` }}
       >
         {segs.map((seg, i) => {
           const pos = segmentTrackStyle(seg, windowStartMs, totalMs)
           if (!pos) return null
-          const { rawWidthPct, ...posStyle } = pos
-          const style = {
-            ...posStyle,
-            top: `${6 + i * 26}px`,
-          }
-          const minimal = rawWidthPct < 6
+          const { rawWidthPct: _rawWidthPct, ...posStyle } = pos
+          const style = ganttBarInlineStyle(seg, posStyle, stackIndexBySeg[i])
+
+          const barLayer = seg.layer === 'planned' ? 'planned' : 'actual'
           const pillClass = segmentPillClass(seg)
           const canClick = Boolean(seg.vesselId && typeof onSelectVessel === 'function')
-          const fmt = (ms) => (ms == null ? '—' : new Date(ms).toLocaleString())
-          const tooltipItems = [
-            { primary: `Status: ${seg.status || '—'}` },
-            {
-              primary: `Start: ${new Date(seg.startMs).toLocaleString()}${seg.startSource ? ` (from ${seg.startSource})` : ''}`,
-              secondary: `End: ${new Date(seg.endMs).toLocaleString()}`,
-            },
-            {
-              primary: `Planned refs — ETB: ${fmt(seg.plannedEtbMs)} · ETA: ${fmt(seg.etaMs)}`,
-            },
-            {
-              primary: `Actual refs — TB: ${fmt(seg.tbMs)} · TA: ${fmt(seg.taMs)}`,
-            },
-          ]
-          if (canClick) tooltipItems.push({ primary: 'Click to open vessel details.' })
-
-          const inner = minimal ? null : (
-            <>
-              {seg.status === 'Sailed off' ? <GanttCompletedIcon /> : <GanttVesselIcon />}
-              <span className="jetty-schedule-gantt__bar-text">{seg.vesselName}</span>
-            </>
+          const sourceRow = findScheduleSourceRow(listRows, seg)
+          const canDrag = Boolean(canEditSchedule && sourceRow)
+          const isSailed = seg.status === 'Sailed off'
+          const showEndHandle =
+            canDrag && !isSailed && sourceRow &&
+            (sourceRow.operationId != null || sourceRow.shippingInstructionId != null)
+          const ariaLabel = ganttBarAriaLabel(seg, barLayer)
+          const barClassName = `${pillClass}${canClick ? ' jetty-schedule-gantt__bar--btn' : ''}${canDrag ? ' jetty-schedule-gantt__bar--draggable' : ''}`
+          const denseContent = renderDenseBarContent(
+            seg,
+            barLayer,
+            _rawWidthPct,
+            barLayer === 'actual' ? sourceRow : null
           )
+          const handles = canDrag ? (
+            <>
+              <span
+                className="jetty-schedule-gantt__bar-handle jetty-schedule-gantt__bar-handle--start"
+                data-gantt-handle="start"
+                aria-hidden
+              />
+              {showEndHandle ? (
+                <span
+                  className="jetty-schedule-gantt__bar-handle jetty-schedule-gantt__bar-handle--end"
+                  data-gantt-handle="end"
+                  aria-hidden
+                />
+              ) : null}
+            </>
+          ) : null
+          const dragProps = canDrag
+            ? { onPointerDown: (e) => handleBarPointerDown(e, seg, sourceRow) }
+            : {}
 
+          const vesselBarId = sourceRow?.vesselId ?? seg.vesselId ?? undefined
           if (canClick) {
             return (
-              <InteractiveTooltip
-                key={`${layer}-${seg.phase}-${seg.vesselName}-${seg.startMs}-${i}`}
-                title={seg.vesselName}
-                subtitle={seg.label}
-                items={tooltipItems}
-                emptyText="No details."
-                placement="right"
-                interactiveChild
+              <button
+                key={`${seg.layer}-${seg.phase}-${seg.vesselName}-${seg.startMs}-${i}`}
+                type="button"
+                className={barClassName}
+                style={style}
+                data-vessel-bar={vesselBarId}
+                aria-label={ariaLabel}
+                onClick={() => {
+                  if (suppressClickRef.current) return
+                  onSelectVessel(seg.vesselId)
+                }}
+                {...dragProps}
               >
-                <button
-                  type="button"
-                  className={`${pillClass} jetty-schedule-gantt__bar--btn${minimal ? ' jetty-schedule-gantt__bar--minimal' : ''}`}
-                  style={style}
-                  aria-label={minimal ? `${seg.vesselName}: ${seg.label}` : undefined}
-                  onClick={() => onSelectVessel(seg.vesselId)}
-                >
-                  {inner}
-                </button>
-              </InteractiveTooltip>
+                {denseContent}
+                {handles}
+              </button>
             )
           }
           return (
-            <InteractiveTooltip
-              key={`${layer}-${seg.phase}-${seg.vesselName}-${seg.startMs}-${i}`}
-              title={seg.vesselName}
-              subtitle={seg.label}
-              items={tooltipItems}
-              emptyText="No details."
-              placement="right"
+            <span
+              key={`${seg.layer}-${seg.phase}-${seg.vesselName}-${seg.startMs}-${i}`}
+              className={barClassName}
+              style={style}
+              data-vessel-bar={vesselBarId}
+              role="img"
+              aria-label={ariaLabel}
+              {...dragProps}
             >
-              <span
-                className={`${pillClass}${minimal ? ' jetty-schedule-gantt__bar--minimal' : ''}`}
-                style={style}
-                role={minimal ? 'img' : undefined}
-                aria-label={minimal ? `${seg.vesselName}: ${seg.label}` : undefined}
-              >
-                {inner}
-              </span>
-            </InteractiveTooltip>
+              {denseContent}
+              {handles}
+            </span>
           )
         })}
       </div>
     )
   }
 
+  const legendContent = (
+    <>
+      <span className="allocation-schedule__legend-item">
+        <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-solid" />
+        {tAlloc('ganttLegendActual', { defaultValue: 'Actual' })}
+      </span>
+      <span className="allocation-schedule__legend-item">
+        <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--planned-solid" />
+        {tAlloc('ganttLegendEstimate', { defaultValue: 'Estimate (no actual yet)' })}
+      </span>
+      <span className="allocation-schedule__legend-item">
+        <span className="jetty-schedule-gantt__legend-chip jetty-schedule-gantt__legend-chip--late" aria-hidden>
+          {tAlloc('ganttLateChip', { defaultValue: 'LATE' })}
+        </span>
+        {tAlloc('ganttLegendLatePastEtc', { defaultValue: 'Late (past ETC)' })}
+      </span>
+      <span className="allocation-schedule__legend-item">
+        <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--status-sailed-off" />
+        {tAlloc('ganttLegendSailed', { defaultValue: 'Sailed off' })}
+      </span>
+      <span className="allocation-schedule__legend-item">
+        <span className="jetty-schedule-gantt__now-dot" aria-hidden /> {tAlloc('ganttLegendNow', { defaultValue: 'Now' })}
+      </span>
+    </>
+  )
+
+  const pendingProposal = pendingChange?.proposal ?? null
+  const pendingTargetBerth = pendingProposal?.jettyChange
+    ? (Array.isArray(berthsState) ? berthsState : []).find(
+        (b) => b.id === pendingProposal.jettyChange.to
+      )
+    : null
+  const pendingTargetOcc = pendingTargetBerth
+    ? Number(pendingTargetBerth.occupiedCount ?? (pendingTargetBerth.currentVesselId ? 1 : 0)) || 0
+    : 0
+  const pendingTargetCap =
+    pendingTargetBerth && pendingTargetBerth.capacity != null
+      ? Math.max(1, Number(pendingTargetBerth.capacity) || 1)
+      : 1
+  const pendingTargetFull = Boolean(pendingTargetBerth) && pendingTargetOcc >= pendingTargetCap
+  const pendingDateChanges = pendingProposal
+    ? pendingProposal.needsChoice
+      ? pendingChoice === 'actual'
+        ? pendingProposal.actual
+        : pendingProposal.estimation
+      : [...pendingProposal.estimation, ...(pendingProposal.canActual ? pendingProposal.actual : [])]
+    : []
+  const pendingAllChanges = pendingProposal
+    ? [...pendingDateChanges, ...pendingProposal.always]
+    : []
+
   return (
-    <section className="card jetty-schedule-gantt">
-      <h2 className="card__title">Jetty schedule</h2>
+    <section className={`jetty-schedule-gantt${isPopout ? ' jetty-schedule-gantt--popout' : ' card'}`}>
+      {!isPopout ? (
+        <div className="card__title-row">
+          <h2 className="card__title">Jetty schedule</h2>
+          {!hidePopoutButton ? (
+            <VisualizationPopoutButton mode="schedule" profile={popoutProfile} />
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="jetty-schedule-gantt__filters" role="search" aria-label="Schedule date range">
         <div className="jetty-schedule-gantt__filter-field">
@@ -674,53 +798,46 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
         <button type="button" className="btn btn--secondary jetty-schedule-gantt__reset" onClick={handleResetRange}>
           Reset
         </button>
-        {!isWide && (
-          <label className="jetty-schedule-gantt__compare">
-            <input
-              type="checkbox"
-              checked={comparePlanActual}
-              onChange={(e) => setComparePlanActual(e.target.checked)}
-            />
-            Compare plan vs actual
-          </label>
-        )}
+        <button
+          type="button"
+          className="btn btn--secondary jetty-schedule-gantt__export"
+          onClick={handleExportJpeg}
+          disabled={exporting || Boolean(rangeError)}
+          title={tAlloc('ganttExportJpegHint', { defaultValue: 'Export the current view (date range) as a JPEG image' })}
+        >
+          {exporting
+            ? tAlloc('ganttExporting', { defaultValue: 'Exporting…' })
+            : tAlloc('ganttExportJpeg', { defaultValue: 'Export JPEG' })}
+        </button>
       </div>
 
       <p className="jetty-schedule-gantt__intro">
         {rangeError ? <span className="jetty-schedule-gantt__error">{rangeError}</span> : null}
+        {!rangeError && notice ? (
+          <span className="jetty-schedule-gantt__notice" role="status">
+            {notice}
+          </span>
+        ) : null}
       </p>
 
-      <div
-        className={`allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two${showDualLanes ? '' : ' jetty-schedule-gantt__legend--planned-only'}`}
-      >
-        <span className="allocation-schedule__legend-item">
-          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--planned-solid" /> Planned
-          (known)
-        </span>
-        <span className="allocation-schedule__legend-item">
-          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--planned-grad" /> Planned (open
-          end)
-        </span>
-        {showDualLanes && (
-          <>
-            <span className="allocation-schedule__legend-item">
-              <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-solid" /> Actual
-              (known)
-            </span>
-            <span className="allocation-schedule__legend-item">
-              <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-grad" /> Actual (open
-              end)
-            </span>
-          </>
-        )}
-        <span className="allocation-schedule__legend-item">
-          <span className="jetty-schedule-gantt__now-dot" aria-hidden /> Now
-        </span>
-        <span className="allocation-schedule__legend-item">
-          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--status-sailed-off" /> Sailed
-          off
-        </span>
-      </div>
+      <div className="jetty-schedule-gantt__export-area" ref={exportRef}>
+        {exporting ? (
+          <div className="jetty-schedule-gantt__export-title">
+            {tAlloc('jettySchedule', { defaultValue: 'Jetty schedule' })} · {dateFrom} → {dateTo}
+          </div>
+        ) : null}
+        {isPopout ? (
+        <details className="jetty-schedule-gantt__legend-details">
+          <summary>{tAlloc('vizPopoutLegend', { defaultValue: 'Legend' })}</summary>
+          <div className="allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two">
+            {legendContent}
+          </div>
+        </details>
+      ) : (
+        <div className="allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two">
+          {legendContent}
+        </div>
+      )}
 
       <div className="jetty-schedule-gantt__scroll">
         <div
@@ -736,7 +853,7 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
               <div className="jetty-schedule-gantt__header-row" style={{ gridTemplateColumns }}>
                 <div className="jetty-schedule-gantt__corner">JETTY ID</div>
                 {dateColumns.map((col) => (
-                  <div key={col.key} className="jetty-schedule-gantt__th-day">
+                  <div key={col.key} className="jetty-schedule-gantt__th-day" title={col.title}>
                     {col.label}
                   </div>
                 ))}
@@ -747,7 +864,7 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
                   {showNowLine && (
                     <div
                       className="jetty-schedule-gantt__now-line"
-                      title={`Now: ${new Date(nowMs).toLocaleString()}`}
+                      title={`Now: ${formatDateTimeDisplay(new Date(nowMs).toISOString())}`}
                       style={{
                         left: `calc(var(--jetty-schedule-id-col, 200px) + (100% - var(--jetty-schedule-id-col, 200px)) * ${nowFraction})`,
                       }}
@@ -771,19 +888,12 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
                     return (
                       <div
                         key={row.rowKey}
+                        data-gantt-row={row.rowKey}
                         className={`jetty-schedule-gantt__row${isOos ? ' jetty-schedule-gantt__row--oos' : ''}`}
                         style={{ gridTemplateColumns }}
                       >
                         <div className="jetty-schedule-gantt__id-cell">
                           <span className="jetty-schedule-gantt__jetty-id">{row.label}</span>
-                          {showDualLanes ? (
-                            <>
-                              <span className="jetty-schedule-gantt__lane-label">Planned</span>
-                              <span className="jetty-schedule-gantt__lane-label">Actual</span>
-                            </>
-                          ) : (
-                            <span className="jetty-schedule-gantt__lane-label">Planned</span>
-                          )}
                           <span className="jetty-schedule-gantt__jetty-status">Status: {statusLabel}</span>
                         </div>
 
@@ -798,11 +908,8 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
                                 <div key={col.key} className="jetty-schedule-gantt__timeline-dayline" />
                               ))}
                             </div>
-                            <div
-                              className={`jetty-schedule-gantt__timeline-tracks${showDualLanes ? ' jetty-schedule-gantt__timeline-tracks--dual' : ''}`}
-                            >
-                              {renderContinuousLane(row.rowKey, 'planned')}
-                              {showDualLanes && renderContinuousLane(row.rowKey, 'actual')}
+                            <div className="jetty-schedule-gantt__timeline-tracks">
+                              {renderScheduleLane(row.rowKey)}
                             </div>
                           </div>
                         </div>
@@ -815,6 +922,155 @@ export default function JettyScheduleGantt({ berthIds, berthsState, list, onSele
           )}
         </div>
       </div>
+      </div>
+
+      {pendingChange ? (
+        <div className="modal-overlay" onClick={handleOverlayClick} aria-hidden="true">
+          <div
+            className="modal jetty-schedule-gantt__confirm-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="gantt-drag-confirm-title"
+            aria-modal="true"
+          >
+            <h2 id="gantt-drag-confirm-title" className="modal__title">
+              {tAlloc('ganttDragConfirmTitle', { defaultValue: 'Confirm schedule change' })}
+              {' — '}
+              {pendingChange.seg.vesselName}
+            </h2>
+
+            {pendingProposal?.jettyChange ? (
+              <>
+                <p className="jetty-schedule-gantt__confirm-jetty">
+                  {tAlloc('ganttDragJetty', { defaultValue: 'Jetty' })}:{' '}
+                  <strong>{pendingProposal.jettyChange.from ?? '—'}</strong> →{' '}
+                  <strong>{pendingProposal.jettyChange.to}</strong>
+                </p>
+                <p className="jetty-schedule-gantt__confirm-note">
+                  {tAlloc('ganttDragLaneNote', {
+                    defaultValue:
+                      'The lane (01/02) within the jetty is assigned automatically — the bar may appear on a different lane row.',
+                  })}
+                </p>
+                {pendingTargetFull ? (
+                  <p className="jetty-schedule-gantt__confirm-warning">
+                    {tAlloc('ganttDragJettyFullWarning', {
+                      defaultValue:
+                        'Jetty {{jetty}} already has {{occ}}/{{cap}} berth(s) occupied — this move may exceed its capacity.',
+                      jetty: pendingProposal.jettyChange.to,
+                      occ: pendingTargetOcc,
+                      cap: pendingTargetCap,
+                    })}
+                  </p>
+                ) : null}
+              </>
+            ) : null}
+
+            {pendingProposal?.needsChoice ? (
+              <fieldset className="jetty-schedule-gantt__confirm-choice">
+                <legend>
+                  {tAlloc('ganttDragChoiceLegend', {
+                    defaultValue: 'Which dates should this change apply to?',
+                  })}
+                </legend>
+                <label>
+                  <input
+                    type="radio"
+                    name="gantt-drag-choice"
+                    value="estimation"
+                    checked={pendingChoice === 'estimation'}
+                    onChange={() => setPendingChoice('estimation')}
+                  />
+                  <span>
+                    {tAlloc('ganttDragChoiceEstimation', {
+                      defaultValue: 'Estimation (ETA / ETB)',
+                    })}
+                  </span>
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="gantt-drag-choice"
+                    value="actual"
+                    checked={pendingChoice === 'actual'}
+                    onChange={() => setPendingChoice('actual')}
+                  />
+                  <span>
+                    {tAlloc('ganttDragChoiceActual', { defaultValue: 'Actual (TA / TB)' })}
+                  </span>
+                </label>
+              </fieldset>
+            ) : null}
+
+            {pendingProposal && pendingProposal.deltaMs !== 0 && !pendingProposal.needsChoice &&
+            (pendingProposal.canEstimation || pendingProposal.canActual) ? (
+              <p className="jetty-schedule-gantt__confirm-note">
+                {pendingProposal.canEstimation
+                  ? tAlloc('ganttDragEstimationOnlyNote', {
+                      defaultValue:
+                        'Only estimation dates (ETA/ETB) will change — no actual times are recorded yet.',
+                    })
+                  : tAlloc('ganttDragActualOnlyNote', {
+                      defaultValue:
+                        'Only actual dates (TA/TB) will change — no estimation dates are set.',
+                    })}
+              </p>
+            ) : null}
+
+            {pendingAllChanges.length > 0 ? (
+              <table className="jetty-schedule-gantt__confirm-table">
+                <thead>
+                  <tr>
+                    <th>{tAlloc('ganttDragField', { defaultValue: 'Field' })}</th>
+                    <th>{tAlloc('ganttDragFrom', { defaultValue: 'Current' })}</th>
+                    <th>{tAlloc('ganttDragTo', { defaultValue: 'New' })}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingAllChanges.map((c) => (
+                    <tr key={c.field}>
+                      <td>{c.label}</td>
+                      <td>
+                        {c.fromMs != null
+                          ? formatDateTimeDisplay(new Date(c.fromMs).toISOString())
+                          : '—'}
+                      </td>
+                      <td>{formatDateTimeDisplay(new Date(c.toMs).toISOString())}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : null}
+
+            {pendingSaveError ? (
+              <p className="allocation-arrival-save-msg allocation-arrival-save-msg--error" role="alert">
+                {pendingSaveError}
+              </p>
+            ) : null}
+
+            <div className="modal__actions">
+              <button
+                type="button"
+                className="btn btn--secondary"
+                onClick={closePendingChange}
+                disabled={pendingSaving}
+              >
+                {tAlloc('ganttDragCancel', { defaultValue: 'Cancel' })}
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={handleConfirmPendingChange}
+                disabled={pendingSaving}
+              >
+                {pendingSaving
+                  ? tAlloc('ganttDragSaving', { defaultValue: 'Saving…' })
+                  : tAlloc('ganttDragConfirm', { defaultValue: 'Confirm change' })}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }

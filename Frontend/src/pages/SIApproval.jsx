@@ -4,28 +4,27 @@ import { fetchShippingInstruction, fetchSiNpwpMaster, updateShippingInstruction 
 import { useRbac } from '../context/RbacContext'
 import { formatBlSplitFromBreakdown, getPrintedSiNumber, formatFreightForSi } from '../utils/siBlSplit'
 import { formatSiSignOffDate } from '../utils/siFormPlaceDate'
+import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import { getShipperLines } from '../utils/siViewModel'
 import SiFormReferenceDates from '../components/SiFormReferenceDates'
 import FlowPill from '../components/FlowPill'
 import '../styles/si-approval.css'
 import '../styles/si-view.css'
 import { MAX_SI_APPROVAL_COMMENTS_CHARS } from '../constants/inputLimits'
+import FilePreviewLink from '../components/FilePreviewLink'
+import { siDocumentDownloadUrl } from '../api/siDocuments'
+import { triggerFileDownload } from '../utils/filePreview'
 
 const SI_FORM_COMPANY = {
   name: 'PT ENERGI UNGGUL PERSADA',
   address: 'GAMA TOWER, LT 41, JL HR RASUNA SAID, KAV C 22, KARET KUNINGAN, SETIABUDI, KOTA ADM. JAKARTA SELATAN, DKI JAKARTA, 12940',
 }
 
-function formatDate(iso) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  return d.toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
-}
-
 function formatEtaBontang(si) {
   const from = si.etaFrom
   const to = si.etaTo
   if (!from && !to) {
-    return si.etaDateTime ? new Date(si.etaDateTime).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
+    return si.etaDateTime ? formatDateDisplay(si.etaDateTime) : '—'
   }
   if (from && to && from !== to) {
     const d1 = new Date(from)
@@ -33,15 +32,7 @@ function formatEtaBontang(si) {
     const mon2 = d2.toLocaleString('en-GB', { month: 'short' }).toUpperCase()
     return `${d1.getDate()} - ${d2.getDate()} ${mon2} ${d2.getFullYear()}`
   }
-  const d = new Date(from || to)
-  return d.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-}
-
-function getShipperLines(si) {
-  const main = (si.shipper || '').trim()
-  const fromBreakdown = (si.breakdown || []).map((b) => (b.shipper || '').trim()).filter(Boolean)
-  const combined = main ? [main, ...fromBreakdown.filter((s) => s !== main)] : [...new Set(fromBreakdown)]
-  return combined.length ? combined : ['—']
+  return formatDateDisplay(from || to)
 }
 
 function mapShippingInstructionRow(row) {
@@ -72,6 +63,7 @@ function mapShippingInstructionRow(row) {
     approverNameSnapshot: row.approverNameSnapshot ?? null,
     approverTitleSnapshot: row.approverTitleSnapshot ?? null,
     breakdown: Array.isArray(row.breakdown) ? row.breakdown : [],
+    shipper: row.shipperNames ?? '—',
     surveyor: row.surveyorName ?? '—',
     agent: row.agentName ?? '—',
     loadingPort: row.loadingPortName ?? '—',
@@ -79,6 +71,16 @@ function mapShippingInstructionRow(row) {
     receivedAt: row.createdAt,
     updatedAt: row.updatedAt ?? null,
     resolvedPortId: row.resolvedPortId ?? null,
+    documents: Array.isArray(row.documents)
+      ? row.documents.map((d) => ({
+          id: d.id ?? d.documentId,
+          documentId: d.documentId ?? d.id,
+          name: d.name,
+          size: d.sizeBytes ?? d.size ?? null,
+          mimeType: d.mimeType ?? null,
+          downloadUrl: d.downloadUrl ?? (d.documentId != null ? siDocumentDownloadUrl(d.documentId) : null),
+        }))
+      : [],
   }
 }
 
@@ -87,8 +89,8 @@ function getMockLifecycle(si) {
   const received = si.receivedAt ? new Date(si.receivedAt) : null
   return [
     { label: 'Operation Head Review', by: 'Ops Commander (You)', time: 'Now', current: true },
-    { label: 'QC Certification Uploaded', by: `QC / ${si.surveyor || '—'}`, time: received ? formatDate(si.receivedAt) : '—', current: false },
-    { label: 'SI Draft Submitted', by: `Agent ${si.agent || '—'}`, time: received ? formatDate(si.receivedAt) : '—', current: false },
+    { label: 'QC Certification Uploaded', by: `QC / ${si.surveyor || '—'}`, time: received ? formatDateTimeDisplay(si.receivedAt) : '—', current: false },
+    { label: 'SI Draft Submitted', by: `Agent ${si.agent || '—'}`, time: received ? formatDateTimeDisplay(si.receivedAt) : '—', current: false },
   ]
 }
 
@@ -192,7 +194,7 @@ export default function SIApproval() {
   }
 
   const handleApprove = async () => {
-    if (!certified || !canApprove('shipping-instruction')) return
+    if (!certified || !canApprove('shipment-plan')) return
     setApproveError(null)
     const nextApprovalId = generateApprovalId()
     const sid = si?.id != null && !Number.isNaN(Number(si.id)) ? Number(si.id) : Number.isNaN(numId) ? null : numId
@@ -226,13 +228,25 @@ export default function SIApproval() {
       id: 'manual-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
       name: f.name,
       size: f.size,
+      url: URL.createObjectURL(f),
+      mimeType: f.type || null,
     }))
     setUploadedManualDocs((prev) => [...prev, ...newDocs])
     e.target.value = ''
   }
 
   const removeUploadedDoc = (id) => {
-    setUploadedManualDocs((prev) => prev.filter((d) => d.id !== id))
+    setUploadedManualDocs((prev) => {
+      const doc = prev.find((d) => d.id === id)
+      if (doc?.url?.startsWith('blob:')) URL.revokeObjectURL(doc.url)
+      return prev.filter((d) => d.id !== id)
+    })
+  }
+
+  const downloadAttachment = (d) => {
+    const url = d.url || d.downloadUrl || (d.documentId != null ? siDocumentDownloadUrl(d.documentId) : null)
+    if (!url) return
+    void triggerFileDownload({ url, filename: d.name })
   }
 
   const formatFileSize = (bytes) => {
@@ -246,7 +260,7 @@ export default function SIApproval() {
       <div className="si-approval-page">
         <div className="card">
           <p className="text-steel">Shipping Instruction not found for ID: {siId || '—'}.</p>
-          <button type="button" className="btn btn--primary" onClick={() => navigate('/shipping-instruction')}>
+          <button type="button" className="btn btn--primary" onClick={() => navigate('/shipment-plans')}>
             Back to Shipping Instructions
           </button>
         </div>
@@ -255,7 +269,10 @@ export default function SIApproval() {
   }
 
   const statusLabel = decision === 'approved' ? 'Approved' : decision === 'rejected' ? 'Rejected' : 'Pending Operation Head'
-  const existingDocs = (si.documents || []).map((d) => ({ ...d, size: d.size || 1200000 }))
+  const existingDocs = (si.documents || []).map((d) => ({
+    ...d,
+    size: d.size ?? d.sizeBytes ?? null,
+  }))
   const attachments = [...existingDocs, ...uploadedManualDocs]
 
   return (
@@ -265,7 +282,7 @@ export default function SIApproval() {
           <button
             type="button"
             className="btn btn--secondary btn--small si-approval-back no-print"
-            onClick={() => navigate('/shipping-instruction')}
+            onClick={() => navigate('/shipment-plans')}
             aria-label="Back to Shipping Instructions"
           >
             ← Back
@@ -350,6 +367,7 @@ export default function SIApproval() {
                 <table className="si-view-table">
                   <thead>
                     <tr>
+                      <th className="si-view-table__th">Shipper</th>
                       <th className="si-view-table__th">Commodity</th>
                       <th className="si-view-table__th si-view-table__th--num">Qty</th>
                       <th className="si-view-table__th">Unit</th>
@@ -362,6 +380,7 @@ export default function SIApproval() {
                     {breakdownRows.length > 0 ? (
                       breakdownRows.map((row, i) => (
                         <tr key={i}>
+                          <td className="si-view-table__cell">{row.shipperName || '—'}</td>
                           <td className="si-view-table__cell">{row.commodityName || '—'}</td>
                           <td className="si-view-table__cell si-view-table__cell--num">
                             {row.qty != null ? Number(row.qty).toLocaleString('id-ID') : '—'}
@@ -375,6 +394,7 @@ export default function SIApproval() {
                     ) : (
                       <tr>
                         <td className="si-view-table__cell">—</td>
+                        <td className="si-view-table__cell">—</td>
                         <td className="si-view-table__cell si-view-table__cell--num">—</td>
                         <td className="si-view-table__cell">—</td>
                         <td className="si-view-table__cell">—</td>
@@ -383,7 +403,7 @@ export default function SIApproval() {
                       </tr>
                     )}
                     <tr className="si-view-table__total">
-                      <td colSpan={5} className="si-view-table__cell si-view-table__cell--total-label">TOTAL</td>
+                      <td colSpan={6} className="si-view-table__cell si-view-table__cell--total-label">TOTAL</td>
                       <td className="si-view-table__cell si-view-table__cell--total">{totalQtyLabel}</td>
                     </tr>
                   </tbody>
@@ -459,16 +479,37 @@ export default function SIApproval() {
           <section className="card si-approval-card">
             <h2 className="si-approval-card__title">📄 Verified Attachments</h2>
             <ul className="si-approval-attachments">
-              {attachments.map((d) => (
+              {attachments.map((d) => {
+                const previewUrl =
+                  d.url || d.downloadUrl || (d.documentId != null ? siDocumentDownloadUrl(d.documentId) : null)
+                return (
                 <li key={d.id} className="si-approval-attachments__item">
-                  <span className="si-approval-attachments__name">{d.name}</span>
+                  {previewUrl ? (
+                    <FilePreviewLink
+                      url={previewUrl}
+                      name={d.name}
+                      mimeType={d.mimeType ?? null}
+                      className="si-approval-attachments__name file-preview-link"
+                    />
+                  ) : (
+                    <span className="si-approval-attachments__name">{d.name}</span>
+                  )}
                   <span className="si-approval-attachments__size">{d.size ? formatFileSize(d.size) : ''}</span>
-                  <button type="button" className="btn btn--secondary btn--small si-approval-attachments__action" title="Download" aria-label={`Download ${d.name}`}>⬇</button>
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--small si-approval-attachments__action"
+                    title="Download"
+                    aria-label={`Download ${d.name}`}
+                    onClick={() => downloadAttachment(d)}
+                    disabled={!previewUrl}
+                  >
+                    ⬇
+                  </button>
                   {uploadedManualDocs.some((u) => u.id === d.id) && (
                     <button type="button" className="btn btn--secondary btn--small" onClick={() => removeUploadedDoc(d.id)} aria-label={`Remove ${d.name}`}>Remove</button>
                   )}
                 </li>
-              ))}
+              )})}
             </ul>
             <div className="si-approval-upload">
               <label className="si-approval-upload__label">Upload manual signing document</label>
@@ -503,7 +544,7 @@ export default function SIApproval() {
                   </span>
                 </label>
               </div>
-              {!canApprove('shipping-instruction') && (
+              {!canApprove('shipment-plan') && (
                 <p className="text-steel" style={{ marginBottom: 'var(--spacing-2)', color: 'var(--danger-600, #b00)' }}>
                   You do not have permission to approve shipping instructions. Ask an administrator to grant{' '}
                   <strong>Approve SI</strong> on the Shipping Instruction page for your role.
@@ -519,7 +560,7 @@ export default function SIApproval() {
                   type="button"
                   className="btn btn--primary"
                   onClick={handleApprove}
-                  disabled={!certified || !canApprove('shipping-instruction')}
+                  disabled={!certified || !canApprove('shipment-plan')}
                 >
                   ✓ Approve & Sign-off
                 </button>
@@ -534,7 +575,7 @@ export default function SIApproval() {
             <div className="card si-approval-result si-approval-result--success">
               <p><strong>SI has been approved and signed off.</strong></p>
               <p className="text-steel">Operations can begin as per this instruction.</p>
-              <button type="button" className="btn btn--primary" onClick={() => navigate('/shipping-instruction')}>
+              <button type="button" className="btn btn--primary" onClick={() => navigate('/shipment-plans')}>
                 Back to Shipping Instructions
               </button>
             </div>
@@ -544,7 +585,7 @@ export default function SIApproval() {
             <div className="card si-approval-result si-approval-result--rejected">
               <p><strong>SI has been rejected / queried.</strong></p>
               <p className="text-steel">The submitter will be notified.</p>
-              <button type="button" className="btn btn--primary" onClick={() => navigate('/shipping-instruction')}>
+              <button type="button" className="btn btn--primary" onClick={() => navigate('/shipment-plans')}>
                 Back to Shipping Instructions
               </button>
             </div>

@@ -1,12 +1,23 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { fetchOperations, fetchPendingSignoffRequests, depart, uploadOperationDocuments, signoff, fetchActivityTimeline } from '../api/operations'
+import { departShipmentPlan } from '../api/shipmentPlans'
 import { useRbac } from '../context/RbacContext'
+import {
+  getScheduleEntryTimeZone,
+  normalizeForApi,
+  nowToNaiveLocalInScheduleZone,
+  utcIsoToNaiveLocal,
+} from '../utils/scheduleDateTime.js'
 import { resolveUploadUrl } from '../api/client'
+import FilePreviewLink from '../components/FilePreviewLink'
 import SiDetailModal from '../components/SiDetailModal'
 import SiDocumentModal from '../components/SiDocumentModal'
+import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
 import '../styles/allocation.css'
+import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import { validateCastOffDepart } from '../utils/validateCastOffDepart'
 import '../styles/modal.css'
 
 const CLEARANCE_COLUMNS = [
@@ -17,32 +28,61 @@ const CLEARANCE_COLUMNS = [
     getValue: (r) => r.jettyOperationCode || '—',
     getSortValue: (r) => (r.jettyOperationCode || '').toLowerCase(),
   },
-  { key: 'si', label: 'SI', getValue: (r) => r.si || '—', getSortValue: (r) => (r.si || '').toLowerCase() },
+  {
+    key: 'si',
+    label: 'SI',
+    getValue: (r) => r.si || r.referenceNumber || '—',
+    getSortValue: (r) => (r.si || r.referenceNumber || '').toLowerCase(),
+  },
+  {
+    key: 'commodityQty',
+    label: 'Commodity Qty',
+    getValue: (r) => r.totalQtyDisplay || r.totalQty || '—',
+    getSortValue: (r) => (r.totalQtyDisplay || r.totalQty || '').toLowerCase(),
+  },
   { key: 'purpose', label: 'Purpose', getValue: (r) => (
     <span className="loading-list__badge loading-list__badge--purpose" data-purpose={r.purpose}>{r.purpose}</span>
   ), getSortValue: (r) => (r.purpose || '').toLowerCase() },
   { key: 'status', label: 'Status', getValue: (r) => r.status || '—', getSortValue: (r) => (r.status || '').toLowerCase() },
 ]
 
-function toLocalDatetimeValue(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function parseLocalTime(local) {
-  if (!local || !local.trim()) return null
-  const d = new Date(local)
-  return Number.isNaN(d.getTime()) ? null : d
-}
-
-function formatDateTime(iso) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleString()
+/** One clearance row per shipment plan for Ready / Sailed; pending sign-off stays per SI. */
+function collapseVerificationRowsByPlan(rows) {
+  const byPlan = new Map()
+  const singles = []
+  for (const r of rows) {
+    if (r.shipmentPlanId == null || r.apiStatus === 'PENDING_SIGNOFF') {
+      singles.push({ ...r, siblingOperationIds: [r.operationId] })
+      continue
+    }
+    const k = Number(r.shipmentPlanId)
+    if (Number.isNaN(k)) {
+      singles.push({ ...r, siblingOperationIds: [r.operationId] })
+      continue
+    }
+    if (!byPlan.has(k)) byPlan.set(k, [])
+    byPlan.get(k).push(r)
+  }
+  const merged = []
+  for (const grp of byPlan.values()) {
+    const primary = grp.reduce((a, b) => (Number(a.operationId) < Number(b.operationId) ? a : b))
+    const refs = [...new Set(grp.map((g) => g.referenceNumber).filter(Boolean))]
+    const totalQtyValues = [...new Set(grp.map((g) => g.totalQtyDisplay || g.totalQty).filter(Boolean))]
+    const qtyJoined =
+      totalQtyValues.length > 1
+        ? totalQtyValues.join('\n')
+        : totalQtyValues[0] || primary.totalQtyDisplay || primary.totalQty || '—'
+    merged.push({
+      ...primary,
+      operationId: primary.operationId,
+      siblingOperationIds: grp.map((g) => g.operationId),
+      si: refs.length > 1 ? `${refs.length} SIs: ${refs.join(' · ')}` : primary.referenceNumber || primary.si || '—',
+      totalQty: qtyJoined,
+      totalQtyDisplay: qtyJoined,
+      commodityQty: qtyJoined,
+    })
+  }
+  return [...singles, ...merged]
 }
 
 function latestTimelineInstant(events) {
@@ -61,6 +101,25 @@ function latestTimelineInstant(events) {
 }
 
 export default function Verification() {
+  const [searchParams] = useSearchParams()
+  const scheduleEntryTz = getScheduleEntryTimeZone()
+  const toLocalDatetimeValue = useCallback(
+    (iso) => utcIsoToNaiveLocal(iso, scheduleEntryTz),
+    [scheduleEntryTz]
+  )
+  const parseLocalTime = useCallback(
+    (local) => {
+      if (!local || !local.trim()) return null
+      try {
+        const iso = normalizeForApi(local.trim(), scheduleEntryTz)
+        const d = new Date(iso)
+        return Number.isNaN(d.getTime()) ? null : d
+      } catch {
+        return null
+      }
+    },
+    [scheduleEntryTz]
+  )
   const { t } = useTranslation('pages')
   const { canApprove } = useRbac()
   const canApproveLoading = canApprove('loading')
@@ -75,7 +134,7 @@ export default function Verification() {
   const [submitting, setSubmitting] = useState(false)
   const [toast, setToast] = useState(null)
   const [signoffBusyId, setSignoffBusyId] = useState(null)
-  const [timelineMaxAtByOpId, setTimelineMaxAtByOpId] = useState({})
+  const [timelineMaxAtByKey, setTimelineMaxAtByKey] = useState({})
   const [siDetailId, setSiDetailId] = useState(null)
   const [siDocumentModalId, setSiDocumentModalId] = useState(null)
 
@@ -100,13 +159,18 @@ export default function Verification() {
       ])
       const pending = (pendingRaw || []).map((o) => ({
         operationId: o.id,
+        shipmentPlanId: o.shipmentPlanId ?? null,
         jettyOperationCode: o.jettyOperationCode,
         shippingInstructionId: o.shippingInstructionId ?? null,
         vesselName: o.vesselName,
         purpose: o.purpose,
-        si: `${o.referenceNumber ?? ''} · ${o.commodity ?? ''}`.trim() || '—',
+        si: o.referenceNumber ?? '—',
         referenceNumber: o.referenceNumber,
-        commodity: o.commodity,
+        commodity: o.commodityDisplay || o.commodity || '—',
+        commodityDisplay: o.commodityDisplay || o.commodity || '—',
+        totalQty: o.totalQtyDisplay || '—',
+        totalQtyDisplay: o.totalQtyDisplay || '—',
+        commodityQty: o.totalQtyDisplay || '—',
         jettyName: o.jettyName,
         status: 'Pending sign-off',
         apiStatus: 'PENDING_SIGNOFF',
@@ -115,44 +179,58 @@ export default function Verification() {
         signoffRequestedByUsername: o.signoffRequestedByUsername,
         castOffAt: o.castOffAt,
         sailedAt: o.sailedAt,
+        tbAt: o.tbAt,
         clearanceDocumentUrl: o.clearanceDocumentUrl,
         vesselPhotoUrl: o.vesselPhotoUrl,
       }))
       const ready = (signedOff || []).map((o) => ({
         operationId: o.id,
+        shipmentPlanId: o.shipmentPlanId ?? null,
         jettyOperationCode: o.jettyOperationCode,
         shippingInstructionId: o.shippingInstructionId ?? null,
         vesselName: o.vesselName,
         purpose: o.purpose,
-        si: `${o.referenceNumber ?? ''} · ${o.commodity ?? ''}`.trim() || '—',
+        si: o.referenceNumber ?? '—',
         referenceNumber: o.referenceNumber,
-        commodity: o.commodity,
+        commodity: o.commodityDisplay || o.commodity || '—',
+        commodityDisplay: o.commodityDisplay || o.commodity || '—',
+        totalQty: o.totalQtyDisplay || '—',
+        totalQtyDisplay: o.totalQtyDisplay || '—',
+        commodityQty: o.totalQtyDisplay || '—',
         jettyName: o.jettyName,
         status: 'Ready to Sail',
         apiStatus: o.status,
         castOffAt: o.castOffAt,
         sailedAt: o.sailedAt,
+        tbAt: o.tbAt,
         clearanceDocumentUrl: o.clearanceDocumentUrl,
         vesselPhotoUrl: o.vesselPhotoUrl,
       }))
       const done = (sailed || []).map((o) => ({
         operationId: o.id,
+        shipmentPlanId: o.shipmentPlanId ?? null,
         jettyOperationCode: o.jettyOperationCode,
         shippingInstructionId: o.shippingInstructionId ?? null,
         vesselName: o.vesselName,
         purpose: o.purpose,
-        si: `${o.referenceNumber ?? ''} · ${o.commodity ?? ''}`.trim() || '—',
+        si: o.referenceNumber ?? '—',
         referenceNumber: o.referenceNumber,
-        commodity: o.commodity,
+        commodity: o.commodityDisplay || o.commodity || '—',
+        commodityDisplay: o.commodityDisplay || o.commodity || '—',
+        totalQty: o.totalQtyDisplay || '—',
+        totalQtyDisplay: o.totalQtyDisplay || '—',
+        commodityQty: o.totalQtyDisplay || '—',
         jettyName: o.jettyName,
         status: 'Sailed',
         apiStatus: o.status,
         castOffAt: o.castOffAt,
         sailedAt: o.sailedAt,
+        tbAt: o.tbAt,
         clearanceDocumentUrl: o.clearanceDocumentUrl,
         vesselPhotoUrl: o.vesselPhotoUrl,
       }))
-      setRows([...pending, ...ready, ...done])
+      const pendingWithSiblings = pending.map((r) => ({ ...r, siblingOperationIds: [r.operationId] }))
+      setRows([...pendingWithSiblings, ...collapseVerificationRowsByPlan(ready), ...collapseVerificationRowsByPlan(done)])
     } catch (e) {
       setErr(e?.message || 'Failed to load clearance data')
       setRows([])
@@ -177,6 +255,12 @@ export default function Verification() {
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [expandedRows, setExpandedRows] = useState({})
   const [expandedMobileRows, setExpandedMobileRows] = useState({})
+
+  useEffect(() => {
+    if (searchParams.get('filter') === 'pending') {
+      setStatusFilter('PENDING')
+    }
+  }, [searchParams])
 
   const readyCount = rows.filter((r) => r.apiStatus === 'SIGNOFF_APPROVED').length
   const departedCount = rows.filter((r) => r.apiStatus === 'SAILED').length
@@ -211,17 +295,20 @@ export default function Verification() {
       : String(vb).localeCompare(String(va), undefined, { numeric: true })
   })
 
-  const openModal = useCallback((op) => {
-    setSubmitErr(null)
-    setModalOpId(op.operationId)
-    if (op.apiStatus === 'SAILED') {
-      setFormCastOff(toLocalDatetimeValue(op.castOffAt))
-    } else {
-      setFormCastOff(toLocalDatetimeValue(new Date().toISOString()))
-    }
-    setFormDocuments([])
-    setFormVesselPhotos([])
-  }, [])
+  const openModal = useCallback(
+    (op) => {
+      setSubmitErr(null)
+      setModalOpId(op.operationId)
+      if (op.apiStatus === 'SAILED') {
+        setFormCastOff(toLocalDatetimeValue(op.castOffAt))
+      } else {
+        setFormCastOff(nowToNaiveLocalInScheduleZone(scheduleEntryTz))
+      }
+      setFormDocuments([])
+      setFormVesselPhotos([])
+    },
+    [scheduleEntryTz, toLocalDatetimeValue]
+  )
 
   const closeModal = useCallback(() => {
     setModalOpId(null)
@@ -275,42 +362,58 @@ export default function Verification() {
     setFormVesselPhotos((prev) => [...prev, ...newOnes])
   }
 
-  const toIso = (local) => {
-    if (!local || !local.trim()) return new Date().toISOString()
-    const d = new Date(local)
-    return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString()
-  }
+  const toIso = useCallback(
+    (local) => {
+      if (!local || !local.trim()) return new Date().toISOString()
+      try {
+        return normalizeForApi(local.trim(), scheduleEntryTz)
+      } catch {
+        return new Date().toISOString()
+      }
+    },
+    [scheduleEntryTz]
+  )
 
   useEffect(() => {
     let cancelled = false
-    if (!modalOpId || timelineMaxAtByOpId[modalOpId] !== undefined) return () => { cancelled = true }
-    fetchActivityTimeline(modalOpId)
-      .then((res) => {
+    if (!modalOpId) return () => { cancelled = true }
+    const op = rows.find((r) => r.operationId === modalOpId)
+    const cacheKey = op?.shipmentPlanId != null ? `sp:${op.shipmentPlanId}` : `op:${modalOpId}`
+    if (timelineMaxAtByKey[cacheKey] !== undefined) return () => { cancelled = true }
+    const opIds = Array.isArray(op?.siblingOperationIds) && op.siblingOperationIds.length > 0 ? op.siblingOperationIds : [modalOpId]
+    Promise.all(opIds.map((id) => fetchActivityTimeline(id).catch(() => ({ events: [] }))))
+      .then((results) => {
         if (cancelled) return
-        const latest = latestTimelineInstant(res?.events)
-        setTimelineMaxAtByOpId((prev) => ({ ...prev, [modalOpId]: latest ? latest.toISOString() : null }))
+        let latest = null
+        for (const res of results) {
+          const cand = latestTimelineInstant(res?.events)
+          if (cand && (!latest || cand.getTime() > latest.getTime())) latest = cand
+        }
+        setTimelineMaxAtByKey((prev) => ({ ...prev, [cacheKey]: latest ? latest.toISOString() : null }))
       })
       .catch(() => {
         if (cancelled) return
-        setTimelineMaxAtByOpId((prev) => ({ ...prev, [modalOpId]: null }))
+        setTimelineMaxAtByKey((prev) => ({ ...prev, [cacheKey]: null }))
       })
-    return () => { cancelled = true }
-  }, [modalOpId, timelineMaxAtByOpId])
+    return () => {
+      cancelled = true
+    }
+  }, [modalOpId, rows, timelineMaxAtByKey])
 
-  const validateDepartForm = () => {
+  const validateDepartForm = useCallback(() => {
     const cast = parseLocalTime(formCastOff)
     if (!cast) return 'CAST Off time is required and must be valid.'
     if (modalOpId) {
-      const latestIso = timelineMaxAtByOpId[modalOpId]
-      if (latestIso) {
-        const latest = new Date(latestIso)
-        if (!Number.isNaN(latest.getTime()) && cast.getTime() < latest.getTime()) {
-          return `CAST Off must be on or after the latest execution log time (${formatDateTime(latestIso)}).`
-        }
-      }
+      const op = rows.find((r) => r.operationId === modalOpId)
+      const cacheKey = op?.shipmentPlanId != null ? `sp:${op.shipmentPlanId}` : `op:${modalOpId}`
+      const latestIso = timelineMaxAtByKey[cacheKey]
+      return validateCastOffDepart(cast, {
+        tbAt: op?.tbAt ?? null,
+        latestExecutionAt: latestIso ?? null,
+      })
     }
-    return null
-  }
+    return validateCastOffDepart(cast, {})
+  }, [formCastOff, modalOpId, rows, timelineMaxAtByKey, parseLocalTime])
 
   const handleSubmit = async () => {
     if (!modalOpId) return
@@ -343,7 +446,11 @@ export default function Verification() {
       }
 
       const castOffIso = toIso(formCastOff)
-      await depart(modalOpId, castOffIso, clearanceUrl, photoUrl)
+      if (op?.shipmentPlanId != null) {
+        await departShipmentPlan(op.shipmentPlanId, castOffIso, clearanceUrl, photoUrl)
+      } else {
+        await depart(modalOpId, castOffIso, clearanceUrl, photoUrl)
+      }
       await load()
       setToast({ message: `Departure recorded for ${op?.vesselName || 'vessel'}.`, variant: 'success' })
       closeModal()
@@ -357,7 +464,9 @@ export default function Verification() {
   const modalRow = modalOpId ? rows.find((r) => r.operationId === modalOpId) : null
   const isSailed = modalRow?.apiStatus === 'SAILED'
   const formValidationError = isSailed ? null : validateDepartForm()
-  const modalTimelineMaxAt = modalOpId ? timelineMaxAtByOpId[modalOpId] : null
+  const modalTimelineCacheKey =
+    modalRow?.shipmentPlanId != null ? `sp:${modalRow.shipmentPlanId}` : modalOpId != null ? `op:${modalOpId}` : null
+  const modalTimelineMaxAt = modalTimelineCacheKey ? timelineMaxAtByKey[modalTimelineCacheKey] : null
 
   return (
     <div className="allocation-page clearance-page">
@@ -445,6 +554,8 @@ export default function Verification() {
                             ? t('clearanceColJettyOperationId')
                             : col.key === 'si'
                             ? t('clearanceColSi')
+                            : col.key === 'commodityQty'
+                              ? t('clearanceColCommodityQty')
                             : col.key === 'purpose'
                               ? t('clearanceColPurpose')
                               : col.key === 'status'
@@ -522,6 +633,8 @@ export default function Verification() {
                             ) : (
                               v.si || '—'
                             )
+                          ) : col.key === 'commodityQty' ? (
+                            renderCommodityQtyCell(v)
                           ) : (
                             col.getValue(v)
                           )}
@@ -597,7 +710,7 @@ export default function Verification() {
                             {v.apiStatus === 'PENDING_SIGNOFF' ? (
                               <>
                                 <dt>Sign-off requested</dt>
-                                <dd>{formatDateTime(v.signoffRequestedAt)}</dd>
+                                <dd>{formatDateTimeDisplay(v.signoffRequestedAt)}</dd>
                                 {v.signoffRequestedByUsername ? (
                                   <>
                                     <dt>Requested by</dt>
@@ -613,9 +726,9 @@ export default function Verification() {
                               </>
                             ) : null}
                             <dt>CAST Off</dt>
-                            <dd>{formatDateTime(v.castOffAt)}</dd>
+                            <dd>{formatDateTimeDisplay(v.castOffAt)}</dd>
                             <dt>Sailed At</dt>
-                            <dd>{formatDateTime(v.sailedAt)}</dd>
+                            <dd>{formatDateTimeDisplay(v.sailedAt)}</dd>
                           </dl>
                         </div>
                       </td>
@@ -668,12 +781,14 @@ export default function Verification() {
                       v.si || '—'
                     )}
                   </dd>
+                  <dt>{t('clearanceColCommodityQty')}</dt>
+                  <dd className="si-cargo-qty-cell">{v.totalQtyDisplay || v.totalQty || '—'}</dd>
                   <dt>{t('clearanceColPurpose')}</dt>
                   <dd>{v.purpose || '—'}</dd>
                   <dt>{t('clearanceColStatus')}</dt>
                   <dd>{v.status || '—'}</dd>
                   <dt>{t('clearanceCastOff')}</dt>
-                  <dd>{formatDateTime(v.castOffAt)}</dd>
+                  <dd>{formatDateTimeDisplay(v.castOffAt)}</dd>
                 </dl>
                 <div className="allocation-mobile-card__actions">
                   <button
@@ -746,7 +861,7 @@ export default function Verification() {
                         {v.apiStatus === 'PENDING_SIGNOFF' ? (
                           <>
                             <dt>Sign-off requested</dt>
-                            <dd>{formatDateTime(v.signoffRequestedAt)}</dd>
+                            <dd>{formatDateTimeDisplay(v.signoffRequestedAt)}</dd>
                             {v.signoffRequestedByUsername ? (
                               <>
                                 <dt>Requested by</dt>
@@ -762,9 +877,9 @@ export default function Verification() {
                           </>
                         ) : null}
                         <dt>CAST Off</dt>
-                        <dd>{formatDateTime(v.castOffAt)}</dd>
+                        <dd>{formatDateTimeDisplay(v.castOffAt)}</dd>
                         <dt>Sailed At</dt>
-                        <dd>{formatDateTime(v.sailedAt)}</dd>
+                        <dd>{formatDateTimeDisplay(v.sailedAt)}</dd>
                       </dl>
                     </div>
                   </div>
@@ -795,17 +910,28 @@ export default function Verification() {
 
             <div className="modal__section">
               <label htmlFor="clearance-cast-off" className="modal__label">CAST Off</label>
-              <input
-                id="clearance-cast-off"
-                type="datetime-local"
-                className="modal__input"
-                value={formCastOff}
-                onChange={(e) => setFormCastOff(e.target.value)}
-                disabled={isSailed}
-              />
+              {isSailed ? (
+                <input
+                  id="clearance-cast-off"
+                  type="text"
+                  className="modal__input"
+                  value={formatDateTimeDisplay(modalRow?.castOffAt)}
+                  readOnly
+                  disabled
+                  aria-readonly="true"
+                />
+              ) : (
+                <input
+                  id="clearance-cast-off"
+                  type="datetime-local"
+                  className="modal__input"
+                  value={formCastOff}
+                  onChange={(e) => setFormCastOff(e.target.value)}
+                />
+              )}
               {modalTimelineMaxAt ? (
                 <p className="text-steel" style={{ marginTop: 6, fontSize: 'var(--font-size-small)' }}>
-                  Must be on/after latest execution log time: <strong>{formatDateTime(modalTimelineMaxAt)}</strong>
+                  Must be on/after latest execution log time: <strong>{formatDateTimeDisplay(modalTimelineMaxAt)}</strong>
                 </p>
               ) : null}
             </div>
@@ -850,14 +976,16 @@ export default function Verification() {
             {isSailed ? (
               <div className="modal__section">
                 <h3 className="modal__label">Recorded departure</h3>
-                <p className="text-steel">Sailed at: {formatDateTime(modalRow?.sailedAt)}</p>
+                <p className="text-steel">Sailed at: {formatDateTimeDisplay(modalRow?.sailedAt)}</p>
                 <ul className="loading-step-card__file-list">
                   <li>
                     Clearance document:{' '}
                     {modalRow?.clearanceDocumentUrl ? (
-                      <a href={resolveUploadUrl(modalRow.clearanceDocumentUrl)} target="_blank" rel="noreferrer">
-                        Open file
-                      </a>
+                      <FilePreviewLink
+                        url={resolveUploadUrl(modalRow.clearanceDocumentUrl)}
+                        name="Clearance document"
+                        className="file-preview-link"
+                      />
                     ) : (
                       '—'
                     )}
@@ -865,9 +993,12 @@ export default function Verification() {
                   <li>
                     Vessel photo:{' '}
                     {modalRow?.vesselPhotoUrl ? (
-                      <a href={resolveUploadUrl(modalRow.vesselPhotoUrl)} target="_blank" rel="noreferrer">
-                        Open file
-                      </a>
+                      <FilePreviewLink
+                        url={resolveUploadUrl(modalRow.vesselPhotoUrl)}
+                        name="Vessel photo"
+                        mimeType="image/jpeg"
+                        className="file-preview-link"
+                      />
                     ) : (
                       '—'
                     )}

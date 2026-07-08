@@ -119,13 +119,29 @@ export function getApiOrigin() {
 }
 
 /**
- * Build an absolute URL for files under `/uploads` so links work from the Vite dev
- * server (e.g. localhost:5173) and always hit the API host that serves static uploads.
+ * Build an absolute URL for stored files. Legacy `/uploads/...` paths are rewritten to
+ * authenticated `/api/v1/stored-files/view` (C-01).
  */
 export function resolveUploadUrl(urlOrPath) {
   if (urlOrPath == null || urlOrPath === '') return '#'
   const u = String(urlOrPath).trim()
   if (u.startsWith('http://') || u.startsWith('https://') || u.startsWith('blob:')) return u
+  if (u.startsWith('/uploads/') || u.startsWith('uploads/')) {
+    const rel = u.replace(/^\/?uploads\//, '')
+    const storedPath = `${BASE}/stored-files/view?path=${encodeURIComponent(rel)}`
+    if (isRelativeApiBase()) {
+      const origin =
+        typeof window !== 'undefined' && window.location?.origin
+          ? window.location.origin
+          : 'http://localhost:3000'
+      return `${origin}${storedPath}`
+    }
+    return storedPath
+  }
+  if (u.startsWith('/api/v1/')) {
+    const origin = getApiOrigin()
+    return `${origin}${u}`
+  }
   const origin = getApiOrigin()
   const path = u.startsWith('/') ? u : `/${u}`
   return `${origin}${path}`
@@ -184,6 +200,16 @@ export async function apiPut(path, body) {
   return parseResponse(res)
 }
 
+export async function apiPatch(path, body) {
+  const url = `${BASE}${path.startsWith('/') ? path : `/${path}`}`
+  const res = await fetchWithTimeout(url, {
+    method: 'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  })
+  return parseResponse(res)
+}
+
 export async function apiDelete(path) {
   const url = `${BASE}${path.startsWith('/') ? path : `/${path}`}`
   const res = await fetchWithTimeout(url, {
@@ -192,4 +218,29 @@ export async function apiDelete(path) {
   })
   if (res.status === 204) return null
   return parseResponse(res)
+}
+
+/**
+ * Fetch a binary file with session cookie + port scope headers (for img/iframe preview).
+ * Returns a blob: URL the caller must revoke when done.
+ */
+export async function fetchAuthenticatedBlobUrl(absoluteUrl, timeoutMs = 60000) {
+  if (!absoluteUrl || absoluteUrl.startsWith('blob:')) return absoluteUrl
+  const res = await fetchWithTimeout(
+    absoluteUrl,
+    { headers: authHeaders({ Accept: '*/*' }) },
+    timeoutMs
+  )
+  if (!res.ok) {
+    let msg = res.statusText
+    try {
+      const data = await res.json()
+      msg = data?.error || data?.message || msg
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(res.status, msg, null)
+  }
+  const blob = await res.blob()
+  return URL.createObjectURL(blob)
 }

@@ -1,16 +1,15 @@
 ## Jetty Planning System – Dev Notes (Handover)
 
-**Last updated:** 2026-03-24  
+**Last updated:** 2026-06-24  
 **Primary branch in use:** `sit`
 
 ---
 
 ### 1. Current code status
 
-- **Active branch:** `sit` (tracking `origin/sit`)
-- **Latest commit on `sit`:** `3fc16c3` – *feat: Activity Log, Admin (Users/Roles/Departments), Master data, Reports, Clearance, Docs*
-- **Other key commit:** `2bed8a3` – *Allocation & Berthing, Loading module, SI Approval/View, UI updates*
-- **Main branch:** `main` is older, used only for the initial mockup and README; all real work happens on `sit`.
+- **Active branch:** `sit` (tracking `dwsit/sit` on GitHub)
+- **Latest commit on `sit`:** see `git log -1` on branch `sit` (aligned with former `sit-post-bontang-visit` as of 2026-06-24)
+- **Production branch:** `main` on `dwsitproject-hub/Jetty-Planning-System`
 
 To sync any machine with the current work:
 
@@ -45,17 +44,18 @@ The `docker-compose.yml` in the repo builds from `Frontend/Dockerfile` and serve
 **Date/time display (no ` LT` suffix):** Use the shared helper so formatting and legacy string cleanup stay consistent:
 
 ```js
-import { formatDateTimeDisplay, stripLegacyDatetimeLt } from '../utils/formatDateTimeDisplay'
+import { formatDateDisplay, formatDateTimeDisplay, stripLegacyDatetimeLt } from '../utils/formatDateTimeDisplay'
 ```
 
-- `formatDateTimeDisplay(value)` — ISO / timestamps → `dd/mm HH:mm` (browser local). If the value is an unparseable string (e.g. old API text), a trailing ` LT` is stripped.
+- `formatDateTimeDisplay(value)` — ISO / timestamps → `DD/MMM/YYYY HH:mm` (24-hour, browser local). If the value is an unparseable string (e.g. old API text), a trailing ` LT` is stripped.
+- `formatDateDisplay(value)` — date-only values → `DD/MMM/YYYY` (locale-aware via `jps_locale`).
 - `stripLegacyDatetimeLt(value)` — only removes trailing ` LT` when you must show a string as-is.
 
 ---
 
 ### 3. Staging deployment (SIT)
 
-- **Staging branch:** `sit` (same commit `3fc16c3` as local).
+- **Staging branch:** `sit` (pull `origin sit` or `dwsit sit` on staging servers).
 - **Deployment model:** nginx container serving static build from Vite.
 - **Key files:**
   - `Frontend/Dockerfile` – builds production bundle and nginx image.

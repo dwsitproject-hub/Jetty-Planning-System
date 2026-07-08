@@ -1,8 +1,69 @@
-# Jetty Planning System (JPS) — Mockup
+# Jetty Planning & Monitoring System (JPS)
 
-Web-based mockup for CPO Downstream Jetty Operations. No backend or database; all data is in-memory. Built with **React**, **Vite**, and the **KPN Downstream** design tokens (see `Assets/design-tokens.json`). Responsive for web and mobile.
+Web application for CPO downstream jetty planning and execution.  
+This repository is an active full-stack implementation (not an in-memory mockup only).
 
-## Run locally (development)
+## What JPS covers
+
+- **Dashboard**: vessel pipeline, slot occupancy, port activity, weather/ops visibility.
+- **Allocation & Berthing**: incoming queue, jetty schedule (Gantt), confirm berthing, shift-out/re-dock.
+- **At-Berth Executions**: pre-checking, operational activities, post-checking, timeline/detail views.
+- **Clearance**: pending sign-off, ready-to-sail and sailed flows.
+- **Shipping Instructions**: SI create/update/approve flows with shared SI detail modal links.
+- **Master & Admin**: ports, jetties, SI lookups, users, roles/permissions (RBAC).
+- **Demurrage Risk Calculator**: scenario-based ETA completion estimation from operation context.
+
+## Architecture (high level)
+
+- **Frontend**: React + Vite (`Frontend/`)
+- **Backend API**: Node.js + Express (`Backend/`)
+- **Database**: PostgreSQL (migrations under `Backend/migrations/`)
+- **Container runtime**: Docker Compose for backend/db
+
+## Rebuild after code changes (API + frontend)
+
+**Full guide:** [Docs/Guide/REBUILD-GUIDE.md](Docs/Guide/REBUILD-GUIDE.md)
+
+From repo root (requires Docker for the API):
+
+```bash
+npm run rebuild
+```
+
+Split helpers (no extra top-level folder):
+
+- **Backend:** `node Backend/scripts/rebuild-docker.mjs` or `npm run rebuild:backend` (from root) / `npm run rebuild:docker` (from `Backend/`)
+- **Frontend:** `node Frontend/scripts/rebuild.mjs` or `npm run rebuild:frontend` (from root) / `npm run rebuild` (from `Frontend/`)
+- `node Frontend/scripts/rebuild.mjs --skip-build` — install deps only, no production build
+
+`npm run rebuild` runs backend then frontend scripts in sequence.
+
+Then start the dev server if needed: `npm run dev` (Vite; does not use `dist/`).
+
+## Local development quick start
+
+### 1) Start backend (API + DB)
+
+From repo root:
+
+```bash
+docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d
+```
+
+API should be available at:
+
+- `http://localhost:3000/health`
+- `http://localhost:3000/api/v1/health`
+
+### 2) Start frontend (Vite dev server)
+
+From repo root:
+
+```bash
+npm run dev
+```
+
+or directly:
 
 ```bash
 cd Frontend
@@ -10,38 +71,30 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173).
+Open: [http://localhost:5173](http://localhost:5173)
 
-## Run with Docker (environment parity)
+## Common local issue after reboot
 
-Build and serve the production bundle with nginx:
+If Docker is running but `localhost:5173` is down, backend is up but frontend dev server is not started yet.  
+Run `npm run dev` in `Frontend/`.
 
-```bash
-docker-compose up --build
-```
+See troubleshooting docs:
 
-Open [http://localhost:3001](http://localhost:3001).
+- `Docs/Troubleshoot/LOCAL-FRONTEND-BACKEND-STARTUP.md`
+- `Docs/Troubleshoot/REBUILD-RESTART-CONTAINERS.md`
 
-## Features (mockup)
+## Documentation
 
-- **Dashboard (Command Center):** Live Line-Up (5 berths), Active Vessel Detail, Pain Point Tracker, Upcoming Queue
-- **Nomination:** New nomination form; list of received nominations with timestamp
-- **Planning:** Shore tank levels; Line-Up board with reorder (up/down)
-- **Operations:** Docking (arrival/connection); Palka Cleaning (15 palkas, start/end)
-- **Quality:** Loading vs Discharge CPO comparison (FFA, DOBI, IV)
-- **Verification:** Dry Certificate; tank status and digital sign; Vessel Sailed lock until CLEAN
+- Functional behavior and user flows:  
+  `Docs/FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md`
+- Technical architecture, API/data contracts, addendums:  
+  `Docs/TECH-SPEC-Jetty-Planning-System.md`
+- Deployment guides:  
+  `Docs/Guide/`
 
-## Tech stack
+## Repo layout
 
-- React 18, Vite 5, React Router 6
-- CSS with design tokens (no UI library)
-- Mock data in `Frontend/src/data/mockData.js` — replace with API calls when building the real application
-
-## Project structure
-
-- `Frontend/src/components/` — Layout (top bar, sidebar)
-- `Frontend/src/pages/` — Dashboard, Nomination, Planning, Operations, Quality, Verification
-- `Frontend/src/data/mockData.js` — In-memory mock data
-- `Frontend/src/styles/` — design-tokens.css, app.css, dashboard.css
-- `Assets/design-tokens.json` — Design system source
-- `Frontend/Dockerfile` + `docker-compose.yml` — Container build and run
+- `Frontend/` - web app (React, Vite)
+- `Backend/` - API, middleware, routes, migrations
+- `Docs/` - specs, guides, troubleshooting, plans
+- `Assets/` - design/supporting assets

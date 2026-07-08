@@ -87,7 +87,13 @@ Shipping Instruction → Allocation & Berthing → At-Berth → Loading/Unloadin
 | **TECH-SPEC-Jetty-Planning-System.md** | Technical specification: domains, workflows, API design, data model, RBAC, NFRs, implementation backlog, allocation overview & at-berth API details, shared datetime util. |
 | **technical-architecture.md** | Technical architecture: stack, environments, data model, APIs, security, deployment. |
 | **Dev-Notes.md** | Dev handover: branch status, local run, staging deployment, docs reference, next steps. |
-| **ALICLOUD-DEPLOYMENT-GUIDE.md** | Deployment on Alicloud Ubuntu: security group, Docker, optional PostgreSQL, migrations, troubleshooting. |
+| **Guide/ALICLOUD-DEPLOYMENT-GUIDE.md** | Deployment on Alicloud Ubuntu: security group, Docker, optional PostgreSQL, migrations, troubleshooting. |
+| **Guide/THREE-SERVER-DB-SPLIT-GUIDE.md** | Migrate from two-server (app + API/DB) to three-server (app, API, dedicated PostgreSQL): host audit, Compose split, networking, practice migration. |
+| **Guide/THREE-SERVER-DB-CUTOVER-RUNBOOK.md** | After-hours production cutover: prerequisites, final dump/restore, API-only compose, smoke test, rollback. |
+| **Guide/ECS-DISK-SPACE-CHECK-AND-EXPAND.md** | ECS disk full (`No space left on device`): check `df`/`lsblk`, free Docker/apt space, resize or attach disks (FFmpeg / Jetty Live). |
+| **Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md** | Jetty Live RTSP stream on the app server (`rtsp-stream-viewer`, nginx, systemd). |
+| **Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md** | **External integration (handoff doc):** full API contract + staging URLs (`172.28.92.56:3080`), self-service tests, commodity mapping, and build guide for partner developers. |
+| **Guide/INBOUND-SHIPPING-INSTRUCTION-API-TEST-GUIDE.md** | **Integration API testing:** step-by-step local/staging test guide (curl, Postman, API key setup, error cases, operator lifecycle simulation). |
 | **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md** | **Functional spec:** Jetty schedule Gantt, arrival/berthing modals, **At-Berth Executions** list behaviour, **date/time display** rules (no “LT”), and related user-visible logic. |
 | **UAT-PRE-TRAINING-Scripts.md** | **Pre-UAT training:** facilitator scripts module-by-module (starts with **Shipping Instruction**); Pass/Fail tables and links to functional/technical specs. |
 | **Plan/UAT-COMMODITY-PRECHECK-OPERATIONAL-PLAN.md** | **UAT rollout:** commodity type, pre-check subprocess merges (`inspection`, `initial_cargo_checking`), operational **OPENING** / start-only rules, cargo handling method on Opening (server-derived), migrations `051`–`055`, short test matrix. |
@@ -174,6 +180,15 @@ Details: **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md** (what it does for use
 | **Dashboard additions** | Port Activity chart, Jetty status, SLA-at-risk details, and Performance KPIs (24h/7d) are documented and aligned with allocation overview rules. |
 | **Multi-port shell** | Dedicated **Choose port** flow (`/select-port`) with session-scoped active port and header-based Change port behavior. |
 | **At-berth and SI detail alignment** | At-berth full-details timing order is standardized; SI hyperlink opens shared modal across Shipping Instruction, Allocation, and At-Berth pages. |
+
+### 6.8 Master Menu list tables (2026-05-22)
+
+| Topic | In short |
+|-------|-----------|
+| **Sort and filter** | Master list pages (Port, Jetty, Term–Commodity, Freight Terms) use the same column sort + per-column text filters as the Allocation incoming queue. |
+| **SI lookup UI** | **Sort order** is hidden on Term/Shipper/Loading Port/Surveyor/Agent/Commodity admin tables; API **`sort_order`** still orders dropdowns. |
+
+See **FUNCTIONAL-SPEC §2.17** and **TECH-SPEC §0.28**.
 
 ---
 

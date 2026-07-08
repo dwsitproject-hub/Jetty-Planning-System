@@ -1,0 +1,146 @@
+/* Jetty Live stream — canvas fits Jetty card chrome */
+
+.jetty-live-helper-banner {
+  margin-bottom: 1rem;
+  border-left: 4px solid var(--color-danger, #b91c1c);
+  background: #fef2f2;
+}
+
+.jetty-live-helper-banner__title {
+  margin: 0;
+  color: var(--color-danger, #b91c1c);
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.jetty-live-helper-banner__hint {
+  margin: 0.5rem 0 0;
+}
+
+/* Collapsible stream health (aligns with Loading vessel-detail collapsible pattern) */
+.jetty-live-health-card.jetty-live-health-card--collapsible {
+  padding: 0;
+}
+
+.jetty-live-health-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--spacing-3, 12px) var(--spacing-4, 16px);
+  font-size: var(--font-size-small, 0.875rem);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-text-charcoal, #1e293b);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-primary, inherit);
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.jetty-live-health-card__header:hover {
+  background: var(--color-bg-lighter, #f8fafc);
+}
+
+.jetty-live-health-card--open .jetty-live-health-card__header {
+  border-bottom: 1px solid var(--color-border-light, #e5e7eb);
+}
+
+.jetty-live-health-card__header-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-2, 8px);
+  min-width: 0;
+}
+
+.jetty-live-health-card__title {
+  margin: 0;
+}
+
+.jetty-live-health-card__summary {
+  font-size: var(--font-size-small, 0.875rem);
+  font-weight: var(--font-weight-semibold, 600);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 12rem;
+}
+
+.jetty-live-health-card__summary--online {
+  color: var(--color-success-text, #15803d);
+}
+
+.jetty-live-health-card__summary--starting {
+  color: #b45309;
+}
+
+.jetty-live-health-card__summary--offline {
+  color: var(--color-danger, #b91c1c);
+}
+
+.jetty-live-health-card__chevron {
+  flex-shrink: 0;
+  margin-left: var(--spacing-2, 8px);
+  color: var(--color-text-steel, #64748b);
+  font-size: 0.75em;
+}
+
+.jetty-live-health-card__body {
+  padding: var(--spacing-3, 12px) var(--spacing-4, 16px) var(--spacing-4, 16px);
+}
+
+.jetty-live-health-card__grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+.jetty-live-health-card__alert {
+  margin-top: 0.75rem;
+  color: var(--color-danger, #c00);
+}
+
+.jetty-live-health-card__source {
+  margin-top: 0.75rem;
+}
+
+.jetty-live-health-card__actions {
+  margin-top: 1rem;
+}
+
+.jetty-live-canvas-wrap {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-card, 12px);
+  background: #0a0a0a;
+  border: 1px solid var(--color-border-light, #e5e7eb);
+}
+
+.jetty-live-canvas-wrap canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: min(70vh, 720px);
+  margin: 0 auto;
+}
+
+.jetty-live-meta {
+  font-size: var(--font-size-small, 0.875rem);
+  color: var(--color-text-muted, #64748b);
+}
+
+.jetty-live-status--online {
+  color: var(--color-success-text, #15803d);
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.jetty-live-status--starting {
+  color: #b45309;
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.jetty-live-status--offline {
+  color: var(--color-danger, #b91c1c);
+  font-weight: var(--font-weight-semibold, 600);
+}

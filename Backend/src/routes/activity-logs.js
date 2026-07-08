@@ -48,12 +48,13 @@ router.get('/', ...requirePageView('activity-log'), async (req, res) => {
   const rows = r.rows || [];
   const hasMore = rows.length > limit;
   const sliced = hasMore ? rows.slice(0, limit) : rows;
+  const enriched = await enrichPortNamesOnActivityRows(sliced);
   const nextCursor = hasMore
     ? `${sliced[sliced.length - 1].created_at.toISOString()}|${sliced[sliced.length - 1].id}`
     : null;
 
   res.json({
-    items: sliced.map((row) => ({
+    items: enriched.map((row) => ({
       id: row.id,
       pageKey: row.page_key,
       action: row.action,
@@ -62,7 +63,7 @@ router.get('/', ...requirePageView('activity-log'), async (req, res) => {
       entityLabel: row.entity_label,
       summary: row.summary,
       changes: row.changes_json ?? null,
-      meta: row.meta_json ?? null,
+      meta: parseMetaJson(row.meta_json),
       actorUserId: row.actor_user_id,
       actorUsername: row.actor_username,
       createdAt: row.created_at,
@@ -70,6 +71,45 @@ router.get('/', ...requirePageView('activity-log'), async (req, res) => {
     nextCursor,
   });
 });
+
+function parseMetaJson(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/** Replace legacy "Port 4" labels with the port name from DB (includes soft-deleted ports). */
+async function enrichPortNamesOnActivityRows(rows) {
+  const portIds = [
+    ...new Set(
+      rows
+        .filter((row) => row.entity_type === 'Port' && row.entity_id != null && row.entity_id !== '')
+        .map((row) => parseInt(row.entity_id, 10))
+        .filter((n) => Number.isFinite(n) && n > 0)
+    ),
+  ];
+  if (!portIds.length) return rows;
+
+  const namesRes = await pool.query(`SELECT id, name FROM ports WHERE id = ANY($1::bigint[])`, [portIds]);
+  const nameById = new Map(namesRes.rows.map((p) => [Number(p.id), p.name]));
+
+  return rows.map((row) => {
+    if (row.entity_type !== 'Port' || row.entity_id == null || row.entity_id === '') return row;
+    const pid = parseInt(row.entity_id, 10);
+    const portName = nameById.get(pid);
+    if (!portName) return row;
+    const meta = parseMetaJson(row.meta_json) || {};
+    return {
+      ...row,
+      entity_label: portName,
+      meta_json: { ...meta, portId: pid, portName },
+    };
+  });
+}
 
 export default router;
 

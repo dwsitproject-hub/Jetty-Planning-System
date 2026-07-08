@@ -7,6 +7,10 @@ import { pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { loadUserAssignedPorts, NO_PORT_MESSAGE } from '../middleware/port-scope.js';
 import { requireAdminPageView } from '../middleware/permissions.js';
+import { getDiscoveryDocument } from '../lib/oidc-client.js';
+import { assertOidcConfigured } from '../lib/oidc-config.js';
+import { createPkcePair, createSignedState, setOidcFlowCookie } from '../lib/oidc-flow.js';
+import { logAuthEvent } from '../lib/auth-events.js';
 
 const router = express.Router();
 
@@ -18,6 +22,7 @@ function toUser(row) {
       .map((p) => ({
         id: Number(p.id),
         name: p.name ?? '',
+        scheduleTimezone: p.scheduleTimezone ?? p.schedule_timezone ?? 'Asia/Jakarta',
       }));
   }
   return {
@@ -29,6 +34,18 @@ function toUser(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     ...(assignedPorts ? { assignedPorts } : {}),
+  };
+}
+
+function toSsoStatus(row, linkedByMode = null) {
+  const sub = typeof row?.oidc_sub === 'string' ? row.oidc_sub : '';
+  const subjectFingerprint = sub ? `...${sub.slice(-6)}` : null;
+  return {
+    linked: Boolean(sub),
+    authSource: row?.auth_source || 'local',
+    linkedAt: row?.updated_at || null,
+    linkedByMode,
+    subjectFingerprint,
   };
 }
 
@@ -51,6 +68,46 @@ router.get('/me', requireAuth, async (req, res) => {
   res.json(toUser(row));
 });
 
+router.get('/me/sso-status', requireAuth, async (req, res) => {
+  const result = await pool.query(
+    `SELECT id, auth_source, oidc_sub, updated_at
+     FROM users
+     WHERE id = $1 AND deleted_at IS NULL`,
+    [req.userId]
+  );
+  const row = result.rows[0];
+  if (!row) return res.status(404).json({ error: 'User not found' });
+  res.json(toSsoStatus(row));
+});
+
+router.post('/me/sso-connect/start', requireAuth, async (req, res) => {
+  const me = await pool.query(
+    `SELECT id, email, is_active
+     FROM users
+     WHERE id = $1 AND deleted_at IS NULL`,
+    [req.userId]
+  );
+  const row = me.rows[0];
+  if (!row) return res.status(404).json({ error: 'User not found' });
+  if (!row.is_active) return res.status(403).json({ error: 'User is inactive' });
+
+  const cfg = assertOidcConfigured();
+  const discovery = await getDiscoveryDocument(cfg.discoveryUrl);
+  const { verifier, challenge, method } = createPkcePair();
+  const state = createSignedState({ verifier, mode: 'connect_sso' });
+  setOidcFlowCookie(res, { state, verifier });
+  const authUrl = new URL(discovery.authorization_endpoint);
+  authUrl.searchParams.set('response_type', 'code');
+  authUrl.searchParams.set('client_id', cfg.clientId);
+  authUrl.searchParams.set('redirect_uri', cfg.redirectUri);
+  authUrl.searchParams.set('scope', cfg.scopes);
+  authUrl.searchParams.set('state', state);
+  authUrl.searchParams.set('code_challenge', challenge);
+  authUrl.searchParams.set('code_challenge_method', method);
+  logAuthEvent('oidc.link.start', { mode: 'connect_sso', userId: req.userId, ip: req.ip });
+  res.json({ url: authUrl.toString(), mode: 'connect_sso' });
+});
+
 router.get('/me/ports', requireAuth, async (req, res) => {
   const assignedPorts = await loadUserAssignedPorts(req.userId);
   res.json({
@@ -58,6 +115,47 @@ router.get('/me/ports', requireAuth, async (req, res) => {
     hasAssignedPort: assignedPorts.length > 0,
     noPortMessage: NO_PORT_MESSAGE,
   });
+});
+
+router.put('/me/password', requireAuth, async (req, res) => {
+  const { current_password: currentPassword, new_password: newPassword } = req.body || {};
+
+  if (currentPassword === undefined || currentPassword === null || String(currentPassword).length === 0) {
+    return res.status(400).json({ error: 'current_password is required' });
+  }
+  if (newPassword === undefined || newPassword === null || String(newPassword).length < 6) {
+    return res.status(400).json({ error: 'new_password must be at least 6 characters' });
+  }
+  if (String(newPassword) === String(currentPassword)) {
+    return res.status(400).json({ error: 'new_password must be different from current password' });
+  }
+
+  const result = await pool.query(
+    `SELECT id, password_hash, auth_source, is_active
+     FROM users
+     WHERE id = $1 AND deleted_at IS NULL`,
+    [req.userId]
+  );
+  const row = result.rows[0];
+  if (!row) return res.status(404).json({ error: 'User not found' });
+  if (!row.is_active) return res.status(403).json({ error: 'User is inactive' });
+  if ((row.auth_source || 'local') !== 'local') {
+    return res.status(403).json({ error: 'Password cannot be changed for SSO accounts' });
+  }
+
+  const passwordOk = await bcrypt.compare(String(currentPassword), row.password_hash);
+  if (!passwordOk) {
+    logAuthEvent('local.password.change.failure', { reason: 'bad_current_password', userId: req.userId, ip: req.ip });
+    return res.status(401).json({ error: 'Invalid current password' });
+  }
+
+  const hash = await bcrypt.hash(String(newPassword), 10);
+  await pool.query(
+    `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+    [hash, req.userId]
+  );
+  logAuthEvent('local.password.change', { userId: req.userId, ip: req.ip });
+  res.status(204).send();
 });
 
 // All routes below this line are admin-only.
@@ -75,7 +173,11 @@ router.get('/', async (req, res) => {
        u.updated_at,
        COALESCE(
          JSON_AGG(
-           DISTINCT JSONB_BUILD_OBJECT('id', p.id, 'name', p.name)
+           DISTINCT JSONB_BUILD_OBJECT(
+             'id', p.id,
+             'name', p.name,
+             'scheduleTimezone', p.schedule_timezone
+           )
          ) FILTER (WHERE up.id IS NOT NULL),
          '[]'::json
        ) AS assigned_ports
@@ -103,6 +205,81 @@ router.get('/:id', async (req, res) => {
   );
   if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
   res.json(toUser(result.rows[0]));
+});
+
+router.get('/:id/sso-status', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  const result = await pool.query(
+    `SELECT id, email, auth_source, oidc_sub, updated_at, is_active
+     FROM users WHERE id = $1 AND deleted_at IS NULL`,
+    [id]
+  );
+  const row = result.rows[0];
+  if (!row) return res.status(404).json({ error: 'User not found' });
+  res.json({
+    userId: row.id,
+    email: row.email ?? null,
+    isActive: row.is_active !== false,
+    ...toSsoStatus(row, 'admin'),
+  });
+});
+
+router.post('/:id/sso-link/start', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  const userResult = await pool.query(
+    `SELECT id, email, is_active
+     FROM users WHERE id = $1 AND deleted_at IS NULL`,
+    [id]
+  );
+  const user = userResult.rows[0];
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (!user.is_active) return res.status(403).json({ error: 'Target user is inactive' });
+  const expectedEmail = typeof user.email === 'string' ? user.email.trim().toLowerCase() : '';
+  if (!expectedEmail) {
+    return res.status(409).json({ error: 'Target user must have an email before generating SSO link' });
+  }
+  const cfg = assertOidcConfigured();
+  const discovery = await getDiscoveryDocument(cfg.discoveryUrl);
+  const { verifier, challenge, method } = createPkcePair();
+  const state = createSignedState({
+    verifier,
+    mode: 'admin_prelink',
+    targetUserId: id,
+    expectedEmail,
+  });
+  const authUrl = new URL(discovery.authorization_endpoint);
+  authUrl.searchParams.set('response_type', 'code');
+  authUrl.searchParams.set('client_id', cfg.clientId);
+  authUrl.searchParams.set('redirect_uri', cfg.redirectUri);
+  authUrl.searchParams.set('scope', cfg.scopes);
+  authUrl.searchParams.set('state', state);
+  authUrl.searchParams.set('code_challenge', challenge);
+  authUrl.searchParams.set('code_challenge_method', method);
+  logAuthEvent('oidc.link.start', { mode: 'admin_prelink', actorUserId: req.userId, targetUserId: id, ip: req.ip });
+  res.json({
+    url: authUrl.toString(),
+    targetUserId: id,
+    expectedEmail,
+    expiresInSeconds: 600,
+  });
+});
+
+router.post('/:id/sso-unlink', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+  const result = await pool.query(
+    `UPDATE users
+     SET oidc_sub = NULL, updated_at = NOW()
+     WHERE id = $1 AND deleted_at IS NULL
+     RETURNING id, auth_source, oidc_sub, updated_at`,
+    [id]
+  );
+  if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+  logAuthEvent('oidc.unlink.success', { actorUserId: req.userId, targetUserId: id, reason: reason || null, ip: req.ip });
+  res.json({ userId: id, ...toSsoStatus(result.rows[0], 'admin') });
 });
 
 router.get('/:id/ports', async (req, res) => {

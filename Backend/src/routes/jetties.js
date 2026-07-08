@@ -8,7 +8,16 @@ import { writeActivityLog } from '../lib/activity-log.js';
 import { countBlockingOperationsOnJetty, isJettyUnavailableMasterStatus } from '../lib/jetty-blocking.js';
 
 const VALID_STATUSES = ['Available', 'Out of Service'];
+const MAX_RTSP_LINK_CHARS = 512;
 const router = express.Router();
+
+function normalizeRtspLink(raw) {
+  if (raw == null || raw === '') return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  if (s.length > MAX_RTSP_LINK_CHARS) return { error: `rtsp_link must be at most ${MAX_RTSP_LINK_CHARS} characters` };
+  return s;
+}
 router.use(...requirePageView('master-jetty'));
 
 router.get('/', async (req, res) => {
@@ -18,7 +27,7 @@ router.get('/', async (req, res) => {
     const id = parseInt(portId, 10);
     if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid port_id' });
     result = await pool.query(
-      `SELECT j.id, j.port_id, j.order_no, j.name, j.description, j.status, j.capacity, j.created_at, j.updated_at,
+      `SELECT j.id, j.port_id, j.order_no, j.name, j.description, j.rtsp_link, j.status, j.capacity, j.created_at, j.updated_at,
               p.name AS port_name
        FROM jetties j JOIN ports p ON j.port_id = p.id AND p.deleted_at IS NULL
        WHERE j.port_id = $1 AND j.deleted_at IS NULL ORDER BY j.order_no ASC, j.name ASC`,
@@ -26,7 +35,7 @@ router.get('/', async (req, res) => {
     );
   } else {
     result = await pool.query(
-      `SELECT j.id, j.port_id, j.order_no, j.name, j.description, j.status, j.capacity, j.created_at, j.updated_at,
+      `SELECT j.id, j.port_id, j.order_no, j.name, j.description, j.rtsp_link, j.status, j.capacity, j.created_at, j.updated_at,
               p.name AS port_name
        FROM jetties j JOIN ports p ON j.port_id = p.id AND p.deleted_at IS NULL
        WHERE j.deleted_at IS NULL
@@ -40,7 +49,7 @@ router.get('/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const result = await pool.query(
-    `SELECT j.id, j.port_id, j.order_no, j.name, j.description, j.status, j.capacity, j.created_at, j.updated_at,
+    `SELECT j.id, j.port_id, j.order_no, j.name, j.description, j.rtsp_link, j.status, j.capacity, j.created_at, j.updated_at,
             p.name AS port_name
      FROM jetties j JOIN ports p ON j.port_id = p.id AND p.deleted_at IS NULL
      WHERE j.id = $1 AND j.deleted_at IS NULL`,
@@ -51,10 +60,12 @@ router.get('/:id', async (req, res) => {
 });
 
 router.post('/', ...requirePageEdit('master-jetty'), async (req, res) => {
-  const { port_id, order_no, name, description, capacity } = req.body || {};
+  const { port_id, order_no, name, description, capacity, rtsp_link } = req.body || {};
   if (port_id == null || !name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'port_id and name are required' });
   }
+  const rtspLink = normalizeRtspLink(rtsp_link);
+  if (rtspLink?.error) return res.status(400).json({ error: rtspLink.error });
   const portId = parseInt(port_id, 10);
   if (Number.isNaN(portId)) return res.status(400).json({ error: 'Invalid port_id' });
   const portOk = await pool.query(
@@ -67,10 +78,10 @@ router.post('/', ...requirePageEdit('master-jetty'), async (req, res) => {
   const cap = capRaw == null || Number.isNaN(capRaw) ? null : capRaw;
   if (cap != null && cap < 1) return res.status(400).json({ error: 'capacity must be an integer >= 1' });
   const result = await pool.query(
-    `INSERT INTO jetties (port_id, order_no, name, description, capacity)
-     VALUES ($1, $2, $3, $4, COALESCE($5, 1))
-     RETURNING id, port_id, order_no, name, description, status, capacity, created_at, updated_at`,
-    [portId, Number.isNaN(orderNo) ? 0 : orderNo, name.trim(), description?.trim() ?? null, cap]
+    `INSERT INTO jetties (port_id, order_no, name, description, capacity, rtsp_link)
+     VALUES ($1, $2, $3, $4, COALESCE($5, 1), $6)
+     RETURNING id, port_id, order_no, name, description, rtsp_link, status, capacity, created_at, updated_at`,
+    [portId, Number.isNaN(orderNo) ? 0 : orderNo, name.trim(), description?.trim() ?? null, cap, rtspLink]
   );
   const row = result.rows[0];
   const portName = await pool.query(
@@ -99,12 +110,14 @@ router.post('/', ...requirePageEdit('master-jetty'), async (req, res) => {
 router.put('/:id', ...requirePageEdit('master-jetty'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
-  const { port_id, order_no, name, description, capacity } = req.body || {};
+  const { port_id, order_no, name, description, capacity, rtsp_link } = req.body || {};
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'name is required' });
   }
+  const rtspLink = normalizeRtspLink(rtsp_link);
+  if (rtspLink?.error) return res.status(400).json({ error: rtspLink.error });
   const before = await pool.query(
-    `SELECT j.id, j.port_id, j.order_no, j.name, j.description, j.status, j.capacity, p.name AS port_name
+    `SELECT j.id, j.port_id, j.order_no, j.name, j.description, j.rtsp_link, j.status, j.capacity, p.name AS port_name
      FROM jetties j
      JOIN ports p ON j.port_id = p.id AND p.deleted_at IS NULL
      WHERE j.id = $1 AND j.deleted_at IS NULL`,
@@ -125,10 +138,11 @@ router.put('/:id', ...requirePageEdit('master-jetty'), async (req, res) => {
        capacity = COALESCE($3, capacity),
        name = $4,
        description = $5,
+       rtsp_link = $6,
        updated_at = NOW()
-     WHERE id = $6 AND deleted_at IS NULL
-     RETURNING id, port_id, order_no, name, description, status, capacity, created_at, updated_at`,
-    [portId, orderNo, cap, name.trim(), description?.trim() ?? null, id]
+     WHERE id = $7 AND deleted_at IS NULL
+     RETURNING id, port_id, order_no, name, description, rtsp_link, status, capacity, created_at, updated_at`,
+    [portId, orderNo, cap, name.trim(), description?.trim() ?? null, rtspLink, id]
   );
   if (result.rows.length === 0) return res.status(404).json({ error: 'Jetty not found' });
   const row = result.rows[0];
@@ -148,6 +162,7 @@ router.put('/:id', ...requirePageEdit('master-jetty'), async (req, res) => {
   add('Capacity', beforeRow.capacity, row.capacity);
   add('Status', beforeRow.status, row.status);
   add('Description', beforeRow.description ?? null, row.description ?? null);
+  add('RTSP link', beforeRow.rtsp_link ?? null, row.rtsp_link ?? null);
 
   writeActivityLog({
     pageKey: 'master-jetty',
@@ -266,6 +281,7 @@ function toJetty(row) {
     orderNo: row.order_no,
     name: row.name,
     description: row.description ?? null,
+    rtspLink: row.rtsp_link ?? null,
     status: row.status,
     capacity: row.capacity != null ? Number(row.capacity) : 1,
     createdAt: row.created_at,

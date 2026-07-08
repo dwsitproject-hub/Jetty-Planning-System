@@ -111,3 +111,25 @@
   background: #94a3b8;
   border-color: rgba(148, 163, 184, 0.5);
 }
+
+/* Stacked above parent SI detail modal overlay (modal.css uses z-index: 1000). */
+.si-detail-modal__nested-overlay {
+  z-index: 1100;
+}
+
+.si-detail-modal--nested {
+  max-width: min(960px, 96vw);
+  max-height: min(92vh, 900px);
+  display: flex;
+  flex-direction: column;
+}
+
+.si-detail-modal__nested-body {
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+}
+
+.si-detail-modal__executions-log-link-wrap {
+  margin: 0.5rem 0 0;
+}

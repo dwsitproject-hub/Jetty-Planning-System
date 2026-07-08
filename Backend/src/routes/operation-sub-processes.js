@@ -17,8 +17,9 @@ import { assertOperationInSelectedPort } from '../lib/operation-access.js';
 import { UPLOAD_ROOT } from '../paths.js';
 import { validateMulterFileList } from '../lib/upload-mime.js';
 import { writeActivityLog } from '../lib/activity-log.js';
-import { optionalAuth } from '../middleware/auth.js';
+import { sendStoredFileAttachment, sendStoredFileInline } from '../lib/send-stored-file.js';
 import { promoteInProgressToPostOpsIfInProgress } from '../lib/operation-auto-status.js';
+import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
 
 const POST_CHECK_AUTO_KEYS = new Set([
   'final_inspection',
@@ -28,7 +29,6 @@ const POST_CHECK_AUTO_KEYS = new Set([
 ]);
 
 const router = express.Router();
-router.use(optionalAuth);
 const ALLOWED_PHASES = new Set(['Pre-Checking', 'Operational', 'Post-Checking']);
 
 function toSubProcessDocumentDownloadUrl(id) {
@@ -68,12 +68,11 @@ function normalizeLegacySubProcessKey(phase, rawKey) {
   return k;
 }
 
-function parseTs(v) {
+function parseTs(v, scheduleTz) {
   if (v === undefined) return undefined;
   if (v === null || v === '') return null;
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return undefined;
-  return d.toISOString();
+  const out = parseScheduleInstantToIso(v, scheduleTz);
+  return out === undefined ? undefined : out;
 }
 
 /** Non-empty body field must parse; otherwise we risk merging bad data and hitting DB check. */
@@ -173,9 +172,10 @@ async function loadSubProcess(operationId, phase, key) {
 
 async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
   const key = cleanKey(subProcessKey);
-  const occurredAt = parseTs(body.occurredAt);
-  const startAt = parseTs(body.startAt);
-  const endAt = parseTs(body.endAt);
+  const scheduleTz = await loadOperationScheduleTimezone(pool, operationId);
+  const occurredAt = parseTs(body.occurredAt, scheduleTz);
+  const startAt = parseTs(body.startAt, scheduleTz);
+  const endAt = parseTs(body.endAt, scheduleTz);
   const status = body.status != null ? String(body.status).trim() : undefined;
   const skipReason = body.skipReason != null ? String(body.skipReason).trim() : undefined;
   const remark = body.remark != null ? String(body.remark) : undefined;
@@ -615,9 +615,7 @@ router.post('/operations/:operationId/sub-processes/:subProcessKey/documents', u
   res.status(201).json({ items: inserted });
 });
 
-router.get('/sub-process-documents/:documentId/download', async (req, res) => {
-  const documentId = parseInt(req.params.documentId, 10);
-  if (!Number.isFinite(documentId)) return res.status(400).json({ error: 'Invalid document id' });
+async function loadSubProcessDocumentRow(documentId) {
   const r = await pool.query(
     `SELECT d.id, d.original_name, d.stored_path, sp.operation_id
      FROM operation_sub_process_documents d
@@ -628,14 +626,33 @@ router.get('/sub-process-documents/:documentId/download', async (req, res) => {
        AND d.deleted_at IS NULL`,
     [documentId]
   );
-  if (r.rows.length === 0) return res.status(404).json({ error: 'Document not found' });
-  const row = r.rows[0];
+  return r.rows[0] || null;
+}
+
+router.get('/sub-process-documents/:documentId/view', async (req, res) => {
+  const documentId = parseInt(req.params.documentId, 10);
+  if (!Number.isFinite(documentId)) return res.status(400).json({ error: 'Invalid document id' });
+  const row = await loadSubProcessDocumentRow(documentId);
+  if (!row) return res.status(404).json({ error: 'Document not found' });
   await assertOperationInSelectedPort(row.operation_id, req.selectedPortId);
   const full = resolveStoredPath(row.stored_path);
   if (!full || !fsSync.existsSync(full)) {
     return res.status(404).json({ error: 'Document file not found' });
   }
-  return res.download(full, row.original_name || `sub-process-document-${documentId}`);
+  return sendStoredFileInline(res, full, row.original_name, `sub-process-document-${documentId}`);
+});
+
+router.get('/sub-process-documents/:documentId/download', async (req, res) => {
+  const documentId = parseInt(req.params.documentId, 10);
+  if (!Number.isFinite(documentId)) return res.status(400).json({ error: 'Invalid document id' });
+  const row = await loadSubProcessDocumentRow(documentId);
+  if (!row) return res.status(404).json({ error: 'Document not found' });
+  await assertOperationInSelectedPort(row.operation_id, req.selectedPortId);
+  const full = resolveStoredPath(row.stored_path);
+  if (!full || !fsSync.existsSync(full)) {
+    return res.status(404).json({ error: 'Document file not found' });
+  }
+  return sendStoredFileAttachment(res, full, row.original_name, `sub-process-document-${documentId}`);
 });
 
 router.delete(
@@ -737,6 +754,7 @@ router.put('/operations/:operationId/nor-details', async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const scheduleTz = await loadOperationScheduleTimezone(client, operationId);
     const opDemRes = await client.query(
       `SELECT demurrage_liability_from_at FROM operations WHERE id = $1 AND deleted_at IS NULL`,
       [operationId]
@@ -799,7 +817,7 @@ router.put('/operations/:operationId/nor-details', async (req, res) => {
       const raw = body.demurrageLiabilityFromAt;
       let nextVal = null;
       if (raw != null && raw !== '') {
-        const parsed = parseTs(raw);
+        const parsed = parseTs(raw, scheduleTz);
         if (parsed === undefined) {
           await client.query('ROLLBACK');
           return res.status(400).json({ error: 'Invalid demurrageLiabilityFromAt' });

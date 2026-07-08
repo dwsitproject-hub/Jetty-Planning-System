@@ -13,6 +13,8 @@
   "login": "Login",
   "expandSidebar": "Expand sidebar",
   "collapseSidebar": "Collapse sidebar",
+  "loading": "Loading…",
+  "sessionRequired": "Please sign in to continue.",
   "loadingPorts": "Loading assigned ports…",
   "accessNotConfigured": "Access not configured",
   "backToLogin": "Back to Login",
@@ -24,5 +26,36 @@
     "label": "Language",
     "enShort": "EN",
     "idShort": "ID"
+  },
+  "etcBreach": {
+    "overdue": "{{duration}} over ETC",
+    "tooltip": "ETC breached · {{duration}} · Est. completion {{etc}}",
+    "ariaLabel": "ETC breached, {{duration}} over estimated completion",
+    "filterLabel": "ETC breached only",
+    "openWorkspaceHint": "Open workspace to progress operation"
+  },
+  "changePassword": {
+    "menuItem": "Change Password",
+    "title": "Change Password",
+    "currentLabel": "Current Password",
+    "currentPlaceholder": "Enter current password",
+    "newLabel": "New Password",
+    "newPlaceholder": "Enter new password",
+    "confirmLabel": "Confirm Password",
+    "confirmPlaceholder": "Repeat new password",
+    "cancel": "Cancel",
+    "save": "Save Password",
+    "saving": "Saving…",
+    "success": "Your password has been updated.",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
+    "errors": {
+      "currentRequired": "Current password is required.",
+      "newRequired": "New password is required.",
+      "newMinLength": "New password must be at least 6 characters.",
+      "confirmMismatch": "New password and confirmation do not match.",
+      "sameAsCurrent": "New password must be different from your current password.",
+      "generic": "Could not change password. Please try again."
+    }
   }
 }

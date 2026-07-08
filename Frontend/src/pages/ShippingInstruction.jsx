@@ -13,8 +13,9 @@ import { fetchSiLookups } from '../api/siLookups'
 import { useActivityLog } from '../context/ActivityLogContext'
 import { useRbac } from '../context/RbacContext'
 import PurposeBadge from '../components/PurposeBadge'
+import { SiRowActions, canViewAsDocument } from '../components/SiTableRowActions'
 import SiDetailModal from '../components/SiDetailModal'
-import { formatSiCalendarDateOnly } from '../utils/siFormPlaceDate'
+import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import {
   MAX_SI_BL_INDICATED_CHARS,
   MAX_SI_BL_SPLIT_CHARS,
@@ -55,7 +56,7 @@ function mapSiFromApi(row) {
       row.estimatedCompletionDateTime ?? row.estimationOfCompletion ?? row.etcDateTime ?? null,
     etaFrom: toDateInputValue(row.etaFrom) || toDateInputValue(row.eta),
     etaTo: toDateInputValue(row.etaTo) || toDateInputValue(row.eta),
-    shipper: row.shipperName ?? '—',
+    shipper: row.shipperNames ?? '—',
     loadingPort: row.loadingPortName ?? '—',
     agent: row.agentName ?? '—',
     surveyor: row.surveyorName ?? '—',
@@ -84,12 +85,6 @@ function mapSiFromApi(row) {
   }
 }
 import '../styles/shipping-instruction.css'
-
-function formatDate(iso) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  return d.toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
-}
 
 /** YYYY-MM-DD from row documentDate for range compare */
 function siDocumentYmd(n) {
@@ -120,13 +115,7 @@ function formatEta(n) {
   const raw = n.etaDateTime || n.etaFrom || n.ETA
   if (!raw) return '—'
   const d = new Date(raw)
-  return Number.isNaN(d.getTime()) ? raw : d.toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
-}
-
-function formatDateTimeValue(raw) {
-  if (!raw) return '—'
-  const d = new Date(raw)
-  return Number.isNaN(d.getTime()) ? String(raw) : d.toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
+  return Number.isNaN(d.getTime()) ? String(raw) : formatDateTimeDisplay(raw)
 }
 
 /** Action icons — outlined style, consistent size (18×18), use currentColor */
@@ -225,68 +214,14 @@ function usesShippingInstructionApprovalFlow(n) {
   return p === 'loading' || p === 'unloading'
 }
 
-/** Formal SI document view after sign-off (Approved in DB; Unloading list label: Confirmed). */
-function canViewAsDocument(n) {
-  if (!n) return false
-  return (n.status || '').toLowerCase() === 'approved'
-}
-
-function siEditDisabledReason(n) {
-  if (n.status === 'Draft') return null
-  return 'Disabled: only Draft instructions can be edited.'
-}
-
-function siSubmitDisabledReason(n) {
-  if (usesShippingInstructionApprovalFlow(n) && n.status === 'Draft') return null
-  if (!usesShippingInstructionApprovalFlow(n)) {
-    return 'Disabled: submit for approval applies to Loading and Unloading instructions only.'
-  }
-  return 'Disabled: submit is only available while status is Draft.'
-}
-
-function siApproveDisabledReason(n, canApproveSi) {
-  if (
-    usesShippingInstructionApprovalFlow(n) &&
-    n.status === 'Submitted' &&
-    Boolean(n.siId || n.id) &&
-    canApproveSi
-  ) {
-    return null
-  }
-  if (!usesShippingInstructionApprovalFlow(n)) {
-    return 'Disabled: approval applies to Loading and Unloading instructions only.'
-  }
-  if (!canApproveSi) return 'Disabled: your role cannot approve shipping instructions.'
-  if (!(n.siId || n.id)) return 'Disabled: instruction has no reference yet.'
-  if (n.status !== 'Submitted') {
-    return 'Disabled: open approval only after the instruction is submitted for review (Received / Submitted).'
-  }
-  return 'Disabled: cannot open approval for this instruction.'
-}
-
-function siViewDocDisabledReason(n) {
-  if (canViewAsDocument(n)) return null
-  return 'Disabled: open the SI document after the instruction is approved (sign-off complete).'
-}
-
-function siDeleteDisabledReason(n, canDeleteSi) {
-  if (!canDeleteSi) return 'Disabled: your role cannot delete shipping instructions.'
-  const s = n.status || ''
-  if (s === 'Approved') return 'Disabled: approved instructions cannot be deleted.'
-  if (s !== 'Draft' && s !== 'Submitted') {
-    return 'Disabled: only Draft or Submitted instructions can be deleted.'
-  }
-  return null
-}
-
 /** Sortable columns + cell render for main SI table */
 const SI_TABLE_COLUMNS = [
   {
     key: 'documentDate',
     label: 'Document date',
     getSortValue: (n) => (n.documentDate ? String(n.documentDate).slice(0, 10) : ''),
-    getFilterValue: (n) => (n.documentDate ? formatSiCalendarDateOnly(n.documentDate) : ''),
-    getCell: (n) => formatSiCalendarDateOnly(n.documentDate),
+    getFilterValue: (n) => (n.documentDate ? formatDateDisplay(n.documentDate) : ''),
+    getCell: (n) => formatDateDisplay(n.documentDate),
   },
   {
     key: 'siNo',
@@ -344,119 +279,13 @@ const SI_TABLE_COLUMNS = [
     getFilterValue: (n) => formatEta(n),
     getCell: (n) => formatEta(n),
   },
-  {
-    key: 'status',
-    label: 'Status',
-    getSortValue: (n) => (getDisplayStatus(n) || '').toLowerCase(),
-    getFilterValue: (n) => getDisplayStatus(n) || '',
-    getCell: (n) => (
-      <Fragment>
-        <span className={`si-status-badge si-status-badge--${(getDisplayStatus(n) || 'draft').toLowerCase().replace(/\s+/g, '-')}`}>
-          {getDisplayStatus(n)}
-        </span>
-        {(n.purpose || '').toLowerCase() === 'unloading' && (
-          <span className="si-status-badge si-status-badge--external" title="Instruction from external">
-            External
-          </span>
-        )}
-      </Fragment>
-    ),
-  },
-  {
-    key: 'approver',
-    label: 'Approver',
-    getSortValue: (n) => ((n.approverNameSnapshot || n.approverDisplayName || '') || '').toLowerCase(),
-    getFilterValue: (n) => n.approverNameSnapshot || n.approverDisplayName || '',
-    getCell: (n) => n.approverNameSnapshot || n.approverDisplayName || '—',
-  },
-  {
-    key: 'approvalDate',
-    label: 'Approval date',
-    getSortValue: (n) => (n.approvedAt ? new Date(n.approvedAt).getTime() : 0),
-    getFilterValue: (n) => (n.approvedAt ? formatDate(n.approvedAt) : ''),
-    getCell: (n) => (n.approvedAt ? formatDate(n.approvedAt) : '—'),
-  },
 ]
-
-/** Actions column: Edit | Submit | Approve | View SI | Delete — same button sizing; disabled + tooltip when not applicable. */
-function SiRowActions({ row: n, canApproveSi, canDeleteSi, onEdit, onRequestApproval, onOpenApprove, onViewDocument, onDelete }) {
-  const { t } = useTranslation('shippingInstruction')
-  const editReason = siEditDisabledReason(n)
-  const submitReason = siSubmitDisabledReason(n)
-  const approveReason = siApproveDisabledReason(n, canApproveSi)
-  const viewReason = siViewDocDisabledReason(n)
-  const deleteReason = siDeleteDisabledReason(n, canDeleteSi)
-
-  return (
-    <div className="si-table__action-slots">
-      <div className="si-table__action-slot">
-        <button
-          type="button"
-          className="btn btn--secondary btn--small si-table__action-btn si-table__action-icon"
-          disabled={Boolean(editReason)}
-          title={editReason || t('actionEdit')}
-          aria-label={editReason || t('actionEdit')}
-          onClick={onEdit}
-        >
-          <IconEdit />
-        </button>
-      </div>
-      <div className="si-table__action-slot">
-        <button
-          type="button"
-          className="btn btn--primary btn--small si-table__action-btn si-table__action-icon"
-          disabled={Boolean(submitReason)}
-          title={submitReason || t('actionSubmitForApproval')}
-          aria-label={submitReason || t('actionSubmitForApproval')}
-          onClick={onRequestApproval}
-        >
-          <IconRequestApproval />
-        </button>
-      </div>
-      <div className="si-table__action-slot">
-        <button
-          type="button"
-          className="btn btn--primary btn--small si-table__action-btn si-table__action-icon"
-          disabled={Boolean(approveReason)}
-          title={approveReason || t('actionOpenApproval')}
-          aria-label={approveReason || t('actionOpenApproval')}
-          onClick={onOpenApprove}
-        >
-          <IconApprove />
-        </button>
-      </div>
-      <div className="si-table__action-slot">
-        <button
-          type="button"
-          className="btn btn--secondary btn--small si-table__action-btn si-table__action-icon si-table__action-btn--view-si"
-          disabled={Boolean(viewReason)}
-          title={viewReason || t('actionViewSiDocument')}
-          aria-label={viewReason || t('actionViewSiDocument')}
-          onClick={onViewDocument}
-        >
-          <IconViewDocument />
-        </button>
-      </div>
-      <div className="si-table__action-slot">
-        <button
-          type="button"
-          className="btn btn--secondary btn--small si-table__action-btn si-table__action-icon si-table__action-btn--delete-si"
-          disabled={Boolean(deleteReason)}
-          title={deleteReason || t('actionDeleteInstruction')}
-          aria-label={deleteReason || t('actionDeleteShippingInstruction')}
-          onClick={onDelete}
-        >
-          <IconDelete />
-        </button>
-      </div>
-    </div>
-  )
-}
 
 function emptyBreakdownRow(lookups) {
   const mt = lookups?.metrics?.find((m) => m.code === 'MT') || lookups?.metrics?.[0]
   const comm = lookups?.commodities?.[0]
   return {
+    shipperId: '',
     commodityId: comm?.id != null ? String(comm.id) : '',
     metricId: mt?.id != null ? String(mt.id) : '',
     qty: '',
@@ -512,7 +341,6 @@ export default function ShippingInstruction() {
       purposeId: '',
       tradeTermId: '',
       preferredJettyId: '',
-      shipperId: '',
       loadingPortId: '',
       surveyorId: '',
       agentId: '',
@@ -682,7 +510,12 @@ export default function ShippingInstruction() {
       setToast({ message: 'Document date is required.', variant: 'error' })
       return
     }
+    const num = (v) => {
+      const n = parseInt(v, 10)
+      return v !== '' && !Number.isNaN(n) ? n : null
+    }
     const breakdownPayload = form.breakdown.map((row) => ({
+      shipperId: num(row.shipperId),
       commodityId: parseInt(row.commodityId, 10),
       metricId: parseInt(row.metricId, 10),
       qty: Number(row.qty) || 0,
@@ -714,16 +547,11 @@ export default function ShippingInstruction() {
     }
     try {
       const etaIso = form.etaFrom ? new Date(`${form.etaFrom}T12:00:00`).toISOString() : null
-      const num = (v) => {
-        const n = parseInt(v, 10)
-        return v !== '' && !Number.isNaN(n) ? n : null
-      }
       const payload = {
         vesselName: form.vesselName.trim(),
         purposeId: pid,
         tradeTermId: isUnloading ? num(form.tradeTermId) : null,
         preferredJettyId: num(form.preferredJettyId),
-        shipperId: num(form.shipperId),
         loadingPortId: num(form.loadingPortId),
         surveyorId: null,
         agentId: num(form.agentId),
@@ -774,7 +602,6 @@ export default function ShippingInstruction() {
           purposeId: String(payload.purposeId || ''),
           tradeTermId: String(payload.tradeTermId || ''),
           preferredJettyId: String(payload.preferredJettyId || ''),
-          shipperId: String(payload.shipperId || ''),
           loadingPortId: String(payload.loadingPortId || ''),
           surveyorId: String(payload.surveyorId || ''),
           agentId: String(payload.agentId || ''),
@@ -800,7 +627,6 @@ export default function ShippingInstruction() {
         addChange('Purpose', toLabel(before.purposeId, lookups?.purposes), toLabel(after.purposeId, lookups?.purposes))
         addChange('Term', toLabel(before.tradeTermId, lookups?.tradeTerms), toLabel(after.tradeTermId, lookups?.tradeTerms))
         addChange('Preferred jetty', toLabel(before.preferredJettyId, lookups?.jetties), toLabel(after.preferredJettyId, lookups?.jetties))
-        addChange('Shipper', toLabel(before.shipperId, lookups?.shippers), toLabel(after.shipperId, lookups?.shippers))
         addChange('Loading port', toLabel(before.loadingPortId, lookups?.loadingPorts), toLabel(after.loadingPortId, lookups?.loadingPorts))
         addChange('Surveyor', toLabel(before.surveyorId, lookups?.surveyors), toLabel(after.surveyorId, lookups?.surveyors))
         addChange('Agent', toLabel(before.agentId, lookups?.agents), toLabel(after.agentId, lookups?.agents))
@@ -820,7 +646,7 @@ export default function ShippingInstruction() {
       }
 
       logActivity({
-        pageKey: 'shipping-instruction',
+        pageKey: 'shipment-plan',
         action: editingId ? 'update' : 'add',
         entityType: 'Shipping Instruction',
         entityLabel: saved.referenceNumber || `SI-${saved.id}`,
@@ -863,6 +689,7 @@ export default function ShippingInstruction() {
       const bd =
         Array.isArray(row?.breakdown) && row.breakdown.length
           ? row.breakdown.map((b) => ({
+              shipperId: b.shipperId != null ? String(b.shipperId) : '',
               commodityId: b.commodityId != null ? String(b.commodityId) : '',
               metricId: b.metricId != null ? String(b.metricId) : '',
               qty: b.qty != null ? String(b.qty) : '',
@@ -879,7 +706,6 @@ export default function ShippingInstruction() {
         purposeId: row.purposeId != null ? String(row.purposeId) : '',
         tradeTermId: row.tradeTermId != null ? String(row.tradeTermId) : '',
         preferredJettyId: row.preferredJettyId != null ? String(row.preferredJettyId) : '',
-        shipperId: row.shipperId != null ? String(row.shipperId) : '',
         loadingPortId: row.loadingPortId != null ? String(row.loadingPortId) : '',
         surveyorId: row.surveyorId != null ? String(row.surveyorId) : '',
         agentId: row.agentId != null ? String(row.agentId) : '',
@@ -905,7 +731,6 @@ export default function ShippingInstruction() {
         purposeId: row.purposeId != null ? String(row.purposeId) : '',
         tradeTermId: row.tradeTermId != null ? String(row.tradeTermId) : '',
         preferredJettyId: row.preferredJettyId != null ? String(row.preferredJettyId) : '',
-        shipperId: row.shipperId != null ? String(row.shipperId) : '',
         loadingPortId: row.loadingPortId != null ? String(row.loadingPortId) : '',
         surveyorId: row.surveyorId != null ? String(row.surveyorId) : '',
         agentId: row.agentId != null ? String(row.agentId) : '',
@@ -1022,7 +847,7 @@ export default function ShippingInstruction() {
       })
       setList((prev) => prev.map((r) => (r.id === n.id ? mapSiFromApi(saved) : r)))
       logActivity({
-        pageKey: 'shipping-instruction',
+        pageKey: 'shipment-plan',
         action: 'update',
         entityType: 'Shipping Instruction',
         entityLabel: n.siId || `SI-${n.id}`,
@@ -1037,7 +862,7 @@ export default function ShippingInstruction() {
 
   const handleDeleteSi = async (n, e) => {
     e.stopPropagation()
-    if (siDeleteDisabledReason(n, canDelete('shipping-instruction'))) return
+    if (siDeleteDisabledReason(n, canDelete('shipment-plan'))) return
     const label = n.referenceNumber || n.siId || `SI-${n.id}`
     if (
       !window.confirm(
@@ -1057,7 +882,7 @@ export default function ShippingInstruction() {
         return next
       })
       logActivity({
-        pageKey: 'shipping-instruction',
+        pageKey: 'shipment-plan',
         action: 'delete',
         entityType: 'Shipping Instruction',
         entityLabel: label,
@@ -1085,7 +910,7 @@ export default function ShippingInstruction() {
       t('colApprovalDate'),
     ]
     const rows = sortedList.map((n) => {
-      const docLabel = formatSiCalendarDateOnly(n.documentDate)
+      const docLabel = formatDateDisplay(n.documentDate)
       return [
       docLabel === '—' ? '' : docLabel,
       n.siId || '',
@@ -1098,7 +923,7 @@ export default function ShippingInstruction() {
       formatEta(n),
       getDisplayStatus(n),
       n.approverNameSnapshot || n.approverDisplayName || '',
-      n.approvedAt ? formatDate(n.approvedAt) : '',
+      n.approvedAt ? formatDateTimeDisplay(n.approvedAt) : '',
     ]
     })
     const csv = [headers.join(','), ...rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))].join('\n')
@@ -1403,15 +1228,6 @@ export default function ShippingInstruction() {
                 <h3 className="shipping-instruction-form__section-title">{t('formPartyPortSection')}</h3>
                 <div className="shipping-instruction-form__grid">
                   <div className="input-group">
-                    <label htmlFor="shipper">{t('formShipper')}</label>
-                    <select id="shipper" value={form.shipperId} onChange={(e) => updateForm({ shipperId: e.target.value })} disabled={!lookups}>
-                      <option value="">—</option>
-                      {(lookups?.shippers || []).map((s) => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="input-group">
                     <label htmlFor="agent">{t('formAgent')}</label>
                     <select id="agent" value={form.agentId} onChange={(e) => updateForm({ agentId: e.target.value })} disabled={!lookups}>
                       <option value="">—</option>
@@ -1458,6 +1274,7 @@ export default function ShippingInstruction() {
                   <table className="data-table shipping-instruction-breakdown-table">
                     <thead>
                       <tr>
+                        <th>{t('formBreakdownShipper')}</th>
                         <th>{t('formBreakdownCommodityReq')}</th>
                         <th>{t('formBreakdownQtyReq')}</th>
                         <th>{t('formBreakdownUnitReq')}</th>
@@ -1470,6 +1287,19 @@ export default function ShippingInstruction() {
                     <tbody>
                       {form.breakdown.map((row, i) => (
                         <tr key={i}>
+                          <td>
+                            <select
+                              value={row.shipperId}
+                              onChange={(e) => updateBreakdownRow(i, 'shipperId', e.target.value)}
+                              className="shipping-instruction-inline-input"
+                              disabled={!lookups}
+                            >
+                              <option value="">—</option>
+                              {(lookups?.shippers || []).map((s) => (
+                                <option key={s.id} value={s.id}>{s.name}</option>
+                              ))}
+                            </select>
+                          </td>
                           <td>
                             <select
                               value={row.commodityId}
@@ -1756,16 +1586,10 @@ export default function ShippingInstruction() {
                     <td className="si-table__col-actions" onClick={(e) => e.stopPropagation()}>
                       <SiRowActions
                         row={n}
-                        canApproveSi={canApprove('shipping-instruction')}
-                        canDeleteSi={canDelete('shipping-instruction')}
+                        canDeleteSi={canDelete('shipment-plan')}
                         onEdit={(e) => {
                           e.stopPropagation()
                           openEditModal(n.id)
-                        }}
-                        onRequestApproval={(e) => handleRequestApproval(n, e)}
-                        onOpenApprove={(e) => {
-                          e.stopPropagation()
-                          navigate(`/shipping-instruction/approval/${n.id}`, { state: { si: n } })
                         }}
                         onViewDocument={(e) => {
                           e.stopPropagation()
@@ -1818,10 +1642,10 @@ export default function ShippingInstruction() {
                             </dd>
                             <dt>{t('dtJetty')}</dt><dd>{n.jetty || '—'}</dd>
                             <dt>{t('dtEta')}</dt><dd>{formatEta(n)}</dd>
-                            <dt>{t('dtTa')}</dt><dd>{formatDateTimeValue(n.taDateTime || n.ta)}</dd>
-                            <dt>{t('dtEtb')}</dt><dd>{formatDateTimeValue(n.etbDateTime || n.etb)}</dd>
-                            <dt>{t('dtTb')}</dt><dd>{formatDateTimeValue(n.tbDateTime || n.tb)}</dd>
-                            <dt>{t('dtEstimatedCompletion')}</dt><dd>{formatDateTimeValue(n.estimatedCompletionDateTime || n.estimationOfCompletion || n.etcDateTime)}</dd>
+                            <dt>{t('dtTa')}</dt><dd>{formatDateTimeDisplay(n.taDateTime || n.ta)}</dd>
+                            <dt>{t('dtEtb')}</dt><dd>{formatDateTimeDisplay(n.etbDateTime || n.etb)}</dd>
+                            <dt>{t('dtTb')}</dt><dd>{formatDateTimeDisplay(n.tbDateTime || n.tb)}</dd>
+                            <dt>{t('dtEstimatedCompletion')}</dt><dd>{formatDateTimeDisplay(n.estimatedCompletionDateTime || n.estimationOfCompletion || n.etcDateTime)}</dd>
                             <dt>{t('dtTerm')}</dt><dd>{n.term || '—'}</dd>
                             <dt>{t('dtVoyage')}</dt><dd>{n.voyageNo || '—'}</dd>
                             <dt>{t('dtDestination')}</dt><dd>{n.destinationText || '—'}</dd>
@@ -1840,8 +1664,8 @@ export default function ShippingInstruction() {
                             <dt>{t('dtApprover')}</dt>
                             <dd>{n.approverNameSnapshot || n.approverDisplayName || '—'}</dd>
                             <dt>{t('dtApprovalDate')}</dt>
-                            <dd>{n.approvedAt ? formatDate(n.approvedAt) : '—'}</dd>
-                            <dt>{t('dtReceived')}</dt><dd>{formatDate(n.receivedAt)}</dd>
+                            <dd>{n.approvedAt ? formatDateTimeDisplay(n.approvedAt) : '—'}</dd>
+                            <dt>{t('dtReceived')}</dt><dd>{formatDateTimeDisplay(n.receivedAt)}</dd>
                           </dl>
                           <h5 className="shipping-instruction-detail__title" style={{ marginTop: '1rem' }}>{t('breakdownTitle')}</h5>
                           {breakdownBySi[n.id] === undefined && <p className="text-steel">{t('breakdownLoading')}</p>}
@@ -1937,16 +1761,10 @@ export default function ShippingInstruction() {
                 </button>
                 <SiRowActions
                   row={n}
-                  canApproveSi={canApprove('shipping-instruction')}
-                  canDeleteSi={canDelete('shipping-instruction')}
+                  canDeleteSi={canDelete('shipment-plan')}
                   onEdit={(e) => {
                     e.stopPropagation()
                     openEditModal(n.id)
-                  }}
-                  onRequestApproval={(e) => handleRequestApproval(n, e)}
-                  onOpenApprove={(e) => {
-                    e.stopPropagation()
-                    navigate(`/shipping-instruction/approval/${n.id}`, { state: { si: n } })
                   }}
                   onViewDocument={(e) => {
                     e.stopPropagation()
@@ -1971,10 +1789,10 @@ export default function ShippingInstruction() {
                       <dt>{t('dtPurpose')}</dt><dd><PurposeBadge purpose={n.purpose} /></dd>
                       <dt>{t('dtJetty')}</dt><dd>{n.jetty || '—'}</dd>
                       <dt>{t('dtEta')}</dt><dd>{formatEta(n)}</dd>
-                      <dt>{t('dtTa')}</dt><dd>{formatDateTimeValue(n.taDateTime || n.ta)}</dd>
-                      <dt>{t('dtEtb')}</dt><dd>{formatDateTimeValue(n.etbDateTime || n.etb)}</dd>
-                      <dt>{t('dtTb')}</dt><dd>{formatDateTimeValue(n.tbDateTime || n.tb)}</dd>
-                      <dt>{t('dtEstimatedCompletion')}</dt><dd>{formatDateTimeValue(n.estimatedCompletionDateTime || n.estimationOfCompletion || n.etcDateTime)}</dd>
+                      <dt>{t('dtTa')}</dt><dd>{formatDateTimeDisplay(n.taDateTime || n.ta)}</dd>
+                      <dt>{t('dtEtb')}</dt><dd>{formatDateTimeDisplay(n.etbDateTime || n.etb)}</dd>
+                      <dt>{t('dtTb')}</dt><dd>{formatDateTimeDisplay(n.tbDateTime || n.tb)}</dd>
+                      <dt>{t('dtEstimatedCompletion')}</dt><dd>{formatDateTimeDisplay(n.estimatedCompletionDateTime || n.estimationOfCompletion || n.etcDateTime)}</dd>
                     </dl>
                   </div>
                 </div>

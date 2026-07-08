@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import {
   berths,
   vessels,
@@ -8,6 +8,9 @@ import {
 } from '../data/mockData'
 import '../styles/offloading.css'
 import { MAX_REMARK_CHARS } from '../constants/inputLimits'
+import { usePortScope } from '../context/PortScopeContext'
+import { getScheduleEntryTimeZone, naiveLocalToUtcIso, utcIsoToNaiveLocal } from '../utils/scheduleDateTime.js'
+import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 
 const activeBerths = Array.isArray(berths) ? berths.filter((b) => b && b.currentVesselId) : []
 
@@ -62,40 +65,24 @@ const DUMMY_TIMESHEET_ROWS = {
   ],
 }
 
-function formatTime(iso) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
-}
-
-/** Short format for palka card: DD/MM HH:mm */
-function formatTimeShort(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  const day = String(d.getDate()).padStart(2, '0')
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const hours = String(d.getHours()).padStart(2, '0')
-  const mins = String(d.getMinutes()).padStart(2, '0')
-  return `${day}/${month} ${hours}:${mins}`
-}
-
-/** For datetime-local input: ISO string -> YYYY-MM-DDTHH:mm */
-function toDateTimeLocal(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toISOString().slice(0, 16)
-}
-
-/** datetime-local value -> ISO string */
-function fromDateTimeLocal(value) {
-  if (!value) return new Date().toISOString()
-  const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString()
-}
-
 export default function Unloading() {
+  const { selectedPort } = usePortScope()
+  const scheduleEntryTz = getScheduleEntryTimeZone()
+  const toDateTimeLocal = useCallback(
+    (iso) => utcIsoToNaiveLocal(iso, scheduleEntryTz),
+    [scheduleEntryTz]
+  )
+  const fromDateTimeLocal = useCallback(
+    (value) => {
+      if (!value) return new Date().toISOString()
+      try {
+        return naiveLocalToUtcIso(value, scheduleEntryTz)
+      } catch {
+        return new Date().toISOString()
+      }
+    },
+    [scheduleEntryTz]
+  )
   const [selectedVesselId, setSelectedVesselId] = useState(activeBerths[0]?.currentVesselId ?? null)
   const [stage, setStage] = useState('A')
   const [docking, setDocking] = useState({ arrival: '2026-02-19T08:00', connection: '2026-02-19T09:30' })
@@ -376,7 +363,7 @@ export default function Unloading() {
                     <tbody>
                       {getTimesheetRowsForStage('A').map((row, i) => (
                         <tr key={`A-${i}`}>
-                          <td>{formatTime(row.time)}</td>
+                          <td>{formatDateTimeDisplay(row.time)}</td>
                           <td>{row.activityLabel}</td>
                           <td>{row.tagLabel}</td>
                           <td>{row.comment}</td>
@@ -442,7 +429,7 @@ export default function Unloading() {
                     <tbody>
                       {getTimesheetRowsForStage('B').map((row, i) => (
                         <tr key={`B-${i}`}>
-                          <td>{formatTime(row.time)}</td>
+                          <td>{formatDateTimeDisplay(row.time)}</td>
                           <td>{row.activityLabel}</td>
                           <td>{row.tagLabel}</td>
                           <td>{row.comment}</td>
@@ -469,7 +456,7 @@ export default function Unloading() {
                   </div>
                 </div>
                 <div className="offloading-milestone-group" style={{ marginBottom: 'var(--spacing-4)' }}>
-                  <span className="offloading-milestone-label">Crew On-Board {crewOnBoardAt ? `(${formatTime(crewOnBoardAt)})` : ''}</span>
+                  <span className="offloading-milestone-label">Crew On-Board {crewOnBoardAt ? `(${formatDateTimeDisplay(crewOnBoardAt)})` : ''}</span>
                   <div className="offloading-actions">
                     <button type="button" className="btn btn--primary" onClick={() => openLogModal('crew-on-board', 'Crew On-Board', false)}>Log now</button>
                     <button type="button" className="btn btn--secondary offloading-log-with-time" onClick={() => openLogModal('crew-on-board', 'Crew On-Board', false)}>Log with time…</button>
@@ -502,7 +489,7 @@ export default function Unloading() {
                                     onClick={(e) => { e.stopPropagation(); openPalkaTimeEdit(p.index, act, ts) }}
                                     title={`Edit ${act} time`}
                                   >
-                                    {formatTimeShort(ts)}
+                                    {formatDateTimeDisplay(ts)}
                                   </button>
                                 ) : null}
                               </div>
@@ -546,7 +533,7 @@ export default function Unloading() {
                     <tbody>
                       {getTimesheetRowsForStage('C').map((row, i) => (
                         <tr key={`C-${i}`}>
-                          <td>{formatTime(row.time)}</td>
+                          <td>{formatDateTimeDisplay(row.time)}</td>
                           <td>{row.activityLabel}</td>
                           <td>{row.tagLabel}</td>
                           <td>{row.comment}</td>
@@ -597,7 +584,7 @@ export default function Unloading() {
                     <tbody>
                       {getTimesheetRowsForStage('D').map((row, i) => (
                         <tr key={`D-${i}`}>
-                          <td>{formatTime(row.time)}</td>
+                          <td>{formatDateTimeDisplay(row.time)}</td>
                           <td>{row.activityLabel}</td>
                           <td>{row.tagLabel}</td>
                           <td>{row.comment}</td>

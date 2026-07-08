@@ -1,12 +1,385 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.28
-**Last Updated**: 2026-04-24  
+**Version**: 1.44
+**Last Updated**: 2026-06-12  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
 
 ## 0. Addendum (2026-03-31)
+
+### 0.33 Inbound Shipping Instruction integration API (`/api/v1/integrations`) (2026-06-12)
+
+**Purpose:** Machine-to-machine API for external partners (EOS Export/Import, KLIPS, etc.) to submit **Shipping Instructions** into JPS. Creates real **`shipment_plans`** + **`shipping_instructions`** + breakdown rows; operators review via existing **`shipment-plan`** approval UI. Partner contract: **Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md**; local test walkthrough: **Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-API-TEST-GUIDE.md**. Functional behaviour: **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.23**.
+
+**Mount (`Backend/src/index.js`):**
+
+- **`apiV1.use('/integrations', integrationsRoutes)`** — registered **before** **`csrfProtection`** and **before** JWT-gated routes. Partner clients use **`x-api-key`** only (no cookie session, no CSRF).
+
+**Database (migrations):**
+
+| Migration | Objects |
+|-----------|---------|
+| **`084_integration_partner_api.sql`** | **`integration_api_keys`** (`partner_name`, `key_prefix`, `key_hash` SHA-256 hex, `allowed_port_ids BIGINT[]` — **deprecated/unused**, keys are not port-scoped, `active`, `last_used_at`); **`integration_submissions`** (`api_key_id`, `external_reference`, `shipping_instruction_id`, `shipment_plan_id`, `payload JSONB`, `received_at`; **`UNIQUE (api_key_id, external_reference)`** for idempotency). |
+| **`085_shipment_plan_integration_source.sql`** | **`shipment_plans.external_reference`**, **`shipment_plans.requested_by`** (TEXT, nullable); index on **`external_reference`** where not null. |
+| **`086_si_commodity_short_name.sql`** | **`si_commodities.short_name`** (TEXT NOT NULL, unique among active rows on **`LOWER(short_name)`**). Integration API resolves **`cargo_type`** against this column. |
+
+**Key provisioning:**
+
+- **`node scripts/create-integration-api-key.mjs --partner "EOS-EXPORT"`** — generates **`jps_live_<hex>`**, stores hash only, prints plaintext once. Keys are not port-scoped.
+- **`--list`**, **`--deactivate <id>`** for ops.
+
+**Auth middleware — `Backend/src/middleware/integration-auth.js`:**
+
+- Header **`x-api-key`** → SHA-256 lookup in **`integration_api_keys`** (`active`).
+- Sets **`req.integrationKey = { id, partnerName, allowedPortIds }`** (**`allowedPortIds`** retained for compatibility but no longer enforced — keys are not port-scoped).
+- Rate limit **120 req/min** per key (`express-rate-limit`, env **`INTEGRATION_RATE_LIMIT_PER_MINUTE`**).
+- Response envelope: **`{ success: true, data }`** / **`{ success: false, error: { code, message, details }, request_id }`**.
+
+**Routes — `Backend/src/routes/integrations.js`:**
+
+| Method | Path | Behaviour |
+|--------|------|-----------|
+| **`POST`** | **`/shipping-instructions`** | Validates payload (vessel, purpose, eta, cargo lines with **`cargo_type`** → **`si_commodities.short_name`** (case-insensitive, normalized uppercase), **`unit`** → **`metric.code`**). **`port_id`** must be a valid (non-deleted) **`ports`** row; unknown port → **400** **`VALIDATION_ERROR`**. Keys are **not** port-scoped. Transaction: insert **`shipment_plans`** (`approval_status` **`Submitted`**, **`external_reference`**, **`requested_by`** = payload **`requested_by`** or **`partnerName`**), **`shipping_instructions`** (`status` **`Submitted`**), **`shipping_instruction_breakdown`**, **`integration_submissions`**. Triggers **`shipment_plan.submitted`** notification + activity log. Returns **201** with partner status **`Pending`**. Duplicate **`external_reference`** → **409** **`DUPLICATE_REFERENCE`**. Unknown **`cargo_type`** → **400** with **`valid_cargo_types`** listing active **`short_name`** values. |
+| **`GET`** | **`/shipping-instructions/:id`** | Lookup by SI id scoped to caller’s **`api_key_id`** via **`integration_submissions`**. |
+| **`GET`** | **`/shipping-instructions?external_reference=`** | Same payload shape; lookup by partner reference. |
+
+**External status derivation (partner-facing):**
+
+| Partner status | Internal rule |
+|----------------|---------------|
+| **`Pending`** | Plan not **Rejected**; no operation beyond **`PENDING`**; plan not **Approved** (or still **Submitted**). |
+| **`Approved`** | **`shipment_plans.approval_status` = `Approved`**; no allocated operation yet. |
+| **`Rejected`** | Plan **`approval_status` = `Rejected`**; includes **`rejection_reason`**. |
+| **`Allocated`** | Active **`operations`** row with **`status` ≠ `PENDING`**; returns **`allocation.jetty_name`**, **`planned_berthing_time`** (`docking_start_time`). |
+
+**Manual plan create — `requested_by` on `shipment_plans`:**
+
+- **`Backend/src/lib/resolve-requested-by.js`** — **`resolveUserRequestedBy(db, userId)`** → **`users.display_name`** or **`users.username`**.
+- Set on **`POST /shipment-plans`** (`Backend/src/routes/shipment-plans.js`) and on implicit plan create in **`POST /shipping-instructions`** when no **`shipment_plan_id`** (`Backend/src/routes/shipping-instructions.js`).
+- **`external_reference`** remains **null** for manual creates (integration-only).
+- **`requested_by`** is **not** updated on plan edit — captures **initiator at create time** only.
+
+**Internal API — shipment plan list (`Backend/src/routes/shipment-plans.js`):**
+
+- **`toPlanListRow`** exposes **`externalReference`**, **`requestedBy`** from **`sp.*`** (list/detail SQL already selects plan columns).
+
+**Frontend — `Frontend/src/pages/ShipmentPlansList.jsx`:**
+
+- Table columns after **ETA**: **External reference**, **Requested by**; client-side filters **`externalReference`**, **`requestedBy`**.
+- i18n **`colExternalReference`**, **`colRequestedBy`**, **`filterExternalReference`**, **`filterRequestedBy`** in **`Frontend/src/locales/en/shipmentPlan.json`** and **`id/shipmentPlan.json`**.
+
+**Error codes (integration envelope):** **`INVALID_API_KEY`**, **`VALIDATION_ERROR`**, **`DUPLICATE_REFERENCE`**, **`NOT_FOUND`**, **`RATE_LIMITED`**, **`INTERNAL_ERROR`**.
+
+### 0.32 Overview tables — Commodity Qty column (`siBreakdownDisplay`) (2026-05-26)
+
+**Purpose:** Show **SI-declared cargo** (commodity name + quantity per breakdown line) in main overview tables without opening SI modals. A single **Commodity Qty** column replaces a separate **Commodity** + **Total Qty** pair because each cell already embeds the commodity name (e.g. `RPO 5.000 MT`).
+
+**Data source:** Active rows in **`shipping_instruction_breakdown`** (`commodity_id`, `metric_id`, `qty`, `line_order`) joined to **`si_commodities`** and **`metric`**.
+
+**Shared formatter — `Backend/src/lib/siBreakdownDisplay.js`:**
+
+| Function | Role |
+|----------|------|
+| **`formatSiCargoDisplay(breakdownRows)`** | Groups lines by **`commodity_id`**; within each group sums **`qty`** per **`metric_id`** (separate subtotals if mixed units on one commodity). Formats qty with **`id-ID`** locale and **`metric.code`**. Returns **`commodityDisplay`** (distinct names joined ` · `) and **`totalQtyDisplay`** (per-commodity strings like `RPO 5.000 MT`, joined with **`\n`**). |
+| **`loadBreakdownBySiIds(pool, siIds)`** | Single batch query for many SIs (avoids N+1). |
+| **`enrichRowsWithCargoDisplay(pool, rows)`** | Attaches **`commodity_display`**, **`total_qty_display`**, **`cargo_breakdown_summary[]`** to SQL rows before JSON mapping. |
+| **`buildCargoBreakdownSummary(siId, ref, breakdown)`** | One summary object per SI: `{ shippingInstructionId, referenceNumber, commodityDisplay, totalQtyDisplay }`. |
+
+**Unit test:** **`npm run test:si-breakdown-display`** (`Backend/scripts/test-si-breakdown-display.mjs`).
+
+**API — allocation overview (`Backend/src/routes/allocation.js`):**
+
+- After **`operationsOverviewSql`** / incoming-SI queries, **`buildAllocationOverviewPayload`** calls **`enrichRowsWithCargoDisplay`** on ops, schedule ops, and incoming SI rows (parallel batch).
+- **`formatListRow`** exposes camelCase: **`commodityDisplay`**, **`totalQtyDisplay`**, **`cargoBreakdownSummary`**; **`commodity`** prefers **`commodity_display`** for backward compatibility.
+- Endpoints: **`GET /allocation/overview`**, **`GET /allocation/plan-overview`** (same payload builder).
+
+**API — operations list (`Backend/src/routes/operations.js`):**
+
+- **`GET /operations`** (incl. Clearance status filters) and **`GET /operations/pending-signoff-requests`** enrich rows before **`toOp()`**.
+- **`toOp`** adds **`commodityDisplay`**, **`totalQtyDisplay`**, **`cargoBreakdownSummary`** (legacy **`cargoSiQty`** / **`cargoSiMetricCode`** remain for other consumers).
+
+**API — shipment plan list (`Backend/src/routes/shipment-plans.js`):**
+
+- List SQL **`si_children_json`** breakdown objects now include **`qty`**, **`metric_id`**, **`metric_code`** (JOIN **`metric`**).
+- **`parseSiChildrenJson`** maps **`commodityQtyDisplay`** per child SI via **`formatSiCargoDisplay`**.
+
+**Frontend:**
+
+| Module | Role |
+|--------|------|
+| **`Frontend/src/utils/siCargoTableDisplay.jsx`** | **`renderCommodityQtyCell(row)`** — **`white-space: pre-line`** via **`.si-cargo-qty-cell`**; stacked multi-SI via **`planQueueSiEntries[].totalQtyDisplay`**. |
+| **`Frontend/src/styles/allocation.css`** | **`.si-cargo-qty-cell { white-space: pre-line; }`** |
+| **`Frontend/src/pages/Allocation.jsx`** | Column **`commodityQty`** after **`shippingInstruction`**; i18n **`colCommodityQty`**. |
+| **`Frontend/src/pages/AtBerthExecutions.jsx`** | Same column; group header shows **`totalQtyDisplay`** or localized **Mixed**. |
+| **`Frontend/src/pages/Verification.jsx`** | SI column reference-only; **`commodityQty`** column; merged plan rows join qty with **`\n`**. |
+| **`Frontend/src/pages/ShipmentPlansList.jsx`** | Column after SI refs; stacked **`si.commodityQtyDisplay`** per child SI. |
+| **`Frontend/src/utils/allocationPlanPovMerge.js`** | **`planQueueSiEntries[]`** includes **`commodityDisplay`**, **`totalQtyDisplay`** per SI. |
+
+**i18n:** **`colCommodityQty`** / **`clearanceColCommodityQty`** (EN/ID) in **`allocation.json`**, **`atBerth.json`**, **`pages.json`**, **`shipmentPlan.json`**.
+
+**Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.21**.
+
+**Update to §0.29 shipment-plan list breakdown:** **`GET /shipment-plans`** embeds **`qty`**, **`metric_id`**, **`metric_code`** in list **`breakdown[]`** (in addition to commodity/shipper fields documented in **§0.29**).
+
+### 0.27 Self-service change password — `PUT /users/me/password` (2026-05-19)
+
+**Purpose:** Authenticated **local** users change their own password without admin involvement. SSO-only accounts (`auth_source = 'sso'`) cannot use this endpoint; the UI hides **Change Password** in the header menu.
+
+**API — `Backend/src/routes/users.js` (before admin `router.use(...requireAdminPageView)`):**
+
+- **`PUT /api/v1/users/me/password`** — `requireAuth` only (not admin-gated).
+- Body (snake_case): **`current_password`**, **`new_password`**.
+- Validation:
+  - **`current_password`** required.
+  - **`new_password`** required, min **6** characters (same rule as admin **`POST /users`** / **`PUT /users/:id`** optional password).
+  - **`new_password`** must differ from **`current_password`** → **400**.
+- Load user: **`password_hash`**, **`auth_source`**, **`is_active`**.
+  - Inactive → **403**; missing row → **404**.
+  - **`auth_source !== 'local'`** → **403** `{ error: 'Password cannot be changed for SSO accounts' }`.
+  - **`bcrypt.compare`** on current → **401** `{ error: 'Invalid current password' }` + **`logAuthEvent('local.password.change.failure', …)`**.
+- Success: **`bcrypt.hash`** (cost **10**), **`UPDATE users SET password_hash, updated_at`**, **`logAuthEvent('local.password.change', { userId, ip })`**, **204** (no body).
+- Session cookies are **not** invalidated on success (user stays logged in).
+
+**Frontend:**
+
+- **`Frontend/src/components/UserMenu.jsx`** — top-bar trigger (display name + initials); dropdown with name, email, **Change Password** (when **`fetchMySsoStatus()`** → **`authSource === 'local'`**), **Logout** (callback to existing **`handleLogout`** in **`Layout.jsx`**). Click-outside + **Escape** to close (pattern aligned with **`NotificationBell.jsx`**).
+- **`Frontend/src/components/ChangePasswordModal.jsx`** — overlay modal; client validation; **`changeMyPasswordApi`**; success banner then auto-close.
+- **`Frontend/src/components/PasswordField.jsx`** — password input + visibility toggle.
+- **`Frontend/src/api/usersApi.js`** — **`changeMyPasswordApi({ currentPassword, newPassword })`** → **`apiPut('/users/me/password', { current_password, new_password })`** (CSRF + cookie session per **§0.10**).
+- **`Frontend/src/components/Layout.jsx`** — replaces inline greeting + logout button with **`<UserMenu me={me} onLogout={handleLogout} />`** when **`me`** is set.
+- Styles: **`Frontend/src/styles/user-menu.css`**, **`modal.css`** (`.modal__header`, `.modal__close`, `.password-field__*`).
+- i18n: **`Frontend/src/locales/en/common.json`**, **`id/common.json`** — namespace key **`changePassword.*`**.
+
+**Admin password reset unchanged:** **`PUT /api/v1/users/:id`** with optional **`password`** remains **admin-only** and does not require the user’s current password.
+
+**Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.16**, **§14**.
+
+### 0.26 Jetty Live CCTV — `jetties.rtsp_link` + `rtsp-stream-viewer` (2026-05-21)
+
+**Purpose:** Per-jetty optional RTSP URLs for live CCTV; browser playback via a host-side stream helper (FFmpeg → MPEG1 WebSocket), not embedded in the API container. Opened from **Allocation → Jetty schematic** (popup **`/jetty-live`**), not a dedicated sidebar page.
+
+**Database (migration `077_jetties_rtsp_link.sql`):**
+
+- Column **`jetties.rtsp_link`** (`TEXT`, nullable) — full RTSP URL including credentials when required by the camera.
+- Rollback: **`Backend/rollback/077_rollback_jetties_rtsp_link.sql`**.
+
+**RBAC (migration `078_retire_jetty_live_page_permission.sql`; supersedes `072`):**
+
+- Standalone page key **`jetty-live`** is **retired** (soft-deleted). Existing **`jetty-live` can_view** grants are migrated to **`at-berth` can_approve**.
+- **View Jetty Live stream** is configured in **Admin → Roles** as an **`can_approve`** sub-checkbox under **At-Berth Executions** (same UX pattern as **Approve shipment plan** under Shipment Plan).
+- Schematic camera buttons and **`/jetty-live`** viewer gate on **`useRbac().canApprove('at-berth')`**. Master RTSP configuration remains under **`master-jetty`** edit.
+
+**API — `Backend/src/routes/jetties.js`:**
+
+- **`GET /jetties`**, **`GET /jetties/:id`**, **`POST /jetties`**, **`PUT /jetties/:id`** include **`rtsp_link`** in SQL; JSON camelCase **`rtspLink`** (`null` when unset).
+- **`normalizeRtspLink`:** trim; empty → `null`; max **512** characters → **400** if exceeded.
+- **`PUT`** activity log may record **RTSP link** field changes.
+
+**Frontend:**
+
+- **`Frontend/src/pages/MasterJetty.jsx`** — optional **RTSP link (CCTV)** on add/edit; **`MAX_RTSP_LINK_CHARS`** from **`inputLimits.js`**.
+- **`Frontend/src/components/JettySchematic.jsx`** — **`canApprove('at-berth')`** gates **`renderCctvButton`**; opens **`/jetty-live?rtsp=…&label=…`** in a new tab.
+- **`Frontend/src/pages/JettyLive.jsx`** — same **`canApprove('at-berth')`** gate; **`POST`** stream **`/api/reconnect`** with **`rtspUrl`** before JSMpeg attach.
+- **`Frontend/src/pages/AdminRoles.jsx`** — **View Jetty Live stream** sub-row under **At-Berth Executions**.
+- Route: **`Frontend/src/App.jsx`** — **`/jetty-live`** (no sidebar nav entry in **`Layout.jsx`**).
+
+**Stream helper — `rtsp-stream-viewer/`** (separate Node process on app host): see **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**.
+
+- **On-demand FFmpeg:** starts when the first WebSocket viewer connects to **`/jetty-live-ws`**; stops **`STREAM_IDLE_STOP_MS`** (default **30 s**) after the last viewer disconnects. Node + WS server stay up under systemd; idle health shows **`ffmpegRunning: false`**, **`viewerCount: 0`**.
+- **Output rate:** **`STREAM_OUTPUT_FPS`** (default **1**) via **`-vf fps=`**; **`STREAM_MPEG1_RATE=25`** for the mpeg1video encoder; **`STREAM_SCALE=640:-1`** for HEVC/H.265 cameras.
+- **`GET /api/health`** includes **`viewerCount`**, **`outputFps`**, **`idleStopMs`** in addition to status / restart count.
+
+**Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.15**.
+
+### 0.28 Master data list tables — client sort and filter (2026-05-22)
+
+**Purpose:** Consistent **client-side** column sorting and per-column text filtering on **Master Menu** list pages, matching the Allocation / Shipping Instruction table pattern (no new API query parameters).
+
+**Shared frontend modules:**
+
+| Module | Role |
+|--------|------|
+| **`Frontend/src/utils/sortableFilterableTable.js`** | Pure **`filterRows`**, **`sortRows`**, **`filterAndSortRows`**; optional per-column **`getFilterValue`** (defaults to stringified **`getSortValue`**). |
+| **`Frontend/src/hooks/useSortableFilterableRows.js`** | React state: **`filters`**, **`sortState`**, **`displayRows`**, **`updateFilter`**, **`handleSort`** (toggle asc/desc on same column key). |
+| **`Frontend/src/components/SortableFilterableTableHead.jsx`** | Renders sort buttons + filter inputs in **`<thead>`** using **`allocation-table__sort`**, **`allocation-table__filter-row`**, **`allocation-table__filter`** from **`allocation.css`**. Supports **`leadingBlankCols`** / **`trailingBlankCols`** for non-data columns (e.g. **Actions** on the right). |
+
+**Pages wired:**
+
+| Page | File | Default sort | Notes |
+|------|------|--------------|--------|
+| Master – Port | `MasterPort.jsx` | `name` asc | Columns: name, scheduleTimezone, description |
+| Master – Preferred Jetty | `MasterJetty.jsx` | `port` asc | Replaces fixed client sort by port+order only |
+| Term, Shipper, Loading Port, Surveyor, Agent, Commodity | `MasterSiLookup.jsx` (props per route) | `value` asc | Dynamic columns: value; commodity **Type** + rate fields when `enableStandardRateFields`; **no `sortOrder` column in UI** |
+| Master – Freight Terms | `MasterFreightTerms.jsx` | `code` asc | Static enum rows; read-only |
+
+**SI lookup — `sort_order` vs UI:**
+
+- **`GET /si-lookups/:type`** (and aggregate **`GET /si-lookups`**) still **`ORDER BY sort_order`** in SQL (`Backend/src/routes/si-lookups.js`); JSON may include **`sortOrder`**.
+- Admin **MasterSiLookup** tables **do not** render, sort, or filter on **Sort order**; dropdown order elsewhere still follows API **`sort_order`**.
+- New creates still set **`sort_order`** on insert (backend default **0**); no admin UI to edit sort order.
+
+**Filter inputs:** Not subject to **`inputLimits.js`** caps (same as Allocation / SI list filters). See FUNCTIONAL-SPEC **§2.11** note.
+
+**Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.17**.
+
+### 0.29 Dashboard V2 — Purpose and Commodity Type filters (2026-05-22)
+
+**Purpose:** The live dashboard (`/`, **`DashboardV2.jsx`**) adds **Purpose** and **Commodity Type** multi-select filters beside the date range. Most metrics filter **client-side** on data already fetched for the selected port and date window; **Weekly trends** filter **server-side** via **`GET /dashboard-v2/weekly-trends`**.
+
+**Frontend modules:**
+
+| Module | Role |
+|--------|------|
+| **`Frontend/src/pages/DashboardV2.jsx`** | Filter state (`selectedPurposes`, `selectedCommodityIds`); **`refresh()`** (plans, ops, at-berth, allocation, jetties) on port/date change; **`refreshWeekly()`** on port/date/**filter** change; derived **`filteredPlans`**, **`filteredOps`**, **`filteredAtBerth`**, slot occupancy via filtered berth occupants. |
+| **`Frontend/src/utils/dashboardFilters.js`** | **`planMatchesFilters`**, **`opMatchesFilters`**, **`filterPlans`**, **`filterOps`**, **`buildPlanCommodityIndex`**, **`extractCommodityOptionsFromMaster`**, **`buildCommodityNameById`**, **`buildCommodityIdByName`**, **`pruneInvalidCommoditySelection`**. |
+| **`Frontend/src/components/DropdownMultiSelect.jsx`** | Reusable multi-select; optional **`titleLabel`** → trigger **Purpose (n)** / **Commodity Type (n)**; **`emptyText`**; panel open animation via **`.is-open`**. |
+| **`Frontend/src/components/DashboardV2WeeklyTrends.jsx`** | Props **`refreshing`**, **`filtered`**; **Updating charts…** status; filtered hint text when filters active. |
+| **`Frontend/src/api/dashboardV2.js`** | **`fetchDashboardV2Weekly({ startDate, endDate, purposes, commodityIds })`**. |
+| **`Frontend/src/api/siLookups.js`** | **`fetchSiLookups()`** → master **`commodities`** for dropdown labels. |
+| **`Frontend/src/styles/dashboard.css`** | **`.v2-filters`**, **`.v2-filter-empty-banner`**, **`.v2-weekly--refreshing`**. |
+
+**Filter semantics:**
+
+- Empty selection in a category → no constraint.
+- Multiple values in one category → **OR**.
+- Purpose + Commodity together → **AND**.
+- **Purpose:** match **`shipment_plans.purpose_id`** → **`purposeCode`** on plans; **`operations.purpose`** on ops.
+- **Commodity:** match **`shipping_instruction_breakdown.commodity_id`** on plan child SIs (list payload **`breakdown[]`**) and/or operation **`commodity`** name fallback via master id map.
+
+**Data fetches (dashboard `refresh()`):**
+
+| Endpoint | Query | Used for |
+|----------|-------|----------|
+| **`GET /shipment-plans`** | `start_date`, `end_date` | Pipeline, performance (plan-side), commodity index |
+| **`GET /operations`** | `start_date`, `end_date` | Pipeline, SLA, turnaround, at-berth clearance stats |
+| **`GET /operations/at-berth`** | (live snapshot) | At berth now |
+| **`GET /allocation/overview`** | — | Slot occupancy berths/occupants |
+| **`GET /jetties`** | port id | Jetty status (**unfiltered**) |
+| **`GET /si-lookups`** | — | Master commodity dropdown |
+| **`GET /dashboard-v2/weekly-trends`** | `start_date`, `end_date`, optional **`purpose`**, **`commodity_id`** | Weekly trends only |
+
+**Backend — weekly trends filters (`Backend/src/routes/dashboard-v2-weekly.js`):**
+
+- Mount: **`/api/v1/dashboard-v2`** (`requireAuth`, `requirePortScope`).
+- **`GET /dashboard-v2/weekly-trends`**
+  - Required: **`start_date`**, **`end_date`** (YYYY-MM-DD).
+  - Optional (repeatable or comma-separated): **`purpose`** (`Loading` \| `Unloading`), **`commodity_id`** (positive int, **`si_commodities.id`**).
+  - **`parseDashboardFilters(req)`** → `{ purposeCodes, commodityIds }` (null when omitted).
+  - Filter SQL applied to **`berthOccupiedPlansAt`**, **`countApprovedPlansInRange`**, **`countSailedPlansInRange`**, **`slaAtRiskAtSnapshot`** via **`EXISTS`** on plan purpose and SI breakdown.
+  - **`totalSlots`** (jetty capacity denominator for occupancy %) remains **unfiltered** port capacity; occupied numerators respect filters.
+
+**Backend — shipment plan list commodity breakdown (`Backend/src/routes/shipment-plans.js`):**
+
+- **`GET /shipment-plans`** list embeds per-SI **`breakdown`** in **`si_children_json`**: `{ commodity_id, commodity_name, commodity_type, metric_id, metric_code, qty, shipper_id, shipper_name }[]` from **`shipping_instruction_breakdown`** (JOIN **`metric`**; LEFT JOIN **`si_shippers`**).
+- **`parseSiChildrenJson`** maps to **`shippingInstructions[].breakdown[]`** with **`commodityId`**, **`commodityName`**, **`commodityType`**, **`metricId`**, **`metricCode`**, **`qty`**, **`shipperId`**, **`shipperName`**, plus **`commodityQtyDisplay`** (formatted per **§0.32**) for list tables and dashboard commodity index.
+
+**Deploy note:** Weekly trends filtering requires a backend build that includes **`dashboard-v2-weekly.js`** filter changes. Frontend-only deploy updates pipeline/KPI/at-berth filtering but not weekly charts until the API is restarted/redeployed.
+
+**Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.18**.
+
+### 0.30 Uploaded document preview — `/view` routes and `FilePreviewModal` (2026-05-25)
+
+**Purpose:** Replace immediate browser download when users click uploaded file links. Persisted files open in a **shared preview modal** (images inline, PDF in iframe). **Download** and **Open in new tab** remain explicit footer actions.
+
+**Problem addressed:** List APIs return **`/download`** URLs (`Content-Disposition: attachment`). Plain `<img src>` / `<iframe src>` cannot send **`X-Selected-Port-Id`**, which **`requirePortScope`** requires for users with multiple assigned ports. The SPA therefore **fetches file bytes with authenticated headers** and displays them via temporary **`blob:`** URLs for API-backed files.
+
+**Backend — inline view routes** (`Backend/src/lib/send-stored-file.js`):
+
+| Route | File | Disposition |
+|-------|------|-------------|
+| `GET /api/v1/operation-documents/:id/view` | `Backend/src/routes/operation-documents.js` | `inline` |
+| `GET /api/v1/operation-documents/:id/download` | same | `attachment` (unchanged) |
+| `GET /api/v1/sub-process-documents/:documentId/view` | `Backend/src/routes/operation-sub-processes.js` | `inline` |
+| `GET /api/v1/sub-process-documents/:documentId/download` | same | `attachment` |
+| `GET /api/v1/si-documents/:id/view` | `Backend/src/routes/si-documents.js` | `inline` |
+| `GET /api/v1/si-documents/:id/download` | same | `attachment` |
+
+- Shared helpers: **`sendStoredFileInline`**, **`sendStoredFileAttachment`**, **`mimeFromFilename`**, **`safeContentDispositionFilename`**.
+- Same auth stack as existing download routes: **`requireAuth`**, **`requirePortScope`** (mounted on `/api/v1/...` in `Backend/src/index.js`).
+- **`GET /uploads/...`** (static, **§3.10A**) remains unauthenticated inline; preview uses direct URL when not an API document path.
+
+**SI Approval attachments:** **`GET /shipping-instructions/:id`** includes a **`documents`** array (`id`, `name`, `mimeType`, `sizeBytes`, `downloadUrl`) from **`shipping_instruction_documents`** (`Backend/src/routes/shipping-instructions.js`).
+
+**Frontend modules:**
+
+| Module | Role |
+|--------|------|
+| **`Frontend/src/context/FilePreviewContext.jsx`** | App-wide **`openFilePreview({ url, name, mimeType })`**; mounts **`FilePreviewModal`**. Wrapped in **`App.jsx`** inside **`PortScopeProvider`**. |
+| **`Frontend/src/components/FilePreviewModal.jsx`** | Preview UI: header (filename + close), body (image / PDF iframe / unsupported message), footer (**Open in new tab**, **Download**). |
+| **`Frontend/src/components/FilePreviewLink.jsx`** | Drop-in replacement for document name anchors. |
+| **`Frontend/src/components/AuthenticatedFileImage.jsx`** | Thumbnails for API-backed images (berthing photos); fetches with auth before render. |
+| **`Frontend/src/utils/filePreview.js`** | **`toViewUrl`** / **`toDownloadUrl`** (maps `.../download` → `.../view`); **`resolvePreviewSrc`**; **`triggerFileDownload`**. |
+| **`Frontend/src/api/client.js`** | **`fetchAuthenticatedBlobUrl(absoluteUrl)`** — `credentials: 'include'`, **`authHeaders({ Accept: '*/*' })`** including **`X-Selected-Port-Id`**. |
+| **`Frontend/src/api/siDocuments.js`** | **`siDocumentViewUrl(id)`**. |
+| **`Frontend/src/styles/file-preview.css`** | Modal layout (`.modal--file-preview`, preview image/iframe). |
+| i18n **`Frontend/src/locales/{en,id}/filePreview.json`** | Modal strings. |
+
+**Integrated surfaces:** see FUNCTIONAL-SPEC **§2.19** — **`Allocation.jsx`**, **`Loading.jsx`**, **`Verification.jsx`**, **`ShippingInstructionDocumentUploadSection.jsx`**, **`SIApproval.jsx`**, **`OperationActivityTimeline.jsx`**.
+
+**Out of scope:** generated CSV/Excel exports, SI print/PDF (`window.print()`), upload-only filename lists without persisted URLs.
+
+**Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.19**.
+
+### 0.31 SI shipper at breakdown line level (2026-05-25)
+
+**Purpose:** One Shipping Instruction can assign a **different shipper per commodity / contract line**. Shipper is no longer a single header field on **`shipping_instructions`**.
+
+**Migration:** **`079_si_breakdown_shipper_id.sql`**
+
+- Adds **`shipping_instruction_breakdown.shipper_id`** (`BIGINT`, nullable FK → **`si_shippers.id`**).
+- **Backfill:** copies legacy **`shipping_instructions.shipper_id`** to **every active breakdown row** on that SI (preserves old single-dropdown behaviour on existing data).
+- Secondary backfill: matches legacy **`shipper_text`** on breakdown lines to **`si_shippers.name`** where possible.
+- Drops **`shipping_instructions.shipper_id`** and **`shipping_instruction_breakdown.shipper_text`**.
+- Rollback: **`Backend/rollback/079_rollback_si_header_shipper.sql`** (restores header column from first breakdown line per SI).
+
+**Deploy order:** Run **079** before or with an API build that reads/writes **`breakdown[].shipperId`**. Running **079** against an old API (still querying **`si.shipper_id`**) causes **500** errors on allocation and shipment-plan list routes until the API container is rebuilt.
+
+**API — `POST` / `PUT /shipping-instructions`:**
+
+- **Remove** top-level **`shipper_id`** from accepted body. If present → **400** (`shipper_id must be set on each breakdown row, not on the shipping instruction header`).
+- **Add** optional **`shipperId`** / **`shipper_id`** on each **`breakdown[]`** row; validated against active **`si_shippers`** when non-null.
+- Shipper remains **optional** per row (same as prior header behaviour).
+
+**API — `GET /shipping-instructions`, `GET /shipping-instructions/:id`:**
+
+- **Remove** top-level **`shipperId`** / **`shipperName`** from SI header JSON.
+- **Add** per breakdown row: **`shipperId`**, **`shipperName`** (JOIN **`si_shippers`**).
+- **Add** aggregated **`shipperNames`** on list/detail (distinct shipper names, comma-separated) for tables and read-only views.
+
+**API — allocation / plans:**
+
+- **`GET /allocation/overview`**, **`GET /allocation/plan-overview`**: queue row **`shipper`** = comma-separated distinct names from breakdown lines (`STRING_AGG` subquery), not a join on **`si.shipper_id`**.
+- **`GET /shipment-plans`**: nested **`shippingInstructions[].breakdown[]`** includes **`shipperId`** / **`shipperName`**; header **`shipperId`** removed from child SI JSON.
+- **`DELETE /si-lookups/shippers/:id`**: blocked when referenced by **`shipping_instruction_breakdown.shipper_id`** (in addition to any legacy header checks removed by **079**).
+
+**Frontend (plan-linked SI — primary path):**
+
+- **`Frontend/src/components/ShippingInstructionSiLinkedFields.jsx`** — Shipper **`<select>`** is the **first column** of the **Shipment breakdown** table (not **Party & port**).
+- **`Frontend/src/utils/siPlanLinkedDraft.js`** — **`shipperId`** on each breakdown row; removed from form root; payload builder sends **`shipperId`** inside **`breakdown[]`** only.
+- **`Frontend/src/api/shippingInstructions.js`** — no header **`shipper_id`** on create/update.
+- **OCR autofill:** **`Frontend/src/utils/siExtractMerge.js`** applies extracted shipper to the **first breakdown row** with an empty **`shipperId`**.
+- **Display:** **`siViewModel.js`**, **`SiDocumentView.jsx`**, **`SIApproval.jsx`**, **`SiDetailModal.jsx`** — shipper from line **`shipperName`**; Unloading document breakdown table includes a **Shipper** column.
+
+**Activity log:** SI update diff tracks **Shipper** via aggregated breakdown shipper names (not header **`shipperName`**).
+
+**Functional behaviour:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.20**, **§16**.
+
+### 0.24 Shipping instruction vessel-call columns removed (canonical `shipment_plans`) (2026-05-11)
+
+**Migrations:** **`066_shipment_plans_approval_id_and_si_nullable_transition.sql`** adds **`shipment_plans.approval_id`**, backfills plan vessel-call fields from legacy SI rows where the plan was empty, and relaxes **`shipping_instructions.vessel_name` / `purpose`** nullability so the app can stop writing them before drop. **`067_drop_si_vessel_call_columns.sql`** drops from **`shipping_instructions`**: `vessel_name`, `purpose`, `eta`, `purpose_id`, `preferred_jetty_id`, `approval_id`, `voyage_no`, `approved_by_user_id`, `approved_at`, `port_id`.
+
+**API / SQL:** List and detail SI queries **`LEFT JOIN shipment_plans`** (and **`si_purposes`** on **`spl.purpose_id`**) so JSON still exposes **`vesselName`**, **`purpose`**, **`eta`**, **`approvalId`**, **`preferredJettyId`**, etc., resolved from the plan. **`PUT /shipping-instructions/:id`** updates **`shipment_plans`** for those fields and **`shipping_instructions`** for SI-only columns. **`POST /shipping-instructions`** with **`shipment_plan_id`** applies optional body overrides to the linked plan (`vessel_name`, `voyage_no`, `jetty_id`, `approval_id`). Allocation overview / incoming SI SQL and **`operations`** joins use **`sp.vessel_name`**, **`sp.eta`**, plan port/jetty, and **`si_purposes.code`** instead of removed SI columns.
+
+**Deploy order:** Run **066** before or with the application build that writes vessel-call data only on plans; run **067** only after all app instances use the new queries (no references to dropped SI columns).
+
+**Rollback:** Prefer **`pg_dump`-based restore** to a snapshot taken before **067**. Optional SQL to re-add columns and copy back from **`shipment_plans`** (for emergency revert of schema only): **`Backend/rollback/067_rollback_restore_si_vessel_columns.sql`**. After rollback SQL, redeploy the previous API revision that still expected SI mirror columns.
+
+### 0.25 Shipment plan agent + plan-linked SI surveyor (2026-05-13)
+
+**Migration:** **`071_shipment_plan_agent_id.sql`** adds nullable **`shipment_plans.agent_id`** (FK **`si_agents`**, `ON DELETE SET NULL`), backfills from the first child **`shipping_instructions.agent_id`** per plan; rollback **`Backend/rollback/071_rollback_shipment_plan_agent_id.sql`**.
+
+**API:** **`POST` / `PATCH /shipment-plans`** accept optional **`agent_id`**; **`PATCH`** may sync child SIs’ **`agent_id`** to match the plan. List/detail plans expose **`agentId`** / **`agentName`** (list joins **`si_agents`**). **`POST /shipping-instructions`** with **`shipment_plan_id`** resolves **`agent_id`** from the plan when the body omits it. Allocation overview / incoming-SI SQL joins **`si_agents`** on **`COALESCE(si.agent_id, sp.agent_id)`**.
 
 ### 0.14 Allocation schedule dataset split (2026-04-21)
 
@@ -47,9 +420,9 @@ This change is presentation-only for schedule explainability; API contracts rema
 
 `Frontend/src/components/JettyScheduleGantt.jsx` now closes remaining legend-alignment gaps:
 
-- **Sailed status source-of-truth**:
-  - `isSailed = (status === 'SAILED') OR actualCompletionDateTime IS NOT NULL OR castOffDateTime IS NOT NULL`
-  - This avoids misclassifying sailed rows when actual completion is empty but cast-off/status indicates completion.
+- **Sailed status source-of-truth** (updated migration **082**):
+  - `isSailed = (status === 'SAILED') OR castOffDateTime IS NOT NULL`
+  - `operations_completed_at` (sign-off) does **not** end alongside occupancy; `actual_completion_time` is set at depart (`= cast_off_at`).
 - **Legend simplification**:
   - Removed legend items: `Arriving / allocated`, `Berthing`.
   - Retained legend items: Planned known/open-end, Actual known/open-end, Now, Sailed off.
@@ -91,10 +464,172 @@ This change is presentation-only for schedule explainability; API contracts rema
 | `MAX_LOGIN_USERNAME_CHARS` / `MAX_LOGIN_PASSWORD_CHARS` | 50 | `/login` |
 | `MAX_MASTER_JETTY_NAME_CHARS` / `MAX_MASTER_PORT_NAME_CHARS` | 100 | Master modals |
 | `MAX_MASTER_DESCRIPTION_CHARS` | 100 | Master Port / Master Jetty **Description** |
+| `MAX_RTSP_LINK_CHARS` | 512 | Master – Preferred Jetty **RTSP link (CCTV)**; mirrors **`jetties.js`** `MAX_RTSP_LINK_CHARS` |
 | `MAX_ROLE_NAME_CHARS` / `MAX_ROLE_DESCRIPTION_CHARS` | 50 / 100 | Admin Roles |
 | `MAX_MILESTONE_SUBSTEP_TITLE_CHARS` / `MAX_MILESTONE_REASON_CHARS` | 100 / 500 | Operational milestone composer |
 | `MAX_SI_*` (see module) | varies | Shipping Instruction form + breakdown row short fields |
 | `MAX_SI_APPROVAL_COMMENTS_CHARS` | 500 | SI Approval **Approval comments** |
+
+### 0.19 OIDC strict integration hardening + local host consistency (2026-04-28)
+
+This addendum captures the implemented OIDC integration behavior and rollout learnings from local stabilization.
+
+**Backend integration (`Backend/src/routes/oidc-sso.js` + libs):**
+
+- OIDC routes mounted under **`/auth`**:
+  - `GET /auth/oidc/start`
+  - `GET /auth/oidc/callback`
+  - `GET /auth/oidc/ready` (plain readiness probe for auth route reachability)
+- Start flow:
+  - builds authorization URL from discovery metadata (`oidc-client.js`)
+  - sets short-lived signed flow cookie (`jps_oidc_flow`)
+  - uses PKCE (`code_challenge` / verifier)
+- Callback flow:
+  - validates token via JWKS (`jose`)
+  - resolves user by `oidc_sub` (`claims.sub`)
+  - optional fallback path for provider variants that return callback `code_verifier` in query when enabled by env:
+    - `OIDC_ALLOW_QUERY_CODE_VERIFIER=true`
+- Account collision guard:
+  - if no `oidc_sub` match and local account exists for the same email, returns guarded failure (`email_collision_local_account`) instead of silent takeover.
+
+**Browser/frame hardening:**
+
+- SSO start behavior includes top-window promotion path for browser HTML requests to reduce iframe redirect traps.
+- Callback includes iframe breakout handling for browser iframe destinations (`Sec-Fetch-Dest: iframe`) by returning minimal HTML that promotes to `window.top` with same callback URL.
+
+**Transport hardening (`Backend/src/index.js`):**
+
+- API server uses explicit `http.createServer(...)` with configurable max header size:
+  - env: `HTTP_MAX_HEADER_SIZE` (default 131072 bytes)
+- server listens on `0.0.0.0` in container runtime for consistent Docker host publishing.
+
+**Frontend/client alignment:**
+
+- Login SSO launch uses top-window navigation (`window.top.location.assign`).
+- Vite local API base should be set in `Frontend/.env`:
+  - `VITE_API_BASE_URL=http://127.0.0.1:3000/api/v1`
+
+**Local host consistency (critical):**
+
+- Use a single host identity across SPA/API/callback in local:
+  - preferred known-good: `127.0.0.1`
+- Avoid mixing `localhost` and `127.0.0.1` in one auth session; mixed hostnames can break cookie/session continuity and produce misleading RBAC/Forbidden symptoms despite successful callback.
+
+**Known-good local OIDC env profile:**
+
+- `OIDC_REDIRECT_URI=http://127.0.0.1:3000/auth/oidc/callback`
+- `JPS_PUBLIC_ORIGIN=http://127.0.0.1:5173`
+- `CORS_ORIGIN=http://127.0.0.1:5173,http://localhost:5173`
+- `COOKIE_SECURE=false` (HTTP local)
+- `SSO_OIDC_ENABLED=true`
+
+### 0.20 Schedule entry timezone (device IANA) + Master Port timezone picker (2026-05-04)
+
+**Frontend — naive `datetime-local` ↔ API:**
+
+- **`Frontend/src/utils/scheduleDateTime.js`**: **`getScheduleEntryTimeZone()`** (alias of **`getClientIanaTimeZone()`**) is the zone passed into **`naiveLocalToUtcIso`**, **`utcIsoToNaiveLocal`**, **`normalizeForApi`**, **`normalizeForApiOrEmpty`**, and **`nowToNaiveLocalInScheduleZone`** for operational schedule UIs (Allocation, Loading, Unloading, Verification, operational activities/sub-processes via **`Frontend/src/api/operations.js`** defaults, **`OperationalMilestoneWorkspace`**, **`SiDetailModal`** hub loader, **`loadingHubProcessStagesFromApi.js`**).
+- The SPA should POST/PUT **ISO strings with `Z` or numeric offset** for schedule instants so the backend does not need to guess.
+
+**Frontend — Master – Port:**
+
+- **`Frontend/src/utils/ianaTimeZoneOptions.js`**: builds sorted **`Intl.supportedValuesOf('timeZone')`** options with **Luxon** offset labels.
+- **`Frontend/src/components/SearchableSingleSelect.jsx`**: searchable single-select; dropdown panel is **`createPortal`**’d to **`document.body`** with **`z-index: 1100`** so **`modal` `overflow: auto`** does not clip it.
+- **`Frontend/src/pages/MasterPort.jsx`**: port **`schedule_timezone`** is chosen from that list (orphan row if DB value is non-standard).
+
+**Shell — `Layout.jsx`:**
+
+- Shows **⚓** port IANA and **💻** device IANA with tooltips; muted subtitle: schedule entry follows the device clock.
+
+**Backend — parsing (`Backend/src/lib/schedule-instant.js`):**
+
+- **`parseScheduleInstantToIso`**: if the client sends a **naive** `YYYY-MM-DDTHH:mm` (no zone), it is interpreted in **`scheduleIana` from the operation’s port** (legacy / non-web). If the string includes **`Z`** or a **numeric offset**, **`new Date(v).toISOString()`** is used and port zone is **not** applied to that token.
+
+**See also:** **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §10.1**.
+
+### 0.21 Shipment Plan multi-SI vessel call (2026-05-11)
+
+**Schema:** Migration **`059_shipment_plans.sql`** — table **`shipment_plans`**; required FK **`shipping_instructions.shipment_plan_id`**; 1:1 backfill from legacy rows.
+
+**Allocation**
+
+- **`GET /allocation/overview`**: flat **`queue`** unchanged at the top level; each row includes **`shipmentPlanId`** and **COALESCE(plan, operation, SI)** vessel-level timestamps and jetty so existing tables keep working (`Backend/src/routes/allocation.js`).
+- **`PUT /allocation/arrival`**: persists vessel-call fields to **`shipment_plans`** first, then updates the resolved **`operations`** row; when **TB** is set, syncs sibling **`operations`** on the same approved plan (see **§0.24**).
+
+**Operations JSON**
+
+- **`loadOperationJoined`** **`LEFT JOIN shipment_plans sp`**; **`toOp`** prefers **`sp.*`** timestamps and jetty when **`shipment_plan_id`** is set so **`GET /operations`** and **`GET /operations/:id`** expose a single merged voyage timeline to clients (`Backend/src/routes/operations.js`).
+
+**Depart / clearance**
+
+- **`POST /shipment-plans/:id/depart`** — same body as operation depart (`cast_off_at`, optional evidence URLs); validates **port scope**; requires **every** non-`SAILED` child operation on the plan to be **`SIGNOFF_APPROVED`**; sets **`SAILED`** + clearance fields on **all** eligible children and updates **`shipment_plans`** (`Backend/src/routes/shipment-plans.js`, shared **`Backend/src/lib/shipment-plan-depart.js`**).
+- **`POST /operations/:id/depart`** — still supported; when **`shipment_plan_id`** is set it runs the **same** multi-operation transaction via the shared helper.
+
+**Frontend**
+
+- **Verification** — plan-level table collapse + **`departShipmentPlan`** (`Frontend/src/pages/Verification.jsx`, `Frontend/src/api/shipmentPlans.js`).
+- **JettyScheduleGantt** — **`bankLaneKey`** from **`shipmentPlanId`** for double-bank lanes (`Frontend/src/components/JettyScheduleGantt.jsx`).
+- **Dashboard / activity chart** — dedupe by **`allocationQueueVesselCallKey`** (`Frontend/src/utils/dashboardQueueClassification.js`).
+- **Loading hub** — SI switcher when multiple operations share a plan (`Frontend/src/pages/Loading.jsx`).
+
+### 0.22 Allocation plan-centric page + `plan-overview` (2026-05-11)
+
+**RBAC**
+
+- New page permission **`allocation-plan`** (migration **`064_allocation_plan_page_permission.sql`**): catalog insert plus **`role_permissions`** mirrored from existing **`allocation`** grants; **`JPS Full Access`** backfill.
+- **`Frontend/src/data/rolesData.js`** — Admin Roles matrix label for the new page key.
+
+**Backend (`Backend/src/routes/allocation.js`)**
+
+- **`buildAllocationOverviewPayload`** (internal): shared implementation for overview JSON.
+- **`GET /allocation/overview`** — same JSON as **`plan-overview`**; guarded by **`...requirePageView('allocation-plan')`** (runs after global **`requireAuth`** + port scope on **`/allocation`** mount). Incoming queue rows use **`source`** = **`incoming-si`** (approved SI without operation yet).
+- **`GET /allocation/plan-overview`** — same payload as overview; guarded by **`...requirePageView('allocation-plan')`** (runs after global **`requireAuth`** + port scope on **`/allocation`** mount).
+- **`PUT /allocation/arrival`** — edit allowed when **`userHasPageEdit('allocation-plan')`** ( **`userHasAllocationPlanEdit`** in code). **`writeActivityLog.pageKey`** for this route is **`allocation-plan`**. When **`TB`** is set on an approved plan, sibling SIs on the same plan are synced (see **§0.24**).
+
+**Operations shifting-out (`Backend/src/routes/operations.js`)**
+
+- **`POST /operations/:id/shifting-out`** — **`activityLogPage`** in body may be **`allocation-plan`** or **`at-berth`** (legacy client value **`allocation`** is normalised to **`allocation-plan`** for **`writeActivityLog.pageKey`**).
+
+**Frontend**
+
+- **`Frontend/src/api/allocation.js`** — **`fetchAllocationPlanOverview()`** → **`GET /allocation/plan-overview`**; **`fetchAllocationOverview()`** → **`GET /allocation/overview`** (both require **`allocation-plan`** view on the server after migration **068**).
+- **`Frontend/src/utils/allocationPlanGrouping.js`** — **`groupQueueByShipmentPlan(rows, globalOrder?)`** for nested table grouping + unlinked bucket; child order follows **`globalOrder`** when provided.
+- **`Frontend/src/pages/Allocation.jsx`** — accepts **`pageProfile`**: **`planCentric`** switches fetcher, RBAC keys, nested desktop/mobile queue, **`plannedBerthingPath`** for vessel pipeline link; schematic/Gantt still use flat **`list`** / **`scheduleList`**.
+- **`Frontend/src/pages/AllocationPlanBerthing.jsx`** — thin wrapper rendering **`Allocation pageProfile='planCentric'`**.
+- **`Frontend/src/App.jsx`** — routes **`/allocation-plans`**, **`/allocation`** and **`/shipping-instruction`** list URLs render **`RetiredPage`** with links to plan-centric hubs; deep links **`/shipping-instruction/view/:id`** and **`/shipping-instruction/approval/:id`** unchanged.
+- **`Frontend/src/components/Layout.jsx`** — nav item for **`/allocation-plans`** only; **`pathToPageKey`** maps **`/allocation`** and **`/berthing`** to **`allocation-plan`**, **`/shipping-instruction`** subtree to **`shipment-plan`**.
+
+### 0.23 Shipment plan GET JSON — plan-level timeline fields + plan-centric modal (2026-05-11)
+
+**Mapper (`Backend/src/routes/shipment-plans.js` — `toPlanListRow`)**
+
+List and **`GET /api/v1/shipment-plans/:id`** detail responses now include **ISO 8601 strings** (or `null`) for plan-owned schedule fields in addition to existing **`eta`**:
+
+- **`ta`**, **`etb`**, **`tb`**, **`dockingStartTime`**, **`pob`**, **`sob`**, **`estimatedCompletionTime`**, **`actualCompletionTime`**
+
+**Normalization:** `timestampToIso` coalesces DB `timestamptz` / driver values to strings for JSON.
+
+**Frontend (`Frontend/src/pages/Allocation.jsx`, plan profile)**
+
+- Schematic / berth / Gantt selection passing **`plan-<id>`** sets **`vesselDetailPlanId`** and resolves a **representative** **`vesselDetailModalVesselId`** for operation-scoped sections; **`closeVesselDetailModal`** clears vessel + plan fetch state.
+- **`fetchShipmentPlan`** (`Frontend/src/api/shipmentPlans.js`) on open when **`vesselDetailPlanId`** is set; **`planDetail`**, **`planDetailLoading`**, **`planDetailError`** drive the plan **Time & status** card; **`vesselDetailPlanQueueRows`** filters **`list`** ∪ **`scheduleList`** by **`shipmentPlanId`**.
+- i18n: **`Frontend/src/locales/en|id/allocation.json`** — plan modal section titles and **`ttPlan*`** tooltip strings.
+
+### 0.24 Plan berth — sibling `operations` sync (2026-05-11)
+
+**Backend (`Backend/src/routes/allocation.js` — `PUT /allocation/arrival`)**
+
+- **`userHasAllocationPlanEdit`** gates the route (**`allocation-plan`** **edit** only).
+- After updating **`shipment_plans`** and the **primary** **`operations`** row, when **`shipment_plan_id`** is set and resolved **`tb`** is non-null: for each **other** `shipping_instructions` row on the same **Approved** plan, the handler ensures an **`operations`** row exists ( **`insertOperationForApprovedPlanSi`** + **`assignJettyOperationCode`** on insert), skips rows already **`SAILED`**, then applies **`runArrivalOperationUpdate`** with the same call-level timestamps as the request; **`actual_completion_time`** is taken per sibling unless the body explicitly sets **`actualCompletionDateTime`** (then all updated rows share that value). NOR **`operation_nor_details`** upsert remains **primary operation only**.
+
+### 0.25 Retire legacy Allocation & Shipping Instruction list RBAC (2026-05-11)
+
+**Migrations:** **`068_retire_allocation_si_page_permissions.sql`** — for each role, **OR-merge** active grants from catalog pages **`allocation`** → **`allocation-plan`** and **`shipping-instruction`** → **`shipment-plan`** (including **`can_approve`** mirroring per existing **060** rules), then **soft-delete** matching **`role_permissions`** rows and the two retired **`permissions`** catalog rows.
+
+**Rollback:** Prefer a **pre-migrate snapshot** of **`permissions`** + **`role_permissions`**. Optional script **`069_rollback_retire_allocation_si_page_permissions.sql`** clears **`deleted_at`** on those catalog keys and their role links (review before use if new grants were added post-migration).
+
+**Backend:** **`allocation.js`** — **`GET /allocation/overview`** now uses **`requirePageView('allocation-plan')`**; **`userHasAllocationPlanEdit`** is **`allocation-plan`** **edit** only; activity logs for swap + arrival use **`allocation-plan`**. **`shipping-instructions.js`** — internal SI approve checks **`shipment-plan`** **`can_approve`**; activity **`pageKey`** **`shipment-plan`**. **`operations.js`** / **`operation-documents.js`** — allocation-scoped activity keys use **`allocation-plan`**.
+
+**Retired catalog keys:** **`allocation`**, **`shipping-instruction`** — no longer seeded as active pages; Admin matrix uses **`allocation-plan`** and **`shipment-plan`** only.
 
 ### 0.4 Dev reset + seed (transactional data only)
 
@@ -118,6 +653,7 @@ To support “start fresh” local testing without wiping master data, the repo 
   - `quantity_checks`
   - `operation_materials`
   - `shipping_instruction_breakdown`, `shipping_instructions`
+  - `shipment_plans`
   - `activity_logs`
 - **Seeds fresh demo data** using relative timestamps (`NOW() +/- ...`) so Allocation / Loading / Verification views look current immediately after reset.
 
@@ -141,7 +677,7 @@ This addendum updates key requirements/implementation details.
   - >1 assigned ports -> force port selection before entering operational modules.
 - **Choose-port UX (2026-04-02):** Multi-port users use a **dedicated route** **`/select-port`** (no `Layout` shell). The main app **`Layout`** **`useLayoutEffect`** redirects to **`/select-port?returnTo=<encoded path>`** when `PortScopeContext` reports **`requiresSelection`** and the path is not already bypassed (`/admin`, `/master`). **Login** (`Login.jsx`) after a **successful login** (session cookies set; see **§0.10**) calls **`fetchMyPorts`**; if **`assignedPorts.length > 1`** and **`sessionStorage`** has **no** valid stored id for that list, **`navigate('/select-port')`**; otherwise **`navigate('/')`**. **`returnTo`** is validated on the choose-port page (same-origin path only; rejects `//`).
 - **Changing port:** Header **no longer** uses an inline `<select>` for multi-port users. A **button** navigates to **`/select-port?returnTo=…`** so selection happens only on the landing page.
-- Selected port persistence: **browser `sessionStorage`** key **`jps_selected_port_id`** (see `Frontend/src/api/client.js`: **`getSelectedPortId`**, **`setSelectedPortId`**). Every **`authHeaders()`** request adds **`X-Selected-Port-Id`** when set and **`X-XSRF-TOKEN`** when the CSRF cookie is present (see **§0.10**). **Logout** (`Frontend/src/api/auth.js` **`logout`**) calls **`POST /auth/logout`** (clears HttpOnly session cookies), clears any legacy **`localStorage`** token, and calls **`setSelectedPortId(null)`**.
+- Selected port persistence: **browser `sessionStorage`** key **`jps_selected_port_id`** (see `Frontend/src/api/client.js`: **`getSelectedPortId`**, **`setSelectedPortId`**). Every **`authHeaders()`** request adds **`X-Selected-Port-Id`** when set and **`X-XSRF-TOKEN`** when the CSRF cookie is present (see **§0.10**). **Logout** (`Frontend/src/api/auth.js` **`logout`**) calls **`POST /auth/logout`** (clears HttpOnly session cookies), clears any legacy **`localStorage`** token, and calls **`setSelectedPortId(null)`**. The shell invokes logout from **`UserMenu`** in the top bar (**§0.27**), not a standalone header logout button beside a greeting.
 - **`PortScopeContext` bugfix:** When **`me` is temporarily null** (auth still loading after reload), **`refreshPorts` must not** call **`persistSelectedPortId(null)`**—that had been clearing the user’s choice on full page load. The **`!me`** branch only resets in-memory lists and syncs **`selectedPortId` state** from **`getSelectedPortId()`**.
 - Scope enforcement applies in both frontend and backend for operational modules; Admin/Master remain configuration surfaces.
 
@@ -152,6 +688,7 @@ This addendum updates key requirements/implementation details.
 | Choose-port page | `Frontend/src/pages/SelectPort.jsx` |
 | Route registration | `Frontend/src/App.jsx` — **`/select-port`** sibling to **`/login`**, outside **`AppShell` / Layout** |
 | Redirect guard | `Frontend/src/components/Layout.jsx` — **`useLayoutEffect`**, **`navigate(..., { replace: true })`** |
+| Header user menu | `Frontend/src/components/UserMenu.jsx`, `ChangePasswordModal.jsx`, `PasswordField.jsx` — **§0.27** |
 | Port state + API header | `Frontend/src/context/PortScopeContext.jsx`, `Frontend/src/api/client.js` |
 | Post-login branch | `Frontend/src/pages/Login.jsx` — **`fetchMyPorts`** after **`refreshMe` / `refreshRbac`** |
 | Backend scope | `Backend/src/middleware/port-scope.js` — **`requirePortScope`**, **`req.selectedPortId`** |
@@ -195,7 +732,7 @@ Operational ownership note:
 
 **Frontend implementation (Option B — self-contained widget):**
 
-- **`JettySchematic`** (`Frontend/src/components/JettySchematic.jsx`) uses **`usePortScope()`** and, when an operational port is selected, loads **`fetchJettyLayout()`** and **`fetchJetties(selectedPortId)`** in parallel, then renders columns from the API.
+- **`JettySchematic`** (`Frontend/src/components/JettySchematic.jsx`) uses **`usePortScope()`** and, when an operational port is selected, loads **`fetchJettyLayout()`** and **`fetchJetties(selectedPortId)`** in parallel, then renders columns from the API. The jetty list also builds **`berthId → rtspLink`** for optional CCTV buttons on each name band (**§0.26**).
 - **No saved layout:** If `columns.length === 0`, the UI shows a single user-facing placeholder (functional copy in **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md**); there is **no** hardcoded fallback grid (e.g. old `1A/2A/3A` default).
 - **Errors:** Network/API failure shows a distinct “unable to load” message (not the admin placeholder).
 - **Dashboard (future):** To embed the same schematic, render **`JettySchematic`** with the same **`PortScopeProvider`** context and pass **`berths` / `vesselById` / handlers** as today on Allocation — **no duplicate layout-fetch parent** required because the component owns layout loading.
@@ -227,12 +764,12 @@ Operational ownership note:
 
 **`PUT /allocation/arrival`:**
 
-- **Authorisation:** `userHasPageEdit(req.userId, 'allocation')` from **`Backend/src/middleware/permissions.js`**; **403** if false. Route no longer uses **`optionalAuth`**; parent **`requireAuth`** + port scope still apply.
+- **Authorisation:** `userHasPageEdit(req.userId, 'allocation-plan')` from **`Backend/src/middleware/permissions.js`**; **403** if false. Route no longer uses **`optionalAuth`**; parent **`requireAuth`** + port scope still apply.
 - **Persistence:** `UPDATE operations` sets **`updated_by`** = authenticated user id; **`actual_completion_time`** is updated when the JSON body **includes** key **`actualCompletionDateTime`** (empty string clears); if the key is **omitted**, the column is left unchanged (read **`opBefore`** for merge).
 - **Partial JSON bodies:** If the client **omits** keys **`taDateTime`**, **`etbDateTime`**, **`pobDateTime`**, **`tbDateTime`**, **`sobDateTime`**, **`estimatedCompletionDateTime`**, **`norTenderedDateTime`**, or **`norAcceptedDateTime`**, the server **keeps** the existing database values for those columns (supports NOR-only saves from Loading). If a key is **present** (including with an empty string), the server applies normal parse/clear rules.
 - **Activity log:** `writeActivityLog` **`meta`** may include **`source: 'active_vessel_detail'`** when the client sends **`source`** in the body (Active Vessel Detail save).
 
-**Frontend:** `Frontend/src/pages/Allocation.jsx` — **`useRbac().canEdit('allocation')`** gates the Edit icon; **Log arrival** / **Confirm Berthing** requests send the same field keys as before; optional extra fields preserve behaviour when the backend merges partial updates.
+**Frontend:** `Frontend/src/pages/Allocation.jsx` — **`useRbac().canEdit('allocation-plan')`** gates the Edit icon; **Log arrival** / **Confirm Berthing** requests send the same field keys as before; optional extra fields preserve behaviour when the backend merges partial updates.
 
 ### 0.8 Admin User Management — port assignment IDs (2026-04-02)
 
@@ -257,7 +794,7 @@ Operational ownership note:
 |--------|------|------|
 | `shiftingOut` | boolean | **Required** |
 | `remark` | string | **Required** when `shiftingOut === true` (non-empty after trim); persisted to **`operations.remark`** (full replace). When `shiftingOut === false`, include a **non-empty** `remark` to update remark while clearing shift-out (**re-dock** from Allocation); **omit** `remark` (or only whitespace) to clear shift-out **without** changing `operations.remark` (**Undo shift-out** from At-Berth). |
-| `activityLogPage` | string | Optional; **`allocation`** or **`at-berth`** only (anything else treated as **`at-berth`**). Drives `writeActivityLog(..., pageKey)` so re-dock appears under **Allocation** and shift-out under **At-Berth** in the page-scoped Activity Log panel. |
+| `activityLogPage` | string | Optional; **`allocation-plan`** or **`at-berth`** only (legacy **`allocation`** is treated as **`allocation-plan`**). Drives `writeActivityLog(..., pageKey)` so re-dock appears under **Allocation (plans)** and shift-out under **At-Berth** in the page-scoped Activity Log panel. |
 
 **Handler behaviour (ordering):**
 
@@ -268,7 +805,7 @@ Operational ownership note:
 5. **`writeActivityLog`:** `summary` **Shifted out from berth** vs **Re-docked (shift-out cleared)** (when remark sent on clear) vs **Shift-out cleared** (undo without remark); **`changes`** include **Shifting out** and **Remark** when remark actually changed; **`meta`:** `{ source: 'operations.shifting-out', shiftingOut }`.
 6. `COMMIT`; response body **`toOp(row)`** including **`remark`** (`loadOperationJoined`).
 
-**Client:** `Frontend/src/api/operations.js` — **`setOperationShiftingOut(operationId, shiftingOut, remark?, options?)`**. Pass **`{ activityLogPage: 'allocation' }`** on re-dock; **`{ activityLogPage: 'at-berth' }`** on shift-out from At-Berth.
+**Client:** `Frontend/src/api/operations.js` — **`setOperationShiftingOut(operationId, shiftingOut, remark?, options?)`**. Pass **`{ activityLogPage: 'allocation-plan' }`** on re-dock; **`{ activityLogPage: 'at-berth' }`** on shift-out from At-Berth.
 
 **Allocation overview / UI:**
 
@@ -287,7 +824,7 @@ Operational ownership note:
 
 - **Login** `POST /api/v1/auth/login`: on success, response JSON is **`{ user }`** by default; **`Set-Cookie`** sets **`jps_at`** (HttpOnly JWT) and **`jps_xsrf`** (readable anti-CSRF token). Cookie **`maxAge`** follows **`JWT_EXPIRES_IN`** (default **8h** in code / `.env.example`).
 - **Optional:** `AUTH_RETURN_TOKEN_BODY=true` adds **`token`** to the JSON for non-browser API clients that cannot use cookies.
-- **Logout** `POST /api/v1/auth/logout`: clears both cookies (**204**). Frontend **`Frontend/src/api/auth.js`** calls this, clears legacy **`jps_token`** in `localStorage` if present, and **`setSelectedPortId(null)`**.
+- **Logout** `POST /api/v1/auth/logout`: clears both cookies (**204**). Frontend **`Frontend/src/api/auth.js`** calls this, clears legacy **`jps_token`** in `localStorage` if present, and **`setSelectedPortId(null)`**. Entry point in the authenticated shell: **`UserMenu`** dropdown (**§0.27**).
 - **Authorisation header:** `Backend/src/middleware/auth.js` accepts **`Authorization: Bearer <jwt>`** **or** cookie **`jps_at`**. Bearer-only requests **skip** CSRF verification (integrations/scripts).
 - **CSRF:** For unsafe methods (`POST`, `PUT`, `PATCH`, `DELETE`), when the session cookie **`jps_at`** is present **and** there is **no** Bearer header, middleware **`Backend/src/middleware/csrf.js`** requires **`X-XSRF-TOKEN`** to match cookie **`jps_xsrf`**. **`POST /auth/login`** is exempt.
 - **Frontend:** `Frontend/src/api/client.js` uses **`credentials: 'include'`** on all `fetch` calls and sends **`X-XSRF-TOKEN`** when the `jps_xsrf` cookie exists. **`AuthContext`** / **`RbacContext`** rely on **`GET /users/me`** and RBAC endpoints with cookie session (not `localStorage` token checks).
@@ -348,10 +885,12 @@ After the **root four-folder reorg**, ownership is explicit; root remains a thin
   - `Frontend/src/pages/ShippingInstruction.jsx` (`siNo` table column)
   - `Frontend/src/pages/Allocation.jsx` (`shippingInstruction` table column)
   - `Frontend/src/pages/AtBerthExecutions.jsx` (`shippingInstruction` table column)
+  - `Frontend/src/pages/Verification.jsx` (**Clearance** — **Jetty Operation ID** column opens the same modal when hyperlinked to the SI id, consistent with other pages)
 - Scope:
   - Table SI values only (expanded detail blocks are not modal triggers in this release).
 - Localization:
   - Modal labels/chrome use `shippingInstruction` i18n namespace (EN/ID keys, including modal title/loading/error/close text).
+- **Nested executions log (2026-05-04):** When the loaded SI has **`operationId`**, the modal’s **At-berth process** block includes a control that opens a **second** full-screen overlay (higher `z-index` than the default `.modal-overlay`, see `.si-detail-modal__nested-overlay` in `si-detail-modal.css`). The inner dialog embeds **`Frontend/src/components/OperationActivityTimeline.jsx`** with `operationId`, `vesselId` = `op-{operationId}`, and `basePath` = `/loading` or `/unloading` from **`normalizeHubPurpose`** (SI purpose or `fetchOperation` snapshot) so **Edit** deep-links match the hub. Inner close / backdrop / **Escape** dismiss only the nested layer; parent **Operation Detail** stays open. Timeline refresh uses the component’s `refreshToken` / `onActivityLogRefresh` pattern. Document names in the timeline use **`FilePreviewLink`** (**§0.30**).
 
 ---
 
@@ -369,7 +908,7 @@ After the **root four-folder reorg**, ownership is explicit; root remains a thin
 
 Each environment uses a separate `.env` (or `.env.*`) to configure:
 - **Frontend (`Frontend/.env` for local Vite; build-time `VITE_*` in Docker via compose args):** `VITE_API_BASE_URL` (must match API host + `/api/v1`). Root **`npm run dev`** is a thin wrapper — see **§0.11**.
-- **Backend:** `DATABASE_URL` / `DB_*`, `JWT_SECRET`, **`JWT_EXPIRES_IN`** (session cookie lifetime; default **8h**), `CORS_ORIGIN` (must include SPA origin), optional **`AUTH_RETURN_TOKEN_BODY`**, **`AUTH_LOGIN_MAX_ATTEMPTS`**, **`TRUST_PROXY`** (see **§0.10**).
+- **Backend:** `DATABASE_URL` / `DB_*`, `JWT_SECRET`, **`JWT_EXPIRES_IN`** (session cookie lifetime; default **8h**), `CORS_ORIGIN` (must include SPA origin), optional **`AUTH_RETURN_TOKEN_BODY`**, **`AUTH_LOGIN_MAX_ATTEMPTS`**, **`TRUST_PROXY`**, and strict OIDC controls (`OIDC_ISSUER`, `OIDC_DISCOVERY_URL`, `OIDC_CLIENT_ID`, `OIDC_REDIRECT_URI`, `OIDC_SCOPES`, `SSO_OIDC_ENABLED`, `SSO_LEGACY_BRIDGE_ENABLED`) (see **§0.10**).
 - External integrations: `EXIM_API_URL`, `GOOGLE_WEATHER_API_KEY`, etc.
 
 ---
@@ -407,13 +946,14 @@ RBAC is defined at **department**, **page**, and **field** level (see §6).
 
 **User Story**: As a Jetty Operator, I want to view incoming SIs so I can see vessel, material, and purpose details.
 
-**Workflow (current frontend: `ShippingInstruction.jsx`, `SIApproval.jsx`, `SIView.jsx`)**:
+**Workflow (current frontend: plan-linked **`ShipmentPlansList.jsx`** + **`ShippingInstructionSiLinkedFields.jsx`**; legacy **`ShippingInstruction.jsx`** retired route; **`SIApproval.jsx`**, **`SIView.jsx`**)**:
 1. SIs are listed with filters (purpose, status, search by SI, vessel, agent).
 2. For each SI:
    - Show vessel, commodity, purpose (Loading/Unloading), ETA, status.
    - Expand row for full details (breakdown, documents; extended header fields as implemented).
-3. Loading SIs: create/edit includes **destination**, **freight_terms**, **B/L & consignee** text fields, **voyage**, **document date**; modal shows **B/L split preview** from breakdown.
-4. Internal approval (Loading + Unloading): **Submit for approval** persists **Submitted** via API; **Approve/Sign-off** requires RBAC **`can_approve`** on page `shipping-instruction` (see §6). On approve, API sets **`approved_by_user_id`**, **`approved_at`**, **snapshots**, **`approval_id`**; document view uses **reference_number** as **No.** when set.
+3. **Shipper** is selected **per breakdown row** (master **`si_shippers`** dropdown in the breakdown table). One SI may therefore list **multiple shippers** when it has multiple commodity/contract lines. **Party & port** retains loading port, surveyor, trade term (Unloading), and NPWP display (Loading) — not shipper.
+4. Loading SIs: create/edit includes **destination**, **freight_terms**, **B/L & consignee** text fields, **voyage**, **document date**; modal shows **B/L split preview** from breakdown.
+4. Internal approval (Loading + Unloading): **Submit for approval** persists **Submitted** via API; **Approve/Sign-off** requires RBAC **`can_approve`** on page **`shipment-plan`** (see §6). On approve, API sets **`approved_by_user_id`**, **`approved_at`**, **snapshots**, **`approval_id`**; document view uses **reference_number** as **No.** when set.
 5. Document view/approval templates:
    - **Loading** uses the full template (header + full field set).
    - **Unloading** uses a simplified template (label and layout differences).
@@ -437,13 +977,15 @@ RBAC is defined at **department**, **page**, and **field** level (see §6).
 SI dropdown values are sourced from master tables and managed via Master Menu pages:
 
 - Term
-- Shipper
+- Shipper (used on **breakdown lines**, not SI header — **§0.31**)
 - Loading Port
 - Surveyor
 - Agent
 - Commodity
 
-Freight terms are currently fixed (frontend constant + backend validation), so the UI exposes them as a read-only master page.
+Each SI lookup master list uses **`MasterSiLookup.jsx`** with client-side **sort** and **filter** on displayed columns (**§0.28**). **Sort order** is **not** shown in those admin tables; list APIs still order by **`sort_order`** for dropdowns.
+
+Freight terms are currently fixed (frontend constant + backend validation), so the UI exposes them as a read-only master page with the same sort/filter table pattern (**`MasterFreightTerms.jsx`**).
 
 #### 2.2.2 Allocation & Berthing
 
@@ -575,10 +1117,20 @@ Freight terms are currently fixed (frontend constant + backend validation), so t
 
 **User Story**: As a Manager, I want weekly trends (occupied jetties, demurrage, incidents) and weather.
 
-**Workflow (current frontend: `Dashboard.jsx`)**:
+**Live dashboard:** Route **`/`** → **`Frontend/src/pages/DashboardV2.jsx`** (legacy **`Dashboard.jsx`** archived). Header filter bar: **Purpose** + **Commodity Type** multi-select + date range (**§0.29**, FUNCTIONAL-SPEC **§2.18**).
+
+**Workflow (Dashboard V2 — `DashboardV2.jsx`)**:
+- **Filter bar** (`.v2-filters`): **`DropdownMultiSelect`** for Purpose (`Loading` / `Unloading`) and Commodity Type (master **`GET /si-lookups`** **`commodities`**); **`DateRangePicker`** presets + From/To. Filters apply instantly; **`dashboardFilters.js`** derives **`filteredPlans`** / **`filteredOps`** / **`filteredAtBerth`**.
+- **Vessel pipeline** (seven stages): **`computePipelinePartition(filteredPlans, filteredOps)`** — Shipment Plans through Sailed; links unchanged (`/shipment-plans`, `/allocation-plans`, `/at-berth`, `/verification`).
+- **KPI row:** Slot occupancy (filtered berth occupants), Waiting to berth / Turnaround / On-time berthing (date-scoped plans + ops, filtered), SLA at risk (filtered ops). **Jetty status** uses raw **`GET /jetties`** (not filter-scoped).
+- **At berth now:** Loading / Unloading phase counts from **`filteredAtBerth`**; clearance row from filtered pipeline/op stats.
+- **Weekly trends** (`DashboardV2WeeklyTrends.jsx`): **`GET /dashboard-v2/weekly-trends`** with optional **`purpose`** / **`commodity_id`**; refetch on filter change; **`refreshing`** UI state.
+- **Empty filter state:** Banner + KPI placeholders when active filters match no data.
+
+**Workflow (legacy `Dashboard.jsx` — archived, reference only)**:
 - **Vessel pipeline** card (`section.dashboard-pipeline`) is rendered **first** in the main column (after header, port chip, and optional API error banner), then the **Port activity chart + KPI grid** row — pipeline is the top-level summary of port flow.
 - **Port activity chart** (`DashboardActivityChart.jsx`) in the **second row** left column (beside the KPI grid):
-  - **Operations** mode: classifies `GET /allocation/overview` **`queue`** rows by **`purpose`** (Loading / Unloading; unknown purpose omitted) and by stage using shared helpers in `Frontend/src/utils/dashboardQueueClassification.js`:
+  - **Operations** mode: classifies `GET /allocation/overview` **`queue`** rows by **`purpose`** (Loading / Unloading; unknown purpose omitted) and by stage using shared helpers in `Frontend/src/utils/dashboardQueueClassification.js`. Counts **deduplicate** rows that share **`shipmentPlanId`** via **`allocationQueueVesselCallKey`** so one vessel call does not inflate **Planned berthing** / **Berthing** bars.
     - **Planned berthing:** `isPlannedBerthingQueueRow` — jetty set, no TB, operation status not in `DOCKED` / `IN_PROGRESS` / `POST_OPS` / `SIGNOFF_REQUESTED` / `SIGNOFF_APPROVED` (same idea as pipeline planned berthing).
     - **Berthing:** `isQueueRowBerthing` — TB set or status in that alongside set; **`shiftingOut` rows excluded**.
   - **Shipping instructions** mode: counts by `status` **`Approved` | `Submitted` | `Draft`** from `GET /shipping-instructions` (port-scoped); percentages use total of those three as denominator.
@@ -602,7 +1154,7 @@ Freight terms are currently fixed (frontend constant + backend validation), so t
     - **On‑time berthing (%)**: `TB <= plannedEtbDateTime + 6h`, windowed by **TB**.
   - Drill-down uses the same portal tooltip pattern (`InteractiveTooltip.jsx`) listing worst/late cases with vessel + jetty + duration.
 - **Implementation**: shared portal tooltip component `Frontend/src/components/InteractiveTooltip.jsx` (pattern mirrors `DashboardActivityChart.jsx` tooltip).
-- Pipeline view (Shipping Instruction → Planned berthing → At-Berth → Clearance; **Allocation** is not a separate dashboard stage — use **Planned berthing** / **At-Berth** links to `/allocation` and `/at-berth` as today).
+- Pipeline view (Shipping Instruction → Planned berthing → At-Berth → Clearance; **Allocation** is not a separate dashboard stage — use **Planned berthing** / **At-Berth** links to **`/allocation-plans`** and **`/at-berth`**; the **Shipment plans** stage links to **`/shipment-plans`**).
 - **Awaiting berth** sidebar list was **removed** (redundant with pipeline **Planned berthing**). “Next arrivals / line-up” widget was also removed.
 - Jetty status chips from `GET /jetties?port_id=…`.
 - **Styles:** `Frontend/src/styles/dashboard.css` — `dashboard-row1__chart`, `.dashboard-activity-chart*`, `.dashboard-weather-footer`.
@@ -624,17 +1176,22 @@ All endpoints under `/api/v1`.
 
 - `POST /auth/login` – login; returns **user** in JSON; **session cookies** **`jps_at`** + **`jps_xsrf`** (**§0.10**); rate-limited. Optional JSON **`token`** if **`AUTH_RETURN_TOKEN_BODY=true`**.
 - `POST /auth/logout` – clears session cookies (**204**).
+- `GET /auth/oidc/start` – initiates strict OIDC code flow + PKCE (Hub provider).
+- `GET /auth/oidc/callback` – OIDC callback; validates token/JWKS; sets session cookies; redirects to public origin.
+- `GET /auth/oidc/ready` – plain readiness probe for OIDC auth route reachability.
 - `GET /users/me` – current user profile (session cookie or Bearer); same for effective permissions context elsewhere.
-- `GET /users`, `GET /users/:id`, `POST /users`, `PUT /users/:id`, `DELETE /users/:id` (soft) – authentication required; cannot delete self.
+- `GET /users/me/sso-status` – linked OIDC state and **`authSource`** (`local` \| `sso`); used by **`UserMenu`** to show or hide self-service change password (**§0.27**).
+- `PUT /users/me/password` – self-service password change for **`auth_source = 'local'`** only; body **`current_password`**, **`new_password`**; **204** on success (**§0.27**).
+- `GET /users`, `GET /users/:id`, `POST /users`, `PUT /users/:id`, `DELETE /users/:id` (soft) – authentication required; cannot delete self. Admin **`PUT /users/:id`** optional **`password`** (min 6) does **not** require current password.
 - **RBAC:** base path `/rbac` — `GET/POST /rbac/roles`, `GET/PUT/DELETE /rbac/roles/:id` (system roles not deletable); `GET/POST/DELETE /rbac/roles/:roleId/permissions[/:permissionId]`; `GET/POST/PUT/DELETE /rbac/permissions[/:id]`; `GET/POST/DELETE /rbac/users/:userId/roles[/:roleId]`.
 
 ### 3.2 Shipping Instructions
 
-- `GET /shipping-instructions` – list SIs, with filters.
-- `GET /shipping-instructions/:id`.
+- `GET /shipping-instructions` – list SIs, with filters. Response rows include **`shipperNames`** (aggregated from breakdown lines) and **`breakdown[]`** with **`shipperId`** / **`shipperName`** per line. **No** header **`shipperId`**.
+- `GET /shipping-instructions/:id` — same breakdown shipper shape; **`documents[]`** when applicable.
 - `GET /shipping-instructions/npwp-master` – get **NPWP master** for the active port (or `?port_id=` when user is assigned to that port); returns `{ npwp, portId }`.
-- `POST /shipping-instructions` – create (for manual entry).
-- `PUT /shipping-instructions/:id` — body may include **`approval_id`** / persisted **`approvalId`** for approved flows.
+- `POST /shipping-instructions` – create. **`breakdown[]`** rows accept optional **`shipperId`**. **Reject** top-level **`shipper_id`** (**400**).
+- `PUT /shipping-instructions/:id` — body may include **`approval_id`** / persisted **`approvalId`** for approved flows; **`breakdown[]`** with per-line **`shipperId`**; **reject** header **`shipper_id`**.
 - `DELETE /shipping-instructions/:id` — guarded by RBAC `can_delete` and status rules (Draft/Submitted only).
 
 ### 3.2.1 SI lookups (master dropdown CRUD)
@@ -646,9 +1203,11 @@ Base: `/si-lookups` — **all routes require an authenticated session** (includi
 - `GET /si-lookups/:type/:id` – get item
 - `POST /si-lookups/:type` – create `{ value }`
 - `PUT /si-lookups/:type/:id` – update `{ value }`
-- `DELETE /si-lookups/:type/:id` – delete (blocked when referenced by SI or SI breakdown)
+- `DELETE /si-lookups/:type/:id` – delete (blocked when referenced by SI breakdown or other master FKs; **shippers** blocked when **`shipping_instruction_breakdown.shipper_id`** references the row — **§0.31**)
 
 Types are whitelisted by backend config (`Backend/src/routes/si-lookups.js`) and map to the corresponding SI master tables.
+
+**List responses** include **`sortOrder`** (DB **`sort_order`**) and are ordered **`ORDER BY sort_order, <value column>`**. The **MasterSiLookup** UI does not expose **Sort order** for editing or table display (**§0.28**).
 
 ### 3.2.2 Demurrage Risk Calculator — candidates list & save ETC
 
@@ -694,7 +1253,7 @@ Types are whitelisted by backend config (`Backend/src/routes/si-lookups.js`) and
     - Set `estimated_completion_time = docking_start_time + SLA`.
 - `POST /operations/:id/recalculate-sla` – if volumes or config change.
 - `POST /operations/:id/signoff-request` – berth team **requests** final sign-off. **RBAC:** **`can_edit`** on page **`loading`**. **Body:** optional `remark` (trimmed, max 4000 chars). **Rules:** `status` must be **`POST_OPS`**; **`signoff_requested_at` must be null**; before eligibility check, backend normalizes legacy rows by setting `completion_percent = 100` when status is `POST_OPS` but completion remains below 100; then **`checkSignoffEligible`** must pass (same gates as sign-off). Sets **`status` = `SIGNOFF_REQUESTED`**, **`signoff_requested_at`**, **`signoff_requested_by`**, **`signoff_request_remark`**; activity log **`pageKey`:** `loading`.
-- `POST /operations/:id/signoff` – **final approval:** sets **`SIGNOFF_APPROVED`** + `actual_completion_time` when:
+- `POST /operations/:id/signoff` – **final approval:** sets **`SIGNOFF_APPROVED`** + `operations_completed_at` when:
   - **RBAC:** **`can_approve`** on page **`loading`** (**403** if missing).
   - **`status` must be `SIGNOFF_REQUESTED`** (a prior **signoff-request**).
   - Gates: **`checkSignoffEligible`** as below (re-checked at approve time).
@@ -705,8 +1264,9 @@ Types are whitelisted by backend config (`Backend/src/routes/si-lookups.js`) and
 - `POST /operations/:id/request-exception` – body `justification`, optional `exception_document_url`; sets `PENDING` (before terminal at-berth statuses / `SAILED`).
 - `POST /operations/:id/approve-exception` – body optional `approver_user_id`.
 - `POST /operations/:id/reject-exception` – body optional `approver_user_id`.
-- `POST /operations/:id/depart` – after **`SIGNOFF_APPROVED`**; body `cast_off_at` (ISO, required), optional `clearance_document_url`, `vessel_photo_url`; sets `SAILED`, `sailed_at`.
-- **Clearance UI rule (frontend guard):** before calling `depart`, `Verification.jsx` loads `GET /operations/:id/activity-timeline` and rejects `cast_off_at` earlier than the latest timeline timestamp. This aligns depart time with the latest recorded event in the **Detailed At-Berth Executions Log**.
+- `POST /operations/:id/depart` – after the operation is **`SIGNOFF_APPROVED`**; body `cast_off_at` (ISO, required), optional `clearance_document_url`, `vessel_photo_url`. Sets **`actual_completion_time = COALESCE(actual_completion_time, cast_off_at)`** on sailed operations (and plan mirror). When **`shipping_instructions.shipment_plan_id`** is set, the backend sails **all** sibling **`SIGNOFF_APPROVED`** operations and updates **`shipment_plans`** using the same transaction helper as **`POST /shipment-plans/:id/depart`**.
+- `POST /shipment-plans/:id/depart` – plan-first depart endpoint (see **§3.5.3A**); preferred from **Clearance** when the UI row carries **`shipmentPlanId`**.
+- **Clearance UI rule (frontend guard):** before calling depart, `Verification.jsx` loads **`GET /operations/:id/activity-timeline`** for **each** sibling operation on the plan (when collapsed) and rejects `cast_off_at` earlier than the **maximum** latest timestamp. This aligns cast-off with the **combined** **Detailed At-Berth Executions Log** across SIs on the call.
 - **UI entrypoint policy:** Loading/Unloading hub (`Loading.jsx`) supports **request sign-off** and pending-state visibility only; final approval action is routed through **Clearance** (`Verification.jsx`) as the single approval entry point.
 
 ### 3.4 QC & Quantity
@@ -744,7 +1304,7 @@ This subsection describes the **implemented** hybrid persistence for Pre-Checkin
 - Generalized sub-process:
   - `GET /operations/:id/sub-processes?phase=Pre-Checking`
   - `PUT /operations/:id/sub-processes/:subProcessKey` (upsert semantics)
-- **Activity timeline (merged log):** `GET /operations/:id/activity-timeline` (`Backend/src/routes/operation-operational-activities.js`) returns a sorted list of events for the **Detailed At-Berth Executions Log**. Sub-process events use `source: 'sub_process'` with `startAt` = `start_at ?? occurred_at`, `endAt` = `end_at`, and `occurredAt` for sorting/legacy; the frontend maps these to **Start**, **End**, and **Duration** the same way as operational activity rows when both interval ends are present.
+- **Activity timeline (merged log):** `GET /operations/:id/activity-timeline` (`Backend/src/routes/operation-operational-activities.js`) returns a sorted list of events for the **Detailed At-Berth Executions Log**. Sub-process events use `source: 'sub_process'` with `startAt` = `start_at ?? occurred_at`, `endAt` = `end_at`, and `occurredAt` for sorting/legacy; the frontend maps these to **Start**, **End**, and **Duration** the same way as operational activity rows when both interval ends are present. Each event includes **`status`** (sub-process row status), **`remark`**, and **`documents`**: for `sub_process`, `documents` is an ordered array of `{ id, name, url, mimeType, createdAt }` (download URL in **`url`**; preview maps to **`/view`** — **§0.30**), populated in the same SQL read as the sub-process row via `LEFT JOIN LATERAL` + `jsonb_agg` so document rows always match the correct `operation_sub_processes.id`; for operational rows `documents` is `[]`. If a legacy server omits `documents` on sub-process events, the SPA may backfill via `GET .../sub-processes/:key/documents` per row. The **Detailed At-Berth Executions Log** table (`Frontend/src/components/OperationActivityTimeline.jsx`) shows **Status**, **Remark**, and **Documents** as separate columns; document names use **`FilePreviewLink`** to open the shared preview modal (**§0.30**, FUNCTIONAL-SPEC **§2.19**).
 - Sub-process documents:
   - `GET /operations/:id/sub-processes/:subProcessKey/documents`
   - `POST /operations/:id/sub-processes/:subProcessKey/documents`
@@ -880,9 +1440,27 @@ Notes:
 
 - `GET /ports`, `POST /ports`, `PUT /ports/:id`.
 - `GET /jetties`, `POST /jetties`, `PUT /jetties/:id`.
+  - JSON includes optional **`rtspLink`** from **`jetties.rtsp_link`** (migration **077**). Create/update accept body **`rtsp_link`**; trimmed empty string → `NULL`; max **512** chars (**400** if longer). See **§0.26**.
 - `PUT /jetties/:id/status` – status = Available / Out of Service.
   - Before applying **Out of Service**, the handler counts **blocking** `operations` for that `jetty_id`: `deleted_at IS NULL`, `status <> 'SAILED'`, `COALESCE(shifting_out, false) = false` (`Backend/src/lib/jetty-blocking.js`).
   - If count **> 0**, responds **409** — client must reassign or complete operations on Allocation first.
+
+#### 3.5.5 Jetty Live stream helper (host process, not JPS API)
+
+Deployed per **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**. Summary:
+
+| Endpoint (on stream host) | Method | Purpose |
+|---------------------------|--------|---------|
+| `/api/health` | GET | JSON health for Jetty Live UI card (`viewerCount`, `outputFps`, `idleStopMs`, `ffmpegRunning`, …) |
+| `/api/reconnect` | POST | Optional `{ rtspUrl }` — switch RTSP source; restarts FFmpeg **only if** at least one WebSocket viewer is connected |
+
+Browser access in production: same origin **`/jetty-live-stream/*`** and **`/jetty-live-ws`** via nginx → host **3081** / **9999**. Dev: Vite proxy to **3080** / **9999** on localhost.
+
+**On-demand policy:** FFmpeg runs only while **`viewerCount > 0`**; idle stop after **`STREAM_IDLE_STOP_MS`** (default **30 s**) when the last viewer disconnects.
+
+**Single-stream policy:** one FFmpeg input per `rtsp-stream-viewer` instance while viewers are connected; schematic / Jetty Live reconnect with a new jetty URL replaces the previous camera (**last opened wins**).
+
+**Transcode rate:** **`STREAM_OUTPUT_FPS`** env (default **1**).
 
 #### 3.5.1 `GET /allocation/overview`
 
@@ -893,7 +1471,7 @@ Returns `{ queue, berths, scheduleQueue }`.
   - non-`SAILED` operations, plus
   - `SAILED` operations within configured lookback (`COALESCE(cast_off_at, actual_completion_time, updated_at)` >= `NOW() - lookbackDays`).
   Incoming approved SI rows are included here as well.
-- **Key camelCase fields** (non-exhaustive): `id`, `vesselId`, `operationId`, `shippingInstructionId`, `vesselName`, `shippingInstruction`, `commodity`, `purpose`, `priority`, `noPkk`, `remark`, **`shiftingOut`**, **`shiftingOutAt`**, `eta`, `etb`, `jetty`, `etaDateTime`, `taDateTime`, `etbDateTime`, `tbDateTime`, `pobDateTime`, `sobDateTime`, `estimatedCompletionDateTime`, `actualCompletionDateTime`, `castOffDateTime`, `status`, `norDocuments`, **`recordLastUpdatedAt`**, **`recordLastUpdatedByDisplayName`**, **`shipper`**, **`agent`**, **`surveyor`** (from `si_shippers`, `si_agents`, `si_surveyors` joins on `shipping_instructions`).
+- **Key camelCase fields** (non-exhaustive): `id`, `vesselId`, `operationId`, **`shipmentPlanId`**, `shippingInstructionId`, `vesselName`, `shippingInstruction`, `commodity`, `purpose`, `priority`, `noPkk`, `remark`, **`shiftingOut`**, **`shiftingOutAt`**, `eta`, `etb`, `jetty`, `etaDateTime`, `taDateTime`, `etbDateTime`, `tbDateTime`, `pobDateTime`, `sobDateTime`, `estimatedCompletionDateTime`, `actualCompletionDateTime`, `castOffDateTime`, `status`, `norDocuments`, **`recordLastUpdatedAt`**, **`recordLastUpdatedByDisplayName`**, **`shipper`** (comma-separated distinct names from **`shipping_instruction_breakdown.shipper_id`** — **§0.31**), **`agent`**, **`surveyor`** (from `si_agents` / `si_surveyors` joins; agent may fall back to **`shipment_plans.agent_id`**).
 - **`eta` / `etb`**: short display strings from SQL `to_char(… AT TIME ZONE 'UTC', 'DD/MM HH24:MI')` — **no** trailing ` LT` suffix.
 - **`berths`**: jetty list with occupancy derived from operations where **TB is set** and/or status in DOCKED / IN_PROGRESS / POST_OPS / SIGNOFF_REQUESTED / SIGNOFF_APPROVED **and `shifting_out` is false** (shifted-out vessels must not occupy a bank slot).
 
@@ -903,10 +1481,17 @@ See **§0.9** (request/response, remark persistence, activity log, client helper
 
 #### 3.5.3 `PUT /allocation/arrival`
 
-- **RBAC:** Requires **`can_edit`** on page permission **`allocation`** (`userHasPageEdit`); otherwise **403**.
+- **RBAC:** Requires **`can_edit`** on **`allocation-plan`** (`userHasAllocationPlanEdit`); otherwise **403**.
 - After resolving optional body **`jetty`** string to **`jetties.id`** for the selected port, if the jetty row’s **`status`** is **`Out of Service`**, responds **409** and rolls back (no partial update).
-- Updates the **operation** linked from the queue row: ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, `no_pkk`, `jetty_id`, **`estimated_completion_time`**, **`actual_completion_time`** (when `actualCompletionDateTime` is present in body), **`updated_by`**, **`updated_at`**, etc.
-- When **TB** is provided, sets **`status = DOCKED`** if previously PENDING / ALLOCATED / empty; syncs **`docking_start_time`** with TB where applicable.
+- Resolves the **`shipment_plans`** row from the queue context and updates **plan-level** fields first: ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, `no_pkk`, `jetty_id`, **`estimated_completion_time`**, **`actual_completion_time`**, plan **`updated_by`** / **`updated_at`**, etc.
+- Updates the linked **`operations`** row for the same payload where the backend mirrors fields for legacy paths; when **TB** is provided, sets **`status = DOCKED`** if previously PENDING / ALLOCATED / empty and syncs **`docking_start_time`** with TB where applicable.
+- When **`tb`** is non-null and the SI belongs to an **Approved** shipment plan, **every other SI on that plan** gets the same arrival payload applied to its **latest** operation (creating the operation and jetty operation code when missing); **`SAILED`** sibling operations are skipped. **`shipping_instructions.status`** is not changed (document lifecycle remains Draft / Submitted / Approved).
+
+#### 3.5.3A `POST /shipment-plans/:id/depart`
+
+- **RBAC / scope:** Same **`requireAuth`** + **`requirePortScope`** as other operational routes; plan must belong to **`req.selectedPortId`**.
+- **Body:** `cast_off_at` (ISO, required), optional `clearance_document_url`, `vessel_photo_url` (mirrors **`POST /operations/:id/depart`**).
+- **Behaviour:** Uses **`departShipmentPlanInTransaction`** (`Backend/src/lib/shipment-plan-depart.js`) to sail **all** **`SIGNOFF_APPROVED`** child operations and set **`shipment_plans`** cast-off / evidence / `sailed_at`. Activity log may use **`entityType: ShipmentPlan`** for this entry (`Backend/src/routes/shipment-plans.js`).
 
 #### 3.5.4 `GET /operations/at-berth`
 
@@ -926,8 +1511,19 @@ Ensures berthed vessels appear even if status and TB were temporarily out of syn
 
 ### 3.7 Dashboard & Weather
 
-- `GET /dashboard/summary` – pipeline counts, occupancy, SLA metrics (target; not required for current Port activity chart, which uses existing `GET /allocation/overview` + `GET /shipping-instructions`).
-- `GET /dashboard/weather?port_id=...` – proxy to Google Weather API (target). **Current UI:** mock weather at bottom of `Dashboard.jsx` until this is wired.
+**Implemented (Dashboard V2):**
+
+- **`GET /dashboard-v2/weekly-trends`** — port-scoped (`requirePortScope`). Query: **`start_date`**, **`end_date`** (required); optional **`purpose`** (`Loading` \| `Unloading`, repeatable); optional **`commodity_id`** (int, repeatable). Response: `{ totalSlots, weeks: [{ startDate, endDate, slotOccupancyPct, berthOccupiedPlans, approvedPlans, sailedCount, slaAtRiskCount, slaOverHoursSum }] }`. Week chunks are consecutive segments of up to 7 UTC days within the requested range. Filter SQL: **§0.29**. Client: **`Frontend/src/api/dashboardV2.js`**.
+
+**Supporting list data (client-side dashboard filtering, not weekly API):**
+
+- **`GET /shipment-plans?start_date&end_date`** — plan list includes **`shippingInstructions[].breakdown[]`** with **`commodityId`** for commodity matching on early pipeline stages (**§0.29**).
+- **`GET /operations?start_date&end_date`**, **`GET /operations/at-berth`**, **`GET /allocation/overview`**, **`GET /jetties`**, **`GET /si-lookups`** — see **§0.29** fetch table.
+
+**Target / not yet wired:**
+
+- `GET /dashboard/summary` – pipeline counts, occupancy, SLA metrics (target; Dashboard V2 computes most KPIs client-side from existing endpoints).
+- `GET /dashboard/weather?port_id=...` – proxy to Google Weather API (target). **Legacy UI:** mock weather at bottom of archived **`Dashboard.jsx`** until this is wired.
 
 ### 3.8 Audit Trail
 
@@ -939,7 +1535,7 @@ The in-app Activity Log panel (`ActivityLogPanel`) renders expandable details on
 To keep behavior consistent across all pages/modules, backend writers MUST follow this contract when calling `writeActivityLog(...)`:
 
 - Required:
-  - `pageKey` (route/page scope: `shipping-instruction`, `allocation`, `loading`, `verification`, etc.)
+  - `pageKey` (route/page scope: `shipment-plan`, `allocation-plan`, `loading`, `verification`, etc.; retired: `shipping-instruction`, `allocation`)
   - `action` (`add` | `update` | `delete`)
   - `summary` (human-readable short sentence)
 - Recommended:
@@ -971,7 +1567,7 @@ Backward compatibility note:
 
 - Prefer **before/after** values from the database when building `changes` (not `null -> value` when an old value existed).
 - For text fields such as **Remark**, normalize empty/whitespace-only strings to a single “empty” representation when comparing so the UI does not show misleading empty chips; sub-process and NOR-detail routes apply this pattern.
-- **Optional auth**: some routes still use `optionalAuth` so a valid JWT sets `req.userId` for `actorUserId` where applicable. **`PUT /allocation/arrival`** is **not** optional-auth: it requires authenticated user + **allocation** **can_edit**; `actorUserId` is always set for successful writes from the UI.
+- **Optional auth**: some routes still use `optionalAuth` so a valid JWT sets `req.userId` for `actorUserId` where applicable. **`PUT /allocation/arrival`** is **not** optional-auth: it requires authenticated user + **`allocation-plan`** **can_edit**; `actorUserId` is always set for successful writes from the UI.
 
 **Logged areas (non-exhaustive)**:
 
@@ -979,26 +1575,59 @@ Backward compatibility note:
 - `operation-documents` — upload/delete with per-file `changes`.
 - `operation-sub-processes` — sub-process upsert (phase, status, occurred_at, remark; sampling adds consolidated **Sampling Records** string); document upload/delete; NOR details (remark + payload fields such as NOR Source / Stage / Updated Via).
 - `operations` — lifecycle updates (status, completion, docking, exceptions, signoff, depart, etc.) with field-level `changes` where applicable.
-- `POST /operations/:id/shifting-out` — **Shifting out** / **Re-docked** / **Shift-out cleared** summaries; `changes` for **Shifting out** and **Remark** when applicable; `pageKey` from body **`activityLogPage`** (`allocation` vs `at-berth`); **`meta.shiftingOut`** (see **§0.9**).
+- `POST /operations/:id/shifting-out` — **Shifting out** / **Re-docked** / **Shift-out cleared** summaries; `changes` for **Shifting out** and **Remark** when applicable; `pageKey` from body **`activityLogPage`** (`allocation-plan` vs `at-berth`; legacy `allocation` → `allocation-plan`); **`meta.shiftingOut`** (see **§0.9**).
 
 ### 3.9 Frontend shared utilities (date/time)
 
 | Export | Module | Behaviour |
 |--------|--------|-----------|
-| `formatDateTimeDisplay` | `Frontend/src/utils/formatDateTimeDisplay.js` | Parses ISO / timestamps / `datetime-local`-like prefixes → **`dd/mm HH:mm`** in **browser local** time. If unparseable, returns string with trailing **` LT`** removed (legacy API text). Empty → `—`. |
+| `formatDateTimeDisplay` | `Frontend/src/utils/formatDateTimeDisplay.js` | Parses ISO / timestamps / `datetime-local`-like prefixes → **`DD/MMM/YYYY HH:mm`** (24-hour) in **browser local** time. Locale-aware month abbreviations via `jps_locale` (`en` → `en-GB`, `id` → `id-ID`). If unparseable, returns string with trailing **` LT`** removed (legacy API text). Empty → `—`. |
+| `formatDateDisplay` | `Frontend/src/utils/formatDateTimeDisplay.js` | Date-only values (`YYYY-MM-DD` or ISO) → **`DD/MMM/YYYY`**. Same locale rules as `formatDateTimeDisplay`. Empty → `—`. |
 | `stripLegacyDatetimeLt` | same | Removes trailing **` LT`** (case-insensitive) only. |
+| `getClientIanaTimeZone` / `getScheduleEntryTimeZone` | `Frontend/src/utils/scheduleDateTime.js` | Resolved **browser IANA** zone (`Intl`). **`getScheduleEntryTimeZone`** is the zone used when converting **naive** `datetime-local` values to/from API ISO for schedule fields (see **§0.20**). |
+| `normalizeForApi` / `normalizeForApiOrEmpty` | same | Normalises schedule strings for PUT/POST: zoned/UTC ISO passes through; naive `YYYY-MM-DDTHH:mm` is interpreted in the **second-arg IANA zone** (callers pass **`getScheduleEntryTimeZone()`** for operational schedules). |
 
 **Current import sites:** `Allocation.jsx`, `AtBerthExecutions.jsx`, `Loading.jsx`, `VesselReport.jsx`, `DailyActivitiesReport.jsx`. Prefer this module for new UI datetime display.
 
-### 3.10 Operation documents (upload)
+### 3.10 Operation documents (upload & download)
 
 - `POST /api/v1/operation-documents/operations/:operationId/:kind` — multipart `files`; kinds used in UI include **`NOR`** (Log arrival update) and **`BERTHING`** (Confirm Berthing / vessel photos), stored in **`operation_documents`** with paths under uploads. **Server validates file content** (magic bytes) against an allowlist (**§0.10**); invalid types rejected with **400**.
+- `GET /api/v1/operation-documents/operations/:operationId/:kind` — list metadata; each item includes **`url`** pointing at **`.../:id/download`**.
+- `GET /api/v1/operation-documents/:id/view` — **inline preview** (`Content-Disposition: inline`); same auth + port scope as download (**§0.30**).
+- `GET /api/v1/operation-documents/:id/download` — **attachment download** (`Content-Disposition: attachment` via **`sendStoredFileAttachment`**).
+- `DELETE /api/v1/operation-documents/:id` — soft-delete metadata + best-effort disk remove.
+
+**Sub-process documents** (`Backend/src/routes/operation-sub-processes.js`):
+
+- `GET /api/v1/operations/:operationId/sub-processes/:subProcessKey/documents` — list.
+- `POST /api/v1/operations/:operationId/sub-processes/:subProcessKey/documents` — upload.
+- `GET /api/v1/sub-process-documents/:documentId/view` — inline preview.
+- `GET /api/v1/sub-process-documents/:documentId/download` — attachment download.
+
+**SI source documents** (`Backend/src/routes/si-documents.js`):
+
+- `POST /api/v1/si-documents/extract` — upload + optional OCR.
+- `GET /api/v1/si-documents/:id/view` — inline preview.
+- `GET /api/v1/si-documents/:id/download` — attachment download.
+- `DELETE /api/v1/si-documents/:id` — soft-delete.
+
+### 3.10C SPA file preview (2026-05-25)
+
+See **§0.30**. Summary:
+
+- **`FilePreviewProvider`** in **`App.jsx`** exposes **`openFilePreview`** app-wide.
+- Document links use **`FilePreviewLink`** instead of **`<a target="_blank">`** to **`/download`** URLs.
+- Berthing photo thumbnails use **`AuthenticatedFileImage`** + click → preview modal.
+- **`resolvePreviewSrc`** maps download URLs to **`/view`**, then **`fetchAuthenticatedBlobUrl`** when the target is an API document path (session cookie + **`X-Selected-Port-Id`**).
+- Modal footer **Download** calls **`triggerFileDownload`**, which also uses authenticated fetch for API URLs before programmatic save.
 
 ### 3.10A Static file serving (`/uploads`)
 
 - **Upload root**: `Backend/src/paths.js` exports `UPLOAD_ROOT` from `process.env.UPLOAD_DIR` when set, otherwise `Backend/uploads` resolved from the backend package (not `process.cwd()`), so static serving and multer paths stay consistent regardless of start directory.
 - **Express**: `app.use('/uploads', express.static(UPLOAD_ROOT))` in `Backend/src/index.js`.
-- **Docker (local dev)**: `Backend/docker-compose.yml` may set `UPLOAD_DIR` to a container-local directory to avoid Windows host bind-mount stalls during large or concurrent writes; adjust for production (named volume or object storage strategy).
+- **Startup**: `Backend/src/index.js` creates `UPLOAD_ROOT` if missing and verifies writability; in **`NODE_ENV=production`**, a non-writable upload directory is fatal.
+- **Docker (production / Alicloud)**: `docker-compose.backend.yml` sets **`UPLOAD_DIR=/var/jps/uploads`** and mounts named volume **`jps_uploads:/var/jps/uploads`** on **`jps-api`**. Files persist across container rebuilds. See **ALICLOUD-DEPLOYMENT-GUIDE §5.2A** for migration from ephemeral `/tmp` paths and backup procedure. **Never `docker compose down -v`** on production (deletes **`jps_uploads`** and **`jps_pgdata`**).
+- **Docker (local dev)**: `Backend/docker-compose.yml` uses the same **`jps_uploads`** named volume at **`/var/jps/uploads`** — avoids Windows host bind-mount stalls while keeping uploads across restarts.
 - **Frontend**: `resolveUploadUrl()` in `Frontend/src/api/client.js` prefixes relative `/uploads/...` paths with the API **origin** derived from `VITE_API_BASE_URL`, so links opened from the Vite dev server hit the API host.
 - **Vite dev**: `Frontend/vite.config.js` may proxy `/uploads` to the API for any remaining relative requests.
 
@@ -1014,11 +1643,13 @@ Backward compatibility note:
 Entities follow the design already outlined in the previous answer; key ones:
 
 - `users`, `roles`, `permissions`, `role_permissions`, `user_roles`.
-- `ports`, `jetties`, `jetty_status_history`.
-- `shipping_instructions` — includes **`approval_id`** (migration **`019`**). Migration **`025_si_loading_document_and_approve_rbac.sql`** adds Loading document fields: **`voyage_no`**, **`destination_text`**, **`freight_terms`** (check: PREPAID, COLLECT, AS_PER_CHARTER_PARTY, OTHER), **`bill_of_lading_clause`**, **`consignee_text`**, **`notify_party_text`**, **`bl_indicated`**, **`document_date`**, and approval audit: **`approved_by_user_id`**, **`approved_at`**, **`approver_name_snapshot`**, **`approver_title_snapshot`**. API exposes camelCase equivalents (e.g. **`destinationText`**, **`freightTerms`**, **`approverNameSnapshot`**).
+- `ports`, `jetties`, `jetty_status_history`. **`jetties.rtsp_link`** (`TEXT`, nullable, migration **077**) — optional RTSP URL for Jetty Live CCTV (**§0.26**).
+- `shipping_instructions` — includes **`approval_id`** (migration **`019`**). Migration **`025_si_loading_document_and_approve_rbac.sql`** adds Loading document fields: **`voyage_no`**, **`destination_text`**, **`freight_terms`** (check: PREPAID, COLLECT, AS_PER_CHARTER_PARTY, OTHER), **`bill_of_lading_clause`**, **`consignee_text`**, **`notify_party_text`**, **`bl_indicated`**, **`document_date`**, and approval audit: **`approved_by_user_id`**, **`approved_at`**, **`approver_name_snapshot`**, **`approver_title_snapshot`**. API exposes camelCase equivalents (e.g. **`destinationText`**, **`freightTerms`**, **`approverNameSnapshot`**). **Header `shipper_id` removed** by migration **079** (**§0.31**).
+- `shipping_instruction_breakdown` — one row per commodity/contract line: **`commodity_id`**, **`metric_id`**, **`qty`**, contract/PO/SO text fields, **`line_order`**, and **`shipper_id`** (nullable FK → **`si_shippers`**, migration **079**). Legacy **`shipper_text`** dropped in **079**.
+- `si_shippers` — master lookup for shipper names; referenced by **`shipping_instruction_breakdown.shipper_id`** only (post-079).
 - `si_port_npwp` — per-port **NPWP master** used for Shipping Instruction display (read-only in SI form/view/approval); unique active row per `port_id` (migration **`047_si_port_npwp.sql`**).
 - `users` — optional **`job_title`** (migration **`025`**) used when populating approver title snapshot (fallback: `OPERATION HEAD`).
-- `role_permissions` — **`can_approve`** boolean (migration **`025`**); merged in **`GET /rbac/me/page-permissions`** as **`canApprove`** per page. Shipping Instruction approval on **PUT** `/shipping-instructions/:id` when transitioning to **Approved** requires **`can_approve`** for resource_key **`shipping-instruction`**. **Operation sign-off** (**`POST /operations/:id/signoff`**) requires **`can_approve`** for resource_key **`loading`** (Admin UI: **Approve operation sign-off** under Loading / Unloading).
+- `role_permissions` — **`can_approve`** boolean (migration **`025`**); merged in **`GET /rbac/me/page-permissions`** as **`canApprove`** per page. Shipping Instruction approval on **PUT** `/shipping-instructions/:id` when transitioning to **Approved** requires **`can_approve`** for resource_key **`shipment-plan`**. **Operation sign-off** (**`POST /operations/:id/signoff`**) requires **`can_approve`** for resource_key **`loading`** (Admin UI: **Approve operation sign-off** under Loading / Unloading).
 - `operation_documents` — file metadata per operation (`kind`, `stored_path`, NOR/BERTHING, etc.).
 - `operations`, `operation_materials`, `operation_activities` (optional).
 - `qc_surveys`, `qc_documents`.
@@ -1051,6 +1682,7 @@ Indexes:
 - Target availability: 99.5%+ in Production.
 - HTTPS in Testing and Production (required for **`Secure`** session cookies in production builds).
 - Passwords with strong hashing (**bcrypt**); **JWT** carried in **HttpOnly cookie** for browser SPA, optional Bearer for scripts; **CSRF** protection on unsafe API methods when using cookie session (**§0.10**).
+- Self-service password change requires verifying **current password**; SSO accounts blocked at API and UI (**§0.27**).
 - **Login** endpoint rate-limited per IP; **`trust proxy`** configurable behind load balancers.
 - **SI master aggregate** and upload pipelines include additional hardening (auth on **`GET /si-lookups`**, magic-byte checks on uploads).
 - Production **nginx** template includes baseline **security headers** / **CSP** (`nginx.conf`); validate in staging per deployment hostname.
@@ -1244,7 +1876,7 @@ Selected, testable criteria:
 
 11. **Ports & Jetties backend**
     - Implement `/ports` and `/jetties` endpoints.
-    - Connect `MasterPort` and `MasterJetty` UIs.
+    - Connect `MasterPort` and `MasterJetty` UIs (list tables: client sort/filter per **§0.28**).
 
 12. **Jetty status**
     - Extend `jetties` with status field.

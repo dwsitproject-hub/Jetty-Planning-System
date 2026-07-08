@@ -52,7 +52,22 @@ services:
       HUB_SSO_JIT_PROVISION: ${HUB_SSO_JIT_PROVISION:-}
       HUB_SSO_JIT_ROLE_NAME: ${HUB_SSO_JIT_ROLE_NAME:-}
       HUB_SSO_JIT_ASSIGN_PORTS: ${HUB_SSO_JIT_ASSIGN_PORTS:-}
-      UPLOAD_DIR: /tmp/jps-uploads
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_DISCOVERY_URL: ${OIDC_DISCOVERY_URL:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
+      OIDC_SCOPES: ${OIDC_SCOPES:-openid profile email}
+      OIDC_JIT_PROVISION: ${OIDC_JIT_PROVISION:-}
+      OIDC_V2_SILENT_LINK: ${OIDC_V2_SILENT_LINK:-false}
+      OIDC_EMAIL_DOMAIN_ALLOWLIST: ${OIDC_EMAIL_DOMAIN_ALLOWLIST:-}
+      OIDC_ALLOW_QUERY_CODE_VERIFIER: ${OIDC_ALLOW_QUERY_CODE_VERIFIER:-false}
+      SSO_OIDC_ENABLED: ${SSO_OIDC_ENABLED:-false}
+      SSO_LEGACY_BRIDGE_ENABLED: ${SSO_LEGACY_BRIDGE_ENABLED:-true}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/var/jps/uploads}
+    volumes:
+      # Omit UPLOAD_HOST_PATH for local Docker (uses named volume jps_uploads).
+      # Staging/production: set UPLOAD_HOST_PATH to the NAS mount on the host.
+      - ${UPLOAD_HOST_PATH:-jps_uploads}:/var/jps/uploads
     command: ["npm", "run", "start"]
     depends_on:
       jps-db:
@@ -60,3 +75,4 @@ services:
 
 volumes:
   jps_pgdata:
+  jps_uploads:

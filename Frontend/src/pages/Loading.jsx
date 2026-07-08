@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
-import { Link, useParams, Navigate, useLocation, useSearchParams } from 'react-router-dom'
+import { Link, useParams, Navigate, useLocation, useSearchParams, useNavigate } from 'react-router-dom'
 import {
   vessels,
   getAtBerthOperations,
@@ -29,6 +29,8 @@ import {
   signoffRequest,
 } from '../api/operations'
 import { resolveUploadUrl } from '../api/client'
+import FilePreviewLink from '../components/FilePreviewLink'
+import { useFilePreview } from '../context/FilePreviewContext'
 import {
   fetchAllocationOverview,
   saveArrivalUpdate as saveArrivalUpdateApi,
@@ -37,6 +39,8 @@ import {
   deleteOperationDocument,
 } from '../api/allocation'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import { getScheduleEntryTimeZone, normalizeForApi } from '../utils/scheduleDateTime.js'
+import { usePortScope } from '../context/PortScopeContext'
 import FlowPill from '../components/FlowPill'
 import OperationalMilestoneWorkspace from '../components/OperationalMilestoneWorkspace'
 import OperationActivityTimeline from '../components/OperationActivityTimeline'
@@ -48,7 +52,9 @@ import {
   getPreCheckStageKeys,
   POST_CHECK_SUB_TABS,
   POST_CHECK_STAGE_IDS,
+  isoOrDatetimeToLocal,
 } from '../utils/loadingHubProcessStagesFromApi'
+import { mergeDistinctLines } from '../utils/mergeHydrationLines.js'
 import '../styles/allocation.css'
 import { useRbac } from '../context/RbacContext'
 import { term } from '../i18n/term'
@@ -82,32 +88,6 @@ const SECTIONS = [
   { id: 'loading', label: 'Operational', description: 'Cargo loading (B)', stepIds: ['B'] },
   { id: 'post-checking', label: 'Post-Checking', description: 'Final Quality Check, Final Quantity Check (C1, C2)', stepIds: ['C1', 'C2'] },
 ]
-
-function getNowForDateTimeLocal() {
-  const d = new Date()
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const h = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  return `${y}-${m}-${day}T${h}:${min}`
-}
-
-/** API ISO or datetime-local → `yyyy-mm-ddThh:mm` for `<input type="datetime-local" />` */
-function isoOrDatetimeToLocal(value) {
-  if (value == null || value === '') return ''
-  const s = String(value).trim()
-  // Only pass through values that are already local wall time with no zone (not a prefix of ISO+Z).
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) return s
-  const d = new Date(s)
-  if (Number.isNaN(d.getTime())) return ''
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const h = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  return `${y}-${m}-${day}T${h}:${min}`
-}
 
 /** Later of two timestamps (ISO); null if both missing */
 function laterIso(a, b) {
@@ -197,6 +177,8 @@ function OperationSignoffBanner({
   apiOp,
   operationId,
   allStagesComplete,
+  incompletePlanPeers,
+  basePath,
   canEditLoading,
   canApproveLoading,
   onOperationUpdated,
@@ -212,7 +194,10 @@ function OperationSignoffBanner({
   if (!['DOCKED', 'IN_PROGRESS', 'POST_OPS', 'SIGNOFF_REQUESTED'].includes(st)) return null
 
   const pending = st === 'SIGNOFF_REQUESTED' || Boolean(apiOp.signoffRequestedAt)
-  const showRequestCta = st === 'POST_OPS' && allStagesComplete && !pending && canEditLoading
+  const showPeersBlockingCard =
+    st === 'POST_OPS' && !pending && allStagesComplete && incompletePlanPeers.length > 0
+  const showRequestCta =
+    st === 'POST_OPS' && allStagesComplete && incompletePlanPeers.length === 0 && !pending && canEditLoading
   const showApproveCta = pending && canApproveLoading
 
   const parseApiError = (e) => (e?.body && typeof e.body === 'object' && e.body.error) || e?.message || 'Request failed'
@@ -232,8 +217,46 @@ function OperationSignoffBanner({
     }
   }
 
+  if (showPeersBlockingCard) {
+    return (
+      <section
+        className="card"
+        style={{
+          marginTop: 'var(--spacing-3)',
+          borderLeft: '4px solid var(--color-border-medium, #ccc)',
+        }}
+      >
+        <h2 className="card__title" style={{ fontSize: '1.05rem' }}>
+          Operation sign-off
+        </h2>
+        <p className="text-steel" style={{ marginBottom: 'var(--spacing-2)' }}>
+          This instruction is complete through Post-Checking, but <strong>every</strong> instruction on this vessel call
+          must finish Pre-Checking, Operational, and Post-Checking (and meet completion rules) before sign-off can be
+          requested.
+        </p>
+        <p style={{ marginBottom: 'var(--spacing-2)', fontSize: 'var(--font-size-small)' }}>
+          Still in progress or not ready:
+        </p>
+        <ul style={{ margin: 0, paddingLeft: '1.25rem', fontSize: 'var(--font-size-small)' }}>
+          {incompletePlanPeers.map((row) => (
+            <li key={row.operationId} style={{ marginBottom: 'var(--spacing-1)' }}>
+              <Link to={`${basePath}/op-${row.operationId}/post-checking`}>
+                {row.shippingInstruction || row.jettyOperationCode || `Operation ${row.operationId}`}
+              </Link>
+              <span className="text-steel">
+                {' '}
+                · {row.status || '—'}
+                {row.completionPercent != null ? ` · ${Number(row.completionPercent)}%` : ''}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )
+  }
+
   if (!showRequestCta && !pending && !showApproveCta) {
-    if (allStagesComplete && !canEditLoading) {
+    if (allStagesComplete && !canEditLoading && incompletePlanPeers.length === 0) {
       return (
         <section className="card" style={{ marginTop: 'var(--spacing-3)' }}>
           <p className="text-steel">
@@ -313,7 +336,7 @@ function OperationSignoffBanner({
               Request operation sign-off
             </h2>
             <p className="text-steel">
-              This notifies approvers. The operation must still meet completion rules (e.g. completion 100%, QC) — the server will reject the request if not eligible.
+              This notifies approvers. The operation must still meet completion rules (e.g. completion 100%, QC) — the server will reject the request if not eligible. If this vessel call has more than one shipping instruction, every instruction must be ready for sign-off before the request is accepted.
             </p>
             <div className="modal__section">
               <label htmlFor="signoff-req-remark" className="modal__label">
@@ -397,8 +420,9 @@ function VesselDetailCard({ detail }) {
   )
 }
 
-export default function Loading() {
+function Loading() {
   const { vesselId, section } = useParams()
+  const navigate = useNavigate()
   const location = useLocation()
   const isUnloading = location.pathname.startsWith('/unloading')
   const purpose = isUnloading ? 'Unloading' : 'Loading'
@@ -419,8 +443,11 @@ export default function Loading() {
     getPostChecking,
     setPostCheckingSection,
   } = useLoading()
+  const { selectedPort } = usePortScope()
+  const scheduleEntryTz = getScheduleEntryTimeZone()
   const [stepPhotos, setStepPhotos] = useState({})
   const [allocationDetailRow, setAllocationDetailRow] = useState(null)
+  const [allocationQueue, setAllocationQueue] = useState([])
 
   const mockVessel = vesselId ? vessels[vesselId] : null
   const mockMatchesRoutePurpose = Boolean(mockVessel && mockVessel.purpose === purpose)
@@ -467,6 +494,30 @@ export default function Loading() {
   const apiPurpose = apiOp ? normalizeApiPurpose(apiOp.purpose) : null
   const purposeMismatch = Boolean(apiOp && apiPurpose !== purpose)
   const operationId = apiOp?.id ?? (shouldFetchOp ? opNumericId : null)
+
+  const mergeApiOpPatch = useCallback((patch) => {
+    if (patch == null || typeof patch !== 'object') return
+    setApiOp((prev) => {
+      if (!prev) return patch
+      const next = { ...prev }
+      for (const [k, v] of Object.entries(patch)) {
+        // Do not let `undefined` wipe fields (e.g. `{ ...fullOp, ...partial }` from callers).
+        if (v !== undefined) next[k] = v
+      }
+      return next
+    })
+  }, [])
+
+  const resolvedCargoSiQty = useMemo(() => {
+    const v = apiOp?.cargoSiQty ?? apiOp?.cargo_si_qty
+    if (v == null || v === '') return null
+    if (typeof v === 'number' && Number.isFinite(v)) return v
+    const n = Number(String(v).trim().replace(/\s/g, '').replace(/,/g, '.'))
+    return Number.isFinite(n) ? n : null
+  }, [apiOp])
+
+  const resolvedCargoSiMetricCode = apiOp?.cargoSiMetricCode ?? apiOp?.cargo_si_metric_code ?? null
+  const resolvedCargoSiMetricName = apiOp?.cargoSiMetricName ?? apiOp?.cargo_si_metric_name ?? null
 
   /** Option A: stage counts stay "unknown" until persisted fetch has run (avoids misleading 0/n). */
   const [preCheckPersistHydrated, setPreCheckPersistHydrated] = useState(true)
@@ -578,7 +629,7 @@ export default function Loading() {
           const p = row.payload && typeof row.payload === 'object' ? row.payload : {}
           const next = {
             ...cur,
-            remark: [cur.remark, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || cur.remark || '',
+            remark: mergeDistinctLines(cur.remark, row.remark) || row.remark || cur.remark || '',
             status:
               precheckStatusRank(row.status) >= precheckStatusRank(cur.status) ? row.status || cur.status : cur.status,
             lastSavedAt: laterIso(row.updatedAt, cur.lastSavedAt),
@@ -755,10 +806,12 @@ export default function Loading() {
         const q = Array.isArray(res?.queue) ? res.queue : []
         const row = q.find((x) => Number(x.operationId) === Number(operationId)) || null
         setAllocationDetailRow(row)
+        setAllocationQueue(q)
       })
       .catch(() => {
         if (cancelled) return
         setAllocationDetailRow(null)
+        setAllocationQueue([])
       })
     return () => { cancelled = true }
   }, [operationId, activityLogRefresh])
@@ -804,6 +857,28 @@ export default function Loading() {
       remarks: allocationDetailRow.remarks || null,
     }
   }, [allocationDetailRow, vessel, cargoForTabs, purpose])
+
+  const siblingOpsOnPlan = useMemo(() => {
+    if (!apiOp?.shipmentPlanId || !allocationQueue.length) return []
+    const pid = Number(apiOp.shipmentPlanId)
+    if (Number.isNaN(pid)) return []
+    return allocationQueue
+      .filter((x) => x?.operationId != null && Number(x.shipmentPlanId) === pid)
+      .sort((a, b) => Number(a.operationId) - Number(b.operationId))
+  }, [apiOp?.shipmentPlanId, allocationQueue])
+
+  /** Same shipment plan: peers not yet ready for sign-off (status from allocation queue). */
+  const incompletePlanPeers = useMemo(() => {
+    if (mockMatchesRoutePurpose) return []
+    if (siblingOpsOnPlan.length <= 1) return []
+    const terminal = new Set(['SIGNOFF_REQUESTED', 'SIGNOFF_APPROVED', 'POST_OPS'])
+    return siblingOpsOnPlan.filter((row) => {
+      if (Number(row.operationId) === Number(operationId)) return false
+      const st = String(row.status || '')
+      if (terminal.has(st)) return false
+      return true
+    })
+  }, [mockMatchesRoutePurpose, siblingOpsOnPlan, operationId])
 
   const steps = vesselId ? getSteps(vesselId) : null
   const stepsOrInitial = steps ?? (vesselId ? initialLoadingStepsByVesselId[vesselId] : null) ?? (vesselId ? Object.fromEntries(LOADING_STEP_IDS.map((id) => [id, { status: 'not_started', startTime: '', endTime: '', quantityResult: null, documents: [] }])) : null)
@@ -945,6 +1020,29 @@ export default function Loading() {
           <span>{purposeLabel}: {vessel.vesselName}</span>
           <FlowPill purpose={purpose} />
         </h1>
+        {!mockMatchesRoutePurpose && siblingOpsOnPlan.length > 1 ? (
+          <div className="loading-si-switcher">
+            <label className="loading-si-switcher__label" htmlFor="loading-si-operation-select">
+              Shipping instruction
+            </label>
+            <select
+              id="loading-si-operation-select"
+              className="loading-si-switcher__select"
+              value={String(operationId ?? '')}
+              onChange={(e) => {
+                const nextId = e.target.value
+                const path = section ? `${basePath}/op-${nextId}/${section}` : `${basePath}/op-${nextId}`
+                navigate(path)
+              }}
+            >
+              {siblingOpsOnPlan.map((row) => (
+                <option key={row.operationId} value={String(row.operationId)}>
+                  {row.shippingInstruction || row.jettyOperationCode || `Operation ${row.operationId}`}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
         <VesselDetailCard detail={vesselDetail} />
 
         {!mockMatchesRoutePurpose && operationId && apiOp ? (
@@ -952,9 +1050,11 @@ export default function Loading() {
             apiOp={apiOp}
             operationId={operationId}
             allStagesComplete={allStagesComplete}
+            incompletePlanPeers={incompletePlanPeers}
+            basePath={basePath}
             canEditLoading={canEditLoading}
             canApproveLoading={canApproveLoading}
-            onOperationUpdated={setApiOp}
+            onOperationUpdated={mergeApiOpPatch}
           />
         ) : null}
 
@@ -1028,6 +1128,29 @@ export default function Loading() {
         <FlowPill purpose={purpose} />
       </h1>
 
+      {!mockMatchesRoutePurpose && siblingOpsOnPlan.length > 1 ? (
+        <div className="loading-si-switcher">
+          <label className="loading-si-switcher__label" htmlFor="loading-si-operation-select-section">
+            Shipping instruction
+          </label>
+          <select
+            id="loading-si-operation-select-section"
+            className="loading-si-switcher__select"
+            value={String(operationId ?? '')}
+            onChange={(e) => {
+              const nextId = e.target.value
+              navigate(`${basePath}/op-${nextId}/${section}`)
+            }}
+          >
+            {siblingOpsOnPlan.map((row) => (
+              <option key={row.operationId} value={String(row.operationId)}>
+                {row.shippingInstruction || row.jettyOperationCode || `Operation ${row.operationId}`}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+
       <VesselDetailCard detail={vesselDetail} />
 
       <StageTabs processStages={processStages} section={section} basePath={basePath} vesselId={vesselId} />
@@ -1037,9 +1160,11 @@ export default function Loading() {
           apiOp={apiOp}
           operationId={operationId}
           allStagesComplete={allStagesComplete}
+          incompletePlanPeers={incompletePlanPeers}
+          basePath={basePath}
           canEditLoading={canEditLoading}
           canApproveLoading={canApproveLoading}
-          onOperationUpdated={setApiOp}
+          onOperationUpdated={mergeApiOpPatch}
         />
       ) : null}
 
@@ -1064,6 +1189,7 @@ export default function Loading() {
               onActivityLogRefresh={bumpActivityLogRefresh}
               activityLogRefresh={activityLogRefresh}
               onPersistedHydrationDone={onPreCheckPersistHydrated}
+              scheduleEntryTz={scheduleEntryTz}
             />
           </>
         )}
@@ -1082,6 +1208,7 @@ export default function Loading() {
               onActivityLogRefresh={bumpActivityLogRefresh}
               activityLogRefresh={activityLogRefresh}
               onPersistedHydrationDone={onPostCheckPersistHydrated}
+              scheduleEntryTz={scheduleEntryTz}
             />
           </>
         )}
@@ -1097,10 +1224,15 @@ export default function Loading() {
               purpose={purpose}
               operationId={operationId}
               commodityType={apiOp?.commodityType === 'Solid' ? 'Solid' : 'Liquid'}
+              cargoCommodity={apiOp?.commodity ?? null}
+              cargoSiQty={resolvedCargoSiQty}
+              cargoSiMetricCode={resolvedCargoSiMetricCode}
+              cargoSiMetricName={resolvedCargoSiMetricName}
               addActivity={addLoadingActivity}
               setOperationalMilestoneNa={setOperationalMilestoneNa}
               onOperationalSaved={bumpActivityLogRefresh}
               activityLogRefresh={activityLogRefresh}
+              scheduleIana={scheduleEntryTz}
             />
           )
         })}
@@ -1193,9 +1325,10 @@ function mergeInitialCargoHydration(current, row) {
       : row.subProcessKey === 'initial_sounding'
         ? 'Sounding'
         : null
+  const remarkResult = row.remark || p.result || ''
   const next = {
     ...current,
-    remark: [current.remark, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || current.remark || '',
+    remark: mergeDistinctLines(current.remark, remarkResult) || remarkResult || current.remark || '',
     status:
       precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
     lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
@@ -1208,8 +1341,6 @@ function mergeInitialCargoHydration(current, row) {
     const en = isoOrDatetimeToLocal(row.endAt)
     if (en) next.endTime = next.endTime || en
   }
-  const remarkResult = row.remark || p.result || ''
-  if (remarkResult) next.remark = remarkResult
   next.cargoCheckingType = typeFromKey || p.cargoCheckingType || current.cargoCheckingType
   return next
 }
@@ -1227,7 +1358,7 @@ function mergeInspectionHydration(current, row) {
     row.subProcessKey === 'hold_inspection' ? 'Hold' : row.subProcessKey === 'tank_inspection' ? 'Tank' : null
   const next = {
     ...current,
-    remark: [current.remark, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || current.remark || '',
+    remark: mergeDistinctLines(current.remark, row.remark) || row.remark || current.remark || '',
     status:
       precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
     lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
@@ -1290,7 +1421,7 @@ function mergeFinalInspectionHydration(current, row, commodityType = 'Liquid') {
   const fallbackType = commodityType === 'Solid' ? 'Hold' : 'Tank'
   const next = {
     ...current,
-    result: [current.result, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || current.result || '',
+    result: mergeDistinctLines(current.result, row.remark) || row.remark || current.result || '',
     status:
       precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
     lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
@@ -1312,7 +1443,7 @@ function mergeFinalCargoCheckingHydration(current, row, commodityType = 'Liquid'
   const fallbackType = commodityType === 'Solid' ? 'Draft Survey' : 'Sounding'
   const next = {
     ...current,
-    result: [current.result, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || current.result || '',
+    result: mergeDistinctLines(current.result, row.remark) || row.remark || current.result || '',
     status:
       precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
     lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
@@ -1397,6 +1528,7 @@ function OpenDocumentIcon() {
 
 /** Edit mode: pick files, list pending + saved; remove uses NOR modal trash icon */
 function PrecheckDocumentsEdit({ sectionKey, documents, onAddFiles, onRemoveIndex, removingKey }) {
+  const { openFilePreview } = useFilePreview()
   const list = documents || []
   return (
     <div className="berthing-modal__field">
@@ -1429,7 +1561,9 @@ function PrecheckDocumentsEdit({ sectionKey, documents, onAddFiles, onRemoveInde
                   aria-label={`Open document: ${f.name || 'file'}`}
                   onClick={() => {
                     const href = precheckDocumentHref(f.url)
-                    if (href && href !== '#') window.open(href, '_blank', 'noopener,noreferrer')
+                    if (href && href !== '#') {
+                      openFilePreview({ url: href, name: f.name, mimeType: f.mimeType ?? null })
+                    }
                   }}
                 >
                   <OpenDocumentIcon />
@@ -1466,14 +1600,12 @@ function PrecheckDocumentsRead({ documents }) {
           <ul className="precheck-doc-list">
             {list.map((f, i) => (
               <li key={f.id ?? `rv-${i}-${f.name}`} className="precheck-doc-list__item">
-                <a
-                  href={precheckDocumentHref(f.url)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="precheck-doc-list__link"
-                >
-                  {f.name}
-                </a>
+                <FilePreviewLink
+                  url={precheckDocumentHref(f.url)}
+                  name={f.name}
+                  mimeType={f.mimeType ?? null}
+                  className="precheck-doc-list__link file-preview-link"
+                />
               </li>
             ))}
           </ul>
@@ -1502,6 +1634,7 @@ function PreCheckingSections({
   onActivityLogRefresh,
   activityLogRefresh = 0,
   onPersistedHydrationDone,
+  scheduleEntryTz,
 }) {
   const preCheckTabs = useMemo(() => getPreCheckSubTabs(purpose), [purpose])
   const [searchParams, setSearchParams] = useSearchParams()
@@ -1686,6 +1819,7 @@ function PreCheckingSections({
     setArrivalNor,
     setPreCheckingSection,
     onPersistedHydrationDone,
+    scheduleEntryTz,
   ])
 
   useEffect(() => {
@@ -1824,8 +1958,11 @@ function PreCheckingSections({
     if (sectionKey === 'norAccepted') {
       const toIsoOrNull = (raw) => {
         if (!raw) return null
-        const d = new Date(raw)
-        return Number.isNaN(d.getTime()) ? null : d.toISOString()
+        try {
+          return normalizeForApi(raw, scheduleEntryTz)
+        } catch {
+          return null
+        }
       }
       const norTenderedIso = toIsoOrNull(draft.norAccepted.norTenderedDateTime)
       const norAcceptedIso = toIsoOrNull(draft.norAccepted.norAcceptedDateTime)
@@ -1833,11 +1970,14 @@ function PreCheckingSections({
         norTenderedDateTime: draft.norAccepted.norTenderedDateTime || '',
         norAcceptedDateTime: draft.norAccepted.norAcceptedDateTime || '',
       })
-      const demurrageIso =
-        draft.norAccepted.demurrageLiabilityFromDateTime &&
-        !Number.isNaN(new Date(draft.norAccepted.demurrageLiabilityFromDateTime).getTime())
-          ? new Date(draft.norAccepted.demurrageLiabilityFromDateTime).toISOString()
-          : null
+      let demurrageIso = null
+      if (draft.norAccepted.demurrageLiabilityFromDateTime) {
+        try {
+          demurrageIso = normalizeForApi(draft.norAccepted.demurrageLiabilityFromDateTime, scheduleEntryTz)
+        } catch {
+          demurrageIso = null
+        }
+      }
       setPreCheckingSection(vesselId, 'norAccepted', {
         documents: draft.norAccepted.documents || [],
         remark: draft.norAccepted.remark || '',
@@ -1849,31 +1989,40 @@ function PreCheckingSections({
         if (operationId) {
           await saveArrivalUpdateApi({
             operationId,
-            norTenderedDateTime: norTenderedIso,
-            norAcceptedDateTime: norAcceptedIso,
+            norTenderedDateTime: norTenderedIso ?? '',
+            norAcceptedDateTime: norAcceptedIso ?? '',
           })
-          const norDet = await updateNorDetails(operationId, {
-            remark: draft.norAccepted.remark || '',
-            payload: {
-              norStage: 'at_berth',
-              norSource: 'nor_accepted_tab',
-              updatedVia: 'loading.pre-checking.nor_accepted',
+          const norDet = await updateNorDetails(
+            operationId,
+            {
+              remark: draft.norAccepted.remark || '',
+              payload: {
+                norStage: 'at_berth',
+                norSource: 'nor_accepted_tab',
+                updatedVia: 'loading.pre-checking.nor_accepted',
+              },
+              demurrageLiabilityFromAt: demurrageIso,
             },
-            demurrageLiabilityFromAt: demurrageIso,
-          })
-          const subNor = await upsertSubProcess(operationId, 'nor_accepted', {
-            phase: 'Pre-Checking',
-            status: nextStatus,
-            occurredAt: norAcceptedIso || norTenderedIso || null,
-            startAt: norAcceptedIso || norTenderedIso || null,
-            endAt: null,
-            remark: draft.norAccepted.remark || '',
-            payload: {
-              norTenderedDateTime: norTenderedIso,
-              norAcceptedDateTime: norAcceptedIso,
-              saveMode: isDraft ? 'draft' : 'final',
+            { scheduleIana: scheduleEntryTz }
+          )
+          const subNor = await upsertSubProcess(
+            operationId,
+            'nor_accepted',
+            {
+              phase: 'Pre-Checking',
+              status: nextStatus,
+              occurredAt: norAcceptedIso || norTenderedIso || null,
+              startAt: norAcceptedIso || norTenderedIso || null,
+              endAt: null,
+              remark: draft.norAccepted.remark || '',
+              payload: {
+                norTenderedDateTime: norTenderedIso,
+                norAcceptedDateTime: norAcceptedIso,
+                saveMode: isDraft ? 'draft' : 'final',
+              },
             },
-          })
+            { scheduleIana: scheduleEntryTz }
+          )
           const norLastSaved = laterIso(norDet?.updatedAt, subNor?.updatedAt)
           if (norLastSaved) {
             setPreCheckingSection(vesselId, 'norAccepted', {
@@ -1914,7 +2063,12 @@ function PreCheckingSections({
         if (operationId) {
           const subKey = PRECHECK_SECTION_TO_KEY[sectionKey]
           const payload = buildSubProcessPayload(sectionKey, sectionDraft)
-          const sent = await upsertSubProcess(operationId, subKey, { phase: 'Pre-Checking', ...payload, status: nextStatus })
+          const sent = await upsertSubProcess(
+            operationId,
+            subKey,
+            { phase: 'Pre-Checking', ...payload, status: nextStatus },
+            { scheduleIana: scheduleEntryTz }
+          )
           if (sent?.updatedAt) {
             setPreCheckingSection(vesselId, sectionKey, { lastSavedAt: sent.updatedAt })
           }
@@ -2875,6 +3029,7 @@ function PostCheckingSections({
   onActivityLogRefresh,
   activityLogRefresh = 0,
   onPersistedHydrationDone,
+  scheduleEntryTz,
 }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [activeSubTab, setActiveSubTab] = useState('finalInspection')
@@ -2950,7 +3105,7 @@ function PostCheckingSections({
           } else {
             bySection[section] = {
               ...current,
-              result: [current.result, row.remark].filter((x) => x && String(x).trim()).join('\n') || row.remark || current.result || '',
+              result: mergeDistinctLines(current.result, row.remark) || row.remark || current.result || '',
               status:
                 precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
               lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
@@ -3120,8 +3275,15 @@ function PostCheckingSections({
       occurredAt = startAt
     }
     if (startAt && endAt) {
-      const t0 = new Date(startAt).getTime()
-      const t1 = new Date(endAt).getTime()
+      let t0
+      let t1
+      try {
+        t0 = new Date(normalizeForApi(startAt, scheduleEntryTz)).getTime()
+        t1 = new Date(normalizeForApi(endAt, scheduleEntryTz)).getTime()
+      } catch {
+        t0 = NaN
+        t1 = NaN
+      }
       if (!Number.isNaN(t0) && !Number.isNaN(t1) && t1 < t0) {
         setPersistError('End time must be on or after start time.')
         setSavingSection(null)
@@ -3132,20 +3294,25 @@ function PostCheckingSections({
     try {
       if (operationId) {
         const subKey = POSTCHECK_SECTION_TO_KEY[sectionKey]
-        const sent = await upsertSubProcess(operationId, subKey, {
-          phase: 'Post-Checking',
-          status: nextStatus,
-          occurredAt,
-          startAt,
-          endAt,
-          remark: sectionDraft?.result || '',
-          payload:
-            sectionKey === 'finalInspection'
-              ? { inspectionType: finalInspectionType }
-              : sectionKey === 'finalCargoChecking'
-                ? { cargoCheckingType: finalCargoCheckingType }
-                : null,
-        })
+        const sent = await upsertSubProcess(
+          operationId,
+          subKey,
+          {
+            phase: 'Post-Checking',
+            status: nextStatus,
+            occurredAt,
+            startAt,
+            endAt,
+            remark: sectionDraft?.result || '',
+            payload:
+              sectionKey === 'finalInspection'
+                ? { inspectionType: finalInspectionType }
+                : sectionKey === 'finalCargoChecking'
+                  ? { cargoCheckingType: finalCargoCheckingType }
+                  : null,
+          },
+          { scheduleIana: scheduleEntryTz }
+        )
         if (sent?.updatedAt) {
           setPostCheckingSection(vesselId, sectionKey, { lastSavedAt: sent.updatedAt })
         }
@@ -3529,3 +3696,5 @@ function LoadingStepCard({ stepId, config, step, vesselId, resultLabel, resultMu
     </section>
   )
 }
+
+export default Loading

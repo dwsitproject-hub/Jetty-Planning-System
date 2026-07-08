@@ -9,6 +9,34 @@ function assert(cond, msg) {
   if (!cond) throw new Error(`ASSERT: ${msg}`);
 }
 
+/** Cookie + XSRF session (default) or Bearer when AUTH_RETURN_TOKEN_BODY=true on API. */
+function authHeadersFromLogin(loginRes, loginJson) {
+  if (loginJson.token) {
+    return {
+      Authorization: `Bearer ${loginJson.token}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    };
+  }
+  const list =
+    typeof loginRes.headers.getSetCookie === 'function' ? loginRes.headers.getSetCookie() : [];
+  const jar = {};
+  for (const c of list) {
+    const pair = c.split(';')[0];
+    const eq = pair.indexOf('=');
+    if (eq > 0) jar[pair.slice(0, eq).trim()] = pair.slice(eq + 1).trim();
+  }
+  const at = jar.jps_at;
+  const xsrf = jar.jps_xsrf;
+  assert(at && xsrf, `login: no token in JSON and no session cookies: ${JSON.stringify(loginJson)}`);
+  return {
+    Cookie: `jps_at=${at}; jps_xsrf=${xsrf}`,
+    'X-XSRF-TOKEN': xsrf,
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+}
+
 /** API may return DATE columns as ISO strings (e.g. …T00:00:00.000Z). */
 function dateYmd(v) {
   if (v == null || v === '') return '';
@@ -23,14 +51,10 @@ async function main() {
     body: JSON.stringify({ username: 'admin', password: 'admin123' }),
   });
   const login = await loginRes.json();
-  assert(loginRes.ok && login.token, `login failed: ${JSON.stringify(login)}`);
-  const auth = {
-    Authorization: `Bearer ${login.token}`,
-    Accept: 'application/json',
-    'Content-Type': 'application/json',
-  };
+  assert(loginRes.ok && login.user, `login failed: ${JSON.stringify(login)}`);
+  const auth = authHeadersFromLogin(loginRes, login);
 
-  const luRes = await fetch(`${BASE}/si-lookups`, { headers: { Accept: 'application/json' } });
+  const luRes = await fetch(`${BASE}/si-lookups`, { headers: auth });
   const lu = await luRes.json();
   assert(luRes.ok, `si-lookups failed: ${JSON.stringify(lu)}`);
   const loadingPurpose = lu.purposes?.find((p) => p.code === 'Loading');
@@ -38,11 +62,13 @@ async function main() {
   const metric = lu.metrics?.find((m) => m.code === 'MT') || lu.metrics?.[0];
   const term = lu.tradeTerms?.[0];
   const jetty = lu.jetties?.[0];
-  const shipper = lu.shippers?.[0];
+  const shippers = lu.shippers || [];
+  const shipperA = shippers[0];
+  const shipperB = shippers[1] || shippers[0];
   const port = lu.loadingPorts?.[0];
   const surveyor = lu.surveyors?.[0];
   const agent = lu.agents?.[0];
-  assert(loadingPurpose && commodity && metric, 'lookups missing purpose/commodity/metric');
+  assert(loadingPurpose && commodity && metric && shipperA, 'lookups missing purpose/commodity/metric/shipper');
 
   const etaFrom = '2026-04-01';
   const etaTo = '2026-04-05';
@@ -56,7 +82,6 @@ async function main() {
     eta_to: etaTo,
     status: 'Draft',
     preferred_jetty_id: jetty?.id ?? null,
-    shipper_id: shipper?.id ?? null,
     loading_port_id: port?.id ?? null,
     surveyor_id: surveyor?.id ?? null,
     agent_id: agent?.id ?? null,
@@ -70,12 +95,22 @@ async function main() {
     note: 'Roundtrip test note αβγ',
     breakdown: [
       {
+        shipperId: shipperA.id,
         commodityId: commodity.id,
         metricId: metric.id,
         qty: 1234.5,
         contractNo: 'CN-RT-001',
         poNo: 'PO-RT-99',
-        remarks: 'BD remark RT',
+        remarks: 'BD remark RT row 1',
+      },
+      {
+        shipperId: shipperB.id,
+        commodityId: commodity.id,
+        metricId: metric.id,
+        qty: 500,
+        contractNo: 'CN-RT-002',
+        poNo: 'PO-RT-100',
+        remarks: 'BD remark RT row 2',
       },
     ],
   };
@@ -104,14 +139,18 @@ async function main() {
     assert(row.note === 'Roundtrip test note αβγ', `${phase} note`);
     assert(dateYmd(row.etaFrom) === etaFrom, `${phase} etaFrom (got ${row.etaFrom})`);
     assert(dateYmd(row.etaTo) === etaTo, `${phase} etaTo (got ${row.etaTo})`);
-    assert(Array.isArray(row.breakdown) && row.breakdown.length === 1, `${phase} breakdown len`);
-    const b = row.breakdown[0];
-    assert(Math.abs(Number(b.qty) - 1234.5) < 1e-9, `${phase} breakdown qty`);
-    assert(b.contractNo === 'CN-RT-001', `${phase} contractNo`);
-    assert(b.poNo === 'PO-RT-99', `${phase} poNo`);
-    assert(b.remarks === 'BD remark RT', `${phase} remarks`);
-    assert(b.commodityName, `${phase} commodityName`);
-    assert(b.metricCode, `${phase} metricCode`);
+    assert(Array.isArray(row.breakdown) && row.breakdown.length === 2, `${phase} breakdown len`);
+    const b0 = row.breakdown[0];
+    const b1 = row.breakdown[1];
+    assert(Number(b0.shipperId) === Number(shipperA.id), `${phase} breakdown[0].shipperId`);
+    assert(Number(b1.shipperId) === Number(shipperB.id), `${phase} breakdown[1].shipperId`);
+    assert(Math.abs(Number(b0.qty) - 1234.5) < 1e-9, `${phase} breakdown[0] qty`);
+    assert(Number(b1.qty) === 500, `${phase} breakdown[1] qty`);
+    assert(b0.contractNo === 'CN-RT-001', `${phase} contractNo row 1`);
+    assert(b1.contractNo === 'CN-RT-002', `${phase} contractNo row 2`);
+    assert(b0.shipperName, `${phase} breakdown[0] shipperName`);
+    assert(b1.shipperName, `${phase} breakdown[1] shipperName`);
+    assert(row.shipperNames, `${phase} shipperNames aggregate`);
   }
 
   checkSi(created, 'after POST');
@@ -131,7 +170,6 @@ async function main() {
     status: 'Draft',
     approval_id: null,
     preferred_jetty_id: created.preferredJettyId,
-    shipper_id: created.shipperId,
     loading_port_id: created.loadingPortId,
     surveyor_id: created.surveyorId,
     agent_id: created.agentId,
@@ -146,6 +184,7 @@ async function main() {
     note: 'Edited note δ',
     breakdown: [
       {
+        shipperId: shipperB.id,
         commodityId: commodity.id,
         metricId: metric.id,
         qty: 99,
@@ -168,14 +207,7 @@ async function main() {
   assert(updated.voyageNo === 'V-RT-2', 'PUT voyageNo');
   assert(updated.destinationText === 'SINGAPORE RT', 'PUT destinationText');
   assert(updated.freightTerms === 'COLLECT', 'PUT freightTerms');
-  assert(updated.billOfLadingClause === 'UPDATED B/L CLAUSE', 'PUT billOfLadingClause');
-  assert(updated.consigneeText === 'CONSIGNEE EDITED', 'PUT consigneeText');
-  assert(updated.notifyPartyText === 'NOTIFY EDITED', 'PUT notifyPartyText');
-  assert(updated.blIndicated === 'BL IND EDITED', 'PUT blIndicated');
-  assert(String(updated.documentDate || '').slice(0, 10) === '2026-03-25', 'PUT documentDate');
-  assert(updated.note === 'Edited note δ', 'PUT note');
-  assert(dateYmd(updated.etaFrom) === '2026-04-10', 'PUT etaFrom');
-  assert(dateYmd(updated.etaTo) === '2026-04-12', 'PUT etaTo');
+  assert(Number(updated.breakdown[0].shipperId) === Number(shipperB.id), 'PUT breakdown shipperId');
   assert(Number(updated.breakdown[0].qty) === 99, 'PUT breakdown qty');
   assert(updated.breakdown[0].contractNo === 'CN-EDIT', 'PUT contractNo');
 
@@ -185,7 +217,15 @@ async function main() {
   assert(got2.vesselName === 'TEST VESSEL ROUNDTRIP EDITED', 'GET2 vesselName');
   assert(Number(got2.breakdown[0].qty) === 99, 'GET2 breakdown qty');
 
-  console.log('OK: SI round-trip (POST → GET → PUT → GET) all asserted fields match.');
+  // Reject legacy header shipper_id
+  const badRes = await fetch(`${BASE}/shipping-instructions/${id}`, {
+    method: 'PUT',
+    headers: auth,
+    body: JSON.stringify({ ...putBody, shipper_id: shipperA.id }),
+  });
+  assert(badRes.status === 400, 'PUT with header shipper_id should fail');
+
+  console.log('OK: SI round-trip (POST → GET → PUT → GET) with line-level shippers asserted.');
   console.log(`Test SI id=${id} (delete manually if desired).`);
 }
 

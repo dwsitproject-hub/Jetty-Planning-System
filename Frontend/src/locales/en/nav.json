@@ -1,7 +1,10 @@
 {
   "dashboard": "Dashboard",
+  "jettyLive": "Jetty Live",
   "shippingInstruction": "Shipping Instruction",
+  "shipmentPlans": "Shipment plans",
   "allocation": "Allocation & Berthing",
+  "allocationPlan": "Allocation & Berthing",
   "atBerth": "At-Berth Executions",
   "clearance": "Clearance",
   "demurrageCalculator": "Demurrage Risk Calculator",

@@ -1,5 +1,6 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { fetchPorts } from '../api/ports'
 import { fetchJetties, createJetty, updateJettyApi, updateJettyStatus } from '../api/jetties'
 import { ApiError } from '../api/client'
@@ -7,11 +8,22 @@ import { useActivityLog } from '../context/ActivityLogContext'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/shipping-instruction.css'
-import { MAX_MASTER_DESCRIPTION_CHARS, MAX_MASTER_JETTY_NAME_CHARS } from '../constants/inputLimits'
+import {
+  MAX_MASTER_DESCRIPTION_CHARS,
+  MAX_MASTER_JETTY_NAME_CHARS,
+  MAX_RTSP_LINK_CHARS,
+} from '../constants/inputLimits'
+import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
+import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 
 const JETTY_STATUS_OPTIONS = ['Available', 'Out of Service']
 
+function jettyPortLabel(j, portNameFn) {
+  return j.portName || portNameFn(j.portId)
+}
+
 export default function MasterJetty() {
+  const { t } = useTranslation('pages')
   const { logActivity } = useActivityLog()
   const [ports, setPorts] = useState([])
   const [jetties, setJetties] = useState([])
@@ -25,6 +37,7 @@ export default function MasterJetty() {
   const [formJettyName, setFormJettyName] = useState('')
   const [formCapacity, setFormCapacity] = useState('1')
   const [formDescription, setFormDescription] = useState('')
+  const [formRtspLink, setFormRtspLink] = useState('')
   const [formStatus, setFormStatus] = useState('Available')
   const [statusWhenOpened, setStatusWhenOpened] = useState('Available')
   const [toast, setToast] = useState(null)
@@ -64,6 +77,7 @@ export default function MasterJetty() {
     setFormJettyName('')
     setFormCapacity('1')
     setFormDescription('')
+    setFormRtspLink('')
     setFormStatus('Available')
     setStatusWhenOpened('Available')
     setModalOpen(true)
@@ -76,6 +90,7 @@ export default function MasterJetty() {
     setFormJettyName(jetty.name || '')
     setFormCapacity(String(jetty.capacity ?? 1))
     setFormDescription(jetty.description ?? '')
+    setFormRtspLink(jetty.rtspLink ?? '')
     const st = jetty.status && JETTY_STATUS_OPTIONS.includes(jetty.status) ? jetty.status : 'Available'
     setFormStatus(st)
     setStatusWhenOpened(st)
@@ -103,6 +118,7 @@ export default function MasterJetty() {
           capacity,
           name: jettyName,
           description: (formDescription || '').trim() || null,
+          rtspLink: (formRtspLink || '').trim() || null,
         })
         if (formStatus !== statusWhenOpened) {
           await updateJettyStatus(editingId, formStatus)
@@ -122,6 +138,7 @@ export default function MasterJetty() {
           capacity,
           name: jettyName,
           description: (formDescription || '').trim() || null,
+          rtspLink: (formRtspLink || '').trim() || null,
         })
         const newId = created?.id
         if (newId != null && formStatus !== 'Available') {
@@ -156,6 +173,7 @@ export default function MasterJetty() {
     formJettyName,
     formCapacity,
     formDescription,
+    formRtspLink,
     formStatus,
     statusWhenOpened,
     loadAll,
@@ -163,12 +181,51 @@ export default function MasterJetty() {
     logActivity,
   ])
 
-  const sortedJetties = [...jetties].sort((a, b) => {
-    const na = a.portName || portName(a.portId)
-    const nb = b.portName || portName(b.portId)
-    if (na !== nb) return na.localeCompare(nb)
-    return (a.orderNo ?? 0) - (b.orderNo ?? 0)
-  })
+  const jettyColumns = useMemo(
+    () => [
+      {
+        key: 'port',
+        label: 'Port',
+        getSortValue: (j) => jettyPortLabel(j, portName).toLowerCase(),
+        getFilterValue: (j) => jettyPortLabel(j, portName),
+      },
+      {
+        key: 'orderNo',
+        label: 'Order',
+        getSortValue: (j) => (j.orderNo != null ? Number(j.orderNo) : Number.POSITIVE_INFINITY),
+        getFilterValue: (j) => `${j.orderNo ?? ''}`,
+      },
+      {
+        key: 'name',
+        label: 'Jetty name',
+        getSortValue: (j) => (j.name || '').toLowerCase(),
+      },
+      {
+        key: 'capacity',
+        label: 'Capacity',
+        getSortValue: (j) => Number(j.capacity ?? 1),
+        getFilterValue: (j) => `${j.capacity ?? 1}`,
+      },
+      {
+        key: 'status',
+        label: 'Status',
+        getSortValue: (j) => (j.status || '').toLowerCase(),
+      },
+      {
+        key: 'description',
+        label: 'Description',
+        getSortValue: (j) => (j.description || '').toLowerCase(),
+        getFilterValue: (j) => j.description || '',
+      },
+    ],
+    [ports]
+  )
+
+  const { displayRows, filters, updateFilter, sortState, handleSort } = useSortableFilterableRows(
+    jetties,
+    jettyColumns,
+    { key: 'port', dir: 'asc' }
+  )
 
   return (
     <div className="allocation-page">
@@ -193,8 +250,8 @@ export default function MasterJetty() {
           </button>
         </div>
       )}
-      <h1 className="page-title">Master – Preferred Jetty</h1>
-      <p className="allocation-page__intro">Jetties from API (per port). Used as Preferred Jetty.</p>
+      <h1 className="page-title">{t('masterJetty')}</h1>
+      <p className="allocation-page__intro">{t('masterJettyIntro')}</p>
       <p className="text-steel">
         <Link to="/master" className="link">← Back to Master Menu</Link>
       </p>
@@ -226,26 +283,25 @@ export default function MasterJetty() {
           <p className="text-steel">Loading…</p>
         ) : ports.length === 0 ? (
           <p className="text-steel">No ports. Add a port in Master – Port first.</p>
-        ) : sortedJetties.length === 0 ? (
+        ) : jetties.length === 0 ? (
           <p className="text-steel">No jetties. Click Add Jetty.</p>
         ) : (
           <div className="table-wrap">
             <table className="data-table allocation-table">
               <thead>
-                <tr>
-                  <th>Port</th>
-                  <th>Order</th>
-                  <th>Jetty name</th>
-                  <th>Capacity</th>
-                  <th>Status</th>
-                  <th>Description</th>
-                  <th>Actions</th>
-                </tr>
+                <SortableFilterableTableHead
+                  columns={jettyColumns}
+                  sortState={sortState}
+                  onSort={handleSort}
+                  filters={filters}
+                  onFilterChange={updateFilter}
+                  trailingBlankCols={1}
+                />
               </thead>
               <tbody>
-                {sortedJetties.map((j) => (
+                {displayRows.map((j) => (
                   <tr key={j.id}>
-                    <td>{j.portName || portName(j.portId)}</td>
+                    <td>{jettyPortLabel(j, portName)}</td>
                     <td>{j.orderNo ?? '—'}</td>
                     <td><strong>{j.name || '—'}</strong></td>
                     <td>{j.capacity ?? 1}</td>
@@ -260,6 +316,11 @@ export default function MasterJetty() {
                 ))}
               </tbody>
             </table>
+            {displayRows.length === 0 && (
+              <p className="text-steel" style={{ marginTop: 'var(--spacing-3)' }}>
+                No entries match the current filters.
+              </p>
+            )}
           </div>
         )}
       </section>
@@ -344,6 +405,24 @@ export default function MasterJetty() {
                 maxLength={MAX_MASTER_DESCRIPTION_CHARS}
                 rows={3}
               />
+            </div>
+            <div className="modal__section">
+              <label className="modal__label" htmlFor="master-jetty-rtsp">
+                RTSP link (CCTV)
+              </label>
+              <input
+                id="master-jetty-rtsp"
+                className="modal__input"
+                type="text"
+                value={formRtspLink}
+                onChange={(e) => setFormRtspLink(e.target.value)}
+                maxLength={MAX_RTSP_LINK_CHARS}
+                placeholder="rtsp://testing:KPN00000eup@172.16.247.222:554/Stream1"
+                autoComplete="off"
+              />
+              <p className="text-steel" style={{ marginTop: '0.25rem' }}>
+                Optional. Used by Jetty Live CCTV from the allocation schematic.
+              </p>
             </div>
             <div className="modal__footer">
               <button type="button" className="btn btn--secondary" onClick={closeModal} disabled={saving}>Cancel</button>
