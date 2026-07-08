@@ -13,8 +13,9 @@ import {
   asOfMsForSelectedDate,
   buildBerthsForSchematicDate,
   buildIncomingByJettyForDate,
+  computeScheduleKpis,
 } from '../utils/jettyScheduleOccupancy'
-import { formatDateDisplay } from '../utils/formatDateTimeDisplay'
+import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import VisualizationPopoutButton from './VisualizationPopoutButton'
 import '../styles/jetty-schematic.css'
 
@@ -44,6 +45,65 @@ function getOperationType(vessel, occupant) {
   return 'DISCH'
 }
 
+/**
+ * Parse a qty display string ("3.999 MT", "2,500 MT", "1.234,5 KL") into { total, unit }.
+ * Handles both id-ID (dot thousands) and en-US (comma thousands) styles; returns null when ambiguous.
+ */
+function parseQtyDisplay(display) {
+  if (!display || typeof display !== 'string') return null
+  const line = display.split('\n')[0].trim()
+  const m = line.match(/([\d.,]+)\s*([A-Za-z]+)?/)
+  if (!m) return null
+  let numStr = m[1]
+  const seps = numStr.match(/[.,]/g) || []
+  if (seps.length) {
+    const lastSep = Math.max(numStr.lastIndexOf('.'), numStr.lastIndexOf(','))
+    const trailing = numStr.length - lastSep - 1
+    if (trailing === 3) {
+      numStr = numStr.replace(/[.,]/g, '')
+    } else {
+      const intPart = numStr.slice(0, lastSep).replace(/[.,]/g, '')
+      numStr = `${intPart}.${numStr.slice(lastSep + 1)}`
+    }
+  }
+  const total = Number(numStr)
+  if (!Number.isFinite(total) || total <= 0) return null
+  return { total, unit: m[2] || 'MT' }
+}
+
+function formatQtyNumber(n) {
+  return Math.round(n).toLocaleString('en-US')
+}
+
+/**
+ * Top-view vessel shape (rounded stern, pointed bow, cargo deck with hatch lines, bridge block).
+ * Hull fill follows purpose via CSS on the lane (--load green / --disch blue).
+ */
+function VesselShape({ widthPct = null }) {
+  return (
+    <svg
+      className="jetty-vessel__svg"
+      viewBox="0 0 220 30"
+      preserveAspectRatio="none"
+      style={widthPct != null ? { width: `${widthPct}%` } : undefined}
+      aria-hidden
+      focusable="false"
+    >
+      <path
+        className="jetty-vessel__hull"
+        d="M8 15 Q8 4 24 4 L164 4 Q198 4 213 15 Q198 26 164 26 L24 26 Q8 26 8 15 Z"
+      />
+      <rect className="jetty-vessel__deck" x="28" y="8" width="116" height="14" rx="4" />
+      <line className="jetty-vessel__hatch" x1="52" y1="8" x2="52" y2="22" />
+      <line className="jetty-vessel__hatch" x1="76" y1="8" x2="76" y2="22" />
+      <line className="jetty-vessel__hatch" x1="100" y1="8" x2="100" y2="22" />
+      <line className="jetty-vessel__hatch" x1="124" y1="8" x2="124" y2="22" />
+      <rect className="jetty-vessel__bridge" x="152" y="9" width="15" height="12" rx="2" />
+      <rect className="jetty-vessel__funnel" x="170" y="12" width="5" height="6" rx="1" />
+    </svg>
+  )
+}
+
 /** Match backend/allocation: short jetty id from master name (e.g. "Jetty 1A" -> "1A") */
 function jettyNameToBerthId(name) {
   if (!name || typeof name !== 'string') return null
@@ -55,6 +115,18 @@ function parseMs(v) {
   if (v == null || v === '') return null
   const t = new Date(v).getTime()
   return Number.isNaN(t) ? null : t
+}
+
+/** "3d 4h" / "5h 20m" elapsed label. */
+function formatDurationShort(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return null
+  const mins = Math.floor(ms / 60000)
+  const days = Math.floor(mins / 1440)
+  const hours = Math.floor((mins % 1440) / 60)
+  const rem = mins % 60
+  if (days > 0) return `${days}d ${hours}h`
+  if (hours > 0) return `${hours}h ${rem}m`
+  return `${rem}m`
 }
 
 /** Same ordering as Jetty schedule bank lanes (TB → operationId → vesselId). */
@@ -119,6 +191,8 @@ export default function JettySchematic({
   popoutProfile = 'plan',
   hidePopoutButton = false,
   isPopout = false,
+  /** Optional: open the queue list filtered by a schematic KPI ('eta' | 'etb' | 'etc'). */
+  onKpiOpen,
 }) {
   const { t } = useTranslation('pages')
   const { t: tAlloc } = useTranslation('allocation')
@@ -131,6 +205,8 @@ export default function JettySchematic({
   const [layoutPhase, setLayoutPhase] = useState('idle')
   const [jettyIdToBerthId, setJettyIdToBerthId] = useState({})
   const [berthIdToRtspLink, setBerthIdToRtspLink] = useState({})
+  /** Physical specs from Master Jetty (length/draft/DWT) — drives proportional scaling. */
+  const [berthIdToSpecs, setBerthIdToSpecs] = useState({})
 
   useEffect(() => {
     if (!canLoadLayout) {
@@ -138,6 +214,7 @@ export default function JettySchematic({
       setLayoutPhase('no-port')
       setJettyIdToBerthId({})
       setBerthIdToRtspLink({})
+      setBerthIdToSpecs({})
       return undefined
     }
 
@@ -152,6 +229,7 @@ export default function JettySchematic({
         const cols = Array.isArray(layoutRes?.columns) ? layoutRes.columns : []
         const idMap = {}
         const rtspMap = {}
+        const specMap = {}
         for (const j of Array.isArray(jetList) ? jetList : []) {
           if (j?.id == null) continue
           const bid = jettyNameToBerthId(j.name)
@@ -159,10 +237,16 @@ export default function JettySchematic({
             idMap[String(j.id)] = bid
             const link = typeof j.rtspLink === 'string' ? j.rtspLink.trim() : ''
             if (link) rtspMap[bid] = link
+            specMap[bid] = {
+              lengthM: j.jettyLengthM != null ? Number(j.jettyLengthM) : null,
+              draft: j.jettyDraft != null ? Number(j.jettyDraft) : null,
+              dwt: j.jettyDwt != null ? Number(j.jettyDwt) : null,
+            }
           }
         }
         setJettyIdToBerthId(idMap)
         setBerthIdToRtspLink(rtspMap)
+        setBerthIdToSpecs(specMap)
 
         if (cols.length === 0) {
           setLayoutColumns([])
@@ -210,6 +294,22 @@ export default function JettySchematic({
     () => buildIncomingByJettyForDate(scheduleList, selectedDate, asOfMs),
     [scheduleList, selectedDate, asOfMs]
   )
+
+  /** ETA / ETB / ETC due on the selected date without their actuals yet. */
+  const scheduleKpis = useMemo(
+    () => computeScheduleKpis(scheduleList, selectedDate),
+    [scheduleList, selectedDate]
+  )
+
+  /** Incoming vessel details (ETA/ETB/commodity/qty) looked up by name from schedule rows. */
+  const incomingRowByName = useMemo(() => {
+    const map = {}
+    for (const r of Array.isArray(scheduleList) ? scheduleList : []) {
+      const name = r?.vesselName
+      if (name && !map[name]) map[name] = r
+    }
+    return map
+  }, [scheduleList])
 
   const berths = displayBerths
   const interactive = typeof onSelectBerth === 'function'
@@ -279,23 +379,63 @@ export default function JettySchematic({
     return v?.materialDisplay ?? v?.product ?? v?.commodity ?? '—'
   }
 
-  function slotContentForSingleVessel(vesselId, occupant, overflowCount) {
+  /** Detached info card (mockup style) — vessel shape is rendered separately in the lane. */
+  function slotContentForSingleVessel(vesselId, occupant, overflowCount, laneSuffix, op) {
     const v = getVessel(vesselId)
     const displayName = v?.vesselName || occupant?.vesselName || String(vesselId || '—')
     if (!vesselId) return 'Vacant'
     const siRef = v?.siId ?? '—'
     const materialDisplay = formatMaterialDisplay(v)
+    const agent = v?.agent || null
+
+    // Cargo progress: done/total + balance derived from totalQtyDisplay × completionPercent
+    const qty = parseQtyDisplay(v?.totalQtyDisplay)
+    const pct = Number(v?.completionPercent)
+    const hasPct = Number.isFinite(pct)
+    let cargoLine = null
+    let balanceLine = null
+    if (qty) {
+      const done = hasPct ? Math.max(0, Math.min(qty.total, (qty.total * pct) / 100)) : null
+      cargoLine =
+        done != null
+          ? `${formatQtyNumber(done)} ${qty.unit} / ${formatQtyNumber(qty.total)} ${qty.unit}`
+          : `${formatQtyNumber(qty.total)} ${qty.unit}`
+      if (done != null) balanceLine = `Balance ${formatQtyNumber(qty.total - done)} ${qty.unit}`
+    }
+
     return (
-      <span className="jetty-slot__inner">
-        <span className="jetty-slot__title">{displayName}</span>
-        <span className="jetty-slot__line jetty-slot__line--purpose">
-          <PurposeBadge purpose={v?.purpose} loadDischarge={v?.loadDischarge} />
+      <span className="jetty-slot__inner jetty-card__box">
+        <span className="jetty-card__titlerow">
+          <span className="jetty-card__lane-chip" aria-hidden>
+            {laneSuffix}
+          </span>
+          <span className="jetty-slot__title jetty-card__name">{displayName}</span>
+          <span
+            className={`jetty-card__purpose-chip jetty-card__purpose-chip--${op === 'LOAD' ? 'load' : 'disch'}`}
+            aria-hidden
+          >
+            <PurposeBadge purpose={v?.purpose} loadDischarge={v?.loadDischarge} />
+          </span>
         </span>
-        <span className="jetty-slot__line jetty-slot__line--plan-ref">
+        {agent ? <span className="jetty-slot__line jetty-card__agent">{agent}</span> : null}
+        <span className="jetty-slot__line jetty-card__cargo jetty-slot__line--material">
+          {materialDisplay}
+          {cargoLine ? `  ${cargoLine}` : ''}
+        </span>
+        {balanceLine ? (
+          <span className="jetty-slot__line jetty-card__balance">{balanceLine}</span>
+        ) : null}
+        {(() => {
+          const tbMs = parseMs(v?.tbDateTime)
+          const dur = tbMs != null && asOfMs > tbMs ? formatDurationShort(asOfMs - tbMs) : null
+          return dur ? (
+            <span className="jetty-slot__line jetty-card__berthed">
+              {tAlloc('cardTimeSinceBerthing', { defaultValue: 'Berthed' })} {dur}
+            </span>
+          ) : null
+        })()}
+        <span className="jetty-slot__line jetty-card__ref jetty-slot__line--plan-ref">
           {slotReferenceLabel}: {siRef}
-        </span>
-        <span className="jetty-slot__line jetty-slot__line--material">
-          Material : {materialDisplay}
         </span>
         {overflowCount > 0 && (
           <span className="jetty-slot__line jetty-slot__line--overflow">+{overflowCount} more</span>
@@ -327,14 +467,19 @@ export default function JettySchematic({
   /** @param {'top' | 'bottom'} stackPlacement — top uses column-reverse so lane 01 sits inner (adjacent to pipeline). */
   function renderBerthLaneStack(berthId, berth, stackPlacement) {
     const cap = berthCapacity(berth)
+    const spec = berthIdToSpecs[berthId] || null
     const occIds = berthOccupantIds(berth)
     const occNames = occIds.map((id) => getVessel(id)?.vesselName || berth?.currentVesselName || id).filter(Boolean)
     const incomingNames = formatIncomingList(displayIncoming[berthId])
     const incomingLabel = incomingNames.length ? incomingNames.join(', ') : '—'
     const isOos = (berth?.status || '') === 'Out of Service'
-    const baseTooltip = isOos
-      ? `Out of service — not available for new allocation.\n${jettyTooltip(berthId, cap, occIds, occNames, incomingLabel)}`
-      : jettyTooltip(berthId, cap, occIds, occNames, incomingLabel)
+    const specLine = spec?.lengthM
+      ? `\nJetty spec: ${spec.lengthM} m · draft ${spec.draft ?? '—'} · DWT ${spec.dwt != null ? spec.dwt.toLocaleString('en-US') : '—'}`
+      : ''
+    const baseTooltip =
+      (isOos
+        ? `Out of service — not available for new allocation.\n${jettyTooltip(berthId, cap, occIds, occNames, incomingLabel)}`
+        : jettyTooltip(berthId, cap, occIds, occNames, incomingLabel)) + specLine
 
     const slots = buildBerthLaneSlots(berth, cap)
     let firstVacantIncomingShown = false
@@ -374,6 +519,34 @@ export default function JettySchematic({
           const showIncomingThisVacant = isVacant && incomingNames.length > 0 && !firstVacantIncomingShown
           if (showIncomingThisVacant) firstVacantIncomingShown = true
 
+          // Vessel-vs-jetty fit (LOA / draft / DWT) for tooltip + proportional ship length
+          const loa = Number(v?.vesselLoaM)
+          const vesselWidthPct =
+            spec?.lengthM > 0 && Number.isFinite(loa) && loa > 0
+              ? Math.max(18, Math.min(98, (loa / spec.lengthM) * 100))
+              : null
+          const fitLines = []
+          if (!isVacant) {
+            if (Number.isFinite(loa) && loa > 0) {
+              fitLines.push(
+                `LOA ${loa} m${spec?.lengthM ? ` / ${spec.lengthM} m${loa > spec.lengthM ? ' ⚠' : ''}` : ''}`
+              )
+            }
+            const vDraft = Number(v?.vesselDraft)
+            if (Number.isFinite(vDraft) && vDraft > 0) {
+              fitLines.push(`Draft ${vDraft}${spec?.draft ? ` / ${spec.draft}${vDraft > spec.draft ? ' ⚠' : ''}` : ''}`)
+            }
+            const vDwt = Number(v?.vesselDwt)
+            if (Number.isFinite(vDwt) && vDwt > 0) {
+              fitLines.push(
+                `DWT ${vDwt.toLocaleString('en-US')}${
+                  spec?.dwt ? ` / ${spec.dwt.toLocaleString('en-US')}${vDwt > spec.dwt ? ' ⚠' : ''}` : ''
+                }`
+              )
+            }
+          }
+          const fitSuffix = fitLines.length ? `\n${fitLines.join(' · ')}` : ''
+
           const tooltip = showIncomingThisVacant
             ? `${baseTooltip}\nThis lane: incoming — ${incomingLabel}`
             : isVacant
@@ -382,24 +555,47 @@ export default function JettySchematic({
                   isTodaySelected && v?.etcBreach
                     ? `\nETC breached · ${Math.round(v.etcBreach.overHours * 10) / 10}h over`
                     : ''
-                }`
+                }${fitSuffix}`
 
           const inner = isVacant ? (
             <>
               {renderLaneSuffix(laneLabel, laneSuffix)}
               <span className="jetty-slot__inner">
                 <span className="jetty-slot__line">Vacant</span>
-                {showIncomingThisVacant && (
-                  <span className="jetty-slot__line jetty-slot__line--incoming">Incoming: {incomingLabel}</span>
+                {showIncomingThisVacant &&
+                  incomingNames.slice(0, 2).map((nm) => {
+                    const ir = incomingRowByName[nm]
+                    const eta = ir ? formatDateTimeDisplay(ir.etaDateTime || ir.eta) : null
+                    const etb = ir ? formatDateTimeDisplay(ir.etbDateTime || ir.etb) : null
+                    const cargo = ir
+                      ? [ir.commodityDisplay || ir.commodity, ir.totalQtyDisplay].filter(Boolean).join(' ')
+                      : null
+                    return (
+                      <span key={nm} className="jetty-slot__line jetty-slot__line--incoming jetty-incoming__block">
+                        <strong>Incoming: {nm}</strong>
+                        {eta ? <span className="jetty-incoming__meta">ETA {eta}</span> : null}
+                        {etb ? <span className="jetty-incoming__meta">ETB {etb}</span> : null}
+                        {cargo ? <span className="jetty-incoming__meta">{cargo}</span> : null}
+                      </span>
+                    )
+                  })}
+                {showIncomingThisVacant && incomingNames.length > 2 && (
+                  <span className="jetty-slot__line jetty-slot__line--incoming">
+                    +{incomingNames.length - 2} more
+                  </span>
                 )}
               </span>
             </>
           ) : (
             <>
-              {renderLaneSuffix(laneLabel, laneSuffix)}
               {renderLaneEtcBadge(v)}
-              <span className="jetty-slot__vessel-block">
-                {slotContentForSingleVessel(slot.vesselId, slot.occupant, slot.overflowCount)}
+              <span
+                className={`jetty-slot__vessel-block jetty-lane__composite jetty-lane__composite--${stackPlacement}`}
+              >
+                <span className="jetty-vessel" aria-hidden>
+                  <VesselShape widthPct={vesselWidthPct} />
+                </span>
+                {slotContentForSingleVessel(slot.vesselId, slot.occupant, slot.overflowCount, laneSuffix, op)}
               </span>
             </>
           )
@@ -440,10 +636,14 @@ export default function JettySchematic({
 
   function renderBerthZone(stackPlacement, berthId, berth) {
     const stack = renderBerthLaneStack(berthId, berth, stackPlacement)
+    const spec = berthIdToSpecs[berthId] || null
     const nameBand = (
       <div className="jetty-schematic__jetty-name-band">
         <span className="jetty-schematic__jetty-name-label" aria-hidden>
           {berthId}
+          {spec?.lengthM ? (
+            <span className="jetty-schematic__jetty-name-spec"> · {spec.lengthM} m</span>
+          ) : null}
         </span>
         {renderCctvButton(berthId)}
       </div>
@@ -567,6 +767,38 @@ export default function JettySchematic({
           {historicalHint}
         </p>
       ) : null}
+      <div className="jetty-schematic__legend-row">
+        <span className="jetty-schematic__date-chip">DATE : {formatDateDisplay(selectedDate)}</span>
+        <span className="jetty-schematic__kpis" aria-label="Due today counters">
+          {[
+            { key: 'eta', label: tAlloc('kpiEtaNotArrived', { defaultValue: 'ETA by Today not yet arrived' }) },
+            { key: 'etb', label: tAlloc('kpiEtbNotBerthing', { defaultValue: 'ETB by Today not yet berthing' }) },
+            { key: 'etc', label: tAlloc('kpiEtcNotCompleted', { defaultValue: 'ETC by Today not yet completed' }) },
+          ].map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              className={`jetty-schematic__kpi-chip jetty-schematic__kpi-chip--${key}`}
+              title={`${label} — click to view in the berthing queue`}
+              onClick={() => {
+                const kpi = scheduleKpis[key]
+                if (typeof onKpiOpen === 'function') {
+                  onKpiOpen(key, kpi, selectedDate)
+                } else {
+                  window.location.href = `/allocation-plans?schematic_kpi=${key}&kpi_date=${selectedDate}`
+                }
+              }}
+            >
+              {label}: <strong>{scheduleKpis[key].count}</strong>
+            </button>
+          ))}
+        </span>
+        <span className="jetty-schematic__legend" aria-label="Legend">
+          <span className="jetty-schematic__legend-item jetty-schematic__legend-item--load">Loading</span>
+          <span className="jetty-schematic__legend-item jetty-schematic__legend-item--disch">Unloading</span>
+          <span className="jetty-schematic__legend-item jetty-schematic__legend-item--vacant">Vacant</span>
+        </span>
+      </div>
       <div className="jetty-schematic-wrap">
         <div className="jetty-schematic">
           {layoutColumns.map((col, colIndex) => {
@@ -577,8 +809,14 @@ export default function JettySchematic({
             const topBerth = topBerthId ? berths.find((b) => b.id === topBerthId) : null
             const bottomBerth = bottomBerthId ? berths.find((b) => b.id === bottomBerthId) : null
 
+            // Proportional column width: longest jetty in the column drives flex-grow.
+            const topLen = topBerthId ? berthIdToSpecs[topBerthId]?.lengthM : null
+            const bottomLen = bottomBerthId ? berthIdToSpecs[bottomBerthId]?.lengthM : null
+            const colLen = Math.max(Number(topLen) || 0, Number(bottomLen) || 0)
+            const colFlexGrow = colLen > 0 ? colLen : 140
+
             return (
-              <div key={colIndex} className="jetty-schematic__column">
+              <div key={colIndex} className="jetty-schematic__column" style={{ flexGrow: colFlexGrow }}>
                 {col.top?.type === 'jetty' && topBerthId ? (
                   renderBerthZone('top', topBerthId, topBerth)
                 ) : (

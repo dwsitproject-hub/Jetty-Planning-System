@@ -29,6 +29,7 @@ import { isBerthOutOfService, jettyOosAllocationMessage } from '../utils/jettyAv
 import PurposeBadge, { resolvePurposeLabel } from '../components/PurposeBadge'
 import SiDetailModal from '../components/SiDetailModal'
 import SiDocumentModal from '../components/SiDocumentModal'
+import VesselInfoModal, { VesselNameButton } from '../components/VesselInfoModal'
 import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
 import '../styles/allocation.css'
@@ -458,6 +459,49 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   const [planDetail, setPlanDetail] = useState(null)
   const [planDetailLoading, setPlanDetailLoading] = useState(false)
   const [planDetailError, setPlanDetailError] = useState(null)
+  /** Editable "Time & status (shipment plan)" form (null = read-only view). */
+  const [planTimesEdit, setPlanTimesEdit] = useState(null)
+  const [planTimesSaving, setPlanTimesSaving] = useState(false)
+  const [planTimesMsg, setPlanTimesMsg] = useState(null)
+
+  const savePlanTimes = async (vesselRow) => {
+    if (!planTimesEdit) return
+    setPlanTimesSaving(true)
+    setPlanTimesMsg(null)
+    const hasOp = vesselRow?.operationId != null && vesselRow.operationId !== ''
+    const hasSi = vesselRow?.shippingInstructionId != null && vesselRow.shippingInstructionId !== ''
+    const payload = { activityLogPage: 'allocation-plan' }
+    if (hasOp) payload.operationId = vesselRow.operationId
+    if (hasSi) payload.shippingInstructionId = vesselRow.shippingInstructionId
+    if (!hasOp && !hasSi) payload.shipmentPlanId = vesselRow?.shipmentPlanId
+    const put = (key, raw) => {
+      // Only send touched, non-empty values (clearing a milestone is not supported here).
+      if (raw == null || String(raw).trim() === '') return
+      payload[key] = normalizeForApiOrEmpty(raw, scheduleEntryTz)
+    }
+    put('etaDateTime', planTimesEdit.eta)
+    put('etbDateTime', planTimesEdit.etb)
+    if (hasOp || hasSi) {
+      put('taDateTime', planTimesEdit.ta)
+      put('tbDateTime', planTimesEdit.tb)
+      put('estimatedCompletionDateTime', planTimesEdit.etc)
+      put('actualCompletionDateTime', planTimesEdit.act)
+    }
+    try {
+      await saveArrivalUpdateApi(payload)
+      setPlanTimesEdit(null)
+      if (vesselRow?.shipmentPlanId != null) {
+        fetchShipmentPlan(vesselRow.shipmentPlanId)
+          .then((d) => setPlanDetail(d))
+          .catch(() => {})
+      }
+      await refreshOverview().catch(() => {})
+    } catch (e) {
+      setPlanTimesMsg(e?.message || 'Save failed')
+    } finally {
+      setPlanTimesSaving(false)
+    }
+  }
   const [arrivalUpdateForm, setArrivalUpdateForm] = useState(null)
   const [berthingConfirmRow, setBerthingConfirmRow] = useState(null)
   const [berthingErrors, setBerthingErrors] = useState([])
@@ -485,6 +529,28 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     setSiDocumentModalId(null)
     setSiDetailId(id)
   }, [])
+  const [vesselInfoPlanId, setVesselInfoPlanId] = useState(null)
+  /** Schematic KPI drill-down: filters the berthing queue to the counted vessels. */
+  const [queueKpiFilter, setQueueKpiFilter] = useState(null)
+  const handleSchematicKpiOpen = useCallback((key, kpi, dateYmd) => {
+    const labels = {
+      eta: 'ETA by Today not yet arrived',
+      etb: 'ETB by Today not yet berthing',
+      etc: 'ETC by Today not yet completed',
+    }
+    setQueueKpiFilter({
+      key,
+      dateYmd,
+      label: labels[key] || key,
+      vesselIds: new Set(kpi?.vesselIds || []),
+      planIds: new Set(kpi?.planIds || []),
+    })
+    window.setTimeout(() => {
+      document.getElementById('allocation-queue-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 60)
+  }, [])
+  /** Embedded At-Berth / Clearance activity popup (vessel pipeline). */
+  const [pipelineEmbed, setPipelineEmbed] = useState(null)
   const [shiftSavingByOpId, setShiftSavingByOpId] = useState({})
   /** `minPlanId-maxPlanId` while swapping berthing sequence (shipment_plans only). */
   const [planSequenceBusyPair, setPlanSequenceBusyPair] = useState(null)
@@ -673,6 +739,15 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         loadDischarge: r.loadDischarge ?? null,
         commodity: r.commodity || null,
         materialDisplay: schematicMaterialDisplay(r),
+        agent: r.agent || null,
+        tbDateTime: r.tbDateTime ?? null,
+        vesselLoaM: r.vesselLoaM ?? null,
+        vesselDraft: r.vesselDraft ?? null,
+        vesselDwt: r.vesselDwt ?? null,
+        vesselGrossTonnage: r.vesselGrossTonnage ?? null,
+        vesselCapacity: r.vesselCapacity ?? null,
+        totalQtyDisplay: r.totalQtyDisplay || null,
+        completionPercent: r.completionPercent != null ? Number(r.completionPercent) : null,
         etaToCompletion: r.estimatedCompletionDateTime ? formatDateTimeDisplay(r.estimatedCompletionDateTime) : '—',
         ragStatus: getEtcBreachRagStatus(r, breachNowMs),
         etcBreach: getEtcBreach(r, breachNowMs),
@@ -691,6 +766,15 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         loadDischarge: r.loadDischarge ?? null,
         commodity: r.commodity || null,
         materialDisplay: schematicMaterialDisplay(r),
+        agent: r.agent || null,
+        tbDateTime: r.tbDateTime ?? null,
+        vesselLoaM: r.vesselLoaM ?? null,
+        vesselDraft: r.vesselDraft ?? null,
+        vesselDwt: r.vesselDwt ?? null,
+        vesselGrossTonnage: r.vesselGrossTonnage ?? null,
+        vesselCapacity: r.vesselCapacity ?? null,
+        totalQtyDisplay: r.totalQtyDisplay || null,
+        completionPercent: r.completionPercent != null ? Number(r.completionPercent) : null,
         etaToCompletion: r.estimatedCompletionDateTime ? formatDateTimeDisplay(r.estimatedCompletionDateTime) : '—',
         ragStatus: getEtcBreachRagStatus(r, breachNowMs),
         etcBreach: getEtcBreach(r, breachNowMs),
@@ -711,6 +795,15 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
           loadDischarge: o.loadDischarge ?? null,
           commodity: null,
           materialDisplay: schematicMaterialDisplay(o),
+          agent: o.agent || null,
+          tbDateTime: o.tbDateTime ?? null,
+          vesselLoaM: o.vesselLoaM ?? null,
+          vesselDraft: o.vesselDraft ?? null,
+          vesselDwt: o.vesselDwt ?? null,
+          vesselGrossTonnage: o.vesselGrossTonnage ?? null,
+          vesselCapacity: o.vesselCapacity ?? null,
+          totalQtyDisplay: o.totalQtyDisplay || null,
+          completionPercent: o.completionPercent != null ? Number(o.completionPercent) : null,
           etaToCompletion: o.estimatedCompletionDateTime ? formatDateTimeDisplay(o.estimatedCompletionDateTime) : '—',
           ragStatus: getEtcBreachRagStatus(o, breachNowMs),
           etcBreach: getEtcBreach(o, breachNowMs),
@@ -1683,7 +1776,14 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     const source = isPlanCentric ? planCentricMergedQueue : list
     return source.filter((r) => {
       const rowStatus = getBerthingPlanStatus(r, { planCentric: isPlanCentric })
-      if (etcBreachFilter) {
+      if (queueKpiFilter) {
+        // KPI drill-down: rows with a plan match strictly on plan id; plan-less rows fall back to vesselId.
+        const match =
+          r.shipmentPlanId != null
+            ? queueKpiFilter.planIds.has(Number(r.shipmentPlanId))
+            : r.vesselId != null && queueKpiFilter.vesselIds.has(r.vesselId)
+        if (!match) return false
+      } else if (etcBreachFilter) {
         if (rowStatus !== 'berthed' || !getEtcBreach(r, breachNowMs)) return false
       } else if (!rowPassesAllocationStatusFilter(r, rowStatus, statusFilter, isPlanCentric)) {
         return false
@@ -1712,6 +1812,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     filterKeys,
     filters,
     allocationColumnDefsBase,
+    queueKpiFilter,
   ])
 
   const sortedList = [...filteredList].sort((a, b) => {
@@ -1742,8 +1843,9 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
 
   const renderOneDesktopRow = (r) => {
     const rowBreach = getEtcBreach(r, breachNowMs)
+    // Key on vesselId: merged plan rows and op rows can collide on bare `id` (e.g. op-13 vs plan #13).
     return (
-      <Fragment key={r.id}>
+      <Fragment key={r.vesselId ?? r.id}>
         <tr
           className={[
             'allocation-table__row',
@@ -1939,6 +2041,18 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                 )
               ) : col.key === 'commodityQty' ? (
                 renderCommodityQtyCell(r)
+              ) : col.key === 'vesselName' && r.shipmentPlanId != null ? (
+                <strong className="allocation-table__vessel-cell">
+                  <VesselNameButton
+                    name={r.vesselName || '—'}
+                    onClick={() => setVesselInfoPlanId(r.shipmentPlanId)}
+                  />
+                  {r.shiftingOut ? (
+                    <span className="si-status-badge si-status-badge--external" style={{ marginLeft: 8 }}>
+                      Shifted
+                    </span>
+                  ) : null}
+                </strong>
               ) : (
                 col.getValue(r)
               )}
@@ -2071,6 +2185,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
             onSelectVessel={(vesselId) => vesselId && selectVesselFromVisualization(vesselId)}
             slotReferenceLabel={isPlanCentric ? tAlloc('planRefSchematicLabel') : 'SI No'}
             popoutProfile={isPlanCentric ? 'plan' : 'legacy'}
+            onKpiOpen={handleSchematicKpiOpen}
           />
         </div>
         <div
@@ -2271,6 +2386,18 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                           >
                             {label}
                           </button>
+                        ) : label === 'At-Berth' || label === 'Clearance' ? (
+                          <button
+                            type="button"
+                            className={`phase-stepper__step-label phase-stepper__step-label--link phase-stepper__step-label--btn${disabled ? ' disabled' : ''}`}
+                            disabled={disabled}
+                            title={disabled ? undefined : `Open ${label} activity in a popup`}
+                            onClick={() => {
+                              if (!disabled && to) setPipelineEmbed({ url: to, label })
+                            }}
+                          >
+                            {label}
+                          </button>
                         ) : (
                           <Link
                             to={disabled ? '#' : to}
@@ -2374,9 +2501,66 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                         )}
                       </section>
                       <section className="berthing-modal__card berthing-modal__card--vessel">
-                        <h3 className="berthing-modal__card-title">
-                          {tAlloc('planModalPlanTimesSection', { defaultValue: 'Time & status (shipment plan)' })}
-                        </h3>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                          <h3 className="berthing-modal__card-title" style={{ marginBottom: 0 }}>
+                            {tAlloc('planModalPlanTimesSection', { defaultValue: 'Time & status (shipment plan)' })}
+                          </h3>
+                          {canEditAllocation && !planDetailLoading && planDetail ? (
+                            planTimesEdit ? (
+                              <span style={{ display: 'inline-flex', gap: 6 }}>
+                                <button
+                                  type="button"
+                                  className="btn btn--small btn--secondary"
+                                  onClick={() => {
+                                    setPlanTimesEdit(null)
+                                    setPlanTimesMsg(null)
+                                  }}
+                                  disabled={planTimesSaving}
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn--small btn--primary"
+                                  onClick={() => savePlanTimes(vessel)}
+                                  disabled={planTimesSaving}
+                                >
+                                  {planTimesSaving ? 'Saving…' : 'Save times'}
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn btn--small btn--secondary"
+                                onClick={() =>
+                                  setPlanTimesEdit({
+                                    eta: toDateTimeLocalValue(planDetail?.eta) || '',
+                                    ta: toDateTimeLocalValue(planDetail?.ta) || '',
+                                    etb: toDateTimeLocalValue(planDetail?.etb) || '',
+                                    tb: toDateTimeLocalValue(planDetail?.tb ?? planDetail?.dockingStartTime) || '',
+                                    etc: toDateTimeLocalValue(planDetail?.estimatedCompletionTime) || '',
+                                    act: toDateTimeLocalValue(planDetail?.actualCompletionTime) || '',
+                                  })
+                                }
+                              >
+                                Edit times
+                              </button>
+                            )
+                          ) : null}
+                        </div>
+                        {planTimesMsg ? (
+                          <p className="allocation-arrival-save-msg allocation-arrival-save-msg--error" role="alert">
+                            {planTimesMsg}
+                          </p>
+                        ) : null}
+                        {planTimesEdit && !(vessel?.operationId || vessel?.shippingInstructionId) ? (
+                          <p className="text-steel" style={{ fontSize: '0.8rem', margin: '4px 0' }}>
+                            {tAlloc('planTimesPlanOnlyHint', {
+                              defaultValue:
+                                'Plan has no operation yet — only ETA and ETB can be updated here (actuals are set at berthing).',
+                            })}
+                          </p>
+                        ) : null}
                         {planDetailLoading ? (
                           <p className="text-steel">{tAlloc('planModalPlanTimesLoading', { defaultValue: 'Loading plan times…' })}</p>
                         ) : planDetailError ? (
@@ -2390,19 +2574,35 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                           <dl className="berthing-modal__vessel-dl">
                             <div className="berthing-modal__vessel-row">
                               <dt title={tAlloc('ttPlanEta')}>{tAlloc('planModalLblEta', { defaultValue: 'Estimated Time of Arrival (ETA)' })}</dt>
-                              <dd>{planEta}</dd>
+                              <dd>{planTimesEdit ? (
+                                <input type="datetime-local" className="berthing-modal__input" value={planTimesEdit.eta} onChange={(e) => setPlanTimesEdit((f) => ({ ...f, eta: e.target.value }))} />
+                              ) : (
+                                planEta
+                              )}</dd>
                             </div>
                             <div className="berthing-modal__vessel-row">
                               <dt title={tAlloc('ttPlanTa')}>{tAlloc('planModalLblTa', { defaultValue: 'Actual Time of Arrival (TA)' })}</dt>
-                              <dd>{planTa}</dd>
+                              <dd>{planTimesEdit && (vessel?.operationId || vessel?.shippingInstructionId) ? (
+                                <input type="datetime-local" className="berthing-modal__input" value={planTimesEdit.ta} onChange={(e) => setPlanTimesEdit((f) => ({ ...f, ta: e.target.value }))} />
+                              ) : (
+                                planTa
+                              )}</dd>
                             </div>
                             <div className="berthing-modal__vessel-row">
                               <dt title={tAlloc('ttPlanEtb')}>{tAlloc('planModalLblEtb', { defaultValue: 'Estimated Time of Berthing (ETB)' })}</dt>
-                              <dd>{planEtb}</dd>
+                              <dd>{planTimesEdit ? (
+                                <input type="datetime-local" className="berthing-modal__input" value={planTimesEdit.etb} onChange={(e) => setPlanTimesEdit((f) => ({ ...f, etb: e.target.value }))} />
+                              ) : (
+                                planEtb
+                              )}</dd>
                             </div>
                             <div className="berthing-modal__vessel-row">
                               <dt title={tAlloc('ttPlanTb')}>{tAlloc('planModalLblTb', { defaultValue: 'Actual Time of Berthing (TB)' })}</dt>
-                              <dd>{planTb}</dd>
+                              <dd>{planTimesEdit && (vessel?.operationId || vessel?.shippingInstructionId) ? (
+                                <input type="datetime-local" className="berthing-modal__input" value={planTimesEdit.tb} onChange={(e) => setPlanTimesEdit((f) => ({ ...f, tb: e.target.value }))} />
+                              ) : (
+                                planTb
+                              )}</dd>
                             </div>
                             <div className="berthing-modal__vessel-row">
                               <dt title={tAlloc('ttPlanTimeSince')}>{tAlloc('planModalLblTimeSinceBerth', { defaultValue: 'Time Since Berthing' })}</dt>
@@ -2410,7 +2610,11 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                             </div>
                             <div className="berthing-modal__vessel-row">
                               <dt title={tAlloc('ttPlanEstCompletion')}>{tAlloc('planModalLblEstCompletion', { defaultValue: 'Est. Completion' })}</dt>
-                              <dd>{planEstCompletion}</dd>
+                              <dd>{planTimesEdit && (vessel?.operationId || vessel?.shippingInstructionId) ? (
+                                <input type="datetime-local" className="berthing-modal__input" value={planTimesEdit.etc} onChange={(e) => setPlanTimesEdit((f) => ({ ...f, etc: e.target.value }))} />
+                              ) : (
+                                planEstCompletion
+                              )}</dd>
                             </div>
                             <div className="berthing-modal__vessel-row">
                               <dt>{tAlloc('operationsCompleted')}</dt>
@@ -2418,7 +2622,11 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                             </div>
                             <div className="berthing-modal__vessel-row">
                               <dt>{tAlloc('actualCompletion')}</dt>
-                              <dd>{formatModalDateTime(planDetail?.actualCompletionTime) || '—'}</dd>
+                              <dd>{planTimesEdit && (vessel?.operationId || vessel?.shippingInstructionId) ? (
+                                <input type="datetime-local" className="berthing-modal__input" value={planTimesEdit.act} onChange={(e) => setPlanTimesEdit((f) => ({ ...f, act: e.target.value }))} />
+                              ) : (
+                                formatModalDateTime(planDetail?.actualCompletionTime) || '—'
+                              )}</dd>
                             </div>
                             <div className="berthing-modal__vessel-row">
                               <dt title={tAlloc('ttPlanEstRemaining')}>{tAlloc('planModalLblEstRemaining', { defaultValue: 'Est. Time Remaining' })}</dt>
@@ -3009,6 +3217,65 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         siId={siDetailId}
         onClose={() => setSiDetailId(null)}
       />
+      <VesselInfoModal
+        planId={vesselInfoPlanId}
+        isOpen={vesselInfoPlanId != null}
+        onClose={() => setVesselInfoPlanId(null)}
+        onSaved={() => refreshOverview().catch(() => {})}
+      />
+      {pipelineEmbed ? (
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            setPipelineEmbed(null)
+            refreshOverview().catch(() => {})
+          }}
+          aria-hidden="true"
+        >
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${pipelineEmbed.label} activity`}
+            style={{ width: 'min(1280px, 96vw)', maxWidth: '96vw', height: '88vh', display: 'flex', flexDirection: 'column', padding: 0 }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '10px 16px',
+                borderBottom: '1px solid #e5e7eb',
+              }}
+            >
+              <h2 className="modal__title" style={{ margin: 0, fontSize: '1.05rem' }}>
+                {pipelineEmbed.label} — activity
+              </h2>
+              <span style={{ display: 'inline-flex', gap: 8 }}>
+                <Link to={pipelineEmbed.url} className="btn btn--small btn--ghost" title="Open as full page">
+                  Open full page ↗
+                </Link>
+                <button
+                  type="button"
+                  className="btn btn--small btn--secondary"
+                  onClick={() => {
+                    setPipelineEmbed(null)
+                    refreshOverview().catch(() => {})
+                  }}
+                >
+                  Close
+                </button>
+              </span>
+            </div>
+            <iframe
+              src={pipelineEmbed.url}
+              title={`${pipelineEmbed.label} activity`}
+              style={{ border: 0, width: '100%', flex: 1, minHeight: 0 }}
+            />
+          </div>
+        </div>
+      ) : null}
       <SiDocumentModal
         isOpen={Boolean(siDocumentModalId)}
         siId={siDocumentModalId}
@@ -3646,7 +3913,32 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       )}
 
       <section className="card">
-        <h2 className="card__title">{isPlanCentric ? tAlloc('incomingTitlePlan') : tAlloc('incomingTitle')}</h2>
+        <h2 className="card__title" id="allocation-queue-section">
+          {isPlanCentric ? tAlloc('incomingTitlePlan') : tAlloc('incomingTitle')}
+        </h2>
+        {queueKpiFilter ? (
+          <p
+            role="status"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              margin: '0 0 0.75rem',
+              padding: '6px 12px',
+              background: '#fef3c7',
+              border: '1px solid #f59e0b',
+              borderRadius: 6,
+              fontSize: '0.875rem',
+            }}
+          >
+            <span>
+              Filtered by schematic KPI: <strong>{queueKpiFilter.label}</strong> ({queueKpiFilter.dateYmd})
+            </span>
+            <button type="button" className="btn btn--small btn--secondary" onClick={() => setQueueKpiFilter(null)}>
+              Clear filter
+            </button>
+          </p>
+        ) : null}
         <div className="allocation-plan-status-filter">
           <div className="allocation-plan-status-filter__row">
             <span className="allocation-plan-status-filter__label">{tAlloc('statusLabel')}</span>
@@ -3759,7 +4051,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
               const mobileBreach = getEtcBreach(r, breachNowMs)
               return (
               <article
-                key={`mobile-${r.id}`}
+                key={`mobile-${r.vesselId ?? r.id}`}
                 className={`allocation-mobile-card${mobileBreach ? ' allocation-mobile-card--etc-breach' : ''}`}
               >
                 <header className="allocation-mobile-card__header">
@@ -3921,6 +4213,12 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                           )
                         ) : col.key === 'commodityQty' ? (
                           renderCommodityQtyCell(r)
+                        ) : col.key === 'vesselName' && r.shipmentPlanId != null ? (
+                          <VesselNameButton
+                            name={r.vesselName || '—'}
+                            onClick={() => setVesselInfoPlanId(r.shipmentPlanId)}
+                            strong
+                          />
                         ) : (
                           col.getValue(r)
                         )}

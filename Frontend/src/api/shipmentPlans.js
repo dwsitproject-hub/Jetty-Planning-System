@@ -18,6 +18,10 @@ export function fetchShipmentPlan(id) {
 export function createShipmentPlan(body) {
   return apiPost('/shipment-plans', {
     vessel_name: body.vesselName,
+    vessel_capacity: body.vesselCapacity ?? null,
+    vessel_loa_m: body.vesselLoaM ?? null,
+    vessel_gross_tonnage: body.vesselGrossTonnage ?? null,
+    vessel_draft: body.vesselDraft ?? null,
     jetty_id: body.jettyId ?? null,
     eta: body.eta ?? null,
     purpose_id: body.purposeId ?? null,
@@ -29,11 +33,26 @@ export function createShipmentPlan(body) {
 export function updateShipmentPlan(id, body) {
   return apiPatch(`/shipment-plans/${id}`, {
     vessel_name: body.vesselName,
+    vessel_capacity: body.vesselCapacity,
+    vessel_loa_m: body.vesselLoaM,
+    vessel_gross_tonnage: body.vesselGrossTonnage,
+    vessel_draft: body.vesselDraft,
     jetty_id: body.jettyId,
     eta: body.eta,
     purpose_id: body.purposeId,
     voyage_no: body.voyageNo,
     agent_id: body.agentId,
+  })
+}
+
+/** Vessel information only (name/capacity/LOA/GT/draft) — allowed in any approval status. */
+export function updateShipmentPlanVesselInfo(id, body) {
+  return apiPatch(`/shipment-plans/${id}/vessel-info`, {
+    vessel_name: body.vesselName,
+    vessel_capacity: body.vesselCapacity,
+    vessel_loa_m: body.vesselLoaM,
+    vessel_gross_tonnage: body.vesselGrossTonnage,
+    vessel_draft: body.vesselDraft,
   })
 }
 

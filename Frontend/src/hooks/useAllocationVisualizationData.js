@@ -31,6 +31,15 @@ function buildVesselById({ planViz, isPlanCentric, breachNowMs }) {
       loadDischarge: r.loadDischarge ?? null,
       commodity: r.commodity || null,
       materialDisplay: schematicMaterialDisplay(r),
+      agent: r.agent || null,
+      tbDateTime: r.tbDateTime ?? null,
+      vesselLoaM: r.vesselLoaM ?? null,
+      vesselDraft: r.vesselDraft ?? null,
+      vesselDwt: r.vesselDwt ?? null,
+      vesselGrossTonnage: r.vesselGrossTonnage ?? null,
+      vesselCapacity: r.vesselCapacity ?? null,
+      totalQtyDisplay: r.totalQtyDisplay || null,
+      completionPercent: r.completionPercent != null ? Number(r.completionPercent) : null,
       etaToCompletion: r.estimatedCompletionDateTime
         ? formatDateTimeDisplay(r.estimatedCompletionDateTime)
         : '—',
@@ -53,6 +62,15 @@ function buildVesselById({ planViz, isPlanCentric, breachNowMs }) {
         loadDischarge: o.loadDischarge ?? null,
         commodity: null,
         materialDisplay: schematicMaterialDisplay(o),
+        agent: o.agent || null,
+        tbDateTime: o.tbDateTime ?? null,
+        vesselLoaM: o.vesselLoaM ?? null,
+        vesselDraft: o.vesselDraft ?? null,
+        vesselDwt: o.vesselDwt ?? null,
+        vesselGrossTonnage: o.vesselGrossTonnage ?? null,
+        vesselCapacity: o.vesselCapacity ?? null,
+        totalQtyDisplay: o.totalQtyDisplay || null,
+        completionPercent: o.completionPercent != null ? Number(o.completionPercent) : null,
         etaToCompletion: o.estimatedCompletionDateTime
           ? formatDateTimeDisplay(o.estimatedCompletionDateTime)
           : '—',

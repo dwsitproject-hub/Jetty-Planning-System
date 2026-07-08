@@ -112,6 +112,10 @@ export default function ShippingInstructionSiLinkedFields({
               purpose: linkedPlan?.purposeCode || selectedPurpose?.label || '—',
               eta: planEtaYmd(linkedPlan) || '—',
               voyage: linkedPlan?.voyageNo?.trim() || '—',
+              capacity:
+                linkedPlan?.vesselCapacity != null && linkedPlan.vesselCapacity !== ''
+                  ? Number(linkedPlan.vesselCapacity).toLocaleString()
+                  : '—',
             })}
           </p>
         </div>

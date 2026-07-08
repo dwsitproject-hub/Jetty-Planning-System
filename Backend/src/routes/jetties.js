@@ -18,6 +18,45 @@ function normalizeRtspLink(raw) {
   if (s.length > MAX_RTSP_LINK_CHARS) return { error: `rtsp_link must be at most ${MAX_RTSP_LINK_CHARS} characters` };
   return s;
 }
+
+/** Required positive-number spec (jetty_length_m / jetty_draft / jetty_dwt). Returns number or { error }. */
+function parseRequiredSpec(raw, field) {
+  if (raw == null || raw === '') return { error: `${field} is required` };
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return { error: `${field} must be a positive number` };
+  return n;
+}
+
+const JETTY_SELECT_COLS = `j.id, j.port_id, j.order_no, j.name, j.description, j.rtsp_link, j.status, j.capacity,
+              j.jetty_length_m, j.jetty_draft, j.jetty_dwt, j.created_at, j.updated_at,
+              (SELECT COALESCE(json_agg(json_build_object('id', c.id, 'name', c.name) ORDER BY c.name), '[]'::json)
+               FROM jetty_commodities jc JOIN si_commodities c ON c.id = jc.commodity_id AND c.deleted_at IS NULL
+               WHERE jc.jetty_id = j.id) AS commodities_json`;
+
+/** Replace jetty_commodities links; ids validated against si_commodities. */
+async function saveJettyCommodities(jettyId, rawIds) {
+  if (!Array.isArray(rawIds)) return; // omitted => leave as-is
+  const ids = [...new Set(rawIds.map((v) => parseInt(v, 10)).filter((n) => Number.isFinite(n) && n > 0))];
+  await pool.query(`DELETE FROM jetty_commodities WHERE jetty_id = $1`, [jettyId]);
+  if (ids.length) {
+    await pool.query(
+      `INSERT INTO jetty_commodities (jetty_id, commodity_id)
+       SELECT $1, id FROM si_commodities WHERE id = ANY($2::bigint[]) AND deleted_at IS NULL
+       ON CONFLICT DO NOTHING`,
+      [jettyId, ids]
+    );
+  }
+}
+
+async function loadJettyCommodities(jettyId) {
+  const r = await pool.query(
+    `SELECT COALESCE(json_agg(json_build_object('id', c.id, 'name', c.name) ORDER BY c.name), '[]'::json) AS j
+     FROM jetty_commodities jc JOIN si_commodities c ON c.id = jc.commodity_id AND c.deleted_at IS NULL
+     WHERE jc.jetty_id = $1`,
+    [jettyId]
+  );
+  return r.rows[0]?.j ?? [];
+}
 router.use(...requirePageView('master-jetty'));
 
 router.get('/', async (req, res) => {
@@ -27,7 +66,7 @@ router.get('/', async (req, res) => {
     const id = parseInt(portId, 10);
     if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid port_id' });
     result = await pool.query(
-      `SELECT j.id, j.port_id, j.order_no, j.name, j.description, j.rtsp_link, j.status, j.capacity, j.created_at, j.updated_at,
+      `SELECT ${JETTY_SELECT_COLS},
               p.name AS port_name
        FROM jetties j JOIN ports p ON j.port_id = p.id AND p.deleted_at IS NULL
        WHERE j.port_id = $1 AND j.deleted_at IS NULL ORDER BY j.order_no ASC, j.name ASC`,
@@ -35,7 +74,7 @@ router.get('/', async (req, res) => {
     );
   } else {
     result = await pool.query(
-      `SELECT j.id, j.port_id, j.order_no, j.name, j.description, j.rtsp_link, j.status, j.capacity, j.created_at, j.updated_at,
+      `SELECT ${JETTY_SELECT_COLS},
               p.name AS port_name
        FROM jetties j JOIN ports p ON j.port_id = p.id AND p.deleted_at IS NULL
        WHERE j.deleted_at IS NULL
@@ -49,7 +88,7 @@ router.get('/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const result = await pool.query(
-    `SELECT j.id, j.port_id, j.order_no, j.name, j.description, j.rtsp_link, j.status, j.capacity, j.created_at, j.updated_at,
+    `SELECT ${JETTY_SELECT_COLS},
             p.name AS port_name
      FROM jetties j JOIN ports p ON j.port_id = p.id AND p.deleted_at IS NULL
      WHERE j.id = $1 AND j.deleted_at IS NULL`,
@@ -60,12 +99,19 @@ router.get('/:id', async (req, res) => {
 });
 
 router.post('/', ...requirePageEdit('master-jetty'), async (req, res) => {
-  const { port_id, order_no, name, description, capacity, rtsp_link } = req.body || {};
+  const { port_id, order_no, name, description, capacity, rtsp_link, jetty_length_m, jetty_draft, jetty_dwt, commodity_ids } =
+    req.body || {};
   if (port_id == null || !name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'port_id and name are required' });
   }
   const rtspLink = normalizeRtspLink(rtsp_link);
   if (rtspLink?.error) return res.status(400).json({ error: rtspLink.error });
+  const lengthM = parseRequiredSpec(jetty_length_m, 'jetty_length_m');
+  if (lengthM?.error) return res.status(400).json({ error: lengthM.error });
+  const draft = parseRequiredSpec(jetty_draft, 'jetty_draft');
+  if (draft?.error) return res.status(400).json({ error: draft.error });
+  const dwt = parseRequiredSpec(jetty_dwt, 'jetty_dwt');
+  if (dwt?.error) return res.status(400).json({ error: dwt.error });
   const portId = parseInt(port_id, 10);
   if (Number.isNaN(portId)) return res.status(400).json({ error: 'Invalid port_id' });
   const portOk = await pool.query(
@@ -78,12 +124,14 @@ router.post('/', ...requirePageEdit('master-jetty'), async (req, res) => {
   const cap = capRaw == null || Number.isNaN(capRaw) ? null : capRaw;
   if (cap != null && cap < 1) return res.status(400).json({ error: 'capacity must be an integer >= 1' });
   const result = await pool.query(
-    `INSERT INTO jetties (port_id, order_no, name, description, capacity, rtsp_link)
-     VALUES ($1, $2, $3, $4, COALESCE($5, 1), $6)
-     RETURNING id, port_id, order_no, name, description, rtsp_link, status, capacity, created_at, updated_at`,
-    [portId, Number.isNaN(orderNo) ? 0 : orderNo, name.trim(), description?.trim() ?? null, cap, rtspLink]
+    `INSERT INTO jetties (port_id, order_no, name, description, capacity, rtsp_link, jetty_length_m, jetty_draft, jetty_dwt)
+     VALUES ($1, $2, $3, $4, COALESCE($5, 1), $6, $7, $8, $9)
+     RETURNING id, port_id, order_no, name, description, rtsp_link, status, capacity, jetty_length_m, jetty_draft, jetty_dwt, created_at, updated_at`,
+    [portId, Number.isNaN(orderNo) ? 0 : orderNo, name.trim(), description?.trim() ?? null, cap, rtspLink, lengthM, draft, dwt]
   );
   const row = result.rows[0];
+  await saveJettyCommodities(row.id, commodity_ids);
+  row.commodities = await loadJettyCommodities(row.id);
   const portName = await pool.query(
     'SELECT name FROM ports WHERE id = $1 AND deleted_at IS NULL',
     [row.port_id]
@@ -100,6 +148,9 @@ router.post('/', ...requirePageEdit('master-jetty'), async (req, res) => {
       { field: 'Order', from: null, to: row.order_no },
       { field: 'Name', from: null, to: name.trim() },
       { field: 'Capacity', from: null, to: row.capacity },
+      { field: 'Length (m)', from: null, to: row.jetty_length_m },
+      { field: 'Draft', from: null, to: row.jetty_draft },
+      { field: 'DWT', from: null, to: row.jetty_dwt },
       { field: 'Status', from: null, to: row.status },
     ],
     actorUserId: req.userId ?? null,
@@ -110,14 +161,22 @@ router.post('/', ...requirePageEdit('master-jetty'), async (req, res) => {
 router.put('/:id', ...requirePageEdit('master-jetty'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
-  const { port_id, order_no, name, description, capacity, rtsp_link } = req.body || {};
+  const { port_id, order_no, name, description, capacity, rtsp_link, jetty_length_m, jetty_draft, jetty_dwt, commodity_ids } =
+    req.body || {};
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'name is required' });
   }
   const rtspLink = normalizeRtspLink(rtsp_link);
   if (rtspLink?.error) return res.status(400).json({ error: rtspLink.error });
+  const lengthM = parseRequiredSpec(jetty_length_m, 'jetty_length_m');
+  if (lengthM?.error) return res.status(400).json({ error: lengthM.error });
+  const draft = parseRequiredSpec(jetty_draft, 'jetty_draft');
+  if (draft?.error) return res.status(400).json({ error: draft.error });
+  const dwt = parseRequiredSpec(jetty_dwt, 'jetty_dwt');
+  if (dwt?.error) return res.status(400).json({ error: dwt.error });
   const before = await pool.query(
-    `SELECT j.id, j.port_id, j.order_no, j.name, j.description, j.rtsp_link, j.status, j.capacity, p.name AS port_name
+    `SELECT j.id, j.port_id, j.order_no, j.name, j.description, j.rtsp_link, j.status, j.capacity,
+            j.jetty_length_m, j.jetty_draft, j.jetty_dwt, p.name AS port_name
      FROM jetties j
      JOIN ports p ON j.port_id = p.id AND p.deleted_at IS NULL
      WHERE j.id = $1 AND j.deleted_at IS NULL`,
@@ -139,13 +198,18 @@ router.put('/:id', ...requirePageEdit('master-jetty'), async (req, res) => {
        name = $4,
        description = $5,
        rtsp_link = $6,
+       jetty_length_m = $7,
+       jetty_draft = $8,
+       jetty_dwt = $9,
        updated_at = NOW()
-     WHERE id = $7 AND deleted_at IS NULL
-     RETURNING id, port_id, order_no, name, description, rtsp_link, status, capacity, created_at, updated_at`,
-    [portId, orderNo, cap, name.trim(), description?.trim() ?? null, rtspLink, id]
+     WHERE id = $10 AND deleted_at IS NULL
+     RETURNING id, port_id, order_no, name, description, rtsp_link, status, capacity, jetty_length_m, jetty_draft, jetty_dwt, created_at, updated_at`,
+    [portId, orderNo, cap, name.trim(), description?.trim() ?? null, rtspLink, lengthM, draft, dwt, id]
   );
   if (result.rows.length === 0) return res.status(404).json({ error: 'Jetty not found' });
   const row = result.rows[0];
+  await saveJettyCommodities(row.id, commodity_ids);
+  row.commodities = await loadJettyCommodities(row.id);
   const portName = await pool.query(
     'SELECT name FROM ports WHERE id = $1 AND deleted_at IS NULL',
     [row.port_id]
@@ -160,6 +224,9 @@ router.put('/:id', ...requirePageEdit('master-jetty'), async (req, res) => {
   add('Order', beforeRow.order_no, row.order_no);
   add('Name', beforeRow.name, row.name);
   add('Capacity', beforeRow.capacity, row.capacity);
+  add('Length (m)', beforeRow.jetty_length_m, row.jetty_length_m);
+  add('Draft', beforeRow.jetty_draft, row.jetty_draft);
+  add('DWT', beforeRow.jetty_dwt, row.jetty_dwt);
   add('Status', beforeRow.status, row.status);
   add('Description', beforeRow.description ?? null, row.description ?? null);
   add('RTSP link', beforeRow.rtsp_link ?? null, row.rtsp_link ?? null);
@@ -284,6 +351,10 @@ function toJetty(row) {
     rtspLink: row.rtsp_link ?? null,
     status: row.status,
     capacity: row.capacity != null ? Number(row.capacity) : 1,
+    jettyLengthM: row.jetty_length_m != null ? Number(row.jetty_length_m) : null,
+    jettyDraft: row.jetty_draft != null ? Number(row.jetty_draft) : null,
+    jettyDwt: row.jetty_dwt != null ? Number(row.jetty_dwt) : null,
+    commodities: Array.isArray(row.commodities_json) ? row.commodities_json : (row.commodities ?? []),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

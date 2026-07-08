@@ -63,7 +63,9 @@ const SI_FROM = `
 `;
 
 const SI_SELECT = `
-  SELECT si.id, si.reference_number, spl.vessel_name, si.commodity, spp.code AS purpose, spl.eta,
+  SELECT si.id, si.reference_number, spl.vessel_name, spl.vessel_capacity,
+    spl.vessel_loa_m, spl.vessel_gross_tonnage, spl.vessel_draft, spl.vessel_dwt,
+    si.commodity, spp.code AS purpose, spl.eta,
     si.eta_from::text AS eta_from, si.eta_to::text AS eta_to, si.status,
     si.shipment_plan_id,
     spl.approval_id,
@@ -1296,6 +1298,11 @@ function toSIList(row) {
     id: row.id,
     referenceNumber: row.reference_number ?? null,
     vesselName: row.vessel_name,
+    vesselCapacity: row.vessel_capacity != null ? Number(row.vessel_capacity) : null,
+    vesselLoaM: row.vessel_loa_m != null ? Number(row.vessel_loa_m) : null,
+    vesselGrossTonnage: row.vessel_gross_tonnage != null ? Number(row.vessel_gross_tonnage) : null,
+    vesselDraft: row.vessel_draft != null ? Number(row.vessel_draft) : null,
+    vesselDwt: row.vessel_dwt != null ? Number(row.vessel_dwt) : null,
     voyageNo: row.voyage_no ?? null,
     commodity: row.commodity_display ?? null,
     commodityId: null,

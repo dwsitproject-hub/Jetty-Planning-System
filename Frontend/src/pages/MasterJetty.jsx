@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { fetchPorts } from '../api/ports'
+import { fetchSiLookups } from '../api/siLookups'
 import { fetchJetties, createJetty, updateJettyApi, updateJettyStatus } from '../api/jetties'
 import { ApiError } from '../api/client'
 import { useActivityLog } from '../context/ActivityLogContext'
@@ -36,6 +37,12 @@ export default function MasterJetty() {
   const [formOrderNo, setFormOrderNo] = useState('')
   const [formJettyName, setFormJettyName] = useState('')
   const [formCapacity, setFormCapacity] = useState('1')
+  const [formLengthM, setFormLengthM] = useState('')
+  const [formDraft, setFormDraft] = useState('')
+  const [formDwt, setFormDwt] = useState('')
+  const [formCommodityIds, setFormCommodityIds] = useState([])
+  const [commoditySearch, setCommoditySearch] = useState('')
+  const [commodityMaster, setCommodityMaster] = useState([])
   const [formDescription, setFormDescription] = useState('')
   const [formRtspLink, setFormRtspLink] = useState('')
   const [formStatus, setFormStatus] = useState('Available')
@@ -52,9 +59,10 @@ export default function MasterJetty() {
     setError(null)
     setLoading(true)
     try {
-      const [p, j] = await Promise.all([fetchPorts(), fetchJetties()])
+      const [p, j, lk] = await Promise.all([fetchPorts(), fetchJetties(), fetchSiLookups().catch(() => null)])
       setPorts(Array.isArray(p) ? p : [])
       setJetties(Array.isArray(j) ? j : [])
+      setCommodityMaster(Array.isArray(lk?.commodities) ? lk.commodities : [])
     } catch (e) {
       setError(e?.message || 'Failed to load')
       setPorts([])
@@ -76,6 +84,11 @@ export default function MasterJetty() {
     setFormOrderNo('')
     setFormJettyName('')
     setFormCapacity('1')
+    setFormLengthM('')
+    setFormDraft('')
+    setFormDwt('')
+    setFormCommodityIds([])
+    setCommoditySearch('')
     setFormDescription('')
     setFormRtspLink('')
     setFormStatus('Available')
@@ -89,6 +102,11 @@ export default function MasterJetty() {
     setFormOrderNo(String(jetty.orderNo ?? ''))
     setFormJettyName(jetty.name || '')
     setFormCapacity(String(jetty.capacity ?? 1))
+    setFormLengthM(jetty.jettyLengthM != null ? String(jetty.jettyLengthM) : '')
+    setFormDraft(jetty.jettyDraft != null ? String(jetty.jettyDraft) : '')
+    setFormDwt(jetty.jettyDwt != null ? String(jetty.jettyDwt) : '')
+    setFormCommodityIds(Array.isArray(jetty.commodities) ? jetty.commodities.map((c) => c.id) : [])
+    setCommoditySearch('')
     setFormDescription(jetty.description ?? '')
     setFormRtspLink(jetty.rtspLink ?? '')
     const st = jetty.status && JETTY_STATUS_OPTIONS.includes(jetty.status) ? jetty.status : 'Available'
@@ -108,6 +126,21 @@ export default function MasterJetty() {
     if (Number.isNaN(portId) || !jettyName) return
     const orderNo = Math.max(0, Math.min(32767, parseInt(formOrderNo, 10) || 0))
     const capacity = Math.max(1, Math.min(20, parseInt(formCapacity, 10) || 1))
+    const specs = [
+      ['Jetty Length (m)', formLengthM],
+      ['Draft Jetty', formDraft],
+      ['DWT Jetty', formDwt],
+    ]
+    for (const [label, raw] of specs) {
+      const n = Number(raw)
+      if (raw == null || String(raw).trim() === '' || !Number.isFinite(n) || n <= 0) {
+        setToast({ message: `${label} is required and must be a number greater than 0.`, variant: 'error' })
+        return
+      }
+    }
+    const jettyLengthM = Number(formLengthM)
+    const jettyDraft = Number(formDraft)
+    const jettyDwt = Number(formDwt)
     setSaving(true)
     setError(null)
     try {
@@ -119,6 +152,10 @@ export default function MasterJetty() {
           name: jettyName,
           description: (formDescription || '').trim() || null,
           rtspLink: (formRtspLink || '').trim() || null,
+          jettyLengthM,
+          jettyDraft,
+          jettyDwt,
+          commodityIds: formCommodityIds,
         })
         if (formStatus !== statusWhenOpened) {
           await updateJettyStatus(editingId, formStatus)
@@ -139,6 +176,10 @@ export default function MasterJetty() {
           name: jettyName,
           description: (formDescription || '').trim() || null,
           rtspLink: (formRtspLink || '').trim() || null,
+          jettyLengthM,
+          jettyDraft,
+          jettyDwt,
+          commodityIds: formCommodityIds,
         })
         const newId = created?.id
         if (newId != null && formStatus !== 'Available') {
@@ -172,6 +213,10 @@ export default function MasterJetty() {
     formOrderNo,
     formJettyName,
     formCapacity,
+    formLengthM,
+    formDraft,
+    formDwt,
+    formCommodityIds,
     formDescription,
     formRtspLink,
     formStatus,
@@ -205,6 +250,30 @@ export default function MasterJetty() {
         label: 'Capacity',
         getSortValue: (j) => Number(j.capacity ?? 1),
         getFilterValue: (j) => `${j.capacity ?? 1}`,
+      },
+      {
+        key: 'jettyLengthM',
+        label: 'Length (m)',
+        getSortValue: (j) => (j.jettyLengthM != null ? Number(j.jettyLengthM) : Number.POSITIVE_INFINITY),
+        getFilterValue: (j) => `${j.jettyLengthM ?? ''}`,
+      },
+      {
+        key: 'jettyDraft',
+        label: 'Draft',
+        getSortValue: (j) => (j.jettyDraft != null ? Number(j.jettyDraft) : Number.POSITIVE_INFINITY),
+        getFilterValue: (j) => `${j.jettyDraft ?? ''}`,
+      },
+      {
+        key: 'jettyDwt',
+        label: 'DWT',
+        getSortValue: (j) => (j.jettyDwt != null ? Number(j.jettyDwt) : Number.POSITIVE_INFINITY),
+        getFilterValue: (j) => `${j.jettyDwt ?? ''}`,
+      },
+      {
+        key: 'commodities',
+        label: 'Commodity',
+        getSortValue: (j) => (Array.isArray(j.commodities) ? j.commodities.map((c) => c.name).join(', ') : '').toLowerCase(),
+        getFilterValue: (j) => (Array.isArray(j.commodities) ? j.commodities.map((c) => c.name).join(', ') : ''),
       },
       {
         key: 'status',
@@ -305,6 +374,10 @@ export default function MasterJetty() {
                     <td>{j.orderNo ?? '—'}</td>
                     <td><strong>{j.name || '—'}</strong></td>
                     <td>{j.capacity ?? 1}</td>
+                    <td>{j.jettyLengthM != null ? j.jettyLengthM.toLocaleString('en-US') : '—'}</td>
+                    <td>{j.jettyDraft != null ? j.jettyDraft.toLocaleString('en-US') : '—'}</td>
+                    <td>{j.jettyDwt != null ? j.jettyDwt.toLocaleString('en-US') : '—'}</td>
+                    <td>{Array.isArray(j.commodities) && j.commodities.length ? j.commodities.map((c) => c.name).join(', ') : '—'}</td>
                     <td>{j.status || '—'}</td>
                     <td>{j.description ? (j.description.length > 40 ? `${j.description.slice(0, 40)}…` : j.description) : '—'}</td>
                     <td>
@@ -363,6 +436,99 @@ export default function MasterJetty() {
               />
               <p className="text-steel" style={{ marginTop: '0.25rem' }}>
                 Default is 1. Set 2+ to allow double-bank / multi-bank on this jetty.
+              </p>
+            </div>
+            <div className="modal__section">
+              <label className="modal__label" htmlFor="master-jetty-length">Jetty Length (m) (required)</label>
+              <input
+                id="master-jetty-length"
+                type="number"
+                className="modal__input"
+                value={formLengthM}
+                onChange={(e) => setFormLengthM(e.target.value)}
+                min={0}
+                step="any"
+                inputMode="decimal"
+                placeholder="e.g. 200"
+                required
+              />
+            </div>
+            <div className="modal__section">
+              <label className="modal__label" htmlFor="master-jetty-draft">Draft Jetty (required)</label>
+              <input
+                id="master-jetty-draft"
+                type="number"
+                className="modal__input"
+                value={formDraft}
+                onChange={(e) => setFormDraft(e.target.value)}
+                min={0}
+                step="any"
+                inputMode="decimal"
+                placeholder="e.g. 12"
+                required
+              />
+            </div>
+            <div className="modal__section">
+              <label className="modal__label" htmlFor="master-jetty-dwt">DWT Jetty (required)</label>
+              <input
+                id="master-jetty-dwt"
+                type="number"
+                className="modal__input"
+                value={formDwt}
+                onChange={(e) => setFormDwt(e.target.value)}
+                min={0}
+                step="any"
+                inputMode="decimal"
+                placeholder="e.g. 15000"
+                required
+              />
+              <p className="text-steel" style={{ marginTop: '0.25rem' }}>
+                Maximum vessel DWT this jetty accepts. Used for jetty suggestions on shipment plans.
+              </p>
+            </div>
+            <div className="modal__section">
+              <label className="modal__label" htmlFor="master-jetty-commodity-search">Commodity</label>
+              <input
+                id="master-jetty-commodity-search"
+                className="modal__input"
+                type="text"
+                value={commoditySearch}
+                onChange={(e) => setCommoditySearch(e.target.value)}
+                placeholder="Search commodity…"
+                autoComplete="off"
+              />
+              <div
+                style={{
+                  maxHeight: 150,
+                  overflowY: 'auto',
+                  border: '1px solid #d1d5db',
+                  borderRadius: 6,
+                  marginTop: 6,
+                  padding: '4px 8px',
+                }}
+              >
+                {commodityMaster
+                  .filter((c) => !commoditySearch.trim() || (c.name || '').toLowerCase().includes(commoditySearch.trim().toLowerCase()))
+                  .map((c) => (
+                    <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: '0.875rem', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={formCommodityIds.includes(c.id)}
+                        onChange={(e) =>
+                          setFormCommodityIds((ids) =>
+                            e.target.checked ? [...ids, c.id] : ids.filter((x) => x !== c.id)
+                          )
+                        }
+                      />
+                      {c.name}
+                    </label>
+                  ))}
+                {commodityMaster.length === 0 ? <p className="text-steel">No commodities in Master – Commodity.</p> : null}
+              </div>
+              <p className="text-steel" style={{ marginTop: '0.25rem' }}>
+                {formCommodityIds.length
+                  ? `Selected: ${commodityMaster.filter((c) => formCommodityIds.includes(c.id)).map((c) => c.name).join(', ')}`
+                  : 'Optional. Empty = jetty accepts any commodity. Used for jetty suggestions on shipment plans.'}
               </p>
             </div>
             <div className="modal__section">
