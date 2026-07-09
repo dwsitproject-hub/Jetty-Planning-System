@@ -232,6 +232,7 @@ export default function ShipmentPlansList() {
     const dwt = vesselDwtComputed
     const etaMs = formEta?.trim() ? new Date(formEta).getTime() : NaN
     const adviceReady = Number.isFinite(loa) && loa > 0 && dwt != null && Number.isFinite(etaMs)
+    const purposeCode = (lookups?.purposes || []).find((p) => String(p.id) === String(formPurposeId))?.code ?? null
     // Commodities on this plan's SI drafts (breakdown rows) — checked against jetty capability.
     const draftCommodityIds = new Set()
     for (const d of siDrafts) {
@@ -242,10 +243,21 @@ export default function ShipmentPlansList() {
     }
     const byId = {}
     for (const j of lookups?.jetties || []) {
-      const hasSpecs = j.jettyLengthM != null || j.jettyDwt != null || (j.commodityIds || []).length > 0
+      const unloadingCommodityIds = Array.isArray(j.unloadingCommodityIds) ? j.unloadingCommodityIds : []
+      const loadingCommodityIds = Array.isArray(j.loadingCommodityIds) ? j.loadingCommodityIds : []
+      const hasSpecs =
+        j.jettyLengthM != null ||
+        j.jettyDwt != null ||
+        unloadingCommodityIds.length > 0 ||
+        loadingCommodityIds.length > 0
       const loaOk = j.jettyLengthM == null || !Number.isFinite(loa) || loa <= 0 || loa <= Number(j.jettyLengthM)
       const dwtOk = j.jettyDwt == null || dwt == null || dwt <= Number(j.jettyDwt)
-      const jettyCommodities = Array.isArray(j.commodityIds) ? j.commodityIds : []
+      const jettyCommodities =
+        purposeCode === 'Loading'
+          ? loadingCommodityIds
+          : purposeCode === 'Unloading'
+            ? unloadingCommodityIds
+            : []
       const commodityOk =
         jettyCommodities.length === 0 ||
         draftCommodityIds.size === 0 ||
@@ -272,7 +284,7 @@ export default function ShipmentPlansList() {
       (j) => byId[j.id]?.hasSpecs && byId[j.id]?.fits && !byId[j.id]?.occupied
     )
     return { byId, suggested, adviceReady }
-  }, [lookups, list, formVesselLoa, vesselDwtComputed, formEta, editingPlan, siDrafts])
+  }, [lookups, list, formVesselLoa, vesselDwtComputed, formEta, formPurposeId, editingPlan, siDrafts])
 
   /** Hard validation: selected jetty must physically fit the vessel (LOA / DWT). */
   const validateJettySelection = () => {
@@ -1647,6 +1659,31 @@ export default function ShipmentPlansList() {
                     />
                   </div>
                   </div>
+                  <div className="input-group">
+                    <label htmlFor="sp-eta">{t('formEtaRequiredLabel')}</label>
+                    <input id="sp-eta" type="datetime-local" value={formEta} onChange={(e) => setFormEta(e.target.value)} required />
+                  </div>
+                  <div className="input-group">
+                    <label htmlFor="sp-voyage">{t('formVoyageOptional')}</label>
+                    <input
+                      id="sp-voyage"
+                      maxLength={MAX_SI_VOYAGE_CHARS}
+                      value={formVoyageNo}
+                      onChange={(e) => setFormVoyageNo(e.target.value)}
+                      placeholder={t('formVoyagePlaceholder')}
+                    />
+                  </div>
+                  <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+                    <label htmlFor="sp-agent">{t('formAgentOptional')}</label>
+                    <select id="sp-agent" value={formAgentId} onChange={(e) => setFormAgentId(e.target.value)} disabled={!lookups}>
+                      <option value="">—</option>
+                      {(lookups?.agents || []).map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.label || a.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <div className="input-group" style={{ gridColumn: '1 / -1' }}>
                     <label htmlFor="sp-jetty">{t('formJettyOptional')}</label>
                     <select id="sp-jetty" value={formJettyId} onChange={(e) => setFormJettyId(e.target.value)}>
@@ -1682,31 +1719,6 @@ export default function ShipmentPlansList() {
                           : t('jettyNoSuggestion')}
                       </p>
                     ) : null}
-                  </div>
-                  <div className="input-group">
-                    <label htmlFor="sp-eta">{t('formEtaRequiredLabel')}</label>
-                    <input id="sp-eta" type="datetime-local" value={formEta} onChange={(e) => setFormEta(e.target.value)} required />
-                  </div>
-                  <div className="input-group">
-                    <label htmlFor="sp-voyage">{t('formVoyageOptional')}</label>
-                    <input
-                      id="sp-voyage"
-                      maxLength={MAX_SI_VOYAGE_CHARS}
-                      value={formVoyageNo}
-                      onChange={(e) => setFormVoyageNo(e.target.value)}
-                      placeholder={t('formVoyagePlaceholder')}
-                    />
-                  </div>
-                  <div className="input-group" style={{ gridColumn: '1 / -1' }}>
-                    <label htmlFor="sp-agent">{t('formAgentOptional')}</label>
-                    <select id="sp-agent" value={formAgentId} onChange={(e) => setFormAgentId(e.target.value)} disabled={!lookups}>
-                      <option value="">—</option>
-                      {(lookups?.agents || []).map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.label || a.name}
-                        </option>
-                      ))}
-                    </select>
                   </div>
                 </div>
               </div>

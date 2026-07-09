@@ -9,7 +9,19 @@ export function fetchJetty(id) {
   return apiGet(`/jetties/${id}`)
 }
 
-export function createJetty({ portId, orderNo, name, description, capacity, rtspLink, jettyLengthM, jettyDraft, jettyDwt, commodityIds }) {
+export function createJetty({
+  portId,
+  orderNo,
+  name,
+  description,
+  capacity,
+  rtspLink,
+  jettyLengthM,
+  jettyDraft,
+  jettyDwt,
+  unloadingCommodityIds,
+  loadingCommodityIds,
+}) {
   return apiPost('/jetties', {
     port_id: portId,
     order_no: orderNo ?? 0,
@@ -20,11 +32,24 @@ export function createJetty({ portId, orderNo, name, description, capacity, rtsp
     jetty_length_m: jettyLengthM,
     jetty_draft: jettyDraft,
     jetty_dwt: jettyDwt,
-    commodity_ids: Array.isArray(commodityIds) ? commodityIds : [],
+    unloading_commodity_ids: Array.isArray(unloadingCommodityIds) ? unloadingCommodityIds : [],
+    loading_commodity_ids: Array.isArray(loadingCommodityIds) ? loadingCommodityIds : [],
   })
 }
 
-export function updateJettyApi(id, { portId, orderNo, name, description, capacity, rtspLink, jettyLengthM, jettyDraft, jettyDwt, commodityIds }) {
+export function updateJettyApi(id, {
+  portId,
+  orderNo,
+  name,
+  description,
+  capacity,
+  rtspLink,
+  jettyLengthM,
+  jettyDraft,
+  jettyDwt,
+  unloadingCommodityIds,
+  loadingCommodityIds,
+}) {
   return apiPut(`/jetties/${id}`, {
     port_id: portId,
     order_no: orderNo,
@@ -35,7 +60,8 @@ export function updateJettyApi(id, { portId, orderNo, name, description, capacit
     jetty_length_m: jettyLengthM,
     jetty_draft: jettyDraft,
     jetty_dwt: jettyDwt,
-    commodity_ids: Array.isArray(commodityIds) ? commodityIds : [],
+    unloading_commodity_ids: Array.isArray(unloadingCommodityIds) ? unloadingCommodityIds : [],
+    loading_commodity_ids: Array.isArray(loadingCommodityIds) ? loadingCommodityIds : [],
   })
 }
 

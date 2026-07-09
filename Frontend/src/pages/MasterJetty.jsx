@@ -23,6 +23,70 @@ function jettyPortLabel(j, portNameFn) {
   return j.portName || portNameFn(j.portId)
 }
 
+function commodityNamesList(commodities) {
+  return Array.isArray(commodities) ? commodities.map((c) => c.name).join(', ') : ''
+}
+
+function JettyCommodityMultiSelect({
+  idPrefix,
+  label,
+  search,
+  onSearchChange,
+  selectedIds,
+  onSelectedIdsChange,
+  commodityMaster,
+  emptyHint,
+}) {
+  const filtered = commodityMaster.filter(
+    (c) => !search.trim() || (c.name || '').toLowerCase().includes(search.trim().toLowerCase())
+  )
+  const selectedNames = commodityMaster.filter((c) => selectedIds.includes(c.id)).map((c) => c.name)
+
+  return (
+    <div className="modal__section">
+      <label className="modal__label" htmlFor={`${idPrefix}-search`}>{label}</label>
+      <input
+        id={`${idPrefix}-search`}
+        className="modal__input"
+        type="text"
+        value={search}
+        onChange={(e) => onSearchChange(e.target.value)}
+        placeholder="Search commodity…"
+        autoComplete="off"
+      />
+      <div
+        style={{
+          maxHeight: 150,
+          overflowY: 'auto',
+          border: '1px solid #d1d5db',
+          borderRadius: 6,
+          marginTop: 6,
+          padding: '4px 8px',
+        }}
+      >
+        {filtered.map((c) => (
+          <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: '0.875rem', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={selectedIds.includes(c.id)}
+              onChange={(e) =>
+                onSelectedIdsChange(
+                  e.target.checked ? [...selectedIds, c.id] : selectedIds.filter((x) => x !== c.id)
+                )
+              }
+            />
+            {c.name}
+          </label>
+        ))}
+        {commodityMaster.length === 0 ? <p className="text-steel">No commodities in Master – Commodity.</p> : null}
+      </div>
+      <p className="text-steel" style={{ marginTop: '0.25rem' }}>
+        {selectedNames.length ? `Selected: ${selectedNames.join(', ')}` : emptyHint}
+      </p>
+    </div>
+  )
+}
+
 export default function MasterJetty() {
   const { t } = useTranslation('pages')
   const { logActivity } = useActivityLog()
@@ -40,8 +104,10 @@ export default function MasterJetty() {
   const [formLengthM, setFormLengthM] = useState('')
   const [formDraft, setFormDraft] = useState('')
   const [formDwt, setFormDwt] = useState('')
-  const [formCommodityIds, setFormCommodityIds] = useState([])
-  const [commoditySearch, setCommoditySearch] = useState('')
+  const [formUnloadingCommodityIds, setFormUnloadingCommodityIds] = useState([])
+  const [formLoadingCommodityIds, setFormLoadingCommodityIds] = useState([])
+  const [unloadingCommoditySearch, setUnloadingCommoditySearch] = useState('')
+  const [loadingCommoditySearch, setLoadingCommoditySearch] = useState('')
   const [commodityMaster, setCommodityMaster] = useState([])
   const [formDescription, setFormDescription] = useState('')
   const [formRtspLink, setFormRtspLink] = useState('')
@@ -87,8 +153,10 @@ export default function MasterJetty() {
     setFormLengthM('')
     setFormDraft('')
     setFormDwt('')
-    setFormCommodityIds([])
-    setCommoditySearch('')
+    setFormUnloadingCommodityIds([])
+    setFormLoadingCommodityIds([])
+    setUnloadingCommoditySearch('')
+    setLoadingCommoditySearch('')
     setFormDescription('')
     setFormRtspLink('')
     setFormStatus('Available')
@@ -105,8 +173,10 @@ export default function MasterJetty() {
     setFormLengthM(jetty.jettyLengthM != null ? String(jetty.jettyLengthM) : '')
     setFormDraft(jetty.jettyDraft != null ? String(jetty.jettyDraft) : '')
     setFormDwt(jetty.jettyDwt != null ? String(jetty.jettyDwt) : '')
-    setFormCommodityIds(Array.isArray(jetty.commodities) ? jetty.commodities.map((c) => c.id) : [])
-    setCommoditySearch('')
+    setFormUnloadingCommodityIds(Array.isArray(jetty.unloadingCommodities) ? jetty.unloadingCommodities.map((c) => c.id) : [])
+    setFormLoadingCommodityIds(Array.isArray(jetty.loadingCommodities) ? jetty.loadingCommodities.map((c) => c.id) : [])
+    setUnloadingCommoditySearch('')
+    setLoadingCommoditySearch('')
     setFormDescription(jetty.description ?? '')
     setFormRtspLink(jetty.rtspLink ?? '')
     const st = jetty.status && JETTY_STATUS_OPTIONS.includes(jetty.status) ? jetty.status : 'Available'
@@ -155,7 +225,8 @@ export default function MasterJetty() {
           jettyLengthM,
           jettyDraft,
           jettyDwt,
-          commodityIds: formCommodityIds,
+          unloadingCommodityIds: formUnloadingCommodityIds,
+          loadingCommodityIds: formLoadingCommodityIds,
         })
         if (formStatus !== statusWhenOpened) {
           await updateJettyStatus(editingId, formStatus)
@@ -179,7 +250,8 @@ export default function MasterJetty() {
           jettyLengthM,
           jettyDraft,
           jettyDwt,
-          commodityIds: formCommodityIds,
+          unloadingCommodityIds: formUnloadingCommodityIds,
+          loadingCommodityIds: formLoadingCommodityIds,
         })
         const newId = created?.id
         if (newId != null && formStatus !== 'Available') {
@@ -216,7 +288,8 @@ export default function MasterJetty() {
     formLengthM,
     formDraft,
     formDwt,
-    formCommodityIds,
+    formUnloadingCommodityIds,
+    formLoadingCommodityIds,
     formDescription,
     formRtspLink,
     formStatus,
@@ -270,10 +343,16 @@ export default function MasterJetty() {
         getFilterValue: (j) => `${j.jettyDwt ?? ''}`,
       },
       {
-        key: 'commodities',
-        label: 'Commodity',
-        getSortValue: (j) => (Array.isArray(j.commodities) ? j.commodities.map((c) => c.name).join(', ') : '').toLowerCase(),
-        getFilterValue: (j) => (Array.isArray(j.commodities) ? j.commodities.map((c) => c.name).join(', ') : ''),
+        key: 'unloadingCommodities',
+        label: 'Unloading commodities',
+        getSortValue: (j) => commodityNamesList(j.unloadingCommodities).toLowerCase(),
+        getFilterValue: (j) => commodityNamesList(j.unloadingCommodities),
+      },
+      {
+        key: 'loadingCommodities',
+        label: 'Loading commodities',
+        getSortValue: (j) => commodityNamesList(j.loadingCommodities).toLowerCase(),
+        getFilterValue: (j) => commodityNamesList(j.loadingCommodities),
       },
       {
         key: 'status',
@@ -377,7 +456,8 @@ export default function MasterJetty() {
                     <td>{j.jettyLengthM != null ? j.jettyLengthM.toLocaleString('en-US') : '—'}</td>
                     <td>{j.jettyDraft != null ? j.jettyDraft.toLocaleString('en-US') : '—'}</td>
                     <td>{j.jettyDwt != null ? j.jettyDwt.toLocaleString('en-US') : '—'}</td>
-                    <td>{Array.isArray(j.commodities) && j.commodities.length ? j.commodities.map((c) => c.name).join(', ') : '—'}</td>
+                    <td>{commodityNamesList(j.unloadingCommodities) || '—'}</td>
+                    <td>{commodityNamesList(j.loadingCommodities) || '—'}</td>
                     <td>{j.status || '—'}</td>
                     <td>{j.description ? (j.description.length > 40 ? `${j.description.slice(0, 40)}…` : j.description) : '—'}</td>
                     <td>
@@ -486,51 +566,26 @@ export default function MasterJetty() {
                 Maximum vessel DWT this jetty accepts. Used for jetty suggestions on shipment plans.
               </p>
             </div>
-            <div className="modal__section">
-              <label className="modal__label" htmlFor="master-jetty-commodity-search">Commodity</label>
-              <input
-                id="master-jetty-commodity-search"
-                className="modal__input"
-                type="text"
-                value={commoditySearch}
-                onChange={(e) => setCommoditySearch(e.target.value)}
-                placeholder="Search commodity…"
-                autoComplete="off"
-              />
-              <div
-                style={{
-                  maxHeight: 150,
-                  overflowY: 'auto',
-                  border: '1px solid #d1d5db',
-                  borderRadius: 6,
-                  marginTop: 6,
-                  padding: '4px 8px',
-                }}
-              >
-                {commodityMaster
-                  .filter((c) => !commoditySearch.trim() || (c.name || '').toLowerCase().includes(commoditySearch.trim().toLowerCase()))
-                  .map((c) => (
-                    <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: '0.875rem', cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        checked={formCommodityIds.includes(c.id)}
-                        onChange={(e) =>
-                          setFormCommodityIds((ids) =>
-                            e.target.checked ? [...ids, c.id] : ids.filter((x) => x !== c.id)
-                          )
-                        }
-                      />
-                      {c.name}
-                    </label>
-                  ))}
-                {commodityMaster.length === 0 ? <p className="text-steel">No commodities in Master – Commodity.</p> : null}
-              </div>
-              <p className="text-steel" style={{ marginTop: '0.25rem' }}>
-                {formCommodityIds.length
-                  ? `Selected: ${commodityMaster.filter((c) => formCommodityIds.includes(c.id)).map((c) => c.name).join(', ')}`
-                  : 'Optional. Empty = jetty accepts any commodity. Used for jetty suggestions on shipment plans.'}
-              </p>
-            </div>
+            <JettyCommodityMultiSelect
+              idPrefix="master-jetty-unloading-commodity"
+              label="Allowed for Unloading"
+              search={unloadingCommoditySearch}
+              onSearchChange={setUnloadingCommoditySearch}
+              selectedIds={formUnloadingCommodityIds}
+              onSelectedIdsChange={setFormUnloadingCommodityIds}
+              commodityMaster={commodityMaster}
+              emptyHint="Optional. Empty = jetty accepts any commodity for unloading. Used for jetty suggestions on shipment plans."
+            />
+            <JettyCommodityMultiSelect
+              idPrefix="master-jetty-loading-commodity"
+              label="Allowed for Loading"
+              search={loadingCommoditySearch}
+              onSearchChange={setLoadingCommoditySearch}
+              selectedIds={formLoadingCommodityIds}
+              onSelectedIdsChange={setFormLoadingCommodityIds}
+              commodityMaster={commodityMaster}
+              emptyHint="Optional. Empty = jetty accepts any commodity for loading. Used for jetty suggestions on shipment plans."
+            />
             <div className="modal__section">
               <label className="modal__label" htmlFor="master-jetty-status">
                 Operational status
