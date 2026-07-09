@@ -196,7 +196,9 @@
   align-items: stretch;
   align-content: start;
   flex: 1 1 0;
-  min-width: 0;
+  /* Floor so a short (proportionally-narrow) jetty still fits its card/ship;
+     the wrap scrolls horizontally instead of columns overlapping. */
+  min-width: 190px;
   gap: var(--spacing-2);
 }
 
@@ -210,6 +212,11 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  /* Grid items default to min-width:auto (min-content), which lets the card/ship
+     overflow a proportionally-narrow column into its neighbour. Allow shrink + clip. */
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   box-sizing: border-box;
   gap: var(--spacing-2);
 }
@@ -418,11 +425,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
   pointer-events: none;
 }
 
 .jetty-vessel__svg {
   width: 92%;
+  max-width: 100%;
   height: 100%;
   filter: drop-shadow(0 2px 3px rgba(15, 34, 52, 0.45));
 }
