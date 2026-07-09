@@ -83,7 +83,6 @@ export default function AllocationVisualizationPopout() {
             scheduleList={planViz.mergedSchedule}
             viewAsOfMs={breachNowMs}
             vesselById={vesselById}
-            slotReferenceLabel={isPlanCentric ? t('planRefSchematicLabel', { defaultValue: 'Plan ref' }) : 'SI No'}
             popoutProfile={profile}
             hidePopoutButton
             isPopout

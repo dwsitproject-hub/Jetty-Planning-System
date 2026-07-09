@@ -186,13 +186,15 @@ export default function JettySchematic({
   selectedBerthId,
   onSelectBerth,
   onSelectVessel,
-  /** Label for the second line in an occupied slot (default: SI number). */
-  slotReferenceLabel = 'SI No',
   popoutProfile = 'plan',
   hidePopoutButton = false,
   isPopout = false,
   /** Optional: open the queue list filtered by a schematic KPI ('eta' | 'etb' | 'etc'). */
   onKpiOpen,
+  /** Ref for JPG export capture region (below filters). */
+  exportRootRef,
+  /** Optional export menu slot (plan-centric allocation page). */
+  exportMenu,
 }) {
   const { t } = useTranslation('pages')
   const { t: tAlloc } = useTranslation('allocation')
@@ -384,7 +386,6 @@ export default function JettySchematic({
     const v = getVessel(vesselId)
     const displayName = v?.vesselName || occupant?.vesselName || String(vesselId || '—')
     if (!vesselId) return 'Vacant'
-    const siRef = v?.siId ?? '—'
     const materialDisplay = formatMaterialDisplay(v)
     const agent = v?.agent || null
 
@@ -410,11 +411,14 @@ export default function JettySchematic({
             {laneSuffix}
           </span>
           <span className="jetty-slot__title jetty-card__name">{displayName}</span>
-          <span
-            className={`jetty-card__purpose-chip jetty-card__purpose-chip--${op === 'LOAD' ? 'load' : 'disch'}`}
-            aria-hidden
-          >
-            <PurposeBadge purpose={v?.purpose} loadDischarge={v?.loadDischarge} />
+          <span className="jetty-card__title-actions">
+            <span
+              className={`jetty-card__purpose-chip jetty-card__purpose-chip--${op === 'LOAD' ? 'load' : 'disch'}`}
+              aria-hidden
+            >
+              <PurposeBadge purpose={v?.purpose} loadDischarge={v?.loadDischarge} />
+            </span>
+            {renderCardEtcBadge(v)}
           </span>
         </span>
         {agent ? <span className="jetty-slot__line jetty-card__agent">{agent}</span> : null}
@@ -434,9 +438,6 @@ export default function JettySchematic({
             </span>
           ) : null
         })()}
-        <span className="jetty-slot__line jetty-card__ref jetty-slot__line--plan-ref">
-          {slotReferenceLabel}: {siRef}
-        </span>
         {overflowCount > 0 && (
           <span className="jetty-slot__line jetty-slot__line--overflow">+{overflowCount} more</span>
         )}
@@ -444,14 +445,14 @@ export default function JettySchematic({
     )
   }
 
-  function renderLaneEtcBadge(v) {
+  function renderCardEtcBadge(v) {
     if (!isTodaySelected || !v?.etcBreach) return null
     return (
       <EtcBreachBadge
         overMs={v.etcBreach.overMs}
         etcMs={v.etcBreach.etcMs}
         size="icon-only"
-        className="jetty-schematic__lane-etc"
+        className="jetty-card__etc-badge"
       />
     )
   }
@@ -587,17 +588,14 @@ export default function JettySchematic({
               </span>
             </>
           ) : (
-            <>
-              {renderLaneEtcBadge(v)}
-              <span
-                className={`jetty-slot__vessel-block jetty-lane__composite jetty-lane__composite--${stackPlacement}`}
-              >
-                <span className="jetty-vessel" aria-hidden>
-                  <VesselShape widthPct={vesselWidthPct} />
-                </span>
-                {slotContentForSingleVessel(slot.vesselId, slot.occupant, slot.overflowCount, laneSuffix, op)}
+            <span
+              className={`jetty-slot__vessel-block jetty-lane__composite jetty-lane__composite--${stackPlacement}`}
+            >
+              <span className="jetty-vessel" aria-hidden>
+                <VesselShape widthPct={vesselWidthPct} />
               </span>
-            </>
+              {slotContentForSingleVessel(slot.vesselId, slot.occupant, slot.overflowCount, laneSuffix, op)}
+            </span>
           )
 
           if (interactive) {
@@ -761,7 +759,13 @@ export default function JettySchematic({
         >
           {tAlloc('jettySchematicResetDate', { defaultValue: 'Reset' })}
         </button>
+        {exportMenu || null}
       </div>
+      <div
+        id="allocation-export-schematic"
+        ref={exportRootRef}
+        className="allocation-export-schematic"
+      >
       {historicalHint ? (
         <p className="jetty-schematic__historical-hint" role="status">
           {historicalHint}
@@ -844,6 +848,7 @@ export default function JettySchematic({
             )
           })}
         </div>
+      </div>
       </div>
     </section>
   )

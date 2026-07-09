@@ -504,13 +504,6 @@
   text-transform: uppercase;
 }
 
-.jetty-schematic__lane-etc {
-  position: absolute;
-  top: 3px;
-  right: 4px;
-  z-index: 2;
-}
-
 .jetty-schematic__lane .jetty-slot__inner,
 .jetty-schematic__lane .jetty-slot__vessel-block {
   display: flex;
@@ -523,10 +516,8 @@
   text-align: left;
 }
 
-
-.jetty-schematic__lane--etc-breach .jetty-slot__inner,
-.jetty-schematic__lane--etc-breach .jetty-slot__vessel-block {
-  padding-right: 22px;
+.jetty-schematic__lane .jetty-card__box {
+  gap: 2px;
 }
 
 .jetty-schematic__lane .jetty-slot__title {
@@ -667,7 +658,7 @@ button.jetty-schematic__lane:focus-visible {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
   width: 100%;
   box-sizing: border-box;
   padding: 3px 6px 4px 7px;
@@ -676,7 +667,12 @@ button.jetty-schematic__lane:focus-visible {
   border-left-width: 4px;
   border-radius: 8px;
   box-shadow: 0 2px 6px rgba(15, 34, 52, 0.28);
-  overflow: hidden;
+  overflow: visible;
+}
+
+.jetty-card__box .jetty-card__titlerow,
+.jetty-card__box .jetty-slot__line {
+  flex-shrink: 0;
 }
 
 .jetty-schematic__slot--load .jetty-card__box {
@@ -698,6 +694,18 @@ button.jetty-schematic__lane:focus-visible {
 .jetty-card__titlerow .jetty-slot__title {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.jetty-card__title-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+}
+
+.jetty-card__etc-badge {
+  flex: 0 0 auto;
 }
 
 .jetty-card__lane-chip {

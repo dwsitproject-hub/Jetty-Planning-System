@@ -1,8 +1,9 @@
-import { useState, Fragment, useEffect, useMemo, useCallback } from 'react'
+import { useState, Fragment, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router-dom'
 import JettySchematic from '../components/JettySchematic'
 import JettyScheduleGantt from '../components/JettyScheduleGantt'
+import AllocationPlanExportMenu from '../components/AllocationPlanExportMenu'
 import {
   deleteOperationDocument,
   fetchAllocationOverview,
@@ -518,6 +519,9 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   const [berthingSuccessMessage, setBerthingSuccessMessage] = useState(null)
   const [arrivalSuccessMessage, setArrivalSuccessMessage] = useState(null)
   const [visualTab, setVisualTab] = useState('schematic') // 'schematic' | 'jettySchedule'
+  const schematicExportRef = useRef(null)
+  const queueExportRef = useRef(null)
+  const [planExporting, setPlanExporting] = useState(false)
   const [siDetailId, setSiDetailId] = useState(null)
   const [siDocumentModalId, setSiDocumentModalId] = useState(null)
 
@@ -548,6 +552,44 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     window.setTimeout(() => {
       document.getElementById('allocation-queue-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }, 60)
+  }, [])
+
+  const handleAllocationPlanExport = useCallback(async ({ includeSchematic, includeQueueTable }) => {
+    setPlanExporting(true)
+    try {
+      const { captureElementToCanvas, stitchCanvasesVertically, downloadCanvasAsJpeg } = await import(
+        '../utils/captureDomAsJpeg'
+      )
+      const canvases = []
+      if (includeSchematic && schematicExportRef.current) {
+        const canvas = await captureElementToCanvas(schematicExportRef.current, {
+          capturingClass: 'allocation-export-schematic--capturing',
+          expandWidth: true,
+        })
+        canvases.push(canvas)
+      }
+      if (includeQueueTable && queueExportRef.current) {
+        const canvas = await captureElementToCanvas(queueExportRef.current, {
+          capturingClass: 'allocation-export-queue-table--capturing',
+          expandWidth: false,
+        })
+        canvases.push(canvas)
+      }
+      if (canvases.length === 0) throw new Error('Nothing to export')
+      const stitched = stitchCanvasesVertically(canvases, 16)
+      const dateInput = document.getElementById('jetty-schematic-date')
+      const dateYmd =
+        dateInput instanceof HTMLInputElement && dateInput.value
+          ? dateInput.value
+          : new Date().toISOString().slice(0, 10)
+      await downloadCanvasAsJpeg(stitched, `allocation-plan-${dateYmd}.jpg`)
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Allocation plan JPG export failed:', err)
+      throw err
+    } finally {
+      setPlanExporting(false)
+    }
   }, [])
   /** Embedded At-Berth / Clearance activity popup (vessel pipeline). */
   const [pipelineEmbed, setPipelineEmbed] = useState(null)
@@ -2183,9 +2225,17 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
             vesselById={vesselById}
             onSelectBerth={handleBerthClick}
             onSelectVessel={(vesselId) => vesselId && selectVesselFromVisualization(vesselId)}
-            slotReferenceLabel={isPlanCentric ? tAlloc('planRefSchematicLabel') : 'SI No'}
             popoutProfile={isPlanCentric ? 'plan' : 'legacy'}
             onKpiOpen={handleSchematicKpiOpen}
+            exportRootRef={isPlanCentric ? schematicExportRef : undefined}
+            exportMenu={
+              isPlanCentric ? (
+                <AllocationPlanExportMenu
+                  exporting={planExporting}
+                  onExport={handleAllocationPlanExport}
+                />
+              ) : null
+            }
           />
         </div>
         <div
@@ -3912,7 +3962,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         </div>
       )}
 
-      <section className="card">
+      <section className="card" id="allocation-export-queue-table" ref={queueExportRef}>
         <h2 className="card__title" id="allocation-queue-section">
           {isPlanCentric ? tAlloc('incomingTitlePlan') : tAlloc('incomingTitle')}
         </h2>
