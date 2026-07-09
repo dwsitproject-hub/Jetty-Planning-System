@@ -2085,6 +2085,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
             berthsState={berthsState}
             list={planViz.mergedSchedule}
             onSelectVessel={(vesselId) => vesselId && selectVesselFromVisualization(vesselId)}
+            onScheduleChanged={refreshOverview}
             popoutProfile={isPlanCentric ? 'plan' : 'legacy'}
           />
         </div>

@@ -43,9 +43,15 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
   // "Best" = non-sailed over sailed; among same sailed status, latest TB wins.
   // This prevents old/SAILED docking rows from overwriting the current berth bar.
   const bestActualOpsRow = new Map()
+  // jetty+bankLaneKey groups that have any actual milestone (TA or TB): these render
+  // only their actual bar — the estimate (planned) bar is suppressed for them.
+  const hasActualByKey = new Set()
   for (const r of sorted) {
     const jettyId = jettyIdFromScheduleRow(r)
     if (!jettyId) continue
+    if (parseMs(r.taDateTime) != null || parseMs(r.tbDateTime) != null) {
+      hasActualByKey.add(`${jettyId}\0${bankLaneKeyFromRow(r)}`)
+    }
     const tbMs = parseMs(r.tbDateTime)
     if (tbMs == null) continue
     const bk = bankLaneKeyFromRow(r)
@@ -88,9 +94,15 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
     const isSailed = sourceStatus === 'SAILED'
     const status = isSailed ? 'Sailed off' : tb != null ? 'Berthing' : 'Arriving'
 
+    // Estimate bar: only for vessels with no actual milestones yet. Once TA/TB is
+    // recorded the single actual bar (which also shows ETA/ETB) represents the vessel.
     const plannedStart = plannedEtb ?? eta
     const plannedDedupKey = `${jettyId}\0${bankLaneKey}`
-    if (plannedStart != null && !plannedEmitted.has(plannedDedupKey)) {
+    if (
+      plannedStart != null &&
+      !plannedEmitted.has(plannedDedupKey) &&
+      !hasActualByKey.has(plannedDedupKey)
+    ) {
       plannedEmitted.add(plannedDedupKey)
       let opsEnd
       let gradient
@@ -112,6 +124,7 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
         {
           layer: 'planned',
           phase: 'ops',
+          estimateOnly: true,
           jettyId,
           bankLaneKey,
           vesselId,
@@ -275,7 +288,11 @@ function pickInactiveLane(jettyId, caps, activeLanesByJetty, isSailed) {
 
 /**
  * Bank lanes (01, 02, …) per vessel on a jetty.
- * Active alongside vessels use schematic lane order; sailed/historical use free lanes (prefer 02+).
+ * Active alongside vessels use schematic lane order. Everything else is packed by
+ * TIME: a vessel goes to a lane whose bars don't overlap it, preferring the lane
+ * whose previous bar ends closest before it starts — so a vessel scheduled after
+ * another renders on the same lane row, right behind it. Sailed/historical bars
+ * break ties toward the high lanes so they avoid the active 01 row.
  */
 export function assignBankLanesByVessel(baseSegments, rowDefs, listRows, nowMs) {
   const caps = new Map()
@@ -295,20 +312,80 @@ export function assignBankLanesByVessel(baseSegments, rowDefs, listRows, nowMs) 
     activeLanesByJetty.set(jettyId, set)
   }
 
-  const out = []
+  // One lane per jetty+bankLaneKey; aggregate each key's full [start, end] window.
+  const keyInfo = new Map()
   for (const s of baseSegments) {
     const bk = s.bankLaneKey ?? s.vesselId
-    const mapKey = `${s.jettyId}\0${bk}`
-    let lane
-    if (activeLaneMap.has(mapKey)) {
-      lane = activeLaneMap.get(mapKey)
-    } else {
-      const isSailed = s.status === 'Sailed off'
-      lane = pickInactiveLane(s.jettyId, caps, activeLanesByJetty, isSailed)
-    }
-    out.push({ ...s, laneIndex: lane, rowKey: `${s.jettyId}__${lane}` })
+    const key = `${s.jettyId}\0${bk}`
+    const info =
+      keyInfo.get(key) ||
+      { key, jettyId: s.jettyId, startMs: s.startMs, endMs: s.endMs, isSailed: false }
+    info.startMs = Math.min(info.startMs, s.startMs)
+    info.endMs = Math.max(info.endMs, s.endMs)
+    info.isSailed = info.isSailed || s.status === 'Sailed off'
+    keyInfo.set(key, info)
   }
-  return out
+
+  const lanesByJetty = new Map() // jettyId -> per-lane occupied intervals
+  const lanesOf = (jettyId) => {
+    let lanes = lanesByJetty.get(jettyId)
+    if (!lanes) {
+      const cap = Math.max(1, Number(caps.get(jettyId)) || 1)
+      lanes = Array.from({ length: cap }, () => [])
+      lanesByJetty.set(jettyId, lanes)
+    }
+    return lanes
+  }
+
+  const laneForKey = new Map()
+  const claimLane = (info, lane) => {
+    const lanes = lanesOf(info.jettyId)
+    const li = Math.max(0, Math.min(lane, lanes.length - 1))
+    laneForKey.set(info.key, li)
+    lanes[li].push({ startMs: info.startMs, endMs: info.endMs })
+  }
+
+  // Currently alongside vessels keep their schematic lanes.
+  for (const info of keyInfo.values()) {
+    if (activeLaneMap.has(info.key)) claimLane(info, activeLaneMap.get(info.key))
+  }
+
+  // Pack the rest in start order.
+  const pending = [...keyInfo.values()]
+    .filter((info) => !activeLaneMap.has(info.key))
+    .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs)
+  for (const info of pending) {
+    const lanes = lanesOf(info.jettyId)
+    let best = -1
+    let bestPrevEnd = null
+    for (let li = 0; li < lanes.length; li += 1) {
+      const intervals = lanes[li]
+      const overlaps = intervals.some(
+        (iv) => iv.startMs < info.endMs && info.startMs < iv.endMs
+      )
+      if (overlaps) continue
+      let prevEnd = -Infinity
+      for (const iv of intervals) {
+        if (iv.endMs <= info.startMs && iv.endMs > prevEnd) prevEnd = iv.endMs
+      }
+      const better =
+        best === -1 || prevEnd > bestPrevEnd || (prevEnd === bestPrevEnd && info.isSailed)
+      if (better) {
+        best = li
+        bestPrevEnd = prevEnd
+      }
+    }
+    claimLane(
+      info,
+      best !== -1 ? best : pickInactiveLane(info.jettyId, caps, activeLanesByJetty, info.isSailed)
+    )
+  }
+
+  return baseSegments.map((s) => {
+    const bk = s.bankLaneKey ?? s.vesselId
+    const lane = laneForKey.get(`${s.jettyId}\0${bk}`) ?? 0
+    return { ...s, laneIndex: lane, rowKey: `${s.jettyId}__${lane}` }
+  })
 }
 
 export { jettyIdFromScheduleRow as jettyIdFromListRow }

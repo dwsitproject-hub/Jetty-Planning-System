@@ -31,68 +31,6 @@
   line-height: 1;
 }
 
-/* Gantt layer toggle (Both / Planned / Actual) */
-.jetty-schedule-gantt__layer-toggle-field {
-  border: none;
-  margin: 0;
-  padding: 0;
-  min-width: 0;
-}
-
-.jetty-schedule-gantt__layer-toggle-legend {
-  font-size: var(--font-size-small);
-  color: var(--color-text-steel);
-  padding: 0;
-  margin: 0 0 4px;
-}
-
-.jetty-schedule-gantt__layer-toggle {
-  display: inline-flex;
-  border: 1px solid var(--color-border-medium);
-  border-radius: 6px;
-  overflow: hidden;
-  background: var(--color-surface, #fff);
-}
-
-.jetty-schedule-gantt__layer-toggle-option {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  margin: 0;
-  cursor: pointer;
-  font-size: var(--font-size-small);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-steel);
-  user-select: none;
-}
-
-.jetty-schedule-gantt__layer-toggle-option input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-  pointer-events: none;
-}
-
-.jetty-schedule-gantt__layer-toggle-option span {
-  display: block;
-  padding: 6px 12px;
-  border-right: 1px solid var(--color-border-light);
-}
-
-.jetty-schedule-gantt__layer-toggle-option:last-child span {
-  border-right: none;
-}
-
-.jetty-schedule-gantt__layer-toggle-option--active span {
-  background: var(--color-primary, #2563eb);
-  color: #fff;
-}
-
-.jetty-schedule-gantt__layer-toggle-option:hover:not(.jetty-schedule-gantt__layer-toggle-option--active) span {
-  background: var(--color-surface-muted, rgba(0, 0, 0, 0.04));
-}
-
 /* Popout window (embed route) — viewport-maximized layout */
 html.allocation-viz-popout-open,
 html.allocation-viz-popout-open body {
@@ -355,10 +293,6 @@ html.allocation-viz-popout-open #root {
   margin-bottom: 0;
 }
 
-.jetty-schedule-gantt__layer-toggle-field {
-  align-self: flex-end;
-}
-
 .jetty-schedule-gantt__intro {
   font-size: var(--font-size-small);
   color: var(--color-text-steel);
@@ -559,16 +493,6 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   font-size: var(--font-size-small);
 }
 
-.jetty-schedule-gantt__lane-label {
-  font-size: 10px;
-  font-weight: var(--font-weight-semibold);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-text-steel);
-  margin-top: 2px;
-  line-height: 1.1;
-}
-
 .jetty-schedule-gantt__jetty-status {
   font-size: var(--font-size-xs);
   color: var(--color-text-steel);
@@ -614,24 +538,9 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   padding: 2px 0;
 }
 
-.jetty-schedule-gantt__timeline-tracks--dual {
-  gap: 4px;
-}
-
-.jetty-schedule-gantt__timeline-tracks--dual .jetty-schedule-gantt__track--planned {
-  border-bottom: 1px dashed var(--color-border-light);
-  padding-bottom: 0;
-  margin-bottom: 0;
-}
-
 .jetty-schedule-gantt__track {
   position: relative;
   width: 100%;
-}
-
-/* Tooltip wrapper must not block absolute bar positioning on the track */
-.jetty-schedule-gantt__track .jps-tooltip-trigger {
-  display: contents;
 }
 
 .jetty-schedule-gantt__bar {
@@ -5428,4 +5337,160 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
     overflow-x: auto;
     padding-bottom: var(--spacing-1);
   }
+}
+
+/* ---- Gantt drag-to-reschedule (move / resize / change jetty) ---- */
+.jetty-schedule-gantt__bar--draggable {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.jetty-schedule-gantt__bar--dragging {
+  opacity: 0.8;
+  cursor: grabbing;
+  z-index: 30;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.35);
+  /* Keep the translated bar out of hit-testing so the drop row underneath is found. */
+  pointer-events: none;
+}
+
+.jetty-schedule-gantt__bar-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  cursor: ew-resize;
+  z-index: 3;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.jetty-schedule-gantt__bar-handle--start {
+  left: 0;
+  border-radius: 4px 0 0 4px;
+}
+
+.jetty-schedule-gantt__bar-handle--end {
+  right: 0;
+  border-radius: 0 4px 4px 0;
+}
+
+.jetty-schedule-gantt__bar:hover .jetty-schedule-gantt__bar-handle,
+.jetty-schedule-gantt__bar:focus-within .jetty-schedule-gantt__bar-handle {
+  opacity: 1;
+  background: rgba(15, 23, 42, 0.18);
+}
+
+.jetty-schedule-gantt__row--drop-target {
+  background: rgba(37, 99, 235, 0.08);
+  outline: 2px dashed rgba(37, 99, 235, 0.45);
+  outline-offset: -2px;
+}
+
+.jetty-schedule-gantt__drag-badge {
+  position: fixed;
+  z-index: 4000;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #0f172a;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: pre;
+  pointer-events: none;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.3);
+}
+
+.jetty-schedule-gantt__notice {
+  color: #166534;
+  font-weight: var(--font-weight-medium);
+}
+
+/* Estimation (ETA/ETB) line inside the actual bar reads slightly muted */
+.gantt-dense-block__dates--estimate {
+  opacity: 0.78;
+  font-style: italic;
+}
+
+/* ---- Gantt drag confirmation modal ---- */
+.jetty-schedule-gantt__confirm-modal {
+  max-width: 560px;
+}
+
+.jetty-schedule-gantt__confirm-jetty {
+  margin: 0 0 var(--spacing-3);
+  font-size: var(--font-size-small);
+}
+
+.jetty-schedule-gantt__confirm-choice {
+  border: 1px solid var(--color-border-light);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 0 0 var(--spacing-3);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.jetty-schedule-gantt__confirm-choice legend {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  padding: 0 4px;
+}
+
+.jetty-schedule-gantt__confirm-choice label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-size-small);
+  cursor: pointer;
+}
+
+.jetty-schedule-gantt__confirm-note {
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+  margin: 0 0 var(--spacing-3);
+}
+
+.jetty-schedule-gantt__confirm-warning {
+  font-size: var(--font-size-small);
+  color: #92400e;
+  background: rgba(217, 119, 6, 0.12);
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 0 0 var(--spacing-3);
+}
+
+/* Post-save locator: pulse the moved bar so it never looks like it vanished */
+@keyframes gantt-bar-flash {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+  25%, 75% { box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.55); }
+  50% { box-shadow: 0 0 0 7px rgba(37, 99, 235, 0.35); }
+}
+
+.jetty-schedule-gantt__bar--flash {
+  animation: gantt-bar-flash 1s ease-in-out 3;
+  z-index: 25;
+}
+
+.jetty-schedule-gantt__confirm-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-small);
+  margin: 0 0 var(--spacing-3);
+}
+
+.jetty-schedule-gantt__confirm-table th,
+.jetty-schedule-gantt__confirm-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.jetty-schedule-gantt__confirm-table th {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-steel);
 }

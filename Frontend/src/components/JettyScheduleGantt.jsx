@@ -1,8 +1,6 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import html2canvas from 'html2canvas'
-import InteractiveTooltip from './InteractiveTooltip'
-import { formatOverdueDuration } from '../utils/etcBreach'
 import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import {
   toDateInputValue,
@@ -10,12 +8,6 @@ import {
   parseDateInputEndExclusive,
 } from '../utils/jettyScheduleOccupancy'
 import { buildScheduleSegments, assignBankLanesByVessel } from '../utils/jettyScheduleGanttLanes'
-import {
-  readGanttLayerMode,
-  resolveGanttLayerVisibility,
-  writeGanttLayerMode,
-} from '../utils/ganttLayerMode.js'
-import GanttLayerToggle from './GanttLayerToggle'
 import VisualizationPopoutButton from './VisualizationPopoutButton'
 import GanttDenseBlock from './GanttDenseBlock'
 import {
@@ -24,18 +16,22 @@ import {
   ganttDenseBlockAriaLabel,
   GANTT_BAR_STACK_STEP,
 } from '../utils/ganttBarDisplay.js'
+import {
+  buildGanttDragProposal,
+  buildArrivalPayloadFromProposal,
+  jettyIdFromRowKey,
+  snapDeltaMs,
+  GANTT_DRAG_THRESHOLD_PX,
+} from '../utils/ganttDragProposal.js'
+import { saveArrivalUpdate as saveArrivalUpdateApi } from '../api/allocation'
+import { ApiError } from '../api/client'
+import { useRbac } from '../context/RbacContext'
 import '../styles/dashboard.css'
 import '../styles/etc-breach.css'
 
 /** Default +3 calendar days from planned/actual start when completions unknown (display only) */
 const MAX_RANGE_MS = 548 * 24 * 60 * 60 * 1000
 const DAY_COL_MIN = 72
-
-function startOfDay(d) {
-  const x = new Date(d.getTime())
-  x.setHours(0, 0, 0, 0)
-  return x
-}
 
 function defaultDateRangeInputs() {
   const today = new Date()
@@ -110,37 +106,6 @@ function ganttBarAriaLabel(seg, layer) {
   return ganttDenseBlockAriaLabel(model, layer)
 }
 
-function buildGanttTooltipItems(seg, canClick) {
-  const fmt = (ms) => (ms == null ? '—' : formatDateTimeDisplay(new Date(ms).toISOString()))
-  const items = []
-  if (seg.cargoDisplay) {
-    items.push({ primary: 'Cargo', secondary: seg.cargoDisplay })
-  }
-  items.push({ primary: seg.label || '—' })
-  items.push({ primary: `Status: ${seg.status || '—'}` })
-  items.push({
-    primary: `Start: ${formatDateTimeDisplay(new Date(seg.startMs).toISOString())}${seg.startSource ? ` (from ${seg.startSource})` : ''}`,
-    secondary: `End: ${formatDateTimeDisplay(new Date(seg.endMs).toISOString())}`,
-  })
-  items.push({
-    primary: `Planned refs — ETB: ${fmt(seg.plannedEtbMs)} · ETA: ${fmt(seg.etaMs)}`,
-  })
-  items.push({
-    primary: `Actual refs — TB: ${fmt(seg.tbMs)} · TA: ${fmt(seg.taMs)}`,
-  })
-  if (seg.estCompMs != null) {
-    items.push({ primary: `Est. completion: ${fmt(seg.estCompMs)}` })
-  }
-  if (seg.overMs != null && seg.overMs > 0) {
-    items.push({
-      primary: 'ETC breached',
-      secondary: `${formatOverdueDuration(seg.overMs)} over est. completion (${fmt(seg.estCompMs)})`,
-    })
-  }
-  if (canClick) items.push({ primary: 'Click to open vessel details.' })
-  return items
-}
-
 function renderDenseBarContent(seg, layer, barWidthPct, sourceRow = null) {
   const model =
     layer === 'planned'
@@ -165,13 +130,29 @@ function findScheduleSourceRow(listRows, seg) {
   })
 }
 
+/** "+6h 30m" / "-1d 2h" for the drag badge. */
+function formatDragDelta(deltaMs) {
+  const sign = deltaMs < 0 ? '-' : '+'
+  let rest = Math.abs(deltaMs)
+  const d = Math.floor(rest / 86400000)
+  rest -= d * 86400000
+  const h = Math.floor(rest / 3600000)
+  rest -= h * 3600000
+  const m = Math.round(rest / 60000)
+  const parts = []
+  if (d) parts.push(`${d}d`)
+  if (h) parts.push(`${h}h`)
+  if (m) parts.push(`${m}m`)
+  if (!parts.length) parts.push('0m')
+  return `${sign}${parts.join(' ')}`
+}
+
 export default function JettyScheduleGantt({
   berthIds,
   berthsState,
   list,
   onSelectVessel,
-  layerMode: layerModeProp,
-  onLayerModeChange,
+  onScheduleChanged,
   popoutProfile = 'plan',
   hidePopoutButton = false,
   isPopout = false,
@@ -180,18 +161,10 @@ export default function JettyScheduleGantt({
   const def = useMemo(() => defaultDateRangeInputs(), [])
   const [dateFrom, setDateFrom] = useState(def.from)
   const [dateTo, setDateTo] = useState(def.to)
-  const [internalLayerMode, setInternalLayerMode] = useState(() => readGanttLayerMode())
 
-  const layerMode = layerModeProp ?? internalLayerMode
-  const { showPlanned, showActual, showDualLanes } = resolveGanttLayerVisibility(layerMode)
-
-  const handleLayerModeChange = (next) => {
-    writeGanttLayerMode(next)
-    if (layerModeProp == null) {
-      setInternalLayerMode(next)
-    }
-    onLayerModeChange?.(next)
-  }
+  const rbac = useRbac() || {}
+  const canEditSchedule =
+    typeof rbac.canEdit === 'function' ? Boolean(rbac.canEdit('allocation-plan')) : false
 
   const [tick, setTick] = useState(0)
   useEffect(() => {
@@ -292,6 +265,290 @@ export default function JettyScheduleGantt({
   const exportRef = useRef(null)
   const [exporting, setExporting] = useState(false)
 
+  // ---- Drag-to-reschedule state ----------------------------------------------------------
+  const dragRef = useRef(null)
+  const suppressClickRef = useRef(false)
+  const pendingOpenedAtRef = useRef(0)
+  const [pendingChange, setPendingChange] = useState(null) // { proposal, seg, row }
+  const [pendingChoice, setPendingChoice] = useState('estimation')
+  const [pendingSaving, setPendingSaving] = useState(false)
+  const [pendingSaveError, setPendingSaveError] = useState(null)
+  const [notice, setNotice] = useState(null)
+  // After a confirmed move the bar can land on another lane/row (lanes are
+  // auto-assigned) — scroll it into view and flash it so it never "disappears".
+  const [flashVesselId, setFlashVesselId] = useState(null)
+
+  useEffect(() => {
+    if (!flashVesselId) return undefined
+    // setTimeout, not requestAnimationFrame: rAF never fires in hidden/background
+    // tabs, which would leave the flash pending forever.
+    const locate = setTimeout(() => {
+      const el = document.querySelector(
+        `.jetty-schedule-gantt__bar[data-vessel-bar="${CSS.escape(String(flashVesselId))}"]`
+      )
+      if (el) {
+        el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
+        el.classList.add('jetty-schedule-gantt__bar--flash')
+        setTimeout(() => el.classList.remove('jetty-schedule-gantt__bar--flash'), 3200)
+      }
+      setFlashVesselId(null)
+    }, 60)
+    return () => clearTimeout(locate)
+  }, [flashVesselId, segments])
+
+  useEffect(() => {
+    if (!notice) return
+    const id = setTimeout(() => setNotice(null), 5000)
+    return () => clearTimeout(id)
+  }, [notice])
+
+  const cleanupDragVisuals = (d) => {
+    if (!d) return
+    if (d.listeners) {
+      window.removeEventListener('pointermove', d.listeners.onMove)
+      window.removeEventListener('pointerup', d.listeners.onUp)
+      window.removeEventListener('pointercancel', d.listeners.onCancel)
+    }
+    if (d.barEl) {
+      d.barEl.classList.remove('jetty-schedule-gantt__bar--dragging')
+      d.barEl.style.transform = ''
+    }
+    if (d.badgeEl && d.badgeEl.parentNode) d.badgeEl.parentNode.removeChild(d.badgeEl)
+    if (d.lastRowEl) d.lastRowEl.classList.remove('jetty-schedule-gantt__row--drop-target')
+  }
+
+  // Safety net: never leave a drag half-finished if the component unmounts mid-gesture.
+  useEffect(
+    () => () => {
+      cleanupDragVisuals(dragRef.current)
+      dragRef.current = null
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  )
+
+  const findDropRowEl = (x, y, ignoreEl) => {
+    const els = document.elementsFromPoint(x, y)
+    for (const el of els) {
+      // The dragged bar is translated under the cursor — resolving through it would
+      // always land on its ORIGINAL row and silently swallow the jetty change.
+      if (ignoreEl && (el === ignoreEl || ignoreEl.contains(el))) continue
+      if (el instanceof HTMLElement && el.dataset && el.dataset.ganttRow) return el
+      const host = el instanceof Element ? el.closest('[data-gantt-row]') : null
+      if (host && (!ignoreEl || !ignoreEl.contains(host))) return host
+    }
+    return null
+  }
+
+  const updateDragBadge = (d, e) => {
+    const snapped = snapDeltaMs(d.rawDeltaMs)
+    const startLabel = formatDateTimeDisplay(new Date(d.seg.startMs + snapped).toISOString())
+    const parts = []
+    if (d.kind === 'resize-end') {
+      const endLabel = formatDateTimeDisplay(new Date(d.seg.endMs + snapped).toISOString())
+      parts.push(`${formatDragDelta(snapped)} → ETC ${endLabel}`)
+    } else {
+      parts.push(`${formatDragDelta(snapped)} → ${startLabel}`)
+    }
+    if (d.kind === 'move' && d.targetJettyId && d.targetJettyId !== d.seg.jettyId) {
+      parts.push(`⚓ ${d.seg.jettyId} → ${d.targetJettyId}`)
+    }
+    d.badgeEl.textContent = parts.join('   ')
+    d.badgeEl.style.left = `${e.clientX + 14}px`
+    d.badgeEl.style.top = `${e.clientY + 16}px`
+  }
+
+  const handleBarPointerDown = (e, seg, row) => {
+    if (!canEditSchedule || exporting || !row) return
+    if (e.button != null && e.button !== 0) return
+    // A previous gesture may not have seen its pointerup (released outside the
+    // window without capture) — never let a stale drag corrupt the new one.
+    if (dragRef.current) {
+      cleanupDragVisuals(dragRef.current)
+      dragRef.current = null
+    }
+    const barEl = e.currentTarget
+    const trackEl = barEl.closest('.jetty-schedule-gantt__track')
+    if (!trackEl || totalMs <= 0) return
+    const handleEl =
+      e.target instanceof Element ? e.target.closest('[data-gantt-handle]') : null
+    // On very narrow bars the edge handles would cover everything — treat as move.
+    const barWide = barEl.getBoundingClientRect().width >= 36
+    const kind =
+      handleEl && barWide
+        ? handleEl.dataset.ganttHandle === 'start'
+          ? 'resize-start'
+          : 'resize-end'
+        : 'move'
+    if (typeof e.preventDefault === 'function') e.preventDefault()
+    const trackRect = trackEl.getBoundingClientRect()
+    // Capture immediately: a real cursor leaves the (thin) bar/handle almost at once,
+    // so waiting for a threshold move ON the element would silently kill the gesture.
+    try {
+      barEl.setPointerCapture(e.pointerId)
+    } catch {
+      /* ignore */
+    }
+    // Track the rest of the gesture on window, not the bar: this survives the cursor
+    // leaving the element, lost/failed pointer capture, and re-renders mid-drag.
+    const onMove = (ev) => handleBarPointerMove(ev)
+    const onUp = (ev) => handleBarPointerEnd(ev)
+    const onCancel = (ev) => handleBarPointerEnd(ev, true)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
+    dragRef.current = {
+      pointerId: e.pointerId,
+      kind,
+      seg,
+      row,
+      barEl,
+      startX: e.clientX,
+      startY: e.clientY,
+      pxPerMs: trackRect.width / totalMs,
+      started: false,
+      rawDeltaMs: 0,
+      targetJettyId: null,
+      badgeEl: null,
+      lastRowEl: null,
+      listeners: { onMove, onUp, onCancel },
+    }
+  }
+
+  const handleBarPointerMove = (e) => {
+    const d = dragRef.current
+    if (!d || e.pointerId !== d.pointerId) return
+    // Button no longer held → we missed the pointerup (released outside the window).
+    // Finish the gesture from where it is instead of ghost-dragging forever.
+    if (e.buttons != null && e.buttons === 0) {
+      handleBarPointerEnd(e, !d.started)
+      return
+    }
+    const dx = e.clientX - d.startX
+    const dy = e.clientY - d.startY
+    if (!d.started) {
+      if (Math.abs(dx) < GANTT_DRAG_THRESHOLD_PX && Math.abs(dy) < GANTT_DRAG_THRESHOLD_PX) return
+      d.started = true
+      const badge = document.createElement('div')
+      badge.className = 'jetty-schedule-gantt__drag-badge'
+      document.body.appendChild(badge)
+      d.badgeEl = badge
+    }
+    // Re-add every move: a data-refresh re-render mid-drag resets className.
+    d.barEl.classList.add('jetty-schedule-gantt__bar--dragging')
+    d.rawDeltaMs = d.pxPerMs > 0 ? dx / d.pxPerMs : 0
+    if (d.kind === 'move') {
+      const snappedPx = snapDeltaMs(d.rawDeltaMs) * d.pxPerMs
+      d.barEl.style.transform = `translate(${snappedPx}px, ${dy}px)`
+      const rowEl = findDropRowEl(e.clientX, e.clientY, d.barEl)
+      if (d.lastRowEl && d.lastRowEl !== rowEl) {
+        d.lastRowEl.classList.remove('jetty-schedule-gantt__row--drop-target')
+      }
+      if (rowEl && rowEl !== d.lastRowEl) {
+        rowEl.classList.add('jetty-schedule-gantt__row--drop-target')
+      }
+      d.lastRowEl = rowEl || null
+      d.targetJettyId = rowEl ? jettyIdFromRowKey(rowEl.dataset.ganttRow) : null
+    }
+    updateDragBadge(d, e)
+  }
+
+  const handleBarPointerEnd = (e, cancelled = false) => {
+    const d = dragRef.current
+    if (!d || e.pointerId !== d.pointerId) return
+    dragRef.current = null
+    cleanupDragVisuals(d)
+    if (!d.started) return
+    suppressClickRef.current = true
+    setTimeout(() => {
+      suppressClickRef.current = false
+    }, 150)
+    if (cancelled) return
+    const proposal = buildGanttDragProposal({
+      kind: d.kind,
+      deltaMs: snapDeltaMs(d.rawDeltaMs),
+      seg: d.seg,
+      row: d.row,
+      targetJettyId: d.targetJettyId,
+    })
+    if (!proposal) {
+      // Give feedback instead of a silent snap-back (e.g. dropped on another lane
+      // of the SAME jetty, or the time shift rounded to zero).
+      setNotice(
+        tAlloc('ganttDragNoChange', {
+          defaultValue:
+            'No change to apply — same jetty and no time shift (lanes within a jetty are assigned automatically).',
+        })
+      )
+      return
+    }
+    // Default to the family that positions the bar: blue (actual) bars sit on TA/TB,
+    // so confirming the default makes the bar stay where it was dropped.
+    const preferActual = d.seg.layer === 'actual' && proposal.canActual
+    setPendingChoice(
+      preferActual
+        ? 'actual'
+        : proposal.canEstimation
+          ? 'estimation'
+          : proposal.canActual
+            ? 'actual'
+            : 'estimation'
+    )
+    setPendingSaveError(null)
+    pendingOpenedAtRef.current = Date.now()
+    setPendingChange({ proposal, seg: d.seg, row: d.row })
+  }
+
+  const closePendingChange = () => {
+    if (pendingSaving) return
+    setPendingChange(null)
+    setPendingSaveError(null)
+  }
+
+  // The dialog renders synchronously between the drop's pointerup and the browser's
+  // trailing click — that click can land on the full-screen overlay and close the
+  // dialog before the user ever sees it. Ignore overlay clicks right after opening,
+  // and only close when the click is on the overlay itself (not bubbled/retargeted).
+  const handleOverlayClick = (e) => {
+    if (e.target !== e.currentTarget) return
+    if (Date.now() - pendingOpenedAtRef.current < 400) return
+    closePendingChange()
+  }
+
+  const handleConfirmPendingChange = async () => {
+    if (!pendingChange) return
+    const { proposal, row } = pendingChange
+    const choice = proposal.needsChoice
+      ? pendingChoice
+      : proposal.canEstimation
+        ? 'estimation'
+        : proposal.canActual
+          ? 'actual'
+          : 'none'
+    setPendingSaving(true)
+    setPendingSaveError(null)
+    try {
+      await saveArrivalUpdateApi(
+        buildArrivalPayloadFromProposal(proposal, choice, row, 'allocation-plan')
+      )
+      setPendingChange(null)
+      setNotice(tAlloc('ganttDragSaved', { defaultValue: 'Schedule updated.' }))
+      if (typeof onScheduleChanged === 'function') {
+        await Promise.resolve(onScheduleChanged()).catch(() => {})
+      }
+      setFlashVesselId(row?.vesselId ?? null)
+    } catch (err) {
+      const msg =
+        err instanceof ApiError || err instanceof Error
+          ? err.message
+          : tAlloc('ganttDragSaveFailed', { defaultValue: 'Update failed. Please try again.' })
+      setPendingSaveError(msg)
+    } finally {
+      setPendingSaving(false)
+    }
+  }
+  // ----------------------------------------------------------------------------------------
+
   const handleExportJpeg = async () => {
     const node = exportRef.current
     if (!node || rangeError) return
@@ -332,9 +589,7 @@ export default function JettyScheduleGantt({
       if (!blob) throw new Error('canvas.toBlob returned null')
       objectUrl = URL.createObjectURL(blob)
       const link = document.createElement('a')
-      const layerTag =
-        layerMode === 'planned' ? 'planned' : layerMode === 'actual' ? 'actual' : 'both'
-      link.download = `jetty-schedule_${dateFrom}_to_${dateTo}_${layerTag}.jpeg`
+      link.download = `jetty-schedule_${dateFrom}_to_${dateTo}.jpeg`
       link.href = objectUrl
       document.body.appendChild(link)
       link.click()
@@ -350,76 +605,107 @@ export default function JettyScheduleGantt({
     }
   }
 
-  const renderContinuousLane = (rowKey, layer) => {
+  const renderScheduleLane = (rowKey) => {
     const segs = segments
-      .filter((s) => s.rowKey === rowKey && s.layer === layer)
+      .filter((s) => s.rowKey === rowKey)
       .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs)
     const listRows = Array.isArray(list) ? list : []
-    const laneH = Math.max(30, 8 + segs.length * GANTT_BAR_STACK_STEP)
+    // Bars only stack vertically when they OVERLAP in time; sequential vessels
+    // share the same baseline so "after" reads as one continuous lane.
+    const levelEnds = []
+    const stackIndexBySeg = segs.map((seg) => {
+      let level = levelEnds.findIndex((endMs) => seg.startMs >= endMs)
+      if (level === -1) {
+        level = levelEnds.length
+        levelEnds.push(seg.endMs)
+      } else {
+        levelEnds[level] = seg.endMs
+      }
+      return level
+    })
+    const laneH = Math.max(30, 8 + Math.max(1, levelEnds.length) * GANTT_BAR_STACK_STEP)
     return (
       <div
-        className={`jetty-schedule-gantt__track jetty-schedule-gantt__track--${layer}`}
+        className="jetty-schedule-gantt__track jetty-schedule-gantt__track--actual"
         style={{ minHeight: `${laneH}px` }}
       >
         {segs.map((seg, i) => {
           const pos = segmentTrackStyle(seg, windowStartMs, totalMs)
           if (!pos) return null
           const { rawWidthPct: _rawWidthPct, ...posStyle } = pos
-          const style = ganttBarInlineStyle(seg, posStyle, i)
+          const style = ganttBarInlineStyle(seg, posStyle, stackIndexBySeg[i])
 
-          // All actual bars render as one flat colour (no multi-phase shading) so "Actual"
-          // reads as a single colour across the chart. Phase/milestone detail stays in the tooltip.
+          const barLayer = seg.layer === 'planned' ? 'planned' : 'actual'
           const pillClass = segmentPillClass(seg)
           const canClick = Boolean(seg.vesselId && typeof onSelectVessel === 'function')
-          const tooltipItems = buildGanttTooltipItems(seg, canClick)
-          const barLayer = layer === 'planned' ? 'planned' : 'actual'
+          const sourceRow = findScheduleSourceRow(listRows, seg)
+          const canDrag = Boolean(canEditSchedule && sourceRow)
+          const isSailed = seg.status === 'Sailed off'
+          const showEndHandle =
+            canDrag && !isSailed && sourceRow &&
+            (sourceRow.operationId != null || sourceRow.shippingInstructionId != null)
           const ariaLabel = ganttBarAriaLabel(seg, barLayer)
-          const barClassName = `${pillClass}${canClick ? ' jetty-schedule-gantt__bar--btn' : ''}`
-          const sourceRow = barLayer === 'actual' ? findScheduleSourceRow(listRows, seg) : null
-          const denseContent = renderDenseBarContent(seg, barLayer, _rawWidthPct, sourceRow)
+          const barClassName = `${pillClass}${canClick ? ' jetty-schedule-gantt__bar--btn' : ''}${canDrag ? ' jetty-schedule-gantt__bar--draggable' : ''}`
+          const denseContent = renderDenseBarContent(
+            seg,
+            barLayer,
+            _rawWidthPct,
+            barLayer === 'actual' ? sourceRow : null
+          )
+          const handles = canDrag ? (
+            <>
+              <span
+                className="jetty-schedule-gantt__bar-handle jetty-schedule-gantt__bar-handle--start"
+                data-gantt-handle="start"
+                aria-hidden
+              />
+              {showEndHandle ? (
+                <span
+                  className="jetty-schedule-gantt__bar-handle jetty-schedule-gantt__bar-handle--end"
+                  data-gantt-handle="end"
+                  aria-hidden
+                />
+              ) : null}
+            </>
+          ) : null
+          const dragProps = canDrag
+            ? { onPointerDown: (e) => handleBarPointerDown(e, seg, sourceRow) }
+            : {}
 
+          const vesselBarId = sourceRow?.vesselId ?? seg.vesselId ?? undefined
           if (canClick) {
             return (
-              <InteractiveTooltip
-                key={`${layer}-${seg.phase}-${seg.vesselName}-${seg.startMs}-${i}`}
-                title={seg.vesselName}
-                subtitle={seg.purposeLabel || undefined}
-                items={tooltipItems}
-                emptyText="No details."
-                placement="right"
-                interactiveChild
+              <button
+                key={`${seg.layer}-${seg.phase}-${seg.vesselName}-${seg.startMs}-${i}`}
+                type="button"
+                className={barClassName}
+                style={style}
+                data-vessel-bar={vesselBarId}
+                aria-label={ariaLabel}
+                onClick={() => {
+                  if (suppressClickRef.current) return
+                  onSelectVessel(seg.vesselId)
+                }}
+                {...dragProps}
               >
-                <button
-                  type="button"
-                  className={barClassName}
-                  style={style}
-                  aria-label={ariaLabel}
-                  onClick={() => onSelectVessel(seg.vesselId)}
-                >
-                  {denseContent}
-                </button>
-              </InteractiveTooltip>
+                {denseContent}
+                {handles}
+              </button>
             )
           }
           return (
-            <InteractiveTooltip
-              key={`${layer}-${seg.phase}-${seg.vesselName}-${seg.startMs}-${i}`}
-              title={seg.vesselName}
-              subtitle={seg.purposeLabel || undefined}
-              items={tooltipItems}
-              emptyText="No details."
-              placement="right"
-              interactiveChild
+            <span
+              key={`${seg.layer}-${seg.phase}-${seg.vesselName}-${seg.startMs}-${i}`}
+              className={barClassName}
+              style={style}
+              data-vessel-bar={vesselBarId}
+              role="img"
+              aria-label={ariaLabel}
+              {...dragProps}
             >
-              <span
-                className={barClassName}
-                style={style}
-                role="img"
-                aria-label={ariaLabel}
-              >
-                {denseContent}
-              </span>
-            </InteractiveTooltip>
+              {denseContent}
+              {handles}
+            </span>
           )
         })}
       </div>
@@ -428,18 +714,14 @@ export default function JettyScheduleGantt({
 
   const legendContent = (
     <>
-      {showPlanned ? (
-        <span className="allocation-schedule__legend-item">
-          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--planned-solid" />
-          {tAlloc('ganttLegendPlanned', { defaultValue: 'Planned' })}
-        </span>
-      ) : null}
-      {showActual ? (
-        <span className="allocation-schedule__legend-item">
-          <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-solid" />
-          {tAlloc('ganttLegendActual', { defaultValue: 'Actual' })}
-        </span>
-      ) : null}
+      <span className="allocation-schedule__legend-item">
+        <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-solid" />
+        {tAlloc('ganttLegendActual', { defaultValue: 'Actual' })}
+      </span>
+      <span className="allocation-schedule__legend-item">
+        <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--planned-solid" />
+        {tAlloc('ganttLegendEstimate', { defaultValue: 'Estimate (no actual yet)' })}
+      </span>
       <span className="allocation-schedule__legend-item">
         <span className="jetty-schedule-gantt__legend-chip jetty-schedule-gantt__legend-chip--late" aria-hidden>
           {tAlloc('ganttLateChip', { defaultValue: 'LATE' })}
@@ -456,13 +738,38 @@ export default function JettyScheduleGantt({
     </>
   )
 
+  const pendingProposal = pendingChange?.proposal ?? null
+  const pendingTargetBerth = pendingProposal?.jettyChange
+    ? (Array.isArray(berthsState) ? berthsState : []).find(
+        (b) => b.id === pendingProposal.jettyChange.to
+      )
+    : null
+  const pendingTargetOcc = pendingTargetBerth
+    ? Number(pendingTargetBerth.occupiedCount ?? (pendingTargetBerth.currentVesselId ? 1 : 0)) || 0
+    : 0
+  const pendingTargetCap =
+    pendingTargetBerth && pendingTargetBerth.capacity != null
+      ? Math.max(1, Number(pendingTargetBerth.capacity) || 1)
+      : 1
+  const pendingTargetFull = Boolean(pendingTargetBerth) && pendingTargetOcc >= pendingTargetCap
+  const pendingDateChanges = pendingProposal
+    ? pendingProposal.needsChoice
+      ? pendingChoice === 'actual'
+        ? pendingProposal.actual
+        : pendingProposal.estimation
+      : [...pendingProposal.estimation, ...(pendingProposal.canActual ? pendingProposal.actual : [])]
+    : []
+  const pendingAllChanges = pendingProposal
+    ? [...pendingDateChanges, ...pendingProposal.always]
+    : []
+
   return (
     <section className={`jetty-schedule-gantt${isPopout ? ' jetty-schedule-gantt--popout' : ' card'}`}>
       {!isPopout ? (
         <div className="card__title-row">
           <h2 className="card__title">Jetty schedule</h2>
           {!hidePopoutButton ? (
-            <VisualizationPopoutButton mode="schedule" profile={popoutProfile} layerMode={layerMode} />
+            <VisualizationPopoutButton mode="schedule" profile={popoutProfile} />
           ) : null}
         </div>
       ) : null}
@@ -488,7 +795,6 @@ export default function JettyScheduleGantt({
             onChange={(e) => setDateTo(e.target.value)}
           />
         </div>
-        <GanttLayerToggle value={layerMode} onChange={handleLayerModeChange} />
         <button type="button" className="btn btn--secondary jetty-schedule-gantt__reset" onClick={handleResetRange}>
           Reset
         </button>
@@ -497,7 +803,7 @@ export default function JettyScheduleGantt({
           className="btn btn--secondary jetty-schedule-gantt__export"
           onClick={handleExportJpeg}
           disabled={exporting || Boolean(rangeError)}
-          title={tAlloc('ganttExportJpegHint', { defaultValue: 'Export the current view (date range + layer) as a JPEG image' })}
+          title={tAlloc('ganttExportJpegHint', { defaultValue: 'Export the current view (date range) as a JPEG image' })}
         >
           {exporting
             ? tAlloc('ganttExporting', { defaultValue: 'Exporting…' })
@@ -507,6 +813,11 @@ export default function JettyScheduleGantt({
 
       <p className="jetty-schedule-gantt__intro">
         {rangeError ? <span className="jetty-schedule-gantt__error">{rangeError}</span> : null}
+        {!rangeError && notice ? (
+          <span className="jetty-schedule-gantt__notice" role="status">
+            {notice}
+          </span>
+        ) : null}
       </p>
 
       <div className="jetty-schedule-gantt__export-area" ref={exportRef}>
@@ -518,16 +829,12 @@ export default function JettyScheduleGantt({
         {isPopout ? (
         <details className="jetty-schedule-gantt__legend-details">
           <summary>{tAlloc('vizPopoutLegend', { defaultValue: 'Legend' })}</summary>
-          <div
-            className={`allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two${showActual ? '' : ' jetty-schedule-gantt__legend--planned-only'}`}
-          >
+          <div className="allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two">
             {legendContent}
           </div>
         </details>
       ) : (
-        <div
-          className={`allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two${showActual ? '' : ' jetty-schedule-gantt__legend--planned-only'}`}
-        >
+        <div className="allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two">
           {legendContent}
         </div>
       )}
@@ -581,21 +888,12 @@ export default function JettyScheduleGantt({
                     return (
                       <div
                         key={row.rowKey}
+                        data-gantt-row={row.rowKey}
                         className={`jetty-schedule-gantt__row${isOos ? ' jetty-schedule-gantt__row--oos' : ''}`}
                         style={{ gridTemplateColumns }}
                       >
                         <div className="jetty-schedule-gantt__id-cell">
                           <span className="jetty-schedule-gantt__jetty-id">{row.label}</span>
-                          {showDualLanes ? (
-                            <>
-                              <span className="jetty-schedule-gantt__lane-label">Planned</span>
-                              <span className="jetty-schedule-gantt__lane-label">Actual</span>
-                            </>
-                          ) : showPlanned ? (
-                            <span className="jetty-schedule-gantt__lane-label">Planned</span>
-                          ) : (
-                            <span className="jetty-schedule-gantt__lane-label">Actual</span>
-                          )}
                           <span className="jetty-schedule-gantt__jetty-status">Status: {statusLabel}</span>
                         </div>
 
@@ -610,11 +908,8 @@ export default function JettyScheduleGantt({
                                 <div key={col.key} className="jetty-schedule-gantt__timeline-dayline" />
                               ))}
                             </div>
-                            <div
-                              className={`jetty-schedule-gantt__timeline-tracks${showDualLanes ? ' jetty-schedule-gantt__timeline-tracks--dual' : ''}`}
-                            >
-                              {showPlanned && renderContinuousLane(row.rowKey, 'planned')}
-                              {showActual && renderContinuousLane(row.rowKey, 'actual')}
+                            <div className="jetty-schedule-gantt__timeline-tracks">
+                              {renderScheduleLane(row.rowKey)}
                             </div>
                           </div>
                         </div>
@@ -628,6 +923,154 @@ export default function JettyScheduleGantt({
         </div>
       </div>
       </div>
+
+      {pendingChange ? (
+        <div className="modal-overlay" onClick={handleOverlayClick} aria-hidden="true">
+          <div
+            className="modal jetty-schedule-gantt__confirm-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="gantt-drag-confirm-title"
+            aria-modal="true"
+          >
+            <h2 id="gantt-drag-confirm-title" className="modal__title">
+              {tAlloc('ganttDragConfirmTitle', { defaultValue: 'Confirm schedule change' })}
+              {' — '}
+              {pendingChange.seg.vesselName}
+            </h2>
+
+            {pendingProposal?.jettyChange ? (
+              <>
+                <p className="jetty-schedule-gantt__confirm-jetty">
+                  {tAlloc('ganttDragJetty', { defaultValue: 'Jetty' })}:{' '}
+                  <strong>{pendingProposal.jettyChange.from ?? '—'}</strong> →{' '}
+                  <strong>{pendingProposal.jettyChange.to}</strong>
+                </p>
+                <p className="jetty-schedule-gantt__confirm-note">
+                  {tAlloc('ganttDragLaneNote', {
+                    defaultValue:
+                      'The lane (01/02) within the jetty is assigned automatically — the bar may appear on a different lane row.',
+                  })}
+                </p>
+                {pendingTargetFull ? (
+                  <p className="jetty-schedule-gantt__confirm-warning">
+                    {tAlloc('ganttDragJettyFullWarning', {
+                      defaultValue:
+                        'Jetty {{jetty}} already has {{occ}}/{{cap}} berth(s) occupied — this move may exceed its capacity.',
+                      jetty: pendingProposal.jettyChange.to,
+                      occ: pendingTargetOcc,
+                      cap: pendingTargetCap,
+                    })}
+                  </p>
+                ) : null}
+              </>
+            ) : null}
+
+            {pendingProposal?.needsChoice ? (
+              <fieldset className="jetty-schedule-gantt__confirm-choice">
+                <legend>
+                  {tAlloc('ganttDragChoiceLegend', {
+                    defaultValue: 'Which dates should this change apply to?',
+                  })}
+                </legend>
+                <label>
+                  <input
+                    type="radio"
+                    name="gantt-drag-choice"
+                    value="estimation"
+                    checked={pendingChoice === 'estimation'}
+                    onChange={() => setPendingChoice('estimation')}
+                  />
+                  <span>
+                    {tAlloc('ganttDragChoiceEstimation', {
+                      defaultValue: 'Estimation (ETA / ETB)',
+                    })}
+                  </span>
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="gantt-drag-choice"
+                    value="actual"
+                    checked={pendingChoice === 'actual'}
+                    onChange={() => setPendingChoice('actual')}
+                  />
+                  <span>
+                    {tAlloc('ganttDragChoiceActual', { defaultValue: 'Actual (TA / TB)' })}
+                  </span>
+                </label>
+              </fieldset>
+            ) : null}
+
+            {pendingProposal && pendingProposal.deltaMs !== 0 && !pendingProposal.needsChoice &&
+            (pendingProposal.canEstimation || pendingProposal.canActual) ? (
+              <p className="jetty-schedule-gantt__confirm-note">
+                {pendingProposal.canEstimation
+                  ? tAlloc('ganttDragEstimationOnlyNote', {
+                      defaultValue:
+                        'Only estimation dates (ETA/ETB) will change — no actual times are recorded yet.',
+                    })
+                  : tAlloc('ganttDragActualOnlyNote', {
+                      defaultValue:
+                        'Only actual dates (TA/TB) will change — no estimation dates are set.',
+                    })}
+              </p>
+            ) : null}
+
+            {pendingAllChanges.length > 0 ? (
+              <table className="jetty-schedule-gantt__confirm-table">
+                <thead>
+                  <tr>
+                    <th>{tAlloc('ganttDragField', { defaultValue: 'Field' })}</th>
+                    <th>{tAlloc('ganttDragFrom', { defaultValue: 'Current' })}</th>
+                    <th>{tAlloc('ganttDragTo', { defaultValue: 'New' })}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingAllChanges.map((c) => (
+                    <tr key={c.field}>
+                      <td>{c.label}</td>
+                      <td>
+                        {c.fromMs != null
+                          ? formatDateTimeDisplay(new Date(c.fromMs).toISOString())
+                          : '—'}
+                      </td>
+                      <td>{formatDateTimeDisplay(new Date(c.toMs).toISOString())}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : null}
+
+            {pendingSaveError ? (
+              <p className="allocation-arrival-save-msg allocation-arrival-save-msg--error" role="alert">
+                {pendingSaveError}
+              </p>
+            ) : null}
+
+            <div className="modal__actions">
+              <button
+                type="button"
+                className="btn btn--secondary"
+                onClick={closePendingChange}
+                disabled={pendingSaving}
+              >
+                {tAlloc('ganttDragCancel', { defaultValue: 'Cancel' })}
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={handleConfirmPendingChange}
+                disabled={pendingSaving}
+              >
+                {pendingSaving
+                  ? tAlloc('ganttDragSaving', { defaultValue: 'Saving…' })
+                  : tAlloc('ganttDragConfirm', { defaultValue: 'Confirm change' })}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }

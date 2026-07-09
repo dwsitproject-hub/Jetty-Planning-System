@@ -1,47 +1,27 @@
-import { useCallback, useEffect, useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Navigate, useParams, useSearchParams } from 'react-router-dom'
 import JettySchematic from '../components/JettySchematic'
 import JettyScheduleGantt from '../components/JettyScheduleGantt'
 import useAllocationVisualizationData from '../hooks/useAllocationVisualizationData'
-import { normalizeGanttLayerMode, writeGanttLayerMode } from '../utils/ganttLayerMode.js'
 import '../styles/allocation.css'
 
 const VALID_MODES = new Set(['schematic', 'schedule'])
 
 export default function AllocationVisualizationPopout() {
   const { mode } = useParams()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const { t } = useTranslation('allocation')
 
   const profile = searchParams.get('profile') === 'legacy' ? 'legacy' : 'plan'
-  const layerMode = normalizeGanttLayerMode(searchParams.get('layer'))
 
-  const { loading, error, isPlanCentric, selectedPort, planViz, vesselById, berthIds, berthsState, breachNowMs } =
+  const { loading, error, isPlanCentric, selectedPort, planViz, vesselById, berthIds, berthsState, breachNowMs, reload } =
     useAllocationVisualizationData(profile)
 
   useEffect(() => {
     document.documentElement.classList.add('allocation-viz-popout-open')
     return () => document.documentElement.classList.remove('allocation-viz-popout-open')
   }, [])
-
-  const handleLayerModeChange = useCallback(
-    (next) => {
-      const normalized = normalizeGanttLayerMode(next)
-      writeGanttLayerMode(normalized)
-      setSearchParams(
-        (prev) => {
-          const p = new URLSearchParams(prev)
-          p.set('embed', '1')
-          p.set('profile', profile)
-          p.set('layer', normalized)
-          return p
-        },
-        { replace: true }
-      )
-    },
-    [profile, setSearchParams]
-  )
 
   const title = useMemo(() => {
     if (mode === 'schematic') {
@@ -113,8 +93,7 @@ export default function AllocationVisualizationPopout() {
             berthIds={berthIds}
             berthsState={berthsState}
             list={planViz.mergedSchedule}
-            layerMode={layerMode}
-            onLayerModeChange={handleLayerModeChange}
+            onScheduleChanged={reload}
             popoutProfile={profile}
             hidePopoutButton
             isPopout
