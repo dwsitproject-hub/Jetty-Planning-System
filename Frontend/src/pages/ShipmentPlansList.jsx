@@ -1724,7 +1724,14 @@ export default function ShipmentPlansList() {
                         })}
                     </select>
                     {jettyAdvice.adviceReady ? (
-                      <p className="shipment-plan-form__jetty-hint text-steel">
+                      <p
+                        className={`shipment-plan-form__jetty-hint${
+                          jettyAdvice.suggested.length > 0
+                            ? ' text-steel'
+                            : ' shipment-plan-form__jetty-hint--error'
+                        }`}
+                        role={jettyAdvice.suggested.length > 0 ? 'status' : 'alert'}
+                      >
                         {jettyAdvice.suggested.length > 0
                           ? t('jettySuggestionLabel', {
                               list: jettyAdvice.suggested.map((j) => j.name).join(', '),

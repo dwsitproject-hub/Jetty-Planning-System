@@ -346,6 +346,14 @@
   line-height: 1.35;
 }
 
+.modal--shipment-plan-form .shipment-plan-form__jetty-hint--error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--radius-sm, 4px);
+}
+
 .modal--shipment-plan-form .shipment-plan-form__si-section {
   margin-top: var(--spacing-2);
 }
