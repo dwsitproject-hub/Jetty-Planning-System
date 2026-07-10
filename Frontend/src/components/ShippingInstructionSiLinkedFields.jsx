@@ -36,6 +36,7 @@ const FREIGHT_TERM_OPTIONS = [
  *   showPlanLinkedNote?: boolean,
  *   omitVesselAndJetty?: boolean,
  *   omitDocumentUpload?: boolean,
+ *   compact?: boolean,
  *   onDocumentUpload?: (e: import('react').ChangeEvent<HTMLInputElement>) => void,
  *   documentExtractBusy?: boolean,
  *   extractResultPanel?: import('react').ReactNode,
@@ -51,6 +52,7 @@ export default function ShippingInstructionSiLinkedFields({
   showPlanLinkedNote = true,
   omitVesselAndJetty = false,
   omitDocumentUpload = false,
+  compact = false,
   onDocumentUpload,
   documentExtractBusy = false,
   extractResultPanel = null,
@@ -112,10 +114,12 @@ export default function ShippingInstructionSiLinkedFields({
               purpose: linkedPlan?.purposeCode || selectedPurpose?.label || '—',
               eta: planEtaYmd(linkedPlan) || '—',
               voyage: linkedPlan?.voyageNo?.trim() || '—',
-              capacity:
-                linkedPlan?.vesselCapacity != null && linkedPlan.vesselCapacity !== ''
-                  ? Number(linkedPlan.vesselCapacity).toLocaleString()
-                  : '—',
+              cargoTotalMt:
+                linkedPlan?.cargoTotalMt != null && linkedPlan.cargoTotalMt !== ''
+                  ? Number(linkedPlan.cargoTotalMt).toLocaleString()
+                  : linkedPlan?.vesselCapacity != null && linkedPlan.vesselCapacity !== ''
+                    ? Number(linkedPlan.vesselCapacity).toLocaleString()
+                    : '—',
             })}
           </p>
         </div>
@@ -280,9 +284,11 @@ export default function ShippingInstructionSiLinkedFields({
 
         <div className="shipping-instruction-form__section">
           <h3 className="shipping-instruction-form__section-title">{t('formBreakdownSection')}</h3>
-          <p className="text-steel" style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>
-            Each row is one contract line: its own commodity, qty, and unit (KL / MT).
-          </p>
+          {!compact && (
+            <p className="text-steel" style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+              Each row is one contract line: its own commodity, qty, and unit (KL / MT).
+            </p>
+          )}
           <div className="table-wrap">
             <table className="data-table shipping-instruction-breakdown-table">
               <thead>

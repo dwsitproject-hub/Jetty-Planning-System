@@ -22,6 +22,7 @@ import { useActivityLog } from '../context/ActivityLogContext'
 import PurposeBadge, { resolvePurposeLabel } from '../components/PurposeBadge'
 import SiDocumentModal from '../components/SiDocumentModal'
 import VesselInfoModal, { VesselNameButton } from '../components/VesselInfoModal'
+import FormLabelWithInfo from '../components/FormLabelWithInfo'
 import ShippingInstructionSiLinkedFields from '../components/ShippingInstructionSiLinkedFields'
 import ShippingInstructionDocumentUploadSection from '../components/ShippingInstructionDocumentUploadSection'
 import { ShipmentPlanRowActions } from '../components/SiTableRowActions.jsx'
@@ -40,6 +41,7 @@ import SiExtractConflictModal from '../components/SiExtractConflictModal'
 import SiExtractResultPanel from '../components/SiExtractResultPanel'
 import { MAX_SI_VESSEL_NAME_CHARS, MAX_SI_VOYAGE_CHARS } from '../constants/inputLimits'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import { sumBreakdownMtTotal, breakdownHasKlQtyOnly } from '../utils/planCargoMtTotal'
 import '../styles/shipping-instruction.css'
 import '../styles/allocation.css'
 
@@ -48,8 +50,8 @@ function approvalBadgeClass(status) {
   return `si-status-badge si-status-badge--${s.replace(/\s+/g, '-')}`
 }
 
-/** Vessel capacity: required positive number. */
-function isValidVesselCapacity(raw) {
+/** Required positive number (LOA, GT, draft). */
+function isValidPositiveNumber(raw) {
   if (raw == null || String(raw).trim() === '') return false
   const n = Number(raw)
   return Number.isFinite(n) && n > 0
@@ -93,7 +95,6 @@ export default function ShipmentPlansList() {
   const [modalSiLoading, setModalSiLoading] = useState(false)
   const [editingPlan, setEditingPlan] = useState(null)
   const [formVessel, setFormVessel] = useState('')
-  const [formVesselCapacity, setFormVesselCapacity] = useState('')
   const [formVesselLoa, setFormVesselLoa] = useState('')
   const [formVesselGt, setFormVesselGt] = useState('')
   const [formVesselDraft, setFormVesselDraft] = useState('')
@@ -196,6 +197,23 @@ export default function ShipmentPlansList() {
     return { total, pending, approved, draft }
   }, [list])
 
+  const totalCargoMtFromDrafts = useMemo(
+    () => sumBreakdownMtTotal(siDrafts.map((d) => d.form), lookups),
+    [siDrafts, lookups]
+  )
+
+  const totalCargoMt = useMemo(() => {
+    if (totalCargoMtFromDrafts > 0) return totalCargoMtFromDrafts
+    const stored = editingPlanDetail?.vesselCapacity ?? editingPlan?.vesselCapacity
+    if (stored != null && Number(stored) > 0) return Number(stored)
+    return 0
+  }, [totalCargoMtFromDrafts, editingPlan, editingPlanDetail])
+
+  const cargoKlOnlyNote = useMemo(
+    () => breakdownHasKlQtyOnly(siDrafts.map((d) => d.form), lookups),
+    [siDrafts, lookups]
+  )
+
   const planPreviewForSi = useMemo(() => {
     const etaDate = formEta?.trim() ? new Date(formEta) : null
     const etaIso = etaDate && !isNaN(etaDate.getTime()) ? etaDate.toISOString() : null
@@ -203,10 +221,10 @@ export default function ShipmentPlansList() {
     const pr = (lookups?.purposes || []).find((p) => String(p.id) === String(formPurposeId)) || null
     const jettyId = formJettyId ? parseInt(formJettyId, 10) : null
     const agentPid = formAgentId ? parseInt(formAgentId, 10) : null
-    const capNum = formVesselCapacity !== '' ? Number(formVesselCapacity) : null
     return {
       vesselName: formVessel.trim(),
-      vesselCapacity: Number.isFinite(capNum) ? capNum : null,
+      vesselCapacity: totalCargoMt > 0 ? totalCargoMt : null,
+      cargoTotalMt: totalCargoMt > 0 ? totalCargoMt : null,
       purposeId: Number.isFinite(purposePid) ? purposePid : null,
       purposeCode: pr?.code ?? null,
       eta: etaIso,
@@ -216,22 +234,21 @@ export default function ShipmentPlansList() {
       id: undefined,
       agentId: Number.isFinite(agentPid) ? agentPid : null,
     }
-  }, [formVessel, formVesselCapacity, formEta, formPurposeId, formJettyId, formVoyageNo, formAgentId, lookups])
+  }, [formVessel, totalCargoMt, formEta, formPurposeId, formJettyId, formVoyageNo, formAgentId, lookups])
 
-  /** Business rule: Vessel DWT = Vessel GT + Vessel capacity (MT). */
+  /** Business rule: Vessel DWT = Vessel GT + total cargo MT from breakdown. */
   const vesselDwtComputed = useMemo(() => {
     const gt = Number(formVesselGt)
-    const cap = Number(formVesselCapacity)
-    if (!Number.isFinite(gt) || gt <= 0 || !Number.isFinite(cap) || cap <= 0) return null
-    return gt + cap
-  }, [formVesselGt, formVesselCapacity])
+    if (!Number.isFinite(gt) || gt <= 0 || totalCargoMt <= 0) return null
+    return gt + totalCargoMt
+  }, [formVesselGt, totalCargoMt])
 
   /** Jetty suitability advice: LOA <= jetty length, DWT <= jetty DWT, commodity capability, and free around the entered ETA. */
   const jettyAdvice = useMemo(() => {
     const loa = Number(formVesselLoa)
     const dwt = vesselDwtComputed
     const etaMs = formEta?.trim() ? new Date(formEta).getTime() : NaN
-    const adviceReady = Number.isFinite(loa) && loa > 0 && dwt != null && Number.isFinite(etaMs)
+    const adviceReady = Number.isFinite(loa) && loa > 0 && Number.isFinite(etaMs)
     const purposeCode = (lookups?.purposes || []).find((p) => String(p.id) === String(formPurposeId))?.code ?? null
     // Commodities on this plan's SI drafts (breakdown rows) — checked against jetty capability.
     const draftCommodityIds = new Set()
@@ -448,9 +465,6 @@ export default function ShipmentPlansList() {
 
   const applyPlanDetailToFormFields = (d, row) => {
     setFormVessel(d.vesselName || row?.vesselName || '')
-    setFormVesselCapacity(
-      d.vesselCapacity != null ? String(d.vesselCapacity) : row?.vesselCapacity != null ? String(row.vesselCapacity) : ''
-    )
     setFormVesselLoa(
       d.vesselLoaM != null ? String(d.vesselLoaM) : row?.vesselLoaM != null ? String(row.vesselLoaM) : ''
     )
@@ -479,6 +493,7 @@ export default function ShipmentPlansList() {
       id: d.id,
       vesselName: d.vesselName,
       vesselCapacity: d.vesselCapacity != null ? Number(d.vesselCapacity) : null,
+      cargoTotalMt: d.vesselCapacity != null ? Number(d.vesselCapacity) : null,
       purposeId: d.purposeId,
       purposeCode: purposeRow?.code ?? d.purposeCode ?? row?.purposeCode ?? null,
       eta: d.eta,
@@ -500,7 +515,6 @@ export default function ShipmentPlansList() {
     setModalSiLoading(false)
     setEditingPlan(null)
     setFormVessel('')
-    setFormVesselCapacity('')
     setFormVesselLoa('')
     setFormVesselGt('')
     setFormVesselDraft('')
@@ -520,7 +534,6 @@ export default function ShipmentPlansList() {
     setSiDrafts([])
     setEditingPlanDetail(null)
     setFormVessel(row.vesselName || '')
-    setFormVesselCapacity(row.vesselCapacity != null ? String(row.vesselCapacity) : '')
     setFormVesselLoa(row.vesselLoaM != null ? String(row.vesselLoaM) : '')
     setFormVesselGt(row.vesselGrossTonnage != null ? String(row.vesselGrossTonnage) : '')
     setFormVesselDraft(row.vesselDraft != null ? String(row.vesselDraft) : '')
@@ -551,7 +564,6 @@ export default function ShipmentPlansList() {
     setSiDrafts([])
     setEditingPlanDetail(null)
     setFormVessel(row.vesselName || '')
-    setFormVesselCapacity(row.vesselCapacity != null ? String(row.vesselCapacity) : '')
     setFormVesselLoa(row.vesselLoaM != null ? String(row.vesselLoaM) : '')
     setFormVesselGt(row.vesselGrossTonnage != null ? String(row.vesselGrossTonnage) : '')
     setFormVesselDraft(row.vesselDraft != null ? String(row.vesselDraft) : '')
@@ -586,7 +598,6 @@ export default function ShipmentPlansList() {
     openedPlanFromQueryRef.current = null
     setSiDraftOcrIndex(null)
     setFormAgentId('')
-    setFormVesselCapacity('')
     setFormVesselLoa('')
     setFormVesselGt('')
     setFormVesselDraft('')
@@ -660,10 +671,6 @@ export default function ShipmentPlansList() {
       setToast({ message: t('formVesselRequired'), variant: 'error' })
       return
     }
-    if (!isValidVesselCapacity(formVesselCapacity)) {
-      setToast({ message: t('formVesselCapacityInvalid'), variant: 'error' })
-      return
-    }
     if (!validateVesselDimensionFields()) return
     if (!validateJettySelection()) return
     if (!formEta?.trim()) {
@@ -685,7 +692,7 @@ export default function ShipmentPlansList() {
       const agentPidSave = formAgentId.trim() ? parseInt(formAgentId, 10) : NaN
       await updateShipmentPlan(editingPlan.id, {
         vesselName: v,
-        vesselCapacity: Number(formVesselCapacity),
+        vesselCapacity: totalCargoMt > 0 ? totalCargoMt : null,
         vesselLoaM: Number(formVesselLoa),
         vesselGrossTonnage: Number(formVesselGt),
         vesselDraft: Number(formVesselDraft),
@@ -702,7 +709,8 @@ export default function ShipmentPlansList() {
         const linked = {
           id: editingPlan.id,
           vesselName: v,
-          vesselCapacity: Number(formVesselCapacity),
+          vesselCapacity: totalCargoMt > 0 ? totalCargoMt : null,
+          cargoTotalMt: totalCargoMt > 0 ? totalCargoMt : null,
           purposeId: purposePid,
           purposeCode: purposeRow?.code ?? editingPlan.purposeCode ?? null,
           eta: etaIso,
@@ -785,7 +793,7 @@ export default function ShipmentPlansList() {
     const agentPidCreate = formAgentId.trim() ? parseInt(formAgentId, 10) : NaN
     return {
       vesselName: formVessel.trim(),
-      vesselCapacity: Number(formVesselCapacity),
+      vesselCapacity: totalCargoMt > 0 ? totalCargoMt : null,
       vesselLoaM: Number(formVesselLoa),
       vesselGrossTonnage: Number(formVesselGt),
       vesselDraft: Number(formVesselDraft),
@@ -804,7 +812,7 @@ export default function ShipmentPlansList() {
       [t('formVesselDraftRequired'), formVesselDraft],
     ]
     for (const [label, raw] of dims) {
-      if (!isValidVesselCapacity(raw)) {
+      if (!isValidPositiveNumber(raw)) {
         setToast({ message: t('formVesselNumberFieldInvalid', { field: label }), variant: 'error' })
         return false
       }
@@ -815,10 +823,6 @@ export default function ShipmentPlansList() {
   const validateCreatePlanFields = () => {
     if (!formVessel.trim()) {
       setToast({ message: t('formVesselRequired'), variant: 'error' })
-      return false
-    }
-    if (!isValidVesselCapacity(formVesselCapacity)) {
-      setToast({ message: t('formVesselCapacityInvalid'), variant: 'error' })
       return false
     }
     if (!validateVesselDimensionFields()) return false
@@ -889,6 +893,7 @@ export default function ShipmentPlansList() {
         id: created.id,
         vesselName: created.vesselName,
         vesselCapacity: created.vesselCapacity != null ? Number(created.vesselCapacity) : null,
+        cargoTotalMt: created.vesselCapacity != null ? Number(created.vesselCapacity) : null,
         purposeId: created.purposeId,
         purposeCode: purposeRow?.code ?? created.purposeCode ?? null,
         eta: created.eta,
@@ -1531,15 +1536,25 @@ export default function ShipmentPlansList() {
             role="dialog"
             aria-modal="true"
           >
-            <h2 className="modal__title">
-              {formModalMode === 'view'
-                ? t('modalViewCombinedTitle', {
-                    ref: editingPlan?.planReference || editingPlanDetail?.planReference || `Plan #${editingPlan?.id}`,
-                  })
-                : editingPlan
-                  ? t('modalEditTitle', { id: editingPlan.id })
-                  : t('modalCreateCombinedTitle')}
-            </h2>
+            <div className="modal__header">
+              <h2 className="modal__title modal__title--flush">
+                {formModalMode === 'view'
+                  ? t('modalViewCombinedTitle', {
+                      ref: editingPlan?.planReference || editingPlanDetail?.planReference || `Plan #${editingPlan?.id}`,
+                    })
+                  : editingPlan
+                    ? t('modalEditTitle', { id: editingPlan.id })
+                    : t('modalCreateCombinedTitle')}
+              </h2>
+              <button
+                type="button"
+                className="modal__close"
+                onClick={handleCloseModal}
+                aria-label={t('close')}
+              >
+                ×
+              </button>
+            </div>
             <form
               onSubmit={(e) => {
                 if (formModalMode === 'view') {
@@ -1550,13 +1565,13 @@ export default function ShipmentPlansList() {
                 else if (siDrafts.length === 0) handleCreatePlanOnly(e)
                 else handleCreatePlanAndSis(e)
               }}
-              className="shipping-instruction-form"
+              className="shipping-instruction-form shipping-instruction-form--plan-modal"
             >
               <fieldset disabled={formModalMode === 'view' || modalSiLoading} style={{ border: 0, padding: 0, margin: 0 }}>
-              <div className="shipping-instruction-form__section">
+              <div className="shipping-instruction-form__section shipment-plan-form__plan-section">
                 <h3 className="shipping-instruction-form__section-title">{t('createPlanSectionTitle')}</h3>
-                <div className="shipping-instruction-form__grid">
-                  <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+                <div className="shipping-instruction-form__grid shipment-plan-form__plan-grid">
+                  <div className="input-group shipment-plan-form__purpose">
                     <label htmlFor="sp-purpose">{t('formPlanPurposeRequired')}</label>
                     <select
                       id="sp-purpose"
@@ -1573,7 +1588,7 @@ export default function ShipmentPlansList() {
                       ))}
                     </select>
                   </div>
-                  <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+                  <div className="input-group shipment-plan-form__vessel">
                     <label htmlFor="sp-vessel">{t('formVesselRequired')}</label>
                     <input
                       id="sp-vessel"
@@ -1583,29 +1598,7 @@ export default function ShipmentPlansList() {
                       required
                     />
                   </div>
-                  <div
-                    style={{
-                      gridColumn: '1 / -1',
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(5, minmax(120px, 168px))',
-                      justifyContent: 'start',
-                      gap: 'var(--spacing-3)',
-                    }}
-                  >
-                  <div className="input-group">
-                    <label htmlFor="sp-vessel-capacity">{t('formVesselCapacityRequired')}</label>
-                    <input
-                      id="sp-vessel-capacity"
-                      type="number"
-                      min="0"
-                      step="any"
-                      inputMode="decimal"
-                      value={formVesselCapacity}
-                      onChange={(e) => setFormVesselCapacity(e.target.value)}
-                      placeholder={t('formVesselCapacityPlaceholder')}
-                      required
-                    />
-                  </div>
+                  <div className="shipment-plan-form__vessel-specs">
                   <div className="input-group">
                     <label htmlFor="sp-vessel-loa">{t('formVesselLoaRequired')}</label>
                     <input
@@ -1649,21 +1642,42 @@ export default function ShipmentPlansList() {
                     />
                   </div>
                   <div className="input-group">
-                    <label htmlFor="sp-vessel-dwt">{t('formVesselDwtAuto')}</label>
+                    <FormLabelWithInfo htmlFor="sp-total-cargo-mt" infoTooltip={t('formTotalCargoMtInfoTooltip')}>
+                      {t('formTotalCargoMtAuto')}
+                    </FormLabelWithInfo>
+                    <input
+                      id="sp-total-cargo-mt"
+                      type="text"
+                      value={totalCargoMt > 0 ? totalCargoMt.toLocaleString('en-US') : '—'}
+                      readOnly
+                    />
+                  </div>
+                  <div className="input-group">
+                    <FormLabelWithInfo htmlFor="sp-vessel-dwt" infoTooltip={t('formVesselDwtInfoTooltip')}>
+                      {t('formVesselDwtAuto')}
+                    </FormLabelWithInfo>
                     <input
                       id="sp-vessel-dwt"
                       type="text"
                       value={vesselDwtComputed != null ? vesselDwtComputed.toLocaleString('en-US') : '—'}
                       readOnly
-                      title={t('formVesselDwtHint')}
                     />
                   </div>
                   </div>
-                  <div className="input-group">
+                  {(totalCargoMt <= 0 || siDrafts.length > 1) && (
+                    <p className="shipment-plan-form__inline-hint text-steel">
+                      {totalCargoMt <= 0
+                        ? cargoKlOnlyNote
+                          ? t('formTotalCargoMtKlNote')
+                          : t('formTotalCargoMtPending')
+                        : t('formTotalCargoMtMultiSiHint')}
+                    </p>
+                  )}
+                  <div className="input-group shipment-plan-form__eta">
                     <label htmlFor="sp-eta">{t('formEtaRequiredLabel')}</label>
                     <input id="sp-eta" type="datetime-local" value={formEta} onChange={(e) => setFormEta(e.target.value)} required />
                   </div>
-                  <div className="input-group">
+                  <div className="input-group shipment-plan-form__voyage">
                     <label htmlFor="sp-voyage">{t('formVoyageOptional')}</label>
                     <input
                       id="sp-voyage"
@@ -1673,7 +1687,7 @@ export default function ShipmentPlansList() {
                       placeholder={t('formVoyagePlaceholder')}
                     />
                   </div>
-                  <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+                  <div className="input-group shipment-plan-form__agent">
                     <label htmlFor="sp-agent">{t('formAgentOptional')}</label>
                     <select id="sp-agent" value={formAgentId} onChange={(e) => setFormAgentId(e.target.value)} disabled={!lookups}>
                       <option value="">—</option>
@@ -1684,13 +1698,12 @@ export default function ShipmentPlansList() {
                       ))}
                     </select>
                   </div>
-                  <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+                  <div className="input-group shipment-plan-form__jetty">
                     <label htmlFor="sp-jetty">{t('formJettyOptional')}</label>
                     <select id="sp-jetty" value={formJettyId} onChange={(e) => setFormJettyId(e.target.value)}>
                       <option value="">—</option>
                       {(lookups?.jetties || [])
                         .filter((j) => {
-                          // Exclude jetties that fail LOA / DWT / commodity — keep the current selection visible.
                           const a = jettyAdvice.byId[j.id]
                           if (!jettyAdvice.adviceReady || !a || a.fits) return true
                           return String(j.id) === String(formJettyId)
@@ -1711,7 +1724,7 @@ export default function ShipmentPlansList() {
                         })}
                     </select>
                     {jettyAdvice.adviceReady ? (
-                      <p className="text-steel" style={{ fontSize: '0.8rem', margin: '0.25rem 0 0' }}>
+                      <p className="shipment-plan-form__jetty-hint text-steel">
                         {jettyAdvice.suggested.length > 0
                           ? t('jettySuggestionLabel', {
                               list: jettyAdvice.suggested.map((j) => j.name).join(', '),
@@ -1724,10 +1737,10 @@ export default function ShipmentPlansList() {
               </div>
 
               {(formModalMode === 'view' || formModalMode === 'edit' || !editingPlan) && (
-                <div className="shipping-instruction-form__section" style={{ marginTop: '1.25rem' }}>
+                <div className="shipping-instruction-form__section shipment-plan-form__si-section">
                   <h3 className="shipping-instruction-form__section-title">{t('createSiSectionTitle')}</h3>
                   {formModalMode !== 'view' && (
-                    <p className="text-steel" style={{ fontSize: '0.9rem', marginBottom: '0.75rem' }}>
+                    <p className="shipment-plan-form__si-hint text-steel">
                       {t('createSiSectionHint')}
                     </p>
                   )}
@@ -1746,27 +1759,9 @@ export default function ShipmentPlansList() {
                     </p>
                   )}
                   {siDrafts.map((block, index) => (
-                    <div
-                      key={block.id}
-                      className="shipping-instruction-form__section"
-                      style={{
-                        border: '1px solid var(--color-border, #c9d1d9)',
-                        borderRadius: 8,
-                        padding: '1rem',
-                        marginBottom: '1rem',
-                        background: 'var(--color-surface-muted, rgba(0,0,0,0.02))',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          gap: '0.75rem',
-                          marginBottom: '0.75rem',
-                        }}
-                      >
-                        <h4 style={{ margin: 0, fontSize: '1rem' }}>{t('createSiBlockTitle', { n: index + 1 })}</h4>
+                    <div key={block.id} className="shipping-instruction-form__section shipment-plan-form__si-draft">
+                      <div className="shipment-plan-form__si-draft-header">
+                        <h4 className="shipment-plan-form__si-draft-title">{t('createSiBlockTitle', { n: index + 1 })}</h4>
                         {formModalMode !== 'view' &&
                           siDrafts.length > 1 &&
                           !existingSiIdFromDraftKey(block.id) && (
@@ -1804,6 +1799,7 @@ export default function ShipmentPlansList() {
                         showPlanLinkedNote={false}
                         omitVesselAndJetty
                         omitDocumentUpload
+                        compact
                       />
                     </div>
                   ))}

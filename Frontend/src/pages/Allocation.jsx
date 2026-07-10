@@ -4,6 +4,7 @@ import { Link, useLocation } from 'react-router-dom'
 import JettySchematic from '../components/JettySchematic'
 import JettyScheduleGantt from '../components/JettyScheduleGantt'
 import AllocationPlanExportMenu from '../components/AllocationPlanExportMenu'
+import AllocationTableColumnMenu from '../components/AllocationTableColumnMenu'
 import {
   deleteOperationDocument,
   fetchAllocationOverview,
@@ -259,6 +260,20 @@ const PLAN_CENTRIC_ALLOCATION_COLUMNS = [
     getSortValue: (r) => (r.remark || r.remarks || '').toLowerCase(),
     getFilterValue: (r) => r.remark || r.remarks || '',
   },
+]
+
+const PLAN_CENTRIC_DEFAULT_VISIBLE_COLUMN_KEYS = [
+  'sequence',
+  'vesselName',
+  'commodityQty',
+  'purpose',
+  'tradeTerm',
+  'agent',
+  'eta',
+  'ta',
+  'etb',
+  'jetty',
+  'remark',
 ]
 
 function buildAllocationColumnDefs(isPlanCentric) {
@@ -941,6 +956,15 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       }
     })
   }, [berthsState, allocationColumnDefsBase, breachNowMs])
+
+  const [visibleColumnKeys, setVisibleColumnKeys] = useState(
+    () => new Set(PLAN_CENTRIC_DEFAULT_VISIBLE_COLUMN_KEYS)
+  )
+
+  const visibleAllocationTableColumns = useMemo(() => {
+    if (!isPlanCentric) return allocationTableColumns
+    return allocationTableColumns.filter((c) => visibleColumnKeys.has(c.key))
+  }, [allocationTableColumns, visibleColumnKeys, isPlanCentric])
 
   const getVesselName = useCallback(
     (vesselId) => {
@@ -1928,7 +1952,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
               )}
             </div>
           </td>
-          {allocationTableColumns.map((col) => (
+          {visibleAllocationTableColumns.map((col) => (
             <td key={col.key} onClick={col.key === 'sequence' ? (e) => e.stopPropagation() : undefined}>
               {col.key === 'sequence' ? (
                 <span className="allocation-table__sequence-cell">
@@ -2103,7 +2127,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         </tr>
         {expandedId === r.id && (
           <tr className="allocation-table__detail-row">
-            <td colSpan={allocationTableColumns.length + 2} className="allocation-table__detail-cell">
+            <td colSpan={visibleAllocationTableColumns.length + 2} className="allocation-table__detail-cell">
               <AllocationDetailPanel
                 r={r}
                 tAlloc={tAlloc}
@@ -3991,57 +4015,67 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         ) : null}
         <div className="allocation-plan-status-filter">
           <div className="allocation-plan-status-filter__row">
-            <span className="allocation-plan-status-filter__label">{tAlloc('statusLabel')}</span>
-            <div
-              className="allocation-plan-status-filter__toggles"
-              role="group"
-              aria-label={isPlanCentric ? tAlloc('statusFilterAriaPlan') : tAlloc('statusFilterAria')}
-            >
-              <button
-                type="button"
-                className={`btn btn--small ${statusFilter.showIncoming && !etcBreachFilter ? 'btn--primary' : 'btn--ghost'}`}
-                aria-pressed={Boolean(statusFilter.showIncoming) && !etcBreachFilter}
-                disabled={etcBreachFilter}
-                onClick={() =>
-                  setStatusFilter((prev) => ({ ...prev, showIncoming: !prev.showIncoming }))
-                }
+            <div className="allocation-plan-status-filter__left">
+              <span className="allocation-plan-status-filter__label">{tAlloc('statusLabel')}</span>
+              <div
+                className="allocation-plan-status-filter__toggles"
+                role="group"
+                aria-label={isPlanCentric ? tAlloc('statusFilterAriaPlan') : tAlloc('statusFilterAria')}
               >
-                {isPlanCentric ? tAlloc('statusShowIncoming') : tAlloc('statusIncoming')}
-              </button>
-              <button
-                type="button"
-                className={`btn btn--small ${statusFilter.showBerthed || etcBreachFilter ? 'btn--primary' : 'btn--ghost'}`}
-                aria-pressed={Boolean(statusFilter.showBerthed) || etcBreachFilter}
-                onClick={() => {
-                  if (etcBreachFilter) {
-                    setEtcBreachFilter(false)
-                    setStatusFilter((prev) => ({ ...prev, showBerthed: true, showIncoming: false }))
-                    return
+                <button
+                  type="button"
+                  className={`btn btn--small ${statusFilter.showIncoming && !etcBreachFilter ? 'btn--primary' : 'btn--ghost'}`}
+                  aria-pressed={Boolean(statusFilter.showIncoming) && !etcBreachFilter}
+                  disabled={etcBreachFilter}
+                  onClick={() =>
+                    setStatusFilter((prev) => ({ ...prev, showIncoming: !prev.showIncoming }))
                   }
-                  setStatusFilter((prev) => ({ ...prev, showBerthed: !prev.showBerthed }))
-                }}
-              >
-                {tAlloc('statusBerthed')}
-              </button>
-              <button
-                type="button"
-                className={`btn btn--small ${etcBreachFilter ? 'btn--primary' : 'btn--ghost'}`}
-                aria-pressed={etcBreachFilter}
-                onClick={() => {
-                  const next = !etcBreachFilter
-                  setEtcBreachFilter(next)
-                  if (next) {
-                    setStatusFilter(
-                      isPlanCentric
-                        ? { ...ETC_BREACH_STATUS_FILTER_PLAN }
-                        : { ...ETC_BREACH_STATUS_FILTER_LEGACY }
-                    )
-                  }
-                }}
-              >
-                {tAlloc('statusEtcBreach')}
-              </button>
+                >
+                  {isPlanCentric ? tAlloc('statusShowIncoming') : tAlloc('statusIncoming')}
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn--small ${statusFilter.showBerthed || etcBreachFilter ? 'btn--primary' : 'btn--ghost'}`}
+                  aria-pressed={Boolean(statusFilter.showBerthed) || etcBreachFilter}
+                  onClick={() => {
+                    if (etcBreachFilter) {
+                      setEtcBreachFilter(false)
+                      setStatusFilter((prev) => ({ ...prev, showBerthed: true, showIncoming: false }))
+                      return
+                    }
+                    setStatusFilter((prev) => ({ ...prev, showBerthed: !prev.showBerthed }))
+                  }}
+                >
+                  {tAlloc('statusBerthed')}
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn--small ${etcBreachFilter ? 'btn--primary' : 'btn--ghost'}`}
+                  aria-pressed={etcBreachFilter}
+                  onClick={() => {
+                    const next = !etcBreachFilter
+                    setEtcBreachFilter(next)
+                    if (next) {
+                      setStatusFilter(
+                        isPlanCentric
+                          ? { ...ETC_BREACH_STATUS_FILTER_PLAN }
+                          : { ...ETC_BREACH_STATUS_FILTER_LEGACY }
+                      )
+                    }
+                  }}
+                >
+                  {tAlloc('statusEtcBreach')}
+                </button>
+              </div>
             </div>
+            {isPlanCentric ? (
+              <AllocationTableColumnMenu
+                columns={allocationTableColumns}
+                visibleKeys={visibleColumnKeys}
+                onChange={setVisibleColumnKeys}
+                getLabel={allocColLabel}
+              />
+            ) : null}
           </div>
         </div>
         {isPlanCentric && planSequenceSwapError ? (
@@ -4055,7 +4089,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
               <tr>
                 <th className="allocation-table__expand-col"></th>
                 <th className="allocation-table__action-col">{tAlloc('action')}</th>
-                {allocationTableColumns.map((col) => (
+                {visibleAllocationTableColumns.map((col) => (
                   <th key={col.key} className="allocation-table__th">
                     <button
                       type="button"
@@ -4074,7 +4108,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
               <tr className="allocation-table__filter-row">
                 <th className="allocation-table__expand-col"></th>
                 <th className="allocation-table__action-col"></th>
-                {allocationTableColumns.map((col) => (
+                {visibleAllocationTableColumns.map((col) => (
                   <th key={col.key}>
                     <input
                       type="text"

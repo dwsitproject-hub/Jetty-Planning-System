@@ -45,11 +45,10 @@ export function updateShipmentPlan(id, body) {
   })
 }
 
-/** Vessel information only (name/capacity/LOA/GT/draft) — allowed in any approval status. */
+/** Vessel information only (name/LOA/GT/draft) — allowed in any approval status. Cargo MT is synced from breakdown. */
 export function updateShipmentPlanVesselInfo(id, body) {
   return apiPatch(`/shipment-plans/${id}/vessel-info`, {
     vessel_name: body.vesselName,
-    vessel_capacity: body.vesselCapacity,
     vessel_loa_m: body.vesselLoaM,
     vessel_gross_tonnage: body.vesselGrossTonnage,
     vessel_draft: body.vesselDraft,

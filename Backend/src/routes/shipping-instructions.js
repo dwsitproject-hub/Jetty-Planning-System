@@ -5,6 +5,7 @@ import express from 'express';
 import { pool } from '../db.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { resolveUserRequestedBy } from '../lib/resolve-requested-by.js';
+import { syncPlanVesselCapacityFromBreakdown } from '../lib/syncPlanVesselCapacity.js';
 import { requireAuth } from '../middleware/auth.js';
 import { userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
 
@@ -855,6 +856,9 @@ router.post('/', requireAuth, async (req, res) => {
     );
     const newId = result.rows[0].id;
     await replaceBreakdown(client, newId, breakdown);
+    if (shipmentPlanId != null) {
+      await syncPlanVesselCapacityFromBreakdown(client, shipmentPlanId);
+    }
     await client.query('COMMIT');
     const row = await pool.query(`${SI_SELECT} WHERE si.id = $1`, [newId]);
     const bd = await loadBreakdown(newId);
@@ -1197,6 +1201,10 @@ router.put('/:id', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Shipping instruction not found' });
     }
     if (breakdown !== undefined) await replaceBreakdown(client, id, breakdown);
+    const planIdForSync = beforeRow.shipment_plan_id;
+    if (planIdForSync != null && breakdown !== undefined) {
+      await syncPlanVesselCapacityFromBreakdown(client, planIdForSync);
+    }
     await client.query('COMMIT');
     const row = await pool.query(`${SI_SELECT} WHERE si.id = $1`, [id]);
     const bd = await loadBreakdown(id);
@@ -1257,6 +1265,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
     return res.status(409).json({ error: 'Cannot delete shipping instruction while operations reference it' });
   }
   const entityLabel = beforeRow.reference_number?.trim() || `SI-${id}`;
+  const planIdForSync = beforeRow.shipment_plan_id;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -1272,6 +1281,9 @@ router.delete('/:id', requireAuth, async (req, res) => {
     if (del.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Shipping instruction not found' }); // race: row removed concurrently
+    }
+    if (planIdForSync != null) {
+      await syncPlanVesselCapacityFromBreakdown(client, planIdForSync);
     }
     await client.query('COMMIT');
   } catch (e) {

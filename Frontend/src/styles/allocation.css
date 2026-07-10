@@ -1372,8 +1372,16 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   gap: var(--spacing-2) var(--spacing-3);
   width: 100%;
+}
+
+.allocation-plan-status-filter__left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2) var(--spacing-3);
 }
 
 .allocation-plan-status-filter__toggles {
@@ -5557,6 +5565,65 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   display: flex;
   justify-content: flex-end;
   margin-top: 10px;
+}
+
+.allocation-column-menu {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
+.allocation-column-menu__trigger {
+  white-space: nowrap;
+}
+
+.allocation-column-menu__panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 220px;
+  max-width: 280px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid var(--color-border-light, #e5e7eb);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.allocation-column-menu__title {
+  margin: 0 0 10px;
+  font-size: var(--font-size-sm, 0.875rem);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-text-strong, #1f2937);
+}
+
+.allocation-column-menu__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.allocation-column-menu__option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: var(--font-size-sm, 0.875rem);
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.allocation-column-menu__option:last-child {
+  margin-bottom: 0;
+}
+
+.allocation-column-menu__option input {
+  margin-top: 2px;
+  flex-shrink: 0;
 }
 
 .allocation-export-schematic--capturing,

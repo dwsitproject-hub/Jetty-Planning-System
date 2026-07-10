@@ -302,12 +302,12 @@ router.post('/', requireAuth, async (req, res) => {
   const vesselName = typeof b.vessel_name === 'string' ? b.vessel_name.trim() : '';
   if (!vesselName) return res.status(400).json({ error: 'vessel_name is required' });
 
-  if (b.vessel_capacity == null || b.vessel_capacity === '') {
-    return res.status(400).json({ error: 'vessel_capacity is required' });
-  }
-  const vesselCapacity = Number(b.vessel_capacity);
-  if (!Number.isFinite(vesselCapacity) || vesselCapacity <= 0) {
-    return res.status(400).json({ error: 'vessel_capacity must be a positive number' });
+  let vesselCapacity = null;
+  if (b.vessel_capacity != null && b.vessel_capacity !== '') {
+    vesselCapacity = Number(b.vessel_capacity);
+    if (!Number.isFinite(vesselCapacity) || vesselCapacity <= 0) {
+      return res.status(400).json({ error: 'vessel_capacity must be a positive number' });
+    }
   }
 
   const requirePositive = (raw, field) => {
@@ -481,11 +481,12 @@ router.patch('/:id', requireAuth, async (req, res) => {
   let vesselCapacity = undefined;
   if ('vessel_capacity' in b) {
     if (b.vessel_capacity == null || b.vessel_capacity === '') {
-      return res.status(400).json({ error: 'vessel_capacity cannot be empty' });
-    }
-    vesselCapacity = Number(b.vessel_capacity);
-    if (!Number.isFinite(vesselCapacity) || vesselCapacity <= 0) {
-      return res.status(400).json({ error: 'vessel_capacity must be a positive number' });
+      vesselCapacity = null;
+    } else {
+      vesselCapacity = Number(b.vessel_capacity);
+      if (!Number.isFinite(vesselCapacity) || vesselCapacity <= 0) {
+        return res.status(400).json({ error: 'vessel_capacity must be a positive number' });
+      }
     }
   }
 
@@ -642,7 +643,7 @@ router.patch('/:id', requireAuth, async (req, res) => {
 /**
  * Vessel information (name / capacity / LOA / GT / draft) — editable regardless of approval status.
  * Used by the Vessel Info modal on operational pages (Allocation, At-Berth, Clearance, Shipment plans).
- * vessel_dwt is a generated column (GT + capacity) and recomputes automatically.
+ * vessel_dwt is a generated column (GT + total cargo MT) and recomputes automatically.
  */
 router.patch('/:id/vessel-info', requireAuth, async (req, res) => {
   if (!(await userHasPageEdit(req.userId, PAGE_KEY))) {
@@ -674,7 +675,7 @@ router.patch('/:id/vessel-info', requireAuth, async (req, res) => {
     return n;
   };
   const fields = {};
-  for (const key of ['vessel_capacity', 'vessel_loa_m', 'vessel_gross_tonnage', 'vessel_draft']) {
+  for (const key of ['vessel_loa_m', 'vessel_gross_tonnage', 'vessel_draft']) {
     const v = patchPositive(key);
     if (v?.error) return res.status(400).json({ error: v.error });
     if (v !== undefined) fields[key] = v;
@@ -709,7 +710,7 @@ router.patch('/:id/vessel-info', requireAuth, async (req, res) => {
     changes.push({ field, from, to });
   };
   add('Vessel', beforeRow.vessel_name, plan.vessel_name);
-  add('Capacity (MT)', beforeRow.vessel_capacity, plan.vessel_capacity);
+  add('Total cargo (MT)', beforeRow.vessel_capacity, plan.vessel_capacity);
   add('LOA (m)', beforeRow.vessel_loa_m, plan.vessel_loa_m);
   add('GT', beforeRow.vessel_gross_tonnage, plan.vessel_gross_tonnage);
   add('Draft', beforeRow.vessel_draft, plan.vessel_draft);

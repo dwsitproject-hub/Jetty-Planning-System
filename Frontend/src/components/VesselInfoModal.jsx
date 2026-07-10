@@ -1,13 +1,14 @@
 /**
  * Vessel Information modal — opened by clicking a vessel name on Shipment plans,
  * Allocation & Berthing, At-Berth Executions, and Clearance.
- * Shows / edits the plan-level vessel attributes (name, capacity MT, LOA, GT, draft);
- * Vessel DWT is derived (GT + capacity) and read-only.
+ * Shows / edits the plan-level vessel attributes (name, LOA, GT, draft);
+ * Total cargo MT and Vessel DWT are derived from breakdown / GT and read-only.
  * Saving uses PATCH /shipment-plans/:id/vessel-info (allowed in any approval status).
  */
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { fetchShipmentPlan, updateShipmentPlanVesselInfo } from '../api/shipmentPlans'
+import FormLabelWithInfo from './FormLabelWithInfo'
 import { useRbac } from '../context/RbacContext'
 import '../styles/modal.css'
 
@@ -51,7 +52,6 @@ export default function VesselInfoModal({ planId, isOpen, onClose, onSaved }) {
   const [error, setError] = useState(null)
   const [plan, setPlan] = useState(null)
   const [name, setName] = useState('')
-  const [capacity, setCapacity] = useState('')
   const [loa, setLoa] = useState('')
   const [gt, setGt] = useState('')
   const [draft, setDraft] = useState('')
@@ -67,7 +67,6 @@ export default function VesselInfoModal({ planId, isOpen, onClose, onSaved }) {
         if (cancelled) return
         setPlan(d)
         setName(d.vesselName || '')
-        setCapacity(d.vesselCapacity != null ? String(d.vesselCapacity) : '')
         setLoa(d.vesselLoaM != null ? String(d.vesselLoaM) : '')
         setGt(d.vesselGrossTonnage != null ? String(d.vesselGrossTonnage) : '')
         setDraft(d.vesselDraft != null ? String(d.vesselDraft) : '')
@@ -83,12 +82,14 @@ export default function VesselInfoModal({ planId, isOpen, onClose, onSaved }) {
     }
   }, [isOpen, planId])
 
+  const totalCargoMt = plan?.vesselCapacity != null && Number(plan.vesselCapacity) > 0 ? Number(plan.vesselCapacity) : null
+
   const dwt = useMemo(() => {
     const g = Number(gt)
-    const c = Number(capacity)
-    if (!Number.isFinite(g) || g <= 0 || !Number.isFinite(c) || c <= 0) return null
+    const c = totalCargoMt
+    if (!Number.isFinite(g) || g <= 0 || c == null || c <= 0) return null
     return g + c
-  }, [gt, capacity])
+  }, [gt, totalCargoMt])
 
   if (!isOpen) return null
 
@@ -103,7 +104,6 @@ export default function VesselInfoModal({ planId, isOpen, onClose, onSaved }) {
       return
     }
     const dims = [
-      [t('formVesselCapacityRequired'), capacity],
       [t('formVesselLoaRequired'), loa],
       [t('formVesselGtRequired'), gt],
       [t('formVesselDraftRequired'), draft],
@@ -119,7 +119,6 @@ export default function VesselInfoModal({ planId, isOpen, onClose, onSaved }) {
     try {
       await updateShipmentPlanVesselInfo(planId, {
         vesselName: name.trim(),
-        vesselCapacity: Number(capacity),
         vesselLoaM: Number(loa),
         vesselGrossTonnage: Number(gt),
         vesselDraft: Number(draft),
@@ -181,20 +180,32 @@ export default function VesselInfoModal({ planId, isOpen, onClose, onSaved }) {
                 required
               />
             </div>
-            {numberField('vessel-info-capacity', t('formVesselCapacityRequired'), capacity, setCapacity)}
             {numberField('vessel-info-loa', t('formVesselLoaRequired'), loa, setLoa)}
             {numberField('vessel-info-gt', t('formVesselGtRequired'), gt, setGt)}
             {numberField('vessel-info-draft', t('formVesselDraftRequired'), draft, setDraft)}
             <div className="modal__section">
-              <label className="modal__label" htmlFor="vessel-info-dwt">
+              <FormLabelWithInfo
+                htmlFor="vessel-info-cargo-mt"
+                infoTooltip={t('formTotalCargoMtInfoTooltip')}
+              >
+                {t('formTotalCargoMtAuto')}
+              </FormLabelWithInfo>
+              <input
+                id="vessel-info-cargo-mt"
+                className="modal__input"
+                value={totalCargoMt != null ? totalCargoMt.toLocaleString('en-US') : '—'}
+                readOnly
+              />
+            </div>
+            <div className="modal__section">
+              <FormLabelWithInfo htmlFor="vessel-info-dwt" infoTooltip={t('formVesselDwtInfoTooltip')}>
                 {t('formVesselDwtAuto')}
-              </label>
+              </FormLabelWithInfo>
               <input
                 id="vessel-info-dwt"
                 className="modal__input"
                 value={dwt != null ? dwt.toLocaleString('en-US') : '—'}
                 readOnly
-                title={t('formVesselDwtHint')}
               />
             </div>
             {!allowEdit ? (
