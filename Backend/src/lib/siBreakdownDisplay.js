@@ -129,10 +129,19 @@ export function attachCargoDisplayToRow(row, breakdownMap) {
   const breakdown = siId != null ? breakdownMap.get(siId) || [] : [];
   const { commodityDisplay, totalQtyDisplay } = formatSiCargoDisplay(breakdown);
   const ref = row.reference_number || (siId != null ? `SI-${siId}` : null);
+  const commodityIds = [
+    ...new Set(
+      breakdown
+        .map((b) => b.commodityId)
+        .filter((id) => id != null && Number.isFinite(Number(id)) && Number(id) > 0)
+        .map(Number)
+    ),
+  ];
   return {
     ...row,
     commodity_display: commodityDisplay,
     total_qty_display: totalQtyDisplay,
+    commodity_ids: commodityIds,
     cargo_breakdown_summary:
       siId != null ? [buildCargoBreakdownSummary(siId, ref, breakdown)] : [],
   };

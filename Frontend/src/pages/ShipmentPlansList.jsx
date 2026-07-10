@@ -17,6 +17,10 @@ import {
 } from '../api/shippingInstructions'
 import { attachDraftSiDocuments, deleteSiDocument } from '../api/siDocuments'
 import { fetchSiLookups } from '../api/siLookups'
+import {
+  computeShipmentPlanJettyAdvice,
+  validateJettyAdviceSelection,
+} from '../utils/jettyAdvice'
 import { useRbac } from '../context/RbacContext'
 import { useActivityLog } from '../context/ActivityLogContext'
 import PurposeBadge, { resolvePurposeLabel } from '../components/PurposeBadge'
@@ -244,81 +248,36 @@ export default function ShipmentPlansList() {
   }, [formVesselGt, totalCargoMt])
 
   /** Jetty suitability advice: LOA <= jetty length, DWT <= jetty DWT, commodity capability, and free around the entered ETA. */
-  const jettyAdvice = useMemo(() => {
-    const loa = Number(formVesselLoa)
-    const dwt = vesselDwtComputed
-    const etaMs = formEta?.trim() ? new Date(formEta).getTime() : NaN
-    const adviceReady = Number.isFinite(loa) && loa > 0 && Number.isFinite(etaMs)
-    const purposeCode = (lookups?.purposes || []).find((p) => String(p.id) === String(formPurposeId))?.code ?? null
-    // Commodities on this plan's SI drafts (breakdown rows) — checked against jetty capability.
-    const draftCommodityIds = new Set()
-    for (const d of siDrafts) {
-      for (const row of d?.form?.breakdown || []) {
-        const cid = parseInt(row?.commodityId, 10)
-        if (Number.isFinite(cid) && cid > 0) draftCommodityIds.add(cid)
-      }
-    }
-    const byId = {}
-    for (const j of lookups?.jetties || []) {
-      const unloadingCommodityIds = Array.isArray(j.unloadingCommodityIds) ? j.unloadingCommodityIds : []
-      const loadingCommodityIds = Array.isArray(j.loadingCommodityIds) ? j.loadingCommodityIds : []
-      const hasSpecs =
-        j.jettyLengthM != null ||
-        j.jettyDwt != null ||
-        unloadingCommodityIds.length > 0 ||
-        loadingCommodityIds.length > 0
-      const loaOk = j.jettyLengthM == null || !Number.isFinite(loa) || loa <= 0 || loa <= Number(j.jettyLengthM)
-      const dwtOk = j.jettyDwt == null || dwt == null || dwt <= Number(j.jettyDwt)
-      const jettyCommodities =
-        purposeCode === 'Loading'
-          ? loadingCommodityIds
-          : purposeCode === 'Unloading'
-            ? unloadingCommodityIds
-            : []
-      const commodityOk =
-        jettyCommodities.length === 0 ||
-        draftCommodityIds.size === 0 ||
-        [...draftCommodityIds].every((cid) => jettyCommodities.includes(cid))
-      const fits = loaOk && dwtOk && commodityOk
-      let occupied = false
-      if (Number.isFinite(etaMs)) {
-        for (const p of list) {
-          if (p.jettyId == null || Number(p.jettyId) !== Number(j.id)) continue
-          if (editingPlan && p.id === editingPlan.id) continue
-          const start = p.eta ? new Date(p.eta).getTime() : NaN
-          if (!Number.isFinite(start)) continue
-          const endRaw = p.sailedAt || p.castOffAt || p.actualCompletionTime || p.estimatedCompletionTime
-          const endMs = endRaw ? new Date(endRaw).getTime() : start + 24 * 3600 * 1000
-          if (etaMs >= start && etaMs <= endMs) {
-            occupied = true
-            break
-          }
-        }
-      }
-      byId[j.id] = { fits, occupied, hasSpecs, loaOk, dwtOk, commodityOk }
-    }
-    const suggested = (lookups?.jetties || []).filter(
-      (j) => byId[j.id]?.hasSpecs && byId[j.id]?.fits && !byId[j.id]?.occupied
-    )
-    return { byId, suggested, adviceReady }
-  }, [lookups, list, formVesselLoa, vesselDwtComputed, formEta, formPurposeId, editingPlan, siDrafts])
+  const jettyAdvice = useMemo(
+    () =>
+      computeShipmentPlanJettyAdvice({
+        jetties: lookups?.jetties,
+        list,
+        formVesselLoa,
+        vesselDwtComputed,
+        formEta,
+        formPurposeId,
+        lookups,
+        editingPlan,
+        siDrafts,
+      }),
+    [lookups, list, formVesselLoa, vesselDwtComputed, formEta, formPurposeId, editingPlan, siDrafts]
+  )
 
   /** Hard validation: selected jetty must physically fit the vessel (LOA / DWT). */
   const validateJettySelection = () => {
-    if (!formJettyId) return true
-    const j = (lookups?.jetties || []).find((x) => String(x.id) === String(formJettyId))
-    if (!j) return true
-    const a = jettyAdvice.byId[j.id]
-    if (!a || a.fits) return true
-    const reasons = []
-    if (!a.loaOk) reasons.push(t('jettyReasonLoa', { loa: formVesselLoa, len: j.jettyLengthM }))
-    if (!a.dwtOk) reasons.push(t('jettyReasonDwt', { dwt: vesselDwtComputed, max: j.jettyDwt }))
-    if (!a.commodityOk) reasons.push(t('jettyReasonCommodity', { defaultValue: 'commodity not handled by this jetty' }))
-    setToast({
-      message: t('formJettyUnsuitable', { jetty: j.name, reason: reasons.join('; ') }),
-      variant: 'error',
+    const result = validateJettyAdviceSelection({
+      jettyAdvice,
+      selectedJettyId: formJettyId,
+      jetties: lookups?.jetties,
+      ctx: { loa: formVesselLoa, dwt: vesselDwtComputed },
+      t,
     })
-    return false
+    if (!result.ok) {
+      setToast({ message: result.message, variant: 'error' })
+      return false
+    }
+    return true
   }
 
   const linkedPlanForSiCards = useMemo(() => {

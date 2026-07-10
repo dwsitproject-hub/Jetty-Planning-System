@@ -1,3 +1,4 @@
+/* @refresh reload */
 import { useState, Fragment, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router-dom'
@@ -16,6 +17,7 @@ import {
 } from '../api/allocation'
 import { setOperationShiftingOut } from '../api/operations'
 import { fetchShipmentPlan } from '../api/shipmentPlans'
+import { fetchSiLookups } from '../api/siLookups'
 import { ApiError, resolveUploadUrl } from '../api/client'
 import FilePreviewLink from '../components/FilePreviewLink'
 import AuthenticatedFileImage from '../components/AuthenticatedFileImage'
@@ -52,6 +54,7 @@ import EtcBreachBadge from '../components/EtcBreachBadge'
 import { getEtcBreach, getEtcBreachRagStatus } from '../utils/etcBreach'
 import AllocationLateSiNotice from '../components/AllocationLateSiNotice'
 import BerthingActionButton from '../components/BerthingActionButton'
+import JettyAllocationSelect from '../components/JettyAllocationSelect'
 import {
   berthingDisabledReason,
   getBerthingPlanStatus,
@@ -66,6 +69,10 @@ import {
   planCentricSiColumnDisplay,
   rowPassesAllocationStatusFilter,
 } from '../utils/allocationQueueStatusFilter'
+import {
+  computeAllocationJettyAdvice,
+  validateJettyAdviceSelection,
+} from '../utils/jettyAdvice'
 import '../styles/etc-breach.css'
 
 /** Standardized pipeline flow (match Dashboard Vessel pipeline) */
@@ -433,6 +440,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   const { openFilePreview } = useFilePreview()
   const { t } = useTranslation('pages')
   const { t: tAlloc } = useTranslation('allocation')
+  const { t: tSp } = useTranslation('shipmentPlan')
   const location = useLocation()
   const isPlanCentric = pageProfile === 'planCentric'
   const rbacPageKey = 'allocation-plan'
@@ -458,6 +466,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   const [list, setList] = useState([])
   const [scheduleList, setScheduleList] = useState([])
   const [berthsState, setBerthsState] = useState([])
+  const [allocationLookups, setAllocationLookups] = useState(null)
   const [filters, setFilters] = useState(() =>
     Object.fromEntries(ALLOCATION_FILTER_STATE_KEYS.map((k) => [k, '']))
   )
@@ -629,6 +638,42 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     [berthsState]
   )
 
+  const portJetties = useMemo(() => {
+    const all = allocationLookups?.jetties
+    if (!Array.isArray(all) || !selectedPortId) return []
+    return all.filter((j) => Number(j.portId) === Number(selectedPortId))
+  }, [allocationLookups, selectedPortId])
+
+  const jettyOccupancyRows = useMemo(
+    () => [...(list || []), ...(scheduleList || [])],
+    [list, scheduleList]
+  )
+
+  const arrivalJettyAdvice = useMemo(
+    () =>
+      computeAllocationJettyAdvice({
+        jetties: portJetties,
+        row: arrivalUpdateForm,
+        referenceDateTime: arrivalUpdateForm?.etaDateTime,
+        occupancyRows: jettyOccupancyRows,
+      }),
+    [portJetties, arrivalUpdateForm, jettyOccupancyRows]
+  )
+
+  const berthingJettyAdvice = useMemo(() => {
+    const referenceDateTime =
+      berthingTb?.trim() ||
+      berthingConfirmRow?.etbDateTime ||
+      berthingConfirmRow?.etaDateTime ||
+      null
+    return computeAllocationJettyAdvice({
+      jetties: portJetties,
+      row: berthingConfirmRow,
+      referenceDateTime,
+      occupancyRows: jettyOccupancyRows,
+    })
+  }, [portJetties, berthingConfirmRow, berthingTb, jettyOccupancyRows])
+
   const planViz = useMemo(() => {
     if (!isPlanCentric) {
       return {
@@ -724,6 +769,24 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       cancelled = true
     }
   }, [isPlanCentric, vesselDetailPlanId])
+
+  useEffect(() => {
+    if (!selectedPortId) {
+      setAllocationLookups(null)
+      return undefined
+    }
+    let alive = true
+    fetchSiLookups()
+      .then((data) => {
+        if (alive) setAllocationLookups(data)
+      })
+      .catch(() => {
+        if (alive) setAllocationLookups(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [selectedPortId])
 
   useEffect(() => {
     if (!selectedPortId) {
@@ -1155,8 +1218,24 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     setArrivalSaving(true)
     setArrivalSaveMsg(null)
 
-    // Validate selected jetty availability before saving arrival update.
+    // Validate selected jetty suitability (LOA / DWT / commodity) before saving.
     const targetJettyId = (arrivalUpdateForm.jetty || '').trim().split('/')[0].trim()
+    if (targetJettyId) {
+      const jettyValidation = validateJettyAdviceSelection({
+        jettyAdvice: arrivalJettyAdvice,
+        selectedJettyShortId: targetJettyId,
+        jetties: portJetties,
+        ctx: { loa: arrivalUpdateForm.vesselLoaM, dwt: arrivalUpdateForm.vesselDwt },
+        t: tSp,
+      })
+      if (!jettyValidation.ok) {
+        setArrivalSaveMsg(jettyValidation.message)
+        setArrivalSaving(false)
+        return
+      }
+    }
+
+    // Validate selected jetty availability before saving arrival update.
     if (targetJettyId) {
       const berth = berthsState.find((b) => b.id === targetJettyId)
       if (!berth) {
@@ -1347,6 +1426,16 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     if (!targetJettyId) {
       errors.push('Please select a jetty.')
     } else {
+      const jettyValidation = validateJettyAdviceSelection({
+        jettyAdvice: berthingJettyAdvice,
+        selectedJettyShortId: targetJettyId,
+        jetties: portJetties,
+        ctx: { loa: berthingConfirmRow.vesselLoaM, dwt: berthingConfirmRow.vesselDwt },
+        t: tSp,
+      })
+      if (!jettyValidation.ok) {
+        errors.push(jettyValidation.message)
+      }
       const berth = berthsState.find((b) => b.id === targetJettyId)
       if (!berth) {
         errors.push(`Jetty ${targetJettyId} not found.`)
@@ -3403,40 +3492,20 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
               <div className="berthing-modal__col-form">
                 <section className="berthing-modal__form-section">
                   <h3 className="berthing-modal__form-section-title">Berthing details</h3>
-                  <div className="berthing-modal__field">
-                    <label htmlFor="berthing-jetty" className="berthing-modal__label">
-                      Jetty allocation <span className="required-star">*</span>
-                    </label>
-                    <select
-                      id="berthing-jetty"
-                      className="berthing-modal__input"
-                      value={berthingSelectedJetty}
-                      onChange={(e) => setBerthingSelectedJetty(e.target.value)}
-                      aria-describedby={berthingErrors.length > 0 ? 'berthing-errors' : undefined}
-                      aria-required="true"
-                    >
-                      <option value="">— Select jetty —</option>
-                      {berthIds.map((jid) => {
-                        const b = berthsState.find((bb) => bb.id === jid)
-                        const cap = b?.capacity != null ? Number(b.capacity) : 1
-                        const occCount =
-                          b?.occupiedCount != null
-                            ? Number(b.occupiedCount)
-                            : b?.currentVesselId
-                              ? 1
-                              : 0
-                        const label =
-                          occCount > 0
-                            ? `${jid} – Occupied (${occCount}/${Math.max(1, cap)})`
-                            : `${jid} – Vacant (0/${Math.max(1, cap)})`
-                        return (
-                          <option key={jid} value={jid}>
-                            {label}
-                          </option>
-                        )
-                      })}
-                    </select>
-                  </div>
+                  <JettyAllocationSelect
+                    id="berthing-jetty"
+                    label="Jetty allocation"
+                    required
+                    value={berthingSelectedJetty}
+                    onChange={(e) => setBerthingSelectedJetty(e.target.value)}
+                    berthIds={berthIds}
+                    berthsState={berthsState}
+                    jetties={portJetties}
+                    jettyAdvice={berthingJettyAdvice}
+                    showOccupancyLabels
+                    placeholder="— Select jetty —"
+                    ariaDescribedBy={berthingErrors.length > 0 ? 'berthing-errors' : undefined}
+                  />
                   <div className="berthing-modal__field">
                     <label htmlFor="berthing-pob" className="berthing-modal__label">Pilot on Board (POB)</label>
                     <input
@@ -3935,20 +4004,16 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                   />
                 </div>
                 )}
-                <div className="berthing-modal__field">
-                  <label htmlFor="arrival-jetty" className="berthing-modal__label">Jetty</label>
-                  <select
-                    id="arrival-jetty"
-                    className="berthing-modal__input"
-                    value={arrivalUpdateForm.jetty || ''}
-                    onChange={(e) => setArrivalUpdateForm((f) => ({ ...f, jetty: e.target.value }))}
-                  >
-                    <option value="">—</option>
-                    {berthIds.map((jid) => (
-                      <option key={jid} value={jid}>{jid}</option>
-                    ))}
-                  </select>
-                </div>
+                <JettyAllocationSelect
+                  id="arrival-jetty"
+                  label="Jetty"
+                  value={arrivalUpdateForm.jetty || ''}
+                  onChange={(e) => setArrivalUpdateForm((f) => ({ ...f, jetty: e.target.value }))}
+                  berthIds={berthIds}
+                  berthsState={berthsState}
+                  jetties={portJetties}
+                  jettyAdvice={arrivalJettyAdvice}
+                />
               </section>
 
               <section className="berthing-modal__form-section">

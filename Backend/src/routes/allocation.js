@@ -353,6 +353,7 @@ function formatListRow(r) {
     purpose: r.purpose || null,
     commodity: r.commodity_display || r.commodity || null,
     commodityDisplay: r.commodity_display || r.commodity || null,
+    commodityIds: Array.isArray(r.commodity_ids) ? r.commodity_ids.map(Number) : [],
     totalQtyDisplay: r.total_qty_display || null,
     cargoBreakdownSummary: Array.isArray(r.cargo_breakdown_summary) ? r.cargo_breakdown_summary : [],
     norDocuments: r.nor_documents ?? [],

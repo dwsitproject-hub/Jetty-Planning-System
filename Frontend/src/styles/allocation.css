@@ -2268,6 +2268,27 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   gap: var(--spacing-1);
 }
 
+.berthing-modal__jetty-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.berthing-modal__jetty-hint {
+  font-size: 0.75rem;
+  margin: 0.2rem 0 0;
+  line-height: 1.35;
+  max-width: 320px;
+}
+
+.berthing-modal__jetty-hint--error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--radius-sm, 4px);
+}
+
 .berthing-modal__label {
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-medium);
