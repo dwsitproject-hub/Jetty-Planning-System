@@ -23,8 +23,12 @@ function jettyPortLabel(j, portNameFn) {
   return j.portName || portNameFn(j.portId)
 }
 
+function commodityDisplayLabel(c) {
+  return c?.shortName ? `${c.shortName} - ${c.name}` : c?.name || ''
+}
+
 function commodityNamesList(commodities) {
-  return Array.isArray(commodities) ? commodities.map((c) => c.name).join(', ') : ''
+  return Array.isArray(commodities) ? commodities.map((c) => commodityDisplayLabel(c)).join(', ') : ''
 }
 
 function JettyCommodityMultiSelect({
@@ -37,10 +41,14 @@ function JettyCommodityMultiSelect({
   commodityMaster,
   emptyHint,
 }) {
-  const filtered = commodityMaster.filter(
-    (c) => !search.trim() || (c.name || '').toLowerCase().includes(search.trim().toLowerCase())
-  )
-  const selectedNames = commodityMaster.filter((c) => selectedIds.includes(c.id)).map((c) => c.name)
+  const filtered = commodityMaster.filter((c) => {
+    const term = search.trim().toLowerCase()
+    if (!term) return true
+    return (c.name || '').toLowerCase().includes(term) || (c.shortName || '').toLowerCase().includes(term)
+  })
+  const selectedNames = commodityMaster
+    .filter((c) => selectedIds.includes(c.id))
+    .map((c) => commodityDisplayLabel(c))
 
   return (
     <div className="modal__section">
@@ -75,7 +83,7 @@ function JettyCommodityMultiSelect({
                 )
               }
             />
-            {c.name}
+            {commodityDisplayLabel(c)}
           </label>
         ))}
         {commodityMaster.length === 0 ? <p className="text-steel">No commodities in Master – Commodity.</p> : null}
