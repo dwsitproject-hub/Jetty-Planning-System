@@ -83,7 +83,7 @@ function schematicMaterialDisplay(r) {
     const names = [...new Set(r.shippingTable.map((row) => row.material).filter(Boolean))]
     if (names.length) return names.join(' - ')
   }
-  return r?.commodity || null
+  return r?.commodityShortDisplay || r?.commodity || null
 }
 
 function getPhaseLink(label, vessel, plannedBerthingPath = '/allocation-plans') {
@@ -861,6 +861,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         materialDisplay: schematicMaterialDisplay(r),
         agent: r.agent || null,
         tbDateTime: r.tbDateTime ?? null,
+        estimatedCompletionDateTime: r.estimatedCompletionDateTime ?? null,
         vesselLoaM: r.vesselLoaM ?? null,
         vesselDraft: r.vesselDraft ?? null,
         vesselDwt: r.vesselDwt ?? null,
@@ -869,6 +870,8 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         totalQtyDisplay: r.totalQtyDisplay || null,
         completionPercent: r.completionPercent != null ? Number(r.completionPercent) : null,
         cargoMovedQty: r.cargoMovedQty != null ? Number(r.cargoMovedQty) : 0,
+        cargoFirstLoggedAt: r.cargoFirstLoggedAt ?? null,
+        cargoLastLoggedAt: r.cargoLastLoggedAt ?? null,
         etaToCompletion: r.estimatedCompletionDateTime ? formatDateTimeDisplay(r.estimatedCompletionDateTime) : '—',
         ragStatus: getEtcBreachRagStatus(r, breachNowMs),
         etcBreach: getEtcBreach(r, breachNowMs),
@@ -889,6 +892,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         materialDisplay: schematicMaterialDisplay(r),
         agent: r.agent || null,
         tbDateTime: r.tbDateTime ?? null,
+        estimatedCompletionDateTime: r.estimatedCompletionDateTime ?? null,
         vesselLoaM: r.vesselLoaM ?? null,
         vesselDraft: r.vesselDraft ?? null,
         vesselDwt: r.vesselDwt ?? null,
@@ -897,6 +901,8 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         totalQtyDisplay: r.totalQtyDisplay || null,
         completionPercent: r.completionPercent != null ? Number(r.completionPercent) : null,
         cargoMovedQty: r.cargoMovedQty != null ? Number(r.cargoMovedQty) : 0,
+        cargoFirstLoggedAt: r.cargoFirstLoggedAt ?? null,
+        cargoLastLoggedAt: r.cargoLastLoggedAt ?? null,
         etaToCompletion: r.estimatedCompletionDateTime ? formatDateTimeDisplay(r.estimatedCompletionDateTime) : '—',
         ragStatus: getEtcBreachRagStatus(r, breachNowMs),
         etcBreach: getEtcBreach(r, breachNowMs),
@@ -919,6 +925,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
           materialDisplay: schematicMaterialDisplay(o),
           agent: o.agent || null,
           tbDateTime: o.tbDateTime ?? null,
+          estimatedCompletionDateTime: o.estimatedCompletionDateTime ?? null,
           vesselLoaM: o.vesselLoaM ?? null,
           vesselDraft: o.vesselDraft ?? null,
           vesselDwt: o.vesselDwt ?? null,
@@ -927,6 +934,8 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
           totalQtyDisplay: o.totalQtyDisplay || null,
           completionPercent: o.completionPercent != null ? Number(o.completionPercent) : null,
           cargoMovedQty: o.cargoMovedQty != null ? Number(o.cargoMovedQty) : 0,
+          cargoFirstLoggedAt: o.cargoFirstLoggedAt ?? null,
+          cargoLastLoggedAt: o.cargoLastLoggedAt ?? null,
           etaToCompletion: o.estimatedCompletionDateTime ? formatDateTimeDisplay(o.estimatedCompletionDateTime) : '—',
           ragStatus: getEtcBreachRagStatus(o, breachNowMs),
           etcBreach: getEtcBreach(o, breachNowMs),

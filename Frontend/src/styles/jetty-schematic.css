@@ -734,7 +734,7 @@ button.jetty-schematic__lane:focus-visible {
   color: #374151;
 }
 
-.jetty-card__agent {
+.jetty-card__tb-etc {
   color: #1d4ed8 !important;
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0.02em;

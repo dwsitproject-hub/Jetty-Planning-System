@@ -11,11 +11,15 @@ export function formatQtyNumber(qty) {
 }
 
 /**
- * @param {Array<{ commodityId?: number, commodity_id?: number, commodityName?: string, commodity_name?: string, metricId?: number, metric_id?: number, metricCode?: string, metric_code?: string, qty?: number }>} breakdownRows
+ * @param {Array<{ commodityId?: number, commodity_id?: number, commodityName?: string, commodity_name?: string, commodityShortName?: string, commodity_short_name?: string, metricId?: number, metric_id?: number, metricCode?: string, metric_code?: string, qty?: number }>} breakdownRows
  */
 export function formatSiCargoDisplay(breakdownRows) {
   if (!Array.isArray(breakdownRows) || breakdownRows.length === 0) {
-    return { commodityDisplay: EMPTY_CARGO_DISPLAY, totalQtyDisplay: EMPTY_CARGO_DISPLAY };
+    return {
+      commodityDisplay: EMPTY_CARGO_DISPLAY,
+      commodityShortDisplay: EMPTY_CARGO_DISPLAY,
+      totalQtyDisplay: EMPTY_CARGO_DISPLAY,
+    };
   }
 
   const byCommodity = new Map();
@@ -25,19 +29,26 @@ export function formatSiCargoDisplay(breakdownRows) {
     const cid = row.commodityId ?? row.commodity_id;
     const key = cid != null ? String(cid) : `name:${(row.commodityName ?? row.commodity_name ?? '').trim()}`;
     const name = (row.commodityName ?? row.commodity_name ?? '').trim();
+    const shortName = (row.commodityShortName ?? row.commodity_short_name ?? '').trim();
     if (!byCommodity.has(key)) {
-      byCommodity.set(key, { name, lines: [] });
+      byCommodity.set(key, { name, shortName, lines: [] });
       commodityOrder.push(key);
     }
     byCommodity.get(key).lines.push(row);
   }
 
   const commodityNames = [];
+  const commodityShortNames = [];
   for (const key of commodityOrder) {
-    const name = byCommodity.get(key).name;
+    const { name, shortName } = byCommodity.get(key);
     if (name && !commodityNames.includes(name)) commodityNames.push(name);
+    const shortOrFull = shortName || name;
+    if (shortOrFull && !commodityShortNames.includes(shortOrFull)) commodityShortNames.push(shortOrFull);
   }
   const commodityDisplay = commodityNames.length ? commodityNames.join(' · ') : EMPTY_CARGO_DISPLAY;
+  const commodityShortDisplay = commodityShortNames.length
+    ? commodityShortNames.join(' · ')
+    : EMPTY_CARGO_DISPLAY;
 
   const qtyParts = [];
   for (const key of commodityOrder) {
@@ -62,17 +73,18 @@ export function formatSiCargoDisplay(breakdownRows) {
   }
 
   const totalQtyDisplay = qtyParts.length ? qtyParts.join('\n') : EMPTY_CARGO_DISPLAY;
-  return { commodityDisplay, totalQtyDisplay };
+  return { commodityDisplay, commodityShortDisplay, totalQtyDisplay };
 }
 
 export function buildCargoBreakdownSummary(shippingInstructionId, referenceNumber, breakdownRows) {
-  const { commodityDisplay, totalQtyDisplay } = formatSiCargoDisplay(breakdownRows);
+  const { commodityDisplay, commodityShortDisplay, totalQtyDisplay } = formatSiCargoDisplay(breakdownRows);
   return {
     shippingInstructionId: shippingInstructionId != null ? Number(shippingInstructionId) : null,
     referenceNumber:
       (referenceNumber || '').trim() ||
       (shippingInstructionId != null ? `SI-${shippingInstructionId}` : null),
     commodityDisplay,
+    commodityShortDisplay,
     totalQtyDisplay,
   };
 }
@@ -91,6 +103,7 @@ export async function loadBreakdownBySiIds(pool, siIds) {
     `SELECT b.shipping_instruction_id,
             b.commodity_id,
             sc.name AS commodity_name,
+            sc.short_name AS commodity_short_name,
             b.metric_id,
             m.code AS metric_code,
             b.qty,
@@ -110,6 +123,7 @@ export async function loadBreakdownBySiIds(pool, siIds) {
     map.get(siId).push({
       commodityId: row.commodity_id,
       commodityName: row.commodity_name,
+      commodityShortName: row.commodity_short_name,
       metricId: row.metric_id,
       metricCode: row.metric_code,
       qty: row.qty != null ? Number(row.qty) : 0,
@@ -127,7 +141,7 @@ export function attachCargoDisplayToRow(row, breakdownMap) {
   const siId =
     row.shipping_instruction_id != null ? Number(row.shipping_instruction_id) : null;
   const breakdown = siId != null ? breakdownMap.get(siId) || [] : [];
-  const { commodityDisplay, totalQtyDisplay } = formatSiCargoDisplay(breakdown);
+  const { commodityDisplay, commodityShortDisplay, totalQtyDisplay } = formatSiCargoDisplay(breakdown);
   const ref = row.reference_number || (siId != null ? `SI-${siId}` : null);
   const commodityIds = [
     ...new Set(
@@ -140,6 +154,7 @@ export function attachCargoDisplayToRow(row, breakdownMap) {
   return {
     ...row,
     commodity_display: commodityDisplay,
+    commodity_short_display: commodityShortDisplay,
     total_qty_display: totalQtyDisplay,
     commodity_ids: commodityIds,
     cargo_breakdown_summary:

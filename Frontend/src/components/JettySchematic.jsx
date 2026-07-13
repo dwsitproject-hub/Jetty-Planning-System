@@ -17,6 +17,7 @@ import {
 } from '../utils/jettyScheduleOccupancy'
 import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { computeCargoProgress } from '../utils/cargoQtyDisplay'
+import { formatGanttMilestoneShort } from '../utils/ganttBarDisplay'
 import VisualizationPopoutButton from './VisualizationPopoutButton'
 import '../styles/jetty-schematic.css'
 
@@ -358,12 +359,23 @@ export default function JettySchematic({
     const displayName = v?.vesselName || occupant?.vesselName || String(vesselId || '—')
     if (!vesselId) return 'Vacant'
     const materialDisplay = formatMaterialDisplay(v)
-    const agent = v?.agent || null
+    const tbMs = parseMs(v?.tbDateTime)
+    const etcMs = parseMs(v?.estimatedCompletionDateTime)
+    const tbEtcLine = `TB ${tbMs != null ? formatGanttMilestoneShort(tbMs) : '—'} · ETC ${
+      etcMs != null ? formatGanttMilestoneShort(etcMs) : '—'
+    }`
 
-    // Cargo progress: actual moved qty (sum of logged Cargo Operations load lines) vs total.
-    const progress = computeCargoProgress(v?.totalQtyDisplay, v?.cargoMovedQty)
+    // Cargo progress: actual moved qty (sum of logged Cargo Operations load lines) vs total,
+    // plus the average hourly rate over the logged Cargo Operations window.
+    const progress = computeCargoProgress(
+      v?.totalQtyDisplay,
+      v?.cargoMovedQty,
+      v?.cargoFirstLoggedAt,
+      v?.cargoLastLoggedAt
+    )
     const cargoLine = progress?.cargoLine ?? null
     const balanceLine = progress?.balanceLine ?? null
+    const rateLine = progress?.rateLine ?? null
 
     return (
       <span className="jetty-slot__inner jetty-card__box">
@@ -382,16 +394,16 @@ export default function JettySchematic({
             {renderCardEtcBadge(v)}
           </span>
         </span>
-        {agent ? <span className="jetty-slot__line jetty-card__agent">{agent}</span> : null}
+        <span className="jetty-slot__line jetty-card__tb-etc">{tbEtcLine}</span>
         <span className="jetty-slot__line jetty-card__cargo jetty-slot__line--material">
           {materialDisplay}
           {cargoLine ? `  ${cargoLine}` : ''}
+          {rateLine ? ` -- ${rateLine}` : ''}
         </span>
         {balanceLine ? (
           <span className="jetty-slot__line jetty-card__balance">{balanceLine}</span>
         ) : null}
         {(() => {
-          const tbMs = parseMs(v?.tbDateTime)
           const dur = tbMs != null && asOfMs > tbMs ? formatDurationShort(asOfMs - tbMs) : null
           return dur ? (
             <span className="jetty-slot__line jetty-card__berthed">

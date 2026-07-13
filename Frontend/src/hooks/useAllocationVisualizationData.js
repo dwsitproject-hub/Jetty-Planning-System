@@ -6,7 +6,7 @@ import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { getEtcBreach, getEtcBreachRagStatus } from '../utils/etcBreach'
 
 function schematicMaterialDisplay(r) {
-  return r?.materialDisplay ?? r?.material ?? r?.commodity ?? '—'
+  return r?.materialDisplay ?? r?.material ?? r?.commodityShortDisplay ?? r?.commodity ?? '—'
 }
 
 function buildVesselById({ planViz, isPlanCentric, breachNowMs }) {
@@ -33,6 +33,7 @@ function buildVesselById({ planViz, isPlanCentric, breachNowMs }) {
       materialDisplay: schematicMaterialDisplay(r),
       agent: r.agent || null,
       tbDateTime: r.tbDateTime ?? null,
+      estimatedCompletionDateTime: r.estimatedCompletionDateTime ?? null,
       vesselLoaM: r.vesselLoaM ?? null,
       vesselDraft: r.vesselDraft ?? null,
       vesselDwt: r.vesselDwt ?? null,
@@ -41,6 +42,8 @@ function buildVesselById({ planViz, isPlanCentric, breachNowMs }) {
       totalQtyDisplay: r.totalQtyDisplay || null,
       completionPercent: r.completionPercent != null ? Number(r.completionPercent) : null,
       cargoMovedQty: r.cargoMovedQty != null ? Number(r.cargoMovedQty) : 0,
+      cargoFirstLoggedAt: r.cargoFirstLoggedAt ?? null,
+      cargoLastLoggedAt: r.cargoLastLoggedAt ?? null,
       etaToCompletion: r.estimatedCompletionDateTime
         ? formatDateTimeDisplay(r.estimatedCompletionDateTime)
         : '—',
@@ -65,6 +68,7 @@ function buildVesselById({ planViz, isPlanCentric, breachNowMs }) {
         materialDisplay: schematicMaterialDisplay(o),
         agent: o.agent || null,
         tbDateTime: o.tbDateTime ?? null,
+        estimatedCompletionDateTime: o.estimatedCompletionDateTime ?? null,
         vesselLoaM: o.vesselLoaM ?? null,
         vesselDraft: o.vesselDraft ?? null,
         vesselDwt: o.vesselDwt ?? null,
@@ -73,6 +77,8 @@ function buildVesselById({ planViz, isPlanCentric, breachNowMs }) {
         totalQtyDisplay: o.totalQtyDisplay || null,
         completionPercent: o.completionPercent != null ? Number(o.completionPercent) : null,
         cargoMovedQty: o.cargoMovedQty != null ? Number(o.cargoMovedQty) : 0,
+        cargoFirstLoggedAt: o.cargoFirstLoggedAt ?? null,
+        cargoLastLoggedAt: o.cargoLastLoggedAt ?? null,
         etaToCompletion: o.estimatedCompletionDateTime
           ? formatDateTimeDisplay(o.estimatedCompletionDateTime)
           : '—',

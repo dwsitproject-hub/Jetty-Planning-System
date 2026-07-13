@@ -148,6 +148,7 @@ function mergePlanChildrenToQueueRow(children, planId, repMapOut, options = {}) 
         label: label || `SI-${num}`,
         siStatus: c.siStatus ?? c.status ?? null,
         commodityDisplay: c.commodityDisplay || c.commodity || '—',
+        commodityShortDisplay: c.commodityShortDisplay || c.commodityDisplay || c.commodity || '—',
         totalQtyDisplay: c.totalQtyDisplay || '—',
       })
     } else if (label && !labelIsPlanRef) {
@@ -159,6 +160,7 @@ function mergePlanChildrenToQueueRow(children, planId, repMapOut, options = {}) 
         label,
         siStatus: c.siStatus ?? c.status ?? null,
         commodityDisplay: c.commodityDisplay || c.commodity || '—',
+        commodityShortDisplay: c.commodityShortDisplay || c.commodityDisplay || c.commodity || '—',
         totalQtyDisplay: c.totalQtyDisplay || '—',
       })
     }
@@ -183,6 +185,13 @@ function mergePlanChildrenToQueueRow(children, planId, repMapOut, options = {}) 
   )
   /** Each child operation's moved qty is additive across the plan's SIs, so sum (not max). */
   const cargoMovedQty = children.reduce((s, c) => s + (Number(c.cargoMovedQty) || 0), 0)
+  /**
+   * Rate is re-derived at the merged level (moved qty / hours between earliest and latest
+   * logged entry across all of the plan's SIs), not merged directly, so span the full logged
+   * window rather than averaging per-child rates.
+   */
+  const cargoFirstLoggedAt = minIsoDateTime(children, 'cargoFirstLoggedAt')
+  const cargoLastLoggedAt = maxIsoDateTime(children, 'cargoLastLoggedAt')
 
   const mergedId =
     idMode === 'representative' && rep?.id != null && rep.id !== ''
@@ -206,6 +215,8 @@ function mergePlanChildrenToQueueRow(children, planId, repMapOut, options = {}) 
     status: mergeStatus(children),
     completionPercent,
     cargoMovedQty,
+    cargoFirstLoggedAt,
+    cargoLastLoggedAt,
     etaDateTime: minIsoDateTime(children, 'etaDateTime'),
     taDateTime: minIsoDateTime(children, 'taDateTime'),
     etbDateTime: minIsoDateTime(children, 'etbDateTime'),
@@ -245,6 +256,19 @@ function mergePlanChildrenToQueueRow(children, planId, repMapOut, options = {}) 
     commodityDisplay:
       [...new Set(planQueueSiEntries.map((e) => e.commodityDisplay).filter((v) => v && v !== '—'))].join(' · ') ||
       [...new Set(children.map((c) => c.commodityDisplay || c.commodity).filter(Boolean))].join(' · ') ||
+      rep?.commodityDisplay ||
+      rep?.commodity ||
+      null,
+    commodityShortDisplay:
+      [...new Set(planQueueSiEntries.map((e) => e.commodityShortDisplay).filter((v) => v && v !== '—'))].join(
+        ' · '
+      ) ||
+      [
+        ...new Set(
+          children.map((c) => c.commodityShortDisplay || c.commodityDisplay || c.commodity).filter(Boolean)
+        ),
+      ].join(' · ') ||
+      rep?.commodityShortDisplay ||
       rep?.commodityDisplay ||
       rep?.commodity ||
       null,
