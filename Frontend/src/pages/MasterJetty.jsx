@@ -513,6 +513,26 @@ export default function MasterJetty() {
               />
             </div>
             <div className="modal__section">
+              <label className="modal__label">Jetty name</label>
+              <input
+                className="modal__input"
+                value={formJettyName}
+                onChange={(e) => setFormJettyName(e.target.value)}
+                maxLength={MAX_MASTER_JETTY_NAME_CHARS}
+                placeholder="e.g. 1A"
+              />
+            </div>
+            <div className="modal__section">
+              <label className="modal__label">Description</label>
+              <textarea
+                className="modal__input modal__textarea"
+                value={formDescription}
+                onChange={(e) => setFormDescription(e.target.value)}
+                maxLength={MAX_MASTER_DESCRIPTION_CHARS}
+                rows={3}
+              />
+            </div>
+            <div className="modal__section">
               <label className="modal__label">Capacity (vessels)</label>
               <input
                 type="number"
@@ -614,26 +634,6 @@ export default function MasterJetty() {
                 Out of service cannot be saved while an active operation still uses this jetty — reassign on
                 Allocation &amp; Berthing first.
               </p>
-            </div>
-            <div className="modal__section">
-              <label className="modal__label">Jetty name</label>
-              <input
-                className="modal__input"
-                value={formJettyName}
-                onChange={(e) => setFormJettyName(e.target.value)}
-                maxLength={MAX_MASTER_JETTY_NAME_CHARS}
-                placeholder="e.g. 1A"
-              />
-            </div>
-            <div className="modal__section">
-              <label className="modal__label">Description</label>
-              <textarea
-                className="modal__input modal__textarea"
-                value={formDescription}
-                onChange={(e) => setFormDescription(e.target.value)}
-                maxLength={MAX_MASTER_DESCRIPTION_CHARS}
-                rows={3}
-              />
             </div>
             <div className="modal__section">
               <label className="modal__label" htmlFor="master-jetty-rtsp">
