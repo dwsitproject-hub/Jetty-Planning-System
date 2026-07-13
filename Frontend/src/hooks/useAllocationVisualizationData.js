@@ -40,6 +40,7 @@ function buildVesselById({ planViz, isPlanCentric, breachNowMs }) {
       vesselCapacity: r.vesselCapacity ?? null,
       totalQtyDisplay: r.totalQtyDisplay || null,
       completionPercent: r.completionPercent != null ? Number(r.completionPercent) : null,
+      cargoMovedQty: r.cargoMovedQty != null ? Number(r.cargoMovedQty) : 0,
       etaToCompletion: r.estimatedCompletionDateTime
         ? formatDateTimeDisplay(r.estimatedCompletionDateTime)
         : '—',
@@ -71,6 +72,7 @@ function buildVesselById({ planViz, isPlanCentric, breachNowMs }) {
         vesselCapacity: o.vesselCapacity ?? null,
         totalQtyDisplay: o.totalQtyDisplay || null,
         completionPercent: o.completionPercent != null ? Number(o.completionPercent) : null,
+        cargoMovedQty: o.cargoMovedQty != null ? Number(o.cargoMovedQty) : 0,
         etaToCompletion: o.estimatedCompletionDateTime
           ? formatDateTimeDisplay(o.estimatedCompletionDateTime)
           : '—',

@@ -16,6 +16,7 @@ import {
   computeScheduleKpis,
 } from '../utils/jettyScheduleOccupancy'
 import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import { computeCargoProgress } from '../utils/cargoQtyDisplay'
 import VisualizationPopoutButton from './VisualizationPopoutButton'
 import '../styles/jetty-schematic.css'
 
@@ -43,36 +44,6 @@ function getOperationType(vessel, occupant) {
   if (/\bLOADING\b/i.test(pl) || /\bLOADING\b/i.test(s)) return 'LOAD'
 
   return 'DISCH'
-}
-
-/**
- * Parse a qty display string ("3.999 MT", "2,500 MT", "1.234,5 KL") into { total, unit }.
- * Handles both id-ID (dot thousands) and en-US (comma thousands) styles; returns null when ambiguous.
- */
-function parseQtyDisplay(display) {
-  if (!display || typeof display !== 'string') return null
-  const line = display.split('\n')[0].trim()
-  const m = line.match(/([\d.,]+)\s*([A-Za-z]+)?/)
-  if (!m) return null
-  let numStr = m[1]
-  const seps = numStr.match(/[.,]/g) || []
-  if (seps.length) {
-    const lastSep = Math.max(numStr.lastIndexOf('.'), numStr.lastIndexOf(','))
-    const trailing = numStr.length - lastSep - 1
-    if (trailing === 3) {
-      numStr = numStr.replace(/[.,]/g, '')
-    } else {
-      const intPart = numStr.slice(0, lastSep).replace(/[.,]/g, '')
-      numStr = `${intPart}.${numStr.slice(lastSep + 1)}`
-    }
-  }
-  const total = Number(numStr)
-  if (!Number.isFinite(total) || total <= 0) return null
-  return { total, unit: m[2] || 'MT' }
-}
-
-function formatQtyNumber(n) {
-  return Math.round(n).toLocaleString('en-US')
 }
 
 /**
@@ -389,20 +360,10 @@ export default function JettySchematic({
     const materialDisplay = formatMaterialDisplay(v)
     const agent = v?.agent || null
 
-    // Cargo progress: done/total + balance derived from totalQtyDisplay × completionPercent
-    const qty = parseQtyDisplay(v?.totalQtyDisplay)
-    const pct = Number(v?.completionPercent)
-    const hasPct = Number.isFinite(pct)
-    let cargoLine = null
-    let balanceLine = null
-    if (qty) {
-      const done = hasPct ? Math.max(0, Math.min(qty.total, (qty.total * pct) / 100)) : null
-      cargoLine =
-        done != null
-          ? `${formatQtyNumber(done)} ${qty.unit} / ${formatQtyNumber(qty.total)} ${qty.unit}`
-          : `${formatQtyNumber(qty.total)} ${qty.unit}`
-      if (done != null) balanceLine = `Balance ${formatQtyNumber(qty.total - done)} ${qty.unit}`
-    }
+    // Cargo progress: actual moved qty (sum of logged Cargo Operations load lines) vs total.
+    const progress = computeCargoProgress(v?.totalQtyDisplay, v?.cargoMovedQty)
+    const cargoLine = progress?.cargoLine ?? null
+    const balanceLine = progress?.balanceLine ?? null
 
     return (
       <span className="jetty-slot__inner jetty-card__box">

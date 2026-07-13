@@ -117,12 +117,21 @@ describe('buildActualBlockModel', () => {
     assert.ok(model.actualCompMs != null)
   })
 
-  it('builds material qty from merged plan row commodityDisplay', () => {
+  it('builds material qty from merged plan row commodityDisplay, defaulting moved qty to 0', () => {
     const model = buildActualBlockModel(
       { vesselName: 'V1', taMs: 10, tbMs: 20 },
       { commodityDisplay: 'CPO', totalQtyDisplay: '5,000 MT' }
     )
-    assert.equal(model.materialQtyLine, 'CPO · 5,000 MT')
+    assert.equal(model.materialQtyLine, 'CPO · 0 MT / 5,000 MT')
+  })
+
+  it('shows actual moved-vs-total progress when cargoMovedQty is logged', () => {
+    const model = buildActualBlockModel(
+      { vesselName: 'V1', taMs: 10, tbMs: 20 },
+      { commodityDisplay: 'CPO', totalQtyDisplay: 'CPO 2,500 MT', cargoMovedQty: 500 }
+    )
+    assert.equal(model.cargoDisplay, 'CPO 500 MT / 2,500 MT')
+    assert.equal(model.materialQtyLine, 'CPO 500 MT / 2,500 MT')
   })
 })
 

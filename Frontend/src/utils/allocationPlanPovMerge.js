@@ -181,6 +181,8 @@ function mergePlanChildrenToQueueRow(children, planId, repMapOut, options = {}) 
     ...children.map((c) => (c.completionPercent != null ? Number(c.completionPercent) : 0)),
     0
   )
+  /** Each child operation's moved qty is additive across the plan's SIs, so sum (not max). */
+  const cargoMovedQty = children.reduce((s, c) => s + (Number(c.cargoMovedQty) || 0), 0)
 
   const mergedId =
     idMode === 'representative' && rep?.id != null && rep.id !== ''
@@ -203,6 +205,7 @@ function mergePlanChildrenToQueueRow(children, planId, repMapOut, options = {}) 
     shiftingOutAt: maxIsoDateTime(children, 'shiftingOutAt'),
     status: mergeStatus(children),
     completionPercent,
+    cargoMovedQty,
     etaDateTime: minIsoDateTime(children, 'etaDateTime'),
     taDateTime: minIsoDateTime(children, 'taDateTime'),
     etbDateTime: minIsoDateTime(children, 'etbDateTime'),

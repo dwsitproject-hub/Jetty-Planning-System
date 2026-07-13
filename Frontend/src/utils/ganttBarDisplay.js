@@ -1,4 +1,5 @@
 import { formatDateTimeDisplay } from './formatDateTimeDisplay.js'
+import { computeCargoProgress } from './cargoQtyDisplay.js'
 
 /** Gantt bar layout constants (keep in sync with allocation.css --gantt-bar-*). */
 export const GANTT_BAR_HEIGHT = 56
@@ -125,6 +126,28 @@ export function buildPlannedBlockModel(seg) {
 }
 
 /**
+ * Replace the trailing "<num> <unit>" portion of a cargo display's first line with the
+ * "<moved> <unit> / <total> <unit>" progress form (e.g. "CRUDE PALM OIL 2,500 MT" becomes
+ * "CRUDE PALM OIL 500 / 2,500 MT"). Only the first line is enhanced — a multi-commodity
+ * display (one line per commodity) keeps its remaining lines unchanged, matching the same
+ * single-commodity limitation as the allocation schematic card.
+ * @param {string | null | undefined} cargoText
+ * @param {number | null | undefined} cargoMovedQty
+ * @returns {string | null}
+ */
+function applyCargoProgress(cargoText, cargoMovedQty) {
+  if (!cargoText || typeof cargoText !== 'string') return cargoText ?? null
+  const lines = cargoText.split('\n')
+  const progress = computeCargoProgress(lines[0], cargoMovedQty)
+  if (!progress) return cargoText
+  const m = lines[0].match(/([\d.,]+)\s*([A-Za-z]+)?\s*$/)
+  if (!m) return cargoText
+  const prefix = lines[0].slice(0, m.index).trimEnd()
+  const newFirstLine = prefix ? `${prefix} ${progress.cargoLine}` : progress.cargoLine
+  return [newFirstLine, ...lines.slice(1)].join('\n')
+}
+
+/**
  * @param {object} seg
  * @param {object | null | undefined} row
  * @returns {object}
@@ -133,6 +156,9 @@ export function buildActualBlockModel(seg, row) {
   const actualCompMs =
     seg.actualCompMs ??
     (row ? parseRowActualCompMs(row) : null)
+
+  const materialDisplay = seg.materialDisplay || (row ? materialDisplayFromRow(row) : null)
+  const cargoDisplay = applyCargoProgress(seg.cargoDisplay || row?.totalQtyDisplay || null, row?.cargoMovedQty)
 
   return {
     vesselName: seg.vesselName || '—',
@@ -144,12 +170,9 @@ export function buildActualBlockModel(seg, row) {
     taMs: seg.taMs ?? null,
     tbMs: seg.tbMs ?? null,
     actualCompMs,
-    materialDisplay: seg.materialDisplay || (row ? materialDisplayFromRow(row) : null),
-    cargoDisplay: seg.cargoDisplay || row?.totalQtyDisplay || null,
-    materialQtyLine: formatMaterialQtyLine(
-      seg.materialDisplay || (row ? materialDisplayFromRow(row) : null),
-      seg.cargoDisplay || row?.totalQtyDisplay
-    ),
+    materialDisplay,
+    cargoDisplay,
+    materialQtyLine: formatMaterialQtyLine(materialDisplay, cargoDisplay),
     estimateLine: formatGanttMilestoneLine([
       { label: 'ETA', ms: seg.etaMs },
       { label: 'ETB', ms: seg.plannedEtbMs },

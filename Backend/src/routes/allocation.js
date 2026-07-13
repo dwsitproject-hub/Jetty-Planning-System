@@ -387,6 +387,7 @@ function formatListRow(r) {
     shiftingOut: Boolean(r.shifting_out),
     shiftingOutAt: r.shifting_out_at || null,
     completionPercent: r.completion_percent != null ? Number(r.completion_percent) : 0,
+    cargoMovedQty: r.cargo_moved_qty != null ? Number(r.cargo_moved_qty) : 0,
     source: r.source_kind,
     operationId: r.operation_id != null ? Number(r.operation_id) : null,
     shippingInstructionId: r.shipping_instruction_id != null ? Number(r.shipping_instruction_id) : null,
@@ -474,6 +475,14 @@ function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = 
         COALESCE(sp.shifting_out, o.shifting_out) AS shifting_out,
         COALESCE(sp.shifting_out_at, o.shifting_out_at) AS shifting_out_at,
         o.completion_percent AS completion_percent,
+        (SELECT COALESCE(SUM(l.qty), 0)::numeric
+         FROM operation_cargo_load_lines l
+         JOIN operation_operational_activities oa ON oa.id = l.operational_activity_id
+         WHERE oa.operation_id = o.id
+           AND oa.deleted_at IS NULL
+           AND oa.entry_type = 'activity'
+           AND oa.milestone_key = 'cargo_operations'
+        ) AS cargo_moved_qty,
         COALESCE(sp.sequence, o.sequence) AS sequence,
         si.shipment_plan_id::bigint AS shipment_plan_id,
         sp.plan_reference AS plan_reference,
