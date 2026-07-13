@@ -68,7 +68,7 @@ function JettyCommodityMultiSelect({
           <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: '0.875rem', cursor: 'pointer' }}>
             <input
               type="checkbox"
-              checked={selectedIds.includes(c.id)}
+              checked={selectedIds.map(String).includes(String(c.id))}
               onChange={(e) =>
                 onSelectedIdsChange(
                   e.target.checked ? [...selectedIds, c.id] : selectedIds.filter((x) => x !== c.id)
@@ -173,8 +173,8 @@ export default function MasterJetty() {
     setFormLengthM(jetty.jettyLengthM != null ? String(jetty.jettyLengthM) : '')
     setFormDraft(jetty.jettyDraft != null ? String(jetty.jettyDraft) : '')
     setFormDwt(jetty.jettyDwt != null ? String(jetty.jettyDwt) : '')
-    setFormUnloadingCommodityIds(Array.isArray(jetty.unloadingCommodities) ? jetty.unloadingCommodities.map((c) => c.id) : [])
-    setFormLoadingCommodityIds(Array.isArray(jetty.loadingCommodities) ? jetty.loadingCommodities.map((c) => c.id) : [])
+    setFormUnloadingCommodityIds(Array.isArray(jetty.unloadingCommodities) ? jetty.unloadingCommodities.map((c) => String(c.id)) : [])
+    setFormLoadingCommodityIds(Array.isArray(jetty.loadingCommodities) ? jetty.loadingCommodities.map((c) => String(c.id)) : [])
     setUnloadingCommoditySearch('')
     setLoadingCommoditySearch('')
     setFormDescription(jetty.description ?? '')
