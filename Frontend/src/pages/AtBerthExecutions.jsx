@@ -6,6 +6,7 @@ import { setOperationShiftingOut } from '../api/operations'
 import { term } from '../i18n/term'
 import SiDetailModal from '../components/SiDetailModal'
 import SiDocumentModal from '../components/SiDocumentModal'
+import VesselInfoModal, { VesselNameButton } from '../components/VesselInfoModal'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { atBerthExecutionOpenPath } from '../utils/atBerthOpenPath'
 import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
@@ -354,6 +355,7 @@ export default function AtBerthExecutions() {
   const [expandedMobileDetailId, setExpandedMobileDetailId] = useState(null)
   const [siDetailId, setSiDetailId] = useState(null)
   const [siDocumentModalId, setSiDocumentModalId] = useState(null)
+  const [vesselInfoPlanId, setVesselInfoPlanId] = useState(null)
 
   const openSiDocumentModal = useCallback((id) => {
     setSiDetailId(null)
@@ -830,7 +832,15 @@ export default function AtBerthExecutions() {
                           <td key={col.key}>
                             {col.key === 'vesselName' ? (
                               <div>
-                                <strong className="at-berth-table__vessel">{g.vesselName}</strong>
+                                <VesselNameButton
+                                  name={g.vesselName}
+                                  onClick={
+                                    g.shiftRow?.shipmentPlanId != null
+                                      ? () => setVesselInfoPlanId(g.shiftRow.shipmentPlanId)
+                                      : undefined
+                                  }
+                                  strong
+                                />
                                 {g.planReference ? (
                                   <span className="text-steel"> · {g.planReference}</span>
                                 ) : null}
@@ -984,7 +994,13 @@ export default function AtBerthExecutions() {
                     className={`allocation-mobile-card${mobileBreach ? ' allocation-mobile-card--etc-breach' : ''}`}
                   >
                     <header className="allocation-mobile-card__header">
-                      <strong>{r.vesselName || '—'}</strong>
+                      <VesselNameButton
+                        name={r.vesselName || '—'}
+                        onClick={
+                          r.shipmentPlanId != null ? () => setVesselInfoPlanId(r.shipmentPlanId) : undefined
+                        }
+                        strong
+                      />
                       <span className="allocation-mobile-card__header-meta">
                         {mobileBreach ? (
                           <Link to={atBerthExecutionOpenPath(r)} className="etc-breach-badge-hit">
@@ -1251,6 +1267,12 @@ export default function AtBerthExecutions() {
         siId={siDocumentModalId}
         onClose={() => setSiDocumentModalId(null)}
         allowPreApprovalPreview
+      />
+      <VesselInfoModal
+        planId={vesselInfoPlanId}
+        isOpen={vesselInfoPlanId != null}
+        onClose={() => setVesselInfoPlanId(null)}
+        onSaved={() => load().catch(() => {})}
       />
     </div>
   )

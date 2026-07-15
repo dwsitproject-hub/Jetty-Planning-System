@@ -277,7 +277,11 @@ router.get('/', async (_req, res) => {
     ),
     pool.query(`SELECT id, name, sort_order FROM si_agents WHERE deleted_at IS NULL ORDER BY sort_order, name`),
     pool.query(
-      `SELECT j.id, j.name, j.port_id, p.name AS port_name
+      `SELECT j.id, j.name, j.port_id, j.jetty_length_m, j.jetty_draft, j.jetty_dwt, j.status, p.name AS port_name,
+              (SELECT COALESCE(json_agg(jc.commodity_id), '[]'::json)
+               FROM jetty_commodities jc WHERE jc.jetty_id = j.id AND jc.operational_purpose = 'Unloading') AS unloading_commodity_ids,
+              (SELECT COALESCE(json_agg(jc.commodity_id), '[]'::json)
+               FROM jetty_commodities jc WHERE jc.jetty_id = j.id AND jc.operational_purpose = 'Loading') AS loading_commodity_ids
        FROM jetties j
        JOIN ports p ON j.port_id = p.id AND p.deleted_at IS NULL
        WHERE j.deleted_at IS NULL
@@ -333,6 +337,12 @@ router.get('/', async (_req, res) => {
       portId: r.port_id,
       portName: r.port_name,
       label: `${r.port_name} — ${r.name}`,
+      status: r.status ?? null,
+      jettyLengthM: r.jetty_length_m != null ? Number(r.jetty_length_m) : null,
+      jettyDraft: r.jetty_draft != null ? Number(r.jetty_draft) : null,
+      jettyDwt: r.jetty_dwt != null ? Number(r.jetty_dwt) : null,
+      unloadingCommodityIds: Array.isArray(r.unloading_commodity_ids) ? r.unloading_commodity_ids.map(Number) : [],
+      loadingCommodityIds: Array.isArray(r.loading_commodity_ids) ? r.loading_commodity_ids.map(Number) : [],
     })),
     metrics: metrics.rows.map((r) => ({
       id: r.id,

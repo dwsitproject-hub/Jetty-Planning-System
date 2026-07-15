@@ -26,6 +26,12 @@ function normalizeSiDetail(row) {
     status: row.status || '—',
     source: row.source || ((row.purpose || '').toLowerCase() === 'unloading' ? 'External' : 'Internal'),
     vessel: row.vesselName || '—',
+    vesselCapacity:
+      row.vesselCapacity != null && row.vesselCapacity !== '' ? Number(row.vesselCapacity).toLocaleString() : '—',
+    vesselLoa: row.vesselLoaM != null ? Number(row.vesselLoaM).toLocaleString() : '—',
+    vesselGt: row.vesselGrossTonnage != null ? Number(row.vesselGrossTonnage).toLocaleString() : '—',
+    vesselDraft: row.vesselDraft != null ? Number(row.vesselDraft).toLocaleString() : '—',
+    vesselDwt: row.vesselDwt != null ? Number(row.vesselDwt).toLocaleString() : '—',
     purpose: row.purpose || '—',
     jetty: row.preferredJettyName || row.jetty || '—',
     etaFrom: row.etaFrom || null,
@@ -240,6 +246,11 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
               <dt>{t('dtStatus')}</dt><dd>{emptyToDash(detail.status)}</dd>
               <dt>{t('dtSource')}</dt><dd>{emptyToDash(detail.source)}</dd>
               <dt>{t('dtVessel')}</dt><dd>{emptyToDash(detail.vessel)}</dd>
+              <dt>{t('dtVesselCapacity')}</dt><dd>{emptyToDash(detail.vesselCapacity)}</dd>
+              <dt>{t('dtVesselLoa')}</dt><dd>{emptyToDash(detail.vesselLoa)}</dd>
+              <dt>{t('dtVesselGt')}</dt><dd>{emptyToDash(detail.vesselGt)}</dd>
+              <dt>{t('dtVesselDraft')}</dt><dd>{emptyToDash(detail.vesselDraft)}</dd>
+              <dt>{t('dtVesselDwt')}</dt><dd>{emptyToDash(detail.vesselDwt)}</dd>
               <dt>{t('dtPurpose')}</dt><dd>{emptyToDash(detail.purpose)}</dd>
               <dt>{t('dtJetty')}</dt><dd>{emptyToDash(detail.jetty)}</dd>
               <dt>{t('dtEtaFrom')}</dt><dd>{formatDateDisplay(detail.etaFrom)}</dd>

@@ -14,6 +14,7 @@ import { resolveUploadUrl } from '../api/client'
 import FilePreviewLink from '../components/FilePreviewLink'
 import SiDetailModal from '../components/SiDetailModal'
 import SiDocumentModal from '../components/SiDocumentModal'
+import VesselInfoModal, { VesselNameButton } from '../components/VesselInfoModal'
 import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
 import '../styles/allocation.css'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
@@ -136,6 +137,7 @@ export default function Verification() {
   const [signoffBusyId, setSignoffBusyId] = useState(null)
   const [timelineMaxAtByKey, setTimelineMaxAtByKey] = useState({})
   const [siDetailId, setSiDetailId] = useState(null)
+  const [vesselInfoPlanId, setVesselInfoPlanId] = useState(null)
   const [siDocumentModalId, setSiDocumentModalId] = useState(null)
 
   const openSiDocumentModal = useCallback((id) => {
@@ -635,6 +637,12 @@ export default function Verification() {
                             )
                           ) : col.key === 'commodityQty' ? (
                             renderCommodityQtyCell(v)
+                          ) : col.key === 'vesselName' && v.shipmentPlanId != null ? (
+                            <VesselNameButton
+                              name={v.vesselName || '—'}
+                              onClick={() => setVesselInfoPlanId(v.shipmentPlanId)}
+                              strong
+                            />
                           ) : (
                             col.getValue(v)
                           )}
@@ -1034,6 +1042,12 @@ export default function Verification() {
         isOpen={Boolean(siDocumentModalId)}
         siId={siDocumentModalId}
         onClose={() => setSiDocumentModalId(null)}
+      />
+      <VesselInfoModal
+        planId={vesselInfoPlanId}
+        isOpen={vesselInfoPlanId != null}
+        onClose={() => setVesselInfoPlanId(null)}
+        onSaved={() => load().catch(() => {})}
       />
     </div>
   )

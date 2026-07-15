@@ -285,7 +285,8 @@ html.allocation-viz-popout-open #root {
   height: 32px;
 }
 
-.jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__reset {
+.jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__reset,
+.jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__export {
   min-height: 32px;
   height: 32px;
   padding: 4px 12px;
@@ -1371,8 +1372,16 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   gap: var(--spacing-2) var(--spacing-3);
   width: 100%;
+}
+
+.allocation-plan-status-filter__left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2) var(--spacing-3);
 }
 
 .allocation-plan-status-filter__toggles {
@@ -2257,6 +2266,27 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-1);
+}
+
+.berthing-modal__jetty-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.berthing-modal__jetty-hint {
+  font-size: 0.75rem;
+  margin: 0.2rem 0 0;
+  line-height: 1.35;
+  max-width: 320px;
+}
+
+.berthing-modal__jetty-hint--error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--radius-sm, 4px);
 }
 
 .berthing-modal__label {
@@ -5493,4 +5523,142 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
 .jetty-schedule-gantt__confirm-table th {
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-steel);
+}
+
+/* Allocation plan JPG export */
+.allocation-export-menu {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-end;
+}
+
+.allocation-export-menu__panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 280px;
+  max-width: 320px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid var(--color-border-light, #e5e7eb);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.allocation-export-menu__title {
+  margin: 0 0 10px;
+  font-size: var(--font-size-sm, 0.875rem);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-text-strong, #1f2937);
+}
+
+.allocation-export-menu__option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: var(--font-size-sm, 0.875rem);
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.allocation-export-menu__option input {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.allocation-export-menu__hint,
+.allocation-export-menu__error {
+  margin: 0 0 8px;
+  font-size: var(--font-size-xs, 0.75rem);
+}
+
+.allocation-export-menu__hint {
+  color: var(--color-text-steel, #6b7280);
+}
+
+.allocation-export-menu__error {
+  color: var(--color-danger, #dc2626);
+}
+
+.allocation-export-menu__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.allocation-column-menu {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
+.allocation-column-menu__trigger {
+  white-space: nowrap;
+}
+
+.allocation-column-menu__panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 220px;
+  max-width: 280px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid var(--color-border-light, #e5e7eb);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.allocation-column-menu__title {
+  margin: 0 0 10px;
+  font-size: var(--font-size-sm, 0.875rem);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-text-strong, #1f2937);
+}
+
+.allocation-column-menu__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.allocation-column-menu__option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: var(--font-size-sm, 0.875rem);
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.allocation-column-menu__option:last-child {
+  margin-bottom: 0;
+}
+
+.allocation-column-menu__option input {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.allocation-export-schematic--capturing,
+.allocation-export-queue-table--capturing {
+  overflow: visible;
+  max-height: none;
+  background: #fff;
+}
+
+.allocation-export-schematic--capturing .jetty-schematic-wrap {
+  overflow: visible;
+}
+
+.allocation-export-queue-table--capturing .table-wrap {
+  overflow: visible;
+  max-width: none;
 }

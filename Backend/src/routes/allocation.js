@@ -343,11 +343,21 @@ function formatListRow(r) {
     sequence: r.sequence != null ? Number(r.sequence) : null,
     vesselId: r.vessel_id,
     vesselName: r.vessel_name,
+    vesselCapacity: r.vessel_capacity != null ? Number(r.vessel_capacity) : null,
+    vesselLoaM: r.vessel_loa_m != null ? Number(r.vessel_loa_m) : null,
+    vesselGrossTonnage: r.vessel_gross_tonnage != null ? Number(r.vessel_gross_tonnage) : null,
+    vesselDraft: r.vessel_draft != null ? Number(r.vessel_draft) : null,
+    vesselDwt: r.vessel_dwt != null ? Number(r.vessel_dwt) : null,
     shippingInstruction: r.reference_number || (r.shipping_instruction_id ? `SI-${r.shipping_instruction_id}` : '—'),
     priority: r.priority || null,
     purpose: r.purpose || null,
     commodity: r.commodity_display || r.commodity || null,
     commodityDisplay: r.commodity_display || r.commodity || null,
+    commodityShortDisplay:
+      r.commodity_short_display && r.commodity_short_display !== '—'
+        ? r.commodity_short_display
+        : (r.commodity_display || r.commodity || null),
+    commodityIds: Array.isArray(r.commodity_ids) ? r.commodity_ids.map(Number) : [],
     totalQtyDisplay: r.total_qty_display || null,
     cargoBreakdownSummary: Array.isArray(r.cargo_breakdown_summary) ? r.cargo_breakdown_summary : [],
     norDocuments: r.nor_documents ?? [],
@@ -381,6 +391,9 @@ function formatListRow(r) {
     shiftingOut: Boolean(r.shifting_out),
     shiftingOutAt: r.shifting_out_at || null,
     completionPercent: r.completion_percent != null ? Number(r.completion_percent) : 0,
+    cargoMovedQty: r.cargo_moved_qty != null ? Number(r.cargo_moved_qty) : 0,
+    cargoFirstLoggedAt: r.cargo_first_started_at || null,
+    cargoLastLoggedAt: r.cargo_last_ended_at || null,
     source: r.source_kind,
     operationId: r.operation_id != null ? Number(r.operation_id) : null,
     shippingInstructionId: r.shipping_instruction_id != null ? Number(r.shipping_instruction_id) : null,
@@ -468,6 +481,9 @@ function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = 
         COALESCE(sp.shifting_out, o.shifting_out) AS shifting_out,
         COALESCE(sp.shifting_out_at, o.shifting_out_at) AS shifting_out_at,
         o.completion_percent AS completion_percent,
+        cargo_agg.moved_qty AS cargo_moved_qty,
+        cargo_agg.first_started_at AS cargo_first_started_at,
+        cargo_agg.last_ended_at AS cargo_last_ended_at,
         COALESCE(sp.sequence, o.sequence) AS sequence,
         si.shipment_plan_id::bigint AS shipment_plan_id,
         sp.plan_reference AS plan_reference,
@@ -475,6 +491,7 @@ function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = 
         COALESCE(sp.priority, o.priority) AS priority,
         COALESCE(sp.remark, o.remark) AS remark,
         sp.vessel_name,
+        sp.vessel_capacity, sp.vessel_loa_m, sp.vessel_gross_tonnage, sp.vessel_draft, sp.vessel_dwt,
         si.reference_number,
         ${SI_COMMODITY} AS commodity,
         COALESCE((
@@ -537,6 +554,17 @@ function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = 
      LEFT JOIN si_loading_ports lp ON lp.id = si.loading_port_id AND lp.deleted_at IS NULL
      LEFT JOIN jetties j ON j.id = COALESCE(sp.jetty_id, o.jetty_id) AND j.deleted_at IS NULL
      LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
+     LEFT JOIN LATERAL (
+       SELECT COALESCE(SUM(l.qty), 0)::numeric AS moved_qty,
+              MIN(l.started_at) AS first_started_at,
+              MAX(l.ended_at) AS last_ended_at
+       FROM operation_cargo_load_lines l
+       JOIN operation_operational_activities oa ON oa.id = l.operational_activity_id
+       WHERE oa.operation_id = o.id
+         AND oa.deleted_at IS NULL
+         AND oa.entry_type = 'activity'
+         AND oa.milestone_key = 'cargo_operations'
+     ) cargo_agg ON true
      WHERE o.deleted_at IS NULL
        AND COALESCE(o.port_id, p.id) = $2
        ${statusFilter}
@@ -597,6 +625,7 @@ async function buildAllocationOverviewPayload(selectedPortId) {
         sp.priority AS priority,
         sp.remark AS remark,
         sp.vessel_name,
+        sp.vessel_capacity, sp.vessel_loa_m, sp.vessel_gross_tonnage, sp.vessel_draft, sp.vessel_dwt,
         si.reference_number,
         ${SI_COMMODITY} AS commodity,
         sp.no_pkk AS no_pkk,
@@ -667,6 +696,7 @@ async function buildAllocationOverviewPayload(selectedPortId) {
         sp.priority AS priority,
         sp.remark AS remark,
         sp.vessel_name,
+        sp.vessel_capacity, sp.vessel_loa_m, sp.vessel_gross_tonnage, sp.vessel_draft, sp.vessel_dwt,
         NULL::text AS reference_number,
         NULL::text AS commodity,
         sp.no_pkk AS no_pkk,

@@ -1,4 +1,5 @@
 import { formatDateTimeDisplay } from './formatDateTimeDisplay.js'
+import { computeCargoProgress } from './cargoQtyDisplay.js'
 
 /** Gantt bar layout constants (keep in sync with allocation.css --gantt-bar-*). */
 export const GANTT_BAR_HEIGHT = 56
@@ -13,7 +14,7 @@ export function materialDisplayFromRow(r) {
     const names = [...new Set(r.shippingTable.map((row) => row.material).filter(Boolean))]
     if (names.length) return names.join(' - ')
   }
-  return r?.commodityDisplay || r?.commodity || r?.materialDisplay || null
+  return r?.commodityShortDisplay || r?.commodityDisplay || r?.commodity || r?.materialDisplay || null
 }
 
 /**
@@ -125,6 +126,30 @@ export function buildPlannedBlockModel(seg) {
 }
 
 /**
+ * Replace a cargo display's first line with the "<moved> <unit> / <total> <unit> -- Rate
+ * <rate> <unit> / Hour" progress form (e.g. "CRUDE PALM OIL 2,500 MT" becomes
+ * "500 MT / 2,500 MT -- Rate 30 MT / Hour"). The commodity name itself is deliberately dropped
+ * from this line (same as the allocation schematic card's cargoLine) so `formatMaterialQtyLine`
+ * can prefix it with the short commodity name without risking a duplicated/mismatched name when
+ * the short and full commodity names differ. Only the first line is enhanced — a multi-commodity
+ * display (one line per commodity) keeps its remaining lines unchanged, matching the same
+ * single-commodity limitation as the allocation schematic card.
+ * @param {string | null | undefined} cargoText
+ * @param {number | null | undefined} cargoMovedQty
+ * @param {string | null | undefined} [cargoFirstLoggedAt]
+ * @param {string | null | undefined} [cargoLastLoggedAt]
+ * @returns {string | null}
+ */
+function applyCargoProgress(cargoText, cargoMovedQty, cargoFirstLoggedAt, cargoLastLoggedAt) {
+  if (!cargoText || typeof cargoText !== 'string') return cargoText ?? null
+  const lines = cargoText.split('\n')
+  const progress = computeCargoProgress(lines[0], cargoMovedQty, cargoFirstLoggedAt, cargoLastLoggedAt)
+  if (!progress) return cargoText
+  const newFirstLine = `${progress.cargoLine} -- ${progress.rateLine}`
+  return [newFirstLine, ...lines.slice(1)].join('\n')
+}
+
+/**
  * @param {object} seg
  * @param {object | null | undefined} row
  * @returns {object}
@@ -133,6 +158,14 @@ export function buildActualBlockModel(seg, row) {
   const actualCompMs =
     seg.actualCompMs ??
     (row ? parseRowActualCompMs(row) : null)
+
+  const materialDisplay = seg.materialDisplay || (row ? materialDisplayFromRow(row) : null)
+  const cargoDisplay = applyCargoProgress(
+    seg.cargoDisplay || row?.totalQtyDisplay || null,
+    row?.cargoMovedQty,
+    row?.cargoFirstLoggedAt,
+    row?.cargoLastLoggedAt
+  )
 
   return {
     vesselName: seg.vesselName || '—',
@@ -144,12 +177,9 @@ export function buildActualBlockModel(seg, row) {
     taMs: seg.taMs ?? null,
     tbMs: seg.tbMs ?? null,
     actualCompMs,
-    materialDisplay: seg.materialDisplay || (row ? materialDisplayFromRow(row) : null),
-    cargoDisplay: seg.cargoDisplay || row?.totalQtyDisplay || null,
-    materialQtyLine: formatMaterialQtyLine(
-      seg.materialDisplay || (row ? materialDisplayFromRow(row) : null),
-      seg.cargoDisplay || row?.totalQtyDisplay
-    ),
+    materialDisplay,
+    cargoDisplay,
+    materialQtyLine: formatMaterialQtyLine(materialDisplay, cargoDisplay),
     estimateLine: formatGanttMilestoneLine([
       { label: 'ETA', ms: seg.etaMs },
       { label: 'ETB', ms: seg.plannedEtbMs },

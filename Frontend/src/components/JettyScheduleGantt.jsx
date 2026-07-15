@@ -806,8 +806,8 @@ export default function JettyScheduleGantt({
           title={tAlloc('ganttExportJpegHint', { defaultValue: 'Export the current view (date range) as a JPEG image' })}
         >
           {exporting
-            ? tAlloc('ganttExporting', { defaultValue: 'Exporting…' })
-            : tAlloc('ganttExportJpeg', { defaultValue: 'Export JPEG' })}
+            ? tAlloc('exportExporting', { defaultValue: 'Exporting…' })
+            : tAlloc('exportButton', { defaultValue: 'Export' })}
         </button>
       </div>
 
