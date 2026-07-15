@@ -10,6 +10,7 @@ import { FilePreviewProvider } from './context/FilePreviewContext'
 import Login from './pages/Login'
 import SelectPort from './pages/SelectPort'
 import DashboardV2 from './pages/DashboardV2'
+import ManagementDashboard from './pages/ManagementDashboard'
 import ShipmentPlansList from './pages/ShipmentPlansList'
 import ShipmentPlanHub from './pages/ShipmentPlanHub'
 import ShipmentPlanApproval from './pages/ShipmentPlanApproval'
@@ -69,6 +70,7 @@ function App() {
                 <Route path="/select-port" element={<SelectPort />} />
                 <Route element={<AppShell />}>
                   <Route path="/" element={<DashboardV2 />} />
+                  <Route path="/management-dashboard" element={<ManagementDashboard />} />
                   <Route path="/dashboard-v2" element={<Navigate to="/" replace />} />
                   <Route path="/jetty-live" element={<JettyLive />} />
                   <Route
