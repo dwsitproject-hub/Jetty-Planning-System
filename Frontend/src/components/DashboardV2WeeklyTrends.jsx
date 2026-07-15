@@ -349,6 +349,42 @@ export default function DashboardV2WeeklyTrends({
       </div>
 
       <div className="v2-weekly__block">
+        <div className="v2-weekly__block-title">{t('v2WeeklyQtyTitle')}</div>
+        <WeeklyLineChart
+          weekLabels={weekLabels}
+          yTitle={t('v2WeeklyAxisMt')}
+          xAxisTitle={t('v2WeeklyAxisWeek')}
+          ariaLabel={`${t('v2WeeklyQtyTitle')}. ${rangeSub}`}
+          weekTooltip={{
+            subtitle: `${t('v2WeeklyQtyTitle')} · ${rangeSub}`,
+            placement: 'left',
+            itemsForWeek: (i) => {
+              const w = data[i]
+              return [
+                {
+                  primary: t('v2WeeklyQtyLegend'),
+                  secondary: `${Number(w.sailedQtyMt ?? 0).toLocaleString()} MT`,
+                },
+                {
+                  primary: t('v2WeeklyLegendSailed'),
+                  secondary: String(w.sailedCount ?? 0),
+                },
+              ]
+            },
+          }}
+          series={[
+            {
+              key: 'qty',
+              color: 'var(--v2-chart-approved)',
+              values: data.map((w) => Number(w.sailedQtyMt ?? 0)),
+              pointTitle: (i) =>
+                `${weekLabels[i]}: ${Number(data[i].sailedQtyMt ?? 0).toLocaleString()} MT`,
+            },
+          ]}
+        />
+      </div>
+
+      <div className="v2-weekly__block">
         <div className="v2-weekly__block-title">{t('v2WeeklySlaTitle')}</div>
         <WeeklyLineChart
           weekLabels={weekLabels}
