@@ -143,6 +143,7 @@
   "v2PipelineActualsAtBerthSub": "TB dicatat dalam rentang",
   "v2PipelineActualsReadySub": "Sign-off disetujui dalam rentang",
   "v2PipelineActualsSailedSub": "Lepas tali dalam rentang",
+  "v2PipelineActualsTooltipEmpty": "Tidak ada kapal di tahap ini untuk rentang yang dipilih.",
 
   "v2ChartTitle": "Aktivitas pelabuhan",
   "v2ChartToggleOps": "Operasi",

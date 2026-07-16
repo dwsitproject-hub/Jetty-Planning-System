@@ -350,14 +350,24 @@ export default function DashboardV2() {
         purposes: selectedPurposes,
         commodityIds: selectedCommodityIds,
       })
+      const toVesselList = (v) => (Array.isArray(v) ? v.map((x) => ({
+        vesselName: x?.vesselName ?? null,
+        purpose: x?.purpose ?? null,
+      })) : [])
       if (data && typeof data === 'object') {
         setPipelineActuals({
           shipmentRequest: Number(data.shipmentRequest) || 0,
+          shipmentRequestVessels: toVesselList(data.shipmentRequestVessels),
           incoming: Number(data.incoming) || 0,
+          incomingVessels: toVesselList(data.incomingVessels),
           plannedBerthing: Number(data.plannedBerthing) || 0,
+          plannedBerthingVessels: toVesselList(data.plannedBerthingVessels),
           atBerth: Number(data.atBerth) || 0,
+          atBerthVessels: toVesselList(data.atBerthVessels),
           readyToSail: Number(data.readyToSail) || 0,
+          readyToSailVessels: toVesselList(data.readyToSailVessels),
           sailed: Number(data.sailed) || 0,
+          sailedVessels: toVesselList(data.sailedVessels),
         })
       } else {
         setPipelineActuals(null)
@@ -1131,69 +1141,141 @@ export default function DashboardV2() {
               role="navigation"
               aria-label={t('v2PipelineActualsTitle')}
             >
-              <Link to="/shipment-plans" className="v2-pipeline__stage v2-pipeline__stage--request">
-                <div className="v2-pipeline__stage-icon">📝</div>
-                <div className="v2-pipeline__stage-body">
-                  <div className="v2-pipeline__stage-label">{t('v2PipelineRequest')}</div>
-                  <div className="v2-pipeline__stage-count">{pipelineActuals?.shipmentRequest ?? (pipelineActualsLoading ? '—' : 0)}</div>
-                  <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsRequestSub')}</div>
-                </div>
-              </Link>
+              <InteractiveTooltip
+                title={t('v2PipelineRequest')}
+                subtitle={`${dateRangeLabel} · n=${pipelineActuals?.shipmentRequest ?? 0}`}
+                items={(pipelineActuals?.shipmentRequestVessels ?? []).map((v) => ({
+                  primary: v.vesselName || '—',
+                  secondary: v.purpose || '—',
+                }))}
+                emptyText={t('v2PipelineActualsTooltipEmpty')}
+                placement="right"
+                interactiveChild
+              >
+                <Link to="/shipment-plans" className="v2-pipeline__stage v2-pipeline__stage--request">
+                  <div className="v2-pipeline__stage-icon">📝</div>
+                  <div className="v2-pipeline__stage-body">
+                    <div className="v2-pipeline__stage-label">{t('v2PipelineRequest')}</div>
+                    <div className="v2-pipeline__stage-count">{pipelineActuals?.shipmentRequest ?? (pipelineActualsLoading ? '—' : 0)}</div>
+                    <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsRequestSub')}</div>
+                  </div>
+                </Link>
+              </InteractiveTooltip>
 
               <span className="v2-pipeline__arrow" aria-hidden>›</span>
 
-              <Link to="/allocation-plans" className="v2-pipeline__stage v2-pipeline__stage--incoming">
-                <div className="v2-pipeline__stage-icon">🛳️</div>
-                <div className="v2-pipeline__stage-body">
-                  <div className="v2-pipeline__stage-label">{t('v2PipelineIncoming')}</div>
-                  <div className="v2-pipeline__stage-count">{pipelineActuals?.incoming ?? (pipelineActualsLoading ? '—' : 0)}</div>
-                  <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsIncomingSub')}</div>
-                </div>
-              </Link>
+              <InteractiveTooltip
+                title={t('v2PipelineIncoming')}
+                subtitle={`${dateRangeLabel} · n=${pipelineActuals?.incoming ?? 0}`}
+                items={(pipelineActuals?.incomingVessels ?? []).map((v) => ({
+                  primary: v.vesselName || '—',
+                  secondary: v.purpose || '—',
+                }))}
+                emptyText={t('v2PipelineActualsTooltipEmpty')}
+                placement="right"
+                interactiveChild
+              >
+                <Link to="/allocation-plans" className="v2-pipeline__stage v2-pipeline__stage--incoming">
+                  <div className="v2-pipeline__stage-icon">🛳️</div>
+                  <div className="v2-pipeline__stage-body">
+                    <div className="v2-pipeline__stage-label">{t('v2PipelineIncoming')}</div>
+                    <div className="v2-pipeline__stage-count">{pipelineActuals?.incoming ?? (pipelineActualsLoading ? '—' : 0)}</div>
+                    <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsIncomingSub')}</div>
+                  </div>
+                </Link>
+              </InteractiveTooltip>
 
               <span className="v2-pipeline__arrow" aria-hidden>›</span>
 
-              <Link to="/allocation-plans" className="v2-pipeline__stage v2-pipeline__stage--planned">
-                <div className="v2-pipeline__stage-icon">⚓</div>
-                <div className="v2-pipeline__stage-body">
-                  <div className="v2-pipeline__stage-label">{t('pipelinePlannedBerthing')}</div>
-                  <div className="v2-pipeline__stage-count">{pipelineActuals?.plannedBerthing ?? (pipelineActualsLoading ? '—' : 0)}</div>
-                  <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsPlannedSub')}</div>
-                </div>
-              </Link>
+              <InteractiveTooltip
+                title={t('pipelinePlannedBerthing')}
+                subtitle={`${dateRangeLabel} · n=${pipelineActuals?.plannedBerthing ?? 0}`}
+                items={(pipelineActuals?.plannedBerthingVessels ?? []).map((v) => ({
+                  primary: v.vesselName || '—',
+                  secondary: v.purpose || '—',
+                }))}
+                emptyText={t('v2PipelineActualsTooltipEmpty')}
+                placement="right"
+                interactiveChild
+              >
+                <Link to="/allocation-plans" className="v2-pipeline__stage v2-pipeline__stage--planned">
+                  <div className="v2-pipeline__stage-icon">⚓</div>
+                  <div className="v2-pipeline__stage-body">
+                    <div className="v2-pipeline__stage-label">{t('pipelinePlannedBerthing')}</div>
+                    <div className="v2-pipeline__stage-count">{pipelineActuals?.plannedBerthing ?? (pipelineActualsLoading ? '—' : 0)}</div>
+                    <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsPlannedSub')}</div>
+                  </div>
+                </Link>
+              </InteractiveTooltip>
 
               <span className="v2-pipeline__arrow" aria-hidden>›</span>
 
-              <Link to="/at-berth" className="v2-pipeline__stage v2-pipeline__stage--atberth">
-                <div className="v2-pipeline__stage-icon">🚢</div>
-                <div className="v2-pipeline__stage-body">
-                  <div className="v2-pipeline__stage-label">{t('pipelineAtBerth')}</div>
-                  <div className="v2-pipeline__stage-count">{pipelineActuals?.atBerth ?? (pipelineActualsLoading ? '—' : 0)}</div>
-                  <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsAtBerthSub')}</div>
-                </div>
-              </Link>
+              <InteractiveTooltip
+                title={t('pipelineAtBerth')}
+                subtitle={`${dateRangeLabel} · n=${pipelineActuals?.atBerth ?? 0}`}
+                items={(pipelineActuals?.atBerthVessels ?? []).map((v) => ({
+                  primary: v.vesselName || '—',
+                  secondary: v.purpose || '—',
+                }))}
+                emptyText={t('v2PipelineActualsTooltipEmpty')}
+                placement="right"
+                interactiveChild
+              >
+                <Link to="/at-berth" className="v2-pipeline__stage v2-pipeline__stage--atberth">
+                  <div className="v2-pipeline__stage-icon">🚢</div>
+                  <div className="v2-pipeline__stage-body">
+                    <div className="v2-pipeline__stage-label">{t('pipelineAtBerth')}</div>
+                    <div className="v2-pipeline__stage-count">{pipelineActuals?.atBerth ?? (pipelineActualsLoading ? '—' : 0)}</div>
+                    <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsAtBerthSub')}</div>
+                  </div>
+                </Link>
+              </InteractiveTooltip>
 
               <span className="v2-pipeline__arrow" aria-hidden>›</span>
 
-              <Link to="/verification" className="v2-pipeline__stage v2-pipeline__stage--readytosail">
-                <div className="v2-pipeline__stage-icon">✅</div>
-                <div className="v2-pipeline__stage-body">
-                  <div className="v2-pipeline__stage-label">{t('v2PipelineReadyToSail')}</div>
-                  <div className="v2-pipeline__stage-count">{pipelineActuals?.readyToSail ?? (pipelineActualsLoading ? '—' : 0)}</div>
-                  <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsReadySub')}</div>
-                </div>
-              </Link>
+              <InteractiveTooltip
+                title={t('v2PipelineReadyToSail')}
+                subtitle={`${dateRangeLabel} · n=${pipelineActuals?.readyToSail ?? 0}`}
+                items={(pipelineActuals?.readyToSailVessels ?? []).map((v) => ({
+                  primary: v.vesselName || '—',
+                  secondary: v.purpose || '—',
+                }))}
+                emptyText={t('v2PipelineActualsTooltipEmpty')}
+                placement="right"
+                interactiveChild
+              >
+                <Link to="/verification" className="v2-pipeline__stage v2-pipeline__stage--readytosail">
+                  <div className="v2-pipeline__stage-icon">✅</div>
+                  <div className="v2-pipeline__stage-body">
+                    <div className="v2-pipeline__stage-label">{t('v2PipelineReadyToSail')}</div>
+                    <div className="v2-pipeline__stage-count">{pipelineActuals?.readyToSail ?? (pipelineActualsLoading ? '—' : 0)}</div>
+                    <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsReadySub')}</div>
+                  </div>
+                </Link>
+              </InteractiveTooltip>
 
               <span className="v2-pipeline__arrow" aria-hidden>›</span>
 
-              <Link to="/verification" className="v2-pipeline__stage v2-pipeline__stage--sailed">
-                <div className="v2-pipeline__stage-icon">🚀</div>
-                <div className="v2-pipeline__stage-body">
-                  <div className="v2-pipeline__stage-label">{t('v2PipelineSailed')}</div>
-                  <div className="v2-pipeline__stage-count">{pipelineActuals?.sailed ?? (pipelineActualsLoading ? '—' : 0)}</div>
-                  <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsSailedSub')}</div>
-                </div>
-              </Link>
+              <InteractiveTooltip
+                title={t('v2PipelineSailed')}
+                subtitle={`${dateRangeLabel} · n=${pipelineActuals?.sailed ?? 0}`}
+                items={(pipelineActuals?.sailedVessels ?? []).map((v) => ({
+                  primary: v.vesselName || '—',
+                  secondary: v.purpose || '—',
+                }))}
+                emptyText={t('v2PipelineActualsTooltipEmpty')}
+                placement="right"
+                interactiveChild
+              >
+                <Link to="/verification" className="v2-pipeline__stage v2-pipeline__stage--sailed">
+                  <div className="v2-pipeline__stage-icon">🚀</div>
+                  <div className="v2-pipeline__stage-body">
+                    <div className="v2-pipeline__stage-label">{t('v2PipelineSailed')}</div>
+                    <div className="v2-pipeline__stage-count">{pipelineActuals?.sailed ?? (pipelineActualsLoading ? '—' : 0)}</div>
+                    <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsSailedSub')}</div>
+                  </div>
+                </Link>
+              </InteractiveTooltip>
             </div>
           )}
         </section>

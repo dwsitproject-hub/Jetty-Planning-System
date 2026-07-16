@@ -1283,7 +1283,7 @@
   z-index: 4000;
   transform: translateY(-50%);
   max-width: min(var(--jps-tooltip-maxw, 320px), calc(100vw - 24px));
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .jps-tooltip__inner {

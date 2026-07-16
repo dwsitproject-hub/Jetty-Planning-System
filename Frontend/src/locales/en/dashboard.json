@@ -143,6 +143,7 @@
   "v2PipelineActualsAtBerthSub": "TB recorded in range",
   "v2PipelineActualsReadySub": "Sign-off approved in range",
   "v2PipelineActualsSailedSub": "Cast off in range",
+  "v2PipelineActualsTooltipEmpty": "No vessels in this stage for the selected range.",
 
   "v2ChartTitle": "Port activity",
   "v2ChartToggleOps": "Operations",
