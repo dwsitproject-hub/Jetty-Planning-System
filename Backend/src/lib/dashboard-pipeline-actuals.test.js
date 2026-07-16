@@ -106,4 +106,24 @@ describe('computePipelineActuals', () => {
       assert.ok(result[`${stage}Vessels`].length <= 20);
     }
   });
+
+  it('filters Incoming stage by eta in range (approved plans only)', async () => {
+    const client = createMockClient();
+    const filters = { purposeCodes: null, commodityIds: null };
+    await computePipelineActuals(client, 42, '2026-06-01T00:00:00.000Z', '2026-06-08T00:00:00.000Z', filters);
+
+    // Stage index 1 = Incoming (count at 2, list at 3).
+    const incomingCount = client.calls[2];
+    const incomingList = client.calls[3];
+
+    for (const call of [incomingCount, incomingList]) {
+      assert.match(call.sql, /sp\.approved_at IS NOT NULL/);
+      assert.match(call.sql, /sp\.eta IS NOT NULL/);
+      assert.match(call.sql, /sp\.eta >= \$2::timestamptz/);
+      assert.match(call.sql, /sp\.eta < \$3::timestamptz/);
+      assert.doesNotMatch(call.sql, /sp\.approved_at >= \$2::timestamptz/);
+      assert.doesNotMatch(call.sql, /sp\.approved_at < \$3::timestamptz/);
+    }
+    assert.match(incomingList.sql, /ORDER BY sp\.eta DESC/);
+  });
 });

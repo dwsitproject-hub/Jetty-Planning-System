@@ -69,8 +69,9 @@ async function countIncomingInRange(client, portId, wsIso, weIso, filters) {
        AND sp.deleted_at IS NULL
        AND sp.approval_status <> 'Rejected'
        AND sp.approved_at IS NOT NULL
-       AND sp.approved_at >= $2::timestamptz
-       AND sp.approved_at < $3::timestamptz
+       AND sp.eta IS NOT NULL
+       AND sp.eta >= $2::timestamptz
+       AND sp.eta < $3::timestamptz
        ${filterSql}`,
     params
   );
@@ -88,10 +89,11 @@ async function fetchIncomingVesselsInRange(client, portId, wsIso, weIso, filters
        AND sp.deleted_at IS NULL
        AND sp.approval_status <> 'Rejected'
        AND sp.approved_at IS NOT NULL
-       AND sp.approved_at >= $2::timestamptz
-       AND sp.approved_at < $3::timestamptz
+       AND sp.eta IS NOT NULL
+       AND sp.eta >= $2::timestamptz
+       AND sp.eta < $3::timestamptz
        ${filterSql}
-     ORDER BY sp.approved_at DESC
+     ORDER BY sp.eta DESC
      LIMIT ${VESSEL_LIST_LIMIT}`,
     params
   );
