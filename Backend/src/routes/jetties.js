@@ -31,10 +31,10 @@ const COMMODITY_PURPOSES = ['Loading', 'Unloading'];
 
 const JETTY_SELECT_COLS = `j.id, j.port_id, j.order_no, j.name, j.description, j.rtsp_link, j.status, j.capacity,
               j.jetty_length_m, j.jetty_draft, j.jetty_dwt, j.created_at, j.updated_at,
-              (SELECT COALESCE(json_agg(json_build_object('id', c.id, 'name', c.name, 'shortName', c.short_name) ORDER BY c.name), '[]'::json)
+              (SELECT COALESCE(json_agg(json_build_object('id', c.id, 'name', c.name, 'shortName', c.short_name, 'commodityType', c.commodity_type) ORDER BY c.name), '[]'::json)
                FROM jetty_commodities jc JOIN si_commodities c ON c.id = jc.commodity_id AND c.deleted_at IS NULL
                WHERE jc.jetty_id = j.id AND jc.operational_purpose = 'Unloading') AS unloading_commodities_json,
-              (SELECT COALESCE(json_agg(json_build_object('id', c.id, 'name', c.name, 'shortName', c.short_name) ORDER BY c.name), '[]'::json)
+              (SELECT COALESCE(json_agg(json_build_object('id', c.id, 'name', c.name, 'shortName', c.short_name, 'commodityType', c.commodity_type) ORDER BY c.name), '[]'::json)
                FROM jetty_commodities jc JOIN si_commodities c ON c.id = jc.commodity_id AND c.deleted_at IS NULL
                WHERE jc.jetty_id = j.id AND jc.operational_purpose = 'Loading') AS loading_commodities_json`;
 

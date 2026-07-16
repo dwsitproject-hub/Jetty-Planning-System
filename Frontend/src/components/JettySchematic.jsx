@@ -19,6 +19,7 @@ import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTim
 import { computeCargoProgress } from '../utils/cargoQtyDisplay'
 import { formatGanttMilestoneShort } from '../utils/ganttBarDisplay'
 import VisualizationPopoutButton from './VisualizationPopoutButton'
+import JettySpecModal from './JettySpecModal'
 import '../styles/jetty-schematic.css'
 
 const AT_BERTH_PAGE_KEY = 'at-berth'
@@ -181,6 +182,10 @@ export default function JettySchematic({
   const [berthIdToRtspLink, setBerthIdToRtspLink] = useState({})
   /** Physical specs from Master Jetty (length/draft/DWT) — drives proportional scaling. */
   const [berthIdToSpecs, setBerthIdToSpecs] = useState({})
+  /** Full Master Jetty record per berth id — backs the jetty specifications modal. */
+  const [berthIdToJetty, setBerthIdToJetty] = useState({})
+  /** Jetty currently shown in the specifications modal, or null when closed. */
+  const [selectedSpecJetty, setSelectedSpecJetty] = useState(null)
 
   useEffect(() => {
     if (!canLoadLayout) {
@@ -189,6 +194,8 @@ export default function JettySchematic({
       setJettyIdToBerthId({})
       setBerthIdToRtspLink({})
       setBerthIdToSpecs({})
+      setBerthIdToJetty({})
+      setSelectedSpecJetty(null)
       return undefined
     }
 
@@ -204,6 +211,7 @@ export default function JettySchematic({
         const idMap = {}
         const rtspMap = {}
         const specMap = {}
+        const jettyMap = {}
         for (const j of Array.isArray(jetList) ? jetList : []) {
           if (j?.id == null) continue
           const bid = jettyNameToBerthId(j.name)
@@ -216,11 +224,13 @@ export default function JettySchematic({
               draft: j.jettyDraft != null ? Number(j.jettyDraft) : null,
               dwt: j.jettyDwt != null ? Number(j.jettyDwt) : null,
             }
+            jettyMap[bid] = j
           }
         }
         setJettyIdToBerthId(idMap)
         setBerthIdToRtspLink(rtspMap)
         setBerthIdToSpecs(specMap)
+        setBerthIdToJetty(jettyMap)
 
         if (cols.length === 0) {
           setLayoutColumns([])
@@ -610,12 +620,17 @@ export default function JettySchematic({
     const spec = berthIdToSpecs[berthId] || null
     const nameBand = (
       <div className="jetty-schematic__jetty-name-band">
-        <span className="jetty-schematic__jetty-name-label" aria-hidden>
+        <button
+          type="button"
+          className="jetty-schematic__jetty-name-label jetty-schematic__jetty-name-label--link"
+          onClick={() => setSelectedSpecJetty(berthIdToJetty[berthId] || null)}
+          aria-label={`View specifications for jetty ${berthId}`}
+        >
           {berthId}
           {spec?.lengthM ? (
             <span className="jetty-schematic__jetty-name-spec"> · {spec.lengthM} m</span>
           ) : null}
-        </span>
+        </button>
         {renderCctvButton(berthId)}
       </div>
     )
@@ -823,6 +838,9 @@ export default function JettySchematic({
         </div>
       </div>
       </div>
+      {selectedSpecJetty ? (
+        <JettySpecModal jetty={selectedSpecJetty} onClose={() => setSelectedSpecJetty(null)} />
+      ) : null}
     </section>
   )
 }

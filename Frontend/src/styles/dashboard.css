@@ -2206,9 +2206,10 @@
 .v2-pipeline__divider {
   flex-shrink: 0;
   align-self: stretch;
-  width: 1px;
-  background: var(--color-border-medium, #d1d5db);
-  margin: 4px var(--spacing-2);
+  width: 2px;
+  background: var(--color-border-dark, #9e9e9e);
+  border-radius: 1px;
+  margin: 6px var(--spacing-3);
 }
 
 /* ── KPI Row ── */

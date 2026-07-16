@@ -1,0 +1,164 @@
+/**
+ * Jetty Specifications modal — opened by clicking a jetty label on the Jetty Schematic.
+ * Builds on shared .modal-overlay / .modal primitives from modal.css.
+ */
+
+.jetty-spec-modal-overlay {
+  backdrop-filter: blur(2px);
+  animation: jetty-spec-modal-fade-in var(--duration-base) var(--easing-default);
+}
+
+.modal--jetty-spec {
+  max-width: 640px;
+  animation: jetty-spec-modal-slide-up var(--duration-slow) var(--easing-default);
+}
+
+@keyframes jetty-spec-modal-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes jetty-spec-modal-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.jetty-spec-modal__section-title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0 0 var(--spacing-2);
+}
+
+/* Section 1 — General Specs stat cards */
+.jetty-spec-modal__stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--spacing-2);
+}
+
+.jetty-spec-modal__stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--spacing-2) var(--spacing-3);
+  background: var(--color-bg-lighter);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  min-width: 0;
+}
+
+.jetty-spec-modal__stat-label {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-steel);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.jetty-spec-modal__stat-value {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-charcoal);
+  overflow-wrap: break-word;
+}
+
+/* Section 2 — Commodities Handling, split by operational purpose */
+.jetty-spec-modal__commodities {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-4);
+}
+
+.jetty-spec-modal__commodity-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  min-width: 0;
+  padding-left: var(--spacing-3);
+  border-left: 3px solid var(--color-border-light);
+}
+
+.jetty-spec-modal__commodity-col-title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+  margin: 0;
+}
+
+.jetty-spec-modal__commodity-empty {
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+  margin: 0;
+}
+
+.jetty-spec-modal__commodity-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.jetty-spec-modal__commodity-group-label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.jetty-spec-modal__commodity-group-label--solid {
+  color: var(--gantt-planned-text);
+}
+
+.jetty-spec-modal__commodity-group-label--liquid {
+  color: var(--gantt-actual-text);
+}
+
+.jetty-spec-modal__commodity-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-1);
+}
+
+.jetty-spec-modal__commodity-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  border-radius: var(--radius-lg);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.jetty-spec-modal__commodity-badge--solid {
+  color: var(--gantt-planned-text);
+  background: rgba(var(--gantt-planned-rgb), 0.12);
+  border-color: rgba(var(--gantt-planned-rgb), 0.3);
+}
+
+.jetty-spec-modal__commodity-badge--liquid {
+  color: var(--gantt-actual-text);
+  background: rgba(var(--gantt-actual-rgb), 0.12);
+  border-color: rgba(var(--gantt-actual-rgb), 0.3);
+}
+
+@media (max-width: 560px) {
+  .jetty-spec-modal__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .jetty-spec-modal__commodities {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-3);
+  }
+}

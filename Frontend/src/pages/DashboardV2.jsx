@@ -975,36 +975,36 @@ export default function DashboardV2() {
 
           <span className="v2-pipeline__arrow" aria-hidden>›</span>
 
-          {/* Stage 5: At Berth — LIVE (same source as At Berth Now / occupancy) */}
+          {/* Stage 5: At Berth (docked / in-progress / post-ops / signoff requested) */}
           <Link to="/at-berth" className="v2-pipeline__stage v2-pipeline__stage--atberth">
             <div className="v2-pipeline__stage-icon">🚢</div>
             <div className="v2-pipeline__stage-body">
-              <div className="v2-pipeline__stage-label">{t('pipelineAtBerth')} <span className="v2-basis-chip">{t('v2BasisLive')}</span></div>
-              <div className="v2-pipeline__stage-count">{pipelineLive.atBerth}</div>
+              <div className="v2-pipeline__stage-label">{t('pipelineAtBerth')}</div>
+              <div className="v2-pipeline__stage-count">{pipelineCounts.atBerthCount}</div>
               <div className="v2-pipeline__stage-sub">{t('pipelineAtBerthSub')}</div>
             </div>
           </Link>
 
           <span className="v2-pipeline__arrow" aria-hidden>›</span>
 
-          {/* Stage 6: Ready to Sail — LIVE (sign-off approved, awaiting departure) */}
+          {/* Stage 6: Ready to Sail (sign-off approved, awaiting departure) */}
           <Link to="/verification" className="v2-pipeline__stage v2-pipeline__stage--readytosail">
             <div className="v2-pipeline__stage-icon">✅</div>
             <div className="v2-pipeline__stage-body">
-              <div className="v2-pipeline__stage-label">{t('v2PipelineReadyToSail')} <span className="v2-basis-chip">{t('v2BasisLive')}</span></div>
-              <div className="v2-pipeline__stage-count">{pipelineLive.readyToSail}</div>
+              <div className="v2-pipeline__stage-label">{t('v2PipelineReadyToSail')}</div>
+              <div className="v2-pipeline__stage-count">{pipelineCounts.readyToSail}</div>
               <div className="v2-pipeline__stage-sub">{t('v2PipelineReadyToSailSub')}</div>
             </div>
           </Link>
 
           <span className="v2-pipeline__arrow" aria-hidden>›</span>
 
-          {/* Stage 7: Sailed — cast-off date within the selected range */}
+          {/* Stage 7: Sailed — plan partition (ETA window), so stages 2-7 sum to the total */}
           <Link to="/verification" className="v2-pipeline__stage v2-pipeline__stage--sailed">
             <div className="v2-pipeline__stage-icon">🚀</div>
             <div className="v2-pipeline__stage-body">
               <div className="v2-pipeline__stage-label">{t('v2PipelineSailed')}</div>
-              <div className="v2-pipeline__stage-count">{sailedInRange.count}</div>
+              <div className="v2-pipeline__stage-count">{pipelineCounts.sailed}</div>
               <div className="v2-pipeline__stage-sub">{t('v2PipelineSailedSub')}</div>
             </div>
           </Link>
