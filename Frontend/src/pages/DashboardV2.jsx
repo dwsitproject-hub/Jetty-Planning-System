@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { fetchOperations, fetchAtBerth, fetchSubProcesses, fetchOperationalActivities } from '../api/operations'
 import { fetchShipmentPlans } from '../api/shipmentPlans'
 import { fetchAllocationOverview } from '../api/allocation'
-import { fetchDashboardV2Weekly } from '../api/dashboardV2'
+import { fetchDashboardV2Weekly, fetchDashboardV2PipelineActuals } from '../api/dashboardV2'
 import { fetchJetties } from '../api/jetties'
 import { fetchSiLookups } from '../api/siLookups'
 import { useTranslation } from 'react-i18next'
@@ -13,6 +13,11 @@ import InteractiveTooltip from '../components/InteractiveTooltip'
 import DashboardV2WeeklyTrends from '../components/DashboardV2WeeklyTrends'
 import DropdownMultiSelect from '../components/DropdownMultiSelect'
 import { computePipelinePartition } from '../utils/dashboardPipelinePartition'
+import {
+  isPipelineActualsBetaEnabled,
+  readPipelineActualsCollapsed,
+  writePipelineActualsCollapsed,
+} from '../utils/pipelineActualsBeta'
 import {
   buildPlanCommodityIndex,
   buildCommodityIdByName,
@@ -209,6 +214,10 @@ export default function DashboardV2() {
   const [apiErr, setApiErr] = useState(null)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [weeklyTrends, setWeeklyTrends] = useState(null)
+  const [pipelineActuals, setPipelineActuals] = useState(null)
+  const [pipelineActualsLoading, setPipelineActualsLoading] = useState(false)
+  const [pipelineActualsCollapsed, setPipelineActualsCollapsed] = useState(readPipelineActualsCollapsed)
+  const pipelineActualsBetaEnabled = isPipelineActualsBetaEnabled()
 
   const { startDate, endDate } = dateRange
 
@@ -241,6 +250,7 @@ export default function DashboardV2() {
       setArrivalPlans([])
       setAllOps([])
       setWeeklyTrends(null)
+      setPipelineActuals(null)
       setApiErr(null)
       return
     }
@@ -324,8 +334,56 @@ export default function DashboardV2() {
     }
   }, [selectedPortId, startDate, endDate, selectedPurposes, selectedCommodityIds])
 
+  const refreshPipelineActuals = useCallback(async () => {
+    if (!pipelineActualsBetaEnabled || pipelineActualsCollapsed) {
+      return
+    }
+    if (selectedPortId == null) {
+      setPipelineActuals(null)
+      return
+    }
+    setPipelineActualsLoading(true)
+    try {
+      const data = await fetchDashboardV2PipelineActuals({
+        startDate,
+        endDate,
+        purposes: selectedPurposes,
+        commodityIds: selectedCommodityIds,
+      })
+      if (data && typeof data === 'object') {
+        setPipelineActuals({
+          shipmentRequest: Number(data.shipmentRequest) || 0,
+          incoming: Number(data.incoming) || 0,
+          plannedBerthing: Number(data.plannedBerthing) || 0,
+          atBerth: Number(data.atBerth) || 0,
+          readyToSail: Number(data.readyToSail) || 0,
+          sailed: Number(data.sailed) || 0,
+        })
+      } else {
+        setPipelineActuals(null)
+      }
+    } catch (e) {
+      setPipelineActuals(null)
+      setApiErr((prev) => {
+        const msg = `pipeline-actuals: ${e?.message || 'failed'}`
+        return prev ? `${prev}; ${msg}` : msg
+      })
+    } finally {
+      setPipelineActualsLoading(false)
+    }
+  }, [pipelineActualsBetaEnabled, pipelineActualsCollapsed, selectedPortId, startDate, endDate, selectedPurposes, selectedCommodityIds])
+
+  const togglePipelineActualsCollapsed = useCallback(() => {
+    setPipelineActualsCollapsed((prev) => {
+      const next = !prev
+      writePipelineActualsCollapsed(next)
+      return next
+    })
+  }, [])
+
   useEffect(() => { refresh() }, [refresh])
   useEffect(() => { refreshWeekly() }, [refreshWeekly])
+  useEffect(() => { refreshPipelineActuals() }, [refreshPipelineActuals])
 
   // Background poll: live sections stay current on wall screens (no loading flash)
   useEffect(() => {
@@ -1021,6 +1079,125 @@ export default function DashboardV2() {
           </div>
         )}
       </section>
+
+      {/* ── Pipeline Actuals (beta, staging opt-in) — additive; plan pipeline above unchanged ── */}
+      {pipelineActualsBetaEnabled && (
+        <section
+          className={`card v2-pipeline v2-pipeline--actuals${pipelineActualsCollapsed ? ' v2-pipeline--collapsed' : ''}`}
+        >
+          <div className="v2-pipeline__header">
+            <h2 className="card__title">
+              {t('v2PipelineActualsTitle')}{' '}
+              <span className="v2-basis-chip v2-basis-chip--beta">{t('v2PipelineActualsBeta')}</span>
+              <span className="v2-basis-chip v2-basis-chip--actuals">{t('v2PipelineActualsBasis')}</span>
+            </h2>
+            <div className="v2-pipeline__header-right">
+              {!pipelineActualsCollapsed && pipelineActualsLoading && (
+                <span className="v2-pipeline__refreshing">{t('loadingEllipsis')}</span>
+              )}
+              <span className="v2-pipeline__period">{dateRangeLabel}</span>
+              <button
+                type="button"
+                className="v2-pipeline__toggle"
+                onClick={togglePipelineActualsCollapsed}
+                aria-expanded={!pipelineActualsCollapsed}
+                aria-controls="v2-pipeline-actuals-body"
+                title={pipelineActualsCollapsed ? t('v2PipelineActualsExpand') : t('v2PipelineActualsCollapse')}
+              >
+                <span className="v2-pipeline__toggle-label">
+                  {pipelineActualsCollapsed ? t('v2PipelineActualsExpand') : t('v2PipelineActualsCollapse')}
+                </span>
+                <svg
+                  className={`v2-pipeline__toggle-icon${pipelineActualsCollapsed ? '' : ' v2-pipeline__toggle-icon--expanded'}`}
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          {!pipelineActualsCollapsed && (
+            <div
+              id="v2-pipeline-actuals-body"
+              className={`v2-pipeline__flow${pipelineActualsLoading ? ' v2-pipeline__flow--loading' : ''}`}
+              role="navigation"
+              aria-label={t('v2PipelineActualsTitle')}
+            >
+              <Link to="/shipment-plans" className="v2-pipeline__stage v2-pipeline__stage--request">
+                <div className="v2-pipeline__stage-icon">📝</div>
+                <div className="v2-pipeline__stage-body">
+                  <div className="v2-pipeline__stage-label">{t('v2PipelineRequest')}</div>
+                  <div className="v2-pipeline__stage-count">{pipelineActuals?.shipmentRequest ?? (pipelineActualsLoading ? '—' : 0)}</div>
+                  <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsRequestSub')}</div>
+                </div>
+              </Link>
+
+              <span className="v2-pipeline__arrow" aria-hidden>›</span>
+
+              <Link to="/allocation-plans" className="v2-pipeline__stage v2-pipeline__stage--incoming">
+                <div className="v2-pipeline__stage-icon">🛳️</div>
+                <div className="v2-pipeline__stage-body">
+                  <div className="v2-pipeline__stage-label">{t('v2PipelineIncoming')}</div>
+                  <div className="v2-pipeline__stage-count">{pipelineActuals?.incoming ?? (pipelineActualsLoading ? '—' : 0)}</div>
+                  <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsIncomingSub')}</div>
+                </div>
+              </Link>
+
+              <span className="v2-pipeline__arrow" aria-hidden>›</span>
+
+              <Link to="/allocation-plans" className="v2-pipeline__stage v2-pipeline__stage--planned">
+                <div className="v2-pipeline__stage-icon">⚓</div>
+                <div className="v2-pipeline__stage-body">
+                  <div className="v2-pipeline__stage-label">{t('pipelinePlannedBerthing')}</div>
+                  <div className="v2-pipeline__stage-count">{pipelineActuals?.plannedBerthing ?? (pipelineActualsLoading ? '—' : 0)}</div>
+                  <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsPlannedSub')}</div>
+                </div>
+              </Link>
+
+              <span className="v2-pipeline__arrow" aria-hidden>›</span>
+
+              <Link to="/at-berth" className="v2-pipeline__stage v2-pipeline__stage--atberth">
+                <div className="v2-pipeline__stage-icon">🚢</div>
+                <div className="v2-pipeline__stage-body">
+                  <div className="v2-pipeline__stage-label">{t('pipelineAtBerth')}</div>
+                  <div className="v2-pipeline__stage-count">{pipelineActuals?.atBerth ?? (pipelineActualsLoading ? '—' : 0)}</div>
+                  <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsAtBerthSub')}</div>
+                </div>
+              </Link>
+
+              <span className="v2-pipeline__arrow" aria-hidden>›</span>
+
+              <Link to="/verification" className="v2-pipeline__stage v2-pipeline__stage--readytosail">
+                <div className="v2-pipeline__stage-icon">✅</div>
+                <div className="v2-pipeline__stage-body">
+                  <div className="v2-pipeline__stage-label">{t('v2PipelineReadyToSail')}</div>
+                  <div className="v2-pipeline__stage-count">{pipelineActuals?.readyToSail ?? (pipelineActualsLoading ? '—' : 0)}</div>
+                  <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsReadySub')}</div>
+                </div>
+              </Link>
+
+              <span className="v2-pipeline__arrow" aria-hidden>›</span>
+
+              <Link to="/verification" className="v2-pipeline__stage v2-pipeline__stage--sailed">
+                <div className="v2-pipeline__stage-icon">🚀</div>
+                <div className="v2-pipeline__stage-body">
+                  <div className="v2-pipeline__stage-label">{t('v2PipelineSailed')}</div>
+                  <div className="v2-pipeline__stage-count">{pipelineActuals?.sailed ?? (pipelineActualsLoading ? '—' : 0)}</div>
+                  <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsSailedSub')}</div>
+                </div>
+              </Link>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* ── KPI Row 1: Occupancy + Performance metrics + SLA ── */}
       <div className="v2-kpi-row v2-kpi-row--5" aria-label={t('kpiGridAria')}>

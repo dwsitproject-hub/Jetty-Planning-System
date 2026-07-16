@@ -146,6 +146,7 @@ sed -i 's/172.28.92.57:3000/API_IP:3000/' Frontend/nginx.alicloud-app.conf
 # Root .env — browser API base. Relative path works for both private IP and public EIP.
 cat > .env <<'ENV'
 VITE_API_BASE_URL=/api/v1
+VITE_ENABLE_PIPELINE_ACTUALS_BETA=true
 JPS_FE_PORT=APP_PORT
 ENV
 

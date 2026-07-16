@@ -24,6 +24,7 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:?Set VITE_API_BASE_URL in .env}
+        VITE_ENABLE_PIPELINE_ACTUALS_BETA: ${VITE_ENABLE_PIPELINE_ACTUALS_BETA:-false}
     ports:
       - "${JPS_FE_PORT:-3001}:80"
     container_name: jps-fe

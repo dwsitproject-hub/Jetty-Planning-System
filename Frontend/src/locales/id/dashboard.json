@@ -132,6 +132,18 @@
   "v2PipelineSailed": "Berlayar",
   "v2PipelineSailedSub": "Lepas tali dalam rentang terpilih",
 
+  "v2PipelineActualsTitle": "Pipeline kapal — Aktual",
+  "v2PipelineActualsBeta": "BETA",
+  "v2PipelineActualsBasis": "TANGGAL AKTUAL",
+  "v2PipelineActualsExpand": "Buka",
+  "v2PipelineActualsCollapse": "Tutup",
+  "v2PipelineActualsRequestSub": "Diajukan / draft dibuat dalam rentang",
+  "v2PipelineActualsIncomingSub": "Disetujui dalam rentang",
+  "v2PipelineActualsPlannedSub": "ETB diatur · dermaga ditetapkan dalam rentang",
+  "v2PipelineActualsAtBerthSub": "TB dicatat dalam rentang",
+  "v2PipelineActualsReadySub": "Sign-off disetujui dalam rentang",
+  "v2PipelineActualsSailedSub": "Lepas tali dalam rentang",
+
   "v2ChartTitle": "Aktivitas pelabuhan",
   "v2ChartToggleOps": "Operasi",
   "v2ChartTogglePlans": "Rencana Pengiriman",
