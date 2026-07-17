@@ -16,9 +16,9 @@ import {
 } from '../api/operations'
 import OperationActivityTimeline from './OperationActivityTimeline'
 import {
+  MAX_ACTIVITY_REMARK_CHARS,
   MAX_MILESTONE_REASON_CHARS,
   MAX_MILESTONE_SUBSTEP_TITLE_CHARS,
-  MAX_REMARK_CHARS,
 } from '../constants/inputLimits'
 import {
   getScheduleEntryTimeZone,
@@ -1221,9 +1221,9 @@ export default function OperationalMilestoneWorkspace({
                   className="berthing-modal__input berthing-modal__textarea"
                   value={remark}
                   onChange={(e) => setRemark(e.target.value)}
-                  maxLength={MAX_REMARK_CHARS}
+                  maxLength={MAX_ACTIVITY_REMARK_CHARS}
                   placeholder="What happened, evidence, or handover note"
-                  rows={3}
+                  rows={8}
                 />
               </div>
 

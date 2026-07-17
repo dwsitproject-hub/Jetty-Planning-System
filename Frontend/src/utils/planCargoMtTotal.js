@@ -7,37 +7,52 @@ function metricCodeForRow(row, lookups) {
   return m?.code ? String(m.code).toUpperCase() : null
 }
 
+/** Resolve per-commodity KL→MT factor for a breakdown row. */
+export function getKlToMtFactorForRow(row, lookups) {
+  const cid = row?.commodityId
+  if (cid == null || cid === '') return null
+  const c = lookups?.commodities?.find((x) => String(x.id) === String(cid))
+  const f = c?.klToMtFactor
+  if (f == null || f === '') return null
+  const n = Number(f)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
 /**
- * Sum MT qty from one or more SI draft forms or saved breakdown arrays.
+ * Sum MT-equivalent qty from one or more SI draft forms or saved breakdown arrays.
+ * MT rows add directly; KL rows add qty × commodity.klToMtFactor when configured.
  * @param {Array<{ breakdown?: Array }>|Array} formsOrBreakdowns
- * @param {{ metrics?: Array<{ id, code }> }|null} lookups
+ * @param {{ metrics?: Array, commodities?: Array }|null} lookups
  */
 export function sumBreakdownMtTotal(formsOrBreakdowns, lookups) {
   let total = 0
   for (const item of formsOrBreakdowns || []) {
     const rows = Array.isArray(item?.breakdown) ? item.breakdown : Array.isArray(item) ? item : []
     for (const row of rows) {
-      if (metricCodeForRow(row, lookups) !== 'MT') continue
       const qty = Number(row.qty)
-      if (Number.isFinite(qty) && qty > 0) total += qty
+      if (!Number.isFinite(qty) || qty <= 0) continue
+      const code = metricCodeForRow(row, lookups)
+      if (code === 'MT') {
+        total += qty
+      } else if (code === 'KL') {
+        const factor = getKlToMtFactorForRow(row, lookups)
+        if (factor != null) total += qty * factor
+      }
     }
   }
   return total
 }
 
-/** True when breakdown has KL qty > 0 but no MT qty (DWT cannot be computed from cargo). */
-export function breakdownHasKlQtyOnly(formsOrBreakdowns, lookups) {
-  let mtQty = 0
-  let klQty = 0
+/** True when any KL row has qty > 0 but its commodity has no klToMtFactor configured. */
+export function breakdownHasUnconvertedKl(formsOrBreakdowns, lookups) {
   for (const item of formsOrBreakdowns || []) {
     const rows = Array.isArray(item?.breakdown) ? item.breakdown : Array.isArray(item) ? item : []
     for (const row of rows) {
       const code = metricCodeForRow(row, lookups)
       const qty = Number(row.qty)
-      if (!Number.isFinite(qty) || qty <= 0) continue
-      if (code === 'MT') mtQty += qty
-      else if (code === 'KL') klQty += qty
+      if (code !== 'KL' || !Number.isFinite(qty) || qty <= 0) continue
+      if (getKlToMtFactorForRow(row, lookups) == null) return true
     }
   }
-  return klQty > 0 && mtQty <= 0
+  return false
 }

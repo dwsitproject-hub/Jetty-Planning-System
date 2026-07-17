@@ -45,7 +45,7 @@ import SiExtractConflictModal from '../components/SiExtractConflictModal'
 import SiExtractResultPanel from '../components/SiExtractResultPanel'
 import { MAX_SI_VESSEL_NAME_CHARS, MAX_SI_VOYAGE_CHARS } from '../constants/inputLimits'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
-import { sumBreakdownMtTotal, breakdownHasKlQtyOnly } from '../utils/planCargoMtTotal'
+import { sumBreakdownMtTotal, breakdownHasUnconvertedKl } from '../utils/planCargoMtTotal'
 import '../styles/shipping-instruction.css'
 import '../styles/allocation.css'
 
@@ -213,8 +213,8 @@ export default function ShipmentPlansList() {
     return 0
   }, [totalCargoMtFromDrafts, editingPlan, editingPlanDetail])
 
-  const cargoKlOnlyNote = useMemo(
-    () => breakdownHasKlQtyOnly(siDrafts.map((d) => d.form), lookups),
+  const cargoUnconvertedKlNote = useMemo(
+    () => breakdownHasUnconvertedKl(siDrafts.map((d) => d.form), lookups),
     [siDrafts, lookups]
   )
 
@@ -1626,7 +1626,7 @@ export default function ShipmentPlansList() {
                   {(totalCargoMt <= 0 || siDrafts.length > 1) && (
                     <p className="shipment-plan-form__inline-hint text-steel">
                       {totalCargoMt <= 0
-                        ? cargoKlOnlyNote
+                        ? cargoUnconvertedKlNote
                           ? t('formTotalCargoMtKlNote')
                           : t('formTotalCargoMtPending')
                         : t('formTotalCargoMtMultiSiHint')}
