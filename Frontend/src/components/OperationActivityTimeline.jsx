@@ -78,61 +78,235 @@ function timelineStatusDisplay(ev) {
   return '—'
 }
 
-function timelineRemarkDisplay(ev, t) {
+const REMARK_PREVIEW_MAX_CHARS = 120
+
+function timelineCargoMetadataParts(ev, t) {
+  if (ev.source !== 'operational_activity' || ev.milestoneKey !== 'cargo_operations') return []
+  const parts = []
+  const n = Number(ev.cargoLoadLineCount || 0)
+  if (n > 0 && ev.cargoMovedQty != null && Number.isFinite(Number(ev.cargoMovedQty))) {
+    parts.push(
+      t('cargoOpsTimelineEntries', {
+        n,
+        qty: Number(ev.cargoMovedQty).toLocaleString(undefined, { maximumFractionDigits: 6 }),
+      })
+    )
+    const lastEnd = ev.cargoLastLineEndedAt ?? ev.cargoLastAsOf
+    if (lastEnd) {
+      parts.push(
+        t('cargoOpsTimelineLastLineEnd', {
+          at: formatDateTimeDisplay(lastEnd),
+        })
+      )
+    }
+    if (ev.cargoRatePerHour != null && Number.isFinite(Number(ev.cargoRatePerHour))) {
+      parts.push(
+        t('cargoOpsTimelineRate', {
+          rate: Number(ev.cargoRatePerHour).toLocaleString(undefined, { maximumFractionDigits: 6 }),
+        })
+      )
+    }
+  } else if (ev.cargoMovedQty != null && Number.isFinite(Number(ev.cargoMovedQty))) {
+    parts.push(
+      t('cargoOpsTimelineMoved', {
+        qty: Number(ev.cargoMovedQty).toLocaleString(undefined, { maximumFractionDigits: 6 }),
+      })
+    )
+    if (ev.cargoRatePerHour != null && Number.isFinite(Number(ev.cargoRatePerHour))) {
+      parts.push(
+        t('cargoOpsTimelineRate', {
+          rate: Number(ev.cargoRatePerHour).toLocaleString(undefined, { maximumFractionDigits: 6 }),
+        })
+      )
+    }
+  }
+  return parts
+}
+
+/** Short metadata shown in the table (excludes free-text remark). */
+function timelineRemarkSummary(ev, t) {
+  if (ev.source === 'operational_activity') {
+    const parts = [ev.subStepTitle, ev.cargoHandlingMethodName]
+      .filter((x) => x && String(x).trim())
+      .map((x) => String(x).trim())
+    parts.push(...timelineCargoMetadataParts(ev, t))
+    return parts.length ? parts.join(' — ') : null
+  }
+  return null
+}
+
+/** Free-text remark / reason for modal or inline preview. */
+function timelineRemarkNarrative(ev) {
   if (ev.source === 'operational_milestone_na') {
-    return ev.reason != null && String(ev.reason).trim() ? String(ev.reason).trim() : '—'
+    return ev.reason != null && String(ev.reason).trim() ? String(ev.reason).trim() : null
   }
   if (ev.source === 'operational_activity') {
-    const parts = [ev.subStepTitle, ev.cargoHandlingMethodName, ev.remark].filter((x) => x && String(x).trim())
-    if (ev.milestoneKey === 'cargo_operations') {
-      const n = Number(ev.cargoLoadLineCount || 0)
-      if (n > 0 && ev.cargoMovedQty != null && Number.isFinite(Number(ev.cargoMovedQty))) {
-        parts.push(
-          t('cargoOpsTimelineEntries', {
-            n,
-            qty: Number(ev.cargoMovedQty).toLocaleString(undefined, { maximumFractionDigits: 6 }),
-          })
-        )
-        const lastEnd = ev.cargoLastLineEndedAt ?? ev.cargoLastAsOf
-        if (lastEnd) {
-          parts.push(
-            t('cargoOpsTimelineLastLineEnd', {
-              at: formatDateTimeDisplay(lastEnd),
-            })
-          )
-        }
-        if (ev.cargoRatePerHour != null && Number.isFinite(Number(ev.cargoRatePerHour))) {
-          parts.push(
-            t('cargoOpsTimelineRate', {
-              rate: Number(ev.cargoRatePerHour).toLocaleString(undefined, { maximumFractionDigits: 6 }),
-            })
-          )
-        }
-      } else if (ev.cargoMovedQty != null && Number.isFinite(Number(ev.cargoMovedQty))) {
-        parts.push(
-          t('cargoOpsTimelineMoved', {
-            qty: Number(ev.cargoMovedQty).toLocaleString(undefined, { maximumFractionDigits: 6 }),
-          })
-        )
-        if (ev.cargoRatePerHour != null && Number.isFinite(Number(ev.cargoRatePerHour))) {
-          parts.push(
-            t('cargoOpsTimelineRate', {
-              rate: Number(ev.cargoRatePerHour).toLocaleString(undefined, { maximumFractionDigits: 6 }),
-            })
-          )
-        }
-      }
-    }
-    return parts.length ? parts.join(' — ') : '—'
+    return ev.remark != null && String(ev.remark).trim() ? String(ev.remark).trim() : null
   }
   if (ev.source === 'sub_process') {
     const parts = []
     if (ev.remark != null && String(ev.remark).trim()) parts.push(String(ev.remark).trim())
     if (ev.skipReason != null && String(ev.skipReason).trim()) parts.push(`Skip: ${String(ev.skipReason).trim()}`)
-    return parts.length ? parts.join('\n') : '—'
+    return parts.length ? parts.join('\n') : null
   }
   if (ev.remark != null && String(ev.remark).trim()) return String(ev.remark).trim()
-  return '—'
+  return null
+}
+
+function needsRemarkModal(text) {
+  if (!text) return false
+  const s = String(text)
+  return s.length > REMARK_PREVIEW_MAX_CHARS || s.includes('\n')
+}
+
+function truncateRemarkPreview(text, max = REMARK_PREVIEW_MAX_CHARS) {
+  if (!text) return ''
+  const firstLine = String(text).split('\n')[0].trim()
+  if (firstLine.length <= max) return firstLine
+  return `${firstLine.slice(0, max).trimEnd()}…`
+}
+
+function remarkViewerSubtitle(start, end) {
+  const parts = []
+  if (start) parts.push(formatDateTimeDisplay(start))
+  if (end) parts.push(formatDateTimeDisplay(end))
+  return parts.length ? parts.join(' → ') : null
+}
+
+function RemarkViewerModal({ viewer, onClose }) {
+  if (!viewer) return null
+  return (
+    <div className="modal-overlay" onClick={onClose} aria-hidden="true">
+      <div
+        className="modal modal--wide operation-activity-timeline__remark-modal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="remark-viewer-title"
+      >
+        <header className="modal__header">
+          <div>
+            <h2 id="remark-viewer-title" className="modal__title">
+              {viewer.title}
+            </h2>
+            {viewer.subtitle ? <p className="operation-activity-timeline__remark-modal-subtitle text-steel">{viewer.subtitle}</p> : null}
+          </div>
+          <button type="button" className="modal__close" onClick={onClose} aria-label="Close">
+            Close
+          </button>
+        </header>
+        <div className="operation-activity-timeline__remark-modal-body">
+          {Array.isArray(viewer.sections) && viewer.sections.length > 0 ? (
+            viewer.sections.map((sec, idx) => (
+              <div key={sec.heading || idx} className="operation-activity-timeline__remark-modal-section">
+                {sec.heading ? <h3 className="operation-activity-timeline__remark-modal-section-title">{sec.heading}</h3> : null}
+                <pre className="operation-activity-timeline__remark-modal-text">{sec.text}</pre>
+              </div>
+            ))
+          ) : (
+            <pre className="operation-activity-timeline__remark-modal-text">{viewer.text}</pre>
+          )}
+        </div>
+        <footer className="modal__footer">
+          <button type="button" className="btn btn--small" onClick={onClose}>
+            Close
+          </button>
+        </footer>
+      </div>
+    </div>
+  )
+}
+
+function TimelineRemarkCell({ ev, t, onViewRemark }) {
+  const summary = timelineRemarkSummary(ev, t)
+  const narrative = timelineRemarkNarrative(ev)
+  const showModal = narrative && needsRemarkModal(narrative)
+  const inlineNarrative = narrative && !showModal ? narrative : null
+  const preview = showModal ? truncateRemarkPreview(narrative) : null
+
+  if (!summary && !inlineNarrative && !preview) {
+    return <span className="text-steel">—</span>
+  }
+
+  const openViewer = () => {
+    const { start, end } = timelineRowSchedule(ev)
+    onViewRemark({
+      title: `Remark — ${ev.title || ev.phase || 'Activity'}`,
+      subtitle: remarkViewerSubtitle(start, end),
+      text: narrative,
+    })
+  }
+
+  return (
+    <div className="operation-activity-timeline__remark-cell">
+      {summary ? <div className="operation-activity-timeline__remark-summary">{summary}</div> : null}
+      {inlineNarrative ? (
+        <div className="operation-activity-timeline__remark-preview">{inlineNarrative}</div>
+      ) : null}
+      {preview ? <div className="operation-activity-timeline__remark-preview">{preview}</div> : null}
+      {showModal ? (
+        <button
+          type="button"
+          className="operation-activity-timeline__remark-view-link"
+          onClick={openViewer}
+        >
+          View
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+function CargoGroupRemarkCell({ events, t, onViewRemark }) {
+  const narratives = events
+    .map((ev, i) => ({
+      heading: events.length > 1 ? `Entry ${i + 1}` : null,
+      text: timelineRemarkNarrative(ev),
+      ev,
+    }))
+    .filter((x) => x.text)
+
+  const count = events.length
+  const latestText = narratives.length ? narratives[narratives.length - 1].text : null
+  const anyLong = narratives.some((n) => needsRemarkModal(n.text))
+  const showViewBtn = narratives.length > 0 && (anyLong || narratives.length > 1)
+  const preview = latestText && (anyLong || narratives.length > 1) ? truncateRemarkPreview(latestText) : null
+  const inlineLatest = latestText && !showViewBtn ? latestText : null
+
+  if (!narratives.length) {
+    return <span className="text-steel">—</span>
+  }
+
+  const openViewer = () => {
+    const { start, end } = cargoGroupScheduleRange(events)
+    onViewRemark({
+      title: 'Remarks — CARGO OPERATIONS',
+      subtitle: remarkViewerSubtitle(start, end),
+      sections: narratives.map((n) => ({
+        heading: n.heading,
+        text: n.text,
+      })),
+    })
+  }
+
+  return (
+    <div className="operation-activity-timeline__remark-cell">
+      <div className="operation-activity-timeline__remark-summary">
+        {t('executionsLogCargoGroupTitle', { count })}
+      </div>
+      {inlineLatest ? <div className="operation-activity-timeline__remark-preview">{inlineLatest}</div> : null}
+      {preview ? <div className="operation-activity-timeline__remark-preview">{preview}</div> : null}
+      {showViewBtn ? (
+        <button
+          type="button"
+          className="operation-activity-timeline__remark-view-link"
+          onClick={openViewer}
+        >
+          View
+        </button>
+      ) : null}
+    </div>
+  )
 }
 
 function timelineDocuments(ev) {
@@ -225,6 +399,15 @@ export default function OperationActivityTimeline({
   const [error, setError] = useState(null)
   const [deletingId, setDeletingId] = useState(null)
   const [toast, setToast] = useState(null)
+  const [remarkViewer, setRemarkViewer] = useState(null)
+
+  const openRemarkViewer = useCallback((viewer) => {
+    setRemarkViewer(viewer)
+  }, [])
+
+  const closeRemarkViewer = useCallback(() => {
+    setRemarkViewer(null)
+  }, [])
 
   useEffect(() => {
     if (!toast?.message) return undefined
@@ -365,7 +548,9 @@ export default function OperationActivityTimeline({
         <td>{ev.phase || '—'}</td>
         <td>{ev.title || '—'}</td>
         <td className="operation-activity-timeline__status">{timelineStatusDisplay(ev)}</td>
-        <td className="operation-activity-timeline__remark">{timelineRemarkDisplay(ev, t)}</td>
+        <td className="operation-activity-timeline__remark">
+          <TimelineRemarkCell ev={ev} t={t} onViewRemark={openRemarkViewer} />
+        </td>
         <td className="operation-activity-timeline__documents">
           {rowDocs.length === 0 ? (
             <span className="text-steel">—</span>
@@ -448,7 +633,9 @@ export default function OperationActivityTimeline({
           <dt>Status</dt>
           <dd>{timelineStatusDisplay(ev)}</dd>
           <dt>Remark</dt>
-          <dd className="operation-activity-timeline__remark">{timelineRemarkDisplay(ev, t)}</dd>
+          <dd className="operation-activity-timeline__remark">
+            <TimelineRemarkCell ev={ev} t={t} onViewRemark={openRemarkViewer} />
+          </dd>
           <dt>Documents</dt>
           <dd>
             {rowDocs.length === 0 ? (
@@ -588,10 +775,7 @@ export default function OperationActivityTimeline({
                         </td>
                         <td className="operation-activity-timeline__status">{groupStatus}</td>
                         <td className="operation-activity-timeline__remark">
-                          {item.events
-                            .map((ev) => (ev.remark != null && String(ev.remark).trim() ? String(ev.remark).trim() : null))
-                            .filter(Boolean)
-                            .join('\n') || '—'}
+                          <CargoGroupRemarkCell events={item.events} t={t} onViewRemark={openRemarkViewer} />
                         </td>
                         <td className="operation-activity-timeline__documents">
                           <span className="text-steel">—</span>
@@ -744,10 +928,7 @@ export default function OperationActivityTimeline({
                     <dd>{groupStatus}</dd>
                     <dt>Remark</dt>
                     <dd className="operation-activity-timeline__remark">
-                      {item.events
-                        .map((ev) => (ev.remark != null && String(ev.remark).trim() ? String(ev.remark).trim() : null))
-                        .filter(Boolean)
-                        .join('\n') || '—'}
+                      <CargoGroupRemarkCell events={item.events} t={t} onViewRemark={openRemarkViewer} />
                     </dd>
                     <dt>Documents</dt>
                     <dd>—</dd>
@@ -781,6 +962,7 @@ export default function OperationActivityTimeline({
           </div>
         </>
       )}
+      <RemarkViewerModal viewer={remarkViewer} onClose={closeRemarkViewer} />
     </section>
   )
 }

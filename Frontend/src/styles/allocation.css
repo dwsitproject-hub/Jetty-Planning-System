@@ -3741,7 +3741,91 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
 }
 
 .operation-activity-timeline__remark {
-  white-space: pre-line;
+  vertical-align: top;
+}
+
+.operation-activity-timeline__remark-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.operation-activity-timeline__remark-summary {
+  font-weight: var(--font-weight-medium, 500);
+  color: var(--color-text-charcoal, #333);
+}
+
+.operation-activity-timeline__remark-preview {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--color-text-steel, #666);
+  white-space: pre-wrap;
+}
+
+.operation-activity-timeline__remark-view-link {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--font-size-small);
+  line-height: 1.3;
+  color: var(--color-primary, #0d6efd);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.operation-activity-timeline__remark-view-link:hover {
+  text-decoration-thickness: 2px;
+}
+
+.operation-activity-timeline__remark-view-link:focus-visible {
+  outline: 2px solid var(--color-primary, #0d6efd);
+  outline-offset: 2px;
+}
+
+.operation-activity-timeline__remark-modal {
+  max-width: 42rem;
+}
+
+.operation-activity-timeline__remark-modal-subtitle {
+  margin: 0.25rem 0 0;
+  font-size: var(--font-size-small);
+}
+
+.operation-activity-timeline__remark-modal-body {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: var(--spacing-3) var(--spacing-4);
+}
+
+.operation-activity-timeline__remark-modal-section + .operation-activity-timeline__remark-modal-section {
+  margin-top: var(--spacing-3);
+  padding-top: var(--spacing-3);
+  border-top: 1px solid var(--color-border-light, #e8e8e8);
+}
+
+.operation-activity-timeline__remark-modal-section-title {
+  margin: 0 0 var(--spacing-2);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal, #333);
+}
+
+.operation-activity-timeline__remark-modal-text {
+  margin: 0;
+  font-family: inherit;
+  font-size: var(--font-size-small);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text-charcoal, #333);
 }
 
 .operation-activity-timeline__documents {

@@ -53,6 +53,7 @@ export default function MasterSiLookup({
   const [editingHadUnloadingRate, setEditingHadUnloadingRate] = useState(false)
   const [formCommodityType, setFormCommodityType] = useState('Liquid')
   const [formShortName, setFormShortName] = useState('')
+  const [formKlToMtFactor, setFormKlToMtFactor] = useState('')
 
   const isCommodityMaster = apiType === 'commodities'
 
@@ -75,6 +76,12 @@ export default function MasterSiLookup({
         key: 'commodityType',
         label: 'Type',
         getSortValue: (it) => (it.commodityType === 'Solid' ? 'Solid' : 'Liquid').toLowerCase(),
+      })
+      cols.push({
+        key: 'klToMtFactor',
+        label: 'KL→MT factor',
+        getSortValue: (it) => (it.klToMtFactor != null ? Number(it.klToMtFactor) : Number.POSITIVE_INFINITY),
+        getFilterValue: (it) => (it.klToMtFactor != null ? String(it.klToMtFactor) : ''),
       })
     }
     if (enableStandardRateFields) {
@@ -151,6 +158,7 @@ export default function MasterSiLookup({
     setEditingId(null)
     setFormValue('')
     setFormShortName('')
+    setFormKlToMtFactor('')
     setFormCommodityType('Liquid')
     setFormLoadingRate('')
     setFormLoadingMetric('MTPH')
@@ -167,6 +175,7 @@ export default function MasterSiLookup({
     setEditingId(item.id)
     setFormValue(item.value ?? '')
     setFormShortName(item.shortName ?? '')
+    setFormKlToMtFactor(item.klToMtFactor != null ? String(item.klToMtFactor) : '')
     setFormCommodityType(item.commodityType === 'Solid' ? 'Solid' : 'Liquid')
     const lr = item?.portRates?.loading ?? null
     const ur = item?.portRates?.unloading ?? null
@@ -189,6 +198,7 @@ export default function MasterSiLookup({
     setEditingId(null)
     setFormValue('')
     setFormShortName('')
+    setFormKlToMtFactor('')
     setFormCommodityType('Liquid')
     setFormLoadingRate('')
     setFormLoadingMetric('MTPH')
@@ -216,6 +226,13 @@ export default function MasterSiLookup({
       if (!shortName) {
         setError('Short commodity name is required.')
         return
+      }
+      if (formKlToMtFactor.trim() !== '') {
+        const f = Number(formKlToMtFactor)
+        if (Number.isNaN(f) || f <= 0) {
+          setError('KL→MT factor must be a positive number.')
+          return
+        }
       }
     }
 
@@ -261,6 +278,7 @@ export default function MasterSiLookup({
       if (isCommodityMaster) {
         payload.commodityType = formCommodityType
         payload.shortName = (formShortName || '').trim().toUpperCase()
+        payload.klToMtFactor = formKlToMtFactor.trim() === '' ? null : Number(formKlToMtFactor)
       }
       if (enableStandardRateFields) {
         if (formClearLoadingRate) {
@@ -324,6 +342,7 @@ export default function MasterSiLookup({
     isCommodityMaster,
     formCommodityType,
     formShortName,
+    formKlToMtFactor,
   ])
 
   const handleDelete = useCallback(
@@ -426,6 +445,9 @@ export default function MasterSiLookup({
                     {isCommodityMaster && (
                       <td>{it.commodityType === 'Solid' ? 'Solid' : 'Liquid'}</td>
                     )}
+                    {isCommodityMaster && (
+                      <td>{it.klToMtFactor != null ? it.klToMtFactor : '—'}</td>
+                    )}
                     {enableStandardRateFields && (
                       <>
                         <td>{it?.portRates?.loading != null ? it.portRates.loading.rate : '—'}</td>
@@ -525,6 +547,24 @@ export default function MasterSiLookup({
                   <option value="Liquid">Liquid</option>
                   <option value="Solid">Solid</option>
                 </select>
+              </div>
+            )}
+            {isCommodityMaster && (
+              <div className="modal__section">
+                <label htmlFor="si-commodity-kl-to-mt-factor" className="modal__label">
+                  KL→MT factor <span className="text-steel">— optional; for DWT when cargo qty is in KL (e.g. 0.8743 or 1)</span>
+                </label>
+                <input
+                  id="si-commodity-kl-to-mt-factor"
+                  type="number"
+                  min={0}
+                  step="any"
+                  className="modal__input"
+                  value={formKlToMtFactor}
+                  onChange={(e) => setFormKlToMtFactor(e.target.value)}
+                  placeholder="e.g. 0.8743"
+                  disabled={!canDoEdit}
+                />
               </div>
             )}
             {enableStandardRateFields && (
