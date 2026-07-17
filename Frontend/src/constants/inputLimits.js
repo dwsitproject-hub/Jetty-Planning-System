@@ -4,6 +4,8 @@
  */
 
 export const MAX_REMARK_CHARS = 500
+/** At-Berth operational activity log remark (multi-day discharge notes) */
+export const MAX_ACTIVITY_REMARK_CHARS = 4000
 
 export const MAX_ROLE_NAME_CHARS = 50
 export const MAX_ROLE_DESCRIPTION_CHARS = 100
