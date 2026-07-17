@@ -4,6 +4,7 @@
 import express from 'express';
 import { pool } from '../db.js';
 import { writeActivityLog } from '../lib/activity-log.js';
+import { syncPlanVesselCapacityForCommodity } from '../lib/syncPlanVesselCapacity.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { requirePortScope } from '../middleware/port-scope.js';
 
@@ -53,10 +54,18 @@ function normalizeShortName(raw) {
   return v || null;
 }
 
+function normalizeKlToMtFactor(raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return NaN;
+  return n;
+}
+
 async function selectCommoditiesWithRates({ portId, whereSql, params = [] }) {
   const portParam = portId == null ? null : Number(portId);
   return pool.query(
-    `SELECT c.id, c.name AS value, c.short_name, c.sort_order, c.commodity_type, c.created_at, c.updated_at,
+    `SELECT c.id, c.name AS value, c.short_name, c.sort_order, c.commodity_type, c.kl_to_mt_factor, c.created_at, c.updated_at,
             srl.id AS loading_standard_rate_id, srl.rate_value AS loading_rate_value, srl.rate_metric AS loading_rate_metric,
             sru.id AS unloading_standard_rate_id, sru.rate_value AS unloading_rate_value, sru.rate_metric AS unloading_rate_metric
      FROM si_commodities c
@@ -115,6 +124,7 @@ function toCommodityListItem(row) {
     name: row.value,
     shortName: row.short_name,
     commodityType: row.commodity_type ?? 'Liquid',
+    klToMtFactor: row.kl_to_mt_factor != null ? Number(row.kl_to_mt_factor) : null,
     sortOrder: row.sort_order ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -258,7 +268,7 @@ router.get('/', async (_req, res) => {
     metrics,
   ] = await Promise.all([
     pool.query(
-      `SELECT id, name, short_name, sort_order, commodity_type FROM si_commodities WHERE deleted_at IS NULL ORDER BY sort_order, name`
+      `SELECT id, name, short_name, sort_order, commodity_type, kl_to_mt_factor FROM si_commodities WHERE deleted_at IS NULL ORDER BY sort_order, name`
     ),
     pool.query(
       `SELECT id, code, sort_order FROM si_trade_terms WHERE deleted_at IS NULL ORDER BY sort_order, code`
@@ -277,7 +287,11 @@ router.get('/', async (_req, res) => {
     ),
     pool.query(`SELECT id, name, sort_order FROM si_agents WHERE deleted_at IS NULL ORDER BY sort_order, name`),
     pool.query(
-      `SELECT j.id, j.name, j.port_id, p.name AS port_name
+      `SELECT j.id, j.name, j.port_id, j.jetty_length_m, j.jetty_draft, j.jetty_dwt, j.status, p.name AS port_name,
+              (SELECT COALESCE(json_agg(jc.commodity_id), '[]'::json)
+               FROM jetty_commodities jc WHERE jc.jetty_id = j.id AND jc.operational_purpose = 'Unloading') AS unloading_commodity_ids,
+              (SELECT COALESCE(json_agg(jc.commodity_id), '[]'::json)
+               FROM jetty_commodities jc WHERE jc.jetty_id = j.id AND jc.operational_purpose = 'Loading') AS loading_commodity_ids
        FROM jetties j
        JOIN ports p ON j.port_id = p.id AND p.deleted_at IS NULL
        WHERE j.deleted_at IS NULL
@@ -294,6 +308,7 @@ router.get('/', async (_req, res) => {
       name: r.name,
       shortName: r.short_name,
       commodityType: r.commodity_type ?? 'Liquid',
+      klToMtFactor: r.kl_to_mt_factor != null ? Number(r.kl_to_mt_factor) : null,
       sortOrder: r.sort_order,
     })),
     tradeTerms: tradeTerms.rows.map((r) => ({
@@ -333,6 +348,12 @@ router.get('/', async (_req, res) => {
       portId: r.port_id,
       portName: r.port_name,
       label: `${r.port_name} — ${r.name}`,
+      status: r.status ?? null,
+      jettyLengthM: r.jetty_length_m != null ? Number(r.jetty_length_m) : null,
+      jettyDraft: r.jetty_draft != null ? Number(r.jetty_draft) : null,
+      jettyDwt: r.jetty_dwt != null ? Number(r.jetty_dwt) : null,
+      unloadingCommodityIds: Array.isArray(r.unloading_commodity_ids) ? r.unloading_commodity_ids.map(Number) : [],
+      loadingCommodityIds: Array.isArray(r.loading_commodity_ids) ? r.loading_commodity_ids.map(Number) : [],
     })),
     metrics: metrics.rows.map((r) => ({
       id: r.id,
@@ -428,10 +449,15 @@ router.post('/:type', async (req, res) => {
       if (!shortName) return res.status(400).json({ error: 'shortName is required' });
       const ct = normalizeCommodityType(req.body.commodityType ?? req.body.commodity_type);
       if (!ct) return res.status(400).json({ error: 'commodityType must be Solid or Liquid' });
+      const klFactorRaw = normalizeKlToMtFactor(req.body.klToMtFactor ?? req.body.kl_to_mt_factor);
+      if (Number.isNaN(klFactorRaw)) {
+        return res.status(400).json({ error: 'klToMtFactor must be a positive number' });
+      }
       const ins = await pool.query(
-        `INSERT INTO si_commodities (name, short_name, sort_order, commodity_type) VALUES ($1, $2, 0, $3)
-         RETURNING id, name AS value, short_name, sort_order, commodity_type, created_at, updated_at`,
-        [cleaned, shortName, ct]
+        `INSERT INTO si_commodities (name, short_name, sort_order, commodity_type, kl_to_mt_factor)
+         VALUES ($1, $2, 0, $3, $4)
+         RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, created_at, updated_at`,
+        [cleaned, shortName, ct, klFactorRaw ?? null]
       );
       const row = ins.rows[0];
       const portId = req.selectedPortId;
@@ -570,6 +596,7 @@ router.put('/:type/:id', async (req, res) => {
   let prevLoadingMetric = null;
   let prevUnloadingValue = null;
   let prevUnloadingMetric = null;
+  let prevKlToMtFactor = null;
   if (type === 'commodities') {
     if (!req.userId) return res.status(401).json({ error: 'Authentication required' });
     await new Promise((resolve, reject) =>
@@ -588,6 +615,7 @@ router.put('/:type/:id', async (req, res) => {
     prevLoadingMetric = prevQ.rows[0].loading_rate_metric;
     prevUnloadingValue = prevQ.rows[0].unloading_rate_value;
     prevUnloadingMetric = prevQ.rows[0].unloading_rate_metric;
+    prevKlToMtFactor = prevQ.rows[0].kl_to_mt_factor != null ? Number(prevQ.rows[0].kl_to_mt_factor) : null;
   } else {
     const prevQ = await pool.query(
       `SELECT ${cfg.valueCol} AS v FROM ${cfg.table} WHERE id = $1 AND deleted_at IS NULL`,
@@ -601,23 +629,45 @@ router.put('/:type/:id', async (req, res) => {
   if (type === 'commodities') {
     const shortName = normalizeShortName(req.body.shortName ?? req.body.short_name);
     if (!shortName) return res.status(400).json({ error: 'shortName is required' });
+    const klFactorRaw = normalizeKlToMtFactor(req.body.klToMtFactor ?? req.body.kl_to_mt_factor);
+    if (Number.isNaN(klFactorRaw)) {
+      return res.status(400).json({ error: 'klToMtFactor must be a positive number' });
+    }
     const ctRaw = req.body.commodityType ?? req.body.commodity_type;
     if (ctRaw !== undefined && ctRaw !== null && String(ctRaw).trim() !== '') {
       const ct = normalizeCommodityType(ctRaw);
       if (!ct) return res.status(400).json({ error: 'commodityType must be Solid or Liquid' });
+      if (klFactorRaw !== undefined) {
+        result = await pool.query(
+          `UPDATE si_commodities
+           SET name = $1, short_name = $2, commodity_type = $3, kl_to_mt_factor = $4, updated_at = NOW()
+           WHERE id = $5 AND deleted_at IS NULL
+           RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, created_at, updated_at`,
+          [cleaned, shortName, ct, klFactorRaw, id]
+        );
+      } else {
+        result = await pool.query(
+          `UPDATE si_commodities
+           SET name = $1, short_name = $2, commodity_type = $3, updated_at = NOW()
+           WHERE id = $4 AND deleted_at IS NULL
+           RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, created_at, updated_at`,
+          [cleaned, shortName, ct, id]
+        );
+      }
+    } else if (klFactorRaw !== undefined) {
       result = await pool.query(
         `UPDATE si_commodities
-         SET name = $1, short_name = $2, commodity_type = $3, updated_at = NOW()
+         SET name = $1, short_name = $2, kl_to_mt_factor = $3, updated_at = NOW()
          WHERE id = $4 AND deleted_at IS NULL
-         RETURNING id, name AS value, short_name, sort_order, commodity_type, created_at, updated_at`,
-        [cleaned, shortName, ct, id]
+         RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, created_at, updated_at`,
+        [cleaned, shortName, klFactorRaw, id]
       );
     } else {
       result = await pool.query(
         `UPDATE si_commodities
          SET name = $1, short_name = $2, updated_at = NOW()
          WHERE id = $3 AND deleted_at IS NULL
-         RETURNING id, name AS value, short_name, sort_order, commodity_type, created_at, updated_at`,
+         RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, created_at, updated_at`,
         [cleaned, shortName, id]
       );
     }
@@ -705,6 +755,14 @@ router.put('/:type/:id', async (req, res) => {
     }
     if (prevCommodityType && updatedItem.commodityType && prevCommodityType !== updatedItem.commodityType) {
       changesC.push({ field: 'Commodity type', from: prevCommodityType, to: updatedItem.commodityType });
+    }
+    if (prevKlToMtFactor !== updatedItem.klToMtFactor) {
+      changesC.push({
+        field: 'KL→MT factor',
+        from: prevKlToMtFactor != null ? String(prevKlToMtFactor) : null,
+        to: updatedItem.klToMtFactor != null ? String(updatedItem.klToMtFactor) : null,
+      });
+      await syncPlanVesselCapacityForCommodity(pool, id);
     }
     const fromL = formatRateSnapshot(prevLoadingValue, prevLoadingMetric);
     const toL = updatedItem.portRates.loading

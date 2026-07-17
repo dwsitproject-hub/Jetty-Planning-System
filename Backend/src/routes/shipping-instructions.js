@@ -5,6 +5,7 @@ import express from 'express';
 import { pool } from '../db.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { resolveUserRequestedBy } from '../lib/resolve-requested-by.js';
+import { syncPlanVesselCapacityFromBreakdown } from '../lib/syncPlanVesselCapacity.js';
 import { requireAuth } from '../middleware/auth.js';
 import { userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
 
@@ -63,7 +64,9 @@ const SI_FROM = `
 `;
 
 const SI_SELECT = `
-  SELECT si.id, si.reference_number, spl.vessel_name, si.commodity, spp.code AS purpose, spl.eta,
+  SELECT si.id, si.reference_number, spl.vessel_name, spl.vessel_capacity,
+    spl.vessel_loa_m, spl.vessel_gross_tonnage, spl.vessel_draft, spl.vessel_dwt,
+    si.commodity, spp.code AS purpose, spl.eta,
     si.eta_from::text AS eta_from, si.eta_to::text AS eta_to, si.status,
     si.shipment_plan_id,
     spl.approval_id,
@@ -853,6 +856,9 @@ router.post('/', requireAuth, async (req, res) => {
     );
     const newId = result.rows[0].id;
     await replaceBreakdown(client, newId, breakdown);
+    if (shipmentPlanId != null) {
+      await syncPlanVesselCapacityFromBreakdown(client, shipmentPlanId);
+    }
     await client.query('COMMIT');
     const row = await pool.query(`${SI_SELECT} WHERE si.id = $1`, [newId]);
     const bd = await loadBreakdown(newId);
@@ -1195,6 +1201,10 @@ router.put('/:id', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Shipping instruction not found' });
     }
     if (breakdown !== undefined) await replaceBreakdown(client, id, breakdown);
+    const planIdForSync = beforeRow.shipment_plan_id;
+    if (planIdForSync != null && breakdown !== undefined) {
+      await syncPlanVesselCapacityFromBreakdown(client, planIdForSync);
+    }
     await client.query('COMMIT');
     const row = await pool.query(`${SI_SELECT} WHERE si.id = $1`, [id]);
     const bd = await loadBreakdown(id);
@@ -1255,6 +1265,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
     return res.status(409).json({ error: 'Cannot delete shipping instruction while operations reference it' });
   }
   const entityLabel = beforeRow.reference_number?.trim() || `SI-${id}`;
+  const planIdForSync = beforeRow.shipment_plan_id;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -1270,6 +1281,9 @@ router.delete('/:id', requireAuth, async (req, res) => {
     if (del.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Shipping instruction not found' }); // race: row removed concurrently
+    }
+    if (planIdForSync != null) {
+      await syncPlanVesselCapacityFromBreakdown(client, planIdForSync);
     }
     await client.query('COMMIT');
   } catch (e) {
@@ -1296,6 +1310,11 @@ function toSIList(row) {
     id: row.id,
     referenceNumber: row.reference_number ?? null,
     vesselName: row.vessel_name,
+    vesselCapacity: row.vessel_capacity != null ? Number(row.vessel_capacity) : null,
+    vesselLoaM: row.vessel_loa_m != null ? Number(row.vessel_loa_m) : null,
+    vesselGrossTonnage: row.vessel_gross_tonnage != null ? Number(row.vessel_gross_tonnage) : null,
+    vesselDraft: row.vessel_draft != null ? Number(row.vessel_draft) : null,
+    vesselDwt: row.vessel_dwt != null ? Number(row.vessel_dwt) : null,
     voyageNo: row.voyage_no ?? null,
     commodity: row.commodity_display ?? null,
     commodityId: null,

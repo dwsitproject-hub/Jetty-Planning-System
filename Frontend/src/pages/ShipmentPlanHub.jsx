@@ -327,15 +327,6 @@ export default function ShipmentPlanHub() {
                     />
                   </div>
                   <div className="input-group">
-                    <label htmlFor="hub-jetty">{t('formJettyOptional')}</label>
-                    <select id="hub-jetty" value={formJettyId} onChange={(e) => setFormJettyId(e.target.value)}>
-                      <option value="">—</option>
-                      {(lookups?.jetties || []).map((j) => (
-                        <option key={j.id} value={j.id}>{j.label || j.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="input-group">
                     <label htmlFor="hub-eta">{t('formEtaRequiredLabel')}</label>
                     <input id="hub-eta" type="datetime-local" value={formEta} onChange={(e) => setFormEta(e.target.value)} required />
                   </div>
@@ -355,6 +346,15 @@ export default function ShipmentPlanHub() {
                       <option value="">—</option>
                       {(lookups?.agents || []).map((a) => (
                         <option key={a.id} value={a.id}>{a.label || a.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+                    <label htmlFor="hub-jetty">{t('formJettyOptional')}</label>
+                    <select id="hub-jetty" value={formJettyId} onChange={(e) => setFormJettyId(e.target.value)}>
+                      <option value="">—</option>
+                      {(lookups?.jetties || []).map((j) => (
+                        <option key={j.id} value={j.id}>{j.label || j.name}</option>
                       ))}
                     </select>
                   </div>

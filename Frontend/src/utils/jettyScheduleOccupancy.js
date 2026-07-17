@@ -166,6 +166,39 @@ function rowToOccupant(row) {
   }
 }
 
+/**
+ * Schematic KPI counters for a selected date:
+ * eta = ETA on that date, no TA yet · etb = ETB on that date, no TB yet ·
+ * etc = Est. Completion on that date, no actual completion yet.
+ * Deduped per shipment plan (falls back to vesselId when no plan id).
+ */
+export function computeScheduleKpis(scheduleRows, dateYmd) {
+  const rows = Array.isArray(scheduleRows) ? scheduleRows : []
+  const sameDay = (iso) => {
+    if (!iso) return false
+    const d = new Date(iso)
+    return !Number.isNaN(d.getTime()) && toDateInputValue(d) === dateYmd
+  }
+  const make = () => ({ count: 0, vesselIds: new Set(), planIds: new Set() })
+  const kpis = { eta: make(), etb: make(), etc: make() }
+  const seen = { eta: new Set(), etb: new Set(), etc: new Set() }
+  const add = (key, r) => {
+    const dedupe = r.shipmentPlanId != null ? `p${r.shipmentPlanId}` : `v${r.vesselId}`
+    if (seen[key].has(dedupe)) return
+    seen[key].add(dedupe)
+    kpis[key].count += 1
+    if (r.vesselId) kpis[key].vesselIds.add(r.vesselId)
+    if (r.shipmentPlanId != null) kpis[key].planIds.add(Number(r.shipmentPlanId))
+  }
+  for (const r of rows) {
+    if (!r) continue
+    if (sameDay(r.etaDateTime || r.eta) && !r.taDateTime) add('eta', r)
+    if (sameDay(r.etbDateTime || r.etb) && !r.tbDateTime) add('etb', r)
+    if (sameDay(r.estimatedCompletionDateTime) && !r.actualCompletionDateTime) add('etc', r)
+  }
+  return kpis
+}
+
 export function buildIncomingByJettyForDate(scheduleRows, dateYmd, asOfMs) {
   const dayStart = parseDateInputStart(dateYmd)
   const dayEnd = parseDateInputEndExclusive(dateYmd)

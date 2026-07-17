@@ -1,5 +1,6 @@
 {
   "dashboard": "Dashboard",
+  "managementDashboard": "Management Dashboard",
   "jettyLive": "Jetty Live",
   "shippingInstruction": "Shipping Instruction",
   "shipmentPlans": "Shipment plans",

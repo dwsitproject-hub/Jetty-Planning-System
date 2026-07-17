@@ -2197,6 +2197,20 @@
   align-self: center;
 }
 
+/* Total card: cohort summary, deliberately outside the arrow flow */
+.v2-pipeline__stage--total {
+  background: var(--color-bg-lighter, #f4f6f2);
+  border: 1px dashed var(--color-border-medium, #d1d5db);
+}
+
+.v2-pipeline__divider {
+  flex-shrink: 0;
+  align-self: stretch;
+  width: 1px;
+  background: var(--color-border-medium, #d1d5db);
+  margin: 4px var(--spacing-2);
+}
+
 /* ── KPI Row ── */
 .v2-kpi-row {
   display: grid;
@@ -2244,6 +2258,166 @@
 .v2-kpi-card--accent-red {
   border-color: rgba(239, 68, 68, 0.35);
   background: rgba(239, 68, 68, 0.04);
+}
+
+.v2-kpi-card--accent-amber {
+  border-color: rgba(180, 83, 9, 0.35);
+  background: rgba(180, 83, 9, 0.05);
+}
+
+/* Time-basis chip: distinguishes live cards from range-scoped sections */
+.v2-basis-chip {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+  vertical-align: 2px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.v2-basis-chip--range {
+  background: var(--color-bg-lighter, #eef0ec);
+  color: var(--color-text-steel, #5b6675);
+  letter-spacing: 0.02em;
+}
+
+/* ── Berth board (At Berth Now) ── */
+.v2-berth-board {
+  margin: 12px 0 14px;
+}
+
+.v2-board-r {
+  text-align: right;
+}
+
+.v2-board-code {
+  display: block;
+  font-size: 11px;
+  color: var(--color-text-steel);
+}
+
+.v2-board-chip {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.v2-board-chip + .v2-board-chip {
+  margin-left: 4px;
+}
+
+.v2-board-chip--load { background: #1e8a52; }
+.v2-board-chip--disch { background: #2d6fb8; }
+.v2-board-chip--ok { background: #1e7a46; }
+.v2-board-chip--soon { background: #b45309; }
+.v2-board-chip--over { background: #b3261e; }
+.v2-board-chip--ghost {
+  background: var(--color-bg-lighter, #eef0ec);
+  color: var(--color-text-steel, #5b6675);
+}
+
+.v2-board-flag {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+  margin: 1px 4px 1px 0;
+  white-space: nowrap;
+}
+
+.v2-board-flag--warn {
+  background: rgba(180, 83, 9, 0.12);
+  color: #92400e;
+}
+
+.v2-board-flag--ok {
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+}
+
+/* ── Arrivals panel ── */
+.v2-arrivals__hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-steel);
+  margin: 0 0 10px;
+}
+
+.v2-arrivals__commodity {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Tonnage strip ── */
+.v2-tonnage__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+@media (max-width: 760px) {
+  .v2-tonnage__row { grid-template-columns: 1fr; }
+}
+
+.v2-tonnage__card {
+  border: 1px solid var(--color-border-light, #e2e5df);
+  border-left-width: 4px;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.v2-tonnage__card--loading { border-left-color: #1e8a52; }
+.v2-tonnage__card--unloading { border-left-color: #2d6fb8; }
+
+.v2-tonnage__label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-steel);
+}
+
+.v2-tonnage__vals {
+  display: flex;
+  gap: 18px;
+  margin: 6px 0;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.v2-tonnage__bar-wrap {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--color-bg-lighter, #eef0ec);
+  overflow: hidden;
+}
+
+.v2-tonnage__bar {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--color-primary, #8c2b2b);
+}
+
+.v2-tonnage__card--loading .v2-tonnage__bar { background: #1e8a52; }
+.v2-tonnage__card--unloading .v2-tonnage__bar { background: #2d6fb8; }
+
+.v2-tonnage__sub {
+  font-size: 11.5px;
+  color: var(--color-text-steel);
+  margin-top: 5px;
 }
 
 .v2-kpi-card__label {

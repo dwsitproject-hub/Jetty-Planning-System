@@ -12,6 +12,7 @@ import { getClientIanaTimeZone } from '../utils/scheduleDateTime.js'
 
 const navStructure = [
   { path: '/', labelKey: 'dashboard', icon: '📊' },
+  { path: '/management-dashboard', labelKey: 'managementDashboard', icon: '📈' },
   { path: '/shipment-plans', labelKey: 'shipmentPlans', icon: '📦' },
   { path: '/allocation-plans', labelKey: 'allocationPlan', icon: '⚓' },
   { path: '/at-berth', labelKey: 'atBerth', icon: '🚢' },
@@ -36,6 +37,7 @@ function isPortScopeBypassed(pathname) {
 function pathToPageKey(pathname) {
   if (!pathname || pathname.startsWith('/reporting') || pathname.startsWith('/dev/')) return null
   if (pathname === '/' || pathname === '') return 'dashboard'
+  if (pathname.startsWith('/management-dashboard')) return 'dashboard'
   if (pathname.startsWith('/jetty-live')) return 'allocation-plan'
   if (pathname.startsWith('/demurrage-risk-calculator')) return 'demurrage-risk-calculator'
   if (pathname.startsWith('/master/port')) return 'master-port'

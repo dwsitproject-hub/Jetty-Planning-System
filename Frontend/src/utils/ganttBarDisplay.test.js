@@ -117,12 +117,49 @@ describe('buildActualBlockModel', () => {
     assert.ok(model.actualCompMs != null)
   })
 
-  it('builds material qty from merged plan row commodityDisplay', () => {
+  it('builds material qty from merged plan row commodityDisplay, defaulting moved qty and rate to 0', () => {
     const model = buildActualBlockModel(
       { vesselName: 'V1', taMs: 10, tbMs: 20 },
       { commodityDisplay: 'CPO', totalQtyDisplay: '5,000 MT' }
     )
-    assert.equal(model.materialQtyLine, 'CPO · 5,000 MT')
+    assert.equal(model.materialQtyLine, 'CPO · 0 MT / 5,000 MT -- Rate 0 MT / Hour')
+  })
+
+  it('shows actual moved-vs-total progress when cargoMovedQty is logged, with 0 rate when no logged window', () => {
+    const model = buildActualBlockModel(
+      { vesselName: 'V1', taMs: 10, tbMs: 20 },
+      { commodityDisplay: 'CPO', totalQtyDisplay: 'CPO 2,500 MT', cargoMovedQty: 500 }
+    )
+    assert.equal(model.cargoDisplay, '500 MT / 2,500 MT -- Rate 0 MT / Hour')
+    assert.equal(model.materialQtyLine, 'CPO · 500 MT / 2,500 MT -- Rate 0 MT / Hour')
+  })
+
+  it('computes the hourly rate from the logged Cargo Operations window', () => {
+    const model = buildActualBlockModel(
+      { vesselName: 'V1', taMs: 10, tbMs: 20 },
+      {
+        commodityDisplay: 'CPO',
+        totalQtyDisplay: 'CPO 2,500 MT',
+        cargoMovedQty: 500,
+        cargoFirstLoggedAt: '2026-06-01T00:00:00Z',
+        cargoLastLoggedAt: '2026-06-01T10:00:00Z',
+      }
+    )
+    assert.equal(model.cargoDisplay, '500 MT / 2,500 MT -- Rate 50 MT / Hour')
+  })
+
+  it('prefers commodityShortDisplay over commodityDisplay for the material name, without duplicating the full name', () => {
+    const model = buildActualBlockModel(
+      { vesselName: 'V1', taMs: 10, tbMs: 20 },
+      {
+        commodityShortDisplay: 'CPO',
+        commodityDisplay: 'CRUDE PALM OIL',
+        totalQtyDisplay: 'CRUDE PALM OIL 2,500 MT',
+        cargoMovedQty: 500,
+      }
+    )
+    assert.equal(model.materialDisplay, 'CPO')
+    assert.equal(model.materialQtyLine, 'CPO · 500 MT / 2,500 MT -- Rate 0 MT / Hour')
   })
 })
 
