@@ -4,7 +4,9 @@
  */
 
 export const PAGE_OPTIONS = [
-  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'dashboard', label: 'Live Ops Dashboard' },
+  { id: 'dashboard-analytics', label: 'Ops Analytics Dashboard' },
+  { id: 'management-dashboard', label: 'Management Dashboard' },
   { id: 'shipment-plan', label: 'Shipment Plan' },
   { id: 'allocation-plan', label: 'Allocation & Berthing (by Shipment Plan)' },
   { id: 'at-berth', label: 'At-Berth Executions' },

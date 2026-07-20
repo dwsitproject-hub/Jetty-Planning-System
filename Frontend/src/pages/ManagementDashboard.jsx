@@ -5,9 +5,10 @@
  * selected period (with delta vs the previous equivalent period); pipeline/aging
  * cards are always a live "now" snapshot.
  */
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { fetchOperations, fetchSubProcesses, fetchOperationalActivities } from '../api/operations'
 import '../styles/management-dashboard.css'
+import '../styles/modal.css'
 
 const PERIODS = [
   { key: 'today', label: 'Today' },
@@ -25,6 +26,12 @@ const hrs = (a, b) => {
   return x != null && y != null && y >= x ? +((y - x) / H).toFixed(1) : null
 }
 const fmt = (n, d = 0) => (n == null ? '—' : n.toLocaleString('en-US', { maximumFractionDigits: d }))
+const fmtDate = (v) => (v ? String(v).slice(0, 10) : '—')
+const effPct = (r) => (r.berth && r.opsH != null ? (r.opsH / r.berth) * 100 : null)
+const idleAtBerth = (r) =>
+  r.berth != null ? Math.max(r.berth - (r.pre || 0) - (r.opsH || 0) - (r.post || 0), 0) : null
+const postH = (r) => (r.post != null && (r.berth == null || r.post <= r.berth) ? r.post : null)
+
 const median = (a) => {
   const s = a.filter((x) => x != null).sort((x, y) => x - y)
   if (!s.length) return null
@@ -105,7 +112,8 @@ function toRow(o, detail) {
   const opsDoneOrCo = ms(o.operationsCompletedAt || o.castOffAt)
   return {
     id: o.id, code: o.jettyOperationCode, vessel: o.vesselName, purpose: o.purpose,
-    status: o.status, jetty: o.jettyName, commodity: o.commodityDisplay || o.commodity,
+    status: o.status, jetty: o.jettyName,
+    commodity: o.commodityShortDisplay || o.commodityDisplay || o.commodity,
     qty: Number(o.cargoSiQty) || 0, pct: o.completionPercent,
     eta: o.eta, ta: o.ta, tb, etc: o.estimatedCompletionTime, opsDone: o.operationsCompletedAt,
     castOff: o.castOffAt, norA: !!o.norAcceptedAt,
@@ -161,6 +169,66 @@ function Delta({ cur, prev, lowerIsBetter = false, unit = '' }) {
   )
 }
 
+function lateLabel(late) {
+  if (late == null) return '—'
+  if (late <= 0) return 'on time'
+  return `+${fmt(late / 24, 1)}d`
+}
+
+function WidgetDetailModal({ modal, onClose }) {
+  if (!modal) return null
+  return (
+    <div className="modal-overlay" onClick={onClose} aria-hidden="true">
+      <div
+        className="modal modal--wide"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-labelledby="mgmt-widget-modal-title"
+        aria-modal="true"
+      >
+        <div className="mgmt-modal-header">
+          <h2 id="mgmt-widget-modal-title" className="modal__title">{modal.title}</h2>
+          <button type="button" className="mgmt-modal-close" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        {modal.subtitle ? <p className="text-steel mgmt-sub" style={{ marginTop: 0 }}>{modal.subtitle}</p> : null}
+        {modal.stats?.length ? (
+          <div className="mgmt-modal-summary">
+            {modal.stats.map((s) => (
+              <div key={s.label} className="mgmt-modal-summary__item">
+                <span className="mgmt-modal-summary__lbl">{s.label}</span>
+                <span className="mgmt-modal-summary__val">{s.value}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                {modal.columns.map((c) => (
+                  <th key={c.label} className={c.align === 'right' ? 'mgmt-r' : ''}>{c.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {modal.rows.length ? modal.rows.map((row, i) => (
+                <tr key={row.id ?? row._key ?? i}>
+                  {modal.columns.map((c) => (
+                    <td key={c.label} className={c.align === 'right' ? 'mgmt-r' : ''}>{c.cell(row)}</td>
+                  ))}
+                </tr>
+              )) : (
+                <tr><td colSpan={modal.columns.length} className="text-steel">No voyages in this view.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        {modal.footer ? <p className="mgmt-modal-foot">{modal.footer}</p> : null}
+      </div>
+    </div>
+  )
+}
+
 export default function ManagementDashboard() {
   const [ops, setOps] = useState([])
   const [details, setDetails] = useState({})
@@ -172,6 +240,7 @@ export default function ManagementDashboard() {
   const [rangeTo, setRangeTo] = useState('') // both set → period 'custom'
   const [purpose, setPurpose] = useState('All')
   const [openRow, setOpenRow] = useState(null)
+  const [activeModal, setActiveModal] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -205,6 +274,17 @@ export default function ManagementDashboard() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (!activeModal) return undefined
+    const onKey = (e) => {
+      if (e.key === 'Escape') setActiveModal(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [activeModal])
+
+  const closeModal = useCallback(() => setActiveModal(null), [])
 
   const rows = useMemo(() => ops.map((o) => toRow(o, details[o.id])), [ops, details])
   const filtered = useMemo(
@@ -241,14 +321,19 @@ export default function ManagementDashboard() {
     const aged = atBerth
       .map((r) => ({ ...r, ageDays: +(((E - ms(r.tb)) / DAY).toFixed(1)) }))
       .sort((a, b) => b.ageDays - a.ageDays)
+    const scheduledRows = filtered.filter(
+      (r) => (!r.created || ms(r.created) <= E) && (!r.ta || ms(r.ta) > E) && (!r.tb || ms(r.tb) > E)
+    )
+    const opsDoneRows = filtered.filter(
+      (r) => r.opsDone && ms(r.opsDone) <= E && (!r.castOff || ms(r.castOff) > E)
+    )
     return {
-      scheduled: filtered.filter(
-        (r) => (!r.created || ms(r.created) <= E) && (!r.ta || ms(r.ta) > E) && (!r.tb || ms(r.tb) > E)
-      ).length,
+      scheduled: scheduledRows.length,
+      scheduledRows,
       atBerth: atBerth.length,
-      opsDoneNotSailed: filtered.filter(
-        (r) => r.opsDone && ms(r.opsDone) <= E && (!r.castOff || ms(r.castOff) > E)
-      ).length,
+      atBerthRows: atBerth,
+      opsDoneNotSailed: opsDoneRows.length,
+      opsDoneRows,
       aged,
     }
   }, [filtered, snap])
@@ -267,13 +352,13 @@ export default function ManagementDashboard() {
     const post = Math.min(avg((r) => r.post), berth || 0)
     const idle = Math.max(berth - pre - opsH - post, 0)
     const segs = [
-      { n: 'Anchorage wait (TA→TB)', v: wait, cls: 'wf-wait' },
-      { n: 'Pre-checking', v: pre, cls: 'wf-pre' },
-      { n: 'Cargo operations', v: opsH, cls: purpose === 'Loading' ? 'wf-load' : purpose === 'Unloading' ? 'wf-disch' : 'wf-ops' },
-      { n: 'Idle / delays at berth', v: idle, cls: 'wf-idle' },
-      { n: 'Post-checking & sign-off', v: post, cls: 'wf-post' },
+      { n: 'Anchorage wait (TA→TB)', v: wait, cls: 'wf-wait', getVal: (r) => r.wait },
+      { n: 'Pre-checking', v: pre, cls: 'wf-pre', getVal: (r) => r.pre },
+      { n: 'Cargo operations', v: opsH, cls: purpose === 'Loading' ? 'wf-load' : purpose === 'Unloading' ? 'wf-disch' : 'wf-ops', getVal: (r) => r.opsH },
+      { n: 'Idle / delays at berth', v: idle, cls: 'wf-idle', getVal: idleAtBerth },
+      { n: 'Post-checking & sign-off', v: post, cls: 'wf-post', getVal: postH },
     ]
-    return { segs, total: segs.reduce((s, x) => s + x.v, 0), n: dd.length, opsShare: berth ? (opsH / (wait + berth)) * 100 : null }
+    return { segs, total: segs.reduce((s, x) => s + x.v, 0), n: dd.length, opsShare: berth ? (opsH / (wait + berth)) * 100 : null, dd }
   }, [cur, purpose])
 
   const leagues = useMemo(() => {
@@ -294,13 +379,16 @@ export default function ManagementDashboard() {
         const k = `${r.vessel}|${r.tb}`
         if (seen[k]) seen[k].q += r.qty
         else {
-          seen[k] = { v: r.vessel, p: r.purpose, q: r.qty, ops: r.opsH }
+          seen[k] = {
+            _key: k, v: r.vessel, p: r.purpose, q: r.qty, ops: r.opsH,
+            jetty: r.jetty, castOff: r.castOff, tb: r.tb,
+          }
           rates.push(seen[k])
         }
       })
     rates.forEach((x) => (x.rate = x.ops ? x.q / x.ops : null))
     rates.sort((a, b) => (b.rate || 0) - (a.rate || 0))
-    return { jetty, rates }
+    return { jetty, rates, dd }
   }, [cur])
 
   // Rows relevant to the selected period: sailed within it, or alongside at its end
@@ -311,43 +399,290 @@ export default function ManagementDashboard() {
       .map((r) => ({ ...r, sailedInPeriod: !!(r.castOff && inWin(r, win)) }))
   }, [filtered, win, snap])
 
-  // Data-quality gaps that limit the KPIs (scoped to the selected period)
-  const dq = useMemo(() => {
-    const out = []
-    const sailed = dedup(inScope.filter((r) => r.status === 'SAILED' && r.castOff && inWin(r, win)))
-    const noOps = sailed.filter((r) => r.opsH == null).length
-    if (noOps) out.push(`${noOps} of ${sailed.length} sailed voyages have no cargo-operations window logged — effective ratio and MT/h rates exclude them.`)
-    const noNor = inScope.filter((r) => !r.norA).length
-    if (noNor) out.push(`${noNor} operations are missing NOR acceptance — laytime/demurrage exposure cannot be computed for them.`)
-    const noQty = inScope.filter((r) => !r.qty).length
-    if (noQty) out.push(`${noQty} operations have no SI quantity — they contribute 0 MT to throughput.`)
-    const outliers = inScope.filter((r) => {
-      const d = details[r.id]
-      return d && r.pre == null && r.berth != null &&
-        d.subs.some((s) => s.phase === 'Pre-Checking' && (s.startAt || s.occurredAt))
-    }).length
-    if (outliers) out.push(`${outliers} voyages had pre-checking timestamps longer than the whole berth stay — excluded as data-entry outliers.`)
-    return out
-  }, [inScope, win, details])
-
   const tableRows = useMemo(
     () => [...inScope].sort((a, b) => (b.berth || 0) - (a.berth || 0)),
     [inScope]
   )
 
-  const kpiTiles = [
-    { l: 'Cargo throughput', v: fmt(Math.round(cur.throughput)), u: 'MT', n: `${cur.voyages} voyages sailed`, d: <Delta cur={cur.throughput} prev={prev?.throughput} /> },
-    { l: 'Median berth time', v: fmt(cur.berth, 1), u: 'h', n: 'TB → cast-off', d: <Delta cur={cur.berth} prev={prev?.berth} lowerIsBetter /> },
-    { l: 'Median wait to berth', v: fmt(cur.wait, 1), u: 'h', n: 'TA → TB', d: <Delta cur={cur.wait} prev={prev?.wait} lowerIsBetter /> },
-    { l: 'Effective ops ratio', v: cur.eff == null ? '—' : `${fmt(cur.eff, 0)}%`, u: '', n: 'cargo-ops ÷ berth hours', d: <Delta cur={cur.eff} prev={prev?.eff} />, cls: cur.eff != null && cur.eff < 40 ? 'mgmt-kpi--bad' : '' },
-    { l: 'On-time vs ETC', v: cur.onTime == null ? '—' : `${fmt(cur.onTime, 0)}%`, u: '', n: 'ops done ≤ estimate', d: <Delta cur={cur.onTime} prev={prev?.onTime} />, cls: cur.onTime === 0 ? 'mgmt-kpi--bad' : '' },
-    { l: 'Median lateness', v: cur.late == null ? '—' : fmt(cur.late / 24, 1), u: 'days', n: 'beyond Est. Completion', d: <Delta cur={cur.late} prev={prev?.late} lowerIsBetter />, cls: 'mgmt-kpi--bad' },
-  ]
-
   const periodLabel = win.label
   const snapLabel = snap.isLive
     ? 'now'
     : new Date(snap.E - 1).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+
+  const flowFooter = `Based on sailed voyages with cast-off in ${periodLabel}`
+  const snapFooter = snap.isLive
+    ? 'Live pipeline snapshot as of now'
+    : `Pipeline reconstructed as of ${snapLabel}`
+
+  const openKpiDetail = useCallback((key) => {
+    switch (key) {
+      case 'throughput':
+        setActiveModal({
+          title: 'Cargo throughput',
+          subtitle: `${cur.voyages} voyages · ${fmt(Math.round(cur.throughput))} MT total`,
+          footer: flowFooter,
+          stats: [
+            { label: 'Total MT', value: fmt(Math.round(cur.throughput)) },
+            { label: 'Voyages', value: String(cur.voyages) },
+          ],
+          columns: [
+            { label: 'Vessel', cell: (r) => r.vessel },
+            { label: 'Jetty', cell: (r) => r.jetty || '—' },
+            { label: 'Commodity', cell: (r) => r.commodity || '—' },
+            { label: 'Qty (MT)', cell: (r) => fmt(r.qty), align: 'right' },
+            { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
+          ],
+          rows: [...cur.allSailed].sort((a, b) => b.qty - a.qty),
+        })
+        break
+      case 'berth': {
+        const rows = cur.sailedRows.filter((r) => r.berth != null).sort((a, b) => b.berth - a.berth)
+        setActiveModal({
+          title: 'Median berth time',
+          subtitle: `${rows.length} voyages · median ${fmt(cur.berth, 1)} h`,
+          footer: flowFooter,
+          stats: [
+            { label: 'Median', value: `${fmt(cur.berth, 1)} h` },
+            { label: 'Voyages', value: String(rows.length) },
+          ],
+          columns: [
+            { label: 'Vessel', cell: (r) => r.vessel },
+            { label: 'Jetty', cell: (r) => r.jetty || '—' },
+            { label: 'Berth h', cell: (r) => fmt(r.berth, 1), align: 'right' },
+            { label: 'Ops h', cell: (r) => fmt(r.opsH, 1), align: 'right' },
+            { label: 'Effective %', cell: (r) => (effPct(r) == null ? '—' : `${fmt(effPct(r), 0)}%`), align: 'right' },
+            { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
+          ],
+          rows,
+        })
+        break
+      }
+      case 'wait': {
+        const rows = cur.sailedRows.filter((r) => r.wait != null).sort((a, b) => b.wait - a.wait)
+        setActiveModal({
+          title: 'Median wait to berth',
+          subtitle: `${rows.length} voyages · median ${fmt(cur.wait, 1)} h`,
+          footer: flowFooter,
+          stats: [
+            { label: 'Median', value: `${fmt(cur.wait, 1)} h` },
+            { label: 'Voyages', value: String(rows.length) },
+          ],
+          columns: [
+            { label: 'Vessel', cell: (r) => r.vessel },
+            { label: 'Jetty', cell: (r) => r.jetty || '—' },
+            { label: 'Wait h', cell: (r) => fmt(r.wait, 1), align: 'right' },
+            { label: 'TB', cell: (r) => fmtDate(r.tb) },
+            { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
+          ],
+          rows,
+        })
+        break
+      }
+      case 'eff': {
+        const rows = cur.sailedRows
+          .filter((r) => r.berth && r.opsH != null)
+          .sort((a, b) => (effPct(a) || 0) - (effPct(b) || 0))
+        const excluded = cur.sailedRows.length - rows.length
+        setActiveModal({
+          title: 'Effective ops ratio',
+          subtitle: `${rows.length} of ${cur.sailedRows.length} voyages included${excluded ? ` (${excluded} missing cargo-ops window)` : ''}`,
+          footer: flowFooter,
+          stats: [
+            { label: 'Ratio', value: cur.eff == null ? '—' : `${fmt(cur.eff, 0)}%` },
+            { label: 'Included', value: String(rows.length) },
+          ],
+          columns: [
+            { label: 'Vessel', cell: (r) => r.vessel },
+            { label: 'Berth h', cell: (r) => fmt(r.berth, 1), align: 'right' },
+            { label: 'Ops h', cell: (r) => fmt(r.opsH, 1), align: 'right' },
+            { label: 'Effective %', cell: (r) => `${fmt(effPct(r), 0)}%`, align: 'right' },
+            { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
+          ],
+          rows,
+        })
+        break
+      }
+      case 'onTime': {
+        const withLate = cur.sailedRows.filter((r) => r.late != null)
+        const onTimeN = withLate.filter((r) => r.late <= 0).length
+        setActiveModal({
+          title: 'On-time vs ETC',
+          subtitle: `${onTimeN} of ${withLate.length} voyages on time · ${cur.onTime == null ? '—' : `${fmt(cur.onTime, 0)}%`}`,
+          footer: flowFooter,
+          stats: [
+            { label: 'On-time %', value: cur.onTime == null ? '—' : `${fmt(cur.onTime, 0)}%` },
+            { label: 'With ETC', value: String(withLate.length) },
+          ],
+          columns: [
+            { label: 'Vessel', cell: (r) => r.vessel },
+            { label: 'ETC', cell: (r) => fmtDate(r.etc) },
+            { label: 'Ops done', cell: (r) => fmtDate(r.opsDone) },
+            { label: 'vs ETC', cell: (r) => lateLabel(r.late) },
+            { label: 'Lateness (h)', cell: (r) => fmt(r.late, 1), align: 'right' },
+          ],
+          rows: withLate.sort((a, b) => (b.late || 0) - (a.late || 0)),
+        })
+        break
+      }
+      case 'late': {
+        const withLate = cur.sailedRows.filter((r) => r.late != null)
+        setActiveModal({
+          title: 'Median lateness',
+          subtitle: `${withLate.length} voyages with ETC · median ${cur.late == null ? '—' : `${fmt(cur.late / 24, 1)} days`}`,
+          footer: flowFooter,
+          stats: [
+            { label: 'Median', value: cur.late == null ? '—' : `${fmt(cur.late / 24, 1)} days` },
+            { label: 'Voyages', value: String(withLate.length) },
+          ],
+          columns: [
+            { label: 'Vessel', cell: (r) => r.vessel },
+            { label: 'Lateness (days)', cell: (r) => fmt(r.late / 24, 1), align: 'right' },
+            { label: 'ETC', cell: (r) => fmtDate(r.etc) },
+            { label: 'Ops done', cell: (r) => fmtDate(r.opsDone) },
+            { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
+          ],
+          rows: withLate.sort((a, b) => (b.late || 0) - (a.late || 0)),
+        })
+        break
+      }
+      default:
+        break
+    }
+  }, [cur, flowFooter])
+
+  const openWfDetail = useCallback((seg) => {
+    const rows = wf.dd
+      .filter((r) => {
+        const v = seg.getVal(r)
+        return v != null && v > 0
+      })
+      .map((r) => ({ ...r, phaseH: seg.getVal(r) }))
+      .sort((a, b) => b.phaseH - a.phaseH)
+    setActiveModal({
+      title: `${seg.n} — avg ${fmt(seg.v, 1)} h`,
+      subtitle: `${rows.length} of ${wf.n} voyages with this phase logged`,
+      footer: flowFooter,
+      stats: [
+        { label: 'Average', value: `${fmt(seg.v, 1)} h` },
+        { label: 'Voyages', value: String(rows.length) },
+      ],
+      columns: [
+        { label: 'Vessel', cell: (r) => r.vessel },
+        { label: 'Phase h', cell: (r) => fmt(r.phaseH, 1), align: 'right' },
+        { label: 'Berth h', cell: (r) => fmt(r.berth, 1), align: 'right' },
+        { label: 'Wait h', cell: (r) => fmt(r.wait, 1), align: 'right' },
+        { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
+      ],
+      rows,
+    })
+  }, [wf, flowFooter])
+
+  const openDrDetail = useCallback((stageKey, label, count) => {
+    let rows = []
+    let keyDateLabel = 'Key date'
+    let keyDateCell = () => '—'
+    if (stageKey === 'scheduled') {
+      rows = live.scheduledRows
+      keyDateLabel = 'Created'
+      keyDateCell = (r) => fmtDate(r.created)
+    } else if (stageKey === 'atBerth') {
+      rows = live.atBerthRows.map((r) => ({
+        ...r,
+        ageDays: +(((snap.E - ms(r.tb)) / DAY).toFixed(1)),
+      })).sort((a, b) => b.ageDays - a.ageDays)
+      keyDateLabel = 'TB'
+      keyDateCell = (r) => fmtDate(r.tb)
+    } else if (stageKey === 'opsDone') {
+      rows = live.opsDoneRows
+      keyDateLabel = 'Ops done'
+      keyDateCell = (r) => fmtDate(r.opsDone)
+    } else if (stageKey === 'sailed') {
+      rows = [...cur.sailedRows].sort((a, b) => ms(b.castOff) - ms(a.castOff))
+      keyDateLabel = 'Cast-off'
+      keyDateCell = (r) => fmtDate(r.castOff)
+    }
+    const statusCell = (r) => {
+      if (stageKey === 'sailed') return 'Sailed'
+      if (r.status === 'SAILED') return 'At berth'
+      return { DOCKED: 'Docked', IN_PROGRESS: 'In progress', SIGNOFF_REQUESTED: 'Sign-off req.', SIGNOFF_APPROVED: 'Ready to sail' }[r.status] || r.status
+    }
+    setActiveModal({
+      title: `${label} — ${count} vessels`,
+      subtitle: snapFooter,
+      footer: snapFooter,
+      stats: [{ label: 'Count', value: String(count) }],
+      columns: [
+        { label: 'Vessel', cell: (r) => r.vessel },
+        { label: 'Jetty', cell: (r) => r.jetty || '—' },
+        { label: 'Purpose', cell: (r) => r.purpose || '—' },
+        { label: 'Status', cell: statusCell },
+        ...(stageKey === 'atBerth' ? [{ label: 'Age (days)', cell: (r) => fmt(r.ageDays, 1), align: 'right' }] : []),
+        { label: keyDateLabel, cell: keyDateCell },
+      ],
+      rows,
+    })
+  }, [live, cur, snap, snapFooter])
+
+  const openJettyDetail = useCallback((jettyName, stats) => {
+    const rows = leagues.dd
+      .filter((r) => (r.jetty || '—') === jettyName)
+      .sort((a, b) => b.berth - a.berth)
+    setActiveModal({
+      title: `${jettyName} — ${fmt(stats.h, 0)} h`,
+      subtitle: `${stats.n} voyages · ${fmt(stats.h, 0)} berth-hours total`,
+      footer: flowFooter,
+      stats: [
+        { label: 'Total hours', value: `${fmt(stats.h, 0)} h` },
+        { label: 'Voyages', value: String(stats.n) },
+      ],
+      columns: [
+        { label: 'Vessel', cell: (r) => r.vessel },
+        { label: 'Berth h', cell: (r) => fmt(r.berth, 1), align: 'right' },
+        { label: 'Ops h', cell: (r) => fmt(r.opsH, 1), align: 'right' },
+        { label: 'Qty (MT)', cell: (r) => fmt(r.qty), align: 'right' },
+        { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
+      ],
+      rows,
+    })
+  }, [leagues, flowFooter])
+
+  const openRateDetail = useCallback((entry) => {
+    setActiveModal({
+      title: `${entry.v} — ${fmt(entry.rate, 0)} MT/h`,
+      subtitle: `${fmt(entry.q)} MT in ${fmt(entry.ops, 1)} h cargo-operations window`,
+      footer: flowFooter,
+      stats: [
+        { label: 'Rate', value: `${fmt(entry.rate, 0)} MT/h` },
+        { label: 'Qty', value: `${fmt(entry.q)} MT` },
+        { label: 'Ops window', value: `${fmt(entry.ops, 1)} h` },
+      ],
+      columns: [
+        { label: 'Vessel', cell: () => entry.v },
+        { label: 'Purpose', cell: () => entry.p || '—' },
+        { label: 'Qty (MT)', cell: () => fmt(entry.q), align: 'right' },
+        { label: 'Ops h', cell: () => fmt(entry.ops, 1), align: 'right' },
+        { label: 'Rate', cell: () => `${fmt(entry.rate, 0)} MT/h`, align: 'right' },
+        { label: 'Cast-off', cell: () => fmtDate(entry.castOff) },
+      ],
+      rows: [entry],
+    })
+  }, [flowFooter])
+
+  const kpiTiles = [
+    { key: 'throughput', l: 'Cargo throughput', v: fmt(Math.round(cur.throughput)), u: 'MT', n: `${cur.voyages} voyages sailed`, d: <Delta cur={cur.throughput} prev={prev?.throughput} /> },
+    { key: 'berth', l: 'Median berth time', v: fmt(cur.berth, 1), u: 'h', n: 'TB → cast-off', d: <Delta cur={cur.berth} prev={prev?.berth} lowerIsBetter /> },
+    { key: 'wait', l: 'Median wait to berth', v: fmt(cur.wait, 1), u: 'h', n: 'TA → TB', d: <Delta cur={cur.wait} prev={prev?.wait} lowerIsBetter /> },
+    { key: 'eff', l: 'Effective ops ratio', v: cur.eff == null ? '—' : `${fmt(cur.eff, 0)}%`, u: '', n: 'cargo-ops ÷ berth hours', d: <Delta cur={cur.eff} prev={prev?.eff} />, cls: cur.eff != null && cur.eff < 40 ? 'mgmt-kpi--bad' : '' },
+    { key: 'onTime', l: 'On-time vs ETC', v: cur.onTime == null ? '—' : `${fmt(cur.onTime, 0)}%`, u: '', n: 'ops done ≤ estimate', d: <Delta cur={cur.onTime} prev={prev?.onTime} />, cls: cur.onTime === 0 ? 'mgmt-kpi--bad' : '' },
+    { key: 'late', l: 'Median lateness', v: cur.late == null ? '—' : fmt(cur.late / 24, 1), u: 'days', n: 'beyond Est. Completion', d: <Delta cur={cur.late} prev={prev?.late} lowerIsBetter />, cls: 'mgmt-kpi--bad' },
+  ]
+
+  const drStages = [
+    { key: 'scheduled', label: 'Scheduled (no TA)', count: live.scheduled },
+    { key: 'atBerth', label: 'At berth', count: live.atBerth },
+    { key: 'opsDone', label: 'Ops complete, not sailed', count: live.opsDoneNotSailed },
+    { key: 'sailed', label: `Sailed (${periodLabel})`, count: cur.voyages },
+  ]
 
   return (
     <div className="allocation-page mgmt">
@@ -410,7 +745,15 @@ export default function ManagementDashboard() {
         <>
           <div className="mgmt-kpis">
             {kpiTiles.map((t) => (
-              <div key={t.l} className={`card mgmt-kpi ${t.cls || ''}`}>
+              <div
+                key={t.key}
+                className={`card mgmt-kpi mgmt-kpi--clickable ${t.cls || ''}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => openKpiDetail(t.key)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openKpiDetail(t.key) } }}
+                aria-label={`${t.l} — click for details`}
+              >
                 <div className="mgmt-kpi__lbl">{t.l}</div>
                 <div className="mgmt-kpi__val">{t.v} <span className="mgmt-kpi__unit">{t.u}</span></div>
                 <div className="mgmt-kpi__note">{t.n}</div>
@@ -422,18 +765,35 @@ export default function ManagementDashboard() {
           <div className="mgmt-two">
             <section className="card">
               <h2 className="card__title">Where the berth hours go</h2>
-              <p className="text-steel mgmt-sub">Average sailed voyage in period ({wf.n} voyages) — anchorage wait, then time alongside</p>
+              <p className="text-steel mgmt-sub">Average sailed voyage in period ({wf.n} voyages) — anchorage wait, then time alongside · click a segment for details</p>
               {wf.total > 0 ? (
                 <>
                   <div className="mgmt-wf">
                     {wf.segs.map((s) => (
-                      <span key={s.n} className={s.cls} style={{ width: `${Math.max((s.v / wf.total) * 100, 1.2)}%` }}
-                        title={`${s.n}: ${fmt(s.v, 1)} h (${fmt((s.v / wf.total) * 100, 0)}%)`} />
+                      <span
+                        key={s.n}
+                        className={s.cls}
+                        style={{ width: `${Math.max((s.v / wf.total) * 100, 1.2)}%` }}
+                        title={`${s.n}: ${fmt(s.v, 1)} h (${fmt((s.v / wf.total) * 100, 0)}%)`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openWfDetail(s)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openWfDetail(s) } }}
+                        aria-label={`${s.n} — click for voyage breakdown`}
+                      />
                     ))}
                   </div>
                   <div className="mgmt-legend">
                     {wf.segs.map((s) => (
-                      <span key={s.n}><i className={`mgmt-sw ${s.cls}`} />{s.n} · <b>{fmt(s.v, 1)} h</b></span>
+                      <span
+                        key={s.n}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openWfDetail(s)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openWfDetail(s) } }}
+                      >
+                        <i className={`mgmt-sw ${s.cls}`} />{s.n} · <b>{fmt(s.v, 1)} h</b>
+                      </span>
                     ))}
                   </div>
                   <p className="mgmt-hint">
@@ -446,18 +806,20 @@ export default function ManagementDashboard() {
             <section className="card">
               <h2 className="card__title">Departure readiness — {snapLabel}</h2>
               <p className="text-steel mgmt-sub">
-                {snap.isLive ? 'Live pipeline snapshot' : 'Pipeline reconstructed as of the end of the selected period'}
+                {snap.isLive ? 'Live pipeline snapshot' : 'Pipeline reconstructed as of the end of the selected period'} · click a row for vessel list
               </p>
-              {[
-                ['Scheduled (no TA)', live.scheduled],
-                ['At berth', live.atBerth],
-                ['Ops complete, not sailed', live.opsDoneNotSailed],
-                [`Sailed (${periodLabel})`, cur.voyages],
-              ].map(([n, v]) => (
-                <div key={n} className="mgmt-frow">
-                  <span>{n}</span>
-                  <div><div className="mgmt-fbar" style={{ width: `${Math.max((v / Math.max(live.scheduled, live.atBerth, cur.voyages, 1)) * 100, 3)}%` }} /></div>
-                  <span className="mgmt-fnum">{v}</span>
+              {drStages.map(({ key, label, count }) => (
+                <div
+                  key={key}
+                  className="mgmt-frow mgmt-frow--clickable"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openDrDetail(key, label, count)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrDetail(key, label, count) } }}
+                >
+                  <span>{label}</span>
+                  <div><div className="mgmt-fbar" style={{ width: `${Math.max((count / Math.max(live.scheduled, live.atBerth, cur.voyages, 1)) * 100, 3)}%` }} /></div>
+                  <span className="mgmt-fnum">{count}</span>
                 </div>
               ))}
               {live.aged[0] ? (
@@ -497,11 +859,18 @@ export default function ManagementDashboard() {
           <div className="mgmt-two mgmt-sec">
             <section className="card">
               <h2 className="card__title">Jetty berth-hours consumed</h2>
-              <p className="text-steel mgmt-sub">Sailed voyages in period — asset pressure</p>
+              <p className="text-steel mgmt-sub">Sailed voyages in period — asset pressure · click a row for voyage list</p>
               {leagues.jetty.length ? leagues.jetty.map(([j, x]) => {
                 const mx = leagues.jetty[0][1].h || 1
                 return (
-                  <div key={j} className="mgmt-lrow">
+                  <div
+                    key={j}
+                    className="mgmt-lrow mgmt-lrow--clickable"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openJettyDetail(j, x)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openJettyDetail(j, x) } }}
+                  >
                     <span>{j} <span className="text-steel">· {x.n} voy</span></span>
                     <div><div className="mgmt-lbar mgmt-lbar--brand" style={{ width: `${(x.h / mx) * 100}%` }} title={`${j}: ${fmt(x.h, 0)} h`} /></div>
                     <span className="mgmt-lval">{fmt(x.h, 0)} h</span>
@@ -511,11 +880,18 @@ export default function ManagementDashboard() {
             </section>
             <section className="card">
               <h2 className="card__title">Achieved cargo rate (MT/hour)</h2>
-              <p className="text-steel mgmt-sub">Moved qty ÷ cargo-operations window · green = Loading, blue = Unloading</p>
+              <p className="text-steel mgmt-sub">Moved qty ÷ cargo-operations window · green = Loading, blue = Unloading · click a row for details</p>
               {leagues.rates.length ? leagues.rates.map((x) => {
                 const mx = leagues.rates[0].rate || 1
                 return (
-                  <div key={`${x.v}-${x.rate}`} className="mgmt-lrow">
+                  <div
+                    key={x._key}
+                    className="mgmt-lrow mgmt-lrow--clickable"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openRateDetail(x)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRateDetail(x) } }}
+                  >
                     <span>{x.v}</span>
                     <div><div className={`mgmt-lbar ${x.p === 'Loading' ? 'wf-load' : 'wf-disch'}`} style={{ width: `${Math.max((x.rate / mx) * 100, 1.5)}%` }} title={`${x.v}: ${fmt(x.q)} MT in ${fmt(x.ops, 1)} h`} /></div>
                     <span className="mgmt-lval">{fmt(x.rate, 0)} MT/h</span>
@@ -525,14 +901,7 @@ export default function ManagementDashboard() {
             </section>
           </div>
 
-          {dq.length ? (
-            <section className="card mgmt-sec">
-              <h2 className="card__title">Data quality — what limits these numbers</h2>
-              <ul className="mgmt-dq">
-                {dq.map((d) => <li key={d}>{d}</li>)}
-              </ul>
-            </section>
-          ) : null}
+          <WidgetDetailModal modal={activeModal} onClose={closeModal} />
         </>
       )}
     </div>

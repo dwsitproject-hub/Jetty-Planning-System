@@ -1821,6 +1821,7 @@
   --v2-chart-planned:     #06B6D4;
   --v2-chart-atberth:     #10B981;
   --v2-chart-sailed:      #94A3B8;
+  --v2-chart-projected:   #9CA3AF;
 }
 
 .v2-dashboard {
@@ -2222,6 +2223,10 @@
 
 .v2-kpi-row--5 {
   grid-template-columns: repeat(5, 1fr);
+}
+
+.v2-kpi-row--2 {
+  grid-template-columns: repeat(2, 1fr);
 }
 
 .v2-kpi-row--ops {
@@ -2994,6 +2999,53 @@
   margin-top: var(--spacing-3);
 }
 
+.v2-live-berth-status__row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3) var(--spacing-3);
+}
+
+.v2-live-berth-status__row--loading {
+  opacity: 0.7;
+}
+
+.v2-live-berth-status__chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: var(--spacing-2) var(--spacing-1);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-light);
+  text-align: center;
+  text-decoration: none;
+  color: inherit;
+}
+
+.v2-live-berth-status__chip strong {
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+
+.v2-live-berth-status__label {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.v2-live-berth-status__chip--atberth {
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.v2-live-berth-status__chip--ready {
+  background: rgba(34, 197, 94, 0.06);
+}
+
+.v2-live-berth-status__chip--pending.is-active {
+  border-color: var(--color-warning);
+  background: rgba(245, 158, 11, 0.08);
+}
+
 .v2-clearance-card {
   display: flex;
   flex-direction: column;
@@ -3077,6 +3129,9 @@
 
 .v2-weekly__body {
   position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-3);
   transition: opacity var(--duration-fast) var(--easing-default);
 }
 
@@ -3091,24 +3146,38 @@
 }
 
 .v2-weekly__hint {
-  margin: 0 0 var(--spacing-3);
+  margin: 0 0 var(--spacing-2);
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
 }
 
 .v2-weekly__block {
-  margin-bottom: var(--spacing-4);
+  min-width: 0;
+  margin-bottom: 0;
 }
 
 .v2-weekly__block:last-child {
   margin-bottom: 0;
 }
 
+.v2-weekly__block-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-1);
+}
+
 .v2-weekly__block-title {
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-charcoal);
-  margin-bottom: var(--spacing-2);
+  margin-bottom: var(--spacing-1);
+}
+
+.v2-weekly__block-title-row .v2-weekly__block-title {
+  margin-bottom: 0;
 }
 
 /* Weekly line charts (Dashboard V2) — multi-series, rotated week labels */
@@ -3126,7 +3195,7 @@
   display: block;
   width: 100%;
   height: auto;
-  min-height: 240px;
+  min-height: 170px;
   background: #fff;
   border-radius: var(--radius-sm);
   pointer-events: none;
@@ -3160,7 +3229,7 @@
 .v2-weekly-line__hit-target {
   flex: 1;
   width: 100%;
-  min-height: 140px;
+  min-height: 105px;
   display: block;
   cursor: help;
   border-radius: 4px;
@@ -3169,6 +3238,39 @@
 .v2-weekly-line__hit-target:focus-visible {
   outline: 2px solid rgba(196, 58, 49, 0.35);
   outline-offset: 1px;
+}
+
+.v2-weekly-line__stroke {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.v2-weekly-line__stroke--projected {
+  stroke-dasharray: 6 4;
+  opacity: 0.85;
+}
+
+.v2-weekly-line__point--projected {
+  opacity: 0.9;
+}
+
+.v2-weekly-line__xtext--projected {
+  fill: var(--v2-chart-projected);
+}
+
+.v2-weekly__legend-marker--projected {
+  background: transparent;
+  border: 2px dashed var(--v2-chart-projected);
+  border-radius: 0;
+  width: 18px;
+  height: 0;
+  margin-top: 6px;
+}
+
+.v2-weekly__legend-item--head {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
 }
 
 .v2-weekly-line__y-title {
@@ -3188,11 +3290,6 @@
   stroke: var(--color-text-charcoal);
   stroke-width: 1.35;
   shape-rendering: crispEdges;
-}
-
-.v2-weekly-line__stroke {
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 
 .v2-weekly-line__ytick {
@@ -3233,9 +3330,14 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--spacing-3);
-  margin-bottom: var(--spacing-2);
+  margin-bottom: var(--spacing-1);
   font-size: var(--font-size-xs);
   color: var(--color-text-steel);
+}
+
+.v2-weekly__legend--inline {
+  margin-bottom: 0;
+  gap: var(--spacing-2);
 }
 
 .v2-weekly__legend-item {
@@ -3455,6 +3557,10 @@
     overflow-x: auto;
     justify-content: flex-start;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .v2-weekly__body {
+    grid-template-columns: 1fr;
   }
 
   .v2-weekly__col {

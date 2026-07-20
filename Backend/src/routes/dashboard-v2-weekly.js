@@ -11,6 +11,8 @@ import {
   parseDashboardFilters,
 } from '../lib/dashboard-v2-filters.js';
 import { computePipelineActuals } from '../lib/dashboard-pipeline-actuals.js';
+import { computeDashboardSlotOccupancy } from '../lib/dashboard-slot-occupancy.js';
+import { computeDashboardSlaAtRisk, slaAtRiskAtSnapshot } from '../lib/dashboard-sla-at-risk.js';
 
 const router = express.Router();
 
@@ -155,55 +157,6 @@ async function sumSailedQtyMtInRange(client, portId, wsIso, weIso, filters) {
   return Number(r.rows[0]?.s) || 0;
 }
 
-async function slaAtRiskAtSnapshot(client, portId, tIso, filters) {
-  const params = [portId, tIso];
-  const { filterSql } = appendOpPlanFilters('', params, 3, filters);
-
-  const baseWhere = `
-     WHERE o.deleted_at IS NULL
-       AND COALESCE(o.port_id, p.id) = $1
-       AND si.shipment_plan_id IS NOT NULL
-       AND o.status NOT IN ('SAILED', 'PENDING', 'ALLOCATED')
-       AND COALESCE(sp.estimated_completion_time, o.estimated_completion_time) IS NOT NULL
-       AND COALESCE(sp.estimated_completion_time, o.estimated_completion_time) < $2::timestamptz
-       AND (
-         COALESCE(o.cast_off_at, o.actual_completion_time, sp.cast_off_at, sp.sailed_at) IS NULL
-         OR COALESCE(o.cast_off_at, o.actual_completion_time, sp.cast_off_at, sp.sailed_at) > $2::timestamptz
-       )
-       ${filterSql}`;
-
-  const countR = await client.query(
-    `SELECT COUNT(DISTINCT si.shipment_plan_id)::int AS c
-     FROM operations o
-     JOIN shipping_instructions si ON si.id = o.shipping_instruction_id AND si.deleted_at IS NULL
-     LEFT JOIN shipment_plans sp ON sp.id = si.shipment_plan_id AND sp.deleted_at IS NULL
-     LEFT JOIN jetties j ON j.id = COALESCE(o.jetty_id, sp.jetty_id) AND j.deleted_at IS NULL
-     LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
-     ${baseWhere}`,
-    params
-  );
-  const hoursR = await client.query(
-    `SELECT COALESCE(SUM(
-        GREATEST(0,
-          EXTRACT(EPOCH FROM (
-            $2::timestamptz - COALESCE(sp.estimated_completion_time, o.estimated_completion_time)
-          )) / 3600.0
-        )
-      ), 0)::float AS h
-     FROM operations o
-     JOIN shipping_instructions si ON si.id = o.shipping_instruction_id AND si.deleted_at IS NULL
-     LEFT JOIN shipment_plans sp ON sp.id = si.shipment_plan_id AND sp.deleted_at IS NULL
-     LEFT JOIN jetties j ON j.id = COALESCE(o.jetty_id, sp.jetty_id) AND j.deleted_at IS NULL
-     LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
-     ${baseWhere}`,
-    params
-  );
-  return {
-    count: Number(countR.rows[0]?.c) || 0,
-    overHoursSum: Number(hoursR.rows[0]?.h) || 0,
-  };
-}
-
 router.get('/weekly-trends', async (req, res) => {
   const portId = Number(req.selectedPortId);
   if (!Number.isFinite(portId)) {
@@ -275,6 +228,64 @@ router.get('/pipeline-actuals', async (req, res) => {
       filters
     );
     res.json(counts);
+  } finally {
+    client.release();
+  }
+});
+
+router.get('/slot-occupancy', async (req, res) => {
+  const portId = Number(req.selectedPortId);
+  if (!Number.isFinite(portId)) {
+    return res.status(400).json({ error: 'Port scope required' });
+  }
+  const { start_date: startDate, end_date: endDate } = req.query;
+  if (!startDate || !endDate || typeof startDate !== 'string' || typeof endDate !== 'string') {
+    return res.status(400).json({ error: 'start_date and end_date are required (YYYY-MM-DD)' });
+  }
+
+  const filters = parseDashboardFilters(req);
+  const client = await pool.connect();
+  try {
+    const result = await computeDashboardSlotOccupancy(
+      client,
+      portId,
+      startDate.trim(),
+      endDate.trim(),
+      filters
+    );
+    res.json(result);
+  } catch (e) {
+    const msg = e?.message || 'Invalid date range';
+    return res.status(400).json({ error: msg });
+  } finally {
+    client.release();
+  }
+});
+
+router.get('/sla-at-risk', async (req, res) => {
+  const portId = Number(req.selectedPortId);
+  if (!Number.isFinite(portId)) {
+    return res.status(400).json({ error: 'Port scope required' });
+  }
+  const { start_date: startDate, end_date: endDate } = req.query;
+  if (!startDate || !endDate || typeof startDate !== 'string' || typeof endDate !== 'string') {
+    return res.status(400).json({ error: 'start_date and end_date are required (YYYY-MM-DD)' });
+  }
+
+  const filters = parseDashboardFilters(req);
+  const client = await pool.connect();
+  try {
+    const result = await computeDashboardSlaAtRisk(
+      client,
+      portId,
+      startDate.trim(),
+      endDate.trim(),
+      filters
+    );
+    res.json(result);
+  } catch (e) {
+    const msg = e?.message || 'Invalid date range';
+    return res.status(400).json({ error: msg });
   } finally {
     client.release();
   }

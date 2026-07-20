@@ -146,9 +146,9 @@ sed -i 's/172.28.92.57:3000/API_IP:3000/' Frontend/nginx.alicloud-app.conf
 # Root .env — browser API base. Relative path works for both private IP and public EIP.
 cat > .env <<'ENV'
 VITE_API_BASE_URL=/api/v1
-VITE_ENABLE_PIPELINE_ACTUALS_BETA=true
 JPS_FE_PORT=APP_PORT
 ENV
+# Optional: VITE_USE_LEGACY_VESSEL_PIPELINE=true to also show the legacy plan-based pipeline
 
 # Jetty Live stream config (camera RTSP). Required for the jps-jetty-live container.
 cp rtsp-stream-viewer/.env.example rtsp-stream-viewer/.env
@@ -205,3 +205,38 @@ docker compose -f docker-compose.app.yml up -d --build            # app, or the 
 - `JWT_SECRET` — strong random, Backend only.
 - `CORS_ORIGIN` — every origin users open the app from.
 - `COOKIE_SECURE=false` for http staging; `true` once on https.
+
+---
+
+## 8. SLA email notification scheduler (cron)
+
+After migration **093** and SMTP configured in **Admin → Notifications** (or via `SMTP_*` env vars):
+
+The backend API process runs the **email worker** (polls `notification_deliveries` every ~20s). A separate **cron job** on the backend host evaluates SLA rules and queues notifications — no user login required.
+
+```bash
+# On the backend server (adjust path to your deploy root)
+crontab -e
+```
+
+Add:
+
+```cron
+# D-1 ETC reminder — every 30 minutes
+*/30 * * * * cd /opt/jetty-planning-system/Backend && /usr/bin/node scripts/run-sla-notifications.js --mode=d1 >> /var/log/jps-sla-notifications.log 2>&1
+
+# SLA breach daily alert — 08:00 WIB (01:00 UTC)
+0 1 * * * cd /opt/jetty-planning-system/Backend && /usr/bin/node scripts/run-sla-notifications.js --mode=breach >> /var/log/jps-sla-notifications.log 2>&1
+```
+
+**Docker backend:** run cron on the host with `DATABASE_URL` pointing at Postgres, or `docker compose exec` the script from the host cron:
+
+```cron
+*/30 * * * * docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml exec -T jps-api node scripts/run-sla-notifications.js --mode=d1
+```
+
+**Windows dev (optional):** Task Scheduler → `Backend/scripts/run-sla-notifications.bat --mode=d1`
+
+**Verify:** Admin → Email Delivery Log; Activity Log on Notification Settings page shows job summaries.
+
+**Smoke test:** `cd Backend && npm run test:sla-notifications`

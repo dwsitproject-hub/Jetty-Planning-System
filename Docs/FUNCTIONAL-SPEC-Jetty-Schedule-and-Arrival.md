@@ -1,9 +1,9 @@
 # Functional specification — Jetty schedule Gantt & arrival updates
 
 **Product:** Jetty Planning & Monitoring System (JPS)  
-**Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, **uploaded document preview & download**, **Jetty Live CCTV** (per-jetty RTSP links, schematic camera control, browser stream page), **self-service change password** (header user menu), **Reporting → Jetty – Vessel Report** (jetty utilization summary and vessel detail), and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
+**Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, **uploaded document preview & download**, **Jetty Live CCTV** (per-jetty RTSP links, schematic camera control, browser stream page), **self-service change password** (header user menu), **Reporting → Jetty – Vessel Report** (jetty utilization summary and vessel detail), **Live Ops Dashboard** (real-time terminal control at `/`), **Ops Analytics Dashboard** (date-range performance at `/ops-analytics`), **Management Dashboard** (berth productivity & departure readiness for executives at `/management-dashboard`), and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.64 (see document history at end).
+**Version:** 1.66 (see document history at end).
 
 ---
 
@@ -31,13 +31,14 @@ This document describes **behaviour that is implemented in code**, including:
 - **Jetty Live CCTV:** optional **RTSP link** per master jetty; **Allocation → Jetty Schematic** camera control opens **`/jetty-live`** in a new tab; shared stream service switches camera URL (**last opened wins**) (**§2.15**).
 - **Self-service change password:** header **user menu** (name + initials avatar) with **Change Password** for **local** accounts and **Logout**; modal verifies current password before save (**§2.16**, **§14**).
 - **Master Menu list tables:** client-side **column sort** and **per-column text filters** on Port, Jetty, SI lookup masters, and Freight Terms; SI lookup pages do **not** display **Sort order** (**§2.17**).
-- **Dashboard V2 filters:** **Purpose** and **Commodity Type** multi-select filters on the main dashboard (`/`), with date range, instant apply, and filtered pipeline / KPI / at-berth / weekly-trends views (**§2.18**).
+- **Three-tier operational dashboards:** **Live Ops** (`/`, operators — real-time / today), **Ops Analytics** (`/ops-analytics`, Head of Ops — date-range aggregates), and **Management Dashboard** (`/management-dashboard`, executives — unchanged; **§2.25**). Separate RBAC page keys per tier (**§2.18**, **§2.26**, **§2.27**).
 - **Uploaded document preview:** shared in-app preview modal for uploaded **images** and **PDFs** with explicit **Download**; replaces immediate browser download when clicking file links (**§2.19**).
 - **SI shipper per breakdown line:** shipper is chosen **per commodity/contract row** in the Shipment breakdown table (not a single Party & port field); one SI may show **multiple shippers**; Allocation queue **Shipper** column aggregates distinct names (**§2.20**, **§16**).
 - **Commodity Qty in overview tables:** a single **Commodity Qty** column after **Shipping Instruction** on **Allocation & Berthing**, **At-Berth Executions**, **Clearance**, and **Shipment Plans** list; values come from SI breakdown lines; multiple commodities within one SI appear on **separate lines** in the cell (**§2.21**).
 - **Jetty – Vessel Report:** port-scoped reporting on jetty allocation and **utilization summary** with column-header tooltips; detail rows from live operations and incoming SIs assigned to a jetty (**§2.22**).
 - **Inbound Shipping Instruction integration (partner API):** external systems (e.g. EOS Export/Import, KLIPS) submit vessel calls via a machine-to-machine API; operators review them through the existing **Shipment plan** approval flow; the plans list shows **External reference** and **Requested by** after **ETA** (**§2.23**).
 - **Master Jetty — purpose-specific commodity capability:** each jetty maintains separate **Allowed for Unloading** and **Allowed for Loading** commodity lists; **Shipment Plans** jetty suggestions and save validation use the list that matches the plan **Purpose** (**§2.24**).
+- **Management Dashboard — berth productivity & departure readiness:** executive KPI page (`/management-dashboard`, RBAC page key **`management-dashboard`**) with period/purpose filters, clickable widget drill-down modals, voyage table with short commodity names, and inline milestone expansion (**§2.25**).
 
 For API field names, database columns, and shared code modules, see **TECH-SPEC-Jetty-Planning-System.md** and **§6** below for arrival/estimated completion mapping. Jetty Live deployment: **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**.
 
@@ -133,17 +134,17 @@ Technical contract (endpoints, columns, persistence order): **TECH-SPEC-Jetty-Pl
 
 ### 2.7 Dashboard slot occupancy, jetty out of service, and allocation guardrails
 
-**Note:** The live dashboard (`/`) is **Dashboard V2**. **Purpose** and **Commodity Type** multi-select filters (with date range) are documented in **§2.18**. Rows below describe KPI and chart behaviour; where Dashboard V2 differs (e.g. date-scoped performance KPIs, weekly trends server filters), see **§2.18** and TECH-SPEC **§0.29**.
+**Note:** Operational dashboards are split into **Live Ops** (`/`) and **Ops Analytics** (`/ops-analytics`) — see **§2.18**, **§2.26**, **§2.27**. Rows below describe KPI behaviour where still applicable; **legacy** top-row widgets (**Port activity**, **weather**, **Performance 24h/7d** toggle) are **not** on either tier page in this release.
 
 | Area | Behaviour |
 |------|------------|
-| **Dashboard — slot occupancy** | The KPI labelled **Slot occupancy** shows **vessel positions in use / total positions** across jetties in the port: numerator **Σ min(occupiedCount, capacity)**, denominator **Σ capacity** for jetties whose master status is **not** **Out of Service**. (This replaces counting only “jetties with any occupant” vs “number of jetties”.) If data temporarily exceeds capacity, the bar may indicate **over capacity** visually. The card includes a shortcut link **View at‑berth →** to the At‑Berth Executions page. The caption includes a **Details** tooltip listing occupied slots as `<jetty>-<lane> — <vessel name>` (hover or keyboard focus). |
-| **Dashboard — Port activity** | The **top row** (left of the KPI grid) shows a **Port activity** card with a toggle: **Operations** — grouped bars for **Loading** and **Unloading**, each with **Planned berthing** vs **Berthing** counts; percentages are **within that purpose** (planned vs berthing as shares of Loading-only or Unloading-only rows). Data is **allocation overview queue** for the selected port, aligned with pipeline **planned berthing** rules; **berthing** counts exclude rows in **shifting out**. **Shipping instructions** — three bars (**Approved**, **Submitted**, **Draft**) with counts and **percentage of all SIs** returned for the port. The chart shows a **Y-axis** of integer counts with **horizontal dashed grid** lines aligned to bar height. **Hover or keyboard focus** on a non-zero bar opens a **tooltip** (popover) with the count, labels, the same percentage rule as on the chart, and a **list of vessel names** in that segment (queue rows: vessel name, else vessel id, else em dash; SI mode: per instruction the same). Tooltips dismiss on leave, blur, scroll, or resize. Empty and loading states are explicit. |
-| **Dashboard — weather** | The weather preview (mock data, “coming soon” overlay) appears at the **bottom** of the dashboard page, not in the top row. |
-| **Dashboard — awaiting berth widget** | Removed. **Planned berthing** in the **Vessel pipeline** is the single indicator for “jetty assigned, not yet alongside” (see pipeline sublabel). |
-| **Dashboard — jetty status** | The KPI grid includes a **Jetty status** card showing **Available** and **Out of Service** counts. Counts come from **`GET /jetties?port_id=…`**. Hover or keyboard focus on each status chip shows a tooltip listing the jetties in that bucket. |
-| **Dashboard — SLA at risk** | The KPI **SLA at risk** shows a count of operations past estimated completion. Hover or keyboard focus on the KPI value shows a tooltip listing `Vessel Name, Jetty No, +Xh over ETC` for each risk item (same items as the “SLA & schedule risk” list). |
-| **Dashboard — performance** | The Dashboard includes a **Performance** card (non‑SLA) with a toggle **24h / 7d** and three KPIs: **Waiting to berth** (median **TA→TB**, from allocation overview queue), **Turnaround** (median **TB→Cast‑off**, fallback **TB→Actual completion**; computed from operations so **sailed vessels are included**), and **On‑time berthing** (% where **TB ≤ planned ETB + 6h**, from allocation overview queue). Each KPI supports hover/keyboard tooltip drill‑down showing the worst/late cases in the selected window (vessel, jetty, duration). |
+| **Dashboard — slot occupancy** | **Live Ops (`/`):** **TODAY** basis chip; exact count at end of today via **`GET /dashboard-v2/slot-occupancy`** with `start_date = end_date = today`; vessel tooltip in exact mode. **Ops Analytics (`/ops-analytics`):** **AVG** chip when date range spans multiple days; daily average over the selected range. Both tiers: numerator/denominator rules unchanged (capacity-aware, excludes OOS jetties from denominator). **View at‑berth →** link on Live Ops and Ops Analytics cards. |
+| **Dashboard — Port activity** | **Retired** from Live Ops and Ops Analytics (legacy **`Dashboard.jsx`** only). |
+| **Dashboard — weather** | **Retired** from Live Ops and Ops Analytics (legacy **`Dashboard.jsx`** only). |
+| **Dashboard — awaiting berth widget** | Removed (unchanged). **Planned berthing** in pipeline views remains the indicator on **Ops Analytics** only. |
+| **Dashboard — jetty status** | **Live Ops only.** **LIVE** chip; counts from **`GET /jetties?port_id=…`**; tooltips list jetties per bucket. Refreshed on **60s** background poll. |
+| **Dashboard — SLA at risk** | **Live Ops:** **TODAY** chip; exact count via **`GET /dashboard-v2/sla-at-risk`** (`start_date = end_date = today`); vessel tooltip in exact mode. **Ops Analytics:** **AVG** / date chip over selected range. |
+| **Dashboard — performance** | **Ops Analytics only** (no 24h/7d toggle): **Waiting to berth** (median TA→TB), **Turnaround** (median TB→cast-off), **On-time berthing** (% TB ≤ ETB + 6h), all scoped to the **selected date range** and Purpose/Commodity filters. Hover tooltips show worst/late cases. |
 | **Master — Preferred Jetty** | Users set **Operational status** (**Available** / **Out of Service**) in the add/edit modal. Required physical specs: **Jetty Length (m)**, **Draft Jetty**, **DWT Jetty**. Commodity capability is configured as two optional multi-select lists — **Allowed for Unloading** and **Allowed for Loading** — sourced from **Master – Commodity** (**§2.24**). Optional **RTSP link (CCTV)** (max **512** characters) is stored per jetty for Jetty Live; empty means no CCTV on that jetty (**§2.15**). **Out of Service** cannot be saved while a **blocking** operation still uses that jetty (**non-SAILED**, **`shifting_out` false**); the API returns **409** and the UI explains planners must **reassign or complete** on **Allocation & Berthing** first. New jetties default to **Available**; non-default status on create is applied via a follow-up status call. |
 | **Allocation — copy & validation** | Short intro under **Incoming vessel & berthing plan** states that **out of service** jetties cannot receive new allocations. **Log arrival update**, **Confirm Berthing**, and **Active Vessel Detail** saves that assign a **resolved** jetty whose overview berth is **Out of Service** are **blocked client-side** with RBAC-aware wording (users **with** master-jetty view are pointed to **Master – Preferred Jetty**; others to **contact an admin**). Server **409** on `PUT /allocation/arrival` enforces the same. |
 | **Allocation — queue table** | Includes **Jetty Operation ID** before **Shipping Instruction** when the row has an operation; **Commodity Qty** immediately after **Shipping Instruction** (**§2.21**); see **§2.10** for Jetty Operation ID. Jetty column may show a small **OOS** badge when the row’s jetty maps to an out-of-service berth in overview (e.g. legacy assignment). |
@@ -292,24 +293,58 @@ Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.27**, **§3.1**.
 | **Empty filters** | When rows exist but every row is excluded by filters, the page shows *No entries match the current filters.* |
 | **Actions** | **Edit** / **Delete** (where RBAC allows) remain in the rightmost column; filter inputs do not intercept button clicks. |
 
-### 2.18 Dashboard V2 — Purpose and Commodity Type filters
+### 2.18 Three-tier operational dashboards — structure and RBAC
 
-The live dashboard route **`/`** is implemented as **Dashboard V2** (`Frontend/src/pages/DashboardV2.jsx`). The filter bar sits in the page header, **to the left** of the existing date-range control (presets + From/To).
+The former monolithic **Dashboard V2** page is split into **two operational tiers** plus the existing **Management** tier. Each tier has its own route, sidebar entry, and RBAC **page** permission. **`/dashboard-v2`** redirects to **`/`**.
+
+| Tier | Route | Sidebar label | RBAC page key | Typical audience | Data mode |
+|------|-------|---------------|---------------|------------------|-----------|
+| **Live Ops** | **`/`** | Live Ops | **`dashboard`** | Terminal operators | Real-time / **today** |
+| **Ops Analytics** | **`/ops-analytics`** | Ops Analytics | **`dashboard-analytics`** | Head of Operations | **Date-range** aggregates |
+| **Management** | **`/management-dashboard`** | Management Dashboard | **`management-dashboard`** | COO / BU heads | Unchanged (**§2.25**) |
 
 | Area | Behaviour |
 |------|------------|
-| **Purpose filter** | Multi-select **checkbox dropdown**. Options: **Loading**, **Unloading** (from plan **`purposeCode`** / operation **`purpose`**). **Empty selection** = all purposes. When one or more values are selected, the trigger shows **Purpose (n)** with a red count accent. |
-| **Commodity Type filter** | Multi-select **checkbox dropdown**. Options come from **Master Commodity** (`GET /si-lookups` → **`commodities`**: Batu Bara Curah, CPKO, CPO, etc.), ordered by master **`sort_order`** then name. **Empty selection** = all commodities. Active trigger shows **Commodity Type (n)**. |
-| **Date range** | Unchanged: **This month**, **Last month**, **Last 7 days**, **Last 30 days**, plus **From** / **To** date inputs. Changing the date range refetches dashboard data and repopulates commodity options; commodity selections that are no longer valid are cleared automatically. |
-| **Apply behaviour** | **Instant** on each checkbox toggle (no separate Apply button). |
-| **Filter logic** | **OR** within a category (e.g. Loading **or** Unloading). **AND** across categories (selected Purpose **and** selected Commodity Type must both match). |
-| **Sections that update** | **Vessel pipeline** (all seven stages), **Slot occupancy**, **Waiting to berth**, **Turnaround**, **On-time berthing**, **SLA at risk**, **Ready to Sail** (clearance row), **At berth now** (Loading / Unloading summary cards and phase breakdown). |
-| **Sections not filtered** | **Jetty status** (Available / Out of Service) — port infrastructure, not vessel-scoped. |
-| **Weekly trends** | Refetched from the server when Purpose, Commodity, date range, or port changes. Charts and tooltips reflect the active filters. While refetching, the section shows **Updating charts…** and dims briefly; when filters are active, the hint reads that charts follow the selected Purpose and Commodity filters. |
-| **Empty / no-match state** | When filters are active but nothing matches: a banner **No data available for selected filters** appears below the filter bar; KPI cards show the same message instead of **—** where there is no sample; **At berth now** shows the message instead of empty phase grids; pipeline cards show **0**. |
-| **Responsive layout** | Filter bar wraps on narrow viewports (Purpose, Commodity, then date controls stack without breaking the page layout). |
+| **Route guards** | Each operational page checks **`can_view`** for its page key. Users without access are redirected to the first dashboard tier they **can** view (Live Ops → Ops Analytics → Management), else **`/shipment-plans`**. |
+| **Backward compatibility** | Migration **092** adds catalog rows for **`dashboard-analytics`** and **`management-dashboard`**, then grants both **`can_view`** (and matching edit/delete/approve flags) to every role that already had **`dashboard`** **`can_view`**, so existing admins retain all three until roles are trimmed in **Admin → Role Management**. |
+| **Admin labels** | Role Management page options: **Live Ops Dashboard** (`dashboard`), **Ops Analytics Dashboard** (`dashboard-analytics`), **Management Dashboard** (`management-dashboard`). |
+| **Shared filter logic** | **Purpose** and **Commodity Type** multi-select filters use **OR** within a category and **AND** across categories (see **§2.26**, **§2.27**). **Instant** apply on each toggle (no Apply button). |
+| **Implementation** | Shared shell **`Frontend/src/components/dashboard/DashboardShell.jsx`** with **`mode="live"`** or **`mode="analytics"`**; pages **`LiveOpsDashboard.jsx`**, **`OpsAnalyticsDashboard.jsx`**; hooks **`useLiveOpsDashboard.js`**, **`useOpsAnalyticsDashboard.js`**. Legacy import **`DashboardV2.jsx`** re-exports Live Ops only (deprecated). |
 
-Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.29**, **§2.3**, **§3.7**.
+Widget allocation detail: **§2.26** (Live Ops), **§2.27** (Ops Analytics). Management unchanged: **§2.25**.
+
+Technical contract: migration **`092_dashboard_tier_page_permissions.sql`**; TECH-SPEC **§0.29** (dashboard V2 APIs).
+
+### 2.26 Live Ops Dashboard (`/`)
+
+Real-time terminal control surface for **operators**. RBAC page key **`dashboard`**.
+
+| Area | Behaviour |
+|------|------------|
+| **Header filters** | **Purpose** and **Commodity Type** multi-select dropdowns only — **no date-range picker**. Slot occupancy and SLA at risk always use **today** (local calendar date, UTC API dates). |
+| **Background refresh** | **60s** silent poll refreshes **at-berth**, **jetties**, and **arrival plans** (yesterday → +3 days window) without a full-page loading flash. **Last updated** timestamp shown in the header. |
+| **KPI row 1** | **Slot occupancy** (**TODAY** chip, exact API, vessel tooltip) and **SLA at risk** (**TODAY** chip, exact API, vessel tooltip). |
+| **KPI row 2** | **Jetty status** (**LIVE** chip — Available / Out of Service with jetty list tooltips) and **Awaiting departure** (**LIVE** chip — ops finished, not cast off). |
+| **Live Berth Status** | Compact strip (not “Pipeline Actuals”): counts **At berth**, **Ready to sail**, and **Sign-off requested** from live at-berth data (**LIVE** chip). Links to At-Berth / Clearance where applicable. |
+| **At Berth Now** | Summary cards and berth board (**LIVE** chip): phase breakdown, alongside hours, ETC flags, clearance row. Filtered by Purpose / Commodity. |
+| **Arriving next 72h** | Plan rows not yet alongside, overdue up to 24h (**LIVE** chip). |
+| **Excluded** | Pipeline actuals, legacy plan pipeline, performance KPIs (waiting / turnaround / on-time), cargo tonnage, weekly trends, date-range picker. |
+| **Empty / no-match** | When filters are active but nothing matches: banner **No data available for selected filters**; KPI cards and boards show the same message or **0** as appropriate. |
+
+### 2.27 Ops Analytics Dashboard (`/ops-analytics`)
+
+Date-scoped performance and volume view for **Head of Operations**. RBAC page key **`dashboard-analytics`**.
+
+| Area | Behaviour |
+|------|------------|
+| **Header filters** | **Purpose**, **Commodity Type**, and **date range** (presets: **This month**, **Last month**, **Last 7 days**, **Last 30 days**, plus **From** / **To**). Default range: **this month**. Changing range refetches analytics data; invalid commodity selections are cleared when options change. |
+| **Pipeline — Vessel Volume (Actuals)** | Primary pipeline section (**BY ACTUAL DATE** chip). Stages from **`GET /dashboard-v2/pipeline-actuals`**; collapsible; vessel tooltips per stage. |
+| **Legacy plan pipeline** | Optional **`VITE_USE_LEGACY_VESSEL_PIPELINE`** env-gated seven-stage plan cohort pipeline (same as former Dashboard V2). |
+| **KPI row** | Five cards: **Slot occupancy** and **SLA at risk** (range **AVG** or single-day chip), **Waiting to berth**, **Turnaround**, **On-time berthing** — all scoped to the selected date range and filters. |
+| **Cargo tonnage** | Planned vs sailed MT by purpose for the selected range. |
+| **Weekly trends** | Four charts in a **2×2 grid** (slot occupancy %, approved vs sailed plans, sailed cargo MT, SLA at risk). Server-filtered by Purpose, Commodity, and date range (**`GET /dashboard-v2/weekly-trends`**). **Upcoming weeks** (segment start after today UTC) render as **dotted grey lines** with values **projected flat from the last active week**; header legend **Projected (upcoming weeks)** when applicable. |
+| **Excluded** | Jetty status, awaiting departure, Live Berth Status strip, At Berth board, arrivals table, **60s** live poll, **LIVE** / **TODAY** chips on analytics KPIs. |
+| **Empty / no-match** | Same banner and KPI empty behaviour as **§2.26** when filters exclude all data. |
 
 ### 2.19 Uploaded document preview & download
 
@@ -481,6 +516,30 @@ Each master jetty can restrict which **commodities** it accepts, separately for 
 
 Technical contract: migrations **088** (jetty length/draft/DWT), **089** (`jetty_commodities`), **090** (operational purpose); **`Backend/src/routes/jetties.js`**, **`Backend/src/routes/si-lookups.js`**; **`Frontend/src/pages/MasterJetty.jsx`**, **`Frontend/src/api/jetties.js`**, **`Frontend/src/pages/ShipmentPlansList.jsx`**.
 
+### 2.25 Management Dashboard — berth productivity & departure readiness
+
+Executive-facing page for **COO / Business Unit heads** at **`/management-dashboard`** (sidebar **Management Dashboard**, RBAC page key **`management-dashboard`**). All KPIs and charts are computed **client-side** from **`GET /operations`** plus bounded per-operation fetches for sub-process and operational-activity detail (**`GET /operations/:id/sub-processes`**, **`GET /operations/:id/operational-activities`**). There is **no** dedicated management-dashboard API. **No code changes** were required for the three-tier dashboard split (**§2.18**); only RBAC page key separation (migration **092**).
+
+| Area | Behaviour |
+|------|------------|
+| **Audience & focus** | Berth productivity and **departure readiness** for **Loading** and **Unloading** operations. Intro copy explains that **flow KPIs** bucket sailed voyages by **cast-off date** within the selected period, while **pipeline** cards reconstruct vessel state as of the period end (or **now** when the window includes the present). |
+| **Filters — period** | Presets: **Today**, **Last 30 days**, **YTD**, **All data**; optional **Month** picker; optional custom **From → To** date range. Each preset compares against an equivalent **previous** window (yesterday, prior 30 days, same period last year, preceding month, or equal-length preceding range). |
+| **Filters — purpose** | **All**, **Loading**, **Unloading** — scopes all widgets on the page. |
+| **KPI tiles (top row)** | Six cards with period-over-period **delta** badges: **Cargo throughput** (MT + voyage count), **Median berth time** (TB → cast-off), **Median wait to berth** (TA → TB), **Effective ops ratio** (cargo-ops hours ÷ berth hours), **On-time vs ETC** (% ops done ≤ estimate), **Median lateness** (days beyond Est. Completion). Tiles with poor thresholds may show a red value (e.g. effective ratio &lt; 40%, on-time 0%). |
+| **Where the berth hours go** | Waterfall of **average** phase durations on sailed voyages in period: anchorage wait, pre-checking, cargo operations, idle/delays at berth, post-checking & sign-off. Caption shows average port stay and cargo-work share. |
+| **Departure readiness** | Live (or historical) pipeline counts: **Scheduled (no TA)**, **At berth**, **Ops complete, not sailed**, **Sailed (period)**. Hint line calls out the longest alongside vessel when any are at berth. |
+| **Voyage drill-down** | Table of sailed voyages in period **plus** vessels still alongside as of the snapshot instant. Columns: vessel, purpose, jetty, **Commodity** (short name), qty, wait/berth/ops hours, effective %, vs ETC chip, status. **Click a row** to expand **inline** milestone timestamps and a per-voyage phase timeline (anchorage wait through post-checking). |
+| **Jetty berth-hours consumed** | Horizontal bars of total berth-hours per jetty (sailed voyages in period). |
+| **Achieved cargo rate** | **MT/hour** = moved qty ÷ cargo-operations window; bars coloured by purpose (Loading green, Unloading blue). |
+| **Removed widget** | The former **Data quality — what limits these numbers** footer section is **removed** from this page. |
+| **Commodity column** | Voyage drill-down and drill-down modals show **`commodityShortDisplay`** (Master Commodity **short name**, e.g. **CPO**) from **`GET /operations`**, falling back to full display name when short name is empty — same preference as Allocation and Gantt. |
+| **Widget drill-down modals** | **Click** any KPI tile, waterfall segment (bar or legend), departure-readiness row, jetty bar, or cargo-rate row to open a **wide detail modal** (shared **`modal-overlay`** / **`modal modal--wide`** pattern). Modal layout: title, subtitle, summary stat strip, sortable evidence **table** of underlying voyages with metric-specific columns, footer note (period or snapshot context). Close via **×**, overlay click, or **Escape**. Keyboard: clickable widgets support **Enter** / **Space**. |
+| **KPI modal content** | **Cargo throughput** → all sailed rows in period (qty desc). **Median berth time** → rows with berth hours. **Median wait** → rows with wait hours. **Effective ops ratio** → rows with both berth and cargo-ops window (worst effective first); subtitle notes excluded voyages missing cargo-ops window. **On-time vs ETC** / **Median lateness** → rows with ETC comparison data. |
+| **Chart modal content** | **Waterfall segment** → voyages where that phase duration is logged. **Departure readiness row** → vessels in that pipeline stage at snapshot instant (scheduled / at berth / ops done not sailed / sailed in period). **Jetty bar** → sailed voyages on that jetty. **Cargo rate row** → single-voyage qty, ops window, and rate breakdown. |
+| **Voyage drill-down vs modals** | Summary widgets use **modals** for evidence tables; the **Voyage drill-down** table keeps **inline row expansion** for milestone anatomy (not moved to a modal). |
+
+Technical contract: **`Frontend/src/pages/ManagementDashboard.jsx`**, **`Frontend/src/styles/management-dashboard.css`**, **`Frontend/src/styles/modal.css`**; **`Backend/src/routes/operations.js`** — **`toOp()`** exposes **`commodityShortDisplay`**; cargo display enrichment **`Backend/src/lib/siBreakdownDisplay.js`**.
+
 ---
 
 ## 3. Gantt data inputs (per queue row)
@@ -622,8 +681,10 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | Jetty Live CCTV (master RTSP, schematic camera, viewer) | `Backend/migrations/077_jetties_rtsp_link.sql`, `078_retire_jetty_live_page_permission.sql`, `Backend/src/routes/jetties.js`; `Frontend/src/pages/MasterJetty.jsx`, `Frontend/src/components/JettySchematic.jsx`, `Frontend/src/pages/JettyLive.jsx`, `Frontend/src/pages/AdminRoles.jsx`; `rtsp-stream-viewer/`; deploy **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md** |
 | Master Menu list sort/filter | `Frontend/src/utils/sortableFilterableTable.js`, `Frontend/src/hooks/useSortableFilterableRows.js`, `Frontend/src/components/SortableFilterableTableHead.jsx`; `Frontend/src/pages/MasterPort.jsx`, `MasterJetty.jsx`, `MasterSiLookup.jsx`, `MasterFreightTerms.jsx`, hub `Frontend/src/pages/Master.jsx` |
 | Self-service change password (header menu + modal) | `Backend/src/routes/users.js` — **`PUT /users/me/password`**; `Frontend/src/components/UserMenu.jsx`, `ChangePasswordModal.jsx`, `PasswordField.jsx`; `Frontend/src/api/usersApi.js` — **`changeMyPasswordApi`**; `Frontend/src/styles/user-menu.css`, `Frontend/src/styles/modal.css`; i18n **`common.json`** (`changePassword.*`); wired in **`Layout.jsx`** |
-| Dashboard slot KPI, Port activity chart, weather footer | `Frontend/src/pages/Dashboard.jsx`, `Frontend/src/components/DashboardActivityChart.jsx`, `Frontend/src/utils/dashboardQueueClassification.js` |
-| **Dashboard V2 — Purpose / Commodity filters, weekly trends refetch** | `Frontend/src/pages/DashboardV2.jsx`, `Frontend/src/utils/dashboardFilters.js`, `Frontend/src/components/DropdownMultiSelect.jsx`, `Frontend/src/components/DashboardV2WeeklyTrends.jsx`, `Frontend/src/api/dashboardV2.js`; styles **`Frontend/src/styles/dashboard.css`** (`.v2-filters`); backend **`Backend/src/routes/dashboard-v2-weekly.js`**, **`Backend/src/routes/shipment-plans.js`** (SI **`breakdown`** on list). See **§2.18**, TECH-SPEC **§0.29**. |
+| **Live Ops Dashboard (`/`)** | **§2.26** — `Frontend/src/pages/LiveOpsDashboard.jsx`, `Frontend/src/hooks/useLiveOpsDashboard.js`, `Frontend/src/components/dashboard/DashboardShell.jsx` (`mode="live"`), `DashboardRouteGuard.jsx`, `LiveBerthStatusStrip.jsx`, `DateRangePicker.jsx` (analytics only); shared `Frontend/src/utils/dashboardPageUtils.js`, `dashboardFilters.js`, `dashboardV2.js` API client; styles **`dashboard.css`**. RBAC **`dashboard`**. Migration **092**. |
+| **Ops Analytics Dashboard (`/ops-analytics`)** | **§2.27** — `Frontend/src/pages/OpsAnalyticsDashboard.jsx`, `Frontend/src/hooks/useOpsAnalyticsDashboard.js`, `DashboardShell.jsx` (`mode="analytics"`), `DashboardV2WeeklyTrends.jsx` (2×2 grid, projected upcoming weeks); backend **`Backend/src/routes/dashboard-v2-weekly.js`**. RBAC **`dashboard-analytics`**. See **§2.18**, TECH-SPEC **§0.29**. |
+| Dashboard slot KPI, Port activity chart, weather footer | `Frontend/src/pages/_archive/Dashboard.legacy.jsx`, `Frontend/src/components/_archive/DashboardActivityChart.legacy.jsx` (retired from tier dashboards) |
+| **Three-tier dashboard — RBAC & nav** | **§2.18** — `Backend/migrations/092_dashboard_tier_page_permissions.sql`; `Frontend/src/data/rolesData.js` **`PAGE_OPTIONS`**; `Frontend/src/components/Layout.jsx` **`navStructure`**, **`pathToPageKey`**; i18n **`nav.json`**, **`pages.json`**. |
 | Shift-out route | `Backend/src/routes/operations.js` |
 | Demurrage Risk Calculator UI | `Frontend/src/pages/DemurrageRiskCalculator.jsx`, `Frontend/src/styles/demurrage-risk-calculator.css` |
 | Shipment plan depart API + shared transaction | `Backend/src/routes/shipment-plans.js`, `Backend/src/lib/shipment-plan-depart.js`; mount in `Backend/src/index.js` — **`POST /shipment-plans/:id/depart`** |
@@ -639,6 +700,7 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | **Commodity Qty overview columns** | **§2.21** — `Backend/src/lib/siBreakdownDisplay.js`, `Backend/src/routes/allocation.js`, `operations.js`, `shipment-plans.js`; `Frontend/src/utils/siCargoTableDisplay.jsx`, `allocationPlanPovMerge.js`, `Allocation.jsx`, `AtBerthExecutions.jsx`, `Verification.jsx`, `ShipmentPlansList.jsx`, `allocation.css`; i18n **`colCommodityQty`** / **`clearanceColCommodityQty`**. TECH-SPEC **§0.32** |
 | **Jetty – Vessel Report** | **§2.22** — `Frontend/src/pages/VesselReport.jsx`, `Frontend/src/data/jettyVesselReportFromApi.js`, `Frontend/src/data/jettyVesselReportExcel.js`; APIs **`operations`**, **`allocation/overview`**, **`shipping-instructions/:id`**, **`jetties`**; summary header tooltips via **`InteractiveTooltip`**; styles **`allocation-table__th-label`**, **`allocation-table__th-info`** in **`allocation.css`** |
 | **Inbound Shipping Instruction integration (partner API)** | **§2.23** — `Backend/src/routes/integrations.js`, `Backend/src/middleware/integration-auth.js`, `Backend/src/lib/resolve-requested-by.js`, migrations **084** / **085**; key provisioning **`Backend/scripts/create-integration-api-key.mjs`**; plans list columns **`Frontend/src/pages/ShipmentPlansList.jsx`**; partner docs **`Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md`**, **`Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-API-TEST-GUIDE.md`**. TECH-SPEC **§0.33** |
+| **Management Dashboard — berth productivity & departure readiness** | **§2.25** — `Frontend/src/pages/ManagementDashboard.jsx`, `Frontend/src/styles/management-dashboard.css`, `Frontend/src/styles/modal.css`; APIs **`GET /operations`**, **`GET /operations/:id/sub-processes`**, **`GET /operations/:id/operational-activities`**; **`commodityShortDisplay`** on **`Backend/src/routes/operations.js`** **`toOp()`** via **`Backend/src/lib/siBreakdownDisplay.js`** |
 | Save estimation of completion | `Frontend/src/api/operations.js` → `PUT /operations/:id/estimated-completion`; `Backend/src/routes/operations.js` |
 | DB — operations estimated completion | Migrations defining `operations.estimated_completion_time` (e.g. `Backend/migrations/004_shipping_operations_tables.sql` and related) |
 | Operation sign-off (request → approve) + Clearance pending queue | `Frontend/src/pages/Loading.jsx`, `Frontend/src/pages/Verification.jsx`, `Frontend/src/api/operations.js`; `Backend/src/routes/operations.js` (`POST .../signoff-request`, `POST .../signoff`, `GET .../pending-signoff-requests`); `Backend/migrations/049_operations_signoff_request.sql`; RBAC sub-row **Approve operation sign-off** — `Frontend/src/pages/AdminRoles.jsx`. Plan: **Docs/Plan/OPERATION-SIGNOFF-REQUEST-AND-APPROVAL-PLAN.md**. |
@@ -775,6 +837,8 @@ Cross-reference: **TECH-SPEC §0.20**, **`Backend/src/lib/schedule-instant.js`**
 
 | Version | Date | Notes |
 |---------|------|--------|
+| 1.66 | 2026-07-20 | **Three-tier operational dashboards:** split former Dashboard V2 into **Live Ops** (`/`, RBAC **`dashboard`**) and **Ops Analytics** (`/ops-analytics`, RBAC **`dashboard-analytics`**); **Management** RBAC key **`management-dashboard`** (migration **092**). **§2.18** structure/RBAC; **§2.26** Live Ops widgets (today KPIs, live poll, Live Berth Status, at-berth, arrivals); **§2.27** Ops Analytics (date range, pipeline actuals, performance KPIs, tonnage, weekly trends 2×2 grid, dotted grey projected upcoming weeks). **§2.7** KPI rows retargeted per tier; legacy Port activity / weather retired from tier pages. **§1**, **§2.25**, **§7** map. `LiveOpsDashboard.jsx`, `OpsAnalyticsDashboard.jsx`, `DashboardShell.jsx`. |
+| 1.65 | 2026-07-20 | **§2.25 Management Dashboard touch-up:** remove **Data quality — what limits these numbers** widget; **click-to-drill-down modals** on KPI tiles, berth-hours waterfall, departure readiness, jetty hours, and cargo-rate widgets (summary strip + voyage evidence table; overlay / Escape close); voyage drill-down **Commodity** column uses **short name** via **`commodityShortDisplay`** on **`GET /operations`**. Inline row expansion unchanged on voyage table. **§1**, **§7** map. `ManagementDashboard.jsx`, `management-dashboard.css`, `operations.js` **`toOp()`**. |
 | 1.64 | 2026-07-09 | **§17.7–17.8 Jetty Schematic:** remove **Plan ref** / **SI No** line from occupied info card (still on lane tooltip and vessel modal); drops unused **`slotReferenceLabel`** prop. `JettySchematic.jsx`, `Allocation.jsx`, `AllocationVisualizationPopout.jsx`. |
 | 1.63 | 2026-07-09 | **§17.7 Jetty Schematic — info card text overlap:** card body lines no longer flex-shrink (prevents agent/cargo overlap and **Plan ref** clipping); card `overflow: visible` with lane-level vertical scroll when content exceeds fixed lane height; internal line gap **2px**. `jetty-schematic.css`. |
 | 1.62 | 2026-07-09 | **§17.7–17.8 Jetty Schematic — ETC breach indicator placement:** occupied-lane composite layout (vessel graphic + detached info card; top/bottom zone orientation); **icon-only** ETC breach badge rendered **inside** the white info card title row beside the purpose badge (`jetty-card__title-actions`), not as a lane-level overlay—fixes misalignment on bottom berths where the graphic sits above the card. **§7** map. `JettySchematic.jsx` / `jetty-schematic.css`. |

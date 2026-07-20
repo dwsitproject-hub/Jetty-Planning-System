@@ -1,9 +1,10 @@
-/** Vessel Pipeline — Actuals beta gate (staging / opt-in via VITE_ENABLE_PIPELINE_ACTUALS_BETA=true). */
+/** Vessel Pipeline config — Actuals is default; legacy plan pipeline is opt-in. */
 
 const COLLAPSED_KEY = 'jps_dashboard_pipeline_actuals_collapsed'
 
-export function isPipelineActualsBetaEnabled() {
-  return import.meta.env.VITE_ENABLE_PIPELINE_ACTUALS_BETA === 'true'
+/** Show legacy plan-based pipeline when VITE_USE_LEGACY_VESSEL_PIPELINE=true (default off). */
+export function isLegacyVesselPipelineEnabled() {
+  return import.meta.env.VITE_USE_LEGACY_VESSEL_PIPELINE === 'true'
 }
 
 export function readPipelineActualsCollapsed() {

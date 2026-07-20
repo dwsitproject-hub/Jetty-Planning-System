@@ -26,3 +26,13 @@ export function fetchDashboardV2PipelineActuals({ startDate, endDate, purposes, 
   const q = buildDashboardV2Query({ startDate, endDate, purposes, commodityIds })
   return apiGet(`/dashboard-v2/pipeline-actuals${q ? `?${q}` : ''}`)
 }
+
+export function fetchDashboardV2SlotOccupancy({ startDate, endDate, purposes, commodityIds } = {}) {
+  const q = buildDashboardV2Query({ startDate, endDate, purposes, commodityIds })
+  return apiGet(`/dashboard-v2/slot-occupancy${q ? `?${q}` : ''}`)
+}
+
+export function fetchDashboardV2SlaAtRisk({ startDate, endDate, purposes, commodityIds } = {}) {
+  const q = buildDashboardV2Query({ startDate, endDate, purposes, commodityIds })
+  return apiGet(`/dashboard-v2/sla-at-risk${q ? `?${q}` : ''}`)
+}

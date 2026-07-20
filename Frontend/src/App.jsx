@@ -9,7 +9,8 @@ import { PortScopeProvider } from './context/PortScopeContext'
 import { FilePreviewProvider } from './context/FilePreviewContext'
 import Login from './pages/Login'
 import SelectPort from './pages/SelectPort'
-import DashboardV2 from './pages/DashboardV2'
+import LiveOpsDashboard from './pages/LiveOpsDashboard'
+import OpsAnalyticsDashboard from './pages/OpsAnalyticsDashboard'
 import ManagementDashboard from './pages/ManagementDashboard'
 import ShipmentPlansList from './pages/ShipmentPlansList'
 import ShipmentPlanHub from './pages/ShipmentPlanHub'
@@ -37,6 +38,8 @@ import Admin from './pages/Admin'
 import AdminUsers from './pages/AdminUsers'
 import AdminRoles from './pages/AdminRoles'
 import AdminPartnerApi from './pages/AdminPartnerApi'
+import AdminNotifications from './pages/AdminNotifications'
+import AdminEmailDeliveryLog from './pages/AdminEmailDeliveryLog'
 import DemurrageRiskCalculator from './pages/DemurrageRiskCalculator'
 import JettyLive from './pages/JettyLive'
 import DevOcrTest from './pages/DevOcrTest'
@@ -69,7 +72,8 @@ function App() {
                 <Route path="/login" element={<Login />} />
                 <Route path="/select-port" element={<SelectPort />} />
                 <Route element={<AppShell />}>
-                  <Route path="/" element={<DashboardV2 />} />
+                  <Route path="/" element={<LiveOpsDashboard />} />
+                  <Route path="/ops-analytics" element={<OpsAnalyticsDashboard />} />
                   <Route path="/management-dashboard" element={<ManagementDashboard />} />
                   <Route path="/dashboard-v2" element={<Navigate to="/" replace />} />
                   <Route path="/jetty-live" element={<JettyLive />} />
@@ -213,6 +217,8 @@ function App() {
                   <Route path="/admin/users" element={<AdminUsers />} />
                   <Route path="/admin/roles" element={<AdminRoles />} />
                   <Route path="/admin/partner-api" element={<AdminPartnerApi />} />
+                  <Route path="/admin/notifications" element={<AdminNotifications />} />
+                  <Route path="/admin/notifications/email-log" element={<AdminEmailDeliveryLog />} />
                   <Route path="/dev/ocr-test" element={<DevOcrTest />} />
                 </Route>
                 </Routes>
