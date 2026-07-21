@@ -528,6 +528,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     }
   }
   const [arrivalUpdateForm, setArrivalUpdateForm] = useState(null)
+  const [arrivalUpdateOriginalJetty, setArrivalUpdateOriginalJetty] = useState('')
   const [berthingConfirmRow, setBerthingConfirmRow] = useState(null)
   const [berthingErrors, setBerthingErrors] = useState([])
   const [berthingSelectedJetty, setBerthingSelectedJetty] = useState('')
@@ -627,6 +628,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   const [reDockSuccessMessage, setReDockSuccessMessage] = useState(null)
   const [vesselDetailEditing, setVesselDetailEditing] = useState(false)
   const [vesselDetailDraft, setVesselDetailDraft] = useState(null)
+  const [vesselDetailOriginalJetty, setVesselDetailOriginalJetty] = useState('')
   const [vesselDetailEditError, setVesselDetailEditError] = useState(null)
   const [vesselDetailEditSaving, setVesselDetailEditSaving] = useState(false)
   const [vesselDetailNorNewFiles, setVesselDetailNorNewFiles] = useState([])
@@ -1209,6 +1211,9 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       norAcceptedDateTime: toDateTimeLocalValue(r.norAcceptedDateTime),
       demurrageLiabilityFromDateTime: toDateTimeLocalValue(r.demurrageLiabilityFromDateTime),
     })
+    // Captured so saveArrivalUpdate can detect a *new/changed* jetty assignment
+    // (vs. an unrelated edit on a row that already has a jetty) and require ETB then.
+    setArrivalUpdateOriginalJetty((r.jetty || '').trim().split('/')[0].trim())
     setArrivalNorFiles([])
     setArrivalNorRawFiles([])
     setArrivalSaving(false)
@@ -1225,6 +1230,14 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     setArrivalNorRawFiles((prev) => [...prev, ...Array.from(files)])
   }
 
+  // ETB is required once the user picks a jetty different from what the row had when
+  // "Log arrival update" was opened (mirrors the server-side check in PUT /allocation/arrival).
+  const isEtbRequiredForArrivalForm = (form) => {
+    if (!form) return false
+    const currentJetty = (form.jetty || '').trim().split('/')[0].trim()
+    return Boolean(currentJetty) && currentJetty !== arrivalUpdateOriginalJetty
+  }
+
   const saveArrivalUpdate = async () => {
     if (!arrivalUpdateForm) return
     setArrivalSaving(true)
@@ -1232,6 +1245,17 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
 
     // Validate selected jetty suitability (LOA / DWT / commodity) before saving.
     const targetJettyId = (arrivalUpdateForm.jetty || '').trim().split('/')[0].trim()
+
+    // A jetty is only being (re)assigned when it differs from what the row had when
+    // this modal opened; ETB is required at that moment so Planned Berthing data stays
+    // populated going forward (unrelated edits on rows that already have a jetty aren't blocked).
+    const jettyBeingAssigned = Boolean(targetJettyId) && targetJettyId !== arrivalUpdateOriginalJetty
+    if (jettyBeingAssigned && !arrivalUpdateForm.etbDateTime) {
+      setArrivalSaveMsg('ETB is required when assigning a jetty.')
+      setArrivalSaving(false)
+      return
+    }
+
     if (targetJettyId) {
       const jettyValidation = validateJettyAdviceSelection({
         jettyAdvice: arrivalJettyAdvice,
@@ -1734,6 +1758,9 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       jetty: getTargetJettyId(vessel) || '',
       remark: vessel.remark ?? vessel.remarks ?? '',
     })
+    // Captured so saveVesselDetailEdit can detect a *new/changed* jetty assignment
+    // (vs. an unrelated edit on a row that already has a jetty) and require ETB then.
+    setVesselDetailOriginalJetty((getTargetJettyId(vessel) || '').trim())
     setVesselDetailEditing(true)
   }
 
@@ -1751,9 +1778,26 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     setVesselDetailEditError(null)
   }
 
+  // ETB is required once the user picks a jetty different from what the row had when
+  // the vessel detail edit was opened (mirrors the server-side check in PUT /allocation/arrival).
+  const isEtbRequiredForVesselDetailDraft = (draft) => {
+    if (!draft) return false
+    const currentJetty = (draft.jetty || '').trim().split('/')[0].trim()
+    return Boolean(currentJetty) && currentJetty !== vesselDetailOriginalJetty
+  }
+
   const saveVesselDetailEdit = async (vessel) => {
     if (!vessel?.operationId || !vesselDetailDraft) return
     const targetJettyId = (vesselDetailDraft.jetty || '').trim().split('/')[0].trim()
+
+    // A jetty is only being (re)assigned when it differs from what the row had when this
+    // edit opened; ETB is required at that moment (mirrors Log arrival update / server check).
+    const jettyBeingAssigned = Boolean(targetJettyId) && targetJettyId !== vesselDetailOriginalJetty
+    if (jettyBeingAssigned && !vesselDetailDraft.etbDateTime) {
+      setVesselDetailEditError('ETB is required when assigning a jetty.')
+      return
+    }
+
     if (targetJettyId) {
       const berth = berthsState.find((b) => b.id === targetJettyId)
       if (!berth) {
@@ -2942,18 +2986,31 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                         </dd>
                       </div>
                       <div className="berthing-modal__vessel-row">
-                        <dt>Estimated Time of Berthing (ETB)</dt>
+                        <dt>
+                          Estimated Time of Berthing (ETB)
+                          {vesselDetailEditing && isEtbRequiredForVesselDetailDraft(d) ? (
+                            <span className="required-star"> *</span>
+                          ) : null}
+                        </dt>
                         <dd>
                           {vesselDetailEditing && d ? (
-                            <input
-                              type="datetime-local"
-                              className="berthing-modal__input"
-                              value={d.etbDateTime}
-                              onChange={(e) =>
-                                setVesselDetailDraft((prev) => (prev ? { ...prev, etbDateTime: e.target.value } : prev))
-                              }
-                              aria-label="Estimated Time of Berthing"
-                            />
+                            <>
+                              <input
+                                type="datetime-local"
+                                className="berthing-modal__input"
+                                value={d.etbDateTime}
+                                onChange={(e) =>
+                                  setVesselDetailDraft((prev) => (prev ? { ...prev, etbDateTime: e.target.value } : prev))
+                                }
+                                aria-label="Estimated Time of Berthing"
+                                aria-required={isEtbRequiredForVesselDetailDraft(d) || undefined}
+                              />
+                              {isEtbRequiredForVesselDetailDraft(d) && !d.etbDateTime ? (
+                                <p className="berthing-modal__jetty-hint berthing-modal__jetty-hint--error" role="alert">
+                                  Required when assigning a jetty.
+                                </p>
+                              ) : null}
+                            </>
                           ) : (
                             etb
                           )}
@@ -3991,14 +4048,25 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                 </div>
                 )}
                 <div className="berthing-modal__field">
-                  <label htmlFor="arrival-etb" className="berthing-modal__label">ETB</label>
+                  <label htmlFor="arrival-etb" className="berthing-modal__label">
+                    ETB
+                    {isEtbRequiredForArrivalForm(arrivalUpdateForm) ? (
+                      <span className="required-star"> *</span>
+                    ) : null}
+                  </label>
                   <input
                     id="arrival-etb"
                     type="datetime-local"
                     className="berthing-modal__input"
                     value={arrivalUpdateForm.etbDateTime || ''}
                     onChange={(e) => setArrivalUpdateForm((f) => ({ ...f, etbDateTime: e.target.value }))}
+                    aria-required={isEtbRequiredForArrivalForm(arrivalUpdateForm) || undefined}
                   />
+                  {isEtbRequiredForArrivalForm(arrivalUpdateForm) && !arrivalUpdateForm.etbDateTime ? (
+                    <p className="berthing-modal__jetty-hint berthing-modal__jetty-hint--error" role="alert">
+                      Required when assigning a jetty.
+                    </p>
+                  ) : null}
                 </div>
                 {!isPlanOnlySchedulingRow(arrivalUpdateForm) && (
                 <div className="berthing-modal__field">

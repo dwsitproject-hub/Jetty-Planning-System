@@ -1029,6 +1029,19 @@ router.put('/arrival', async (req, res) => {
       const etb = Object.prototype.hasOwnProperty.call(b, 'etbDateTime')
         ? parseTsPlan(b.etbDateTime)
         : planBefore.etb;
+      // A jetty is only actually being (re)assigned when a lookup was attempted and
+      // resolved to a jetty different from what's already on the plan; an unresolved
+      // lookup falls back to the existing jetty via COALESCE below, so it shouldn't
+      // trigger this check either.
+      const jettyLookupAttempted = b.jetty != null && String(b.jetty).trim() !== '';
+      const jettyEffective =
+        jettyLookupAttempted && jettyId != null ? jettyId : planBefore.jetty_id;
+      const jettyBeingAssigned =
+        jettyEffective != null && jettyEffective !== planBefore.jetty_id;
+      if (jettyBeingAssigned && !etb) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'ETB is required when assigning a jetty.' });
+      }
       const remark = b.remark != null ? String(b.remark).trim() : planBefore.remark;
       const priority = b.priority != null ? String(b.priority).trim() : planBefore.priority;
       const noPkk = b.noPkk != null ? String(b.noPkk).trim() : planBefore.no_pkk;
@@ -1279,6 +1292,19 @@ router.put('/arrival', async (req, res) => {
             'Jetty is out of service. Select another jetty or restore service in Master – Jetty.',
         });
       }
+    }
+
+    // A jetty is only actually being (re)assigned when a lookup was attempted and
+    // resolved to a jetty different from what's already on the operation/plan; an
+    // unresolved lookup falls back to the existing jetty via COALESCE below, so it
+    // shouldn't trigger this check either.
+    const previousJettyId = opBefore?.jetty_id ?? planBefore?.jetty_id ?? null;
+    const jettyLookupAttempted = b.jetty != null && String(b.jetty).trim() !== '';
+    const jettyEffective = jettyLookupAttempted && jettyId != null ? jettyId : previousJettyId;
+    const jettyBeingAssigned = jettyEffective != null && jettyEffective !== previousJettyId;
+    if (jettyBeingAssigned && !etb) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'ETB is required when assigning a jetty.' });
     }
 
     const arrivalUpdateParamsBase = [

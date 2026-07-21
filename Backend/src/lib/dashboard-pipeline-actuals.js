@@ -109,7 +109,6 @@ async function countPlannedBerthingInRange(client, portId, wsIso, weIso, filters
      WHERE sp.port_id = $1
        AND sp.deleted_at IS NULL
        AND sp.approval_status <> 'Rejected'
-       AND sp.jetty_id IS NOT NULL
        AND sp.etb IS NOT NULL
        AND sp.etb >= $2::timestamptz
        AND sp.etb < $3::timestamptz
@@ -129,7 +128,6 @@ async function fetchPlannedBerthingVesselsInRange(client, portId, wsIso, weIso, 
      WHERE sp.port_id = $1
        AND sp.deleted_at IS NULL
        AND sp.approval_status <> 'Rejected'
-       AND sp.jetty_id IS NOT NULL
        AND sp.etb IS NOT NULL
        AND sp.etb >= $2::timestamptz
        AND sp.etb < $3::timestamptz

@@ -143,7 +143,7 @@
   "v2PipelineActualsCollapse": "Collapse",
   "v2PipelineActualsRequestSub": "Submitted / draft created in range",
   "v2PipelineActualsIncomingSub": "ETA in range",
-  "v2PipelineActualsPlannedSub": "ETB set · jetty assigned in range",
+  "v2PipelineActualsPlannedSub": "ETB set in range",
   "v2PipelineActualsAtBerthSub": "TB recorded in range",
   "v2PipelineActualsReadySub": "Sign-off approved in range",
   "v2PipelineActualsSailedSub": "Cast off in range",
