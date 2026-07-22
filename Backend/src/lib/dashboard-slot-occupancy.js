@@ -153,8 +153,11 @@ export async function computeSlotOccupancyAtSnapshot(client, portId, tIso, filte
 }
 
 /**
- * Dashboard slot occupancy for selected date range.
- * @returns {Promise<{ mode: 'exact'|'average', usedSlots: number, totalSlots: number, pct: number, dayCount: number, overCapacity: boolean, items: Array<{ primary: string }> }>}
+ * Dashboard slot occupancy for selected date range. In 'exact' mode (single day)
+ * items are the occupied slots; in 'average' mode (multi-day range) items are a
+ * per-day breakdown (primary=date, secondary=used/total summary) since there's
+ * no single occupant list to show across an averaged range.
+ * @returns {Promise<{ mode: 'exact'|'average', usedSlots: number, totalSlots: number, pct: number, dayCount: number, overCapacity: boolean, items: Array<{ primary: string, secondary?: string }> }>}
  */
 export async function computeDashboardSlotOccupancy(
   client,
@@ -196,6 +199,7 @@ export async function computeDashboardSlotOccupancy(
   let pctSum = 0;
   let usedSum = 0;
   let totalSum = 0;
+  const items = [];
   for (const day of days) {
     const daily = await computeSlotOccupancyAtSnapshot(
       client,
@@ -206,6 +210,7 @@ export async function computeDashboardSlotOccupancy(
     pctSum += daily.pct;
     usedSum += daily.usedSlots;
     totalSum += daily.totalSlots;
+    items.push({ primary: day, secondary: `${daily.usedSlots}/${daily.totalSlots} slots (${daily.pct}%)` });
   }
   const dayCount = days.length;
   const avgPct = dayCount > 0 ? Math.round(pctSum / dayCount) : 0;
@@ -219,6 +224,6 @@ export async function computeDashboardSlotOccupancy(
     pct: avgPct,
     dayCount,
     overCapacity: false,
-    items: [],
+    items,
   };
 }

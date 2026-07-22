@@ -141,7 +141,7 @@
   "v2PipelineActualsBasis": "TANGGAL AKTUAL",
   "v2PipelineActualsExpand": "Buka",
   "v2PipelineActualsCollapse": "Tutup",
-  "v2PipelineActualsRequestSub": "Diajukan / draft dibuat dalam rentang",
+  "v2PipelineActualsRequestSub": "Pengiriman dalam rentang",
   "v2PipelineActualsIncomingSub": "ETA dalam rentang",
   "v2PipelineActualsPlannedSub": "ETB diatur dalam rentang",
   "v2PipelineActualsAtBerthSub": "TB dicatat dalam rentang",

@@ -141,7 +141,7 @@
   "v2PipelineActualsBasis": "BY ACTUAL DATE",
   "v2PipelineActualsExpand": "Expand",
   "v2PipelineActualsCollapse": "Collapse",
-  "v2PipelineActualsRequestSub": "Submitted / draft created in range",
+  "v2PipelineActualsRequestSub": "Shipment in range",
   "v2PipelineActualsIncomingSub": "ETA in range",
   "v2PipelineActualsPlannedSub": "ETB set in range",
   "v2PipelineActualsAtBerthSub": "TB recorded in range",

@@ -9,16 +9,12 @@ import { useTranslation } from 'react-i18next'
 import { usePortScope } from '../../context/PortScopeContext'
 import { formatDateDisplay, formatDateTimeDisplay, getAppLocaleTag } from '../../utils/formatDateTimeDisplay'
 import InteractiveTooltip from '../InteractiveTooltip'
+import WidgetDetailModal from '../WidgetDetailModal'
 import DashboardV2WeeklyTrends from '../DashboardV2WeeklyTrends'
 import DropdownMultiSelect from '../DropdownMultiSelect'
 import DateRangePicker from './DateRangePicker'
-import LiveBerthStatusStrip from './LiveBerthStatusStrip'
 import { computePipelinePartition } from '../../utils/dashboardPipelinePartition'
-import {
-  isLegacyVesselPipelineEnabled,
-  readPipelineActualsCollapsed,
-  writePipelineActualsCollapsed,
-} from '../../utils/pipelineActualsBeta'
+import { isLegacyVesselPipelineEnabled } from '../../utils/pipelineActualsBeta'
 import {
   buildPlanCommodityIndex,
   buildCommodityIdByName,
@@ -75,11 +71,11 @@ export default function DashboardShell({ mode = 'live' }) {
   const [weeklyTrends, setWeeklyTrends] = useState(null)
   const [pipelineActuals, setPipelineActuals] = useState(null)
   const [pipelineActualsLoading, setPipelineActualsLoading] = useState(false)
-  const [pipelineActualsCollapsed, setPipelineActualsCollapsed] = useState(readPipelineActualsCollapsed)
   const [slotOccupancyData, setSlotOccupancyData] = useState(null)
   const [slotOccupancyLoading, setSlotOccupancyLoading] = useState(false)
   const [slaAtRiskData, setSlaAtRiskData] = useState(null)
   const [slaAtRiskLoading, setSlaAtRiskLoading] = useState(false)
+  const [activeModal, setActiveModal] = useState(null)
   const legacyPipelineEnabled = isLegacyVesselPipelineEnabled()
 
   const { startDate, endDate } = dateRange
@@ -224,9 +220,6 @@ export default function DashboardShell({ mode = 'live' }) {
   }, [selectedPortId, startDate, endDate, selectedPurposes, selectedCommodityIds])
 
   const refreshPipelineActuals = useCallback(async () => {
-    if (pipelineActualsCollapsed) {
-      return
-    }
     if (selectedPortId == null) {
       setPipelineActuals(null)
       return
@@ -270,7 +263,7 @@ export default function DashboardShell({ mode = 'live' }) {
     } finally {
       setPipelineActualsLoading(false)
     }
-  }, [pipelineActualsCollapsed, selectedPortId, startDate, endDate, selectedPurposes, selectedCommodityIds])
+  }, [selectedPortId, startDate, endDate, selectedPurposes, selectedCommodityIds])
 
   const refreshSlotOccupancy = useCallback(async () => {
     if (selectedPortId == null) {
@@ -344,13 +337,16 @@ export default function DashboardShell({ mode = 'live' }) {
     }
   }, [selectedPortId, kpiStartDate, kpiEndDate, selectedPurposes, selectedCommodityIds])
 
-  const togglePipelineActualsCollapsed = useCallback(() => {
-    setPipelineActualsCollapsed((prev) => {
-      const next = !prev
-      writePipelineActualsCollapsed(next)
-      return next
-    })
-  }, [])
+  const closeModal = useCallback(() => setActiveModal(null), [])
+
+  useEffect(() => {
+    if (!activeModal) return undefined
+    const onKey = (e) => {
+      if (e.key === 'Escape') setActiveModal(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [activeModal])
 
   useEffect(() => { refresh() }, [refresh])
   useEffect(() => { if (isAnalytics) refreshWeekly() }, [refreshWeekly, isAnalytics])
@@ -526,13 +522,14 @@ export default function DashboardShell({ mode = 'live' }) {
   const sailedInRange = useMemo(() => {
     const s = parseDateLocal(startDate)
     const e = parseDateLocal(endDate)
-    const empty = { count: 0, qty: { Loading: 0, Unloading: 0 } }
+    const empty = { count: 0, qty: { Loading: 0, Unloading: 0 }, rows: { Loading: [], Unloading: [] } }
     if (!s || !e) return empty
     const startMs = s.getTime()
     const endMs = e.getTime() + 86400000
     const seenVoyages = new Set()
     let count = 0
     const qty = { Loading: 0, Unloading: 0 }
+    const rows = { Loading: [], Unloading: [] }
     for (const o of filteredAllOps) {
       if (o.status !== 'SAILED') continue
       if (o.shipmentPlanId != null && rejectedPlanIds.has(o.shipmentPlanId)) continue
@@ -547,13 +544,17 @@ export default function DashboardShell({ mode = 'live' }) {
       }
       const k = o.purpose === 'Loading' ? 'Loading' : o.purpose === 'Unloading' ? 'Unloading' : null
       const q = Number(o.cargoSiQty)
-      if (k && Number.isFinite(q) && q > 0) qty[k] += q
+      if (k && Number.isFinite(q) && q > 0) {
+        qty[k] += q
+        rows[k].push({ vesselName: o.vesselName || `Op #${o.id}`, qty: q })
+      }
     }
-    return { count, qty }
+    return { count, qty, rows }
   }, [filteredAllOps, rejectedPlanIds, startDate, endDate])
 
   // Bottom clearance row — live/range figures matching the pipeline stages
   const opStats = useMemo(() => ({
+    atBerth: pipelineLive.atBerth,
     signoffApproved: pipelineLive.readyToSail,
     signoffRequested: pipelineLive.signoffRequested,
     sailed: sailedInRange.count,
@@ -744,13 +745,16 @@ export default function DashboardShell({ mode = 'live' }) {
   // (cast-off within range — shares sailedInRange so it matches the pipeline) ──
   const tonnage = useMemo(() => {
     const out = {
-      Loading: { planned: 0, sailed: sailedInRange.qty.Loading },
-      Unloading: { planned: 0, sailed: sailedInRange.qty.Unloading },
+      Loading: { planned: 0, sailed: sailedInRange.qty.Loading, plannedRows: [], sailedRows: sailedInRange.rows.Loading },
+      Unloading: { planned: 0, sailed: sailedInRange.qty.Unloading, plannedRows: [], sailedRows: sailedInRange.rows.Unloading },
     }
     for (const p of plansForMetrics) {
       const key = p.purposeCode === 'Loading' ? 'Loading' : p.purposeCode === 'Unloading' ? 'Unloading' : null
       const mt = Number(p.vesselCapacity)
-      if (key && Number.isFinite(mt) && mt > 0) out[key].planned += mt
+      if (key && Number.isFinite(mt) && mt > 0) {
+        out[key].planned += mt
+        out[key].plannedRows.push({ vesselName: p.vesselName || `Plan #${p.id}`, qty: mt })
+      }
     }
     return out
   }, [plansForMetrics, sailedInRange])
@@ -863,55 +867,24 @@ export default function DashboardShell({ mode = 'live' }) {
 
       {/* ── Pipeline Actuals (analytics) ── */}
       {isAnalytics && (
-      <section
-        className={`card v2-pipeline v2-pipeline--actuals${pipelineActualsCollapsed ? ' v2-pipeline--collapsed' : ''}`}
-      >
+      <section className="card v2-pipeline v2-pipeline--actuals">
           <div className="v2-pipeline__header">
             <h2 className="card__title">
-              {t('v2PipelineActualsTitle')}{' '}
-              <span className="v2-basis-chip v2-basis-chip--beta">{t('v2PipelineActualsBeta')}</span>
-              <span className="v2-basis-chip v2-basis-chip--actuals">{t('v2PipelineActualsBasis')}</span>
+              {t('v2PipelineActualsTitle')}
             </h2>
             <div className="v2-pipeline__header-right">
-              {!pipelineActualsCollapsed && pipelineActualsLoading && (
+              {pipelineActualsLoading && (
                 <span className="v2-pipeline__refreshing">{t('loadingEllipsis')}</span>
               )}
               <span className="v2-pipeline__period">{dateRangeLabel}</span>
-              <button
-                type="button"
-                className="v2-pipeline__toggle"
-                onClick={togglePipelineActualsCollapsed}
-                aria-expanded={!pipelineActualsCollapsed}
-                aria-controls="v2-pipeline-actuals-body"
-                title={pipelineActualsCollapsed ? t('v2PipelineActualsExpand') : t('v2PipelineActualsCollapse')}
-              >
-                <span className="v2-pipeline__toggle-label">
-                  {pipelineActualsCollapsed ? t('v2PipelineActualsExpand') : t('v2PipelineActualsCollapse')}
-                </span>
-                <svg
-                  className={`v2-pipeline__toggle-icon${pipelineActualsCollapsed ? '' : ' v2-pipeline__toggle-icon--expanded'}`}
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden
-                >
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </button>
             </div>
           </div>
-          {!pipelineActualsCollapsed && (
-            <div
-              id="v2-pipeline-actuals-body"
-              className={`v2-pipeline__flow${pipelineActualsLoading ? ' v2-pipeline__flow--loading' : ''}`}
-              role="navigation"
-              aria-label={t('v2PipelineActualsTitle')}
-            >
+          <div
+            id="v2-pipeline-actuals-body"
+            className={`v2-pipeline__flow${pipelineActualsLoading ? ' v2-pipeline__flow--loading' : ''}`}
+            role="navigation"
+            aria-label={t('v2PipelineActualsTitle')}
+          >
               <InteractiveTooltip
                 title={t('v2PipelineRequest')}
                 subtitle={`${dateRangeLabel} · n=${pipelineActuals?.shipmentRequest ?? 0}`}
@@ -952,29 +925,6 @@ export default function DashboardShell({ mode = 'live' }) {
                     <div className="v2-pipeline__stage-label">{t('v2PipelineIncoming')}</div>
                     <div className="v2-pipeline__stage-count">{pipelineActuals?.incoming ?? (pipelineActualsLoading ? '—' : 0)}</div>
                     <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsIncomingSub')}</div>
-                  </div>
-                </Link>
-              </InteractiveTooltip>
-
-              <span className="v2-pipeline__arrow" aria-hidden>›</span>
-
-              <InteractiveTooltip
-                title={t('pipelinePlannedBerthing')}
-                subtitle={`${dateRangeLabel} · n=${pipelineActuals?.plannedBerthing ?? 0}`}
-                items={(pipelineActuals?.plannedBerthingVessels ?? []).map((v) => ({
-                  primary: v.vesselName || '—',
-                  secondary: v.purpose || '—',
-                }))}
-                emptyText={t('v2PipelineActualsTooltipEmpty')}
-                placement="right"
-                interactiveChild
-              >
-                <Link to="/allocation-plans" className="v2-pipeline__stage v2-pipeline__stage--planned">
-                  <div className="v2-pipeline__stage-icon">⚓</div>
-                  <div className="v2-pipeline__stage-body">
-                    <div className="v2-pipeline__stage-label">{t('pipelinePlannedBerthing')}</div>
-                    <div className="v2-pipeline__stage-count">{pipelineActuals?.plannedBerthing ?? (pipelineActualsLoading ? '—' : 0)}</div>
-                    <div className="v2-pipeline__stage-sub">{t('v2PipelineActualsPlannedSub')}</div>
                   </div>
                 </Link>
               </InteractiveTooltip>
@@ -1047,8 +997,7 @@ export default function DashboardShell({ mode = 'live' }) {
                   </div>
                 </Link>
               </InteractiveTooltip>
-            </div>
-          )}
+          </div>
         </section>
       )}
 
@@ -1176,8 +1125,8 @@ export default function DashboardShell({ mode = 'live' }) {
       </section>
       )}
 
-      {/* ── KPI Row 1: Occupancy + Performance metrics + SLA ── */}
-      <div className={`v2-kpi-row ${isLive ? 'v2-kpi-row--2' : 'v2-kpi-row--5'}`} aria-label={t('kpiGridAria')}>
+      {/* ── KPI Row: Occupancy + Performance metrics + SLA (+ live ops status) ── */}
+      <div className="v2-kpi-row v2-kpi-row--4" aria-label={t('kpiGridAria')}>
         {/* Slot Occupancy */}
         <div className="v2-kpi-card">
           <div className="v2-kpi-card__label">
@@ -1222,16 +1171,27 @@ export default function DashboardShell({ mode = 'live' }) {
               : slotOccupancyIsTodayOnly
                 ? t('slotOccupancyHint')
                 : t('slotOccupancyHintEod')}{' '}
-            {slotOccupancyData?.mode === 'exact' && (
-              <InteractiveTooltip
-                title={t('slotTooltipTitle')}
-                subtitle={t('slotTooltipSubtitle')}
-                items={slotOccupancyData.items ?? []}
-                emptyText={t('slotEmpty')}
-                maxWidth={360}
+            {(slotOccupancyData?.items?.length ?? 0) > 0 && (
+              <button
+                type="button"
+                className="v2-kpi-card__detail-link v2-kpi-card__detail-link--clickable"
+                onClick={() => setActiveModal({
+                  title: t('slotTooltipTitle'),
+                  subtitle: slotOccupancyData.mode === 'exact'
+                    ? t('slotTooltipSubtitle')
+                    : t('slotOccupancyHintAvg', { n: slotOccupancyData.dayCount ?? 0 }),
+                  columns: slotOccupancyData.mode === 'exact'
+                    ? [{ label: 'Occupant', cell: (r) => r.primary }]
+                    : [
+                      { label: 'Date', cell: (r) => r.primary },
+                      { label: 'Occupancy', cell: (r) => r.secondary },
+                    ],
+                  rows: slotOccupancyData.items ?? [],
+                  emptyText: t('slotEmpty'),
+                })}
               >
-                <span className="v2-kpi-card__detail-link">{t('slotDetails')}</span>
-              </InteractiveTooltip>
+                {t('slotDetails')}
+              </button>
             )}
           </div>
           <Link to="/at-berth" className="v2-kpi-card__link">{t('viewAtBerth')}</Link>
@@ -1242,79 +1202,63 @@ export default function DashboardShell({ mode = 'live' }) {
         {/* Waiting to Berth */}
         <div className="v2-kpi-card">
           <div className="v2-kpi-card__label">{t('perfWaiting')}</div>
-          <InteractiveTooltip
-            title={t('perfWaitingTooltip')}
-            subtitle={`${dateRangeLabel} · n=${performance.waiting.sampleSize}`}
-            items={performance.waiting.worst.map((x) => ({
-              primary: `${x.vesselName} — ${x.jettyName}`,
-              secondary: `Wait: ${formatDurationHours(x.hours)}`,
-            }))}
-            emptyText={t('perfWaitingEmpty')}
-            maxWidth={360}
+          <button
+            type="button"
+            className="v2-kpi-card__value v2-kpi-card__value--clickable"
+            onClick={() => setActiveModal({
+              title: t('perfWaitingTooltip'),
+              subtitle: `${dateRangeLabel} · n=${performance.waiting.sampleSize}`,
+              columns: [
+                { label: 'Vessel', cell: (r) => r.primary },
+                { label: 'Detail', cell: (r) => r.secondary },
+              ],
+              rows: performance.waiting.worst.map((x) => ({
+                primary: `${x.vesselName} — ${x.jettyName}`,
+                secondary: `Wait: ${formatDurationHours(x.hours)}`,
+              })),
+              emptyText: t('perfWaitingEmpty'),
+            })}
           >
-            <div className="v2-kpi-card__value">
-              {loading
-                ? '—'
-                : hasActiveFilters && performance.waiting.sampleSize === 0
-                  ? kpiNoData
-                  : performance.waiting.medianHours == null
-                    ? '—'
-                    : formatDurationHours(performance.waiting.medianHours)}
-            </div>
-          </InteractiveTooltip>
+            {loading
+              ? '—'
+              : hasActiveFilters && performance.waiting.sampleSize === 0
+                ? kpiNoData
+                : performance.waiting.medianHours == null
+                  ? '—'
+                  : formatDurationHours(performance.waiting.medianHours)}
+          </button>
           <div className="v2-kpi-card__sub">{t('v2PerfWaitingSub', { n: performance.waiting.sampleSize })}</div>
         </div>
 
         {/* Turnaround */}
         <div className="v2-kpi-card">
           <div className="v2-kpi-card__label">{t('perfTurnaround')}</div>
-          <InteractiveTooltip
-            title={t('perfTurnaroundTooltip')}
-            subtitle={`${dateRangeLabel} · n=${performance.turnaround.sampleSize}`}
-            items={performance.turnaround.worst.map((x) => ({
-              primary: `${x.vesselName} — ${x.jettyName}`,
-              secondary: `Turnaround: ${formatDurationHours(x.hours)}`,
-            }))}
-            emptyText={t('perfTurnaroundEmpty')}
-            maxWidth={360}
+          <button
+            type="button"
+            className="v2-kpi-card__value v2-kpi-card__value--clickable"
+            onClick={() => setActiveModal({
+              title: t('perfTurnaroundTooltip'),
+              subtitle: `${dateRangeLabel} · n=${performance.turnaround.sampleSize}`,
+              columns: [
+                { label: 'Vessel', cell: (r) => r.primary },
+                { label: 'Detail', cell: (r) => r.secondary },
+              ],
+              rows: performance.turnaround.worst.map((x) => ({
+                primary: `${x.vesselName} — ${x.jettyName}`,
+                secondary: `Turnaround: ${formatDurationHours(x.hours)}`,
+              })),
+              emptyText: t('perfTurnaroundEmpty'),
+            })}
           >
-            <div className="v2-kpi-card__value">
-              {loading
-                ? '—'
-                : hasActiveFilters && performance.turnaround.sampleSize === 0
-                  ? kpiNoData
-                  : performance.turnaround.medianHours == null
-                    ? '—'
-                    : formatDurationHours(performance.turnaround.medianHours)}
-            </div>
-          </InteractiveTooltip>
+            {loading
+              ? '—'
+              : hasActiveFilters && performance.turnaround.sampleSize === 0
+                ? kpiNoData
+                : performance.turnaround.medianHours == null
+                  ? '—'
+                  : formatDurationHours(performance.turnaround.medianHours)}
+          </button>
           <div className="v2-kpi-card__sub">{t('v2PerfTurnaroundSub', { n: performance.turnaround.sampleSize })}</div>
-        </div>
-
-        {/* On-time Berthing */}
-        <div className="v2-kpi-card">
-          <div className="v2-kpi-card__label">{t('perfOnTime')}</div>
-          <InteractiveTooltip
-            title={t('perfOnTimeTooltip')}
-            subtitle={`${dateRangeLabel} · eligible=${performance.onTime.eligible}`}
-            items={performance.onTime.late.map((x) => ({
-              primary: `${x.vesselName} — ${x.jettyName}`,
-              secondary: `Late: +${formatDurationHours(x.lateHours)}`,
-            }))}
-            emptyText={t('perfOnTimeEmpty')}
-            maxWidth={360}
-          >
-            <div className={`v2-kpi-card__value${performance.onTime.ratePct != null && performance.onTime.ratePct < 80 ? ' v2-kpi-card__value--warn' : ''}`}>
-              {loading
-                ? '—'
-                : hasActiveFilters && performance.onTime.eligible === 0
-                  ? kpiNoData
-                  : performance.onTime.ratePct == null
-                    ? '—'
-                    : `${performance.onTime.ratePct}%`}
-            </div>
-          </InteractiveTooltip>
-          <div className="v2-kpi-card__sub">{t('v2PerfOnTimeSub', { eligible: performance.onTime.eligible })}</div>
         </div>
         </>
         )}
@@ -1333,22 +1277,34 @@ export default function DashboardShell({ mode = 'live' }) {
               <span className="v2-basis-chip v2-basis-chip--range">{formatDateDisplay(startDate)}</span>
             )}
           </div>
-          {slaAtRiskData?.mode === 'exact' ? (
-            <InteractiveTooltip
-              title={t('slaTooltipTitle')}
-              subtitle={t('slaTooltipSubtitle')}
-              items={slaAtRiskData.items ?? []}
-              emptyText={t('slaEmpty')}
-              maxWidth={360}
+          {(slaAtRiskData?.items?.length ?? 0) > 0 ? (
+            <button
+              type="button"
+              className="v2-kpi-card__value v2-kpi-card__value--clickable"
+              onClick={() => setActiveModal({
+                title: t('slaTooltipTitle'),
+                subtitle: slaAtRiskData.mode === 'exact'
+                  ? t('slaTooltipSubtitle')
+                  : t('slaSubAvg', { n: slaAtRiskData.dayCount ?? 0, h: slaAtRiskData.overHoursSum ?? 0 }),
+                columns: slaAtRiskData.mode === 'exact'
+                  ? [
+                    { label: 'Vessel', cell: (r) => r.primary },
+                    { label: 'Detail', cell: (r) => r.secondary },
+                  ]
+                  : [
+                    { label: 'Date', cell: (r) => r.primary },
+                    { label: 'At risk', cell: (r) => r.secondary },
+                  ],
+                rows: slaAtRiskData.items ?? [],
+                emptyText: t('slaEmpty'),
+              })}
             >
-              <div className="v2-kpi-card__value">
-                {slaAtRiskLoading
-                  ? '—'
-                  : slaAtRiskData != null
-                    ? formatSlaCount(slaAtRiskData.count)
-                    : '—'}
-              </div>
-            </InteractiveTooltip>
+              {slaAtRiskLoading
+                ? '—'
+                : slaAtRiskData != null
+                  ? formatSlaCount(slaAtRiskData.count)
+                  : '—'}
+            </button>
           ) : (
             <div className="v2-kpi-card__value">
               {slaAtRiskLoading
@@ -1369,12 +1325,9 @@ export default function DashboardShell({ mode = 'live' }) {
                 : t('slaSubEod')}
           </div>
         </div>
-      </div>
 
-      {isLive && (
-      <>
-      {/* ── KPI Row 2: Operational status ── */}
-      <div className="v2-kpi-row v2-kpi-row--ops">
+        {isLive && (
+        <>
         {/* Jetty Status */}
         <div className="v2-kpi-card">
           <div className="v2-kpi-card__label">{t('jettyStatus')} <span className="v2-basis-chip">{t('v2BasisLive')}</span></div>
@@ -1409,10 +1362,12 @@ export default function DashboardShell({ mode = 'live' }) {
           </InteractiveTooltip>
           <div className="v2-kpi-card__sub">{t('v2AwaitDepartureSub')}</div>
         </div>
+        </>
+        )}
       </div>
 
-      <LiveBerthStatusStrip pipelineLive={pipelineLive} loading={loading} />
-
+      {isLive && (
+      <>
       {/* ── At Berth Now (full width) ── */}
       <section className="card v2-atberth">
         <div className="v2-atberth__head">
@@ -1499,20 +1454,25 @@ export default function DashboardShell({ mode = 'live' }) {
             )}
 
             <div className="v2-clearance-row">
+              <Link to="/at-berth" className="v2-clearance-card v2-clearance-card--atberth">
+                <span aria-hidden>🚢</span>
+                <span>{t('pipelineAtBerth')}</span>
+                <strong>{opStats.atBerth}</strong>
+              </Link>
               <Link to="/verification" className="v2-clearance-card v2-clearance-card--ready">
                 <span aria-hidden>⚓</span>
                 <span>{t('clearanceReady')}</span>
                 <strong>{opStats.signoffApproved}</strong>
               </Link>
-              <div className="v2-clearance-card v2-clearance-card--sailed">
-                <span aria-hidden>🚀</span>
-                <span>{t('clearanceSailed')}</span>
-                <strong>{opStats.sailed}</strong>
-              </div>
               <div className={`v2-clearance-card v2-clearance-card--pending${opStats.signoffRequested > 0 ? ' is-active' : ''}`}>
                 <span aria-hidden>⚠</span>
                 <span>{t('clearancePendingSignOff')}</span>
                 <strong>{opStats.signoffRequested}</strong>
+              </div>
+              <div className="v2-clearance-card v2-clearance-card--sailed">
+                <span aria-hidden>🚀</span>
+                <span>{t('clearanceSailed')}</span>
+                <strong>{opStats.sailed}</strong>
               </div>
             </div>
           </>
@@ -1595,8 +1555,35 @@ export default function DashboardShell({ mode = 'live' }) {
           {purposesUi.map(({ key, label }) => {
             const tData = tonnage[key]
             const pct = tData.planned > 0 ? Math.min(100, Math.round((tData.sailed / tData.planned) * 100)) : null
+            const openTonnageDetail = () => {
+              const rows = [
+                ...tData.plannedRows.map((r) => ({ type: 'Planned', vesselName: r.vesselName, qty: r.qty })),
+                ...tData.sailedRows.map((r) => ({ type: 'Sailed', vesselName: r.vesselName, qty: r.qty })),
+              ].sort((a, b) => (a.type === b.type ? b.qty - a.qty : a.type.localeCompare(b.type)))
+              setActiveModal({
+                title: `${label} — ${t('v2TonnageTitle')}`,
+                subtitle: dateRangeLabel,
+                stats: [
+                  { label: t('v2TonnagePlanned'), value: `${Math.round(tData.planned).toLocaleString(getAppLocaleTag())} MT` },
+                  { label: t('v2TonnageSailed'), value: `${Math.round(tData.sailed).toLocaleString(getAppLocaleTag())} MT` },
+                  { label: '%', value: pct != null ? `${pct}%` : '—' },
+                ],
+                columns: [
+                  { label: 'Type', cell: (r) => r.type },
+                  { label: 'Vessel', cell: (r) => r.vesselName },
+                  { label: 'Qty (MT)', cell: (r) => Math.round(r.qty).toLocaleString(getAppLocaleTag()), align: 'right' },
+                ],
+                rows,
+                emptyText: t('v2TonnageNoPlanned'),
+              })
+            }
             return (
-              <div key={key} className={`v2-tonnage__card v2-tonnage__card--${key.toLowerCase()}`}>
+              <button
+                key={key}
+                type="button"
+                className={`v2-tonnage__card v2-tonnage__card--${key.toLowerCase()} v2-tonnage__card--clickable`}
+                onClick={openTonnageDetail}
+              >
                 <div className="v2-tonnage__label">{label}</div>
                 <div className="v2-tonnage__vals">
                   <span>{t('v2TonnagePlanned')}: <b>{Math.round(tData.planned).toLocaleString(getAppLocaleTag())}</b> MT</span>
@@ -1608,7 +1595,7 @@ export default function DashboardShell({ mode = 'live' }) {
                 <div className="v2-tonnage__sub">
                   {pct != null ? t('v2TonnagePct', { pct }) : t('v2TonnageNoPlanned')}
                 </div>
-              </div>
+              </button>
             )
           })}
         </div>
@@ -1624,6 +1611,8 @@ export default function DashboardShell({ mode = 'live' }) {
       />
       </>
       )}
+
+      <WidgetDetailModal modal={activeModal} onClose={closeModal} />
     </div>
   )
 }

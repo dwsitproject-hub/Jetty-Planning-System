@@ -1835,7 +1835,7 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: var(--spacing-2);
-  margin-bottom: var(--spacing-3);
+  margin-bottom: var(--spacing-2);
 }
 
 .v2-header__title-row {
@@ -1864,7 +1864,7 @@
   align-items: center;
   gap: var(--spacing-3);
   flex-wrap: wrap;
-  padding: var(--spacing-2) var(--spacing-3);
+  padding: 6px 12px;
   background: var(--color-bg-white);
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-md);
@@ -2019,14 +2019,16 @@
 /* ── V2 card padding overrides (tighter than the global .card 24px) ── */
 .v2-pipeline,
 .v2-atberth,
-.v2-weekly {
+.v2-weekly,
+.v2-arrivals,
+.v2-tonnage {
   padding: var(--spacing-3);
-  margin-bottom: 0;
+  margin-bottom: var(--spacing-2);
 }
 
 /* ── Pipeline ── */
 .v2-pipeline {
-  margin-bottom: var(--spacing-3);
+  margin-bottom: var(--spacing-2);
 }
 
 .v2-pipeline__header {
@@ -2101,7 +2103,7 @@
   gap: var(--spacing-1);
   flex: 1;
   min-width: 110px;
-  padding: 10px var(--spacing-2);
+  padding: 8px 6px;
   border-radius: var(--radius-md);
   text-decoration: none;
   color: var(--color-text-charcoal);
@@ -2225,20 +2227,19 @@
   grid-template-columns: repeat(5, 1fr);
 }
 
-.v2-kpi-row--2 {
-  grid-template-columns: repeat(2, 1fr);
+.v2-kpi-row--4 {
+  grid-template-columns: repeat(4, 1fr);
 }
 
-.v2-kpi-row--ops {
+.v2-kpi-row--2 {
   grid-template-columns: repeat(2, 1fr);
-  margin-bottom: var(--spacing-3);
 }
 
 .v2-kpi-card {
   background: var(--color-bg-white);
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-md);
-  padding: 10px var(--spacing-3);
+  padding: 8px 12px;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-1);
@@ -2367,7 +2368,14 @@
 
 /* ── Berth board (At Berth Now) ── */
 .v2-berth-board {
-  margin: 12px 0 14px;
+  margin: 8px 0 10px;
+}
+
+/* Tighter row density for dashboard tables (berth board, arrivals) — scoped
+   so it doesn't affect .data-table on other pages. */
+.v2-dashboard .data-table th,
+.v2-dashboard .data-table td {
+  padding: 6px 12px;
 }
 
 .v2-board-r {
@@ -2458,6 +2466,20 @@
   padding: 10px 14px;
 }
 
+.v2-tonnage__card--clickable {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--color-bg-card, #fff);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.v2-tonnage__card--clickable:hover,
+.v2-tonnage__card--clickable:focus-visible {
+  background: var(--color-bg-lighter, #F6F7F4);
+}
+
 .v2-tonnage__card--loading { border-left-color: #1e8a52; }
 .v2-tonnage__card--unloading { border-left-color: #2d6fb8; }
 
@@ -2519,6 +2541,24 @@
   color: var(--v2-risk-color);
 }
 
+.v2-kpi-card__value--clickable {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.v2-kpi-card__value--clickable:hover,
+.v2-kpi-card__value--clickable:focus-visible {
+  color: var(--color-primary);
+}
+
 .v2-kpi-card__unit {
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-normal);
@@ -2537,6 +2577,14 @@
   cursor: pointer;
   text-decoration: underline;
   text-decoration-style: dotted;
+}
+
+.v2-kpi-card__detail-link--clickable {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
 }
 
 .v2-kpi-card__link {
@@ -2882,6 +2930,14 @@
   margin: 0;
 }
 
+.v2-atberth__head .btn--small {
+  padding: 3px 10px;
+  min-height: 0;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.2;
+}
+
 .v2-atberth__groups {
   display: flex;
   flex-direction: column;
@@ -2901,7 +2957,7 @@
   flex-direction: column;
   align-items: center;
   gap: var(--spacing-1);
-  padding: var(--spacing-3) var(--spacing-3);
+  padding: var(--spacing-2) var(--spacing-3);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border-light);
   background: var(--color-bg-lighter);
@@ -2994,9 +3050,9 @@
 
 .v2-clearance-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: var(--spacing-2);
-  margin-top: var(--spacing-3);
+  margin-top: var(--spacing-2);
 }
 
 .v2-live-berth-status__row {
@@ -3065,6 +3121,16 @@
   font-size: 15px;
   font-weight: var(--font-weight-bold);
   color: var(--color-text-charcoal);
+}
+
+.v2-clearance-card--atberth {
+  border-color: rgba(59, 130, 246, 0.3);
+  background: rgba(59, 130, 246, 0.05);
+  cursor: pointer;
+}
+
+.v2-clearance-card--atberth:hover {
+  border-color: rgba(59, 130, 246, 0.6);
 }
 
 .v2-clearance-card--ready {
@@ -3579,6 +3645,6 @@
   }
 
   .v2-clearance-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
   }
 }

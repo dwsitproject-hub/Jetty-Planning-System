@@ -104,6 +104,9 @@ async function slaAtRiskItemsAtSnapshot(client, portId, tIso, filters, limit = 5
 }
 
 /**
+ * In 'exact' mode (single day) items are the at-risk vessels; in 'average' mode
+ * (multi-day range) items are a per-day breakdown (primary=date, secondary=count
+ * + avg overdue hours) since there's no single vessel list across an averaged range.
  * @returns {Promise<{ mode: 'exact'|'average', count: number, overHoursSum: number, dayCount: number, items: Array<{ primary: string, secondary: string }> }>}
  */
 export async function computeDashboardSlaAtRisk(
@@ -140,6 +143,7 @@ export async function computeDashboardSlaAtRisk(
 
   let countSum = 0;
   let hoursSum = 0;
+  const items = [];
   for (const day of days) {
     const daily = await slaAtRiskAtSnapshot(
       client,
@@ -149,6 +153,8 @@ export async function computeDashboardSlaAtRisk(
     );
     countSum += daily.count;
     hoursSum += daily.overHoursSum;
+    const dailyHours = Math.round(daily.overHoursSum * 10) / 10;
+    items.push({ primary: day, secondary: `${daily.count} at risk · ${dailyHours}h avg overdue` });
   }
   const dayCount = days.length;
   const avgCount = dayCount > 0 ? Math.round((countSum / dayCount) * 10) / 10 : 0;
@@ -159,6 +165,6 @@ export async function computeDashboardSlaAtRisk(
     count: avgCount,
     overHoursSum: avgHours,
     dayCount,
-    items: [],
+    items,
   };
 }
