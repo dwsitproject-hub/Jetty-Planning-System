@@ -410,7 +410,7 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
         )}
 
         <div className="modal__footer">
-          <button type="button" className="btn btn--secondary" onClick={onClose}>
+          <button type="button" className="btn btn--secondary btn--small" onClick={onClose}>
             {t('close')}
           </button>
         </div>
@@ -444,7 +444,7 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
             />
           </div>
           <div className="modal__footer">
-            <button type="button" className="btn btn--secondary" onClick={() => setExecutionsLogOpen(false)}>
+            <button type="button" className="btn btn--secondary btn--small" onClick={() => setExecutionsLogOpen(false)}>
               {t('close')}
             </button>
           </div>

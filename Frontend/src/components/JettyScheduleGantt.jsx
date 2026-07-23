@@ -1051,7 +1051,7 @@ export default function JettyScheduleGantt({
             <div className="modal__actions">
               <button
                 type="button"
-                className="btn btn--secondary"
+                className="btn btn--secondary btn--small"
                 onClick={closePendingChange}
                 disabled={pendingSaving}
               >
@@ -1059,7 +1059,7 @@ export default function JettyScheduleGantt({
               </button>
               <button
                 type="button"
-                className="btn btn--primary"
+                className="btn btn--primary btn--small"
                 onClick={handleConfirmPendingChange}
                 disabled={pendingSaving}
               >

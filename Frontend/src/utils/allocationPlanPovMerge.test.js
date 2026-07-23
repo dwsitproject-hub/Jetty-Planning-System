@@ -33,3 +33,31 @@ describe('mergeQueueRowsForPlanPov tbDateTime', () => {
     assert.equal(mergedRows[0].tbDateTime, TB_ACTUAL)
   })
 })
+
+describe('mergeQueueRowsForPlanPov openingHatchStartAt', () => {
+  it('uses earliest opening hatch start across sibling operations', () => {
+    const { mergedRows } = mergeQueueRowsForPlanPov([
+      {
+        shipmentPlanId: 14,
+        vesselId: 'op-9',
+        vesselName: 'BG SMS 3002',
+        openingHatchStartAt: '2026-07-23T10:00:00Z',
+        openingCargoHandlingMethodName: 'Hose',
+        operationId: 9,
+        sequence: 1,
+      },
+      {
+        shipmentPlanId: 14,
+        vesselId: 'op-10',
+        vesselName: 'BG SMS 3002',
+        openingHatchStartAt: '2026-07-23T08:00:00Z',
+        openingCargoHandlingMethodName: 'Hose',
+        operationId: 10,
+        sequence: 2,
+      },
+    ])
+    assert.equal(mergedRows.length, 1)
+    assert.equal(mergedRows[0].openingHatchStartAt, '2026-07-23T08:00:00Z')
+    assert.equal(mergedRows[0].openingCargoHandlingMethodName, 'Hose')
+  })
+})

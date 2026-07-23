@@ -5,6 +5,7 @@ import {
   resolveGanttBarDensity,
   formatGanttMilestoneLine,
   formatMaterialQtyLine,
+  formatHoseConveyorOnLine,
   buildPlannedBlockModel,
   buildActualBlockModel,
   parseRowActualCompMs,
@@ -77,6 +78,25 @@ describe('formatMaterialQtyLine', () => {
       formatMaterialQtyLine('CPO - FAME', 'CPO 4.000 MT FAME 500 MT'),
       'CPO 4.000 MT FAME 500 MT'
     )
+  })
+})
+
+describe('formatHoseConveyorOnLine', () => {
+  it('returns Hose on with compact timestamp', () => {
+    const line = formatHoseConveyorOnLine('Hose', '2026-07-23T08:48:00Z')
+    assert.ok(line)
+    assert.match(line, /^Hose on \d+ \w+ \d{2}:\d{2}$/)
+  })
+
+  it('returns Conveyor on for conveyor method', () => {
+    const line = formatHoseConveyorOnLine('Conveyor', '2026-07-23T08:48:00Z')
+    assert.ok(line)
+    assert.match(line, /^Conveyor on /)
+  })
+
+  it('returns null when start time is missing', () => {
+    assert.equal(formatHoseConveyorOnLine('Hose', null), null)
+    assert.equal(formatHoseConveyorOnLine('Hose', ''), null)
   })
 })
 
@@ -160,6 +180,22 @@ describe('buildActualBlockModel', () => {
     )
     assert.equal(model.materialDisplay, 'CPO')
     assert.equal(model.materialQtyLine, 'CPO · 500 MT / 2,500 MT -- Rate 0 MT / Hour')
+  })
+
+  it('appends hose/conveyor on timestamp after rate on actual bars', () => {
+    const model = buildActualBlockModel(
+      { vesselName: 'V1', taMs: 10, tbMs: 20 },
+      {
+        commodityDisplay: 'CPO',
+        totalQtyDisplay: '2,500 MT',
+        cargoMovedQty: 600,
+        cargoFirstLoggedAt: '2026-06-01T00:00:00Z',
+        cargoLastLoggedAt: '2026-06-01T02:00:00Z',
+        openingCargoHandlingMethodName: 'Hose',
+        openingHatchStartAt: '2026-07-23T08:48:00Z',
+      }
+    )
+    assert.match(model.materialQtyLine, /Rate 300 MT \/ Hour · Hose on/)
   })
 })
 

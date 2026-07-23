@@ -34,6 +34,7 @@ import PurposeBadge, { resolvePurposeLabel } from '../components/PurposeBadge'
 import SiDetailModal from '../components/SiDetailModal'
 import SiDocumentModal from '../components/SiDocumentModal'
 import VesselInfoModal, { VesselNameButton } from '../components/VesselInfoModal'
+import OperationalProgressSection from '../components/OperationalProgressSection'
 import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
 import '../styles/allocation.css'
@@ -874,6 +875,8 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         cargoMovedQty: r.cargoMovedQty != null ? Number(r.cargoMovedQty) : 0,
         cargoFirstLoggedAt: r.cargoFirstLoggedAt ?? null,
         cargoLastLoggedAt: r.cargoLastLoggedAt ?? null,
+        openingHatchStartAt: r.openingHatchStartAt ?? null,
+        openingCargoHandlingMethodName: r.openingCargoHandlingMethodName ?? null,
         etaToCompletion: r.estimatedCompletionDateTime ? formatDateTimeDisplay(r.estimatedCompletionDateTime) : '—',
         ragStatus: getEtcBreachRagStatus(r, breachNowMs),
         etcBreach: getEtcBreach(r, breachNowMs),
@@ -905,6 +908,8 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         cargoMovedQty: r.cargoMovedQty != null ? Number(r.cargoMovedQty) : 0,
         cargoFirstLoggedAt: r.cargoFirstLoggedAt ?? null,
         cargoLastLoggedAt: r.cargoLastLoggedAt ?? null,
+        openingHatchStartAt: r.openingHatchStartAt ?? null,
+        openingCargoHandlingMethodName: r.openingCargoHandlingMethodName ?? null,
         etaToCompletion: r.estimatedCompletionDateTime ? formatDateTimeDisplay(r.estimatedCompletionDateTime) : '—',
         ragStatus: getEtcBreachRagStatus(r, breachNowMs),
         etcBreach: getEtcBreach(r, breachNowMs),
@@ -938,6 +943,8 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
           cargoMovedQty: o.cargoMovedQty != null ? Number(o.cargoMovedQty) : 0,
           cargoFirstLoggedAt: o.cargoFirstLoggedAt ?? null,
           cargoLastLoggedAt: o.cargoLastLoggedAt ?? null,
+          openingHatchStartAt: o.openingHatchStartAt ?? null,
+          openingCargoHandlingMethodName: o.openingCargoHandlingMethodName ?? null,
           etaToCompletion: o.estimatedCompletionDateTime ? formatDateTimeDisplay(o.estimatedCompletionDateTime) : '—',
           ragStatus: getEtcBreachRagStatus(o, breachNowMs),
           etcBreach: getEtcBreach(o, breachNowMs),
@@ -3381,6 +3388,18 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                     </section>
                   )}
 
+                  {vessel?.operationId ? (
+                    <OperationalProgressSection
+                      operationId={vessel.operationId}
+                      totalQtyDisplay={vessel.totalQtyDisplay ?? null}
+                      vesselId={vesselDetailModalVesselId}
+                      basePath={
+                        String(vessel?.purpose || '').trim() === 'Unloading' ? '/unloading' : '/loading'
+                      }
+                      scheduleTimezone={selectedPort?.scheduleTimezone ?? 'Asia/Jakarta'}
+                    />
+                  ) : null}
+
                   <section className="berthing-modal__card">
                     <h3 className="berthing-modal__card-title">Remarks</h3>
                     {vesselDetailEditing && d ? (
@@ -3408,7 +3427,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                     <>
                       <button
                         type="button"
-                        className="btn"
+                        className="btn btn--small"
                         onClick={cancelVesselDetailEdit}
                         disabled={vesselDetailEditSaving}
                       >
@@ -3416,7 +3435,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                       </button>
                       <button
                         type="button"
-                        className="btn btn--primary"
+                        className="btn btn--primary btn--small"
                         onClick={() => saveVesselDetailEdit(vessel)}
                         disabled={vesselDetailEditSaving}
                       >
@@ -3424,7 +3443,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                       </button>
                       <button
                         type="button"
-                        className="btn"
+                        className="btn btn--small"
                         onClick={() => closeVesselDetailModal()}
                         disabled={vesselDetailEditSaving}
                       >
@@ -3432,7 +3451,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                       </button>
                     </>
                   ) : (
-                    <button type="button" className="btn btn--primary" onClick={() => closeVesselDetailModal()}>
+                    <button type="button" className="btn btn--primary btn--small" onClick={() => closeVesselDetailModal()}>
                       Close
                     </button>
                   )}
@@ -3734,12 +3753,12 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
             )}
 
             <div className="modal__footer">
-              <button type="button" className="btn btn--secondary" onClick={closeBerthingConfirm}>
+              <button type="button" className="btn btn--secondary btn--small" onClick={closeBerthingConfirm}>
                 Cancel
               </button>
               <button
                 type="button"
-                className="btn btn--primary"
+                className="btn btn--primary btn--small"
                 onClick={handleBerthingConfirm}
                 disabled={berthingSaving}
               >
@@ -3785,12 +3804,12 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
               />
             </div>
             <div className="modal__footer" style={{ marginTop: '1rem' }}>
-              <button type="button" className="btn btn--secondary" onClick={closeReDockModal}>
+              <button type="button" className="btn btn--secondary btn--small" onClick={closeReDockModal}>
                 Cancel
               </button>
               <button
                 type="button"
-                className="btn btn--primary"
+                className="btn btn--primary btn--small"
                 onClick={() => confirmReDock()}
                 disabled={Boolean(shiftSavingByOpId[reDockModal.row.operationId])}
               >
@@ -4120,10 +4139,10 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                   {arrivalSaveMsg}
                 </p>
               )}
-              <button type="button" className="btn btn--secondary" onClick={() => setArrivalUpdateForm(null)}>
+              <button type="button" className="btn btn--secondary btn--small" onClick={() => setArrivalUpdateForm(null)}>
                 Cancel
               </button>
-              <button type="button" className="btn btn--primary" onClick={() => saveArrivalUpdate()} disabled={arrivalSaving}>
+              <button type="button" className="btn btn--primary btn--small" onClick={() => saveArrivalUpdate()} disabled={arrivalSaving}>
                 {arrivalSaving ? 'Saving…' : 'Save update'}
               </button>
             </div>

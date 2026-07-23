@@ -44,6 +44,8 @@ function buildVesselById({ planViz, isPlanCentric, breachNowMs }) {
       cargoMovedQty: r.cargoMovedQty != null ? Number(r.cargoMovedQty) : 0,
       cargoFirstLoggedAt: r.cargoFirstLoggedAt ?? null,
       cargoLastLoggedAt: r.cargoLastLoggedAt ?? null,
+      openingHatchStartAt: r.openingHatchStartAt ?? null,
+      openingCargoHandlingMethodName: r.openingCargoHandlingMethodName ?? null,
       etaToCompletion: r.estimatedCompletionDateTime
         ? formatDateTimeDisplay(r.estimatedCompletionDateTime)
         : '—',
@@ -79,6 +81,8 @@ function buildVesselById({ planViz, isPlanCentric, breachNowMs }) {
         cargoMovedQty: o.cargoMovedQty != null ? Number(o.cargoMovedQty) : 0,
         cargoFirstLoggedAt: o.cargoFirstLoggedAt ?? null,
         cargoLastLoggedAt: o.cargoLastLoggedAt ?? null,
+        openingHatchStartAt: o.openingHatchStartAt ?? null,
+        openingCargoHandlingMethodName: o.openingCargoHandlingMethodName ?? null,
         etaToCompletion: o.estimatedCompletionDateTime
           ? formatDateTimeDisplay(o.estimatedCompletionDateTime)
           : '—',
