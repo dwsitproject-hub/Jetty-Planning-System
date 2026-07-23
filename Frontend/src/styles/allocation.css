@@ -1492,6 +1492,22 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   font-weight: var(--font-weight-medium);
 }
 
+/* Compact modal / dialog footers on Allocation & Berthing (default .btn is 44px) */
+.allocation-page .modal__footer .btn,
+.allocation-page .modal__actions .btn,
+.allocation-page .vessel-detail-modal__footer .btn,
+.allocation-page .allocation-export-menu__actions .btn,
+.allocation-page .card__title-row .btn,
+.allocation-page .vessel-detail-modal__body .btn.btn--small,
+.allocation-page .modal__title + span .btn {
+  min-height: 32px;
+  height: auto;
+  padding: 4px 12px;
+  font-size: var(--font-size-small);
+  line-height: 1.25;
+  border-radius: var(--radius-sm);
+}
+
 .allocation-plan-status-filter__incoming-slice {
   padding-left: var(--spacing-2);
 }
@@ -4557,6 +4573,115 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   padding-left: var(--spacing-4);
   font-size: var(--font-size-small);
   line-height: 1.5;
+}
+
+/* Operational progress (vessel detail modal) */
+.operational-progress-section__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-bottom: var(--spacing-3);
+  font-size: var(--font-size-small);
+  line-height: 1.45;
+}
+
+.operational-progress-section__summary-item {
+  color: var(--color-text-charcoal);
+}
+
+.operational-progress-section__summary-balance {
+  color: #0f766e;
+  font-weight: var(--font-weight-semibold);
+}
+
+.operational-progress-section__summary-rates {
+  color: #1d4ed8;
+  font-weight: var(--font-weight-semibold);
+}
+
+.operational-progress-section__chart-wrap {
+  margin-bottom: var(--spacing-4);
+}
+
+.operational-progress-section__chart {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+.operational-progress-section__grid-line {
+  stroke: rgba(148, 163, 184, 0.35);
+  stroke-width: 1;
+}
+
+.operational-progress-section__axis-label,
+.operational-progress-section__x-label {
+  fill: #64748b;
+  font-size: 10px;
+}
+
+.operational-progress-section__bar {
+  fill: rgba(15, 118, 110, 0.55);
+}
+
+.operational-progress-section__bar--today {
+  fill: rgba(15, 118, 110, 0.9);
+}
+
+.operational-progress-section__cum-line {
+  stroke: #1d4ed8;
+  stroke-width: 2;
+}
+
+.operational-progress-section__chart-legend {
+  margin: 6px 0 0;
+  font-size: var(--font-size-xs);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.operational-progress-section__legend-bar,
+.operational-progress-section__legend-line {
+  display: inline-block;
+  width: 14px;
+  height: 10px;
+  margin-right: 4px;
+  vertical-align: middle;
+  border-radius: 2px;
+}
+
+.operational-progress-section__legend-bar {
+  background: rgba(15, 118, 110, 0.7);
+}
+
+.operational-progress-section__legend-line {
+  background: transparent;
+  border: 2px solid #1d4ed8;
+  height: 0;
+  width: 16px;
+}
+
+.operational-progress-section__chart-empty {
+  margin: 0 0 var(--spacing-3);
+  font-size: var(--font-size-small);
+}
+
+.operational-progress-section__timeline {
+  margin-top: var(--spacing-2);
+}
+
+.operational-progress-section__activity-title {
+  margin: var(--spacing-3) 0 var(--spacing-2);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+}
+
+.operation-activity-timeline--embedded .berthing-modal__card-title {
+  margin-top: 0;
 }
 
 /* At-Berth Executions summary (grouped: Loading + Unloading, 3 phases each) */

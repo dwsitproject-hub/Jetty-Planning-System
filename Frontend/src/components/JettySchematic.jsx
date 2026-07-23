@@ -17,7 +17,7 @@ import {
 } from '../utils/jettyScheduleOccupancy'
 import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { computeCargoProgress } from '../utils/cargoQtyDisplay'
-import { formatGanttMilestoneShort } from '../utils/ganttBarDisplay'
+import { formatGanttMilestoneShort, formatHoseConveyorOnLine } from '../utils/ganttBarDisplay'
 import VisualizationPopoutButton from './VisualizationPopoutButton'
 import JettySpecModal from './JettySpecModal'
 import '../styles/jetty-schematic.css'
@@ -496,6 +496,11 @@ export default function JettySchematic({
     const cargoLine = progress?.cargoLine ?? null
     const balanceLine = progress?.balanceLine ?? null
     const rateLine = progress?.rateLine ?? null
+    const hoseConveyorLine = formatHoseConveyorOnLine(
+      v?.openingCargoHandlingMethodName,
+      v?.openingHatchStartAt
+    )
+    const berthedDur = tbMs != null && asOfMs > tbMs ? formatDurationShort(asOfMs - tbMs) : null
 
     return (
       <span className="jetty-slot__inner jetty-card__box">
@@ -520,17 +525,22 @@ export default function JettySchematic({
           {cargoLine ? `  ${cargoLine}` : ''}
           {rateLine ? ` -- ${rateLine}` : ''}
         </span>
-        {balanceLine ? (
-          <span className="jetty-slot__line jetty-card__balance">{balanceLine}</span>
+        {hoseConveyorLine ? (
+          <span className="jetty-slot__line jetty-card__opening">{hoseConveyorLine}</span>
         ) : null}
-        {(() => {
-          const dur = tbMs != null && asOfMs > tbMs ? formatDurationShort(asOfMs - tbMs) : null
-          return dur ? (
-            <span className="jetty-slot__line jetty-card__berthed">
-              {tAlloc('cardTimeSinceBerthing', { defaultValue: 'Berthed' })} {dur}
-            </span>
-          ) : null
-        })()}
+        {balanceLine || berthedDur ? (
+          <span className="jetty-slot__line jetty-card__balance">
+            {balanceLine}
+            {berthedDur ? (
+              <>
+                {balanceLine ? ' -- ' : null}
+                <span className="jetty-card__berthed">
+                  {tAlloc('cardTimeSinceBerthing', { defaultValue: 'Berthed' })} {berthedDur}
+                </span>
+              </>
+            ) : null}
+          </span>
+        ) : null}
         {overflowCount > 0 && (
           <span className="jetty-slot__line jetty-slot__line--overflow">+{overflowCount} more</span>
         )}

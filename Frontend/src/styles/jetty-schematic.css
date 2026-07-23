@@ -785,6 +785,12 @@ button.jetty-schematic__lane:focus-visible {
   letter-spacing: 0.02em;
 }
 
+.jetty-card__opening {
+  color: #1d4ed8 !important;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.02em;
+}
+
 .jetty-card__balance {
   color: #0f766e !important;
   font-weight: var(--font-weight-bold);

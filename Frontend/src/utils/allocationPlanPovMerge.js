@@ -37,6 +37,25 @@ function maxIsoDateTime(rows, key) {
   return best
 }
 
+/** Method name from the child row whose opening hatch start equals the earliest across siblings. */
+function openingMethodNameForEarliestStart(rows) {
+  const earliest = minIsoDateTime(rows, 'openingHatchStartAt')
+  if (earliest) {
+    const earliestMs = parseMs(earliest)
+    for (const r of rows) {
+      if (parseMs(r?.openingHatchStartAt) === earliestMs) {
+        const name = r?.openingCargoHandlingMethodName
+        if (name && String(name).trim()) return String(name).trim()
+      }
+    }
+  }
+  for (const r of rows) {
+    const name = r?.openingCargoHandlingMethodName
+    if (name && String(name).trim()) return String(name).trim()
+  }
+  return null
+}
+
 function joinDistinctField(children, key) {
   const vals = [...new Set(children.map((c) => String(c?.[key] || '').trim()).filter(Boolean))]
   return vals.length ? vals.join(', ') : null
@@ -227,6 +246,8 @@ function mergePlanChildrenToQueueRow(children, planId, repMapOut, options = {}) 
     estimatedCompletionDateTime: maxIsoDateTime(children, 'estimatedCompletionDateTime'),
     operationsCompletedDateTime: maxIsoDateTime(children, 'operationsCompletedDateTime'),
     operationalStartDateTime: minIsoDateTime(children, 'operationalStartDateTime'),
+    openingHatchStartAt: minIsoDateTime(children, 'openingHatchStartAt'),
+    openingCargoHandlingMethodName: openingMethodNameForEarliestStart(children),
     actualCompletionDateTime: maxIsoDateTime(children, 'actualCompletionDateTime'),
     castOffDateTime: maxIsoDateTime(children, 'castOffDateTime'),
     norTenderedDateTime: minIsoDateTime(children, 'norTenderedDateTime'),
@@ -365,6 +386,8 @@ function mergeOccupantGroup(group, planId, repMapFromQueue) {
     estimatedCompletionDateTime: maxIsoDateTime(group, 'estimatedCompletionDateTime'),
     operationsCompletedDateTime: maxIsoDateTime(group, 'operationsCompletedDateTime'),
     operationalStartDateTime: minIsoDateTime(group, 'operationalStartDateTime'),
+    openingHatchStartAt: minIsoDateTime(group, 'openingHatchStartAt'),
+    openingCargoHandlingMethodName: openingMethodNameForEarliestStart(group),
     actualCompletionDateTime: maxIsoDateTime(group, 'actualCompletionDateTime'),
     castOffDateTime: maxIsoDateTime(group, 'castOffDateTime'),
     // Multi-jetty berthing: keep span targets so schematic / occupancy rebuild can still reserve

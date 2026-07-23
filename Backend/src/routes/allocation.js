@@ -429,6 +429,8 @@ function formatListRow(r) {
     estimatedCompletionDateTime: r.estimated_completion_datetime || null,
     operationsCompletedDateTime: r.operations_completed_datetime || null,
     operationalStartDateTime: r.operational_start_datetime || null,
+    openingHatchStartAt: r.opening_hatch_start_datetime || null,
+    openingCargoHandlingMethodName: r.opening_cargo_handling_method_name || null,
     actualCompletionDateTime: r.actual_completion_datetime || null,
     castOffDateTime: r.cast_off_datetime || null,
     status: r.source_status || null,
@@ -528,6 +530,8 @@ function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = 
         cargo_agg.moved_qty AS cargo_moved_qty,
         cargo_agg.first_started_at AS cargo_first_started_at,
         cargo_agg.last_ended_at AS cargo_last_ended_at,
+        opening_agg.start_at AS opening_hatch_start_datetime,
+        opening_agg.method_name AS opening_cargo_handling_method_name,
         COALESCE(sp.sequence, o.sequence) AS sequence,
         si.shipment_plan_id::bigint AS shipment_plan_id,
         sp.plan_reference AS plan_reference,
@@ -611,6 +615,17 @@ function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = 
          AND oa.entry_type = 'activity'
          AND oa.milestone_key = 'cargo_operations'
      ) cargo_agg ON true
+     LEFT JOIN LATERAL (
+       SELECT MIN(oa.start_at) AS start_at,
+              (array_agg(chm.name ORDER BY oa.start_at ASC NULLS LAST))[1] AS method_name
+       FROM operation_operational_activities oa
+       LEFT JOIN master_cargo_handling_methods chm ON chm.id = oa.cargo_handling_method_id
+       WHERE oa.operation_id = o.id
+         AND oa.deleted_at IS NULL
+         AND oa.entry_type = 'activity'
+         AND oa.milestone_key = 'opening_hatch'
+         AND oa.start_at IS NOT NULL
+     ) opening_agg ON true
      WHERE o.deleted_at IS NULL
        AND COALESCE(o.port_id, p.id) = $2
        ${statusFilter}

@@ -216,11 +216,11 @@ export default function VesselInfoModal({ planId, isOpen, onClose, onSaved }) {
           </>
         ) : null}
         <div className="modal__footer">
-          <button type="button" className="btn btn--secondary" onClick={onClose} disabled={saving}>
+          <button type="button" className="btn btn--secondary btn--small" onClick={onClose} disabled={saving}>
             {t('vesselInfoClose')}
           </button>
           {allowEdit && plan ? (
-            <button type="button" className="btn btn--primary" onClick={handleSave} disabled={saving || loading}>
+            <button type="button" className="btn btn--primary btn--small" onClick={handleSave} disabled={saving || loading}>
               {saving ? t('vesselInfoSaving') : t('vesselInfoSave')}
             </button>
           ) : null}

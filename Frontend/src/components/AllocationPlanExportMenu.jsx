@@ -98,7 +98,7 @@ export default function AllocationPlanExportMenu({ exporting, onExport }) {
           <div className="allocation-export-menu__actions">
             <button
               type="button"
-              className="btn btn--primary"
+              className="btn btn--primary btn--small"
               onClick={() => void handleDownload()}
               disabled={!canDownload}
             >
