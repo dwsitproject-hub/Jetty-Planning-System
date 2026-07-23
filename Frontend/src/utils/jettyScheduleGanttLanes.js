@@ -82,6 +82,9 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
     const cargoDisplay = r.totalQtyDisplay || null
     const materialDisplay = materialDisplayFromRow(r)
     const rowMeta = { purposeLabel, loadDischarge, cargoDisplay, materialDisplay }
+    const additionalJetties = Array.isArray(r.additionalJetties)
+      ? r.additionalJetties.filter(Boolean)
+      : []
     const plannedEtb = parseMs(r.plannedEtbDateTime) ?? parseMs(r.etbDateTime)
     const eta = parseMs(r.etaDateTime)
     const ta = parseMs(r.taDateTime)
@@ -129,6 +132,7 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
           bankLaneKey,
           vesselId,
           vesselName,
+          additionalJetties,
           ...rowMeta,
           gradient,
           status,
@@ -196,6 +200,7 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
           bankLaneKey,
           vesselId,
           vesselName,
+          additionalJetties,
           ...rowMeta,
           gradient: transitGradient,
           status,
@@ -242,6 +247,7 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
           bankLaneKey,
           vesselId,
           vesselName,
+          additionalJetties,
           ...rowMeta,
           gradient,
           status,

@@ -367,6 +367,12 @@ function mergeOccupantGroup(group, planId, repMapFromQueue) {
     operationalStartDateTime: minIsoDateTime(group, 'operationalStartDateTime'),
     actualCompletionDateTime: maxIsoDateTime(group, 'actualCompletionDateTime'),
     castOffDateTime: maxIsoDateTime(group, 'castOffDateTime'),
+    // Multi-jetty berthing: keep span targets so schematic / occupancy rebuild can still reserve
+    // the matching lane on additional jetties after plan-centric occupant merge.
+    additionalBerthIds: Array.isArray(rep?.additionalBerthIds)
+      ? rep.additionalBerthIds.filter(Boolean)
+      : [],
+    laneIndex: rep?.laneIndex != null ? Number(rep.laneIndex) : undefined,
   }
 }
 
@@ -395,13 +401,23 @@ export function mergeBerthsStateForPlanPov(berths, repMapFromQueue) {
     }
     const nextOcc = [...mergedOcc, ...unlinked]
     const occ0 = nextOcc[0] || null
+    // Multi-jetty berthing: do NOT drop spanned-lane occupancy when collapsing plan occupants.
+    // A secondary jetty may have zero direct `occupants` but still use one bank via `spannedBy` /
+    // `spannedByLanes` (e.g. 3B-01 spanned from 2B → Occupied 1/2, 3B-02 still free).
+    const spannedLaneCount = Array.isArray(b.spannedByLanes)
+      ? b.spannedByLanes.length
+      : b.spannedBy
+        ? 1
+        : 0
     return {
       ...b,
       occupants: nextOcc,
-      occupiedCount: nextOcc.length,
+      occupiedCount: nextOcc.length + spannedLaneCount,
       currentVesselId: occ0 ? occ0.vesselId : null,
       currentVesselName: occ0 ? occ0.vesselName : null,
       currentOperationId: occ0?.operationId != null ? Number(occ0.operationId) : null,
+      spannedBy: b.spannedBy || null,
+      spannedByLanes: Array.isArray(b.spannedByLanes) ? b.spannedByLanes : b.spannedBy ? [b.spannedBy] : [],
     }
   })
 }

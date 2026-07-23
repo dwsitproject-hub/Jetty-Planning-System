@@ -31,6 +31,11 @@ const PORT_COLUMNS = [
     getSortValue: (p) => (p.description || '').toLowerCase(),
     getFilterValue: (p) => p.description || '',
   },
+  {
+    key: 'allowMultiJetyBerthing',
+    label: 'Multi-Jetty Berthing',
+    getSortValue: (p) => (p.allowMultiJetyBerthing ? 1 : 0),
+  },
 ]
 
 export default function MasterPort() {
@@ -74,12 +79,14 @@ export default function MasterPort() {
   const [formName, setFormName] = useState('')
   const [formDescription, setFormDescription] = useState('')
   const [formScheduleTimezone, setFormScheduleTimezone] = useState(DEFAULT_SCHEDULE_TIMEZONE)
+  const [formAllowMultiJetyBerthing, setFormAllowMultiJetyBerthing] = useState(false)
 
   const openAdd = useCallback(() => {
     setEditingId(null)
     setFormName('')
     setFormDescription('')
     setFormScheduleTimezone(DEFAULT_SCHEDULE_TIMEZONE)
+    setFormAllowMultiJetyBerthing(false)
     setModalOpen(true)
   }, [])
 
@@ -88,6 +95,7 @@ export default function MasterPort() {
     setFormName(port.name || '')
     setFormDescription(port.description ?? '')
     setFormScheduleTimezone(port.scheduleTimezone || DEFAULT_SCHEDULE_TIMEZONE)
+    setFormAllowMultiJetyBerthing(port.allowMultiJetyBerthing === true)
     setModalOpen(true)
   }, [])
 
@@ -97,6 +105,7 @@ export default function MasterPort() {
     setFormName('')
     setFormDescription('')
     setFormScheduleTimezone(DEFAULT_SCHEDULE_TIMEZONE)
+    setFormAllowMultiJetyBerthing(false)
   }, [])
 
   const handleSubmit = useCallback(async () => {
@@ -110,6 +119,7 @@ export default function MasterPort() {
           name,
           description: (formDescription || '').trim() || null,
           scheduleTimezone: (formScheduleTimezone || '').trim() || DEFAULT_SCHEDULE_TIMEZONE,
+          allowMultiJetyBerthing: formAllowMultiJetyBerthing,
         })
         logActivity({ pageKey: PAGE_KEY, action: 'update', entityType: 'Port', entityLabel: name })
         setToast({ message: `Port saved: ${name}.`, variant: 'success' })
@@ -118,6 +128,7 @@ export default function MasterPort() {
           name,
           description: (formDescription || '').trim() || null,
           scheduleTimezone: (formScheduleTimezone || '').trim() || DEFAULT_SCHEDULE_TIMEZONE,
+          allowMultiJetyBerthing: formAllowMultiJetyBerthing,
         })
         logActivity({ pageKey: PAGE_KEY, action: 'add', entityType: 'Port', entityLabel: name })
         setToast({ message: `Port added: ${name}.`, variant: 'success' })
@@ -129,7 +140,7 @@ export default function MasterPort() {
     } finally {
       setSaving(false)
     }
-  }, [editingId, formName, formDescription, formScheduleTimezone, closeModal, logActivity, loadPorts])
+  }, [editingId, formName, formDescription, formScheduleTimezone, formAllowMultiJetyBerthing, closeModal, logActivity, loadPorts])
 
   const handleDelete = useCallback(
     async (port) => {
@@ -243,6 +254,7 @@ export default function MasterPort() {
                           : p.description
                         : '—'}
                     </td>
+                    <td className="text-steel">{p.allowMultiJetyBerthing ? 'Yes' : 'No'}</td>
                     <td className="allocation-table__action-col">
                       <div className="allocation-table__action-btns">
                         <button
@@ -324,6 +336,22 @@ export default function MasterPort() {
                 placeholder="Optional description"
                 rows={4}
               />
+            </div>
+            <div className="modal__section">
+              <label htmlFor="port-allow-multi-jetty" className="modal__checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <input
+                  id="port-allow-multi-jetty"
+                  type="checkbox"
+                  checked={formAllowMultiJetyBerthing}
+                  onChange={(e) => setFormAllowMultiJetyBerthing(e.target.checked)}
+                  disabled={saving}
+                />
+                Allow Multi-Jetty Berthing
+              </label>
+              <p className="text-steel" style={{ marginTop: '0.25rem', fontSize: '0.85em' }}>
+                When enabled, operators can span a vessel across the primary jetty plus adjacent jetties
+                configured in Master – Jetty.
+              </p>
             </div>
             <div className="modal__footer">
               <button type="button" className="btn btn--secondary" onClick={closeModal} disabled={saving}>

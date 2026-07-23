@@ -163,6 +163,8 @@ function rowToOccupant(row) {
     estimatedCompletionDateTime: row.estimatedCompletionDateTime || null,
     actualCompletionDateTime: row.actualCompletionDateTime || null,
     castOffDateTime: row.castOffDateTime || null,
+    // Multi-jetty berthing: secondary jetty short ids this occupant spans into (in addition to its own berth).
+    additionalBerthIds: Array.isArray(row.additionalJetties) ? row.additionalJetties.filter(Boolean) : [],
   }
 }
 
@@ -276,30 +278,74 @@ export function buildActiveLaneMap({ scheduleRows, berthCapacities, asOfMs }) {
   return laneMap
 }
 
+/** Jetty capacity (>= 1), from master berth records. */
+function berthCapacityFromMaster(berth) {
+  const c = berth?.capacity != null ? Number(berth.capacity) : 1
+  return Number.isFinite(c) && c >= 1 ? c : 1
+}
+
 export function buildBerthsForSchematicDate({ scheduleRows, berthsMaster, dateYmd, asOfMs }) {
   const berths = Array.isArray(berthsMaster) ? berthsMaster : []
   const rows = Array.isArray(scheduleRows) ? scheduleRows : []
+  const capacityById = new Map(berths.map((b) => [b.id, berthCapacityFromMaster(b)]))
 
   const occupantsByJetty = new Map()
   for (const r of rows) {
     if (!isAlongsideOccupiedOnDate(r, dateYmd, asOfMs)) continue
     const jettyId = jettyIdFromScheduleRow(r)
     if (!jettyId) continue
+    const occupant = rowToOccupant(r)
     const list = occupantsByJetty.get(jettyId) || []
-    list.push(rowToOccupant(r))
+    list.push(occupant)
     occupantsByJetty.set(jettyId, list)
   }
 
+  // Multi-jetty berthing: each direct occupant's lane index on its OWN (primary) jetty — needed so
+  // the secondary/additional jetty(ies) it spans into reserve the SAME lane (clamped to that
+  // secondary jetty's own capacity), instead of blanking out its whole double-bank stack.
+  const sortedByJetty = new Map()
+  for (const [jettyId, list] of occupantsByJetty) {
+    const cap = capacityById.get(jettyId) ?? 1
+    const sorted = sortBerthOccupants(list).map((occ, idx) => ({ ...occ, laneIndex: Math.min(idx, cap - 1) }))
+    sortedByJetty.set(jettyId, sorted)
+  }
+
+  // Multi-jetty berthing: secondary (additional) jetty short id -> lane index -> who's spanning into it.
+  const spannedByLaneMap = new Map()
+  for (const [jettyId, sorted] of sortedByJetty) {
+    for (const occupant of sorted) {
+      for (const secondaryId of occupant.additionalBerthIds) {
+        if (!secondaryId || secondaryId === jettyId) continue
+        const secondaryCap = capacityById.get(secondaryId) ?? 1
+        const secondaryLane = Math.min(occupant.laneIndex, secondaryCap - 1)
+        const laneMap = spannedByLaneMap.get(secondaryId) || new Map()
+        laneMap.set(secondaryLane, {
+          laneIndex: secondaryLane,
+          primaryBerthId: jettyId,
+          vesselId: occupant.vesselId,
+          vesselName: occupant.vesselName,
+        })
+        spannedByLaneMap.set(secondaryId, laneMap)
+      }
+    }
+  }
+
   return berths.map((b) => {
-    const occList = sortBerthOccupants(occupantsByJetty.get(b.id) || [])
+    const occList = sortedByJetty.get(b.id) || []
     const occ0 = occList[0] || null
+    const spannedByLanes = [...(spannedByLaneMap.get(b.id)?.values() || [])].sort(
+      (x, y) => x.laneIndex - y.laneIndex
+    )
     return {
       ...b,
       occupants: occList,
-      occupiedCount: occList.length,
+      occupiedCount: occList.length + spannedByLanes.length,
       currentVesselId: occ0 ? occ0.vesselId : null,
       currentVesselName: occ0 ? occ0.vesselName : null,
       currentOperationId: occ0?.operationId != null ? Number(occ0.operationId) : null,
+      // Backward-compat single-value field (first spanned lane), plus the full per-lane list.
+      spannedBy: spannedByLanes[0] || null,
+      spannedByLanes,
     }
   })
 }

@@ -16,6 +16,7 @@ import {
 } from '../constants/inputLimits'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
+import { jettyShortName, jettyNamesForIds } from '../utils/jettyAdjacency.js'
 
 const JETTY_STATUS_OPTIONS = ['Available', 'Out of Service']
 
@@ -95,6 +96,67 @@ function JettyCommodityMultiSelect({
   )
 }
 
+/**
+ * Multi-jetty berthing: "Adjacent Jetties" config — explicit, admin-picked pairs (independent
+ * of the visual jetty layout). Visible but disabled (with `emptyHint` explaining why) when the
+ * selected port's `allow_multi_jetty_berthing` flag is off.
+ */
+function JettyAdjacencyMultiSelect({ idPrefix, label, disabled, selectedIds, onSelectedIdsChange, jettyOptions, emptyHint }) {
+  const selectedNames = jettyOptions
+    .filter((j) => selectedIds.map(Number).includes(Number(j.id)))
+    .map((j) => jettyShortName(j.name))
+
+  return (
+    <div className="modal__section">
+      <label className="modal__label" htmlFor={`${idPrefix}-list`}>{label}</label>
+      <div
+        id={`${idPrefix}-list`}
+        style={{
+          maxHeight: 150,
+          overflowY: 'auto',
+          border: '1px solid #d1d5db',
+          borderRadius: 6,
+          marginTop: 6,
+          padding: '4px 8px',
+          opacity: disabled ? 0.6 : 1,
+        }}
+      >
+        {jettyOptions.map((j) => (
+          <label
+            key={j.id}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '3px 0',
+              fontSize: '0.875rem',
+              cursor: disabled ? 'not-allowed' : 'pointer',
+            }}
+          >
+            <input
+              type="checkbox"
+              disabled={disabled}
+              checked={selectedIds.map(Number).includes(Number(j.id))}
+              onChange={(e) =>
+                onSelectedIdsChange(
+                  e.target.checked
+                    ? [...selectedIds, Number(j.id)]
+                    : selectedIds.filter((x) => Number(x) !== Number(j.id))
+                )
+              }
+            />
+            {jettyShortName(j.name)}
+          </label>
+        ))}
+        {jettyOptions.length === 0 ? <p className="text-steel">No other jetties in this port yet.</p> : null}
+      </div>
+      <p className="text-steel" style={{ marginTop: '0.25rem' }}>
+        {selectedNames.length ? `Selected: ${selectedNames.join(', ')}` : emptyHint}
+      </p>
+    </div>
+  )
+}
+
 export default function MasterJetty() {
   const { t } = useTranslation('pages')
   const { logActivity } = useActivityLog()
@@ -116,6 +178,7 @@ export default function MasterJetty() {
   const [formLoadingCommodityIds, setFormLoadingCommodityIds] = useState([])
   const [unloadingCommoditySearch, setUnloadingCommoditySearch] = useState('')
   const [loadingCommoditySearch, setLoadingCommoditySearch] = useState('')
+  const [formAdjacentJettyIds, setFormAdjacentJettyIds] = useState([])
   const [commodityMaster, setCommodityMaster] = useState([])
   const [formDescription, setFormDescription] = useState('')
   const [formRtspLink, setFormRtspLink] = useState('')
@@ -165,6 +228,7 @@ export default function MasterJetty() {
     setFormLoadingCommodityIds([])
     setUnloadingCommoditySearch('')
     setLoadingCommoditySearch('')
+    setFormAdjacentJettyIds([])
     setFormDescription('')
     setFormRtspLink('')
     setFormStatus('Available')
@@ -185,6 +249,7 @@ export default function MasterJetty() {
     setFormLoadingCommodityIds(Array.isArray(jetty.loadingCommodities) ? jetty.loadingCommodities.map((c) => String(c.id)) : [])
     setUnloadingCommoditySearch('')
     setLoadingCommoditySearch('')
+    setFormAdjacentJettyIds(Array.isArray(jetty.adjacentJettyIds) ? jetty.adjacentJettyIds.map(Number) : [])
     setFormDescription(jetty.description ?? '')
     setFormRtspLink(jetty.rtspLink ?? '')
     const st = jetty.status && JETTY_STATUS_OPTIONS.includes(jetty.status) ? jetty.status : 'Available'
@@ -235,6 +300,7 @@ export default function MasterJetty() {
           jettyDwt,
           unloadingCommodityIds: formUnloadingCommodityIds,
           loadingCommodityIds: formLoadingCommodityIds,
+          adjacentJettyIds: formAdjacentJettyIds,
         })
         if (formStatus !== statusWhenOpened) {
           await updateJettyStatus(editingId, formStatus)
@@ -260,6 +326,7 @@ export default function MasterJetty() {
           jettyDwt,
           unloadingCommodityIds: formUnloadingCommodityIds,
           loadingCommodityIds: formLoadingCommodityIds,
+          adjacentJettyIds: formAdjacentJettyIds,
         })
         const newId = created?.id
         if (newId != null && formStatus !== 'Available') {
@@ -298,6 +365,7 @@ export default function MasterJetty() {
     formDwt,
     formUnloadingCommodityIds,
     formLoadingCommodityIds,
+    formAdjacentJettyIds,
     formDescription,
     formRtspLink,
     formStatus,
@@ -306,6 +374,18 @@ export default function MasterJetty() {
     closeModal,
     logActivity,
   ])
+
+  const portAllowsMultiJetty = useMemo(() => {
+    const pid = parseInt(formPortId, 10)
+    if (Number.isNaN(pid)) return false
+    return ports.find((p) => Number(p.id) === pid)?.allowMultiJetyBerthing === true
+  }, [ports, formPortId])
+
+  const adjacencyJettyOptions = useMemo(() => {
+    const pid = parseInt(formPortId, 10)
+    if (Number.isNaN(pid)) return []
+    return jetties.filter((j) => Number(j.portId) === pid && j.id !== editingId)
+  }, [jetties, formPortId, editingId])
 
   const jettyColumns = useMemo(
     () => [
@@ -363,6 +443,12 @@ export default function MasterJetty() {
         getFilterValue: (j) => commodityNamesList(j.loadingCommodities),
       },
       {
+        key: 'adjacentJetties',
+        label: 'Adjacent Jetties',
+        getSortValue: (j) => jettyNamesForIds(jetties, j.adjacentJettyIds).join(', ').toLowerCase(),
+        getFilterValue: (j) => jettyNamesForIds(jetties, j.adjacentJettyIds).join(', '),
+      },
+      {
         key: 'status',
         label: 'Status',
         getSortValue: (j) => (j.status || '').toLowerCase(),
@@ -374,7 +460,7 @@ export default function MasterJetty() {
         getFilterValue: (j) => j.description || '',
       },
     ],
-    [ports]
+    [ports, jetties]
   )
 
   const { displayRows, filters, updateFilter, sortState, handleSort } = useSortableFilterableRows(
@@ -466,6 +552,7 @@ export default function MasterJetty() {
                     <td>{j.jettyDwt != null ? j.jettyDwt.toLocaleString('en-US') : '—'}</td>
                     <td>{commodityNamesList(j.unloadingCommodities) || '—'}</td>
                     <td>{commodityNamesList(j.loadingCommodities) || '—'}</td>
+                    <td>{jettyNamesForIds(jetties, j.adjacentJettyIds).join(', ') || '—'}</td>
                     <td>{j.status || '—'}</td>
                     <td>{j.description ? (j.description.length > 40 ? `${j.description.slice(0, 40)}…` : j.description) : '—'}</td>
                     <td>
@@ -613,6 +700,19 @@ export default function MasterJetty() {
               onSelectedIdsChange={setFormLoadingCommodityIds}
               commodityMaster={commodityMaster}
               emptyHint="Optional. Empty = jetty accepts any commodity for loading. Used for jetty suggestions on shipment plans."
+            />
+            <JettyAdjacencyMultiSelect
+              idPrefix="master-jetty-adjacent"
+              label="Adjacent Jetties"
+              disabled={!portAllowsMultiJetty}
+              selectedIds={formAdjacentJettyIds}
+              onSelectedIdsChange={setFormAdjacentJettyIds}
+              jettyOptions={adjacencyJettyOptions}
+              emptyHint={
+                portAllowsMultiJetty
+                  ? 'Select the jetty(s) physically next to this one (same mooring line). Jetties across the pipeline are NOT adjacent.'
+                  : 'Enable "Allow Multi-Jetty Berthing" in Master – Port for this port to configure adjacent jetties.'
+              }
             />
             <div className="modal__section">
               <label className="modal__label" htmlFor="master-jetty-status">

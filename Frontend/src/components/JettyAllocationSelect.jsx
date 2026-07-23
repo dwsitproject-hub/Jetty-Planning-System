@@ -1,5 +1,103 @@
 import { useTranslation } from 'react-i18next'
 import { jettyShortName } from '../utils/jettyAdvice'
+import { getAdjacentBerthIds } from '../utils/jettyAdjacency'
+
+/**
+ * Multi-jetty berthing: checkbox list of jetties adjacent to the selected primary jetty.
+ * Only rendered by the parent when the port's `allow_multi_jetty_berthing` flag is on and a
+ * primary jetty is selected.
+ */
+function AdditionalJettiesPicker({
+  adjacentIds,
+  selected,
+  onChange,
+  berthsState,
+  jettyAdvice,
+  primaryJettyId,
+  autoExpand,
+  autoExpandHint,
+}) {
+  const toggle = (shortId, checked) => {
+    const next = checked ? [...selected, shortId] : selected.filter((x) => x !== shortId)
+    onChange(next)
+  }
+
+  if (!adjacentIds.length) {
+    return (
+      <div className="berthing-modal__jetty-field">
+        <p className="berthing-modal__jetty-hint">
+          No adjacent jetties configured for {primaryJettyId} (see Master – Jetty).
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="berthing-modal__jetty-field berthing-modal__additional-jetties">
+      <p className="berthing-modal__label" style={{ marginBottom: '0.25rem' }}>
+        Additional jetties (multi-jetty berthing)
+      </p>
+      {autoExpand && autoExpandHint ? (
+        <p className="berthing-modal__jetty-hint berthing-modal__jetty-hint--error" role="alert">
+          {autoExpandHint}
+        </p>
+      ) : null}
+      {adjacentIds.map((shortId) => {
+        const advice = jettyAdvice?.byShortId?.[shortId]
+        const berth = berthsState.find((b) => b.id === shortId)
+        const occList = Array.isArray(berth?.occupants)
+          ? berth.occupants
+          : berth?.currentVesselId
+            ? [{ vesselId: berth.currentVesselId }]
+            : []
+        const cap = berth?.capacity != null ? Number(berth.capacity) : 1
+        const safeCap = Number.isFinite(cap) && cap >= 1 ? cap : 1
+        // Multi-jetty berthing: a double-bank jetty with one spanned lane (1/2) is NOT fully
+        // occupied — only block the additional-jetty checkbox when every bank is taken.
+        const occCount =
+          berth?.occupiedCount != null
+            ? Number(berth.occupiedCount)
+            : occList.length +
+              (Array.isArray(berth?.spannedByLanes)
+                ? berth.spannedByLanes.length
+                : berth?.spannedBy
+                  ? 1
+                  : 0)
+        const fullyOccupied = occCount >= safeCap
+        const notSuitable = Boolean(jettyAdvice?.adviceReady) && advice && !advice.fits
+        const disabled = fullyOccupied || notSuitable
+        const checked = selected.includes(shortId)
+        let suffix = ''
+        if (fullyOccupied) suffix = ' — Occupied'
+        else if (occCount > 0) suffix = ` — Occupied (${occCount}/${safeCap})`
+        else if (notSuitable) suffix = ' — ✗ not suitable'
+        return (
+          <label
+            key={shortId}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '3px 0',
+              fontSize: '0.875rem',
+              cursor: disabled && !checked ? 'not-allowed' : 'pointer',
+              opacity: disabled && !checked ? 0.6 : 1,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={checked}
+              disabled={disabled && !checked}
+              onChange={(e) => toggle(shortId, e.target.checked)}
+            />
+            {shortId}
+            {suffix}
+          </label>
+        )
+      })}
+    </div>
+  )
+}
 
 /**
  * Jetty select with preferred-jetty advice: filtered options, suitability suffixes, and suggestion hint.
@@ -20,6 +118,10 @@ export default function JettyAllocationSelect({
   labelClassName = 'berthing-modal__label',
   label,
   ariaDescribedBy,
+  allowMultiJetty = false,
+  additionalJetties = [],
+  onAdditionalJettiesChange,
+  vesselLoaM,
 }) {
   const { t } = useTranslation('shipmentPlan')
   const adviceReady = jettyAdvice?.adviceReady ?? false
@@ -56,7 +158,11 @@ export default function JettyAllocationSelect({
         : b?.currentVesselId
           ? [{ vesselId: b.currentVesselId }]
           : []
-      const occCount = occList.length
+      // Multi-jetty berthing: `occupiedCount` also counts a vessel berthed at an adjacent jetty
+      // that spans into this one (see backend `buildAllocationOverviewPayload` /
+      // `buildBerthsForSchematicDate`) — a plain `occList.length` would miss that and show a
+      // spanned-into double-bank jetty as fully vacant.
+      const occCount = b?.occupiedCount != null ? Number(b.occupiedCount) : occList.length
       label =
         occCount > 0
           ? `${shortId} – Occupied (${occCount}/${Math.max(1, cap)})`
@@ -134,6 +240,22 @@ export default function JettyAllocationSelect({
         >
           {hintMessage}
         </p>
+      ) : null}
+      {allowMultiJetty && selectedShortId ? (
+        <AdditionalJettiesPicker
+          adjacentIds={getAdjacentBerthIds(jetties, jettyByShortId[selectedShortId]?.id)}
+          selected={additionalJetties}
+          onChange={onAdditionalJettiesChange || (() => {})}
+          berthsState={berthsState}
+          jettyAdvice={jettyAdvice}
+          primaryJettyId={selectedShortId}
+          autoExpand={
+            Number(vesselLoaM) > 0 &&
+            jettyByShortId[selectedShortId]?.jettyLengthM != null &&
+            Number(vesselLoaM) > Number(jettyByShortId[selectedShortId].jettyLengthM)
+          }
+          autoExpandHint={`Vessel LOA exceeds Jetty ${selectedShortId} length (${jettyByShortId[selectedShortId]?.jettyLengthM ?? '—'} m) — select adjacent jetty(s) to span.`}
+        />
       ) : null}
     </div>
   )

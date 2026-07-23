@@ -29,7 +29,7 @@ import {
   nowToNaiveLocalInScheduleZone,
   utcIsoToNaiveLocal,
 } from '../utils/scheduleDateTime'
-import { isBerthOutOfService, jettyOosAllocationMessage } from '../utils/jettyAvailability'
+import { isBerthOutOfService, jettyOosAllocationMessage, berthOtherOccupants } from '../utils/jettyAvailability'
 import PurposeBadge, { resolvePurposeLabel } from '../components/PurposeBadge'
 import SiDetailModal from '../components/SiDetailModal'
 import SiDocumentModal from '../components/SiDocumentModal'
@@ -529,6 +529,9 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   }
   const [arrivalUpdateForm, setArrivalUpdateForm] = useState(null)
   const [arrivalUpdateOriginalJetty, setArrivalUpdateOriginalJetty] = useState('')
+  // Multi-jetty berthing: additional (secondary) jetty short ids selected alongside the primary jetty.
+  const [arrivalUpdateAdditionalJetties, setArrivalUpdateAdditionalJetties] = useState([])
+  const [berthingAdditionalJetties, setBerthingAdditionalJetties] = useState([])
   const [berthingConfirmRow, setBerthingConfirmRow] = useState(null)
   const [berthingErrors, setBerthingErrors] = useState([])
   const [berthingSelectedJetty, setBerthingSelectedJetty] = useState('')
@@ -645,6 +648,16 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     if (!Array.isArray(all) || !selectedPortId) return []
     return all.filter((j) => Number(j.portId) === Number(selectedPortId))
   }, [allocationLookups, selectedPortId])
+
+  // Multi-jetty berthing: entire "Additional jetties" picker is gated by the port flag. If the
+  // flag is off (or the port changes mid-session), drop any stale selection so it can't be submitted.
+  const allowMultiJetty = selectedPort?.allowMultiJetyBerthing === true
+  useEffect(() => {
+    if (!allowMultiJetty) {
+      setArrivalUpdateAdditionalJetties([])
+      setBerthingAdditionalJetties([])
+    }
+  }, [allowMultiJetty])
 
   const jettyOccupancyRows = useMemo(
     () => [...(list || []), ...(scheduleList || [])],
@@ -1214,6 +1227,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     // Captured so saveArrivalUpdate can detect a *new/changed* jetty assignment
     // (vs. an unrelated edit on a row that already has a jetty) and require ETB then.
     setArrivalUpdateOriginalJetty((r.jetty || '').trim().split('/')[0].trim())
+    setArrivalUpdateAdditionalJetties(Array.isArray(r.additionalJetties) ? r.additionalJetties : [])
     setArrivalNorFiles([])
     setArrivalNorRawFiles([])
     setArrivalSaving(false)
@@ -1285,8 +1299,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         return
       }
       const capacity = berth.capacity != null ? Number(berth.capacity) : 1
-      const occList = Array.isArray(berth.occupants) ? berth.occupants : (berth.currentVesselId ? [{ vesselId: berth.currentVesselId }] : [])
-      const others = occList.filter((o) => o?.vesselId && o.vesselId !== arrivalUpdateForm.vesselId)
+      const others = berthOtherOccupants(berth, arrivalUpdateForm.vesselId)
       const isFull = others.length >= Math.max(1, capacity)
       if (isFull) {
         const firstOccId = others[0]?.vesselId
@@ -1349,6 +1362,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         shipmentPlanId: planOnlySave ? updated.shipmentPlanId : undefined,
         noPkk: updated.noPkk ?? '',
         jetty: updated.jetty ?? '',
+        additionalJetties: allowMultiJetty ? arrivalUpdateAdditionalJetties : [],
         priority: updated.priority || '',
         etaDateTime: normalizeForApiOrEmpty(updated.etaDateTime, scheduleEntryTz),
         etbDateTime: normalizeForApiOrEmpty(updated.etbDateTime, scheduleEntryTz),
@@ -1479,10 +1493,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         errors.push(jettyOosAllocationMessage(targetJettyId, canViewMasterJetty))
       } else {
         const capacity = berth.capacity != null ? Number(berth.capacity) : 1
-        const occList = Array.isArray(berth.occupants)
-          ? berth.occupants
-          : (berth.currentVesselId ? [{ vesselId: berth.currentVesselId }] : [])
-        const others = occList.filter((o) => o?.vesselId && o.vesselId !== berthingConfirmRow.vesselId)
+        const others = berthOtherOccupants(berth, berthingConfirmRow.vesselId)
         const isFull = others.length >= Math.max(1, capacity)
         if (isFull) {
           const occupantId = others[0]?.vesselId
@@ -1528,6 +1539,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         shippingInstructionId: berthingConfirmRow.shippingInstructionId,
         noPkk: berthingConfirmRow.noPkk ?? '',
         jetty: targetJettyId,
+        additionalJetties: allowMultiJetty ? berthingAdditionalJetties : [],
         priority: berthingConfirmRow.priority || '',
         etaDateTime: normalizeForApiOrEmpty(berthingConfirmRow.etaDateTime, scheduleEntryTz),
         taDateTime: normalizeForApiOrEmpty(berthingTa, scheduleEntryTz),
@@ -1612,6 +1624,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     setBerthingErrors([])
     setBerthingConfirmRow(r)
     setBerthingSelectedJetty(getTargetJettyId(r) || '')
+    setBerthingAdditionalJetties(Array.isArray(r.additionalJetties) ? r.additionalJetties : [])
     setBerthingPob(r.pobDateTime || '')
     setBerthingTa(toDateTimeLocalValue(r.taDateTime))
     setBerthingTb(toDateTimeLocalValue(r.tbDateTime) || getNowForDateTimeLocal())
@@ -1631,6 +1644,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     setBerthingConfirmRow(null)
     setBerthingErrors([])
     setBerthingSelectedJetty('')
+    setBerthingAdditionalJetties([])
     setBerthingPob('')
     setBerthingTa('')
     setBerthingTb('')
@@ -1809,8 +1823,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         return
       }
       const capacity = berth.capacity != null ? Number(berth.capacity) : 1
-      const occList = Array.isArray(berth.occupants) ? berth.occupants : berth.currentVesselId ? [{ vesselId: berth.currentVesselId }] : []
-      const others = occList.filter((o) => o?.vesselId && o.vesselId !== vessel.vesselId)
+      const others = berthOtherOccupants(berth, vessel.vesselId)
       const isFull = others.length >= Math.max(1, capacity)
       if (isFull) {
         const firstOccId = others[0]?.vesselId
@@ -2417,6 +2430,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
           <JettyScheduleGantt
             berthIds={berthIds}
             berthsState={berthsState}
+            jetties={portJetties}
             list={planViz.mergedSchedule}
             onSelectVessel={(vesselId) => vesselId && selectVesselFromVisualization(vesselId)}
             onScheduleChanged={refreshOverview}
@@ -2933,7 +2947,10 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                               const cap = b?.capacity != null ? Number(b.capacity) : 1
                               const occList =
                                 Array.isArray(b?.occupants) ? b.occupants : b?.currentVesselId ? [{ vesselId: b.currentVesselId }] : []
-                              const occCount = occList.length
+                              // Multi-jetty berthing: `occupiedCount` also counts a vessel spanning in
+                              // from an adjacent jetty (see `berthOtherOccupants`) — don't recompute
+                              // from `occList.length` alone or a spanned-into jetty looks fully vacant.
+                              const occCount = b?.occupiedCount != null ? Number(b.occupiedCount) : occList.length
                               const label =
                                 occCount > 0
                                   ? `${jid} – Occupied (${occCount}/${Math.max(1, cap)})`
@@ -3574,6 +3591,10 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                     showOccupancyLabels
                     placeholder="— Select jetty —"
                     ariaDescribedBy={berthingErrors.length > 0 ? 'berthing-errors' : undefined}
+                    allowMultiJetty={allowMultiJetty}
+                    additionalJetties={berthingAdditionalJetties}
+                    onAdditionalJettiesChange={setBerthingAdditionalJetties}
+                    vesselLoaM={berthingConfirmRow?.vesselLoaM}
                   />
                   <div className="berthing-modal__field">
                     <label htmlFor="berthing-pob" className="berthing-modal__label">Pilot on Board (POB)</label>
@@ -4093,6 +4114,10 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                   berthsState={berthsState}
                   jetties={portJetties}
                   jettyAdvice={arrivalJettyAdvice}
+                  allowMultiJetty={allowMultiJetty}
+                  additionalJetties={arrivalUpdateAdditionalJetties}
+                  onAdditionalJettiesChange={setArrivalUpdateAdditionalJetties}
+                  vesselLoaM={arrivalUpdateForm.vesselLoaM}
                 />
               </section>
 

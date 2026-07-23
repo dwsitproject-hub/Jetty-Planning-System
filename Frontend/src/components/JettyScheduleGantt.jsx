@@ -8,6 +8,7 @@ import {
   parseDateInputEndExclusive,
 } from '../utils/jettyScheduleOccupancy'
 import { buildScheduleSegments, assignBankLanesByVessel } from '../utils/jettyScheduleGanttLanes'
+import { buildAdjacencyAwareRowDefs } from '../utils/jettyAdjacency'
 import VisualizationPopoutButton from './VisualizationPopoutButton'
 import GanttDenseBlock from './GanttDenseBlock'
 import {
@@ -15,6 +16,7 @@ import {
   buildPlannedBlockModel,
   ganttDenseBlockAriaLabel,
   GANTT_BAR_STACK_STEP,
+  GANTT_BAR_HEIGHT,
 } from '../utils/ganttBarDisplay.js'
 import {
   buildGanttDragProposal,
@@ -76,6 +78,32 @@ function segmentTrackStyle(seg, windowStartMs, totalMs) {
     width: `${w}%`,
     rawWidthPct,
   }
+}
+
+/**
+ * Multi-jetty berthing: horizontal position/width for the spanning overlay bar, which lives
+ * at the `.jetty-schedule-gantt__body-inner` level (outside the id column) rather than inside
+ * a row's own timeline cell — so its left/width must be re-expressed against the FULL row
+ * width, the same way `__now-line` converts `nowFraction` via `--jetty-schedule-id-col`.
+ */
+function spanOverlayHorizontalStyle(seg, windowStartMs, totalMs) {
+  const pos = segmentTrackStyle(seg, windowStartMs, totalMs)
+  if (!pos) return null
+  const leftFrac = parseFloat(pos.left) / 100
+  const widthFrac = parseFloat(pos.width) / 100
+  if (!Number.isFinite(leftFrac) || !Number.isFinite(widthFrac)) return null
+  return {
+    left: `calc(var(--jetty-schedule-id-col, 200px) + (100% - var(--jetty-schedule-id-col, 200px)) * ${leftFrac})`,
+    width: `calc((100% - var(--jetty-schedule-id-col, 200px)) * ${widthFrac})`,
+  }
+}
+
+/** Stable per-segment key used to find its real bar element for the span-overlay measurement.
+ * Deliberately excludes `endMs`: for an open-ended/in-progress bar, `endMs` is a live "now" value
+ * that changes on every tick, which would change this key every render and permanently miss the
+ * ref set on the previous render (the measured rect is always one tick stale/never matches). */
+function spanAnchorKey(seg) {
+  return `${seg.rowKey}__${seg.startMs}__${seg.vesselId ?? seg.vesselName ?? ''}`
 }
 
 function segmentColorClass(seg) {
@@ -150,6 +178,7 @@ function formatDragDelta(deltaMs) {
 export default function JettyScheduleGantt({
   berthIds,
   berthsState,
+  jetties,
   list,
   onSelectVessel,
   onScheduleChanged,
@@ -220,31 +249,200 @@ export default function JettyScheduleGantt({
     }
   }, [list, dateFrom, dateTo, tick])
 
-  const rowDefs = useMemo(() => {
-    const berths = Array.isArray(berthsState) ? berthsState : []
-    const byId = new Map(berths.map((b) => [b.id, b]))
+  // Multi-jetty berthing: keep adjacency-configured jetties (Master – Jetty) contiguous, with
+  // their LANES interleaved (2B-01, 3B-01, 2B-02, 3B-02) rather than grouped per jetty — so a
+  // spanning vessel's primary lane row and its additional jetty's matching lane row are always
+  // physically adjacent, never separated by another (possibly unrelated) lane row. Jetties with
+  // no configured adjacency keep their normal order_no order and un-interleaved lanes.
+  const rowDefs = useMemo(
+    () => buildAdjacencyAwareRowDefs(berthIds, berthsState, jetties),
+    [berthIds, berthsState, jetties]
+  )
+
+  // Jetty-level order (first-seen), derived from rowDefs — used by `spanningBars` below to
+  // check that a segment's primary + additional jetties ended up contiguous.
+  const orderedBerthIds = useMemo(() => {
+    const seen = new Set()
     const out = []
-    for (const jettyId of Array.isArray(berthIds) ? berthIds : []) {
-      const b = byId.get(jettyId)
-      const capRaw = b?.capacity != null ? Number(b.capacity) : 1
-      const cap = Number.isFinite(capRaw) && capRaw >= 1 ? capRaw : 1
-      for (let i = 0; i < cap; i += 1) {
-        out.push({
-          jettyId,
-          laneIndex: i,
-          rowKey: `${jettyId}__${i}`,
-          label: `${jettyId}-${String(i + 1).padStart(2, '0')}`,
-          capacity: cap,
-        })
+    for (const row of rowDefs) {
+      if (!seen.has(row.jettyId)) {
+        seen.add(row.jettyId)
+        out.push(row.jettyId)
       }
     }
     return out
-  }, [berthIds, berthsState])
+  }, [rowDefs])
 
   const segments = useMemo(() => {
     const listRows = Array.isArray(list) ? list : []
     return assignBankLanesByVessel(baseSegments, rowDefs, listRows, Date.now())
   }, [baseSegments, rowDefs, list, tick])
+
+  // ---- Multi-jetty berthing: spanning overlay bar ------------------------------------------
+  // Measures the real (rendered) bar for the PRIMARY jetty plus every row it spans, then draws
+  // one absolutely-positioned overlay (sibling of `__now-line`) stretching from the real bar
+  // through the additional jetty row(s) — the real bar itself is untouched/still interactive.
+  const bodyInnerRef = useRef(null)
+  const rowRefsMap = useRef(new Map())
+  const barRefsMap = useRef(new Map())
+  // Multi-jetty berthing: the span extension is a separate DOM element (sibling of the
+  // rows, not a child of the real bar) — tracked here so a drag started on EITHER piece
+  // can move both in lockstep, making the pair behave as one draggable bar.
+  const extensionRefsMap = useRef(new Map())
+  const setRowRef = (rowKey) => (el) => {
+    if (el) rowRefsMap.current.set(rowKey, el)
+    else rowRefsMap.current.delete(rowKey)
+  }
+  const setBarRef = (anchorKey) => (el) => {
+    if (el) barRefsMap.current.set(anchorKey, el)
+    else barRefsMap.current.delete(anchorKey)
+  }
+  const setExtensionRef = (anchorKey) => (el) => {
+    if (el) extensionRefsMap.current.set(anchorKey, el)
+    else extensionRefsMap.current.delete(anchorKey)
+  }
+  const [spanLayout, setSpanLayout] = useState({ rowRects: new Map(), barRects: new Map() })
+
+  useEffect(() => {
+    const bodyInner = bodyInnerRef.current
+    if (!bodyInner) return undefined
+    let raf = null
+    const measure = () => {
+      const bodyRect = bodyInner.getBoundingClientRect()
+      const rowRects = new Map()
+      for (const [rowKey, el] of rowRefsMap.current) {
+        const r = el.getBoundingClientRect()
+        rowRects.set(rowKey, { top: r.top - bodyRect.top, height: r.height })
+      }
+      const barRects = new Map()
+      for (const [anchorKey, el] of barRefsMap.current) {
+        const r = el.getBoundingClientRect()
+        barRects.set(anchorKey, {
+          top: r.top - bodyRect.top,
+          height: r.height,
+          left: r.left - bodyRect.left,
+          width: r.width,
+        })
+      }
+      setSpanLayout({ rowRects, barRects })
+    }
+    const scheduleMeasure = () => {
+      if (raf != null) return
+      raf = requestAnimationFrame(() => {
+        raf = null
+        measure()
+      })
+    }
+    scheduleMeasure()
+    const ro = new ResizeObserver(scheduleMeasure)
+    ro.observe(bodyInner)
+    for (const el of rowRefsMap.current.values()) ro.observe(el)
+    for (const el of barRefsMap.current.values()) ro.observe(el)
+    window.addEventListener('resize', scheduleMeasure)
+    return () => {
+      if (raf != null) cancelAnimationFrame(raf)
+      ro.disconnect()
+      window.removeEventListener('resize', scheduleMeasure)
+    }
+  }, [rowDefs, segments])
+
+  const spanningBars = useMemo(() => {
+    if (!spanLayout.rowRects.size) return []
+    const out = []
+    for (const seg of segments) {
+      const additional = Array.isArray(seg.additionalJetties)
+        ? seg.additionalJetties.filter(Boolean)
+        : []
+      if (!additional.length) continue
+
+      const primaryIdx = orderedBerthIds.indexOf(seg.jettyId)
+      if (primaryIdx === -1) continue
+      const targetIndices = [primaryIdx]
+      let resolvable = true
+      for (const addId of additional) {
+        const idx = orderedBerthIds.indexOf(addId)
+        if (idx === -1) {
+          resolvable = false
+          break
+        }
+        targetIndices.push(idx)
+      }
+      if (!resolvable) continue
+
+      // Defensive: only render the overlay when the spanned jetties actually ended up
+      // contiguous in the (adjacency-ordered) row list — should always hold after row
+      // ordering, but never draw a bridging overlay across an unrelated jetty in between.
+      const distinct = [...new Set(targetIndices)]
+      const minIdx = Math.min(...distinct)
+      const maxIdx = Math.max(...distinct)
+      if (maxIdx - minIdx + 1 !== distinct.length || minIdx === maxIdx) continue
+
+      const primaryRowRect = spanLayout.rowRects.get(seg.rowKey)
+      const barRect = spanLayout.barRects.get(spanAnchorKey(seg))
+      if (!primaryRowRect || !barRect) continue
+
+      // Multi-jetty berthing: target the additional jetty's SAME lane as the primary bar's own
+      // lane (clamped to that jetty's own capacity) — thanks to lane-interleaved row ordering
+      // (`buildAdjacencyAwareRowDefs`), that row is always the one physically adjacent to the
+      // primary's row, so this never has to cross another lane's (possibly unrelated) row.
+      const farthestIdx = primaryIdx === minIdx ? maxIdx : minIdx
+      const farthestBerthId = orderedBerthIds[farthestIdx]
+      const farthestBerth = (Array.isArray(berthsState) ? berthsState : []).find(
+        (b) => b.id === farthestBerthId
+      )
+      const farthestCapRaw = farthestBerth?.capacity != null ? Number(farthestBerth.capacity) : 1
+      const farthestCap = Number.isFinite(farthestCapRaw) && farthestCapRaw >= 1 ? farthestCapRaw : 1
+      const primaryLaneIndex = Number.isFinite(seg.laneIndex) ? seg.laneIndex : 0
+      const farthestLane = Math.min(primaryLaneIndex, farthestCap - 1)
+      const farthestRowKey = `${farthestBerthId}__${farthestLane}`
+      const farthestRowRect = spanLayout.rowRects.get(farthestRowKey)
+      if (!farthestRowRect) continue
+
+      const extendsDown = farthestIdx > primaryIdx
+      const barOffsetWithinRow = barRect.top - primaryRowRect.top
+      // Multi-jetty berthing: the extension must cover ONLY the additional jetty's row(s), never
+      // the primary row itself — the real bar already renders there. Starting/ending the overlay
+      // flush with the real bar's own top/bottom edge (instead of overlapping it) avoids stacking
+      // two translucent fills on top of each other, which otherwise makes the primary row read as
+      // a visibly darker shade than the extension (two 16%-alpha layers ≈ 29% vs one ≈ 16%).
+      let top
+      let height
+      if (extendsDown) {
+        top = barRect.top + barRect.height
+        height = farthestRowRect.top + barOffsetWithinRow + GANTT_BAR_HEIGHT - top
+      } else {
+        top = farthestRowRect.top + barOffsetWithinRow
+        height = barRect.top - top
+      }
+      height = Math.max(height, 1)
+
+      // Prefer the measured primary bar's left/width so the extension lines up pixel-perfect
+      // with the real bar (calc() against --jetty-schedule-id-col can drift ~1px vs % track
+      // positioning, which shows up as a broken late accent stripe across the seam).
+      const horiz =
+        Number.isFinite(barRect.left) && Number.isFinite(barRect.width)
+          ? { left: `${barRect.left}px`, width: `${barRect.width}px` }
+          : spanOverlayHorizontalStyle(seg, windowStartMs, totalMs)
+      if (!horiz) continue
+
+      out.push({
+        key: spanAnchorKey(seg),
+        seg,
+        extendsDown,
+        style: { top: `${top}px`, height: `${height}px`, ...horiz },
+      })
+    }
+    return out
+  }, [segments, orderedBerthIds, berthsState, spanLayout, windowStartMs, totalMs])
+
+  // Multi-jetty berthing: which edge (if any) of the REAL primary bar touches its span
+  // extension, keyed the same way as `spanRef` — used to drop that edge's border/radius so the
+  // primary bar and its extension read as one seamless rectangle instead of two bordered pieces.
+  const spanEdgeByAnchor = useMemo(
+    () => new Map(spanningBars.map((b) => [b.key, b.extendsDown ? 'down' : 'up'])),
+    [spanningBars]
+  )
+  // -------------------------------------------------------------------------------------------
 
   const nowFraction =
     totalMs > 0 ? Math.min(1, Math.max(0, (nowMs - windowStartMs) / totalMs)) : 0
@@ -313,6 +511,10 @@ export default function JettyScheduleGantt({
       d.barEl.classList.remove('jetty-schedule-gantt__bar--dragging')
       d.barEl.style.transform = ''
     }
+    if (d.extEl) {
+      d.extEl.classList.remove('jetty-schedule-gantt__bar--dragging')
+      d.extEl.style.transform = ''
+    }
     if (d.badgeEl && d.badgeEl.parentNode) d.badgeEl.parentNode.removeChild(d.badgeEl)
     if (d.lastRowEl) d.lastRowEl.classList.remove('jetty-schedule-gantt__row--drop-target')
   }
@@ -367,11 +569,22 @@ export default function JettyScheduleGantt({
       cleanupDragVisuals(dragRef.current)
       dragRef.current = null
     }
-    const barEl = e.currentTarget
+    // Multi-jetty berthing: a grab that started on the span EXTENSION (no track/handles of
+    // its own — it's a sibling of the rows, not the real bar) resolves back to the real
+    // primary bar element for tracking/positioning, and drags its extension companion in
+    // lockstep, so grabbing either piece moves the whole spanning bar as one unit.
+    const grabbedExtension = e.currentTarget.classList.contains(
+      'jetty-schedule-gantt__bar--span-extension'
+    )
+    const anchorKey = spanAnchorKey(seg)
+    const barEl = grabbedExtension ? barRefsMap.current.get(anchorKey) || e.currentTarget : e.currentTarget
+    const extEl = extensionRefsMap.current.get(anchorKey) || null
     const trackEl = barEl.closest('.jetty-schedule-gantt__track')
     if (!trackEl || totalMs <= 0) return
     const handleEl =
-      e.target instanceof Element ? e.target.closest('[data-gantt-handle]') : null
+      !grabbedExtension && e.target instanceof Element
+        ? e.target.closest('[data-gantt-handle]')
+        : null
     // On very narrow bars the edge handles would cover everything — treat as move.
     const barWide = barEl.getBoundingClientRect().width >= 36
     const kind =
@@ -385,7 +598,7 @@ export default function JettyScheduleGantt({
     // Capture immediately: a real cursor leaves the (thin) bar/handle almost at once,
     // so waiting for a threshold move ON the element would silently kill the gesture.
     try {
-      barEl.setPointerCapture(e.pointerId)
+      e.currentTarget.setPointerCapture(e.pointerId)
     } catch {
       /* ignore */
     }
@@ -403,6 +616,7 @@ export default function JettyScheduleGantt({
       seg,
       row,
       barEl,
+      extEl,
       startX: e.clientX,
       startY: e.clientY,
       pxPerMs: trackRect.width / totalMs,
@@ -436,10 +650,15 @@ export default function JettyScheduleGantt({
     }
     // Re-add every move: a data-refresh re-render mid-drag resets className.
     d.barEl.classList.add('jetty-schedule-gantt__bar--dragging')
+    if (d.extEl) d.extEl.classList.add('jetty-schedule-gantt__bar--dragging')
     d.rawDeltaMs = d.pxPerMs > 0 ? dx / d.pxPerMs : 0
     if (d.kind === 'move') {
       const snappedPx = snapDeltaMs(d.rawDeltaMs) * d.pxPerMs
-      d.barEl.style.transform = `translate(${snappedPx}px, ${dy}px)`
+      const moveTransform = `translate(${snappedPx}px, ${dy}px)`
+      d.barEl.style.transform = moveTransform
+      // Keep the extension glued to the real bar while it's being dragged, so the pair
+      // still reads as one continuous bar mid-gesture (not just once it's dropped).
+      if (d.extEl) d.extEl.style.transform = moveTransform
       const rowEl = findDropRowEl(e.clientX, e.clientY, d.barEl)
       if (d.lastRowEl && d.lastRowEl !== rowEl) {
         d.lastRowEl.classList.remove('jetty-schedule-gantt__row--drop-target')
@@ -645,7 +864,16 @@ export default function JettyScheduleGantt({
             canDrag && !isSailed && sourceRow &&
             (sourceRow.operationId != null || sourceRow.shippingInstructionId != null)
           const ariaLabel = ganttBarAriaLabel(seg, barLayer)
-          const barClassName = `${pillClass}${canClick ? ' jetty-schedule-gantt__bar--btn' : ''}${canDrag ? ' jetty-schedule-gantt__bar--draggable' : ''}`
+          // Multi-jetty berthing: drop the border/radius on whichever edge connects to this
+          // bar's span extension, so the two pieces read as one seamless rectangle.
+          const spanEdge = spanEdgeByAnchor.get(spanAnchorKey(seg))
+          const spanEdgeClass =
+            spanEdge === 'down'
+              ? ' jetty-schedule-gantt__bar--span-primary-down'
+              : spanEdge === 'up'
+                ? ' jetty-schedule-gantt__bar--span-primary-up'
+                : ''
+          const barClassName = `${pillClass}${canClick ? ' jetty-schedule-gantt__bar--btn' : ''}${canDrag ? ' jetty-schedule-gantt__bar--draggable' : ''}${spanEdgeClass}`
           const denseContent = renderDenseBarContent(
             seg,
             barLayer,
@@ -673,10 +901,16 @@ export default function JettyScheduleGantt({
             : {}
 
           const vesselBarId = sourceRow?.vesselId ?? seg.vesselId ?? undefined
+          // Multi-jetty berthing: this bar is the spanning overlay's measurement anchor.
+          const spanRef =
+            Array.isArray(seg.additionalJetties) && seg.additionalJetties.filter(Boolean).length
+              ? setBarRef(spanAnchorKey(seg))
+              : undefined
           if (canClick) {
             return (
               <button
                 key={`${seg.layer}-${seg.phase}-${seg.vesselName}-${seg.startMs}-${i}`}
+                ref={spanRef}
                 type="button"
                 className={barClassName}
                 style={style}
@@ -696,6 +930,7 @@ export default function JettyScheduleGantt({
           return (
             <span
               key={`${seg.layer}-${seg.phase}-${seg.vesselName}-${seg.startMs}-${i}`}
+              ref={spanRef}
               className={barClassName}
               style={style}
               data-vessel-bar={vesselBarId}
@@ -860,7 +1095,7 @@ export default function JettyScheduleGantt({
               </div>
 
               <div className="jetty-schedule-gantt__body">
-                <div className="jetty-schedule-gantt__body-inner">
+                <div className="jetty-schedule-gantt__body-inner" ref={bodyInnerRef}>
                   {showNowLine && (
                     <div
                       className="jetty-schedule-gantt__now-line"
@@ -871,6 +1106,29 @@ export default function JettyScheduleGantt({
                     />
                   )}
 
+                  {spanningBars.map(({ key, seg, extendsDown, style }) => {
+                    // Multi-jetty berthing: grabbing the extension moves the whole spanning
+                    // bar (see `handleBarPointerDown`'s `grabbedExtension` branch) — it only
+                    // needs pointer events enabled while that's actually possible.
+                    const extSourceRow = findScheduleSourceRow(
+                      Array.isArray(list) ? list : [],
+                      seg
+                    )
+                    const extCanDrag = Boolean(canEditSchedule && extSourceRow)
+                    return (
+                      <span
+                        key={key}
+                        ref={setExtensionRef(key)}
+                        className={`jetty-schedule-gantt__bar--span-extension${extendsDown ? ' jetty-schedule-gantt__bar--span-extension-down' : ' jetty-schedule-gantt__bar--span-extension-up'} ${segmentColorClass(seg)}${seg.etcOverdue ? ' jetty-schedule-gantt__bar--actual-etc-overdue' : ''}${extCanDrag ? ' jetty-schedule-gantt__bar--span-extension-draggable' : ''}`}
+                        style={style}
+                        aria-hidden="true"
+                        onPointerDown={
+                          extCanDrag ? (e) => handleBarPointerDown(e, seg, extSourceRow) : undefined
+                        }
+                      />
+                    )
+                  })}
+
                   {rowDefs.map((row) => {
                     const berth = (Array.isArray(berthsState) ? berthsState : []).find((b) => b.id === row.jettyId)
                     const isOos = (berth?.status || '') === 'Out of Service'
@@ -880,14 +1138,38 @@ export default function JettyScheduleGantt({
                         : berth?.currentVesselId
                           ? 1
                           : 0
+                    // Multi-jetty berthing: per-lane clarity on double-bank jetties — a span from
+                    // an adjacent primary occupies one specific lane (e.g. 3B-01), while the other
+                    // bank (3B-02) stays available even though jetty status is Occupied (1/2).
+                    const spannedLane =
+                      (Array.isArray(berth?.spannedByLanes) ? berth.spannedByLanes : []).find(
+                        (s) => Number(s?.laneIndex) === Number(row.laneIndex)
+                      ) ||
+                      (berth?.spannedBy &&
+                      Number(berth.spannedBy.laneIndex ?? 0) === Number(row.laneIndex)
+                        ? berth.spannedBy
+                        : null)
+                    const occupants = Array.isArray(berth?.occupants) ? berth.occupants : []
+                    const hasLaneIndexedOccupants = occupants.some((o) => o?.laneIndex != null)
+                    const directOnLane = hasLaneIndexedOccupants
+                      ? occupants.some((o) => Number(o.laneIndex) === Number(row.laneIndex))
+                      : // Legacy payloads without laneIndex: only treat as "this lane occupied" when the
+                        // jetty has direct occupants (not merely a span into another lane).
+                        occupants.length > 0 && !spannedLane
                     const statusLabel = isOos
                       ? `Out of service (lanes shown for schedule only)`
-                      : occCount > 0
-                        ? `Occupied (${occCount}/${row.capacity})`
-                        : `Ready (0/${row.capacity})`
+                      : spannedLane
+                        ? `Occupied (${occCount}/${row.capacity}) · spanned by ${spannedLane.vesselName || spannedLane.primaryBerthId || 'adjacent'}`
+                        : directOnLane
+                          ? `Occupied (${occCount}/${row.capacity})`
+                          : occCount > 0
+                            ? // Jetty has occupancy, but THIS lane is free (e.g. 3B-02 while 3B-01 is spanned).
+                              `Available · jetty Occupied (${occCount}/${row.capacity})`
+                            : `Ready (0/${row.capacity})`
                     return (
                       <div
                         key={row.rowKey}
+                        ref={setRowRef(row.rowKey)}
                         data-gantt-row={row.rowKey}
                         className={`jetty-schedule-gantt__row${isOos ? ' jetty-schedule-gantt__row--oos' : ''}`}
                         style={{ gridTemplateColumns }}

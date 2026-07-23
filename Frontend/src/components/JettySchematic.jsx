@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import EtcBreachBadge from './EtcBreachBadge'
 import PurposeBadge from './PurposeBadge'
@@ -121,23 +121,47 @@ function sortBerthOccupants(occupants) {
 
 /**
  * One slot per bank lane; aligns with Gantt 01/02 when over capacity last lane shows +N more.
+ *
+ * Multi-jetty berthing: `berth.spannedByLanes` reserves specific lane indices for a vessel
+ * berthed at an ADJACENT jetty that spans into this one — those lanes render a lane-scoped
+ * "Occupied (Spanned)" placeholder (see `renderSpannedSlot`), while the jetty's own real
+ * occupants fill the remaining (non-reserved) lanes in order, so a double-bank jetty's other
+ * lane stays open for an unrelated vessel to berth at directly.
  */
 function buildBerthLaneSlots(berth, capacity) {
   const cap = Math.max(1, Number(capacity) >= 1 ? Number(capacity) : 1)
   const sorted = sortBerthOccupants(berth?.occupants)
+  const spannedByLane = new Map(
+    (Array.isArray(berth?.spannedByLanes) ? berth.spannedByLanes : []).map((s) => [s.laneIndex, s])
+  )
+  const availableLanes = []
+  for (let lane = 0; lane < cap; lane += 1) {
+    if (!spannedByLane.has(lane)) availableLanes.push(lane)
+  }
+
   const slots = []
   for (let lane = 0; lane < cap; lane += 1) {
-    if (lane < sorted.length) {
-      const overflowCount = sorted.length > cap && lane === cap - 1 ? sorted.length - cap : 0
-      const occ = sorted[lane]
+    const spannedBy = spannedByLane.get(lane)
+    if (spannedBy) {
+      slots.push({ laneIndex: lane, vesselId: null, occupant: null, overflowCount: 0, spannedBy })
+      continue
+    }
+    const availIdx = availableLanes.indexOf(lane)
+    if (availIdx < sorted.length) {
+      const overflowCount =
+        sorted.length > availableLanes.length && availIdx === availableLanes.length - 1
+          ? sorted.length - availableLanes.length
+          : 0
+      const occ = sorted[availIdx]
       slots.push({
         laneIndex: lane,
         vesselId: occ?.vesselId || null,
         occupant: occ,
         overflowCount,
+        spannedBy: null,
       })
     } else {
-      slots.push({ laneIndex: lane, vesselId: null, occupant: null, overflowCount: 0 })
+      slots.push({ laneIndex: lane, vesselId: null, occupant: null, overflowCount: 0, spannedBy: null })
     }
   }
   return slots
@@ -308,6 +332,61 @@ export default function JettySchematic({
     return jettyIdToBerthId[String(dbJettyId)] ?? null
   }
 
+  /** Multi-jetty berthing: berth short id -> { colIndex, placement } from the current layout. */
+  const berthPosition = useMemo(() => {
+    const map = {}
+    for (const [colIndex, col] of (layoutColumns || []).entries()) {
+      const topBerthId = col?.top?.type === 'jetty' && col.top.jettyId ? resolveBerthId(col.top.jettyId) : null
+      const bottomBerthId =
+        col?.bottom?.type === 'jetty' && col.bottom.jettyId ? resolveBerthId(col.bottom.jettyId) : null
+      if (topBerthId) map[topBerthId] = { colIndex, placement: 'top' }
+      if (bottomBerthId) map[bottomBerthId] = { colIndex, placement: 'bottom' }
+    }
+    return map
+  }, [layoutColumns, jettyIdToBerthId])
+
+  /** Multi-jetty berthing: real rendered column pixel widths + flex gap, measured (not derived from flexGrow). */
+  const schematicRef = useRef(null)
+  const columnRefs = useRef([])
+  const [columnWidths, setColumnWidths] = useState([])
+  const [columnGapPx, setColumnGapPx] = useState(0)
+
+  useEffect(() => {
+    const els = columnRefs.current.filter(Boolean)
+    if (!els.length) return undefined
+    const measure = () => {
+      setColumnWidths(columnRefs.current.map((el) => (el ? el.getBoundingClientRect().width : 0)))
+      if (schematicRef.current) {
+        const gapPx = parseFloat(getComputedStyle(schematicRef.current).columnGap)
+        setColumnGapPx(Number.isFinite(gapPx) ? gapPx : 0)
+      }
+    }
+    measure()
+    const ro = new ResizeObserver(() => measure())
+    els.forEach((el) => ro.observe(el))
+    return () => ro.disconnect()
+  }, [layoutColumns, berths])
+
+  /**
+   * Multi-jetty berthing: pixel width to span from a primary berth's column across its
+   * additional (secondary) berths' columns, in the same top/bottom row. Returns null when
+   * there's nothing to span or widths haven't been measured yet.
+   */
+  function computeSpanWidthPx(colIndex, stackPlacement, additionalBerthIds) {
+    if (!Array.isArray(additionalBerthIds) || !additionalBerthIds.length) return null
+    if (!columnWidths.length) return null
+    const secondaryCols = additionalBerthIds
+      .map((id) => berthPosition[id])
+      .filter((pos) => pos && pos.placement === stackPlacement)
+      .map((pos) => pos.colIndex)
+    if (!secondaryCols.length) return null
+    const allCols = [...new Set([colIndex, ...secondaryCols])].sort((a, b) => a - b)
+    return allCols.reduce((sum, ci, idx) => {
+      const w = columnWidths[ci] || 0
+      return idx === 0 ? w : sum + columnGapPx + w
+    }, 0)
+  }
+
   const openJettyLiveCctv = useCallback((berthId, rtspLink) => {
     const params = new URLSearchParams()
     params.set('rtsp', rtspLink)
@@ -348,15 +427,46 @@ export default function JettySchematic({
     return berth.currentVesselId ? [berth.currentVesselId] : []
   }
 
+  /** Direct occupants + multi-jetty vessels spanning into this berth (counts toward capacity). */
+  function berthOccupiedCount(berth) {
+    if (!berth) return 0
+    if (berth.occupiedCount != null && Number.isFinite(Number(berth.occupiedCount))) {
+      return Number(berth.occupiedCount)
+    }
+    const direct = berthOccupantIds(berth).length
+    const spanned = Array.isArray(berth.spannedByLanes)
+      ? berth.spannedByLanes.length
+      : berth.spannedBy
+        ? 1
+        : 0
+    return direct + spanned
+  }
+
+  function berthCurrentNames(berth, occIds) {
+    const names = occIds
+      .map((id) => getVessel(id)?.vesselName || berth?.currentVesselName || id)
+      .filter(Boolean)
+    const spannedNames = (
+      Array.isArray(berth?.spannedByLanes) && berth.spannedByLanes.length
+        ? berth.spannedByLanes
+        : berth?.spannedBy
+          ? [berth.spannedBy]
+          : []
+    )
+      .map((s) => s?.vesselName)
+      .filter(Boolean)
+    return [...new Set([...names, ...spannedNames])]
+  }
+
   function formatIncomingList(val) {
     if (Array.isArray(val)) return val.filter(Boolean)
     if (typeof val === 'string' && val.trim()) return [val.trim()]
     return []
   }
 
-  function jettyTooltip(berthId, cap, occIds, occNames, incomingLabel) {
+  function jettyTooltip(berthId, cap, occupiedCount, occNames, incomingLabel) {
     const occLabel = occNames.length ? occNames.join(', ') : '—'
-    return `Jetty ${berthId}\nOccupied: ${occIds.length}/${cap}\nCurrent : ${occLabel}\nIncoming : ${incomingLabel}`
+    return `Jetty ${berthId}\nOccupied: ${occupiedCount}/${cap}\nCurrent : ${occLabel}\nIncoming : ${incomingLabel}`
   }
 
   function formatMaterialDisplay(v) {
@@ -448,12 +558,43 @@ export default function JettySchematic({
     )
   }
 
-  /** @param {'top' | 'bottom'} stackPlacement — top uses column-reverse so lane 01 sits inner (adjacent to pipeline). */
-  function renderBerthLaneStack(berthId, berth, stackPlacement) {
+  /** Multi-jetty berthing: true if any occupant of this berth spans into an adjacent column in this row. */
+  function berthHasSpanningOccupant(berth, colIndex, stackPlacement) {
+    if (!berth || !Array.isArray(berth.occupants)) return false
+    return berth.occupants.some(
+      (occ) => computeSpanWidthPx(colIndex, stackPlacement, occ?.additionalBerthIds) != null
+    )
+  }
+
+  /**
+   * Multi-jetty berthing: this ONE lane is reserved by a vessel berthed at an adjacent jetty
+   * that spans into it — a lane-scoped placeholder, not a whole-stack takeover, so a
+   * double-bank jetty's other lane still renders (and stays clickable) normally.
+   */
+  function renderSpannedLaneSlot(berthId, laneLabel, laneSuffix, spannedBy) {
+    return (
+      <div
+        key={`${berthId}-${laneLabel}-spanned`}
+        className="jetty-schematic__lane jetty-schematic__slot jetty-schematic__slot--spanned"
+        aria-hidden
+        title={`Jetty ${laneLabel}: occupied (spanned by ${spannedBy?.vesselName || 'adjacent berth'})`}
+      >
+        {renderLaneSuffix(laneLabel, laneSuffix)}
+        <span className="jetty-schematic__slot-jetty-name">Occupied (Spanned)</span>
+      </div>
+    )
+  }
+
+  /**
+   * @param {'top' | 'bottom'} stackPlacement — top uses column-reverse so lane 01 sits inner (adjacent to pipeline).
+   * @param {number} colIndex — this berth's column index, used to compute multi-jetty spanning width.
+   */
+  function renderBerthLaneStack(berthId, berth, stackPlacement, colIndex) {
     const cap = berthCapacity(berth)
     const spec = berthIdToSpecs[berthId] || null
     const occIds = berthOccupantIds(berth)
-    const occNames = occIds.map((id) => getVessel(id)?.vesselName || berth?.currentVesselName || id).filter(Boolean)
+    const occNames = berthCurrentNames(berth, occIds)
+    const occupiedCount = berthOccupiedCount(berth)
     const incomingNames = formatIncomingList(displayIncoming[berthId])
     const incomingLabel = incomingNames.length ? incomingNames.join(', ') : '—'
     const isOos = (berth?.status || '') === 'Out of Service'
@@ -462,16 +603,21 @@ export default function JettySchematic({
       : ''
     const baseTooltip =
       (isOos
-        ? `Out of service — not available for new allocation.\n${jettyTooltip(berthId, cap, occIds, occNames, incomingLabel)}`
-        : jettyTooltip(berthId, cap, occIds, occNames, incomingLabel)) + specLine
+        ? `Out of service — not available for new allocation.\n${jettyTooltip(berthId, cap, occupiedCount, occNames, incomingLabel)}`
+        : jettyTooltip(berthId, cap, occupiedCount, occNames, incomingLabel)) + specLine
 
     const slots = buildBerthLaneSlots(berth, cap)
     let firstVacantIncomingShown = false
     /** Same lane pixel height as a double-bank row when capacity is 1 (avoids one huge green box). */
     const laneHeightDivisor = Math.max(cap, 2)
 
+    // Multi-jetty berthing: this stack is the spanning *source* if any occupant here spans into an adjacent column —
+    // it needs `overflow: visible` so the widened vessel-block overlay isn't clipped by its own column.
+    const hasSpannedSlot = berthHasSpanningOccupant(berth, colIndex, stackPlacement)
+
     const stackModifier =
-      stackPlacement === 'top' ? ' jetty-schematic__berth-stack--above-pipeline' : ''
+      (stackPlacement === 'top' ? ' jetty-schematic__berth-stack--above-pipeline' : '') +
+      (hasSpannedSlot ? ' jetty-schematic__berth-stack--spanned-source' : '')
 
     return (
       <div
@@ -486,6 +632,7 @@ export default function JettySchematic({
         {slots.map((slot) => {
           const laneLabel = `${berthId}-${String(slot.laneIndex + 1).padStart(2, '0')}`
           const laneSuffix = String(slot.laneIndex + 1).padStart(2, '0')
+          if (slot.spannedBy) return renderSpannedLaneSlot(berthId, laneLabel, laneSuffix, slot.spannedBy)
           const isVacant = !slot.vesselId
           const v = slot.vesselId ? getVessel(slot.vesselId) : null
           const op = v || slot.occupant ? getOperationType(v, slot.occupant) : null
@@ -499,6 +646,13 @@ export default function JettySchematic({
           let slotClassName = isVacant ? vacantClass : occClass
           if (selectedBerthId === berthId) slotClassName += ' jetty-schematic__slot--selected'
           if (isTodaySelected && v?.etcBreach) slotClassName += ' jetty-schematic__lane--etc-breach'
+
+          // Multi-jetty berthing: this occupant spans into adjacent column(s) — widen + overlay its vessel block,
+          // and let the lane itself overflow so the overlay isn't clipped at this column's edge.
+          const spanWidthPx = isVacant
+            ? null
+            : computeSpanWidthPx(colIndex, stackPlacement, slot.occupant?.additionalBerthIds)
+          if (spanWidthPx != null) slotClassName += ' jetty-schematic__lane--spanned-source'
 
           const showIncomingThisVacant = isVacant && incomingNames.length > 0 && !firstVacantIncomingShown
           if (showIncomingThisVacant) firstVacantIncomingShown = true
@@ -572,7 +726,14 @@ export default function JettySchematic({
             </>
           ) : (
             <span
-              className={`jetty-slot__vessel-block jetty-lane__composite jetty-lane__composite--${stackPlacement}`}
+              className={`jetty-slot__vessel-block jetty-lane__composite jetty-lane__composite--${stackPlacement}${
+                spanWidthPx != null ? ' jetty-schematic__vessel-block--spanned' : ''
+              }`}
+              style={
+                spanWidthPx != null
+                  ? { position: 'absolute', top: 0, left: 0, height: '100%', width: `${spanWidthPx}px`, zIndex: 5 }
+                  : undefined
+              }
             >
               <span className="jetty-vessel" aria-hidden>
                 <VesselShape widthPct={vesselWidthPct} />
@@ -615,9 +776,13 @@ export default function JettySchematic({
     )
   }
 
-  function renderBerthZone(stackPlacement, berthId, berth) {
-    const stack = renderBerthLaneStack(berthId, berth, stackPlacement)
+  function renderBerthZone(stackPlacement, berthId, berth, colIndex) {
+    const stack = renderBerthLaneStack(berthId, berth, stackPlacement, colIndex)
     const spec = berthIdToSpecs[berthId] || null
+    // Multi-jetty berthing: the zone wrapper also clips (`overflow: hidden`) — must go visible too when spanning.
+    const zoneSpannedModifier = berthHasSpanningOccupant(berth, colIndex, stackPlacement)
+      ? ' jetty-schematic__berth-zone--spanned-source'
+      : ''
     const nameBand = (
       <div className="jetty-schematic__jetty-name-band">
         <button
@@ -636,14 +801,14 @@ export default function JettySchematic({
     )
     if (stackPlacement === 'top') {
       return (
-        <div className="jetty-schematic__berth-zone jetty-schematic__berth-zone--top">
+        <div className={`jetty-schematic__berth-zone jetty-schematic__berth-zone--top${zoneSpannedModifier}`}>
           {stack}
           {nameBand}
         </div>
       )
     }
     return (
-      <div className="jetty-schematic__berth-zone jetty-schematic__berth-zone--bottom">
+      <div className={`jetty-schematic__berth-zone jetty-schematic__berth-zone--bottom${zoneSpannedModifier}`}>
         {nameBand}
         {stack}
       </div>
@@ -792,7 +957,7 @@ export default function JettySchematic({
         </span>
       </div>
       <div className="jetty-schematic-wrap">
-        <div className="jetty-schematic">
+        <div className="jetty-schematic" ref={schematicRef}>
           {layoutColumns.map((col, colIndex) => {
             const topBerthId =
               col.top?.type === 'jetty' && col.top.jettyId ? resolveBerthId(col.top.jettyId) : null
@@ -808,9 +973,16 @@ export default function JettySchematic({
             const colFlexGrow = colLen > 0 ? colLen : 140
 
             return (
-              <div key={colIndex} className="jetty-schematic__column" style={{ flexGrow: colFlexGrow }}>
+              <div
+                key={colIndex}
+                ref={(el) => {
+                  columnRefs.current[colIndex] = el
+                }}
+                className="jetty-schematic__column"
+                style={{ flexGrow: colFlexGrow }}
+              >
                 {col.top?.type === 'jetty' && topBerthId ? (
-                  renderBerthZone('top', topBerthId, topBerth)
+                  renderBerthZone('top', topBerthId, topBerth, colIndex)
                 ) : (
                   <div className="jetty-schematic__berth-zone jetty-schematic__berth-zone--placeholder">
                     <div className="jetty-schematic__slot jetty-schematic__slot--vacant jetty-schematic__slot--empty" aria-hidden>
@@ -824,7 +996,7 @@ export default function JettySchematic({
                   <div className="jetty-schematic__slot jetty-schematic__slot--vacant jetty-schematic__slot--empty" aria-hidden>—</div>
                 )}
                 {col.bottom?.type === 'jetty' && bottomBerthId ? (
-                  renderBerthZone('bottom', bottomBerthId, bottomBerth)
+                  renderBerthZone('bottom', bottomBerthId, bottomBerth, colIndex)
                 ) : (
                   <div className="jetty-schematic__berth-zone jetty-schematic__berth-zone--placeholder">
                     <div className="jetty-schematic__slot jetty-schematic__slot--vacant jetty-schematic__slot--empty" aria-hidden>

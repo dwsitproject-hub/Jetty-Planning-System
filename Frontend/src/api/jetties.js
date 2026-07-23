@@ -21,6 +21,7 @@ export function createJetty({
   jettyDwt,
   unloadingCommodityIds,
   loadingCommodityIds,
+  adjacentJettyIds,
 }) {
   return apiPost('/jetties', {
     port_id: portId,
@@ -34,6 +35,7 @@ export function createJetty({
     jetty_dwt: jettyDwt,
     unloading_commodity_ids: Array.isArray(unloadingCommodityIds) ? unloadingCommodityIds : [],
     loading_commodity_ids: Array.isArray(loadingCommodityIds) ? loadingCommodityIds : [],
+    adjacent_jetty_ids: Array.isArray(adjacentJettyIds) ? adjacentJettyIds : [],
   })
 }
 
@@ -49,6 +51,7 @@ export function updateJettyApi(id, {
   jettyDwt,
   unloadingCommodityIds,
   loadingCommodityIds,
+  adjacentJettyIds,
 }) {
   return apiPut(`/jetties/${id}`, {
     port_id: portId,
@@ -62,6 +65,7 @@ export function updateJettyApi(id, {
     jetty_dwt: jettyDwt,
     unloading_commodity_ids: Array.isArray(unloadingCommodityIds) ? unloadingCommodityIds : [],
     loading_commodity_ids: Array.isArray(loadingCommodityIds) ? loadingCommodityIds : [],
+    adjacent_jetty_ids: Array.isArray(adjacentJettyIds) ? adjacentJettyIds : [],
   })
 }
 

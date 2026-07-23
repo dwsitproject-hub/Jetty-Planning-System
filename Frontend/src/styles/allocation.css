@@ -435,6 +435,77 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.6);
 }
 
+/* Multi-jetty berthing: visually extends a vessel's REAL bar (rendered in its primary jetty's
+   row, unchanged) down/up through its additional jetty row(s) so the two rows read as one
+   continuous occupied bar. Same fill/border colours as the real bar (reused via
+   segmentColorClass); no text; not interactive — the real bar still owns clicks/drag. Sits at
+   the same z-index as `.jetty-schedule-gantt__bar` but earlier in DOM order, so the real bar
+   (painted after) covers it exactly where they overlap in the primary row. */
+.jetty-schedule-gantt__bar--span-extension {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+/* Multi-jetty berthing: when the schedule is editable, grabbing anywhere on the extension
+   (not just the real bar) drags the whole spanning bar — see `handleBarPointerDown`'s
+   `grabbedExtension` branch in JettyScheduleGantt.jsx. */
+.jetty-schedule-gantt__bar--span-extension-draggable {
+  pointer-events: auto;
+  cursor: grab;
+}
+
+/* !important: color modifiers like `--actual-grad`/`--actual-solid` set the full `border`
+   shorthand and are declared later in this file, so at equal (single-class) specificity they'd
+   otherwise win the cascade and reinstate the removed edge border. */
+.jetty-schedule-gantt__bar--span-extension-down {
+  border-top: none !important;
+  border-radius: 0 0 4px 4px !important;
+}
+
+.jetty-schedule-gantt__bar--span-extension-up {
+  border-bottom: none !important;
+  border-radius: 4px 4px 0 0 !important;
+}
+
+/* Mirror of the extension's own border/radius removal, applied to the REAL primary bar on the
+   edge that touches its extension — together these make the two pieces read as one seamless
+   rectangle (single outer border, rounded only on the non-connecting edge) instead of two
+   bordered pieces stacked together.
+   !important is required here: several status modifiers (e.g. `--actual-etc-overdue`,
+   `--st-sailed-off`) are combined two-class selectors (e.g.
+   `.bar--actual-etc-overdue.bar--actual-grad`) with higher specificity than this single-class
+   rule, and they set the full `border` shorthand — which would otherwise silently reinstate the
+   bottom/top border and reopen the seam on any late/sailed-off spanning vessel. */
+.jetty-schedule-gantt__bar--span-primary-down {
+  border-bottom: none !important;
+  border-radius: 4px 4px 0 0 !important;
+}
+
+.jetty-schedule-gantt__bar--span-primary-up {
+  border-top: none !important;
+  border-radius: 0 0 4px 4px !important;
+}
+
+/* Multi-jetty + late: one continuous 3px red left accent on BOTH shell pieces (matches
+   .gantt-dense-block--late weight used on single-row bars). Inset box-shadow avoids fighting
+   seamless border/radius rules that use !important. */
+.jetty-schedule-gantt__bar--span-primary-down.jetty-schedule-gantt__bar--actual-etc-overdue,
+.jetty-schedule-gantt__bar--span-primary-up.jetty-schedule-gantt__bar--actual-etc-overdue,
+.jetty-schedule-gantt__bar--span-extension.jetty-schedule-gantt__bar--actual-etc-overdue {
+  box-shadow: inset 3px 0 0 rgb(var(--gantt-late-rgb));
+}
+
+/* Outer shell already carries the accent — suppress inner duplicate on the primary row only. */
+.jetty-schedule-gantt__bar--span-primary-down.jetty-schedule-gantt__bar--actual-etc-overdue .gantt-dense-block--late,
+.jetty-schedule-gantt__bar--span-primary-up.jetty-schedule-gantt__bar--actual-etc-overdue .gantt-dense-block--late {
+  border-left: none;
+  margin-left: 0;
+  padding-left: 8px;
+  border-radius: 0;
+}
+
 .jetty-schedule-gantt__row {
   display: grid;
   align-items: stretch;

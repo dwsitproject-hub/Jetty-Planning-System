@@ -15,7 +15,7 @@ export default function AllocationVisualizationPopout() {
 
   const profile = searchParams.get('profile') === 'legacy' ? 'legacy' : 'plan'
 
-  const { loading, error, isPlanCentric, selectedPort, planViz, vesselById, berthIds, berthsState, breachNowMs, reload } =
+  const { loading, error, isPlanCentric, selectedPort, planViz, vesselById, berthIds, berthsState, jetties, breachNowMs, reload } =
     useAllocationVisualizationData(profile)
 
   useEffect(() => {
@@ -91,6 +91,7 @@ export default function AllocationVisualizationPopout() {
           <JettyScheduleGantt
             berthIds={berthIds}
             berthsState={berthsState}
+            jetties={jetties}
             list={planViz.mergedSchedule}
             onScheduleChanged={reload}
             popoutProfile={profile}

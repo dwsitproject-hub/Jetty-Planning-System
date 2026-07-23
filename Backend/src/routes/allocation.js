@@ -16,9 +16,48 @@ import { requirePageView, userHasPageEdit } from '../middleware/permissions.js';
 import { JETTY_OUT_OF_SERVICE } from '../lib/jetty-blocking.js';
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
 import { enrichRowsWithCargoDisplay } from '../lib/siBreakdownDisplay.js';
+import { validateMultiJettySelection } from '../lib/multi-jetty.js';
 
 const router = express.Router();
 const SCHEDULE_SAILED_LOOKBACK_DAYS = 90;
+
+/**
+ * Resolve a mixed list of jetty short/full names (e.g. "2A" or "Jetty 2A") to jetties.id,
+ * scoped to the port. Mirrors the single-jetty `b.jetty` resolution used elsewhere in this file.
+ */
+async function resolveJettyShortNamesToIds(client, portId, rawList) {
+  const names = [
+    ...new Set((Array.isArray(rawList) ? rawList : []).map((v) => String(v ?? '').trim()).filter(Boolean)),
+  ];
+  if (!names.length) return { ids: [], unresolved: [] };
+  const ids = [];
+  const unresolved = [];
+  for (const short of names) {
+    const full = /^jetty\s+/i.test(short) ? short : `Jetty ${short}`;
+    const jr = await client.query(
+      `SELECT id FROM jetties WHERE deleted_at IS NULL AND port_id = $3 AND (name = $1 OR name = $2) ORDER BY id LIMIT 1`,
+      [short, full, portId]
+    );
+    if (jr.rows[0]?.id != null) ids.push(Number(jr.rows[0].id));
+    else unresolved.push(short);
+  }
+  return { ids: [...new Set(ids)], unresolved };
+}
+
+/** First breakdown line's commodity type (Liquid/Solid) for an SI, or null if none. */
+async function loadSiCommodityType(client, shippingInstructionId) {
+  if (shippingInstructionId == null) return null;
+  const r = await client.query(
+    `SELECT sc.commodity_type
+     FROM shipping_instruction_breakdown br
+     JOIN si_commodities sc ON sc.id = br.commodity_id AND sc.deleted_at IS NULL
+     WHERE br.shipping_instruction_id = $1 AND br.deleted_at IS NULL
+     ORDER BY br.line_order, br.id
+     LIMIT 1`,
+    [shippingInstructionId]
+  );
+  return r.rows[0]?.commodity_type ?? null;
+}
 
 /** null = unknown; set false if DB has no operations.updated_by (migration 044 not applied). */
 let allocationOpsHasUpdatedByColumn = null;
@@ -44,9 +83,10 @@ const UPDATE_SHIPMENT_PLAN_ARRIVAL_WITH_UPDATED_BY = `UPDATE shipment_plans SET
          jetty_id = COALESCE($14, jetty_id),
          estimated_completion_time = $15,
          actual_completion_time = $16,
+         additional_jetties = COALESCE($17::bigint[], additional_jetties),
          updated_at = NOW(),
-         updated_by = $17
-       WHERE id = $18`;
+         updated_by = $18
+       WHERE id = $19`;
 
 const UPDATE_SHIPMENT_PLAN_ARRIVAL_NO_UPDATED_BY = `UPDATE shipment_plans SET
          eta = $1,
@@ -68,8 +108,9 @@ const UPDATE_SHIPMENT_PLAN_ARRIVAL_NO_UPDATED_BY = `UPDATE shipment_plans SET
          jetty_id = COALESCE($14, jetty_id),
          estimated_completion_time = $15,
          actual_completion_time = $16,
+         additional_jetties = COALESCE($17::bigint[], additional_jetties),
          updated_at = NOW()
-       WHERE id = $17`;
+       WHERE id = $18`;
 
 async function runArrivalShipmentPlanUpdate(client, paramsWithUpdatedBy, paramsWithoutUpdatedBy) {
   if (allocationPlanHasUpdatedByColumn === false) {
@@ -119,9 +160,10 @@ const UPDATE_ARRIVAL_WITH_UPDATED_BY = `UPDATE operations SET
          jetty_id = COALESCE($14, jetty_id),
          estimated_completion_time = $15,
          actual_completion_time = $16,
+         additional_jetties = COALESCE($17::bigint[], additional_jetties),
          updated_at = NOW(),
-         updated_by = $17
-       WHERE id = $18 AND deleted_at IS NULL`;
+         updated_by = $18
+       WHERE id = $19 AND deleted_at IS NULL`;
 
 const UPDATE_ARRIVAL_NO_UPDATED_BY = `UPDATE operations SET
          eta = $1,
@@ -147,8 +189,9 @@ const UPDATE_ARRIVAL_NO_UPDATED_BY = `UPDATE operations SET
          jetty_id = COALESCE($14, jetty_id),
          estimated_completion_time = $15,
          actual_completion_time = $16,
+         additional_jetties = COALESCE($17::bigint[], additional_jetties),
          updated_at = NOW()
-       WHERE id = $17 AND deleted_at IS NULL`;
+       WHERE id = $18 AND deleted_at IS NULL`;
 
 async function runArrivalOperationUpdate(client, paramsWithUpdatedBy, paramsWithoutUpdatedBy) {
   if (allocationOpsHasUpdatedByColumn === false) {
@@ -372,6 +415,7 @@ function formatListRow(r) {
     eta: r.eta_display || null,
     etb: r.etb_display || null,
     jetty: r.jetty_display || null,
+    additionalJetties: Array.isArray(r.additional_jetty_display) ? r.additional_jetty_display.filter(Boolean) : [],
     etaDateTime: r.eta_datetime || null,
     taDateTime: r.ta_datetime || null,
     etbDateTime: r.etb_datetime || null,
@@ -542,6 +586,8 @@ function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = 
         END AS etb_display,
         $1::text AS source_kind,
         (regexp_replace(j.name, '^Jetty\\s+', '', 'i'))::text AS jetty_display,
+        (SELECT array_agg(regexp_replace(aj.name, '^Jetty\\s+', '', 'i') ORDER BY aj.order_no)
+         FROM jetties aj WHERE aj.id = ANY(o.additional_jetties) AND aj.deleted_at IS NULL) AS additional_jetty_display,
         o.id::text AS row_id
      FROM operations o
      JOIN shipping_instructions si ON si.id = o.shipping_instruction_id AND si.deleted_at IS NULL
@@ -767,6 +813,9 @@ async function buildAllocationOverviewPayload(selectedPortId) {
     if (!hasTb && !occupiedStatuses.has(o.source_status)) continue;
     const jettyId = o.jetty_display;
     if (!jettyId) continue;
+    const additionalBerthIds = Array.isArray(o.additional_jetty_display)
+      ? o.additional_jetty_display.filter(Boolean)
+      : [];
     const arr = occupantsByJetty.get(jettyId) || [];
     arr.push({
       vesselId: o.vessel_id,
@@ -779,14 +828,80 @@ async function buildAllocationOverviewPayload(selectedPortId) {
       estimatedCompletionDateTime: o.estimated_completion_datetime || null,
       actualCompletionDateTime: o.actual_completion_datetime || null,
       castOffDateTime: o.cast_off_datetime || null,
+      additionalBerthIds,
     });
     occupantsByJetty.set(jettyId, arr);
   }
 
+  const capacityById = new Map(
+    jettiesRes.rows.map((j) => {
+      const id = jettyShortName(j.name);
+      const cap = j.capacity != null ? Number(j.capacity) : 1;
+      return [id, Number.isFinite(cap) && cap >= 1 ? cap : 1];
+    })
+  );
+
+  // Sort direct occupants per jetty (TB, then operation id) and assign lane indices — same order the
+  // schematic / Gantt use — so a multi-jetty span reserves the matching lane on the additional jetty
+  // (e.g. primary 2B-01 → secondary 3B-01) and leaves the other bank free.
+  const sortedByJetty = new Map();
+  for (const [jettyId, list] of occupantsByJetty) {
+    const deduped = dedupeBerthOccupantsByShipmentPlan(list);
+    deduped.sort((a, b) => {
+      const tbA = a.tbDateTime ? new Date(a.tbDateTime).getTime() : NaN;
+      const tbB = b.tbDateTime ? new Date(b.tbDateTime).getTime() : NaN;
+      const aOk = Number.isFinite(tbA);
+      const bOk = Number.isFinite(tbB);
+      if (aOk && bOk && tbA !== tbB) return tbA - tbB;
+      if (aOk && !bOk) return -1;
+      if (!aOk && bOk) return 1;
+      const opA = a.operationId != null ? Number(a.operationId) : Number.MAX_SAFE_INTEGER;
+      const opB = b.operationId != null ? Number(b.operationId) : Number.MAX_SAFE_INTEGER;
+      if (opA !== opB) return opA - opB;
+      return String(a.vesselId || '').localeCompare(String(b.vesselId || ''));
+    });
+    const cap = capacityById.get(jettyId) ?? 1;
+    sortedByJetty.set(
+      jettyId,
+      deduped.map((occ, idx) => ({ ...occ, laneIndex: Math.min(idx, cap - 1) }))
+    );
+  }
+
+  // Multi-jetty berthing: secondary (additional) jetty short id -> lane index -> who's spanning into it.
+  const spannedByLaneMap = new Map();
+  for (const [jettyId, sorted] of sortedByJetty) {
+    for (const occupant of sorted) {
+      for (const secondaryId of occupant.additionalBerthIds || []) {
+        if (!secondaryId || secondaryId === jettyId) continue;
+        const secondaryCap = capacityById.get(secondaryId) ?? 1;
+        const secondaryLane = Math.min(
+          occupant.laneIndex != null ? Number(occupant.laneIndex) : 0,
+          secondaryCap - 1
+        );
+        const laneMap = spannedByLaneMap.get(secondaryId) || new Map();
+        if (!laneMap.has(secondaryLane)) {
+          laneMap.set(secondaryLane, {
+            laneIndex: secondaryLane,
+            primaryBerthId: jettyId,
+            vesselId: occupant.vesselId,
+            vesselName: occupant.vesselName,
+          });
+        }
+        spannedByLaneMap.set(secondaryId, laneMap);
+      }
+    }
+  }
+
   const berths = jettiesRes.rows.map((j) => {
     const id = jettyShortName(j.name);
-    const occList = dedupeBerthOccupantsByShipmentPlan(occupantsByJetty.get(id) || []);
+    const occList = sortedByJetty.get(id) || [];
     const occ0 = occList[0] || null;
+    const spannedByLanes = [...(spannedByLaneMap.get(id)?.values() || [])].sort(
+      (a, b) => a.laneIndex - b.laneIndex
+    );
+    // Multi-jetty berthing: a vessel berthed at an adjacent jetty that spans into this one occupies
+    // one of this jetty's own lanes too — count it so a double-bank jetty reads e.g. "1/2", not
+    // "0/2", while its other (non-spanned) lane still shows as available.
     return {
       id,
       name: j.name,
@@ -794,11 +909,14 @@ async function buildAllocationOverviewPayload(selectedPortId) {
       capacity: j.capacity != null ? Number(j.capacity) : 1,
       portName: j.port_name,
       occupants: occList,
-      occupiedCount: occList.length,
+      occupiedCount: occList.length + spannedByLanes.length,
       // Backward-compat (single-vessel UI)
       currentVesselId: occ0 ? occ0.vesselId : null,
       currentVesselName: occ0 ? occ0.vesselName : null,
       currentOperationId: occ0?.operationId != null ? Number(occ0.operationId) : null,
+      // Multi-jetty berthing: set when this berth is a secondary/spanned jetty for another berth's occupant.
+      spannedBy: spannedByLanes[0] || null,
+      spannedByLanes,
     };
   });
 
@@ -1042,6 +1160,28 @@ router.put('/arrival', async (req, res) => {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'ETB is required when assigning a jetty.' });
       }
+
+      // Multi-jetty berthing: no SI exists yet at plan-only stage, so commodity-type is not checked here.
+      const additionalJettiesProvided = Object.prototype.hasOwnProperty.call(b, 'additionalJetties');
+      const additionalResolved = await resolveJettyShortNamesToIds(client, selectedPortId, b.additionalJetties);
+      if (additionalResolved.unresolved.length) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `Unknown jetty: ${additionalResolved.unresolved.join(', ')}` });
+      }
+      if (additionalJettiesProvided && additionalResolved.ids.length) {
+        const mv = await validateMultiJettySelection(client, {
+          portId: selectedPortId,
+          primaryJettyId: jettyEffective,
+          additionalJettyIds: additionalResolved.ids,
+          excludeOperationId: null,
+        });
+        if (!mv.ok) {
+          await client.query('ROLLBACK');
+          return res.status(mv.status).json({ error: mv.error });
+        }
+      }
+      const additionalJettiesForSql = additionalJettiesProvided ? additionalResolved.ids : null;
+
       const remark = b.remark != null ? String(b.remark).trim() : planBefore.remark;
       const priority = b.priority != null ? String(b.priority).trim() : planBefore.priority;
       const noPkk = b.noPkk != null ? String(b.noPkk).trim() : planBefore.no_pkk;
@@ -1052,6 +1192,7 @@ router.put('/arrival', async (req, res) => {
         priority || null,
         remark || null,
         noPkk || null,
+        additionalJettiesForSql,
         req.userId ?? null,
         shipmentPlanIdDirect,
         selectedPortId,
@@ -1065,9 +1206,10 @@ router.put('/arrival', async (req, res) => {
              priority = COALESCE($4, priority),
              remark = COALESCE($5, remark),
              no_pkk = COALESCE($6, no_pkk),
+             additional_jetties = COALESCE($7::bigint[], additional_jetties),
              updated_at = NOW(),
-             updated_by = $7
-           WHERE id = $8 AND port_id = $9 AND deleted_at IS NULL`,
+             updated_by = $8
+           WHERE id = $9 AND port_id = $10 AND deleted_at IS NULL`,
           planUpdParams
         );
       } catch (e) {
@@ -1080,9 +1222,10 @@ router.put('/arrival', async (req, res) => {
                priority = COALESCE($4, priority),
                remark = COALESCE($5, remark),
                no_pkk = COALESCE($6, no_pkk),
+               additional_jetties = COALESCE($7::bigint[], additional_jetties),
                updated_at = NOW()
-             WHERE id = $7 AND port_id = $8 AND deleted_at IS NULL`,
-            planUpdParams.slice(0, 6).concat(planUpdParams.slice(7))
+             WHERE id = $8 AND port_id = $9 AND deleted_at IS NULL`,
+            [eta, etb, jettyId, priority || null, remark || null, noPkk || null, additionalJettiesForSql, shipmentPlanIdDirect, selectedPortId]
           );
         } else {
           throw e;
@@ -1183,7 +1326,8 @@ router.put('/arrival', async (req, res) => {
       `SELECT
          status, eta, ta, etb, pob, tb, sob,
          nor_tendered_at, nor_accepted_at, demurrage_liability_from_at,
-         no_pkk, priority, remark, jetty_id, estimated_completion_time, actual_completion_time
+         no_pkk, priority, remark, jetty_id, estimated_completion_time, actual_completion_time,
+         purpose, additional_jetties
        FROM operations
        WHERE id = $1 AND deleted_at IS NULL`,
       [opRow.id]
@@ -1307,6 +1451,32 @@ router.put('/arrival', async (req, res) => {
       return res.status(400).json({ error: 'ETB is required when assigning a jetty.' });
     }
 
+    // Multi-jetty berthing: validate additional jetties against port flag, adjacency,
+    // commodity-type support, and active-occupancy conflicts.
+    const additionalJettiesProvided = Object.prototype.hasOwnProperty.call(b, 'additionalJetties');
+    const additionalResolved = await resolveJettyShortNamesToIds(client, selectedPortId, b.additionalJetties);
+    if (additionalResolved.unresolved.length) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `Unknown jetty: ${additionalResolved.unresolved.join(', ')}` });
+    }
+    if (additionalJettiesProvided && additionalResolved.ids.length) {
+      const operationalPurpose = opBefore?.purpose ?? null;
+      const commodityType = await loadSiCommodityType(client, opRow.shipping_instruction_id);
+      const mv = await validateMultiJettySelection(client, {
+        portId: selectedPortId,
+        primaryJettyId: jettyEffective,
+        additionalJettyIds: additionalResolved.ids,
+        commodityType,
+        operationalPurpose,
+        excludeOperationId: opRow.id,
+      });
+      if (!mv.ok) {
+        await client.query('ROLLBACK');
+        return res.status(mv.status).json({ error: mv.error });
+      }
+    }
+    const additionalJettiesForSql = additionalJettiesProvided ? additionalResolved.ids : null;
+
     const arrivalUpdateParamsBase = [
       eta,
       ta,
@@ -1324,6 +1494,7 @@ router.put('/arrival', async (req, res) => {
       jettyId,
       estimatedCompletion,
       actualCompletion,
+      additionalJettiesForSql,
     ];
     if (shipmentPlanId != null) {
       const planUpd = await runArrivalShipmentPlanUpdate(
@@ -1391,7 +1562,7 @@ router.put('/arrival', async (req, res) => {
           ? actualCompletion
           : colToIso(stRow.actual_completion_time ?? null);
 
-        const siblingParams = [...arrivalUpdateParamsBase.slice(0, 15), actualCompletionSibling];
+        const siblingParams = [...arrivalUpdateParamsBase.slice(0, 15), actualCompletionSibling, arrivalUpdateParamsBase[16]];
         const sibUpd = await runArrivalOperationUpdate(
           client,
           [...siblingParams, req.userId ?? null, sibOpRow.id],
@@ -1469,6 +1640,13 @@ router.put('/arrival', async (req, res) => {
       { field: 'No PKK', from: opBefore?.no_pkk ?? null, to: noPkk ?? null },
       { field: 'Priority', from: opBefore?.priority ?? null, to: priority ?? null },
       { field: 'Jetty ID', from: opBefore?.jetty_id ?? null, to: jettyId ?? null },
+      ...(additionalJettiesProvided
+        ? [{
+            field: 'Additional Jetties',
+            from: (opBefore?.additional_jetties ?? []).join(', ') || null,
+            to: additionalResolved.ids.join(', ') || null,
+          }]
+        : []),
       { field: 'Estimated Completion', from: opBefore?.estimated_completion_time ?? null, to: estimatedCompletion ?? null },
       { field: 'Actual Completion', from: opBefore?.actual_completion_time ?? null, to: actualCompletion ?? null },
       { field: 'Remark', from: opBefore?.remark ?? null, to: remark ?? null },

@@ -36,7 +36,10 @@ const JETTY_SELECT_COLS = `j.id, j.port_id, j.order_no, j.name, j.description, j
                WHERE jc.jetty_id = j.id AND jc.operational_purpose = 'Unloading') AS unloading_commodities_json,
               (SELECT COALESCE(json_agg(json_build_object('id', c.id, 'name', c.name, 'shortName', c.short_name, 'commodityType', c.commodity_type) ORDER BY c.name), '[]'::json)
                FROM jetty_commodities jc JOIN si_commodities c ON c.id = jc.commodity_id AND c.deleted_at IS NULL
-               WHERE jc.jetty_id = j.id AND jc.operational_purpose = 'Loading') AS loading_commodities_json`;
+               WHERE jc.jetty_id = j.id AND jc.operational_purpose = 'Loading') AS loading_commodities_json,
+              (SELECT COALESCE(json_agg(ja.adjacent_jetty_id ORDER BY ja.adjacent_jetty_id), '[]'::json)
+               FROM jetty_adjacencies ja
+               WHERE ja.jetty_id = j.id) AS adjacent_jetty_ids_json`;
 
 function normalizeCommodityIds(rawIds) {
   return [...new Set(rawIds.map((v) => parseInt(v, 10)).filter((n) => Number.isFinite(n) && n > 0))];
@@ -86,6 +89,44 @@ async function loadJettyCommoditiesByPurpose(jettyId) {
 
 function commodityNames(list) {
   return (Array.isArray(list) ? list : []).map((c) => c.name).filter(Boolean).sort();
+}
+
+/**
+ * Replace jetty_adjacencies rows for one jetty; ids validated against jetties in the same port.
+ * Stored symmetrically (both (A,B) and (B,A)) so lookups never need an OR/UNION.
+ * Not gated by ports.allow_multi_jetty_berthing — admins may pre-configure pairs before enabling the flag.
+ */
+async function saveJettyAdjacencies(jettyId, portId, rawIds) {
+  if (!Array.isArray(rawIds)) return; // omitted => leave as-is
+  await pool.query('DELETE FROM jetty_adjacencies WHERE jetty_id = $1 OR adjacent_jetty_id = $1', [jettyId]);
+  const ids = [
+    ...new Set(rawIds.map((v) => parseInt(v, 10)).filter((n) => Number.isFinite(n) && n > 0 && n !== jettyId)),
+  ];
+  if (!ids.length) return;
+  await pool.query(
+    `INSERT INTO jetty_adjacencies (jetty_id, adjacent_jetty_id)
+     SELECT $1, id FROM jetties WHERE id = ANY($2::bigint[]) AND port_id = $3 AND deleted_at IS NULL
+     ON CONFLICT DO NOTHING`,
+    [jettyId, ids, portId]
+  );
+  await pool.query(
+    `INSERT INTO jetty_adjacencies (jetty_id, adjacent_jetty_id)
+     SELECT id, $1 FROM jetties WHERE id = ANY($2::bigint[]) AND port_id = $3 AND deleted_at IS NULL
+     ON CONFLICT DO NOTHING`,
+    [jettyId, ids, portId]
+  );
+}
+
+async function loadJettyAdjacentIds(jettyId) {
+  const r = await pool.query('SELECT adjacent_jetty_id FROM jetty_adjacencies WHERE jetty_id = $1', [jettyId]);
+  return r.rows.map((row) => Number(row.adjacent_jetty_id));
+}
+
+/** Short names (e.g. "1A") for a list of jetty ids, for activity-log change summaries. */
+async function jettyNamesForIds(ids) {
+  if (!ids.length) return [];
+  const r = await pool.query('SELECT name FROM jetties WHERE id = ANY($1::bigint[]) AND deleted_at IS NULL', [ids]);
+  return r.rows.map((row) => row.name).filter(Boolean).sort();
 }
 
 function appendCommodityPurposeChanges(changes, purposeLabel, beforeNames, afterNames) {
@@ -152,6 +193,7 @@ router.post('/', ...requirePageEdit('master-jetty'), async (req, res) => {
     jetty_dwt,
     unloading_commodity_ids,
     loading_commodity_ids,
+    adjacent_jetty_ids,
   } = req.body || {};
   if (port_id == null || !name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'port_id and name are required' });
@@ -186,9 +228,12 @@ router.post('/', ...requirePageEdit('master-jetty'), async (req, res) => {
     unloading: unloading_commodity_ids,
     loading: loading_commodity_ids,
   });
+  await saveJettyAdjacencies(row.id, row.port_id, adjacent_jetty_ids);
   const commoditiesByPurpose = await loadJettyCommoditiesByPurpose(row.id);
   row.unloading_commodities_json = commoditiesByPurpose.Unloading;
   row.loading_commodities_json = commoditiesByPurpose.Loading;
+  const adjacentIds = await loadJettyAdjacentIds(row.id);
+  row.adjacent_jetty_ids_json = adjacentIds;
   const portName = await pool.query(
     'SELECT name FROM ports WHERE id = $1 AND deleted_at IS NULL',
     [row.port_id]
@@ -205,6 +250,9 @@ router.post('/', ...requirePageEdit('master-jetty'), async (req, res) => {
   ];
   appendInitialCommodityChanges(createChanges, 'Allowed for Unloading', commodityNames(commoditiesByPurpose.Unloading));
   appendInitialCommodityChanges(createChanges, 'Allowed for Loading', commodityNames(commoditiesByPurpose.Loading));
+  if (adjacentIds.length) {
+    createChanges.push({ field: 'Adjacent Jetties', from: null, to: (await jettyNamesForIds(adjacentIds)).join(', ') });
+  }
   writeActivityLog({
     pageKey: 'master-jetty',
     action: 'add',
@@ -233,6 +281,7 @@ router.put('/:id', ...requirePageEdit('master-jetty'), async (req, res) => {
     jetty_dwt,
     unloading_commodity_ids,
     loading_commodity_ids,
+    adjacent_jetty_ids,
   } = req.body || {};
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'name is required' });
@@ -246,6 +295,7 @@ router.put('/:id', ...requirePageEdit('master-jetty'), async (req, res) => {
   const dwt = parseRequiredSpec(jetty_dwt, 'jetty_dwt');
   if (dwt?.error) return res.status(400).json({ error: dwt.error });
   const beforeCommodities = await loadJettyCommoditiesByPurpose(id);
+  const beforeAdjacentIds = await loadJettyAdjacentIds(id);
   const before = await pool.query(
     `SELECT j.id, j.port_id, j.order_no, j.name, j.description, j.rtsp_link, j.status, j.capacity,
             j.jetty_length_m, j.jetty_draft, j.jetty_dwt, p.name AS port_name
@@ -284,9 +334,12 @@ router.put('/:id', ...requirePageEdit('master-jetty'), async (req, res) => {
     unloading: unloading_commodity_ids,
     loading: loading_commodity_ids,
   });
+  await saveJettyAdjacencies(row.id, row.port_id, adjacent_jetty_ids);
   const afterCommodities = await loadJettyCommoditiesByPurpose(row.id);
   row.unloading_commodities_json = afterCommodities.Unloading;
   row.loading_commodities_json = afterCommodities.Loading;
+  const afterAdjacentIds = await loadJettyAdjacentIds(row.id);
+  row.adjacent_jetty_ids_json = afterAdjacentIds;
   const portName = await pool.query(
     'SELECT name FROM ports WHERE id = $1 AND deleted_at IS NULL',
     [row.port_id]
@@ -321,6 +374,14 @@ router.put('/:id', ...requirePageEdit('master-jetty'), async (req, res) => {
       'Allowed for Loading',
       commodityNames(beforeCommodities.Loading),
       commodityNames(afterCommodities.Loading)
+    );
+  }
+  if (Array.isArray(adjacent_jetty_ids)) {
+    appendCommodityPurposeChanges(
+      changes,
+      'Adjacent Jetties',
+      await jettyNamesForIds(beforeAdjacentIds),
+      await jettyNamesForIds(afterAdjacentIds)
     );
   }
 
@@ -453,6 +514,9 @@ function toJetty(row) {
     loadingCommodities: Array.isArray(row.loading_commodities_json)
       ? row.loading_commodities_json
       : (row.loadingCommodities ?? []),
+    adjacentJettyIds: Array.isArray(row.adjacent_jetty_ids_json)
+      ? row.adjacent_jetty_ids_json.map((n) => Number(n))
+      : (row.adjacentJettyIds ?? []),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
