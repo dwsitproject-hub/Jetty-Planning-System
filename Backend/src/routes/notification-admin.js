@@ -14,11 +14,50 @@ import {
   saveSmtpConfig,
 } from '../lib/smtp-config.js';
 import { loadAllEventSettings } from '../lib/notification-recipients.js';
+import {
+  getSlaEmailTemplateSampleVars,
+  loadSlaEmailTemplate,
+  renderSlaEmailTemplateStrings,
+  resetSlaEmailTemplate,
+  saveSlaEmailTemplate,
+  validateEmailTemplate,
+} from '../lib/sla-email-templates.js';
 
 const router = express.Router();
 router.use(...requireAdminPageView);
 
 const ACTIVITY_PAGE_KEY = 'admin';
+
+/**
+ * Record admin-initiated test send in notification_deliveries for Email Delivery Log.
+ */
+async function recordTemplateTestDelivery(db, {
+  userId,
+  eventKey,
+  subject,
+  body,
+  status,
+  providerMessageId = null,
+  errorText = null,
+}) {
+  const sampleVars = getSlaEmailTemplateSampleVars();
+  const payload = { ...sampleVars, test: true, templateTest: true };
+  const correlationId = `sla_template_test:${eventKey}:${userId}:${Date.now()}`;
+  const ins = await db.query(
+    `INSERT INTO notifications (user_id, port_id, event_key, kind, title, body, payload, correlation_id)
+     VALUES ($1, NULL, $2, 'info', $3, $4, $5::jsonb, $6)
+     RETURNING id`,
+    [userId, eventKey, subject, body, JSON.stringify(payload), correlationId]
+  );
+  const nid = ins.rows[0]?.id;
+  if (!nid) return null;
+  await db.query(
+    `INSERT INTO notification_deliveries (notification_id, channel, status, provider_message_id, error_text)
+     VALUES ($1, 'email', $2, $3, $4)`,
+    [nid, status, providerMessageId, errorText]
+  );
+  return nid;
+}
 
 function toEventSettings(row) {
   return {
@@ -73,6 +112,150 @@ router.put('/events/:eventKey', async (req, res) => {
     actorUserId: req.userId ?? null,
   }).catch(() => {});
   res.json(toEventSettings({ ...row, recipient_count: 0 }));
+});
+
+router.get('/events/:eventKey/templates/email', async (req, res) => {
+  try {
+    const eventKey = String(req.params.eventKey || '').trim();
+    const template = await loadSlaEmailTemplate(pool, eventKey);
+    res.json(template);
+  } catch (err) {
+    if (err?.status === 404) return res.status(404).json({ error: err.message });
+    throw err;
+  }
+});
+
+router.put('/events/:eventKey/templates/email', async (req, res) => {
+  try {
+    const eventKey = String(req.params.eventKey || '').trim();
+    const body = req.body || {};
+    const template = await saveSlaEmailTemplate(pool, eventKey, {
+      titleTemplate: body.titleTemplate,
+      bodyTemplate: body.bodyTemplate,
+    });
+    writeActivityLog({
+      pageKey: ACTIVITY_PAGE_KEY,
+      action: 'update',
+      entityType: 'NotificationEmailTemplate',
+      entityId: eventKey,
+      entityLabel: getEventLabel(eventKey),
+      summary: `Updated email template for ${getEventLabel(eventKey)}`,
+      actorUserId: req.userId ?? null,
+    }).catch(() => {});
+    res.json(template);
+  } catch (err) {
+    if (err?.status === 404) return res.status(404).json({ error: err.message });
+    if (err?.status === 400) return res.status(400).json({ error: err.message });
+    throw err;
+  }
+});
+
+router.post('/events/:eventKey/templates/email/reset', async (req, res) => {
+  try {
+    const eventKey = String(req.params.eventKey || '').trim();
+    const template = await resetSlaEmailTemplate(pool, eventKey);
+    writeActivityLog({
+      pageKey: ACTIVITY_PAGE_KEY,
+      action: 'update',
+      entityType: 'NotificationEmailTemplate',
+      entityId: eventKey,
+      entityLabel: getEventLabel(eventKey),
+      summary: `Reset email template to default for ${getEventLabel(eventKey)}`,
+      actorUserId: req.userId ?? null,
+    }).catch(() => {});
+    res.json(template);
+  } catch (err) {
+    if (err?.status === 404) return res.status(404).json({ error: err.message });
+    throw err;
+  }
+});
+
+router.post('/events/:eventKey/templates/email/test', async (req, res) => {
+  try {
+    const eventKey = String(req.params.eventKey || '').trim();
+    const body = req.body || {};
+
+    let templates;
+    if (body.titleTemplate != null || body.bodyTemplate != null) {
+      templates = validateEmailTemplate({
+        titleTemplate: body.titleTemplate,
+        bodyTemplate: body.bodyTemplate,
+      });
+    } else {
+      const loaded = await loadSlaEmailTemplate(pool, eventKey);
+      templates = {
+        titleTemplate: loaded.titleTemplate,
+        bodyTemplate: loaded.bodyTemplate,
+      };
+    }
+
+    const userR = await pool.query(
+      `SELECT id, email, username FROM users WHERE id = $1 AND deleted_at IS NULL`,
+      [req.userId]
+    );
+    const user = userR.rows[0];
+    const to = user?.email ? String(user.email).trim() : '';
+    if (!to || !isValidRecipientEmail(to)) {
+      return res.status(400).json({ error: 'Your user account has no valid email address' });
+    }
+
+    const smtp = await getSmtpTransport(pool);
+    if (!smtp) {
+      return res.status(400).json({ error: 'SMTP not configured — set up in Admin → Notifications' });
+    }
+
+    const from = await getFromAddress(pool);
+    const rendered = renderSlaEmailTemplateStrings(templates);
+    const subject = `[TEST] ${rendered.subject}`;
+
+    try {
+      const info = await smtp.sendMail({ from, to, subject, text: rendered.text });
+      await recordTemplateTestDelivery(pool, {
+        userId: req.userId,
+        eventKey,
+        subject,
+        body: rendered.text,
+        status: 'sent',
+        providerMessageId: info?.messageId ?? null,
+      });
+      writeActivityLog({
+        pageKey: ACTIVITY_PAGE_KEY,
+        action: 'create',
+        entityType: 'NotificationEmailTemplateTest',
+        entityId: eventKey,
+        entityLabel: getEventLabel(eventKey),
+        summary: `Sent test email for ${getEventLabel(eventKey)} to ${to}`,
+        meta: { success: true, messageId: info?.messageId ?? null },
+        actorUserId: req.userId ?? null,
+      }).catch(() => {});
+      res.json({ ok: true, to, subject });
+    } catch (err) {
+      const msg = err?.message || String(err);
+      await recordTemplateTestDelivery(pool, {
+        userId: req.userId,
+        eventKey,
+        subject,
+        body: rendered.text,
+        status: 'failed',
+        errorText: msg.slice(0, 500),
+      }).catch(() => {});
+      writeActivityLog({
+        pageKey: ACTIVITY_PAGE_KEY,
+        action: 'create',
+        entityType: 'NotificationEmailTemplateTest',
+        entityId: eventKey,
+        entityLabel: getEventLabel(eventKey),
+        summary: `Template test email failed for ${getEventLabel(eventKey)}: ${msg.slice(0, 200)}`,
+        meta: { success: false, error: msg.slice(0, 500) },
+        actorUserId: req.userId ?? null,
+      }).catch(() => {});
+      res.status(502).json({ error: msg });
+    }
+  } catch (err) {
+    if (err?.status === 404) return res.status(404).json({ error: err.message });
+    if (err?.status === 400) return res.status(400).json({ error: err.message });
+    throw err;
+  }
 });
 
 router.get('/events/:eventKey/recipients', async (req, res) => {

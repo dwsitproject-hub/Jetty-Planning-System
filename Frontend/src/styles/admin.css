@@ -219,6 +219,42 @@
   color: var(--color-text-steel);
 }
 
+.admin-notifications__badge--muted {
+  margin-left: var(--spacing-2);
+}
+
+.admin-notifications__current-template {
+  margin-bottom: var(--spacing-3);
+}
+
+.admin-notifications__current-row {
+  margin-bottom: var(--spacing-2);
+}
+
+.admin-notifications__current-row:last-child {
+  margin-bottom: 0;
+}
+
+.admin-notifications__current-key {
+  display: block;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: 4px;
+}
+
+.admin-notifications__preview-box--current pre {
+  font-size: var(--font-size-sm);
+}
+
+.admin-notifications__sub--inline {
+  margin-top: var(--spacing-2);
+}
+
+.admin-notifications__hint--warn {
+  color: #b45309;
+}
+
 .admin-notifications__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -322,6 +358,78 @@
 .admin-notifications__toast--error {
   background: #ffebee;
   color: #b71c1c;
+}
+
+.admin-notifications__hint {
+  margin: 0 0 var(--spacing-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.admin-notifications__template-body {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.admin-notifications__placeholders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: var(--spacing-2);
+}
+
+.admin-notifications__placeholders-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  margin-right: 4px;
+}
+
+.admin-notifications__placeholder-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--color-bg-subtle, #f4f4f5);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+}
+
+.admin-notifications__preview {
+  margin-bottom: var(--spacing-2);
+}
+
+.admin-notifications__preview-label {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  margin-bottom: 4px;
+}
+
+.admin-notifications__preview-box {
+  padding: var(--spacing-2);
+  border: 1px dashed var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-subtle, #fafafa);
+  font-size: var(--font-size-sm);
+}
+
+.admin-notifications__preview-box strong {
+  display: block;
+  margin-bottom: var(--spacing-1);
+}
+
+.admin-notifications__preview-box pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--font-size-xs);
 }
 
 .admin-email-log__filters {
