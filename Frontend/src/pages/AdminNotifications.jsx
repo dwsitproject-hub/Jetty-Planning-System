@@ -7,6 +7,10 @@ import {
   fetchEventRecipients,
   addEventRecipient,
   removeEventRecipient,
+  fetchEventEmailTemplate,
+  saveEventEmailTemplate,
+  resetEventEmailTemplate,
+  sendEventEmailTemplateTest,
   fetchSmtpConfig,
   saveSmtpConfig,
   sendSmtpTestEmail,
@@ -20,6 +24,16 @@ import '../styles/admin.css'
 
 const SLA_EVENTS = ['operation.sla_etc_d1', 'operation.sla_etc_breach']
 
+function renderTemplatePreview(template, vars) {
+  if (template == null) return ''
+  const v = vars && typeof vars === 'object' ? vars : {}
+  return String(template).replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, key) => {
+    const k = String(key).trim()
+    const val = v[k]
+    return val == null ? '' : String(val)
+  })
+}
+
 function smtpStatusLabel(cfg, t) {
   if (!cfg) return t('notifAdminSmtpNotConfigured')
   if (cfg.enabled && cfg.passwordConfigured) return t('notifAdminSmtpDatabase')
@@ -31,6 +45,9 @@ function smtpStatusLabel(cfg, t) {
 function EventCard({
   event,
   recipients,
+  emailTemplate,
+  onTemplateSaved,
+  onTemplateTestOk,
   users,
   roles,
   ports,
@@ -38,11 +55,23 @@ function EventCard({
   t,
 }) {
   const [saving, setSaving] = useState(false)
+  const [tplSaving, setTplSaving] = useState(false)
+  const [tplTesting, setTplTesting] = useState(false)
+  const [tplForm, setTplForm] = useState({ titleTemplate: '', bodyTemplate: '' })
   const [addKind, setAddKind] = useState('user')
   const [addUserId, setAddUserId] = useState('')
   const [addRoleId, setAddRoleId] = useState('')
   const [addPortIds, setAddPortIds] = useState([])
   const [err, setErr] = useState(null)
+
+  useEffect(() => {
+    if (emailTemplate) {
+      setTplForm({
+        titleTemplate: emailTemplate.titleTemplate || '',
+        bodyTemplate: emailTemplate.bodyTemplate || '',
+      })
+    }
+  }, [emailTemplate])
 
   const saveSettings = async (patch) => {
     setSaving(true)
@@ -89,7 +118,55 @@ function EventCard({
     }
   }
 
+  const saveTemplate = async () => {
+    setTplSaving(true)
+    setErr(null)
+    try {
+      const saved = await saveEventEmailTemplate(event.eventKey, tplForm)
+      onTemplateSaved?.(saved, t('notifAdminTemplateSaved'))
+    } catch (e) {
+      setErr(e?.message || 'Save failed')
+    } finally {
+      setTplSaving(false)
+    }
+  }
+
+  const resetTemplate = async () => {
+    if (!window.confirm(t('notifAdminTemplateResetConfirm'))) return
+    setTplSaving(true)
+    setErr(null)
+    try {
+      const saved = await resetEventEmailTemplate(event.eventKey)
+      onTemplateSaved?.(saved, t('notifAdminTemplateResetOk'))
+    } catch (e) {
+      setErr(e?.message || 'Reset failed')
+    } finally {
+      setTplSaving(false)
+    }
+  }
+
+  const testTemplate = async () => {
+    setTplTesting(true)
+    setErr(null)
+    try {
+      const result = await sendEventEmailTemplateTest(event.eventKey, tplForm)
+      onTemplateTestOk?.(result.to, t('notifAdminTemplateTestOk', { to: result.to }))
+    } catch (e) {
+      setErr(e?.message || 'Test failed')
+    } finally {
+      setTplTesting(false)
+    }
+  }
+
   const isBreach = event.eventKey === 'operation.sla_etc_breach'
+  const placeholders = emailTemplate?.placeholders || []
+  const previewVars = emailTemplate?.samplePreviewVars || {}
+  const savedSubject = emailTemplate?.titleTemplate || ''
+  const savedBody = emailTemplate?.bodyTemplate || ''
+  const hasUnsavedTemplate =
+    tplForm.titleTemplate !== savedSubject || tplForm.bodyTemplate !== savedBody
+  const previewSubject = renderTemplatePreview(tplForm.titleTemplate, previewVars)
+  const previewBody = renderTemplatePreview(tplForm.bodyTemplate, previewVars)
 
   return (
     <section className="card admin-notifications__card">
@@ -148,6 +225,79 @@ function EventCard({
           </label>
         </>
       )}
+      <h3 className="admin-notifications__sub">{t('notifAdminEmailTemplate')}</h3>
+      <p className="admin-notifications__hint">{t('notifAdminEmailTemplateHint')}</p>
+      <div className="admin-notifications__current-template">
+        <span className="admin-notifications__preview-label">{t('notifAdminTemplateCurrent')}</span>
+        {emailTemplate?.isDefault && (
+          <span className="admin-notifications__badge admin-notifications__badge--muted">
+            {t('notifAdminTemplateDefaultBadge')}
+          </span>
+        )}
+        <div className="admin-notifications__preview-box admin-notifications__preview-box--current">
+          <div className="admin-notifications__current-row">
+            <span className="admin-notifications__current-key">{t('notifAdminTemplateSubject')}</span>
+            <pre>{savedSubject || '—'}</pre>
+          </div>
+          <div className="admin-notifications__current-row">
+            <span className="admin-notifications__current-key">{t('notifAdminTemplateBody')}</span>
+            <pre>{savedBody || '—'}</pre>
+          </div>
+        </div>
+      </div>
+      <h4 className="admin-notifications__sub admin-notifications__sub--inline">{t('notifAdminTemplateEdit')}</h4>
+      {hasUnsavedTemplate && (
+        <p className="admin-notifications__hint admin-notifications__hint--warn">{t('notifAdminTemplateUnsaved')}</p>
+      )}
+      <label className="admin-notifications__field">
+        <span>{t('notifAdminTemplateSubject')}</span>
+        <input
+          value={tplForm.titleTemplate}
+          disabled={tplSaving}
+          onChange={(e) => setTplForm((f) => ({ ...f, titleTemplate: e.target.value }))}
+        />
+      </label>
+      <label className="admin-notifications__field">
+        <span>{t('notifAdminTemplateBody')}</span>
+        <textarea
+          className="admin-notifications__template-body"
+          rows={10}
+          value={tplForm.bodyTemplate}
+          disabled={tplSaving}
+          onChange={(e) => setTplForm((f) => ({ ...f, bodyTemplate: e.target.value }))}
+        />
+      </label>
+      {placeholders.length > 0 && (
+        <div className="admin-notifications__placeholders">
+          <span className="admin-notifications__placeholders-label">{t('notifAdminTemplatePlaceholders')}</span>
+          {placeholders.map((ph) => (
+            <code key={ph} className="admin-notifications__placeholder-chip">{`{{${ph}}}`}</code>
+          ))}
+        </div>
+      )}
+      <div className="admin-notifications__preview">
+        <span className="admin-notifications__preview-label">{t('notifAdminTemplatePreview')}</span>
+        <div className="admin-notifications__preview-box">
+          <strong>{previewSubject || '—'}</strong>
+          <pre>{previewBody || '—'}</pre>
+        </div>
+      </div>
+      <div className="admin-notifications__actions">
+        <button type="button" className="btn btn--primary btn--sm" disabled={tplSaving} onClick={saveTemplate}>
+          {tplSaving ? t('notifAdminSaving') : t('notifAdminTemplateSave')}
+        </button>
+        <button type="button" className="btn btn--secondary btn--sm" disabled={tplSaving} onClick={resetTemplate}>
+          {t('notifAdminTemplateReset')}
+        </button>
+        <button
+          type="button"
+          className="btn btn--secondary btn--sm"
+          disabled={tplSaving || tplTesting}
+          onClick={testTemplate}
+        >
+          {tplTesting ? t('notifAdminTesting') : t('notifAdminTemplateSendTest')}
+        </button>
+      </div>
       <h3 className="admin-notifications__sub">{t('notifAdminRecipients')}</h3>
       <ul className="admin-notifications__recipient-list">
         {(recipients || []).length === 0 ? (
@@ -217,6 +367,7 @@ export default function AdminNotifications() {
   const [err, setErr] = useState(null)
   const [events, setEvents] = useState([])
   const [recipientsByEvent, setRecipientsByEvent] = useState({})
+  const [templatesByEvent, setTemplatesByEvent] = useState({})
   const [users, setUsers] = useState([])
   const [roles, setRoles] = useState([])
   const [ports, setPorts] = useState([])
@@ -262,10 +413,13 @@ export default function AdminNotifications() {
         enabled: Boolean(sm?.enabled),
       })
       const rec = {}
+      const tpl = {}
       for (const ek of SLA_EVENTS) {
         rec[ek] = await fetchEventRecipients(ek)
+        tpl[ek] = await fetchEventEmailTemplate(ek)
       }
       setRecipientsByEvent(rec)
+      setTemplatesByEvent(tpl)
     } catch (e) {
       setErr(e?.message || 'Failed to load')
     } finally {
@@ -316,6 +470,15 @@ export default function AdminNotifications() {
     } finally {
       setSmtpTesting(false)
     }
+  }
+
+  const handleTemplateSaved = (eventKey, saved, message) => {
+    setTemplatesByEvent((prev) => ({ ...prev, [eventKey]: saved }))
+    setToast({ kind: 'success', text: message })
+  }
+
+  const handleTemplateTestOk = (to, message) => {
+    setToast({ kind: 'success', text: message || t('notifAdminTemplateTestOk', { to }) })
   }
 
   return (
@@ -426,6 +589,9 @@ export default function AdminNotifications() {
               key={event.eventKey}
               event={event}
               recipients={recipientsByEvent[event.eventKey] || []}
+              emailTemplate={templatesByEvent[event.eventKey]}
+              onTemplateSaved={(saved, message) => handleTemplateSaved(event.eventKey, saved, message)}
+              onTemplateTestOk={handleTemplateTestOk}
               users={users}
               roles={roles}
               ports={ports}

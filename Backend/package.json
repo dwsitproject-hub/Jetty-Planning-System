@@ -14,7 +14,7 @@
     "test:incoming-si-filter": "node scripts/test-incoming-si-filter.mjs",
     "test:notifications": "node scripts/test-notifications-comprehensive.mjs",
     "test:sla-notifications": "node scripts/test-sla-notifications.mjs",
-    "test:smtp-config": "node --test src/lib/smtp-config.test.js",
+    "test:smtp-config": "node --test src/lib/smtp-config.test.js src/lib/sla-email-templates.test.js",
     "run:sla-notifications": "node scripts/run-sla-notifications.js",
     "test:security": "node scripts/test-security-rbac-uploads.mjs",
     "grant-admin-access": "node scripts/grant-admin-full-access.js",

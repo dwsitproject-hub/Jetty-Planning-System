@@ -20,6 +20,22 @@ export function removeEventRecipient(id) {
   return apiDelete(`/notification-admin/recipients/${id}`)
 }
 
+export function fetchEventEmailTemplate(eventKey) {
+  return apiGet(`/notification-admin/events/${encodeURIComponent(eventKey)}/templates/email`)
+}
+
+export function saveEventEmailTemplate(eventKey, body) {
+  return apiPut(`/notification-admin/events/${encodeURIComponent(eventKey)}/templates/email`, body)
+}
+
+export function resetEventEmailTemplate(eventKey) {
+  return apiPost(`/notification-admin/events/${encodeURIComponent(eventKey)}/templates/email/reset`, {})
+}
+
+export function sendEventEmailTemplateTest(eventKey, body = {}) {
+  return apiPost(`/notification-admin/events/${encodeURIComponent(eventKey)}/templates/email/test`, body)
+}
+
 export function fetchSmtpConfig() {
   return apiGet('/notification-admin/smtp')
 }
