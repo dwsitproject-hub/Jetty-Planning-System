@@ -1,12 +1,77 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.44
-**Last Updated**: 2026-06-12  
+**Version**: 1.45
+**Last Updated**: 2026-07-23  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
 
 ## 0. Addendum (2026-03-31)
+
+### 0.34 Multi-jetty berthing (2026-07-23)
+
+**Purpose:** Allow a vessel call to occupy a **primary jetty** plus one or more **adjacent** jetties when `ports.allow_multi_jetty_berthing` is true. Adjacency is **explicit admin config** (`jetty_adjacencies`), independent of **`jetty_layouts`** schematic geometry. Functional behaviour: **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.28**.
+
+**Database (migrations):**
+
+| Migration | Objects |
+|-----------|---------|
+| **`095_multi_jetty_berthing.sql`** | **`ports.allow_multi_jetty_berthing`** (`BOOLEAN NOT NULL DEFAULT false`); **`operations.additional_jetties`**, **`shipment_plans.additional_jetties`** (`BIGINT[] NOT NULL DEFAULT '{}'`) — secondary **`jetties.id`** values; GIN indexes on both array columns. Rollback: **`Backend/rollback/095_rollback_multi_jetty_berthing.sql`**. |
+| **`096_jetty_adjacencies.sql`** | Table **`jetty_adjacencies`** (`jetty_id`, `adjacent_jetty_id`, PK pair, `CHECK (jetty_id <> adjacent_jetty_id)`, FK → **`jetties`**, `ON DELETE CASCADE`). Stored **symmetrically** on write. Rollback: **`Backend/rollback/096_rollback_jetty_adjacencies.sql`**. |
+
+**Shared validation — `Backend/src/lib/multi-jetty.js`:**
+
+| Export | Role |
+|--------|------|
+| **`getPortAllowsMultiJetty(db, portId)`** | Reads **`ports.allow_multi_jetty_berthing`**. |
+| **`getAdjacentJettyIds(db, jettyId)`** | Adjacent **`jetties.id`** list from **`jetty_adjacencies`**. |
+| **`jettySupportsCommodityType(db, jettyId, commodityType, operationalPurpose)`** | True when **`jetty_commodities`** includes the SI commodity type for the operation purpose. |
+| **`findActiveOccupants(db, jettyIds, { excludeOperationId })`** | Active ops (`status <> 'SAILED'`, not **`shifting_out`**) where **`jetty_id`** or **`additional_jetties &&`** overlaps target ids. |
+| **`validateMultiJettySelection(db, { portId, primaryJettyId, additionalJettyIds, commodityType, operationalPurpose, excludeOperationId })`** | Full write-time checks: port flag, no primary in additional list, adjacency, OOS, commodity support on ≥1 additional, no conflicting occupant. Returns **`{ ok: true }`** or **`{ ok: false, status, error }`**. |
+
+**API — ports (`Backend/src/routes/ports.js`):**
+
+- **`GET /ports`**, **`GET /ports/:id`**, create/update expose **`allowMultiJetyBerthing`** (camelCase from **`allow_multi_jetty_berthing`**).
+- Activity log records flag changes on update.
+
+**API — jetties (`Backend/src/routes/jetties.js`):**
+
+- **`GET /jetties`**, **`GET /jetties/:id`** include **`adjacentJettyIds`** (numeric **`jetties.id`** array from subquery).
+- **`POST /jetties`**, **`PUT /jetties/:id`** accept **`adjacent_jetty_ids`**; **`replaceJettyAdjacencies`** deletes prior rows and inserts symmetric pairs (same-port validation). **Not** gated on port multi-jetty flag (pre-config allowed).
+- List SQL exposes **`adjacent_jetty_ids_json`** for table display.
+
+**API — port scope (`Backend/src/middleware/port-scope.js`):**
+
+- Selected port payload includes **`allowMultiJetyBerthing`** for Allocation UI gating.
+
+**API — allocation overview / arrival (`Backend/src/routes/allocation.js`):**
+
+- SQL selects **`o.additional_jetties`** / plan columns; **`formatListRow`** maps **`additionalJetties`** as short jetty id strings (same as **`jetty_display`** resolution).
+- **`berths[]` build:** direct occupants sorted per jetty (TB → operation id → vessel id) with **`laneIndex`**; **`spannedByLaneMap`** derives **`spannedByLanes`** from each occupant’s **`additionalBerthIds`** using **matching lane index** (clamped to secondary capacity). **`occupiedCount = direct + spannedByLanes.length`**. Legacy **`spannedBy`** = first lane entry.
+- **`PUT /allocation/arrival`:** optional body key **`additionalJetties`** (short ids) → **`resolveJettyShortNamesToIds`** → **`validateMultiJettySelection`** (commodity type loaded from SI when operation exists). Persisted to **`shipment_plans.additional_jetties`** and **`operations.additional_jetties`** via **`COALESCE($n::bigint[], …)`** (omit key = unchanged; **`[]`** clears). Plan-only path validates adjacency without commodity when no operation yet.
+- Activity log diff includes **Additional jetties** when the array changes.
+
+**Blocking — `Backend/src/lib/jetty-blocking.js`:**
+
+- **`countBlockingOperationsOnJetty`** counts ops where **`jetty_id = $1 OR $1 = ANY(additional_jetties)`** (non-SAILED, not shifting out).
+
+**Frontend:**
+
+| Module | Role |
+|--------|------|
+| **`Frontend/src/pages/MasterPort.jsx`** | **Allow Multi-Jetty Berthing** checkbox. |
+| **`Frontend/src/pages/MasterJetty.jsx`** | **Adjacent Jetties** multi-select; list column; disabled hint when port flag off. |
+| **`Frontend/src/components/JettyAllocationSelect.jsx`** | Primary jetty select + **`AdditionalJettiesPicker`** (occupancy / advice suffixes; blocks only **fully** occupied jetties). |
+| **`Frontend/src/pages/Allocation.jsx`** | Passes **`allowMultiJetty`**, **`additionalJetties`** on arrival/berthing saves; merges **`spannedByLanes`** in plan POV (**`allocationPlanPovMerge.js`**). |
+| **`Frontend/src/utils/jettyAdjacency.js`** | **`getAdjacentBerthIds`**, **`getAdjacencyChains`**, **`orderBerthIdsByAdjacency`**, **`buildAdjacencyAwareRowDefs`** (lane-interleaved Gantt rows). |
+| **`Frontend/src/components/JettyScheduleGantt.jsx`** | Span extension overlay; measured primary bar **`left`/`width`** for pixel alignment; unified drag; **`spanAnchorKey`** excludes live **`endMs`**. |
+| **`Frontend/src/utils/jettyScheduleOccupancy.js`** | Client-side **`berthOccupiedCount`** / **`spannedByLanes`** parity with API for schematic. |
+| **`Frontend/src/components/JettySchematic.jsx`** | Horizontal span width, **`--spanned`** lane slots, **`berthOccupiedCount`**. |
+| **`Frontend/src/styles/allocation.css`** | Span-primary/extension seamless borders; multi-jetty **late** inset accent on outer bar shells. |
+
+**Gantt row ordering (extends §0.6):** When adjacency chains length > 1, **`buildAdjacencyAwareRowDefs`** interleaves lanes (`2B-01`, `3B-01`, `2B-02`, …) instead of grouping all lanes per jetty. Bank-lane assignment per vessel (**§0.6**) is unchanged; span overlay targets the **same `laneIndex`** on each jetty in the chain.
+
+**Deploy order:** Run **095** and **096** before or with API/frontend builds that read/write **`additional_jetties`** and **`jetty_adjacencies`**.
 
 ### 0.33 Inbound Shipping Instruction integration API (`/api/v1/integrations`) (2026-06-12)
 
@@ -751,7 +816,7 @@ Operational ownership note:
 
 **Code:** `Frontend/src/components/JettyScheduleGantt.jsx` (`assignBankLanesByVessel`); metadata from allocation **`list`** (`tbDateTime`, `operationId`).
 
-**Schematic parity:** `Frontend/src/components/JettySchematic.jsx` assigns **`berths[].occupants`** into the same **01 / 02** lane order (TB → operation id → vessel id) so labels **1A-01** / **1A-02** align with the schedule.
+**Schematic parity:** `Frontend/src/components/JettySchematic.jsx` assigns **`berths[].occupants`** into the same **01 / 02** lane order (TB → operation id → vessel id) so labels **1A-01** / **1A-02** align with the schedule. **Multi-jetty berthing:** when **`additionalJetties`** is set, **`spannedByLanes`** reserves matching lane indices on secondary jetties; Gantt uses **`buildAdjacencyAwareRowDefs`** (**§0.34**) so span overlays sit on adjacent rows.
 
 ### 0.7 Active Vessel Detail — times edit, last updated, RBAC (2026-04-02)
 
@@ -1471,9 +1536,9 @@ Returns `{ queue, berths, scheduleQueue }`.
   - non-`SAILED` operations, plus
   - `SAILED` operations within configured lookback (`COALESCE(cast_off_at, actual_completion_time, updated_at)` >= `NOW() - lookbackDays`).
   Incoming approved SI rows are included here as well.
-- **Key camelCase fields** (non-exhaustive): `id`, `vesselId`, `operationId`, **`shipmentPlanId`**, `shippingInstructionId`, `vesselName`, `shippingInstruction`, `commodity`, `purpose`, `priority`, `noPkk`, `remark`, **`shiftingOut`**, **`shiftingOutAt`**, `eta`, `etb`, `jetty`, `etaDateTime`, `taDateTime`, `etbDateTime`, `tbDateTime`, `pobDateTime`, `sobDateTime`, `estimatedCompletionDateTime`, `actualCompletionDateTime`, `castOffDateTime`, `status`, `norDocuments`, **`recordLastUpdatedAt`**, **`recordLastUpdatedByDisplayName`**, **`shipper`** (comma-separated distinct names from **`shipping_instruction_breakdown.shipper_id`** — **§0.31**), **`agent`**, **`surveyor`** (from `si_agents` / `si_surveyors` joins; agent may fall back to **`shipment_plans.agent_id`**).
+- **Key camelCase fields** (non-exhaustive): `id`, `vesselId`, `operationId`, **`shipmentPlanId`**, `shippingInstructionId`, `vesselName`, `shippingInstruction`, `commodity`, `purpose`, `priority`, `noPkk`, `remark`, **`shiftingOut`**, **`shiftingOutAt`**, `eta`, `etb`, `jetty`, **`additionalJetties`** (short id array — **§0.34**), `etaDateTime`, `taDateTime`, `etbDateTime`, `tbDateTime`, `pobDateTime`, `sobDateTime`, `estimatedCompletionDateTime`, `actualCompletionDateTime`, `castOffDateTime`, `status`, `norDocuments`, **`recordLastUpdatedAt`**, **`recordLastUpdatedByDisplayName`**, **`shipper`** (comma-separated distinct names from **`shipping_instruction_breakdown.shipper_id`** — **§0.31**), **`agent`**, **`surveyor`** (from `si_agents` / `si_surveyors` joins; agent may fall back to **`shipment_plans.agent_id`**).
 - **`eta` / `etb`**: short display strings from SQL `to_char(… AT TIME ZONE 'UTC', 'DD/MM HH24:MI')` — **no** trailing ` LT` suffix.
-- **`berths`**: jetty list with occupancy derived from operations where **TB is set** and/or status in DOCKED / IN_PROGRESS / POST_OPS / SIGNOFF_REQUESTED / SIGNOFF_APPROVED **and `shifting_out` is false** (shifted-out vessels must not occupy a bank slot).
+- **`berths`**: jetty list with occupancy derived from operations where **TB is set** and/or status in DOCKED / IN_PROGRESS / POST_OPS / SIGNOFF_REQUESTED / SIGNOFF_APPROVED **and `shifting_out` is false** (shifted-out vessels must not occupy a bank slot). Each berth includes **`occupants`** (with **`laneIndex`**), **`occupiedCount`** (direct + spanned lanes), **`spannedByLanes`** `[{ laneIndex, primaryBerthId, vesselId, vesselName }]`, and legacy **`spannedBy`** (**§0.34**).
 
 #### 3.5.2 `POST /operations/:id/shifting-out`
 
@@ -1483,7 +1548,8 @@ See **§0.9** (request/response, remark persistence, activity log, client helper
 
 - **RBAC:** Requires **`can_edit`** on **`allocation-plan`** (`userHasAllocationPlanEdit`); otherwise **403**.
 - After resolving optional body **`jetty`** string to **`jetties.id`** for the selected port, if the jetty row’s **`status`** is **`Out of Service`**, responds **409** and rolls back (no partial update).
-- Resolves the **`shipment_plans`** row from the queue context and updates **plan-level** fields first: ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, `no_pkk`, `jetty_id`, **`estimated_completion_time`**, **`actual_completion_time`**, plan **`updated_by`** / **`updated_at`**, etc.
+- Optional body **`additionalJetties`**: array of short jetty ids → **`resolveJettyShortNamesToIds`** → **`validateMultiJettySelection`** (**§0.34**). Omitted key leaves DB arrays unchanged; empty array clears. When port flag is off, non-empty additional list → **400**.
+- Resolves the **`shipment_plans`** row from the queue context and updates **plan-level** fields first: ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, `no_pkk`, `jetty_id`, **`additional_jetties`**, **`estimated_completion_time`**, **`actual_completion_time`**, plan **`updated_by`** / **`updated_at`**, etc.
 - Updates the linked **`operations`** row for the same payload where the backend mirrors fields for legacy paths; when **TB** is provided, sets **`status = DOCKED`** if previously PENDING / ALLOCATED / empty and syncs **`docking_start_time`** with TB where applicable.
 - When **`tb`** is non-null and the SI belongs to an **Approved** shipment plan, **every other SI on that plan** gets the same arrival payload applied to its **latest** operation (creating the operation and jetty operation code when missing); **`SAILED`** sibling operations are skipped. **`shipping_instructions.status`** is not changed (document lifecycle remains Draft / Submitted / Approved).
 
@@ -1643,7 +1709,7 @@ See **§0.30**. Summary:
 Entities follow the design already outlined in the previous answer; key ones:
 
 - `users`, `roles`, `permissions`, `role_permissions`, `user_roles`.
-- `ports`, `jetties`, `jetty_status_history`. **`jetties.rtsp_link`** (`TEXT`, nullable, migration **077**) — optional RTSP URL for Jetty Live CCTV (**§0.26**).
+- `ports`, `jetties`, `jetty_status_history`. **`ports.allow_multi_jetty_berthing`** (`BOOLEAN`, migration **095**) — port-level feature flag (**§0.34**). **`jetty_adjacencies`** (`jetty_id`, `adjacent_jetty_id`, migration **096**) — symmetric adjacency pairs for multi-jetty berthing. **`jetties.rtsp_link`** (`TEXT`, nullable, migration **077**) — optional RTSP URL for Jetty Live CCTV (**§0.26**).
 - `shipping_instructions` — includes **`approval_id`** (migration **`019`**). Migration **`025_si_loading_document_and_approve_rbac.sql`** adds Loading document fields: **`voyage_no`**, **`destination_text`**, **`freight_terms`** (check: PREPAID, COLLECT, AS_PER_CHARTER_PARTY, OTHER), **`bill_of_lading_clause`**, **`consignee_text`**, **`notify_party_text`**, **`bl_indicated`**, **`document_date`**, and approval audit: **`approved_by_user_id`**, **`approved_at`**, **`approver_name_snapshot`**, **`approver_title_snapshot`**. API exposes camelCase equivalents (e.g. **`destinationText`**, **`freightTerms`**, **`approverNameSnapshot`**). **Header `shipper_id` removed** by migration **079** (**§0.31**).
 - `shipping_instruction_breakdown` — one row per commodity/contract line: **`commodity_id`**, **`metric_id`**, **`qty`**, contract/PO/SO text fields, **`line_order`**, and **`shipper_id`** (nullable FK → **`si_shippers`**, migration **079**). Legacy **`shipper_text`** dropped in **079**.
 - `si_shippers` — master lookup for shipper names; referenced by **`shipping_instruction_breakdown.shipper_id`** only (post-079).
@@ -1651,7 +1717,8 @@ Entities follow the design already outlined in the previous answer; key ones:
 - `users` — optional **`job_title`** (migration **`025`**) used when populating approver title snapshot (fallback: `OPERATION HEAD`).
 - `role_permissions` — **`can_approve`** boolean (migration **`025`**); merged in **`GET /rbac/me/page-permissions`** as **`canApprove`** per page. Shipping Instruction approval on **PUT** `/shipping-instructions/:id` when transitioning to **Approved** requires **`can_approve`** for resource_key **`shipment-plan`**. **Operation sign-off** (**`POST /operations/:id/signoff`**) requires **`can_approve`** for resource_key **`loading`** (Admin UI: **Approve operation sign-off** under Loading / Unloading).
 - `operation_documents` — file metadata per operation (`kind`, `stored_path`, NOR/BERTHING, etc.).
-- `operations`, `operation_materials`, `operation_activities` (optional).
+- `operations`, `operation_materials`, `operation_activities` (optional). **`operations.additional_jetties`** (`BIGINT[]`, migration **095**) — secondary berth ids spanned in addition to **`jetty_id`** (**§0.34**).
+- `shipment_plans` — includes **`additional_jetties`** (`BIGINT[]`, migration **095**) mirrored on the plan for pre-operation berthing saves.
 - `qc_surveys`, `qc_documents`.
 - `quantity_checks`.
 - `operation_sub_processes` (generalized Pre-Checking / other phase sub-process rows).

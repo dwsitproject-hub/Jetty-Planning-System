@@ -391,6 +391,18 @@ export default function OperationActivityTimeline({
   cargoSiQty = null,
   /** Metric label to display next to Qty / Balance values (e.g. "MT"). */
   cargoSiMetricLabel = null,
+  /** When set, only show events matching this phase (e.g. "Operational"). */
+  phaseFilter = null,
+  /** Override default card title. */
+  title = null,
+  /** Hide Phase column when filtered to a single phase. */
+  hidePhaseColumn = false,
+  /** Nested inside a parent section — omit outer berthing card chrome. */
+  embedded = false,
+  /** Parent-provided events (skips internal fetch when defined). */
+  eventsOverride = undefined,
+  loadingOverride = undefined,
+  errorOverride = undefined,
 }) {
   const navigate = useNavigate()
   const { t } = useTranslation('pages')
@@ -416,6 +428,7 @@ export default function OperationActivityTimeline({
   }, [toast])
 
   const load = useCallback(() => {
+    if (eventsOverride !== undefined) return
     if (!operationId) {
       setEvents([])
       setError(null)
@@ -461,11 +474,28 @@ export default function OperationActivityTimeline({
         setError(e?.message || 'Failed to load activity timeline')
       })
       .finally(() => setLoading(false))
-  }, [operationId])
+  }, [operationId, eventsOverride])
 
   useEffect(() => {
+    if (eventsOverride !== undefined) return
     load()
-  }, [load, refreshToken])
+  }, [load, refreshToken, eventsOverride])
+
+  const sourceEvents = eventsOverride !== undefined ? eventsOverride : events
+  const loadingState = loadingOverride !== undefined ? loadingOverride : loading
+  const errorState = errorOverride !== undefined ? errorOverride : error
+
+  const filteredEvents = useMemo(() => {
+    if (!phaseFilter) return sourceEvents
+    return sourceEvents.filter((ev) => String(ev?.phase || '') === phaseFilter)
+  }, [sourceEvents, phaseFilter])
+
+  const showPhaseColumn = !hidePhaseColumn
+  const cardTitle = title || 'Detailed At-Berth Executions Log'
+  const Wrapper = embedded ? 'div' : 'section'
+  const wrapperClassName = embedded
+    ? `operation-activity-timeline operation-activity-timeline--embedded ${className}`.trim()
+    : `operation-activity-timeline berthing-modal__card ${className}`.trim()
 
   const handleEdit = (ev) => {
     const path = buildActivityLogEditPath(ev, { vesselId, basePath })
@@ -513,17 +543,17 @@ export default function OperationActivityTimeline({
   }, [operationId])
 
   useEffect(() => {
-    if (!operationId || loading) return
-    const items = buildTimelineDisplayItems(events)
+    if (!operationId || loadingState) return
+    const items = buildTimelineDisplayItems(filteredEvents)
     const groupIds = items.filter((x) => x.kind === 'cargo_operations_group').map((x) => x.id)
     if (groupIds.length === 0) return
     if (!cargoGroupsExpandedOnceRef.current) {
       setExpandedCargoGroups(new Set(groupIds))
       cargoGroupsExpandedOnceRef.current = true
     }
-  }, [operationId, loading, events])
+  }, [operationId, loadingState, filteredEvents])
 
-  const displayItems = useMemo(() => buildTimelineDisplayItems(events), [events])
+  const displayItems = useMemo(() => buildTimelineDisplayItems(filteredEvents), [filteredEvents])
 
   const toggleCargoGroup = useCallback((groupId) => {
     setExpandedCargoGroups((prev) => {
@@ -545,7 +575,7 @@ export default function OperationActivityTimeline({
         key={rowKey}
         className={nested ? 'operation-activity-timeline__row operation-activity-timeline__row--cargo-nested' : undefined}
       >
-        <td>{ev.phase || '—'}</td>
+        {showPhaseColumn ? <td>{ev.phase || '—'}</td> : null}
         <td>{ev.title || '—'}</td>
         <td className="operation-activity-timeline__status">{timelineStatusDisplay(ev)}</td>
         <td className="operation-activity-timeline__remark">
@@ -627,7 +657,7 @@ export default function OperationActivityTimeline({
       >
         <header className="allocation-mobile-card__header">
           <strong>{ev.title || '—'}</strong>
-          <span className="text-steel">{ev.phase || '—'}</span>
+          {showPhaseColumn ? <span className="text-steel">{ev.phase || '—'}</span> : null}
         </header>
         <dl className="allocation-mobile-card__grid">
           <dt>Status</dt>
@@ -690,16 +720,16 @@ export default function OperationActivityTimeline({
 
   if (!operationId) {
     return (
-      <section className={`operation-activity-timeline berthing-modal__card ${className}`}>
-        <h3 className="berthing-modal__card-title">Activity log</h3>
+      <Wrapper className={wrapperClassName}>
+        <h3 className="berthing-modal__card-title">{cardTitle}</h3>
         <p className="text-steel">Open an operation from At-Berth to see a saved timeline.</p>
-      </section>
+      </Wrapper>
     )
   }
 
   return (
-    <section className={`operation-activity-timeline berthing-modal__card ${className}`}>
-      <h3 className="berthing-modal__card-title">Detailed At-Berth Executions Log</h3>
+    <Wrapper className={wrapperClassName}>
+      {!embedded ? <h3 className="berthing-modal__card-title">{cardTitle}</h3> : null}
       {toast?.message && (
         <div
           className={`toast ${toast.variant === 'error' ? 'toast--warning' : 'toast--success'}`}
@@ -716,22 +746,22 @@ export default function OperationActivityTimeline({
           </button>
         </div>
       )}
-      {loading && <p className="text-steel">Loading…</p>}
-      {error && (
+      {loadingState && <p className="text-steel">Loading…</p>}
+      {errorState && (
         <p className="text-steel" style={{ color: 'var(--danger-600, #c00)' }}>
-          {error}
+          {errorState}
         </p>
       )}
-      {!loading && !error && events.length === 0 && (
+      {!loadingState && !errorState && filteredEvents.length === 0 && (
         <p className="text-steel">No recorded activities yet for this operation.</p>
       )}
-      {!loading && !error && events.length > 0 && (
+      {!loadingState && !errorState && filteredEvents.length > 0 && (
         <>
           <div className="operation-activity-timeline__table-wrap operation-activity-timeline__desktop">
             <table className="loading-detail-activity-table operation-activity-timeline__table">
               <thead>
                 <tr>
-                  <th>Phase</th>
+                  {showPhaseColumn ? <th>Phase</th> : null}
                   <th>Title</th>
                   <th>Status</th>
                   <th>Remark</th>
@@ -754,7 +784,7 @@ export default function OperationActivityTimeline({
                   return (
                     <Fragment key={item.id}>
                       <tr className="operation-activity-timeline__row operation-activity-timeline__row--cargo-group">
-                        <td>{phaseLabel}</td>
+                        {showPhaseColumn ? <td>{phaseLabel}</td> : null}
                         <td>
                           <button
                             type="button"
@@ -828,7 +858,7 @@ export default function OperationActivityTimeline({
                         const metricSuffix = cargoSiMetricLabel ? ` ${cargoSiMetricLabel}` : ''
                         return (
                           <tr id={`${item.id}-cargo-children`} className="operation-activity-timeline__row operation-activity-timeline__row--cargo-children-wrap">
-                            <td colSpan={9} className="operation-activity-timeline__cargo-children-cell">
+                            <td colSpan={showPhaseColumn ? 9 : 8} className="operation-activity-timeline__cargo-children-cell">
                               <div
                                 className="operation-activity-timeline__cargo-children"
                                 role="region"
@@ -921,7 +951,7 @@ export default function OperationActivityTimeline({
                       </span>
                       <strong>{t('executionsLogCargoGroupTitle', { count: item.events.length })}</strong>
                     </button>
-                    <span className="text-steel">{item.events[0]?.phase || '—'}</span>
+                    {showPhaseColumn ? <span className="text-steel">{item.events[0]?.phase || '—'}</span> : null}
                   </header>
                   <dl className="allocation-mobile-card__grid">
                     <dt>Status</dt>
@@ -963,6 +993,6 @@ export default function OperationActivityTimeline({
         </>
       )}
       <RemarkViewerModal viewer={remarkViewer} onClose={closeRemarkViewer} />
-    </section>
+    </Wrapper>
   )
 }

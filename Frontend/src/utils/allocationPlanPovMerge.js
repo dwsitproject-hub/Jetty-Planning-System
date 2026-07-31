@@ -37,6 +37,25 @@ function maxIsoDateTime(rows, key) {
   return best
 }
 
+/** Method name from the child row whose opening hatch start equals the earliest across siblings. */
+function openingMethodNameForEarliestStart(rows) {
+  const earliest = minIsoDateTime(rows, 'openingHatchStartAt')
+  if (earliest) {
+    const earliestMs = parseMs(earliest)
+    for (const r of rows) {
+      if (parseMs(r?.openingHatchStartAt) === earliestMs) {
+        const name = r?.openingCargoHandlingMethodName
+        if (name && String(name).trim()) return String(name).trim()
+      }
+    }
+  }
+  for (const r of rows) {
+    const name = r?.openingCargoHandlingMethodName
+    if (name && String(name).trim()) return String(name).trim()
+  }
+  return null
+}
+
 function joinDistinctField(children, key) {
   const vals = [...new Set(children.map((c) => String(c?.[key] || '').trim()).filter(Boolean))]
   return vals.length ? vals.join(', ') : null
@@ -227,6 +246,8 @@ function mergePlanChildrenToQueueRow(children, planId, repMapOut, options = {}) 
     estimatedCompletionDateTime: maxIsoDateTime(children, 'estimatedCompletionDateTime'),
     operationsCompletedDateTime: maxIsoDateTime(children, 'operationsCompletedDateTime'),
     operationalStartDateTime: minIsoDateTime(children, 'operationalStartDateTime'),
+    openingHatchStartAt: minIsoDateTime(children, 'openingHatchStartAt'),
+    openingCargoHandlingMethodName: openingMethodNameForEarliestStart(children),
     actualCompletionDateTime: maxIsoDateTime(children, 'actualCompletionDateTime'),
     castOffDateTime: maxIsoDateTime(children, 'castOffDateTime'),
     norTenderedDateTime: minIsoDateTime(children, 'norTenderedDateTime'),
@@ -365,8 +386,16 @@ function mergeOccupantGroup(group, planId, repMapFromQueue) {
     estimatedCompletionDateTime: maxIsoDateTime(group, 'estimatedCompletionDateTime'),
     operationsCompletedDateTime: maxIsoDateTime(group, 'operationsCompletedDateTime'),
     operationalStartDateTime: minIsoDateTime(group, 'operationalStartDateTime'),
+    openingHatchStartAt: minIsoDateTime(group, 'openingHatchStartAt'),
+    openingCargoHandlingMethodName: openingMethodNameForEarliestStart(group),
     actualCompletionDateTime: maxIsoDateTime(group, 'actualCompletionDateTime'),
     castOffDateTime: maxIsoDateTime(group, 'castOffDateTime'),
+    // Multi-jetty berthing: keep span targets so schematic / occupancy rebuild can still reserve
+    // the matching lane on additional jetties after plan-centric occupant merge.
+    additionalBerthIds: Array.isArray(rep?.additionalBerthIds)
+      ? rep.additionalBerthIds.filter(Boolean)
+      : [],
+    laneIndex: rep?.laneIndex != null ? Number(rep.laneIndex) : undefined,
   }
 }
 
@@ -395,13 +424,23 @@ export function mergeBerthsStateForPlanPov(berths, repMapFromQueue) {
     }
     const nextOcc = [...mergedOcc, ...unlinked]
     const occ0 = nextOcc[0] || null
+    // Multi-jetty berthing: do NOT drop spanned-lane occupancy when collapsing plan occupants.
+    // A secondary jetty may have zero direct `occupants` but still use one bank via `spannedBy` /
+    // `spannedByLanes` (e.g. 3B-01 spanned from 2B → Occupied 1/2, 3B-02 still free).
+    const spannedLaneCount = Array.isArray(b.spannedByLanes)
+      ? b.spannedByLanes.length
+      : b.spannedBy
+        ? 1
+        : 0
     return {
       ...b,
       occupants: nextOcc,
-      occupiedCount: nextOcc.length,
+      occupiedCount: nextOcc.length + spannedLaneCount,
       currentVesselId: occ0 ? occ0.vesselId : null,
       currentVesselName: occ0 ? occ0.vesselName : null,
       currentOperationId: occ0?.operationId != null ? Number(occ0.operationId) : null,
+      spannedBy: b.spannedBy || null,
+      spannedByLanes: Array.isArray(b.spannedByLanes) ? b.spannedByLanes : b.spannedBy ? [b.spannedBy] : [],
     }
   })
 }

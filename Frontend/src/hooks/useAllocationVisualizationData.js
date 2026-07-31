@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { fetchAllocationOverview, fetchAllocationPlanOverview } from '../api/allocation'
+import { fetchJetties } from '../api/jetties'
 import { usePortScope } from '../context/PortScopeContext'
 import { mergeBerthsStateForPlanPov, mergeQueueRowsForPlanPov } from '../utils/allocationPlanPovMerge'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
@@ -44,6 +45,8 @@ function buildVesselById({ planViz, isPlanCentric, breachNowMs }) {
       cargoMovedQty: r.cargoMovedQty != null ? Number(r.cargoMovedQty) : 0,
       cargoFirstLoggedAt: r.cargoFirstLoggedAt ?? null,
       cargoLastLoggedAt: r.cargoLastLoggedAt ?? null,
+      openingHatchStartAt: r.openingHatchStartAt ?? null,
+      openingCargoHandlingMethodName: r.openingCargoHandlingMethodName ?? null,
       etaToCompletion: r.estimatedCompletionDateTime
         ? formatDateTimeDisplay(r.estimatedCompletionDateTime)
         : '—',
@@ -79,6 +82,8 @@ function buildVesselById({ planViz, isPlanCentric, breachNowMs }) {
         cargoMovedQty: o.cargoMovedQty != null ? Number(o.cargoMovedQty) : 0,
         cargoFirstLoggedAt: o.cargoFirstLoggedAt ?? null,
         cargoLastLoggedAt: o.cargoLastLoggedAt ?? null,
+        openingHatchStartAt: o.openingHatchStartAt ?? null,
+        openingCargoHandlingMethodName: o.openingCargoHandlingMethodName ?? null,
         etaToCompletion: o.estimatedCompletionDateTime
           ? formatDateTimeDisplay(o.estimatedCompletionDateTime)
           : '—',
@@ -107,9 +112,30 @@ export default function useAllocationVisualizationData(profile = 'plan') {
   const [list, setList] = useState([])
   const [scheduleList, setScheduleList] = useState([])
   const [berthsState, setBerthsState] = useState([])
+  const [jetties, setJetties] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [breachNowMs, setBreachNowMs] = useState(() => Date.now())
+
+  // Multi-jetty berthing: adjacency data (Master – Jetty) for the schedule Gantt's row
+  // ordering + spanning overlay. Best-effort — the Gantt degrades gracefully without it.
+  useEffect(() => {
+    if (!selectedPortId) {
+      setJetties([])
+      return undefined
+    }
+    let alive = true
+    fetchJetties(selectedPortId)
+      .then((data) => {
+        if (alive) setJetties(Array.isArray(data) ? data : [])
+      })
+      .catch(() => {
+        if (alive) setJetties([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [selectedPortId])
 
   const applyOverview = useCallback((data) => {
     setList(Array.isArray(data?.queue) ? data.queue : [])
@@ -204,6 +230,7 @@ export default function useAllocationVisualizationData(profile = 'plan') {
     vesselById,
     berthIds,
     berthsState,
+    jetties,
     breachNowMs,
     reload,
   }

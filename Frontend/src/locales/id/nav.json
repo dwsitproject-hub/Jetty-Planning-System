@@ -1,5 +1,7 @@
 {
   "dashboard": "Dasbor",
+  "liveOpsDashboard": "Operasi Live",
+  "opsAnalyticsDashboard": "Analitik Operasi",
   "managementDashboard": "Dasbor Manajemen",
   "jettyLive": "Jetty Live",
   "shippingInstruction": "Shipping Instruction",

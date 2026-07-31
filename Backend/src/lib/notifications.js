@@ -2,6 +2,7 @@
  * Central notification trigger: RBAC recipient resolution, in-app rows, email queue.
  */
 import { getNotificationEventConfig } from './notification-events.js';
+import { loadEventSettings, resolveEventRecipients } from './notification-recipients.js';
 
 /** @param {string} template */
 export function renderTemplate(template, vars) {
@@ -69,29 +70,65 @@ export async function resolveApproverUserIds(db, pageKey, excludeUserId) {
  *   correlationId: string,
  *   portId: number | null,
  *   excludeUserId?: number | null,
+ *   recipientUserIds?: number[] | null,
  *   payloadVars: Record<string, string | number | null | undefined>,
+ *   forceEmail?: boolean,
+ *   forceInApp?: boolean,
  * }} opts
  */
 export async function triggerNotification(db, opts) {
-  const { eventKey, correlationId, portId, excludeUserId = null, payloadVars = {} } = opts;
+  const {
+    eventKey,
+    correlationId,
+    portId,
+    excludeUserId = null,
+    recipientUserIds = null,
+    payloadVars = {},
+    forceEmail,
+    forceInApp,
+  } = opts;
   const cfg = getNotificationEventConfig(eventKey);
-  if (!cfg || !cfg.approvePageKey) {
+  if (!cfg) {
     return { sent: 0, skipped: true, reason: 'no_config' };
   }
 
-  const inAppTpl = await loadNotificationTemplate(db, eventKey, 'in_app');
-  if (!inAppTpl) {
-    return { sent: 0, skipped: true, reason: 'no_in_app_template' };
+  let inAppEnabled = true;
+  let emailEnabled = true;
+  if (cfg.adminConfigured) {
+    const settings = await loadEventSettings(db, eventKey);
+    if (!settings?.enabled) {
+      return { sent: 0, skipped: true, reason: 'event_disabled' };
+    }
+    inAppEnabled = settings.in_app_enabled !== false;
+    emailEnabled = settings.email_enabled !== false;
+  }
+  if (forceInApp === false) inAppEnabled = false;
+  if (forceInApp === true) inAppEnabled = true;
+  if (forceEmail === false) emailEnabled = false;
+  if (forceEmail === true) emailEnabled = true;
+
+  const inAppTpl = inAppEnabled ? await loadNotificationTemplate(db, eventKey, 'in_app') : null;
+  const emailTpl = emailEnabled ? await loadNotificationTemplate(db, eventKey, 'email') : null;
+  if (!inAppTpl && !emailTpl) {
+    return { sent: 0, skipped: true, reason: 'no_templates' };
   }
 
   const strVars = Object.fromEntries(
     Object.entries(payloadVars).map(([k, val]) => [k, val == null ? '' : String(val)])
   );
 
-  const title = renderTemplate(inAppTpl.title_template, strVars);
-  const body = renderTemplate(inAppTpl.body_template, strVars);
-  const kind = inAppTpl.kind;
-  const primaryActionLabelKey = inAppTpl.primary_action_label_key ?? null;
+  const title = inAppTpl
+    ? renderTemplate(inAppTpl.title_template, strVars)
+    : emailTpl
+      ? renderTemplate(emailTpl.title_template, strVars)
+      : '';
+  const body = inAppTpl
+    ? renderTemplate(inAppTpl.body_template, strVars)
+    : emailTpl
+      ? renderTemplate(emailTpl.body_template, strVars)
+      : '';
+  const kind = inAppTpl?.kind || emailTpl?.kind || 'info';
+  const primaryActionLabelKey = inAppTpl?.primary_action_label_key ?? null;
 
   const payload = {
     ...strVars,
@@ -100,29 +137,81 @@ export async function triggerNotification(db, opts) {
     primaryActionLabelKey,
   };
 
-  const recipients = await resolveApproverUserIds(db, cfg.approvePageKey, excludeUserId ?? null);
+  let recipients;
+  if (Array.isArray(recipientUserIds) && recipientUserIds.length > 0) {
+    recipients = recipientUserIds.map(Number);
+  } else if (cfg.adminConfigured) {
+    recipients = await resolveEventRecipients(db, eventKey, portId);
+  } else if (cfg.approvePageKey) {
+    recipients = await resolveApproverUserIds(db, cfg.approvePageKey, excludeUserId ?? null);
+  } else {
+    return { sent: 0, skipped: true, reason: 'no_recipients' };
+  }
+
+  if (excludeUserId != null) {
+    recipients = recipients.filter((id) => id !== Number(excludeUserId));
+  }
+
   let queued = 0;
   let inserted = 0;
 
   for (const userId of recipients) {
-    const ins = await db.query(
-      `INSERT INTO notifications (user_id, port_id, event_key, kind, title, body, payload, correlation_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
-       ON CONFLICT (user_id, correlation_id) DO NOTHING
-       RETURNING id`,
-      [userId, portId ?? null, eventKey, kind, title, body, JSON.stringify(payload), correlationId]
-    );
-    const nid = ins.rows[0]?.id;
-    if (nid == null) continue;
-    inserted += 1;
-    const emailTpl = await loadNotificationTemplate(db, eventKey, 'email');
-    if (emailTpl) {
-      await db.query(
-        `INSERT INTO notification_deliveries (notification_id, channel, status)
-         VALUES ($1, 'email', 'queued')`,
-        [nid]
+    let nid = null;
+    if (inAppTpl) {
+      const ins = await db.query(
+        `INSERT INTO notifications (user_id, port_id, event_key, kind, title, body, payload, correlation_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+         ON CONFLICT (user_id, correlation_id) DO NOTHING
+         RETURNING id`,
+        [userId, portId ?? null, eventKey, kind, title, body, JSON.stringify(payload), correlationId]
       );
-      queued += 1;
+      nid = ins.rows[0]?.id ?? null;
+      if (nid != null) inserted += 1;
+    }
+
+    if (emailTpl) {
+      if (nid == null) {
+        const existing = await db.query(
+          `SELECT id FROM notifications
+           WHERE user_id = $1 AND correlation_id = $2 LIMIT 1`,
+          [userId, correlationId]
+        );
+        nid = existing.rows[0]?.id ?? null;
+        if (nid == null) {
+          const insEmailOnly = await db.query(
+            `INSERT INTO notifications (user_id, port_id, event_key, kind, title, body, payload, correlation_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+             ON CONFLICT (user_id, correlation_id) DO NOTHING
+             RETURNING id`,
+            [
+              userId,
+              portId ?? null,
+              eventKey,
+              kind,
+              renderTemplate(emailTpl.title_template, strVars),
+              renderTemplate(emailTpl.body_template, strVars),
+              JSON.stringify(payload),
+              correlationId,
+            ]
+          );
+          nid = insEmailOnly.rows[0]?.id ?? null;
+          if (nid != null) inserted += 1;
+        }
+      }
+      if (nid != null) {
+        const dup = await db.query(
+          `SELECT id FROM notification_deliveries WHERE notification_id = $1 AND channel = 'email' LIMIT 1`,
+          [nid]
+        );
+        if (dup.rows.length === 0) {
+          await db.query(
+            `INSERT INTO notification_deliveries (notification_id, channel, status)
+             VALUES ($1, 'email', 'queued')`,
+            [nid]
+          );
+          queued += 1;
+        }
+      }
     }
   }
 

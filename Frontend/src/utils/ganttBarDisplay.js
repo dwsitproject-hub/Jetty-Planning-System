@@ -64,6 +64,24 @@ export function formatGanttMilestoneShort(ms) {
 }
 
 /**
+ * Opening (hose/conveyor on) label for schematic cards and schedule bars.
+ * @param {string | null | undefined} methodName e.g. "Hose" or "Conveyor"
+ * @param {string | null | undefined} startAtIso ISO timestamp from opening_hatch start_at
+ * @returns {string | null}
+ */
+export function formatHoseConveyorOnLine(methodName, startAtIso) {
+  if (startAtIso == null || startAtIso === '') return null
+  const ms = new Date(startAtIso).getTime()
+  if (!Number.isFinite(ms)) return null
+  const method = String(methodName || '').trim().toLowerCase()
+  let label = 'Hose on'
+  if (method === 'conveyor') label = 'Conveyor on'
+  else if (method === 'hose') label = 'Hose on'
+  else if (methodName && String(methodName).trim()) label = `${String(methodName).trim()} on`
+  return `${label} ${formatGanttMilestoneShort(ms)}`
+}
+
+/**
  * @param {Array<{ label: string, ms: number | null | undefined }>} entries
  * @returns {string}
  */
@@ -166,6 +184,12 @@ export function buildActualBlockModel(seg, row) {
     row?.cargoFirstLoggedAt,
     row?.cargoLastLoggedAt
   )
+  const openingSuffix = formatHoseConveyorOnLine(
+    row?.openingCargoHandlingMethodName,
+    row?.openingHatchStartAt
+  )
+  const cargoWithOpening =
+    openingSuffix && cargoDisplay ? `${cargoDisplay} · ${openingSuffix}` : cargoDisplay
 
   return {
     vesselName: seg.vesselName || '—',
@@ -178,8 +202,8 @@ export function buildActualBlockModel(seg, row) {
     tbMs: seg.tbMs ?? null,
     actualCompMs,
     materialDisplay,
-    cargoDisplay,
-    materialQtyLine: formatMaterialQtyLine(materialDisplay, cargoDisplay),
+    cargoDisplay: cargoWithOpening,
+    materialQtyLine: formatMaterialQtyLine(materialDisplay, cargoWithOpening),
     estimateLine: formatGanttMilestoneLine([
       { label: 'ETA', ms: seg.etaMs },
       { label: 'ETB', ms: seg.plannedEtbMs },

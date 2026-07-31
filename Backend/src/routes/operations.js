@@ -1329,6 +1329,10 @@ export function toOp(row) {
     referenceNumber: row.reference_number ?? undefined,
     commodity: row.commodity_display || row.commodity || undefined,
     commodityDisplay: row.commodity_display || row.commodity || undefined,
+    commodityShortDisplay:
+      row.commodity_short_display && row.commodity_short_display !== '—'
+        ? row.commodity_short_display
+        : (row.commodity_display || row.commodity || undefined),
     totalQtyDisplay: row.total_qty_display || undefined,
     cargoBreakdownSummary: Array.isArray(row.cargo_breakdown_summary)
       ? row.cargo_breakdown_summary

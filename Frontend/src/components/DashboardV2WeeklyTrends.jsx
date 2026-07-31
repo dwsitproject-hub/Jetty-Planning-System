@@ -1,11 +1,38 @@
-import { useMemo } from 'react'
+import { useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import InteractiveTooltip from './InteractiveTooltip'
 import { formatDateDisplay } from '../utils/formatDateTimeDisplay'
 
 const CHART_W = 760
-const CHART_H = 268
-const M = { left: 48, right: 24, top: 24, bottom: 76, yLabelX: 18 }
+const CHART_H = 200
+const M = { left: 48, right: 24, top: 16, bottom: 52, yLabelX: 18 }
+const PROJECTED_STROKE = 'var(--v2-chart-projected)'
+
+function getTodayUtcYmd() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function buildWeekUpcomingFlags(weeks) {
+  const today = getTodayUtcYmd()
+  return (weeks || []).map((w) => w.startDate > today)
+}
+
+function lastActiveWeekIndex(upcomingFlags) {
+  let idx = -1
+  upcomingFlags.forEach((up, i) => { if (!up) idx = i })
+  return idx
+}
+
+function projectUpcomingSeries(values, upcomingFlags, lastActiveIdx) {
+  if (lastActiveIdx < 0 || !Array.isArray(values)) return values
+  const raw = values[lastActiveIdx]
+  const base = raw == null || !Number.isFinite(Number(raw)) ? 0 : Number(raw)
+  return values.map((v, i) => (upcomingFlags[i] ? base : v))
+}
+
+function numericValue(v) {
+  return v == null || !Number.isFinite(Number(v)) ? 0 : Number(v)
+}
 
 function formatWeekRangeLabel(startIso, endIso) {
   if (!startIso || !endIso) return '—'
@@ -42,7 +69,7 @@ function buildYAxis(maxValue) {
   return { yMax, ticks }
 }
 
-function WeeklyLineChart({ weekLabels, yTitle, xAxisTitle, series, ariaLabel, weekTooltip }) {
+function WeeklyLineChart({ weekLabels, yTitle, xAxisTitle, showXAxisTitle = false, series, ariaLabel, weekTooltip, weekIsUpcoming = [] }) {
   const n = weekLabels.length
   if (n === 0) return null
 
@@ -110,24 +137,28 @@ function WeeklyLineChart({ weekLabels, yTitle, xAxisTitle, series, ariaLabel, we
             ))}
             <line className="v2-weekly-line__axis" x1={0} y1={plotH} x2={plotW} y2={plotH} />
             <line className="v2-weekly-line__axis" x1={0} y1={0} x2={0} y2={plotH} />
-            {series.map((s) => {
-              const pts = s.values
-                .map((v, i) => {
-                  const val = v == null || !Number.isFinite(Number(v)) ? 0 : Number(v)
-                  return `${xAt(i)},${yAt(val)}`
-                })
-                .join(' ')
-              return (
+            {series.map((s) => (
                 <g key={s.key}>
-                  <polyline
-                    className="v2-weekly-line__stroke"
-                    fill="none"
-                    stroke={s.color}
-                    strokeWidth={2}
-                    points={pts}
-                  />
+                  {s.values.length > 1 && s.values.slice(0, -1).map((_, i) => {
+                    const v0 = numericValue(s.values[i])
+                    const v1 = numericValue(s.values[i + 1])
+                    const projected = Boolean(weekIsUpcoming[i + 1])
+                    return (
+                      <line
+                        key={`${s.key}-seg-${i}`}
+                        className={`v2-weekly-line__stroke${projected ? ' v2-weekly-line__stroke--projected' : ''}`}
+                        x1={xAt(i)}
+                        y1={yAt(v0)}
+                        x2={xAt(i + 1)}
+                        y2={yAt(v1)}
+                        stroke={projected ? PROJECTED_STROKE : s.color}
+                        strokeWidth={2}
+                      />
+                    )
+                  })}
                   {s.values.map((v, i) => {
-                    const val = v == null || !Number.isFinite(Number(v)) ? 0 : Number(v)
+                    const val = numericValue(v)
+                    const projected = Boolean(weekIsUpcoming[i])
                     const title = s.pointTitle ? s.pointTitle(i, val) : `${weekLabels[i]}: ${val}`
                     return (
                       <circle
@@ -135,28 +166,29 @@ function WeeklyLineChart({ weekLabels, yTitle, xAxisTitle, series, ariaLabel, we
                         cx={xAt(i)}
                         cy={yAt(val)}
                         r={5}
-                        fill={s.color}
+                        fill={projected ? PROJECTED_STROKE : s.color}
                         stroke="#fff"
                         strokeWidth={1.5}
+                        className={projected ? 'v2-weekly-line__point--projected' : undefined}
                       >
                         <title>{title}</title>
                       </circle>
                     )
                   })}
                 </g>
-              )
-            })}
+              ))}
           </g>
           <g transform={`translate(${M.left},${M.top + plotH + 10})`}>
             {weekLabels.map((lab, i) => {
               const x = xAt(i)
+              const projected = Boolean(weekIsUpcoming[i])
               return (
                 <text
                   key={i}
                   x={x}
                   y={0}
-                  className="v2-weekly-line__xtext"
-                  transform={`rotate(-42 ${x} 0)`}
+                  className={`v2-weekly-line__xtext${projected ? ' v2-weekly-line__xtext--projected' : ''}`}
+                  transform={`rotate(-32 ${x} 0)`}
                   textAnchor="end"
                 >
                   {lab}
@@ -164,14 +196,16 @@ function WeeklyLineChart({ weekLabels, yTitle, xAxisTitle, series, ariaLabel, we
               )
             })}
           </g>
-          <text
-            x={M.left + plotW / 2}
-            y={CHART_H - 10}
-            className="v2-weekly-line__x-axis-title"
-            textAnchor="middle"
-          >
-            {xAxisTitle}
-          </text>
+          {showXAxisTitle ? (
+            <text
+              x={M.left + plotW / 2}
+              y={CHART_H - 8}
+              className="v2-weekly-line__x-axis-title"
+              textAnchor="middle"
+            >
+              {xAxisTitle}
+            </text>
+          ) : null}
         </svg>
 
         {weekTooltip ? (
@@ -221,6 +255,15 @@ export default function DashboardV2WeeklyTrends({
     [data, i18n.language],
   )
 
+  const weekIsUpcoming = useMemo(() => buildWeekUpcomingFlags(data), [data])
+  const lastActiveIdx = useMemo(() => lastActiveWeekIndex(weekIsUpcoming), [weekIsUpcoming])
+  const hasUpcomingWeeks = weekIsUpcoming.some(Boolean)
+
+  const withProjectedNote = useCallback((items, weekIndex) => {
+    if (!weekIsUpcoming[weekIndex]) return items
+    return [...items, { primary: t('v2WeeklyProjectedNote') }]
+  }, [weekIsUpcoming, t])
+
   const rangeSub = dateRangeLabel || ''
 
   if (loading && !data) {
@@ -244,27 +287,42 @@ export default function DashboardV2WeeklyTrends({
           {refreshing && (
             <span className="v2-weekly__refreshing" role="status">{t('v2WeeklyRefreshing')}</span>
           )}
+          {hasUpcomingWeeks && (
+            <span className="v2-weekly__legend-item v2-weekly__legend-item--head">
+              <i className="v2-weekly__legend-marker v2-weekly__legend-marker--projected" aria-hidden />
+              {t('v2WeeklyLegendProjected')}
+            </span>
+          )}
           <span className="v2-weekly__period">{dateRangeLabel}</span>
         </div>
       </div>
       <p className="v2-weekly__hint">
         {filtered ? t('v2WeeklyFilteredHint') : t('v2WeeklyHint')}
+        {hasUpcomingWeeks ? ` ${t('v2WeeklyProjectedHint')}` : ''}
       </p>
       <div className="v2-weekly__body">
       <div className="v2-weekly__block">
         <div className="v2-weekly__block-title">{t('v2WeeklyOccupancy')}</div>
         <WeeklyLineChart
           weekLabels={weekLabels}
+          weekIsUpcoming={weekIsUpcoming}
           yTitle={t('v2WeeklyOccupancy')}
           xAxisTitle={t('v2WeeklyAxisWeek')}
+          showXAxisTitle={false}
           ariaLabel={`${t('v2WeeklyOccupancy')}. ${rangeSub}`}
           weekTooltip={{
             subtitle: `${t('v2WeeklyOccupancy')} · ${rangeSub}`,
             placement: 'left',
             itemsForWeek: (i) => {
               const w = data[i]
-              const pct = w.slotOccupancyPct ?? '—'
-              return [
+              const pct = weekIsUpcoming[i]
+                ? projectUpcomingSeries(
+                  data.map((x) => x.slotOccupancyPct ?? 0),
+                  weekIsUpcoming,
+                  lastActiveIdx,
+                )[i]
+                : (w.slotOccupancyPct ?? '—')
+              return withProjectedNote([
                 {
                   primary: t('v2WeeklyOccupancy'),
                   secondary: typeof pct === 'number' ? `${pct}%` : String(pct),
@@ -275,74 +333,101 @@ export default function DashboardV2WeeklyTrends({
                     total: totalSlots ?? 0,
                   }),
                 },
-              ]
+              ], i)
             },
           }}
           series={[
             {
               key: 'occ',
               color: 'var(--v2-chart-atberth)',
-              values: data.map((w) => (w.slotOccupancyPct != null ? Number(w.slotOccupancyPct) : 0)),
-              pointTitle: (i) =>
-                t('v2WeeklyOccTooltip', {
-                  range: weekLabels[i],
-                  pct: data[i].slotOccupancyPct ?? '—',
-                  used: data[i].berthOccupiedPlans ?? 0,
-                  total: totalSlots ?? 0,
-                }),
+              values: projectUpcomingSeries(
+                data.map((w) => (w.slotOccupancyPct != null ? Number(w.slotOccupancyPct) : 0)),
+                weekIsUpcoming,
+                lastActiveIdx,
+              ),
+              pointTitle: (i, val) =>
+                weekIsUpcoming[i]
+                  ? t('v2WeeklyOccProjectedTooltip', { range: weekLabels[i], pct: val })
+                  : t('v2WeeklyOccTooltip', {
+                    range: weekLabels[i],
+                    pct: data[i].slotOccupancyPct ?? '—',
+                    used: data[i].berthOccupiedPlans ?? 0,
+                    total: totalSlots ?? 0,
+                  }),
             },
           ]}
         />
       </div>
 
       <div className="v2-weekly__block">
-        <div className="v2-weekly__block-title">{t('v2WeeklyPlansTitle')}</div>
-        <div className="v2-weekly__legend">
-          <span className="v2-weekly__legend-item">
-            <i className="v2-weekly__legend-marker v2-weekly__legend-marker--approved" />
-            {t('v2WeeklyLegendApproved')}
-          </span>
-          <span className="v2-weekly__legend-item">
-            <i className="v2-weekly__legend-marker v2-weekly__legend-marker--sailed" />
-            {t('v2WeeklyLegendSailed')}
-          </span>
+        <div className="v2-weekly__block-title-row">
+          <div className="v2-weekly__block-title">{t('v2WeeklyPlansTitle')}</div>
+          <div className="v2-weekly__legend v2-weekly__legend--inline">
+            <span className="v2-weekly__legend-item">
+              <i className="v2-weekly__legend-marker v2-weekly__legend-marker--approved" />
+              {t('v2WeeklyLegendApproved')}
+            </span>
+            <span className="v2-weekly__legend-item">
+              <i className="v2-weekly__legend-marker v2-weekly__legend-marker--sailed" />
+              {t('v2WeeklyLegendSailed')}
+            </span>
+          </div>
         </div>
         <WeeklyLineChart
           weekLabels={weekLabels}
+          weekIsUpcoming={weekIsUpcoming}
           yTitle={t('v2WeeklyAxisCount')}
           xAxisTitle={t('v2WeeklyAxisWeek')}
+          showXAxisTitle={false}
           ariaLabel={`${t('v2WeeklyPlansTitle')}. ${rangeSub}`}
           weekTooltip={{
             subtitle: `${t('v2WeeklyPlansTitle')} · ${rangeSub}`,
             placement: 'left',
             itemsForWeek: (i) => {
-              const w = data[i]
-              return [
+              const approvedVals = projectUpcomingSeries(
+                data.map((w) => Number(w.approvedPlans ?? 0)),
+                weekIsUpcoming,
+                lastActiveIdx,
+              )
+              const sailedVals = projectUpcomingSeries(
+                data.map((w) => Number(w.sailedCount ?? 0)),
+                weekIsUpcoming,
+                lastActiveIdx,
+              )
+              return withProjectedNote([
                 {
                   primary: t('v2WeeklyLegendApproved'),
-                  secondary: String(w.approvedPlans ?? 0),
+                  secondary: String(approvedVals[i] ?? 0),
                 },
                 {
                   primary: t('v2WeeklyLegendSailed'),
-                  secondary: String(w.sailedCount ?? 0),
+                  secondary: String(sailedVals[i] ?? 0),
                 },
-              ]
+              ], i)
             },
           }}
           series={[
             {
               key: 'approved',
               color: 'var(--v2-chart-approved)',
-              values: data.map((w) => Number(w.approvedPlans ?? 0)),
-              pointTitle: (i) =>
-                `${weekLabels[i]}: ${t('v2WeeklyLegendApproved')} ${data[i].approvedPlans ?? 0}`,
+              values: projectUpcomingSeries(
+                data.map((w) => Number(w.approvedPlans ?? 0)),
+                weekIsUpcoming,
+                lastActiveIdx,
+              ),
+              pointTitle: (i, val) =>
+                `${weekLabels[i]}: ${t('v2WeeklyLegendApproved')} ${val}`,
             },
             {
               key: 'sailed',
               color: 'var(--v2-chart-sailed)',
-              values: data.map((w) => Number(w.sailedCount ?? 0)),
-              pointTitle: (i) =>
-                `${weekLabels[i]}: ${t('v2WeeklyLegendSailed')} ${data[i].sailedCount ?? 0}`,
+              values: projectUpcomingSeries(
+                data.map((w) => Number(w.sailedCount ?? 0)),
+                weekIsUpcoming,
+                lastActiveIdx,
+              ),
+              pointTitle: (i, val) =>
+                `${weekLabels[i]}: ${t('v2WeeklyLegendSailed')} ${val}`,
             },
           ]}
         />
@@ -352,33 +437,48 @@ export default function DashboardV2WeeklyTrends({
         <div className="v2-weekly__block-title">{t('v2WeeklyQtyTitle')}</div>
         <WeeklyLineChart
           weekLabels={weekLabels}
+          weekIsUpcoming={weekIsUpcoming}
           yTitle={t('v2WeeklyAxisMt')}
           xAxisTitle={t('v2WeeklyAxisWeek')}
+          showXAxisTitle={false}
           ariaLabel={`${t('v2WeeklyQtyTitle')}. ${rangeSub}`}
           weekTooltip={{
             subtitle: `${t('v2WeeklyQtyTitle')} · ${rangeSub}`,
             placement: 'left',
             itemsForWeek: (i) => {
-              const w = data[i]
-              return [
+              const qtyVals = projectUpcomingSeries(
+                data.map((w) => Number(w.sailedQtyMt ?? 0)),
+                weekIsUpcoming,
+                lastActiveIdx,
+              )
+              const sailedVals = projectUpcomingSeries(
+                data.map((w) => Number(w.sailedCount ?? 0)),
+                weekIsUpcoming,
+                lastActiveIdx,
+              )
+              return withProjectedNote([
                 {
                   primary: t('v2WeeklyQtyLegend'),
-                  secondary: `${Number(w.sailedQtyMt ?? 0).toLocaleString()} MT`,
+                  secondary: `${Number(qtyVals[i] ?? 0).toLocaleString()} MT`,
                 },
                 {
                   primary: t('v2WeeklyLegendSailed'),
-                  secondary: String(w.sailedCount ?? 0),
+                  secondary: String(sailedVals[i] ?? 0),
                 },
-              ]
+              ], i)
             },
           }}
           series={[
             {
               key: 'qty',
               color: 'var(--v2-chart-approved)',
-              values: data.map((w) => Number(w.sailedQtyMt ?? 0)),
-              pointTitle: (i) =>
-                `${weekLabels[i]}: ${Number(data[i].sailedQtyMt ?? 0).toLocaleString()} MT`,
+              values: projectUpcomingSeries(
+                data.map((w) => Number(w.sailedQtyMt ?? 0)),
+                weekIsUpcoming,
+                lastActiveIdx,
+              ),
+              pointTitle: (i, val) =>
+                `${weekLabels[i]}: ${Number(val).toLocaleString()} MT`,
             },
           ]}
         />
@@ -388,16 +488,24 @@ export default function DashboardV2WeeklyTrends({
         <div className="v2-weekly__block-title">{t('v2WeeklySlaTitle')}</div>
         <WeeklyLineChart
           weekLabels={weekLabels}
+          weekIsUpcoming={weekIsUpcoming}
           yTitle={t('v2WeeklyAxisCount')}
           xAxisTitle={t('v2WeeklyAxisWeek')}
+          showXAxisTitle
           ariaLabel={`${t('v2WeeklySlaTitle')}. ${rangeSub}`}
           weekTooltip={{
             subtitle: `${t('v2WeeklySlaTitle')} · ${rangeSub}`,
             placement: 'left',
             itemsForWeek: (i) => {
-              const w = data[i]
-              const n = w.slaAtRiskCount ?? 0
-              const h = w.slaOverHoursSum
+              const slaVals = projectUpcomingSeries(
+                data.map((w) => Number(w.slaAtRiskCount ?? 0)),
+                weekIsUpcoming,
+                lastActiveIdx,
+              )
+              const n = slaVals[i] ?? 0
+              const h = weekIsUpcoming[i]
+                ? data[lastActiveIdx]?.slaOverHoursSum
+                : data[i].slaOverHoursSum
               const rows = [
                 {
                   primary: t('v2WeeklyAxisCount'),
@@ -407,20 +515,26 @@ export default function DashboardV2WeeklyTrends({
               if (h != null && Number.isFinite(Number(h))) {
                 rows.push({ primary: t('v2WeeklyTipSlaOver', { h }) })
               }
-              return rows
+              return withProjectedNote(rows, i)
             },
           }}
           series={[
             {
               key: 'sla',
               color: 'var(--v2-risk-color)',
-              values: data.map((w) => Number(w.slaAtRiskCount ?? 0)),
-              pointTitle: (i) =>
-                t('v2WeeklySlaTooltip', {
-                  range: weekLabels[i],
-                  n: data[i].slaAtRiskCount,
-                  h: data[i].slaOverHoursSum,
-                }),
+              values: projectUpcomingSeries(
+                data.map((w) => Number(w.slaAtRiskCount ?? 0)),
+                weekIsUpcoming,
+                lastActiveIdx,
+              ),
+              pointTitle: (i, val) =>
+                weekIsUpcoming[i]
+                  ? t('v2WeeklySlaProjectedTooltip', { range: weekLabels[i], n: val })
+                  : t('v2WeeklySlaTooltip', {
+                    range: weekLabels[i],
+                    n: data[i].slaAtRiskCount,
+                    h: data[i].slaOverHoursSum,
+                  }),
             },
           ]}
         />
