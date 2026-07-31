@@ -26,6 +26,84 @@ export function parseDateTimeLocalMs(dateTimeLocal) {
   return Number.isFinite(ms) ? ms : null;
 }
 
+/** @param {object | null | undefined} jetty */
+export function jettyLengthM(jetty) {
+  if (jetty?.jettyLengthM == null) return null;
+  const n = Number(jetty.jettyLengthM);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Combined mooring length when spanning a primary jetty plus additional adjacent jetties.
+ * @param {object[]} jetties
+ * @param {object} primaryJetty
+ * @param {string[]} additionalShortIds - Short berth ids (e.g. ["3B"])
+ */
+export function combinedSpanLengthM(jetties, primaryJetty, additionalShortIds = []) {
+  let total = jettyLengthM(primaryJetty) ?? 0;
+  for (const sid of additionalShortIds || []) {
+    const adj = (jetties || []).find((j) => jettyShortName(j.name) === sid);
+    total += jettyLengthM(adj) ?? 0;
+  }
+  return total;
+}
+
+/**
+ * Multi-jetty berthing: after per-jetty occupancy is known, mark primaries that can fit LOA
+ * by spanning into free adjacent jetties.
+ * @param {object[]} jetties
+ * @param {number} loaNum
+ * @param {Record<string|number, object>} byId
+ */
+function applyMultiJettyLoaAdvice(jetties, loaNum, byId) {
+  if (!Number.isFinite(loaNum) || loaNum <= 0) return;
+
+  for (const j of jetties || []) {
+    const e = byId[j.id];
+    if (!e || e.loaOkSingle) continue;
+
+    const primaryLen = jettyLengthM(j);
+    if (primaryLen == null) continue;
+
+    const adjacentIds = Array.isArray(j.adjacentJettyIds) ? j.adjacentJettyIds : [];
+    const spanAdjacentShortIds = [];
+
+    for (const adjId of adjacentIds) {
+      const adj = (jetties || []).find((x) => Number(x.id) === Number(adjId));
+      if (!adj) continue;
+      const adjEntry = byId[adj.id];
+      if (adjEntry?.occupied) continue;
+      const adjLen = jettyLengthM(adj) ?? 0;
+      const adjShort = jettyShortName(adj.name);
+      if (loaNum <= primaryLen + adjLen && adjShort) {
+        spanAdjacentShortIds.push(adjShort);
+      }
+    }
+
+    if (spanAdjacentShortIds.length > 0) {
+      e.loaOk = true;
+      e.loaOkMulti = true;
+      e.fits = e.loaOk && e.dwtOk && e.commodityOk;
+      e.spanAdjacentShortIds = spanAdjacentShortIds;
+      continue;
+    }
+
+    const freeAdjacents = adjacentIds
+      .map((adjId) => (jetties || []).find((x) => Number(x.id) === Number(adjId)))
+      .filter((adj) => adj && !byId[adj.id]?.occupied);
+    const totalLen =
+      primaryLen + freeAdjacents.reduce((sum, adj) => sum + (jettyLengthM(adj) ?? 0), 0);
+    if (freeAdjacents.length >= 2 && loaNum <= totalLen) {
+      e.loaOk = true;
+      e.loaOkMulti = true;
+      e.fits = e.loaOk && e.dwtOk && e.commodityOk;
+      e.spanAdjacentShortIds = freeAdjacents
+        .map((adj) => jettyShortName(adj.name))
+        .filter(Boolean);
+    }
+  }
+}
+
 /**
  * @param {object} params
  * @param {object[]} params.jetties - Master jetty list from si-lookups
@@ -40,6 +118,7 @@ export function parseDateTimeLocalMs(dateTimeLocal) {
  * @param {number | string | null} [params.occupancyOptions.excludePlanId] - Plan id to skip (shipment plans)
  * @param {string | null} [params.occupancyOptions.excludeVesselId] - Vessel id to skip (allocation)
  * @param {number | string | null} [params.occupancyOptions.excludeShipmentPlanId] - Shipment plan id to skip (allocation)
+ * @param {boolean} [params.allowMultiJetty=false] - When true, LOA may fit by spanning adjacent jetties
  */
 export function computeJettyAdvice({
   jetties,
@@ -50,6 +129,7 @@ export function computeJettyAdvice({
   referenceTimeMs,
   occupancyRows = [],
   occupancyOptions = {},
+  allowMultiJetty = false,
 }) {
   const loaNum = Number(loa);
   const dwtNum = dwt != null ? Number(dwt) : null;
@@ -83,7 +163,7 @@ export function computeJettyAdvice({
       unloadingCommodityIds.length > 0 ||
       loadingCommodityIds.length > 0;
 
-    const loaOk =
+    const loaOkSingle =
       j.jettyLengthM == null || !Number.isFinite(loaNum) || loaNum <= 0 || loaNum <= Number(j.jettyLengthM);
     const dwtOk = j.jettyDwt == null || dwtNum == null || dwtNum <= Number(j.jettyDwt);
     const jettyCommodities =
@@ -96,6 +176,7 @@ export function computeJettyAdvice({
       jettyCommodities.length === 0 ||
       commodityIdSet.size === 0 ||
       [...commodityIdSet].every((cid) => jettyCommodities.includes(cid));
+    const loaOk = loaOkSingle;
     const fits = loaOk && dwtOk && commodityOk;
 
     let occupied = false;
@@ -149,15 +230,33 @@ export function computeJettyAdvice({
       }
     }
 
-    const entry = { fits, occupied, hasSpecs, loaOk, dwtOk, commodityOk, jetty: j };
+    const entry = {
+      fits,
+      occupied,
+      hasSpecs,
+      loaOk,
+      loaOkSingle,
+      loaOkMulti: false,
+      dwtOk,
+      commodityOk,
+      spanAdjacentShortIds: [],
+      jetty: j,
+    };
     byId[j.id] = entry;
     const shortId = jettyShortName(j.name);
     if (shortId) byShortId[shortId] = entry;
   }
 
-  const suggested = (jetties || []).filter(
-    (j) => byId[j.id]?.hasSpecs && byId[j.id]?.fits && !byId[j.id]?.occupied
-  );
+  if (allowMultiJetty) {
+    applyMultiJettyLoaAdvice(jetties, loaNum, byId);
+  }
+
+  const suggested = (jetties || []).filter((j) => {
+    const e = byId[j.id];
+    if (!e?.hasSpecs || !e?.fits || e?.occupied) return false;
+    if (e.loaOkSingle || !allowMultiJetty) return true;
+    return Array.isArray(e.spanAdjacentShortIds) && e.spanAdjacentShortIds.length > 0;
+  });
 
   const hasConfiguredSpecs = (jetties || []).some((j) => {
     const unloadingCommodityIds = Array.isArray(j.unloadingCommodityIds) ? j.unloadingCommodityIds : [];
@@ -170,7 +269,7 @@ export function computeJettyAdvice({
     );
   });
 
-  return { byId, byShortId, suggested, adviceReady, hasConfiguredSpecs };
+  return { byId, byShortId, suggested, adviceReady, hasConfiguredSpecs, allowMultiJetty };
 }
 
 /**
@@ -180,7 +279,7 @@ export function computeJettyAdvice({
 export function getJettyAdviceUnsuitabilityReasons(adviceEntry, jetty, ctx, t) {
   if (!adviceEntry || adviceEntry.fits) return [];
   const reasons = [];
-  if (!adviceEntry.loaOk) {
+  if (!adviceEntry.loaOk && !adviceEntry.loaOkMulti) {
     reasons.push(t('jettyReasonLoa', { loa: ctx.loa, len: jetty.jettyLengthM }));
   }
   if (!adviceEntry.dwtOk) {
@@ -201,6 +300,8 @@ export function getJettyAdviceUnsuitabilityReasons(adviceEntry, jetty, ctx, t) {
  * @param {object[]} params.jetties
  * @param {object} params.ctx - { loa, dwt }
  * @param {Function} params.t - i18n translate
+ * @param {boolean} [params.allowMultiJetty=false]
+ * @param {string[]} [params.additionalJetties] - Selected adjacent short ids (allocation)
  */
 export function validateJettyAdviceSelection({
   jettyAdvice,
@@ -209,6 +310,8 @@ export function validateJettyAdviceSelection({
   jetties,
   ctx,
   t,
+  allowMultiJetty = false,
+  additionalJetties = [],
 }) {
   const selectedId = selectedJettyId != null && selectedJettyId !== '' ? selectedJettyId : null;
   const selectedShort =
@@ -229,7 +332,33 @@ export function validateJettyAdviceSelection({
 
   if (!jetty) return { ok: true };
   if (!jettyAdvice?.adviceReady || !jettyAdvice?.hasConfiguredSpecs) return { ok: true };
-  if (!adviceEntry || adviceEntry.fits) return { ok: true };
+  if (!adviceEntry) return { ok: true };
+
+  const loaNum = Number(ctx.loa);
+  const additional = Array.isArray(additionalJetties) ? additionalJetties.filter(Boolean) : [];
+
+  const fitsSingle = adviceEntry.loaOkSingle && adviceEntry.dwtOk && adviceEntry.commodityOk;
+  if (fitsSingle) return { ok: true };
+
+  if (allowMultiJetty && adviceEntry.loaOkMulti && adviceEntry.dwtOk && adviceEntry.commodityOk) {
+    if (additional.length > 0) {
+      const combined = combinedSpanLengthM(jetties, jetty, additional);
+      if (Number.isFinite(loaNum) && loaNum <= combined) {
+        return { ok: true };
+      }
+    } else {
+      const spanList = (adviceEntry.spanAdjacentShortIds || []).join(', ');
+      return {
+        ok: false,
+        message: t('formJettySpanRequired', {
+          jetty: jetty.name || jetty.label || selectedShort,
+          adjacent: spanList,
+          defaultValue:
+            `Jetty ${jetty.name || selectedShort}: vessel LOA exceeds primary jetty length — select adjacent jetty(s) to span (${spanList}).`,
+        }),
+      };
+    }
+  }
 
   const reasons = getJettyAdviceUnsuitabilityReasons(adviceEntry, jetty, ctx, t);
   return {
@@ -289,6 +418,7 @@ export function computeAllocationJettyAdvice({
   row,
   referenceDateTime,
   occupancyRows,
+  allowMultiJetty = false,
 }) {
   if (!row) {
     return {
@@ -324,6 +454,7 @@ export function computeAllocationJettyAdvice({
       excludeVesselId: row.vesselId ?? null,
       excludeShipmentPlanId: row.shipmentPlanId ?? null,
     },
+    allowMultiJetty,
   });
 
   return { ...advice, hasLoa, hasEta };
