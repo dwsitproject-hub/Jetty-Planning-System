@@ -335,6 +335,9 @@ export function createOperationalEntry(operationId, body, opts = {}) {
   } else if (body.cargoMovedQty !== undefined && body.cargoMovedQty !== null) {
     payload.cargoMovedQty = body.cargoMovedQty
   }
+  if (Array.isArray(body.tankIds)) {
+    payload.tankIds = body.tankIds.map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0)
+  }
   return apiPost(`/operations/${operationId}/operational-activities`, payload)
 }
 
@@ -357,6 +360,9 @@ export function updateOperationalEntry(operationId, entryId, body, opts = {}) {
     }))
   } else if (body.cargoMovedQty !== undefined && body.cargoMovedQty !== null) {
     payload.cargoMovedQty = body.cargoMovedQty
+  }
+  if (Array.isArray(body.tankIds)) {
+    payload.tankIds = body.tankIds.map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0)
   }
   return apiPut(`/operations/${operationId}/operational-activities/${entryId}`, payload)
 }

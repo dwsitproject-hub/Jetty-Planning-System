@@ -14,7 +14,9 @@ import {
   updateOperationalEntry,
   deleteOperationalEntry,
 } from '../api/operations'
+import { fetchMasterTanks } from '../api/masterTanks'
 import OperationActivityTimeline from './OperationActivityTimeline'
+import DropdownMultiSelect from './DropdownMultiSelect'
 import {
   MAX_ACTIVITY_REMARK_CHARS,
   MAX_MILESTONE_REASON_CHARS,
@@ -169,6 +171,8 @@ export default function OperationalMilestoneWorkspace({
   cargoSiMetricName = null,
   /** SI commodity name from GET /operations/:id (read-only context for Cargo Operations). */
   cargoCommodity = null,
+  /** Operation port id — filters shore tanks for liquid Cargo Operations. */
+  portId = null,
 }) {
   const { t } = useTranslation('pages')
   const tz = scheduleIana?.trim() || getScheduleEntryTimeZone()
@@ -271,6 +275,8 @@ export default function OperationalMilestoneWorkspace({
       } else {
         setCargoLoadLinesDraft([defaultCargoLineDraft(getNowForDateTimeLocal, getNowForDateTimeLocal())])
       }
+      const ids = Array.isArray(row?.tankIds) ? row.tankIds.map(String) : []
+      setCargoTankIds(ids)
       setFormModalOpen(true)
     } else {
       setEditingEntryId(null)
@@ -291,9 +297,34 @@ export default function OperationalMilestoneWorkspace({
   const [startTime, setStartTime] = useState(() => nowToNaiveLocalInScheduleZone(tz))
   const [endTime, setEndTime] = useState('')
   const [cargoLoadLinesDraft, setCargoLoadLinesDraft] = useState([])
+  const [cargoTankIds, setCargoTankIds] = useState([])
+  const [masterTankOptions, setMasterTankOptions] = useState([])
   const [editingEntryId, setEditingEntryId] = useState(null)
   const [formError, setFormError] = useState('')
   const [formModalOpen, setFormModalOpen] = useState(false)
+
+  useEffect(() => {
+    if (commodityType !== 'Liquid' || portId == null || portId === '') {
+      setMasterTankOptions([])
+      return
+    }
+    let cancelled = false
+    fetchMasterTanks(portId)
+      .then((list) => {
+        if (cancelled) return
+        const opts = (Array.isArray(list) ? list : []).map((tk) => ({
+          value: String(tk.id),
+          label: tk.name ? `${tk.code} — ${tk.name}` : String(tk.code || tk.id),
+        }))
+        setMasterTankOptions(opts)
+      })
+      .catch(() => {
+        if (!cancelled) setMasterTankOptions([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [commodityType, portId])
 
   const [actionToast, setActionToast] = useState(null)
 
@@ -360,6 +391,7 @@ export default function OperationalMilestoneWorkspace({
         } else {
           setCargoLoadLinesDraft([defaultCargoLineDraft(getNowForDateTimeLocal, isoOrDatetimeToLocal(existing.startTime) || getNowForDateTimeLocal())])
         }
+        setCargoTankIds(Array.isArray(existing.tankIds) ? existing.tankIds.map(String) : [])
         setFormModalOpen(true)
         return
       }
@@ -378,8 +410,10 @@ export default function OperationalMilestoneWorkspace({
     }
     if (cat === 'CARGO OPERATIONS') {
       setCargoLoadLinesDraft([defaultCargoLineDraft(getNowForDateTimeLocal, t0)])
+      setCargoTankIds([])
     } else {
       setCargoLoadLinesDraft([])
+      setCargoTankIds([])
     }
     setFormModalOpen(true)
   }
@@ -454,8 +488,10 @@ export default function OperationalMilestoneWorkspace({
     setEndTime('')
     if (cat === 'CARGO OPERATIONS') {
       setCargoLoadLinesDraft([defaultCargoLineDraft(getNowForDateTimeLocal, t0)])
+      setCargoTankIds([])
     } else {
       setCargoLoadLinesDraft([])
+      setCargoTankIds([])
     }
     setFormError('')
     if (cat && milestones.includes(cat)) setActiveMilestone(cat)
@@ -471,8 +507,10 @@ export default function OperationalMilestoneWorkspace({
     setEndTime('')
     if (m === 'CARGO OPERATIONS') {
       setCargoLoadLinesDraft([defaultCargoLineDraft(getNowForDateTimeLocal, t0)])
+      setCargoTankIds([])
     } else {
       setCargoLoadLinesDraft([])
+      setCargoTankIds([])
     }
     setFormError('')
     if (m) setActiveMilestone(m)
@@ -656,6 +694,9 @@ export default function OperationalMilestoneWorkspace({
             return { error: t('cargoOpsLineStartStrict') }
           }
         }
+        if (commodityType === 'Liquid' && (!Array.isArray(cargoTankIds) || cargoTankIds.length === 0)) {
+          return { error: t('cargoOpsTanksRequired') }
+        }
         const cargoLoadLines = built.map(({ qty, startIso, endIso }) => ({ qty, startAt: startIso, endAt: endIso }))
         return {
           payload: {
@@ -665,6 +706,7 @@ export default function OperationalMilestoneWorkspace({
             startTime: st,
             endTime: startOnly ? (en || null) : endOut,
             cargoLoadLines,
+            ...(commodityType === 'Liquid' ? { tankIds: cargoTankIds.map(String) } : { tankIds: [] }),
           },
         }
       }
@@ -720,6 +762,9 @@ export default function OperationalMilestoneWorkspace({
         }
         if (payload.milestoneKey === 'cargo_operations' && Array.isArray(payload.cargoLoadLines)) {
           activityBody.cargoLoadLines = payload.cargoLoadLines
+        }
+        if (payload.milestoneKey === 'cargo_operations' && Array.isArray(payload.tankIds)) {
+          activityBody.tankIds = payload.tankIds
         }
         if (editingEntryId) {
           await updateOperationalEntry(operationId, editingEntryId, activityBody, { scheduleIana: tz })
@@ -1097,6 +1142,28 @@ export default function OperationalMilestoneWorkspace({
                     </div>
                   )
                 })()}
+
+                {commodityType === 'Liquid' ? (
+                  <div className="cargo-ops-section">
+                    <div className="berthing-modal__field">
+                      <label className="berthing-modal__label" htmlFor="op-cargo-tanks">
+                        {purpose === 'Unloading' ? t('cargoOpsSourceTanks') : t('cargoOpsDestinationTanks')}{' '}
+                        <span className="required-star">*</span>
+                      </label>
+                      <DropdownMultiSelect
+                        id="op-cargo-tanks"
+                        options={masterTankOptions}
+                        selectedValues={cargoTankIds}
+                        onChange={setCargoTankIds}
+                        placeholder={t('cargoOpsTanksPlaceholder')}
+                        emptyText={t('cargoOpsTanksEmpty')}
+                        searchable
+                        searchPlaceholder="Search..."
+                        className="cargo-ops-tanks-dropdown"
+                      />
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="cargo-ops-section">
                   <div className="cargo-ops-section__header">

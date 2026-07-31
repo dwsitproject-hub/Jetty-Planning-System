@@ -171,7 +171,13 @@ function isMasterKey(k) {
 }
 
 function getGroupForPageKey(k) {
-  if (k === 'master' || k === 'master-port' || k === 'master-jetty' || k === 'master-jetty-layout') {
+  if (
+    k === 'master' ||
+    k === 'master-port' ||
+    k === 'master-jetty' ||
+    k === 'master-jetty-layout' ||
+    k === 'master-tanks'
+  ) {
     return 'master-port-jetty'
   }
   if (k.startsWith('master-si-')) return 'master-si'
@@ -180,7 +186,7 @@ function getGroupForPageKey(k) {
 
 const GROUPS = [
   { id: 'core', title: 'Core modules', description: 'Main app pages (operations & reporting).' },
-  { id: 'master-port-jetty', title: 'Master – Port & Jetty', description: 'Ports, preferred jetties, and jetty layout.' },
+  { id: 'master-port-jetty', title: 'Master – Port & Jetty', description: 'Ports, preferred jetties, jetty layout, and shore tanks.' },
   { id: 'master-si', title: 'Master – Shipping Instruction', description: 'SI dropdown master data pages.' },
 ]
 

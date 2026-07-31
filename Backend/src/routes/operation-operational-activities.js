@@ -304,6 +304,127 @@ async function replaceCargoLoadLines(client, operationalActivityId, lines) {
   return insertCargoLoadLines(client, operationalActivityId, lines);
 }
 
+async function loadOperationPortId(q, operationId) {
+  const r = await q.query(
+    `SELECT COALESCE(o.port_id, j.port_id) AS port_id
+     FROM operations o
+     LEFT JOIN jetties j ON j.id = o.jetty_id AND j.deleted_at IS NULL
+     WHERE o.id = $1 AND o.deleted_at IS NULL`,
+    [operationId]
+  );
+  const portId = r.rows[0]?.port_id != null ? Number(r.rows[0].port_id) : null;
+  return Number.isFinite(portId) ? portId : null;
+}
+
+/**
+ * Validate activity-level shore tanks for cargo_operations.
+ * Liquid: require ≥1 tank on the operation's port. Solid: reject non-empty tankIds.
+ */
+async function parseValidateCargoTanks(q, body, milestoneKey, operationId) {
+  if (milestoneKey !== 'cargo_operations') {
+    return { ok: true, tankIds: null };
+  }
+  const raw = body.tankIds ?? body.tank_ids;
+  const commodityType = await loadCommodityTypeForOperation(q, operationId);
+  if (!commodityType) {
+    return { ok: false, status: 404, error: 'Operation not found or has no shipping instruction' };
+  }
+
+  const ids = [];
+  if (raw !== undefined && raw !== null) {
+    if (!Array.isArray(raw)) {
+      return { ok: false, status: 400, error: 'tankIds must be an array' };
+    }
+    for (let i = 0; i < raw.length; i++) {
+      const n = parseInt(String(raw[i]), 10);
+      if (!Number.isFinite(n) || n <= 0) {
+        return { ok: false, status: 400, error: `tankIds[${i}] is invalid` };
+      }
+      if (!ids.includes(n)) ids.push(n);
+    }
+  }
+
+  if (commodityType === 'Solid') {
+    if (ids.length > 0) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'tankIds are not allowed for solid commodity cargo operations',
+      };
+    }
+    return { ok: true, tankIds: [] };
+  }
+
+  if (ids.length === 0) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'Select at least one tank for liquid cargo operations',
+    };
+  }
+
+  const portId = await loadOperationPortId(q, operationId);
+  if (portId == null) {
+    return { ok: false, status: 400, error: 'Operation has no port; cannot validate tanks' };
+  }
+
+  const r = await q.query(
+    `SELECT id FROM master_tanks
+     WHERE deleted_at IS NULL AND port_id = $1 AND id = ANY($2::bigint[])`,
+    [portId, ids]
+  );
+  if (r.rows.length !== ids.length) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'One or more tankIds are invalid or not available for this port',
+    };
+  }
+  return { ok: true, tankIds: ids };
+}
+
+async function replaceCargoActivityTanks(client, operationalActivityId, tankIds) {
+  await client.query(
+    `DELETE FROM operation_cargo_activity_tanks WHERE operational_activity_id = $1`,
+    [operationalActivityId]
+  );
+  if (!Array.isArray(tankIds) || tankIds.length === 0) return [];
+  for (const tankId of tankIds) {
+    await client.query(
+      `INSERT INTO operation_cargo_activity_tanks (operational_activity_id, tank_id)
+       VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`,
+      [operationalActivityId, tankId]
+    );
+  }
+  return fetchTanksForActivityIds(client, [operationalActivityId]).then(
+    (m) => m.get(Number(operationalActivityId)) || []
+  );
+}
+
+async function fetchTanksForActivityIds(q, activityIds) {
+  if (!activityIds.length) return new Map();
+  const r = await q.query(
+    `SELECT cat.operational_activity_id, t.id, t.code, t.name
+     FROM operation_cargo_activity_tanks cat
+     JOIN master_tanks t ON t.id = cat.tank_id
+     WHERE cat.operational_activity_id = ANY($1::bigint[])
+     ORDER BY cat.operational_activity_id ASC, t.sort_order ASC, LOWER(t.code) ASC, t.id ASC`,
+    [activityIds]
+  );
+  const map = new Map();
+  for (const row of r.rows) {
+    const aid = Number(row.operational_activity_id);
+    if (!map.has(aid)) map.set(aid, []);
+    map.get(aid).push({
+      id: String(row.id),
+      code: row.code,
+      name: row.name ?? null,
+    });
+  }
+  return map;
+}
+
 async function fetchCargoLoadLinesForActivityIds(q, activityIds) {
   if (!activityIds.length) return new Map();
   const r = await q.query(
@@ -328,7 +449,7 @@ async function fetchCargoLoadLinesForActivityIds(q, activityIds) {
   return map;
 }
 
-function toRow(r, cargoLoadLines) {
+function toRow(r, cargoLoadLines, tanks) {
   const base = {
     id: String(r.id),
     operationId: r.operation_id,
@@ -348,6 +469,10 @@ function toRow(r, cargoLoadLines) {
   };
   if (Array.isArray(cargoLoadLines)) {
     base.cargoLoadLines = cargoLoadLines;
+  }
+  if (Array.isArray(tanks)) {
+    base.tanks = tanks;
+    base.tankIds = tanks.map((t) => t.id);
   }
   return base;
 }
@@ -385,11 +510,14 @@ router.get('/operations/:operationId/operational-activities', async (req, res) =
   const cargoActIds = r.rows
     .filter((x) => x.entry_type === 'activity' && x.milestone_key === 'cargo_operations')
     .map((x) => Number(x.id));
-  const lineMap = await fetchCargoLoadLinesForActivityIds(pool, cargoActIds);
+  const [lineMap, tankMap] = await Promise.all([
+    fetchCargoLoadLinesForActivityIds(pool, cargoActIds),
+    fetchTanksForActivityIds(pool, cargoActIds),
+  ]);
   res.json({
     entries: r.rows.map((row) =>
       row.entry_type === 'activity' && row.milestone_key === 'cargo_operations'
-        ? toRow(row, lineMap.get(Number(row.id)) || [])
+        ? toRow(row, lineMap.get(Number(row.id)) || [], tankMap.get(Number(row.id)) || [])
         : toRow(row)
     ),
   });
@@ -483,6 +611,12 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
         return res.status(linePack.status).json({ error: linePack.error });
       }
 
+      const tankPack = await parseValidateCargoTanks(client, body, milestoneKey, operationId);
+      if (!tankPack.ok) {
+        await client.query('ROLLBACK');
+        return res.status(tankPack.status).json({ error: tankPack.error });
+      }
+
       let activityCargoHandlingMethodId = null;
       try {
         activityCargoHandlingMethodId = await resolveActivityCargoHandlingMethodId(
@@ -517,8 +651,12 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
       );
       const row = ins.rows[0];
       let savedLines = null;
+      let savedTanks = null;
       if (milestoneKey === 'cargo_operations' && linePack.lines?.length) {
         savedLines = await insertCargoLoadLines(client, row.id, linePack.lines);
+      }
+      if (milestoneKey === 'cargo_operations') {
+        savedTanks = await replaceCargoActivityTanks(client, row.id, tankPack.tankIds || []);
       }
       await promoteDockedToInProgressIfDocked(client, operationId);
       await client.query('COMMIT');
@@ -540,7 +678,9 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
         actorUserId: req.userId ?? null,
       }).catch(() => {});
       return res.status(201).json(
-        milestoneKey === 'cargo_operations' ? toRow(row, savedLines || []) : toRow(row)
+        milestoneKey === 'cargo_operations'
+          ? toRow(row, savedLines || [], savedTanks || [])
+          : toRow(row)
       );
     }
 
@@ -657,10 +797,15 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
     }
 
     let linePack = { ok: true, lines: null };
+    let tankPack = { ok: true, tankIds: null };
     if (milestoneKey === 'cargo_operations') {
       linePack = await parseValidateCargoLoadLines(pool, body, milestoneKey, scheduleTz, startIso, operationId, entryId);
       if (!linePack.ok) {
         return res.status(linePack.status).json({ error: linePack.error });
+      }
+      tankPack = await parseValidateCargoTanks(pool, body, milestoneKey, operationId);
+      if (!tankPack.ok) {
+        return res.status(tankPack.status).json({ error: tankPack.error });
       }
     }
 
@@ -710,10 +855,13 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
         ]
       );
       let savedLinesPut = null;
+      let savedTanksPut = null;
       if (milestoneKey === 'cargo_operations' && linePack.lines?.length) {
         savedLinesPut = await replaceCargoLoadLines(client, entryId, linePack.lines);
+        savedTanksPut = await replaceCargoActivityTanks(client, entryId, tankPack.tankIds || []);
       } else if (row0.milestone_key === 'cargo_operations' && milestoneKey !== 'cargo_operations') {
         await client.query(`DELETE FROM operation_cargo_load_lines WHERE operational_activity_id = $1`, [entryId]);
+        await client.query(`DELETE FROM operation_cargo_activity_tanks WHERE operational_activity_id = $1`, [entryId]);
       }
       await promoteDockedToInProgressIfDocked(client, operationId);
       await client.query('COMMIT');
@@ -736,7 +884,9 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
         actorUserId: req.userId ?? null,
       }).catch(() => {});
       return res.json(
-        milestoneKey === 'cargo_operations' ? toRow(row, savedLinesPut || []) : toRow(row)
+        milestoneKey === 'cargo_operations'
+          ? toRow(row, savedLinesPut || [], savedTanksPut || [])
+          : toRow(row)
       );
     } catch (e) {
       await client.query('ROLLBACK');
@@ -854,7 +1004,8 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
               COALESCE(cl.cnt, 0)::int AS cargo_load_line_count,
               cl.total_qty,
               cl.last_line_ended_at,
-              COALESCE(ll.lines_json, '[]'::jsonb) AS cargo_load_lines_json
+              COALESCE(ll.lines_json, '[]'::jsonb) AS cargo_load_lines_json,
+              COALESCE(tk.tanks_json, '[]'::jsonb) AS cargo_tanks_json
        FROM operation_operational_activities oa
        LEFT JOIN master_cargo_handling_methods mhm
          ON mhm.id = oa.cargo_handling_method_id
@@ -879,6 +1030,19 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
          FROM operation_cargo_load_lines l
          WHERE l.operational_activity_id = oa.id
        ) ll ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT jsonb_agg(
+                  jsonb_build_object(
+                    'id', t.id,
+                    'code', t.code,
+                    'name', t.name
+                  )
+                  ORDER BY t.sort_order ASC, LOWER(t.code) ASC, t.id ASC
+                ) AS tanks_json
+         FROM operation_cargo_activity_tanks cat
+         JOIN master_tanks t ON t.id = cat.tank_id
+         WHERE cat.operational_activity_id = oa.id
+       ) tk ON TRUE
        WHERE oa.operation_id = $1 AND oa.deleted_at IS NULL`,
       [operationId]
     ),
@@ -953,6 +1117,12 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
         startedAt: l.startedAt ? new Date(l.startedAt).toISOString() : null,
         endedAt: l.endedAt ? new Date(l.endedAt).toISOString() : null,
       }));
+      const rawTanks = Array.isArray(r.cargo_tanks_json) ? r.cargo_tanks_json : [];
+      const tanks = rawTanks.map((t) => ({
+        id: String(t.id),
+        code: t.code ?? null,
+        name: t.name ?? null,
+      }));
       events.push({
         id: `op-${r.id}`,
         source: 'operational_activity',
@@ -971,6 +1141,8 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
         cargoLastLineEndedAt: lastLineEndedAt ? new Date(lastLineEndedAt).toISOString() : null,
         cargoRatePerHour,
         cargoLoadLines,
+        tanks,
+        tankIds: tanks.map((t) => t.id),
         sortAt: sortTs ? new Date(sortTs).toISOString() : new Date(r.created_at).toISOString(),
         documents: [],
       });

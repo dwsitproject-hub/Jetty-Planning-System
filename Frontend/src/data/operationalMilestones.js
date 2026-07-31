@@ -71,6 +71,18 @@ export function viewModelFromOperationalEntries(entries, purpose) {
       } else if (e.cargo_moved_qty != null && e.cargo_moved_qty !== '') {
         cargoMovedQty = Number(e.cargo_moved_qty)
       }
+      const rawTanks = e.tanks
+      const tanks = Array.isArray(rawTanks)
+        ? rawTanks.map((tk) => ({
+            id: String(tk.id),
+            code: tk.code ?? null,
+            name: tk.name ?? null,
+          }))
+        : []
+      const rawTankIds = e.tankIds ?? e.tank_ids
+      const tankIds = Array.isArray(rawTankIds)
+        ? rawTankIds.map((id) => String(id))
+        : tanks.map((tk) => tk.id)
       activities.push({
         id: String(e.id),
         category: milestoneKeyToLabel(mk, purpose),
@@ -81,6 +93,8 @@ export function viewModelFromOperationalEntries(entries, purpose) {
         cargoHandlingMethodId: e.cargoHandlingMethodId ?? e.cargo_handling_method_id ?? null,
         cargoLoadLines,
         cargoMovedQty,
+        tanks,
+        tankIds,
       })
     }
   }

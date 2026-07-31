@@ -5162,6 +5162,14 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   color: var(--color-text-steel);
 }
 
+.cargo-ops-tanks-dropdown {
+  width: 100%;
+}
+
+.cargo-ops-tanks-dropdown .dropdown-multi__panel {
+  z-index: 1100;
+}
+
 .dropdown-multi__panel {
   position: absolute;
   z-index: 10;
@@ -5189,6 +5197,44 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   visibility: visible;
   pointer-events: auto;
   transform: translateY(0);
+}
+
+.dropdown-multi__panel--searchable {
+  display: flex;
+  flex-direction: column;
+  max-height: 280px;
+  overflow: hidden;
+}
+
+.dropdown-multi__search-wrap {
+  flex: 0 0 auto;
+  padding: var(--spacing-2);
+  border-bottom: 1px solid var(--color-border-medium);
+  background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.dropdown-multi__search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 0.55rem;
+  font-size: var(--font-size-small);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  outline: none;
+}
+
+.dropdown-multi__search:focus {
+  border-color: var(--color-primary, #c00);
+}
+
+.dropdown-multi__panel--searchable .dropdown-multi__list,
+.dropdown-multi__panel--searchable .dropdown-multi__empty {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .dropdown-multi__list {
