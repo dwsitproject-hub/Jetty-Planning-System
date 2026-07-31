@@ -672,8 +672,9 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         row: arrivalUpdateForm,
         referenceDateTime: arrivalUpdateForm?.etaDateTime,
         occupancyRows: jettyOccupancyRows,
+        allowMultiJetty,
       }),
-    [portJetties, arrivalUpdateForm, jettyOccupancyRows]
+    [portJetties, arrivalUpdateForm, jettyOccupancyRows, allowMultiJetty]
   )
 
   const berthingJettyAdvice = useMemo(() => {
@@ -687,8 +688,9 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       row: berthingConfirmRow,
       referenceDateTime,
       occupancyRows: jettyOccupancyRows,
+      allowMultiJetty,
     })
-  }, [portJetties, berthingConfirmRow, berthingTb, jettyOccupancyRows])
+  }, [portJetties, berthingConfirmRow, berthingTb, jettyOccupancyRows, allowMultiJetty])
 
   const planViz = useMemo(() => {
     if (!isPlanCentric) {
@@ -1284,6 +1286,8 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         jetties: portJetties,
         ctx: { loa: arrivalUpdateForm.vesselLoaM, dwt: arrivalUpdateForm.vesselDwt },
         t: tSp,
+        allowMultiJetty,
+        additionalJetties: arrivalUpdateAdditionalJetties,
       })
       if (!jettyValidation.ok) {
         setArrivalSaveMsg(jettyValidation.message)
@@ -1489,6 +1493,8 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         jetties: portJetties,
         ctx: { loa: berthingConfirmRow.vesselLoaM, dwt: berthingConfirmRow.vesselDwt },
         t: tSp,
+        allowMultiJetty,
+        additionalJetties: berthingAdditionalJetties,
       })
       if (!jettyValidation.ok) {
         errors.push(jettyValidation.message)

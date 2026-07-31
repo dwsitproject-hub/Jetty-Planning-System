@@ -64,7 +64,8 @@ function AdditionalJettiesPicker({
                   ? 1
                   : 0)
         const fullyOccupied = occCount >= safeCap
-        const notSuitable = Boolean(jettyAdvice?.adviceReady) && advice && !advice.fits
+        // Additional jetties are span targets — LOA is checked on primary + span combined, not per adjacent.
+        const notSuitable = Boolean(jettyAdvice?.adviceReady) && advice && !advice.commodityOk
         const disabled = fullyOccupied || notSuitable
         const checked = selected.includes(shortId)
         let suffix = ''
@@ -143,6 +144,7 @@ export default function JettyAllocationSelect({
   const filteredShortIds = optionShortIds.filter((shortId) => {
     const a = jettyAdvice?.byShortId?.[shortId]
     if (!adviceReady || !a || a.fits) return true
+    if (allowMultiJetty && a.loaOkMulti && a.dwtOk && a.commodityOk) return true
     return shortId === selectedShortId
   })
 
@@ -171,6 +173,7 @@ export default function JettyAllocationSelect({
 
     if (adviceReady && a) {
       if (!a.fits) label += ` — ✗ ${t('jettyNotSuitable')}`
+      else if (a.loaOkMulti && !a.loaOkSingle) label += ` — ✓ ${t('jettySpanRequired')}`
       else if (a.occupied) label += ` — ${t('jettyOccupiedAtEta')}`
       else if (a.hasSpecs) label += ' — ✓'
     }
@@ -250,6 +253,7 @@ export default function JettyAllocationSelect({
           jettyAdvice={jettyAdvice}
           primaryJettyId={selectedShortId}
           autoExpand={
+            additionalJetties.length === 0 &&
             Number(vesselLoaM) > 0 &&
             jettyByShortId[selectedShortId]?.jettyLengthM != null &&
             Number(vesselLoaM) > Number(jettyByShortId[selectedShortId].jettyLengthM)
