@@ -15,11 +15,14 @@ import { runTankGaugingPollJob } from '../src/lib/tank-gauging-poll-job.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function parseArgs(argv) {
-  const out = { fixturePath: null, portId: null, skipLock: false };
+  const out = { fixturePath: null, metaFixturePath: null, portId: null, skipLock: false };
   for (const arg of argv) {
     if (arg.startsWith('--fixture=')) {
       const p = arg.slice('--fixture='.length);
       out.fixturePath = path.isAbsolute(p) ? p : path.resolve(process.cwd(), p);
+    } else if (arg.startsWith('--metaFixture=')) {
+      const p = arg.slice('--metaFixture='.length);
+      out.metaFixturePath = path.isAbsolute(p) ? p : path.resolve(process.cwd(), p);
     } else if (arg.startsWith('--portId=')) {
       out.portId = Number(arg.slice('--portId='.length));
     } else if (arg === '--skip-lock') {
@@ -35,6 +38,7 @@ async function main() {
   const result = await runTankGaugingPollJob(pool, {
     portId: args.portId,
     fixturePath: args.fixturePath,
+    metaFixturePath: args.metaFixturePath,
     skipLock: args.skipLock,
   });
   console.log(JSON.stringify(result));

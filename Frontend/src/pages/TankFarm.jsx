@@ -16,6 +16,14 @@ function formatNum(v, digits = 3) {
   return Number(v).toLocaleString(undefined, { maximumFractionDigits: digits })
 }
 
+function formatVolumeLiters(v) {
+  if (v == null || Number.isNaN(Number(v))) return '—'
+  const n = Number(v)
+  // NXA PARAM 717 is m³; Tankvision UI displays liters (×1000).
+  const liters = n < 100000 ? n * 1000 : n
+  return liters.toLocaleString(undefined, { maximumFractionDigits: 0 })
+}
+
 function formatFetched(iso) {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -49,6 +57,12 @@ const COLUMNS = [
     getFilterValue: (r) => r.productName || '',
   },
   {
+    key: 'tankComment',
+    label: 'Comment',
+    getSortValue: (r) => (r.tankComment || '').toLowerCase(),
+    getFilterValue: (r) => r.tankComment || '',
+  },
+  {
     key: 'levelMm',
     label: 'Level (mm)',
     getSortValue: (r) => (r.levelMm == null ? null : Number(r.levelMm)),
@@ -57,6 +71,16 @@ const COLUMNS = [
     key: 'temperatureC',
     label: 'Temp (°C)',
     getSortValue: (r) => (r.temperatureC == null ? null : Number(r.temperatureC)),
+  },
+  {
+    key: 'observedDensityKgM3',
+    label: 'Density (kg/m³)',
+    getSortValue: (r) => (r.observedDensityKgM3 == null ? null : Number(r.observedDensityKgM3)),
+  },
+  {
+    key: 'totalObservedVolume',
+    label: 'Volume (L)',
+    getSortValue: (r) => (r.totalObservedVolume == null ? null : Number(r.totalObservedVolume)),
   },
   {
     key: 'totalMass',
@@ -243,8 +267,11 @@ export default function TankFarm() {
                     <td>{r.code}</td>
                     <td>{r.name || '—'}</td>
                     <td>{r.productName || '—'}</td>
+                    <td>{r.tankComment || '—'}</td>
                     <td>{formatNum(r.levelMm, 1)}</td>
                     <td>{formatNum(r.temperatureC, 1)}</td>
+                    <td>{formatNum(r.observedDensityKgM3, 1)}</td>
+                    <td>{formatVolumeLiters(r.totalObservedVolume)}</td>
                     <td>{formatNum(r.totalMass, 3)}</td>
                     <td>{formatNum(r.flowRateTph, 3)}</td>
                     <td>{r.statusText || '—'}</td>

@@ -8,6 +8,7 @@ import {
   fetchTankParameters,
   parseTankMetaResponse,
   parseTankParameterResponse,
+  readingToRawPayload,
   resolveTankGaugingBaseUrls,
   trimBaseUrl,
 } from './tankvision-client.js';
@@ -133,6 +134,7 @@ async function pollOneSource(db, portId, opts, baseUrl) {
   const base = trimBaseUrl(baseUrl);
   let metaSync = null;
   let sourceUnitName = null;
+  let productByExternalId = new Map();
 
   if (!opts.skipMetaSync) {
     let metaText = null;
@@ -146,13 +148,24 @@ async function pollOneSource(db, portId, opts, baseUrl) {
     if (metaText) {
       const parsed = parseTankMetaResponse(metaText);
       sourceUnitName = parsed.unitName;
+      productByExternalId = parsed.productByExternalId ?? new Map();
       if (parsed.tanks.length) {
         const sync = await syncTankGaugingMap(db, portId, base, sourceUnitName, parsed.tanks);
-        metaSync = { ok: true, parseMode: parsed.parseMode, tankCount: parsed.tanks.length, ...sync };
+        metaSync = {
+          ok: true,
+          parseMode: parsed.parseMode,
+          tankCount: parsed.tanks.length,
+          productMapSize: productByExternalId.size,
+          ...sync,
+        };
       } else {
         metaSync = { ok: false, parseMode: parsed.parseMode, error: 'No tanks in DATATYPE=23', sourceBaseUrl: base };
       }
     }
+  } else if (opts.metaFixturePath) {
+    const parsed = parseTankMetaResponse(fs.readFileSync(opts.metaFixturePath, 'utf8'));
+    productByExternalId = parsed.productByExternalId ?? new Map();
+    sourceUnitName = parsed.unitName;
   }
 
   let bodyText;
@@ -183,7 +196,7 @@ async function pollOneSource(db, portId, opts, baseUrl) {
     }
   }
 
-  const { readings, parseMode } = parseTankParameterResponse(bodyText);
+  const { readings, parseMode } = parseTankParameterResponse(bodyText, productByExternalId);
   if (!readings.length) {
     return {
       ok: false,
@@ -233,19 +246,29 @@ async function pollOneSource(db, portId, opts, baseUrl) {
     }
 
     try {
+      const rawPayload = JSON.stringify(readingToRawPayload(reading));
+
       await db.query(
         `INSERT INTO tank_gauging_latest (
-           tank_id, product_name, level_mm, temperature_c, total_mass,
-           flow_rate_tph, status_text, recorded_at, fetched_at, raw_payload, source,
+           tank_id, product_name, tank_comment, level_mm, temperature_c,
+           observed_density_kg_m3, total_observed_volume, total_mass,
+           flow_rate_tph, status_text, tank_status_code, level_movement,
+           gauge_ref_height_mm, recorded_at, fetched_at, raw_payload, source,
            source_base_url, source_unit_name
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13)
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18,$19)
          ON CONFLICT (tank_id) DO UPDATE SET
            product_name = EXCLUDED.product_name,
+           tank_comment = EXCLUDED.tank_comment,
            level_mm = EXCLUDED.level_mm,
            temperature_c = EXCLUDED.temperature_c,
+           observed_density_kg_m3 = EXCLUDED.observed_density_kg_m3,
+           total_observed_volume = EXCLUDED.total_observed_volume,
            total_mass = EXCLUDED.total_mass,
            flow_rate_tph = EXCLUDED.flow_rate_tph,
            status_text = EXCLUDED.status_text,
+           tank_status_code = EXCLUDED.tank_status_code,
+           level_movement = EXCLUDED.level_movement,
+           gauge_ref_height_mm = EXCLUDED.gauge_ref_height_mm,
            recorded_at = EXCLUDED.recorded_at,
            fetched_at = EXCLUDED.fetched_at,
            raw_payload = EXCLUDED.raw_payload,
@@ -255,14 +278,20 @@ async function pollOneSource(db, portId, opts, baseUrl) {
         [
           tankId,
           reading.productName,
+          reading.tankComment,
           reading.levelMm,
           reading.temperatureC,
+          reading.observedDensityKgM3,
+          reading.totalObservedVolume,
           reading.totalMass,
           reading.flowRateTph,
           reading.statusText,
+          reading.tankStatusCode,
+          reading.levelMovement,
+          reading.gaugeRefHeightMm,
           recordedAt,
           fetchedAt,
-          JSON.stringify(reading),
+          rawPayload,
           opts.fixturePath ? 'fixture' : 'tankvision-gwt',
           base,
           sourceUnitName,
@@ -270,20 +299,24 @@ async function pollOneSource(db, portId, opts, baseUrl) {
       );
       await db.query(
         `INSERT INTO tank_gauging_samples (
-           tank_id, source_base_url, total_mass, flow_rate_tph, level_mm,
-           temperature_c, status_text, sampled_at, raw_payload
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
+           tank_id, source_base_url, product_name, tank_comment, total_mass,
+           flow_rate_tph, level_mm, temperature_c, observed_density_kg_m3,
+           total_observed_volume, status_text, sampled_at, raw_payload
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb)`,
         [
           tankId,
           base,
+          reading.productName,
+          reading.tankComment,
           reading.totalMass,
           reading.flowRateTph,
           reading.levelMm,
           reading.temperatureC,
+          reading.observedDensityKgM3,
+          reading.totalObservedVolume,
           reading.statusText,
-          // Wall-clock poll time (not NXA recordedAt) so Start/End windows align.
           fetchedAt,
-          JSON.stringify(reading),
+          rawPayload,
         ]
       );
       upserted += 1;

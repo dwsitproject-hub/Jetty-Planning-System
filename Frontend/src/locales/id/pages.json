@@ -93,7 +93,7 @@
   "tankFarmRefresh": "Muat ulang",
   "tankFarmLoading": "Memuat pembacaan…",
   "tankFarmEmpty": "Belum ada pemetaan tangki atau pembacaan untuk pelabuhan ini. Seed tank_gauging_tank_map lalu jalankan poller.",
-  "tankFarmFooter": "Sumber ATG: host Tankvision NXA per baris · nilai diperbarui saat poller berjalan",
+  "tankFarmFooter": "Sumber ATG: host Tankvision NXA per baris · nilai diperbarui saat poller berjalan · volume ditampilkan dalam liter (PARAM 717 m³ × 1000)",
   "masterHubSiTermTitle": "Term",
   "masterHubSiTermDesc": "Tambah dan kelola trade terms (Terms) untuk Shipping Instruction.",
   "masterHubSiShipperTitle": "Shipper",

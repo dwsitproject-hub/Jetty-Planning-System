@@ -28,11 +28,20 @@ function toReading(row) {
     code: row.code,
     name: row.name ?? null,
     productName: row.product_name ?? null,
+    tankComment: row.tank_comment ?? null,
     levelMm: row.level_mm != null ? Number(row.level_mm) : null,
     temperatureC: row.temperature_c != null ? Number(row.temperature_c) : null,
+    observedDensityKgM3:
+      row.observed_density_kg_m3 != null ? Number(row.observed_density_kg_m3) : null,
+    totalObservedVolume:
+      row.total_observed_volume != null ? Number(row.total_observed_volume) : null,
     totalMass: row.total_mass != null ? Number(row.total_mass) : null,
     flowRateTph: row.flow_rate_tph != null ? Number(row.flow_rate_tph) : null,
     statusText: row.status_text ?? null,
+    tankStatusCode: row.tank_status_code != null ? Number(row.tank_status_code) : null,
+    levelMovement: row.level_movement != null ? Number(row.level_movement) : null,
+    gaugeRefHeightMm:
+      row.gauge_ref_height_mm != null ? Number(row.gauge_ref_height_mm) : null,
     recordedAt: row.recorded_at ?? null,
     fetchedAt: row.fetched_at ?? null,
     sourceBaseUrl: row.source_base_url ?? null,
@@ -59,11 +68,17 @@ router.get('/latest', ...requirePageView(PAGE_KEY), async (req, res) => {
        m.source_base_url,
        COALESCE(l.source_unit_name, m.source_unit_name) AS source_unit_name,
        l.product_name,
+       l.tank_comment,
        l.level_mm,
        l.temperature_c,
+       l.observed_density_kg_m3,
+       l.total_observed_volume,
        l.total_mass,
        l.flow_rate_tph,
        l.status_text,
+       l.tank_status_code,
+       l.level_movement,
+       l.gauge_ref_height_mm,
        l.recorded_at,
        l.fetched_at
      FROM tank_gauging_tank_map m
