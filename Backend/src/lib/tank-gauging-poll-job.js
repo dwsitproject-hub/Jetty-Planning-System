@@ -1,6 +1,6 @@
 /**
  * Poll one or more Tankvision ATG hosts and upsert tank_gauging_latest.
- * Sources: TANK_GAUGING_BASE_URLS (comma-separated) or TANK_GAUGING_BASE_URL.
+ * Sources: tank_gauging_sources table (primary) or env fallback when table empty.
  */
 import fs from 'fs';
 import {
@@ -9,9 +9,12 @@ import {
   parseTankMetaResponse,
   parseTankParameterResponse,
   readingToRawPayload,
-  resolveTankGaugingBaseUrls,
   trimBaseUrl,
 } from './tankvision-client.js';
+import {
+  resolveEnabledSources,
+  updateSourcePollHealth,
+} from './tank-gauging-source-config.js';
 
 /** Dedicated advisory lock (distinct from SLA 930931). */
 const ADVISORY_LOCK_KEY = 930932;
@@ -130,8 +133,22 @@ export async function syncTankGaugingMap(db, portId, sourceBaseUrl, sourceUnitNa
 /**
  * Poll a single ATG base URL.
  */
-async function pollOneSource(db, portId, opts, baseUrl) {
+async function pollOneSource(db, portId, opts, baseUrl, sourceMeta = {}) {
   const base = trimBaseUrl(baseUrl);
+  const auth = sourceMeta.auth;
+  const sourceId = sourceMeta.id ?? null;
+  const fetchOpts = { baseUrl: base, auth };
+
+  async function finish(result) {
+    await updateSourcePollHealth(db, sourceId, {
+      ok: Boolean(result.ok),
+      error: result.ok
+        ? null
+        : result.error || result.metaSync?.error || result.errors?.[0]?.message || 'poll failed',
+    });
+    return result;
+  }
+
   let metaSync = null;
   let sourceUnitName = null;
   let productByExternalId = new Map();
@@ -141,7 +158,7 @@ async function pollOneSource(db, portId, opts, baseUrl) {
     if (opts.metaFixturePath) {
       metaText = fs.readFileSync(opts.metaFixturePath, 'utf8');
     } else if (!opts.fixturePath) {
-      const metaRes = await fetchTankMeta({ baseUrl: base });
+      const metaRes = await fetchTankMeta({ ...fetchOpts });
       if (metaRes.ok) metaText = metaRes.text;
       else metaSync = { ok: false, error: `meta HTTP ${metaRes.status}`, sourceBaseUrl: base };
     }
@@ -176,12 +193,12 @@ async function pollOneSource(db, portId, opts, baseUrl) {
     bodyText = fs.readFileSync(opts.fixturePath, 'utf8');
     sourceUrl = `fixture:${opts.fixturePath}`;
   } else {
-    const res = await fetchTankParameters({ baseUrl: base });
+    const res = await fetchTankParameters({ ...fetchOpts });
     bodyText = res.text;
     sourceUrl = res.url;
     httpStatus = res.status;
     if (!res.ok) {
-      return {
+      return finish({
         ok: false,
         sourceBaseUrl: base,
         sourceUnitName,
@@ -192,13 +209,13 @@ async function pollOneSource(db, portId, opts, baseUrl) {
         fetched: 0,
         upserted: 0,
         unmapped: 0,
-      };
+      });
     }
   }
 
   const { readings, parseMode } = parseTankParameterResponse(bodyText, productByExternalId);
   if (!readings.length) {
-    return {
+    return finish({
       ok: false,
       sourceBaseUrl: base,
       sourceUnitName,
@@ -211,7 +228,7 @@ async function pollOneSource(db, portId, opts, baseUrl) {
       upserted: 0,
       unmapped: 0,
       rawPreview: bodyText.slice(0, 500),
-    };
+    });
   }
 
   const mapRes = await db.query(
@@ -329,7 +346,7 @@ async function pollOneSource(db, portId, opts, baseUrl) {
     }
   }
 
-  return {
+  return finish({
     ok: errors.length === 0 && unmapped === 0,
     sourceBaseUrl: base,
     sourceUnitName,
@@ -343,7 +360,7 @@ async function pollOneSource(db, portId, opts, baseUrl) {
     mapSize: mapByExternal.size,
     errors,
     fetchedAt: fetchedAt.toISOString(),
-  };
+  });
 }
 
 /**
@@ -357,10 +374,10 @@ async function pollOneSource(db, portId, opts, baseUrl) {
  * @param {boolean} [opts.skipMetaSync]
  */
 export async function runTankGaugingPollJob(db, opts = {}) {
-  const portId = Number(opts.portId ?? process.env.TANK_GAUGING_PORT_ID);
-  if (!Number.isFinite(portId) || portId <= 0) {
-    return { skipped: true, reason: 'missing_or_invalid_TANK_GAUGING_PORT_ID' };
-  }
+  const filterPortId =
+    opts.portId != null && Number.isFinite(Number(opts.portId)) && Number(opts.portId) > 0
+      ? Number(opts.portId)
+      : null;
 
   const skipLock = Boolean(opts.skipLock);
   if (!skipLock) {
@@ -370,21 +387,56 @@ export async function runTankGaugingPollJob(db, opts = {}) {
 
   try {
     // Fixture mode stays single-source (dev/offline).
-    const baseUrls = opts.fixturePath
-      ? [trimBaseUrl(opts.baseUrls?.[0] || process.env.TANK_GAUGING_BASE_URL || 'http://172.16.11.77')]
-      : opts.baseUrls?.length
-        ? opts.baseUrls.map(trimBaseUrl)
-        : resolveTankGaugingBaseUrls();
+    if (opts.fixturePath) {
+      const portId = Number(filterPortId ?? process.env.TANK_GAUGING_PORT_ID);
+      if (!Number.isFinite(portId) || portId <= 0) {
+        return { skipped: true, reason: 'missing_or_invalid_TANK_GAUGING_PORT_ID' };
+      }
+      const baseUrl = trimBaseUrl(
+        opts.baseUrls?.[0] || process.env.TANK_GAUGING_BASE_URL || 'http://172.16.11.77'
+      );
+      const sources = [await pollOneSource(db, portId, opts, baseUrl)];
+      const fetched = sources.reduce((n, s) => n + (s.fetched || 0), 0);
+      const upserted = sources.reduce((n, s) => n + (s.upserted || 0), 0);
+      const unmapped = sources.reduce((n, s) => n + (s.unmapped || 0), 0);
+      return {
+        skipped: false,
+        ok: sources.every((s) => s.ok),
+        portId,
+        sourceCount: 1,
+        fetched,
+        upserted,
+        unmapped,
+        sources,
+      };
+    }
+
+    const enabledSources = await resolveEnabledSources(db, { portId: filterPortId });
+    if (!enabledSources.length) {
+      return {
+        skipped: true,
+        reason: filterPortId
+          ? 'no_enabled_sources_for_port'
+          : 'no_enabled_sources',
+      };
+    }
 
     const sources = [];
-    for (const baseUrl of baseUrls) {
+    for (const src of enabledSources) {
       try {
-        sources.push(await pollOneSource(db, portId, opts, baseUrl));
+        sources.push(
+          await pollOneSource(db, src.portId, opts, src.baseUrl, {
+            id: src.id,
+            auth: src.auth,
+          })
+        );
       } catch (e) {
+        const errMsg = e?.message || String(e);
+        await updateSourcePollHealth(db, src.id, { ok: false, error: errMsg });
         sources.push({
           ok: false,
-          sourceBaseUrl: trimBaseUrl(baseUrl),
-          error: e?.message || String(e),
+          sourceBaseUrl: trimBaseUrl(src.baseUrl),
+          error: errMsg,
           fetched: 0,
           upserted: 0,
           unmapped: 0,
@@ -396,10 +448,13 @@ export async function runTankGaugingPollJob(db, opts = {}) {
     const upserted = sources.reduce((n, s) => n + (s.upserted || 0), 0);
     const unmapped = sources.reduce((n, s) => n + (s.unmapped || 0), 0);
 
+    const portIds = [...new Set(enabledSources.map((s) => s.portId))];
+
     return {
       skipped: false,
       ok: sources.length > 0 && sources.every((s) => s.ok),
-      portId,
+      portId: portIds.length === 1 ? portIds[0] : null,
+      portIds,
       sourceCount: sources.length,
       fetched,
       upserted,

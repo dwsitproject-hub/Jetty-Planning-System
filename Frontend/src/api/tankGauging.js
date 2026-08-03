@@ -1,4 +1,4 @@
-import { apiGet } from './client.js'
+import { apiGet, apiPost, apiPut, apiDelete } from './client.js'
 
 /**
  * @param {string|number} portId
@@ -33,4 +33,25 @@ export function fetchTankGaugingMassDelta({ portId, tankIds, startAt, endAt }) {
   params.set('startAt', startAt)
   if (endAt != null && endAt !== '') params.set('endAt', endAt)
   return apiGet(`/tank-gauging/mass-delta?${params.toString()}`)
+}
+
+export function fetchTankGaugingSources(portId) {
+  const q = encodeURIComponent(String(portId))
+  return apiGet(`/tank-gauging/sources?portId=${q}`)
+}
+
+export function createTankGaugingSource(body) {
+  return apiPost('/tank-gauging/sources', body)
+}
+
+export function updateTankGaugingSource(id, body) {
+  return apiPut(`/tank-gauging/sources/${encodeURIComponent(String(id))}`, body)
+}
+
+export function deleteTankGaugingSource(id) {
+  return apiDelete(`/tank-gauging/sources/${encodeURIComponent(String(id))}`)
+}
+
+export function testTankGaugingSource(id, body = {}) {
+  return apiPost(`/tank-gauging/sources/${encodeURIComponent(String(id))}/test`, body)
 }

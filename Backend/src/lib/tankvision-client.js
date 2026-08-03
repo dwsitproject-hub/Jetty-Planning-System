@@ -35,22 +35,44 @@ export function resolveTankGaugingBaseUrls() {
   return ['http://172.16.11.77'];
 }
 
-function buildAuthHeaders(baseUrl) {
+/**
+ * @param {string} baseUrl
+ * @param {{ type?: string, user?: string|null, secret?: string|null }} [auth]
+ */
+export function buildAuthHeaders(baseUrl, auth) {
   const headers = {
     Accept: '*/*',
     'User-Agent': 'JPS-TankGaugingPoller/1.0',
     Referer: `${trimBaseUrl(baseUrl)}/`,
   };
-  const cookie = process.env.TANK_GAUGING_COOKIE;
-  if (cookie) headers.Cookie = cookie;
 
-  const user = process.env.TANK_GAUGING_BASIC_USER;
-  const pass = process.env.TANK_GAUGING_BASIC_PASS;
-  if (user) {
-    const token = Buffer.from(`${user}:${pass ?? ''}`, 'utf8').toString('base64');
+  const resolved =
+    auth && auth.type && auth.type !== 'none'
+      ? auth
+      : readEnvAuthFallback();
+
+  if (resolved.type === 'cookie' && resolved.secret) {
+    headers.Cookie = resolved.secret;
+  } else if (resolved.type === 'basic' && resolved.user) {
+    const token = Buffer.from(`${resolved.user}:${resolved.secret ?? ''}`, 'utf8').toString('base64');
     headers.Authorization = `Basic ${token}`;
   }
   return headers;
+}
+
+function readEnvAuthFallback() {
+  const cookie = process.env.TANK_GAUGING_COOKIE;
+  if (cookie) return { type: 'cookie', user: null, secret: cookie };
+
+  const user = process.env.TANK_GAUGING_BASIC_USER;
+  if (user) {
+    return {
+      type: 'basic',
+      user,
+      secret: process.env.TANK_GAUGING_BASIC_PASS ?? '',
+    };
+  }
+  return { type: 'none', user: null, secret: null };
 }
 
 async function gwtGet(searchParams, opts = {}) {
@@ -67,7 +89,7 @@ async function gwtGet(searchParams, opts = {}) {
     try {
       await fetch(`${baseUrl}/index.esp`, {
         method: 'GET',
-        headers: buildAuthHeaders(baseUrl),
+        headers: buildAuthHeaders(baseUrl, opts.auth),
         signal: AbortSignal.timeout(Math.min(timeoutMs, 5000)),
       });
     } catch {
@@ -76,7 +98,7 @@ async function gwtGet(searchParams, opts = {}) {
 
     const res = await fetch(url, {
       method: 'GET',
-      headers: buildAuthHeaders(baseUrl),
+      headers: buildAuthHeaders(baseUrl, opts.auth),
       signal: controller.signal,
       redirect: 'follow',
     });
@@ -85,7 +107,7 @@ async function gwtGet(searchParams, opts = {}) {
       await new Promise((r) => setTimeout(r, 400));
       const res2 = await fetch(url, {
         method: 'GET',
-        headers: buildAuthHeaders(baseUrl),
+        headers: buildAuthHeaders(baseUrl, opts.auth),
         signal: AbortSignal.timeout(timeoutMs),
         redirect: 'follow',
       });

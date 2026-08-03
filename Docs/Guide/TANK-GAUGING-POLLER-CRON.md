@@ -11,20 +11,38 @@ Always-on ATG history for Log/reconcile and cargo-ops window rates. The Node scr
 
 ## Prerequisites
 
-1. Migration applied: `101_tank_gauging_sample_archive_and_purge_log.sql` (`npm run migrate` in `Backend`).
-2. Tank map seeded for the port (`seed-tank-gauging-map.js` or equivalent).
-3. Host can reach ATG VLAN (`TANK_GAUGING_BASE_URLS`).
+1. Migrations applied through `104_tank_gauging_sources.sql` (`npm run migrate` in `Backend`).
+2. ATG sources configured per port (preferred): **Tank Farm → Configuration** (requires tank-farm edit permission), or legacy env fallback below.
+3. Host can reach ATG VLAN (configured source base URLs).
 4. `Backend/.env` has at least:
 
 ```env
 DATABASE_URL=...
-TANK_GAUGING_PORT_ID=1
-TANK_GAUGING_BASE_URLS=http://172.16.11.77,http://172.16.246.10
+NOTIFICATION_ENCRYPTION_KEY=...   # or JWT_SECRET — encrypts ATG credentials in DB
+# Legacy env fallback (only when tank_gauging_sources is empty):
+# TANK_GAUGING_PORT_ID=1
+# TANK_GAUGING_BASE_URLS=http://172.16.11.77,http://172.16.246.10
 TANK_GAUGING_PARAMIDLIST=622|625|628|717|724|730
 # optional retention overrides (defaults shown)
 TANK_GAUGING_SAMPLE_ACTIVE_DAYS=30
 TANK_GAUGING_SAMPLE_ARCHIVE_DAYS=7
 ```
+
+### DB-backed source configuration (migration 104+)
+
+- Table `tank_gauging_sources` stores per-port Tankvision hosts, auth (encrypted), enabled flag, and poll health (`last_poll_at`, `last_poll_ok`, `last_error`).
+- Poller reads **all enabled sources** across ports (or `--portId=N` for one port). Env `TANK_GAUGING_*` URLs apply only when the table has **no rows**.
+- UI: `/tank-farm` → select port → **Configuration** (visible when role has tank-farm **edit**).
+- **Test connection** probes DATATYPE=23 only; scheduled ingest remains cron-driven.
+
+### Staging rollout (after deploy)
+
+1. Run migration 104 on staging DB (`npm run migrate` in `Backend`).
+2. Deploy backend + frontend.
+3. Admin → Roles: confirm ops roles have **Tank Farm edit**.
+4. Tank Farm → Bontang → **Configuration**: verify seed sources (`.77`, `.10` enabled; `.11` disabled); add `.12` with Basic auth when ready.
+5. Run manual poll (`./scripts/run-tank-gauging-poll.sh`); verify `/tank-farm` readings and cargo ops ATG.
+6. Remove redundant `TANK_GAUGING_BASE_URLS` / credentials from `Backend/.env` once DB config is verified.
 
 Adjust deploy path below (`/opt/jetty-planning-system/Backend`) to match the server.
 
@@ -143,6 +161,7 @@ Or Task Scheduler calling `run-tank-gauging-poll.bat` / `purge-tank-gauging-samp
 ## Ops notes
 
 - Opening `/tank-farm` in the UI does **not** write samples; only the poller does.
+- **Configuration** modal manages `tank_gauging_sources`; it does not run a full poll (use **Test** for connectivity only).
 - Poller and purge each use a PostgreSQL advisory lock so overlapping cron ticks skip instead of double-running.
 - Cron log lines are JSON summaries (`ok`, `batchId`, `archived`, `deleted`, …). Per-row detail is in `tank_gauging_purge_log`.
 - Purging old purge_log rows (e.g. keep 90 days) is optional and not part of the daily job.

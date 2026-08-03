@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next'
 import { fetchPorts } from '../api/ports'
 import { fetchTankGaugingLatest } from '../api/tankGauging'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
+import TankGaugingSourcesModal from '../components/TankGaugingSourcesModal.jsx'
+import { useRbac } from '../context/RbacContext.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 import '../styles/allocation.css'
 
@@ -107,12 +109,15 @@ const COLUMNS = [
 
 export default function TankFarm() {
   const { t } = useTranslation('pages')
+  const { canEdit } = useRbac()
+  const canEditTankFarm = canEdit(PAGE_KEY)
   const [ports, setPorts] = useState([])
   const [portId, setPortId] = useState('')
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [refreshedAt, setRefreshedAt] = useState(null)
+  const [configOpen, setConfigOpen] = useState(false)
 
   const loadPorts = useCallback(async () => {
     try {
@@ -188,6 +193,11 @@ export default function TankFarm() {
     [ports]
   )
 
+  const selectedPortName = useMemo(() => {
+    const p = ports.find((x) => String(x.id) === String(portId))
+    return p?.name || (portId ? `Port #${portId}` : '')
+  }, [ports, portId])
+
   return (
     <div className="allocation-page" data-page-key={PAGE_KEY}>
       <h1 className="page-title">{t('tankFarmTitle')}</h1>
@@ -238,6 +248,16 @@ export default function TankFarm() {
             >
               {t('tankFarmRefresh')}
             </button>
+            {canEditTankFarm ? (
+              <button
+                type="button"
+                className="btn btn--secondary btn--small"
+                onClick={() => setConfigOpen(true)}
+                disabled={!portId}
+              >
+                {t('tankFarmConfiguration')}
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -287,6 +307,14 @@ export default function TankFarm() {
       <p className="text-steel" style={{ marginTop: '0.75rem', fontSize: '0.9rem' }}>
         {t('tankFarmFooter')}
       </p>
+
+      {configOpen && portId ? (
+        <TankGaugingSourcesModal
+          portId={portId}
+          portName={selectedPortName}
+          onClose={() => setConfigOpen(false)}
+        />
+      ) : null}
     </div>
   )
 }

@@ -5,8 +5,21 @@ import express from 'express';
 import { pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePortScope } from '../middleware/port-scope.js';
-import { requirePageView } from '../middleware/permissions.js';
+import { requirePageEdit, requirePageView } from '../middleware/permissions.js';
 import { computeAtgWindowMassDelta } from '../lib/atg-window-rate.js';
+import {
+  createSource,
+  deleteSource,
+  getSourceById,
+  listSourcesForPort,
+  resolveAuthForTest,
+  updateSource,
+} from '../lib/tank-gauging-source-config.js';
+import {
+  fetchTankMeta,
+  parseTankMetaResponse,
+  trimBaseUrl,
+} from '../lib/tankvision-client.js';
 
 const router = express.Router();
 router.use(requireAuth, requirePortScope);
@@ -144,6 +157,119 @@ router.get('/mass-delta', async (req, res) => {
     error: result.error,
     tanks: result.tanks,
   });
+});
+
+/** GET /tank-gauging/sources?portId= — ATG source config for a port */
+router.get('/sources', ...requirePageView(PAGE_KEY), async (req, res) => {
+  const portId = parsePortId(req.query.portId ?? req.query.port_id);
+  if (portId == null) {
+    return res.status(400).json({ error: 'portId is required' });
+  }
+  if (!assertPortAllowed(req, portId)) {
+    return res.status(403).json({ error: 'Selected port is not assigned to this user' });
+  }
+
+  const sources = await listSourcesForPort(pool, portId);
+  res.json(sources);
+});
+
+/** POST /tank-gauging/sources — create ATG source */
+router.post('/sources', ...requirePageEdit(PAGE_KEY), async (req, res) => {
+  const portId = parsePortId(req.body?.portId ?? req.body?.port_id);
+  if (portId == null) {
+    return res.status(400).json({ error: 'portId is required' });
+  }
+  if (!assertPortAllowed(req, portId)) {
+    return res.status(403).json({ error: 'Selected port is not assigned to this user' });
+  }
+
+  try {
+    const created = await createSource(pool, { ...req.body, portId }, req.userId ?? null);
+    res.status(201).json(created);
+  } catch (e) {
+    res.status(400).json({ error: e?.message || 'Failed to create source' });
+  }
+});
+
+/** PUT /tank-gauging/sources/:id — update ATG source */
+router.put('/sources/:id', ...requirePageEdit(PAGE_KEY), async (req, res) => {
+  const sourceId = parseInt(String(req.params.id ?? '').trim(), 10);
+  if (!Number.isFinite(sourceId) || sourceId <= 0) {
+    return res.status(400).json({ error: 'Invalid source id' });
+  }
+
+  const row = await getSourceById(pool, sourceId);
+  if (!row) return res.status(404).json({ error: 'Source not found' });
+  if (!assertPortAllowed(req, Number(row.port_id))) {
+    return res.status(403).json({ error: 'Selected port is not assigned to this user' });
+  }
+
+  try {
+    const updated = await updateSource(pool, sourceId, req.body, req.userId ?? null);
+    res.json(updated);
+  } catch (e) {
+    res.status(400).json({ error: e?.message || 'Failed to update source' });
+  }
+});
+
+/** DELETE /tank-gauging/sources/:id */
+router.delete('/sources/:id', ...requirePageEdit(PAGE_KEY), async (req, res) => {
+  const sourceId = parseInt(String(req.params.id ?? '').trim(), 10);
+  if (!Number.isFinite(sourceId) || sourceId <= 0) {
+    return res.status(400).json({ error: 'Invalid source id' });
+  }
+
+  const row = await getSourceById(pool, sourceId);
+  if (!row) return res.status(404).json({ error: 'Source not found' });
+  if (!assertPortAllowed(req, Number(row.port_id))) {
+    return res.status(403).json({ error: 'Selected port is not assigned to this user' });
+  }
+
+  try {
+    await deleteSource(pool, sourceId);
+    res.status(204).send();
+  } catch (e) {
+    res.status(400).json({ error: e?.message || 'Failed to delete source' });
+  }
+});
+
+/** POST /tank-gauging/sources/:id/test — probe DATATYPE=23 without DB write */
+router.post('/sources/:id/test', ...requirePageEdit(PAGE_KEY), async (req, res) => {
+  const sourceId = parseInt(String(req.params.id ?? '').trim(), 10);
+  if (!Number.isFinite(sourceId) || sourceId <= 0) {
+    return res.status(400).json({ error: 'Invalid source id' });
+  }
+
+  const row = await getSourceById(pool, sourceId);
+  if (!row) return res.status(404).json({ error: 'Source not found' });
+  if (!assertPortAllowed(req, Number(row.port_id))) {
+    return res.status(403).json({ error: 'Selected port is not assigned to this user' });
+  }
+
+  const baseUrl = trimBaseUrl(req.body?.baseUrl ?? row.base_url);
+  const auth = resolveAuthForTest(row, req.body);
+
+  try {
+    const metaRes = await fetchTankMeta({ baseUrl, auth });
+    const parsed = metaRes.ok ? parseTankMetaResponse(metaRes.text) : { tanks: [], unitName: null };
+    res.json({
+      ok: metaRes.ok && parsed.tanks.length > 0,
+      httpStatus: metaRes.status,
+      tankCount: parsed.tanks.length,
+      unitName: parsed.unitName ?? null,
+      parseMode: parsed.parseMode ?? null,
+      error: metaRes.ok
+        ? parsed.tanks.length
+          ? null
+          : 'No tanks in DATATYPE=23 response'
+        : `Tankvision HTTP ${metaRes.status}`,
+    });
+  } catch (e) {
+    res.status(502).json({
+      ok: false,
+      error: e?.message || 'Connection test failed',
+    });
+  }
 });
 
 export default router;
