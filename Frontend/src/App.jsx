@@ -32,6 +32,8 @@ import Master from './pages/Master'
 import MasterPort from './pages/MasterPort'
 import MasterJetty from './pages/MasterJetty'
 import MasterJettyLayout from './pages/MasterJettyLayout'
+import MasterTanks from './pages/MasterTanks'
+import TankFarm from './pages/TankFarm'
 import MasterSiLookup from './pages/MasterSiLookup'
 import MasterFreightTerms from './pages/MasterFreightTerms'
 import Admin from './pages/Admin'
@@ -139,6 +141,8 @@ function App() {
                   <Route path="/master/port" element={<MasterPort />} />
                   <Route path="/master/jetty" element={<MasterJetty />} />
                   <Route path="/master/jetty-layout" element={<MasterJettyLayout />} />
+                  <Route path="/master/tanks" element={<MasterTanks />} />
+                  <Route path="/tank-farm" element={<TankFarm />} />
                   <Route
                     path="/master/si-term"
                     element={

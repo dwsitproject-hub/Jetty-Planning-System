@@ -19,6 +19,8 @@ export const PAGE_OPTIONS = [
   { id: 'master-port', label: 'Master – Port' },
   { id: 'master-jetty', label: 'Master – Jetty' },
   { id: 'master-jetty-layout', label: 'Master – Jetty Layout' },
+  { id: 'master-tanks', label: 'Master – Tanks' },
+  { id: 'tank-farm', label: 'Tank Farm' },
   { id: 'master-si-term', label: 'Master – Term' },
   { id: 'master-si-shipper', label: 'Master – Shipper' },
   { id: 'master-si-loading-port', label: 'Master – Loading Port' },

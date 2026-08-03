@@ -333,7 +333,7 @@ export default function ShippingInstructionSiLinkedFields({
                         <option value="">—</option>
                         {(lookups?.commodities || []).map((c) => (
                           <option key={c.id} value={c.id}>
-                            {c.name}
+                            {c.shortName || c.name}
                           </option>
                         ))}
                       </select>

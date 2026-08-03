@@ -1,7 +1,8 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 
 /**
  * Dropdown multi-select: trigger shows selected labels (or placeholder); click opens panel with checkboxes.
+ * Optional in-panel Search… filter (case-insensitive on option labels).
  * @param {Object} props
  * @param {Array<{ value: string, label: string }>} props.options
  * @param {string[]} props.selectedValues
@@ -13,6 +14,8 @@ import { useState, useRef, useEffect } from 'react'
  * @param {string} [props.className]
  * @param {string} [props.panelClassName]
  * @param {string} [props.emptyText]
+ * @param {boolean} [props.searchable] - show Search… input in the panel
+ * @param {string} [props.searchPlaceholder]
  */
 export default function DropdownMultiSelect({
   options = [],
@@ -26,13 +29,28 @@ export default function DropdownMultiSelect({
   panelClassName = '',
   emptyText = 'No options',
   disabled = false,
+  searchable = false,
+  searchPlaceholder = 'Search...',
 }) {
   const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
   const containerRef = useRef(null)
+  const searchRef = useRef(null)
 
   useEffect(() => {
     if (disabled) setOpen(false)
   }, [disabled])
+
+  useEffect(() => {
+    if (!open) {
+      setSearch('')
+      return
+    }
+    if (searchable) {
+      const t = window.setTimeout(() => searchRef.current?.focus(), 0)
+      return () => window.clearTimeout(t)
+    }
+  }, [open, searchable])
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -45,6 +63,13 @@ export default function DropdownMultiSelect({
       return () => document.removeEventListener('click', handleClickOutside)
     }
   }, [open])
+
+  const filteredOptions = useMemo(() => {
+    if (!searchable) return options
+    const term = search.trim().toLowerCase()
+    if (!term) return options
+    return options.filter((opt) => String(opt.label || '').toLowerCase().includes(term))
+  }, [options, search, searchable])
 
   const selectedLabels = selectedValues
     .map((v) => options.find((o) => o.value === v)?.label ?? v)
@@ -96,16 +121,32 @@ export default function DropdownMultiSelect({
         <span className="dropdown-multi__chevron" aria-hidden>▼</span>
       </button>
       <div
-        className={`dropdown-multi__panel${open ? ' is-open' : ''}${panelClassName ? ` ${panelClassName}` : ''}`}
+        className={`dropdown-multi__panel${open ? ' is-open' : ''}${searchable ? ' dropdown-multi__panel--searchable' : ''}${panelClassName ? ` ${panelClassName}` : ''}`}
         role="listbox"
         aria-multiselectable="true"
         aria-hidden={!open}
       >
+        {searchable ? (
+          <div className="dropdown-multi__search-wrap" onClick={(e) => e.stopPropagation()}>
+            <input
+              ref={searchRef}
+              type="search"
+              className="dropdown-multi__search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={searchPlaceholder}
+              autoComplete="off"
+              aria-label={searchPlaceholder}
+            />
+          </div>
+        ) : null}
         {options.length === 0 ? (
           <div className="dropdown-multi__empty">{emptyText}</div>
+        ) : filteredOptions.length === 0 ? (
+          <div className="dropdown-multi__empty">No matches</div>
         ) : (
           <ul className="dropdown-multi__list">
-            {options.map((opt) => (
+            {filteredOptions.map((opt) => (
               <li key={opt.value} role="option" aria-selected={selectedValues.includes(opt.value)}>
                 <label className="dropdown-multi__option">
                   <input

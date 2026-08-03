@@ -868,11 +868,11 @@ export default function OperationActivityTimeline({
                                   <thead>
                                     <tr>
                                       <th>Entry</th>
-                                      <th className="operation-activity-timeline__time">QTY Load</th>
-                                      <th className="operation-activity-timeline__time">Start</th>
-                                      <th className="operation-activity-timeline__time">End</th>
-                                      <th className="operation-activity-timeline__time">Rate (/h)</th>
-                                      <th className="operation-activity-timeline__time">Balance</th>
+                                      <th className="operation-activity-timeline__time">{t('cargoOpsLineStart')}</th>
+                                      <th className="operation-activity-timeline__time">{t('cargoOpsLineEnd')}</th>
+                                      <th className="operation-activity-timeline__time">{t('cargoOpsQtyLoad')}</th>
+                                      <th className="operation-activity-timeline__time">{t('cargoOpsRate')} (/h)</th>
+                                      <th className="operation-activity-timeline__time">{t('cargoOpsBalance')}</th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -895,11 +895,13 @@ export default function OperationActivityTimeline({
                                         return (
                                           <tr key={rowKey}>
                                             <td>Entry {entryNum}</td>
+                                            <td className="operation-activity-timeline__time">{line.startedAt ? formatDateTimeDisplay(line.startedAt) : '—'}</td>
+                                            <td className="operation-activity-timeline__time">
+                                              {line.endedAt ? formatDateTimeDisplay(line.endedAt) : t('cargoOpsLineInProgress')}
+                                            </td>
                                             <td className="operation-activity-timeline__time">
                                               {qty != null ? `${qty.toLocaleString(undefined, { maximumFractionDigits: 6 })}${metricSuffix}` : '—'}
                                             </td>
-                                            <td className="operation-activity-timeline__time">{line.startedAt ? formatDateTimeDisplay(line.startedAt) : '—'}</td>
-                                            <td className="operation-activity-timeline__time">{line.endedAt ? formatDateTimeDisplay(line.endedAt) : '—'}</td>
                                             <td className="operation-activity-timeline__time">
                                               {rate != null ? `${rate.toLocaleString(undefined, { maximumFractionDigits: 2 })}${metricSuffix}` : '—'}
                                             </td>

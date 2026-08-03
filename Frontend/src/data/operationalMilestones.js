@@ -60,6 +60,14 @@ export function viewModelFromOperationalEntries(entries, purpose) {
             qty: l.qty != null && l.qty !== '' ? Number(l.qty) : null,
             startAt: l.startAt ?? l.start_at ?? null,
             endAt: l.endAt ?? l.end_at ?? null,
+            atgMassDelta:
+              l.atgMassDelta != null && l.atgMassDelta !== ''
+                ? Number(l.atgMassDelta)
+                : l.atg_mass_delta != null && l.atg_mass_delta !== ''
+                  ? Number(l.atg_mass_delta)
+                  : null,
+            atgMassDetail: l.atgMassDetail ?? l.atg_mass_detail ?? null,
+            atgMassComputedAt: l.atgMassComputedAt ?? l.atg_mass_computed_at ?? null,
             asOfAt: l.asOfAt ?? l.as_of_at ?? null,
           }))
         : []
@@ -71,6 +79,18 @@ export function viewModelFromOperationalEntries(entries, purpose) {
       } else if (e.cargo_moved_qty != null && e.cargo_moved_qty !== '') {
         cargoMovedQty = Number(e.cargo_moved_qty)
       }
+      const rawTanks = e.tanks
+      const tanks = Array.isArray(rawTanks)
+        ? rawTanks.map((tk) => ({
+            id: String(tk.id),
+            code: tk.code ?? null,
+            name: tk.name ?? null,
+          }))
+        : []
+      const rawTankIds = e.tankIds ?? e.tank_ids
+      const tankIds = Array.isArray(rawTankIds)
+        ? rawTankIds.map((id) => String(id))
+        : tanks.map((tk) => tk.id)
       activities.push({
         id: String(e.id),
         category: milestoneKeyToLabel(mk, purpose),
@@ -81,6 +101,16 @@ export function viewModelFromOperationalEntries(entries, purpose) {
         cargoHandlingMethodId: e.cargoHandlingMethodId ?? e.cargo_handling_method_id ?? null,
         cargoLoadLines,
         cargoMovedQty,
+        tanks,
+        tankIds,
+        atgFlowRateTph:
+          e.atgFlowRateTph != null && e.atgFlowRateTph !== ''
+            ? Number(e.atgFlowRateTph)
+            : e.atg_flow_rate_tph != null && e.atg_flow_rate_tph !== ''
+              ? Number(e.atg_flow_rate_tph)
+              : null,
+        atgRateDetail: e.atgRateDetail ?? e.atg_rate_detail ?? null,
+        atgRateComputedAt: e.atgRateComputedAt ?? e.atg_rate_computed_at ?? null,
       })
     }
   }

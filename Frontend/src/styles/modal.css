@@ -33,6 +33,43 @@
   max-width: 720px;
 }
 
+/* ATG sources configuration — compact toolbar / table / footer buttons */
+.modal--atg-sources .btn {
+  min-height: 0;
+  height: auto;
+  padding: 3px 10px;
+  font-size: var(--font-size-xs);
+  line-height: 1.25;
+  border-radius: var(--radius-sm);
+}
+
+.modal--atg-sources .modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-2);
+  margin-top: var(--spacing-3);
+}
+
+.modal--atg-sources .tank-gauging-sources-modal__toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--spacing-2);
+}
+
+.modal--atg-sources .tank-gauging-sources-modal__row-actions {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.modal--atg-sources .data-table th,
+.modal--atg-sources .data-table td {
+  padding: 6px 8px;
+  font-size: var(--font-size-small);
+  vertical-align: middle;
+}
+
 /* Shipment plan create/edit + embedded SI fields: wide breakdown table needs room and horizontal scroll contained inside the form, not on the modal chrome. */
 .modal--shipment-plan-form {
   max-width: min(96vw, 1080px);
