@@ -60,6 +60,14 @@ export function viewModelFromOperationalEntries(entries, purpose) {
             qty: l.qty != null && l.qty !== '' ? Number(l.qty) : null,
             startAt: l.startAt ?? l.start_at ?? null,
             endAt: l.endAt ?? l.end_at ?? null,
+            atgMassDelta:
+              l.atgMassDelta != null && l.atgMassDelta !== ''
+                ? Number(l.atgMassDelta)
+                : l.atg_mass_delta != null && l.atg_mass_delta !== ''
+                  ? Number(l.atg_mass_delta)
+                  : null,
+            atgMassDetail: l.atgMassDetail ?? l.atg_mass_detail ?? null,
+            atgMassComputedAt: l.atgMassComputedAt ?? l.atg_mass_computed_at ?? null,
             asOfAt: l.asOfAt ?? l.as_of_at ?? null,
           }))
         : []

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
@@ -15,6 +15,7 @@ import {
   deleteOperationalEntry,
 } from '../api/operations'
 import { fetchMasterTanks } from '../api/masterTanks'
+import { fetchTankGaugingMassDelta } from '../api/tankGauging'
 import OperationActivityTimeline from './OperationActivityTimeline'
 import DropdownMultiSelect from './DropdownMultiSelect'
 import {
@@ -129,6 +130,7 @@ function defaultCargoLineDraft(getEnd, activityStartLocal) {
     qty: '',
     start: startVal,
     end: sameMinute ? '' : endVal,
+    qtyTouched: false,
   }
 }
 
@@ -298,6 +300,7 @@ export default function OperationalMilestoneWorkspace({
   const [endTime, setEndTime] = useState('')
   const [cargoLoadLinesDraft, setCargoLoadLinesDraft] = useState([])
   const [cargoTankIds, setCargoTankIds] = useState([])
+  const [atgRefByLineKey, setAtgRefByLineKey] = useState({})
   const [masterTankOptions, setMasterTankOptions] = useState([])
   const [editingEntryId, setEditingEntryId] = useState(null)
   const [formError, setFormError] = useState('')
@@ -386,6 +389,7 @@ export default function OperationalMilestoneWorkspace({
               qty: l.qty != null && Number.isFinite(Number(l.qty)) ? String(l.qty) : '',
               start: l.startAt ? isoOrDatetimeToLocal(l.startAt) : '',
               end: l.endAt ? isoOrDatetimeToLocal(l.endAt) : '',
+              qtyTouched: true,
             }))
           )
         } else {
@@ -579,10 +583,13 @@ export default function OperationalMilestoneWorkspace({
       lineRows.length && lineRows[lineRows.length - 1].balanceAfter != null
         ? lineRows[lineRows.length - 1].balanceAfter
         : basis
+    const lastDraft = sorted.length ? sorted[sorted.length - 1].d : null
+    const lastLineOpen = Boolean(lastDraft && lastDraft.start && !lastDraft.end)
     const canAddLine =
-      lastBalance == null || !Number.isFinite(lastBalance) || lastBalance > 1e-9
+      !lastLineOpen &&
+      (lastBalance == null || !Number.isFinite(lastBalance) || lastBalance > 1e-9)
 
-    return { metricLabel, basis, lineRows, lastBalance, canAddLine, siQty }
+    return { metricLabel, basis, lineRows, lastBalance, canAddLine, siQty, lastLineOpen }
   }, [
     activeMilestone,
     useApi,
@@ -596,8 +603,114 @@ export default function OperationalMilestoneWorkspace({
   ])
 
   const updateCargoLineDraft = useCallback((key, patch) => {
-    setCargoLoadLinesDraft((prev) => prev.map((row) => (row.key === key ? { ...row, ...patch } : row)))
+    setCargoLoadLinesDraft((prev) =>
+      prev.map((row) => {
+        if (row.key !== key) return row
+        const next = { ...row, ...patch }
+        if (Object.prototype.hasOwnProperty.call(patch, 'qty') && patch.qty !== row.qty) {
+          next.qtyTouched = true
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'start') || Object.prototype.hasOwnProperty.call(patch, 'end')) {
+          next.qtyTouched = false
+        }
+        return next
+      })
+    )
   }, [])
+
+  const cargoLineAtgSignature = useMemo(
+    () =>
+      cargoLoadLinesDraft
+        .map((r) => `${r.key}|${r.start}|${r.end}|${r.qtyTouched ? 1 : 0}`)
+        .join(';'),
+    [cargoLoadLinesDraft]
+  )
+
+  const prevTankIdsRef = useRef(cargoTankIds.join(','))
+
+  useEffect(() => {
+    const sig = cargoTankIds.join(',')
+    if (prevTankIdsRef.current !== sig) {
+      prevTankIdsRef.current = sig
+      setCargoLoadLinesDraft((prev) => prev.map((r) => ({ ...r, qtyTouched: false })))
+    }
+  }, [cargoTankIds])
+
+  useEffect(() => {
+    if (commodityType !== 'Liquid' || portId == null || portId === '' || cargoTankIds.length === 0) {
+      setAtgRefByLineKey({})
+      return undefined
+    }
+    let cancelled = false
+    const run = async () => {
+      const nextRefs = {}
+      const qtyAuto = new Map()
+      for (const row of cargoLoadLinesDraft) {
+        if (!row.start) {
+          nextRefs[row.key] = { status: 'idle' }
+          continue
+        }
+        let startIso
+        let endIso = null
+        try {
+          startIso = normalizeForApi(row.start, tz)
+        } catch {
+          nextRefs[row.key] = { status: 'error' }
+          continue
+        }
+        if (row.end) {
+          try {
+            endIso = normalizeForApi(row.end, tz)
+          } catch {
+            nextRefs[row.key] = { status: 'error' }
+            continue
+          }
+        }
+        nextRefs[row.key] = { status: 'loading' }
+        try {
+          const data = await fetchTankGaugingMassDelta({
+            portId,
+            tankIds: cargoTankIds,
+            startAt: startIso,
+            endAt: endIso || undefined,
+          })
+          nextRefs[row.key] = {
+            status: 'ok',
+            sumDeltaMass: data.sumDeltaMass,
+            incomplete: data.incomplete,
+            tanks: Array.isArray(data.tanks) ? data.tanks : [],
+            error: data.error,
+          }
+          if (
+            endIso &&
+            !row.qtyTouched &&
+            data.sumDeltaMass != null &&
+            Number.isFinite(Number(data.sumDeltaMass))
+          ) {
+            qtyAuto.set(row.key, String(Number(data.sumDeltaMass)))
+          }
+        } catch {
+          nextRefs[row.key] = { status: 'error' }
+        }
+      }
+      if (cancelled) return
+      if (qtyAuto.size > 0) {
+        setCargoLoadLinesDraft((prev) =>
+          prev.map((r) => {
+            if (qtyAuto.has(r.key) && !r.qtyTouched) {
+              return { ...r, qty: qtyAuto.get(r.key) }
+            }
+            return r
+          })
+        )
+      }
+      setAtgRefByLineKey(nextRefs)
+    }
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [cargoLineAtgSignature, cargoTankIds.join(','), portId, commodityType, tz])
 
   const addCargoLineDraft = useCallback(() => {
     setCargoLoadLinesDraft((prev) => {
@@ -663,31 +776,66 @@ export default function OperationalMilestoneWorkspace({
         const built = []
         for (let i = 0; i < cargoLoadLinesDraft.length; i++) {
           const li = cargoLoadLinesDraft[i]
-          const mq = parsePositiveQty(li.qty)
-          if (Number.isNaN(mq)) return { error: t('cargoOpsLineQtyInvalid', { n: i + 1 }) }
           if (!li.start) return { error: t('cargoOpsLineStartRequired', { n: i + 1 }) }
-          if (!li.end) return { error: t('cargoOpsLineEndRequired', { n: i + 1 }) }
           let startIso
-          let endIso
+          let endIso = null
           try {
             startIso = normalizeForApi(li.start, tz)
-            endIso = normalizeForApi(li.end, tz)
           } catch {
             return { error: t('cargoOpsLineTimeInvalid', { n: i + 1 }) }
           }
           const tStart = new Date(startIso).getTime()
-          const tEnd = new Date(endIso).getTime()
-          if (Number.isNaN(tStart) || Number.isNaN(tEnd) || tEnd <= tStart) {
-            return { error: t('cargoOpsLineEndAfterStart', { n: i + 1 }) }
+          if (Number.isNaN(tStart)) {
+            return { error: t('cargoOpsLineTimeInvalid', { n: i + 1 }) }
           }
           if (tStart < ta) {
             return { error: t('cargoOpsLineStartBeforeActivity', { n: i + 1 }) }
           }
-          built.push({ qty: mq, startIso, endIso, _sort: tStart, _end: tEnd, _i: i })
+          const hasEnd = Boolean(li.end && String(li.end).trim())
+          let tEnd = null
+          if (hasEnd) {
+            try {
+              endIso = normalizeForApi(li.end, tz)
+            } catch {
+              return { error: t('cargoOpsLineTimeInvalid', { n: i + 1 }) }
+            }
+            tEnd = new Date(endIso).getTime()
+            if (Number.isNaN(tEnd) || tEnd <= tStart) {
+              return { error: t('cargoOpsLineEndAfterStart', { n: i + 1 }) }
+            }
+          }
+          let mq = null
+          if (li.qty != null && String(li.qty).trim() !== '') {
+            mq = parsePositiveQty(li.qty)
+            if (Number.isNaN(mq)) return { error: t('cargoOpsLineQtyInvalid', { n: i + 1 }) }
+          }
+          if (hasEnd && mq == null) {
+            return { error: t('cargoOpsLineQtyRequiredWhenEnd', { n: i + 1 }) }
+          }
+          built.push({
+            qty: mq,
+            startIso,
+            endIso,
+            _sort: tStart,
+            _end: tEnd,
+            hasEnd,
+            _i: i,
+          })
         }
         built.sort((a, b) => a._sort - b._sort || a._i - b._i)
+        const openCount = built.filter((b) => !b.hasEnd).length
+        if (openCount > 1) {
+          return { error: t('cargoOpsLineOneOpenOnly') }
+        }
+        if (openCount === 1 && built[built.length - 1].hasEnd) {
+          return { error: t('cargoOpsLineOpenMustBeLast') }
+        }
         for (let j = 1; j < built.length; j++) {
-          if (built[j]._sort < built[j - 1]._end) {
+          const prevEnd = built[j - 1]._end
+          if (prevEnd == null) {
+            return { error: t('cargoOpsLineAfterOpen') }
+          }
+          if (built[j]._sort < prevEnd) {
             return { error: t('cargoOpsLineOverlap') }
           }
           if (built[j]._sort <= built[j - 1]._sort) {
@@ -697,7 +845,13 @@ export default function OperationalMilestoneWorkspace({
         if (commodityType === 'Liquid' && (!Array.isArray(cargoTankIds) || cargoTankIds.length === 0)) {
           return { error: t('cargoOpsTanksRequired') }
         }
-        const cargoLoadLines = built.map(({ qty, startIso, endIso }) => ({ qty, startAt: startIso, endAt: endIso }))
+        const cargoLoadLines = built.map(({ qty, startIso, endIso }) => {
+          const row = { startAt: startIso }
+          if (endIso) row.endAt = endIso
+          else row.endAt = null
+          if (qty != null) row.qty = qty
+          return row
+        })
         return {
           payload: {
             milestoneKey: mk,
@@ -766,10 +920,11 @@ export default function OperationalMilestoneWorkspace({
         if (payload.milestoneKey === 'cargo_operations' && Array.isArray(payload.tankIds)) {
           activityBody.tankIds = payload.tankIds
         }
+        let savedEntryId = editingEntryId
         if (editingEntryId) {
           await updateOperationalEntry(operationId, editingEntryId, activityBody, { scheduleIana: tz })
         } else {
-          await createOperationalEntry(
+          const created = await createOperationalEntry(
             operationId,
             {
               entryType: 'activity',
@@ -777,6 +932,7 @@ export default function OperationalMilestoneWorkspace({
             },
             { scheduleIana: tz }
           )
+          if (created?.id != null) savedEntryId = String(created.id)
         }
         await loadApi()
         bumpSaved()
@@ -784,10 +940,20 @@ export default function OperationalMilestoneWorkspace({
           message: editingEntryId
             ? 'Activity updated.'
             : andAnother
-              ? 'Activity saved. Add another below.'
+              ? t('cargoOpsSavedAddEntry')
               : 'Activity saved.',
           variant: 'success',
         })
+        if (andAnother && activeMilestone === 'CARGO OPERATIONS') {
+          if (savedEntryId) setEditingEntryId(String(savedEntryId))
+          setCargoLoadLinesDraft((prev) => {
+            const last = prev[prev.length - 1]
+            const nextStart = last?.end || getNowForDateTimeLocal()
+            return [...prev, defaultCargoLineDraft(getNowForDateTimeLocal, nextStart)]
+          })
+          setFormError('')
+          return
+        }
       } catch (e) {
         setFormError(e?.message || 'Failed to save activity')
         return
@@ -1165,83 +1331,9 @@ export default function OperationalMilestoneWorkspace({
                   </div>
                 ) : null}
 
-                {commodityType === 'Liquid' && activeMilestone === 'CARGO OPERATIONS' ? (() => {
-                  const editingRow = editingEntryId
-                    ? (activities || []).find((a) => String(a.id) === String(editingEntryId))
-                    : null
-                  const detail = editingRow?.atgRateDetail
-                  const tanksDetail = Array.isArray(detail?.tanks) ? detail.tanks : []
-                  const hasEnd = Boolean(endTime && String(endTime).trim())
-                  const sumRate = editingRow?.atgFlowRateTph != null && Number.isFinite(Number(editingRow.atgFlowRateTph))
-                    ? Number(editingRow.atgFlowRateTph)
-                    : detail?.sumRateTph != null && Number.isFinite(Number(detail.sumRateTph))
-                      ? Number(detail.sumRateTph)
-                      : null
-                  const fmt = (v, d = 3) =>
-                    v == null || Number.isNaN(Number(v))
-                      ? '—'
-                      : Number(v).toLocaleString(undefined, { maximumFractionDigits: d })
-                  return (
-                    <div className="cargo-ops-section">
-                      <p className="cargo-ops-section__label">{t('cargoOpsAtgRateTitle')}</p>
-                      {!hasEnd || !editingRow?.endTime ? (
-                        <p className="text-steel" style={{ margin: 0 }}>
-                          {t('cargoOpsAtgRatePending')}
-                        </p>
-                      ) : tanksDetail.length === 0 && sumRate == null ? (
-                        <p className="text-steel" style={{ margin: 0 }}>
-                          {t('cargoOpsAtgRateNoSamples')}
-                        </p>
-                      ) : (
-                        <>
-                          <div className="table-wrap" style={{ marginTop: '0.5rem' }}>
-                            <table className="data-table">
-                              <thead>
-                                <tr>
-                                  <th>{t('cargoOpsAtgColTank')}</th>
-                                  <th>{t('cargoOpsAtgColSource')}</th>
-                                  <th>{t('cargoOpsAtgColMassStart')}</th>
-                                  <th>{t('cargoOpsAtgColMassEnd')}</th>
-                                  <th>{t('cargoOpsAtgColDelta')}</th>
-                                  <th>{t('cargoOpsAtgColRate')}</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {tanksDetail.map((tk) => (
-                                  <tr key={tk.tankId || tk.code}>
-                                    <td>{tk.code || tk.tankId || '—'}</td>
-                                    <td style={{ fontSize: '0.85em' }}>{tk.sourceBaseUrl || '—'}</td>
-                                    <td>{fmt(tk.massStart)}</td>
-                                    <td>{fmt(tk.massEnd)}</td>
-                                    <td>{fmt(tk.deltaMass)}</td>
-                                    <td>
-                                      {tk.error ? (
-                                        <span className="text-steel">{tk.error}</span>
-                                      ) : (
-                                        fmt(tk.rateTph)
-                                      )}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                          <p className="text-steel" style={{ margin: '0.5rem 0 0' }}>
-                            {t('cargoOpsAtgRateSummary', {
-                              rate: sumRate != null ? fmt(sumRate) : '—',
-                              hours: detail?.hours != null ? fmt(detail.hours, 2) : '—',
-                            })}
-                            {detail?.incomplete ? ` · ${t('cargoOpsAtgRatePartial')}` : ''}
-                          </p>
-                        </>
-                      )}
-                    </div>
-                  )
-                })() : null}
-
                 <div className="cargo-ops-section">
                   <div className="cargo-ops-section__header">
-                    <p className="cargo-ops-section__label cargo-ops-section__label--inline">Load Segments</p>
+                    <p className="cargo-ops-section__label cargo-ops-section__label--inline">{t('cargoOpsLoadSegments')}</p>
                     <button
                       type="button"
                       className="btn btn--small btn--secondary"
@@ -1255,17 +1347,40 @@ export default function OperationalMilestoneWorkspace({
                   {(cargoOpsFormDerived?.lineRows || []).map((lr, idx) => {
                     const row = cargoLoadLinesDraft.find((d) => d.key === lr.key)
                     if (!row) return null
+                    const lineRows = cargoOpsFormDerived?.lineRows || []
+                    const isLastLine = lineRows.length > 0 && lineRows[lineRows.length - 1].key === lr.key
+                    const atgRef = atgRefByLineKey[lr.key]
+                    const atgFmt =
+                      atgRef?.status === 'ok' && atgRef.sumDeltaMass != null && Number.isFinite(Number(atgRef.sumDeltaMass))
+                        ? Number(atgRef.sumDeltaMass).toLocaleString(undefined, { maximumFractionDigits: 6 })
+                        : null
+                    const atgTankHint =
+                      atgRef?.status === 'ok' && Array.isArray(atgRef.tanks) && atgRef.tanks.length > 1
+                        ? atgRef.tanks
+                            .filter((tk) => tk.deltaMass != null)
+                            .map((tk) => `${tk.code || tk.tankId} ${Number(tk.deltaMass) >= 0 ? '+' : ''}${Number(tk.deltaMass).toLocaleString(undefined, { maximumFractionDigits: 3 })}`)
+                            .join(' · ')
+                        : ''
+                    const qtyAutoFilled =
+                      commodityType === 'Liquid' &&
+                      Boolean(row.end && row.start) &&
+                      !row.qtyTouched &&
+                      atgRef?.status === 'ok' &&
+                      atgFmt
                     return (
                       <div key={lr.key} className="cargo-line-card">
                         <div className="cargo-line-card__header">
-                          <span className="cargo-line-card__entry-chip">Entry {idx + 1}</span>
+                          <span className="cargo-line-card__entry-chip">{t('cargoOpsEntryLabel', { n: idx + 1 })}</span>
+                          {!row.end && row.start ? (
+                            <span className="cargo-line-card__in-progress">{t('cargoOpsLineInProgress')}</span>
+                          ) : null}
                           {cargoLoadLinesDraft.length > 1 ? (
                             <button
                               type="button"
                               className="cargo-line-card__remove"
                               onClick={() => removeCargoLineDraft(lr.key)}
-                              aria-label={`Remove entry ${idx + 1}`}
-                              title="Remove this entry"
+                              aria-label={t('cargoOpsRemoveLine', { n: idx + 1 })}
+                              title={t('cargoOpsRemoveLine', { n: idx + 1 })}
                             >
                               ×
                             </button>
@@ -1273,28 +1388,6 @@ export default function OperationalMilestoneWorkspace({
                         </div>
 
                         <div className="cargo-line-card__body">
-                          <div className="berthing-modal__field cargo-line-card__qty-field">
-                            <label className="berthing-modal__label" htmlFor={`op-cargo-qty-${lr.key}`}>
-                              {commodityType === 'Solid' ? t('cargoOpsQtyWb') : purpose === 'Unloading' ? t('cargoOpsQtyUnload') : t('cargoOpsQtyLoad')}{' '}
-                              <span className="required-star">*</span>
-                            </label>
-                            <div className="cargo-line-card__qty-input-wrap">
-                              <input
-                                id={`op-cargo-qty-${lr.key}`}
-                                type="text"
-                                inputMode="decimal"
-                                className="berthing-modal__input"
-                                value={row.qty}
-                                onChange={(e) => updateCargoLineDraft(lr.key, { qty: e.target.value })}
-                                placeholder={t('cargoOpsQtyPlaceholder')}
-                                autoComplete="off"
-                              />
-                              {cargoOpsFormDerived?.metricLabel ? (
-                                <span className="cargo-line-card__unit">{cargoOpsFormDerived.metricLabel}</span>
-                              ) : null}
-                            </div>
-                          </div>
-
                           <div className="cargo-ops-time-range cargo-ops-time-range--segment">
                             <div className="cargo-ops-time-range__field">
                               <input
@@ -1318,9 +1411,52 @@ export default function OperationalMilestoneWorkspace({
                                 onChange={(e) => updateCargoLineDraft(lr.key, { end: e.target.value })}
                               />
                               <span className="cargo-ops-time-range__caption">
-                                {t('cargoOpsLineEnd')} <span className="required-star">*</span>
+                                {isLastLine ? t('cargoOpsLineEndOptional') : t('cargoOpsLineEnd')}{' '}
+                                {!isLastLine ? <span className="required-star">*</span> : null}
                               </span>
                             </div>
+                          </div>
+
+                          <div className="cargo-line-card__qty-row">
+                            <div className="berthing-modal__field cargo-line-card__qty-field">
+                              <label className="berthing-modal__label" htmlFor={`op-cargo-qty-${lr.key}`}>
+                                {commodityType === 'Solid' ? t('cargoOpsQtyWb') : purpose === 'Unloading' ? t('cargoOpsQtyUnload') : t('cargoOpsQtyLoad')}{' '}
+                                {row.end ? <span className="required-star">*</span> : null}
+                              </label>
+                              <div className="cargo-line-card__qty-input-wrap">
+                                <input
+                                  id={`op-cargo-qty-${lr.key}`}
+                                  type="text"
+                                  inputMode="decimal"
+                                  className="berthing-modal__input"
+                                  value={row.qty}
+                                  onChange={(e) => updateCargoLineDraft(lr.key, { qty: e.target.value })}
+                                  placeholder={t('cargoOpsQtyPlaceholder')}
+                                  autoComplete="off"
+                                />
+                                {cargoOpsFormDerived?.metricLabel ? (
+                                  <span className="cargo-line-card__unit">{cargoOpsFormDerived.metricLabel}</span>
+                                ) : null}
+                              </div>
+                              {qtyAutoFilled ? (
+                                <p className="cargo-line-card__qty-hint text-steel">{t('cargoOpsQtyAutoFilled')}</p>
+                              ) : null}
+                            </div>
+                            {commodityType === 'Liquid' ? (
+                              <div className="cargo-line-card__atg-ref" title={atgTankHint || undefined}>
+                                <span className="cargo-line-card__atg-label">{t('cargoOpsAtgRefLabel')}</span>
+                                <span className="cargo-line-card__atg-value">
+                                  {atgRef?.status === 'loading'
+                                    ? '…'
+                                    : atgFmt
+                                      ? `${atgFmt}${cargoOpsFormDerived?.metricLabel ? ` ${cargoOpsFormDerived.metricLabel.split(' · ')[0]}` : ''}`
+                                      : t('cargoOpsAtgRefUnavailable')}
+                                </span>
+                                {atgRef?.incomplete ? (
+                                  <span className="cargo-line-card__atg-partial text-steel"> · {t('cargoOpsAtgRatePartial')}</span>
+                                ) : null}
+                              </div>
+                            ) : null}
                           </div>
 
                           <div className="cargo-line-card__derived">
@@ -1379,7 +1515,7 @@ export default function OperationalMilestoneWorkspace({
                   Save
                 </button>
                 <button type="button" className="btn btn--small btn--soft" onClick={() => handleAdd(true)}>
-                  Save &amp; add another
+                  {isCargoOpsModal ? t('cargoOpsSaveAddEntry') : 'Save & add another'}
                 </button>
               </div>
             </div>

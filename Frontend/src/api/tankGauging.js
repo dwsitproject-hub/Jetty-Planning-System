@@ -22,3 +22,15 @@ export function fetchTankGaugingLatest(portId) {
   const q = encodeURIComponent(String(portId))
   return apiGet(`/tank-gauging/latest?portId=${q}`)
 }
+
+/**
+ * Segment mass delta (sum |Δmass| per tank) for cargo operations entry form.
+ */
+export function fetchTankGaugingMassDelta({ portId, tankIds, startAt, endAt }) {
+  const params = new URLSearchParams()
+  params.set('portId', String(portId))
+  params.set('tankIds', (Array.isArray(tankIds) ? tankIds : []).join(','))
+  params.set('startAt', startAt)
+  if (endAt != null && endAt !== '') params.set('endAt', endAt)
+  return apiGet(`/tank-gauging/mass-delta?${params.toString()}`)
+}

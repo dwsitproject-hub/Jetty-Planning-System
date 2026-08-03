@@ -40,6 +40,7 @@ function parseSiBreakdownLiteJson(val) {
     return arr.map((r) => ({
       commodityId: r.commodity_id != null ? Number(r.commodity_id) : null,
       commodityName: r.commodity_name ?? null,
+      commodityShortName: r.commodity_short_name ?? null,
       commodityType: r.commodity_type ?? null,
       metricId: r.metric_id != null ? Number(r.metric_id) : null,
       metricCode: r.metric_code ?? null,
@@ -222,6 +223,7 @@ router.get('/', async (req, res) => {
                         json_build_object(
                           'commodity_id', c.id,
                           'commodity_name', c.name,
+                          'commodity_short_name', c.short_name,
                           'commodity_type', c.commodity_type,
                           'metric_id', b.metric_id,
                           'metric_code', m.code,

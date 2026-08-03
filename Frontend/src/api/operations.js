@@ -327,11 +327,18 @@ export function createOperationalEntry(operationId, body, opts = {}) {
     markedAt: normalizeOpActivityTs(body.markedAt, tz),
   }
   if (Array.isArray(body.cargoLoadLines) && body.cargoLoadLines.length > 0) {
-    payload.cargoLoadLines = body.cargoLoadLines.map((l) => ({
-      qty: Number(l.qty),
-      startAt: normalizeOpActivityTs(l.startAt, tz),
-      endAt: normalizeOpActivityTs(l.endAt, tz),
-    }))
+    payload.cargoLoadLines = body.cargoLoadLines.map((l) => {
+      const row = { startAt: normalizeOpActivityTs(l.startAt, tz) }
+      if (l.endAt != null && l.endAt !== '') {
+        row.endAt = normalizeOpActivityTs(l.endAt, tz)
+      } else {
+        row.endAt = null
+      }
+      if (l.qty != null && l.qty !== '' && Number.isFinite(Number(l.qty))) {
+        row.qty = Number(l.qty)
+      }
+      return row
+    })
   } else if (body.cargoMovedQty !== undefined && body.cargoMovedQty !== null) {
     payload.cargoMovedQty = body.cargoMovedQty
   }
@@ -353,11 +360,18 @@ export function updateOperationalEntry(operationId, entryId, body, opts = {}) {
     markedAt: normalizeOpActivityTs(body.markedAt, tz),
   }
   if (Array.isArray(body.cargoLoadLines) && body.cargoLoadLines.length > 0) {
-    payload.cargoLoadLines = body.cargoLoadLines.map((l) => ({
-      qty: Number(l.qty),
-      startAt: normalizeOpActivityTs(l.startAt, tz),
-      endAt: normalizeOpActivityTs(l.endAt, tz),
-    }))
+    payload.cargoLoadLines = body.cargoLoadLines.map((l) => {
+      const row = { startAt: normalizeOpActivityTs(l.startAt, tz) }
+      if (l.endAt != null && l.endAt !== '') {
+        row.endAt = normalizeOpActivityTs(l.endAt, tz)
+      } else {
+        row.endAt = null
+      }
+      if (l.qty != null && l.qty !== '' && Number.isFinite(Number(l.qty))) {
+        row.qty = Number(l.qty)
+      }
+      return row
+    })
   } else if (body.cargoMovedQty !== undefined && body.cargoMovedQty !== null) {
     payload.cargoMovedQty = body.cargoMovedQty
   }

@@ -6,6 +6,7 @@ import { pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePortScope } from '../middleware/port-scope.js';
 import { requirePageView } from '../middleware/permissions.js';
+import { computeAtgWindowMassDelta } from '../lib/atg-window-rate.js';
 
 const router = express.Router();
 router.use(requireAuth, requirePortScope);
@@ -15,6 +16,17 @@ const PAGE_KEY = 'tank-farm';
 function parsePortId(raw) {
   const n = parseInt(String(raw ?? '').trim(), 10);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function parseTankIds(raw) {
+  if (raw == null || raw === '') return [];
+  const parts = Array.isArray(raw) ? raw : String(raw).split(',');
+  const ids = [];
+  for (const p of parts) {
+    const n = parseInt(String(p).trim(), 10);
+    if (Number.isFinite(n) && n > 0 && !ids.includes(n)) ids.push(n);
+  }
+  return ids;
 }
 
 function assertPortAllowed(req, portId) {
@@ -93,6 +105,45 @@ router.get('/latest', ...requirePageView(PAGE_KEY), async (req, res) => {
   );
 
   res.json(r.rows.map(toReading));
+});
+
+/** GET /tank-gauging/mass-delta — segment mass Δ for cargo ops (no tank-farm page permission required) */
+router.get('/mass-delta', async (req, res) => {
+  const portId = parsePortId(req.query.portId ?? req.query.port_id);
+  const tankIds = parseTankIds(req.query.tankIds ?? req.query.tank_ids);
+  const startAt = req.query.startAt ?? req.query.start_at;
+  const endAtRaw = req.query.endAt ?? req.query.end_at;
+  const endAt = endAtRaw != null && endAtRaw !== '' ? endAtRaw : new Date().toISOString();
+
+  if (portId == null) {
+    return res.status(400).json({ error: 'portId is required' });
+  }
+  if (!assertPortAllowed(req, portId)) {
+    return res.status(403).json({ error: 'Selected port is not assigned to this user' });
+  }
+  if (!tankIds.length) {
+    return res.status(400).json({ error: 'tankIds is required' });
+  }
+  if (!startAt) {
+    return res.status(400).json({ error: 'startAt is required' });
+  }
+
+  const portCheck = await pool.query(
+    `SELECT id FROM master_tanks
+     WHERE id = ANY($1::bigint[]) AND port_id = $2 AND deleted_at IS NULL`,
+    [tankIds, portId]
+  );
+  if (portCheck.rows.length !== tankIds.length) {
+    return res.status(400).json({ error: 'One or more tanks are invalid for this port' });
+  }
+
+  const result = await computeAtgWindowMassDelta(pool, { tankIds, startAt, endAt });
+  res.json({
+    sumDeltaMass: result.sumDeltaMass,
+    incomplete: result.incomplete,
+    error: result.error,
+    tanks: result.tanks,
+  });
 });
 
 export default router;

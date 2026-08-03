@@ -210,6 +210,8 @@ docker compose -f docker-compose.app.yml up -d --build            # app, or the 
 
 ## 8. SLA email notification scheduler (cron)
 
+**Full setup guide:** [SLA-EMAIL-NOTIFICATIONS-SETUP.md](./SLA-EMAIL-NOTIFICATIONS-SETUP.md)
+
 After migration **093** and SMTP configured in **Admin → Notifications** (or via `SMTP_*` env vars):
 
 The backend API process runs the **email worker** (polls `notification_deliveries` every ~20s). A separate **cron job** on the backend host evaluates SLA rules and queues notifications — no user login required.
