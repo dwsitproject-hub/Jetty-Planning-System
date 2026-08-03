@@ -9,8 +9,57 @@ import { writeActivityLog } from '../lib/activity-log.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { promoteDockedToInProgressIfDocked } from '../lib/operation-auto-status.js';
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
+import { computeAtgWindowRate } from '../lib/atg-window-rate.js';
 
 const router = express.Router();
+
+/**
+ * Persist ATG window rate on cargo_operations when endAt + tanks are set; clear otherwise.
+ * @param {import('pg').PoolClient} client
+ */
+async function maybeComputeAndPersistAtgRate(client, { milestoneKey, tankIds, startIso, endIso, activityId }) {
+  if (milestoneKey !== 'cargo_operations' || !endIso || !Array.isArray(tankIds) || tankIds.length === 0) {
+    const cleared = await client.query(
+      `UPDATE operation_operational_activities
+       SET atg_flow_rate_tph = NULL,
+           atg_rate_detail = NULL,
+           atg_rate_computed_at = NULL,
+           updated_at = NOW()
+       WHERE id = $1
+       RETURNING atg_flow_rate_tph, atg_rate_detail, atg_rate_computed_at`,
+      [activityId]
+    );
+    return cleared.rows[0] || {
+      atg_flow_rate_tph: null,
+      atg_rate_detail: null,
+      atg_rate_computed_at: null,
+    };
+  }
+
+  const result = await computeAtgWindowRate(client, {
+    tankIds,
+    startAt: startIso,
+    endAt: endIso,
+  });
+  const detail = {
+    hours: result.hours,
+    sumRateTph: result.sumRateTph,
+    incomplete: result.incomplete,
+    error: result.error,
+    tanks: result.tanks,
+  };
+  const up = await client.query(
+    `UPDATE operation_operational_activities
+     SET atg_flow_rate_tph = $1,
+         atg_rate_detail = $2::jsonb,
+         atg_rate_computed_at = NOW(),
+         updated_at = NOW()
+     WHERE id = $3
+     RETURNING atg_flow_rate_tph, atg_rate_detail, atg_rate_computed_at`,
+    [result.ok ? result.sumRateTph : null, JSON.stringify(detail), activityId]
+  );
+  return up.rows[0];
+}
 router.use(optionalAuth);
 
 const MILESTONE_KEYS = new Set([
@@ -464,6 +513,10 @@ function toRow(r, cargoLoadLines, tanks) {
     cargoHandlingMethodId: r.cargo_handling_method_id ?? null,
     cargoHandlingMethodName: r.cargo_handling_method_name ?? null,
     cargoMovedQty: r.cargo_moved_qty != null && r.cargo_moved_qty !== '' ? Number(r.cargo_moved_qty) : null,
+    atgFlowRateTph:
+      r.atg_flow_rate_tph != null && r.atg_flow_rate_tph !== '' ? Number(r.atg_flow_rate_tph) : null,
+    atgRateDetail: r.atg_rate_detail ?? null,
+    atgRateComputedAt: r.atg_rate_computed_at ?? null,
     createdAt: r.created_at ?? null,
     updatedAt: r.updated_at ?? null,
   };
@@ -495,6 +548,7 @@ router.get('/operations/:operationId/operational-activities', async (req, res) =
     `SELECT oa.id, oa.operation_id, oa.entry_type, oa.milestone_key, oa.sub_step_title, oa.remark, oa.reason,
             oa.start_at, oa.end_at, oa.marked_at, oa.created_at, oa.updated_at,
             oa.cargo_handling_method_id, oa.cargo_moved_qty,
+            oa.atg_flow_rate_tph, oa.atg_rate_detail, oa.atg_rate_computed_at,
             mhm.name AS cargo_handling_method_name
      FROM operation_operational_activities oa
      LEFT JOIN master_cargo_handling_methods mhm
@@ -657,6 +711,14 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
       }
       if (milestoneKey === 'cargo_operations') {
         savedTanks = await replaceCargoActivityTanks(client, row.id, tankPack.tankIds || []);
+        const atg = await maybeComputeAndPersistAtgRate(client, {
+          milestoneKey,
+          tankIds: tankPack.tankIds || [],
+          startIso,
+          endIso: tbIso,
+          activityId: row.id,
+        });
+        Object.assign(row, atg);
       }
       await promoteDockedToInProgressIfDocked(client, operationId);
       await client.query('COMMIT');
@@ -858,7 +920,17 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
       let savedTanksPut = null;
       if (milestoneKey === 'cargo_operations' && linePack.lines?.length) {
         savedLinesPut = await replaceCargoLoadLines(client, entryId, linePack.lines);
+      }
+      if (milestoneKey === 'cargo_operations') {
         savedTanksPut = await replaceCargoActivityTanks(client, entryId, tankPack.tankIds || []);
+        const atg = await maybeComputeAndPersistAtgRate(client, {
+          milestoneKey,
+          tankIds: tankPack.tankIds || [],
+          startIso,
+          endIso: tbIso,
+          activityId: entryId,
+        });
+        Object.assign(up.rows[0], atg);
       } else if (row0.milestone_key === 'cargo_operations' && milestoneKey !== 'cargo_operations') {
         await client.query(`DELETE FROM operation_cargo_load_lines WHERE operational_activity_id = $1`, [entryId]);
         await client.query(`DELETE FROM operation_cargo_activity_tanks WHERE operational_activity_id = $1`, [entryId]);

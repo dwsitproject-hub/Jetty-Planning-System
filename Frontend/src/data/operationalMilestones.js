@@ -95,6 +95,14 @@ export function viewModelFromOperationalEntries(entries, purpose) {
         cargoMovedQty,
         tanks,
         tankIds,
+        atgFlowRateTph:
+          e.atgFlowRateTph != null && e.atgFlowRateTph !== ''
+            ? Number(e.atgFlowRateTph)
+            : e.atg_flow_rate_tph != null && e.atg_flow_rate_tph !== ''
+              ? Number(e.atg_flow_rate_tph)
+              : null,
+        atgRateDetail: e.atgRateDetail ?? e.atg_rate_detail ?? null,
+        atgRateComputedAt: e.atgRateComputedAt ?? e.atg_rate_computed_at ?? null,
       })
     }
   }

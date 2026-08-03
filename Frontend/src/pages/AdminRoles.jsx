@@ -176,7 +176,8 @@ function getGroupForPageKey(k) {
     k === 'master-port' ||
     k === 'master-jetty' ||
     k === 'master-jetty-layout' ||
-    k === 'master-tanks'
+    k === 'master-tanks' ||
+    k === 'tank-farm'
   ) {
     return 'master-port-jetty'
   }
@@ -186,7 +187,7 @@ function getGroupForPageKey(k) {
 
 const GROUPS = [
   { id: 'core', title: 'Core modules', description: 'Main app pages (operations & reporting).' },
-  { id: 'master-port-jetty', title: 'Master – Port & Jetty', description: 'Ports, preferred jetties, jetty layout, and shore tanks.' },
+  { id: 'master-port-jetty', title: 'Master – Port & Jetty', description: 'Ports, preferred jetties, jetty layout, shore tanks, and tank farm gauging.' },
   { id: 'master-si', title: 'Master – Shipping Instruction', description: 'SI dropdown master data pages.' },
 ]
 

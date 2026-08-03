@@ -1,0 +1,379 @@
+/**
+ * Poll one or more Tankvision ATG hosts and upsert tank_gauging_latest.
+ * Sources: TANK_GAUGING_BASE_URLS (comma-separated) or TANK_GAUGING_BASE_URL.
+ */
+import fs from 'fs';
+import {
+  fetchTankMeta,
+  fetchTankParameters,
+  parseTankMetaResponse,
+  parseTankParameterResponse,
+  resolveTankGaugingBaseUrls,
+  trimBaseUrl,
+} from './tankvision-client.js';
+
+/** Dedicated advisory lock (distinct from SLA 930931). */
+const ADVISORY_LOCK_KEY = 930932;
+
+/**
+ * @param {import('pg').Pool} db
+ */
+async function tryAdvisoryLock(db) {
+  const r = await db.query(`SELECT pg_try_advisory_lock($1) AS ok`, [ADVISORY_LOCK_KEY]);
+  return Boolean(r.rows[0]?.ok);
+}
+
+/**
+ * @param {import('pg').Pool} db
+ */
+async function releaseAdvisoryLock(db) {
+  await db.query(`SELECT pg_advisory_unlock($1)`, [ADVISORY_LOCK_KEY]).catch(() => {});
+}
+
+function hostLabel(baseUrl) {
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return String(baseUrl || '').replace(/^https?:\/\//i, '');
+  }
+}
+
+/**
+ * Ensure master_tanks + tank_gauging_tank_map rows for tanks from one ATG source.
+ * @param {import('pg').Pool} db
+ * @param {number} portId
+ * @param {string} sourceBaseUrl
+ * @param {string|null} sourceUnitName
+ * @param {Array<{ externalTankId: number, name: string, code: string }>} tanks
+ */
+export async function syncTankGaugingMap(db, portId, sourceBaseUrl, sourceUnitName, tanks) {
+  let ensured = 0;
+  let mapped = 0;
+  const base = trimBaseUrl(sourceBaseUrl);
+
+  await db.query(
+    `DELETE FROM tank_gauging_tank_map WHERE port_id = $1 AND source_base_url = $2`,
+    [portId, base]
+  );
+
+  for (const tank of tanks) {
+    if (!tank.code) continue;
+
+    let code = tank.code;
+    let existing = await db.query(
+      `SELECT id FROM master_tanks
+       WHERE port_id = $1 AND deleted_at IS NULL AND LOWER(code) = LOWER($2)
+       LIMIT 1`,
+      [portId, code]
+    );
+
+    // If code already mapped to a different ATG source, disambiguate.
+    if (existing.rows[0]) {
+      const mappedElsewhere = await db.query(
+        `SELECT 1 FROM tank_gauging_tank_map
+         WHERE tank_id = $1 AND source_base_url <> $2
+         LIMIT 1`,
+        [existing.rows[0].id, base]
+      );
+      if (mappedElsewhere.rows[0]) {
+        code = `${tank.code}@${hostLabel(base)}`;
+        existing = await db.query(
+          `SELECT id FROM master_tanks
+           WHERE port_id = $1 AND deleted_at IS NULL AND LOWER(code) = LOWER($2)
+           LIMIT 1`,
+          [portId, code]
+        );
+      }
+    }
+
+    let tankId;
+    if (existing.rows[0]) {
+      tankId = existing.rows[0].id;
+      await db.query(
+        `UPDATE master_tanks
+         SET name = COALESCE(NULLIF($2, ''), name), updated_at = NOW()
+         WHERE id = $1`,
+        [tankId, tank.name]
+      );
+    } else {
+      const maxSort = await db.query(
+        `SELECT COALESCE(MAX(sort_order), 0) + 1 AS next
+         FROM master_tanks WHERE port_id = $1 AND deleted_at IS NULL`,
+        [portId]
+      );
+      const ins = await db.query(
+        `INSERT INTO master_tanks (port_id, code, name, sort_order)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id`,
+        [portId, code, tank.name, Number(maxSort.rows[0].next)]
+      );
+      tankId = ins.rows[0].id;
+      ensured += 1;
+    }
+
+    await db.query(
+      `INSERT INTO tank_gauging_tank_map (
+         port_id, source_base_url, source_unit_name, external_tank_id, tank_id, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (port_id, source_base_url, external_tank_id) DO UPDATE SET
+         tank_id = EXCLUDED.tank_id,
+         source_unit_name = EXCLUDED.source_unit_name,
+         updated_at = NOW()`,
+      [portId, base, sourceUnitName, tank.externalTankId, tankId]
+    );
+    mapped += 1;
+  }
+  return { ensured, mapped, sourceBaseUrl: base, sourceUnitName };
+}
+
+/**
+ * Poll a single ATG base URL.
+ */
+async function pollOneSource(db, portId, opts, baseUrl) {
+  const base = trimBaseUrl(baseUrl);
+  let metaSync = null;
+  let sourceUnitName = null;
+
+  if (!opts.skipMetaSync) {
+    let metaText = null;
+    if (opts.metaFixturePath) {
+      metaText = fs.readFileSync(opts.metaFixturePath, 'utf8');
+    } else if (!opts.fixturePath) {
+      const metaRes = await fetchTankMeta({ baseUrl: base });
+      if (metaRes.ok) metaText = metaRes.text;
+      else metaSync = { ok: false, error: `meta HTTP ${metaRes.status}`, sourceBaseUrl: base };
+    }
+    if (metaText) {
+      const parsed = parseTankMetaResponse(metaText);
+      sourceUnitName = parsed.unitName;
+      if (parsed.tanks.length) {
+        const sync = await syncTankGaugingMap(db, portId, base, sourceUnitName, parsed.tanks);
+        metaSync = { ok: true, parseMode: parsed.parseMode, tankCount: parsed.tanks.length, ...sync };
+      } else {
+        metaSync = { ok: false, parseMode: parsed.parseMode, error: 'No tanks in DATATYPE=23', sourceBaseUrl: base };
+      }
+    }
+  }
+
+  let bodyText;
+  let sourceUrl = null;
+  let httpStatus = null;
+
+  if (opts.fixturePath) {
+    bodyText = fs.readFileSync(opts.fixturePath, 'utf8');
+    sourceUrl = `fixture:${opts.fixturePath}`;
+  } else {
+    const res = await fetchTankParameters({ baseUrl: base });
+    bodyText = res.text;
+    sourceUrl = res.url;
+    httpStatus = res.status;
+    if (!res.ok) {
+      return {
+        ok: false,
+        sourceBaseUrl: base,
+        sourceUnitName,
+        httpStatus,
+        sourceUrl,
+        metaSync,
+        error: `Tankvision HTTP ${res.status}`,
+        fetched: 0,
+        upserted: 0,
+        unmapped: 0,
+      };
+    }
+  }
+
+  const { readings, parseMode } = parseTankParameterResponse(bodyText);
+  if (!readings.length) {
+    return {
+      ok: false,
+      sourceBaseUrl: base,
+      sourceUnitName,
+      httpStatus,
+      sourceUrl,
+      metaSync,
+      parseMode,
+      error: 'No readings parsed from Tankvision response',
+      fetched: 0,
+      upserted: 0,
+      unmapped: 0,
+      rawPreview: bodyText.slice(0, 500),
+    };
+  }
+
+  const mapRes = await db.query(
+    `SELECT external_tank_id, tank_id, source_unit_name
+     FROM tank_gauging_tank_map
+     WHERE port_id = $1 AND source_base_url = $2`,
+    [portId, base]
+  );
+  const mapByExternal = new Map(
+    mapRes.rows.map((row) => [Number(row.external_tank_id), Number(row.tank_id)])
+  );
+  if (!sourceUnitName && mapRes.rows[0]?.source_unit_name) {
+    sourceUnitName = mapRes.rows[0].source_unit_name;
+  }
+
+  const fetchedAt = new Date();
+  let upserted = 0;
+  let unmapped = 0;
+  const errors = [];
+
+  for (const reading of readings) {
+    const tankId = mapByExternal.get(reading.externalTankId);
+    if (tankId == null) {
+      unmapped += 1;
+      continue;
+    }
+
+    let recordedAt = null;
+    if (reading.recordedAt) {
+      const d = new Date(reading.recordedAt);
+      if (!Number.isNaN(d.getTime())) recordedAt = d;
+    }
+
+    try {
+      await db.query(
+        `INSERT INTO tank_gauging_latest (
+           tank_id, product_name, level_mm, temperature_c, total_mass,
+           flow_rate_tph, status_text, recorded_at, fetched_at, raw_payload, source,
+           source_base_url, source_unit_name
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13)
+         ON CONFLICT (tank_id) DO UPDATE SET
+           product_name = EXCLUDED.product_name,
+           level_mm = EXCLUDED.level_mm,
+           temperature_c = EXCLUDED.temperature_c,
+           total_mass = EXCLUDED.total_mass,
+           flow_rate_tph = EXCLUDED.flow_rate_tph,
+           status_text = EXCLUDED.status_text,
+           recorded_at = EXCLUDED.recorded_at,
+           fetched_at = EXCLUDED.fetched_at,
+           raw_payload = EXCLUDED.raw_payload,
+           source = EXCLUDED.source,
+           source_base_url = EXCLUDED.source_base_url,
+           source_unit_name = EXCLUDED.source_unit_name`,
+        [
+          tankId,
+          reading.productName,
+          reading.levelMm,
+          reading.temperatureC,
+          reading.totalMass,
+          reading.flowRateTph,
+          reading.statusText,
+          recordedAt,
+          fetchedAt,
+          JSON.stringify(reading),
+          opts.fixturePath ? 'fixture' : 'tankvision-gwt',
+          base,
+          sourceUnitName,
+        ]
+      );
+      await db.query(
+        `INSERT INTO tank_gauging_samples (
+           tank_id, source_base_url, total_mass, flow_rate_tph, level_mm,
+           temperature_c, status_text, sampled_at, raw_payload
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
+        [
+          tankId,
+          base,
+          reading.totalMass,
+          reading.flowRateTph,
+          reading.levelMm,
+          reading.temperatureC,
+          reading.statusText,
+          // Wall-clock poll time (not NXA recordedAt) so Start/End windows align.
+          fetchedAt,
+          JSON.stringify(reading),
+        ]
+      );
+      upserted += 1;
+    } catch (e) {
+      errors.push({
+        externalTankId: reading.externalTankId,
+        tankId,
+        message: e?.message || String(e),
+      });
+    }
+  }
+
+  return {
+    ok: errors.length === 0 && unmapped === 0,
+    sourceBaseUrl: base,
+    sourceUnitName,
+    httpStatus,
+    sourceUrl,
+    metaSync,
+    parseMode,
+    fetched: readings.length,
+    upserted,
+    unmapped,
+    mapSize: mapByExternal.size,
+    errors,
+    fetchedAt: fetchedAt.toISOString(),
+  };
+}
+
+/**
+ * @param {import('pg').Pool} db
+ * @param {object} [opts]
+ * @param {number} [opts.portId]
+ * @param {string[]} [opts.baseUrls]
+ * @param {string} [opts.fixturePath]
+ * @param {string} [opts.metaFixturePath]
+ * @param {boolean} [opts.skipLock]
+ * @param {boolean} [opts.skipMetaSync]
+ */
+export async function runTankGaugingPollJob(db, opts = {}) {
+  const portId = Number(opts.portId ?? process.env.TANK_GAUGING_PORT_ID);
+  if (!Number.isFinite(portId) || portId <= 0) {
+    return { skipped: true, reason: 'missing_or_invalid_TANK_GAUGING_PORT_ID' };
+  }
+
+  const skipLock = Boolean(opts.skipLock);
+  if (!skipLock) {
+    const locked = await tryAdvisoryLock(db);
+    if (!locked) return { skipped: true, reason: 'lock_not_acquired' };
+  }
+
+  try {
+    // Fixture mode stays single-source (dev/offline).
+    const baseUrls = opts.fixturePath
+      ? [trimBaseUrl(opts.baseUrls?.[0] || process.env.TANK_GAUGING_BASE_URL || 'http://172.16.11.77')]
+      : opts.baseUrls?.length
+        ? opts.baseUrls.map(trimBaseUrl)
+        : resolveTankGaugingBaseUrls();
+
+    const sources = [];
+    for (const baseUrl of baseUrls) {
+      try {
+        sources.push(await pollOneSource(db, portId, opts, baseUrl));
+      } catch (e) {
+        sources.push({
+          ok: false,
+          sourceBaseUrl: trimBaseUrl(baseUrl),
+          error: e?.message || String(e),
+          fetched: 0,
+          upserted: 0,
+          unmapped: 0,
+        });
+      }
+    }
+
+    const fetched = sources.reduce((n, s) => n + (s.fetched || 0), 0);
+    const upserted = sources.reduce((n, s) => n + (s.upserted || 0), 0);
+    const unmapped = sources.reduce((n, s) => n + (s.unmapped || 0), 0);
+
+    return {
+      skipped: false,
+      ok: sources.length > 0 && sources.every((s) => s.ok),
+      portId,
+      sourceCount: sources.length,
+      fetched,
+      upserted,
+      unmapped,
+      sources,
+    };
+  } finally {
+    if (!skipLock) await releaseAdvisoryLock(db);
+  }
+}

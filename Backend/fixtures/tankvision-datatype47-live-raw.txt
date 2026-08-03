@@ -1,0 +1,1047 @@
+{
+"multiTankTgvData": {
+
+"multiTankBulkRealTimeData": [
+{
+"tankId":1,
+
+"parameterlist": [
+{
+"id": 622,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 1785481026,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 624,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 0,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+},{
+"id": 625,
+"unitType": 11,
+"value": 37.000,
+"valueString": "+37.0",
+"timestamp": 1737043200,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 657,
+"statusString": "Manual"
+},{
+"id": 724,
+"unitType": 20,
+"value": 0.000,
+"valueString": "+0.000",
+"timestamp": 1785481027,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 730,
+"unitType": 10,
+"value": 25.624,
+"valueString": "+25.624",
+"timestamp": 1785481027,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+}]
+},{
+"tankId":2,
+
+"parameterlist": [
+{
+"id": 622,
+"unitType": 8,
+"value": 4105.000,
+"valueString": "+4'105",
+"timestamp": 1785481027,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 624,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 0,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+},{
+"id": 625,
+"unitType": 11,
+"value": 61.200,
+"valueString": "+61.2",
+"timestamp": 1785481027,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 724,
+"unitType": 20,
+"value": 107.633,
+"valueString": "+107.633",
+"timestamp": 1785481028,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 730,
+"unitType": 10,
+"value": 1100.088,
+"valueString": "+1'100.088",
+"timestamp": 1785481028,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+}]
+},{
+"tankId":3,
+
+"parameterlist": [
+{
+"id": 622,
+"unitType": 8,
+"value": 6073.000,
+"valueString": "+6'073",
+"timestamp": 1785481028,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 624,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 0,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+},{
+"id": 625,
+"unitType": 11,
+"value": 46.700,
+"valueString": "+46.7",
+"timestamp": 1785481028,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 724,
+"unitType": 20,
+"value": 0.000,
+"valueString": "+0.000",
+"timestamp": 1785481030,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 730,
+"unitType": 10,
+"value": 1655.988,
+"valueString": "+1'655.988",
+"timestamp": 1785481030,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+}]
+},{
+"tankId":4,
+
+"parameterlist": [
+{
+"id": 622,
+"unitType": 8,
+"value": 13209.000,
+"valueString": "+13'209",
+"timestamp": 1785481030,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 624,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 0,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+},{
+"id": 625,
+"unitType": 11,
+"value": 33.000,
+"valueString": "+33.0",
+"timestamp": 1785481030,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 724,
+"unitType": 20,
+"value": 0.000,
+"valueString": "+0.000",
+"timestamp": 1785481031,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 730,
+"unitType": 10,
+"value": 3483.408,
+"valueString": "+3'483.408",
+"timestamp": 1785481031,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+}]
+},{
+"tankId":5,
+
+"parameterlist": [
+{
+"id": 622,
+"unitType": 8,
+"value": 9256.000,
+"valueString": "+9'256",
+"timestamp": 1785481031,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 624,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 0,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+},{
+"id": 625,
+"unitType": 11,
+"value": 37.000,
+"valueString": "+37.0",
+"timestamp": 1732032000,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 657,
+"statusString": "Manual"
+},{
+"id": 724,
+"unitType": 20,
+"value": 0.000,
+"valueString": "+0.000",
+"timestamp": 1785481032,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 730,
+"unitType": 10,
+"value": 2514.075,
+"valueString": "+2'514.075",
+"timestamp": 1785481032,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+}]
+},{
+"tankId":6,
+
+"parameterlist": [
+{
+"id": 622,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 1674489600,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+},{
+"id": 624,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 0,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+},{
+"id": 625,
+"unitType": 11,
+"value": 30.000,
+"valueString": "+30.0",
+"timestamp": 1784649600,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 657,
+"statusString": "Manual"
+},{
+"id": 724,
+"unitType": 20,
+"value": 0.000,
+"valueString": "+0.000",
+"timestamp": 1784696608,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+},{
+"id": 730,
+"unitType": 10,
+"value": 0.000,
+"valueString": "+0.000",
+"timestamp": 1784696608,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+}]
+},{
+"tankId":7,
+
+"parameterlist": [
+{
+"id": 622,
+"unitType": 8,
+"value": 14744.000,
+"valueString": "+14'744",
+"timestamp": 1785481033,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 624,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 0,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+},{
+"id": 625,
+"unitType": 11,
+"value": 28.000,
+"valueString": "+28.0",
+"timestamp": 1711728000,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 657,
+"statusString": "Manual"
+},{
+"id": 724,
+"unitType": 20,
+"value": 0.000,
+"valueString": "+0.000",
+"timestamp": 1785481034,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 730,
+"unitType": 10,
+"value": 3372.044,
+"valueString": "+3'372.044",
+"timestamp": 1785481034,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+}]
+},{
+"tankId":8,
+
+"parameterlist": [
+{
+"id": 622,
+"unitType": 8,
+"value": 3168.000,
+"valueString": "+3'168",
+"timestamp": 1785481034,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 624,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 0,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+},{
+"id": 625,
+"unitType": 11,
+"value": 28.000,
+"valueString": "+28.0",
+"timestamp": 1709049600,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 657,
+"statusString": "Manual"
+},{
+"id": 724,
+"unitType": 20,
+"value": 0.000,
+"valueString": "+0.000",
+"timestamp": 1785481035,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 730,
+"unitType": 10,
+"value": 341.871,
+"valueString": "+341.871",
+"timestamp": 1785481035,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+}]
+},{
+"tankId":9,
+
+"parameterlist": [
+{
+"id": 622,
+"unitType": 8,
+"value": 9577.000,
+"valueString": "+9'577",
+"timestamp": 1785481036,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 624,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 0,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+},{
+"id": 625,
+"unitType": 11,
+"value": 28.000,
+"valueString": "+28.0",
+"timestamp": 1709049600,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 657,
+"statusString": "Manual"
+},{
+"id": 724,
+"unitType": 20,
+"value": 0.000,
+"valueString": "+0.000",
+"timestamp": 1785481036,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 730,
+"unitType": 10,
+"value": 978.621,
+"valueString": "+978.621",
+"timestamp": 1785481036,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+}]
+},{
+"tankId":10,
+
+"parameterlist": [
+{
+"id": 622,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 0,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 676,
+"statusString": "NODATA"
+},{
+"id": 624,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 0,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 676,
+"statusString": "NODATA"
+},{
+"id": 625,
+"unitType": 11,
+"value": 0.000,
+"valueString": "+0.0",
+"timestamp": 0,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 676,
+"statusString": "NODATA"
+},{
+"id": 724,
+"unitType": 20,
+"value": 0.000,
+"valueString": "+0.000",
+"timestamp": 1784002172,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 676,
+"statusString": "NODATA"
+},{
+"id": 730,
+"unitType": 10,
+"value": -0.004,
+"valueString": "-0.004",
+"timestamp": 1784002172,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 676,
+"statusString": "NODATA"
+}]
+},{
+"tankId":11,
+
+"parameterlist": [
+{
+"id": 622,
+"unitType": 8,
+"value": 3897.000,
+"valueString": "+3'897",
+"timestamp": 1785481024,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 624,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 0,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+},{
+"id": 625,
+"unitType": 11,
+"value": 40.000,
+"valueString": "+40.0",
+"timestamp": 1708876800,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 657,
+"statusString": "Manual"
+},{
+"id": 724,
+"unitType": 20,
+"value": 0.000,
+"valueString": "+0.000",
+"timestamp": 1785481024,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 730,
+"unitType": 10,
+"value": 131.883,
+"valueString": "+131.883",
+"timestamp": 1785481024,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+}]
+},{
+"tankId":12,
+
+"parameterlist": [
+{
+"id": 622,
+"unitType": 8,
+"value": 6588.000,
+"valueString": "+6'588",
+"timestamp": 1785481024,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 624,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 0,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+},{
+"id": 625,
+"unitType": 11,
+"value": 40.000,
+"valueString": "+40.0",
+"timestamp": 1708876800,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 657,
+"statusString": "Manual"
+},{
+"id": 724,
+"unitType": 20,
+"value": -80.911,
+"valueString": "-80.911",
+"timestamp": 1785481025,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 730,
+"unitType": 10,
+"value": 217.095,
+"valueString": "+217.095",
+"timestamp": 1785481025,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+}]
+},{
+"tankId":13,
+
+"parameterlist": [
+{
+"id": 622,
+"unitType": 8,
+"value": 15484.000,
+"valueString": "+15'484",
+"timestamp": 1785481024,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 624,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 0,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+},{
+"id": 625,
+"unitType": 11,
+"value": 28.000,
+"valueString": "+28.0",
+"timestamp": 1709049600,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 657,
+"statusString": "Manual"
+},{
+"id": 724,
+"unitType": 20,
+"value": 0.000,
+"valueString": "+0.000",
+"timestamp": 1785481025,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 730,
+"unitType": 10,
+"value": 3627.744,
+"valueString": "+3'627.744",
+"timestamp": 1785481025,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+}]
+},{
+"tankId":14,
+
+"parameterlist": [
+{
+"id": 622,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 1785481025,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 624,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 0,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+},{
+"id": 625,
+"unitType": 11,
+"value": 0.000,
+"valueString": "+0.0",
+"timestamp": 0,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+},{
+"id": 724,
+"unitType": 20,
+"value": 0.000,
+"valueString": "+0.000",
+"timestamp": 1785481025,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 730,
+"unitType": 10,
+"value": 0.000,
+"valueString": "+0.000",
+"timestamp": 1785481025,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+}]
+},{
+"tankId":15,
+
+"parameterlist": [
+{
+"id": 622,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 1785481025,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 624,
+"unitType": 8,
+"value": 0.000,
+"valueString": "+0",
+"timestamp": 0,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+},{
+"id": 625,
+"unitType": 11,
+"value": 0.000,
+"valueString": "+0.0",
+"timestamp": 0,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 675,
+"statusString": "INIT"
+},{
+"id": 724,
+"unitType": 20,
+"value": 0.000,
+"valueString": "+0.000",
+"timestamp": 1785481025,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 655,
+"statusString": "Ok"
+},{
+"id": 730,
+"unitType": 10,
+"value": 0.000,
+"valueString": "+0.000",
+"timestamp": 1785481025,
+"localtimestamp": 0,
+"localRequestTimestamp": 1785481036,
+"wmStatus": false,
+"statusId": 676,
+"statusString": "NODATA"
+}]
+}],
+
+"multiTankInfoData": [
+{
+"tankId": 1,
+"tankName": "TK 1501",
+"tankComment": "Balance CPKO",
+"tankType": 1,
+"tankStatus": 649,
+"levelMovement": 0,
+"gaugeRefHeight": 16600.000,
+"pictureFile": "tank_1_1.gif"
+},{
+"tankId": 2,
+"tankName": "TK 5101",
+"tankComment": "RD PFAD",
+"tankType": 1,
+"tankStatus": 649,
+"levelMovement": 1,
+"gaugeRefHeight": 19800.000,
+"pictureFile": "tank_1_1.gif"
+},{
+"tankId": 3,
+"tankName": "TK 5102",
+"tankComment": "CIF SK 232",
+"tankType": 1,
+"tankStatus": 649,
+"levelMovement": 0,
+"gaugeRefHeight": 19800.000,
+"pictureFile": "tank_1_1.gif"
+},{
+"tankId": 4,
+"tankName": "TK 5103",
+"tankComment": "Idle",
+"tankType": 1,
+"tankStatus": 649,
+"levelMovement": 0,
+"gaugeRefHeight": 19800.000,
+"pictureFile": "tank_1_1.gif"
+},{
+"tankId": 5,
+"tankName": "TK 5104",
+"tankComment": "RD CPKO, Truck CPKO",
+"tankType": 1,
+"tankStatus": 649,
+"levelMovement": 0,
+"gaugeRefHeight": 19800.000,
+"pictureFile": "tank_1_1.gif"
+},{
+"tankId": 6,
+"tankName": "Daily Tank Methanol 1",
+"tankComment": "-",
+"tankType": 1,
+"tankStatus": 646,
+"levelMovement": 0,
+"gaugeRefHeight": 18600.000,
+"pictureFile": "tank_1_1.gif"
+},{
+"tankId": 7,
+"tankName": "TK 5006",
+"tankComment": "Idle",
+"tankType": 1,
+"tankStatus": 649,
+"levelMovement": 0,
+"gaugeRefHeight": 18600.000,
+"pictureFile": "tank_1_1.gif"
+},{
+"tankId": 8,
+"tankName": "TK Sodium 1001",
+"tankComment": "Discharge Isotank ",
+"tankType": 1,
+"tankStatus": 649,
+"levelMovement": 0,
+"gaugeRefHeight": 18600.000,
+"pictureFile": "tank_1_1.gif"
+},{
+"tankId": 9,
+"tankName": "TK Sodium 1002",
+"tankComment": "Idle",
+"tankType": 1,
+"tankStatus": 649,
+"levelMovement": 0,
+"gaugeRefHeight": 11840.000,
+"pictureFile": "tank_1_1.gif"
+},{
+"tankId": 10,
+"tankName": "Daily Tank Sodium",
+"tankComment": "-",
+"tankType": 1,
+"tankStatus": 646,
+"levelMovement": 0,
+"gaugeRefHeight": 18600.000,
+"pictureFile": "tank_1_1.gif"
+},{
+"tankId": 11,
+"tankName": "TK 301",
+"tankComment": "CG INSPEC",
+"tankType": 1,
+"tankStatus": 649,
+"levelMovement": 0,
+"gaugeRefHeight": 13707.000,
+"pictureFile": "tank_1_1.gif"
+},{
+"tankId": 12,
+"tankName": "TK 302",
+"tankComment": "CG OLEO",
+"tankType": 1,
+"tankStatus": 649,
+"levelMovement": 2,
+"gaugeRefHeight": 13720.000,
+"pictureFile": "tank_1_1.gif"
+},{
+"tankId": 13,
+"tankName": "TK 5005",
+"tankComment": "TF TO BD",
+"tankType": 1,
+"tankStatus": 649,
+"levelMovement": 0,
+"gaugeRefHeight": 20161.000,
+"pictureFile": "tank_1_1.gif"
+},{
+"tankId": 14,
+"tankName": "Daily NaOH",
+"tankComment": "-",
+"tankType": 1,
+"tankStatus": 649,
+"levelMovement": 0,
+"gaugeRefHeight": 1700.000,
+"pictureFile": "tank_1_1.gif"
+},{
+"tankId": 15,
+"tankName": "Daily Ca",
+"tankComment": "-",
+"tankType": 1,
+"tankStatus": 649,
+"levelMovement": 0,
+"gaugeRefHeight": 2100.000,
+"pictureFile": "tank_1_1.gif"
+}
+],
+
+
+"aaData":[{"id":"60793","dateTime": "","eventType":"ALARM","status":"INACTIVE","ackStatus":"UNACK","element":"Product Level","alarmType":"Low Alarm","object":"TK 5102","emailStatus":"Not Configured","loginId":"N/A","unitName":"NXA820_BT_3","paramId":622,"alarmTypeId":618,"tankId":3,"value":"+0 mm","ackActive":"INACTIVE","timeStamp":1782263071},{"id":"60795","dateTime": "","eventType":"ALARM","status":"INACTIVE","ackStatus":"UNACK","element":"Product Level","alarmType":"High High Alarm","object":"TK 5102","emailStatus":"Not Configured","loginId":"N/A","unitName":"NXA820_BT_3","paramId":622,"alarmTypeId":616,"tankId":3,"value":"+19'920 mm","ackActive":"INACTIVE","timeStamp":1782263084},{"id":"60796","dateTime": "","eventType":"ALARM","status":"INACTIVE","ackStatus":"UNACK","element":"Product Level","alarmType":"High Alarm","object":"TK 5102","emailStatus":"Not Configured","loginId":"N/A","unitName":"NXA820_BT_3","paramId":622,"alarmTypeId":617,"tankId":3,"value":"+19'920 mm","ackActive":"INACTIVE","timeStamp":1782263086},{"id":"60797","dateTime": "","eventType":"ALARM","status":"INACTIVE","ackStatus":"UNACK","element":"Product Level","alarmType":"Max. Fill Alarm","object":"TK 5102","emailStatus":"Not Configured","loginId":"N/A","unitName":"NXA820_BT_3","paramId":622,"alarmTypeId":2759,"tankId":3,"value":"+19'920 mm","ackActive":"INACTIVE","timeStamp":1782263088}]}}

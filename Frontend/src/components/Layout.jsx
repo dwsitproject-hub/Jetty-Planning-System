@@ -45,6 +45,7 @@ function pathToPageKey(pathname) {
   if (pathname.startsWith('/master/port')) return 'master-port'
   if (pathname.startsWith('/master/jetty-layout')) return 'master-jetty-layout'
   if (pathname.startsWith('/master/tanks')) return 'master-tanks'
+  if (pathname.startsWith('/tank-farm')) return 'tank-farm'
   if (pathname.startsWith('/master/jetty')) return 'master-jetty'
   if (pathname.startsWith('/master/si-term')) return 'master-si-term'
   if (pathname.startsWith('/master/si-shipper')) return 'master-si-shipper'

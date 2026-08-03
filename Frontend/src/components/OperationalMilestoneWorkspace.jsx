@@ -1165,6 +1165,80 @@ export default function OperationalMilestoneWorkspace({
                   </div>
                 ) : null}
 
+                {commodityType === 'Liquid' && activeMilestone === 'CARGO OPERATIONS' ? (() => {
+                  const editingRow = editingEntryId
+                    ? (activities || []).find((a) => String(a.id) === String(editingEntryId))
+                    : null
+                  const detail = editingRow?.atgRateDetail
+                  const tanksDetail = Array.isArray(detail?.tanks) ? detail.tanks : []
+                  const hasEnd = Boolean(endTime && String(endTime).trim())
+                  const sumRate = editingRow?.atgFlowRateTph != null && Number.isFinite(Number(editingRow.atgFlowRateTph))
+                    ? Number(editingRow.atgFlowRateTph)
+                    : detail?.sumRateTph != null && Number.isFinite(Number(detail.sumRateTph))
+                      ? Number(detail.sumRateTph)
+                      : null
+                  const fmt = (v, d = 3) =>
+                    v == null || Number.isNaN(Number(v))
+                      ? '—'
+                      : Number(v).toLocaleString(undefined, { maximumFractionDigits: d })
+                  return (
+                    <div className="cargo-ops-section">
+                      <p className="cargo-ops-section__label">{t('cargoOpsAtgRateTitle')}</p>
+                      {!hasEnd || !editingRow?.endTime ? (
+                        <p className="text-steel" style={{ margin: 0 }}>
+                          {t('cargoOpsAtgRatePending')}
+                        </p>
+                      ) : tanksDetail.length === 0 && sumRate == null ? (
+                        <p className="text-steel" style={{ margin: 0 }}>
+                          {t('cargoOpsAtgRateNoSamples')}
+                        </p>
+                      ) : (
+                        <>
+                          <div className="table-wrap" style={{ marginTop: '0.5rem' }}>
+                            <table className="data-table">
+                              <thead>
+                                <tr>
+                                  <th>{t('cargoOpsAtgColTank')}</th>
+                                  <th>{t('cargoOpsAtgColSource')}</th>
+                                  <th>{t('cargoOpsAtgColMassStart')}</th>
+                                  <th>{t('cargoOpsAtgColMassEnd')}</th>
+                                  <th>{t('cargoOpsAtgColDelta')}</th>
+                                  <th>{t('cargoOpsAtgColRate')}</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {tanksDetail.map((tk) => (
+                                  <tr key={tk.tankId || tk.code}>
+                                    <td>{tk.code || tk.tankId || '—'}</td>
+                                    <td style={{ fontSize: '0.85em' }}>{tk.sourceBaseUrl || '—'}</td>
+                                    <td>{fmt(tk.massStart)}</td>
+                                    <td>{fmt(tk.massEnd)}</td>
+                                    <td>{fmt(tk.deltaMass)}</td>
+                                    <td>
+                                      {tk.error ? (
+                                        <span className="text-steel">{tk.error}</span>
+                                      ) : (
+                                        fmt(tk.rateTph)
+                                      )}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                          <p className="text-steel" style={{ margin: '0.5rem 0 0' }}>
+                            {t('cargoOpsAtgRateSummary', {
+                              rate: sumRate != null ? fmt(sumRate) : '—',
+                              hours: detail?.hours != null ? fmt(detail.hours, 2) : '—',
+                            })}
+                            {detail?.incomplete ? ` · ${t('cargoOpsAtgRatePartial')}` : ''}
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  )
+                })() : null}
+
                 <div className="cargo-ops-section">
                   <div className="cargo-ops-section__header">
                     <p className="cargo-ops-section__label cargo-ops-section__label--inline">Load Segments</p>
