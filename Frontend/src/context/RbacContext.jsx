@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { apiGet } from '../api/client'
 import { useAuth } from './AuthContext'
 
@@ -18,15 +18,18 @@ export function RbacProvider({ children }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [pagePerms, setPagePerms] = useState({})
+  const permissionsLoadedRef = useRef(false)
 
   const refresh = useCallback(async () => {
     if (!me) {
       setPagePerms({})
       setError(null)
       setLoading(false)
+      permissionsLoadedRef.current = false
       return
     }
-    setLoading(true)
+    const showBlockingLoader = !permissionsLoadedRef.current
+    if (showBlockingLoader) setLoading(true)
     setError(null)
     try {
       const rows = await apiGet('/rbac/me/page-permissions')
@@ -40,6 +43,7 @@ export function RbacProvider({ children }) {
         }
       }
       setPagePerms(map)
+      permissionsLoadedRef.current = true
     } catch (e) {
       setError(e?.message || 'Failed to load permissions')
       setPagePerms({})

@@ -109,7 +109,7 @@ const COLUMNS = [
 
 export default function TankFarm() {
   const { t } = useTranslation('pages')
-  const { canEdit, refresh: refreshRbac } = useRbac()
+  const { canEdit } = useRbac()
   const canEditTankFarm = canEdit(PAGE_KEY)
   const [ports, setPorts] = useState([])
   const [portId, setPortId] = useState('')
@@ -157,10 +157,6 @@ export default function TankFarm() {
   useEffect(() => {
     loadPorts()
   }, [loadPorts])
-
-  useEffect(() => {
-    refreshRbac()
-  }, [refreshRbac])
 
   useEffect(() => {
     loadReadings()
