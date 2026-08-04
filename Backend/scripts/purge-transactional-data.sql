@@ -44,6 +44,7 @@ UNION ALL SELECT 'operations', COUNT(*) FROM public.operations
 UNION ALL SELECT 'operation_sub_processes', COUNT(*) FROM public.operation_sub_processes
 UNION ALL SELECT 'operation_operational_activities', COUNT(*) FROM public.operation_operational_activities
 UNION ALL SELECT 'operation_cargo_load_lines', COUNT(*) FROM public.operation_cargo_load_lines
+UNION ALL SELECT 'operation_cargo_load_line_tanks', COUNT(*) FROM public.operation_cargo_load_line_tanks
 UNION ALL SELECT 'operation_cargo_activity_tanks', COUNT(*) FROM public.operation_cargo_activity_tanks
 UNION ALL SELECT 'qc_surveys', COUNT(*) FROM public.qc_surveys
 UNION ALL SELECT 'quantity_checks', COUNT(*) FROM public.quantity_checks
@@ -63,6 +64,7 @@ TRUNCATE TABLE
   public.qc_surveys,
   public.quantity_checks,
   public.operation_cargo_activity_tanks,
+  public.operation_cargo_load_line_tanks,
   public.operation_cargo_load_lines,
   public.operation_operational_activities,
   public.operation_sub_process_documents,

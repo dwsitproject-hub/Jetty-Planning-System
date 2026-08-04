@@ -298,6 +298,7 @@
   "cargoOpsDestinationTanks": "Tangki Tujuan",
   "cargoOpsTanksPlaceholder": "Pilih tangki…",
   "cargoOpsTanksRequired": "Pilih minimal satu tangki",
+  "cargoOpsLineTanksRequired": "Entri {{n}}: pilih minimal satu tangki.",
   "cargoOpsTanksEmpty": "Belum ada tangki untuk pelabuhan ini",
   "cargoOpsAtgRateTitle": "Laju ATG per jam (otomatis)",
   "cargoOpsAtgRatePending": "Berjalan — laju dihitung saat End aktivitas disimpan (Δ massa ÷ jam dari sampel Tankvision).",

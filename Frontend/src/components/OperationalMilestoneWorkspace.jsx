@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
@@ -118,7 +118,7 @@ function newCargoLineDraftKey() {
   return `cl-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
-function defaultCargoLineDraft(getEnd, activityStartLocal) {
+function defaultCargoLineDraft(getEnd, activityStartLocal, tankIds = []) {
   const endVal = getEnd()
   const startVal = activityStartLocal != null && activityStartLocal !== '' ? activityStartLocal : ''
   const sameMinute =
@@ -131,6 +131,7 @@ function defaultCargoLineDraft(getEnd, activityStartLocal) {
     start: startVal,
     end: sameMinute ? '' : endVal,
     qtyTouched: false,
+    tankIds: Array.isArray(tankIds) ? tankIds.map(String) : [],
   }
 }
 
@@ -242,6 +243,7 @@ export default function OperationalMilestoneWorkspace({
       setStartTime(isoOrDatetimeToLocal(row?.startTime || searchParams.get('startAt')) || getNowForDateTimeLocal())
       setEndTime(isoOrDatetimeToLocal(row?.endTime || searchParams.get('endAt')) || '')
       const lines = row?.cargoLoadLines
+      const fallbackTankIds = Array.isArray(row?.tankIds) ? row.tankIds.map(String) : []
       if (Array.isArray(lines) && lines.length > 0) {
         setCargoLoadLinesDraft(
           lines.map((l) => {
@@ -253,11 +255,16 @@ export default function OperationalMilestoneWorkspace({
             } else if (!startLoc && row?.startTime) {
               startLoc = isoOrDatetimeToLocal(row.startTime)
             }
+            const lineTankIds =
+              Array.isArray(l.tankIds) && l.tankIds.length > 0
+                ? l.tankIds.map(String)
+                : fallbackTankIds
             return {
               key: l.id || newCargoLineDraftKey(),
               qty: Number.isFinite(Number(l.qty)) ? String(l.qty) : '',
               start: startLoc,
               end: endLoc,
+              tankIds: lineTankIds,
             }
           })
         )
@@ -272,13 +279,12 @@ export default function OperationalMilestoneWorkspace({
             qty: String(row.cargoMovedQty),
             start: isoOrDatetimeToLocal(row?.startTime) || '',
             end: isoOrDatetimeToLocal(row?.endTime || row?.startTime) || '',
+            tankIds: Array.isArray(row?.tankIds) ? row.tankIds.map(String) : [],
           },
         ])
       } else {
         setCargoLoadLinesDraft([defaultCargoLineDraft(getNowForDateTimeLocal, getNowForDateTimeLocal())])
       }
-      const ids = Array.isArray(row?.tankIds) ? row.tankIds.map(String) : []
-      setCargoTankIds(ids)
       setFormModalOpen(true)
     } else {
       setEditingEntryId(null)
@@ -299,7 +305,6 @@ export default function OperationalMilestoneWorkspace({
   const [startTime, setStartTime] = useState(() => nowToNaiveLocalInScheduleZone(tz))
   const [endTime, setEndTime] = useState('')
   const [cargoLoadLinesDraft, setCargoLoadLinesDraft] = useState([])
-  const [cargoTankIds, setCargoTankIds] = useState([])
   const [atgRefByLineKey, setAtgRefByLineKey] = useState({})
   const [masterTankOptions, setMasterTankOptions] = useState([])
   const [editingEntryId, setEditingEntryId] = useState(null)
@@ -382,6 +387,7 @@ export default function OperationalMilestoneWorkspace({
         setStartTime(isoOrDatetimeToLocal(existing.startTime) || getNowForDateTimeLocal())
         setEndTime(existing.endTime ? isoOrDatetimeToLocal(existing.endTime) : '')
         const lines = existing.cargoLoadLines
+        const fallbackTankIds = Array.isArray(existing.tankIds) ? existing.tankIds.map(String) : []
         if (Array.isArray(lines) && lines.length > 0) {
           setCargoLoadLinesDraft(
             lines.map((l) => ({
@@ -390,12 +396,15 @@ export default function OperationalMilestoneWorkspace({
               start: l.startAt ? isoOrDatetimeToLocal(l.startAt) : '',
               end: l.endAt ? isoOrDatetimeToLocal(l.endAt) : '',
               qtyTouched: true,
+              tankIds:
+                Array.isArray(l.tankIds) && l.tankIds.length > 0
+                  ? l.tankIds.map(String)
+                  : fallbackTankIds,
             }))
           )
         } else {
           setCargoLoadLinesDraft([defaultCargoLineDraft(getNowForDateTimeLocal, isoOrDatetimeToLocal(existing.startTime) || getNowForDateTimeLocal())])
         }
-        setCargoTankIds(Array.isArray(existing.tankIds) ? existing.tankIds.map(String) : [])
         setFormModalOpen(true)
         return
       }
@@ -414,10 +423,8 @@ export default function OperationalMilestoneWorkspace({
     }
     if (cat === 'CARGO OPERATIONS') {
       setCargoLoadLinesDraft([defaultCargoLineDraft(getNowForDateTimeLocal, t0)])
-      setCargoTankIds([])
     } else {
       setCargoLoadLinesDraft([])
-      setCargoTankIds([])
     }
     setFormModalOpen(true)
   }
@@ -492,10 +499,8 @@ export default function OperationalMilestoneWorkspace({
     setEndTime('')
     if (cat === 'CARGO OPERATIONS') {
       setCargoLoadLinesDraft([defaultCargoLineDraft(getNowForDateTimeLocal, t0)])
-      setCargoTankIds([])
     } else {
       setCargoLoadLinesDraft([])
-      setCargoTankIds([])
     }
     setFormError('')
     if (cat && milestones.includes(cat)) setActiveMilestone(cat)
@@ -511,10 +516,8 @@ export default function OperationalMilestoneWorkspace({
     setEndTime('')
     if (m === 'CARGO OPERATIONS') {
       setCargoLoadLinesDraft([defaultCargoLineDraft(getNowForDateTimeLocal, t0)])
-      setCargoTankIds([])
     } else {
       setCargoLoadLinesDraft([])
-      setCargoTankIds([])
     }
     setFormError('')
     if (m) setActiveMilestone(m)
@@ -613,6 +616,9 @@ export default function OperationalMilestoneWorkspace({
         if (Object.prototype.hasOwnProperty.call(patch, 'start') || Object.prototype.hasOwnProperty.call(patch, 'end')) {
           next.qtyTouched = false
         }
+        if (Object.prototype.hasOwnProperty.call(patch, 'tankIds')) {
+          next.qtyTouched = false
+        }
         return next
       })
     )
@@ -621,23 +627,13 @@ export default function OperationalMilestoneWorkspace({
   const cargoLineAtgSignature = useMemo(
     () =>
       cargoLoadLinesDraft
-        .map((r) => `${r.key}|${r.start}|${r.end}|${r.qtyTouched ? 1 : 0}`)
+        .map((r) => `${r.key}|${r.start}|${r.end}|${r.qtyTouched ? 1 : 0}|${(r.tankIds || []).join(',')}`)
         .join(';'),
     [cargoLoadLinesDraft]
   )
 
-  const prevTankIdsRef = useRef(cargoTankIds.join(','))
-
   useEffect(() => {
-    const sig = cargoTankIds.join(',')
-    if (prevTankIdsRef.current !== sig) {
-      prevTankIdsRef.current = sig
-      setCargoLoadLinesDraft((prev) => prev.map((r) => ({ ...r, qtyTouched: false })))
-    }
-  }, [cargoTankIds])
-
-  useEffect(() => {
-    if (commodityType !== 'Liquid' || portId == null || portId === '' || cargoTankIds.length === 0) {
+    if (commodityType !== 'Liquid' || portId == null || portId === '') {
       setAtgRefByLineKey({})
       return undefined
     }
@@ -646,7 +642,7 @@ export default function OperationalMilestoneWorkspace({
       const nextRefs = {}
       const qtyAuto = new Map()
       for (const row of cargoLoadLinesDraft) {
-        if (!row.start) {
+        if (!row.start || !Array.isArray(row.tankIds) || row.tankIds.length === 0) {
           nextRefs[row.key] = { status: 'idle' }
           continue
         }
@@ -670,7 +666,7 @@ export default function OperationalMilestoneWorkspace({
         try {
           const data = await fetchTankGaugingMassDelta({
             portId,
-            tankIds: cargoTankIds,
+            tankIds: row.tankIds,
             startAt: startIso,
             endAt: endIso || undefined,
           })
@@ -710,13 +706,14 @@ export default function OperationalMilestoneWorkspace({
     return () => {
       cancelled = true
     }
-  }, [cargoLineAtgSignature, cargoTankIds.join(','), portId, commodityType, tz])
+  }, [cargoLineAtgSignature, portId, commodityType, tz])
 
   const addCargoLineDraft = useCallback(() => {
     setCargoLoadLinesDraft((prev) => {
       const last = prev[prev.length - 1]
       const nextStart = last?.end || ''
-      return [...prev, defaultCargoLineDraft(getNowForDateTimeLocal, nextStart)]
+      const prevTanks = Array.isArray(last?.tankIds) ? last.tankIds.map(String) : []
+      return [...prev, defaultCargoLineDraft(getNowForDateTimeLocal, nextStart, prevTanks)]
     })
   }, [getNowForDateTimeLocal])
 
@@ -812,6 +809,9 @@ export default function OperationalMilestoneWorkspace({
           if (hasEnd && mq == null) {
             return { error: t('cargoOpsLineQtyRequiredWhenEnd', { n: i + 1 }) }
           }
+          if (commodityType === 'Liquid' && (!Array.isArray(li.tankIds) || li.tankIds.length === 0)) {
+            return { error: t('cargoOpsLineTanksRequired', { n: i + 1 }) }
+          }
           built.push({
             qty: mq,
             startIso,
@@ -820,6 +820,7 @@ export default function OperationalMilestoneWorkspace({
             _end: tEnd,
             hasEnd,
             _i: i,
+            tankIds: Array.isArray(li.tankIds) ? li.tankIds.map(String) : [],
           })
         }
         built.sort((a, b) => a._sort - b._sort || a._i - b._i)
@@ -842,14 +843,14 @@ export default function OperationalMilestoneWorkspace({
             return { error: t('cargoOpsLineStartStrict') }
           }
         }
-        if (commodityType === 'Liquid' && (!Array.isArray(cargoTankIds) || cargoTankIds.length === 0)) {
-          return { error: t('cargoOpsTanksRequired') }
-        }
-        const cargoLoadLines = built.map(({ qty, startIso, endIso }) => {
+        const cargoLoadLines = built.map(({ qty, startIso, endIso, tankIds }) => {
           const row = { startAt: startIso }
           if (endIso) row.endAt = endIso
           else row.endAt = null
           if (qty != null) row.qty = qty
+          if (commodityType === 'Liquid' && Array.isArray(tankIds) && tankIds.length > 0) {
+            row.tankIds = tankIds
+          }
           return row
         })
         return {
@@ -860,7 +861,6 @@ export default function OperationalMilestoneWorkspace({
             startTime: st,
             endTime: startOnly ? (en || null) : endOut,
             cargoLoadLines,
-            ...(commodityType === 'Liquid' ? { tankIds: cargoTankIds.map(String) } : { tankIds: [] }),
           },
         }
       }
@@ -917,9 +917,6 @@ export default function OperationalMilestoneWorkspace({
         if (payload.milestoneKey === 'cargo_operations' && Array.isArray(payload.cargoLoadLines)) {
           activityBody.cargoLoadLines = payload.cargoLoadLines
         }
-        if (payload.milestoneKey === 'cargo_operations' && Array.isArray(payload.tankIds)) {
-          activityBody.tankIds = payload.tankIds
-        }
         let savedEntryId = editingEntryId
         if (editingEntryId) {
           await updateOperationalEntry(operationId, editingEntryId, activityBody, { scheduleIana: tz })
@@ -949,7 +946,8 @@ export default function OperationalMilestoneWorkspace({
           setCargoLoadLinesDraft((prev) => {
             const last = prev[prev.length - 1]
             const nextStart = last?.end || getNowForDateTimeLocal()
-            return [...prev, defaultCargoLineDraft(getNowForDateTimeLocal, nextStart)]
+            const prevTanks = Array.isArray(last?.tankIds) ? last.tankIds.map(String) : []
+            return [...prev, defaultCargoLineDraft(getNowForDateTimeLocal, nextStart, prevTanks)]
           })
           setFormError('')
           return
@@ -1309,28 +1307,6 @@ export default function OperationalMilestoneWorkspace({
                   )
                 })()}
 
-                {commodityType === 'Liquid' ? (
-                  <div className="cargo-ops-section">
-                    <div className="berthing-modal__field">
-                      <label className="berthing-modal__label" htmlFor="op-cargo-tanks">
-                        {purpose === 'Unloading' ? t('cargoOpsSourceTanks') : t('cargoOpsDestinationTanks')}{' '}
-                        <span className="required-star">*</span>
-                      </label>
-                      <DropdownMultiSelect
-                        id="op-cargo-tanks"
-                        options={masterTankOptions}
-                        selectedValues={cargoTankIds}
-                        onChange={setCargoTankIds}
-                        placeholder={t('cargoOpsTanksPlaceholder')}
-                        emptyText={t('cargoOpsTanksEmpty')}
-                        searchable
-                        searchPlaceholder="Search..."
-                        className="cargo-ops-tanks-dropdown"
-                      />
-                    </div>
-                  </div>
-                ) : null}
-
                 <div className="cargo-ops-section">
                   <div className="cargo-ops-section__header">
                     <p className="cargo-ops-section__label cargo-ops-section__label--inline">{t('cargoOpsLoadSegments')}</p>
@@ -1388,6 +1364,26 @@ export default function OperationalMilestoneWorkspace({
                         </div>
 
                         <div className="cargo-line-card__body">
+                          {commodityType === 'Liquid' ? (
+                            <div className="berthing-modal__field cargo-line-card__tanks-field">
+                              <label className="berthing-modal__label" htmlFor={`op-cargo-tanks-${lr.key}`}>
+                                {purpose === 'Unloading' ? t('cargoOpsSourceTanks') : t('cargoOpsDestinationTanks')}{' '}
+                                <span className="required-star">*</span>
+                              </label>
+                              <DropdownMultiSelect
+                                id={`op-cargo-tanks-${lr.key}`}
+                                options={masterTankOptions}
+                                selectedValues={Array.isArray(row.tankIds) ? row.tankIds : []}
+                                onChange={(ids) => updateCargoLineDraft(lr.key, { tankIds: ids })}
+                                placeholder={t('cargoOpsTanksPlaceholder')}
+                                emptyText={t('cargoOpsTanksEmpty')}
+                                searchable
+                                searchPlaceholder="Search..."
+                                className="cargo-ops-tanks-dropdown"
+                              />
+                            </div>
+                          ) : null}
+
                           <div className="cargo-ops-time-range cargo-ops-time-range--segment">
                             <div className="cargo-ops-time-range__field">
                               <input

@@ -54,22 +54,38 @@ export function viewModelFromOperationalEntries(entries, purpose) {
       const mk = e.milestoneKey ?? e.milestone_key
       const rawLines = e.cargoLoadLines ?? e.cargo_load_lines
       const cargoLoadLines = Array.isArray(rawLines)
-        ? rawLines.map((l) => ({
-            id: l.id != null ? String(l.id) : undefined,
-            lineOrder: Number(l.lineOrder ?? l.line_order ?? 0),
-            qty: l.qty != null && l.qty !== '' ? Number(l.qty) : null,
-            startAt: l.startAt ?? l.start_at ?? null,
-            endAt: l.endAt ?? l.end_at ?? null,
-            atgMassDelta:
-              l.atgMassDelta != null && l.atgMassDelta !== ''
-                ? Number(l.atgMassDelta)
-                : l.atg_mass_delta != null && l.atg_mass_delta !== ''
-                  ? Number(l.atg_mass_delta)
-                  : null,
-            atgMassDetail: l.atgMassDetail ?? l.atg_mass_detail ?? null,
-            atgMassComputedAt: l.atgMassComputedAt ?? l.atg_mass_computed_at ?? null,
-            asOfAt: l.asOfAt ?? l.as_of_at ?? null,
-          }))
+        ? rawLines.map((l) => {
+            const rawLineTanks = l.tanks
+            const lineTanks = Array.isArray(rawLineTanks)
+              ? rawLineTanks.map((tk) => ({
+                  id: String(tk.id),
+                  code: tk.code ?? null,
+                  name: tk.name ?? null,
+                }))
+              : []
+            const rawLineTankIds = l.tankIds ?? l.tank_ids
+            const lineTankIds = Array.isArray(rawLineTankIds)
+              ? rawLineTankIds.map((id) => String(id))
+              : lineTanks.map((tk) => tk.id)
+            return {
+              id: l.id != null ? String(l.id) : undefined,
+              lineOrder: Number(l.lineOrder ?? l.line_order ?? 0),
+              qty: l.qty != null && l.qty !== '' ? Number(l.qty) : null,
+              startAt: l.startAt ?? l.start_at ?? null,
+              endAt: l.endAt ?? l.end_at ?? null,
+              atgMassDelta:
+                l.atgMassDelta != null && l.atgMassDelta !== ''
+                  ? Number(l.atgMassDelta)
+                  : l.atg_mass_delta != null && l.atg_mass_delta !== ''
+                    ? Number(l.atg_mass_delta)
+                    : null,
+              atgMassDetail: l.atgMassDetail ?? l.atg_mass_detail ?? null,
+              atgMassComputedAt: l.atgMassComputedAt ?? l.atg_mass_computed_at ?? null,
+              asOfAt: l.asOfAt ?? l.as_of_at ?? null,
+              tanks: lineTanks,
+              tankIds: lineTankIds,
+            }
+          })
         : []
       let cargoMovedQty = null
       if (cargoLoadLines.length > 0) {

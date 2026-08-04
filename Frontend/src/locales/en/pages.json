@@ -298,6 +298,7 @@
   "cargoOpsDestinationTanks": "Destination Tank(s)",
   "cargoOpsTanksPlaceholder": "Select tank(s)…",
   "cargoOpsTanksRequired": "Select at least one tank",
+  "cargoOpsLineTanksRequired": "Entry {{n}}: select at least one tank.",
   "cargoOpsTanksEmpty": "No tanks configured for this port",
   "cargoOpsAtgRateTitle": "ATG hourly rate (auto)",
   "cargoOpsAtgRatePending": "In progress — rate is calculated when activity End is saved (mass Δ ÷ hours from Tankvision samples).",
