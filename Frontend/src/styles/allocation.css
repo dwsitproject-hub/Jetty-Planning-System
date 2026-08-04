@@ -242,8 +242,8 @@ html.allocation-viz-popout-open #root {
 .jetty-schedule-gantt {
   margin-top: 0;
   --jetty-schedule-id-col: 200px;
-  --gantt-bar-height: 56px;
-  --gantt-bar-stack-step: 62px;
+  --gantt-bar-height: 48px;
+  --gantt-bar-stack-step: 54px;
 }
 
 .jetty-schedule-gantt__filters {
@@ -629,10 +629,8 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
   white-space: normal;
-  /* The coloured box grows to fit its label (min-width: max-content) so text stays INSIDE the
-     box and is never cut off and never spills onto the grid. */
-  min-width: max-content;
-  max-width: none;
+  /* Bar width is strictly time-based (left/width from segmentTrackStyle); text clips inside. */
+  max-width: 100%;
   overflow: hidden;
   box-sizing: border-box;
   line-height: 1.2;
@@ -691,8 +689,9 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 .gantt-dense-block__vessel {
   overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
   min-width: 0;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
 }
 
 .gantt-dense-block__dates {
@@ -702,6 +701,7 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   opacity: 0.95;
   overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .gantt-dense-block__cargo {
@@ -711,6 +711,30 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   line-height: 1.25;
   overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.gantt-dense-block--narrow {
+  padding: 2px 4px;
+  gap: 0;
+}
+
+.gantt-dense-block--narrow .gantt-dense-block__row--title {
+  font-size: 10px;
+}
+
+.gantt-dense-block--medium {
+  padding: 3px 6px;
+  gap: 1px;
+}
+
+.gantt-dense-block--medium .gantt-dense-block__dates {
+  font-size: 9px;
+}
+
+.gantt-dense-block--full .gantt-dense-block__dates,
+.gantt-dense-block--full .gantt-dense-block__cargo {
+  font-size: 9px;
 }
 
 .gantt-dense-block__aging {
@@ -777,9 +801,8 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
    date column and jetty row is included in the image (not just the visible viewport).
    `flex: none` + `max-height: none` opt out of the popout's bounded flex/scroll box. */
 .jetty-schedule-gantt__export-area--capturing {
-  /* width is set explicitly (in px) by the export handler — avoid `max-content` here, which
-     creates an intrinsic-sizing loop with the bars' min-width:max-content and hangs the
-     canvas renderer. */
+  /* width is set explicitly (in px) by the export handler — avoid intrinsic max-content sizing
+     that can hang the canvas renderer during capture. */
   height: auto;
   max-height: none;
   flex: none;

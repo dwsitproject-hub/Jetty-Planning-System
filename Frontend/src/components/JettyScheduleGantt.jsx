@@ -11,9 +11,11 @@ import { buildScheduleSegments, assignBankLanesByVessel } from '../utils/jettySc
 import { buildAdjacencyAwareRowDefs } from '../utils/jettyAdjacency'
 import VisualizationPopoutButton from './VisualizationPopoutButton'
 import GanttDenseBlock from './GanttDenseBlock'
+import InteractiveTooltip from './InteractiveTooltip'
 import {
   buildActualBlockModel,
   buildPlannedBlockModel,
+  buildGanttBarTooltipItems,
   ganttDenseBlockAriaLabel,
   GANTT_BAR_STACK_STEP,
   GANTT_BAR_HEIGHT,
@@ -139,7 +141,7 @@ function renderDenseBarContent(seg, layer, barWidthPct, sourceRow = null) {
     layer === 'planned'
       ? buildPlannedBlockModel(seg)
       : buildActualBlockModel(seg, sourceRow)
-  return <GanttDenseBlock layer={layer} model={model} barWidthPct={barWidthPct} />
+  return { model, content: <GanttDenseBlock layer={layer} model={model} barWidthPct={barWidthPct} /> }
 }
 
 function findScheduleSourceRow(listRows, seg) {
@@ -874,12 +876,17 @@ export default function JettyScheduleGantt({
                 ? ' jetty-schedule-gantt__bar--span-primary-up'
                 : ''
           const barClassName = `${pillClass}${canClick ? ' jetty-schedule-gantt__bar--btn' : ''}${canDrag ? ' jetty-schedule-gantt__bar--draggable' : ''}${spanEdgeClass}`
-          const denseContent = renderDenseBarContent(
+          const { model: blockModel, content: denseContent } = renderDenseBarContent(
             seg,
             barLayer,
             _rawWidthPct,
             barLayer === 'actual' ? sourceRow : null
           )
+          const tooltipItems = buildGanttBarTooltipItems(blockModel, barLayer, {
+            clickHint: canClick
+              ? tAlloc('ganttClickVesselDetail', { defaultValue: 'Click to open vessel details.' })
+              : null,
+          })
           const handles = canDrag ? (
             <>
               <span
@@ -906,30 +913,26 @@ export default function JettyScheduleGantt({
             Array.isArray(seg.additionalJetties) && seg.additionalJetties.filter(Boolean).length
               ? setBarRef(spanAnchorKey(seg))
               : undefined
-          if (canClick) {
-            return (
-              <button
-                key={`${seg.layer}-${seg.phase}-${seg.vesselName}-${seg.startMs}-${i}`}
-                ref={spanRef}
-                type="button"
-                className={barClassName}
-                style={style}
-                data-vessel-bar={vesselBarId}
-                aria-label={ariaLabel}
-                onClick={() => {
-                  if (suppressClickRef.current) return
-                  onSelectVessel(seg.vesselId)
-                }}
-                {...dragProps}
-              >
-                {denseContent}
-                {handles}
-              </button>
-            )
-          }
-          return (
+          const barKey = `${seg.layer}-${seg.phase}-${seg.vesselName}-${seg.startMs}-${i}`
+          const barInner = canClick ? (
+            <button
+              ref={spanRef}
+              type="button"
+              className={barClassName}
+              style={style}
+              data-vessel-bar={vesselBarId}
+              aria-label={ariaLabel}
+              onClick={() => {
+                if (suppressClickRef.current) return
+                onSelectVessel(seg.vesselId)
+              }}
+              {...dragProps}
+            >
+              {denseContent}
+              {handles}
+            </button>
+          ) : (
             <span
-              key={`${seg.layer}-${seg.phase}-${seg.vesselName}-${seg.startMs}-${i}`}
               ref={spanRef}
               className={barClassName}
               style={style}
@@ -941,6 +944,18 @@ export default function JettyScheduleGantt({
               {denseContent}
               {handles}
             </span>
+          )
+          return (
+            <InteractiveTooltip
+              key={barKey}
+              title={seg.vesselName || blockModel.vesselName}
+              items={tooltipItems}
+              emptyText="No details."
+              placement="right"
+              interactiveChild
+            >
+              {barInner}
+            </InteractiveTooltip>
           )
         })}
       </div>

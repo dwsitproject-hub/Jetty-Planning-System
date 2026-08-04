@@ -2,8 +2,8 @@ import { formatDateTimeDisplay } from './formatDateTimeDisplay.js'
 import { computeCargoProgress } from './cargoQtyDisplay.js'
 
 /** Gantt bar layout constants (keep in sync with allocation.css --gantt-bar-*). */
-export const GANTT_BAR_HEIGHT = 56
-export const GANTT_BAR_STACK_STEP = 62
+export const GANTT_BAR_HEIGHT = 48
+export const GANTT_BAR_STACK_STEP = 54
 
 /**
  * @param {object | null | undefined} r
@@ -246,4 +246,35 @@ export function ganttDenseBlockAriaLabel(model, layer) {
   parts.push(model.milestoneLine)
   if (model.materialQtyLine) parts.push(model.materialQtyLine)
   return parts.filter(Boolean).join(', ')
+}
+
+/**
+ * Tooltip items for schedule Gantt bars (full text when in-bar content is clipped).
+ * @param {object} model from buildPlannedBlockModel / buildActualBlockModel
+ * @param {'planned' | 'actual'} layer
+ * @param {{ clickHint?: string | null }} [options]
+ * @returns {Array<{ primary: string, secondary?: string }>}
+ */
+export function buildGanttBarTooltipItems(model, layer, options = {}) {
+  const items = []
+  if (model.purposeLabel) {
+    items.push({ primary: 'Purpose', secondary: model.purposeLabel })
+  }
+  if (layer === 'actual' && model.estimateLine) {
+    items.push({ primary: 'Estimate', secondary: model.estimateLine })
+  }
+  items.push({
+    primary: layer === 'planned' ? 'Planned milestones' : 'Actual milestones',
+    secondary: model.milestoneLine,
+  })
+  if (model.materialQtyLine) {
+    items.push({ primary: 'Cargo', secondary: model.materialQtyLine })
+  }
+  if (model.status) {
+    items.push({ primary: 'Status', secondary: model.status })
+  }
+  if (options.clickHint) {
+    items.push({ primary: options.clickHint })
+  }
+  return items
 }

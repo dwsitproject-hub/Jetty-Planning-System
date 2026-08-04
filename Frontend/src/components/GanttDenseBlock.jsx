@@ -95,7 +95,10 @@ export default function GanttDenseBlock({
         .join(' · ')
     : null
 
-  const showCargo = Boolean(model.materialQtyLine)
+  const showPurpose = density !== 'narrow' && model.purposeLabel
+  const showEstimate = density === 'full' && estimateLine
+  const showMilestone = density !== 'narrow'
+  const showCargo = density === 'full' && Boolean(model.materialQtyLine)
 
   return (
     <div
@@ -104,7 +107,7 @@ export default function GanttDenseBlock({
       <div className="gantt-dense-block__row gantt-dense-block__row--title">
         {statusIcon}
         <span className="gantt-dense-block__vessel">{model.vesselName}</span>
-        {model.purposeLabel ? (
+        {showPurpose ? (
           <PurposeBadge purpose={model.purposeLabel} loadDischarge={model.loadDischarge} />
         ) : null}
         {statusChip ? (
@@ -123,14 +126,16 @@ export default function GanttDenseBlock({
           </span>
         ) : null}
       </div>
-      {estimateLine ? (
+      {showEstimate ? (
         <div className="gantt-dense-block__row gantt-dense-block__row--dates gantt-dense-block__row--estimates">
           <span className="gantt-dense-block__dates gantt-dense-block__dates--estimate">{estimateLine}</span>
         </div>
       ) : null}
-      <div className="gantt-dense-block__row gantt-dense-block__row--dates">
-        <span className="gantt-dense-block__dates">{milestoneLine}</span>
-      </div>
+      {showMilestone ? (
+        <div className="gantt-dense-block__row gantt-dense-block__row--dates">
+          <span className="gantt-dense-block__dates">{milestoneLine}</span>
+        </div>
+      ) : null}
       {showCargo ? (
         <div className="gantt-dense-block__row gantt-dense-block__row--cargo">
           <span className="gantt-dense-block__cargo">{model.materialQtyLine}</span>

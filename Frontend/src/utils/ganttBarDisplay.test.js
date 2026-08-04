@@ -8,6 +8,7 @@ import {
   formatHoseConveyorOnLine,
   buildPlannedBlockModel,
   buildActualBlockModel,
+  buildGanttBarTooltipItems,
   parseRowActualCompMs,
 } from './ganttBarDisplay.js'
 
@@ -196,6 +197,35 @@ describe('buildActualBlockModel', () => {
       }
     )
     assert.match(model.materialQtyLine, /Rate 300 MT \/ Hour · Hose on/)
+  })
+})
+
+describe('buildGanttBarTooltipItems', () => {
+  it('includes milestones, cargo, and click hint for planned bars', () => {
+    const model = buildPlannedBlockModel({
+      vesselName: 'MV TEST',
+      purposeLabel: 'Loading',
+      etaMs: 1,
+      plannedEtbMs: 2,
+      estCompMs: 3,
+      materialDisplay: 'CPO',
+      cargoDisplay: '5,000 MT',
+      status: 'Arriving',
+    })
+    const items = buildGanttBarTooltipItems(model, 'planned', { clickHint: 'Click me' })
+    assert.ok(items.some((i) => i.primary === 'Planned milestones'))
+    assert.ok(items.some((i) => i.primary === 'Cargo' && i.secondary?.includes('CPO')))
+    assert.ok(items.some((i) => i.primary === 'Click me'))
+  })
+
+  it('includes estimate line for actual bars when present', () => {
+    const model = buildActualBlockModel(
+      { vesselName: 'V1', etaMs: 1, plannedEtbMs: 2, taMs: 10, tbMs: 20, actualCompMs: 30 },
+      null
+    )
+    const items = buildGanttBarTooltipItems(model, 'actual')
+    assert.ok(items.some((i) => i.primary === 'Estimate'))
+    assert.ok(items.some((i) => i.primary === 'Actual milestones'))
   })
 })
 
