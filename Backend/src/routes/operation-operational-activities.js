@@ -446,7 +446,8 @@ async function insertCargoLoadLines(client, operationalActivityId, lines, opts =
          operational_activity_id, line_order, qty, started_at, ended_at,
          atg_mass_delta, atg_mass_detail, atg_mass_computed_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, CASE WHEN $6 IS NULL THEN NULL ELSE NOW() END)
+       VALUES ($1, $2, $3, $4, $5, $6::numeric, $7::jsonb,
+         CASE WHEN $6::numeric IS NULL THEN NULL::timestamptz ELSE NOW() END)
        RETURNING id, line_order, qty, started_at, ended_at, atg_mass_delta, atg_mass_detail, atg_mass_computed_at`,
       [
         operationalActivityId,
