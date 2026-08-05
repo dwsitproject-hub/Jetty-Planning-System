@@ -1,6 +1,14 @@
 import { useTranslation } from 'react-i18next'
 import PurposeBadge from './PurposeBadge'
-import { formatGanttMilestoneShort, resolveGanttBarDensity } from '../utils/ganttBarDisplay.js'
+import { resolvePurposeLabel } from '../utils/resolvePurposeLabel.js'
+import {
+  buildGanttActualMilestoneEntries,
+  buildGanttCombinedActualMilestoneEntries,
+  buildGanttEstimateMilestoneEntries,
+  buildGanttPlannedMilestoneEntries,
+  formatGanttMilestoneEntriesCompact,
+  resolveGanttBarDensity,
+} from '../utils/ganttBarDisplay.js'
 import { formatOverdueDuration } from '../utils/etcBreach'
 
 function GanttVesselIcon() {
@@ -23,25 +31,6 @@ function GanttCompletedIcon() {
 }
 
 /**
- * Map the coarse segment status to a short, readable shipment-status label + style key.
- * @param {string | null | undefined} status
- * @param {(k: string, o?: object) => string} t
- */
-function resolveStatusChip(status, t) {
-  const s = String(status || '').trim().toLowerCase()
-  if (s === 'sailed off' || s === 'sailed') {
-    return { key: 'sailed', label: t('ganttStatusSailed', { defaultValue: 'Sailed' }) }
-  }
-  if (s === 'berthing' || s === 'at berth' || s === 'at-berth') {
-    return { key: 'berthing', label: t('ganttStatusAtBerth', { defaultValue: 'At berth' }) }
-  }
-  if (s === 'arriving' || s === 'arrived') {
-    return { key: 'arriving', label: t('ganttStatusArriving', { defaultValue: 'Arriving' }) }
-  }
-  return null
-}
-
-/**
  * @param {object} props
  * @param {'planned' | 'actual'} props.layer
  * @param {object} props.model from buildPlannedBlockModel / buildActualBlockModel
@@ -60,45 +49,39 @@ export default function GanttDenseBlock({
   const density = densityProp ?? resolveGanttBarDensity(barWidthPct)
   const isSailed = model.status === 'Sailed off'
   const statusIcon = isSailed ? <GanttCompletedIcon /> : <GanttVesselIcon />
-  const statusChip = resolveStatusChip(model.status, t)
 
   const isLate = layer === 'actual' && model.etcOverdue && model.overMs != null && model.overMs > 0
 
-  const milestoneEntries =
-    layer === 'planned'
-      ? [
-          { key: 'ganttBarEta', label: 'ETA', ms: model.etaMs },
-          { key: 'ganttBarEtb', label: 'ETB', ms: model.etbMs },
-          { key: 'ganttBarEtc', label: 'ETC', ms: model.etcMs },
-        ]
-      : [
-          { key: 'ganttBarTa', label: 'TA', ms: model.taMs },
-          { key: 'ganttBarTb', label: 'TB', ms: model.tbMs },
-          { key: 'ganttBarActualCompletion', label: 'Done', ms: model.actualCompMs },
-        ]
+  const resolvedPurpose = resolvePurposeLabel(model.purposeLabel, model.loadDischarge)
+  const showPurpose = resolvedPurpose === 'Loading' || resolvedPurpose === 'Unloading'
 
-  const milestoneLine = milestoneEntries
-    .map(({ key, label, ms }) => `${t(key, { defaultValue: label })} ${formatGanttMilestoneShort(ms)}`)
-    .join(' · ')
+  const plannedEntries = buildGanttPlannedMilestoneEntries(model)
+  const estimateEntries = buildGanttEstimateMilestoneEntries(model)
+  const actualEntries = buildGanttActualMilestoneEntries(model)
+  const combinedActualEntries = buildGanttCombinedActualMilestoneEntries(model)
 
-  // Actual bars also carry the estimation milestones (ETA/ETB) on their own line.
-  const estimateEntries =
-    layer === 'actual' && (model.etaMs != null || model.etbMs != null)
-      ? [
-          { key: 'ganttBarEta', label: 'ETA', ms: model.etaMs },
-          { key: 'ganttBarEtb', label: 'ETB', ms: model.etbMs },
-        ]
-      : null
-  const estimateLine = estimateEntries
-    ? estimateEntries
-        .map(({ key, label, ms }) => `${t(key, { defaultValue: label })} ${formatGanttMilestoneShort(ms)}`)
-        .join(' · ')
-    : null
+  const plannedMilestoneLine = formatGanttMilestoneEntriesCompact(plannedEntries, t)
+  const estimateLine = formatGanttMilestoneEntriesCompact(estimateEntries, t)
+  const actualMilestoneLine = formatGanttMilestoneEntriesCompact(actualEntries, t)
+  const combinedActualLine = formatGanttMilestoneEntriesCompact(combinedActualEntries, t)
 
-  const showPurpose = density !== 'narrow' && model.purposeLabel
-  const showEstimate = density === 'full' && estimateLine
+  const showEstimate =
+    layer === 'actual' &&
+    density === 'full' &&
+    (model.etaMs != null || model.etbMs != null || model.etcMs != null || model.estCompMs != null)
+
   const showMilestone = density !== 'narrow'
-  const showCargo = density === 'full' && Boolean(model.materialQtyLine)
+  const showPlannedMilestone = showMilestone && layer === 'planned'
+  const showActualMilestone =
+    showMilestone && layer === 'actual' && (density === 'medium' || density === 'full')
+  const showActualMilestoneCombined = showActualMilestone && density === 'medium'
+  const showActualMilestoneSplit = showActualMilestone && density === 'full'
+
+  const showCommodity = Boolean(model.materialDisplay)
+  const showCargoDetail =
+    density === 'full' &&
+    Boolean(model.materialQtyLine) &&
+    model.materialQtyLine !== model.materialDisplay
 
   return (
     <div
@@ -108,14 +91,11 @@ export default function GanttDenseBlock({
         {statusIcon}
         <span className="gantt-dense-block__vessel">{model.vesselName}</span>
         {showPurpose ? (
-          <PurposeBadge purpose={model.purposeLabel} loadDischarge={model.loadDischarge} />
-        ) : null}
-        {statusChip ? (
-          <span
-            className={`gantt-dense-block__status-chip gantt-dense-block__status-chip--${statusChip.key}`}
-          >
-            {statusChip.label}
-          </span>
+          <PurposeBadge
+            purpose={model.purposeLabel}
+            loadDischarge={model.loadDischarge}
+            short="gantt"
+          />
         ) : null}
         {isLate ? (
           <span
@@ -126,17 +106,32 @@ export default function GanttDenseBlock({
           </span>
         ) : null}
       </div>
+      {showCommodity ? (
+        <div className="gantt-dense-block__row gantt-dense-block__row--commodity">
+          <span className="gantt-dense-block__commodity">{model.materialDisplay}</span>
+        </div>
+      ) : null}
       {showEstimate ? (
         <div className="gantt-dense-block__row gantt-dense-block__row--dates gantt-dense-block__row--estimates">
           <span className="gantt-dense-block__dates gantt-dense-block__dates--estimate">{estimateLine}</span>
         </div>
       ) : null}
-      {showMilestone ? (
+      {showPlannedMilestone ? (
         <div className="gantt-dense-block__row gantt-dense-block__row--dates">
-          <span className="gantt-dense-block__dates">{milestoneLine}</span>
+          <span className="gantt-dense-block__dates">{plannedMilestoneLine}</span>
         </div>
       ) : null}
-      {showCargo ? (
+      {showActualMilestoneCombined ? (
+        <div className="gantt-dense-block__row gantt-dense-block__row--dates">
+          <span className="gantt-dense-block__dates">{combinedActualLine}</span>
+        </div>
+      ) : null}
+      {showActualMilestoneSplit ? (
+        <div className="gantt-dense-block__row gantt-dense-block__row--dates">
+          <span className="gantt-dense-block__dates">{actualMilestoneLine}</span>
+        </div>
+      ) : null}
+      {showCargoDetail ? (
         <div className="gantt-dense-block__row gantt-dense-block__row--cargo">
           <span className="gantt-dense-block__cargo">{model.materialQtyLine}</span>
         </div>

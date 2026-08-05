@@ -120,6 +120,70 @@ export function formatMaterialQtyLine(material, cargo) {
 }
 
 /**
+ * Planned milestone entries for Gantt bars (ETA / ETB / ETC).
+ * @param {object} model
+ * @returns {Array<{ key: string, label: string, ms: number | null }>}
+ */
+export function buildGanttPlannedMilestoneEntries(model) {
+  return [
+    { key: 'ganttBarEta', label: 'ETA', ms: model.etaMs ?? null },
+    { key: 'ganttBarEtb', label: 'ETB', ms: model.etbMs ?? null },
+    { key: 'ganttBarEtc', label: 'ETC', ms: model.etcMs ?? null },
+  ]
+}
+
+/**
+ * Estimate milestone entries for actual Gantt bars (ETA / ETB / ETC).
+ * @param {object} model
+ * @returns {Array<{ key: string, label: string, ms: number | null }>}
+ */
+export function buildGanttEstimateMilestoneEntries(model) {
+  const etcMs = model.etcMs ?? model.estCompMs ?? null
+  return [
+    { key: 'ganttBarEta', label: 'ETA', ms: model.etaMs ?? null },
+    { key: 'ganttBarEtb', label: 'ETB', ms: model.etbMs ?? null },
+    { key: 'ganttBarEtc', label: 'ETC', ms: etcMs },
+  ]
+}
+
+/**
+ * Actual milestone entries for Gantt bars (TA / TB / TC).
+ * @param {object} model
+ * @returns {Array<{ key: string, label: string, ms: number | null }>}
+ */
+export function buildGanttActualMilestoneEntries(model) {
+  return [
+    { key: 'ganttBarTa', label: 'TA', ms: model.taMs ?? null },
+    { key: 'ganttBarTb', label: 'TB', ms: model.tbMs ?? null },
+    { key: 'ganttBarActualCompletion', label: 'TC', ms: model.actualCompMs ?? null },
+  ]
+}
+
+/**
+ * Combined estimate + actual entries for medium-density actual bars.
+ * @param {object} model
+ * @returns {Array<{ key: string, label: string, ms: number | null }>}
+ */
+export function buildGanttCombinedActualMilestoneEntries(model) {
+  return [...buildGanttEstimateMilestoneEntries(model), ...buildGanttActualMilestoneEntries(model)]
+}
+
+/**
+ * Compact in-bar milestone line (short timestamps, i18n labels).
+ * @param {Array<{ key: string, label: string, ms: number | null }>} entries
+ * @param {(key: string, opts: { defaultValue: string }) => string} translate
+ * @returns {string}
+ */
+export function formatGanttMilestoneEntriesCompact(entries, translate) {
+  return entries
+    .map(
+      ({ key, label, ms }) =>
+        `${translate(key, { defaultValue: label })} ${formatGanttMilestoneShort(ms)}`
+    )
+    .join(' · ')
+}
+
+/**
  * @param {object} seg
  * @returns {object}
  */
@@ -201,17 +265,19 @@ export function buildActualBlockModel(seg, row) {
     taMs: seg.taMs ?? null,
     tbMs: seg.tbMs ?? null,
     actualCompMs,
+    etcMs: seg.estCompMs ?? null,
     materialDisplay,
     cargoDisplay: cargoWithOpening,
     materialQtyLine: formatMaterialQtyLine(materialDisplay, cargoWithOpening),
     estimateLine: formatGanttMilestoneLine([
       { label: 'ETA', ms: seg.etaMs },
       { label: 'ETB', ms: seg.plannedEtbMs },
+      { label: 'ETC', ms: seg.estCompMs },
     ]),
     milestoneLine: formatGanttMilestoneLine([
       { label: 'TA', ms: seg.taMs },
       { label: 'TB', ms: seg.tbMs },
-      { label: 'Done', ms: actualCompMs },
+      { label: 'TC', ms: actualCompMs },
     ]),
     etcOverdue: Boolean(seg.etcOverdue),
     overMs: seg.overMs ?? null,
@@ -244,6 +310,7 @@ export function ganttDenseBlockAriaLabel(model, layer) {
   if (model.purposeLabel) parts.push(model.purposeLabel)
   if (layer === 'actual' && model.estimateLine) parts.push(model.estimateLine)
   parts.push(model.milestoneLine)
+  if (model.materialDisplay) parts.push(model.materialDisplay)
   if (model.materialQtyLine) parts.push(model.materialQtyLine)
   return parts.filter(Boolean).join(', ')
 }

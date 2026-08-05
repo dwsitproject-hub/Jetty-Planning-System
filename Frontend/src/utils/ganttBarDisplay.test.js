@@ -9,6 +9,10 @@ import {
   buildPlannedBlockModel,
   buildActualBlockModel,
   buildGanttBarTooltipItems,
+  buildGanttPlannedMilestoneEntries,
+  buildGanttEstimateMilestoneEntries,
+  buildGanttActualMilestoneEntries,
+  buildGanttCombinedActualMilestoneEntries,
   parseRowActualCompMs,
 } from './ganttBarDisplay.js'
 
@@ -127,7 +131,7 @@ describe('buildActualBlockModel', () => {
       null
     )
     assert.equal(model.actualCompMs, 30)
-    assert.match(model.milestoneLine, /Done/)
+    assert.match(model.milestoneLine, /TC/)
   })
 
   it('falls back to row completion timestamps', () => {
@@ -197,6 +201,48 @@ describe('buildActualBlockModel', () => {
       }
     )
     assert.match(model.materialQtyLine, /Rate 300 MT \/ Hour · Hose on/)
+  })
+})
+
+describe('buildGanttMilestoneEntries', () => {
+  it('orders planned entries as ETA ETB ETC', () => {
+    const entries = buildGanttPlannedMilestoneEntries({ etaMs: 1, etbMs: 2, etcMs: 3 })
+    assert.deepEqual(
+      entries.map((e) => e.label),
+      ['ETA', 'ETB', 'ETC']
+    )
+  })
+
+  it('includes ETC on estimate entries for actual bars', () => {
+    const entries = buildGanttEstimateMilestoneEntries({ etaMs: 1, etbMs: 2, estCompMs: 3 })
+    assert.deepEqual(
+      entries.map((e) => e.label),
+      ['ETA', 'ETB', 'ETC']
+    )
+    assert.equal(entries[2].ms, 3)
+  })
+
+  it('uses TC for actual completion entries', () => {
+    const entries = buildGanttActualMilestoneEntries({ taMs: 10, tbMs: 20, actualCompMs: 30 })
+    assert.deepEqual(
+      entries.map((e) => e.label),
+      ['TA', 'TB', 'TC']
+    )
+  })
+
+  it('combines estimate and actual entries for medium actual bars', () => {
+    const entries = buildGanttCombinedActualMilestoneEntries({
+      etaMs: 1,
+      etbMs: 2,
+      estCompMs: 3,
+      taMs: 10,
+      tbMs: 20,
+      actualCompMs: 30,
+    })
+    assert.deepEqual(
+      entries.map((e) => e.label),
+      ['ETA', 'ETB', 'ETC', 'TA', 'TB', 'TC']
+    )
   })
 })
 
