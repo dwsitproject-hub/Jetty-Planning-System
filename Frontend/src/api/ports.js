@@ -1,6 +1,6 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client.js'
 
-/** @returns {Promise<Array<{ id: number, name: string, description: string | null, scheduleTimezone: string, createdAt: string, updatedAt: string }>>} */
+/** @returns {Promise<Array<{ id: number, name: string, description: string | null, scheduleTimezone: string, operationalDayStart: string, createdAt: string, updatedAt: string }>>} */
 export function fetchPorts() {
   return apiGet('/ports')
 }
@@ -11,22 +11,41 @@ function bodyScheduleTimezone(scheduleTimezone) {
   return t === '' ? null : t
 }
 
-export function createPort({ name, description, scheduleTimezone, allowMultiJetyBerthing } = {}) {
+function bodyOperationalDayStart(operationalDayStart) {
+  if (operationalDayStart == null) return undefined
+  const t = String(operationalDayStart).trim()
+  return t === '' ? undefined : t
+}
+
+export function createPort({
+  name,
+  description,
+  scheduleTimezone,
+  operationalDayStart,
+  allowMultiJetyBerthing,
+} = {}) {
   return apiPost('/ports', {
     name,
     description: description ?? null,
     scheduleTimezone: bodyScheduleTimezone(scheduleTimezone),
+    operationalDayStart: bodyOperationalDayStart(operationalDayStart) ?? '06:00:00',
     allowMultiJetyBerthing: allowMultiJetyBerthing === true,
   })
 }
 
-export function updatePortApi(id, { name, description, scheduleTimezone, allowMultiJetyBerthing } = {}) {
-  return apiPut(`/ports/${id}`, {
+export function updatePortApi(
+  id,
+  { name, description, scheduleTimezone, operationalDayStart, allowMultiJetyBerthing } = {}
+) {
+  const body = {
     name,
     description: description ?? null,
     scheduleTimezone: bodyScheduleTimezone(scheduleTimezone),
     allowMultiJetyBerthing: allowMultiJetyBerthing === true,
-  })
+  }
+  const opDay = bodyOperationalDayStart(operationalDayStart)
+  if (opDay != null) body.operationalDayStart = opDay
+  return apiPut(`/ports/${id}`, body)
 }
 
 export function deletePort(id) {

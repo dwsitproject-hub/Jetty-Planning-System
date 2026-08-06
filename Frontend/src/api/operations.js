@@ -389,6 +389,10 @@ export function fetchActivityTimeline(operationId) {
   return apiGet(`/operations/${operationId}/activity-timeline`)
 }
 
+export function fetchOperationalProgress(operationId) {
+  return apiGet(`/operations/${operationId}/operational-progress`)
+}
+
 export function fetchCargoHandlingMethods() {
   return apiGet('/master/cargo-handling-methods')
 }

@@ -18,6 +18,8 @@
     "run:sla-notifications": "node scripts/run-sla-notifications.js",
     "run:tank-gauging-poll": "node scripts/run-tank-gauging-poll.js",
     "run:purge-tank-gauging-samples": "node scripts/purge-tank-gauging-samples.js",
+    "run:aggregate-daily-cargo-progress": "node scripts/aggregate-daily-cargo-progress.js",
+    "test:operational-progress": "node --test src/lib/operational-progress.test.js",
     "test:security": "node scripts/test-security-rbac-uploads.mjs",
     "grant-admin-access": "node scripts/grant-admin-full-access.js",
     "seed:admin": "node scripts/seed-admin-bcrypt.js",

@@ -5,13 +5,14 @@ Always-on ATG history for Log/reconcile and cargo-ops window rates. The Node scr
 | Job | Script | Cadence | Writes |
 |-----|--------|---------|--------|
 | Poll | `Backend/scripts/run-tank-gauging-poll.sh` | Every **15 minutes** | `tank_gauging_latest`, `tank_gauging_samples` |
+| Daily cargo progress | `Backend/scripts/aggregate-daily-cargo-progress.sh` | Every **hour** | `operation_daily_cargo_progress` (ATG daily snapshots for closed operational days) |
 | Purge | `Backend/scripts/purge-tank-gauging-samples.sh` | Daily (e.g. 02:20) | Archives / deletes old samples; audit in `tank_gauging_purge_log` |
 
 `tank_gauging_latest` is **never** archived or purged.
 
 ## Prerequisites
 
-1. Migrations applied through `104_tank_gauging_sources.sql` (`npm run migrate` in `Backend`).
+1. Migrations applied through `106_daily_cargo_progress_and_port_op_day.sql` (`npm run migrate` in `Backend`).
 2. ATG sources configured per port (preferred): **Tank Farm → Configuration** (requires tank-farm edit permission), or legacy env fallback below.
 3. Host can reach ATG VLAN (configured source base URLs).
 4. `Backend/.env` has at least:
@@ -56,10 +57,13 @@ Adjust deploy path below (`/opt/jetty-planning-system/Backend`) to match the ser
 
 ```bash
 chmod +x /opt/jetty-planning-system/Backend/scripts/run-tank-gauging-poll.sh \
+         /opt/jetty-planning-system/Backend/scripts/aggregate-daily-cargo-progress.sh \
          /opt/jetty-planning-system/Backend/scripts/purge-tank-gauging-samples.sh
 
 sudo mkdir -p /var/log
-sudo touch /var/log/jps-tank-gauging-poll.log /var/log/jps-tank-gauging-purge.log
+sudo touch /var/log/jps-tank-gauging-poll.log \
+           /var/log/jps-aggregate-daily-cargo-progress.log \
+           /var/log/jps-tank-gauging-purge.log
 # ensure the cron user can append (e.g. chown to the deploy user)
 
 crontab -e
@@ -71,8 +75,19 @@ Add:
 # ATG poll — every 15 minutes (interval = cron only; script does one fetch)
 */15 * * * * cd /opt/jetty-planning-system/Backend && ./scripts/run-tank-gauging-poll.sh >> /var/log/jps-tank-gauging-poll.log 2>&1
 
+# Daily cargo progress sweeper — hourly (respects per-port operational_day_start)
+5 * * * * cd /opt/jetty-planning-system/Backend && ./scripts/aggregate-daily-cargo-progress.sh >> /var/log/jps-aggregate-daily-cargo-progress.log 2>&1
+
 # Staged sample purge — daily 02:20 server local time
 20 2 * * * cd /opt/jetty-planning-system/Backend && ./scripts/purge-tank-gauging-samples.sh >> /var/log/jps-tank-gauging-purge.log 2>&1
+```
+
+The hourly sweeper persists ATG mass deltas into `operation_daily_cargo_progress` for each closed operational day (default window `06:00:00` → next day `05:59:59`, configurable per port as `ports.operational_day_start`). Run once after deploy to backfill while samples still exist:
+
+```bash
+cd /opt/jetty-planning-system/Backend
+./scripts/aggregate-daily-cargo-progress.sh
+# optional: ./scripts/aggregate-daily-cargo-progress.sh --portId=1
 ```
 
 Change poll cadence by editing crontab only, for example:
@@ -88,6 +103,8 @@ If Node runs inside the API container:
 
 ```cron
 */15 * * * * docker compose --env-file /opt/jetty-planning-system/Backend/.env -f /opt/jetty-planning-system/docker-compose.backend-api-only.yml exec -T jps-api node scripts/run-tank-gauging-poll.js >> /var/log/jps-tank-gauging-poll.log 2>&1
+
+5 * * * * docker compose --env-file /opt/jetty-planning-system/Backend/.env -f /opt/jetty-planning-system/docker-compose.backend-api-only.yml exec -T jps-api node scripts/aggregate-daily-cargo-progress.js >> /var/log/jps-aggregate-daily-cargo-progress.log 2>&1
 
 20 2 * * * docker compose --env-file /opt/jetty-planning-system/Backend/.env -f /opt/jetty-planning-system/docker-compose.backend-api-only.yml exec -T jps-api node scripts/purge-tank-gauging-samples.js >> /var/log/jps-tank-gauging-purge.log 2>&1
 ```
@@ -152,11 +169,12 @@ Then run purge once → expect `archived: 1` and a purge_log `archive` row. Set 
 ```bat
 cd Backend
 npm run run:tank-gauging-poll
+npm run run:aggregate-daily-cargo-progress
 npm run run:purge-tank-gauging-samples
 npm run run:purge-tank-gauging-samples -- --dry-run
 ```
 
-Or Task Scheduler calling `run-tank-gauging-poll.bat` / `purge-tank-gauging-samples.bat` with “Start in” = `Backend`.
+Or Task Scheduler calling `run-tank-gauging-poll.bat` / `aggregate-daily-cargo-progress.bat` / `purge-tank-gauging-samples.bat` with “Start in” = `Backend`.
 
 ## Ops notes
 

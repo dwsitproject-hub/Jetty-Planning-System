@@ -1,13 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { fetchActivityTimeline } from '../api/operations'
+import { fetchActivityTimeline, fetchOperationalProgress } from '../api/operations'
 import CargoDischargeProgressChart from './CargoDischargeProgressChart'
 import OperationActivityTimeline from './OperationActivityTimeline'
-import {
-  buildCumulativeSeriesFromLoadLines,
-  buildDailyBarsFromLoadLines,
-  buildOperationalRateSummary,
-  extractCargoLoadLinesFromTimeline,
-} from '../utils/cargoDailyRates'
 import { parseQtyDisplay } from '../utils/cargoQtyDisplay'
 
 /**
@@ -22,6 +16,7 @@ export default function OperationalProgressSection({
   refreshToken: refreshTokenProp = 0,
 }) {
   const [events, setEvents] = useState([])
+  const [progress, setProgress] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [refreshToken, setRefreshToken] = useState(0)
@@ -33,43 +28,39 @@ export default function OperationalProgressSection({
   useEffect(() => {
     if (!operationId) {
       setEvents([])
+      setProgress(null)
       setError(null)
       return
     }
     setLoading(true)
     setError(null)
-    fetchActivityTimeline(operationId)
-      .then((res) => {
-        setEvents(Array.isArray(res?.events) ? res.events : [])
+    Promise.all([fetchActivityTimeline(operationId), fetchOperationalProgress(operationId)])
+      .then(([timelineRes, progressRes]) => {
+        setEvents(Array.isArray(timelineRes?.events) ? timelineRes.events : [])
+        setProgress(progressRes || null)
       })
       .catch((e) => {
         setEvents([])
-        setError(e?.message || 'Failed to load activity timeline')
+        setProgress(null)
+        setError(e?.message || 'Failed to load operational data')
       })
       .finally(() => setLoading(false))
   }, [operationId, refreshToken, refreshTokenProp])
 
-  const loadLines = useMemo(() => extractCargoLoadLinesFromTimeline(events), [events])
   const dailyBars = useMemo(
-    () => buildDailyBarsFromLoadLines(loadLines, scheduleTimezone),
-    [loadLines, scheduleTimezone]
+    () => (Array.isArray(progress?.dailyBars) ? progress.dailyBars : []),
+    [progress]
   )
-  const cumulativeSeries = useMemo(
-    () => buildCumulativeSeriesFromLoadLines(loadLines, scheduleTimezone),
-    [loadLines, scheduleTimezone]
-  )
+  const cumulativeSeries = useMemo(() => {
+    if (!Array.isArray(progress?.cumulativeSeries)) return []
+    return progress.cumulativeSeries.map((p) => ({
+      dateKey: p.date,
+      cumulativeQty: p.cumulativeQty,
+    }))
+  }, [progress])
   const parsedQty = useMemo(() => parseQtyDisplay(totalQtyDisplay), [totalQtyDisplay])
-  const rateSummary = useMemo(
-    () =>
-      buildOperationalRateSummary({
-        totalQtyDisplay,
-        loadLines,
-        dailyBars,
-        nowMs: Date.now(),
-        timezone: scheduleTimezone,
-      }),
-    [totalQtyDisplay, loadLines, dailyBars, scheduleTimezone]
-  )
+  const rateSummary = progress?.rateSummary || {}
+  const tz = progress?.scheduleTimezone || scheduleTimezone
 
   const cargoSiQty = parsedQty?.total ?? null
   const cargoSiMetricLabel = parsedQty?.unit ?? null
@@ -78,7 +69,9 @@ export default function OperationalProgressSection({
     <section className="berthing-modal__card operational-progress-section">
       <h3 className="berthing-modal__card-title">Operational progress</h3>
 
-      {loading && !events.length ? <p className="text-steel">Loading operational data…</p> : null}
+      {loading && !events.length && !progress ? (
+        <p className="text-steel">Loading operational data…</p>
+      ) : null}
       {error ? (
         <p className="text-steel" style={{ color: 'var(--danger-600, #c00)' }}>
           {error}
@@ -87,6 +80,10 @@ export default function OperationalProgressSection({
 
       {!loading && !error ? (
         <>
+          {Array.isArray(progress?.warnings) && progress.warnings.length > 0 ? (
+            <p className="operational-progress-section__warning text-steel">{progress.warnings.join(' · ')}</p>
+          ) : null}
+
           {(rateSummary.movedLine || rateSummary.hourlyLine || rateSummary.dailyLine) && (
             <div className="operational-progress-section__summary">
               {rateSummary.movedLine ? (
@@ -110,7 +107,8 @@ export default function OperationalProgressSection({
             cumulativeSeries={cumulativeSeries}
             totalQty={parsedQty?.total ?? null}
             unit={parsedQty?.unit ?? 'MT'}
-            timezone={scheduleTimezone}
+            timezone={tz}
+            operationalDayStart={progress?.operationalDayStart || '06:00:00'}
           />
 
           <h4 className="operational-progress-section__activity-title">Operational activity</h4>

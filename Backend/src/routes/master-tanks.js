@@ -28,6 +28,7 @@ function toTank(row) {
     name: row.name ?? null,
     description: row.description ?? null,
     sortOrder: Number(row.sort_order ?? 0),
+    hasAtg: row.has_atg === true,
     createdAt: row.created_at ?? null,
     updatedAt: row.updated_at ?? null,
   };
@@ -54,7 +55,16 @@ router.get('/', async (req, res) => {
   }
   const r = await pool.query(
     `SELECT t.id, t.port_id, t.code, t.name, t.description, t.sort_order, t.created_at, t.updated_at,
-            p.name AS port_name
+            p.name AS port_name,
+            EXISTS (
+              SELECT 1
+              FROM tank_gauging_tank_map m
+              JOIN tank_gauging_sources s
+                ON s.port_id = m.port_id
+               AND s.base_url = m.source_base_url
+               AND s.enabled = TRUE
+              WHERE m.tank_id = t.id
+            ) AS has_atg
      FROM master_tanks t
      JOIN ports p ON p.id = t.port_id AND p.deleted_at IS NULL
      WHERE t.port_id = $1 AND t.deleted_at IS NULL

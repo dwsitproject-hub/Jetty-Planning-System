@@ -10,6 +10,11 @@ import { optionalAuth } from '../middleware/auth.js';
 import { promoteDockedToInProgressIfDocked } from '../lib/operation-auto-status.js';
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
 import { computeAtgWindowMassDelta } from '../lib/atg-window-rate.js';
+import {
+  aggregateAtgDailyProgressForOperation,
+  getOperationalProgress,
+  partitionLineTanks,
+} from '../lib/operational-progress.js';
 
 const router = express.Router();
 
@@ -244,6 +249,33 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
       return { ok: false, status: 400, error: `cargoLoadLines[${i}].qty is required when endAt is set` };
     }
 
+    let manualQty = null;
+    const manualRaw = row.manualQty ?? row.manual_qty;
+    if (manualRaw !== undefined && manualRaw !== null && manualRaw !== '') {
+      manualQty = Number(manualRaw);
+      if (!Number.isFinite(manualQty) || manualQty <= 0) {
+        return {
+          ok: false,
+          status: 400,
+          error: `cargoLoadLines[${i}].manualQty must be a positive number`,
+        };
+      }
+    }
+
+    let atgQtyMode = 'auto';
+    const modeRaw = row.atgQtyMode ?? row.atg_qty_mode;
+    if (modeRaw != null && String(modeRaw).trim() !== '') {
+      const m = String(modeRaw).trim().toLowerCase();
+      if (m !== 'auto' && m !== 'manual') {
+        return {
+          ok: false,
+          status: 400,
+          error: `cargoLoadLines[${i}].atgQtyMode must be auto or manual`,
+        };
+      }
+      atgQtyMode = m;
+    }
+
     const rawTankIds = row.tankIds ?? row.tank_ids;
     let lineTankIds = [];
     if (rawTankIds !== undefined && rawTankIds !== null) {
@@ -279,7 +311,35 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
       lineTankIds = tankCheck.tankIds;
     }
 
-    parsed.push({ qty, startIso, endIso, startMs, endMs, hasEnd, _i: i, tankIds: lineTankIds });
+    parsed.push({
+      qty,
+      manualQty,
+      atgQtyMode,
+      startIso,
+      endIso,
+      startMs,
+      endMs,
+      hasEnd,
+      _i: i,
+      tankIds: lineTankIds,
+    });
+  }
+
+  if (commodityType !== 'Solid') {
+    for (const p of parsed) {
+      if (p.atgQtyMode === 'manual') continue;
+      const { atgTankIds, manualTankIds } = await partitionLineTanks(q, p.tankIds);
+      if (manualTankIds.length > 0 && p.hasEnd && (p.manualQty == null || p.manualQty <= 0)) {
+        return {
+          ok: false,
+          status: 400,
+          error: `cargoLoadLines[${p._i}].manualQty is required for non-ATG tanks on this line`,
+        };
+      }
+      if (atgTankIds.length > 0 && manualTankIds.length === 0 && p.hasEnd && p.qty == null && p.atgQtyMode === 'auto') {
+        // qty may be auto-filled from ATG on client; allow null until ATG snapshot on save
+      }
+    }
   }
 
   parsed.sort((a, b) => {
@@ -343,6 +403,8 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
 
   const lines = parsed.map((p, idx) => ({
     qty: p.qty,
+    manualQty: p.manualQty,
+    atgQtyMode: p.atgQtyMode,
     startIso: p.startIso,
     endIso: p.endIso,
     lineOrder: idx + 1,
@@ -355,13 +417,18 @@ async function attachAtgMassSnapshots(client, lines, { commodityType }) {
   const out = [];
   for (const ln of lines) {
     const tankIds = ln.tankIds || [];
-    if (commodityType !== 'Liquid' || tankIds.length === 0) {
+    if (commodityType !== 'Liquid' || tankIds.length === 0 || ln.atgQtyMode === 'manual') {
+      out.push({ ...ln, atgMassDelta: null, atgMassDetail: null });
+      continue;
+    }
+    const { atgTankIds } = await partitionLineTanks(client, tankIds);
+    if (atgTankIds.length === 0) {
       out.push({ ...ln, atgMassDelta: null, atgMassDetail: null });
       continue;
     }
     const endAt = ln.endIso || new Date().toISOString();
     const result = await computeAtgWindowMassDelta(client, {
-      tankIds,
+      tankIds: atgTankIds,
       startAt: ln.startIso,
       endAt,
     });
@@ -391,6 +458,8 @@ function mapCargoLoadLineRow(row, tanks = null) {
       row.atg_mass_delta != null && row.atg_mass_delta !== '' ? Number(row.atg_mass_delta) : null,
     atgMassDetail: row.atg_mass_detail ?? null,
     atgMassComputedAt: row.atg_mass_computed_at ?? null,
+    manualQty: row.manual_qty != null ? Number(row.manual_qty) : null,
+    atgQtyMode: row.atg_qty_mode || 'auto',
   };
   if (Array.isArray(tanks)) {
     base.tanks = tanks;
@@ -434,8 +503,16 @@ async function fetchTanksForLoadLineIds(q, loadLineIds) {
   return map;
 }
 
+async function refreshOperationalProgressAfterCargoSave(q, operationId) {
+  try {
+    await aggregateAtgDailyProgressForOperation(q, operationId, { includeToday: true });
+  } catch {
+    /* non-fatal */
+  }
+}
+
 async function insertCargoLoadLines(client, operationalActivityId, lines, opts = {}) {
-  const { commodityType = 'Liquid' } = opts;
+  const { commodityType = 'Liquid', operationId = null } = opts;
   const enriched = await attachAtgMassSnapshots(client, lines, { commodityType });
   const lineIds = [];
   const out = [];
@@ -443,16 +520,20 @@ async function insertCargoLoadLines(client, operationalActivityId, lines, opts =
     const ln = enriched[i];
     const ins = await client.query(
       `INSERT INTO operation_cargo_load_lines (
-         operational_activity_id, line_order, qty, started_at, ended_at,
+         operational_activity_id, line_order, qty, manual_qty, atg_qty_mode,
+         started_at, ended_at,
          atg_mass_delta, atg_mass_detail, atg_mass_computed_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6::numeric, $7::jsonb,
-         CASE WHEN $6::numeric IS NULL THEN NULL::timestamptz ELSE NOW() END)
-       RETURNING id, line_order, qty, started_at, ended_at, atg_mass_delta, atg_mass_detail, atg_mass_computed_at`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::numeric, $9::jsonb,
+         CASE WHEN $8::numeric IS NULL THEN NULL::timestamptz ELSE NOW() END)
+       RETURNING id, line_order, qty, manual_qty, atg_qty_mode, started_at, ended_at,
+         atg_mass_delta, atg_mass_detail, atg_mass_computed_at`,
       [
         operationalActivityId,
         ln.lineOrder ?? i + 1,
         ln.qty,
+        ln.manualQty ?? null,
+        ln.atgQtyMode || 'auto',
         ln.startIso,
         ln.endIso,
         ln.atgMassDelta,
@@ -465,6 +546,9 @@ async function insertCargoLoadLines(client, operationalActivityId, lines, opts =
     out.push(mapCargoLoadLineRow(ins.rows[0]));
   }
   const tankMap = await fetchTanksForLoadLineIds(client, lineIds);
+  if (operationId != null) {
+    await refreshOperationalProgressAfterCargoSave(client, operationId);
+  }
   return out.map((row, i) => {
     const tanks = tankMap.get(lineIds[i]) || [];
     return { ...row, tanks, tankIds: tanks.map((t) => t.id) };
@@ -569,7 +653,8 @@ async function fetchTanksForActivityIds(q, activityIds) {
 async function fetchCargoLoadLinesForActivityIds(q, activityIds) {
   if (!activityIds.length) return new Map();
   const r = await q.query(
-    `SELECT id, operational_activity_id, line_order, qty, started_at, ended_at,
+    `SELECT id, operational_activity_id, line_order, qty, manual_qty, atg_qty_mode,
+            started_at, ended_at,
             atg_mass_delta, atg_mass_detail, atg_mass_computed_at
      FROM operation_cargo_load_lines
      WHERE operational_activity_id = ANY($1::bigint[])
@@ -814,6 +899,7 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
       if (milestoneKey === 'cargo_operations' && linePack.lines?.length) {
         savedLines = await insertCargoLoadLines(client, row.id, linePack.lines, {
           commodityType: commodityType || 'Liquid',
+          operationId,
         });
       }
       if (milestoneKey === 'cargo_operations') {
@@ -1015,6 +1101,7 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
       if (milestoneKey === 'cargo_operations' && linePack.lines?.length) {
         savedLinesPut = await replaceCargoLoadLines(client, entryId, linePack.lines, {
           commodityType: commodityTypePut || 'Liquid',
+          operationId,
         });
       }
       if (milestoneKey === 'cargo_operations') {
@@ -1123,6 +1210,17 @@ router.delete('/operations/:operationId/operational-activities/:entryId', async 
   res.status(204).send();
 });
 
+/** GET /operations/:operationId/operational-progress */
+router.get('/operations/:operationId/operational-progress', async (req, res) => {
+  const operationId = parseOperationId(req.params.operationId);
+  if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
+  await assertOperationAccess(operationId, req);
+
+  const progress = await getOperationalProgress(pool, operationId);
+  if (!progress) return res.status(404).json({ error: 'Operation not found' });
+  res.json(progress);
+});
+
 /** GET /operations/:operationId/activity-timeline */
 router.get('/operations/:operationId/activity-timeline', async (req, res) => {
   const operationId = parseOperationId(req.params.operationId);
@@ -1182,6 +1280,8 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
                   jsonb_build_object(
                     'lineOrder', l.line_order,
                     'qty', l.qty,
+                    'manualQty', l.manual_qty,
+                    'atgQtyMode', l.atg_qty_mode,
                     'startedAt', l.started_at,
                     'endedAt', l.ended_at,
                     'atgMassDelta', l.atg_mass_delta,
