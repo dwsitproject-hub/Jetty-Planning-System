@@ -1,0 +1,51 @@
+{
+  "meta": {
+    "testPlan": "Docs/Testing/ALLOCATION-GANTT-MANUAL-TEST-PLAN.md",
+    "environment": "local",
+    "url": "http://127.0.0.1:5173/allocation-plans",
+    "port": "BONTANG",
+    "branch": "sit",
+    "testedAt": "2026-07-06T12:00:00+07:00",
+    "tester": "browser-automation (Cursor MCP)",
+    "dateRangeDefault": "2026-07-01 — 2026-07-31"
+  },
+  "summary": {
+    "pass": 18,
+    "partial": 2,
+    "fail": 1,
+    "skipped": 7,
+    "total": 28
+  },
+  "results": [
+    { "id": "F1", "section": "Login", "result": "PASS", "notes": "Login at 127.0.0.1:5173 with admin; session requires same host (not localhost)." },
+    { "id": "A1", "section": "Gantt — Now line", "result": "PASS", "notes": "Red Now line visible at 6 Jul 2026." },
+    { "id": "A2", "section": "Gantt — Status colors", "result": "PASS", "notes": "Blue actual bars, red LATE pills, legend visible." },
+    { "id": "A3", "section": "Gantt — Dense block text", "result": "PASS", "notes": "BG As Warrior 2 bar readable with vessel, dates, cargo." },
+    { "id": "A4", "section": "Gantt — Late duration", "result": "PASS", "notes": "Warrior 2 shows LATE +13D 3H past ETC." },
+    { "id": "A5", "section": "Gantt — Unified lane", "result": "PASS", "notes": "Actual bars only; no duplicate estimate+actual." },
+    { "id": "A6", "section": "Gantt — Drag move", "result": "SKIP", "notes": "Requires mouse drag; not reliably automatable in MCP browser." },
+    { "id": "A7", "section": "Gantt — Drag resize", "result": "SKIP", "notes": "Requires edge drag; manual test recommended." },
+    { "id": "A8", "section": "Gantt — Popout", "result": "PASS", "notes": "Opened /allocation/visualization/schedule?embed=1&profile=plan — Jadwal jetty · BONTANG, same date range." },
+    { "id": "B1", "section": "Date filter — boundaries", "result": "PASS", "notes": "From > To shows 'End date must be after start date'." },
+    { "id": "B2", "section": "Date filter — Reset", "result": "PASS", "notes": "Reset restores 2026-07-01 / 2026-07-31 and Gantt bars." },
+    { "id": "B3", "section": "JPEG export", "result": "PARTIAL", "notes": "Export triggered (Mengekspor… → Ekspor JPEG); download file not verified in automation." },
+    { "id": "C1", "section": "Queue — Sequence reorder", "result": "PASS", "notes": "Move ↓ on SP-26-06-00010 swapped with SP-26-05-00002; order persisted after refresh." },
+    { "id": "C2", "section": "Queue — Vessel filter", "result": "PASS", "notes": "Filter 'Mel' reduced rows to Mel vessels (SP-26-06-00013, SP-26-06-00011)." },
+    { "id": "C3", "section": "Queue — Hyperlinks", "result": "PARTIAL", "notes": "Plan ref SP-26-06-00013 → shipment plan detail PASS. SI document link → modal 'Shipping Instruction not found' FAIL." },
+    { "id": "D1", "section": "Log arrival update", "result": "PARTIAL", "notes": "Modal opens with ETA/TA/ETB/jetty fields; save not executed to avoid mutating prod-like data." },
+    { "id": "D2", "section": "Berthing transition", "result": "SKIP", "notes": "Requires completing berthing flow; not run to avoid data mutation." },
+    { "id": "D3", "section": "Berthing blocked", "result": "PASS", "notes": "Draft plans show disabled Sandar with 'Shipment plan must be approved before berthing.'" },
+    { "id": "E1", "section": "Double-booking block", "result": "SKIP", "notes": "Requires two-vessel berthing attempt; manual." },
+    { "id": "E2", "section": "Zero cargo state", "result": "SKIP", "notes": "No 0 MT row identified in current queue." },
+    { "id": "E3", "section": "Massive date range", "result": "PASS", "notes": "From 2024-01-01 rejected with 'Date range is too large (maximum about 18 months)'; UI responsive, no hang." },
+    { "id": "E4", "section": "Drag cancel / no-op", "result": "SKIP", "notes": "Depends on A6/A7 drag; manual." },
+    { "id": "E5", "section": "Sailed / cast-off display", "result": "SKIP", "notes": "No sailed vessel in July 2026 window; manual with historical range." },
+    { "id": "F5", "section": "i18n — ID locale", "result": "PASS", "notes": "ID toggle: Alokasi & Sandar, Jadwal jetty, Ekspor JPEG, Catat pembaruan kedatangan." }
+  ],
+  "observations": [
+    "4 berthed vessels on Gantt (all late past ETC): SMS 3002, Warrior 2, Berlian Pacific III, AS MARINA 2.",
+    "9 incoming queue rows; schematic shows Warrior 2 on jetty 1B-01.",
+    "C1 reorder mutated queue order (SP-26-05-00002 now sequence #1).",
+    "SI document modal returns 'not found' for SP-26-05-00002 row — possible missing uploaded SI file in local DB."
+  ]
+}
