@@ -55,6 +55,7 @@ import EtcBreachBadge from '../components/EtcBreachBadge'
 import { getEtcBreach, getEtcBreachRagStatus } from '../utils/etcBreach'
 import AllocationLateSiNotice from '../components/AllocationLateSiNotice'
 import BerthingActionButton from '../components/BerthingActionButton'
+import ShipmentPlanCombinedFormModal from '../components/ShipmentPlanCombinedFormModal'
 import JettyAllocationSelect from '../components/JettyAllocationSelect'
 import {
   berthingDisabledReason,
@@ -62,6 +63,11 @@ import {
   isPlanOnlySchedulingRow,
   showLateSiBerthingGateNotice,
 } from '../utils/berthingEligibility'
+import { validateQueueRowSiReferencesForBerthing } from '../utils/siReferenceValidation'
+import {
+  preBerthCombinedSaveToastMessage,
+  resolvePlanIdFromRow,
+} from '../utils/siPreBerthEdit'
 import {
   ETC_BREACH_STATUS_FILTER_LEGACY,
   ETC_BREACH_STATUS_FILTER_PLAN,
@@ -553,6 +559,13 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   const [planExporting, setPlanExporting] = useState(false)
   const [siDetailId, setSiDetailId] = useState(null)
   const [siDocumentModalId, setSiDocumentModalId] = useState(null)
+  const [preBerthCombinedPlanId, setPreBerthCombinedPlanId] = useState(null)
+  const [siPreBerthMessage, setSiPreBerthMessage] = useState(null)
+
+  const openPreBerthCombinedEditFromRow = useCallback((row) => {
+    const pid = resolvePlanIdFromRow(row)
+    if (pid != null) setPreBerthCombinedPlanId(pid)
+  }, [])
 
   const openSiDocumentModal = useCallback((id) => {
     setSiDetailId(null)
@@ -1154,6 +1167,17 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     return q
   }, [overviewFetcher])
 
+  const handlePreBerthCombinedSaved = useCallback(
+    (result) => {
+      setSiPreBerthMessage({
+        text: preBerthCombinedSaveToastMessage(result, tSp),
+        variant: result?.planReopened ? 'warning' : 'success',
+      })
+      refreshOverview().catch(() => {})
+    },
+    [tSp, refreshOverview]
+  )
+
   const swapPlanBerthingSequencePair = useCallback(
     async (planIdA, planIdB, earlierPlanId) => {
       const a = Number(planIdA)
@@ -1531,6 +1555,10 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     }
     if (!(berthingRemarks || '').trim()) {
       errors.push('Please enter a remark.')
+    }
+    const siRefErr = validateQueueRowSiReferencesForBerthing(berthingConfirmRow)
+    if (siRefErr) {
+      errors.push(siRefErr)
     }
     if (errors.length > 0) {
       setBerthingErrors(errors)
@@ -2119,6 +2147,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                   isPlanCentric={isPlanCentric}
                   label={tAlloc('berthing')}
                   onBerthing={openBerthingConfirm}
+                  onEditPlan={openPreBerthCombinedEditFromRow}
                 />
               )}
             </div>
@@ -2351,6 +2380,28 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
             className="toast__close"
             onClick={() => setArrivalSuccessMessage(null)}
             aria-label="Dismiss notification"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {siPreBerthMessage && (
+        <div
+          className={`toast toast--${siPreBerthMessage.variant}${berthingSuccessMessage || arrivalSuccessMessage ? ' toast--stacked' : ''}`}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <span className="toast__icon" aria-hidden>
+            {siPreBerthMessage.variant === 'warning' ? '!' : '✓'}
+          </span>
+          <p className="toast__message">{siPreBerthMessage.text}</p>
+          <button
+            type="button"
+            className="toast__close"
+            onClick={() => setSiPreBerthMessage(null)}
+            aria-label={tAlloc('dismissNotification')}
           >
             ×
           </button>
@@ -3486,6 +3537,14 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         </div>
       )}
 
+      <ShipmentPlanCombinedFormModal
+        isOpen={preBerthCombinedPlanId != null}
+        mode="preBerthEdit"
+        planId={preBerthCombinedPlanId}
+        occupancyRows={list}
+        onClose={() => setPreBerthCombinedPlanId(null)}
+        onSaved={handlePreBerthCombinedSaved}
+      />
       <SiDetailModal
         isOpen={Boolean(siDetailId)}
         siId={siDetailId}
@@ -3496,6 +3555,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         isOpen={vesselInfoPlanId != null}
         onClose={() => setVesselInfoPlanId(null)}
         onSaved={() => refreshOverview().catch(() => {})}
+        onOpenPlanPreBerthEdit={(pid) => setPreBerthCombinedPlanId(pid)}
       />
       {pipelineEmbed ? (
         <div
@@ -4540,6 +4600,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                       isPlanCentric={isPlanCentric}
                       label={tAlloc('berthing')}
                       onBerthing={openBerthingConfirm}
+                      onEditPlan={openPreBerthCombinedEditFromRow}
                     />
                   )}
                 </div>

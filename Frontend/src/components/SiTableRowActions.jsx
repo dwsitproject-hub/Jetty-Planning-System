@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { planListCanEditPlanPreBerth } from '../utils/siPreBerthEdit'
 
 /** Action icons — outlined style, consistent size (18×18), use currentColor */
 export function IconRequestApproval() {
@@ -232,7 +233,8 @@ export function planDeleteDisabledReason(plan, canDelete) {
 /**
  * Shipment plan row: same five icon slots as SI (4th = view hub / plan).
  * @param {{ plan: object, canEdit: boolean, canApprove: boolean, canDelete: boolean, canView: boolean,
- *   onEdit: () => void, onSubmit: () => void, onOpenApproval: () => void, onViewHub: () => void, onDelete: () => void }} props
+ *   onEdit: () => void, onEditPlanPreBerth?: (plan: object) => void, onSubmit: () => void,
+ *   onOpenApproval: () => void, onViewHub: () => void, onDelete: () => void }} props
  */
 export function ShipmentPlanRowActions({
   plan,
@@ -241,6 +243,7 @@ export function ShipmentPlanRowActions({
   canDelete,
   canView,
   onEdit,
+  onEditPlanPreBerth,
   onSubmit,
   onOpenApproval,
   onViewHub,
@@ -248,8 +251,18 @@ export function ShipmentPlanRowActions({
 }) {
   const { t } = useTranslation('shippingInstruction')
   const { t: tp } = useTranslation('shipmentPlan')
-  const editReason = planEditDisabledReason(plan, canEdit)
+  const preBerthPlanEdit = planListCanEditPlanPreBerth(plan) && canEdit
+  const editReason = preBerthPlanEdit ? null : planEditDisabledReason(plan, canEdit)
+  const editTitle = preBerthPlanEdit ? tp('preBerthEditPlanTitle') : editReason || t('actionEdit')
+  const handleEditClick = () => {
+    if (preBerthPlanEdit && onEditPlanPreBerth) {
+      onEditPlanPreBerth(plan)
+      return
+    }
+    onEdit()
+  }
   const submitReason = planSubmitDisabledReason(plan, canEdit)
+  const submitTitle = submitReason || t('actionSubmitForApproval')
   const approveReason = planOpenApprovalDisabledReason(plan, canApprove)
   const viewReason = planViewHubDisabledReason(plan, canView)
   const deleteReason = planDeleteDisabledReason(plan, canDelete)
@@ -261,9 +274,9 @@ export function ShipmentPlanRowActions({
           type="button"
           className="btn btn--secondary btn--small si-table__action-btn si-table__action-icon"
           disabled={Boolean(editReason)}
-          title={editReason || t('actionEdit')}
-          aria-label={editReason || t('actionEdit')}
-          onClick={onEdit}
+          title={editTitle}
+          aria-label={editTitle}
+          onClick={handleEditClick}
         >
           <IconEdit />
         </button>
@@ -273,8 +286,8 @@ export function ShipmentPlanRowActions({
           type="button"
           className="btn btn--primary btn--small si-table__action-btn si-table__action-icon"
           disabled={Boolean(submitReason)}
-          title={submitReason || t('actionSubmitForApproval')}
-          aria-label={submitReason || t('actionSubmitForApproval')}
+          title={submitTitle}
+          aria-label={submitTitle}
           onClick={onSubmit}
         >
           <IconRequestApproval />

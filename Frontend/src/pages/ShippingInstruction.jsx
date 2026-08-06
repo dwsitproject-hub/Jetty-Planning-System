@@ -498,10 +498,6 @@ export default function ShippingInstruction() {
     const pCode = pRow?.code || null
     const isLoading = pCode === 'Loading'
     const isUnloading = pCode === 'Unloading'
-    if (!form.referenceNumber?.trim()) {
-      setToast({ message: 'Shipping Instructions No. is required.', variant: 'error' })
-      return
-    }
     if (!form.etaFrom?.trim() || !form.etaTo?.trim()) {
       setToast({ message: 'ETA from and ETA to are required.', variant: 'error' })
       return
@@ -555,7 +551,7 @@ export default function ShippingInstruction() {
         loadingPortId: num(form.loadingPortId),
         surveyorId: null,
         agentId: num(form.agentId),
-        referenceNumber: form.referenceNumber.trim(),
+        referenceNumber: form.referenceNumber?.trim() || null,
         voyageNo: form.voyageNo?.trim() || null,
         eta: etaIso,
         etaFrom: form.etaFrom || null,
@@ -1139,16 +1135,19 @@ export default function ShippingInstruction() {
                     />
                   </div>
                   <div className="input-group shipping-instruction-form__ref">
-                    <label htmlFor="siRef">{t('formSiNoRequired')}</label>
+                    <label htmlFor="siRef">{t('formSiNo')}</label>
                     <input
                       id="siRef"
                       value={form.referenceNumber}
                       onChange={(e) => updateForm({ referenceNumber: e.target.value })}
                       maxLength={MAX_SI_REFERENCE_CHARS}
-                      required
                       placeholder="e.g. SI/EUP/2026/1/003"
                       disabled={!lookups}
+                      aria-describedby="siRefHint"
                     />
+                    <span id="siRefHint" className="input-hint text-steel">
+                      {t('formSiNoBerthingHint')}
+                    </span>
                   </div>
                   <div className="input-group shipping-instruction-form__docdate">
                     <label htmlFor="documentDate">{t('formDocumentDateRequired')}</label>

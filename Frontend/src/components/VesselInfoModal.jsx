@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next'
 import { fetchShipmentPlan, updateShipmentPlanVesselInfo } from '../api/shipmentPlans'
 import FormLabelWithInfo from './FormLabelWithInfo'
 import { useRbac } from '../context/RbacContext'
+import { planHubCanEditPlan } from '../utils/siPreBerthEdit'
 import '../styles/modal.css'
 
 /** Inline link-styled button for vessel names in tables. */
@@ -42,7 +43,7 @@ export function VesselNameButton({ name, onClick, strong = false }) {
   )
 }
 
-export default function VesselInfoModal({ planId, isOpen, onClose, onSaved }) {
+export default function VesselInfoModal({ planId, isOpen, onClose, onSaved, onOpenPlanPreBerthEdit }) {
   const { t } = useTranslation('shipmentPlan')
   const { canEdit } = useRbac()
   const allowEdit = canEdit('shipment-plan')
@@ -212,6 +213,23 @@ export default function VesselInfoModal({ planId, isOpen, onClose, onSaved }) {
               <p className="text-steel" style={{ fontSize: '0.85rem' }}>
                 {t('vesselInfoReadOnly')}
               </p>
+            ) : null}
+            {allowEdit && plan && planHubCanEditPlan(plan) && typeof onOpenPlanPreBerthEdit === 'function' ? (
+              <div style={{ marginTop: '0.75rem' }}>
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--small"
+                  onClick={() => {
+                    onOpenPlanPreBerthEdit(plan.id)
+                    onClose()
+                  }}
+                >
+                  {t('preBerthEditPlanTitle')}
+                </button>
+                <p className="text-steel" style={{ fontSize: '0.85rem', marginTop: '0.5rem', marginBottom: 0 }}>
+                  {t('preBerthEditPlanHint')}
+                </p>
+              </div>
             ) : null}
           </>
         ) : null}

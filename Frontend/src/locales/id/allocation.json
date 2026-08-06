@@ -153,6 +153,7 @@
   "lateSiSchedulingNoticeBody": "Anda dapat menetapkan dermaga dan waktu perencanaan di sini. Setelah rencana pengiriman disetujui dan memiliki minimal satu shipping instruction, gunakan Sandar untuk TA, TB, ETC, dan foto kapal.",
   "berthingSiGateTooltip": "Rencana pengiriman harus disetujui sebelum sandar.",
   "berthingNoSiTooltip": "Tambahkan minimal satu shipping instruction dan setujui rencana pengiriman sebelum sandar.",
+  "updateShipmentPlan": "Perbarui rencana pengiriman",
   "planSummaryJetty": "Dermaga",
   "planSummaryBerthed": "{{berthed}} / {{total}} sandar",
   "planSummaryEta": "ETA (panggilan kapal)",

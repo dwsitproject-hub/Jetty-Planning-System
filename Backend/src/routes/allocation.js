@@ -17,6 +17,10 @@ import { JETTY_OUT_OF_SERVICE } from '../lib/jetty-blocking.js';
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
 import { enrichRowsWithCargoDisplay } from '../lib/siBreakdownDisplay.js';
 import { validateMultiJettySelection } from '../lib/multi-jetty.js';
+import {
+  SI_REFERENCE_BERTHING_ERROR,
+  validatePlanSiReferencesForBerthing,
+} from '../lib/si-reference-validation.js';
 
 const router = express.Router();
 const SCHEDULE_SAILED_LOOKBACK_DAYS = 90;
@@ -236,26 +240,58 @@ function bodyHasBerthingArrivalFields(b) {
 
 const PLAN_BERTHING_GATE_MSG =
   'Shipment plan must be approved and have at least one shipping instruction before berthing.';
+const PLAN_BERTHING_SI_REF_MSG = SI_REFERENCE_BERTHING_ERROR;
 
 async function loadBerthingAllowedByPlanId(portId) {
   const r = await pool.query(
     `SELECT sp.id AS plan_id,
+            sp.approval_status,
+            sp.vessel_name,
             COUNT(si.id)::int AS si_count,
-            sp.approval_status
+            COUNT(si.id) FILTER (
+              WHERE si.reference_number IS NOT NULL
+                AND BTRIM(si.reference_number) <> ''
+                AND BTRIM(si.reference_number) <> ''''
+                AND LOWER(BTRIM(si.reference_number)) <> LOWER(BTRIM(sp.vessel_name))
+            )::int AS valid_si_count
      FROM shipment_plans sp
      LEFT JOIN shipping_instructions si
        ON si.shipment_plan_id = sp.id AND si.deleted_at IS NULL
      WHERE sp.port_id = $1 AND sp.deleted_at IS NULL
-     GROUP BY sp.id, sp.approval_status`,
+     GROUP BY sp.id, sp.approval_status, sp.vessel_name`,
     [portId]
   );
   const map = new Map();
   for (const row of r.rows) {
     const pid = Number(row.plan_id);
-    const c = Number(row.si_count) || 0;
-    map.set(pid, row.approval_status === 'Approved' && c > 0);
+    const validCount = Number(row.valid_si_count) || 0;
+    map.set(pid, row.approval_status === 'Approved' && validCount > 0);
   }
   return map;
+}
+
+/** @returns {Promise<string|null>} error message when berthing is not allowed */
+async function validatePlanBerthingGate(client, shipmentPlanId, selectedPortId) {
+  const planRes = await client.query(
+    `SELECT approval_status, vessel_name FROM shipment_plans
+     WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
+    [shipmentPlanId, selectedPortId]
+  );
+  if (planRes.rows.length === 0) return 'Shipment plan not found';
+  const { approval_status, vessel_name } = planRes.rows[0];
+  if (approval_status !== 'Approved') return PLAN_BERTHING_GATE_MSG;
+
+  const siRes = await client.query(
+    `SELECT reference_number FROM shipping_instructions
+     WHERE shipment_plan_id = $1 AND deleted_at IS NULL`,
+    [shipmentPlanId]
+  );
+  const refErr = validatePlanSiReferencesForBerthing(
+    siRes.rows.map((row) => ({ reference_number: row.reference_number })),
+    vessel_name
+  );
+  if (refErr) return refErr === SI_REFERENCE_BERTHING_ERROR ? PLAN_BERTHING_SI_REF_MSG : refErr;
+  return null;
 }
 
 function attachBerthingEligibility(row, berthingByPlan) {
@@ -1323,6 +1359,7 @@ router.put('/arrival', async (req, res) => {
 
     const siDetails = await client.query(
       `SELECT si.eta_from, si.eta_to, sp.eta AS plan_eta, sp.approval_status AS plan_approval_status,
+              sp.id AS shipment_plan_id,
               (SELECT COUNT(*)::int FROM shipping_instructions si2
                WHERE si2.shipment_plan_id = sp.id AND si2.deleted_at IS NULL) AS si_count
        FROM shipping_instructions si
@@ -1331,11 +1368,16 @@ router.put('/arrival', async (req, res) => {
       [opRow.shipping_instruction_id]
     );
     const si = siDetails.rows[0] ?? {};
-    const planBerthingOk =
-      si.plan_approval_status === 'Approved' && Number(si.si_count) > 0;
-    if (bodyHasBerthingArrivalFields(b) && !planBerthingOk) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: PLAN_BERTHING_GATE_MSG });
+    if (bodyHasBerthingArrivalFields(b)) {
+      const planIdForGate = si.shipment_plan_id != null ? Number(si.shipment_plan_id) : null;
+      const gateErr =
+        planIdForGate != null
+          ? await validatePlanBerthingGate(client, planIdForGate, selectedPortId)
+          : PLAN_BERTHING_GATE_MSG;
+      if (gateErr) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: gateErr });
+      }
     }
     const opBeforeRes = await client.query(
       `SELECT

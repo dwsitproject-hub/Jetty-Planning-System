@@ -3,7 +3,12 @@
  */
 import { pool } from '../db.js';
 import { getFromAddress, getSmtpTransport } from './smtp-config.js';
-import { loadNotificationTemplate, renderTemplate, insertInAppNotificationForUser } from './notifications.js';
+import {
+  isNotificationEmailEnabled,
+  loadNotificationTemplate,
+  renderTemplate,
+  insertInAppNotificationForUser,
+} from './notifications.js';
 
 /** Reject malformed or injection-prone recipient addresses before SMTP send. */
 export function isValidRecipientEmail(address) {
@@ -138,6 +143,10 @@ export async function processNotificationEmailQueueOnce(limit = 15) {
 let intervalId = null;
 
 export function startNotificationEmailWorker() {
+  if (!isNotificationEmailEnabled()) {
+    console.log('[notifications] email worker disabled (NOTIFICATION_EMAIL_ENABLED=false)');
+    return;
+  }
   const intervalMs = Math.max(5000, parseInt(process.env.NOTIFICATION_EMAIL_POLL_MS || '20000', 10) || 20000);
   if (intervalId) return;
   intervalId = setInterval(() => {

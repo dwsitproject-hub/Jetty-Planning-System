@@ -135,7 +135,6 @@ export function validateSiDraftForCreate(form, lookups, linkedPlan, options = {}
   const pCode = pRow?.code || null
   const isLoading = pCode === 'Loading'
   const isUnloading = pCode === 'Unloading'
-  if (!form.referenceNumber?.trim()) return 'Shipping Instructions No. is required.'
   const ymd = planEtaYmd(linkedPlan)
   if (!ymd) return 'Shipment plan has no ETA.'
   let documentDateVal = form.documentDate
@@ -192,7 +191,7 @@ export function buildSiCreateApiPayload(form, linkedPlan, validated) {
     loadingPortId: num(form.loadingPortId),
     surveyorId: num(form.surveyorId),
     agentId: linkedPlan?.agentId != null && linkedPlan.agentId !== '' ? num(String(linkedPlan.agentId)) : null,
-    referenceNumber: form.referenceNumber.trim(),
+    referenceNumber: form.referenceNumber?.trim() || null,
     voyageNo: linkedPlan.voyageNo?.trim() || null,
     eta: etaIso,
     etaFrom: ymd,

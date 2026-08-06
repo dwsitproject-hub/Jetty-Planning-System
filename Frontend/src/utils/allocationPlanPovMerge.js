@@ -164,6 +164,7 @@ function mergePlanChildrenToQueueRow(children, planId, repMapOut, options = {}) 
       seenSi.add(num)
       planQueueSiEntries.push({
         shippingInstructionId: num,
+        referenceNumber: label && !/^SI-\d+$/.test(label) ? label : null,
         label: label || `SI-${num}`,
         siStatus: c.siStatus ?? c.status ?? null,
         commodityDisplay: c.commodityDisplay || c.commodity || '—',
@@ -176,6 +177,7 @@ function mergePlanChildrenToQueueRow(children, planId, repMapOut, options = {}) 
       seenSi.add(synthKey)
       planQueueSiEntries.push({
         shippingInstructionId: null,
+        referenceNumber: label,
         label,
         siStatus: c.siStatus ?? c.status ?? null,
         commodityDisplay: c.commodityDisplay || c.commodity || '—',
