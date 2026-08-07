@@ -48,7 +48,7 @@ export default function OperatorMilestoneCards({
                   disabled={!canEdit || busy}
                   onClick={() => onStart(m)}
                 >
-                  Start
+                  {isCargo && m.state === 'done' ? 'Start next segment' : 'Start'}
                 </button>
               ) : null}
               {isCargo ? (

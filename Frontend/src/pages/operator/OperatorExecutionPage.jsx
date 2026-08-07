@@ -10,6 +10,7 @@ import OperatorTankPickerSheet from '../../components/operator/OperatorTankPicke
 import PurposeBadge from '../../components/PurposeBadge'
 import { useOperatorExecution } from '../../components/operator/useOperatorExecution'
 import { useRbac } from '../../context/RbacContext'
+import { OPERATOR_PRECHECK_BLOCKED_MSG } from '../../utils/operatorPreCheckingGate'
 
 export default function OperatorExecutionPage() {
   const { operationId: operationIdParam } = useParams()
@@ -55,6 +56,39 @@ export default function OperatorExecutionPage() {
         <button type="button" className="op-btn" onClick={() => navigate('/operator/at-berth')}>
           Back to queue
         </button>
+      </div>
+    )
+  }
+
+  if (exec.preCheckingComplete === false) {
+    return (
+      <div className="operator-exec">
+        <div className="operator-exec__sticky">
+          <header className="operator-exec__header">
+            <div className="operator-exec__top">
+              <button
+                type="button"
+                className="op-btn op-btn--soft operator-exec__back"
+                onClick={() => navigate('/operator/at-berth')}
+                aria-label="Back to queue"
+              >
+                ←
+              </button>
+              <div className="operator-exec__identity">
+                <h1 className="operator-exec__vessel">{exec.operation.vesselName || 'Vessel'}</h1>
+                <p className="operator-exec__purpose">
+                  <PurposeBadge purpose={exec.purpose} />
+                </p>
+              </div>
+            </div>
+          </header>
+        </div>
+        <div className="operator-exec__body">
+          <p className="operator-error-banner">{OPERATOR_PRECHECK_BLOCKED_MSG}</p>
+          <button type="button" className="op-btn op-btn--primary" onClick={() => navigate('/operator/at-berth')}>
+            Back to queue
+          </button>
+        </div>
       </div>
     )
   }
@@ -118,31 +152,33 @@ export default function OperatorExecutionPage() {
 
   return (
     <div className="operator-exec">
-      <header className="operator-exec__header">
-        <div className="operator-exec__top">
-          <button
-            type="button"
-            className="op-btn op-btn--soft operator-exec__back"
-            onClick={() => navigate('/operator/at-berth')}
-            aria-label="Back to queue"
-          >
-            ←
-          </button>
-          <div>
-            <h1 className="operator-exec__vessel">{exec.operation.vesselName || 'Vessel'}</h1>
-            <p className="operator-exec__purpose">
-              <PurposeBadge purpose={exec.purpose} />
-            </p>
+      <div className="operator-exec__sticky">
+        <header className="operator-exec__header">
+          <div className="operator-exec__top">
+            <button
+              type="button"
+              className="op-btn op-btn--soft operator-exec__back"
+              onClick={() => navigate('/operator/at-berth')}
+              aria-label="Back to queue"
+            >
+              ←
+            </button>
+            <div className="operator-exec__identity">
+              <h1 className="operator-exec__vessel">{exec.operation.vesselName || 'Vessel'}</h1>
+              <p className="operator-exec__purpose">
+                <PurposeBadge purpose={exec.purpose} />
+              </p>
+            </div>
           </div>
-        </div>
-        <OperatorSiSwitcher
-          siblings={exec.siblings}
-          operationId={operationId}
-          onChange={(nextId) => navigate(`/operator/execution/${nextId}`)}
-        />
-      </header>
+          <OperatorSiSwitcher
+            siblings={exec.siblings}
+            operationId={operationId}
+            onChange={(nextId) => navigate(`/operator/execution/${nextId}`)}
+          />
+        </header>
 
-      <OperatorPhaseTabs phase={phase} onChange={setPhase} />
+        <OperatorPhaseTabs phase={phase} onChange={setPhase} />
+      </div>
 
       <div className="operator-exec__body">
         {exec.error ? <p className="operator-error-banner">{exec.error}</p> : null}

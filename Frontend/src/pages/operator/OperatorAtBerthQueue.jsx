@@ -5,6 +5,8 @@ import PurposeBadge from '../../components/PurposeBadge'
 import { useRbac } from '../../context/RbacContext'
 import { formatDateTimeDisplay } from '../../utils/formatDateTimeDisplay'
 import { computeCargoProgress } from '../../utils/cargoQtyDisplay'
+import { canOpenOperatorExecution } from '../../utils/operatorPreCheckingGate'
+import { evaluatePreCheckingComplete } from '../../utils/loadingHubProcessStagesFromApi'
 
 const SORT_OPTIONS = [
   { value: 'vesselName', label: 'Vessel name' },
@@ -49,7 +51,8 @@ function getBerthingPlanStatus(row) {
   return 'incoming'
 }
 
-function statusToPhase(status) {
+function statusToPhase(status, preCheckingComplete) {
+  if (preCheckingComplete === false) return 'Pre-Checking'
   const s = String(status || '')
   if (s === 'IN_PROGRESS') return 'Operational'
   if (s === 'POST_OPS') return 'Post-Checking'
@@ -88,7 +91,7 @@ function buildOperatorCargoLine(row) {
   }
 }
 
-function buildGroups(rows) {
+function buildGroups(rows, preCheckMap = {}) {
   const order = []
   const map = new Map()
   for (const r of rows) {
@@ -105,7 +108,13 @@ function buildGroups(rows) {
     )
     const head = children[0]
     const purposes = [...new Set(children.map((c) => c.purpose).filter(Boolean))]
-    const phases = [...new Set(children.map((c) => statusToPhase(c.status)))]
+    const phases = [
+      ...new Set(
+        children.map((c) =>
+          statusToPhase(c.status, preCheckMap[c.operationId ?? c.id])
+        )
+      ),
+    ]
     const tbMs = children.reduce((best, c) => {
       const ms = parseDateMs(c.tbDateTime)
       if (ms == null) return best
@@ -156,6 +165,14 @@ export default function OperatorAtBerthQueue() {
   const [queue, setQueue] = useState([])
   const [expanded, setExpanded] = useState(() => new Set())
   const [sortBy, setSortBy] = useState('vesselName')
+  const [openingId, setOpeningId] = useState(null)
+  const [toast, setToast] = useState(null)
+  const [preCheckMap, setPreCheckMap] = useState({})
+
+  const showToast = useCallback((message, variant = 'error') => {
+    setToast({ message, variant })
+    window.setTimeout(() => setToast(null), 4000)
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -176,11 +193,50 @@ export default function OperatorAtBerthQueue() {
     load()
   }, [load])
 
-  const groups = useMemo(() => sortGroups(buildGroups(queue), sortBy), [queue, sortBy])
+  useEffect(() => {
+    if (!queue.length) {
+      setPreCheckMap({})
+      return undefined
+    }
+    let cancelled = false
+    ;(async () => {
+      const entries = await Promise.all(
+        queue.map(async (row) => {
+          const id = row.operationId ?? row.id
+          try {
+            const complete = await evaluatePreCheckingComplete(id, row.purpose)
+            return [id, complete]
+          } catch {
+            return [id, false]
+          }
+        })
+      )
+      if (!cancelled) setPreCheckMap(Object.fromEntries(entries))
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [queue])
 
-  const openOp = (operationId) => {
+  const groups = useMemo(
+    () => sortGroups(buildGroups(queue, preCheckMap), sortBy),
+    [queue, preCheckMap, sortBy]
+  )
+
+  const openOp = async (row) => {
+    const operationId = row?.operationId ?? row?.id
     if (operationId == null) return
-    navigate(`/operator/execution/${operationId}`)
+    setOpeningId(operationId)
+    try {
+      const gate = await canOpenOperatorExecution(row)
+      if (!gate.allowed) {
+        showToast(gate.reason || 'Pre-Checking is not complete yet.')
+        return
+      }
+      navigate(`/operator/execution/${operationId}`)
+    } finally {
+      setOpeningId(null)
+    }
   }
 
   const toggleExpand = (key) => {
@@ -242,13 +298,13 @@ export default function OperatorAtBerthQueue() {
               tabIndex={0}
               onClick={() => {
                 if (isMulti) toggleExpand(g.key)
-                else openOp(g.children[0]?.operationId)
+                else openOp(g.children[0])
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
                   if (isMulti) toggleExpand(g.key)
-                  else openOp(g.children[0]?.operationId)
+                  else openOp(g.children[0])
                 }
               }}
             >
@@ -297,7 +353,8 @@ export default function OperatorAtBerthQueue() {
                           key={child.operationId}
                           type="button"
                           className="operator-vessel-card__child"
-                          onClick={() => openOp(child.operationId)}
+                          onClick={() => openOp(child)}
+                          disabled={openingId != null}
                         >
                           <span className="operator-vessel-card__child-body">
                             <span className="operator-vessel-card__child-main">
@@ -326,6 +383,15 @@ export default function OperatorAtBerthQueue() {
           </article>
         )
       })}
+
+      {toast ? (
+        <div
+          className={`operator-toast${toast.variant === 'error' ? ' operator-toast--error' : ''}`}
+          role="status"
+        >
+          {toast.message}
+        </div>
+      ) : null}
     </div>
   )
 }

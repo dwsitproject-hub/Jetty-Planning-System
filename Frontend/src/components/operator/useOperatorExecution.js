@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { fetchAllocationOverview } from '../../api/allocation'
 import { fetchMasterTanks } from '../../api/masterTanks'
+import { fetchTankGaugingMassDelta } from '../../api/tankGauging'
 import {
   createOperationalEntry,
   fetchOperation,
@@ -14,11 +15,15 @@ import {
   viewModelFromOperationalEntries,
 } from '../../data/operationalMilestones'
 import {
+  ensureApiEndAfterStart,
+  ensureApiStartAfterPreviousEnd,
   getScheduleEntryTimeZone,
   normalizeForApi,
   nowToNaiveLocalInScheduleZone,
+  nowToNaiveLocalWithSecondsInScheduleZone,
   utcIsoToNaiveLocal,
 } from '../../utils/scheduleDateTime'
+import { OPERATOR_PRECHECK_BLOCKED_MSG, canOpenOperatorExecution } from '../../utils/operatorPreCheckingGate'
 
 const POST_STEPS = [
   { uiKey: 'finalInspection', apiKey: 'final_inspection', label: 'FINAL INSPECTION' },
@@ -108,12 +113,21 @@ function deriveMilestoneState(milestoneKey, activities, naByLabel, purpose) {
     if (anyClosed || rows.length > 0) {
       const last = rows[rows.length - 1]
       const lastLine = (last.cargoLoadLines || []).slice(-1)[0]
+      const closedCount = rows.reduce(
+        (n, r) => n + (r.cargoLoadLines || []).filter((l) => l.startAt && l.endAt).length,
+        0
+      )
       const tankCodes = (lastLine?.tanks || last.tanks || []).map((t) => t.code || t.name).filter(Boolean)
+      const detailParts = []
+      if (closedCount > 1) detailParts.push(`${closedCount} segments done`)
+      if (tankCodes.length) detailParts.push(`Last tanks: ${tankCodes.join(', ')}`)
+      else if (closedCount <= 1) detailParts.push('Completed')
       return {
         state: 'done',
-        detail: tankCodes.length ? `Tanks: ${tankCodes.join(', ')}` : 'Completed',
+        detail: detailParts.join(' · ') || 'Completed',
         activities: rows,
         lastTankIds: lastLine?.tankIds || last.tankIds || [],
+        closedSegmentCount: closedCount,
       }
     }
     return { state: 'pending', detail: 'Tanks: (none yet)', activities: rows }
@@ -152,6 +166,75 @@ function openingHasStarted(activities, naByLabel, purpose) {
   return st.state === 'done' || st.state === 'active' || Boolean(naByLabel?.OPENING?.reason)
 }
 
+function buildOperatorActivityRemark(milestoneKey, { subStepTitle, tankIds, tankOptions } = {}) {
+  if (milestoneKey === 'cargo_operations' && Array.isArray(tankIds) && tankIds.length > 0) {
+    const codes = tankIds
+      .map((id) => tankOptions?.find((t) => String(t.id) === String(id))?.code)
+      .filter(Boolean)
+    if (codes.length) return codes.join(', ')
+  }
+  return subStepTitle || '—'
+}
+
+function operatorNowLocal(tz) {
+  return nowToNaiveLocalWithSecondsInScheduleZone(tz)
+}
+
+async function buildStoppedCargoLine(openLine, endIso, { portId, commodityType, tankOptions, tz }) {
+  const tankIds = openLine.tankIds || []
+  const line = {
+    startAt: openLine.startAt,
+    endAt: endIso,
+    tankIds,
+    atgQtyMode: 'auto',
+  }
+  if (commodityType !== 'Liquid' || !portId || tankIds.length === 0) return line
+
+  const atgTankIds = tankIds.filter((id) =>
+    tankOptions?.find((t) => String(t.id) === String(id))?.hasAtg
+  )
+  if (atgTankIds.length === 0) return line
+
+  try {
+    const data = await fetchTankGaugingMassDelta({
+      portId,
+      tankIds: atgTankIds,
+      startAt: normalizeForApi(openLine.startAt, tz),
+      endAt: endIso,
+    })
+    const mass = Number(data?.sumDeltaMass)
+    if (!data?.incomplete && Number.isFinite(mass) && mass > 0) {
+      line.qty = mass
+    }
+  } catch {
+    /* backend may compute ATG on save when qty omitted for pure ATG lines */
+  }
+  return line
+}
+
+function mapExistingCargoLine(l) {
+  return {
+    startAt: l.startAt,
+    endAt: l.endAt,
+    qty: l.qty,
+    tankIds: l.tankIds || [],
+    atgQtyMode: l.atgQtyMode || 'auto',
+    manualQty: l.manualQty,
+  }
+}
+
+function findCargoEntryForNextSegment(activities, naByLabel, purpose) {
+  const st = deriveMilestoneState('cargo_operations', activities, naByLabel, purpose)
+  if (st.state === 'active') return null
+  const rows = st.activities || []
+  if (!rows.length) return null
+  const entry = rows[rows.length - 1]
+  const lines = entry.cargoLoadLines || []
+  if (lines.some((l) => l.startAt && !l.endAt)) return null
+  if (!lines.some((l) => l.startAt && l.endAt)) return null
+  return entry
+}
+
 export function useOperatorExecution(operationId) {
   const tz = getScheduleEntryTimeZone()
   const [loading, setLoading] = useState(true)
@@ -164,6 +247,7 @@ export function useOperatorExecution(operationId) {
   const [postByKey, setPostByKey] = useState({})
   const [siblings, setSiblings] = useState([])
   const [tankOptions, setTankOptions] = useState([])
+  const [preCheckingComplete, setPreCheckingComplete] = useState(null)
 
   const showToast = useCallback((message, variant = 'success') => {
     setToast({ message, variant })
@@ -210,8 +294,15 @@ export function useOperatorExecution(operationId) {
               .sort((a, b) => Number(a.operationId) - Number(b.operationId))
           : []
       setSiblings(sibs)
+
+      const gate = await canOpenOperatorExecution(
+        { operationId: op?.id ?? operationId, purpose: op?.purpose, status: op?.status },
+        tz
+      )
+      setPreCheckingComplete(gate.allowed)
     } catch (e) {
       setError(e?.message || 'Failed to load operation')
+      setPreCheckingComplete(false)
     } finally {
       setLoading(false)
     }
@@ -368,10 +459,14 @@ export function useOperatorExecution(operationId) {
 
   const startMilestone = useCallback(
     async (milestoneKey, { tankIds } = {}) => {
+      if (preCheckingComplete === false) {
+        showToast(OPERATOR_PRECHECK_BLOCKED_MSG, 'error')
+        return false
+      }
       if (milestoneKey === 'cargo_operations' || milestoneKey === 'other') {
         if (!confirmSequence()) return false
       }
-      const nowLocal = nowToNaiveLocalInScheduleZone(tz)
+      const nowLocal = operatorNowLocal(tz)
       const nowIso = normalizeForApi(nowLocal, tz)
 
       if (milestoneKey === 'cargo_operations') {
@@ -379,26 +474,62 @@ export function useOperatorExecution(operationId) {
           showToast('Select at least one tank', 'error')
           return false
         }
+        const existingCargo = findCargoEntryForNextSegment(activities, naByLabel, purpose)
         return runMutation(async () => {
-          await createOperationalEntry(
-            operationId,
-            {
-              entryType: 'activity',
-              milestoneKey: 'cargo_operations',
-              subStepTitle: 'Cargo',
-              startAt: nowIso,
-              endAt: null,
-              cargoLoadLines: [
-                {
-                  startAt: nowIso,
-                  endAt: null,
-                  tankIds: commodityType === 'Liquid' ? tankIds : undefined,
-                },
-              ],
-            },
-            { scheduleIana: tz }
-          )
-        }, 'Cargo started')
+          if (existingCargo?.id) {
+            const prevLines = (existingCargo.cargoLoadLines || []).map(mapExistingCargoLine)
+            const lastEnd = prevLines[prevLines.length - 1]?.endAt
+            const lineStartIso = lastEnd
+              ? ensureApiStartAfterPreviousEnd(lastEnd, nowIso, tz)
+              : nowIso
+            await updateOperationalEntry(
+              operationId,
+              existingCargo.id,
+              {
+                milestoneKey: 'cargo_operations',
+                subStepTitle: existingCargo.subStepTitle || 'Cargo',
+                remark: existingCargo.description || existingCargo.remark || 'Cargo',
+                startAt: existingCargo.startTime,
+                endAt: null,
+                cargoLoadLines: [
+                  ...prevLines,
+                  {
+                    startAt: lineStartIso,
+                    endAt: null,
+                    tankIds: commodityType === 'Liquid' ? tankIds : undefined,
+                    atgQtyMode: 'auto',
+                  },
+                ],
+              },
+              { scheduleIana: tz }
+            )
+          } else {
+            await createOperationalEntry(
+              operationId,
+              {
+                entryType: 'activity',
+                milestoneKey: 'cargo_operations',
+                subStepTitle: 'Cargo',
+                remark: buildOperatorActivityRemark('cargo_operations', {
+                  subStepTitle: 'Cargo',
+                  tankIds,
+                  tankOptions,
+                }),
+                startAt: nowIso,
+                endAt: null,
+                cargoLoadLines: [
+                  {
+                    startAt: nowIso,
+                    endAt: null,
+                    tankIds: commodityType === 'Liquid' ? tankIds : undefined,
+                    atgQtyMode: 'auto',
+                  },
+                ],
+              },
+              { scheduleIana: tz }
+            )
+          }
+        }, existingCargo?.id ? 'Next cargo segment started' : 'Cargo started')
       }
 
       const defaults = {
@@ -414,6 +545,7 @@ export function useOperatorExecution(operationId) {
             entryType: 'activity',
             milestoneKey,
             subStepTitle: meta.subStepTitle,
+            remark: buildOperatorActivityRemark(milestoneKey, { subStepTitle: meta.subStepTitle }),
             startAt: nowIso,
             endAt: null,
           },
@@ -421,7 +553,7 @@ export function useOperatorExecution(operationId) {
         )
       }, `${meta.subStepTitle} started`)
     },
-    [commodityType, confirmSequence, operationId, runMutation, showToast, tz]
+    [activities, commodityType, confirmSequence, naByLabel, operationId, preCheckingComplete, purpose, runMutation, showToast, tankOptions, tz]
   )
 
   const stopCargo = useCallback(async () => {
@@ -432,17 +564,34 @@ export function useOperatorExecution(operationId) {
       showToast('No active cargo line to stop', 'error')
       return
     }
-    const nowLocal = nowToNaiveLocalInScheduleZone(tz)
-    const nowIso = normalizeForApi(nowLocal, tz)
-    const lines = (entry.cargoLoadLines || []).map((l) => {
-      const isOpen = l.startAt && !l.endAt
-      return {
-        startAt: l.startAt,
-        endAt: isOpen ? nowIso : l.endAt,
-        qty: l.qty,
-        tankIds: l.tankIds || [],
-      }
-    })
+    const nowLocal = operatorNowLocal(tz)
+    const endIso = ensureApiEndAfterStart(openLine.startAt, normalizeForApi(nowLocal, tz), tz)
+    const lines = await Promise.all(
+      (entry.cargoLoadLines || []).map(async (l) => {
+        const isOpen = l.startAt && !l.endAt
+        if (!isOpen) {
+          return {
+            startAt: l.startAt,
+            endAt: l.endAt,
+            qty: l.qty,
+            tankIds: l.tankIds || [],
+            atgQtyMode: l.atgQtyMode || 'auto',
+          }
+        }
+        return buildStoppedCargoLine(l, endIso, { portId, commodityType, tankOptions, tz })
+      })
+    )
+    const openStopped = lines.find((l) => l.endAt && (l.qty == null || l.qty === ''))
+    if (
+      commodityType === 'Liquid' &&
+      openStopped &&
+      (openStopped.tankIds || []).some((id) =>
+        tankOptions?.find((t) => String(t.id) === String(id))?.hasAtg
+      )
+    ) {
+      showToast('Could not read moved quantity from ATG yet. Wait a moment and try Stop again.', 'error')
+      return
+    }
     await runMutation(async () => {
       await updateOperationalEntry(
         operationId,
@@ -457,7 +606,18 @@ export function useOperatorExecution(operationId) {
         { scheduleIana: tz }
       )
     }, 'Cargo stopped')
-  }, [activities, naByLabel, operationId, purpose, runMutation, showToast, tz])
+  }, [
+    activities,
+    commodityType,
+    naByLabel,
+    operationId,
+    portId,
+    purpose,
+    runMutation,
+    showToast,
+    tankOptions,
+    tz,
+  ])
 
   const completeOther = useCallback(async () => {
     const st = deriveMilestoneState('other', activities, naByLabel, purpose)
@@ -485,7 +645,7 @@ export function useOperatorExecution(operationId) {
 
   const markPostDone = useCallback(
     async (apiKey) => {
-      const nowLocal = nowToNaiveLocalInScheduleZone(tz)
+      const nowLocal = operatorNowLocal(tz)
       const nowIso = normalizeForApi(nowLocal, tz)
       await runMutation(async () => {
         await upsertSubProcess(
@@ -581,6 +741,7 @@ export function useOperatorExecution(operationId) {
     purpose,
     commodityType,
     portId,
+    preCheckingComplete,
     siblings,
     tankOptions,
     milestones,

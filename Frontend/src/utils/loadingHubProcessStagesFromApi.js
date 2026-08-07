@@ -246,6 +246,60 @@ export function getPreCheckStageKeys(purpose) {
   return keys
 }
 
+/** Merge Pre-Checking sub-process API rows into hub section map (same rules as Loading.jsx). */
+export function mergePreCheckSubRowsToPreData(subRows, scheduleIana = getScheduleEntryTimeZone()) {
+  const bySection = {}
+  ;(Array.isArray(subRows) ? subRows : []).forEach((row) => {
+    const section = PRECHECK_KEY_TO_SECTION[row.subProcessKey || row.sub_process_key]
+    if (!section) return
+    const current = bySection[section] || {}
+    let merged
+    if (section === 'inspection') {
+      merged = mergeInspectionHydration(current, row, scheduleIana)
+    } else if (section === 'initialCargoChecking') {
+      merged = mergeInitialCargoHydration(current, row, scheduleIana)
+    } else {
+      merged = {
+        ...current,
+        remark: row.remark || '',
+        status: row.status || current.status,
+        lastSavedAt: row.updatedAt ?? current.lastSavedAt ?? null,
+      }
+      if (row.startAt || row.occurredAt) {
+        merged.startTime = isoOrDatetimeToLocal(row.startAt || row.occurredAt, scheduleIana)
+      }
+      if (row.endAt) {
+        merged.endTime = isoOrDatetimeToLocal(row.endAt, scheduleIana)
+      }
+      if (section === 'sampling') {
+        merged.records = Array.isArray(row.payload?.records) ? row.payload.records : []
+      }
+      if (section === 'norAccepted') {
+        const p = row.payload && typeof row.payload === 'object' ? row.payload : {}
+        if (p.norTenderedDateTime) {
+          merged.norTenderedDateTime = isoOrDatetimeToLocal(p.norTenderedDateTime, scheduleIana)
+        }
+        if (p.norAcceptedDateTime) {
+          merged.norAcceptedDateTime = isoOrDatetimeToLocal(p.norAcceptedDateTime, scheduleIana)
+        }
+      }
+    }
+    bySection[section] = merged
+  })
+  return bySection
+}
+
+export function isPreCheckingCompleteForPurpose(purpose, preData) {
+  const keys = getPreCheckStageKeys(normalizeHubPurpose(purpose))
+  return keys.every((k) => inferPrecheckStatus(k, preData?.[k] || {}) === 'Done')
+}
+
+export async function evaluatePreCheckingComplete(operationId, purpose, scheduleIana = getScheduleEntryTimeZone()) {
+  const subRows = await fetchSubProcesses(operationId, 'Pre-Checking')
+  const preData = mergePreCheckSubRowsToPreData(subRows, scheduleIana)
+  return isPreCheckingCompleteForPurpose(purpose, preData)
+}
+
 /** Align SI / operation API `purpose` with hub milestone lists (`Loading` | `Unloading`). */
 export function normalizeHubPurpose(p) {
   const s = String(p ?? '').trim().toLowerCase()
@@ -311,38 +365,11 @@ async function buildPreCheckingSnapshotFromApi(
 
   const bySection = {}
   const docLoads = []
+  const mergedSections = mergePreCheckSubRowsToPreData(subRows, scheduleIana)
+  Object.assign(bySection, mergedSections)
   ;(Array.isArray(subRows) ? subRows : []).forEach((row) => {
     const section = PRECHECK_KEY_TO_SECTION[row.subProcessKey]
     if (!section) return
-    const current = bySection[section] || {}
-    let merged
-    if (section === 'inspection') {
-      merged = mergeInspectionHydration(current, row, scheduleIana)
-    } else if (section === 'initialCargoChecking') {
-      merged = mergeInitialCargoHydration(current, row, scheduleIana)
-    } else {
-      merged = {
-        ...current,
-        remark: row.remark || '',
-        status: row.status || current.status,
-        lastSavedAt: row.updatedAt ?? current.lastSavedAt ?? null,
-      }
-      if (row.startAt || row.occurredAt) {
-        merged.startTime = isoOrDatetimeToLocal(row.startAt || row.occurredAt, scheduleIana)
-      }
-      if (row.endAt) {
-        merged.endTime = isoOrDatetimeToLocal(row.endAt, scheduleIana)
-      }
-      if (section === 'sampling') {
-        merged.records = Array.isArray(row.payload?.records) ? row.payload.records : []
-      }
-      if (section === 'norAccepted') {
-        const p = row.payload && typeof row.payload === 'object' ? row.payload : {}
-        if (p.norTenderedDateTime) merged.norTenderedDateTime = isoOrDatetimeToLocal(p.norTenderedDateTime, scheduleIana)
-        if (p.norAcceptedDateTime) merged.norAcceptedDateTime = isoOrDatetimeToLocal(p.norAcceptedDateTime, scheduleIana)
-      }
-    }
-    bySection[section] = merged
     docLoads.push(
       fetchSubProcessDocuments(operationId, row.subProcessKey, 'Pre-Checking')
         .then((docs) => ({ section, docs: Array.isArray(docs) ? docs : [] }))

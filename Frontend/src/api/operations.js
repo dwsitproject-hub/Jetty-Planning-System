@@ -340,6 +340,12 @@ export function createOperationalEntry(operationId, body, opts = {}) {
       if (Array.isArray(l.tankIds)) {
         row.tankIds = l.tankIds.map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0)
       }
+      if (l.atgQtyMode != null && l.atgQtyMode !== '') {
+        row.atgQtyMode = l.atgQtyMode
+      }
+      if (l.manualQty != null && l.manualQty !== '' && Number.isFinite(Number(l.manualQty))) {
+        row.manualQty = Number(l.manualQty)
+      }
       return row
     })
   } else if (body.cargoMovedQty !== undefined && body.cargoMovedQty !== null) {
@@ -372,6 +378,12 @@ export function updateOperationalEntry(operationId, entryId, body, opts = {}) {
       }
       if (Array.isArray(l.tankIds)) {
         row.tankIds = l.tankIds.map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0)
+      }
+      if (l.atgQtyMode != null && l.atgQtyMode !== '') {
+        row.atgQtyMode = l.atgQtyMode
+      }
+      if (l.manualQty != null && l.manualQty !== '' && Number.isFinite(Number(l.manualQty))) {
+        row.manualQty = Number(l.manualQty)
       }
       return row
     })

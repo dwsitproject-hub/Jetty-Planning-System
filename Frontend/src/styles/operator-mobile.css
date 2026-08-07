@@ -5,6 +5,7 @@
   --op-gap: var(--spacing-3);
   --op-radius: var(--radius-md);
   --op-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --op-shell-bar-height: 52px;
   --op-success: #2d7a3e;
   --op-success-hover: #246b32;
   --op-success-bg: #ecfdf5;
@@ -14,8 +15,10 @@
   --op-active-border: #ffd99f;
 
   min-height: 100dvh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: var(--color-bg-light);
   color: var(--color-text-charcoal);
   font-family: var(--font-primary);
@@ -54,6 +57,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 /* Buttons — mirror .btn with larger touch targets for field use */
@@ -133,6 +137,11 @@
 
 /* Queue */
 .operator-queue {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
   padding: var(--spacing-4);
   padding-bottom: calc(var(--spacing-4) + var(--op-safe-bottom));
   display: flex;
@@ -359,25 +368,36 @@
   flex-direction: column;
   min-height: 0;
   flex: 1;
+  overflow: hidden;
+}
+
+.operator-exec__sticky {
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 35;
+  background: var(--color-bg-white);
+  box-shadow: var(--shadow-sm);
 }
 
 .operator-exec__header {
   padding: var(--spacing-3) var(--spacing-4);
   background: var(--color-bg-white);
   border-bottom: 1px solid var(--color-border-light);
-  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
   gap: var(--spacing-3);
-  position: sticky;
-  top: 0;
-  z-index: 30;
 }
 
 .operator-exec__top {
   display: flex;
   align-items: flex-start;
   gap: var(--spacing-2);
+}
+
+.operator-exec__identity {
+  min-width: 0;
+  flex: 1;
 }
 
 .operator-exec__back {
@@ -434,7 +454,6 @@
   padding: var(--spacing-3) var(--spacing-4);
   background: var(--color-bg-white);
   border-bottom: 1px solid var(--color-border-light);
-  z-index: 20;
 }
 
 .operator-phase-tabs__btn {
@@ -466,7 +485,10 @@
 
 .operator-exec__body {
   flex: 1;
-  overflow: auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
   padding: var(--spacing-4);
   padding-bottom: calc(88px + var(--op-safe-bottom));
   display: flex;
