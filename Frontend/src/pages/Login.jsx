@@ -2,13 +2,25 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getOidcStartUrl, login } from '../api/auth'
 import { fetchMyPorts } from '../api/usersApi'
-import { getSelectedPortId } from '../api/client'
+import { apiGet, ApiError, getSelectedPortId } from '../api/client'
 import { useAuth } from '../context/AuthContext'
-import { useRbac } from '../context/RbacContext'
-import { ApiError } from '../api/client'
 import GuestBrandedShell from '../components/GuestBrandedShell'
 import { useTranslation } from 'react-i18next'
 import { MAX_LOGIN_PASSWORD_CHARS, MAX_LOGIN_USERNAME_CHARS } from '../constants/inputLimits'
+import { firstAllowedNavPath } from '../utils/firstAllowedNavPath'
+
+function pagePermMapFromRows(rows) {
+  const map = {}
+  for (const r of Array.isArray(rows) ? rows : []) {
+    map[r.resourceKey] = {
+      canView: !!r.canView,
+      canEdit: !!r.canEdit,
+      canDelete: !!r.canDelete,
+      canApprove: !!r.canApprove,
+    }
+  }
+  return map
+}
 
 export default function Login() {
   const { t } = useTranslation('auth')
@@ -18,7 +30,6 @@ export default function Login() {
   const [busy, setBusy] = useState(false)
   const navigate = useNavigate()
   const { refreshMe } = useAuth()
-  const { refresh: refreshRbac } = useRbac()
 
   const handleSsoClick = () => {
     const url = getOidcStartUrl()
@@ -36,7 +47,10 @@ export default function Login() {
     try {
       await login(username.trim(), password)
       await refreshMe()
-      await refreshRbac()
+      const rows = await apiGet('/rbac/me/page-permissions')
+      const pagePerms = pagePermMapFromRows(rows)
+      const canViewPage = (pageKey) => pagePerms[pageKey]?.canView === true
+      const landing = firstAllowedNavPath(canViewPage) || '/operator/at-berth'
       let goSelectPort = false
       try {
         const portsData = await fetchMyPorts()
@@ -48,7 +62,7 @@ export default function Login() {
       } catch {
         goSelectPort = false
       }
-      navigate(goSelectPort ? '/select-port' : '/')
+      navigate(goSelectPort ? '/select-port' : landing)
     } catch (err) {
       const msg =
         err instanceof ApiError && err.status === 401

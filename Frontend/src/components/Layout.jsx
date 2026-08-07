@@ -8,6 +8,8 @@ import UserMenu from './UserMenu'
 import { useRbac } from '../context/RbacContext'
 import { useAuth } from '../context/AuthContext'
 import { usePortScope } from '../context/PortScopeContext'
+import { firstAllowedNavPath, pathToPageKey, safeReturnPath } from '../utils/firstAllowedNavPath'
+
 import { getClientIanaTimeZone } from '../utils/scheduleDateTime.js'
 
 const navStructure = [
@@ -17,6 +19,7 @@ const navStructure = [
   { path: '/shipment-plans', labelKey: 'shipmentPlans', icon: '📦' },
   { path: '/allocation-plans', labelKey: 'allocationPlan', icon: '⚓' },
   { path: '/at-berth', labelKey: 'atBerth', icon: '🚢' },
+  { path: '/operator/at-berth', labelKey: 'operatorMode', icon: '📱' },
   { path: '/verification', labelKey: 'clearance', icon: '🚀' },
   { path: '/demurrage-risk-calculator', labelKey: 'demurrageCalculator', icon: '🧮' },
   { path: '/reporting', labelKey: 'reporting', icon: '📑' },
@@ -32,40 +35,6 @@ function isPathActive(path, currentPath) {
 function isPortScopeBypassed(pathname) {
   if (!pathname) return false
   return pathname.startsWith('/admin') || pathname.startsWith('/master')
-}
-
-/** Map pathname to Activity Log pageKey; null = do not show panel (e.g. Reporting). */
-function pathToPageKey(pathname) {
-  if (!pathname || pathname.startsWith('/reporting') || pathname.startsWith('/dev/')) return null
-  if (pathname === '/' || pathname === '') return 'dashboard'
-  if (pathname.startsWith('/ops-analytics')) return 'dashboard-analytics'
-  if (pathname.startsWith('/management-dashboard')) return 'management-dashboard'
-  if (pathname.startsWith('/jetty-live')) return 'allocation-plan'
-  if (pathname.startsWith('/demurrage-risk-calculator')) return 'demurrage-risk-calculator'
-  if (pathname.startsWith('/master/port')) return 'master-port'
-  if (pathname.startsWith('/master/jetty-layout')) return 'master-jetty-layout'
-  if (pathname.startsWith('/master/tanks')) return 'master-tanks'
-  if (pathname.startsWith('/tank-farm')) return 'tank-farm'
-  if (pathname.startsWith('/master/jetty')) return 'master-jetty'
-  if (pathname.startsWith('/master/si-term')) return 'master-si-term'
-  if (pathname.startsWith('/master/si-shipper')) return 'master-si-shipper'
-  if (pathname.startsWith('/master/si-loading-port')) return 'master-si-loading-port'
-  if (pathname.startsWith('/master/si-surveyor')) return 'master-si-surveyor'
-  if (pathname.startsWith('/master/si-agent')) return 'master-si-agent'
-  if (pathname.startsWith('/master/si-commodity')) return 'master-si-commodity'
-  if (pathname.startsWith('/master/freight-terms')) return 'master-si-freight-terms'
-  if (pathname.startsWith('/master')) return 'master'
-  if (pathname.startsWith('/shipping-instruction')) return 'shipment-plan'
-  if (pathname.startsWith('/shipment-plans')) return 'shipment-plan'
-  if (pathname.startsWith('/allocation-plans')) return 'allocation-plan'
-  if (pathname.startsWith('/allocation') || pathname.startsWith('/berthing')) return 'allocation-plan'
-  if (pathname.startsWith('/at-berth')) return 'at-berth'
-  if (pathname.startsWith('/loading/operation')) return 'loading'
-  if (pathname.startsWith('/loading') || pathname.startsWith('/unloading')) return 'loading'
-  if (pathname.startsWith('/quality')) return 'quality'
-  if (pathname.startsWith('/verification')) return 'verification'
-  if (pathname.startsWith('/admin')) return 'admin'
-  return pathname.slice(1).split('/')[0] || 'dashboard'
 }
 
 const SIDEBAR_COLLAPSED_KEY = 'jps_sidebar_collapsed'
@@ -97,7 +66,7 @@ export default function Layout({ children }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed)
   const location = useLocation()
   const currentPath = location.pathname
-  const { loading: rbacLoading, canView, refresh: refreshRbac } = useRbac()
+  const { loading: rbacLoading, canView } = useRbac()
   const { me, logout, loading: authLoading } = useAuth()
   const {
     loading: portScopeLoading,
@@ -113,7 +82,6 @@ export default function Layout({ children }) {
 
   const handleLogout = async () => {
     await logout()
-    await refreshRbac()
     navigate('/login')
     closeSidebar()
   }
@@ -145,6 +113,15 @@ export default function Layout({ children }) {
       .filter((item) => canView(pathToPageKey(item.path)))
       .map((item) => ({ ...item, label: tNav(item.labelKey) }))
   }, [rbacLoading, canView, tNav, i18n.language])
+
+  useEffect(() => {
+    if (rbacLoading || !me || portScopeBypassed) return
+    if (!currentPageKey || canView(currentPageKey)) return
+    const fallback = firstAllowedNavPath(canView)
+    if (fallback && fallback !== currentPath) {
+      navigate(fallback, { replace: true })
+    }
+  }, [rbacLoading, me, portScopeBypassed, currentPageKey, canView, currentPath, navigate])
 
   useEffect(() => {
     try {
@@ -337,10 +314,14 @@ export default function Layout({ children }) {
             <div className="card">
               <p className="text-steel">{tCommon('loadingPermissions')}</p>
             </div>
-          ) : currentPageKey && !canView(currentPageKey) ? (
+          ) : currentPageKey && !canView(currentPageKey) && !firstAllowedNavPath(canView) ? (
             <div className="card">
               <h2 style={{ marginTop: 0 }}>{tCommon('forbidden')}</h2>
               <p className="text-steel">{tCommon('forbiddenDetail')}</p>
+            </div>
+          ) : currentPageKey && !canView(currentPageKey) ? (
+            <div className="card">
+              <p className="text-steel">{tCommon('loadingPermissions')}</p>
             </div>
           ) : (
             children

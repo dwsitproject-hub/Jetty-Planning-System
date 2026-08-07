@@ -12,7 +12,7 @@ import express from 'express';
 import { pool } from '../db.js';
 import { assignJettyOperationCode } from '../lib/jetty-operation-code.js';
 import { writeActivityLog } from '../lib/activity-log.js';
-import { requirePageView, userHasPageEdit } from '../middleware/permissions.js';
+import { requirePageView, requirePageViewAny, userHasPageEdit } from '../middleware/permissions.js';
 import { JETTY_OUT_OF_SERVICE } from '../lib/jetty-blocking.js';
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
 import { enrichRowsWithCargoDisplay } from '../lib/siBreakdownDisplay.js';
@@ -986,8 +986,8 @@ async function buildAllocationOverviewPayload(selectedPortId) {
   return { queue, berths, scheduleQueue };
 }
 
-router.get('/overview', ...requirePageView('allocation-plan'), async (req, res) => {
-  // Same payload as legacy; now gated by `allocation-plan` view (mirrored from retired `allocation` in migration 068).
+router.get('/overview', ...requirePageViewAny(['allocation-plan', 'operator-at-berth', 'at-berth']), async (req, res) => {
+  // Plan-centric allocation UI, Operator Mode queue, and legacy At-Berth executions share this payload.
   const selectedPortId = Number(req.selectedPortId);
   const payload = await buildAllocationOverviewPayload(selectedPortId);
   res.json(payload);

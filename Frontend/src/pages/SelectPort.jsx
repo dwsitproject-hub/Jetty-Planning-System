@@ -2,8 +2,10 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { usePortScope } from '../context/PortScopeContext'
+import { useRbac } from '../context/RbacContext'
 import { useTranslation } from 'react-i18next'
 import GuestBrandedShell from '../components/GuestBrandedShell'
+import { safeReturnPath } from '../utils/firstAllowedNavPath'
 
 function safeReturnTo(raw) {
   if (raw == null || typeof raw !== 'string') return '/'
@@ -18,6 +20,7 @@ export default function SelectPort() {
   const [searchParams] = useSearchParams()
   const returnTo = useMemo(() => safeReturnTo(searchParams.get('returnTo')), [searchParams])
   const { me, loading: authLoading } = useAuth()
+  const { loading: rbacLoading, canView } = useRbac()
   const {
     loading: portLoading,
     assignedPorts,
@@ -29,17 +32,22 @@ export default function SelectPort() {
   const [choice, setChoice] = useState('')
   const [localErr, setLocalErr] = useState(null)
 
+  const resolvedReturnTo = useMemo(
+    () => safeReturnPath(returnTo, canView),
+    [returnTo, canView]
+  )
+
   useEffect(() => {
     if (!authLoading && !me) navigate('/login', { replace: true })
   }, [authLoading, me, navigate])
 
   useEffect(() => {
-    if (!me || portLoading) return
+    if (!me || portLoading || rbacLoading) return
     if (assignedPorts.length === 0) return
     if (assignedPorts.length === 1) {
-      navigate(returnTo, { replace: true })
+      navigate(resolvedReturnTo, { replace: true })
     }
-  }, [me, portLoading, assignedPorts.length, navigate, returnTo])
+  }, [me, portLoading, rbacLoading, assignedPorts.length, navigate, resolvedReturnTo])
 
   useEffect(() => {
     if (selectedPortId != null) {
@@ -47,7 +55,7 @@ export default function SelectPort() {
     }
   }, [selectedPortId])
 
-  const busy = authLoading || portLoading
+  const busy = authLoading || portLoading || rbacLoading
 
   const handleContinue = (e) => {
     e.preventDefault()
@@ -63,7 +71,7 @@ export default function SelectPort() {
       return
     }
     setSelectedPortId(id)
-    navigate(returnTo, { replace: true })
+    navigate(resolvedReturnTo, { replace: true })
   }
 
   if (busy) {

@@ -6,9 +6,20 @@ import { pool } from '../db.js';
 import { requireAuth } from './auth.js';
 
 export function requirePageView(resourceKey) {
+  return requirePageViewAny([resourceKey]);
+}
+
+/** Allow access when the user has can_view on any of the listed page keys. */
+export function requirePageViewAny(resourceKeys) {
+  const keys = (Array.isArray(resourceKeys) ? resourceKeys : [resourceKeys])
+    .map((k) => String(k || '').trim())
+    .filter(Boolean);
   return [
     requireAuth,
     async (req, res, next) => {
+      if (keys.length === 0) {
+        return res.status(500).json({ error: 'Permission keys not configured' });
+      }
       const userId = req.userId;
       const result = await pool.query(
         `SELECT 1
@@ -17,10 +28,10 @@ export function requirePageView(resourceKey) {
          JOIN permissions p ON p.id = rp.permission_id AND p.deleted_at IS NULL
          WHERE ur.user_id = $1 AND ur.deleted_at IS NULL
            AND p.resource_type = 'page'
-           AND p.resource_key = $2
+           AND p.resource_key = ANY($2::text[])
            AND rp.can_view = TRUE
          LIMIT 1`,
-        [userId, resourceKey]
+        [userId, keys]
       );
       if (result.rows.length === 0) {
         return res.status(403).json({ error: 'Forbidden' });

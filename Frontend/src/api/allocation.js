@@ -9,6 +9,7 @@ export function fetchAllocationPlanOverview() {
   return apiGet('/allocation/plan-overview')
 }
 
+/** Read-only queue payload; server allows `allocation-plan`, `operator-at-berth`, or `at-berth` view. */
 export function saveArrivalUpdate(body) {
   return apiPut('/allocation/arrival', body)
 }
