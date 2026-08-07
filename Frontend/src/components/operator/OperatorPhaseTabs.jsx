@@ -1,4 +1,8 @@
+import { useTranslation } from 'react-i18next'
+
 export default function OperatorPhaseTabs({ phase, onChange }) {
+  const { t } = useTranslation('operator')
+
   return (
     <div className="operator-phase-tabs" role="tablist">
       <button
@@ -8,7 +12,7 @@ export default function OperatorPhaseTabs({ phase, onChange }) {
         className={`operator-phase-tabs__btn${phase === 'operational' ? ' is-active' : ''}`}
         onClick={() => onChange('operational')}
       >
-        Operational
+        {t('phase.operational')}
       </button>
       <button
         type="button"
@@ -17,7 +21,7 @@ export default function OperatorPhaseTabs({ phase, onChange }) {
         className={`operator-phase-tabs__btn${phase === 'post' ? ' is-active' : ''}`}
         onClick={() => onChange('post')}
       >
-        Post-Checking
+        {t('phase.postChecking')}
       </button>
     </div>
   )

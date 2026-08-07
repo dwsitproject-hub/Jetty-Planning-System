@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 export default function OperatorEditTimestampModal({ open, title, initialLocal, busy, onCancel, onSave }) {
+  const { t } = useTranslation('operator')
   const [value, setValue] = useState(initialLocal || '')
 
   useEffect(() => {
@@ -9,18 +11,20 @@ export default function OperatorEditTimestampModal({ open, title, initialLocal, 
 
   if (!open) return null
 
+  const dialogTitle = title || t('modal.editTimestamp')
+
   return (
     <div className="operator-modal-backdrop" role="presentation" onClick={onCancel}>
       <div
         className="operator-modal"
         role="dialog"
         aria-modal="true"
-        aria-label={title || 'Edit timestamp'}
+        aria-label={dialogTitle}
         onClick={(e) => e.stopPropagation()}
       >
-        <h2>{title || 'Edit timestamp'}</h2>
+        <h2>{dialogTitle}</h2>
         <div>
-          <label htmlFor="operator-edit-ts">Date & time</label>
+          <label htmlFor="operator-edit-ts">{t('modal.dateTime')}</label>
           <input
             id="operator-edit-ts"
             type="datetime-local"
@@ -30,7 +34,7 @@ export default function OperatorEditTimestampModal({ open, title, initialLocal, 
         </div>
         <div className="operator-modal__actions">
           <button type="button" className="op-btn" onClick={onCancel} disabled={busy}>
-            Cancel
+            {t('action.cancel')}
           </button>
           <button
             type="button"
@@ -38,7 +42,7 @@ export default function OperatorEditTimestampModal({ open, title, initialLocal, 
             disabled={busy || !value}
             onClick={() => onSave(value)}
           >
-            Save
+            {t('action.save')}
           </button>
         </div>
       </div>

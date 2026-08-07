@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import OperatorActivitySheet from '../../components/operator/OperatorActivitySheet'
 import OperatorEditTimestampModal from '../../components/operator/OperatorEditTimestampModal'
 import OperatorMilestoneCards from '../../components/operator/OperatorMilestoneCards'
@@ -10,12 +11,13 @@ import OperatorTankPickerSheet from '../../components/operator/OperatorTankPicke
 import PurposeBadge from '../../components/PurposeBadge'
 import { useOperatorExecution } from '../../components/operator/useOperatorExecution'
 import { useRbac } from '../../context/RbacContext'
-import { OPERATOR_PRECHECK_BLOCKED_MSG } from '../../utils/operatorPreCheckingGate'
+import { getOperatorPrecheckBlockedMsg } from '../../utils/operatorPreCheckingGate'
 
 export default function OperatorExecutionPage() {
   const { operationId: operationIdParam } = useParams()
   const operationId = Number(operationIdParam)
   const navigate = useNavigate()
+  const { t } = useTranslation('operator')
   const { loading: rbacLoading, canView, canEdit } = useRbac()
   const allowed = canView('operator-at-berth')
   const editable = canEdit('operator-at-berth')
@@ -40,21 +42,21 @@ export default function OperatorExecutionPage() {
   }, [exec.milestones])
 
   if (rbacLoading || exec.loading) {
-    return <div className="operator-queue__status">Loading execution…</div>
+    return <div className="operator-queue__status">{t('exec.loading')}</div>
   }
   if (!allowed) {
     return (
       <div className="operator-queue">
-        <p className="operator-error-banner">You do not have access to Operator Mode.</p>
+        <p className="operator-error-banner">{t('queue.noAccess')}</p>
       </div>
     )
   }
   if (!exec.operation) {
     return (
       <div className="operator-queue">
-        <p className="operator-error-banner">{exec.error || 'Operation not found.'}</p>
+        <p className="operator-error-banner">{exec.error || t('exec.notFound')}</p>
         <button type="button" className="op-btn" onClick={() => navigate('/operator/at-berth')}>
-          Back to queue
+          {t('exec.backToQueue')}
         </button>
       </div>
     )
@@ -70,7 +72,7 @@ export default function OperatorExecutionPage() {
                 type="button"
                 className="op-btn op-btn--soft operator-exec__back"
                 onClick={() => navigate('/operator/at-berth')}
-                aria-label="Back to queue"
+                aria-label={t('exec.backToQueue')}
               >
                 ←
               </button>
@@ -84,9 +86,9 @@ export default function OperatorExecutionPage() {
           </header>
         </div>
         <div className="operator-exec__body">
-          <p className="operator-error-banner">{OPERATOR_PRECHECK_BLOCKED_MSG}</p>
+          <p className="operator-error-banner">{getOperatorPrecheckBlockedMsg()}</p>
           <button type="button" className="op-btn op-btn--primary" onClick={() => navigate('/operator/at-berth')}>
-            Back to queue
+            {t('exec.backToQueue')}
           </button>
         </div>
       </div>
@@ -102,10 +104,29 @@ export default function OperatorExecutionPage() {
     await exec.startMilestone(milestone.key)
   }
 
+  const handleEditCargoSegment = (segment, field) => {
+    if (!window.confirm(t('confirm.editTimestamp'))) return
+    const iso = field === 'endAt' ? segment.endAt : segment.startAt
+    if (!iso) return
+    setEditModal({
+      kind: 'op',
+      entryId: segment.entryId,
+      milestoneKey: 'cargo_operations',
+      field,
+      cargoLineIndex: segment.lineIndex,
+      initialLocal: exec.toLocal(iso) || exec.nowLocal(),
+      title:
+        field === 'endAt'
+          ? t('modal.editSegmentEnd', { num: segment.segmentNum })
+          : t('modal.editSegmentStart', { num: segment.segmentNum }),
+    })
+  }
+
   const handleEditMilestone = (m) => {
-    if (!window.confirm('Edit the recorded timestamp?')) return
+    if (!window.confirm(t('confirm.editTimestamp'))) return
     const entry = m.activities?.[m.activities.length - 1]
     if (!entry) return
+    const milestoneTitle = t(`milestone.${m.key}`, { defaultValue: m.label })
     if (m.key === 'cargo_operations') {
       const lines = entry.cargoLoadLines || []
       const lineIdx = Math.max(
@@ -124,7 +145,7 @@ export default function OperatorExecutionPage() {
         field,
         cargoLineIndex: lineIdx,
         initialLocal: exec.toLocal(iso) || exec.nowLocal(),
-        title: `Edit ${m.label} timestamp`,
+        title: t('modal.editMilestoneTimestamp', { milestone: milestoneTitle }),
       })
       return
     }
@@ -136,17 +157,18 @@ export default function OperatorExecutionPage() {
       milestoneKey: m.key,
       field,
       initialLocal: exec.toLocal(iso) || exec.nowLocal(),
-      title: `Edit ${m.label} timestamp`,
+      title: t('modal.editMilestoneTimestamp', { milestone: milestoneTitle }),
     })
   }
 
   const handleEditPost = (s) => {
-    if (!window.confirm('Edit the recorded timestamp?')) return
+    if (!window.confirm(t('confirm.editTimestamp'))) return
+    const stepTitle = t(`post.${s.uiKey}`, { defaultValue: s.label })
     setEditModal({
       kind: 'post',
       apiKey: s.apiKey,
       initialLocal: exec.toLocal(s.occurredAt) || exec.nowLocal(),
-      title: `Edit ${s.label} timestamp`,
+      title: t('modal.editMilestoneTimestamp', { milestone: stepTitle }),
     })
   }
 
@@ -159,7 +181,7 @@ export default function OperatorExecutionPage() {
               type="button"
               className="op-btn op-btn--soft operator-exec__back"
               onClick={() => navigate('/operator/at-berth')}
-              aria-label="Back to queue"
+              aria-label={t('exec.backToQueue')}
             >
               ←
             </button>
@@ -193,6 +215,7 @@ export default function OperatorExecutionPage() {
             onStopCargo={exec.stopCargo}
             onCompleteOther={exec.completeOther}
             onEditTimestamp={handleEditMilestone}
+            onEditCargoSegment={handleEditCargoSegment}
           />
         ) : (
           <OperatorPostCheckingPanel
@@ -241,8 +264,7 @@ export default function OperatorExecutionPage() {
             }
             setEditModal(null)
           } catch (e) {
-            /* toast handled in hook for op; surface here if needed */
-            window.alert(e?.message || 'Failed to update timestamp')
+            window.alert(e?.message || t('toast.actionFailed'))
           }
         }}
       />

@@ -23,7 +23,9 @@ import {
   nowToNaiveLocalWithSecondsInScheduleZone,
   utcIsoToNaiveLocal,
 } from '../../utils/scheduleDateTime'
-import { OPERATOR_PRECHECK_BLOCKED_MSG, canOpenOperatorExecution } from '../../utils/operatorPreCheckingGate'
+import { buildOperatorCargoSegments } from '../../utils/operatorCargoSegments'
+import i18n from '../../i18n'
+import { getOperatorPrecheckBlockedMsg, canOpenOperatorExecution } from '../../utils/operatorPreCheckingGate'
 
 const POST_STEPS = [
   { uiKey: 'finalInspection', apiKey: 'final_inspection', label: 'FINAL INSPECTION' },
@@ -98,10 +100,10 @@ function deriveMilestoneState(milestoneKey, activities, naByLabel, purpose) {
       return {
         state: 'active',
         detail: tankCodes.length
-          ? `Tanks: ${tankCodes.join(', ')}`
+          ? i18n.t('operator:cargo.tanksLabel', { list: tankCodes.join(', ') })
           : tankIds.length
-            ? `Tanks: ${tankIds.length} selected`
-            : 'In progress',
+            ? i18n.t('operator:cargo.tanksSelected', { count: tankIds.length })
+            : i18n.t('operator:cargo.inProgress'),
         activities: rows,
         openEntry: openLine,
         openLine: line,
@@ -119,18 +121,18 @@ function deriveMilestoneState(milestoneKey, activities, naByLabel, purpose) {
       )
       const tankCodes = (lastLine?.tanks || last.tanks || []).map((t) => t.code || t.name).filter(Boolean)
       const detailParts = []
-      if (closedCount > 1) detailParts.push(`${closedCount} segments done`)
-      if (tankCodes.length) detailParts.push(`Last tanks: ${tankCodes.join(', ')}`)
-      else if (closedCount <= 1) detailParts.push('Completed')
+      if (closedCount > 1) detailParts.push(i18n.t('operator:cargo.segmentsDone', { count: closedCount }))
+      if (tankCodes.length) detailParts.push(i18n.t('operator:cargo.lastTanks', { list: tankCodes.join(', ') }))
+      else if (closedCount <= 1) detailParts.push(i18n.t('operator:cargo.completed'))
       return {
         state: 'done',
-        detail: detailParts.join(' · ') || 'Completed',
+        detail: detailParts.join(' · ') || i18n.t('operator:cargo.completed'),
         activities: rows,
         lastTankIds: lastLine?.tankIds || last.tankIds || [],
         closedSegmentCount: closedCount,
       }
     }
-    return { state: 'pending', detail: 'Tanks: (none yet)', activities: rows }
+    return { state: 'pending', detail: i18n.t('operator:cargo.tanksNoneYet'), activities: rows }
   }
 
   // other
@@ -181,7 +183,7 @@ function operatorNowLocal(tz) {
 }
 
 async function buildStoppedCargoLine(openLine, endIso, { portId, commodityType, tankOptions, tz }) {
-  const tankIds = openLine.tankIds || []
+  const tankIds = resolveLineTankIds(openLine)
   const line = {
     startAt: openLine.startAt,
     endAt: endIso,
@@ -212,12 +214,22 @@ async function buildStoppedCargoLine(openLine, endIso, { portId, commodityType, 
   return line
 }
 
+function resolveLineTankIds(line) {
+  if (Array.isArray(line?.tankIds) && line.tankIds.length) {
+    return line.tankIds.map(String)
+  }
+  if (Array.isArray(line?.tanks) && line.tanks.length) {
+    return line.tanks.map((t) => String(t.id)).filter(Boolean)
+  }
+  return []
+}
+
 function mapExistingCargoLine(l) {
   return {
     startAt: l.startAt,
     endAt: l.endAt,
     qty: l.qty,
-    tankIds: l.tankIds || [],
+    tankIds: resolveLineTankIds(l),
     atgQtyMode: l.atgQtyMode || 'auto',
     manualQty: l.manualQty,
   }
@@ -260,7 +272,7 @@ export function useOperatorExecution(operationId) {
 
   const reload = useCallback(async () => {
     if (operationId == null || Number.isNaN(Number(operationId))) {
-      setError('Invalid operation')
+      setError(i18n.t('operator:exec.invalidOperation'))
       setLoading(false)
       return
     }
@@ -301,7 +313,7 @@ export function useOperatorExecution(operationId) {
       )
       setPreCheckingComplete(gate.allowed)
     } catch (e) {
-      setError(e?.message || 'Failed to load operation')
+      setError(e?.message || i18n.t('operator:exec.loadFailed'))
       setPreCheckingComplete(false)
     } finally {
       setLoading(false)
@@ -344,10 +356,17 @@ export function useOperatorExecution(operationId) {
 
   const milestones = useMemo(() => {
     const defs = getMilestoneListForPurpose(purpose)
-    return defs.map((m) => ({
-      ...m,
-      ...deriveMilestoneState(m.key, activities, naByLabel, purpose),
-    }))
+    return defs.map((m) => {
+      const state = deriveMilestoneState(m.key, activities, naByLabel, purpose)
+      if (m.key === 'cargo_operations') {
+        return {
+          ...m,
+          ...state,
+          cargoSegments: buildOperatorCargoSegments(activities, purpose),
+        }
+      }
+      return { ...m, ...state }
+    })
   }, [purpose, activities, naByLabel])
 
   const postSteps = useMemo(() => {
@@ -433,7 +452,7 @@ export function useOperatorExecution(operationId) {
 
   const confirmSequence = useCallback(() => {
     if (openingHasStarted(activities, naByLabel, purpose)) return true
-    return window.confirm('Opening is not completed. Continue anyway?')
+    return window.confirm(i18n.t('operator:confirm.openingIncomplete'))
   }, [activities, naByLabel, purpose])
 
   const runMutation = useCallback(
@@ -447,8 +466,8 @@ export function useOperatorExecution(operationId) {
         if (successMsg) showToast(successMsg)
         return true
       } catch (e) {
-        setError(e?.message || 'Action failed')
-        showToast(e?.message || 'Action failed', 'error')
+        setError(e?.message || i18n.t('operator:toast.actionFailed'))
+        showToast(e?.message || i18n.t('operator:toast.actionFailed'), 'error')
         return false
       } finally {
         setBusy(false)
@@ -460,7 +479,7 @@ export function useOperatorExecution(operationId) {
   const startMilestone = useCallback(
     async (milestoneKey, { tankIds } = {}) => {
       if (preCheckingComplete === false) {
-        showToast(OPERATOR_PRECHECK_BLOCKED_MSG, 'error')
+        showToast(getOperatorPrecheckBlockedMsg(), 'error')
         return false
       }
       if (milestoneKey === 'cargo_operations' || milestoneKey === 'other') {
@@ -471,13 +490,21 @@ export function useOperatorExecution(operationId) {
 
       if (milestoneKey === 'cargo_operations') {
         if (commodityType === 'Liquid' && (!Array.isArray(tankIds) || tankIds.length === 0)) {
-          showToast('Select at least one tank', 'error')
+          showToast(i18n.t('operator:toast.selectTank'), 'error')
           return false
         }
+        const normalizedTankIds =
+          commodityType === 'Liquid' ? tankIds.map(String).filter(Boolean) : []
         const existingCargo = findCargoEntryForNextSegment(activities, naByLabel, purpose)
         return runMutation(async () => {
           if (existingCargo?.id) {
             const prevLines = (existingCargo.cargoLoadLines || []).map(mapExistingCargoLine)
+            if (
+              commodityType === 'Liquid' &&
+              prevLines.some((l) => !Array.isArray(l.tankIds) || l.tankIds.length === 0)
+            ) {
+              throw new Error(i18n.t('operator:toast.prevSegmentMissingTanks'))
+            }
             const lastEnd = prevLines[prevLines.length - 1]?.endAt
             const lineStartIso = lastEnd
               ? ensureApiStartAfterPreviousEnd(lastEnd, nowIso, tz)
@@ -496,7 +523,7 @@ export function useOperatorExecution(operationId) {
                   {
                     startAt: lineStartIso,
                     endAt: null,
-                    tankIds: commodityType === 'Liquid' ? tankIds : undefined,
+                    tankIds: normalizedTankIds,
                     atgQtyMode: 'auto',
                   },
                 ],
@@ -512,7 +539,7 @@ export function useOperatorExecution(operationId) {
                 subStepTitle: 'Cargo',
                 remark: buildOperatorActivityRemark('cargo_operations', {
                   subStepTitle: 'Cargo',
-                  tankIds,
+                  tankIds: normalizedTankIds,
                   tankOptions,
                 }),
                 startAt: nowIso,
@@ -521,7 +548,7 @@ export function useOperatorExecution(operationId) {
                   {
                     startAt: nowIso,
                     endAt: null,
-                    tankIds: commodityType === 'Liquid' ? tankIds : undefined,
+                    tankIds: normalizedTankIds,
                     atgQtyMode: 'auto',
                   },
                 ],
@@ -529,7 +556,7 @@ export function useOperatorExecution(operationId) {
               { scheduleIana: tz }
             )
           }
-        }, existingCargo?.id ? 'Next cargo segment started' : 'Cargo started')
+        }, existingCargo?.id ? i18n.t('operator:toast.cargoNextSegment') : i18n.t('operator:toast.cargoStarted'))
       }
 
       const defaults = {
@@ -551,7 +578,7 @@ export function useOperatorExecution(operationId) {
           },
           { scheduleIana: tz }
         )
-      }, `${meta.subStepTitle} started`)
+      }, i18n.t('operator:toast.milestoneStarted', { name: meta.subStepTitle }))
     },
     [activities, commodityType, confirmSequence, naByLabel, operationId, preCheckingComplete, purpose, runMutation, showToast, tankOptions, tz]
   )
@@ -561,7 +588,7 @@ export function useOperatorExecution(operationId) {
     const entry = st.openEntry
     const openLine = st.openLine
     if (!entry?.id || !openLine) {
-      showToast('No active cargo line to stop', 'error')
+      showToast(i18n.t('operator:toast.noActiveCargo'), 'error')
       return
     }
     const nowLocal = operatorNowLocal(tz)
@@ -589,7 +616,7 @@ export function useOperatorExecution(operationId) {
         tankOptions?.find((t) => String(t.id) === String(id))?.hasAtg
       )
     ) {
-      showToast('Could not read moved quantity from ATG yet. Wait a moment and try Stop again.', 'error')
+      showToast(i18n.t('operator:toast.atgQtyPending'), 'error')
       return
     }
     await runMutation(async () => {
@@ -605,7 +632,7 @@ export function useOperatorExecution(operationId) {
         },
         { scheduleIana: tz }
       )
-    }, 'Cargo stopped')
+    }, i18n.t('operator:toast.cargoStopped'))
   }, [
     activities,
     commodityType,
@@ -623,7 +650,7 @@ export function useOperatorExecution(operationId) {
     const st = deriveMilestoneState('other', activities, naByLabel, purpose)
     const entry = st.openEntry
     if (!entry?.id) {
-      showToast('No active Other step', 'error')
+      showToast(i18n.t('operator:toast.noActiveOther'), 'error')
       return
     }
     const nowLocal = nowToNaiveLocalInScheduleZone(tz)
@@ -640,7 +667,7 @@ export function useOperatorExecution(operationId) {
         },
         { scheduleIana: tz }
       )
-    }, 'Other completed')
+    }, i18n.t('operator:toast.otherCompleted'))
   }, [activities, naByLabel, operationId, purpose, runMutation, showToast, tz])
 
   const markPostDone = useCallback(
@@ -660,7 +687,7 @@ export function useOperatorExecution(operationId) {
           },
           { scheduleIana: tz }
         )
-      }, 'Marked done')
+      }, i18n.t('operator:toast.markedDone'))
     },
     [operationId, runMutation, tz]
   )
@@ -668,7 +695,7 @@ export function useOperatorExecution(operationId) {
   const editOperationalTimestamp = useCallback(
     async ({ entryId, milestoneKey, field, valueLocal, cargoLineIndex }) => {
       const entry = activities.find((a) => String(a.id) === String(entryId))
-      if (!entry) throw new Error('Entry not found')
+      if (!entry) throw new Error(i18n.t('operator:exec.entryNotFound'))
       const iso = normalizeForApi(valueLocal, tz)
       if (milestoneKey === 'cargo_operations' && Array.isArray(entry.cargoLoadLines)) {
         const lines = entry.cargoLoadLines.map((l, idx) => ({
@@ -704,7 +731,7 @@ export function useOperatorExecution(operationId) {
       }
       await reload()
       haptic()
-      showToast('Timestamp updated')
+      showToast(i18n.t('operator:toast.timestampUpdated'))
     },
     [activities, operationId, reload, showToast, tz]
   )
@@ -726,7 +753,7 @@ export function useOperatorExecution(operationId) {
       )
       await reload()
       haptic()
-      showToast('Timestamp updated')
+      showToast(i18n.t('operator:toast.timestampUpdated'))
     },
     [operationId, reload, showToast, tz]
   )

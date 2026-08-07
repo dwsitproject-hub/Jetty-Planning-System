@@ -1,9 +1,6 @@
-function StateChip({ state }) {
-  const label = state === 'done' ? 'Completed' : state === 'active' ? 'In Progress' : 'Not Started'
-  const cls =
-    state === 'done' ? 'operator-state--done' : state === 'active' ? 'operator-state--active' : 'operator-state--pending'
-  return <span className={`operator-state ${cls}`}>{label}</span>
-}
+import { useTranslation } from 'react-i18next'
+import OperatorCargoSegmentList from './OperatorCargoSegmentList'
+import OperatorStateChip from './OperatorStateChip'
 
 export default function OperatorMilestoneCards({
   milestones,
@@ -14,12 +11,17 @@ export default function OperatorMilestoneCards({
   onStopCargo,
   onCompleteOther,
   onEditTimestamp,
+  onEditCargoSegment,
 }) {
+  const { t } = useTranslation('operator')
+
   return (
     <>
       {(milestones || []).map((m) => {
         const isCargo = m.key === 'cargo_operations'
         const isOther = m.key === 'other'
+        const title = t(`milestone.${m.key}`, { defaultValue: m.label })
+        const cargoSegments = isCargo ? m.cargoSegments || [] : []
         const showStart =
           !isCargo && !isOther
             ? m.state === 'pending'
@@ -32,12 +34,23 @@ export default function OperatorMilestoneCards({
         return (
           <section key={m.key} className="operator-milestone">
             <div className="operator-milestone__head">
-              <h2 className="operator-milestone__title">{m.label}</h2>
-              <StateChip state={m.state} />
+              <h2 className="operator-milestone__title">{title}</h2>
+              <OperatorStateChip state={m.state} />
             </div>
-            {m.detail ? <div className="operator-milestone__meta">{m.detail}</div> : null}
+            {m.detail && !cargoSegments.length ? (
+              <div className="operator-milestone__meta">{m.detail}</div>
+            ) : null}
             {isCargo && m.state === 'pending' && commodityType === 'Liquid' ? (
-              <div className="operator-milestone__meta">Tanks: (none yet)</div>
+              <div className="operator-milestone__meta">{t('cargo.tanksNoneYet')}</div>
+            ) : null}
+
+            {isCargo && cargoSegments.length > 0 ? (
+              <OperatorCargoSegmentList
+                segments={cargoSegments}
+                canEdit={canEdit}
+                busy={busy}
+                onEditSegment={onEditCargoSegment}
+              />
             ) : null}
 
             <div className={`operator-milestone__actions${isCargo ? ' operator-milestone__actions--split' : ''}`}>
@@ -48,7 +61,7 @@ export default function OperatorMilestoneCards({
                   disabled={!canEdit || busy}
                   onClick={() => onStart(m)}
                 >
-                  {isCargo && m.state === 'done' ? 'Start next segment' : 'Start'}
+                  {isCargo && m.state === 'done' ? t('action.startNextSegment') : t('action.start')}
                 </button>
               ) : null}
               {isCargo ? (
@@ -58,7 +71,7 @@ export default function OperatorMilestoneCards({
                   disabled={!canEdit || busy || !showStop}
                   onClick={onStopCargo}
                 >
-                  Stop
+                  {t('action.stop')}
                 </button>
               ) : null}
               {showComplete ? (
@@ -68,19 +81,19 @@ export default function OperatorMilestoneCards({
                   disabled={!canEdit || busy}
                   onClick={onCompleteOther}
                 >
-                  Complete
+                  {t('action.complete')}
                 </button>
               ) : null}
             </div>
 
-            {m.state !== 'pending' && m.activities?.[0] ? (
+            {!isCargo && m.state !== 'pending' && m.activities?.[0] ? (
               <button
                 type="button"
                 className="op-btn op-btn--soft"
                 disabled={!canEdit || busy}
                 onClick={() => onEditTimestamp(m)}
               >
-                Edit timestamp
+                {t('action.editTimestamp')}
               </button>
             ) : null}
           </section>

@@ -1,6 +1,43 @@
 import { apiGet, apiPost, apiPut, apiDelete, apiPostForm } from './client.js'
 import { getScheduleEntryTimeZone, normalizeForApi } from '../utils/scheduleDateTime.js'
 
+function parseTankIdForApi(id) {
+  if (id == null || id === '') return null
+  const n = parseInt(String(id).trim(), 10)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+function normalizeLineTankIdsForApi(raw) {
+  if (!Array.isArray(raw)) return []
+  const out = []
+  for (const id of raw) {
+    const n = parseTankIdForApi(id)
+    if (n != null && !out.includes(n)) out.push(n)
+  }
+  return out
+}
+
+function mapCargoLoadLineForApi(l, tz) {
+  const row = { startAt: normalizeOpActivityTs(l.startAt, tz) }
+  if (l.endAt != null && l.endAt !== '') {
+    row.endAt = normalizeOpActivityTs(l.endAt, tz)
+  } else {
+    row.endAt = null
+  }
+  if (l.qty != null && l.qty !== '' && Number.isFinite(Number(l.qty))) {
+    row.qty = Number(l.qty)
+  }
+  const tankIds = normalizeLineTankIdsForApi(l.tankIds)
+  if (tankIds.length) row.tankIds = tankIds
+  if (l.atgQtyMode != null && l.atgQtyMode !== '') {
+    row.atgQtyMode = l.atgQtyMode
+  }
+  if (l.manualQty != null && l.manualQty !== '' && Number.isFinite(Number(l.manualQty))) {
+    row.manualQty = Number(l.manualQty)
+  }
+  return row
+}
+
 export function fetchOperations(params = {}) {
   const sp = new URLSearchParams()
   if (params.portId) sp.set('port_id', params.portId)
@@ -327,27 +364,7 @@ export function createOperationalEntry(operationId, body, opts = {}) {
     markedAt: normalizeOpActivityTs(body.markedAt, tz),
   }
   if (Array.isArray(body.cargoLoadLines) && body.cargoLoadLines.length > 0) {
-    payload.cargoLoadLines = body.cargoLoadLines.map((l) => {
-      const row = { startAt: normalizeOpActivityTs(l.startAt, tz) }
-      if (l.endAt != null && l.endAt !== '') {
-        row.endAt = normalizeOpActivityTs(l.endAt, tz)
-      } else {
-        row.endAt = null
-      }
-      if (l.qty != null && l.qty !== '' && Number.isFinite(Number(l.qty))) {
-        row.qty = Number(l.qty)
-      }
-      if (Array.isArray(l.tankIds)) {
-        row.tankIds = l.tankIds.map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0)
-      }
-      if (l.atgQtyMode != null && l.atgQtyMode !== '') {
-        row.atgQtyMode = l.atgQtyMode
-      }
-      if (l.manualQty != null && l.manualQty !== '' && Number.isFinite(Number(l.manualQty))) {
-        row.manualQty = Number(l.manualQty)
-      }
-      return row
-    })
+    payload.cargoLoadLines = body.cargoLoadLines.map((l) => mapCargoLoadLineForApi(l, tz))
   } else if (body.cargoMovedQty !== undefined && body.cargoMovedQty !== null) {
     payload.cargoMovedQty = body.cargoMovedQty
   }
@@ -366,27 +383,7 @@ export function updateOperationalEntry(operationId, entryId, body, opts = {}) {
     markedAt: normalizeOpActivityTs(body.markedAt, tz),
   }
   if (Array.isArray(body.cargoLoadLines) && body.cargoLoadLines.length > 0) {
-    payload.cargoLoadLines = body.cargoLoadLines.map((l) => {
-      const row = { startAt: normalizeOpActivityTs(l.startAt, tz) }
-      if (l.endAt != null && l.endAt !== '') {
-        row.endAt = normalizeOpActivityTs(l.endAt, tz)
-      } else {
-        row.endAt = null
-      }
-      if (l.qty != null && l.qty !== '' && Number.isFinite(Number(l.qty))) {
-        row.qty = Number(l.qty)
-      }
-      if (Array.isArray(l.tankIds)) {
-        row.tankIds = l.tankIds.map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0)
-      }
-      if (l.atgQtyMode != null && l.atgQtyMode !== '') {
-        row.atgQtyMode = l.atgQtyMode
-      }
-      if (l.manualQty != null && l.manualQty !== '' && Number.isFinite(Number(l.manualQty))) {
-        row.manualQty = Number(l.manualQty)
-      }
-      return row
-    })
+    payload.cargoLoadLines = body.cargoLoadLines.map((l) => mapCargoLoadLineForApi(l, tz))
   } else if (body.cargoMovedQty !== undefined && body.cargoMovedQty !== null) {
     payload.cargoMovedQty = body.cargoMovedQty
   }

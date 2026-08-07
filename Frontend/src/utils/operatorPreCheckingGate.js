@@ -1,16 +1,18 @@
 import { evaluatePreCheckingComplete } from './loadingHubProcessStagesFromApi'
 import { getScheduleEntryTimeZone } from './scheduleDateTime'
+import i18n from '../i18n'
 
-export const OPERATOR_PRECHECK_BLOCKED_MSG =
-  'This vessel is still in Pre-Checking. Please check with your Supervisor before starting operational activities.'
+export function getOperatorPrecheckBlockedMsg() {
+  return i18n.t('operator:precheck.blocked')
+}
 
 export async function canOpenOperatorExecution(row, scheduleIana = getScheduleEntryTimeZone()) {
   const operationId = row?.operationId ?? row?.id
   if (operationId == null) return { allowed: false, reason: 'Invalid operation' }
   try {
     const complete = await evaluatePreCheckingComplete(operationId, row?.purpose, scheduleIana)
-    return complete ? { allowed: true } : { allowed: false, reason: OPERATOR_PRECHECK_BLOCKED_MSG }
+    return complete ? { allowed: true } : { allowed: false, reason: getOperatorPrecheckBlockedMsg() }
   } catch (e) {
-    return { allowed: false, reason: e?.message || 'Could not verify Pre-Checking status' }
+    return { allowed: false, reason: e?.message || i18n.t('operator:toast.verifyPrecheckFailed') }
   }
 }

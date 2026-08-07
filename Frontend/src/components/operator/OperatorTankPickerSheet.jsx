@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 export default function OperatorTankPickerSheet({
   open,
@@ -9,6 +10,7 @@ export default function OperatorTankPickerSheet({
   onCancel,
   onConfirm,
 }) {
+  const { t } = useTranslation('operator')
   const [selected, setSelected] = useState(() => new Set(initialSelected.map(String)))
 
   useEffect(() => {
@@ -17,7 +19,8 @@ export default function OperatorTankPickerSheet({
 
   if (!open) return null
 
-  const title = purpose === 'Unloading' ? 'Select source tanks' : 'Select destination tanks'
+  const title =
+    purpose === 'Unloading' ? t('tank.selectSource') : t('tank.selectDestination')
 
   const toggle = (id) => {
     setSelected((prev) => {
@@ -34,11 +37,11 @@ export default function OperatorTankPickerSheet({
       <div className="operator-sheet" role="dialog" aria-modal="true" aria-label={title}>
         <div className="operator-sheet__header">
           <h2>{title}</h2>
-          <p>Required before Start</p>
+          <p>{t('tank.requiredBeforeStart')}</p>
         </div>
         <div className="operator-sheet__body">
           {options.length === 0 ? (
-            <p className="operator-queue__status">No tanks available for this port.</p>
+            <p className="operator-queue__status">{t('tank.noneAvailable')}</p>
           ) : (
             options.map((tk) => {
               const id = String(tk.id)
@@ -59,7 +62,7 @@ export default function OperatorTankPickerSheet({
         </div>
         <div className="operator-sheet__footer">
           <button type="button" className="op-btn" onClick={onCancel} disabled={busy}>
-            Cancel
+            {t('action.cancel')}
           </button>
           <button
             type="button"
@@ -67,7 +70,7 @@ export default function OperatorTankPickerSheet({
             disabled={busy || selected.size === 0}
             onClick={() => onConfirm([...selected])}
           >
-            Confirm Start
+            {t('action.confirmStart')}
           </button>
         </div>
       </div>

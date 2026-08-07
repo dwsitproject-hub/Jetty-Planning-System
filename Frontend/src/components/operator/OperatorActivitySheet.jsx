@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 function formatLineTime(iso) {
   if (!iso) return ''
@@ -12,6 +13,7 @@ function formatLineTime(iso) {
 }
 
 export default function OperatorActivitySheet({ items }) {
+  const { t } = useTranslation('operator')
   const [open, setOpen] = useState(false)
   const list = Array.isArray(items) ? items : []
 
@@ -23,12 +25,12 @@ export default function OperatorActivitySheet({ items }) {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        {open ? '▾' : '▴'} Recent Activity ({list.length})
+        {open ? '▾' : '▴'} {t('activity.recent', { count: list.length })}
       </button>
       {open ? (
         <ul className="operator-activity-sheet__list">
           {list.length === 0 ? (
-            <li className="operator-activity-sheet__item">No activity yet.</li>
+            <li className="operator-activity-sheet__item">{t('activity.empty')}</li>
           ) : (
             list.map((item) => (
               <li key={item.id} className="operator-activity-sheet__item">

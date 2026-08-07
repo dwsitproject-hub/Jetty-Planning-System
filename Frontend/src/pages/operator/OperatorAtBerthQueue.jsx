@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { fetchAllocationOverview } from '../../api/allocation'
+import OperatorCargoProgress from '../../components/operator/OperatorCargoProgress'
 import PurposeBadge from '../../components/PurposeBadge'
 import { useRbac } from '../../context/RbacContext'
 import { formatDateTimeDisplay } from '../../utils/formatDateTimeDisplay'
@@ -9,9 +11,9 @@ import { canOpenOperatorExecution } from '../../utils/operatorPreCheckingGate'
 import { evaluatePreCheckingComplete } from '../../utils/loadingHubProcessStagesFromApi'
 
 const SORT_OPTIONS = [
-  { value: 'vesselName', label: 'Vessel name' },
-  { value: 'tb', label: 'TB' },
-  { value: 'jetty', label: 'Jetty' },
+  { value: 'vesselName', labelKey: 'queue.sortVesselName' },
+  { value: 'tb', labelKey: 'queue.sortTb' },
+  { value: 'jetty', labelKey: 'queue.sortJetty' },
 ]
 
 function parseDateMs(val) {
@@ -51,14 +53,14 @@ function getBerthingPlanStatus(row) {
   return 'incoming'
 }
 
-function statusToPhase(status, preCheckingComplete) {
-  if (preCheckingComplete === false) return 'Pre-Checking'
+function statusToPhaseKey(status, preCheckingComplete) {
+  if (preCheckingComplete === false) return 'preChecking'
   const s = String(status || '')
-  if (s === 'IN_PROGRESS') return 'Operational'
-  if (s === 'POST_OPS') return 'Post-Checking'
-  if (s === 'SIGNOFF_REQUESTED') return 'Ready to Sail'
-  if (s === 'SIGNOFF_APPROVED') return 'Signed off'
-  return 'Pre-Checking'
+  if (s === 'IN_PROGRESS') return 'operational'
+  if (s === 'POST_OPS') return 'postChecking'
+  if (s === 'SIGNOFF_REQUESTED') return 'readyToSail'
+  if (s === 'SIGNOFF_APPROVED') return 'signedOff'
+  return 'preChecking'
 }
 
 function groupKey(row) {
@@ -75,7 +77,7 @@ function commodityShort(row) {
   return row?.commodityShortDisplay || row?.commodityDisplay || row?.commodity || null
 }
 
-/** Operator-facing cargo line: short name + moved/total MT (no completion %). */
+/** Operator-facing cargo line: short name + moved/total MT + progress numbers. */
 function buildOperatorCargoLine(row) {
   const shortName = commodityShort(row)
   const progress = computeCargoProgress(
@@ -88,10 +90,13 @@ function buildOperatorCargoLine(row) {
   return {
     shortName: shortName || '—',
     qtyLine: progress?.cargoLine ?? null,
+    done: progress?.done ?? 0,
+    total: progress?.qty?.total ?? 0,
+    purpose: row.purpose === 'Unloading' ? 'Unloading' : 'Loading',
   }
 }
 
-function buildGroups(rows, preCheckMap = {}) {
+function buildGroups(rows, preCheckMap = {}, t) {
   const order = []
   const map = new Map()
   for (const r of rows) {
@@ -111,7 +116,7 @@ function buildGroups(rows, preCheckMap = {}) {
     const phases = [
       ...new Set(
         children.map((c) =>
-          statusToPhase(c.status, preCheckMap[c.operationId ?? c.id])
+          statusToPhaseKey(c.status, preCheckMap[c.operationId ?? c.id])
         )
       ),
     ]
@@ -131,7 +136,13 @@ function buildGroups(rows, preCheckMap = {}) {
       tbDisplay: formatDateTimeDisplay(tbMs != null ? new Date(tbMs).toISOString() : null),
       purposes,
       purposeNode: purposeDisplay(purposes),
-      phase: phases.length === 1 ? phases[0] : phases.length > 1 ? 'Mixed' : '—',
+      phaseKey: phases.length === 1 ? phases[0] : phases.length > 1 ? 'mixed' : null,
+      phaseLabel:
+        phases.length === 1
+          ? t(`queue.phase.${phases[0]}`)
+          : phases.length > 1
+            ? t('queue.phase.mixed')
+            : '—',
       cargo: children.length === 1 ? buildOperatorCargoLine(head) : null,
       siCount: children.length,
     }
@@ -159,6 +170,7 @@ function sortGroups(groups, sortBy) {
 
 export default function OperatorAtBerthQueue() {
   const navigate = useNavigate()
+  const { t } = useTranslation('operator')
   const { loading: rbacLoading, canView } = useRbac()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -182,12 +194,12 @@ export default function OperatorAtBerthQueue() {
       const rows = Array.isArray(data?.queue) ? data.queue : []
       setQueue(rows.filter((r) => r.operationId != null && getBerthingPlanStatus(r) === 'berthed'))
     } catch (e) {
-      setError(e?.message || 'Failed to load at-berth queue')
+      setError(e?.message || t('queue.errorLoad'))
       setQueue([])
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     load()
@@ -219,8 +231,8 @@ export default function OperatorAtBerthQueue() {
   }, [queue])
 
   const groups = useMemo(
-    () => sortGroups(buildGroups(queue, preCheckMap), sortBy),
-    [queue, preCheckMap, sortBy]
+    () => sortGroups(buildGroups(queue, preCheckMap, t), sortBy),
+    [queue, preCheckMap, sortBy, t]
   )
 
   const openOp = async (row) => {
@@ -230,7 +242,7 @@ export default function OperatorAtBerthQueue() {
     try {
       const gate = await canOpenOperatorExecution(row)
       if (!gate.allowed) {
-        showToast(gate.reason || 'Pre-Checking is not complete yet.')
+        showToast(gate.reason || t('precheck.blocked'))
         return
       }
       navigate(`/operator/execution/${operationId}`)
@@ -249,24 +261,24 @@ export default function OperatorAtBerthQueue() {
   }
 
   if (rbacLoading) {
-    return <div className="operator-queue__status">Loading permissions…</div>
+    return <div className="operator-queue__status">{t('queue.loadingPermissions')}</div>
   }
   if (!canView('operator-at-berth')) {
     return (
       <div className="operator-queue">
-        <p className="operator-error-banner">You do not have access to Operator Mode.</p>
+        <p className="operator-error-banner">{t('queue.noAccess')}</p>
       </div>
     )
   }
 
   return (
     <div className="operator-queue">
-      <h1 className="operator-queue__title">At Berth Queue</h1>
-      <p className="operator-queue__sub">Select a vessel / shipping instruction to execute.</p>
+      <h1 className="operator-queue__title">{t('queue.title')}</h1>
+      <p className="operator-queue__sub">{t('queue.sub')}</p>
 
       {!loading && !error && queue.length > 0 ? (
         <div className="operator-queue__sort">
-          <label htmlFor="operator-queue-sort">Sort by</label>
+          <label htmlFor="operator-queue-sort">{t('queue.sortBy')}</label>
           <select
             id="operator-queue-sort"
             value={sortBy}
@@ -274,17 +286,17 @@ export default function OperatorAtBerthQueue() {
           >
             {SORT_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
-                {opt.label}
+                {t(opt.labelKey)}
               </option>
             ))}
           </select>
         </div>
       ) : null}
 
-      {loading ? <p className="operator-queue__status">Loading vessels…</p> : null}
+      {loading ? <p className="operator-queue__status">{t('queue.loading')}</p> : null}
       {error ? <p className="operator-error-banner">{error}</p> : null}
       {!loading && !error && groups.length === 0 ? (
-        <p className="operator-queue__status">No berthed vessels right now.</p>
+        <p className="operator-queue__status">{t('queue.noVessels')}</p>
       ) : null}
 
       {groups.map((g) => {
@@ -315,22 +327,25 @@ export default function OperatorAtBerthQueue() {
                 {g.tbDisplay && g.tbDisplay !== '—' ? (
                   <>
                     <span>·</span>
-                    <span>TB {g.tbDisplay}</span>
+                    <span>{t('queue.tbPrefix')} {g.tbDisplay}</span>
                   </>
                 ) : null}
               </div>
               <div className="operator-vessel-card__row">
                 <span>
-                  {g.phase}
-                  {isMulti ? ` · ${g.siCount} instructions` : ''}
+                  {g.phaseLabel}
+                  {isMulti ? ` · ${t('queue.instructionsCount', { count: g.siCount })}` : ''}
                 </span>
               </div>
               {!isMulti && g.cargo ? (
                 <div className="operator-vessel-card__cargo">
-                  <span className="operator-vessel-card__cargo-name">{g.cargo.shortName}</span>
-                  {g.cargo.qtyLine ? (
-                    <span className="operator-vessel-card__cargo-qty">{g.cargo.qtyLine}</span>
-                  ) : null}
+                  <OperatorCargoProgress
+                    shortName={g.cargo.shortName}
+                    qtyLine={g.cargo.qtyLine}
+                    done={g.cargo.done}
+                    total={g.cargo.total}
+                    purpose={g.cargo.purpose}
+                  />
                 </div>
               ) : null}
             </div>
@@ -342,7 +357,7 @@ export default function OperatorAtBerthQueue() {
                   className="operator-vessel-card__si-toggle"
                   onClick={() => toggleExpand(g.key)}
                 >
-                  {isOpen ? 'Hide shipping instructions' : 'Choose SI'}
+                  {isOpen ? t('queue.hideSi') : t('queue.chooseSi')}
                 </button>
                 {isOpen ? (
                   <div className="operator-vessel-card__children">
@@ -361,18 +376,19 @@ export default function OperatorAtBerthQueue() {
                               <PurposeBadge purpose={child.purpose} loadDischarge={child.loadDischarge} abbrev />
                               <span>{siLabel(child)}</span>
                             </span>
-                            {childCargo?.qtyLine ? (
+                            {childCargo ? (
                               <span className="operator-vessel-card__child-cargo">
-                                <span className="operator-vessel-card__cargo-name">{childCargo.shortName}</span>
-                                <span>{childCargo.qtyLine}</span>
-                              </span>
-                            ) : childCargo?.shortName ? (
-                              <span className="operator-vessel-card__child-cargo">
-                                {childCargo.shortName}
+                                <OperatorCargoProgress
+                                  shortName={childCargo.shortName}
+                                  qtyLine={childCargo.qtyLine}
+                                  done={childCargo.done}
+                                  total={childCargo.total}
+                                  purpose={childCargo.purpose}
+                                />
                               </span>
                             ) : null}
                           </span>
-                          <span>OPEN ›</span>
+                          <span>{t('queue.open')}</span>
                         </button>
                       )
                     })}

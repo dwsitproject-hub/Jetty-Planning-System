@@ -49,7 +49,12 @@
 
 .operator-mobile__shell-actions {
   display: flex;
+  align-items: center;
   gap: var(--spacing-2);
+}
+
+.operator-mobile__shell-actions .language-switch--compact {
+  flex-shrink: 0;
 }
 
 .operator-mobile__content {
@@ -284,30 +289,12 @@
 }
 
 .operator-vessel-card__cargo {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--spacing-2);
-  font-size: var(--font-size-small);
-  color: var(--color-text-charcoal);
-}
-
-.operator-vessel-card__cargo-name {
-  font-weight: var(--font-weight-bold);
-  font-size: var(--font-size-lg);
-}
-
-.operator-vessel-card__cargo-qty {
-  font-weight: var(--font-weight-semibold);
+  width: 100%;
+  margin-top: var(--spacing-1);
 }
 
 .operator-vessel-card__child-cargo {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--spacing-1) var(--spacing-2);
-  font-size: var(--font-size-small);
-  color: var(--color-text-muted);
+  width: 100%;
   margin-top: var(--spacing-1);
 }
 
@@ -318,6 +305,53 @@
   gap: var(--spacing-1);
   min-width: 0;
   flex: 1;
+}
+
+.operator-cargo-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  width: 100%;
+}
+
+.operator-cargo-progress__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-2);
+}
+
+.operator-cargo-progress__name {
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-lg);
+  color: var(--color-text-charcoal);
+}
+
+.operator-cargo-progress__qty {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-small);
+  color: var(--color-text-charcoal);
+}
+
+.operator-cargo-progress__bar-track {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--color-border-light);
+  overflow: hidden;
+  width: 100%;
+}
+
+.operator-cargo-progress__bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-primary);
+  transition: width 0.3s ease;
+  min-width: 0;
+}
+
+.operator-vessel-card__cargo .operator-cargo-progress__name,
+.operator-vessel-card__child-cargo .operator-cargo-progress__name {
+  font-size: var(--font-size-small);
 }
 
 .operator-vessel-card__si-toggle {
@@ -558,6 +592,86 @@
   color: #046c4e;
   border-color: var(--op-success-border);
   background: var(--op-success-bg);
+}
+
+.op-btn--compact {
+  min-height: 36px;
+  padding: var(--spacing-1) var(--spacing-3);
+  font-size: var(--font-size-small);
+}
+
+.operator-cargo-segments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  margin: var(--spacing-2) 0;
+}
+
+.operator-cargo-segments__title {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.operator-cargo-segments__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.operator-cargo-segment {
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-lighter);
+  padding: var(--spacing-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.operator-cargo-segment--open {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 6%, white);
+}
+
+.operator-cargo-segment__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.operator-cargo-segment__num {
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-charcoal);
+}
+
+.operator-cargo-segment__tanks {
+  font-size: var(--font-size-small);
+  color: var(--color-text-charcoal);
+}
+
+.operator-cargo-segment__badge {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-primary);
+}
+
+.operator-cargo-segment__time,
+.operator-cargo-segment__qty {
+  font-size: var(--font-size-small);
+  color: var(--color-text-muted);
+}
+
+.operator-cargo-segment__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
 }
 
 .operator-milestone__meta {
