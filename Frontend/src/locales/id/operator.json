@@ -75,7 +75,9 @@
     "selectSource": "Pilih tangki sumber",
     "selectDestination": "Pilih tangki tujuan",
     "requiredBeforeStart": "Wajib sebelum Mulai",
-    "noneAvailable": "Tidak ada tangki untuk pelabuhan ini."
+    "noneAvailable": "Tidak ada tangki untuk pelabuhan ini.",
+    "searchPlaceholder": "Cari tangki…",
+    "noMatches": "Tidak ada tangki yang cocok."
   },
   "si": {
     "label": "Shipping instruction"
@@ -118,6 +120,7 @@
   },
   "toast": {
     "selectTank": "Pilih minimal satu tangki",
+    "invalidTankSelection": "Tangki yang dipilih tidak dapat digunakan. Muat ulang halaman dan coba lagi, atau hubungi Supervisor.",
     "cargoStarted": "Cargo dimulai",
     "cargoNextSegment": "Segmen cargo berikutnya dimulai",
     "cargoStopped": "Cargo dihentikan",

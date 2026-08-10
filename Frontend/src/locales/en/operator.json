@@ -75,7 +75,9 @@
     "selectSource": "Select source tanks",
     "selectDestination": "Select destination tanks",
     "requiredBeforeStart": "Required before Start",
-    "noneAvailable": "No tanks available for this port."
+    "noneAvailable": "No tanks available for this port.",
+    "searchPlaceholder": "Search tanks…",
+    "noMatches": "No tanks match your search."
   },
   "si": {
     "label": "Shipping instruction"
@@ -118,6 +120,7 @@
   },
   "toast": {
     "selectTank": "Select at least one tank",
+    "invalidTankSelection": "Could not use the selected tank(s). Refresh and try again, or contact your Supervisor.",
     "cargoStarted": "Cargo started",
     "cargoNextSegment": "Next cargo segment started",
     "cargoStopped": "Cargo stopped",

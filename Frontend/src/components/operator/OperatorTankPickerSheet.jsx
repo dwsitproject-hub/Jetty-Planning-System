@@ -1,5 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+
+function matchesTankSearch(tk, term) {
+  if (!term) return true
+  const haystack = [tk.label, tk.code, tk.name]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+  return haystack.includes(term)
+}
 
 export default function OperatorTankPickerSheet({
   open,
@@ -12,10 +21,20 @@ export default function OperatorTankPickerSheet({
 }) {
   const { t } = useTranslation('operator')
   const [selected, setSelected] = useState(() => new Set(initialSelected.map(String)))
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
-    if (open) setSelected(new Set(initialSelected.map(String)))
+    if (open) {
+      setSelected(new Set(initialSelected.map(String)))
+      setSearch('')
+    }
   }, [open, initialSelected])
+
+  const filteredOptions = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return options
+    return options.filter((tk) => matchesTankSearch(tk, term))
+  }, [options, search])
 
   if (!open) return null
 
@@ -39,11 +58,28 @@ export default function OperatorTankPickerSheet({
           <h2>{title}</h2>
           <p>{t('tank.requiredBeforeStart')}</p>
         </div>
+        {options.length > 0 ? (
+          <div className="operator-sheet__search">
+            <input
+              type="search"
+              className="operator-sheet__search-input"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t('tank.searchPlaceholder')}
+              aria-label={t('tank.searchPlaceholder')}
+              autoComplete="off"
+              inputMode="search"
+              autoFocus
+            />
+          </div>
+        ) : null}
         <div className="operator-sheet__body">
           {options.length === 0 ? (
             <p className="operator-queue__status">{t('tank.noneAvailable')}</p>
+          ) : filteredOptions.length === 0 ? (
+            <p className="operator-queue__status">{t('tank.noMatches')}</p>
           ) : (
-            options.map((tk) => {
+            filteredOptions.map((tk) => {
               const id = String(tk.id)
               const isOn = selected.has(id)
               return (

@@ -17,6 +17,16 @@ function normalizeLineTankIdsForApi(raw) {
   return out
 }
 
+/** Resolve numeric tank IDs from line tankIds and/or nested tanks (matches operator view-model). */
+export function resolveCargoLineTankIdsForApi(line) {
+  const fromIds = normalizeLineTankIdsForApi(line?.tankIds)
+  if (fromIds.length) return fromIds
+  if (Array.isArray(line?.tanks)) {
+    return normalizeLineTankIdsForApi(line.tanks.map((t) => t?.id))
+  }
+  return []
+}
+
 function mapCargoLoadLineForApi(l, tz) {
   const row = { startAt: normalizeOpActivityTs(l.startAt, tz) }
   if (l.endAt != null && l.endAt !== '') {
@@ -27,7 +37,7 @@ function mapCargoLoadLineForApi(l, tz) {
   if (l.qty != null && l.qty !== '' && Number.isFinite(Number(l.qty))) {
     row.qty = Number(l.qty)
   }
-  const tankIds = normalizeLineTankIdsForApi(l.tankIds)
+  const tankIds = resolveCargoLineTankIdsForApi(l)
   if (tankIds.length) row.tankIds = tankIds
   if (l.atgQtyMode != null && l.atgQtyMode !== '') {
     row.atgQtyMode = l.atgQtyMode

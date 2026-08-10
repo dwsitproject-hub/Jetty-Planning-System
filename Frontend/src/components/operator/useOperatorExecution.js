@@ -7,6 +7,7 @@ import {
   fetchOperation,
   fetchOperationalActivities,
   fetchSubProcesses,
+  resolveCargoLineTankIdsForApi,
   updateOperationalEntry,
   upsertSubProcess,
 } from '../../api/operations'
@@ -224,15 +225,33 @@ function resolveLineTankIds(line) {
   return []
 }
 
-function mapExistingCargoLine(l) {
+function mapExistingCargoLine(l, entry) {
+  let tankIds = resolveLineTankIds(l)
+  if (tankIds.length === 0 && entry) {
+    const lineCount = (entry.cargoLoadLines || []).length
+    if (lineCount === 1) {
+      tankIds = resolveLineTankIds({ tankIds: entry.tankIds, tanks: entry.tanks })
+    }
+  }
   return {
     startAt: l.startAt,
     endAt: l.endAt,
     qty: l.qty,
-    tankIds: resolveLineTankIds(l),
+    tankIds,
     atgQtyMode: l.atgQtyMode || 'auto',
     manualQty: l.manualQty,
   }
+}
+
+function assertLiquidCargoLinesHaveTanks(lines, { requireAllLines = true } = {}) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const parsed = resolveCargoLineTankIdsForApi(line)
+    if (parsed.length === 0 && (requireAllLines || i === lines.length - 1)) {
+      return { ok: false, index: i }
+    }
+  }
+  return { ok: true }
 }
 
 function findCargoEntryForNextSegment(activities, naByLabel, purpose) {
@@ -495,15 +514,37 @@ export function useOperatorExecution(operationId) {
         }
         const normalizedTankIds =
           commodityType === 'Liquid' ? tankIds.map(String).filter(Boolean) : []
+        if (commodityType === 'Liquid') {
+          const parsedSelection = resolveCargoLineTankIdsForApi({ tankIds: normalizedTankIds })
+          if (parsedSelection.length === 0) {
+            showToast(i18n.t('operator:toast.invalidTankSelection'), 'error')
+            return false
+          }
+        }
         const existingCargo = findCargoEntryForNextSegment(activities, naByLabel, purpose)
         return runMutation(async () => {
           if (existingCargo?.id) {
-            const prevLines = (existingCargo.cargoLoadLines || []).map(mapExistingCargoLine)
-            if (
-              commodityType === 'Liquid' &&
-              prevLines.some((l) => !Array.isArray(l.tankIds) || l.tankIds.length === 0)
-            ) {
-              throw new Error(i18n.t('operator:toast.prevSegmentMissingTanks'))
+            const prevLines = (existingCargo.cargoLoadLines || []).map((l) =>
+              mapExistingCargoLine(l, existingCargo)
+            )
+            const tankCheck = assertLiquidCargoLinesHaveTanks(
+              commodityType === 'Liquid'
+                ? [
+                    ...prevLines,
+                    {
+                      startAt: nowIso,
+                      endAt: null,
+                      tankIds: normalizedTankIds,
+                    },
+                  ]
+                : prevLines,
+              { requireAllLines: commodityType === 'Liquid' }
+            )
+            if (commodityType === 'Liquid' && !tankCheck.ok) {
+              if (tankCheck.index < prevLines.length) {
+                throw new Error(i18n.t('operator:toast.prevSegmentMissingTanks'))
+              }
+              throw new Error(i18n.t('operator:toast.selectTank'))
             }
             const lastEnd = prevLines[prevLines.length - 1]?.endAt
             const lineStartIso = lastEnd
@@ -601,7 +642,7 @@ export function useOperatorExecution(operationId) {
             startAt: l.startAt,
             endAt: l.endAt,
             qty: l.qty,
-            tankIds: l.tankIds || [],
+            tankIds: resolveLineTankIds(l),
             atgQtyMode: l.atgQtyMode || 'auto',
           }
         }
@@ -702,7 +743,8 @@ export function useOperatorExecution(operationId) {
           startAt: idx === cargoLineIndex && field === 'startAt' ? iso : l.startAt,
           endAt: idx === cargoLineIndex && field === 'endAt' ? iso : l.endAt,
           qty: l.qty,
-          tankIds: l.tankIds || [],
+          tankIds: resolveLineTankIds(l),
+          atgQtyMode: l.atgQtyMode || 'auto',
         }))
         await updateOperationalEntry(
           operationId,
