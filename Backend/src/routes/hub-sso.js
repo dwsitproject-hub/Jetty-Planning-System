@@ -9,6 +9,7 @@ import jwt from 'jsonwebtoken';
 import { pool } from '../db.js';
 import { logAuthEvent } from '../lib/auth-events.js';
 import { getOidcConfig } from '../lib/oidc-config.js';
+import { redirectToSsoError } from '../lib/sso-error-redirect.js';
 import { setSessionCookiesForUserId } from '../lib/session-cookies.js';
 
 const router = express.Router();
@@ -20,14 +21,6 @@ const JIT_ROLE_NAME = (process.env.HUB_SSO_JIT_ROLE_NAME || '').trim();
 const JIT_PORTS = (process.env.HUB_SSO_JIT_ASSIGN_PORTS || 'first').toLowerCase();
 const PUBLIC_ORIGIN = (process.env.JPS_PUBLIC_ORIGIN || 'http://localhost:5173').replace(/\/$/, '');
 const { legacyBridgeEnabled } = getOidcConfig();
-
-function htmlEscape(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
 
 async function insertJitUser(email, payload) {
   const roleResult = await pool.query(
@@ -105,32 +98,27 @@ async function insertJitUser(email, payload) {
 router.post('/hub', urlencoded, async (req, res) => {
   try {
     if (!legacyBridgeEnabled) {
-      return res.status(410).type('html')
-        .send(`<!DOCTYPE html><html><body><p>Legacy SSO bridge disabled. Use OIDC launch flow.</p></body></html>`);
+      return redirectToSsoError(res, 'legacy_bridge_disabled');
     }
     if (!SSO_SECRET) {
-      return res.status(503).type('html')
-        .send(`<!DOCTYPE html><html><body><p>SSO is not configured on this server.</p></body></html>`);
+      return redirectToSsoError(res, 'sso_not_configured');
     }
 
     const rawToken = req.body?.token;
     if (!rawToken || typeof rawToken !== 'string') {
-      return res.status(400).type('html')
-        .send(`<!DOCTYPE html><html><body><p>Missing token.</p></body></html>`);
+      return redirectToSsoError(res, 'missing_token');
     }
 
     let payload;
     try {
       payload = jwt.verify(rawToken, SSO_SECRET, { algorithms: ['HS256'] });
     } catch {
-      return res.status(401).type('html')
-        .send(`<!DOCTYPE html><html><body><p>Invalid or expired SSO token. Open Jetty from Downstream Hub again.</p></body></html>`);
+      return redirectToSsoError(res, 'invalid_token');
     }
 
     const email = typeof payload.email === 'string' ? payload.email.trim() : '';
     if (!email) {
-      return res.status(400).type('html')
-        .send(`<!DOCTYPE html><html><body><p>SSO token has no email claim.</p></body></html>`);
+      return redirectToSsoError(res, 'missing_email_claim');
     }
 
     const lookup = await pool.query(
@@ -143,27 +131,21 @@ router.post('/hub', urlencoded, async (req, res) => {
     if (lookup.rows.length > 0) {
       const row = lookup.rows[0];
       if (!row.is_active) {
-        return res.status(403).type('html')
-          .send(`<!DOCTYPE html><html><body><p>Your account is inactive.</p></body></html>`);
+        return redirectToSsoError(res, 'inactive_user');
       }
       userId = row.id;
     } else if (!JIT_PROVISION) {
-      return res.status(403).type('html')
-        .send(`<!DOCTYPE html><html><body><p>${htmlEscape(
-          'No Jetty account for this email. Ask an administrator to create your user, or enable JIT provisioning.'
-        )}</p></body></html>`);
+      return redirectToSsoError(res, 'no_account_jit_disabled');
     } else {
       if (!JIT_ROLE_NAME) {
         console.error('HUB_SSO_JIT_PROVISION=true but HUB_SSO_JIT_ROLE_NAME is empty');
-        return res.status(500).type('html')
-          .send(`<!DOCTYPE html><html><body><p>Server SSO configuration error.</p></body></html>`);
+        return redirectToSsoError(res, 'server_config_error');
       }
       try {
         userId = await insertJitUser(email, payload);
       } catch (e) {
         if (e.message === 'JIT role not configured') {
-          return res.status(500).type('html')
-            .send(`<!DOCTYPE html><html><body><p>Server SSO configuration error (role).</p></body></html>`);
+          return redirectToSsoError(res, 'server_config_error_role');
         }
         throw e;
       }
@@ -175,8 +157,7 @@ router.post('/hub', urlencoded, async (req, res) => {
     return res.redirect(302, target);
   } catch (err) {
     logAuthEvent('legacy-hub.callback.failure', { reason: err.message, ip: req.ip });
-    return res.status(500).type('html')
-      .send(`<!DOCTYPE html><html><body><p>Sign-on failed. Try again from Downstream Hub.</p></body></html>`);
+    return redirectToSsoError(res, 'sign_on_failed');
   }
 });
 

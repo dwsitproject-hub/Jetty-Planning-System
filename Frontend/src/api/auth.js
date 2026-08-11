@@ -1,6 +1,4 @@
 import { apiPost, getApiOrigin, setSelectedPortId } from './client.js'
-
-/** Clear legacy Bearer storage (pre-session-cookie builds). */
 export function clearLegacyToken() {
   try {
     localStorage.removeItem('jps_token')
@@ -27,4 +25,15 @@ export async function logout() {
 
 export function getOidcStartUrl() {
   return `${getApiOrigin()}/auth/oidc/start`
+}
+
+/** Public SSO mode flags from backend (no auth required). */
+export async function fetchSsoStatus() {
+  const res = await fetch(`${getApiOrigin()}/auth/sso/status`, {
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    throw new Error('Failed to load SSO status')
+  }
+  return res.json()
 }

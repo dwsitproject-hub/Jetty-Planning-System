@@ -17,6 +17,8 @@ export const MAX_POSTCHECK_RESULT_CHARS = 500
 export const MAX_SAMPLING_PALKA_FIELD_CHARS = 20
 
 export const MAX_LOGIN_USERNAME_CHARS = 50
+/** Login identifier field accepts username or email (RFC 5321 local+domain max). */
+export const MAX_LOGIN_IDENTIFIER_CHARS = 254
 export const MAX_LOGIN_PASSWORD_CHARS = 50
 
 export const MAX_MASTER_JETTY_NAME_CHARS = 100

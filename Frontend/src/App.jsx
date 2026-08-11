@@ -8,6 +8,7 @@ import { AuthProvider } from './context/AuthContext'
 import { PortScopeProvider } from './context/PortScopeContext'
 import { FilePreviewProvider } from './context/FilePreviewContext'
 import Login from './pages/Login'
+import SsoError from './pages/SsoError'
 import SelectPort from './pages/SelectPort'
 import LiveOpsDashboard from './pages/LiveOpsDashboard'
 import OpsAnalyticsDashboard from './pages/OpsAnalyticsDashboard'
@@ -72,6 +73,7 @@ function App() {
               <RbacProvider>
                 <Routes>
                 <Route path="/login" element={<Login />} />
+                <Route path="/sso-error" element={<SsoError />} />
                 <Route path="/select-port" element={<SelectPort />} />
                 <Route element={<AppShell />}>
                   <Route path="/" element={<LiveOpsDashboard />} />
