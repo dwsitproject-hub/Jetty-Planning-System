@@ -24,6 +24,9 @@ import RetiredPage from './pages/RetiredPage'
 import Loading from './pages/Loading'
 import LoadingOperation from './pages/LoadingOperation'
 import AtBerthExecutions from './pages/AtBerthExecutions'
+import OperatorMobileShell from './components/operator/OperatorMobileShell'
+import OperatorAtBerthQueue from './pages/operator/OperatorAtBerthQueue'
+import OperatorExecutionPage from './pages/operator/OperatorExecutionPage'
 import Quality from './pages/Quality'
 import Verification from './pages/Verification'
 import Reporting from './pages/Reporting'
@@ -51,9 +54,17 @@ function AppShell() {
   const location = useLocation()
   const isSiView = /^\/shipping-instruction\/view\/[^/]+$/.test(location.pathname)
   const isVizPopout = /^\/allocation\/visualization\/[^/]+$/.test(location.pathname)
+  const isOperator = location.pathname.startsWith('/operator')
   const isEmbed = new URLSearchParams(location.search).get('embed') === '1'
   if ((isSiView && isEmbed) || (isVizPopout && isEmbed)) {
     return <Outlet />
+  }
+  if (isOperator) {
+    return (
+      <OperatorMobileShell>
+        <Outlet />
+      </OperatorMobileShell>
+    )
   }
   return (
     <Layout>
@@ -126,6 +137,8 @@ function App() {
                   <Route path="/allocation/visualization/:mode" element={<AllocationVisualizationPopout />} />
                   <Route path="/berthing" element={<Navigate to="/allocation-plans" replace />} />
                   <Route path="/at-berth" element={<AtBerthExecutions />} />
+                  <Route path="/operator/at-berth" element={<OperatorAtBerthQueue />} />
+                  <Route path="/operator/execution/:operationId" element={<OperatorExecutionPage />} />
                   <Route path="/loading/operation/:operationId" element={<LoadingOperation />} />
                   <Route path="/loading" element={<Loading />} />
                   <Route path="/loading/:vesselId" element={<Loading />} />

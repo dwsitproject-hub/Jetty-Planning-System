@@ -2,6 +2,8 @@
  * Late SI / berthing gate — pure helper checks (no DB/API required).
  * Run: node scripts/test-late-si-berthing-gate.mjs
  */
+import { validateSiReferenceForBerthing } from '../src/lib/si-reference-validation.js';
+
 const BERTHING_KEYS = [
   'taDateTime',
   'tbDateTime',
@@ -46,6 +48,29 @@ const BERTHING_PLAN_GATE_TOOLTIP = 'Shipment plan must be approved before berthi
 const BERTHING_NO_SI_TOOLTIP =
   'Add at least one shipping instruction and approve the shipment plan before berthing.';
 
+const BERTHING_INVALID_SI_REF_TOOLTIP =
+  'Enter a valid Shipping Instructions No. on the shipment plan before berthing.';
+
+function validateQueueRowSiReferencesForBerthing(row) {
+  if (!row) return null;
+  const vesselName = row.vesselName;
+  const refs = [];
+  if (Array.isArray(row.planQueueSiEntries) && row.planQueueSiEntries.length > 0) {
+    for (const e of row.planQueueSiEntries) {
+      const label = String(e.label || '').trim();
+      refs.push(label && !/^SI-\d+$/.test(label) ? label : '');
+    }
+  } else if (row.shippingInstructionId != null) {
+    const s = String(row.shippingInstruction || '').trim();
+    refs.push(s && !/^SI-\d+$/.test(s) ? s : '');
+  }
+  for (const ref of refs) {
+    const err = validateSiReferenceForBerthing(ref, vesselName);
+    if (err) return err;
+  }
+  return null;
+}
+
 function berthingDisabledReason(row, options = {}) {
   if (!row || !options.planCentric) return null;
   if (row.berthingAllowed === true) return null;
@@ -53,6 +78,7 @@ function berthingDisabledReason(row, options = {}) {
     (Array.isArray(row.planQueueSiEntries) && row.planQueueSiEntries.length > 0) ||
     (row.shippingInstructionId != null && row.shippingInstructionId !== '');
   if (!hasSi) return BERTHING_NO_SI_TOOLTIP;
+  if (validateQueueRowSiReferencesForBerthing(row)) return BERTHING_INVALID_SI_REF_TOOLTIP;
   return BERTHING_PLAN_GATE_TOOLTIP;
 }
 
@@ -189,6 +215,20 @@ assert(
     'incoming', planFilterHasSi, true
   ),
   'hasSi: plan with SIs included'
+);
+
+assert(
+  berthingDisabledReason(
+    {
+      shipmentPlanId: 19,
+      vesselName: 'MV TEST',
+      shippingInstructionId: 1,
+      shippingInstruction: 'SI-1',
+      berthingAllowed: false,
+    },
+    { planCentric: true }
+  ) === BERTHING_INVALID_SI_REF_TOOLTIP,
+  'invalid ref tooltip when SI has synthetic label only'
 );
 
 console.log('test-late-si-berthing-gate: ok');

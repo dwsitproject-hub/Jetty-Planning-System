@@ -5,6 +5,7 @@ import {
   futureEtaLocal,
   createPlanOnly,
   createPlanWithSi,
+  createPlanWithSiNoRef,
   submitAndApprovePlan,
   addSiApproveLatePlan,
   LATE_SI_BERTHING_TOOLTIP_SPEC,
@@ -18,6 +19,9 @@ import {
   completeBerthing,
   logArrivalButtonInRow,
 } from './helpers/allocation';
+
+const BERTHING_INVALID_SI_REF_TOOLTIP =
+  'Enter a valid Shipping Instructions No. on the shipment plan before berthing.';
 
 test.use({
   video: 'on',
@@ -86,5 +90,32 @@ test.describe('Normal vs Late SI berthing gate', () => {
       await assertBerthingEnabled(row);
       await completeBerthing(page, lateVessel, '2B');
     });
+  });
+
+  test('Test Case 4 — Optional SI ref: approved plan with empty ref blocks berthing until ref filled', async ({
+    page,
+  }) => {
+    const vessel = uniqueVessel('E2E-NOREF');
+    const eta = futureEtaLocal(14);
+    const siRef = `SI-E2E-NOREF-${Date.now()}`;
+
+    const created = await createPlanWithSiNoRef(page, { vessel, eta });
+    await submitAndApprovePlan(page, created.id);
+    await assignJettyViaLogArrival(page, vessel, '2B');
+
+    await gotoAllocationPlans(page);
+    const row = queueRowForVessel(page, vessel);
+    await assertBerthingDisabledWithTooltip(row, BERTHING_INVALID_SI_REF_TOOLTIP);
+
+    await row.getByRole('button', { name: /update shipment plan/i }).click();
+    const modal = page.locator('[aria-labelledby="shipment-plan-combined-form-title"]');
+    await expect(modal).toBeVisible({ timeout: 20_000 });
+    await modal.locator('#sp-si-0-siRef').fill(siRef);
+    await modal.locator('button[type="submit"]').click();
+    await expect(modal).toBeHidden({ timeout: 60_000 });
+
+    await gotoAllocationPlans(page);
+    const rowAfter = queueRowForVessel(page, vessel);
+    await assertBerthingEnabled(rowAfter);
   });
 });

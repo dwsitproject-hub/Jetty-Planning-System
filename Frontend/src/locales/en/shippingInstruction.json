@@ -145,6 +145,8 @@
   "formVesselTripSection": "Vessel & trip",
   "formVesselNameRequired": "Vessel Name *",
   "formSiNoRequired": "Shipping Instructions No. *",
+  "formSiNo": "Shipping Instructions No.",
+  "formSiNoBerthingHint": "Optional now — required before berthing (cannot be blank, a single quote, or the same as the vessel name).",
   "formDocumentDateRequired": "Document date *",
   "formEtaFromRequired": "ETA from *",
   "formEtaToRequired": "ETA to *",

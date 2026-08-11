@@ -13,6 +13,10 @@ import { formatSiCargoDisplay } from '../lib/siBreakdownDisplay.js';
 import { validateDepartDocumentUrls } from '../lib/depart-document-url.js';
 import { validateCastOffAt } from '../lib/validate-cast-off.js';
 import { resolveUserRequestedBy } from '../lib/resolve-requested-by.js';
+import {
+  isShipmentPlanPreBerth,
+  POST_BERTH_PLAN_EDIT_ERROR,
+} from '../lib/si-pre-berth-edit.js';
 
 const router = express.Router();
 const PAGE_KEY = 'shipment-plan';
@@ -472,7 +476,13 @@ router.patch('/:id', requireAuth, async (req, res) => {
   );
   if (cur.rows.length === 0) return res.status(404).json({ error: 'Shipment plan not found' });
   const st = cur.rows[0].approval_status;
-  if (st !== 'Draft' && st !== 'Rejected') {
+  const isPreBerthShellEdit = st === 'Approved' || st === 'Submitted';
+  if (isPreBerthShellEdit) {
+    const preBerth = await isShipmentPlanPreBerth(pool, planId);
+    if (!preBerth) {
+      return res.status(409).json({ error: POST_BERTH_PLAN_EDIT_ERROR });
+    }
+  } else if (st !== 'Draft' && st !== 'Rejected') {
     return res.status(400).json({ error: 'Plan can only be edited in Draft or Rejected state' });
   }
 

@@ -13,6 +13,7 @@ const PAD = { top: 12, right: 12, bottom: 28, left: 44 }
  * @param {number | null | undefined} props.totalQty
  * @param {string} [props.unit]
  * @param {string} [props.timezone]
+ * @param {string} [props.operationalDayStart] HH:mm:ss — operational day roll (default 06:00:00)
  * @param {number} [props.nowMs]
  */
 export default function CargoDischargeProgressChart({
@@ -21,9 +22,19 @@ export default function CargoDischargeProgressChart({
   totalQty = null,
   unit = 'MT',
   timezone = 'Asia/Jakarta',
+  operationalDayStart = '06:00:00',
   nowMs = Date.now(),
 }) {
-  const todayKey = DateTime.fromMillis(nowMs, { zone: timezone }).toFormat('yyyy-MM-dd')
+  const todayKey = useMemo(() => {
+    const local = DateTime.fromMillis(nowMs, { zone: timezone })
+    const parts = String(operationalDayStart || '06:00:00').split(':').map((x) => Number(x))
+    const hh = Number.isFinite(parts[0]) ? parts[0] : 6
+    const mm = Number.isFinite(parts[1]) ? parts[1] : 0
+    const ss = Number.isFinite(parts[2]) ? parts[2] : 0
+    const roll = local.set({ hour: hh, minute: mm, second: ss, millisecond: 0 })
+    const opDay = local < roll ? local.minus({ days: 1 }) : local
+    return opDay.toFormat('yyyy-MM-dd')
+  }, [nowMs, timezone, operationalDayStart])
 
   const model = useMemo(() => {
     if (!dailyBars.length && !cumulativeSeries.length) return null

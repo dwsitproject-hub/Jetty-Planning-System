@@ -5,6 +5,7 @@ import './i18n'
 import App from './App'
 import './styles/design-tokens.css'
 import './styles/app.css'
+import './styles/operator-mobile.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

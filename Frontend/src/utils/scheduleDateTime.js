@@ -26,6 +26,39 @@ export function nowToNaiveLocalInScheduleZone(scheduleIana) {
   return DateTime.now().setZone(zone).toFormat("yyyy-MM-dd'T'HH:mm")
 }
 
+/** Current wall clock in the port schedule zone as `YYYY-MM-DDTHH:mm:ss` */
+export function nowToNaiveLocalWithSecondsInScheduleZone(scheduleIana) {
+  const zone = scheduleIana?.trim() || DEFAULT_SCHEDULE_TIMEZONE
+  return DateTime.now().setZone(zone).toFormat("yyyy-MM-dd'T'HH:mm:ss")
+}
+
+/** Ensure API end instant is strictly after start (backend rejects endAt <= startAt). */
+export function ensureApiEndAfterStart(startAt, endAt, scheduleIana) {
+  const startIso = normalizeForApi(startAt, scheduleIana)
+  let endIso = normalizeForApi(endAt, scheduleIana)
+  const startMs = new Date(startIso).getTime()
+  let endMs = new Date(endIso).getTime()
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    endMs = (Number.isFinite(startMs) ? startMs : Date.now()) + 1000
+    endIso = new Date(endMs).toISOString()
+  }
+  return endIso
+}
+
+/** New cargo segment start must be strictly after the previous segment end. */
+export function ensureApiStartAfterPreviousEnd(previousEndAt, startAt, scheduleIana) {
+  const prevEndIso = normalizeForApi(previousEndAt, scheduleIana)
+  let startIso = normalizeForApi(startAt, scheduleIana)
+  const prevEndMs = new Date(prevEndIso).getTime()
+  let startMs = new Date(startIso).getTime()
+  if (!Number.isFinite(prevEndMs)) return startIso
+  if (!Number.isFinite(startMs) || startMs <= prevEndMs) {
+    startMs = prevEndMs + 1000
+    startIso = new Date(startMs).toISOString()
+  }
+  return startIso
+}
+
 /** API ISO / timestamptz → `YYYY-MM-DDTHH:mm` in schedule zone for datetime-local */
 export function utcIsoToNaiveLocal(iso, scheduleIana) {
   if (!iso) return ''

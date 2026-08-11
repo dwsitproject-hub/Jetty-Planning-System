@@ -211,5 +211,13 @@
   "rejectReasonPlaceholder": "Alasan penolakan (wajib)",
   "approveSuccess": "Rencana disetujui.",
   "rejectSuccess": "Rencana ditolak.",
-  "noPermission": "Anda tidak memiliki izin untuk tindakan ini."
+  "noPermission": "Anda tidak memiliki izin untuk tindakan ini.",
+  "preBerthEditSiTitle": "Perbarui shipping instruction",
+  "preBerthEditSiHint": "Perbarui shipping instruction sebelum sandar. Perubahan kargo atau pelabuhan akan membuka kembali rencana pengiriman untuk persetujuan ulang.",
+  "preBerthEditSaved": "Shipping instruction diperbarui.",
+  "preBerthEditSavedBerthing": "SI diperbarui — sandar sekarang tersedia.",
+  "preBerthEditPlanReopened": "Rencana dibuka kembali untuk persetujuan ulang karena perubahan SI.",
+  "preBerthEditPlanTitle": "Perbarui rencana pengiriman",
+  "preBerthEditPlanHint": "Perbarui kapal, detail perencanaan, dan shipping instruction yang ada dalam satu formulir sebelum sandar. Perubahan kosmetik SI menjaga rencana tetap disetujui; perubahan material SI membuka kembali untuk persetujuan ulang.",
+  "preBerthEditPlanSaved": "Rencana pengiriman diperbarui."
 }

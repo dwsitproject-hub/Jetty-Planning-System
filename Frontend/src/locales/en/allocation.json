@@ -155,6 +155,7 @@
   "lateSiSchedulingNoticeBody": "You can assign jetty and planning times here. After the shipment plan is approved and has at least one shipping instruction, use Berthing to record TA, TB, ETC, and vessel photo.",
   "berthingSiGateTooltip": "Shipment plan must be approved before berthing.",
   "berthingNoSiTooltip": "Add at least one shipping instruction and approve the shipment plan before berthing.",
+  "updateShipmentPlan": "Update shipment plan",
   "planSummaryJetty": "Jetty",
   "planSummaryBerthed": "{{berthed}} / {{total}} berthed",
   "planSummaryEta": "ETA (call)",

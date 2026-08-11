@@ -26,6 +26,8 @@ import enNotifications from '../locales/en/notifications.json'
 import idNotifications from '../locales/id/notifications.json'
 import enFilePreview from '../locales/en/filePreview.json'
 import idFilePreview from '../locales/id/filePreview.json'
+import enOperator from '../locales/en/operator.json'
+import idOperator from '../locales/id/operator.json'
 
 export function getInitialLanguage() {
   try {
@@ -34,10 +36,10 @@ export function getInitialLanguage() {
   } catch {
     /* ignore */
   }
-  if (typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('id')) {
-    return 'id'
+  if (typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('en')) {
+    return 'en'
   }
-  return 'en'
+  return 'id'
 }
 
 i18n.use(initReactI18next).init({
@@ -55,6 +57,7 @@ i18n.use(initReactI18next).init({
       atBerth: enAtBerth,
       notifications: enNotifications,
       filePreview: enFilePreview,
+      operator: enOperator,
     },
     id: {
       common: idCommon,
@@ -69,12 +72,13 @@ i18n.use(initReactI18next).init({
       atBerth: idAtBerth,
       notifications: idNotifications,
       filePreview: idFilePreview,
+      operator: idOperator,
     },
   },
   lng: getInitialLanguage(),
   fallbackLng: 'en',
   defaultNS: 'common',
-  ns: ['common', 'nav', 'auth', 'terms', 'pages', 'dashboard', 'shippingInstruction', 'shipmentPlan', 'allocation', 'atBerth', 'notifications', 'filePreview'],
+  ns: ['common', 'nav', 'auth', 'terms', 'pages', 'dashboard', 'shippingInstruction', 'shipmentPlan', 'allocation', 'atBerth', 'notifications', 'filePreview', 'operator'],
   interpolation: {
     escapeValue: false,
   },

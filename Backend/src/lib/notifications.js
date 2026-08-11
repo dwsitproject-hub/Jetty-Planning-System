@@ -4,6 +4,13 @@
 import { getNotificationEventConfig } from './notification-events.js';
 import { loadEventSettings, resolveEventRecipients } from './notification-recipients.js';
 
+/** Global kill switch — set NOTIFICATION_EMAIL_ENABLED=false to disable all outbound email. */
+export function isNotificationEmailEnabled() {
+  const raw = process.env.NOTIFICATION_EMAIL_ENABLED;
+  if (raw == null || String(raw).trim() === '') return true;
+  return !['0', 'false', 'no', 'off'].includes(String(raw).trim().toLowerCase());
+}
+
 /** @param {string} template */
 export function renderTemplate(template, vars) {
   if (template == null) return '';
@@ -106,6 +113,7 @@ export async function triggerNotification(db, opts) {
   if (forceInApp === true) inAppEnabled = true;
   if (forceEmail === false) emailEnabled = false;
   if (forceEmail === true) emailEnabled = true;
+  if (!isNotificationEmailEnabled()) emailEnabled = false;
 
   const inAppTpl = inAppEnabled ? await loadNotificationTemplate(db, eventKey, 'in_app') : null;
   const emailTpl = emailEnabled ? await loadNotificationTemplate(db, eventKey, 'email') : null;

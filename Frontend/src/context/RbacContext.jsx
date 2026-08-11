@@ -26,7 +26,7 @@ export function RbacProvider({ children }) {
       setError(null)
       setLoading(false)
       permissionsLoadedRef.current = false
-      return
+      return {}
     }
     const showBlockingLoader = !permissionsLoadedRef.current
     if (showBlockingLoader) setLoading(true)
@@ -44,9 +44,11 @@ export function RbacProvider({ children }) {
       }
       setPagePerms(map)
       permissionsLoadedRef.current = true
+      return map
     } catch (e) {
       setError(e?.message || 'Failed to load permissions')
       setPagePerms({})
+      return {}
     } finally {
       setLoading(false)
     }

@@ -14,6 +14,8 @@ import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js
 
 const PAGE_KEY = 'master-port'
 
+const DEFAULT_OPERATIONAL_DAY_START = '06:00:00'
+
 const PORT_COLUMNS = [
   {
     key: 'name',
@@ -24,6 +26,11 @@ const PORT_COLUMNS = [
     key: 'scheduleTimezone',
     label: 'Schedule TZ',
     getSortValue: (p) => (p.scheduleTimezone || DEFAULT_SCHEDULE_TIMEZONE).toLowerCase(),
+  },
+  {
+    key: 'operationalDayStart',
+    label: 'Op. Day Start',
+    getSortValue: (p) => (p.operationalDayStart || DEFAULT_OPERATIONAL_DAY_START).toLowerCase(),
   },
   {
     key: 'description',
@@ -79,6 +86,7 @@ export default function MasterPort() {
   const [formName, setFormName] = useState('')
   const [formDescription, setFormDescription] = useState('')
   const [formScheduleTimezone, setFormScheduleTimezone] = useState(DEFAULT_SCHEDULE_TIMEZONE)
+  const [formOperationalDayStart, setFormOperationalDayStart] = useState(DEFAULT_OPERATIONAL_DAY_START)
   const [formAllowMultiJetyBerthing, setFormAllowMultiJetyBerthing] = useState(false)
 
   const openAdd = useCallback(() => {
@@ -86,6 +94,7 @@ export default function MasterPort() {
     setFormName('')
     setFormDescription('')
     setFormScheduleTimezone(DEFAULT_SCHEDULE_TIMEZONE)
+    setFormOperationalDayStart(DEFAULT_OPERATIONAL_DAY_START)
     setFormAllowMultiJetyBerthing(false)
     setModalOpen(true)
   }, [])
@@ -95,6 +104,7 @@ export default function MasterPort() {
     setFormName(port.name || '')
     setFormDescription(port.description ?? '')
     setFormScheduleTimezone(port.scheduleTimezone || DEFAULT_SCHEDULE_TIMEZONE)
+    setFormOperationalDayStart(port.operationalDayStart || DEFAULT_OPERATIONAL_DAY_START)
     setFormAllowMultiJetyBerthing(port.allowMultiJetyBerthing === true)
     setModalOpen(true)
   }, [])
@@ -105,6 +115,7 @@ export default function MasterPort() {
     setFormName('')
     setFormDescription('')
     setFormScheduleTimezone(DEFAULT_SCHEDULE_TIMEZONE)
+    setFormOperationalDayStart(DEFAULT_OPERATIONAL_DAY_START)
     setFormAllowMultiJetyBerthing(false)
   }, [])
 
@@ -114,11 +125,13 @@ export default function MasterPort() {
     setSaving(true)
     setError(null)
     try {
+      const opDayStart = (formOperationalDayStart || '').trim() || DEFAULT_OPERATIONAL_DAY_START
       if (editingId != null) {
         await updatePortApi(editingId, {
           name,
           description: (formDescription || '').trim() || null,
           scheduleTimezone: (formScheduleTimezone || '').trim() || DEFAULT_SCHEDULE_TIMEZONE,
+          operationalDayStart: opDayStart,
           allowMultiJetyBerthing: formAllowMultiJetyBerthing,
         })
         logActivity({ pageKey: PAGE_KEY, action: 'update', entityType: 'Port', entityLabel: name })
@@ -128,6 +141,7 @@ export default function MasterPort() {
           name,
           description: (formDescription || '').trim() || null,
           scheduleTimezone: (formScheduleTimezone || '').trim() || DEFAULT_SCHEDULE_TIMEZONE,
+          operationalDayStart: opDayStart,
           allowMultiJetyBerthing: formAllowMultiJetyBerthing,
         })
         logActivity({ pageKey: PAGE_KEY, action: 'add', entityType: 'Port', entityLabel: name })
@@ -140,7 +154,17 @@ export default function MasterPort() {
     } finally {
       setSaving(false)
     }
-  }, [editingId, formName, formDescription, formScheduleTimezone, formAllowMultiJetyBerthing, closeModal, logActivity, loadPorts])
+  }, [
+    editingId,
+    formName,
+    formDescription,
+    formScheduleTimezone,
+    formOperationalDayStart,
+    formAllowMultiJetyBerthing,
+    closeModal,
+    logActivity,
+    loadPorts,
+  ])
 
   const handleDelete = useCallback(
     async (port) => {
@@ -247,6 +271,7 @@ export default function MasterPort() {
                   <tr key={p.id} className="allocation-table__row">
                     <td><strong>{p.name || '—'}</strong></td>
                     <td className="text-steel">{p.scheduleTimezone || DEFAULT_SCHEDULE_TIMEZONE}</td>
+                    <td className="text-steel">{p.operationalDayStart || DEFAULT_OPERATIONAL_DAY_START}</td>
                     <td>
                       {p.description
                         ? p.description.length > 60
@@ -324,6 +349,25 @@ export default function MasterPort() {
                 placeholder="Select timezone…"
                 disabled={saving}
               />
+            </div>
+            <div className="modal__section">
+              <label htmlFor="port-op-day-start" className="modal__label">
+                Operational day start (HH:mm:ss)
+              </label>
+              <input
+                id="port-op-day-start"
+                type="text"
+                className="modal__input"
+                value={formOperationalDayStart}
+                onChange={(e) => setFormOperationalDayStart(e.target.value)}
+                placeholder={DEFAULT_OPERATIONAL_DAY_START}
+                maxLength={8}
+                disabled={saving}
+                pattern="[0-2][0-9]:[0-5][0-9]:[0-5][0-9]"
+              />
+              <p className="text-steel" style={{ marginTop: '0.25rem', fontSize: '0.85em' }}>
+                Daily progress rolls at this local time (default 06:00:00 → next day 05:59:59).
+              </p>
             </div>
             <div className="modal__section">
               <label htmlFor="port-description" className="modal__label">Description</label>

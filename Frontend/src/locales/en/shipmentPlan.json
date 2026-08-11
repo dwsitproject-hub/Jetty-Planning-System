@@ -211,5 +211,13 @@
   "rejectReasonPlaceholder": "Reason for rejection (required)",
   "approveSuccess": "Plan approved.",
   "rejectSuccess": "Plan rejected.",
-  "noPermission": "You do not have permission to perform this action."
+  "noPermission": "You do not have permission to perform this action.",
+  "preBerthEditSiTitle": "Update shipping instruction",
+  "preBerthEditSiHint": "Update the shipping instruction before berthing. Changing cargo or port details will reopen the shipment plan for re-approval.",
+  "preBerthEditSaved": "Shipping instruction updated.",
+  "preBerthEditSavedBerthing": "SI updated — berthing is now available.",
+  "preBerthEditPlanReopened": "Plan reopened for re-approval due to SI changes.",
+  "preBerthEditPlanTitle": "Update shipment plan",
+  "preBerthEditPlanHint": "Update vessel, planning details, and existing shipping instructions in one form before berthing. Cosmetic SI changes keep the plan approved; material SI changes reopen it for re-approval.",
+  "preBerthEditPlanSaved": "Shipment plan updated."
 }

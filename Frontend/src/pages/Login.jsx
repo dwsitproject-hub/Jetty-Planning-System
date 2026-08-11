@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { fetchSsoStatus, getOidcStartUrl, login } from '../api/auth'
 import { fetchMyPorts } from '../api/usersApi'
-import { getSelectedPortId } from '../api/client'
+import { ApiError, getSelectedPortId } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { useRbac } from '../context/RbacContext'
-import { ApiError } from '../api/client'
 import GuestBrandedShell from '../components/GuestBrandedShell'
 import { useTranslation } from 'react-i18next'
 import { MAX_LOGIN_IDENTIFIER_CHARS, MAX_LOGIN_PASSWORD_CHARS } from '../constants/inputLimits'
+import { firstAllowedNavPath } from '../utils/firstAllowedNavPath'
 
 export default function Login() {
   const { t } = useTranslation('auth')
@@ -57,7 +57,9 @@ export default function Login() {
     try {
       await login(username.trim(), password)
       await refreshMe()
-      await refreshRbac()
+      const pagePerms = await refreshRbac()
+      const canViewPage = (pageKey) => pagePerms[pageKey]?.canView === true
+      const landing = firstAllowedNavPath(canViewPage) || '/operator/at-berth'
       let goSelectPort = false
       try {
         const portsData = await fetchMyPorts()
@@ -69,7 +71,7 @@ export default function Login() {
       } catch {
         goSelectPort = false
       }
-      navigate(goSelectPort ? '/select-port' : '/')
+      navigate(goSelectPort ? '/select-port' : landing)
     } catch (err) {
       const msg =
         err instanceof ApiError && err.status === 401

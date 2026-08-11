@@ -5,13 +5,15 @@ import express from 'express';
 import { pool } from '../db.js';
 import { requirePageDelete, requirePageEdit, requirePageView } from '../middleware/permissions.js';
 import { writeActivityLog } from '../lib/activity-log.js';
+import { parseOperationalDayStart } from '../lib/operational-day.js';
 
 const router = express.Router();
 router.use(...requirePageView('master-port'));
 
 router.get('/', async (req, res) => {
   const result = await pool.query(
-    `SELECT id, name, description, schedule_timezone, allow_multi_jetty_berthing, created_at, updated_at
+    `SELECT id, name, description, schedule_timezone, operational_day_start,
+            allow_multi_jetty_berthing, created_at, updated_at
      FROM ports WHERE deleted_at IS NULL ORDER BY name ASC`
   );
   res.json(result.rows.map(toPort));
@@ -21,7 +23,8 @@ router.get('/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const result = await pool.query(
-    `SELECT id, name, description, schedule_timezone, allow_multi_jetty_berthing, created_at, updated_at
+    `SELECT id, name, description, schedule_timezone, operational_day_start,
+            allow_multi_jetty_berthing, created_at, updated_at
      FROM ports WHERE id = $1 AND deleted_at IS NULL`,
     [id]
   );
@@ -32,7 +35,7 @@ router.get('/:id', async (req, res) => {
 const SCHEDULE_TZ_RE = /^[A-Za-z_/+-]+$/;
 
 router.post('/', ...requirePageEdit('master-port'), async (req, res) => {
-  const { name, description, scheduleTimezone, allowMultiJetyBerthing } = req.body || {};
+  const { name, description, scheduleTimezone, operationalDayStart, allowMultiJetyBerthing } = req.body || {};
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'name is required' });
   }
@@ -42,10 +45,12 @@ router.post('/', ...requirePageEdit('master-port'), async (req, res) => {
     return res.status(400).json({ error: 'Invalid scheduleTimezone (use IANA, e.g. Asia/Jakarta)' });
   }
   const allowMultiJetty = allowMultiJetyBerthing === true;
+  const opDayStart = parseOperationalDayStart(operationalDayStart).formatted;
   const result = await pool.query(
-    `INSERT INTO ports (name, description, schedule_timezone, allow_multi_jetty_berthing) VALUES ($1, $2, $3, $4)
-     RETURNING id, name, description, schedule_timezone, allow_multi_jetty_berthing, created_at, updated_at`,
-    [name.trim(), description?.trim() ?? null, tz, allowMultiJetty]
+    `INSERT INTO ports (name, description, schedule_timezone, operational_day_start, allow_multi_jetty_berthing)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id, name, description, schedule_timezone, operational_day_start, allow_multi_jetty_berthing, created_at, updated_at`,
+    [name.trim(), description?.trim() ?? null, tz, opDayStart, allowMultiJetty]
   );
   writeActivityLog({
     pageKey: 'master-port',
@@ -66,7 +71,7 @@ router.post('/', ...requirePageEdit('master-port'), async (req, res) => {
 router.put('/:id', ...requirePageEdit('master-port'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
-  const { name, description, scheduleTimezone, allowMultiJetyBerthing } = req.body || {};
+  const { name, description, scheduleTimezone, operationalDayStart, allowMultiJetyBerthing } = req.body || {};
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'name is required' });
   }
@@ -75,7 +80,7 @@ router.put('/:id', ...requirePageEdit('master-port'), async (req, res) => {
     return res.status(400).json({ error: 'Invalid scheduleTimezone (use IANA, e.g. Asia/Jakarta)' });
   }
   const before = await pool.query(
-    `SELECT allow_multi_jetty_berthing FROM ports WHERE id = $1 AND deleted_at IS NULL`,
+    `SELECT allow_multi_jetty_berthing, operational_day_start FROM ports WHERE id = $1 AND deleted_at IS NULL`,
     [id]
   );
   if (before.rows.length === 0) return res.status(404).json({ error: 'Port not found' });
@@ -83,14 +88,19 @@ router.put('/:id', ...requirePageEdit('master-port'), async (req, res) => {
   const allowMultiJetty = allowMultiJettyProvided
     ? allowMultiJetyBerthing === true
     : before.rows[0].allow_multi_jetty_berthing;
+  const opDayStartProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'operationalDayStart');
+  const opDayStart = opDayStartProvided
+    ? parseOperationalDayStart(operationalDayStart).formatted
+    : before.rows[0].operational_day_start;
   const result = await pool.query(
     `UPDATE ports SET name = $1, description = $2,
        schedule_timezone = CASE WHEN $3::text IS NOT NULL AND $3::text <> '' THEN $3::text ELSE schedule_timezone END,
-       allow_multi_jetty_berthing = $4,
+       operational_day_start = $4,
+       allow_multi_jetty_berthing = $5,
        updated_at = NOW()
-     WHERE id = $5 AND deleted_at IS NULL
-     RETURNING id, name, description, schedule_timezone, allow_multi_jetty_berthing, created_at, updated_at`,
-    [name.trim(), description?.trim() ?? null, tzRaw || null, allowMultiJetty, id]
+     WHERE id = $6 AND deleted_at IS NULL
+     RETURNING id, name, description, schedule_timezone, operational_day_start, allow_multi_jetty_berthing, created_at, updated_at`,
+    [name.trim(), description?.trim() ?? null, tzRaw || null, opDayStart, allowMultiJetty, id]
   );
   if (result.rows.length === 0) return res.status(404).json({ error: 'Port not found' });
   const changes = [{ field: 'Name', from: null, to: result.rows[0].name }];
@@ -265,6 +275,7 @@ function toPort(row) {
     name: row.name,
     description: row.description ?? null,
     scheduleTimezone: row.schedule_timezone ?? 'Asia/Jakarta',
+    operationalDayStart: parseOperationalDayStart(row.operational_day_start).formatted,
     allowMultiJetyBerthing: row.allow_multi_jetty_berthing === true,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
