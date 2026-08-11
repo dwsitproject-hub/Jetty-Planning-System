@@ -1,5 +1,12 @@
 /* Operator Mode — mobile-first shell aligned with KPN/JPS design tokens (light theme) */
 
+.operator-mobile,
+.operator-mobile *,
+.operator-mobile *::before,
+.operator-mobile *::after {
+  box-sizing: border-box;
+}
+
 .operator-mobile {
   --op-tap-min: 48px;
   --op-gap: var(--spacing-3);
@@ -14,11 +21,14 @@
   --op-active-bg: #fff7ed;
   --op-active-border: #ffd99f;
 
+  width: 100%;
+  max-width: 100%;
   min-height: 100dvh;
   height: 100dvh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  overflow-x: hidden;
   background: var(--color-bg-light);
   color: var(--color-text-charcoal);
   font-family: var(--font-primary);
@@ -30,8 +40,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  min-width: 0;
   gap: var(--spacing-3);
   padding: var(--spacing-2) var(--spacing-4);
+  padding-inline: max(var(--spacing-4), env(safe-area-inset-left, 0px))
+    max(var(--spacing-4), env(safe-area-inset-right, 0px));
   background: var(--color-bg-white);
   border-bottom: 1px solid var(--color-border-light);
   box-shadow: var(--shadow-sm);
@@ -41,6 +55,8 @@
 }
 
 .operator-mobile__brand {
+  flex: 1 1 auto;
+  min-width: 0;
   font-family: var(--font-heading);
   font-weight: var(--font-weight-semibold);
   font-size: var(--font-size-lg);
@@ -50,6 +66,8 @@
 .operator-mobile__shell-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--spacing-2);
 }
 
@@ -241,6 +259,8 @@
   text-align: left;
   color: inherit;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   box-shadow: var(--shadow-sm);
   cursor: pointer;
   touch-action: manipulation;
@@ -261,6 +281,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-2);
+  min-width: 0;
 }
 
 .operator-vessel-card__name {
@@ -281,6 +302,7 @@
 
 .operator-vessel-card__row {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: var(--spacing-2);
@@ -290,11 +312,15 @@
 
 .operator-vessel-card__cargo {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   margin-top: var(--spacing-1);
 }
 
 .operator-vessel-card__child-cargo {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   margin-top: var(--spacing-1);
 }
 
@@ -312,6 +338,8 @@
   flex-direction: column;
   gap: var(--spacing-2);
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .operator-cargo-progress__head {
@@ -331,6 +359,7 @@
   font-weight: var(--font-weight-semibold);
   font-size: var(--font-size-small);
   color: var(--color-text-charcoal);
+  word-break: break-word;
 }
 
 .operator-cargo-progress__bar-track {
@@ -339,6 +368,7 @@
   background: var(--color-border-light);
   overflow: hidden;
   width: 100%;
+  max-width: 100%;
 }
 
 .operator-cargo-progress__bar-fill {
@@ -376,6 +406,8 @@
 
 .operator-vessel-card__child {
   min-height: var(--op-tap-min);
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -988,4 +1020,22 @@
   color: var(--color-text-charcoal);
   font-weight: var(--font-weight-medium);
   font-size: var(--font-size-small);
+}
+
+@media (max-width: 480px) {
+  .operator-mobile__shell-bar {
+    padding-inline: max(var(--spacing-3), env(safe-area-inset-left, 0px))
+      max(var(--spacing-3), env(safe-area-inset-right, 0px));
+  }
+
+  .operator-mobile__shell-actions .op-btn--soft {
+    min-height: 40px;
+    padding: var(--spacing-1) var(--spacing-2);
+    font-size: var(--font-size-xs);
+  }
+
+  .operator-queue__sort select {
+    min-width: 0;
+    flex: 1;
+  }
 }
