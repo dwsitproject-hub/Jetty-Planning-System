@@ -1,5 +1,6 @@
 # Jetty Planning System — Shipping Instruction API Integration Guide
 
+> **Document version:** 3.6  
 > **Audience:** External full-stack developers building an integration from your system (EOS Export/Import, KLIPS, ERP, TMS, etc.) into the Jetty Planning System (JPS).
 >
 > **What you can do:** Submit Shipping Instructions automatically and poll their review status. JPS operators review, approve, and allocate jetty resources in the web app — your system does not need to implement that workflow.
@@ -12,8 +13,9 @@
 
 ### 1.1 How it works
 
+0. Your system **fetches master data** via `GET /ports` and `GET /commodities` (cache locally; refresh periodically).
 1. Your system **submits** a Shipping Instruction via `POST`.
-2. JPS creates a real **Shipment Plan** + **Shipping Instruction** with partner status **`Pending`**.
+2. While status is **`Pending`**, your system may **amend** the instruction via `PATCH` (optional).
 3. A JPS operator **reviews** in the web app and **Approves** or **Rejects**.
 4. Once approved, an operator **allocates** a jetty/berth → status becomes **`Allocated`**.
 5. Your system **polls** `GET` to track the lifecycle.
@@ -87,17 +89,18 @@ Authentication uses a single API key in the `x-api-key` header. No OAuth, no tok
 |------|---------|-------|
 | API key | `jps_live_a73fc30d...` | **Server-side only.** Never commit to git or expose in browser code. |
 | Partner name | `EOS-EXPORT` | Identifies your system on the JPS side (not sent in requests). |
-| Port access | any | Keys are not port-scoped. You pass a valid `port_id` on each request. Staging uses port **`1`** (BONTANG). |
+| Port access | any | Keys are not port-scoped. Pass a valid `port_id` on each request — use `GET /ports` for valid IDs. Staging often uses port **`1`**. |
 
-**Request your staging API key** from the JPS team. They create it with:
+**Request your staging API key** from the JPS team. They create it with one of:
 
 ```bash
-# (JPS admin only — run on backend server)
-docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps-api \
-  node scripts/create-integration-api-key.mjs --partner "YOUR-SYSTEM-NAME"
+# (JPS admin — backend server or local Docker)
+docker exec jps-api node scripts/create-integration-api-key.mjs --partner "YOUR-SYSTEM-NAME"
 ```
 
-The plaintext key is shown **once**. Store it in your secrets manager or `.env` file immediately.
+Or via the JPS web app: **Admin → Partner API Keys** (`/admin/partner-api`).
+
+The plaintext key is shown **once**. Store it in your secrets manager or `.env` file immediately — e.g. `JPS_API_KEY=jps_live_38e897ef93a27803db551de78b65f333`. **Do not** leave placeholder text like `PASTE_YOUR_KEY` in config; that causes `401 INVALID_API_KEY`.
 
 ### 2.2 Header
 
@@ -110,7 +113,14 @@ Content-Type: application/json   # required on POST
 
 ### 2.3 Code examples
 
-**curl:**
+**Fetch master data (run before first POST):**
+
+```bash
+curl -sS "$JPS_API_BASE_URL/ports" -H "x-api-key: $JPS_API_KEY"
+curl -sS "$JPS_API_BASE_URL/commodities" -H "x-api-key: $JPS_API_KEY"
+```
+
+**Poll status by id:**
 
 ```bash
 curl -sS "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions/10" \
@@ -158,7 +168,11 @@ result = r.json()
 
 | Method | Path | Purpose |
 |--------|------|---------|
+| `GET` | `/ports` | List valid JPS ports (`port_id` for POST) |
+| `GET` | `/commodities` | List valid JPS commodities (`cargo_type` for POST) |
 | `POST` | `/shipping-instructions` | Submit a new Shipping Instruction |
+| `PATCH` | `/shipping-instructions/{id}` | Update a Pending instruction by JPS id |
+| `PATCH` | `/shipping-instructions?external_reference={ref}` | Update a Pending instruction by your reference |
 | `GET` | `/shipping-instructions/{id}` | Check status by JPS id (returned from POST) |
 | `GET` | `/shipping-instructions?external_reference={ref}` | Check status by your own reference |
 
@@ -186,6 +200,9 @@ curl -sS -X POST "http://172.28.92.56:3080/api/v1/integrations/shipping-instruct
     "port_id": 1,
     "vessel_name": "MV NUSANTARA",
     "voyage_no": "VY-8891",
+    "vessel_loa_m": 185.5,
+    "vessel_gross_tonnage": 32000,
+    "vessel_draft": 12.4,
     "purpose": "Loading",
     "eta": "2026-07-01T08:00:00Z",
     "etd": "2026-07-03T18:00:00Z",
@@ -216,6 +233,11 @@ curl -sS -X POST "http://172.28.92.56:3080/api/v1/integrations/shipping-instruct
     "status": "Pending",
     "vessel_name": "MV NUSANTARA",
     "port_id": 1,
+    "vessel_loa_m": 185.5,
+    "vessel_gross_tonnage": 32000,
+    "vessel_draft": 12.4,
+    "vessel_capacity": 25000,
+    "vessel_dwt": 57000,
     "received_at": "2026-06-15T06:53:59.935Z"
   }
 }
@@ -252,6 +274,11 @@ curl -sS "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions/10"
     "vessel_name": "MV NUSANTARA",
     "voyage_no": "VY-8891",
     "purpose": "Loading",
+    "vessel_loa_m": 185.5,
+    "vessel_gross_tonnage": 32000,
+    "vessel_draft": 12.4,
+    "vessel_capacity": 25000,
+    "vessel_dwt": 57000,
     "eta": "2026-07-01T08:00:00.000Z",
     "etd": "2026-07-03T18:00:00Z",
     "port_id": 1,
@@ -285,6 +312,105 @@ Same response shape as `GET /{id}`. HTTP `404` if not found or not yours.
 
 ---
 
+### 3.3 `GET /ports` — List ports
+
+Returns all active JPS ports. Use `id` as `port_id` when submitting a shipping instruction.
+
+```bash
+curl -sS "http://172.28.92.56:3080/api/v1/integrations/ports" \
+  -H "x-api-key: $JPS_API_KEY"
+```
+
+**Success — `200 OK`:**
+
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "name": "BONTANG" }
+  ]
+}
+```
+
+Call once at startup or cache locally; refresh when JPS adds ports.
+
+---
+
+### 3.4 `GET /commodities` — List commodities
+
+Returns all active JPS commodities. Use `short_name` as `cargo[].cargo_type` when submitting.
+
+```bash
+curl -sS "http://172.28.92.56:3080/api/v1/integrations/commodities" \
+  -H "x-api-key: $JPS_API_KEY"
+```
+
+**Success — `200 OK`:**
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 3,
+      "short_name": "CPO",
+      "name": "CRUDE PALM OIL",
+      "commodity_type": "Liquid"
+    }
+  ]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `short_name` | Value to send in `cargo[].cargo_type` (case-insensitive on POST). |
+| `name` | JPS display name — for mapping/UI only; **not** accepted on POST. |
+| `commodity_type` | `Solid` or `Liquid` — all cargo lines on one instruction must share the same type. |
+
+**This endpoint is the live source of truth** for valid commodity codes in your environment. The static table in §5.1 is a snapshot only — prefer `GET /commodities` when building integrations.
+
+Call once at startup or cache locally; refresh periodically (JPS operators may add or update commodities).
+
+---
+
+### 3.5 `PATCH /shipping-instructions/{id}` — Update (Pending only)
+
+Amends an instruction you previously submitted. **Only allowed while partner status is `Pending`** (awaiting operator review). Returns the same response shape as `GET /{id}`.
+
+`external_reference` **cannot** be changed. To submit under a new document number, use `POST` with a new reference (after rejection, or as a separate instruction).
+
+**Partial update:** include only the fields you want to change. Omitted fields keep their current values. If you send `cargo`, it **replaces** the entire cargo list (same validation as POST).
+
+```bash
+curl -sS -X PATCH "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions/10" \
+  -H "x-api-key: $JPS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "vessel_name": "MV NUSANTARA II",
+    "eta": "2026-07-02T08:00:00Z",
+    "vessel_loa_m": 190
+  }'
+```
+
+**Success — `200 OK`:** updated instruction (same fields as GET status response).
+
+**Not editable — `409 NOT_EDITABLE`:** status is `Approved`, `Rejected`, or `Allocated`. Submit a **new** instruction with a **new** `external_reference` if rejected or superseded.
+
+---
+
+### 3.6 `PATCH /shipping-instructions?external_reference={ref}` — Update by your reference
+
+Same rules and body as §3.5, but addressed by your `external_reference` instead of JPS id.
+
+```bash
+curl -sS -X PATCH "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions?external_reference=EOS-EXPORT-2026-091" \
+  -H "x-api-key: $JPS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "voyage_no": "VY-8892" }'
+```
+
+---
+
 ## 4. Request & response reference
 
 ### 4.1 Submission fields (`POST` body)
@@ -293,9 +419,12 @@ Same response shape as `GET /{id}`. HTTP `404` if not found or not yours.
 |-------|------|----------|-------------|
 | `external_reference` | string (max 100) | Yes | Your unique document/order ID. Idempotency key. |
 | `requested_by` | string (max 200) | No | Person or service account in your system. Shown to JPS operators. If omitted, JPS stores the API partner name. |
-| `port_id` | integer | Yes | JPS port ID. Staging: **`1`** (BONTANG). Must be a valid JPS port; an unknown `port_id` returns `400`. |
+| `port_id` | integer | Yes | JPS port ID — use `GET /ports` for valid values. Unknown `port_id` returns `400`. |
 | `vessel_name` | string (max 200) | Yes | Vessel name. |
 | `voyage_no` | string (max 50) | No | Voyage number. |
+| `vessel_loa_m` | number > 0 | No | Vessel length overall in meters. |
+| `vessel_gross_tonnage` | number > 0 | No | Vessel gross tonnage (GT). |
+| `vessel_draft` | number > 0 | No | Vessel draft in meters. |
 | `purpose` | string | Yes | `"Loading"` or `"Unloading"`. |
 | `eta` | datetime (ISO 8601 UTC) | Yes | Estimated time of arrival. |
 | `etd` | datetime (ISO 8601 UTC) | No | Estimated departure. Must be after `eta` when provided. |
@@ -308,7 +437,7 @@ Same response shape as `GET /{id}`. HTTP `404` if not found or not yours.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `cargo_type` | string (max 100) | Yes | Must match a **JPS commodity short name** (case-insensitive). See §5.1. |
+| `cargo_type` | string (max 100) | Yes | Must match a **JPS commodity short name** (case-insensitive). Use `GET /commodities` or §5.1 snapshot. |
 | `description` | string (max 500) | No | Extra detail about the lot. |
 | `tonnage` | number ≥ 0 | Yes | Quantity. |
 | `unit` | string | Yes | `"MT"` or `"KL"` only. |
@@ -316,14 +445,38 @@ Same response shape as `GET /{id}`. HTTP `404` if not found or not yours.
 
 All cargo lines on one instruction must be the same commodity type category (Solid or Liquid).
 
+**Vessel dimensions (optional on POST, always on GET when known):**
+
+| Field | Send on POST? | Description |
+|-------|---------------|-------------|
+| `vessel_loa_m` | Optional | LOA in meters. |
+| `vessel_gross_tonnage` | Optional | Gross tonnage (GT). |
+| `vessel_draft` | Optional | Draft in meters. |
+| `vessel_capacity` | **Do not send** | Derived by JPS from `cargo[]` MT (and KL converted via commodity factor). |
+| `vessel_dwt` | **Do not send** | Computed by JPS: `vessel_gross_tonnage + vessel_capacity`. Null until both inputs exist. |
+
+Operators can still edit vessel info in the JPS web app if you omit these fields.
+
+### 4.1.1 Update fields (`PATCH` body)
+
+Same fields as POST **except** `external_reference` (immutable). Send **only fields to change**; at least one updatable field is required per request.
+
+| Field | Can PATCH? | Notes |
+|-------|------------|-------|
+| `external_reference` | **No** | Use `POST` with a new reference for a new instruction |
+| All other POST fields | Yes | Partial update; `cargo` replaces all lines when sent |
+| `vessel_capacity`, `vessel_dwt` | **No** | Derived by JPS after update |
+
+Only while partner status is **`Pending`**. After approval, rejection, or allocation, updates return `409 NOT_EDITABLE`.
+
 ### 4.2 Partner status values
 
 | Status | Meaning | Your action |
 |--------|---------|-------------|
-| `Pending` | Received, awaiting operator review. | Keep polling. |
-| `Approved` | Operator accepted. Awaiting jetty allocation. | Keep polling if you need berth info. |
-| `Rejected` | Operator declined. See `rejection_reason`. | Fix data; submit **new** instruction with **new** `external_reference`. |
-| `Allocated` | Jetty/berth assigned. See `allocation`. | Done for scheduling workflow. |
+| `Pending` | Received, awaiting operator review. | Keep polling; **`PATCH` allowed**. |
+| `Approved` | Operator accepted. Awaiting jetty allocation. | Keep polling if you need berth info; **`PATCH` not allowed**. |
+| `Rejected` | Operator declined. See `rejection_reason`. | **`PATCH` not allowed** — submit **new** instruction with **new** `external_reference`. |
+| `Allocated` | Jetty/berth assigned. See `allocation`. | Done for scheduling workflow; **`PATCH` not allowed**. |
 
 ### 4.3 Response envelope
 
@@ -361,6 +514,7 @@ Always log `request_id` when reporting issues to JPS support.
 | `401` | `INVALID_API_KEY` | Missing/wrong key | No |
 | `404` | `NOT_FOUND` | Unknown id/reference | No |
 | `409` | `DUPLICATE_REFERENCE` | `external_reference` already used | No — use GET to recover |
+| `409` | `NOT_EDITABLE` | PATCH when status is not `Pending` | No — POST new reference if rejected |
 | `429` | `RATE_LIMITED` | Rate limit exceeded | Yes — backoff |
 | `500` | `INTERNAL_ERROR` | Server error | Yes — backoff |
 
@@ -399,7 +553,7 @@ Always log `request_id` when reporting issues to JPS support.
 | `SPLIT CPKO FA` | SPLIT CRUDE PALM KERNEL OIL FATTY ACID | Liquid |
 | `SPLIT RBD PKO FA` | SPLIT RBD PALM KERNEL OIL FATTY ACID | Liquid |
 
-*List as of JPS master data export (20 commodities). JPS operators may add or update commodities over time.*
+*Snapshot only — use `GET /commodities` (§3.4) for the live list in your environment.*
 
 If you send an unknown `cargo_type`, the API returns `400` with `valid_cargo_types` in `error.details` — that list contains the current short codes for your environment. Use it to fix your payload.
 
@@ -407,11 +561,13 @@ If you send an unknown `cargo_type`, the API returns `400` with `valid_cargo_typ
 
 ### 5.2 Staging port
 
-| `port_id` | Name |
-|-----------|------|
+Use `GET /ports` for the live list. Staging often includes:
+
+| `port_id` | Name (example) |
+|-----------|------------------|
 | `1` | BONTANG |
 
-Pass `port_id` **1** in your payload for staging tests. Keys are not port-scoped, but `port_id` must be a valid JPS port.
+Pass a valid `port_id` from `GET /ports` in your payload. Keys are not port-scoped.
 
 ### 5.3 Map your system's commodity codes to JPS
 
@@ -483,13 +639,24 @@ $env:JPS_API_BASE_URL = "http://172.28.92.56:3080/api/v1/integrations"
 $env:JPS_API_KEY      = "jps_live_PASTE_YOUR_KEY"
 ```
 
-### 6.3 Test 1 — Health check
+### 6.3 Test 1 — Master data (`200`)
+
+Fetch ports and commodities before your first POST:
+
+```bash
+curl -sS "$JPS_API_BASE_URL/ports" -H "x-api-key: $JPS_API_KEY"
+curl -sS "$JPS_API_BASE_URL/commodities" -H "x-api-key: $JPS_API_KEY"
+```
+
+**Check:** both return `"success": true` with a non-empty `data` array. Note a valid `port_id` and a `short_name` for your test payload.
+
+### 6.4 Test 2 — Health check
 
 ```bash
 curl -sS http://172.28.92.56:3080/api/v1/health
 ```
 
-### 6.4 Test 2 — Submit instruction (`201`)
+### 6.5 Test 3 — Submit instruction (`201`)
 
 Use a **unique** `external_reference` each time:
 
@@ -522,10 +689,10 @@ curl -sS -X POST "$JPS_API_BASE_URL/shipping-instructions" \
 
 **Check:** `"success": true`, `"status": "Pending"`, note `data.id` (e.g. `10`).
 
-### 6.5 Test 3 — Poll status (`200`)
+### 6.6 Test 4 — Poll status (`200`)
 
 ```bash
-SI_ID=10   # replace with your id from Test 2
+SI_ID=10   # replace with your id from Test 3
 
 curl -sS "$JPS_API_BASE_URL/shipping-instructions/$SI_ID" \
   -H "x-api-key: $JPS_API_KEY"
@@ -536,19 +703,19 @@ curl -sS "$JPS_API_BASE_URL/shipping-instructions?external_reference=$REF" \
 
 **Check:** `"status": "Pending"`.
 
-### 6.6 Test 4 — Error paths
+### 6.7 Test 5 — Error paths
 
 ```bash
 # Bad key → 401
 curl -sS "$JPS_API_BASE_URL/shipping-instructions/$SI_ID" \
   -H "x-api-key: jps_live_invalid"
 
-# Duplicate reference → 409 (re-run Test 2 POST with same $REF)
-# Wrong port → 403 (use port_id 99 if your key only allows 1)
+# Duplicate reference → 409 (re-run Test 3 POST with same $REF)
+# Wrong port → 400 (use port_id 99)
 # Unknown cargo → 400 (use cargo_type "FAKE_CARGO")
 ```
 
-### 6.7 Test 5 — Full lifecycle (with JPS operator)
+### 6.8 Test 6 — Full lifecycle (with JPS operator)
 
 API tests alone stop at `Pending`. To see `Approved` / `Allocated`:
 
@@ -564,7 +731,7 @@ API tests alone stop at `Pending`. To see `Approved` / `Allocated`:
 
 Coordinate with the JPS team for operator steps, or request a test login if you need to observe the UI yourself.
 
-### 6.8 Postman setup
+### 6.9 Postman setup
 
 1. Create collection **JPS Integration API (Staging)**.
 2. Collection variables:
@@ -572,12 +739,14 @@ Coordinate with the JPS team for operator steps, or request a test login if you 
 | Variable | Value |
 |----------|-------|
 | `baseUrl` | `http://172.28.92.56:3080/api/v1/integrations` |
-| `apiKey` | your `jps_live_...` key |
+| `apiKey` | paste your real `jps_live_...` key (not a placeholder) |
 | `siId` | (fill after first POST) |
 | `externalRef` | (fill after first POST) |
 
 3. Add requests:
-   - **POST** `{{baseUrl}}/shipping-instructions` — headers: `x-api-key: {{apiKey}}`, body: JSON from Test 2
+   - **GET** `{{baseUrl}}/ports` — header: `x-api-key: {{apiKey}}`
+   - **GET** `{{baseUrl}}/commodities` — header: `x-api-key: {{apiKey}}`
+   - **POST** `{{baseUrl}}/shipping-instructions` — headers: `x-api-key: {{apiKey}}`, body: JSON from Test 3
    - **GET** `{{baseUrl}}/shipping-instructions/{{siId}}` — header: `x-api-key: {{apiKey}}`
    - **GET** `{{baseUrl}}/shipping-instructions?external_reference={{externalRef}}`
 
@@ -590,14 +759,19 @@ Coordinate with the JPS team for operator steps, or request a test login if you 
 | Variable | Staging example |
 |----------|-----------------|
 | `JPS_API_BASE_URL` | `http://172.28.92.56:3080/api/v1/integrations` |
-| `JPS_API_KEY` | `jps_live_...` |
-| `JPS_PORT_ID` | `1` |
+| `JPS_API_KEY` | real `jps_live_...` key (never a placeholder string) |
+| `JPS_PORT_ID` | from `GET /ports` (often `1` on staging) |
 
 ### 7.2 Minimal submit + poll flow (pseudocode)
 
 ```
+function fetchMasterData():
+    ports = GET /ports          // cache { id, name }
+    commodities = GET /commodities   // cache { short_name, name, commodity_type }
+    refresh daily or on 400 valid_cargo_types errors
+
 function submitInstruction(order):
-    payload = mapOrderToJpsPayload(order)   // your mapping layer
+    payload = mapOrderToJpsPayload(order)   // port_id + cargo_type from cached master data
     response = POST /shipping-instructions
     if response.status == 201:
         save jps_id and external_reference in your DB
@@ -620,10 +794,11 @@ function pollStatus(jps_id):
 
 - [ ] `external_reference` ← your document / order / SI number (unique per submission)
 - [ ] `requested_by` ← user email or service account from your system
-- [ ] `cargo_type` ← JPS commodity short name (§5.1)
+- [ ] `cargo_type` ← JPS commodity `short_name` from `GET /commodities` (§3.4)
+- [ ] `vessel_loa_m` / `vessel_gross_tonnage` / `vessel_draft` ← optional vessel specs from your system
 - [ ] `purpose` ← `"Loading"` or `"Unloading"` from your business logic
 - [ ] `eta` / `etd` ← ISO 8601 UTC
-- [ ] `port_id` ← `1` on staging (confirm for production)
+- [ ] `port_id` ← from `GET /ports` (§3.3); confirm staging vs production values
 
 ### 7.4 What you do not need to build
 
@@ -638,11 +813,12 @@ function pollStatus(jps_id):
 
 - [ ] Staging API key received and stored securely
 - [ ] Health check passes from your integration server
+- [ ] `GET /ports` and `GET /commodities` return valid master data
 - [ ] `POST` returns `201` with valid staging payload
 - [ ] `GET` by id and by `external_reference` work
 - [ ] Duplicate `POST` returns `409` (idempotency verified)
-- [ ] Error paths tested (`401`, `400`, `403`)
-- [ ] Commodity mapping table built from §5.1 and validated on staging
+- [ ] Error paths tested (`401`, `400`)
+- [ ] Commodity mapping built from `GET /commodities` and validated on staging
 - [ ] Full lifecycle observed (`Pending` → `Approved` → `Allocated`) with JPS operator
 - [ ] Production API key, base URL, and `port_id` received from JPS
 - [ ] Support contact agreed for incidents (include `request_id` from errors)
@@ -659,12 +835,26 @@ When reporting issues, include:
 - HTTP status and `error.code`
 - Whether the call was to staging or production
 
+### Common integration errors
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| `401 INVALID_API_KEY` on all calls | Placeholder key in config (`PASTE_YOUR_KEY`, `$JPS_API_KEY` unset) | Paste the real key from onboarding |
+| `401 INVALID_API_KEY` | Revoked or wrong key | Request a new key from JPS |
+| `400` unknown port | Stale `port_id` | Call `GET /ports` |
+| `400` unknown cargo | Wrong `cargo_type` (display name vs short name) | Call `GET /commodities`; send `short_name` |
+
+For hands-on local testing steps, JPS operators can use [INBOUND-SHIPPING-INSTRUCTION-API-TEST-GUIDE.md](./INBOUND-SHIPPING-INSTRUCTION-API-TEST-GUIDE.md).
+
 ---
 
 ## 10. Document history
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.6 | 2026-08-12 | `PATCH /shipping-instructions/{id}` and `PATCH ?external_reference=` — amend while `Pending` only. |
+| 3.5 | 2026-08-12 | Read-only master data: `GET /ports`, `GET /commodities`. Optional vessel fields on POST. Clearer key setup and troubleshooting. Admin UI for keys. |
+| 3.4 | 2026-08-11 | Optional POST fields `vessel_loa_m`, `vessel_gross_tonnage`, `vessel_draft`; GET returns derived `vessel_capacity` and computed `vessel_dwt`. |
 | 3.3 | 2026-06-15 | API keys are no longer port-scoped: removed `403 FORBIDDEN_PORT`; `port_id` is still required and must be a valid JPS port (unknown port returns `400`). Key creation no longer uses `--ports`. |
 | 3.2 | 2026-06-12 | §5.1 full commodity mapping table (short_name → display name → type) from JPS master data. §5.3 partner-to-JPS mapping examples. |
 | 3.1 | 2026-06-12 | `cargo_type` now resolves against JPS commodity **short name** (not full display name). `valid_cargo_types` in errors lists short codes. Breaking change for partners sending full names. |
