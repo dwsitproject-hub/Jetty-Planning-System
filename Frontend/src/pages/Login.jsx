@@ -57,9 +57,10 @@ export default function Login() {
     try {
       await login(username.trim(), password)
       await refreshMe()
-      const pagePerms = await refreshRbac()
+      // Session cookie is set; force fetch so landing path does not wait on React `me` state.
+      const pagePerms = await refreshRbac({ force: true })
       const canViewPage = (pageKey) => pagePerms[pageKey]?.canView === true
-      const landing = firstAllowedNavPath(canViewPage) || '/operator/at-berth'
+      const landing = firstAllowedNavPath(canViewPage) || '/'
       let goSelectPort = false
       try {
         const portsData = await fetchMyPorts()
