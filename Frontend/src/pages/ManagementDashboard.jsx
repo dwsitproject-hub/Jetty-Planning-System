@@ -29,9 +29,33 @@ const hrs = (a, b) => {
 const fmt = (n, d = 0) => (n == null ? '—' : n.toLocaleString('en-US', { maximumFractionDigits: d }))
 const fmtDate = (v) => (v ? String(v).slice(0, 10) : '—')
 const effPct = (r) => (r.berth && r.opsH != null ? (r.opsH / r.berth) * 100 : null)
-const idleAtBerth = (r) =>
-  r.berth != null ? Math.max(r.berth - (r.pre || 0) - (r.opsH || 0) - (r.post || 0), 0) : null
-const postH = (r) => (r.post != null && (r.berth == null || r.post <= r.berth) ? r.post : null)
+const postH = (r) =>
+  r.post != null && (r.berth == null || r.post <= r.berth) ? r.post : null
+const idleAtBerth = (r) => {
+  if (r.berth == null) return null
+  return Math.max(
+    r.berth - (r.pre || 0) - (r.opsH || 0) - (postH(r) || 0),
+    0
+  )
+}
+
+function buildPhaseBars(r) {
+  const bars = []
+  if (r.wait != null) bars.push(['Anchorage wait', r.wait, 'wf-wait'])
+  if (r.pre != null) bars.push(['Pre-checking', r.pre, 'wf-pre'])
+  if (r.opsH != null) {
+    bars.push([
+      'Cargo operations',
+      r.opsH,
+      r.purpose === 'Loading' ? 'wf-load' : 'wf-disch',
+    ])
+  }
+  const idle = idleAtBerth(r)
+  if (idle != null) bars.push(['Idle at berth', idle, 'wf-idle'])
+  const post = postH(r)
+  if (post != null) bars.push(['Post-checking', post, 'wf-post'])
+  return bars
+}
 
 const median = (a) => {
   const s = a.filter((x) => x != null).sort((x, y) => x - y)
@@ -109,7 +133,11 @@ function toRow(o, detail) {
   const berth = hrs(tb, o.castOffAt)
   let pre = phase('Pre-Checking')
   if (pre != null && berth != null && pre > berth) pre = null // guard timestamp outliers
-  const post = phase('Post-Checking')
+  let post = phase('Post-Checking')
+  if (post != null && berth != null && post > berth) post = null
+  let wait = hrs(o.ta, tb)
+  if (wait != null && berth != null && wait > berth) wait = null
+  if (wait != null && wait > 8760) wait = null // cap at 1 year — defense against corrupt TA
   const opsDoneOrCo = ms(o.operationsCompletedAt || o.castOffAt)
   return {
     id: o.id, code: o.jettyOperationCode, vessel: o.vesselName, purpose: o.purpose,
@@ -119,7 +147,7 @@ function toRow(o, detail) {
     eta: o.eta, ta: o.ta, tb, etc: o.estimatedCompletionTime, opsDone: o.operationsCompletedAt,
     castOff: o.castOffAt, norA: !!o.norAcceptedAt,
     created: o.createdAt,
-    wait: hrs(o.ta, tb), berth, pre, post, opsH,
+    wait, berth, pre, post, opsH,
     sign2co: hrs(o.operationsCompletedAt, o.castOffAt),
     late: opsDoneOrCo && ms(o.estimatedCompletionTime) ? +(((opsDoneOrCo - ms(o.estimatedCompletionTime)) / H).toFixed(1)) : null,
     actsCount: acts.length,
@@ -296,8 +324,8 @@ export default function ManagementDashboard() {
     const berth = avg((r) => r.berth)
     const pre = avg((r) => r.pre)
     const opsH = avg((r) => r.opsH)
-    const post = Math.min(avg((r) => r.post), berth || 0)
-    const idle = Math.max(berth - pre - opsH - post, 0)
+    const idle = avg(idleAtBerth)
+    const post = avg(postH)
     const segs = [
       { n: 'Anchorage wait (TA→TB)', v: wait, cls: 'wf-wait', getVal: (r) => r.wait },
       { n: 'Pre-checking', v: pre, cls: 'wf-pre', getVal: (r) => r.pre },
@@ -867,12 +895,7 @@ function FragmentRow({ r, eff, open, onToggle }) {
   const stChip = r.sailedInPeriod
     ? <span className="mgmt-chip mgmt-chip--ghost">Sailed</span>
     : <span className={`mgmt-chip ${r.purpose === 'Loading' ? 'mgmt-chip--load' : 'mgmt-chip--disch'}`}>{stLabel}</span>
-  const bars = []
-  if (r.wait != null) bars.push(['Anchorage wait', r.wait, 'wf-wait'])
-  if (r.pre != null) bars.push(['Pre-checking', r.pre, 'wf-pre'])
-  if (r.opsH != null) bars.push(['Cargo operations', r.opsH, r.purpose === 'Loading' ? 'wf-load' : 'wf-disch'])
-  if (r.berth != null) bars.push(['Idle at berth', Math.max(r.berth - (r.pre || 0) - (r.opsH || 0) - (r.post || 0), 0), 'wf-idle'])
-  if (r.post != null && (r.berth == null || r.post <= r.berth)) bars.push(['Post-checking', r.post, 'wf-post'])
+  const bars = buildPhaseBars(r)
   const mx = Math.max(...bars.map((b) => b[1]), 1)
   const dt = (v) => (v ? String(v).slice(5, 16).replace('T', ' ') : '—')
   return (
