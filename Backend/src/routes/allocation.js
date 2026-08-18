@@ -21,6 +21,7 @@ import {
   SI_REFERENCE_BERTHING_ERROR,
   validatePlanSiReferencesForBerthing,
 } from '../lib/si-reference-validation.js';
+import { validateBerthingTimeline } from '../lib/validate-schedule-timeline.js';
 
 const router = express.Router();
 const SCHEDULE_SAILED_LOOKBACK_DAYS = 90;
@@ -1533,6 +1534,12 @@ router.put('/arrival', async (req, res) => {
       }
     }
     const additionalJettiesForSql = additionalJettiesProvided ? additionalResolved.ids : null;
+
+    const timelineCheck = validateBerthingTimeline({ ta, tb, etc: estimatedCompletion, eta, etb });
+    if (!timelineCheck.ok) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: timelineCheck.error });
+    }
 
     const arrivalUpdateParamsBase = [
       eta,

@@ -64,6 +64,7 @@ import {
   showLateSiBerthingGateNotice,
 } from '../utils/berthingEligibility'
 import { validateQueueRowSiReferencesForBerthing } from '../utils/siReferenceValidation'
+import { validateBerthingTimeline } from '../utils/validateScheduleTimeline'
 import {
   preBerthCombinedSaveToastMessage,
   resolvePlanIdFromRow,
@@ -518,6 +519,18 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       put('tbDateTime', planTimesEdit.tb)
       put('estimatedCompletionDateTime', planTimesEdit.etc)
       put('actualCompletionDateTime', planTimesEdit.act)
+    }
+    const timelineErr = validateBerthingTimeline({
+      eta: planTimesEdit.eta,
+      etb: planTimesEdit.etb,
+      ta: hasOp || hasSi ? planTimesEdit.ta : null,
+      tb: hasOp || hasSi ? planTimesEdit.tb : null,
+      etc: hasOp || hasSi ? planTimesEdit.etc : null,
+    })
+    if (timelineErr) {
+      setPlanTimesMsg(timelineErr)
+      setPlanTimesSaving(false)
+      return
     }
     try {
       await saveArrivalUpdateApi(payload)
@@ -1388,6 +1401,18 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     }
 
     const planOnlySave = isPlanOnlySchedulingRow(updated)
+    const timelineErr = validateBerthingTimeline({
+      eta: updated.etaDateTime,
+      etb: updated.etbDateTime,
+      ta: planOnlySave ? null : updated.taDateTime,
+      tb: planOnlySave ? null : updated.tbDateTime,
+      etc: planOnlySave ? null : updated.estimatedCompletionDateTime,
+    })
+    if (timelineErr) {
+      setArrivalSaveMsg(timelineErr)
+      setArrivalSaving(false)
+      return
+    }
     let saveRes
     try {
       const arrivalPayload = {
@@ -1562,6 +1587,17 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     }
     if (errors.length > 0) {
       setBerthingErrors(errors)
+      return
+    }
+    const timelineErr = validateBerthingTimeline({
+      eta: berthingConfirmRow.etaDateTime,
+      etb: berthingConfirmRow.etbDateTime,
+      ta: berthingTa,
+      tb: berthingTb,
+      etc: berthingEstimatedCompletion,
+    })
+    if (timelineErr) {
+      setBerthingErrors([timelineErr])
       return
     }
     if (!berthingConfirmRow.operationId && !berthingConfirmRow.shippingInstructionId) {

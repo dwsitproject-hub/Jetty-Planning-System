@@ -14,6 +14,7 @@ import {
   resolveTbInstantFromOperationRow,
   validateCastOffAt,
 } from '../lib/validate-cast-off.js';
+import { validateBerthingTimeline, validateScheduleTimestamp } from '../lib/validate-schedule-timeline.js';
 import { userHasPageApprove, userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
 import { enrichRowsWithCargoDisplay } from '../lib/siBreakdownDisplay.js';
@@ -658,6 +659,10 @@ router.post('/:id/start-docking', async (req, res) => {
     return res.status(400).json({ error: err.message || 'SLA computation failed' });
   }
   const estimated = new Date(startTime.getTime() + slaHours * 60 * 60 * 1000);
+  const dockingTimeline = validateBerthingTimeline({ tb: startTime, etc: estimated });
+  if (!dockingTimeline.ok) {
+    return res.status(400).json({ error: dockingTimeline.error });
+  }
   const result = await pool.query(
     `UPDATE operations SET docking_start_time = $1, estimated_completion_time = $2, status = 'DOCKED', updated_at = NOW()
      WHERE id = $3 AND deleted_at IS NULL`,
@@ -710,6 +715,10 @@ router.post('/:id/recalculate-sla', async (req, res) => {
   }
   const startTime = new Date(dockingStart);
   const estimated = new Date(startTime.getTime() + slaHours * 60 * 60 * 1000);
+  const slaTimeline = validateBerthingTimeline({ tb: startTime, etc: estimated });
+  if (!slaTimeline.ok) {
+    return res.status(400).json({ error: slaTimeline.error });
+  }
   const result = await pool.query(
     `UPDATE operations SET estimated_completion_time = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
     [estimated, id]
@@ -752,6 +761,15 @@ router.put('/:id/estimated-completion', async (req, res) => {
   const dt = new Date(estimated_completion_time);
   if (Number.isNaN(dt.getTime())) {
     return res.status(400).json({ error: 'estimated_completion_time must be a valid datetime' });
+  }
+  const etcWindow = validateScheduleTimestamp(dt);
+  if (!etcWindow.ok) {
+    return res.status(400).json({ error: `Estimated completion (ETC): ${etcWindow.error}` });
+  }
+  const tbAt = resolveTbInstantFromOperationRow(before);
+  const etcTimeline = validateBerthingTimeline({ tb: tbAt, etc: dt });
+  if (!etcTimeline.ok) {
+    return res.status(400).json({ error: etcTimeline.error });
   }
 
   const result = await pool.query(
