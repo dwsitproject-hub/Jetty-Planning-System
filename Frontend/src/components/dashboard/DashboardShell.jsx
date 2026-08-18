@@ -1551,6 +1551,7 @@ export default function DashboardShell({ mode = 'live' }) {
       {/* ── Cargo tonnage (selected range) ── */}
       <section className="card v2-tonnage">
         <h2 className="card__title">{t('v2TonnageTitle')} <span className="v2-basis-chip v2-basis-chip--range">{dateRangeLabel}</span></h2>
+        <p className="v2-tonnage__basis-note">{t('v2TonnageBasisNote')}</p>
         <div className="v2-tonnage__row">
           {purposesUi.map(({ key, label }) => {
             const tData = tonnage[key]

@@ -2,7 +2,7 @@
  * Dashboard V2 — SLA at risk snapshots and range averages.
  */
 import { appendOpPlanFilters } from './dashboard-v2-filters.js';
-import { enumerateUtcDays, snapshotIsoForDay } from './dashboard-slot-occupancy.js';
+import { enumerateUtcDaysThroughToday, snapshotIsoForDay } from './dashboard-slot-occupancy.js';
 
 function slaBaseWhere(filterSql) {
   return `
@@ -136,9 +136,15 @@ export async function computeDashboardSlaAtRisk(
     };
   }
 
-  const days = enumerateUtcDays(start, end);
+  const days = enumerateUtcDaysThroughToday(start, end, now);
   if (days.length === 0) {
-    throw new Error('Invalid or empty date range');
+    return {
+      mode: 'average',
+      count: 0,
+      overHoursSum: 0,
+      dayCount: 0,
+      items: [],
+    };
   }
 
   let countSum = 0;

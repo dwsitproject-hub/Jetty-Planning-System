@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   enumerateUtcDays,
+  enumerateUtcDaysThroughToday,
   snapshotIsoForDay,
   utcTodayYmd,
 } from './dashboard-slot-occupancy.js';
@@ -22,6 +23,29 @@ describe('enumerateUtcDays', () => {
 
   it('returns empty array when start is after end', () => {
     assert.deepEqual(enumerateUtcDays('2026-07-01', '2026-06-01'), []);
+  });
+});
+
+describe('enumerateUtcDaysThroughToday', () => {
+  const now = new Date('2026-08-18T12:00:00.000Z');
+
+  it('caps a month-to-date range at today', () => {
+    assert.deepEqual(
+      enumerateUtcDaysThroughToday('2026-08-01', '2026-08-31', now),
+      enumerateUtcDays('2026-08-01', '2026-08-18')
+    );
+    assert.equal(enumerateUtcDaysThroughToday('2026-08-01', '2026-08-31', now).length, 18);
+  });
+
+  it('includes all days when the range is entirely in the past', () => {
+    assert.deepEqual(
+      enumerateUtcDaysThroughToday('2026-07-01', '2026-07-31', now),
+      enumerateUtcDays('2026-07-01', '2026-07-31')
+    );
+  });
+
+  it('returns empty array for a future-only range', () => {
+    assert.deepEqual(enumerateUtcDaysThroughToday('2026-09-01', '2026-09-30', now), []);
   });
 });
 

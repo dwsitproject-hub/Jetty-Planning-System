@@ -43,6 +43,12 @@ export function enumerateUtcDays(startIso, endIso) {
   return days;
 }
 
+/** Inclusive UTC calendar days from startIso through min(endIso, today UTC). */
+export function enumerateUtcDaysThroughToday(startIso, endIso, now = new Date()) {
+  const today = utcTodayYmd(now);
+  return enumerateUtcDays(startIso, endIso).filter((d) => d <= today);
+}
+
 async function loadServiceJetties(client, portId) {
   const r = await client.query(
     `SELECT j.id, j.name, j.capacity
@@ -191,9 +197,17 @@ export async function computeDashboardSlotOccupancy(
     };
   }
 
-  const days = enumerateUtcDays(start, end);
+  const days = enumerateUtcDaysThroughToday(start, end, now);
   if (days.length === 0) {
-    throw new Error('Invalid or empty date range');
+    return {
+      mode: 'average',
+      usedSlots: 0,
+      totalSlots: 0,
+      pct: 0,
+      dayCount: 0,
+      overCapacity: false,
+      items: [],
+    };
   }
 
   let pctSum = 0;

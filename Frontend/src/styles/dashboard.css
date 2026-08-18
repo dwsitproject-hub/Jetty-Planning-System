@@ -2448,6 +2448,13 @@
 }
 
 /* ── Tonnage strip ── */
+.v2-tonnage__basis-note {
+  margin: 0.35rem 0 0;
+  font-size: var(--font-size-xs, 0.8125rem);
+  color: var(--color-text-steel, #6b7280);
+  line-height: 1.4;
+}
+
 .v2-tonnage__row {
   display: grid;
   grid-template-columns: 1fr 1fr;
