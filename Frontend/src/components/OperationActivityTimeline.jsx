@@ -870,7 +870,7 @@ export default function OperationActivityTimeline({
                                       <th>Entry</th>
                                       <th className="operation-activity-timeline__time">{t('cargoOpsLineStart')}</th>
                                       <th className="operation-activity-timeline__time">{t('cargoOpsLineEnd')}</th>
-                                      <th className="operation-activity-timeline__time">{t('cargoOpsQtyLoad')}</th>
+                                      <th className="operation-activity-timeline__time">{t('cargoOpsQtyMovement')}</th>
                                       <th className="operation-activity-timeline__time">{t('cargoOpsRate')} (/h)</th>
                                       <th className="operation-activity-timeline__time">{t('cargoOpsBalance')}</th>
                                     </tr>

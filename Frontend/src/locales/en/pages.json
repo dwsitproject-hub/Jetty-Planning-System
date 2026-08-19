@@ -291,6 +291,7 @@
   "cargoOpsQtyBasis": "QTY (basis before line 1)",
   "cargoOpsBasisMissingHint": "No cargo quantity is stored on the linked shipping instruction yet. Open the SI and add cargo line(s) with quantity (breakdown). Totals here use that SI data only.",
   "cargoOpsQtyLoad": "QTY Loading",
+  "cargoOpsQtyMovement": "QTY Movement",
   "cargoOpsQtyUnload": "QTY Unloading",
   "cargoOpsQtyWb": "QTY WB",
   "cargoOpsQtyPlaceholder": "e.g. 1000",

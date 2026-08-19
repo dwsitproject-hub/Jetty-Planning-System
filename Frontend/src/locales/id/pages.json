@@ -291,6 +291,7 @@
   "cargoOpsQtyBasis": "QTY (dasar sebelum baris 1)",
   "cargoOpsBasisMissingHint": "Belum ada kuantitas kargo pada shipping instruction terkait. Buka SI dan tambahkan baris kargo (breakdown) berisi qty. Total di sini hanya dari data SI.",
   "cargoOpsQtyLoad": "QTY Muat",
+  "cargoOpsQtyMovement": "QTY Pergerakan",
   "cargoOpsQtyUnload": "QTY Bongkar",
   "cargoOpsQtyWb": "QTY WB",
   "cargoOpsQtyPlaceholder": "mis. 1000",

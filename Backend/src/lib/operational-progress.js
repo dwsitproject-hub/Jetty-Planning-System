@@ -565,6 +565,8 @@ export async function getOperationalProgress(db, operationId) {
     warnings: uniqueWarnings,
     dailyBars,
     cumulativeSeries,
+    siQty: siTotal,
+    siMetric: unit,
     rateSummary: {
       movedLine:
         siTotal != null

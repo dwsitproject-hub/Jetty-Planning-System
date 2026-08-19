@@ -62,8 +62,8 @@ export default function OperationalProgressSection({
   const rateSummary = progress?.rateSummary || {}
   const tz = progress?.scheduleTimezone || scheduleTimezone
 
-  const cargoSiQty = parsedQty?.total ?? null
-  const cargoSiMetricLabel = parsedQty?.unit ?? null
+  const cargoSiQty = progress?.siQty ?? parsedQty?.total ?? null
+  const cargoSiMetricLabel = progress?.siMetric ?? parsedQty?.unit ?? null
 
   return (
     <section className="berthing-modal__card operational-progress-section">
@@ -105,8 +105,8 @@ export default function OperationalProgressSection({
           <CargoDischargeProgressChart
             dailyBars={dailyBars}
             cumulativeSeries={cumulativeSeries}
-            totalQty={parsedQty?.total ?? null}
-            unit={parsedQty?.unit ?? 'MT'}
+            totalQty={cargoSiQty}
+            unit={cargoSiMetricLabel ?? 'MT'}
             timezone={tz}
             operationalDayStart={progress?.operationalDayStart || '06:00:00'}
           />
