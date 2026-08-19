@@ -412,6 +412,11 @@ export function fetchOperationalProgress(operationId) {
   return apiGet(`/operations/${operationId}/operational-progress`)
 }
 
+export function fetchAtBerthCargoProgress(ids) {
+  const q = Array.isArray(ids) && ids.length ? `?ids=${ids.join(',')}` : ''
+  return apiGet(`/operations/at-berth/cargo-progress${q}`)
+}
+
 export function fetchCargoHandlingMethods() {
   return apiGet('/master/cargo-handling-methods')
 }

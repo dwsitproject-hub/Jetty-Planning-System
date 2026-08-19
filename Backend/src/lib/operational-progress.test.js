@@ -4,6 +4,7 @@ import {
   buildManualDailyBarsForLine,
   mergeDailyBars,
   resolveLineMode,
+  summarizeCargoProgressContext,
 } from './operational-progress.js';
 import {
   currentOperationalDateKey,
@@ -188,5 +189,165 @@ describe('currentOperationalDateKey', () => {
       DEFAULT_OPERATIONAL_DAY_START
     );
     assert.equal(key, '2026-08-03');
+  });
+});
+
+function mockDbForCargoSummary({ atgTankIds = new Set(), atgDelta = 500 }) {
+  return {
+    query: async (sql, params) => {
+      if (sql.includes('tank_gauging_tank_map')) {
+        const tankId = Number(params[0]);
+        return { rows: atgTankIds.has(tankId) ? [{ 1: 1 }] : [] };
+      }
+      return { rows: [] };
+    },
+    _atgDelta: atgDelta,
+    async computeAtg() {
+      return {
+        ok: true,
+        incomplete: false,
+        sumDeltaMass: atgDelta,
+        tanks: [],
+      };
+    },
+  };
+}
+
+describe('summarizeCargoProgressContext', () => {
+  const baseCtx = {
+    operationId: 1,
+    timezone: 'Asia/Jakarta',
+    dayStartTime: DEFAULT_OPERATIONAL_DAY_START,
+    commodityType: 'Liquid',
+    siQty: 5000,
+    siMetric: 'MT',
+    lines: [],
+  };
+
+  it('returns null when no tank-connected lines', async () => {
+    const db = mockDbForCargoSummary({});
+    const result = await summarizeCargoProgressContext(db, {
+      ...baseCtx,
+      lines: [{ id: 1, qty: 100, startedAt: '2026-08-04T08:00:00+07:00', endedAt: null, tankIds: [] }],
+    });
+    assert.equal(result, null);
+  });
+
+  it('returns null when tanks assigned but cargo not started', async () => {
+    const db = mockDbForCargoSummary({ atgTankIds: new Set([42]) });
+    const result = await summarizeCargoProgressContext(db, {
+      ...baseCtx,
+      lines: [{ id: 1, qty: null, startedAt: null, endedAt: null, tankIds: [42], atgQtyMode: 'auto' }],
+    });
+    assert.equal(result, null);
+  });
+
+  it('sums closed manual segment qty', async () => {
+    const db = mockDbForCargoSummary({});
+    const result = await summarizeCargoProgressContext(db, {
+      ...baseCtx,
+      lines: [
+        {
+          id: 1,
+          qty: 1530,
+          manualQty: 1530,
+          atgQtyMode: 'auto',
+          startedAt: '2026-08-04T08:00:00+07:00',
+          endedAt: '2026-08-04T16:00:00+07:00',
+          tankIds: [99],
+        },
+      ],
+    });
+    assert.ok(result);
+    assert.equal(result.connected, true);
+    assert.equal(result.source, 'manual');
+    assert.equal(result.movedQty, 1530);
+    assert.equal(result.completionPercent, 31);
+    assert.equal(result.isLive, false);
+  });
+
+  it('sums closed ATG segment qty from saved line qty', async () => {
+    const db = mockDbForCargoSummary({ atgTankIds: new Set([42]) });
+    const result = await summarizeCargoProgressContext(db, {
+      ...baseCtx,
+      lines: [
+        {
+          id: 1,
+          qty: 890,
+          atgQtyMode: 'auto',
+          startedAt: '2026-08-04T08:00:00+07:00',
+          endedAt: '2026-08-04T16:00:00+07:00',
+          tankIds: [42],
+        },
+      ],
+    });
+    assert.ok(result);
+    assert.equal(result.source, 'atg');
+    assert.equal(result.movedQty, 890);
+    assert.equal(result.completionPercent, 18);
+  });
+
+  it('computes live ATG delta for open segment', async () => {
+    const db = mockDbForCargoSummary({ atgTankIds: new Set([42]) });
+    const result = await summarizeCargoProgressContext(
+      db,
+      {
+        ...baseCtx,
+        siQty: 2100,
+        lines: [
+          {
+            id: 1,
+            qty: null,
+            atgQtyMode: 'auto',
+            startedAt: '2026-08-04T08:00:00+07:00',
+            endedAt: null,
+            tankIds: [42],
+          },
+        ],
+      },
+      {
+        computeAtg: async () => ({
+          ok: true,
+          incomplete: false,
+          sumDeltaMass: 420,
+          tanks: [],
+        }),
+      }
+    );
+    assert.ok(result);
+    assert.equal(result.source, 'atg');
+    assert.equal(result.movedQty, 420);
+    assert.equal(result.completionPercent, 20);
+    assert.equal(result.isLive, true);
+    assert.equal(result.hasActiveCargo, true);
+  });
+
+  it('reports hybrid when ATG and manual tanks present across lines', async () => {
+    const db = mockDbForCargoSummary({ atgTankIds: new Set([42]) });
+    const result = await summarizeCargoProgressContext(db, {
+      ...baseCtx,
+      lines: [
+        {
+          id: 1,
+          qty: 500,
+          atgQtyMode: 'auto',
+          startedAt: '2026-08-04T08:00:00+07:00',
+          endedAt: '2026-08-04T12:00:00+07:00',
+          tankIds: [42],
+        },
+        {
+          id: 2,
+          qty: 200,
+          manualQty: 200,
+          atgQtyMode: 'auto',
+          startedAt: '2026-08-04T13:00:00+07:00',
+          endedAt: '2026-08-04T16:00:00+07:00',
+          tankIds: [99],
+        },
+      ],
+    });
+    assert.ok(result);
+    assert.equal(result.source, 'hybrid');
+    assert.equal(result.movedQty, 700);
   });
 });

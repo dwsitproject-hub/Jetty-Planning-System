@@ -18,6 +18,7 @@ import { validateBerthingTimeline, validateScheduleTimestamp } from '../lib/vali
 import { userHasPageApprove, userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
 import { enrichRowsWithCargoDisplay } from '../lib/siBreakdownDisplay.js';
+import { getAtBerthCargoProgressSummaries } from '../lib/operational-progress.js';
 
 const router = express.Router();
 const AT_BERTH_STATUSES = [
@@ -225,6 +226,53 @@ router.get('/at-berth', async (req, res) => {
     [AT_BERTH_STATUSES, selectedPortId]
   );
   res.json(result.rows.map(toOp));
+});
+
+router.get('/at-berth/cargo-progress', async (req, res) => {
+  const selectedPortId = Number(req.selectedPortId);
+  const idsParam = typeof req.query.ids === 'string' ? req.query.ids.trim() : '';
+  let operationIds = idsParam
+    ? idsParam
+        .split(',')
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => !Number.isNaN(n) && n > 0)
+    : null;
+
+  if (!operationIds?.length) {
+    const atBerthR = await pool.query(
+      `SELECT o.id
+       FROM operations o
+       JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
+       LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
+       LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
+       WHERE o.deleted_at IS NULL
+         AND COALESCE(o.port_id, p.id) = $2
+         AND o.status <> 'SAILED'
+         AND (
+           o.status = ANY($1)
+           OR o.tb IS NOT NULL
+           OR o.docking_start_time IS NOT NULL
+         )`,
+      [AT_BERTH_STATUSES, selectedPortId]
+    );
+    operationIds = atBerthR.rows.map((r) => Number(r.id)).filter((n) => n > 0);
+  } else {
+    const scopedR = await pool.query(
+      `SELECT o.id
+       FROM operations o
+       JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
+       LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
+       LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
+       WHERE o.deleted_at IS NULL
+         AND COALESCE(o.port_id, p.id) = $1
+         AND o.id = ANY($2::int[])`,
+      [selectedPortId, operationIds]
+    );
+    operationIds = scopedR.rows.map((r) => Number(r.id)).filter((n) => n > 0);
+  }
+
+  const summaries = await getAtBerthCargoProgressSummaries(pool, operationIds);
+  res.json({ summaries });
 });
 
 /**

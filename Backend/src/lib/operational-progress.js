@@ -629,4 +629,131 @@ export async function runDailyProgressAggregationSweep(db, opts = {}) {
   return { ok: true, upserted: totalUpserted };
 }
 
+/**
+ * Summarize moved cargo qty for dashboard (ATG live + manual saved).
+ * @param {import('pg').Pool|import('pg').PoolClient} db
+ * @param {Awaited<ReturnType<typeof loadOperationProgressContext>>} ctx
+ */
+export async function summarizeCargoProgressContext(db, ctx, opts = {}) {
+  const computeAtg = opts.computeAtg ?? ((params) => computeAtgWindowMassDelta(db, params));
+  if (!ctx) return null;
+
+  const hasTankLine = ctx.lines.some((l) => l.tankIds?.length > 0);
+  if (!hasTankLine) return null;
+
+  const activeLines = ctx.lines.filter((l) => l.startedAt && l.tankIds?.length > 0);
+  if (activeLines.length === 0) return null;
+
+  let movedQty = 0;
+  let hasAtg = false;
+  let hasManual = false;
+  let isLive = false;
+  let hasActiveCargo = false;
+  let atgPartial = false;
+
+  for (const line of ctx.lines) {
+    if (!line.startedAt || !line.tankIds?.length) continue;
+
+    const { atgTankIds, manualTankIds } = await partitionLineTanks(db, line.tankIds);
+    const mode = resolveLineMode({
+      commodityType: ctx.commodityType,
+      atgTankIds,
+      manualTankIds,
+      atgQtyMode: line.atgQtyMode,
+    });
+
+    if (mode === 'atg' || mode === 'mixed') hasAtg = true;
+    if (mode === 'manual' || mode === 'mixed') hasManual = true;
+
+    if (line.endedAt) {
+      movedQty += Number(line.qty) || 0;
+      continue;
+    }
+
+    hasActiveCargo = true;
+
+    if (mode === 'manual' || line.atgQtyMode === 'manual') {
+      continue;
+    }
+
+    if ((mode === 'atg' || mode === 'mixed') && atgTankIds.length) {
+      const result = await computeAtg({
+        tankIds: atgTankIds,
+        startAt: line.startedAt,
+        endAt: new Date().toISOString(),
+      });
+      if (result.ok && result.sumDeltaMass != null) {
+        movedQty += Number(result.sumDeltaMass) || 0;
+        isLive = true;
+        if (result.incomplete) atgPartial = true;
+      } else if (mode === 'mixed' && line.manualQty != null) {
+        movedQty += Number(line.manualQty) || 0;
+      } else if (result.incomplete) {
+        atgPartial = true;
+      }
+    }
+  }
+
+  let source = 'manual';
+  if (hasAtg && hasManual) source = 'hybrid';
+  else if (hasAtg) source = 'atg';
+
+  const siQty = ctx.siQty;
+  const completionPercent =
+    siQty != null && siQty > 0 ? Math.min(100, Math.round((movedQty / siQty) * 100)) : null;
+
+  return {
+    connected: true,
+    source,
+    movedQty,
+    siQty,
+    siMetric: ctx.siMetric || 'MT',
+    completionPercent,
+    isLive,
+    hasActiveCargo,
+    atgPartial,
+  };
+}
+
+/**
+ * @param {import('pg').Pool|import('pg').PoolClient} db
+ * @param {number} operationId
+ */
+export async function getAtBerthCargoProgressSummary(db, operationId) {
+  const ctx = await loadOperationProgressContext(db, operationId);
+  if (!ctx) return null;
+  return summarizeCargoProgressContext(db, ctx);
+}
+
+/**
+ * @param {import('pg').Pool|import('pg').PoolClient} db
+ * @param {Array<number|string>} operationIds
+ * @param {object} [opts]
+ */
+export async function getAtBerthCargoProgressSummaries(db, operationIds, opts = {}) {
+  const concurrency = opts.concurrency ?? 5;
+  const ids = [...new Set((operationIds || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
+  /** @type {Record<string, Awaited<ReturnType<typeof getAtBerthCargoProgressSummary>>>} */
+  const summaries = {};
+
+  for (let i = 0; i < ids.length; i += concurrency) {
+    const batch = ids.slice(i, i + concurrency);
+    const pairs = await Promise.all(
+      batch.map(async (id) => {
+        try {
+          const summary = await getAtBerthCargoProgressSummary(db, id);
+          return [String(id), summary];
+        } catch {
+          return [String(id), null];
+        }
+      })
+    );
+    for (const [id, summary] of pairs) {
+      summaries[id] = summary;
+    }
+  }
+
+  return summaries;
+}
+
 export { DEFAULT_OPERATIONAL_DAY_START, parseOperationalDayStart };

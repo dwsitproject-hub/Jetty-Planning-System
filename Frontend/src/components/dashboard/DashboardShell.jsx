@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { fetchOperations, fetchAtBerth, fetchSubProcesses, fetchOperationalActivities } from '../../api/operations'
+import { fetchOperations, fetchAtBerth, fetchSubProcesses, fetchOperationalActivities, fetchAtBerthCargoProgress } from '../../api/operations'
 import { fetchShipmentPlans } from '../../api/shipmentPlans'
 import { fetchDashboardV2Weekly, fetchDashboardV2PipelineActuals, fetchDashboardV2SlotOccupancy, fetchDashboardV2SlaAtRisk } from '../../api/dashboardV2'
 import { fetchJetties } from '../../api/jetties'
@@ -13,6 +13,7 @@ import WidgetDetailModal from '../WidgetDetailModal'
 import DashboardV2WeeklyTrends from '../DashboardV2WeeklyTrends'
 import DropdownMultiSelect from '../DropdownMultiSelect'
 import DateRangePicker from './DateRangePicker'
+import BerthBoardCargoCell from './BerthBoardCargoCell'
 import { computePipelinePartition } from '../../utils/dashboardPipelinePartition'
 import { isLegacyVesselPipelineEnabled } from '../../utils/pipelineActualsBeta'
 import {
@@ -63,6 +64,7 @@ export default function DashboardShell({ mode = 'live' }) {
   const [arrivalPlans, setArrivalPlans] = useState([])
   const [allOps, setAllOps] = useState([])
   const [berthDetails, setBerthDetails] = useState({})
+  const [cargoProgressByOpId, setCargoProgressByOpId] = useState({})
   const [nowTick, setNowTick] = useState(() => Date.now())
   const [loading, setLoading] = useState(true)
   const [weeklyLoading, setWeeklyLoading] = useState(false)
@@ -117,6 +119,7 @@ export default function DashboardShell({ mode = 'live' }) {
       setJetties([])
       setArrivalPlans([])
       setAllOps([])
+      setCargoProgressByOpId({})
       if (isAnalytics) {
         setWeeklyTrends(null)
         setPipelineActuals(null)
@@ -143,13 +146,14 @@ export default function DashboardShell({ mode = 'live' }) {
       const arrivalsEnd = new Date()
       arrivalsEnd.setDate(arrivalsEnd.getDate() + 3)
 
-      const [rAtBerth, rJetties, rArrivals] = await Promise.all([
+      const [rAtBerth, rJetties, rArrivals, rCargoProgress] = await Promise.all([
         run('at-berth', fetchAtBerth),
         run('jetties', () => fetchJetties(selectedPortId)),
         run('arrivals', () => fetchShipmentPlans({
           startDate: fmtLocalDate(arrivalsStart),
           endDate: fmtLocalDate(arrivalsEnd),
         })),
+        run('cargo-progress', fetchAtBerthCargoProgress),
       ])
 
       setPlans([])
@@ -158,6 +162,7 @@ export default function DashboardShell({ mode = 'live' }) {
       setAtBerth(Array.isArray(rAtBerth.v) ? rAtBerth.v : [])
       setJetties(Array.isArray(rJetties.v) ? rJetties.v : [])
       setArrivalPlans(Array.isArray(rArrivals.v) ? rArrivals.v : [])
+      setCargoProgressByOpId(rCargoProgress.v?.summaries ?? {})
     } else {
       // Arrivals window is live (yesterday → +3 days), independent of the selected range
       const arrivalsStart = new Date()
@@ -677,11 +682,12 @@ export default function DashboardShell({ mode = 'live' }) {
         norAccepted: !!o.norAcceptedAt,
         signoffPending: o.status === 'SIGNOFF_REQUESTED',
         readyToSail: o.status === 'SIGNOFF_APPROVED',
+        cargoProgress: cargoProgressByOpId[String(o.id)] ?? null,
       }
     })
     rows.sort((a, b) => (b.alongsideHours ?? 0) - (a.alongsideHours ?? 0))
     return rows
-  }, [filteredAtBerth, berthDetails, nowTick])
+  }, [filteredAtBerth, berthDetails, cargoProgressByOpId, nowTick])
 
   // ─── Ops finished but not cast off (live clearance-lag alert) ──────────────
   const awaitingDeparture = useMemo(() => {
@@ -1404,6 +1410,7 @@ export default function DashboardShell({ mode = 'live' }) {
                       <th>{t('v2BoardJetty')}</th>
                       <th>{t('v2FilterPurpose')}</th>
                       <th>{t('v2BoardPhase')}</th>
+                      <th className="v2-board-r">{t('v2BoardCargoMoved')}</th>
                       <th className="v2-board-r">{t('v2BoardAlongside')}</th>
                       <th className="v2-board-r">{t('v2BoardEtc')}</th>
                       <th>{t('v2BoardFlags')}</th>
@@ -1426,6 +1433,9 @@ export default function DashboardShell({ mode = 'live' }) {
                           {r.phase
                             ? `${PHASE_EMOJI[r.phase] || ''} ${phaseShortLabel[r.phase]}`
                             : r.readyToSail ? `✅ ${t('clearanceReady')}` : `⚠ ${t('clearancePendingSignOff')}`}
+                        </td>
+                        <td className="v2-board-r">
+                          <BerthBoardCargoCell cargoProgress={r.cargoProgress} />
                         </td>
                         <td className="v2-board-r">{formatDurationHours(r.alongsideHours)}</td>
                         <td className="v2-board-r">
