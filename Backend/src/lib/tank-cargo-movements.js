@@ -141,6 +141,16 @@ export function groupTankBoardRows(rows, { nowMs = Date.now() } = {}) {
         sortOrder: row.sort_order != null ? Number(row.sort_order) : 0,
         hasAtg: Boolean(row.has_atg),
         sourceLastPollOk: row.source_last_poll_ok ?? null,
+        sourceLastPollAt: row.source_last_poll_at
+          ? new Date(row.source_last_poll_at).toISOString()
+          : null,
+        sourceLastError: row.source_last_error ?? null,
+        sourceBaseUrl: row.source_base_url ?? null,
+        productName: row.product_name ?? null,
+        currentMass: row.current_mass != null ? Number(row.current_mass) : null,
+        currentVolume:
+          row.current_volume != null ? Number(row.current_volume) : null,
+        recordedAt: row.recorded_at ? new Date(row.recorded_at).toISOString() : null,
         segments: [],
       });
     }

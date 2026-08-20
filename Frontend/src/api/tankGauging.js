@@ -59,12 +59,13 @@ export function testTankGaugingSource(id, body = {}) {
 /**
  * @param {{ portId: string|number, tankIds: Array<string|number>, from: string, to: string, maxPoints?: number }} opts
  */
-export function fetchTankGaugingSamples({ portId, tankIds, from, to, maxPoints = 500 }) {
+export function fetchTankGaugingSamples({ portId, tankIds, from, to, maxPoints = 500, detail = false }) {
   const params = new URLSearchParams()
   params.set('portId', String(portId))
   params.set('tankIds', (Array.isArray(tankIds) ? tankIds : []).join(','))
   params.set('from', from)
   params.set('to', to)
   params.set('maxPoints', String(maxPoints))
+  if (detail) params.set('detail', '1')
   return apiGet(`/tank-gauging/samples?${params.toString()}`)
 }

@@ -60,19 +60,42 @@ export function downsampleTankGaugingSamples(samples, maxPoints) {
 }
 
 /**
- * @param {Array<{ tank_id: number|string, sampled_at: Date|string, total_mass: number|string }>} rows
+ * @param {Array<object>} rows
  * @param {number} maxPoints
+ * @param {boolean} [detail=false]
  */
-export function groupAndDownsampleSampleRows(rows, maxPoints) {
+export function mapSampleRow(row, detail = false) {
+  const base = {
+    sampledAt: new Date(row.sampled_at).toISOString(),
+    totalMass: Number(row.total_mass),
+  };
+  if (!detail) return base;
+  return {
+    ...base,
+    levelMm: row.level_mm != null ? Number(row.level_mm) : null,
+    temperatureC: row.temperature_c != null ? Number(row.temperature_c) : null,
+    observedDensityKgM3:
+      row.observed_density_kg_m3 != null ? Number(row.observed_density_kg_m3) : null,
+    totalObservedVolume:
+      row.total_observed_volume != null ? Number(row.total_observed_volume) : null,
+    statusText: row.status_text ?? null,
+    productName: row.product_name ?? null,
+  };
+}
+
+/**
+ * @param {Array<object>} rows
+ * @param {number} maxPoints
+ * @param {object} [opts]
+ * @param {boolean} [opts.detail=false]
+ */
+export function groupAndDownsampleSampleRows(rows, maxPoints, { detail = false } = {}) {
   const byTank = new Map();
 
   for (const row of rows) {
     const tankId = String(row.tank_id);
     if (!byTank.has(tankId)) byTank.set(tankId, []);
-    byTank.get(tankId).push({
-      sampledAt: new Date(row.sampled_at).toISOString(),
-      totalMass: Number(row.total_mass),
-    });
+    byTank.get(tankId).push(mapSampleRow(row, detail));
   }
 
   const samples = {};

@@ -13,3 +13,12 @@ export function fetchTankCargoMovementBoard({ portId, from, to, tankIds }) {
   }
   return apiGet(`/tank-cargo-movements/board?${params.toString()}`)
 }
+
+export function fetchSegmentInspect({ portId, loadLineId, tankId }) {
+  const params = new URLSearchParams()
+  params.set('portId', String(portId))
+  params.set('tankId', String(tankId))
+  return apiGet(
+    `/tank-cargo-movements/segments/${encodeURIComponent(String(loadLineId))}/inspect?${params.toString()}`
+  )
+}

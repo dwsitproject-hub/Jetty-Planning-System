@@ -2,14 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { DateTime } from 'luxon'
-import { fetchTankCargoMovementBoard } from '../api/cargoMovement'
-import { fetchTankGaugingSamples } from '../api/tankGauging'
 import { fetchPorts } from '../api/ports'
-import CargoMovementBoard from '../components/cargoMovement/CargoMovementBoard.jsx'
+import CargoMovementBoardV2 from '../components/cargoMovement-v2/CargoMovementBoardV2.jsx'
+import { useCargoMovementBoard } from '../components/cargoMovement-v2/hooks/useCargoMovementBoard.js'
 import { usePortScope } from '../context/PortScopeContext.jsx'
 import { useRbac } from '../context/RbacContext.jsx'
-import '../styles/allocation.css'
-import '../styles/cargo-movement.css'
+import '../styles/cargo-movement-tailwind.css'
 
 const PAGE_KEY = 'cargo-movement'
 
@@ -32,13 +30,9 @@ export default function CargoMovementVisualization() {
   const initial = useMemo(() => defaultRangeDays(7), [])
   const [fromInput, setFromInput] = useState(initial.fromLocal)
   const [toInput, setToInput] = useState(initial.toLocal)
-  const [board, setBoard] = useState(null)
-  const [samplesByTank, setSamplesByTank] = useState({})
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-  const [filters, setFilters] = useState({ atgOnly: false, hasMovement: false, showIdle: false })
   const [ports, setPorts] = useState([])
   const [portId, setPortId] = useState(selectedPortId ? String(selectedPortId) : '')
+  const [range, setRange] = useState({ from: initial.from, to: initial.to })
 
   useEffect(() => {
     fetchPorts()
@@ -65,137 +59,79 @@ export default function CargoMovementVisualization() {
     return { from: fromDt.toUTC().toISO(), to: toDt.toUTC().toISO() }
   }, [fromInput, toInput])
 
-  const loadBoard = useCallback(async () => {
-    if (!portId || !canView(PAGE_KEY)) return
-    const range = parseRange()
-    if (!range) {
-      setError(t('cargoMovementInvalidRange'))
-      return
-    }
-    setLoading(true)
-    setError(null)
-    try {
-      const payload = await fetchTankCargoMovementBoard({
-        portId,
-        from: range.from,
-        to: range.to,
-      })
-      setBoard(payload)
-
-      const tankIds = (payload?.tanks ?? [])
-        .filter((tk) => tk.hasAtg && (tk.segments?.length ?? 0) > 0)
-        .map((tk) => tk.tankId)
-
-      if (tankIds.length) {
-        const samplePayload = await fetchTankGaugingSamples({
-          portId,
-          tankIds,
-          from: range.from,
-          to: range.to,
-        })
-        setSamplesByTank(samplePayload?.samples ?? {})
-      } else {
-        setSamplesByTank({})
-      }
-    } catch (e) {
-      setBoard(null)
-      setSamplesByTank({})
-      setError(e?.message || t('cargoMovementLoadError'))
-    } finally {
-      setLoading(false)
-    }
-  }, [portId, canView, parseRange, t])
-
   useEffect(() => {
-    loadBoard()
-  }, [loadBoard])
+    const r = parseRange()
+    if (r) setRange(r)
+  }, [fromInput, toInput, parseRange])
+
+  const allowed = canView(PAGE_KEY)
+  const { board, samplesByTank, loading, error, reload } = useCargoMovementBoard({
+    portId,
+    from: range.from,
+    to: range.to,
+    enabled: allowed && Boolean(portId),
+  })
 
   const applyQuickRange = (days) => {
     const r = defaultRangeDays(days)
     setFromInput(r.fromLocal)
     setToInput(r.toLocal)
+    setRange({ from: r.from, to: r.to })
   }
 
-  if (!canView(PAGE_KEY)) {
+  const handleRefresh = () => {
+    const r = parseRange()
+    if (!r) return
+    setRange(r)
+    reload()
+  }
+
+  if (!allowed) {
     return (
-      <div className="allocation-page">
-        <h1 className="page-title">{t('cargoMovementTitle')}</h1>
-        <p className="text-steel">{t('cargoMovementNoAccess')}</p>
+      <div className="cm-root min-h-full bg-slate-50 p-4 text-slate-900">
+        <h1 className="text-xl font-semibold">{t('cargoMovementTitle')}</h1>
+        <p className="mt-2 text-sm text-slate-600">{t('cargoMovementNoAccess')}</p>
       </div>
     )
   }
 
   return (
-    <div className="allocation-page cargo-movement-page" data-page-key={PAGE_KEY}>
-      <h1 className="page-title">{t('cargoMovementTitle')}</h1>
-      <p className="allocation-page__intro">{t('cargoMovementDesc')}</p>
-      <p className="text-steel">
-        <Link to="/tank-farm" className="link">{t('cargoMovementBackTankFarm')}</Link>
-        {' · '}
-        <Link to="/at-berth" className="link">{t('cargoMovementBackAtBerth')}</Link>
-      </p>
-
-      <div className="cargo-movement-toolbar card" style={{ padding: '0.75rem 1rem' }}>
-        <strong>{portName || t('cargoMovementPort')}</strong>
-        {ports.length > 1 ? (
-          <label>
-            {t('cargoMovementPort')}
-            <select
-              className="berthing-modal__input"
-              value={portId}
-              onChange={(e) => setPortId(e.target.value)}
-            >
-              {ports.map((p) => (
-                <option key={p.id} value={String(p.id)}>{p.name || `#${p.id}`}</option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-        <label>
-          {t('cargoMovementFrom')}
-          <input
-            type="datetime-local"
-            className="berthing-modal__input"
-            value={fromInput}
-            onChange={(e) => setFromInput(e.target.value)}
-          />
-        </label>
-        <label>
-          {t('cargoMovementTo')}
-          <input
-            type="datetime-local"
-            className="berthing-modal__input"
-            value={toInput}
-            onChange={(e) => setToInput(e.target.value)}
-          />
-        </label>
-        <button type="button" className="btn btn--secondary btn--small" onClick={() => applyQuickRange(7)}>
-          7d
-        </button>
-        <button type="button" className="btn btn--secondary btn--small" onClick={() => applyQuickRange(14)}>
-          14d
-        </button>
-        <button type="button" className="btn btn--secondary btn--small" onClick={() => applyQuickRange(30)}>
-          30d
-        </button>
-        <button type="button" className="btn btn--primary btn--small" onClick={loadBoard} disabled={loading}>
-          {t('cargoMovementRefresh')}
-        </button>
-      </div>
+    <div className="cm-root min-h-full bg-slate-50 p-4 text-slate-900">
+      <header className="mb-4">
+        <h1 className="text-xl font-semibold tracking-tight">{t('cargoMovementTitle')}</h1>
+        <p className="mt-1 text-sm text-slate-600">{t('cargoMovementDesc')}</p>
+        <p className="mt-2 text-sm">
+          <Link to="/tank-farm" className="text-slate-700 underline hover:text-slate-900">
+            {t('cargoMovementBackTankFarm')}
+          </Link>
+          {' · '}
+          <Link to="/at-berth" className="text-slate-700 underline hover:text-slate-900">
+            {t('cargoMovementBackAtBerth')}
+          </Link>
+        </p>
+      </header>
 
       {error ? (
-        <p className="allocation-page__intro" style={{ color: 'var(--color-danger, #c00)' }} role="alert">
-          {error}
-        </p>
+        <p className="mb-3 text-sm text-red-700" role="alert">{error}</p>
+      ) : null}
+      {!parseRange() && fromInput && toInput ? (
+        <p className="mb-3 text-sm text-red-700">{t('cargoMovementInvalidRange')}</p>
       ) : null}
 
-      <CargoMovementBoard
+      <CargoMovementBoardV2
         board={board}
         samplesByTank={samplesByTank}
-        filters={filters}
-        onFilterChange={setFilters}
         loading={loading}
-        onRefresh={loadBoard}
+        onRefresh={handleRefresh}
+        portName={portName}
+        ports={ports}
+        portId={portId}
+        onPortChange={setPortId}
+        fromInput={fromInput}
+        toInput={toInput}
+        onFromChange={setFromInput}
+        onToChange={setToInput}
+        onQuickRange={applyQuickRange}
         t={t}
       />
     </div>

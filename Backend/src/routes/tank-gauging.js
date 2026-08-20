@@ -128,7 +128,10 @@ router.get('/samples', ...requirePageView('cargo-movement'), async (req, res) =>
   const fromRaw = req.query.from ?? req.query.from_at;
   const toRaw = req.query.to ?? req.query.to_at;
   const maxPointsRaw = parseInt(String(req.query.maxPoints ?? req.query.max_points ?? '500'), 10);
-  const maxPoints = Number.isFinite(maxPointsRaw) && maxPointsRaw > 0 ? Math.min(maxPointsRaw, 5000) : 500;
+  const detail =
+    req.query.detail === '1' ||
+    req.query.detail === 'true' ||
+    req.query.detail === true;
 
   if (portId == null) {
     return res.status(400).json({ error: 'portId is required' });
@@ -151,6 +154,14 @@ router.get('/samples', ...requirePageView('cargo-movement'), async (req, res) =>
     return res.status(400).json({ error: 'from must be before to' });
   }
 
+  const windowMs = to.getTime() - from.getTime();
+  const detailCap = windowMs <= 24 * 3600 * 1000 ? 2000 : 1000;
+  const defaultCap = detail ? detailCap : 500;
+  const maxPoints =
+    Number.isFinite(maxPointsRaw) && maxPointsRaw > 0
+      ? Math.min(maxPointsRaw, detail ? detailCap : 5000)
+      : defaultCap;
+
   const portCheck = await pool.query(
     `SELECT id FROM master_tanks
      WHERE id = ANY($1::bigint[]) AND port_id = $2 AND deleted_at IS NULL`,
@@ -160,8 +171,13 @@ router.get('/samples', ...requirePageView('cargo-movement'), async (req, res) =>
     return res.status(400).json({ error: 'One or more tanks are invalid for this port' });
   }
 
+  const sampleSelect = detail
+    ? `tank_id, sampled_at, total_mass, level_mm, temperature_c,
+       observed_density_kg_m3, total_observed_volume, status_text, product_name`
+    : `tank_id, sampled_at, total_mass`;
+
   const r = await pool.query(
-    `SELECT tank_id, sampled_at, total_mass
+    `SELECT ${sampleSelect}
      FROM tank_gauging_samples
      WHERE tank_id = ANY($1::bigint[])
        AND sampled_at >= $2::timestamptz
@@ -175,7 +191,8 @@ router.get('/samples', ...requirePageView('cargo-movement'), async (req, res) =>
     from: from.toISOString(),
     to: to.toISOString(),
     maxPoints,
-    samples: groupAndDownsampleSampleRows(r.rows, maxPoints),
+    detail,
+    samples: groupAndDownsampleSampleRows(r.rows, maxPoints, { detail }),
   });
 });
 

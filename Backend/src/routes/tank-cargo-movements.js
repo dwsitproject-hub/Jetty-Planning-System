@@ -7,6 +7,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePortScope } from '../middleware/port-scope.js';
 import { requirePageView } from '../middleware/permissions.js';
 import { groupTankBoardRows } from '../lib/tank-cargo-movements.js';
+import { buildSegmentInspectPayload } from '../lib/tank-cargo-movements-inspect.js';
 
 const router = express.Router();
 router.use(requireAuth, requirePortScope);
@@ -91,6 +92,13 @@ router.get('/board', ...requirePageView(PAGE_KEY), async (req, res) => {
        t.sort_order,
        (m.tank_id IS NOT NULL) AS has_atg,
        src.last_poll_ok AS source_last_poll_ok,
+       src.last_poll_at AS source_last_poll_at,
+       src.last_error AS source_last_error,
+       m.source_base_url,
+       gl.product_name,
+       gl.total_mass AS current_mass,
+       gl.total_observed_volume AS current_volume,
+       gl.recorded_at,
        l.id AS load_line_id,
        l.line_order,
        l.qty,
@@ -113,6 +121,7 @@ router.get('/board', ...requirePageView(PAGE_KEY), async (req, res) => {
      LEFT JOIN tank_gauging_sources src
        ON src.port_id = t.port_id
       AND src.base_url = m.source_base_url
+     LEFT JOIN tank_gauging_latest gl ON gl.tank_id = t.id
      LEFT JOIN operation_cargo_load_line_tanks clt ON clt.tank_id = t.id
      LEFT JOIN operation_cargo_load_lines l ON l.id = clt.load_line_id
      LEFT JOIN operation_operational_activities oa
@@ -153,6 +162,33 @@ router.get('/board', ...requirePageView(PAGE_KEY), async (req, res) => {
     scheduleTimezone: portR.rows[0].schedule_timezone || 'Asia/Jakarta',
     tanks,
   });
+});
+
+/** GET /tank-cargo-movements/segments/:loadLineId/inspect?portId=&tankId= */
+router.get('/segments/:loadLineId/inspect', ...requirePageView(PAGE_KEY), async (req, res) => {
+  const portId = parsePortId(req.query.portId ?? req.query.port_id);
+  const loadLineId = parseInt(String(req.params.loadLineId ?? '').trim(), 10);
+  const tankId = parseInt(String(req.query.tankId ?? req.query.tank_id ?? '').trim(), 10);
+
+  if (portId == null) {
+    return res.status(400).json({ error: 'portId is required' });
+  }
+  if (!Number.isFinite(loadLineId) || loadLineId <= 0) {
+    return res.status(400).json({ error: 'Invalid loadLineId' });
+  }
+  if (!Number.isFinite(tankId) || tankId <= 0) {
+    return res.status(400).json({ error: 'tankId is required' });
+  }
+  if (!assertPortAllowed(req, portId)) {
+    return res.status(403).json({ error: 'Selected port is not assigned to this user' });
+  }
+
+  const payload = await buildSegmentInspectPayload(pool, { portId, loadLineId, tankId });
+  if (!payload) {
+    return res.status(404).json({ error: 'Segment not found for this tank and port' });
+  }
+
+  res.json(payload);
 });
 
 export default router;

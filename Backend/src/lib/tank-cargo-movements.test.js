@@ -162,4 +162,31 @@ describe('groupTankBoardRows', () => {
     assert.equal(tk3502.segments[0].atgAuditStatus, 'manual_override');
     assert.equal(tk3502.currentMovement, null);
   });
+
+  it('maps latest mass, product, and poller metadata', () => {
+    const tanks = groupTankBoardRows([
+      {
+        tank_id: 27,
+        code: '3203',
+        name: 'TK 3203',
+        sort_order: 1,
+        has_atg: true,
+        source_last_poll_ok: false,
+        source_last_poll_at: '2026-08-20T02:00:00.000Z',
+        source_last_error: 'HTTP 502',
+        source_base_url: 'http://172.16.246.10',
+        product_name: 'Condensate',
+        current_mass: 542.89,
+        current_volume: 650.0,
+        recorded_at: '2026-08-20T03:00:00.000Z',
+      },
+    ]);
+
+    assert.equal(tanks.length, 1);
+    assert.equal(tanks[0].productName, 'Condensate');
+    assert.equal(tanks[0].currentMass, 542.89);
+    assert.equal(tanks[0].sourceLastPollOk, false);
+    assert.equal(tanks[0].sourceLastError, 'HTTP 502');
+    assert.equal(tanks[0].sourceBaseUrl, 'http://172.16.246.10');
+  });
 });
