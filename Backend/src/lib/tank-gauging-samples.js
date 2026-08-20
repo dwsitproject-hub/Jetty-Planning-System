@@ -3,6 +3,24 @@
  */
 
 /**
+ * Pick evenly spaced points across the full series (preserves timeline ends).
+ * @param {Array<{ sampledAt: string, totalMass: number }>} points — sorted ASC
+ * @param {number} maxPoints
+ */
+function evenlySubsamplePoints(points, maxPoints) {
+  if (points.length <= maxPoints) return points;
+  if (maxPoints < 2) return points.slice(0, maxPoints);
+
+  const out = [];
+  const lastIdx = points.length - 1;
+  for (let i = 0; i < maxPoints; i += 1) {
+    const idx = Math.round((i / (maxPoints - 1)) * lastIdx);
+    out.push(points[idx]);
+  }
+  return out;
+}
+
+/**
  * @param {Array<{ sampledAt: string, totalMass: number }>} samples — sorted ASC by sampledAt
  * @param {number} maxPoints
  * @returns {Array<{ sampledAt: string, totalMass: number }>}
@@ -56,7 +74,7 @@ export function downsampleTankGaugingSamples(samples, maxPoints) {
   }
 
   out.sort((a, b) => Date.parse(a.sampledAt) - Date.parse(b.sampledAt));
-  return out.length > maxPoints ? out.slice(-maxPoints) : out;
+  return evenlySubsamplePoints(out, maxPoints);
 }
 
 /**
