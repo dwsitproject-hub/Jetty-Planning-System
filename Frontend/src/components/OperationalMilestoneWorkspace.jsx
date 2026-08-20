@@ -279,8 +279,10 @@ export default function OperationalMilestoneWorkspace({
               manualQty:
                 l.manualQty != null && Number.isFinite(Number(l.manualQty)) ? String(l.manualQty) : '',
               atgQtyMode: l.atgQtyMode === 'manual' ? 'manual' : 'auto',
+              loadedManual: l.atgQtyMode === 'manual',
               start: startLoc,
               end: endLoc,
+              qtyTouched: true,
               tankIds: lineTankIds,
             }
           })
@@ -430,6 +432,7 @@ export default function OperationalMilestoneWorkspace({
                   ? String(l.manualQty)
                   : '',
               atgQtyMode: l.atgQtyMode === 'manual' ? 'manual' : 'auto',
+              loadedManual: l.atgQtyMode === 'manual',
               start: l.startAt ? isoOrDatetimeToLocal(l.startAt) : '',
               end: l.endAt ? isoOrDatetimeToLocal(l.endAt) : '',
               qtyTouched: true,
@@ -661,6 +664,17 @@ export default function OperationalMilestoneWorkspace({
             next.qtyTouched = false
           }
         }
+        const windowChanged =
+          (Object.prototype.hasOwnProperty.call(patch, 'start') && patch.start !== row.start) ||
+          (Object.prototype.hasOwnProperty.call(patch, 'end') && patch.end !== row.end) ||
+          Object.prototype.hasOwnProperty.call(patch, 'tankIds')
+        if (windowChanged && row.loadedManual) {
+          // The segment no longer covers the window that was stored as manual, so
+          // it goes back to ATG; the operator can mark it unavailable again if the
+          // new window has no gauge data.
+          next.loadedManual = false
+          next.atgQtyMode = 'auto'
+        }
         return next
       })
     )
@@ -874,31 +888,24 @@ export default function OperationalMilestoneWorkspace({
           }
           const { atgTankIds, manualTankIds } = partitionDraftTanks(li.tankIds, tankMetaById)
           const isMixed = commodityType === 'Liquid' && atgTankIds.length > 0 && manualTankIds.length > 0
-          if (isMixed && hasEnd && (manualQty == null || manualQty <= 0)) {
+          const hasAtgTanks = commodityType === 'Liquid' && atgTankIds.length > 0
+          const atgRef = atgRefByLineKey[li.key]
+          const atgOk =
+            atgRef?.status === 'ok' &&
+            !atgRef.incomplete &&
+            atgRef.sumDeltaMass != null &&
+            Number.isFinite(Number(atgRef.sumDeltaMass))
+          if (isMixed && atgQtyMode === 'auto' && hasEnd && (manualQty == null || manualQty <= 0)) {
             return { error: t('cargoOpsLineManualQtyRequired', { n: i + 1 }) }
           }
-          if (hasEnd && mq == null) {
-            // All-ATG with auto mode: allow ATG-filled qty; otherwise require entry
-            const atgRef = atgRefByLineKey[li.key]
-            const atgOk =
-              atgQtyMode === 'auto' &&
-              atgTankIds.length > 0 &&
-              manualTankIds.length === 0 &&
-              atgRef?.status === 'ok' &&
-              !atgRef.incomplete &&
-              atgRef.sumDeltaMass != null &&
-              Number.isFinite(Number(atgRef.sumDeltaMass))
-            if (atgOk) {
-              mq = Number(atgRef.sumDeltaMass)
-            } else if (isMixed && manualQty != null) {
-              const atgPart =
-                atgRef?.status === 'ok' && atgRef.sumDeltaMass != null
-                  ? Number(atgRef.sumDeltaMass) || 0
-                  : 0
-              mq = atgPart + manualQty
-            } else {
-              return { error: t('cargoOpsLineQtyRequiredWhenEnd', { n: i + 1 }) }
+          if (hasAtgTanks && atgQtyMode === 'auto' && hasEnd) {
+            // Server recomputes from ATG; block the save when it has nothing to compute.
+            if (!atgOk) {
+              return { error: t('cargoOpsLineAtgRequired', { n: i + 1 }) }
             }
+            mq = null
+          } else if (hasEnd && mq == null) {
+            return { error: t('cargoOpsLineQtyRequiredWhenEnd', { n: i + 1 }) }
           }
           if (commodityType === 'Liquid' && (!Array.isArray(li.tankIds) || li.tankIds.length === 0)) {
             return { error: t('cargoOpsLineTanksRequired', { n: i + 1 }) }
@@ -1431,15 +1438,21 @@ export default function OperationalMilestoneWorkspace({
                       !atgRef.incomplete &&
                       atgRef.sumDeltaMass != null &&
                       Number.isFinite(Number(atgRef.sumDeltaMass))
+                    const hasAtgTanks = commodityType === 'Liquid' && atgTankIds.length > 0
                     const atgUnavailable =
-                      commodityType === 'Liquid' &&
-                      atgTankIds.length > 0 &&
+                      hasAtgTanks &&
                       atgQtyMode === 'auto' &&
                       Boolean(row.end && row.start) &&
                       (atgRef?.status === 'error' ||
                         atgRef?.status === 'ok' && (atgRef.incomplete || !atgOk))
-                    const qtyDisabled =
-                      isAllAtg && atgQtyMode === 'auto' && atgOk && Boolean(row.end && row.start)
+                    // Quantity is ATG-owned whenever the line is in auto mode; the only
+                    // way to type a number is to mark ATG not available.
+                    const qtyDisabled = hasAtgTanks && atgQtyMode === 'auto'
+                    // Manual override is only offered when ATG cannot answer for this
+                    // window. Rows already stored as manual stay editable so they can be
+                    // reviewed and switched back to ATG.
+                    const manualToggleLocked = atgOk && !row.loadedManual
+                    const atgNowAvailable = atgOk && atgQtyMode === 'manual'
                     const atgFmt = atgOk
                       ? Number(atgRef.sumDeltaMass).toLocaleString(undefined, { maximumFractionDigits: 6 })
                       : null
@@ -1558,6 +1571,11 @@ export default function OperationalMilestoneWorkspace({
                                   {t('cargoOpsAtgUnavailableHint')}
                                 </p>
                               ) : null}
+                              {atgNowAvailable && atgFmt ? (
+                                <p className="cargo-line-card__qty-hint text-steel">
+                                  {t('cargoOpsAtgNowAvailableHint', { qty: atgFmt })}
+                                </p>
+                              ) : null}
                             </div>
                             {isMixed ? (
                               <div className="berthing-modal__field cargo-line-card__qty-field">
@@ -1601,22 +1619,30 @@ export default function OperationalMilestoneWorkspace({
                                         : t('cargoOpsAtgRefUnavailable')}
                                 </span>
                                 {atgRef?.incomplete && atgQtyMode === 'auto' ? (
-                                  <span className="cargo-line-card__atg-partial text-steel"> · {t('cargoOpsAtgRatePartial')}</span>
+                                  <span className="cargo-line-card__atg-partial text-steel">
+                                    {' '}
+                                    ·{' '}
+                                    {atgRef.sumDeltaMass == null
+                                      ? t('cargoOpsAtgNoSamples')
+                                      : t('cargoOpsAtgRatePartial')}
+                                  </span>
                                 ) : null}
                               </div>
                             ) : null}
                           </div>
 
-                          {isAllAtg ? (
+                          {hasAtgTanks ? (
                             <label
                               className="cargo-line-card__atg-mode"
                               htmlFor={`op-cargo-atg-manual-${lr.key}`}
                               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.35rem' }}
+                              title={manualToggleLocked ? t('cargoOpsAtgLockedHint') : undefined}
                             >
                               <input
                                 id={`op-cargo-atg-manual-${lr.key}`}
                                 type="checkbox"
                                 checked={atgQtyMode === 'manual'}
+                                disabled={manualToggleLocked}
                                 onChange={(e) =>
                                   updateCargoLineDraft(lr.key, {
                                     atgQtyMode: e.target.checked ? 'manual' : 'auto',
@@ -1625,6 +1651,9 @@ export default function OperationalMilestoneWorkspace({
                                 }
                               />
                               <span className="text-steel">{t('cargoOpsAtgNotAvailable')}</span>
+                              {manualToggleLocked ? (
+                                <span className="text-steel">· {t('cargoOpsAtgLockedHint')}</span>
+                              ) : null}
                             </label>
                           ) : null}
 

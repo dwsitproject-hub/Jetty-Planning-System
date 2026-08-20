@@ -71,6 +71,13 @@ export function viewModelFromOperationalEntries(entries, purpose) {
               id: l.id != null ? String(l.id) : undefined,
               lineOrder: Number(l.lineOrder ?? l.line_order ?? 0),
               qty: l.qty != null && l.qty !== '' ? Number(l.qty) : null,
+              manualQty:
+                l.manualQty != null && l.manualQty !== ''
+                  ? Number(l.manualQty)
+                  : l.manual_qty != null && l.manual_qty !== ''
+                    ? Number(l.manual_qty)
+                    : null,
+              atgQtyMode: (l.atgQtyMode ?? l.atg_qty_mode) === 'manual' ? 'manual' : 'auto',
               startAt: l.startAt ?? l.start_at ?? null,
               endAt: l.endAt ?? l.end_at ?? null,
               atgMassDelta:

@@ -10,6 +10,7 @@ import { optionalAuth } from '../middleware/auth.js';
 import { promoteDockedToInProgressIfDocked } from '../lib/operation-auto-status.js';
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
 import { computeAtgWindowMassDelta } from '../lib/atg-window-rate.js';
+import { resolveCargoLineQty } from '../lib/cargo-line-qty.js';
 import {
   aggregateAtgDailyProgressForOperation,
   getOperationalProgress,
@@ -157,6 +158,47 @@ async function sumOtherCargoOpsLineQty(q, operationId, excludeActivityId) {
   return Number(r.rows[0]?.s || 0);
 }
 
+/** Stable identity for a load segment: window + tank set (instant-based, format agnostic). */
+function manualLineWindowKey(startAt, endAt, tankIds) {
+  const stamp = (v) => {
+    if (v == null || v === '') return '';
+    const t = new Date(v).getTime();
+    return Number.isNaN(t) ? '' : String(t);
+  };
+  const tanks = (tankIds || []).map(Number).filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+  return `${stamp(startAt)}|${stamp(endAt)}|${tanks.join(',')}`;
+}
+
+/**
+ * Windows already stored as a manual override on this activity. Re-saving such a
+ * segment unchanged keeps the operator-entered quantity even once ATG catches up;
+ * moving its timestamps drops the grandfathering and recalculates from ATG.
+ * @param {import('pg').PoolClient|import('pg').Pool} q
+ * @param {number|null} activityId
+ * @returns {Promise<Set<string>>}
+ */
+async function loadManualLineWindows(q, activityId) {
+  if (activityId == null) return new Set();
+  const r = await q.query(
+    `SELECT l.started_at, l.ended_at,
+            COALESCE(
+              (SELECT array_agg(clt.tank_id ORDER BY clt.tank_id)
+               FROM operation_cargo_load_line_tanks clt
+               WHERE clt.load_line_id = l.id),
+              ARRAY[]::bigint[]
+            ) AS tank_ids
+     FROM operation_cargo_load_lines l
+     WHERE l.operational_activity_id = $1
+       AND l.atg_qty_mode = 'manual'`,
+    [activityId]
+  );
+  const out = new Set();
+  for (const row of r.rows) {
+    out.add(manualLineWindowKey(row.started_at, row.ended_at, row.tank_ids || []));
+  }
+  return out;
+}
+
 /**
  * @param {import('pg').PoolClient|import('pg').Pool} q
  * @param {number|null} excludeActivityId — null for POST
@@ -245,10 +287,6 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
       }
     }
 
-    if (hasEnd && qty == null) {
-      return { ok: false, status: 400, error: `cargoLoadLines[${i}].qty is required when endAt is set` };
-    }
-
     let manualQty = null;
     const manualRaw = row.manualQty ?? row.manual_qty;
     if (manualRaw !== undefined && manualRaw !== null && manualRaw !== '') {
@@ -325,21 +363,44 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
     });
   }
 
-  if (commodityType !== 'Solid') {
-    for (const p of parsed) {
-      if (p.atgQtyMode === 'manual') continue;
-      const { atgTankIds, manualTankIds } = await partitionLineTanks(q, p.tankIds);
-      if (manualTankIds.length > 0 && p.hasEnd && (p.manualQty == null || p.manualQty <= 0)) {
-        return {
-          ok: false,
-          status: 400,
-          error: `cargoLoadLines[${p._i}].manualQty is required for non-ATG tanks on this line`,
-        };
-      }
-      if (atgTankIds.length > 0 && manualTankIds.length === 0 && p.hasEnd && p.qty == null && p.atgQtyMode === 'auto') {
-        // qty may be auto-filled from ATG on client; allow null until ATG snapshot on save
+  const grandfatheredManual = await loadManualLineWindows(q, excludeActivityId);
+
+  for (const p of parsed) {
+    let atgTankIds = [];
+    let manualTankIds = [];
+    let atg = null;
+
+    if (commodityType !== 'Solid' && p.tankIds.length > 0) {
+      ({ atgTankIds, manualTankIds } = await partitionLineTanks(q, p.tankIds));
+      if (atgTankIds.length > 0 && p.hasEnd) {
+        atg = await computeAtgWindowMassDelta(q, {
+          tankIds: atgTankIds,
+          startAt: p.startIso,
+          endAt: p.endIso,
+        });
       }
     }
+
+    const resolved = resolveCargoLineQty({
+      commodityType,
+      atgTankIds,
+      manualTankIds,
+      atgQtyMode: p.atgQtyMode,
+      hasEnd: p.hasEnd,
+      submittedQty: p.qty,
+      manualQty: p.manualQty,
+      atg,
+      grandfatheredManual: grandfatheredManual.has(manualLineWindowKey(p.startIso, p.endIso, p.tankIds)),
+    });
+
+    if (resolved.error) {
+      return { ok: false, status: 400, error: `cargoLoadLines[${p._i}]: ${resolved.error}` };
+    }
+
+    p.qty = resolved.qty;
+    p.atgQtyMode = resolved.atgQtyMode;
+    p.atgResult = atg;
+    if (manualTankIds.length === 0) p.manualQty = null;
   }
 
   parsed.sort((a, b) => {
@@ -409,15 +470,37 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
     endIso: p.endIso,
     lineOrder: idx + 1,
     tankIds: p.tankIds || [],
+    atgResult: p.atgResult ?? null,
   }));
   return { ok: true, lines };
+}
+
+function atgMassSnapshotFromResult(result) {
+  return {
+    atgMassDelta: result.ok ? result.sumDeltaMass : null,
+    atgMassDetail: {
+      sumDeltaMass: result.sumDeltaMass,
+      incomplete: result.incomplete,
+      error: result.error,
+      tanks: result.tanks,
+    },
+  };
 }
 
 async function attachAtgMassSnapshots(client, lines, { commodityType }) {
   const out = [];
   for (const ln of lines) {
     const tankIds = ln.tankIds || [];
-    if (commodityType !== 'Liquid' || tankIds.length === 0 || ln.atgQtyMode === 'manual') {
+    if (commodityType !== 'Liquid' || tankIds.length === 0) {
+      out.push({ ...ln, atgMassDelta: null, atgMassDetail: null });
+      continue;
+    }
+    // Validation already computed the delta for closed segments; reuse it.
+    if (ln.atgResult) {
+      out.push({ ...ln, ...atgMassSnapshotFromResult(ln.atgResult) });
+      continue;
+    }
+    if (ln.atgQtyMode === 'manual') {
       out.push({ ...ln, atgMassDelta: null, atgMassDetail: null });
       continue;
     }
@@ -432,17 +515,7 @@ async function attachAtgMassSnapshots(client, lines, { commodityType }) {
       startAt: ln.startIso,
       endAt,
     });
-    const detail = {
-      sumDeltaMass: result.sumDeltaMass,
-      incomplete: result.incomplete,
-      error: result.error,
-      tanks: result.tanks,
-    };
-    out.push({
-      ...ln,
-      atgMassDelta: result.ok ? result.sumDeltaMass : null,
-      atgMassDetail: detail,
-    });
+    out.push({ ...ln, ...atgMassSnapshotFromResult(result) });
   }
   return out;
 }

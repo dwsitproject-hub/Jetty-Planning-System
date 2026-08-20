@@ -739,13 +739,19 @@ export function useOperatorExecution(operationId) {
       if (!entry) throw new Error(i18n.t('operator:exec.entryNotFound'))
       const iso = normalizeForApi(valueLocal, tz)
       if (milestoneKey === 'cargo_operations' && Array.isArray(entry.cargoLoadLines)) {
-        const lines = entry.cargoLoadLines.map((l, idx) => ({
-          startAt: idx === cargoLineIndex && field === 'startAt' ? iso : l.startAt,
-          endAt: idx === cargoLineIndex && field === 'endAt' ? iso : l.endAt,
-          qty: l.qty,
-          tankIds: resolveLineTankIds(l),
-          atgQtyMode: l.atgQtyMode || 'auto',
-        }))
+        const lines = entry.cargoLoadLines.map((l, idx) => {
+          const edited = idx === cargoLineIndex
+          return {
+            startAt: edited && field === 'startAt' ? iso : l.startAt,
+            endAt: edited && field === 'endAt' ? iso : l.endAt,
+            // The moved segment covers a different window, so let the server
+            // recompute from ATG; its previous quantity is only the fallback for
+            // when ATG cannot answer for the new window.
+            qty: l.qty,
+            tankIds: resolveLineTankIds(l),
+            atgQtyMode: edited ? 'auto' : l.atgQtyMode || 'auto',
+          }
+        })
         await updateOperationalEntry(
           operationId,
           entryId,
