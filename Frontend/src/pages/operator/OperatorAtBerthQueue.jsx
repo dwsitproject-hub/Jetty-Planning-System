@@ -7,7 +7,6 @@ import PurposeBadge from '../../components/PurposeBadge'
 import { useRbac } from '../../context/RbacContext'
 import { formatDateTimeDisplay } from '../../utils/formatDateTimeDisplay'
 import { computeCargoProgress } from '../../utils/cargoQtyDisplay'
-import { canOpenOperatorExecution } from '../../utils/operatorPreCheckingGate'
 import { evaluatePreCheckingComplete } from '../../utils/loadingHubProcessStagesFromApi'
 
 const SORT_OPTIONS = [
@@ -177,14 +176,7 @@ export default function OperatorAtBerthQueue() {
   const [queue, setQueue] = useState([])
   const [expanded, setExpanded] = useState(() => new Set())
   const [sortBy, setSortBy] = useState('vesselName')
-  const [openingId, setOpeningId] = useState(null)
-  const [toast, setToast] = useState(null)
   const [preCheckMap, setPreCheckMap] = useState({})
-
-  const showToast = useCallback((message, variant = 'error') => {
-    setToast({ message, variant })
-    window.setTimeout(() => setToast(null), 4000)
-  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -235,20 +227,10 @@ export default function OperatorAtBerthQueue() {
     [queue, preCheckMap, sortBy, t]
   )
 
-  const openOp = async (row) => {
+  const openOp = (row) => {
     const operationId = row?.operationId ?? row?.id
     if (operationId == null) return
-    setOpeningId(operationId)
-    try {
-      const gate = await canOpenOperatorExecution(row)
-      if (!gate.allowed) {
-        showToast(gate.reason || t('precheck.blocked'))
-        return
-      }
-      navigate(`/operator/execution/${operationId}`)
-    } finally {
-      setOpeningId(null)
-    }
+    navigate(`/operator/execution/${operationId}`)
   }
 
   const toggleExpand = (key) => {
@@ -369,7 +351,6 @@ export default function OperatorAtBerthQueue() {
                           type="button"
                           className="operator-vessel-card__child"
                           onClick={() => openOp(child)}
-                          disabled={openingId != null}
                         >
                           <span className="operator-vessel-card__child-body">
                             <span className="operator-vessel-card__child-main">
@@ -400,14 +381,6 @@ export default function OperatorAtBerthQueue() {
         )
       })}
 
-      {toast ? (
-        <div
-          className={`operator-toast${toast.variant === 'error' ? ' operator-toast--error' : ''}`}
-          role="status"
-        >
-          {toast.message}
-        </div>
-      ) : null}
     </div>
   )
 }

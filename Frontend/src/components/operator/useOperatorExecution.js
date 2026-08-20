@@ -26,8 +26,6 @@ import {
 } from '../../utils/scheduleDateTime'
 import { buildOperatorCargoSegments } from '../../utils/operatorCargoSegments'
 import i18n from '../../i18n'
-import { getOperatorPrecheckBlockedMsg, canOpenOperatorExecution } from '../../utils/operatorPreCheckingGate'
-
 const POST_STEPS = [
   { uiKey: 'finalInspection', apiKey: 'final_inspection', label: 'FINAL INSPECTION' },
   { uiKey: 'finalCargoChecking', apiKey: 'final_sounding', label: 'FINAL CARGO CHECKING' },
@@ -278,7 +276,6 @@ export function useOperatorExecution(operationId) {
   const [postByKey, setPostByKey] = useState({})
   const [siblings, setSiblings] = useState([])
   const [tankOptions, setTankOptions] = useState([])
-  const [preCheckingComplete, setPreCheckingComplete] = useState(null)
 
   const showToast = useCallback((message, variant = 'success') => {
     setToast({ message, variant })
@@ -325,15 +322,8 @@ export function useOperatorExecution(operationId) {
               .sort((a, b) => Number(a.operationId) - Number(b.operationId))
           : []
       setSiblings(sibs)
-
-      const gate = await canOpenOperatorExecution(
-        { operationId: op?.id ?? operationId, purpose: op?.purpose, status: op?.status },
-        tz
-      )
-      setPreCheckingComplete(gate.allowed)
     } catch (e) {
       setError(e?.message || i18n.t('operator:exec.loadFailed'))
-      setPreCheckingComplete(false)
     } finally {
       setLoading(false)
     }
@@ -497,10 +487,6 @@ export function useOperatorExecution(operationId) {
 
   const startMilestone = useCallback(
     async (milestoneKey, { tankIds } = {}) => {
-      if (preCheckingComplete === false) {
-        showToast(getOperatorPrecheckBlockedMsg(), 'error')
-        return false
-      }
       if (milestoneKey === 'cargo_operations' || milestoneKey === 'other') {
         if (!confirmSequence()) return false
       }
@@ -621,7 +607,7 @@ export function useOperatorExecution(operationId) {
         )
       }, i18n.t('operator:toast.milestoneStarted', { name: meta.subStepTitle }))
     },
-    [activities, commodityType, confirmSequence, naByLabel, operationId, preCheckingComplete, purpose, runMutation, showToast, tankOptions, tz]
+    [activities, commodityType, confirmSequence, naByLabel, operationId, purpose, runMutation, showToast, tankOptions, tz]
   )
 
   const stopCargo = useCallback(async () => {
@@ -816,7 +802,6 @@ export function useOperatorExecution(operationId) {
     purpose,
     commodityType,
     portId,
-    preCheckingComplete,
     siblings,
     tankOptions,
     milestones,

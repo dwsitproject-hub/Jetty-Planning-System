@@ -11,8 +11,6 @@ import OperatorTankPickerSheet from '../../components/operator/OperatorTankPicke
 import PurposeBadge from '../../components/PurposeBadge'
 import { useOperatorExecution } from '../../components/operator/useOperatorExecution'
 import { useRbac } from '../../context/RbacContext'
-import { getOperatorPrecheckBlockedMsg } from '../../utils/operatorPreCheckingGate'
-
 export default function OperatorExecutionPage() {
   const { operationId: operationIdParam } = useParams()
   const operationId = Number(operationIdParam)
@@ -58,39 +56,6 @@ export default function OperatorExecutionPage() {
         <button type="button" className="op-btn" onClick={() => navigate('/operator/at-berth')}>
           {t('exec.backToQueue')}
         </button>
-      </div>
-    )
-  }
-
-  if (exec.preCheckingComplete === false) {
-    return (
-      <div className="operator-exec">
-        <div className="operator-exec__sticky">
-          <header className="operator-exec__header">
-            <div className="operator-exec__top">
-              <button
-                type="button"
-                className="op-btn op-btn--soft operator-exec__back"
-                onClick={() => navigate('/operator/at-berth')}
-                aria-label={t('exec.backToQueue')}
-              >
-                ←
-              </button>
-              <div className="operator-exec__identity">
-                <h1 className="operator-exec__vessel">{exec.operation.vesselName || 'Vessel'}</h1>
-                <p className="operator-exec__purpose">
-                  <PurposeBadge purpose={exec.purpose} />
-                </p>
-              </div>
-            </div>
-          </header>
-        </div>
-        <div className="operator-exec__body">
-          <p className="operator-error-banner">{getOperatorPrecheckBlockedMsg()}</p>
-          <button type="button" className="op-btn op-btn--primary" onClick={() => navigate('/operator/at-berth')}>
-            {t('exec.backToQueue')}
-          </button>
-        </div>
       </div>
     )
   }
