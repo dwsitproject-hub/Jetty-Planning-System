@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchOperations, fetchAtBerth, fetchSubProcesses, fetchOperationalActivities, fetchAtBerthCargoProgress } from '../../api/operations'
 import { fetchShipmentPlans } from '../../api/shipmentPlans'
-import { fetchDashboardV2Weekly, fetchDashboardV2PipelineActuals, fetchDashboardV2SlotOccupancy, fetchDashboardV2SlaAtRisk } from '../../api/dashboardV2'
+import { fetchDashboardV2Weekly, fetchDashboardV2PipelineActuals, fetchDashboardV2SlotOccupancy, fetchDashboardV2SlaAtRisk, fetchDashboardV2AtgSyncHealth } from '../../api/dashboardV2'
 import { fetchJetties } from '../../api/jetties'
 import { fetchSiLookups } from '../../api/siLookups'
 import { useTranslation } from 'react-i18next'
 import { usePortScope } from '../../context/PortScopeContext'
+import { useRbac } from '../../context/RbacContext'
 import { formatDateDisplay, formatDateTimeDisplay, getAppLocaleTag } from '../../utils/formatDateTimeDisplay'
 import InteractiveTooltip from '../InteractiveTooltip'
 import WidgetDetailModal from '../WidgetDetailModal'
@@ -44,6 +45,14 @@ import {
 import '../../styles/dashboard.css'
 import '../../styles/allocation.css'
 
+function atgHostLabel(baseUrl) {
+  try {
+    return new URL(baseUrl).host
+  } catch {
+    return baseUrl || '—'
+  }
+}
+
 export default function DashboardShell({ mode = 'live' }) {
   const isLive = mode === 'live'
   const isAnalytics = mode === 'analytics'
@@ -51,6 +60,7 @@ export default function DashboardShell({ mode = 'live' }) {
   const { t } = useTranslation('dashboard')
   const { t: tPages } = useTranslation('pages')
   const { selectedPortId, selectedPort } = usePortScope()
+  const { canView } = useRbac()
   const defaultRange = isLive ? getTodayRange() : getMonthRange(0)
   const [dateRange, setDateRange] = useState(defaultRange)
   const [selectedPurposes, setSelectedPurposes] = useState([])
@@ -77,6 +87,8 @@ export default function DashboardShell({ mode = 'live' }) {
   const [slotOccupancyLoading, setSlotOccupancyLoading] = useState(false)
   const [slaAtRiskData, setSlaAtRiskData] = useState(null)
   const [slaAtRiskLoading, setSlaAtRiskLoading] = useState(false)
+  const [atgSyncHealthData, setAtgSyncHealthData] = useState(null)
+  const [atgSyncHealthLoading, setAtgSyncHealthLoading] = useState(false)
   const [activeModal, setActiveModal] = useState(null)
   const legacyPipelineEnabled = isLegacyVesselPipelineEnabled()
 
@@ -342,6 +354,38 @@ export default function DashboardShell({ mode = 'live' }) {
     }
   }, [selectedPortId, kpiStartDate, kpiEndDate, selectedPurposes, selectedCommodityIds])
 
+  const refreshAtgSyncHealth = useCallback(async () => {
+    if (!isLive || selectedPortId == null) {
+      setAtgSyncHealthData(null)
+      return
+    }
+    setAtgSyncHealthLoading(true)
+    try {
+      const data = await fetchDashboardV2AtgSyncHealth()
+      if (data && typeof data === 'object') {
+        setAtgSyncHealthData({
+          staleThresholdMs: Number(data.staleThresholdMs) || 3600000,
+          checkedAt: data.checkedAt ?? null,
+          totalEnabled: Number(data.totalEnabled) || 0,
+          staleCount: Number(data.staleCount) || 0,
+          allHealthy: Boolean(data.allHealthy),
+          sources: Array.isArray(data.sources) ? data.sources : [],
+          staleSources: Array.isArray(data.staleSources) ? data.staleSources : [],
+        })
+      } else {
+        setAtgSyncHealthData(null)
+      }
+    } catch (e) {
+      setAtgSyncHealthData(null)
+      setApiErr((prev) => {
+        const msg = `atg-sync-health: ${e?.message || 'failed'}`
+        return prev ? `${prev}; ${msg}` : msg
+      })
+    } finally {
+      setAtgSyncHealthLoading(false)
+    }
+  }, [isLive, selectedPortId])
+
   const closeModal = useCallback(() => setActiveModal(null), [])
 
   useEffect(() => {
@@ -358,6 +402,7 @@ export default function DashboardShell({ mode = 'live' }) {
   useEffect(() => { if (isAnalytics) refreshPipelineActuals() }, [refreshPipelineActuals, isAnalytics])
   useEffect(() => { refreshSlotOccupancy() }, [refreshSlotOccupancy])
   useEffect(() => { refreshSlaAtRisk() }, [refreshSlaAtRisk])
+  useEffect(() => { refreshAtgSyncHealth() }, [refreshAtgSyncHealth])
 
   // Background poll: live sections only
   useEffect(() => {
@@ -365,6 +410,12 @@ export default function DashboardShell({ mode = 'live' }) {
     const id = setInterval(() => { refresh({ silent: true }) }, 60000)
     return () => clearInterval(id)
   }, [refresh, isLive])
+
+  useEffect(() => {
+    if (!isLive) return undefined
+    const id = setInterval(refreshAtgSyncHealth, 60000)
+    return () => clearInterval(id)
+  }, [refreshAtgSyncHealth, isLive])
 
   // Re-render tick for live alongside-hours and relative timestamps
   useEffect(() => {
@@ -569,6 +620,14 @@ export default function DashboardShell({ mode = 'live' }) {
   const slotOccupancyIsRange = !isLive && kpiStartDate !== kpiEndDate
   const slaAtRiskIsTodayOnly = slotOccupancyIsTodayOnly
   const slaAtRiskIsRange = slotOccupancyIsRange
+
+  const atgSyncMetrics = useMemo(() => {
+    const total = Number(atgSyncHealthData?.totalEnabled) || 0
+    const stale = Number(atgSyncHealthData?.staleCount) || 0
+    const healthy = Math.max(0, total - stale)
+    const pct = total > 0 ? Math.round((healthy / total) * 100) : 0
+    return { total, stale, healthy, pct }
+  }, [atgSyncHealthData])
 
   // ─── Jetty status ─────────────────────────────────────────────────────────
   const jettyStatusCounts = useMemo(() => {
@@ -1331,6 +1390,108 @@ export default function DashboardShell({ mode = 'live' }) {
                 : t('slaSubEod')}
           </div>
         </div>
+
+        {isLive && (
+        <div className={`v2-kpi-card${atgSyncHealthData && atgSyncHealthData.staleCount > 0 ? ' v2-kpi-card--accent-red' : ''}`}>
+          <div className="v2-kpi-card__label">
+            {t('atgSync')}{' '}
+            <span className="v2-basis-chip">{t('v2BasisLive')}</span>
+          </div>
+          {(atgSyncHealthData?.staleSources?.length ?? 0) > 0 ? (
+            <button
+              type="button"
+              className="v2-kpi-card__value v2-kpi-card__value--clickable"
+              onClick={() => setActiveModal({
+                title: t('atgSyncTooltipTitle'),
+                subtitle: atgSyncHealthData.checkedAt
+                  ? `${t('atgSyncTooltipSubtitle')} · ${formatDateTimeDisplay(atgSyncHealthData.checkedAt)}`
+                  : t('atgSyncTooltipSubtitle'),
+                columns: [
+                  {
+                    label: t('atgSyncColSource'),
+                    cell: (r) => (
+                      <>
+                        {r.label}
+                        {r.host && r.host !== r.label ? (
+                          <>
+                            <br />
+                            <span className="text-steel">{r.host}</span>
+                          </>
+                        ) : null}
+                      </>
+                    ),
+                  },
+                  { label: t('atgSyncColLastSync'), cell: (r) => r.lastSync },
+                  { label: t('atgSyncColLastPoll'), cell: (r) => r.lastPoll },
+                  { label: t('atgSyncColError'), cell: (r) => r.error },
+                ],
+                rows: (atgSyncHealthData.staleSources ?? []).map((s) => {
+                  const label = s.label || atgHostLabel(s.baseUrl)
+                  const host = s.baseUrl ? atgHostLabel(s.baseUrl) : '—'
+                  return {
+                    label,
+                    host,
+                    lastSync: s.lastSyncedAt
+                      ? `${formatDateTimeDisplay(s.lastSyncedAt)} (${formatRelativeTime(s.lastSyncedAt, t)})`
+                      : t('atgSyncNeverSynced'),
+                    lastPoll: s.lastPollAt
+                      ? `${formatDateTimeDisplay(s.lastPollAt)} · ${
+                        s.lastPollOk === false
+                          ? t('atgSyncPollFailed')
+                          : s.lastPollOk === true
+                            ? t('atgSyncPollOk')
+                            : '—'
+                      }`
+                      : '—',
+                    error: s.lastError || '—',
+                  }
+                }),
+                emptyText: t('atgSyncEmpty'),
+                footer: canView('tank-farm') ? (
+                  <Link to="/tank-farm">{t('atgSyncViewTankFarm')}</Link>
+                ) : null,
+              })}
+            >
+              {atgSyncHealthLoading
+                ? '—'
+                : atgSyncMetrics.total > 0
+                  ? (
+                    <>
+                      {atgSyncMetrics.healthy}/{atgSyncMetrics.total}{' '}
+                      <span className="v2-kpi-card__unit">{atgSyncMetrics.pct}%</span>
+                    </>
+                  )
+                  : '—'}
+            </button>
+          ) : (
+            <div className="v2-kpi-card__value">
+              {atgSyncHealthLoading
+                ? '—'
+                : atgSyncMetrics.total > 0
+                  ? (
+                    <>
+                      {atgSyncMetrics.healthy}/{atgSyncMetrics.total}{' '}
+                      <span className="v2-kpi-card__unit">{atgSyncMetrics.pct}%</span>
+                    </>
+                  )
+                  : '—'}
+            </div>
+          )}
+          {atgSyncMetrics.total > 0 && (
+            <div className="v2-kpi-card__bar-wrap">
+              <div
+                className={`v2-kpi-card__bar${atgSyncMetrics.pct < 100 ? ' v2-kpi-card__bar--over' : ''}`}
+                style={{ width: `${atgSyncMetrics.pct}%` }}
+              />
+            </div>
+          )}
+          <div className="v2-kpi-card__sub">
+            {atgSyncHealthData?.staleCount > 0
+              ? t('atgSyncSubStale', { count: atgSyncHealthData.staleCount })
+              : t('atgSyncSubHealthy')}
+          </div>
+        </div>
+        )}
 
         {isLive && (
         <>

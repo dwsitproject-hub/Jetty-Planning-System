@@ -36,3 +36,7 @@ export function fetchDashboardV2SlaAtRisk({ startDate, endDate, purposes, commod
   const q = buildDashboardV2Query({ startDate, endDate, purposes, commodityIds })
   return apiGet(`/dashboard-v2/sla-at-risk${q ? `?${q}` : ''}`)
 }
+
+export function fetchDashboardV2AtgSyncHealth() {
+  return apiGet('/dashboard-v2/atg-sync-health')
+}
