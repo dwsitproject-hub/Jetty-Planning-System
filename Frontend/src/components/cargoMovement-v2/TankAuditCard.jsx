@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, Gauge, AlertTriangle, Ship } from 'lucide-react'
+import PurposeBadge from '../PurposeBadge.jsx'
 import TankOverlayChart from './TankOverlayChart.jsx'
 import SegmentHoverPopover from './SegmentHoverPopover.jsx'
 import { formatMass } from './cargoMovementFilters.js'
@@ -96,6 +97,7 @@ export default function TankAuditCard({
             <thead>
               <tr className="text-slate-500">
                 <th className="py-1">{t('cargoMovementTipVessel')}</th>
+                <th className="py-1">{t('cargoMovementTipPurpose')}</th>
                 <th className="py-1">{t('cargoMovementTipQty')}</th>
                 <th className="py-1">{t('cargoMovementInspectorAuditStatus')}</th>
               </tr>
@@ -108,6 +110,9 @@ export default function TankAuditCard({
                   onClick={() => onSelectSegment(seg)}
                 >
                   <td className="py-1">{seg.vesselName}</td>
+                  <td className="py-1">
+                    <PurposeBadge purpose={seg.purpose} />
+                  </td>
                   <td className="py-1">{formatMass(seg.qty)} MT</td>
                   <td className="py-1">{seg.atgAuditStatus}</td>
                 </tr>
