@@ -55,7 +55,7 @@ export default function WidgetDetailModal({ modal, onClose }) {
             </tbody>
           </table>
         </div>
-        {modal.footer ? <p className="mgmt-modal-foot">{modal.footer}</p> : null}
+        {modal.footer ? <div className="mgmt-modal-foot">{modal.footer}</div> : null}
       </div>
     </div>
   )

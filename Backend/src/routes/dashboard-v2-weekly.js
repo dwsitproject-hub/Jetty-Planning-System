@@ -13,6 +13,7 @@ import {
 import { computePipelineActuals } from '../lib/dashboard-pipeline-actuals.js';
 import { computeDashboardSlotOccupancy } from '../lib/dashboard-slot-occupancy.js';
 import { computeDashboardSlaAtRisk, slaAtRiskAtSnapshot } from '../lib/dashboard-sla-at-risk.js';
+import { computeAtgSyncHealth } from '../lib/dashboard-atg-sync-health.js';
 
 const router = express.Router();
 
@@ -257,6 +258,21 @@ router.get('/slot-occupancy', async (req, res) => {
   } catch (e) {
     const msg = e?.message || 'Invalid date range';
     return res.status(400).json({ error: msg });
+  } finally {
+    client.release();
+  }
+});
+
+router.get('/atg-sync-health', async (req, res) => {
+  const portId = Number(req.selectedPortId);
+  if (!Number.isFinite(portId)) {
+    return res.status(400).json({ error: 'Port scope required' });
+  }
+
+  const client = await pool.connect();
+  try {
+    const result = await computeAtgSyncHealth(client, portId);
+    res.json(result);
   } finally {
     client.release();
   }
