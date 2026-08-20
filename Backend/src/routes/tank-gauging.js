@@ -15,6 +15,7 @@ import {
   resolveAuthForTest,
   updateSource,
 } from '../lib/tank-gauging-source-config.js';
+import { groupAndDownsampleSampleRows } from '../lib/tank-gauging-samples.js';
 import {
   fetchTankMeta,
   parseTankMetaResponse,
@@ -118,6 +119,64 @@ router.get('/latest', ...requirePageView(PAGE_KEY), async (req, res) => {
   );
 
   res.json(r.rows.map(toReading));
+});
+
+/** GET /tank-gauging/samples?portId=&tankIds=&from=&to=&maxPoints= — mass curve history */
+router.get('/samples', ...requirePageView('cargo-movement'), async (req, res) => {
+  const portId = parsePortId(req.query.portId ?? req.query.port_id);
+  const tankIds = parseTankIds(req.query.tankIds ?? req.query.tank_ids);
+  const fromRaw = req.query.from ?? req.query.from_at;
+  const toRaw = req.query.to ?? req.query.to_at;
+  const maxPointsRaw = parseInt(String(req.query.maxPoints ?? req.query.max_points ?? '500'), 10);
+  const maxPoints = Number.isFinite(maxPointsRaw) && maxPointsRaw > 0 ? Math.min(maxPointsRaw, 5000) : 500;
+
+  if (portId == null) {
+    return res.status(400).json({ error: 'portId is required' });
+  }
+  if (!assertPortAllowed(req, portId)) {
+    return res.status(403).json({ error: 'Selected port is not assigned to this user' });
+  }
+  if (!tankIds.length) {
+    return res.status(400).json({ error: 'tankIds is required' });
+  }
+  if (!fromRaw || !toRaw) {
+    return res.status(400).json({ error: 'from and to are required' });
+  }
+  const from = new Date(String(fromRaw));
+  const to = new Date(String(toRaw));
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+    return res.status(400).json({ error: 'from and to must be valid ISO datetimes' });
+  }
+  if (from.getTime() >= to.getTime()) {
+    return res.status(400).json({ error: 'from must be before to' });
+  }
+
+  const portCheck = await pool.query(
+    `SELECT id FROM master_tanks
+     WHERE id = ANY($1::bigint[]) AND port_id = $2 AND deleted_at IS NULL`,
+    [tankIds, portId]
+  );
+  if (portCheck.rows.length !== tankIds.length) {
+    return res.status(400).json({ error: 'One or more tanks are invalid for this port' });
+  }
+
+  const r = await pool.query(
+    `SELECT tank_id, sampled_at, total_mass
+     FROM tank_gauging_samples
+     WHERE tank_id = ANY($1::bigint[])
+       AND sampled_at >= $2::timestamptz
+       AND sampled_at <= $3::timestamptz
+       AND total_mass IS NOT NULL
+     ORDER BY tank_id ASC, sampled_at ASC`,
+    [tankIds, from.toISOString(), to.toISOString()]
+  );
+
+  res.json({
+    from: from.toISOString(),
+    to: to.toISOString(),
+    maxPoints,
+    samples: groupAndDownsampleSampleRows(r.rows, maxPoints),
+  });
 });
 
 /** GET /tank-gauging/mass-delta — segment mass Δ for cargo ops (no tank-farm page permission required) */

@@ -55,3 +55,16 @@ export function deleteTankGaugingSource(id) {
 export function testTankGaugingSource(id, body = {}) {
   return apiPost(`/tank-gauging/sources/${encodeURIComponent(String(id))}/test`, body)
 }
+
+/**
+ * @param {{ portId: string|number, tankIds: Array<string|number>, from: string, to: string, maxPoints?: number }} opts
+ */
+export function fetchTankGaugingSamples({ portId, tankIds, from, to, maxPoints = 500 }) {
+  const params = new URLSearchParams()
+  params.set('portId', String(portId))
+  params.set('tankIds', (Array.isArray(tankIds) ? tankIds : []).join(','))
+  params.set('from', from)
+  params.set('to', to)
+  params.set('maxPoints', String(maxPoints))
+  return apiGet(`/tank-gauging/samples?${params.toString()}`)
+}

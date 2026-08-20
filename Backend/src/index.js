@@ -37,6 +37,7 @@ import operationOperationalActivitiesRoutes from './routes/operation-operational
 import masterCargoHandlingMethodsRoutes from './routes/master-cargo-handling-methods.js';
 import masterTanksRoutes from './routes/master-tanks.js';
 import tankGaugingRoutes from './routes/tank-gauging.js';
+import tankCargoMovementsRoutes from './routes/tank-cargo-movements.js';
 import jettyLayoutRoutes from './routes/jetty-layout.js';
 import adminSsoLinkingRoutes from './routes/admin-sso-linking.js';
 import notificationsRoutes from './routes/notifications.js';
@@ -126,6 +127,7 @@ apiV1.use('/', requireAuth, requirePortScope, operationOperationalActivitiesRout
 apiV1.use('/', requireAuth, masterCargoHandlingMethodsRoutes);
 apiV1.use('/master/tanks', masterTanksRoutes);
 apiV1.use('/tank-gauging', tankGaugingRoutes);
+apiV1.use('/tank-cargo-movements', tankCargoMovementsRoutes);
 
 app.use('/api/v1', apiV1);
 

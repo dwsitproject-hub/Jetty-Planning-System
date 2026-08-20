@@ -21,6 +21,7 @@
     "run:aggregate-daily-cargo-progress": "node scripts/aggregate-daily-cargo-progress.js",
     "test:operational-progress": "node --test src/lib/operational-progress.test.js",
     "test:cargo-line-qty": "node --test src/lib/cargo-line-qty.test.js",
+    "test:tank-cargo-movements": "node --test src/lib/tank-cargo-movements.test.js",
     "test:security": "node scripts/test-security-rbac-uploads.mjs",
     "grant-admin-access": "node scripts/grant-admin-full-access.js",
     "seed:admin": "node scripts/seed-admin-bcrypt.js",

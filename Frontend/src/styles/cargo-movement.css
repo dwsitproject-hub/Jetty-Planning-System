@@ -1,0 +1,206 @@
+.cargo-movement-page {
+  --cm-lane-h: 52px;
+  --cm-seg-h: 28px;
+  --cm-atg: #2a7a5c;
+  --cm-manual: #6b7280;
+  --cm-gap: #c2780a;
+  --cm-mismatch: #b42318;
+  --cm-progress: #2563eb;
+}
+
+.cargo-movement-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.cargo-movement-toolbar label {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  font-size: 0.9rem;
+}
+
+.cargo-movement-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.cargo-movement-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+}
+
+.cargo-movement-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.cargo-movement-legend__swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.cargo-movement-legend__swatch--manual {
+  background: repeating-linear-gradient(
+    45deg,
+    #e5e7eb,
+    #e5e7eb 3px,
+    #9ca3af 3px,
+    #9ca3af 6px
+  );
+}
+
+.cargo-movement-board {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.cargo-movement-row {
+  border: 1px solid var(--border-subtle, #dde3ea);
+  border-radius: 8px;
+  padding: 0.65rem 0.75rem 0.75rem;
+  background: var(--surface-card, #fff);
+}
+
+.cargo-movement-row__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  font-size: 0.92rem;
+}
+
+.cargo-movement-row__title {
+  font-weight: 600;
+}
+
+.cargo-movement-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  background: var(--surface-muted, #f3f4f6);
+  border: 1px solid var(--border-subtle, #dde3ea);
+}
+
+.cargo-movement-chip--warn {
+  color: #92400e;
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.cargo-movement-chip--idle {
+  color: #6b7280;
+}
+
+.cargo-movement-lanes {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 0.35rem 0.5rem;
+  align-items: stretch;
+}
+
+.cargo-movement-lane-label {
+  font-size: 0.75rem;
+  color: var(--text-steel, #64748b);
+  display: flex;
+  align-items: center;
+}
+
+.cargo-movement-lane-svg {
+  width: 100%;
+  min-height: var(--cm-lane-h);
+  display: block;
+  overflow: visible;
+}
+
+.cargo-movement-axis {
+  margin-top: 0.35rem;
+  margin-left: calc(72px + 0.5rem);
+  position: relative;
+  height: 18px;
+  font-size: 0.72rem;
+  color: var(--text-steel, #64748b);
+}
+
+.cargo-movement-seg-bar.cargo-movement-seg--ok {
+  background: var(--cm-atg);
+  color: #fff;
+  border: 1px solid var(--cm-atg);
+}
+
+.cargo-movement-seg-bar.cargo-movement-seg--manual {
+  background: repeating-linear-gradient(
+    45deg,
+    #e5e7eb,
+    #e5e7eb 3px,
+    #9ca3af 3px,
+    #9ca3af 6px
+  );
+  border: 1px solid var(--cm-manual);
+}
+
+.cargo-movement-seg-bar.cargo-movement-seg--gap {
+  background: #fef3c7;
+  border: 1.5px solid var(--cm-gap);
+}
+
+.cargo-movement-seg-bar.cargo-movement-seg--mismatch {
+  background: #fee2e2;
+  border: 1px solid var(--cm-mismatch);
+}
+
+.cargo-movement-seg-bar.cargo-movement-seg--progress {
+  background: rgba(37, 99, 235, 0.25);
+  border: 1px dashed var(--cm-progress);
+}
+
+.cargo-movement-seg-hit {
+  cursor: pointer;
+}
+
+.cargo-movement-seg-label {
+  font-size: 10px;
+  fill: #111827;
+  pointer-events: none;
+}
+
+.cargo-movement-curve {
+  fill: none;
+  stroke: var(--cm-atg);
+  stroke-width: 1.5;
+}
+
+.cargo-movement-gap-line {
+  stroke: var(--cm-gap);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+
+.cargo-movement-empty-lane {
+  font-size: 0.8rem;
+  color: var(--text-steel, #64748b);
+  padding: 0.35rem 0;
+}
+
+.cargo-movement-safety {
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  color: var(--text-steel, #64748b);
+}

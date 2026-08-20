@@ -204,6 +204,8 @@ export default function TankFarm() {
       <p className="allocation-page__intro">{t('tankFarmDesc')}</p>
       <p className="text-steel">
         <Link to="/master" className="link">← Back to Master Menu</Link>
+        {' · '}
+        <Link to="/cargo-movement" className="link">{t('cargoMovementLink')}</Link>
       </p>
 
       {error && (

@@ -580,6 +580,9 @@ export default function AtBerthExecutions() {
         </div>
       ) : null}
       <h1 className="page-title">{tPages('atBerth')}</h1>
+      <p className="text-steel">
+        <Link to="/cargo-movement" className="link">{tPages('cargoMovementLink')}</Link>
+      </p>
       {err && <p style={{ color: '#c00' }}>{err}</p>}
 
       <section className="at-berth-summary" aria-label={t('summaryAria')}>
