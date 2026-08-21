@@ -215,6 +215,48 @@ export async function createSource(db, input, updatedBy) {
 }
 
 /**
+ * Move tank map / latest / sample rows when an ATG source base URL changes in place.
+ * @param {import('pg').Pool | import('pg').PoolClient} db
+ * @param {number} portId
+ * @param {string} oldUrl
+ * @param {string} newUrl
+ */
+export async function migrateSourceBaseUrl(db, portId, oldUrl, newUrl) {
+  const oldBase = trimBaseUrl(oldUrl);
+  const newBase = trimBaseUrl(newUrl);
+  if (oldBase === newBase) {
+    return { mapsMigrated: 0, latestMigrated: 0, samplesMigrated: 0 };
+  }
+
+  const mapRes = await db.query(
+    `UPDATE tank_gauging_tank_map SET source_base_url = $1, updated_at = NOW()
+     WHERE port_id = $2 AND source_base_url = $3`,
+    [newBase, portId, oldBase]
+  );
+
+  const latestRes = await db.query(
+    `UPDATE tank_gauging_latest SET source_base_url = $1
+     WHERE source_base_url = $2
+       AND tank_id IN (
+         SELECT tank_id FROM tank_gauging_tank_map
+         WHERE port_id = $3 AND source_base_url = $1
+       )`,
+    [newBase, oldBase, portId]
+  );
+
+  const samplesRes = await db.query(
+    `UPDATE tank_gauging_samples SET source_base_url = $1 WHERE source_base_url = $2`,
+    [newBase, oldBase]
+  );
+
+  return {
+    mapsMigrated: mapRes.rowCount ?? 0,
+    latestMigrated: latestRes.rowCount ?? 0,
+    samplesMigrated: samplesRes.rowCount ?? 0,
+  };
+}
+
+/**
  * @param {import('pg').Pool | import('pg').PoolClient} db
  * @param {number} sourceId
  * @param {object} input
@@ -247,22 +289,45 @@ export async function updateSource(db, sourceId, input, updatedBy) {
     throw new Error('authSecret is required when changing auth type');
   }
 
-  const r = await db.query(
-    `UPDATE tank_gauging_sources SET
-       base_url = $1,
-       label = $2,
-       enabled = $3,
-       auth_type = $4,
-       auth_user = $5,
-       auth_secret_encrypted = $6,
-       updated_at = NOW(),
-       updated_by = $7
-     WHERE id = $8
-     RETURNING id, port_id, base_url, label, enabled, auth_type, auth_user,
-               auth_secret_encrypted, last_poll_at, last_poll_ok, last_error, updated_at`,
-    [baseUrl, label, enabled, authType, authUser, authSecretEncrypted, updatedBy ?? null, sourceId]
-  );
-  return toAdminDto(r.rows[0]);
+  const runUpdate = async (client) => {
+    if (baseUrl !== row.base_url) {
+      await migrateSourceBaseUrl(client, Number(row.port_id), row.base_url, baseUrl);
+    }
+
+    const r = await client.query(
+      `UPDATE tank_gauging_sources SET
+         base_url = $1,
+         label = $2,
+         enabled = $3,
+         auth_type = $4,
+         auth_user = $5,
+         auth_secret_encrypted = $6,
+         updated_at = NOW(),
+         updated_by = $7
+       WHERE id = $8
+       RETURNING id, port_id, base_url, label, enabled, auth_type, auth_user,
+                 auth_secret_encrypted, last_poll_at, last_poll_ok, last_error, updated_at`,
+      [baseUrl, label, enabled, authType, authUser, authSecretEncrypted, updatedBy ?? null, sourceId]
+    );
+    return toAdminDto(r.rows[0]);
+  };
+
+  if (typeof db.connect === 'function') {
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      const updated = await runUpdate(client);
+      await client.query('COMMIT');
+      return updated;
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  return runUpdate(db);
 }
 
 /**
