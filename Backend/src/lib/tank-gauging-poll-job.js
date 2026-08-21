@@ -56,6 +56,16 @@ export async function syncTankGaugingMap(db, portId, sourceBaseUrl, sourceUnitNa
   const base = trimBaseUrl(sourceBaseUrl);
 
   await db.query(
+    `DELETE FROM tank_gauging_tank_map m
+     WHERE m.port_id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM tank_gauging_sources s
+         WHERE s.port_id = m.port_id AND s.base_url = m.source_base_url
+       )`,
+    [portId]
+  );
+
+  await db.query(
     `DELETE FROM tank_gauging_tank_map WHERE port_id = $1 AND source_base_url = $2`,
     [portId, base]
   );
@@ -74,8 +84,12 @@ export async function syncTankGaugingMap(db, portId, sourceBaseUrl, sourceUnitNa
     // If code already mapped to a different ATG source, disambiguate.
     if (existing.rows[0]) {
       const mappedElsewhere = await db.query(
-        `SELECT 1 FROM tank_gauging_tank_map
-         WHERE tank_id = $1 AND source_base_url <> $2
+        `SELECT 1 FROM tank_gauging_tank_map m
+         WHERE m.tank_id = $1 AND m.source_base_url <> $2
+           AND EXISTS (
+             SELECT 1 FROM tank_gauging_sources s
+             WHERE s.port_id = m.port_id AND s.base_url = m.source_base_url
+           )
          LIMIT 1`,
         [existing.rows[0].id, base]
       );
