@@ -6248,7 +6248,7 @@ tr.cargo-schedule-behind > td:first-child {
 }
 
 .jetty-card__box--schedule-behind {
-  box-shadow: inset 0 0 0 1px var(--color-warning-border, #fcd34d);
+  border-left-color: var(--color-warning-border, #fcd34d);
 }
 
 .jetty-card__schedule-behind {

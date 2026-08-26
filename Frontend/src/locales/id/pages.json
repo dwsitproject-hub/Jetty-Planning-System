@@ -362,6 +362,7 @@
   "cargoOpsTimelineLastLineEnd": "Akhir segmen terakhir {{at}}",
   "cargoScheduleSectionTitle": "Jadwal vs progres kargo",
   "cargoScheduleBehindBadge": "⚠ Tertinggal −{{gap}}%",
+  "cargoScheduleBehindBadgeShort": "⚠ −{{gap}}%",
   "cargoScheduleBehindBanner": "Tertinggal jadwal — aktual {{actual}}% vs rencana {{planned}}% (−{{gap}}%)",
   "cargoScheduleOnTrack": "✓ Sesuai jadwal",
   "cargoScheduleActualLabel": "Aktual {{value}}%",

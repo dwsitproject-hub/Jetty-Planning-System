@@ -37,6 +37,7 @@ function formatTooltip(t, comparison) {
  *   siMetric?: string|null,
  *   sourceLabel?: string|null,
  *   className?: string,
+ *   compactLabel?: boolean,
  * }} props
  */
 export default function CargoScheduleProgressIndicator({
@@ -47,6 +48,7 @@ export default function CargoScheduleProgressIndicator({
   siMetric = 'MT',
   sourceLabel = null,
   className = '',
+  compactLabel = false,
 }) {
   const { t } = useTranslation('pages')
   const comparison = normalizeScheduleComparison(comparisonProp)
@@ -68,7 +70,9 @@ export default function CargoScheduleProgressIndicator({
           gap,
         })}
       >
-        {t('cargoScheduleBehindBadge', { gap })}
+        {compactLabel
+          ? t('cargoScheduleBehindBadgeShort', { gap })
+          : t('cargoScheduleBehindBadge', { gap })}
       </span>
     )
   }

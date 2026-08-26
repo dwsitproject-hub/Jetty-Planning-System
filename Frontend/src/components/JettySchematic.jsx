@@ -520,8 +520,16 @@ export default function JettySchematic({
               className={`jetty-card__purpose-chip jetty-card__purpose-chip--${op === 'LOAD' ? 'load' : 'disch'}`}
               aria-hidden
             >
-              <PurposeBadge purpose={v?.purpose} loadDischarge={v?.loadDischarge} />
+              <PurposeBadge purpose={v?.purpose} loadDischarge={v?.loadDischarge} short="gantt" />
             </span>
+            {scheduleBehind ? (
+              <CargoScheduleProgressIndicator
+                comparison={v?.scheduleComparison}
+                mode="compact"
+                compactLabel
+                className="jetty-card__schedule-badge"
+              />
+            ) : null}
             {renderCardEtcBadge(v)}
           </span>
         </span>
@@ -533,11 +541,6 @@ export default function JettySchematic({
         </span>
         {hoseConveyorLine ? (
           <span className="jetty-slot__line jetty-card__opening">{hoseConveyorLine}</span>
-        ) : null}
-        {scheduleBehind ? (
-          <span className="jetty-slot__line jetty-card__schedule-behind">
-            <CargoScheduleProgressIndicator comparison={v?.scheduleComparison} mode="compact" />
-          </span>
         ) : null}
         {balanceLine || berthedDur ? (
           <span className="jetty-slot__line jetty-card__balance">

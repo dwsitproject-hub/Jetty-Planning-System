@@ -362,6 +362,7 @@
   "cargoOpsTimelineLastLineEnd": "Last segment end {{at}}",
   "cargoScheduleSectionTitle": "Schedule vs cargo progress",
   "cargoScheduleBehindBadge": "⚠ Behind −{{gap}}%",
+  "cargoScheduleBehindBadgeShort": "⚠ −{{gap}}%",
   "cargoScheduleBehindBanner": "Behind schedule — actual {{actual}}% vs planned {{planned}}% (−{{gap}}%)",
   "cargoScheduleOnTrack": "✓ On track",
   "cargoScheduleActualLabel": "Actual {{value}}%",
