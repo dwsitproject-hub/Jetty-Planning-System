@@ -9,6 +9,8 @@ import {
 import { fetchSiLookups } from '../api/siLookups'
 import { useRbac } from '../context/RbacContext'
 import PurposeBadge from '../components/PurposeBadge'
+import ShipmentPlanCombinedFormModal from '../components/ShipmentPlanCombinedFormModal'
+import { planHubCanEditPlan, preBerthCombinedSaveToastMessage } from '../utils/siPreBerthEdit'
 import { MAX_SI_VESSEL_NAME_CHARS, MAX_SI_VOYAGE_CHARS } from '../constants/inputLimits'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import '../styles/shipping-instruction.css'
@@ -36,6 +38,7 @@ export default function ShipmentPlanHub() {
   const [toast, setToast] = useState(null)
   const [lookups, setLookups] = useState(null)
   const [editOpen, setEditOpen] = useState(false)
+  const [preBerthCombinedOpen, setPreBerthCombinedOpen] = useState(false)
   const [formVessel, setFormVessel] = useState('')
   const [formJettyId, setFormJettyId] = useState('')
   const [formEta, setFormEta] = useState('')
@@ -167,6 +170,7 @@ export default function ShipmentPlanHub() {
     canEdit('shipment-plan') &&
     (plan.approvalStatus === 'Draft' || plan.approvalStatus === 'Rejected') &&
     (plan.siCount ?? 0) >= 1
+  const canEditPlanPreBerth = canEdit('shipment-plan') && planHubCanEditPlan(plan)
 
   return (
     <div className="shipping-instruction-page shipping-instruction-page--plans">
@@ -212,6 +216,15 @@ export default function ShipmentPlanHub() {
               onClick={() => navigate(`/shipment-plans/approval/${id}`)}
             >
               {t('openApproval')}
+            </button>
+          )}
+          {canEditPlanPreBerth && (
+            <button
+              type="button"
+              className="btn btn--secondary si-page-header__cta"
+              onClick={() => setPreBerthCombinedOpen(true)}
+            >
+              {t('preBerthEditPlanTitle')}
             </button>
           )}
           {canEdit('shipment-plan') && (plan.approvalStatus === 'Draft' || plan.approvalStatus === 'Rejected') && (
@@ -266,6 +279,7 @@ export default function ShipmentPlanHub() {
         </p>
       )}
 
+
       <h2 className="shipping-instruction-form__section-title">{t('siOnPlan')}</h2>
       <div className="si-table-wrap">
         <table className="si-table">
@@ -293,6 +307,20 @@ export default function ShipmentPlanHub() {
           </tbody>
         </table>
       </div>
+
+      <ShipmentPlanCombinedFormModal
+        isOpen={preBerthCombinedOpen}
+        mode="preBerthEdit"
+        planId={id}
+        onClose={() => setPreBerthCombinedOpen(false)}
+        onSaved={(result) => {
+          setToast({
+            message: preBerthCombinedSaveToastMessage({ ...result, vesselName: plan.vesselName }, t),
+            variant: result?.planReopened ? 'warning' : 'success',
+          })
+          load().catch(() => {})
+        }}
+      />
 
       {editOpen && (
         <div className="modal-overlay" onClick={() => setEditOpen(false)} aria-hidden="true">

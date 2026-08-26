@@ -1,32 +1,14 @@
 /**
  * Polls notification_deliveries (email, queued), sends via SMTP when configured.
  */
-import nodemailer from 'nodemailer';
 import { pool } from '../db.js';
-import { loadNotificationTemplate, renderTemplate, insertInAppNotificationForUser } from './notifications.js';
-
-let transport = null;
-
-function getSmtpTransport() {
-  const host = process.env.SMTP_HOST;
-  if (!host || !String(host).trim()) return null;
-  if (transport) return transport;
-  const port = parseInt(process.env.SMTP_PORT || '587', 10);
-  const secure = String(process.env.SMTP_SECURE || '').toLowerCase() === 'true' || port === 465;
-  const user = process.env.SMTP_USER || '';
-  const pass = process.env.SMTP_PASS || '';
-  transport = nodemailer.createTransport({
-    host: String(host).trim(),
-    port: Number.isFinite(port) ? port : 587,
-    secure,
-    auth: user ? { user, pass } : undefined,
-  });
-  return transport;
-}
-
-function fromAddress() {
-  return process.env.SMTP_FROM || process.env.SMTP_USER || 'jetty-planning@localhost';
-}
+import { getFromAddress, getSmtpTransport } from './smtp-config.js';
+import {
+  isNotificationEmailEnabled,
+  loadNotificationTemplate,
+  renderTemplate,
+  insertInAppNotificationForUser,
+} from './notifications.js';
 
 /** Reject malformed or injection-prone recipient addresses before SMTP send. */
 export function isValidRecipientEmail(address) {
@@ -53,7 +35,8 @@ export async function processNotificationEmailQueueOnce(limit = 15) {
   );
 
   let processed = 0;
-  const smtp = getSmtpTransport();
+  const smtp = await getSmtpTransport(pool);
+  const from = await getFromAddress(pool);
 
   for (const row of rows) {
     const payload = row.payload && typeof row.payload === 'object' ? row.payload : {};
@@ -78,7 +61,7 @@ export async function processNotificationEmailQueueOnce(limit = 15) {
         `UPDATE notification_deliveries
          SET status = 'skipped', error_text = $2, updated_at = NOW()
          WHERE id = $1`,
-        [row.delivery_id, 'SMTP not configured (set SMTP_HOST, etc.)']
+        [row.delivery_id, 'SMTP not configured — set up in Admin → Notifications']
       );
       processed += 1;
       continue;
@@ -105,7 +88,7 @@ export async function processNotificationEmailQueueOnce(limit = 15) {
 
     try {
       const info = await smtp.sendMail({
-        from: fromAddress(),
+        from,
         to: toAddress,
         subject,
         text,
@@ -125,7 +108,11 @@ export async function processNotificationEmailQueueOnce(limit = 15) {
             ? `We emailed you about shipment plan ${strVars.planReference || ''}. Check your inbox.`.trim()
             : row.event_key === 'operation.signoff_requested'
               ? `We emailed you about clearance / sign-off for ${strVars.vesselName || 'a vessel'}. Check your inbox.`.trim()
-              : 'A notification email was sent. Check your inbox.';
+              : row.event_key === 'operation.sla_etc_d1'
+                ? `We emailed you an SLA D-1 reminder for ${strVars.vesselName || 'a vessel'}. Check your inbox.`.trim()
+                : row.event_key === 'operation.sla_etc_breach'
+                  ? `We emailed you an SLA breach alert for ${strVars.vesselName || 'a vessel'}. Check your inbox.`.trim()
+                  : 'A notification email was sent. Check your inbox.';
         const echoTitle = renderTemplate(echoTpl.title_template, { detail });
         const echoBody = renderTemplate(echoTpl.body_template, { detail });
         const echoCorrelation = `email_echo:${row.delivery_id}`;
@@ -156,6 +143,10 @@ export async function processNotificationEmailQueueOnce(limit = 15) {
 let intervalId = null;
 
 export function startNotificationEmailWorker() {
+  if (!isNotificationEmailEnabled()) {
+    console.log('[notifications] email worker disabled (NOTIFICATION_EMAIL_ENABLED=false)');
+    return;
+  }
   const intervalMs = Math.max(5000, parseInt(process.env.NOTIFICATION_EMAIL_POLL_MS || '20000', 10) || 20000);
   if (intervalId) return;
   intervalId = setInterval(() => {

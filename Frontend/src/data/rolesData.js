@@ -4,10 +4,13 @@
  */
 
 export const PAGE_OPTIONS = [
-  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'dashboard', label: 'Live Ops Dashboard' },
+  { id: 'dashboard-analytics', label: 'Ops Analytics Dashboard' },
+  { id: 'management-dashboard', label: 'Management Dashboard' },
   { id: 'shipment-plan', label: 'Shipment Plan' },
   { id: 'allocation-plan', label: 'Allocation & Berthing (by Shipment Plan)' },
   { id: 'at-berth', label: 'At-Berth Executions' },
+  { id: 'operator-at-berth', label: 'Operator Mode' },
   { id: 'loading', label: 'Loading / Unloading' },
   { id: 'quality', label: 'Quality' },
   { id: 'verification', label: 'Clearance' },
@@ -17,6 +20,8 @@ export const PAGE_OPTIONS = [
   { id: 'master-port', label: 'Master – Port' },
   { id: 'master-jetty', label: 'Master – Jetty' },
   { id: 'master-jetty-layout', label: 'Master – Jetty Layout' },
+  { id: 'master-tanks', label: 'Master – Tanks' },
+  { id: 'tank-farm', label: 'Tank Farm' },
   { id: 'master-si-term', label: 'Master – Term' },
   { id: 'master-si-shipper', label: 'Master – Shipper' },
   { id: 'master-si-loading-port', label: 'Master – Loading Port' },

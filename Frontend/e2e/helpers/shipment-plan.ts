@@ -56,15 +56,17 @@ export async function fillPlanHeader(page: Page, opts: { vessel: string; eta: st
   await modal.locator('#sp-eta').fill(opts.eta);
 }
 
-/** Add one SI draft card and fill minimum required fields. */
-export async function addSiDraftToOpenModal(page: Page, siRef: string) {
+/** Add one SI draft card and fill minimum required fields (SI ref optional). */
+export async function addSiDraftToOpenModal(page: Page, siRef?: string) {
   const modal = planModal(page);
   const addSiBtn = modal.locator('button').filter({ hasText: /Add another shipping instruction/i });
   await expect(addSiBtn).toBeEnabled({ timeout: 20_000 });
   await addSiBtn.click();
 
   await expect(modal.locator('#sp-si-0-siRef')).toBeVisible({ timeout: 15_000 });
-  await modal.locator('#sp-si-0-siRef').fill(siRef);
+  if (siRef) {
+    await modal.locator('#sp-si-0-siRef').fill(siRef);
+  }
 
   const row = modal.locator('tbody tr').first();
   const commoditySelect = row.locator('select').nth(1);
@@ -91,6 +93,22 @@ export async function createPlanOnly(page: Page, opts: { vessel: string; eta: st
   const created = await response.json();
   await expect(modal).toBeHidden({ timeout: 15_000 });
   return created as { id: number; planReference?: string };
+}
+
+/** Create plan + one SI without reference number (optional ref until berthing). */
+export async function createPlanWithSiNoRef(page: Page, opts: { vessel: string; eta: string }) {
+  await openCreatePlanModal(page);
+  await fillPlanHeader(page, opts);
+  await addSiDraftToOpenModal(page);
+  const modal = planModal(page);
+  const planResponse = page.waitForResponse(
+    (r) => r.url().includes('/shipment-plans') && r.request().method() === 'POST' && r.status() === 201,
+    { timeout: 60_000 }
+  );
+  await modal.locator('button[type="submit"]').click();
+  const response = await planResponse;
+  await expect(modal).toBeHidden({ timeout: 90_000 });
+  return (await response.json()) as { id: number; planReference?: string };
 }
 
 /** Create plan + one SI in the combined modal (normal flow step 1). */

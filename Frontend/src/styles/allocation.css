@@ -242,8 +242,8 @@ html.allocation-viz-popout-open #root {
 .jetty-schedule-gantt {
   margin-top: 0;
   --jetty-schedule-id-col: 200px;
-  --gantt-bar-height: 56px;
-  --gantt-bar-stack-step: 62px;
+  --gantt-bar-height: 48px;
+  --gantt-bar-stack-step: 54px;
 }
 
 .jetty-schedule-gantt__filters {
@@ -435,6 +435,77 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.6);
 }
 
+/* Multi-jetty berthing: visually extends a vessel's REAL bar (rendered in its primary jetty's
+   row, unchanged) down/up through its additional jetty row(s) so the two rows read as one
+   continuous occupied bar. Same fill/border colours as the real bar (reused via
+   segmentColorClass); no text; not interactive — the real bar still owns clicks/drag. Sits at
+   the same z-index as `.jetty-schedule-gantt__bar` but earlier in DOM order, so the real bar
+   (painted after) covers it exactly where they overlap in the primary row. */
+.jetty-schedule-gantt__bar--span-extension {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+/* Multi-jetty berthing: when the schedule is editable, grabbing anywhere on the extension
+   (not just the real bar) drags the whole spanning bar — see `handleBarPointerDown`'s
+   `grabbedExtension` branch in JettyScheduleGantt.jsx. */
+.jetty-schedule-gantt__bar--span-extension-draggable {
+  pointer-events: auto;
+  cursor: grab;
+}
+
+/* !important: color modifiers like `--actual-grad`/`--actual-solid` set the full `border`
+   shorthand and are declared later in this file, so at equal (single-class) specificity they'd
+   otherwise win the cascade and reinstate the removed edge border. */
+.jetty-schedule-gantt__bar--span-extension-down {
+  border-top: none !important;
+  border-radius: 0 0 4px 4px !important;
+}
+
+.jetty-schedule-gantt__bar--span-extension-up {
+  border-bottom: none !important;
+  border-radius: 4px 4px 0 0 !important;
+}
+
+/* Mirror of the extension's own border/radius removal, applied to the REAL primary bar on the
+   edge that touches its extension — together these make the two pieces read as one seamless
+   rectangle (single outer border, rounded only on the non-connecting edge) instead of two
+   bordered pieces stacked together.
+   !important is required here: several status modifiers (e.g. `--actual-etc-overdue`,
+   `--st-sailed-off`) are combined two-class selectors (e.g.
+   `.bar--actual-etc-overdue.bar--actual-grad`) with higher specificity than this single-class
+   rule, and they set the full `border` shorthand — which would otherwise silently reinstate the
+   bottom/top border and reopen the seam on any late/sailed-off spanning vessel. */
+.jetty-schedule-gantt__bar--span-primary-down {
+  border-bottom: none !important;
+  border-radius: 4px 4px 0 0 !important;
+}
+
+.jetty-schedule-gantt__bar--span-primary-up {
+  border-top: none !important;
+  border-radius: 0 0 4px 4px !important;
+}
+
+/* Multi-jetty + late: one continuous 3px red left accent on BOTH shell pieces (matches
+   .gantt-dense-block--late weight used on single-row bars). Inset box-shadow avoids fighting
+   seamless border/radius rules that use !important. */
+.jetty-schedule-gantt__bar--span-primary-down.jetty-schedule-gantt__bar--actual-etc-overdue,
+.jetty-schedule-gantt__bar--span-primary-up.jetty-schedule-gantt__bar--actual-etc-overdue,
+.jetty-schedule-gantt__bar--span-extension.jetty-schedule-gantt__bar--actual-etc-overdue {
+  box-shadow: inset 3px 0 0 rgb(var(--gantt-late-rgb));
+}
+
+/* Outer shell already carries the accent — suppress inner duplicate on the primary row only. */
+.jetty-schedule-gantt__bar--span-primary-down.jetty-schedule-gantt__bar--actual-etc-overdue .gantt-dense-block--late,
+.jetty-schedule-gantt__bar--span-primary-up.jetty-schedule-gantt__bar--actual-etc-overdue .gantt-dense-block--late {
+  border-left: none;
+  margin-left: 0;
+  padding-left: 8px;
+  border-radius: 0;
+}
+
 .jetty-schedule-gantt__row {
   display: grid;
   align-items: stretch;
@@ -558,10 +629,8 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
   white-space: normal;
-  /* The coloured box grows to fit its label (min-width: max-content) so text stays INSIDE the
-     box and is never cut off and never spills onto the grid. */
-  min-width: max-content;
-  max-width: none;
+  /* Bar width is strictly time-based (left/width from segmentTrackStyle); text clips inside. */
+  max-width: 100%;
   overflow: hidden;
   box-sizing: border-box;
   line-height: 1.2;
@@ -620,26 +689,72 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 .gantt-dense-block__vessel {
   overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
   min-width: 0;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
 }
 
 .gantt-dense-block__dates {
   display: block;
-  font-size: 10px;
-  line-height: 1.25;
+  font-size: 8px;
+  line-height: 1.15;
   opacity: 0.95;
   overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.gantt-dense-block__commodity {
+  display: block;
+  font-size: 9px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.15;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .gantt-dense-block__cargo {
   display: block;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: var(--font-weight-semibold);
-  line-height: 1.25;
+  line-height: 1.15;
   overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.gantt-dense-block--narrow {
+  padding: 2px 4px;
+  gap: 0;
+}
+
+.gantt-dense-block--narrow .gantt-dense-block__row--title {
+  font-size: 10px;
+}
+
+.gantt-dense-block--narrow .gantt-dense-block__icon {
+  width: 12px;
+  height: 12px;
+}
+
+.gantt-dense-block--narrow .gantt-dense-block__commodity {
+  font-size: 8px;
+  line-height: 1.1;
+  opacity: 0.9;
+}
+
+.gantt-dense-block--medium .gantt-dense-block__commodity {
+  font-size: 8px;
+}
+
+.gantt-dense-block--medium {
+  padding: 3px 6px;
+  gap: 1px;
+}
+
+.gantt-dense-block__row--commodity {
+  display: block;
 }
 
 .gantt-dense-block__aging {
@@ -706,9 +821,8 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
    date column and jetty row is included in the image (not just the visible viewport).
    `flex: none` + `max-height: none` opt out of the popout's bounded flex/scroll box. */
 .jetty-schedule-gantt__export-area--capturing {
-  /* width is set explicitly (in px) by the export handler — avoid `max-content` here, which
-     creates an intrinsic-sizing loop with the bars' min-width:max-content and hangs the
-     canvas renderer. */
+  /* width is set explicitly (in px) by the export handler — avoid intrinsic max-content sizing
+     that can hang the canvas renderer during capture. */
   height: auto;
   max-height: none;
   flex: none;
@@ -1421,6 +1535,22 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   font-weight: var(--font-weight-medium);
 }
 
+/* Compact modal / dialog footers on Allocation & Berthing (default .btn is 44px) */
+.allocation-page .modal__footer .btn,
+.allocation-page .modal__actions .btn,
+.allocation-page .vessel-detail-modal__footer .btn,
+.allocation-page .allocation-export-menu__actions .btn,
+.allocation-page .card__title-row .btn,
+.allocation-page .vessel-detail-modal__body .btn.btn--small,
+.allocation-page .modal__title + span .btn {
+  min-height: 32px;
+  height: auto;
+  padding: 4px 12px;
+  font-size: var(--font-size-small);
+  line-height: 1.25;
+  border-radius: var(--radius-sm);
+}
+
 .allocation-plan-status-filter__incoming-slice {
   padding-left: var(--spacing-2);
 }
@@ -1617,6 +1747,19 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   background: #e8eaed;
   color: #6b7280;
   border-color: #c5cdd6;
+}
+
+.allocation-berthing-action {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.allocation-berthing-action__plan-edit {
+  width: 100%;
+  white-space: normal;
+  line-height: 1.25;
 }
 
 /* Late SI — scheduling-only notice in Log arrival update modal */
@@ -3460,6 +3603,60 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   overflow: hidden;
   background: var(--color-bg-surface, #fff);
 }
+.cargo-line-card__qty-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem 1.25rem;
+}
+
+.cargo-line-card__qty-row .cargo-line-card__qty-field {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.cargo-line-card__atg-ref {
+  flex: 0 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding-bottom: 0.35rem;
+  min-width: 5rem;
+}
+
+.cargo-line-card__atg-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cargo-line-card__atg-value {
+  font-size: 1rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cargo-line-card__atg-partial {
+  font-size: 0.75rem;
+}
+
+.cargo-line-card__qty-hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+}
+
+.cargo-line-card__in-progress {
+  margin-left: auto;
+  margin-right: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-warning-text, #b45309);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 .cargo-line-card__header {
   display: flex;
   align-items: center;
@@ -4488,6 +4685,115 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   line-height: 1.5;
 }
 
+/* Operational progress (vessel detail modal) */
+.operational-progress-section__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-bottom: var(--spacing-3);
+  font-size: var(--font-size-small);
+  line-height: 1.45;
+}
+
+.operational-progress-section__summary-item {
+  color: var(--color-text-charcoal);
+}
+
+.operational-progress-section__summary-balance {
+  color: #0f766e;
+  font-weight: var(--font-weight-semibold);
+}
+
+.operational-progress-section__summary-rates {
+  color: #1d4ed8;
+  font-weight: var(--font-weight-semibold);
+}
+
+.operational-progress-section__chart-wrap {
+  margin-bottom: var(--spacing-4);
+}
+
+.operational-progress-section__chart {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+.operational-progress-section__grid-line {
+  stroke: rgba(148, 163, 184, 0.35);
+  stroke-width: 1;
+}
+
+.operational-progress-section__axis-label,
+.operational-progress-section__x-label {
+  fill: #64748b;
+  font-size: 10px;
+}
+
+.operational-progress-section__bar {
+  fill: rgba(15, 118, 110, 0.55);
+}
+
+.operational-progress-section__bar--today {
+  fill: rgba(15, 118, 110, 0.9);
+}
+
+.operational-progress-section__cum-line {
+  stroke: #1d4ed8;
+  stroke-width: 2;
+}
+
+.operational-progress-section__chart-legend {
+  margin: 6px 0 0;
+  font-size: var(--font-size-xs);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.operational-progress-section__legend-bar,
+.operational-progress-section__legend-line {
+  display: inline-block;
+  width: 14px;
+  height: 10px;
+  margin-right: 4px;
+  vertical-align: middle;
+  border-radius: 2px;
+}
+
+.operational-progress-section__legend-bar {
+  background: rgba(15, 118, 110, 0.7);
+}
+
+.operational-progress-section__legend-line {
+  background: transparent;
+  border: 2px solid #1d4ed8;
+  height: 0;
+  width: 16px;
+}
+
+.operational-progress-section__chart-empty {
+  margin: 0 0 var(--spacing-3);
+  font-size: var(--font-size-small);
+}
+
+.operational-progress-section__timeline {
+  margin-top: var(--spacing-2);
+}
+
+.operational-progress-section__activity-title {
+  margin: var(--spacing-3) 0 var(--spacing-2);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+}
+
+.operation-activity-timeline--embedded .berthing-modal__card-title {
+  margin-top: 0;
+}
+
 /* At-Berth Executions summary (grouped: Loading + Unloading, 3 phases each) */
 .at-berth-summary {
   margin-bottom: var(--spacing-3);
@@ -4966,6 +5272,14 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   color: var(--color-text-steel);
 }
 
+.cargo-ops-tanks-dropdown {
+  width: 100%;
+}
+
+.cargo-ops-tanks-dropdown .dropdown-multi__panel {
+  z-index: 1100;
+}
+
 .dropdown-multi__panel {
   position: absolute;
   z-index: 10;
@@ -4993,6 +5307,44 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   visibility: visible;
   pointer-events: auto;
   transform: translateY(0);
+}
+
+.dropdown-multi__panel--searchable {
+  display: flex;
+  flex-direction: column;
+  max-height: 280px;
+  overflow: hidden;
+}
+
+.dropdown-multi__search-wrap {
+  flex: 0 0 auto;
+  padding: var(--spacing-2);
+  border-bottom: 1px solid var(--color-border-medium);
+  background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.dropdown-multi__search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 0.55rem;
+  font-size: var(--font-size-small);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  outline: none;
+}
+
+.dropdown-multi__search:focus {
+  border-color: var(--color-primary, #c00);
+}
+
+.dropdown-multi__panel--searchable .dropdown-multi__list,
+.dropdown-multi__panel--searchable .dropdown-multi__empty {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .dropdown-multi__list {
@@ -5637,6 +5989,21 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   color: var(--color-text-strong, #1f2937);
 }
 
+.allocation-export-menu__fieldset {
+  margin: 0 0 10px;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.allocation-export-menu__legend {
+  margin: 0 0 6px;
+  padding: 0;
+  font-size: var(--font-size-xs, 0.75rem);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-text-steel, #6b7280);
+}
+
 .allocation-export-menu__option {
   display: flex;
   align-items: flex-start;
@@ -5645,6 +6012,17 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   font-size: var(--font-size-sm, 0.875rem);
   line-height: 1.35;
   cursor: pointer;
+}
+
+.allocation-export-menu__option--inline {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 12px;
+  margin-bottom: 6px;
+}
+
+.allocation-export-menu__option--inline input {
+  margin-top: 0;
 }
 
 .allocation-export-menu__option input {

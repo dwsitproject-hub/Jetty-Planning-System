@@ -2,8 +2,8 @@ import { formatDateTimeDisplay } from './formatDateTimeDisplay.js'
 import { computeCargoProgress } from './cargoQtyDisplay.js'
 
 /** Gantt bar layout constants (keep in sync with allocation.css --gantt-bar-*). */
-export const GANTT_BAR_HEIGHT = 56
-export const GANTT_BAR_STACK_STEP = 62
+export const GANTT_BAR_HEIGHT = 48
+export const GANTT_BAR_STACK_STEP = 54
 
 /**
  * @param {object | null | undefined} r
@@ -64,6 +64,24 @@ export function formatGanttMilestoneShort(ms) {
 }
 
 /**
+ * Opening (hose/conveyor on) label for schematic cards and schedule bars.
+ * @param {string | null | undefined} methodName e.g. "Hose" or "Conveyor"
+ * @param {string | null | undefined} startAtIso ISO timestamp from opening_hatch start_at
+ * @returns {string | null}
+ */
+export function formatHoseConveyorOnLine(methodName, startAtIso) {
+  if (startAtIso == null || startAtIso === '') return null
+  const ms = new Date(startAtIso).getTime()
+  if (!Number.isFinite(ms)) return null
+  const method = String(methodName || '').trim().toLowerCase()
+  let label = 'Hose on'
+  if (method === 'conveyor') label = 'Conveyor on'
+  else if (method === 'hose') label = 'Hose on'
+  else if (methodName && String(methodName).trim()) label = `${String(methodName).trim()} on`
+  return `${label} ${formatGanttMilestoneShort(ms)}`
+}
+
+/**
  * @param {Array<{ label: string, ms: number | null | undefined }>} entries
  * @returns {string}
  */
@@ -99,6 +117,70 @@ export function formatMaterialQtyLine(material, cargo) {
     cl.includes(m.toLowerCase()) || (parts.length > 0 && parts.every((p) => cl.includes(p.toLowerCase())))
   if (cargoNamesMaterial) return c
   return `${m} · ${c}`
+}
+
+/**
+ * Planned milestone entries for Gantt bars (ETA / ETB / ETC).
+ * @param {object} model
+ * @returns {Array<{ key: string, label: string, ms: number | null }>}
+ */
+export function buildGanttPlannedMilestoneEntries(model) {
+  return [
+    { key: 'ganttBarEta', label: 'ETA', ms: model.etaMs ?? null },
+    { key: 'ganttBarEtb', label: 'ETB', ms: model.etbMs ?? null },
+    { key: 'ganttBarEtc', label: 'ETC', ms: model.etcMs ?? null },
+  ]
+}
+
+/**
+ * Estimate milestone entries for actual Gantt bars (ETA / ETB / ETC).
+ * @param {object} model
+ * @returns {Array<{ key: string, label: string, ms: number | null }>}
+ */
+export function buildGanttEstimateMilestoneEntries(model) {
+  const etcMs = model.etcMs ?? model.estCompMs ?? null
+  return [
+    { key: 'ganttBarEta', label: 'ETA', ms: model.etaMs ?? null },
+    { key: 'ganttBarEtb', label: 'ETB', ms: model.etbMs ?? null },
+    { key: 'ganttBarEtc', label: 'ETC', ms: etcMs },
+  ]
+}
+
+/**
+ * Actual milestone entries for Gantt bars (TA / TB / TC).
+ * @param {object} model
+ * @returns {Array<{ key: string, label: string, ms: number | null }>}
+ */
+export function buildGanttActualMilestoneEntries(model) {
+  return [
+    { key: 'ganttBarTa', label: 'TA', ms: model.taMs ?? null },
+    { key: 'ganttBarTb', label: 'TB', ms: model.tbMs ?? null },
+    { key: 'ganttBarActualCompletion', label: 'TC', ms: model.actualCompMs ?? null },
+  ]
+}
+
+/**
+ * Combined estimate + actual entries for medium-density actual bars.
+ * @param {object} model
+ * @returns {Array<{ key: string, label: string, ms: number | null }>}
+ */
+export function buildGanttCombinedActualMilestoneEntries(model) {
+  return [...buildGanttEstimateMilestoneEntries(model), ...buildGanttActualMilestoneEntries(model)]
+}
+
+/**
+ * Compact in-bar milestone line (short timestamps, i18n labels).
+ * @param {Array<{ key: string, label: string, ms: number | null }>} entries
+ * @param {(key: string, opts: { defaultValue: string }) => string} translate
+ * @returns {string}
+ */
+export function formatGanttMilestoneEntriesCompact(entries, translate) {
+  return entries
+    .map(
+      ({ key, label, ms }) =>
+        `${translate(key, { defaultValue: label })} ${formatGanttMilestoneShort(ms)}`
+    )
+    .join(' · ')
 }
 
 /**
@@ -166,6 +248,12 @@ export function buildActualBlockModel(seg, row) {
     row?.cargoFirstLoggedAt,
     row?.cargoLastLoggedAt
   )
+  const openingSuffix = formatHoseConveyorOnLine(
+    row?.openingCargoHandlingMethodName,
+    row?.openingHatchStartAt
+  )
+  const cargoWithOpening =
+    openingSuffix && cargoDisplay ? `${cargoDisplay} · ${openingSuffix}` : cargoDisplay
 
   return {
     vesselName: seg.vesselName || '—',
@@ -177,17 +265,19 @@ export function buildActualBlockModel(seg, row) {
     taMs: seg.taMs ?? null,
     tbMs: seg.tbMs ?? null,
     actualCompMs,
+    etcMs: seg.estCompMs ?? null,
     materialDisplay,
-    cargoDisplay,
-    materialQtyLine: formatMaterialQtyLine(materialDisplay, cargoDisplay),
+    cargoDisplay: cargoWithOpening,
+    materialQtyLine: formatMaterialQtyLine(materialDisplay, cargoWithOpening),
     estimateLine: formatGanttMilestoneLine([
       { label: 'ETA', ms: seg.etaMs },
       { label: 'ETB', ms: seg.plannedEtbMs },
+      { label: 'ETC', ms: seg.estCompMs },
     ]),
     milestoneLine: formatGanttMilestoneLine([
       { label: 'TA', ms: seg.taMs },
       { label: 'TB', ms: seg.tbMs },
-      { label: 'Done', ms: actualCompMs },
+      { label: 'TC', ms: actualCompMs },
     ]),
     etcOverdue: Boolean(seg.etcOverdue),
     overMs: seg.overMs ?? null,
@@ -220,6 +310,38 @@ export function ganttDenseBlockAriaLabel(model, layer) {
   if (model.purposeLabel) parts.push(model.purposeLabel)
   if (layer === 'actual' && model.estimateLine) parts.push(model.estimateLine)
   parts.push(model.milestoneLine)
+  if (model.materialDisplay) parts.push(model.materialDisplay)
   if (model.materialQtyLine) parts.push(model.materialQtyLine)
   return parts.filter(Boolean).join(', ')
+}
+
+/**
+ * Tooltip items for schedule Gantt bars (full text when in-bar content is clipped).
+ * @param {object} model from buildPlannedBlockModel / buildActualBlockModel
+ * @param {'planned' | 'actual'} layer
+ * @param {{ clickHint?: string | null }} [options]
+ * @returns {Array<{ primary: string, secondary?: string }>}
+ */
+export function buildGanttBarTooltipItems(model, layer, options = {}) {
+  const items = []
+  if (model.purposeLabel) {
+    items.push({ primary: 'Purpose', secondary: model.purposeLabel })
+  }
+  if (layer === 'actual' && model.estimateLine) {
+    items.push({ primary: 'Estimate', secondary: model.estimateLine })
+  }
+  items.push({
+    primary: layer === 'planned' ? 'Planned milestones' : 'Actual milestones',
+    secondary: model.milestoneLine,
+  })
+  if (model.materialQtyLine) {
+    items.push({ primary: 'Cargo', secondary: model.materialQtyLine })
+  }
+  if (model.status) {
+    items.push({ primary: 'Status', secondary: model.status })
+  }
+  if (options.clickHint) {
+    items.push({ primary: options.clickHint })
+  }
+  return items
 }

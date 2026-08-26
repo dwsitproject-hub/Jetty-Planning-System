@@ -41,10 +41,12 @@
   "jettyAdviceNeedEta": "Isi ETA untuk mengaktifkan saran jetty.",
   "jettyAdviceNeedMasterSpecs": "Konfigurasi panjang jetty, DWT, dan komoditas di Master – Preferred Jetty untuk mengaktifkan saran.",
   "jettyNotSuitable": "melebihi spesifikasi jetty",
+  "jettySpanRequired": "perlu span",
   "jettyOccupiedAtEta": "terisi pada ETA",
   "jettyReasonLoa": "LOA {{loa}} m melebihi panjang jetty {{len}} m",
   "jettyReasonDwt": "DWT kapal {{dwt}} melebihi DWT jetty {{max}}",
   "formJettyUnsuitable": "Jetty {{jetty}} tidak cocok untuk kapal ini: {{reason}}. Pilih jetty yang disarankan atau sesuaikan data kapal.",
+  "formJettySpanRequired": "Jetty {{jetty}}: LOA kapal melebihi panjang jetty utama — pilih jetty adjacent untuk span ({{adjacent}}).",
   "vesselInfoTitle": "Informasi kapal",
   "vesselInfoLoading": "Memuat informasi kapal…",
   "vesselInfoReadOnly": "Akses Anda hanya lihat. Minta editor shipment plan untuk mengubah informasi kapal.",
@@ -209,5 +211,13 @@
   "rejectReasonPlaceholder": "Alasan penolakan (wajib)",
   "approveSuccess": "Rencana disetujui.",
   "rejectSuccess": "Rencana ditolak.",
-  "noPermission": "Anda tidak memiliki izin untuk tindakan ini."
+  "noPermission": "Anda tidak memiliki izin untuk tindakan ini.",
+  "preBerthEditSiTitle": "Perbarui shipping instruction",
+  "preBerthEditSiHint": "Perbarui shipping instruction sebelum sandar. Perubahan kargo atau pelabuhan akan membuka kembali rencana pengiriman untuk persetujuan ulang.",
+  "preBerthEditSaved": "Shipping instruction diperbarui.",
+  "preBerthEditSavedBerthing": "SI diperbarui — sandar sekarang tersedia.",
+  "preBerthEditPlanReopened": "Rencana dibuka kembali untuk persetujuan ulang karena perubahan SI.",
+  "preBerthEditPlanTitle": "Perbarui rencana pengiriman",
+  "preBerthEditPlanHint": "Perbarui kapal, detail perencanaan, dan shipping instruction yang ada dalam satu formulir sebelum sandar. Perubahan kosmetik SI menjaga rencana tetap disetujui; perubahan material SI membuka kembali untuk persetujuan ulang.",
+  "preBerthEditPlanSaved": "Rencana pengiriman diperbarui."
 }

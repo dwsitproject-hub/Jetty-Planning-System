@@ -8,8 +8,10 @@ import { AuthProvider } from './context/AuthContext'
 import { PortScopeProvider } from './context/PortScopeContext'
 import { FilePreviewProvider } from './context/FilePreviewContext'
 import Login from './pages/Login'
+import SsoError from './pages/SsoError'
 import SelectPort from './pages/SelectPort'
-import DashboardV2 from './pages/DashboardV2'
+import LiveOpsDashboard from './pages/LiveOpsDashboard'
+import OpsAnalyticsDashboard from './pages/OpsAnalyticsDashboard'
 import ManagementDashboard from './pages/ManagementDashboard'
 import ShipmentPlansList from './pages/ShipmentPlansList'
 import ShipmentPlanHub from './pages/ShipmentPlanHub'
@@ -22,6 +24,9 @@ import RetiredPage from './pages/RetiredPage'
 import Loading from './pages/Loading'
 import LoadingOperation from './pages/LoadingOperation'
 import AtBerthExecutions from './pages/AtBerthExecutions'
+import OperatorMobileShell from './components/operator/OperatorMobileShell'
+import OperatorAtBerthQueue from './pages/operator/OperatorAtBerthQueue'
+import OperatorExecutionPage from './pages/operator/OperatorExecutionPage'
 import Quality from './pages/Quality'
 import Verification from './pages/Verification'
 import Reporting from './pages/Reporting'
@@ -31,12 +36,16 @@ import Master from './pages/Master'
 import MasterPort from './pages/MasterPort'
 import MasterJetty from './pages/MasterJetty'
 import MasterJettyLayout from './pages/MasterJettyLayout'
+import MasterTanks from './pages/MasterTanks'
+import TankFarm from './pages/TankFarm'
 import MasterSiLookup from './pages/MasterSiLookup'
 import MasterFreightTerms from './pages/MasterFreightTerms'
 import Admin from './pages/Admin'
 import AdminUsers from './pages/AdminUsers'
 import AdminRoles from './pages/AdminRoles'
 import AdminPartnerApi from './pages/AdminPartnerApi'
+import AdminNotifications from './pages/AdminNotifications'
+import AdminEmailDeliveryLog from './pages/AdminEmailDeliveryLog'
 import DemurrageRiskCalculator from './pages/DemurrageRiskCalculator'
 import JettyLive from './pages/JettyLive'
 import DevOcrTest from './pages/DevOcrTest'
@@ -45,9 +54,17 @@ function AppShell() {
   const location = useLocation()
   const isSiView = /^\/shipping-instruction\/view\/[^/]+$/.test(location.pathname)
   const isVizPopout = /^\/allocation\/visualization\/[^/]+$/.test(location.pathname)
+  const isOperator = location.pathname.startsWith('/operator')
   const isEmbed = new URLSearchParams(location.search).get('embed') === '1'
   if ((isSiView && isEmbed) || (isVizPopout && isEmbed)) {
     return <Outlet />
+  }
+  if (isOperator) {
+    return (
+      <OperatorMobileShell>
+        <Outlet />
+      </OperatorMobileShell>
+    )
   }
   return (
     <Layout>
@@ -67,9 +84,11 @@ function App() {
               <RbacProvider>
                 <Routes>
                 <Route path="/login" element={<Login />} />
+                <Route path="/sso-error" element={<SsoError />} />
                 <Route path="/select-port" element={<SelectPort />} />
                 <Route element={<AppShell />}>
-                  <Route path="/" element={<DashboardV2 />} />
+                  <Route path="/" element={<LiveOpsDashboard />} />
+                  <Route path="/ops-analytics" element={<OpsAnalyticsDashboard />} />
                   <Route path="/management-dashboard" element={<ManagementDashboard />} />
                   <Route path="/dashboard-v2" element={<Navigate to="/" replace />} />
                   <Route path="/jetty-live" element={<JettyLive />} />
@@ -118,6 +137,8 @@ function App() {
                   <Route path="/allocation/visualization/:mode" element={<AllocationVisualizationPopout />} />
                   <Route path="/berthing" element={<Navigate to="/allocation-plans" replace />} />
                   <Route path="/at-berth" element={<AtBerthExecutions />} />
+                  <Route path="/operator/at-berth" element={<OperatorAtBerthQueue />} />
+                  <Route path="/operator/execution/:operationId" element={<OperatorExecutionPage />} />
                   <Route path="/loading/operation/:operationId" element={<LoadingOperation />} />
                   <Route path="/loading" element={<Loading />} />
                   <Route path="/loading/:vesselId" element={<Loading />} />
@@ -135,6 +156,8 @@ function App() {
                   <Route path="/master/port" element={<MasterPort />} />
                   <Route path="/master/jetty" element={<MasterJetty />} />
                   <Route path="/master/jetty-layout" element={<MasterJettyLayout />} />
+                  <Route path="/master/tanks" element={<MasterTanks />} />
+                  <Route path="/tank-farm" element={<TankFarm />} />
                   <Route
                     path="/master/si-term"
                     element={
@@ -213,6 +236,8 @@ function App() {
                   <Route path="/admin/users" element={<AdminUsers />} />
                   <Route path="/admin/roles" element={<AdminRoles />} />
                   <Route path="/admin/partner-api" element={<AdminPartnerApi />} />
+                  <Route path="/admin/notifications" element={<AdminNotifications />} />
+                  <Route path="/admin/notifications/email-log" element={<AdminEmailDeliveryLog />} />
                   <Route path="/dev/ocr-test" element={<DevOcrTest />} />
                 </Route>
                 </Routes>

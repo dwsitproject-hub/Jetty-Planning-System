@@ -54,14 +54,45 @@ export function viewModelFromOperationalEntries(entries, purpose) {
       const mk = e.milestoneKey ?? e.milestone_key
       const rawLines = e.cargoLoadLines ?? e.cargo_load_lines
       const cargoLoadLines = Array.isArray(rawLines)
-        ? rawLines.map((l) => ({
-            id: l.id != null ? String(l.id) : undefined,
-            lineOrder: Number(l.lineOrder ?? l.line_order ?? 0),
-            qty: l.qty != null && l.qty !== '' ? Number(l.qty) : null,
-            startAt: l.startAt ?? l.start_at ?? null,
-            endAt: l.endAt ?? l.end_at ?? null,
-            asOfAt: l.asOfAt ?? l.as_of_at ?? null,
-          }))
+        ? rawLines.map((l) => {
+            const rawLineTanks = l.tanks
+            const lineTanks = Array.isArray(rawLineTanks)
+              ? rawLineTanks.map((tk) => ({
+                  id: String(tk.id),
+                  code: tk.code ?? null,
+                  name: tk.name ?? null,
+                }))
+              : []
+            const rawLineTankIds = l.tankIds ?? l.tank_ids
+            const lineTankIds = Array.isArray(rawLineTankIds)
+              ? rawLineTankIds.map((id) => String(id))
+              : lineTanks.map((tk) => tk.id)
+            return {
+              id: l.id != null ? String(l.id) : undefined,
+              lineOrder: Number(l.lineOrder ?? l.line_order ?? 0),
+              qty: l.qty != null && l.qty !== '' ? Number(l.qty) : null,
+              manualQty:
+                l.manualQty != null && l.manualQty !== ''
+                  ? Number(l.manualQty)
+                  : l.manual_qty != null && l.manual_qty !== ''
+                    ? Number(l.manual_qty)
+                    : null,
+              atgQtyMode: (l.atgQtyMode ?? l.atg_qty_mode) === 'manual' ? 'manual' : 'auto',
+              startAt: l.startAt ?? l.start_at ?? null,
+              endAt: l.endAt ?? l.end_at ?? null,
+              atgMassDelta:
+                l.atgMassDelta != null && l.atgMassDelta !== ''
+                  ? Number(l.atgMassDelta)
+                  : l.atg_mass_delta != null && l.atg_mass_delta !== ''
+                    ? Number(l.atg_mass_delta)
+                    : null,
+              atgMassDetail: l.atgMassDetail ?? l.atg_mass_detail ?? null,
+              atgMassComputedAt: l.atgMassComputedAt ?? l.atg_mass_computed_at ?? null,
+              asOfAt: l.asOfAt ?? l.as_of_at ?? null,
+              tanks: lineTanks,
+              tankIds: lineTankIds,
+            }
+          })
         : []
       let cargoMovedQty = null
       if (cargoLoadLines.length > 0) {
@@ -71,6 +102,18 @@ export function viewModelFromOperationalEntries(entries, purpose) {
       } else if (e.cargo_moved_qty != null && e.cargo_moved_qty !== '') {
         cargoMovedQty = Number(e.cargo_moved_qty)
       }
+      const rawTanks = e.tanks
+      const tanks = Array.isArray(rawTanks)
+        ? rawTanks.map((tk) => ({
+            id: String(tk.id),
+            code: tk.code ?? null,
+            name: tk.name ?? null,
+          }))
+        : []
+      const rawTankIds = e.tankIds ?? e.tank_ids
+      const tankIds = Array.isArray(rawTankIds)
+        ? rawTankIds.map((id) => String(id))
+        : tanks.map((tk) => tk.id)
       activities.push({
         id: String(e.id),
         category: milestoneKeyToLabel(mk, purpose),
@@ -81,6 +124,16 @@ export function viewModelFromOperationalEntries(entries, purpose) {
         cargoHandlingMethodId: e.cargoHandlingMethodId ?? e.cargo_handling_method_id ?? null,
         cargoLoadLines,
         cargoMovedQty,
+        tanks,
+        tankIds,
+        atgFlowRateTph:
+          e.atgFlowRateTph != null && e.atgFlowRateTph !== ''
+            ? Number(e.atgFlowRateTph)
+            : e.atg_flow_rate_tph != null && e.atg_flow_rate_tph !== ''
+              ? Number(e.atg_flow_rate_tph)
+              : null,
+        atgRateDetail: e.atgRateDetail ?? e.atg_rate_detail ?? null,
+        atgRateComputedAt: e.atgRateComputedAt ?? e.atg_rate_computed_at ?? null,
       })
     }
   }

@@ -145,15 +145,18 @@ export default function ShippingInstructionSiLinkedFields({
               </div>
             )}
             <div className="input-group shipping-instruction-form__ref">
-              <label htmlFor={`${idPrefix}siRef`}>{t('formSiNoRequired')}</label>
+              <label htmlFor={`${idPrefix}siRef`}>{t('formSiNo')}</label>
               <input
                 id={`${idPrefix}siRef`}
                 value={form.referenceNumber}
                 onChange={(e) => updateForm({ referenceNumber: e.target.value })}
                 maxLength={MAX_SI_REFERENCE_CHARS}
-                required
                 disabled={!lookups}
+                aria-describedby={`${idPrefix}siRefHint`}
               />
+              <span id={`${idPrefix}siRefHint`} className="input-hint text-steel">
+                {t('formSiNoBerthingHint')}
+              </span>
             </div>
             <div className="input-group shipping-instruction-form__docdate">
               <label htmlFor={`${idPrefix}documentDate`}>{t('formDocumentDateRequired')}</label>
@@ -333,7 +336,7 @@ export default function ShippingInstructionSiLinkedFields({
                         <option value="">—</option>
                         {(lookups?.commodities || []).map((c) => (
                           <option key={c.id} value={c.id}>
-                            {c.name}
+                            {c.shortName || c.name}
                           </option>
                         ))}
                       </select>

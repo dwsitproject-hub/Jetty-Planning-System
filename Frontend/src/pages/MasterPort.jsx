@@ -14,6 +14,8 @@ import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js
 
 const PAGE_KEY = 'master-port'
 
+const DEFAULT_OPERATIONAL_DAY_START = '06:00:00'
+
 const PORT_COLUMNS = [
   {
     key: 'name',
@@ -26,10 +28,20 @@ const PORT_COLUMNS = [
     getSortValue: (p) => (p.scheduleTimezone || DEFAULT_SCHEDULE_TIMEZONE).toLowerCase(),
   },
   {
+    key: 'operationalDayStart',
+    label: 'Op. Day Start',
+    getSortValue: (p) => (p.operationalDayStart || DEFAULT_OPERATIONAL_DAY_START).toLowerCase(),
+  },
+  {
     key: 'description',
     label: 'Description',
     getSortValue: (p) => (p.description || '').toLowerCase(),
     getFilterValue: (p) => p.description || '',
+  },
+  {
+    key: 'allowMultiJetyBerthing',
+    label: 'Multi-Jetty Berthing',
+    getSortValue: (p) => (p.allowMultiJetyBerthing ? 1 : 0),
   },
 ]
 
@@ -74,12 +86,16 @@ export default function MasterPort() {
   const [formName, setFormName] = useState('')
   const [formDescription, setFormDescription] = useState('')
   const [formScheduleTimezone, setFormScheduleTimezone] = useState(DEFAULT_SCHEDULE_TIMEZONE)
+  const [formOperationalDayStart, setFormOperationalDayStart] = useState(DEFAULT_OPERATIONAL_DAY_START)
+  const [formAllowMultiJetyBerthing, setFormAllowMultiJetyBerthing] = useState(false)
 
   const openAdd = useCallback(() => {
     setEditingId(null)
     setFormName('')
     setFormDescription('')
     setFormScheduleTimezone(DEFAULT_SCHEDULE_TIMEZONE)
+    setFormOperationalDayStart(DEFAULT_OPERATIONAL_DAY_START)
+    setFormAllowMultiJetyBerthing(false)
     setModalOpen(true)
   }, [])
 
@@ -88,6 +104,8 @@ export default function MasterPort() {
     setFormName(port.name || '')
     setFormDescription(port.description ?? '')
     setFormScheduleTimezone(port.scheduleTimezone || DEFAULT_SCHEDULE_TIMEZONE)
+    setFormOperationalDayStart(port.operationalDayStart || DEFAULT_OPERATIONAL_DAY_START)
+    setFormAllowMultiJetyBerthing(port.allowMultiJetyBerthing === true)
     setModalOpen(true)
   }, [])
 
@@ -97,6 +115,8 @@ export default function MasterPort() {
     setFormName('')
     setFormDescription('')
     setFormScheduleTimezone(DEFAULT_SCHEDULE_TIMEZONE)
+    setFormOperationalDayStart(DEFAULT_OPERATIONAL_DAY_START)
+    setFormAllowMultiJetyBerthing(false)
   }, [])
 
   const handleSubmit = useCallback(async () => {
@@ -105,11 +125,14 @@ export default function MasterPort() {
     setSaving(true)
     setError(null)
     try {
+      const opDayStart = (formOperationalDayStart || '').trim() || DEFAULT_OPERATIONAL_DAY_START
       if (editingId != null) {
         await updatePortApi(editingId, {
           name,
           description: (formDescription || '').trim() || null,
           scheduleTimezone: (formScheduleTimezone || '').trim() || DEFAULT_SCHEDULE_TIMEZONE,
+          operationalDayStart: opDayStart,
+          allowMultiJetyBerthing: formAllowMultiJetyBerthing,
         })
         logActivity({ pageKey: PAGE_KEY, action: 'update', entityType: 'Port', entityLabel: name })
         setToast({ message: `Port saved: ${name}.`, variant: 'success' })
@@ -118,6 +141,8 @@ export default function MasterPort() {
           name,
           description: (formDescription || '').trim() || null,
           scheduleTimezone: (formScheduleTimezone || '').trim() || DEFAULT_SCHEDULE_TIMEZONE,
+          operationalDayStart: opDayStart,
+          allowMultiJetyBerthing: formAllowMultiJetyBerthing,
         })
         logActivity({ pageKey: PAGE_KEY, action: 'add', entityType: 'Port', entityLabel: name })
         setToast({ message: `Port added: ${name}.`, variant: 'success' })
@@ -129,7 +154,17 @@ export default function MasterPort() {
     } finally {
       setSaving(false)
     }
-  }, [editingId, formName, formDescription, formScheduleTimezone, closeModal, logActivity, loadPorts])
+  }, [
+    editingId,
+    formName,
+    formDescription,
+    formScheduleTimezone,
+    formOperationalDayStart,
+    formAllowMultiJetyBerthing,
+    closeModal,
+    logActivity,
+    loadPorts,
+  ])
 
   const handleDelete = useCallback(
     async (port) => {
@@ -236,6 +271,7 @@ export default function MasterPort() {
                   <tr key={p.id} className="allocation-table__row">
                     <td><strong>{p.name || '—'}</strong></td>
                     <td className="text-steel">{p.scheduleTimezone || DEFAULT_SCHEDULE_TIMEZONE}</td>
+                    <td className="text-steel">{p.operationalDayStart || DEFAULT_OPERATIONAL_DAY_START}</td>
                     <td>
                       {p.description
                         ? p.description.length > 60
@@ -243,6 +279,7 @@ export default function MasterPort() {
                           : p.description
                         : '—'}
                     </td>
+                    <td className="text-steel">{p.allowMultiJetyBerthing ? 'Yes' : 'No'}</td>
                     <td className="allocation-table__action-col">
                       <div className="allocation-table__action-btns">
                         <button
@@ -314,6 +351,25 @@ export default function MasterPort() {
               />
             </div>
             <div className="modal__section">
+              <label htmlFor="port-op-day-start" className="modal__label">
+                Operational day start (HH:mm:ss)
+              </label>
+              <input
+                id="port-op-day-start"
+                type="text"
+                className="modal__input"
+                value={formOperationalDayStart}
+                onChange={(e) => setFormOperationalDayStart(e.target.value)}
+                placeholder={DEFAULT_OPERATIONAL_DAY_START}
+                maxLength={8}
+                disabled={saving}
+                pattern="[0-2][0-9]:[0-5][0-9]:[0-5][0-9]"
+              />
+              <p className="text-steel" style={{ marginTop: '0.25rem', fontSize: '0.85em' }}>
+                Daily progress rolls at this local time (default 06:00:00 → next day 05:59:59).
+              </p>
+            </div>
+            <div className="modal__section">
               <label htmlFor="port-description" className="modal__label">Description</label>
               <textarea
                 id="port-description"
@@ -324,6 +380,22 @@ export default function MasterPort() {
                 placeholder="Optional description"
                 rows={4}
               />
+            </div>
+            <div className="modal__section">
+              <label htmlFor="port-allow-multi-jetty" className="modal__checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <input
+                  id="port-allow-multi-jetty"
+                  type="checkbox"
+                  checked={formAllowMultiJetyBerthing}
+                  onChange={(e) => setFormAllowMultiJetyBerthing(e.target.checked)}
+                  disabled={saving}
+                />
+                Allow Multi-Jetty Berthing
+              </label>
+              <p className="text-steel" style={{ marginTop: '0.25rem', fontSize: '0.85em' }}>
+                When enabled, operators can span a vessel across the primary jetty plus adjacent jetties
+                configured in Master – Jetty.
+              </p>
             </div>
             <div className="modal__footer">
               <button type="button" className="btn btn--secondary" onClick={closeModal} disabled={saving}>

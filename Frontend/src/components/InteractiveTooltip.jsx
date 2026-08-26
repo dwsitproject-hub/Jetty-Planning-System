@@ -51,15 +51,39 @@ export default function InteractiveTooltip({
   children,
 }) {
   const triggerRef = useRef(null)
+  const tooltipRef = useRef(null)
+  const closeTimerRef = useRef(null)
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState(null) // { left, top, flip }
 
   const safeItems = useMemo(() => (Array.isArray(items) ? items : []), [items])
 
+  const cancelScheduledClose = useCallback(() => {
+    if (closeTimerRef.current != null) {
+      clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+  }, [])
+
   const close = useCallback(() => {
+    cancelScheduledClose()
     setOpen(false)
     setPos(null)
-  }, [])
+  }, [cancelScheduledClose])
+
+  // Small grace period before closing so the cursor can travel from the trigger
+  // to the portal-rendered tooltip (a separate DOM subtree) without it vanishing,
+  // e.g. to scroll a long vessel list.
+  const scheduleClose = useCallback(() => {
+    cancelScheduledClose()
+    closeTimerRef.current = setTimeout(() => {
+      closeTimerRef.current = null
+      setOpen(false)
+      setPos(null)
+    }, 150)
+  }, [cancelScheduledClose])
+
+  useEffect(() => () => cancelScheduledClose(), [cancelScheduledClose])
 
   const computePosition = useCallback(() => {
     const el = triggerRef.current
@@ -87,11 +111,12 @@ export default function InteractiveTooltip({
   }, [interactiveChild, maxWidth, placement])
 
   const openNow = useCallback(() => {
+    cancelScheduledClose()
     const p = computePosition()
     if (!p) return
     setPos(p)
     setOpen(true)
-  }, [computePosition])
+  }, [cancelScheduledClose, computePosition])
 
   const onKeyDown = useCallback(
     (e) => {
@@ -102,7 +127,17 @@ export default function InteractiveTooltip({
 
   useEffect(() => {
     if (!open) return undefined
-    const onScroll = () => close()
+    const onScroll = (e) => {
+      // Capture-phase listener sees scrolls from *any* descendant, including the
+      // tooltip's own scrollable vessel list — ignore those so scrolling the list
+      // doesn't close it. Only close when an ancestor of the trigger scrolls,
+      // which would invalidate the computed anchor position.
+      const target = e.target
+      if (tooltipRef.current && target instanceof Node && tooltipRef.current.contains(target)) {
+        return
+      }
+      close()
+    }
     const onResize = () => close()
     window.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', onResize)
@@ -118,9 +153,12 @@ export default function InteractiveTooltip({
     open && pos
       ? createPortal(
           <div
+            ref={tooltipRef}
             className={`jps-tooltip${pos.flip ? ' jps-tooltip--flip' : ''}`}
             style={{ left: pos.left, top: pos.top, ['--jps-tooltip-maxw']: `${maxWidth}px`, ['--jps-tooltip-maxh']: `${maxHeight}px` }}
             role="tooltip"
+            onMouseEnter={cancelScheduledClose}
+            onMouseLeave={scheduleClose}
           >
             <div className="jps-tooltip__inner">
               {title ? <div className="jps-tooltip__title">{title}</div> : null}
@@ -161,7 +199,7 @@ export default function InteractiveTooltip({
         ref={triggerRef}
         className="jps-tooltip-trigger"
         onMouseEnter={openNow}
-        onMouseLeave={close}
+        onMouseLeave={scheduleClose}
         onFocus={openNow}
         onBlur={close}
         tabIndex={interactiveChild ? undefined : 0}

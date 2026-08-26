@@ -1,5 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { apiGet } from '../api/client'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { fetchMyPagePermissions } from '../api/rbac'
 import { useAuth } from './AuthContext'
 
 const RbacContext = createContext({
@@ -18,31 +18,28 @@ export function RbacProvider({ children }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [pagePerms, setPagePerms] = useState({})
+  const permissionsLoadedRef = useRef(false)
 
-  const refresh = useCallback(async () => {
-    if (!me) {
+  const refresh = useCallback(async ({ force = false } = {}) => {
+    if (!me && !force) {
       setPagePerms({})
       setError(null)
       setLoading(false)
-      return
+      permissionsLoadedRef.current = false
+      return {}
     }
-    setLoading(true)
+    const showBlockingLoader = !permissionsLoadedRef.current
+    if (showBlockingLoader) setLoading(true)
     setError(null)
     try {
-      const rows = await apiGet('/rbac/me/page-permissions')
-      const map = {}
-      for (const r of Array.isArray(rows) ? rows : []) {
-        map[r.resourceKey] = {
-          canView: !!r.canView,
-          canEdit: !!r.canEdit,
-          canDelete: !!r.canDelete,
-          canApprove: !!r.canApprove,
-        }
-      }
+      const map = await fetchMyPagePermissions()
       setPagePerms(map)
+      permissionsLoadedRef.current = true
+      return map
     } catch (e) {
       setError(e?.message || 'Failed to load permissions')
       setPagePerms({})
+      return {}
     } finally {
       setLoading(false)
     }

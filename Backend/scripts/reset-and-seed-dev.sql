@@ -13,6 +13,8 @@ TRUNCATE TABLE
   public.qc_documents,
   public.qc_surveys,
   public.quantity_checks,
+  public.operation_cargo_activity_tanks,
+  public.operation_cargo_load_line_tanks,
   public.operation_cargo_load_lines,
   public.operation_operational_activities,
   public.operation_sub_process_documents,

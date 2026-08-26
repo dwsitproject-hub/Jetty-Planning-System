@@ -6,6 +6,14 @@ import { pool } from '../db.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { resolveUserRequestedBy } from '../lib/resolve-requested-by.js';
 import { syncPlanVesselCapacityFromBreakdown } from '../lib/syncPlanVesselCapacity.js';
+import {
+  hasSiUpdateMaterialChanges,
+  isShipmentPlanPreBerth,
+  POST_BERTH_EDIT_ERROR,
+  reopenShipmentPlanForSiEdit,
+  SUBMITTED_MATERIAL_EDIT_ERROR,
+} from '../lib/si-pre-berth-edit.js';
+import { validateSiReferenceForBerthing } from '../lib/si-reference-validation.js';
 import { requireAuth } from '../middleware/auth.js';
 import { userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
 
@@ -609,10 +617,6 @@ router.post('/', requireAuth, async (req, res) => {
     document_date,
   } = b;
 
-  if (!reference_number || typeof reference_number !== 'string' || !reference_number.trim()) {
-    return res.status(400).json({ error: 'reference_number is required (Shipping Instructions No.)' });
-  }
-
   let shipmentPlanIdFromBody = null;
   /** @type {{ id: number, approval_status: string, vessel_name: string, eta: Date | null, purpose_id: number | null, voyage_no: string | null } | null} */
   let planRowForLink = null;
@@ -753,26 +757,8 @@ router.post('/', requireAuth, async (req, res) => {
       shipmentPlanId = shipmentPlanIdFromBody;
       const pst = planRowForLink?.approval_status;
       if (pst === 'Approved' || pst === 'Submitted') {
-        await client.query(
-          `UPDATE shipment_plans SET
-             approval_status = 'Draft',
-             approved_at = NULL,
-             approved_by_user_id = NULL,
-             submitted_at = NULL,
-             rejection_reason = NULL,
-             rejected_at = NULL,
-             updated_at = NOW()
-           WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
-          [shipmentPlanId, selectedPortId]
-        );
-        await client.query(
-          `UPDATE shipping_instructions
-           SET status = 'Draft', updated_at = NOW()
-           WHERE shipment_plan_id = $1 AND deleted_at IS NULL`,
-          [shipmentPlanId]
-        );
-        planReopened = true;
-        if (planRowForLink) planRowForLink.approval_status = 'Draft';
+        planReopened = await reopenShipmentPlanForSiEdit(client, shipmentPlanId, selectedPortId);
+        if (planReopened && planRowForLink) planRowForLink.approval_status = 'Draft';
       }
       const voyageOverride =
         voyage_no != null && String(voyage_no).trim() !== '' ? trimText(voyage_no, 64) : null;
@@ -945,7 +931,7 @@ router.put('/:id', requireAuth, async (req, res) => {
   let planRowBound = null;
   if (beforeRow.shipment_plan_id != null) {
     const prPlan = await pool.query(
-      `SELECT vessel_name, eta, purpose_id, voyage_no, jetty_id, approval_id, approved_at, approved_by_user_id, agent_id
+      `SELECT vessel_name, eta, purpose_id, voyage_no, jetty_id, approval_id, approved_at, approved_by_user_id, agent_id, approval_status
        FROM shipment_plans WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
       [beforeRow.shipment_plan_id, selectedPortId]
     );
@@ -1119,10 +1105,74 @@ router.put('/:id', requireAuth, async (req, res) => {
       ? String(vessel_name).trim()
       : String(planRowBound?.vessel_name || '').trim();
 
+  const nextDestinationText =
+    destination_text !== undefined ? trimText(destination_text, 4000) : beforeRow.destination_text;
+  const nextBillOfLadingClause =
+    bill_of_lading_clause !== undefined ? trimText(bill_of_lading_clause, 4000) : beforeRow.bill_of_lading_clause;
+  const nextConsigneeText =
+    consignee_text !== undefined ? trimText(consignee_text, 4000) : beforeRow.consignee_text;
+  const nextNotifyPartyText =
+    notify_party_text !== undefined ? trimText(notify_party_text, 4000) : beforeRow.notify_party_text;
+  const nextBlIndicated =
+    bl_indicated !== undefined ? trimText(bl_indicated, 4000) : beforeRow.bl_indicated;
+
+  const planApprovalStatus = planRowBound?.approval_status ?? null;
+  const planIdForGate = beforeRow.shipment_plan_id;
+  let planReopened = false;
+  let siStatusForUpdate = requestedStatus;
+
+  if (
+    planIdForGate != null &&
+    (planApprovalStatus === 'Approved' || planApprovalStatus === 'Submitted')
+  ) {
+    const preBerth = await isShipmentPlanPreBerth(pool, planIdForGate);
+    if (!preBerth) {
+      return res.status(409).json({ error: POST_BERTH_EDIT_ERROR });
+    }
+
+    const materialChange = hasSiUpdateMaterialChanges(
+      beforeRow,
+      beforeBd,
+      {
+        tradeTermId: nextTradeTermId,
+        loadingPortId: nextLoadingPort,
+        surveyorId: nextSurveyor,
+        preferredJettyId: nextPreferredJetty,
+        destinationText: nextDestinationText,
+        freightTerms: freightVal,
+        billOfLadingClause: nextBillOfLadingClause,
+        consigneeText: nextConsigneeText,
+        notifyPartyText: nextNotifyPartyText,
+        blSplitText: nextBlSplitText,
+        blIndicated: nextBlIndicated,
+      },
+      breakdown
+    );
+
+    if (planApprovalStatus === 'Submitted' && materialChange) {
+      return res.status(400).json({ error: SUBMITTED_MATERIAL_EDIT_ERROR });
+    }
+
+    if (nextRef) {
+      const refErr = validateSiReferenceForBerthing(nextRef, nextVesselName);
+      if (refErr) return res.status(400).json({ error: refErr });
+    }
+
+    if (materialChange && planApprovalStatus === 'Approved') {
+      planReopened = true;
+      siStatusForUpdate = 'Draft';
+      nextApprovedAt = null;
+      nextApprovedBy = null;
+    }
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const planId = beforeRow.shipment_plan_id;
+    if (planId != null && planReopened) {
+      await reopenShipmentPlanForSiEdit(client, planId, selectedPortId);
+    }
     if (planId != null) {
       await client.query(
         `UPDATE shipment_plans SET
@@ -1178,14 +1228,14 @@ router.put('/:id', requireAuth, async (req, res) => {
         nextTradeTermId,
         nextEtaFromFinal,
         nextEtaToFinal,
-        requestedStatus,
-        destination_text !== undefined ? trimText(destination_text, 4000) : beforeRow.destination_text,
+        siStatusForUpdate,
+        nextDestinationText,
         freightVal,
-        bill_of_lading_clause !== undefined ? trimText(bill_of_lading_clause, 4000) : beforeRow.bill_of_lading_clause,
-        consignee_text !== undefined ? trimText(consignee_text, 4000) : beforeRow.consignee_text,
-        notify_party_text !== undefined ? trimText(notify_party_text, 4000) : beforeRow.notify_party_text,
+        nextBillOfLadingClause,
+        nextConsigneeText,
+        nextNotifyPartyText,
         nextBlSplitText,
-        bl_indicated !== undefined ? trimText(bl_indicated, 4000) : beforeRow.bl_indicated,
+        nextBlIndicated,
         nextDocDate,
         nextApproverName,
         nextApproverTitle,
@@ -1208,7 +1258,7 @@ router.put('/:id', requireAuth, async (req, res) => {
     await client.query('COMMIT');
     const row = await pool.query(`${SI_SELECT} WHERE si.id = $1`, [id]);
     const bd = await loadBreakdown(id);
-    const response = { ...toSIList(row.rows[0]), breakdown: bd };
+    const response = { ...toSIList(row.rows[0]), breakdown: bd, planReopened };
     const before = { ...toSIList(beforeRow), breakdown: beforeBd };
     const changes = diffFields(before, response);
     writeActivityLog({
@@ -1217,10 +1267,10 @@ router.put('/:id', requireAuth, async (req, res) => {
       entityType: 'Shipping Instruction',
       entityId: id,
       entityLabel: response.referenceNumber || `SI-${id}`,
-      summary: transitioningToApproved ? 'Approved Shipping Instruction' : 'Updated Shipping Instruction',
-      changes: transitioningToApproved
-        ? [...changes, { field: 'Approval ID', from: null, to: response.approvalId }]
-        : changes,
+      summary: planReopened
+        ? 'Updated Shipping Instruction (plan reopened for re-approval)'
+        : 'Updated Shipping Instruction',
+      changes,
       actorUserId: req.userId ?? null,
     }).catch(() => {});
     res.json(response);

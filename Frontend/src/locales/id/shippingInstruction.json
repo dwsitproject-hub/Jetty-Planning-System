@@ -145,6 +145,8 @@
   "formVesselTripSection": "Kapal & perjalanan",
   "formVesselNameRequired": "Nama kapal *",
   "formSiNoRequired": "No. Shipping Instructions *",
+  "formSiNo": "No. Shipping Instructions",
+  "formSiNoBerthingHint": "Opsional sekarang — wajib sebelum berthing (tidak boleh kosong, tanda kutip tunggal, atau sama dengan nama kapal).",
   "formDocumentDateRequired": "Tanggal dokumen *",
   "formEtaFromRequired": "ETA dari *",
   "formEtaToRequired": "ETA hingga *",

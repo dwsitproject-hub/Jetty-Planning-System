@@ -1,0 +1,138 @@
+{
+  "shell": {
+    "brand": "Operator Mode",
+    "exit": "Exit",
+    "logout": "Logout"
+  },
+  "queue": {
+    "title": "At Berth Queue",
+    "sub": "Select a vessel / shipping instruction to execute.",
+    "sortBy": "Sort by",
+    "sortVesselName": "Vessel name",
+    "sortTb": "TB",
+    "sortJetty": "Jetty",
+    "loading": "Loading vessels…",
+    "loadingPermissions": "Loading permissions…",
+    "noAccess": "You do not have access to Operator Mode.",
+    "noVessels": "No berthed vessels right now.",
+    "errorLoad": "Failed to load at-berth queue",
+    "chooseSi": "Choose SI",
+    "hideSi": "Hide shipping instructions",
+    "open": "OPEN ›",
+    "instructionsCount": "{{count}} instructions",
+    "tbPrefix": "TB",
+    "phase": {
+      "preChecking": "Pre-Checking",
+      "operational": "Operational",
+      "postChecking": "Post-Checking",
+      "readyToSail": "Ready to Sail",
+      "signedOff": "Signed off",
+      "mixed": "Mixed"
+    }
+  },
+  "precheck": {
+    "blocked": "This vessel is still in Pre-Checking. Please check with your Supervisor before starting operational activities."
+  },
+  "exec": {
+    "loading": "Loading execution…",
+    "notFound": "Operation not found.",
+    "backToQueue": "Back to queue",
+    "invalidOperation": "Invalid operation",
+    "loadFailed": "Failed to load operation",
+    "entryNotFound": "Entry not found"
+  },
+  "phase": {
+    "operational": "Operational",
+    "postChecking": "Post-Checking"
+  },
+  "milestone": {
+    "opening_hatch": "OPENING",
+    "cargo_pre_conditioning": "CARGO PRE-CONDITIONING",
+    "cargo_operations": "CARGO OPERATIONS",
+    "other": "OTHER"
+  },
+  "post": {
+    "finalInspection": "FINAL INSPECTION",
+    "finalCargoChecking": "FINAL CARGO CHECKING"
+  },
+  "state": {
+    "completed": "Completed",
+    "inProgress": "In Progress",
+    "notStarted": "Not Started"
+  },
+  "action": {
+    "start": "Start",
+    "startNextSegment": "Start next segment",
+    "stop": "Stop",
+    "complete": "Complete",
+    "editTimestamp": "Edit timestamp",
+    "markDone": "Mark Done",
+    "cancel": "Cancel",
+    "confirmStart": "Confirm Start",
+    "save": "Save"
+  },
+  "tank": {
+    "selectSource": "Select source tanks",
+    "selectDestination": "Select destination tanks",
+    "requiredBeforeStart": "Required before Start",
+    "noneAvailable": "No tanks available for this port.",
+    "searchPlaceholder": "Search tanks…",
+    "noMatches": "No tanks match your search."
+  },
+  "si": {
+    "label": "Shipping instruction"
+  },
+  "activity": {
+    "recent": "Recent Activity ({{count}})",
+    "empty": "No activity yet."
+  },
+  "cargo": {
+    "tanksNoneYet": "Tanks: (none yet)",
+    "tanksLabel": "Tanks: {{list}}",
+    "tanksSelected": "{{count}} tanks selected",
+    "segmentsDone": "{{count}} segments done",
+    "lastTanks": "Last tanks: {{list}}",
+    "completed": "Completed",
+    "inProgress": "In progress"
+  },
+  "segments": {
+    "title": "Cargo segments",
+    "segmentLabel": "Segment {{num}}",
+    "ongoing": "In progress",
+    "timeRange": "{{start}} → {{end}}",
+    "editStart": "Edit start",
+    "editEnd": "Edit end"
+  },
+  "progress": {
+    "loading": "Loading progress",
+    "unloading": "Unloading progress"
+  },
+  "modal": {
+    "editTimestamp": "Edit timestamp",
+    "editMilestoneTimestamp": "Edit {{milestone}} timestamp",
+    "editSegmentStart": "Edit segment {{num}} start time",
+    "editSegmentEnd": "Edit segment {{num}} end time",
+    "dateTime": "Date & time"
+  },
+  "confirm": {
+    "openingIncomplete": "Opening is not completed. Continue anyway?",
+    "editTimestamp": "Edit the recorded timestamp?"
+  },
+  "toast": {
+    "selectTank": "Select at least one tank",
+    "invalidTankSelection": "Could not use the selected tank(s). Refresh and try again, or contact your Supervisor.",
+    "cargoStarted": "Cargo started",
+    "cargoNextSegment": "Next cargo segment started",
+    "cargoStopped": "Cargo stopped",
+    "otherCompleted": "Other completed",
+    "markedDone": "Marked done",
+    "timestampUpdated": "Timestamp updated",
+    "actionFailed": "Action failed",
+    "noActiveCargo": "No active cargo line to stop",
+    "atgQtyPending": "Could not read moved quantity from ATG yet. Wait a moment and try Stop again.",
+    "noActiveOther": "No active Other step",
+    "prevSegmentMissingTanks": "Previous cargo segment is missing tank data. Ask your Supervisor to review this operation in At-Berth desktop.",
+    "verifyPrecheckFailed": "Could not verify Pre-Checking status",
+    "milestoneStarted": "{{name}} started"
+  }
+}

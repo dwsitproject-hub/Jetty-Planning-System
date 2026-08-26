@@ -52,7 +52,8 @@ export function formatSiCargoDisplay(breakdownRows) {
 
   const qtyParts = [];
   for (const key of commodityOrder) {
-    const { name, lines } = byCommodity.get(key);
+    const { name, shortName, lines } = byCommodity.get(key);
+    const label = shortName || name;
     const byMetric = new Map();
     const metricOrder = [];
     for (const line of lines) {
@@ -68,7 +69,7 @@ export function formatSiCargoDisplay(breakdownRows) {
     for (const mk of metricOrder) {
       const { code, sum } = byMetric.get(mk);
       const formatted = `${formatQtyNumber(sum)} ${code}`;
-      qtyParts.push(name ? `${name} ${formatted}` : formatted);
+      qtyParts.push(label ? `${label} ${formatted}` : formatted);
     }
   }
 

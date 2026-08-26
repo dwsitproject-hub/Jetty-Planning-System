@@ -1,0 +1,594 @@
+{
+"leftTree": {
+
+"autoLogin":"@",
+
+
+"localUnitInfo": [
+{
+"unitName": "NXA820_BT_3",
+"ipAddress": "192.168.6.3",
+"fieldProtocol": "MODBUS",
+"unitTypeId": 3,
+"grouprights":[
+{
+"name": "Guest",
+"rights": 0
+}
+,{
+"name": "Operator",
+"rights": 5984
+}
+,{
+"name": "Technician",
+"rights": 16382
+}
+,{
+"name": "Supervisor",
+"rights": 16382
+}
+,{
+"name": "Factory",
+"rights": 268439550
+}
+]}
+]
+,
+
+
+"units": [
+{
+"id":0,
+"name":"NXA820_BT_3" ,
+"ipAddress":"192.168.6.3" ,
+"fieldProtocoll":"MODBUS" ,
+"tanks": [
+{
+"id": 1,
+"name": "TK 1501" ,
+"status":649
+}
+,
+{
+"id": 2,
+"name": "TK 5101" ,
+"status":649
+}
+,
+{
+"id": 3,
+"name": "TK 5102" ,
+"status":649
+}
+,
+{
+"id": 4,
+"name": "TK 5103" ,
+"status":649
+}
+,
+{
+"id": 5,
+"name": "TK 5104" ,
+"status":649
+}
+,
+{
+"id": 6,
+"name": "Daily Tank Methanol 1" ,
+"status":646
+}
+,
+{
+"id": 7,
+"name": "TK 5006" ,
+"status":649
+}
+,
+{
+"id": 8,
+"name": "TK Sodium 1001" ,
+"status":649
+}
+,
+{
+"id": 9,
+"name": "TK Sodium 1002" ,
+"status":649
+}
+,
+{
+"id": 10,
+"name": "Daily Tank Sodium" ,
+"status":646
+}
+,
+{
+"id": 11,
+"name": "TK 301" ,
+"status":649
+}
+,
+{
+"id": 12,
+"name": "TK 302" ,
+"status":649
+}
+,
+{
+"id": 13,
+"name": "TK 5005" ,
+"status":649
+}
+,
+{
+"id": 14,
+"name": "Daily NaOH" ,
+"status":649
+}
+,
+{
+"id": 15,
+"name": "Daily Ca" ,
+"status":649
+}
+]
+}]
+,
+
+"groupTypes": [
+{
+"id":3,
+"name":"Products",
+"groups":[
+{
+"id":805306827,
+"name":"BPO",
+"type":6,
+"tanks":[
+]}
+,{
+"id":805308812,
+"name":"SPMF SST",
+"type":6,
+"tanks":[
+]}
+,{
+"id":805309761,
+"name":"CPS",
+"type":1,
+"tanks":[
+]}
+,{
+"id":805311312,
+"name":"PKFAD",
+"type":6,
+"tanks":[
+]}
+,{
+"id":805311472,
+"name":"FAME_",
+"type":6,
+"tanks":[
+]}
+,{
+"id":805312809,
+"name":"SODIUM",
+"type":6,
+"tanks":[
+{
+"unitName":"NXA820_BT_3",
+"tankName":"TK Sodium 1001",
+"id":8
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"TK Sodium 1002",
+"id":9
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"Daily Tank Sodium",
+"id":10
+}
+]}
+,{
+"id":805316661,
+"name":"RPOME",
+"type":6,
+"tanks":[
+]}
+,{
+"id":805316838,
+"name":"RBDPL",
+"type":6,
+"tanks":[
+]}
+,{
+"id":805317219,
+"name":"FM",
+"type":1,
+"tanks":[
+{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 5103",
+"id":4
+}
+]}
+,{
+"id":805317838,
+"name":"ENZIMATIC",
+"type":1,
+"tanks":[
+]}
+,{
+"id":805317917,
+"name":"COL",
+"type":6,
+"tanks":[
+]}
+,{
+"id":805320048,
+"name":"CG",
+"type":6,
+"tanks":[
+{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 301",
+"id":11
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 302",
+"id":12
+}
+]}
+,{
+"id":805320724,
+"name":"POME",
+"type":6,
+"tanks":[
+]}
+,{
+"id":805326560,
+"name":"RBDPKO",
+"type":6,
+"tanks":[
+]}
+,{
+"id":805326956,
+"name":"001",
+"type":1,
+"tanks":[
+]}
+,{
+"id":805329441,
+"name":"COUSTIC SODA",
+"type":6,
+"tanks":[
+{
+"unitName":"NXA820_BT_3",
+"tankName":"Daily NaOH",
+"id":14
+}
+]}
+,{
+"id":805330454,
+"name":"METHANOL2",
+"type":7,
+"tanks":[
+]}
+,{
+"id":805330928,
+"name":"METHANOL",
+"type":6,
+"tanks":[
+{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 5006",
+"id":7
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 5005",
+"id":13
+}
+]}
+,{
+"id":805331415,
+"name":"CPKO",
+"type":6,
+"tanks":[
+{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 1501",
+"id":1
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 5104",
+"id":5
+}
+]}
+,{
+"id":805331866,
+"name":"RBDPS",
+"type":6,
+"tanks":[
+]}
+,{
+"id":805335326,
+"name":"Methanol 3",
+"type":2,
+"tanks":[
+{
+"unitName":"NXA820_BT_3",
+"tankName":"Daily Tank Methanol 1",
+"id":6
+}
+]}
+,{
+"id":805335883,
+"name":"FAME",
+"type":6,
+"tanks":[
+]}
+,{
+"id":805336910,
+"name":"002",
+"type":3,
+"tanks":[
+]}
+,{
+"id":805341663,
+"name":"RBDPO",
+"type":6,
+"tanks":[
+]}
+,{
+"id":805342286,
+"name":"CPO",
+"type":6,
+"tanks":[
+{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 5102",
+"id":3
+}
+]}
+,{
+"id":805345584,
+"name":"PFAD",
+"type":6,
+"tanks":[
+{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 5101",
+"id":2
+}
+]}
+,{
+"id":805350091,
+"name":"PME",
+"type":2,
+"tanks":[
+]}
+,{
+"id":805362184,
+"name":"CPL",
+"type":1,
+"tanks":[
+]}
+,{
+"id":805366371,
+"name":"HCL",
+"type":6,
+"tanks":[
+]}
+,{
+"id":805368974,
+"name":"SLUDGE",
+"type":6,
+"tanks":[
+]}
+]}
+,
+{
+"id":1,
+"name":"Static Groups",
+"groups":[
+{
+"id":268435457,
+"name":"AllTanks3",
+"tanks":[
+{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 1501",
+"id":1
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 5101",
+"id":2
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 5102",
+"id":3
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 5103",
+"id":4
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 5104",
+"id":5
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"Daily Tank Methanol 1",
+"id":6
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 5006",
+"id":7
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"TK Sodium 1001",
+"id":8
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"TK Sodium 1002",
+"id":9
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"Daily Tank Sodium",
+"id":10
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 301",
+"id":11
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 302",
+"id":12
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 5005",
+"id":13
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"Daily NaOH",
+"id":14
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"Daily Ca",
+"id":15
+}
+]}
+,{
+"id":268435458,
+"name":"HG1+",
+"tanks":[
+{
+"unitName":"NXA820_BT_3",
+"tankName":"Daily Tank Sodium",
+"id":10
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 301",
+"id":11
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 302",
+"id":12
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"TK 5005",
+"id":13
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"Daily NaOH",
+"id":14
+}
+,{
+"unitName":"NXA820_BT_3",
+"tankName":"Daily Ca",
+"id":15
+}
+]}
+]}
+,
+{
+"id":2,
+"name":"Dynamic Groups",
+"groups":[
+]}
+,
+{
+"id":4,
+"name":"Product Transfer Groups",
+"groups":[
+{
+"id":1073741824,
+"name":"Waiting",
+"tanks":[
+]}
+,{
+"id":1073741825,
+"name":"In Progress",
+"tanks":[
+]}
+,{
+"id":1073741826,
+"name":"Finished",
+"tanks":[
+]}
+,{
+"id":1073741827,
+"name":"Aborted",
+"tanks":[
+]}
+]}
+]
+,
+
+ "systemUnits": [
+{
+"type":"NXA820",
+"typeId":3,
+"name":"NXA820_BT_3",
+"ipAddress":"192.168.6.3"
+}
+,
+{
+"type":"NXA820",
+"typeId":3,
+"name":"NXA820_BT_1",
+"ipAddress":"192.168.6.1"
+}
+,
+{
+"type":"NXA820",
+"typeId":3,
+"name":"NXA820_BT_2",
+"ipAddress":"192.168.6.2"
+}
+,
+{
+"type":"NXA820",
+"typeId":3,
+"name":"NXA820_BT_4",
+"ipAddress":"192.168.6.4"
+}
+,
+{
+"type":"NXA821",
+"typeId":8,
+"name":"NXA820_BT_5",
+"ipAddress":"192.168.6.5"
+}
+,
+{
+"type":"NXA822",
+"typeId":4,
+"name":"NXA822_BT_6",
+"ipAddress":"192.168.6.6"
+}
+]
+}}

@@ -14,9 +14,11 @@ import {
   resolveTbInstantFromOperationRow,
   validateCastOffAt,
 } from '../lib/validate-cast-off.js';
+import { validateBerthingTimeline, validateScheduleTimestamp } from '../lib/validate-schedule-timeline.js';
 import { userHasPageApprove, userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
 import { enrichRowsWithCargoDisplay } from '../lib/siBreakdownDisplay.js';
+import { getAtBerthCargoProgressSummaries } from '../lib/operational-progress.js';
 
 const router = express.Router();
 const AT_BERTH_STATUSES = [
@@ -224,6 +226,53 @@ router.get('/at-berth', async (req, res) => {
     [AT_BERTH_STATUSES, selectedPortId]
   );
   res.json(result.rows.map(toOp));
+});
+
+router.get('/at-berth/cargo-progress', async (req, res) => {
+  const selectedPortId = Number(req.selectedPortId);
+  const idsParam = typeof req.query.ids === 'string' ? req.query.ids.trim() : '';
+  let operationIds = idsParam
+    ? idsParam
+        .split(',')
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => !Number.isNaN(n) && n > 0)
+    : null;
+
+  if (!operationIds?.length) {
+    const atBerthR = await pool.query(
+      `SELECT o.id
+       FROM operations o
+       JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
+       LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
+       LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
+       WHERE o.deleted_at IS NULL
+         AND COALESCE(o.port_id, p.id) = $2
+         AND o.status <> 'SAILED'
+         AND (
+           o.status = ANY($1)
+           OR o.tb IS NOT NULL
+           OR o.docking_start_time IS NOT NULL
+         )`,
+      [AT_BERTH_STATUSES, selectedPortId]
+    );
+    operationIds = atBerthR.rows.map((r) => Number(r.id)).filter((n) => n > 0);
+  } else {
+    const scopedR = await pool.query(
+      `SELECT o.id
+       FROM operations o
+       JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
+       LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
+       LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
+       WHERE o.deleted_at IS NULL
+         AND COALESCE(o.port_id, p.id) = $1
+         AND o.id = ANY($2::int[])`,
+      [selectedPortId, operationIds]
+    );
+    operationIds = scopedR.rows.map((r) => Number(r.id)).filter((n) => n > 0);
+  }
+
+  const summaries = await getAtBerthCargoProgressSummaries(pool, operationIds);
+  res.json({ summaries });
 });
 
 /**
@@ -658,6 +707,10 @@ router.post('/:id/start-docking', async (req, res) => {
     return res.status(400).json({ error: err.message || 'SLA computation failed' });
   }
   const estimated = new Date(startTime.getTime() + slaHours * 60 * 60 * 1000);
+  const dockingTimeline = validateBerthingTimeline({ tb: startTime, etc: estimated });
+  if (!dockingTimeline.ok) {
+    return res.status(400).json({ error: dockingTimeline.error });
+  }
   const result = await pool.query(
     `UPDATE operations SET docking_start_time = $1, estimated_completion_time = $2, status = 'DOCKED', updated_at = NOW()
      WHERE id = $3 AND deleted_at IS NULL`,
@@ -710,6 +763,10 @@ router.post('/:id/recalculate-sla', async (req, res) => {
   }
   const startTime = new Date(dockingStart);
   const estimated = new Date(startTime.getTime() + slaHours * 60 * 60 * 1000);
+  const slaTimeline = validateBerthingTimeline({ tb: startTime, etc: estimated });
+  if (!slaTimeline.ok) {
+    return res.status(400).json({ error: slaTimeline.error });
+  }
   const result = await pool.query(
     `UPDATE operations SET estimated_completion_time = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
     [estimated, id]
@@ -752,6 +809,15 @@ router.put('/:id/estimated-completion', async (req, res) => {
   const dt = new Date(estimated_completion_time);
   if (Number.isNaN(dt.getTime())) {
     return res.status(400).json({ error: 'estimated_completion_time must be a valid datetime' });
+  }
+  const etcWindow = validateScheduleTimestamp(dt);
+  if (!etcWindow.ok) {
+    return res.status(400).json({ error: `Estimated completion (ETC): ${etcWindow.error}` });
+  }
+  const tbAt = resolveTbInstantFromOperationRow(before);
+  const etcTimeline = validateBerthingTimeline({ tb: tbAt, etc: dt });
+  if (!etcTimeline.ok) {
+    return res.status(400).json({ error: etcTimeline.error });
   }
 
   const result = await pool.query(
@@ -1329,6 +1395,10 @@ export function toOp(row) {
     referenceNumber: row.reference_number ?? undefined,
     commodity: row.commodity_display || row.commodity || undefined,
     commodityDisplay: row.commodity_display || row.commodity || undefined,
+    commodityShortDisplay:
+      row.commodity_short_display && row.commodity_short_display !== '—'
+        ? row.commodity_short_display
+        : (row.commodity_display || row.commodity || undefined),
     totalQtyDisplay: row.total_qty_display || undefined,
     cargoBreakdownSummary: Array.isArray(row.cargo_breakdown_summary)
       ? row.cargo_breakdown_summary

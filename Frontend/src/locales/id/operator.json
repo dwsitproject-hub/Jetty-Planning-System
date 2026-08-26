@@ -1,0 +1,138 @@
+{
+  "shell": {
+    "brand": "Mode Operator",
+    "exit": "Keluar",
+    "logout": "Logout"
+  },
+  "queue": {
+    "title": "Antrian Sandar",
+    "sub": "Pilih kapal / instruksi pengiriman untuk dieksekusi.",
+    "sortBy": "Urutkan menurut",
+    "sortVesselName": "Nama kapal",
+    "sortTb": "TB",
+    "sortJetty": "Jetty",
+    "loading": "Memuat kapal…",
+    "loadingPermissions": "Memuat izin…",
+    "noAccess": "Anda tidak memiliki akses ke Mode Operator.",
+    "noVessels": "Tidak ada kapal sandar saat ini.",
+    "errorLoad": "Gagal memuat antrian sandar",
+    "chooseSi": "Pilih SI",
+    "hideSi": "Sembunyikan instruksi pengiriman",
+    "open": "BUKA ›",
+    "instructionsCount": "{{count}} instruksi",
+    "tbPrefix": "TB",
+    "phase": {
+      "preChecking": "Pre-Checking",
+      "operational": "Operasional",
+      "postChecking": "Post-Checking",
+      "readyToSail": "Siap Berlayar",
+      "signedOff": "Sudah sign-off",
+      "mixed": "Campuran"
+    }
+  },
+  "precheck": {
+    "blocked": "Kapal ini masih dalam tahap Pre-Checking. Silakan koordinasi dengan Supervisor sebelum memulai aktivitas operasional."
+  },
+  "exec": {
+    "loading": "Memuat eksekusi…",
+    "notFound": "Operasi tidak ditemukan.",
+    "backToQueue": "Kembali ke antrian",
+    "invalidOperation": "Operasi tidak valid",
+    "loadFailed": "Gagal memuat operasi",
+    "entryNotFound": "Entri tidak ditemukan"
+  },
+  "phase": {
+    "operational": "Operasional",
+    "postChecking": "Post-Checking"
+  },
+  "milestone": {
+    "opening_hatch": "OPENING",
+    "cargo_pre_conditioning": "CARGO PRE-CONDITIONING",
+    "cargo_operations": "CARGO OPERATIONS",
+    "other": "OTHER"
+  },
+  "post": {
+    "finalInspection": "FINAL INSPECTION",
+    "finalCargoChecking": "FINAL CARGO CHECKING"
+  },
+  "state": {
+    "completed": "Selesai",
+    "inProgress": "Berlangsung",
+    "notStarted": "Belum mulai"
+  },
+  "action": {
+    "start": "Mulai",
+    "startNextSegment": "Mulai segmen berikutnya",
+    "stop": "Stop",
+    "complete": "Selesai",
+    "editTimestamp": "Ubah waktu",
+    "markDone": "Tandai selesai",
+    "cancel": "Batal",
+    "confirmStart": "Konfirmasi mulai",
+    "save": "Simpan"
+  },
+  "tank": {
+    "selectSource": "Pilih tangki sumber",
+    "selectDestination": "Pilih tangki tujuan",
+    "requiredBeforeStart": "Wajib sebelum Mulai",
+    "noneAvailable": "Tidak ada tangki untuk pelabuhan ini.",
+    "searchPlaceholder": "Cari tangki…",
+    "noMatches": "Tidak ada tangki yang cocok."
+  },
+  "si": {
+    "label": "Shipping instruction"
+  },
+  "activity": {
+    "recent": "Aktivitas terbaru ({{count}})",
+    "empty": "Belum ada aktivitas."
+  },
+  "cargo": {
+    "tanksNoneYet": "Tangki: (belum ada)",
+    "tanksLabel": "Tangki: {{list}}",
+    "tanksSelected": "{{count}} tangki dipilih",
+    "segmentsDone": "{{count}} segmen selesai",
+    "lastTanks": "Tangki terakhir: {{list}}",
+    "completed": "Selesai",
+    "inProgress": "Berlangsung"
+  },
+  "segments": {
+    "title": "Segmen cargo",
+    "segmentLabel": "Segmen {{num}}",
+    "ongoing": "Berlangsung",
+    "timeRange": "{{start}} → {{end}}",
+    "editStart": "Ubah mulai",
+    "editEnd": "Ubah selesai"
+  },
+  "progress": {
+    "loading": "Progres loading",
+    "unloading": "Progres unloading"
+  },
+  "modal": {
+    "editTimestamp": "Ubah waktu",
+    "editMilestoneTimestamp": "Ubah waktu {{milestone}}",
+    "editSegmentStart": "Ubah waktu mulai segmen {{num}}",
+    "editSegmentEnd": "Ubah waktu selesai segmen {{num}}",
+    "dateTime": "Tanggal & waktu"
+  },
+  "confirm": {
+    "openingIncomplete": "Opening belum selesai. Lanjutkan?",
+    "editTimestamp": "Ubah waktu yang tercatat?"
+  },
+  "toast": {
+    "selectTank": "Pilih minimal satu tangki",
+    "invalidTankSelection": "Tangki yang dipilih tidak dapat digunakan. Muat ulang halaman dan coba lagi, atau hubungi Supervisor.",
+    "cargoStarted": "Cargo dimulai",
+    "cargoNextSegment": "Segmen cargo berikutnya dimulai",
+    "cargoStopped": "Cargo dihentikan",
+    "otherCompleted": "Other selesai",
+    "markedDone": "Ditandai selesai",
+    "timestampUpdated": "Waktu diperbarui",
+    "actionFailed": "Aksi gagal",
+    "noActiveCargo": "Tidak ada baris cargo aktif untuk dihentikan",
+    "atgQtyPending": "Belum bisa membaca kuantitas dari ATG. Tunggu sebentar lalu coba Stop lagi.",
+    "noActiveOther": "Tidak ada langkah Other yang aktif",
+    "prevSegmentMissingTanks": "Segmen cargo sebelumnya tidak memiliki data tangki. Minta Supervisor meninjau operasi ini di At-Berth desktop.",
+    "verifyPrecheckFailed": "Tidak dapat memverifikasi status Pre-Checking",
+    "milestoneStarted": "{{name}} dimulai"
+  }
+}

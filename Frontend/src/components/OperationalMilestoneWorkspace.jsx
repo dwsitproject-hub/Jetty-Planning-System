@@ -14,7 +14,10 @@ import {
   updateOperationalEntry,
   deleteOperationalEntry,
 } from '../api/operations'
+import { fetchMasterTanks } from '../api/masterTanks'
+import { fetchTankGaugingMassDelta } from '../api/tankGauging'
 import OperationActivityTimeline from './OperationActivityTimeline'
+import DropdownMultiSelect from './DropdownMultiSelect'
 import {
   MAX_ACTIVITY_REMARK_CHARS,
   MAX_MILESTONE_REASON_CHARS,
@@ -115,7 +118,7 @@ function newCargoLineDraftKey() {
   return `cl-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
-function defaultCargoLineDraft(getEnd, activityStartLocal) {
+function defaultCargoLineDraft(getEnd, activityStartLocal, tankIds = []) {
   const endVal = getEnd()
   const startVal = activityStartLocal != null && activityStartLocal !== '' ? activityStartLocal : ''
   const sameMinute =
@@ -125,9 +128,25 @@ function defaultCargoLineDraft(getEnd, activityStartLocal) {
   return {
     key: newCargoLineDraftKey(),
     qty: '',
+    manualQty: '',
+    atgQtyMode: 'auto',
     start: startVal,
     end: sameMinute ? '' : endVal,
+    qtyTouched: false,
+    tankIds: Array.isArray(tankIds) ? tankIds.map(String) : [],
   }
+}
+
+/** Partition selected tanks using master-tank hasAtg flags. */
+function partitionDraftTanks(tankIds, tankMetaById) {
+  const atgTankIds = []
+  const manualTankIds = []
+  for (const id of tankIds || []) {
+    const meta = tankMetaById?.get(String(id))
+    if (meta?.hasAtg) atgTankIds.push(String(id))
+    else manualTankIds.push(String(id))
+  }
+  return { atgTankIds, manualTankIds }
 }
 
 /** Sum line qty (or legacy cargoMovedQty) on other CARGO OPERATIONS activities. */
@@ -169,6 +188,8 @@ export default function OperationalMilestoneWorkspace({
   cargoSiMetricName = null,
   /** SI commodity name from GET /operations/:id (read-only context for Cargo Operations). */
   cargoCommodity = null,
+  /** Operation port id — filters shore tanks for liquid Cargo Operations. */
+  portId = null,
 }) {
   const { t } = useTranslation('pages')
   const tz = scheduleIana?.trim() || getScheduleEntryTimeZone()
@@ -236,6 +257,7 @@ export default function OperationalMilestoneWorkspace({
       setStartTime(isoOrDatetimeToLocal(row?.startTime || searchParams.get('startAt')) || getNowForDateTimeLocal())
       setEndTime(isoOrDatetimeToLocal(row?.endTime || searchParams.get('endAt')) || '')
       const lines = row?.cargoLoadLines
+      const fallbackTankIds = Array.isArray(row?.tankIds) ? row.tankIds.map(String) : []
       if (Array.isArray(lines) && lines.length > 0) {
         setCargoLoadLinesDraft(
           lines.map((l) => {
@@ -247,11 +269,21 @@ export default function OperationalMilestoneWorkspace({
             } else if (!startLoc && row?.startTime) {
               startLoc = isoOrDatetimeToLocal(row.startTime)
             }
+            const lineTankIds =
+              Array.isArray(l.tankIds) && l.tankIds.length > 0
+                ? l.tankIds.map(String)
+                : fallbackTankIds
             return {
               key: l.id || newCargoLineDraftKey(),
               qty: Number.isFinite(Number(l.qty)) ? String(l.qty) : '',
+              manualQty:
+                l.manualQty != null && Number.isFinite(Number(l.manualQty)) ? String(l.manualQty) : '',
+              atgQtyMode: l.atgQtyMode === 'manual' ? 'manual' : 'auto',
+              loadedManual: l.atgQtyMode === 'manual',
               start: startLoc,
               end: endLoc,
+              qtyTouched: true,
+              tankIds: lineTankIds,
             }
           })
         )
@@ -264,8 +296,11 @@ export default function OperationalMilestoneWorkspace({
           {
             key: 'legacy',
             qty: String(row.cargoMovedQty),
+            manualQty: '',
+            atgQtyMode: 'auto',
             start: isoOrDatetimeToLocal(row?.startTime) || '',
             end: isoOrDatetimeToLocal(row?.endTime || row?.startTime) || '',
+            tankIds: Array.isArray(row?.tankIds) ? row.tankIds.map(String) : [],
           },
         ])
       } else {
@@ -291,9 +326,47 @@ export default function OperationalMilestoneWorkspace({
   const [startTime, setStartTime] = useState(() => nowToNaiveLocalInScheduleZone(tz))
   const [endTime, setEndTime] = useState('')
   const [cargoLoadLinesDraft, setCargoLoadLinesDraft] = useState([])
+  const [atgRefByLineKey, setAtgRefByLineKey] = useState({})
+  const [masterTankOptions, setMasterTankOptions] = useState([])
+  const [tankMetaById, setTankMetaById] = useState(() => new Map())
   const [editingEntryId, setEditingEntryId] = useState(null)
   const [formError, setFormError] = useState('')
   const [formModalOpen, setFormModalOpen] = useState(false)
+
+  useEffect(() => {
+    if (commodityType !== 'Liquid' || portId == null || portId === '') {
+      setMasterTankOptions([])
+      setTankMetaById(new Map())
+      return
+    }
+    let cancelled = false
+    fetchMasterTanks(portId)
+      .then((list) => {
+        if (cancelled) return
+        const meta = new Map()
+        const opts = (Array.isArray(list) ? list : []).map((tk) => {
+          const id = String(tk.id)
+          const hasAtg = tk.hasAtg === true
+          meta.set(id, { hasAtg, code: tk.code, name: tk.name })
+          const base = tk.name ? `${tk.code} — ${tk.name}` : String(tk.code || tk.id)
+          return {
+            value: id,
+            label: hasAtg ? `${base} · ATG` : base,
+          }
+        })
+        setTankMetaById(meta)
+        setMasterTankOptions(opts)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMasterTankOptions([])
+          setTankMetaById(new Map())
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [commodityType, portId])
 
   const [actionToast, setActionToast] = useState(null)
 
@@ -348,13 +421,25 @@ export default function OperationalMilestoneWorkspace({
         setStartTime(isoOrDatetimeToLocal(existing.startTime) || getNowForDateTimeLocal())
         setEndTime(existing.endTime ? isoOrDatetimeToLocal(existing.endTime) : '')
         const lines = existing.cargoLoadLines
+        const fallbackTankIds = Array.isArray(existing.tankIds) ? existing.tankIds.map(String) : []
         if (Array.isArray(lines) && lines.length > 0) {
           setCargoLoadLinesDraft(
             lines.map((l) => ({
               key: l.id || newCargoLineDraftKey(),
               qty: l.qty != null && Number.isFinite(Number(l.qty)) ? String(l.qty) : '',
+              manualQty:
+                l.manualQty != null && Number.isFinite(Number(l.manualQty))
+                  ? String(l.manualQty)
+                  : '',
+              atgQtyMode: l.atgQtyMode === 'manual' ? 'manual' : 'auto',
+              loadedManual: l.atgQtyMode === 'manual',
               start: l.startAt ? isoOrDatetimeToLocal(l.startAt) : '',
               end: l.endAt ? isoOrDatetimeToLocal(l.endAt) : '',
+              qtyTouched: true,
+              tankIds:
+                Array.isArray(l.tankIds) && l.tankIds.length > 0
+                  ? l.tankIds.map(String)
+                  : fallbackTankIds,
             }))
           )
         } else {
@@ -541,10 +626,13 @@ export default function OperationalMilestoneWorkspace({
       lineRows.length && lineRows[lineRows.length - 1].balanceAfter != null
         ? lineRows[lineRows.length - 1].balanceAfter
         : basis
+    const lastDraft = sorted.length ? sorted[sorted.length - 1].d : null
+    const lastLineOpen = Boolean(lastDraft && lastDraft.start && !lastDraft.end)
     const canAddLine =
-      lastBalance == null || !Number.isFinite(lastBalance) || lastBalance > 1e-9
+      !lastLineOpen &&
+      (lastBalance == null || !Number.isFinite(lastBalance) || lastBalance > 1e-9)
 
-    return { metricLabel, basis, lineRows, lastBalance, canAddLine, siQty }
+    return { metricLabel, basis, lineRows, lastBalance, canAddLine, siQty, lastLineOpen }
   }, [
     activeMilestone,
     useApi,
@@ -558,14 +646,146 @@ export default function OperationalMilestoneWorkspace({
   ])
 
   const updateCargoLineDraft = useCallback((key, patch) => {
-    setCargoLoadLinesDraft((prev) => prev.map((row) => (row.key === key ? { ...row, ...patch } : row)))
+    setCargoLoadLinesDraft((prev) =>
+      prev.map((row) => {
+        if (row.key !== key) return row
+        const next = { ...row, ...patch }
+        if (Object.prototype.hasOwnProperty.call(patch, 'qty') && patch.qty !== row.qty) {
+          next.qtyTouched = true
+        }
+        if (
+          Object.prototype.hasOwnProperty.call(patch, 'start') ||
+          Object.prototype.hasOwnProperty.call(patch, 'end') ||
+          Object.prototype.hasOwnProperty.call(patch, 'tankIds') ||
+          Object.prototype.hasOwnProperty.call(patch, 'manualQty') ||
+          Object.prototype.hasOwnProperty.call(patch, 'atgQtyMode')
+        ) {
+          if (!Object.prototype.hasOwnProperty.call(patch, 'qtyTouched')) {
+            next.qtyTouched = false
+          }
+        }
+        const windowChanged =
+          (Object.prototype.hasOwnProperty.call(patch, 'start') && patch.start !== row.start) ||
+          (Object.prototype.hasOwnProperty.call(patch, 'end') && patch.end !== row.end) ||
+          Object.prototype.hasOwnProperty.call(patch, 'tankIds')
+        if (windowChanged && row.loadedManual) {
+          // The segment no longer covers the window that was stored as manual, so
+          // it goes back to ATG; the operator can mark it unavailable again if the
+          // new window has no gauge data.
+          next.loadedManual = false
+          next.atgQtyMode = 'auto'
+        }
+        return next
+      })
+    )
   }, [])
+
+  const cargoLineAtgSignature = useMemo(
+    () =>
+      cargoLoadLinesDraft
+        .map(
+          (r) =>
+            `${r.key}|${r.start}|${r.end}|${r.qtyTouched ? 1 : 0}|${r.atgQtyMode || 'auto'}|${(r.tankIds || []).join(',')}`
+        )
+        .join(';'),
+    [cargoLoadLinesDraft]
+  )
+
+  useEffect(() => {
+    if (commodityType !== 'Liquid' || portId == null || portId === '') {
+      setAtgRefByLineKey({})
+      return undefined
+    }
+    let cancelled = false
+    const run = async () => {
+      const nextRefs = {}
+      const qtyAuto = new Map()
+      for (const row of cargoLoadLinesDraft) {
+        const { atgTankIds, manualTankIds } = partitionDraftTanks(row.tankIds, tankMetaById)
+        if (!row.start || atgTankIds.length === 0 || row.atgQtyMode === 'manual') {
+          nextRefs[row.key] = {
+            status: 'idle',
+            atgTankIds,
+            manualTankIds,
+          }
+          continue
+        }
+        let startIso
+        let endIso = null
+        try {
+          startIso = normalizeForApi(row.start, tz)
+        } catch {
+          nextRefs[row.key] = { status: 'error', atgTankIds, manualTankIds }
+          continue
+        }
+        if (row.end) {
+          try {
+            endIso = normalizeForApi(row.end, tz)
+          } catch {
+            nextRefs[row.key] = { status: 'error', atgTankIds, manualTankIds }
+            continue
+          }
+        }
+        nextRefs[row.key] = { status: 'loading', atgTankIds, manualTankIds }
+        try {
+          const data = await fetchTankGaugingMassDelta({
+            portId,
+            tankIds: atgTankIds,
+            startAt: startIso,
+            endAt: endIso || undefined,
+          })
+          nextRefs[row.key] = {
+            status: 'ok',
+            sumDeltaMass: data.sumDeltaMass,
+            incomplete: data.incomplete,
+            tanks: Array.isArray(data.tanks) ? data.tanks : [],
+            error: data.error,
+            atgTankIds,
+            manualTankIds,
+          }
+          const atgOk =
+            !data.incomplete &&
+            data.sumDeltaMass != null &&
+            Number.isFinite(Number(data.sumDeltaMass))
+          if (endIso && !row.qtyTouched && atgOk) {
+            const atgPart = Number(data.sumDeltaMass)
+            if (manualTankIds.length > 0) {
+              const mq = parsePositiveQty(row.manualQty)
+              const total = Number.isFinite(mq) ? atgPart + mq : atgPart
+              qtyAuto.set(row.key, String(total))
+            } else {
+              qtyAuto.set(row.key, String(atgPart))
+            }
+          }
+        } catch {
+          nextRefs[row.key] = { status: 'error', atgTankIds, manualTankIds }
+        }
+      }
+      if (cancelled) return
+      if (qtyAuto.size > 0) {
+        setCargoLoadLinesDraft((prev) =>
+          prev.map((r) => {
+            if (qtyAuto.has(r.key) && !r.qtyTouched) {
+              return { ...r, qty: qtyAuto.get(r.key) }
+            }
+            return r
+          })
+        )
+      }
+      setAtgRefByLineKey(nextRefs)
+    }
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [cargoLineAtgSignature, portId, commodityType, tz, tankMetaById])
 
   const addCargoLineDraft = useCallback(() => {
     setCargoLoadLinesDraft((prev) => {
       const last = prev[prev.length - 1]
       const nextStart = last?.end || ''
-      return [...prev, defaultCargoLineDraft(getNowForDateTimeLocal, nextStart)]
+      const prevTanks = Array.isArray(last?.tankIds) ? last.tankIds.map(String) : []
+      return [...prev, defaultCargoLineDraft(getNowForDateTimeLocal, nextStart, prevTanks)]
     })
   }, [getNowForDateTimeLocal])
 
@@ -625,38 +845,115 @@ export default function OperationalMilestoneWorkspace({
         const built = []
         for (let i = 0; i < cargoLoadLinesDraft.length; i++) {
           const li = cargoLoadLinesDraft[i]
-          const mq = parsePositiveQty(li.qty)
-          if (Number.isNaN(mq)) return { error: t('cargoOpsLineQtyInvalid', { n: i + 1 }) }
           if (!li.start) return { error: t('cargoOpsLineStartRequired', { n: i + 1 }) }
-          if (!li.end) return { error: t('cargoOpsLineEndRequired', { n: i + 1 }) }
           let startIso
-          let endIso
+          let endIso = null
           try {
             startIso = normalizeForApi(li.start, tz)
-            endIso = normalizeForApi(li.end, tz)
           } catch {
             return { error: t('cargoOpsLineTimeInvalid', { n: i + 1 }) }
           }
           const tStart = new Date(startIso).getTime()
-          const tEnd = new Date(endIso).getTime()
-          if (Number.isNaN(tStart) || Number.isNaN(tEnd) || tEnd <= tStart) {
-            return { error: t('cargoOpsLineEndAfterStart', { n: i + 1 }) }
+          if (Number.isNaN(tStart)) {
+            return { error: t('cargoOpsLineTimeInvalid', { n: i + 1 }) }
           }
           if (tStart < ta) {
             return { error: t('cargoOpsLineStartBeforeActivity', { n: i + 1 }) }
           }
-          built.push({ qty: mq, startIso, endIso, _sort: tStart, _end: tEnd, _i: i })
+          const hasEnd = Boolean(li.end && String(li.end).trim())
+          let tEnd = null
+          if (hasEnd) {
+            try {
+              endIso = normalizeForApi(li.end, tz)
+            } catch {
+              return { error: t('cargoOpsLineTimeInvalid', { n: i + 1 }) }
+            }
+            tEnd = new Date(endIso).getTime()
+            if (Number.isNaN(tEnd) || tEnd <= tStart) {
+              return { error: t('cargoOpsLineEndAfterStart', { n: i + 1 }) }
+            }
+          }
+          let mq = null
+          if (li.qty != null && String(li.qty).trim() !== '') {
+            mq = parsePositiveQty(li.qty)
+            if (Number.isNaN(mq)) return { error: t('cargoOpsLineQtyInvalid', { n: i + 1 }) }
+          }
+          const atgQtyMode = li.atgQtyMode === 'manual' ? 'manual' : 'auto'
+          let manualQty = null
+          if (li.manualQty != null && String(li.manualQty).trim() !== '') {
+            manualQty = parsePositiveQty(li.manualQty)
+            if (Number.isNaN(manualQty)) {
+              return { error: t('cargoOpsLineManualQtyInvalid', { n: i + 1 }) }
+            }
+          }
+          const { atgTankIds, manualTankIds } = partitionDraftTanks(li.tankIds, tankMetaById)
+          const isMixed = commodityType === 'Liquid' && atgTankIds.length > 0 && manualTankIds.length > 0
+          const hasAtgTanks = commodityType === 'Liquid' && atgTankIds.length > 0
+          const atgRef = atgRefByLineKey[li.key]
+          const atgOk =
+            atgRef?.status === 'ok' &&
+            !atgRef.incomplete &&
+            atgRef.sumDeltaMass != null &&
+            Number.isFinite(Number(atgRef.sumDeltaMass))
+          if (isMixed && atgQtyMode === 'auto' && hasEnd && (manualQty == null || manualQty <= 0)) {
+            return { error: t('cargoOpsLineManualQtyRequired', { n: i + 1 }) }
+          }
+          if (hasAtgTanks && atgQtyMode === 'auto' && hasEnd) {
+            // Server recomputes from ATG; block the save when it has nothing to compute.
+            if (!atgOk) {
+              return { error: t('cargoOpsLineAtgRequired', { n: i + 1 }) }
+            }
+            mq = null
+          } else if (hasEnd && mq == null) {
+            return { error: t('cargoOpsLineQtyRequiredWhenEnd', { n: i + 1 }) }
+          }
+          if (commodityType === 'Liquid' && (!Array.isArray(li.tankIds) || li.tankIds.length === 0)) {
+            return { error: t('cargoOpsLineTanksRequired', { n: i + 1 }) }
+          }
+          built.push({
+            qty: mq,
+            manualQty: isMixed ? manualQty : null,
+            atgQtyMode,
+            startIso,
+            endIso,
+            _sort: tStart,
+            _end: tEnd,
+            hasEnd,
+            _i: i,
+            tankIds: Array.isArray(li.tankIds) ? li.tankIds.map(String) : [],
+          })
         }
         built.sort((a, b) => a._sort - b._sort || a._i - b._i)
+        const openCount = built.filter((b) => !b.hasEnd).length
+        if (openCount > 1) {
+          return { error: t('cargoOpsLineOneOpenOnly') }
+        }
+        if (openCount === 1 && built[built.length - 1].hasEnd) {
+          return { error: t('cargoOpsLineOpenMustBeLast') }
+        }
         for (let j = 1; j < built.length; j++) {
-          if (built[j]._sort < built[j - 1]._end) {
+          const prevEnd = built[j - 1]._end
+          if (prevEnd == null) {
+            return { error: t('cargoOpsLineAfterOpen') }
+          }
+          if (built[j]._sort < prevEnd) {
             return { error: t('cargoOpsLineOverlap') }
           }
           if (built[j]._sort <= built[j - 1]._sort) {
             return { error: t('cargoOpsLineStartStrict') }
           }
         }
-        const cargoLoadLines = built.map(({ qty, startIso, endIso }) => ({ qty, startAt: startIso, endAt: endIso }))
+        const cargoLoadLines = built.map(({ qty, manualQty, atgQtyMode, startIso, endIso, tankIds }) => {
+          const row = { startAt: startIso, atgQtyMode: atgQtyMode || 'auto' }
+          if (endIso) row.endAt = endIso
+          else row.endAt = null
+          if (qty != null) row.qty = qty
+          if (manualQty != null) row.manualQty = manualQty
+          if (commodityType === 'Liquid' && Array.isArray(tankIds) && tankIds.length > 0) {
+            row.tankIds = tankIds
+          }
+          return row
+        })
         return {
           payload: {
             milestoneKey: mk,
@@ -721,10 +1018,11 @@ export default function OperationalMilestoneWorkspace({
         if (payload.milestoneKey === 'cargo_operations' && Array.isArray(payload.cargoLoadLines)) {
           activityBody.cargoLoadLines = payload.cargoLoadLines
         }
+        let savedEntryId = editingEntryId
         if (editingEntryId) {
           await updateOperationalEntry(operationId, editingEntryId, activityBody, { scheduleIana: tz })
         } else {
-          await createOperationalEntry(
+          const created = await createOperationalEntry(
             operationId,
             {
               entryType: 'activity',
@@ -732,6 +1030,7 @@ export default function OperationalMilestoneWorkspace({
             },
             { scheduleIana: tz }
           )
+          if (created?.id != null) savedEntryId = String(created.id)
         }
         await loadApi()
         bumpSaved()
@@ -739,10 +1038,21 @@ export default function OperationalMilestoneWorkspace({
           message: editingEntryId
             ? 'Activity updated.'
             : andAnother
-              ? 'Activity saved. Add another below.'
+              ? t('cargoOpsSavedAddEntry')
               : 'Activity saved.',
           variant: 'success',
         })
+        if (andAnother && activeMilestone === 'CARGO OPERATIONS') {
+          if (savedEntryId) setEditingEntryId(String(savedEntryId))
+          setCargoLoadLinesDraft((prev) => {
+            const last = prev[prev.length - 1]
+            const nextStart = last?.end || getNowForDateTimeLocal()
+            const prevTanks = Array.isArray(last?.tankIds) ? last.tankIds.map(String) : []
+            return [...prev, defaultCargoLineDraft(getNowForDateTimeLocal, nextStart, prevTanks)]
+          })
+          setFormError('')
+          return
+        }
       } catch (e) {
         setFormError(e?.message || 'Failed to save activity')
         return
@@ -1100,7 +1410,7 @@ export default function OperationalMilestoneWorkspace({
 
                 <div className="cargo-ops-section">
                   <div className="cargo-ops-section__header">
-                    <p className="cargo-ops-section__label cargo-ops-section__label--inline">Load Segments</p>
+                    <p className="cargo-ops-section__label cargo-ops-section__label--inline">{t('cargoOpsLoadSegments')}</p>
                     <button
                       type="button"
                       className="btn btn--small btn--secondary"
@@ -1114,17 +1424,66 @@ export default function OperationalMilestoneWorkspace({
                   {(cargoOpsFormDerived?.lineRows || []).map((lr, idx) => {
                     const row = cargoLoadLinesDraft.find((d) => d.key === lr.key)
                     if (!row) return null
+                    const lineRows = cargoOpsFormDerived?.lineRows || []
+                    const isLastLine = lineRows.length > 0 && lineRows[lineRows.length - 1].key === lr.key
+                    const atgRef = atgRefByLineKey[lr.key]
+                    const { atgTankIds, manualTankIds } = partitionDraftTanks(row.tankIds, tankMetaById)
+                    const isAllAtg =
+                      commodityType === 'Liquid' && atgTankIds.length > 0 && manualTankIds.length === 0
+                    const isMixed =
+                      commodityType === 'Liquid' && atgTankIds.length > 0 && manualTankIds.length > 0
+                    const atgQtyMode = row.atgQtyMode === 'manual' ? 'manual' : 'auto'
+                    const atgOk =
+                      atgRef?.status === 'ok' &&
+                      !atgRef.incomplete &&
+                      atgRef.sumDeltaMass != null &&
+                      Number.isFinite(Number(atgRef.sumDeltaMass))
+                    const hasAtgTanks = commodityType === 'Liquid' && atgTankIds.length > 0
+                    const atgUnavailable =
+                      hasAtgTanks &&
+                      atgQtyMode === 'auto' &&
+                      Boolean(row.end && row.start) &&
+                      (atgRef?.status === 'error' ||
+                        atgRef?.status === 'ok' && (atgRef.incomplete || !atgOk))
+                    // Quantity is ATG-owned whenever the line is in auto mode; the only
+                    // way to type a number is to mark ATG not available.
+                    const qtyDisabled = hasAtgTanks && atgQtyMode === 'auto'
+                    // Manual override is only offered when ATG cannot answer for this
+                    // window. Rows already stored as manual stay editable so they can be
+                    // reviewed and switched back to ATG.
+                    const manualToggleLocked = atgOk && !row.loadedManual
+                    const atgNowAvailable = atgOk && atgQtyMode === 'manual'
+                    const atgFmt = atgOk
+                      ? Number(atgRef.sumDeltaMass).toLocaleString(undefined, { maximumFractionDigits: 6 })
+                      : null
+                    const atgTankHint =
+                      atgRef?.status === 'ok' && Array.isArray(atgRef.tanks) && atgRef.tanks.length > 1
+                        ? atgRef.tanks
+                            .filter((tk) => tk.deltaMass != null)
+                            .map((tk) => `${tk.code || tk.tankId} ${Number(tk.deltaMass) >= 0 ? '+' : ''}${Number(tk.deltaMass).toLocaleString(undefined, { maximumFractionDigits: 3 })}`)
+                            .join(' · ')
+                        : ''
+                    const qtyAutoFilled =
+                      commodityType === 'Liquid' &&
+                      Boolean(row.end && row.start) &&
+                      !row.qtyTouched &&
+                      atgOk &&
+                      atgFmt &&
+                      atgQtyMode === 'auto'
                     return (
                       <div key={lr.key} className="cargo-line-card">
                         <div className="cargo-line-card__header">
-                          <span className="cargo-line-card__entry-chip">Entry {idx + 1}</span>
+                          <span className="cargo-line-card__entry-chip">{t('cargoOpsEntryLabel', { n: idx + 1 })}</span>
+                          {!row.end && row.start ? (
+                            <span className="cargo-line-card__in-progress">{t('cargoOpsLineInProgress')}</span>
+                          ) : null}
                           {cargoLoadLinesDraft.length > 1 ? (
                             <button
                               type="button"
                               className="cargo-line-card__remove"
                               onClick={() => removeCargoLineDraft(lr.key)}
-                              aria-label={`Remove entry ${idx + 1}`}
-                              title="Remove this entry"
+                              aria-label={t('cargoOpsRemoveLine', { n: idx + 1 })}
+                              title={t('cargoOpsRemoveLine', { n: idx + 1 })}
                             >
                               ×
                             </button>
@@ -1132,27 +1491,25 @@ export default function OperationalMilestoneWorkspace({
                         </div>
 
                         <div className="cargo-line-card__body">
-                          <div className="berthing-modal__field cargo-line-card__qty-field">
-                            <label className="berthing-modal__label" htmlFor={`op-cargo-qty-${lr.key}`}>
-                              {commodityType === 'Solid' ? t('cargoOpsQtyWb') : purpose === 'Unloading' ? t('cargoOpsQtyUnload') : t('cargoOpsQtyLoad')}{' '}
-                              <span className="required-star">*</span>
-                            </label>
-                            <div className="cargo-line-card__qty-input-wrap">
-                              <input
-                                id={`op-cargo-qty-${lr.key}`}
-                                type="text"
-                                inputMode="decimal"
-                                className="berthing-modal__input"
-                                value={row.qty}
-                                onChange={(e) => updateCargoLineDraft(lr.key, { qty: e.target.value })}
-                                placeholder={t('cargoOpsQtyPlaceholder')}
-                                autoComplete="off"
+                          {commodityType === 'Liquid' ? (
+                            <div className="berthing-modal__field cargo-line-card__tanks-field">
+                              <label className="berthing-modal__label" htmlFor={`op-cargo-tanks-${lr.key}`}>
+                                {purpose === 'Unloading' ? t('cargoOpsSourceTanks') : t('cargoOpsDestinationTanks')}{' '}
+                                <span className="required-star">*</span>
+                              </label>
+                              <DropdownMultiSelect
+                                id={`op-cargo-tanks-${lr.key}`}
+                                options={masterTankOptions}
+                                selectedValues={Array.isArray(row.tankIds) ? row.tankIds : []}
+                                onChange={(ids) => updateCargoLineDraft(lr.key, { tankIds: ids })}
+                                placeholder={t('cargoOpsTanksPlaceholder')}
+                                emptyText={t('cargoOpsTanksEmpty')}
+                                searchable
+                                searchPlaceholder="Search..."
+                                className="cargo-ops-tanks-dropdown"
                               />
-                              {cargoOpsFormDerived?.metricLabel ? (
-                                <span className="cargo-line-card__unit">{cargoOpsFormDerived.metricLabel}</span>
-                              ) : null}
                             </div>
-                          </div>
+                          ) : null}
 
                           <div className="cargo-ops-time-range cargo-ops-time-range--segment">
                             <div className="cargo-ops-time-range__field">
@@ -1177,10 +1534,128 @@ export default function OperationalMilestoneWorkspace({
                                 onChange={(e) => updateCargoLineDraft(lr.key, { end: e.target.value })}
                               />
                               <span className="cargo-ops-time-range__caption">
-                                {t('cargoOpsLineEnd')} <span className="required-star">*</span>
+                                {isLastLine ? t('cargoOpsLineEndOptional') : t('cargoOpsLineEnd')}{' '}
+                                {!isLastLine ? <span className="required-star">*</span> : null}
                               </span>
                             </div>
                           </div>
+
+                          <div className="cargo-line-card__qty-row">
+                            <div className="berthing-modal__field cargo-line-card__qty-field">
+                              <label className="berthing-modal__label" htmlFor={`op-cargo-qty-${lr.key}`}>
+                                {commodityType === 'Solid' ? t('cargoOpsQtyWb') : purpose === 'Unloading' ? t('cargoOpsQtyUnload') : t('cargoOpsQtyLoad')}{' '}
+                                {row.end && !isMixed ? <span className="required-star">*</span> : null}
+                              </label>
+                              <div className="cargo-line-card__qty-input-wrap">
+                                <input
+                                  id={`op-cargo-qty-${lr.key}`}
+                                  type="text"
+                                  inputMode="decimal"
+                                  className="berthing-modal__input"
+                                  value={row.qty}
+                                  onChange={(e) => updateCargoLineDraft(lr.key, { qty: e.target.value })}
+                                  placeholder={t('cargoOpsQtyPlaceholder')}
+                                  autoComplete="off"
+                                  disabled={qtyDisabled}
+                                  readOnly={qtyDisabled}
+                                />
+                                {cargoOpsFormDerived?.metricLabel ? (
+                                  <span className="cargo-line-card__unit">{cargoOpsFormDerived.metricLabel}</span>
+                                ) : null}
+                              </div>
+                              {qtyAutoFilled ? (
+                                <p className="cargo-line-card__qty-hint text-steel">{t('cargoOpsQtyAutoFilled')}</p>
+                              ) : null}
+                              {atgUnavailable && isAllAtg ? (
+                                <p className="cargo-line-card__qty-hint text-steel" style={{ color: 'var(--color-danger, #c00)' }}>
+                                  {t('cargoOpsAtgUnavailableHint')}
+                                </p>
+                              ) : null}
+                              {atgNowAvailable && atgFmt ? (
+                                <p className="cargo-line-card__qty-hint text-steel">
+                                  {t('cargoOpsAtgNowAvailableHint', { qty: atgFmt })}
+                                </p>
+                              ) : null}
+                            </div>
+                            {isMixed ? (
+                              <div className="berthing-modal__field cargo-line-card__qty-field">
+                                <label className="berthing-modal__label" htmlFor={`op-cargo-manual-qty-${lr.key}`}>
+                                  {t('cargoOpsManualQty')}{' '}
+                                  {row.end ? <span className="required-star">*</span> : null}
+                                </label>
+                                <div className="cargo-line-card__qty-input-wrap">
+                                  <input
+                                    id={`op-cargo-manual-qty-${lr.key}`}
+                                    type="text"
+                                    inputMode="decimal"
+                                    className="berthing-modal__input"
+                                    value={row.manualQty || ''}
+                                    onChange={(e) =>
+                                      updateCargoLineDraft(lr.key, {
+                                        manualQty: e.target.value,
+                                        qtyTouched: false,
+                                      })
+                                    }
+                                    placeholder={t('cargoOpsQtyPlaceholder')}
+                                    autoComplete="off"
+                                  />
+                                  {cargoOpsFormDerived?.metricLabel ? (
+                                    <span className="cargo-line-card__unit">{cargoOpsFormDerived.metricLabel}</span>
+                                  ) : null}
+                                </div>
+                                <p className="cargo-line-card__qty-hint text-steel">{t('cargoOpsManualQtyHint')}</p>
+                              </div>
+                            ) : null}
+                            {commodityType === 'Liquid' && atgTankIds.length > 0 ? (
+                              <div className="cargo-line-card__atg-ref" title={atgTankHint || undefined}>
+                                <span className="cargo-line-card__atg-label">{t('cargoOpsAtgRefLabel')}</span>
+                                <span className="cargo-line-card__atg-value">
+                                  {atgQtyMode === 'manual'
+                                    ? t('cargoOpsAtgModeManual')
+                                    : atgRef?.status === 'loading'
+                                      ? '…'
+                                      : atgFmt
+                                        ? `${atgFmt}${cargoOpsFormDerived?.metricLabel ? ` ${cargoOpsFormDerived.metricLabel.split(' · ')[0]}` : ''}`
+                                        : t('cargoOpsAtgRefUnavailable')}
+                                </span>
+                                {atgRef?.incomplete && atgQtyMode === 'auto' ? (
+                                  <span className="cargo-line-card__atg-partial text-steel">
+                                    {' '}
+                                    ·{' '}
+                                    {atgRef.sumDeltaMass == null
+                                      ? t('cargoOpsAtgNoSamples')
+                                      : t('cargoOpsAtgRatePartial')}
+                                  </span>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+
+                          {hasAtgTanks ? (
+                            <label
+                              className="cargo-line-card__atg-mode"
+                              htmlFor={`op-cargo-atg-manual-${lr.key}`}
+                              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.35rem' }}
+                              title={manualToggleLocked ? t('cargoOpsAtgLockedHint') : undefined}
+                            >
+                              <input
+                                id={`op-cargo-atg-manual-${lr.key}`}
+                                type="checkbox"
+                                checked={atgQtyMode === 'manual'}
+                                disabled={manualToggleLocked}
+                                onChange={(e) =>
+                                  updateCargoLineDraft(lr.key, {
+                                    atgQtyMode: e.target.checked ? 'manual' : 'auto',
+                                    qtyTouched: e.target.checked,
+                                  })
+                                }
+                              />
+                              <span className="text-steel">{t('cargoOpsAtgNotAvailable')}</span>
+                              {manualToggleLocked ? (
+                                <span className="text-steel">· {t('cargoOpsAtgLockedHint')}</span>
+                              ) : null}
+                            </label>
+                          ) : null}
 
                           <div className="cargo-line-card__derived">
                             <span>
@@ -1238,7 +1713,7 @@ export default function OperationalMilestoneWorkspace({
                   Save
                 </button>
                 <button type="button" className="btn btn--small btn--soft" onClick={() => handleAdd(true)}>
-                  Save &amp; add another
+                  {isCargoOpsModal ? t('cargoOpsSaveAddEntry') : 'Save & add another'}
                 </button>
               </div>
             </div>

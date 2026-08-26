@@ -1,0 +1,33 @@
+{
+  "multiTankTgvData": {
+    "multiTankBulkRealTimeData": [
+      {
+        "tankId": 1,
+        "parameterlist": [
+          { "id": 622, "value": 0, "valueString": "+0", "timestamp": 1785481026, "statusString": "Ok" },
+          { "id": 625, "value": 37, "valueString": "+37.0", "timestamp": 1737043200, "statusString": "Manual" },
+          { "id": 724, "value": 0, "valueString": "+0.000", "timestamp": 1785481027, "statusString": "Ok" },
+          { "id": 730, "value": 25.624, "valueString": "+25.624", "timestamp": 1785481027, "statusString": "INIT" }
+        ]
+      },
+      {
+        "tankId": 12,
+        "parameterlist": [
+          { "id": 622, "value": 6588, "valueString": "+6'588", "timestamp": 1785481027, "statusString": "Ok" },
+          { "id": 625, "value": 40, "valueString": "+40.0", "timestamp": 1785481027, "statusString": "Manual" },
+          { "id": 724, "value": -80.911, "valueString": "-80.911", "timestamp": 1785481027, "statusString": "Ok" },
+          { "id": 730, "value": 217.095, "valueString": "+217.095", "timestamp": 1785481027, "statusString": "INIT" }
+        ]
+      },
+      {
+        "tankId": 13,
+        "parameterlist": [
+          { "id": 622, "value": 15484, "valueString": "+15'484", "timestamp": 1785481027, "statusString": "Ok" },
+          { "id": 625, "value": 28, "valueString": "+28.0", "timestamp": 1785481027, "statusString": "Manual" },
+          { "id": 724, "value": 0, "valueString": "+0.000", "timestamp": 1785481027, "statusString": "Ok" },
+          { "id": 730, "value": 3627.744, "valueString": "+3'627.744", "timestamp": 1785481027, "statusString": "INIT" }
+        ]
+      }
+    ]
+  }
+}

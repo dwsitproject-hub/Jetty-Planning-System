@@ -1,14 +1,14 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { getOidcStartUrl, login } from '../api/auth'
+import { useEffect, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { fetchSsoStatus, getOidcStartUrl, login } from '../api/auth'
 import { fetchMyPorts } from '../api/usersApi'
-import { getSelectedPortId } from '../api/client'
+import { ApiError, getSelectedPortId } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { useRbac } from '../context/RbacContext'
-import { ApiError } from '../api/client'
 import GuestBrandedShell from '../components/GuestBrandedShell'
 import { useTranslation } from 'react-i18next'
-import { MAX_LOGIN_PASSWORD_CHARS, MAX_LOGIN_USERNAME_CHARS } from '../constants/inputLimits'
+import { MAX_LOGIN_IDENTIFIER_CHARS, MAX_LOGIN_PASSWORD_CHARS } from '../constants/inputLimits'
+import { firstAllowedNavPath } from '../utils/firstAllowedNavPath'
 
 export default function Login() {
   const { t } = useTranslation('auth')
@@ -16,9 +16,30 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [ssoStatus, setSsoStatus] = useState(null)
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { refreshMe } = useAuth()
   const { refresh: refreshRbac } = useRbac()
+
+  useEffect(() => {
+    const legacyError = (searchParams.get('sso_error') || '').trim()
+    if (legacyError) {
+      navigate(`/sso-error?code=${encodeURIComponent(legacyError)}`, { replace: true })
+      return
+    }
+    let cancelled = false
+    fetchSsoStatus()
+      .then((data) => {
+        if (!cancelled) setSsoStatus(data)
+      })
+      .catch(() => {
+        if (!cancelled) setSsoStatus(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [navigate, searchParams])
 
   const handleSsoClick = () => {
     const url = getOidcStartUrl()
@@ -36,7 +57,10 @@ export default function Login() {
     try {
       await login(username.trim(), password)
       await refreshMe()
-      await refreshRbac()
+      // Session cookie is set; force fetch so landing path does not wait on React `me` state.
+      const pagePerms = await refreshRbac({ force: true })
+      const canViewPage = (pageKey) => pagePerms[pageKey]?.canView === true
+      const landing = firstAllowedNavPath(canViewPage) || '/'
       let goSelectPort = false
       try {
         const portsData = await fetchMyPorts()
@@ -48,7 +72,7 @@ export default function Login() {
       } catch {
         goSelectPort = false
       }
-      navigate(goSelectPort ? '/select-port' : '/')
+      navigate(goSelectPort ? '/select-port' : landing)
     } catch (err) {
       const msg =
         err instanceof ApiError && err.status === 401
@@ -59,6 +83,8 @@ export default function Login() {
       setBusy(false)
     }
   }
+
+  const showOidcButton = ssoStatus?.oidcEnabled === true
 
   return (
     <GuestBrandedShell>
@@ -72,12 +98,12 @@ export default function Login() {
           className="guest-branded__input"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          maxLength={MAX_LOGIN_USERNAME_CHARS}
+          maxLength={MAX_LOGIN_IDENTIFIER_CHARS}
           autoComplete="username"
           disabled={busy}
         />
         <label className="guest-branded__label" htmlFor="login-password">
-          Password
+          {t('password')}
         </label>
         <input
           id="login-password"
@@ -93,15 +119,17 @@ export default function Login() {
           {busy ? t('signingIn') : t('signIn')}
         </button>
       </form>
-      <button
-        type="button"
-        className="btn guest-branded__submit"
-        style={{ marginTop: 8 }}
-        onClick={handleSsoClick}
-        disabled={busy}
-      >
-        Sign in with SSO
-      </button>
+      {showOidcButton ? (
+        <button
+          type="button"
+          className="btn guest-branded__submit"
+          style={{ marginTop: 8 }}
+          onClick={handleSsoClick}
+          disabled={busy}
+        >
+          {t('signInViaDwsHub')}
+        </button>
+      ) : null}
     </GuestBrandedShell>
   )
 }

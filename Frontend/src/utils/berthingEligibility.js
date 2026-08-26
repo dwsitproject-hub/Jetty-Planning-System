@@ -1,3 +1,8 @@
+import {
+  BERTHING_INVALID_SI_REF_TOOLTIP,
+  validateQueueRowSiReferencesForBerthing,
+} from './siReferenceValidation.js';
+
 /** Tooltip when Berthing is blocked — plan not approved yet. */
 export const BERTHING_PLAN_GATE_TOOLTIP =
   'Shipment plan must be approved before berthing.';
@@ -8,6 +13,8 @@ export const BERTHING_NO_SI_TOOLTIP =
 
 /** @deprecated use BERTHING_PLAN_GATE_TOOLTIP — kept for locale key compatibility */
 export const BERTHING_SI_GATE_TOOLTIP = BERTHING_PLAN_GATE_TOOLTIP;
+
+export { BERTHING_INVALID_SI_REF_TOOLTIP };
 
 /**
  * @param {object|null|undefined} row - allocation queue / schedule row
@@ -21,6 +28,7 @@ export function berthingDisabledReason(row, options = {}) {
     (Array.isArray(row.planQueueSiEntries) && row.planQueueSiEntries.length > 0) ||
     (row.shippingInstructionId != null && row.shippingInstructionId !== '');
   if (!hasSi) return BERTHING_NO_SI_TOOLTIP;
+  if (validateQueueRowSiReferencesForBerthing(row)) return BERTHING_INVALID_SI_REF_TOOLTIP;
   return BERTHING_PLAN_GATE_TOOLTIP;
 }
 

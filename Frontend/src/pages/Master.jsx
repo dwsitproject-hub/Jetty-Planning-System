@@ -6,6 +6,8 @@ const MASTER_ITEMS = [
   { path: '/master/port', titleKey: 'masterHubPortTitle', descKey: 'masterHubPortDesc' },
   { path: '/master/jetty', titleKey: 'masterHubJettyTitle', descKey: 'masterHubJettyDesc' },
   { path: '/master/jetty-layout', titleKey: 'masterHubJettyLayoutTitle', descKey: 'masterHubJettyLayoutDesc' },
+  { path: '/master/tanks', titleKey: 'masterHubTanksTitle', descKey: 'masterHubTanksDesc' },
+  { path: '/tank-farm', titleKey: 'tankFarmTitle', descKey: 'tankFarmDesc' },
   { path: '/master/si-term', titleKey: 'masterHubSiTermTitle', descKey: 'masterHubSiTermDesc' },
   { path: '/master/si-shipper', titleKey: 'masterHubSiShipperTitle', descKey: 'masterHubSiShipperDesc' },
   { path: '/master/si-loading-port', titleKey: 'masterHubSiLoadingPortTitle', descKey: 'masterHubSiLoadingPortDesc' },

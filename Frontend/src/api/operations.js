@@ -1,6 +1,53 @@
 import { apiGet, apiPost, apiPut, apiDelete, apiPostForm } from './client.js'
 import { getScheduleEntryTimeZone, normalizeForApi } from '../utils/scheduleDateTime.js'
 
+function parseTankIdForApi(id) {
+  if (id == null || id === '') return null
+  const n = parseInt(String(id).trim(), 10)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+function normalizeLineTankIdsForApi(raw) {
+  if (!Array.isArray(raw)) return []
+  const out = []
+  for (const id of raw) {
+    const n = parseTankIdForApi(id)
+    if (n != null && !out.includes(n)) out.push(n)
+  }
+  return out
+}
+
+/** Resolve numeric tank IDs from line tankIds and/or nested tanks (matches operator view-model). */
+export function resolveCargoLineTankIdsForApi(line) {
+  const fromIds = normalizeLineTankIdsForApi(line?.tankIds)
+  if (fromIds.length) return fromIds
+  if (Array.isArray(line?.tanks)) {
+    return normalizeLineTankIdsForApi(line.tanks.map((t) => t?.id))
+  }
+  return []
+}
+
+function mapCargoLoadLineForApi(l, tz) {
+  const row = { startAt: normalizeOpActivityTs(l.startAt, tz) }
+  if (l.endAt != null && l.endAt !== '') {
+    row.endAt = normalizeOpActivityTs(l.endAt, tz)
+  } else {
+    row.endAt = null
+  }
+  if (l.qty != null && l.qty !== '' && Number.isFinite(Number(l.qty))) {
+    row.qty = Number(l.qty)
+  }
+  const tankIds = resolveCargoLineTankIdsForApi(l)
+  if (tankIds.length) row.tankIds = tankIds
+  if (l.atgQtyMode != null && l.atgQtyMode !== '') {
+    row.atgQtyMode = l.atgQtyMode
+  }
+  if (l.manualQty != null && l.manualQty !== '' && Number.isFinite(Number(l.manualQty))) {
+    row.manualQty = Number(l.manualQty)
+  }
+  return row
+}
+
 export function fetchOperations(params = {}) {
   const sp = new URLSearchParams()
   if (params.portId) sp.set('port_id', params.portId)
@@ -327,11 +374,7 @@ export function createOperationalEntry(operationId, body, opts = {}) {
     markedAt: normalizeOpActivityTs(body.markedAt, tz),
   }
   if (Array.isArray(body.cargoLoadLines) && body.cargoLoadLines.length > 0) {
-    payload.cargoLoadLines = body.cargoLoadLines.map((l) => ({
-      qty: Number(l.qty),
-      startAt: normalizeOpActivityTs(l.startAt, tz),
-      endAt: normalizeOpActivityTs(l.endAt, tz),
-    }))
+    payload.cargoLoadLines = body.cargoLoadLines.map((l) => mapCargoLoadLineForApi(l, tz))
   } else if (body.cargoMovedQty !== undefined && body.cargoMovedQty !== null) {
     payload.cargoMovedQty = body.cargoMovedQty
   }
@@ -350,11 +393,7 @@ export function updateOperationalEntry(operationId, entryId, body, opts = {}) {
     markedAt: normalizeOpActivityTs(body.markedAt, tz),
   }
   if (Array.isArray(body.cargoLoadLines) && body.cargoLoadLines.length > 0) {
-    payload.cargoLoadLines = body.cargoLoadLines.map((l) => ({
-      qty: Number(l.qty),
-      startAt: normalizeOpActivityTs(l.startAt, tz),
-      endAt: normalizeOpActivityTs(l.endAt, tz),
-    }))
+    payload.cargoLoadLines = body.cargoLoadLines.map((l) => mapCargoLoadLineForApi(l, tz))
   } else if (body.cargoMovedQty !== undefined && body.cargoMovedQty !== null) {
     payload.cargoMovedQty = body.cargoMovedQty
   }
@@ -367,6 +406,15 @@ export function deleteOperationalEntry(operationId, entryId) {
 
 export function fetchActivityTimeline(operationId) {
   return apiGet(`/operations/${operationId}/activity-timeline`)
+}
+
+export function fetchOperationalProgress(operationId) {
+  return apiGet(`/operations/${operationId}/operational-progress`)
+}
+
+export function fetchAtBerthCargoProgress(ids) {
+  const q = Array.isArray(ids) && ids.length ? `?ids=${ids.join(',')}` : ''
+  return apiGet(`/operations/at-berth/cargo-progress${q}`)
 }
 
 export function fetchCargoHandlingMethods() {

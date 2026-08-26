@@ -228,6 +228,11 @@
   flex-direction: column;
 }
 
+/* Multi-jetty berthing: this zone contains a vessel spanning into an adjacent column — must not clip the overlay. */
+.jetty-schematic__berth-zone--spanned-source {
+  overflow: visible;
+}
+
 .jetty-schematic__berth-zone--placeholder .jetty-schematic__slot.jetty-schematic__slot--empty {
   flex: 1 1 auto;
   min-height: 0;
@@ -257,6 +262,33 @@
 .jetty-schematic__jetty-name-label {
   pointer-events: none;
   user-select: none;
+}
+
+.jetty-schematic__jetty-name-label--link {
+  pointer-events: auto;
+  user-select: text;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: var(--color-primary);
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--easing-default);
+}
+
+.jetty-schematic__jetty-name-label--link:hover,
+.jetty-schematic__jetty-name-label--link:focus-visible {
+  color: var(--color-primary-hover);
+  text-decoration: underline;
+}
+
+.jetty-schematic__jetty-name-label--link:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .jetty-schematic__jetty-name-spec {
@@ -319,6 +351,11 @@
   flex-direction: column-reverse;
 }
 
+/* Multi-jetty berthing: source stack whose vessel spans into an adjacent column — allow the overlay to escape. */
+.jetty-schematic__berth-stack--spanned-source {
+  overflow: visible;
+}
+
 .jetty-schematic__berth-stack--oos {
   opacity: 0.88;
 }
@@ -378,6 +415,14 @@
   overflow-x: hidden;
   overflow-y: auto;
   font-family: inherit;
+}
+
+/* Multi-jetty berthing: this lane's vessel block is widened + overlaid across an adjacent column — don't clip it.
+   Compound selector (higher specificity than the single-class `.jetty-schematic__slot { overflow: hidden }` /
+   `.jetty-schematic__lane { overflow-x/y: ... }` rules below) so this wins regardless of source order. */
+.jetty-schematic__lane.jetty-schematic__lane--spanned-source,
+.jetty-schematic__slot.jetty-schematic__lane--spanned-source {
+  overflow: visible;
 }
 
 /* Lane suffix chip — top-left corner (frees a full content row) */
@@ -740,6 +785,12 @@ button.jetty-schematic__lane:focus-visible {
   letter-spacing: 0.02em;
 }
 
+.jetty-card__opening {
+  color: #1d4ed8 !important;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.02em;
+}
+
 .jetty-card__balance {
   color: #0f766e !important;
   font-weight: var(--font-weight-bold);
@@ -875,6 +926,36 @@ button.jetty-schematic__lane:focus-visible {
   pointer-events: none;
   background: transparent;
   border-color: rgba(148, 163, 184, 0.45);
+}
+
+/* Multi-jetty berthing: this ONE lane is spanned by an adjacent jetty's vessel — no vacant/duplicate
+   card for that lane. Sized the same as any other lane (`.jetty-schematic__lane`'s fixed
+   --lane-pixel-height) so a double-bank jetty's other, non-spanned lane keeps its normal height. */
+.jetty-schematic__slot--spanned {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.55;
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(148, 163, 184, 0.25),
+    rgba(148, 163, 184, 0.25) 8px,
+    rgba(148, 163, 184, 0.1) 8px,
+    rgba(148, 163, 184, 0.1) 16px
+  );
+  border-style: dashed;
+  border-color: #94a3b8;
+  color: #475569;
+  text-align: center;
+  cursor: default;
+  pointer-events: none;
+}
+
+.jetty-schematic__slot--spanned .jetty-schematic__slot-jetty-name {
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 /* Placeholder zones fill the column row so pipeline lines up with dockable stacks */

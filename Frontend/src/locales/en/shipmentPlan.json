@@ -41,10 +41,12 @@
   "jettyAdviceNeedEta": "Set ETA to enable jetty suggestions.",
   "jettyAdviceNeedMasterSpecs": "Configure jetty length, DWT, and commodities in Master – Preferred Jetty to enable suggestions.",
   "jettyNotSuitable": "exceeds jetty specs",
+  "jettySpanRequired": "span required",
   "jettyOccupiedAtEta": "occupied at ETA",
   "jettyReasonLoa": "LOA {{loa}} m exceeds jetty length {{len}} m",
   "jettyReasonDwt": "vessel DWT {{dwt}} exceeds jetty DWT {{max}}",
   "formJettyUnsuitable": "Jetty {{jetty}} does not fit this vessel: {{reason}}. Choose a suggested jetty or adjust vessel details.",
+  "formJettySpanRequired": "Jetty {{jetty}}: vessel LOA exceeds primary jetty length — select adjacent jetty(s) to span ({{adjacent}}).",
   "vesselInfoTitle": "Vessel information",
   "vesselInfoLoading": "Loading vessel information…",
   "vesselInfoReadOnly": "You have view-only access. Ask a shipment-plan editor to change vessel information.",
@@ -209,5 +211,13 @@
   "rejectReasonPlaceholder": "Reason for rejection (required)",
   "approveSuccess": "Plan approved.",
   "rejectSuccess": "Plan rejected.",
-  "noPermission": "You do not have permission to perform this action."
+  "noPermission": "You do not have permission to perform this action.",
+  "preBerthEditSiTitle": "Update shipping instruction",
+  "preBerthEditSiHint": "Update the shipping instruction before berthing. Changing cargo or port details will reopen the shipment plan for re-approval.",
+  "preBerthEditSaved": "Shipping instruction updated.",
+  "preBerthEditSavedBerthing": "SI updated — berthing is now available.",
+  "preBerthEditPlanReopened": "Plan reopened for re-approval due to SI changes.",
+  "preBerthEditPlanTitle": "Update shipment plan",
+  "preBerthEditPlanHint": "Update vessel, planning details, and existing shipping instructions in one form before berthing. Cosmetic SI changes keep the plan approved; material SI changes reopen it for re-approval.",
+  "preBerthEditPlanSaved": "Shipment plan updated."
 }

@@ -1,0 +1,168 @@
+{
+  "from": "2026-07-27",
+  "to": "2026-08-04",
+  "report": [
+    {
+      "baseUrl": "http://172.16.11.77",
+      "code": "5104",
+      "tankName": "TK 5104",
+      "externalTankId": 5,
+      "ok": true,
+      "rows": 12960
+    },
+    {
+      "baseUrl": "http://172.16.11.77",
+      "code": "1501",
+      "tankName": "TK 1501",
+      "externalTankId": 1,
+      "ok": true,
+      "rows": 12960
+    },
+    {
+      "baseUrl": "http://172.16.11.77",
+      "code": "5102",
+      "tankName": "TK 5102",
+      "externalTankId": 3,
+      "ok": true,
+      "rows": 12960
+    },
+    {
+      "baseUrl": "http://172.16.11.77",
+      "code": "5101",
+      "tankName": "TK 5101",
+      "externalTankId": 2,
+      "ok": true,
+      "rows": 12960
+    },
+    {
+      "baseUrl": "http://172.16.246.10",
+      "code": "3101",
+      "tankName": "TK 3101",
+      "externalTankId": 5,
+      "ok": true,
+      "rows": 12960
+    },
+    {
+      "baseUrl": "http://172.16.246.10",
+      "code": "3502",
+      "tankName": "TK 3502",
+      "externalTankId": 11,
+      "ok": true,
+      "rows": 12960
+    },
+    {
+      "baseUrl": "http://172.16.246.10",
+      "code": "3203",
+      "tankName": "TK 3203",
+      "externalTankId": 10,
+      "ok": true,
+      "rows": 12960
+    },
+    {
+      "baseUrl": "http://172.16.246.10",
+      "code": "3602",
+      "tankName": "TK 3602",
+      "externalTankId": 12,
+      "ok": true,
+      "rows": 12960
+    },
+    {
+      "baseUrl": "http://172.16.246.10",
+      "code": "5203",
+      "tankName": "TK 5203",
+      "externalTankId": 3,
+      "ok": true,
+      "rows": 12960
+    },
+    {
+      "baseUrl": "http://172.16.246.10",
+      "code": "5201",
+      "tankName": "TK 5201",
+      "externalTankId": 1,
+      "ok": true,
+      "rows": 12960
+    },
+    {
+      "baseUrl": "http://172.16.246.10",
+      "code": "5202",
+      "tankName": "TK 5202",
+      "externalTankId": 2,
+      "ok": true,
+      "rows": 12960
+    },
+    {
+      "baseUrl": "http://172.16.246.10",
+      "code": "5204",
+      "tankName": "TK 5204",
+      "externalTankId": 4,
+      "ok": true,
+      "rows": 12960
+    },
+    {
+      "baseUrl": "http://172.16.246.10",
+      "code": "3000",
+      "tankName": "TK 3000",
+      "externalTankId": 9,
+      "ok": true,
+      "rows": 12960
+    },
+    {
+      "baseUrl": "http://172.16.246.10",
+      "code": "1000",
+      "tankName": "TK 1000",
+      "externalTankId": 14,
+      "ok": true,
+      "rows": 12960
+    },
+    {
+      "baseUrl": "http://172.16.246.10",
+      "code": "3702",
+      "tankName": "TK 3702",
+      "externalTankId": 13,
+      "ok": true,
+      "rows": 12960
+    },
+    {
+      "baseUrl": "http://172.16.246.10",
+      "code": "3102",
+      "tankName": "TK 3102",
+      "externalTankId": 6,
+      "ok": true,
+      "rows": 12960
+    },
+    {
+      "baseUrl": "http://172.16.246.12",
+      "code": "2101",
+      "tankName": "Tank 2101",
+      "externalTankId": 7,
+      "ok": true,
+      "rows": 12960
+    },
+    {
+      "baseUrl": "http://172.16.246.12",
+      "code": "2102",
+      "tankName": "Tank 2102",
+      "externalTankId": 8,
+      "ok": true,
+      "rows": 12960
+    },
+    {
+      "baseUrl": "http://172.16.246.12",
+      "code": "2103",
+      "tankName": "Tank 2103",
+      "externalTankId": 9,
+      "ok": true,
+      "rows": 12960
+    },
+    {
+      "baseUrl": "http://172.16.246.12",
+      "code": "2104",
+      "tankName": "Tank 2104",
+      "externalTankId": 10,
+      "ok": true,
+      "rows": 12960
+    }
+  ],
+  "sampleCount": 51840,
+  "csvRows": 259200
+}

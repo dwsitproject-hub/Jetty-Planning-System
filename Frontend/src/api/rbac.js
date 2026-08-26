@@ -1,5 +1,23 @@
 import { apiDelete, apiGet, apiPost, apiPut } from './client'
 
+export function pagePermissionRowsToMap(rows) {
+  const map = {}
+  for (const r of Array.isArray(rows) ? rows : []) {
+    map[r.resourceKey] = {
+      canView: !!r.canView,
+      canEdit: !!r.canEdit,
+      canDelete: !!r.canDelete,
+      canApprove: !!r.canApprove,
+    }
+  }
+  return map
+}
+
+export async function fetchMyPagePermissions() {
+  const rows = await apiGet('/rbac/me/page-permissions')
+  return pagePermissionRowsToMap(rows)
+}
+
 export function fetchRoles() {
   return apiGet('/rbac/roles')
 }

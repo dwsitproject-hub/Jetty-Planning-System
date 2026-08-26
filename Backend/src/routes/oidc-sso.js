@@ -4,7 +4,8 @@ import express from 'express';
 import { pool } from '../db.js';
 import { logAuthEvent } from '../lib/auth-events.js';
 import { exchangeAuthorizationCode, getDiscoveryDocument, validateIdToken } from '../lib/oidc-client.js';
-import { assertOidcConfigured } from '../lib/oidc-config.js';
+import { assertOidcConfigured, getOidcConfig } from '../lib/oidc-config.js';
+import { redirectToSsoError } from '../lib/sso-error-redirect.js';
 import {
   clearOidcFlowCookie,
   createPkcePair,
@@ -31,6 +32,14 @@ const OIDC_ALLOW_QUERY_CODE_VERIFIER = String(process.env.OIDC_ALLOW_QUERY_CODE_
 /** Plain GET smoke test: confirms /auth reaches Node without DB (use curl from host). */
 router.get('/oidc/ready', (req, res) => {
   res.type('text/plain').send('ok');
+});
+
+router.get('/sso/status', (req, res) => {
+  const cfg = getOidcConfig();
+  res.json({
+    oidcEnabled: cfg.enabled,
+    legacyBridgeEnabled: cfg.legacyBridgeEnabled,
+  });
 });
 
 function escapeHtmlAttr(s) {
@@ -75,9 +84,7 @@ router.get('/oidc/start', async (req, res, next) => {
   try {
     const cfg = assertOidcConfigured();
     if (!cfg.enabled) {
-      return res.status(410).type('html').send(
-        '<!DOCTYPE html><html><body><p>OIDC SSO is disabled on this server. Use legacy SSO launch flow.</p></body></html>',
-      );
+      return redirectToSsoError(res, 'oidc_disabled');
     }
     const discovery = await getDiscoveryDocument(cfg.discoveryUrl);
     const { verifier, challenge, method } = createPkcePair();
@@ -126,15 +133,15 @@ router.get('/oidc/callback', optionalAuth, async (req, res) => {
     return sendOidcCallbackIframeBreakout(res, req);
   }
 
-  const clearAndFail = (status, message, reason) => {
+  const clearAndFail = (reason) => {
     clearOidcFlowCookie(res);
     logAuthEvent('oidc.callback.failure', { reason, ip: req.ip, code: req.query?.code });
-    return res.status(status).type('html').send(`<!DOCTYPE html><html><body><p>${message}</p></body></html>`);
+    return redirectToSsoError(res, reason);
   };
   try {
     const cfg = assertOidcConfigured();
     if (!cfg.enabled) {
-      return clearAndFail(410, 'OIDC SSO is disabled on this server.', 'oidc_disabled');
+      return clearAndFail('oidc_disabled');
     }
     const flow = readOidcFlowCookie(req);
     const code = typeof req.query?.code === 'string' ? req.query.code : '';
@@ -147,10 +154,10 @@ router.get('/oidc/callback', optionalAuth, async (req, res) => {
       logAuthEvent('oidc.callback.warn', { reason: 'invalid_state_fallback_query_verifier', ip: req.ip });
     }
     if (!codeVerifier) {
-      return clearAndFail(400, 'Invalid OIDC state.', 'invalid_state');
+      return clearAndFail('invalid_state');
     }
     if (!code) {
-      return clearAndFail(400, 'Missing authorization code.', 'missing_code');
+      return clearAndFail('missing_code');
     }
     if (flow?.state && flow?.verifier) {
       if (flow.state !== state) {
@@ -171,7 +178,7 @@ router.get('/oidc/callback', optionalAuth, async (req, res) => {
       codeVerifier,
     });
     if (!tokenSet?.id_token) {
-      return clearAndFail(401, 'OIDC token exchange failed.', 'missing_id_token');
+      return clearAndFail('missing_id_token');
     }
 
     const claims = await validateIdToken({
@@ -186,37 +193,33 @@ router.get('/oidc/callback', optionalAuth, async (req, res) => {
     const email = typeof claims.email === 'string' ? claims.email.trim() : '';
     if (mode === 'connect_sso') {
       if (!isEmailVerified(claims)) {
-        return clearAndFail(
-          403,
-          'Email not verified for SSO. Complete Hub verification (magic link), then try again.',
-          'connect_sso_email_not_verified',
-        );
+        return clearAndFail('connect_sso_email_not_verified');
       }
       const linkDomainList = parseDomainAllowlistFromEnv();
       if (!emailMatchesDomainPolicy(normalizeEmail(email), linkDomainList)) {
-        return clearAndFail(403, 'Email domain is not allowed for SSO.', 'domain_not_allowed');
+        return clearAndFail('domain_not_allowed');
       }
       if (!req.userId) {
-        return clearAndFail(401, 'Please sign in locally first, then connect SSO from Settings.', 'connect_sso_requires_session');
+        return clearAndFail('connect_sso_requires_session');
       }
       const me = await pool.query(
         `SELECT id, email, is_active FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
         [req.userId],
       );
       if (me.rows.length === 0 || !me.rows[0].is_active) {
-        return clearAndFail(403, 'User not found or inactive.', 'connect_sso_user_not_found');
+        return clearAndFail('connect_sso_user_not_found');
       }
       const myEmail = typeof me.rows[0].email === 'string' ? me.rows[0].email.trim().toLowerCase() : '';
       const tokenEmail = email.trim().toLowerCase();
       if (myEmail && tokenEmail && myEmail !== tokenEmail) {
-        return clearAndFail(409, 'Hub account email does not match your Jetty account.', 'connect_sso_email_mismatch');
+        return clearAndFail('connect_sso_email_mismatch');
       }
       const collision = await pool.query(
         `SELECT id FROM users WHERE oidc_sub = $1 AND id <> $2 AND deleted_at IS NULL LIMIT 1`,
         [oidcSub, req.userId],
       );
       if (collision.rows.length > 0) {
-        return clearAndFail(409, 'This Hub identity is already linked to another Jetty user.', 'connect_sso_sub_collision');
+        return clearAndFail('connect_sso_sub_collision');
       }
       await pool.query(
         `UPDATE users
@@ -231,42 +234,38 @@ router.get('/oidc/callback', optionalAuth, async (req, res) => {
 
     if (mode === 'admin_prelink') {
       if (!isEmailVerified(claims)) {
-        return clearAndFail(
-          403,
-          'Email not verified for SSO. Complete Hub verification (magic link), then try again.',
-          'admin_prelink_email_not_verified',
-        );
+        return clearAndFail('admin_prelink_email_not_verified');
       }
       const prelinkDomainList = parseDomainAllowlistFromEnv();
       if (!emailMatchesDomainPolicy(normalizeEmail(email), prelinkDomainList)) {
-        return clearAndFail(403, 'Email domain is not allowed for SSO.', 'domain_not_allowed');
+        return clearAndFail('domain_not_allowed');
       }
       const targetUserId = Number(signedState?.targetUserId);
       const expectedEmail = typeof signedState?.expectedEmail === 'string' ? signedState.expectedEmail.trim().toLowerCase() : '';
       if (!Number.isFinite(targetUserId) || targetUserId <= 0 || !expectedEmail) {
-        return clearAndFail(400, 'Invalid admin prelink state.', 'admin_prelink_state_invalid');
+        return clearAndFail('admin_prelink_state_invalid');
       }
       const tokenEmail = email.trim().toLowerCase();
       if (!tokenEmail || tokenEmail !== expectedEmail) {
-        return clearAndFail(409, 'Hub account email does not match the target user.', 'admin_prelink_email_mismatch');
+        return clearAndFail('admin_prelink_email_mismatch');
       }
       const target = await pool.query(
         `SELECT id, email, is_active FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
         [targetUserId],
       );
       if (target.rows.length === 0 || !target.rows[0].is_active) {
-        return clearAndFail(404, 'Target user not found or inactive.', 'admin_prelink_target_missing');
+        return clearAndFail('admin_prelink_target_missing');
       }
       const targetEmail = typeof target.rows[0].email === 'string' ? target.rows[0].email.trim().toLowerCase() : '';
       if (targetEmail && targetEmail !== expectedEmail) {
-        return clearAndFail(409, 'Target user email changed. Ask admin to regenerate link.', 'admin_prelink_target_email_changed');
+        return clearAndFail('admin_prelink_target_email_changed');
       }
       const collision = await pool.query(
         `SELECT id FROM users WHERE oidc_sub = $1 AND id <> $2 AND deleted_at IS NULL LIMIT 1`,
         [oidcSub, targetUserId],
       );
       if (collision.rows.length > 0) {
-        return clearAndFail(409, 'This Hub identity is already linked to another Jetty user.', 'admin_prelink_sub_collision');
+        return clearAndFail('admin_prelink_sub_collision');
       }
       await pool.query(
         `UPDATE users
@@ -301,37 +300,25 @@ router.get('/oidc/callback', optionalAuth, async (req, res) => {
         [emailNorm],
       );
       if (candidates.rows.length > 1) {
-        return clearAndFail(
-          409,
-          'Multiple accounts share this email. Contact administrator.',
-          'ambiguous_email_match',
-        );
+        return clearAndFail('ambiguous_email_match');
       }
       if (candidates.rows.length === 1) {
         const row = candidates.rows[0];
         if (!row.is_active) {
-          return clearAndFail(403, 'Your account is inactive.', 'inactive_user');
+          return clearAndFail('inactive_user');
         }
         if (!isEmailVerified(claims)) {
-          return clearAndFail(
-            403,
-            'Email not verified for SSO. Complete Hub verification (magic link), then try again.',
-            'email_not_verified',
-          );
+          return clearAndFail('email_not_verified');
         }
         if (!emailMatchesDomainPolicy(emailNorm, domainList)) {
-          return clearAndFail(403, 'Email domain is not allowed for SSO.', 'domain_not_allowed');
+          return clearAndFail('domain_not_allowed');
         }
         const subCollision = await pool.query(
           `SELECT id FROM users WHERE oidc_sub = $1 AND id <> $2 AND deleted_at IS NULL LIMIT 1`,
           [oidcSub, row.id],
         );
         if (subCollision.rows.length > 0) {
-          return clearAndFail(
-            409,
-            'This Hub identity is already linked to another Jetty user.',
-            'oidc_sub_collision',
-          );
+          return clearAndFail('oidc_sub_collision');
         }
         await pool.query(
           `UPDATE users SET oidc_sub = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
@@ -351,28 +338,20 @@ router.get('/oidc/callback', optionalAuth, async (req, res) => {
         [email],
       );
       if (localCollision.rows.length > 0) {
-        return clearAndFail(
-          409,
-          'SSO account is not linked. Contact administrator to link your SSO identity.',
-          'email_collision_local_account',
-        );
+        return clearAndFail('email_collision_local_account');
       }
     }
 
     if (user.rows.length === 0 && OIDC_JIT_PROVISION) {
       if (v2Enabled) {
         if (!emailNorm) {
-          return clearAndFail(403, 'SSO sign-in requires an email claim in the ID token.', 'jit_missing_email');
+          return clearAndFail('jit_missing_email');
         }
         if (!isEmailVerified(claims)) {
-          return clearAndFail(
-            403,
-            'Email not verified for SSO. Complete Hub verification (magic link), then try again.',
-            'jit_email_not_verified',
-          );
+          return clearAndFail('jit_email_not_verified');
         }
         if (!emailMatchesDomainPolicy(emailNorm, domainList)) {
-          return clearAndFail(403, 'Email domain is not allowed for SSO.', 'domain_not_allowed');
+          return clearAndFail('domain_not_allowed');
         }
       }
       const usernameBase = (email.split('@')[0] || `sso_${oidcSub.slice(0, 8)}`).replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -389,10 +368,10 @@ router.get('/oidc/callback', optionalAuth, async (req, res) => {
     }
 
     if (user.rows.length === 0) {
-      return clearAndFail(403, 'No linked SSO account found.', 'no_linked_sso_user');
+      return clearAndFail('no_linked_sso_user');
     }
     if (!user.rows[0].is_active) {
-      return clearAndFail(403, 'Your account is inactive.', 'inactive_user');
+      return clearAndFail('inactive_user');
     }
 
     setSessionCookiesForUserId(res, user.rows[0].id);
@@ -402,7 +381,7 @@ router.get('/oidc/callback', optionalAuth, async (req, res) => {
   } catch (err) {
     clearOidcFlowCookie(res);
     logAuthEvent('oidc.callback.failure', { reason: err.message, ip: req.ip });
-    return res.status(500).type('html').send('<!DOCTYPE html><html><body><p>OIDC sign-in failed.</p></body></html>');
+    return redirectToSsoError(res, 'oidc_sign_in_failed');
   }
 });
 

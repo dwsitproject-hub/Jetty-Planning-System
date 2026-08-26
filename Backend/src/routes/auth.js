@@ -38,20 +38,29 @@ router.post('/login', loginLimiter, async (req, res) => {
     return res.status(500).json({ error: 'Server misconfiguration' });
   }
 
+  const identifier = String(username).trim();
+
   const result = await pool.query(
     `SELECT id, username, display_name, email, password_hash, is_active
-     FROM users WHERE username = $1 AND deleted_at IS NULL AND auth_source = 'local'`,
-    [username.trim()]
+     FROM users
+     WHERE deleted_at IS NULL
+       AND auth_source = 'local'
+       AND (
+         username = $1
+         OR (email IS NOT NULL AND lower(email) = lower($1))
+       )
+     LIMIT 1`,
+    [identifier]
   );
   const row = result.rows[0];
   if (!row || !row.is_active) {
-    logAuthEvent('local.login.failure', { reason: 'invalid_or_inactive', username: username?.trim(), ip: req.ip });
+    logAuthEvent('local.login.failure', { reason: 'invalid_or_inactive', identifier, ip: req.ip });
     return res.status(401).json({ error: 'Invalid username or password' });
   }
 
   const passwordOk = await bcrypt.compare(password, row.password_hash);
   if (!passwordOk) {
-    logAuthEvent('local.login.failure', { reason: 'bad_password', username: username?.trim(), ip: req.ip });
+    logAuthEvent('local.login.failure', { reason: 'bad_password', identifier, ip: req.ip });
     return res.status(401).json({ error: 'Invalid username or password' });
   }
 

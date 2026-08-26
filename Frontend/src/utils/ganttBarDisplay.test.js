@@ -5,8 +5,14 @@ import {
   resolveGanttBarDensity,
   formatGanttMilestoneLine,
   formatMaterialQtyLine,
+  formatHoseConveyorOnLine,
   buildPlannedBlockModel,
   buildActualBlockModel,
+  buildGanttBarTooltipItems,
+  buildGanttPlannedMilestoneEntries,
+  buildGanttEstimateMilestoneEntries,
+  buildGanttActualMilestoneEntries,
+  buildGanttCombinedActualMilestoneEntries,
   parseRowActualCompMs,
 } from './ganttBarDisplay.js'
 
@@ -80,6 +86,25 @@ describe('formatMaterialQtyLine', () => {
   })
 })
 
+describe('formatHoseConveyorOnLine', () => {
+  it('returns Hose on with compact timestamp', () => {
+    const line = formatHoseConveyorOnLine('Hose', '2026-07-23T08:48:00Z')
+    assert.ok(line)
+    assert.match(line, /^Hose on \d+ \w+ \d{2}:\d{2}$/)
+  })
+
+  it('returns Conveyor on for conveyor method', () => {
+    const line = formatHoseConveyorOnLine('Conveyor', '2026-07-23T08:48:00Z')
+    assert.ok(line)
+    assert.match(line, /^Conveyor on /)
+  })
+
+  it('returns null when start time is missing', () => {
+    assert.equal(formatHoseConveyorOnLine('Hose', null), null)
+    assert.equal(formatHoseConveyorOnLine('Hose', ''), null)
+  })
+})
+
 describe('buildPlannedBlockModel', () => {
   it('includes ETA ETB ETC and material qty', () => {
     const model = buildPlannedBlockModel({
@@ -106,7 +131,7 @@ describe('buildActualBlockModel', () => {
       null
     )
     assert.equal(model.actualCompMs, 30)
-    assert.match(model.milestoneLine, /Done/)
+    assert.match(model.milestoneLine, /TC/)
   })
 
   it('falls back to row completion timestamps', () => {
@@ -160,6 +185,93 @@ describe('buildActualBlockModel', () => {
     )
     assert.equal(model.materialDisplay, 'CPO')
     assert.equal(model.materialQtyLine, 'CPO · 500 MT / 2,500 MT -- Rate 0 MT / Hour')
+  })
+
+  it('appends hose/conveyor on timestamp after rate on actual bars', () => {
+    const model = buildActualBlockModel(
+      { vesselName: 'V1', taMs: 10, tbMs: 20 },
+      {
+        commodityDisplay: 'CPO',
+        totalQtyDisplay: '2,500 MT',
+        cargoMovedQty: 600,
+        cargoFirstLoggedAt: '2026-06-01T00:00:00Z',
+        cargoLastLoggedAt: '2026-06-01T02:00:00Z',
+        openingCargoHandlingMethodName: 'Hose',
+        openingHatchStartAt: '2026-07-23T08:48:00Z',
+      }
+    )
+    assert.match(model.materialQtyLine, /Rate 300 MT \/ Hour · Hose on/)
+  })
+})
+
+describe('buildGanttMilestoneEntries', () => {
+  it('orders planned entries as ETA ETB ETC', () => {
+    const entries = buildGanttPlannedMilestoneEntries({ etaMs: 1, etbMs: 2, etcMs: 3 })
+    assert.deepEqual(
+      entries.map((e) => e.label),
+      ['ETA', 'ETB', 'ETC']
+    )
+  })
+
+  it('includes ETC on estimate entries for actual bars', () => {
+    const entries = buildGanttEstimateMilestoneEntries({ etaMs: 1, etbMs: 2, estCompMs: 3 })
+    assert.deepEqual(
+      entries.map((e) => e.label),
+      ['ETA', 'ETB', 'ETC']
+    )
+    assert.equal(entries[2].ms, 3)
+  })
+
+  it('uses TC for actual completion entries', () => {
+    const entries = buildGanttActualMilestoneEntries({ taMs: 10, tbMs: 20, actualCompMs: 30 })
+    assert.deepEqual(
+      entries.map((e) => e.label),
+      ['TA', 'TB', 'TC']
+    )
+  })
+
+  it('combines estimate and actual entries for medium actual bars', () => {
+    const entries = buildGanttCombinedActualMilestoneEntries({
+      etaMs: 1,
+      etbMs: 2,
+      estCompMs: 3,
+      taMs: 10,
+      tbMs: 20,
+      actualCompMs: 30,
+    })
+    assert.deepEqual(
+      entries.map((e) => e.label),
+      ['ETA', 'ETB', 'ETC', 'TA', 'TB', 'TC']
+    )
+  })
+})
+
+describe('buildGanttBarTooltipItems', () => {
+  it('includes milestones, cargo, and click hint for planned bars', () => {
+    const model = buildPlannedBlockModel({
+      vesselName: 'MV TEST',
+      purposeLabel: 'Loading',
+      etaMs: 1,
+      plannedEtbMs: 2,
+      estCompMs: 3,
+      materialDisplay: 'CPO',
+      cargoDisplay: '5,000 MT',
+      status: 'Arriving',
+    })
+    const items = buildGanttBarTooltipItems(model, 'planned', { clickHint: 'Click me' })
+    assert.ok(items.some((i) => i.primary === 'Planned milestones'))
+    assert.ok(items.some((i) => i.primary === 'Cargo' && i.secondary?.includes('CPO')))
+    assert.ok(items.some((i) => i.primary === 'Click me'))
+  })
+
+  it('includes estimate line for actual bars when present', () => {
+    const model = buildActualBlockModel(
+      { vesselName: 'V1', etaMs: 1, plannedEtbMs: 2, taMs: 10, tbMs: 20, actualCompMs: 30 },
+      null
+    )
+    const items = buildGanttBarTooltipItems(model, 'actual')
+    assert.ok(items.some((i) => i.primary === 'Estimate'))
+    assert.ok(items.some((i) => i.primary === 'Actual milestones'))
   })
 })
 
