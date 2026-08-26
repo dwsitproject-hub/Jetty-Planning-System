@@ -29,6 +29,13 @@ import {
   nowToNaiveLocalInScheduleZone,
   utcIsoToNaiveLocal,
 } from '../utils/scheduleDateTime.js'
+import {
+  collectCargoLoadLines,
+  collectCargoLoadLinesWithPending,
+  detectCargoSiQtyMismatch,
+  formatCargoSiQtyMismatchBanner,
+  formatCargoSiQtyMismatchConfirm,
+} from '../utils/cargoSiQtyMismatch.js'
 
 const OPERATIONAL_RAIL_COLLAPSED_KEY = 'jps_operational_milestone_rail_collapsed'
 
@@ -645,6 +652,18 @@ export default function OperationalMilestoneWorkspace({
     tz,
   ])
 
+  const cargoQtyMismatch = useMemo(() => {
+    if (activeMilestone !== 'CARGO OPERATIONS') return null
+    const siQty = cargoSiQty
+    if (siQty == null || !Number.isFinite(Number(siQty))) return null
+    const rows = useApi ? milestoneActivitiesFor(activities, 'CARGO OPERATIONS') : []
+    const lines = collectCargoLoadLines(rows, {
+      excludeEntryId: editingEntryId,
+      draftLines: cargoLoadLinesDraft,
+    })
+    return detectCargoSiQtyMismatch({ siQty: Number(siQty), lines })
+  }, [activeMilestone, useApi, cargoSiQty, activities, editingEntryId, cargoLoadLinesDraft])
+
   const updateCargoLineDraft = useCallback((key, patch) => {
     setCargoLoadLinesDraft((prev) =>
       prev.map((row) => {
@@ -1000,6 +1019,21 @@ export default function OperationalMilestoneWorkspace({
     if (error) {
       setFormError(error)
       return
+    }
+    if (useApi && payload.milestoneKey === 'cargo_operations') {
+      const siQty = cargoSiQty
+      if (siQty != null && Number.isFinite(Number(siQty))) {
+        const rows = milestoneActivitiesFor(activities, 'CARGO OPERATIONS')
+        const lines = collectCargoLoadLines(rows, {
+          excludeEntryId: editingEntryId,
+          draftLines: cargoLoadLinesDraft,
+        })
+        const mismatch = detectCargoSiQtyMismatch({ siQty: Number(siQty), lines })
+        if (mismatch) {
+          const msg = formatCargoSiQtyMismatchConfirm(mismatch, t)
+          if (!window.confirm(msg)) return
+        }
+      }
     }
     if (useApi) {
       try {
@@ -1384,11 +1418,15 @@ export default function OperationalMilestoneWorkspace({
                           </span>
                           {siQty != null ? (
                             <span className="cargo-ops-progress__balance text-steel">
-                              {balance != null && balance > 0
+                              {balance != null && balance > 1e-6
                                 ? `${balance.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${metricLabel} remaining`
-                                : balance != null && balance <= 0
-                                  ? 'Complete'
-                                  : null}
+                                : balance != null && balance < -1e-6
+                                  ? t('cargoOpsQtyOverSiProgress', {
+                                      delta: `${Math.abs(balance).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${metricLabel}`,
+                                    })
+                                  : balance != null
+                                    ? 'Complete'
+                                    : null}
                             </span>
                           ) : null}
                         </div>
@@ -1701,6 +1739,16 @@ export default function OperationalMilestoneWorkspace({
                   rows={8}
                 />
               </div>
+
+              {cargoQtyMismatch ? (
+                <p className="operational-form-warning cargo-ops-qty-warning" role="status">
+                  {formatCargoSiQtyMismatchBanner(
+                    cargoQtyMismatch,
+                    t,
+                    cargoOpsFormDerived?.metricLabel ?? ''
+                  )}
+                </p>
+              ) : null}
 
               {formError ? (
                 <p className="operational-form-error" role="alert">
