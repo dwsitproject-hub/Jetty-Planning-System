@@ -14,7 +14,7 @@ import WidgetDetailModal from '../WidgetDetailModal'
 import DashboardV2WeeklyTrends from '../DashboardV2WeeklyTrends'
 import DropdownMultiSelect from '../DropdownMultiSelect'
 import DateRangePicker from './DateRangePicker'
-import BerthBoardCargoCell from './BerthBoardCargoCell'
+import BerthBoardCargoCell, { isCargoBehindSchedule } from './BerthBoardCargoCell'
 import { computePipelinePartition } from '../../utils/dashboardPipelinePartition'
 import { isLegacyVesselPipelineEnabled } from '../../utils/pipelineActualsBeta'
 import {
@@ -1579,7 +1579,12 @@ export default function DashboardShell({ mode = 'live' }) {
                   </thead>
                   <tbody>
                     {berthBoard.map((r) => (
-                      <tr key={r.id}>
+                      <tr
+                        key={r.id}
+                        className={
+                          isCargoBehindSchedule(r.cargoProgress) ? 'cargo-schedule-behind' : undefined
+                        }
+                      >
                         <td>
                           <b>{r.vesselName}</b>
                           {r.code ? <span className="v2-board-code">{r.code}</span> : null}

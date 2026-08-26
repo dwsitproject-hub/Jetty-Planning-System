@@ -230,6 +230,7 @@
   "v2BoardQtySourceHybrid": "Hybrid",
   "v2BoardQtyLiveHint": "Live ATG",
   "v2BoardQtyAtgPartial": "ATG partial data",
+  "v2BoardSchedule": "Schedule",
   "v2EtcNone": "No ETC",
   "v2EtcDone": "Ops done",
   "v2FlagNoNor": "NOR not accepted",

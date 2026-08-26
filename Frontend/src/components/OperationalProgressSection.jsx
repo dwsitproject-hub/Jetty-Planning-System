@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { fetchActivityTimeline, fetchOperationalProgress } from '../api/operations'
 import CargoDischargeProgressChart from './CargoDischargeProgressChart'
 import OperationActivityTimeline from './OperationActivityTimeline'
+import CargoScheduleProgressIndicator from './CargoScheduleProgressIndicator'
 import { parseQtyDisplay } from '../utils/cargoQtyDisplay'
 
 /**
@@ -61,6 +62,7 @@ export default function OperationalProgressSection({
   const parsedQty = useMemo(() => parseQtyDisplay(totalQtyDisplay), [totalQtyDisplay])
   const rateSummary = progress?.rateSummary || {}
   const tz = progress?.scheduleTimezone || scheduleTimezone
+  const scheduleComparison = progress?.scheduleComparison ?? null
 
   const cargoSiQty = progress?.siQty ?? parsedQty?.total ?? null
   const cargoSiMetricLabel = progress?.siMetric ?? parsedQty?.unit ?? null
@@ -83,6 +85,15 @@ export default function OperationalProgressSection({
           {Array.isArray(progress?.warnings) && progress.warnings.length > 0 ? (
             <p className="operational-progress-section__warning text-steel">{progress.warnings.join(' · ')}</p>
           ) : null}
+
+          <CargoScheduleProgressIndicator
+            mode="full"
+            comparison={scheduleComparison}
+            movedQty={scheduleComparison?.movedQty ?? null}
+            siQty={scheduleComparison?.siQty ?? cargoSiQty}
+            siMetric={scheduleComparison?.siMetric ?? cargoSiMetricLabel}
+            sourceLabel={progress?.source ? String(progress.source).toUpperCase() : null}
+          />
 
           {(rateSummary.movedLine || rateSummary.hourlyLine || rateSummary.dailyLine) && (
             <div className="operational-progress-section__summary">

@@ -3,6 +3,7 @@
  */
 
 import { computeAtgWindowMassDelta } from './atg-window-rate.js';
+import { attachScheduleComparisonToSummary, evaluateCargoScheduleComparison } from './cargo-schedule-progress.js';
 import {
   currentOperationalDateKey,
   DEFAULT_OPERATIONAL_DAY_START,
@@ -306,6 +307,9 @@ export async function aggregateAtgDailyProgressForOperation(db, operationId, opt
 async function loadOperationProgressContext(db, operationId) {
   const opR = await db.query(
     `SELECT o.id, o.port_id, p.schedule_timezone, p.operational_day_start,
+            o.tb, o.docking_start_time,
+            COALESCE(sp.estimated_completion_time, o.estimated_completion_time) AS estimated_completion_time,
+            opening_agg.start_at AS opening_hatch_start_at,
             COALESCE(
               (SELECT sc.commodity_type
                FROM public.shipping_instruction_breakdown b
@@ -318,6 +322,16 @@ async function loadOperationProgressContext(db, operationId) {
      FROM operations o
      JOIN ports p ON p.id = o.port_id AND p.deleted_at IS NULL
      JOIN shipping_instructions si ON si.id = o.shipping_instruction_id AND si.deleted_at IS NULL
+     LEFT JOIN shipment_plans sp ON sp.id = si.shipment_plan_id AND sp.deleted_at IS NULL
+     LEFT JOIN LATERAL (
+       SELECT MIN(oa.start_at) AS start_at
+       FROM operation_operational_activities oa
+       WHERE oa.operation_id = o.id
+         AND oa.deleted_at IS NULL
+         AND oa.entry_type = 'activity'
+         AND oa.milestone_key = 'opening_hatch'
+         AND oa.start_at IS NOT NULL
+     ) opening_agg ON true
      WHERE o.id = $1 AND o.deleted_at IS NULL`,
     [operationId]
   );
@@ -384,6 +398,16 @@ async function loadOperationProgressContext(db, operationId) {
     lines,
     siQty,
     siMetric,
+    openingHatchStartAt: row.opening_hatch_start_at
+      ? new Date(row.opening_hatch_start_at).toISOString()
+      : null,
+    tbAt: row.tb ? new Date(row.tb).toISOString() : null,
+    dockingStartTime: row.docking_start_time
+      ? new Date(row.docking_start_time).toISOString()
+      : null,
+    etcAt: row.estimated_completion_time
+      ? new Date(row.estimated_completion_time).toISOString()
+      : null,
   };
 }
 
@@ -558,6 +582,9 @@ export async function getOperationalProgress(db, operationId) {
 
   const uniqueWarnings = [...new Set(warnings)];
 
+  const cargoSummary = await summarizeCargoProgressContext(db, ctx);
+  const scheduleComparison = buildScheduleComparisonFromCargoSummary(ctx, cargoSummary);
+
   return {
     source,
     scheduleTimezone: ctx.timezone,
@@ -567,6 +594,7 @@ export async function getOperationalProgress(db, operationId) {
     cumulativeSeries,
     siQty: siTotal,
     siMetric: unit,
+    scheduleComparison,
     rateSummary: {
       movedLine:
         siTotal != null
@@ -627,6 +655,61 @@ export async function runDailyProgressAggregationSweep(db, opts = {}) {
   }
 
   return { ok: true, upserted: totalUpserted };
+}
+
+/**
+ * Build schedule comparison from progress context + optional live cargo summary.
+ * @param {Awaited<ReturnType<typeof loadOperationProgressContext>>} ctx
+ * @param {Awaited<ReturnType<typeof summarizeCargoProgressContext>>|null} [cargoSummary]
+ * @param {number} [nowMs]
+ */
+export function buildScheduleComparisonFromCargoSummary(ctx, cargoSummary, nowMs = Date.now()) {
+  if (!ctx) {
+    return evaluateCargoScheduleComparison({});
+  }
+
+  const movedQty =
+    cargoSummary?.movedQty ??
+    ctx.lines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+  const siQty = cargoSummary?.siQty ?? ctx.siQty;
+
+  return {
+    ...evaluateCargoScheduleComparison({
+      openingHatchStartAt: ctx.openingHatchStartAt,
+      tbAt: ctx.tbAt,
+      dockingStartTime: ctx.dockingStartTime,
+      etcMs: ctx.etcAt,
+      movedQty,
+      siQty,
+      nowMs,
+    }),
+    movedQty,
+    siQty,
+    siMetric: ctx.siMetric || 'MT',
+  };
+}
+
+/**
+ * Attach schedule comparison fields to overview/allocation rows (logged cargo qty, no live ATG).
+ * @param {object} row
+ * @param {number} [nowMs]
+ */
+export function buildScheduleComparisonFromOverviewRow(row, nowMs = Date.now()) {
+  const movedQty = row.cargoMovedQty ?? row.cargo_moved_qty ?? 0;
+  const siQty = row.cargoSiQty ?? row.cargo_si_qty;
+  return {
+    ...evaluateCargoScheduleComparison({
+      openingHatchStartAt: row.openingHatchStartAt ?? row.opening_hatch_start_datetime,
+      tbAt: row.tbDateTime ?? row.tb_datetime,
+      dockingStartTime: row.dockingStartTime ?? row.docking_start_time,
+      etcMs: row.estimatedCompletionDateTime ?? row.estimated_completion_datetime,
+      movedQty,
+      siQty,
+      nowMs,
+    }),
+    movedQty: Number(movedQty) || 0,
+    siQty: siQty != null ? Number(siQty) : null,
+  };
 }
 
 /**
@@ -719,10 +802,21 @@ export async function summarizeCargoProgressContext(db, ctx, opts = {}) {
  * @param {import('pg').Pool|import('pg').PoolClient} db
  * @param {number} operationId
  */
-export async function getAtBerthCargoProgressSummary(db, operationId) {
+export async function getAtBerthCargoProgressSummary(db, operationId, opts = {}) {
   const ctx = await loadOperationProgressContext(db, operationId);
   if (!ctx) return null;
-  return summarizeCargoProgressContext(db, ctx);
+  const summary = await summarizeCargoProgressContext(db, ctx, opts);
+  if (!summary) return null;
+  return attachScheduleComparisonToSummary(
+    summary,
+    {
+      openingHatchStartAt: ctx.openingHatchStartAt,
+      tbAt: ctx.tbAt,
+      dockingStartTime: ctx.dockingStartTime,
+      etcMs: ctx.etcAt,
+    },
+    opts.nowMs
+  );
 }
 
 /**

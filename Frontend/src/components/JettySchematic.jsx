@@ -18,6 +18,9 @@ import {
 import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { computeCargoProgress } from '../utils/cargoQtyDisplay'
 import { formatGanttMilestoneShort, formatHoseConveyorOnLine } from '../utils/ganttBarDisplay'
+import CargoScheduleProgressIndicator, {
+  isCargoBehindSchedule,
+} from './CargoScheduleProgressIndicator'
 import VisualizationPopoutButton from './VisualizationPopoutButton'
 import JettySpecModal from './JettySpecModal'
 import '../styles/jetty-schematic.css'
@@ -501,9 +504,12 @@ export default function JettySchematic({
       v?.openingHatchStartAt
     )
     const berthedDur = tbMs != null && asOfMs > tbMs ? formatDurationShort(asOfMs - tbMs) : null
+    const scheduleBehind = isCargoBehindSchedule(v?.scheduleComparison)
 
     return (
-      <span className="jetty-slot__inner jetty-card__box">
+      <span
+        className={`jetty-slot__inner jetty-card__box${scheduleBehind ? ' jetty-card__box--schedule-behind' : ''}`}
+      >
         <span className="jetty-card__titlerow">
           <span className="jetty-card__lane-chip" aria-hidden>
             {laneSuffix}
@@ -527,6 +533,11 @@ export default function JettySchematic({
         </span>
         {hoseConveyorLine ? (
           <span className="jetty-slot__line jetty-card__opening">{hoseConveyorLine}</span>
+        ) : null}
+        {scheduleBehind ? (
+          <span className="jetty-slot__line jetty-card__schedule-behind">
+            <CargoScheduleProgressIndicator comparison={v?.scheduleComparison} mode="compact" />
+          </span>
         ) : null}
         {balanceLine || berthedDur ? (
           <span className="jetty-slot__line jetty-card__balance">
