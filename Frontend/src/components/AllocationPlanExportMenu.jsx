@@ -5,6 +5,8 @@ export default function AllocationPlanExportMenu({ exporting, onExport }) {
   const { t: tAlloc } = useTranslation('allocation')
   const wrapRef = useRef(null)
   const [open, setOpen] = useState(false)
+  const [format, setFormat] = useState('jpg')
+  const [orientation, setOrientation] = useState('landscape')
   const [includeSchematic, setIncludeSchematic] = useState(true)
   const [includeQueueTable, setIncludeQueueTable] = useState(true)
   const [error, setError] = useState(null)
@@ -26,14 +28,14 @@ export default function AllocationPlanExportMenu({ exporting, onExport }) {
     if (!canDownload || exporting) return
     setError(null)
     try {
-      await onExport({ includeSchematic, includeQueueTable })
+      await onExport({ includeSchematic, includeQueueTable, format, orientation })
       setOpen(false)
     } catch (err) {
       setError(
         err instanceof Error ? err.message : tAlloc('exportFailed', { defaultValue: 'Export failed. Please try again.' })
       )
     }
-  }, [canDownload, exporting, includeSchematic, includeQueueTable, onExport, tAlloc])
+  }, [canDownload, exporting, format, includeSchematic, includeQueueTable, onExport, orientation, tAlloc])
 
   return (
     <div className="allocation-export-menu" ref={wrapRef}>
@@ -44,7 +46,9 @@ export default function AllocationPlanExportMenu({ exporting, onExport }) {
         disabled={exporting}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title={tAlloc('exportButtonHint', { defaultValue: 'Export schematic and/or queue table as a JPEG image' })}
+        title={tAlloc('exportButtonHint', {
+          defaultValue: 'Export schematic and/or queue table as JPG or PDF',
+        })}
       >
         {exporting
           ? tAlloc('exportExporting', { defaultValue: 'Exporting…' })
@@ -58,8 +62,63 @@ export default function AllocationPlanExportMenu({ exporting, onExport }) {
           aria-labelledby="allocation-export-menu-title"
         >
           <h3 className="allocation-export-menu__title" id="allocation-export-menu-title">
-            {tAlloc('exportMenuTitle', { defaultValue: 'Export to JPG' })}
+            {tAlloc('exportMenuTitle', { defaultValue: 'Export' })}
           </h3>
+
+          <fieldset className="allocation-export-menu__fieldset">
+            <legend className="allocation-export-menu__legend">
+              {tAlloc('exportFormat', { defaultValue: 'Format' })}
+            </legend>
+            <label className="allocation-export-menu__option allocation-export-menu__option--inline">
+              <input
+                type="radio"
+                name="allocation-export-format"
+                checked={format === 'jpg'}
+                onChange={() => setFormat('jpg')}
+              />
+              <span>{tAlloc('exportFormatJpg', { defaultValue: 'JPG' })}</span>
+            </label>
+            <label className="allocation-export-menu__option allocation-export-menu__option--inline">
+              <input
+                type="radio"
+                name="allocation-export-format"
+                checked={format === 'pdf'}
+                onChange={() => setFormat('pdf')}
+              />
+              <span>{tAlloc('exportFormatPdf', { defaultValue: 'PDF' })}</span>
+            </label>
+          </fieldset>
+
+          {format === 'pdf' ? (
+            <fieldset className="allocation-export-menu__fieldset">
+              <legend className="allocation-export-menu__legend">
+                {tAlloc('exportOrientation', { defaultValue: 'Orientation' })}
+              </legend>
+              <label className="allocation-export-menu__option allocation-export-menu__option--inline">
+                <input
+                  type="radio"
+                  name="allocation-export-orientation"
+                  checked={orientation === 'landscape'}
+                  onChange={() => setOrientation('landscape')}
+                />
+                <span>{tAlloc('exportOrientationLandscape', { defaultValue: 'Landscape' })}</span>
+              </label>
+              <label className="allocation-export-menu__option allocation-export-menu__option--inline">
+                <input
+                  type="radio"
+                  name="allocation-export-orientation"
+                  checked={orientation === 'portrait'}
+                  onChange={() => setOrientation('portrait')}
+                />
+                <span>{tAlloc('exportOrientationPortrait', { defaultValue: 'Portrait' })}</span>
+              </label>
+              <p className="allocation-export-menu__hint">
+                {tAlloc('exportPdfHint', {
+                  defaultValue: 'A4 page size. Content is scaled to fit without cropping.',
+                })}
+              </p>
+            </fieldset>
+          ) : null}
 
           <label className="allocation-export-menu__option">
             <input
@@ -102,7 +161,9 @@ export default function AllocationPlanExportMenu({ exporting, onExport }) {
               onClick={() => void handleDownload()}
               disabled={!canDownload}
             >
-              {tAlloc('exportDownloadJpg', { defaultValue: 'Download JPG' })}
+              {format === 'pdf'
+                ? tAlloc('exportDownloadPdf', { defaultValue: 'Download PDF' })
+                : tAlloc('exportDownloadJpg', { defaultValue: 'Download JPG' })}
             </button>
           </div>
         </div>

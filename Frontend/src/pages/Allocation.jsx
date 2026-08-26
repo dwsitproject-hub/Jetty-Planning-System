@@ -609,7 +609,12 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     }, 60)
   }, [])
 
-  const handleAllocationPlanExport = useCallback(async ({ includeSchematic, includeQueueTable }) => {
+  const handleAllocationPlanExport = useCallback(async ({
+    includeSchematic,
+    includeQueueTable,
+    format = 'jpg',
+    orientation = 'landscape',
+  }) => {
     setPlanExporting(true)
     try {
       const { captureElementToCanvas, stitchCanvasesVertically, downloadCanvasAsJpeg } = await import(
@@ -631,16 +636,24 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         canvases.push(canvas)
       }
       if (canvases.length === 0) throw new Error('Nothing to export')
-      const stitched = stitchCanvasesVertically(canvases, 16)
       const dateInput = document.getElementById('jetty-schematic-date')
       const dateYmd =
         dateInput instanceof HTMLInputElement && dateInput.value
           ? dateInput.value
           : new Date().toISOString().slice(0, 10)
-      await downloadCanvasAsJpeg(stitched, `allocation-plan-${dateYmd}.jpg`)
+
+      if (format === 'pdf') {
+        const { downloadCanvasesAsPdf } = await import('../utils/exportCanvasPdf')
+        await downloadCanvasesAsPdf(canvases, `allocation-plan-${dateYmd}.pdf`, {
+          orientation: orientation === 'portrait' ? 'portrait' : 'landscape',
+        })
+      } else {
+        const stitched = stitchCanvasesVertically(canvases, 16)
+        await downloadCanvasAsJpeg(stitched, `allocation-plan-${dateYmd}.jpg`)
+      }
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.error('Allocation plan JPG export failed:', err)
+      console.error('Allocation plan export failed:', err)
       throw err
     } finally {
       setPlanExporting(false)
