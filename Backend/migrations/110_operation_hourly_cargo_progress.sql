@@ -1,6 +1,5 @@
 -- Hourly ATG cargo progress persistence, port flat-movement thresholds, manual checkpoints.
-
-BEGIN;
+-- Note: no BEGIN/COMMIT here — run-migrations.js wraps each file in a transaction.
 
 ALTER TABLE public.ports
   ADD COLUMN IF NOT EXISTS atg_flat_rate_threshold_tph NUMERIC NOT NULL DEFAULT 2.0;
@@ -57,5 +56,3 @@ CREATE INDEX IF NOT EXISTS idx_manual_cp_line_time
 
 COMMENT ON TABLE public.operation_cargo_manual_checkpoints IS
   'Manual cumulative cargo readings when ATG is unavailable (hourly progress fallback).';
-
-COMMIT;
