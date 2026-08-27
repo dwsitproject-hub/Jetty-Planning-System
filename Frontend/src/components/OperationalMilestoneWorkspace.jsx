@@ -13,22 +13,13 @@ import {
   createOperationalEntry,
   updateOperationalEntry,
   deleteOperationalEntry,
+  fetchOperationalProgress,
 } from '../api/operations'
 import { fetchMasterTanks } from '../api/masterTanks'
 import { fetchTankGaugingMassDelta } from '../api/tankGauging'
 import OperationActivityTimeline from './OperationActivityTimeline'
 import DropdownMultiSelect from './DropdownMultiSelect'
-import {
-  MAX_ACTIVITY_REMARK_CHARS,
-  MAX_MILESTONE_REASON_CHARS,
-  MAX_MILESTONE_SUBSTEP_TITLE_CHARS,
-} from '../constants/inputLimits'
-import {
-  getScheduleEntryTimeZone,
-  normalizeForApi,
-  nowToNaiveLocalInScheduleZone,
-  utcIsoToNaiveLocal,
-} from '../utils/scheduleDateTime.js'
+import CargoOpsSessionPanel from './CargoOpsSessionPanel'
 import {
   collectCargoLoadLines,
   collectCargoLoadLinesWithPending,
@@ -36,6 +27,26 @@ import {
   formatCargoSiQtyMismatchBanner,
   formatCargoSiQtyMismatchConfirm,
 } from '../utils/cargoSiQtyMismatch.js'
+import {
+  buildStoppedCargoLine,
+  deriveCargoSessionPhase,
+  getSessionTankIdsFromDraft,
+  partitionDraftTanks,
+  pickSegmentStartLocal,
+} from '../utils/cargoSessionHelpers.js'
+import {
+  ensureApiEndAfterStart,
+  ensureApiStartAfterPreviousEnd,
+  getScheduleEntryTimeZone,
+  normalizeForApi,
+  nowToNaiveLocalInScheduleZone,
+  utcIsoToNaiveLocal,
+} from '../utils/scheduleDateTime.js'
+import {
+  MAX_ACTIVITY_REMARK_CHARS,
+  MAX_MILESTONE_REASON_CHARS,
+  MAX_MILESTONE_SUBSTEP_TITLE_CHARS,
+} from '../constants/inputLimits'
 
 const OPERATIONAL_RAIL_COLLAPSED_KEY = 'jps_operational_milestone_rail_collapsed'
 
@@ -142,18 +153,6 @@ function defaultCargoLineDraft(getEnd, activityStartLocal, tankIds = []) {
     qtyTouched: false,
     tankIds: Array.isArray(tankIds) ? tankIds.map(String) : [],
   }
-}
-
-/** Partition selected tanks using master-tank hasAtg flags. */
-function partitionDraftTanks(tankIds, tankMetaById) {
-  const atgTankIds = []
-  const manualTankIds = []
-  for (const id of tankIds || []) {
-    const meta = tankMetaById?.get(String(id))
-    if (meta?.hasAtg) atgTankIds.push(String(id))
-    else manualTankIds.push(String(id))
-  }
-  return { atgTankIds, manualTankIds }
 }
 
 /** Sum line qty (or legacy cargoMovedQty) on other CARGO OPERATIONS activities. */
@@ -339,6 +338,12 @@ export default function OperationalMilestoneWorkspace({
   const [editingEntryId, setEditingEntryId] = useState(null)
   const [formError, setFormError] = useState('')
   const [formModalOpen, setFormModalOpen] = useState(false)
+  const [sessionTankIds, setSessionTankIds] = useState([])
+  const [cargoAdvancedOpen, setCargoAdvancedOpen] = useState(false)
+  const [sessionBusy, setSessionBusy] = useState(false)
+  const [liveAtgTick, setLiveAtgTick] = useState(0)
+  const [sessionOperationalProgress, setSessionOperationalProgress] = useState(null)
+  const [preparingNextSegment, setPreparingNextSegment] = useState(false)
 
   useEffect(() => {
     if (commodityType !== 'Liquid' || portId == null || portId === '') {
@@ -449,6 +454,24 @@ export default function OperationalMilestoneWorkspace({
                   : fallbackTankIds,
             }))
           )
+          if (commodityType === 'Liquid' && useApi) {
+            const mapped = lines.map((l) => ({
+              start: l.startAt ? isoOrDatetimeToLocal(l.startAt) : '',
+              end: l.endAt ? isoOrDatetimeToLocal(l.endAt) : '',
+              tankIds:
+                Array.isArray(l.tankIds) && l.tankIds.length > 0
+                  ? l.tankIds.map(String)
+                  : fallbackTankIds,
+            }))
+            setSessionTankIds(getSessionTankIdsFromDraft(mapped))
+            setCargoAdvancedOpen(false)
+            setPreparingNextSegment(false)
+          }
+        } else if (commodityType === 'Liquid' && useApi) {
+          setCargoLoadLinesDraft([])
+          setSessionTankIds([])
+          setCargoAdvancedOpen(false)
+          setPreparingNextSegment(false)
         } else {
           setCargoLoadLinesDraft([defaultCargoLineDraft(getNowForDateTimeLocal, isoOrDatetimeToLocal(existing.startTime) || getNowForDateTimeLocal())])
         }
@@ -469,7 +492,14 @@ export default function OperationalMilestoneWorkspace({
       setSubStepTitle('')
     }
     if (cat === 'CARGO OPERATIONS') {
-      setCargoLoadLinesDraft([defaultCargoLineDraft(getNowForDateTimeLocal, t0)])
+      if (commodityType === 'Liquid' && useApi) {
+        setCargoLoadLinesDraft([])
+        setSessionTankIds([])
+        setCargoAdvancedOpen(false)
+        setPreparingNextSegment(false)
+      } else {
+        setCargoLoadLinesDraft([defaultCargoLineDraft(getNowForDateTimeLocal, t0)])
+      }
     } else {
       setCargoLoadLinesDraft([])
     }
@@ -545,7 +575,14 @@ export default function OperationalMilestoneWorkspace({
     setStartTime(t0)
     setEndTime('')
     if (cat === 'CARGO OPERATIONS') {
-      setCargoLoadLinesDraft([defaultCargoLineDraft(getNowForDateTimeLocal, t0)])
+      if (commodityType === 'Liquid' && useApi) {
+        setCargoLoadLinesDraft([])
+        setSessionTankIds([])
+        setCargoAdvancedOpen(false)
+        setPreparingNextSegment(false)
+      } else {
+        setCargoLoadLinesDraft([defaultCargoLineDraft(getNowForDateTimeLocal, t0)])
+      }
     } else {
       setCargoLoadLinesDraft([])
     }
@@ -562,7 +599,14 @@ export default function OperationalMilestoneWorkspace({
     setStartTime(t0)
     setEndTime('')
     if (m === 'CARGO OPERATIONS') {
-      setCargoLoadLinesDraft([defaultCargoLineDraft(getNowForDateTimeLocal, t0)])
+      if (commodityType === 'Liquid' && useApi) {
+        setCargoLoadLinesDraft([])
+        setSessionTankIds([])
+        setCargoAdvancedOpen(false)
+        setPreparingNextSegment(false)
+      } else {
+        setCargoLoadLinesDraft([defaultCargoLineDraft(getNowForDateTimeLocal, t0)])
+      }
     } else {
       setCargoLoadLinesDraft([])
     }
@@ -664,6 +708,340 @@ export default function OperationalMilestoneWorkspace({
     return detectCargoSiQtyMismatch({ siQty: Number(siQty), lines })
   }, [activeMilestone, useApi, cargoSiQty, activities, editingEntryId, cargoLoadLinesDraft])
 
+  const useCargoSessionMode =
+    activeMilestone === 'CARGO OPERATIONS' && commodityType === 'Liquid' && useApi
+
+  const cargoSessionPhase = useMemo(
+    () => (useCargoSessionMode ? deriveCargoSessionPhase(cargoLoadLinesDraft) : null),
+    [useCargoSessionMode, cargoLoadLinesDraft]
+  )
+
+  const openLineDraft = useMemo(
+    () => cargoLoadLinesDraft.find((l) => l.start && !l.end) || null,
+    [cargoLoadLinesDraft]
+  )
+
+  const lastClosedLineDraft = useMemo(() => {
+    const closed = cargoLoadLinesDraft.filter((l) => l.start && l.end)
+    return closed.length ? closed[closed.length - 1] : null
+  }, [cargoLoadLinesDraft])
+
+  const closedSegmentCount = useMemo(
+    () => cargoLoadLinesDraft.filter((l) => l.start && l.end).length,
+    [cargoLoadLinesDraft]
+  )
+
+  useEffect(() => {
+    if (!useCargoSessionMode || !openLineDraft || !operationId) return undefined
+    const id = window.setInterval(() => setLiveAtgTick((n) => n + 1), 30000)
+    return () => window.clearInterval(id)
+  }, [useCargoSessionMode, openLineDraft?.key, operationId])
+
+  const openLoadLineId = useMemo(() => {
+    if (!useApi) return null
+    const rows = milestoneActivitiesFor(activities, 'CARGO OPERATIONS')
+    for (const act of rows) {
+      const lines = act.cargoLoadLines || []
+      const open = lines.find((l) => l.startAt && !l.endAt)
+      if (open?.id) return String(open.id)
+    }
+    return null
+  }, [useApi, activities])
+
+  useEffect(() => {
+    if (!useCargoSessionMode || !operationId || !formModalOpen) {
+      setSessionOperationalProgress(null)
+      return undefined
+    }
+    let cancelled = false
+    const load = () => {
+      fetchOperationalProgress(operationId)
+        .then((res) => {
+          if (!cancelled) setSessionOperationalProgress(res || null)
+        })
+        .catch(() => {
+          if (!cancelled) setSessionOperationalProgress(null)
+        })
+    }
+    load()
+    const pollId = window.setInterval(load, 30000)
+    return () => {
+      cancelled = true
+      window.clearInterval(pollId)
+    }
+  }, [useCargoSessionMode, operationId, formModalOpen, liveAtgTick])
+
+  const handleStartTransfer = async () => {
+    if (!useCargoSessionMode) return
+    const remarkTrim = String(remark || '').trim()
+    if (!remarkTrim) {
+      setFormError('Remark is required.')
+      return
+    }
+    if (!startTime) {
+      setFormError('Start time is required.')
+      return
+    }
+    if (!sessionTankIds.length) {
+      setFormError(t('cargoOpsTanksRequired'))
+      return
+    }
+    setFormError('')
+    setSessionBusy(true)
+    try {
+      const nowLocal = getNowForDateTimeLocal()
+      const segmentStartLocal = pickSegmentStartLocal(startTime, nowLocal, tz)
+      const activityStartIso = normalizeForApi(startTime, tz)
+      const segmentStartIso = normalizeForApi(segmentStartLocal, tz)
+      const closedDraft = cargoLoadLinesDraft.filter((l) => l.start && l.end)
+      const prevLinesApi = closedDraft.map((li) => {
+        let startIso
+        let endIso
+        try {
+          startIso = normalizeForApi(li.start, tz)
+          endIso = normalizeForApi(li.end, tz)
+        } catch {
+          throw new Error(t('cargoOpsLineTimeInvalid', { n: 1 }))
+        }
+        const row = {
+          startAt: startIso,
+          endAt: endIso,
+          atgQtyMode: li.atgQtyMode === 'manual' ? 'manual' : 'auto',
+          tankIds: (li.tankIds || []).map(String),
+        }
+        const mq = parsePositiveQty(li.qty)
+        if (Number.isFinite(mq)) row.qty = mq
+        const manualMq = parsePositiveQty(li.manualQty)
+        if (Number.isFinite(manualMq)) row.manualQty = manualMq
+        return row
+      })
+      let lineStartIso = segmentStartIso
+      const lastClosed = prevLinesApi[prevLinesApi.length - 1]
+      if (lastClosed?.endAt) {
+        lineStartIso = ensureApiStartAfterPreviousEnd(lastClosed.endAt, segmentStartIso, tz)
+      }
+      const newOpenLine = {
+        startAt: lineStartIso,
+        endAt: null,
+        tankIds: sessionTankIds.map(String),
+        atgQtyMode: 'auto',
+      }
+      const cargoLoadLines = [...prevLinesApi, newOpenLine]
+      const activityBody = {
+        milestoneKey: 'cargo_operations',
+        subStepTitle: subStepTitle.trim() || 'Cargo',
+        remark: remarkTrim,
+        startAt: activityStartIso,
+        endAt: null,
+        cargoLoadLines,
+      }
+      let savedEntryId = editingEntryId
+      if (editingEntryId) {
+        await updateOperationalEntry(operationId, editingEntryId, activityBody, { scheduleIana: tz })
+      } else {
+        const created = await createOperationalEntry(
+          operationId,
+          { entryType: 'activity', ...activityBody },
+          { scheduleIana: tz }
+        )
+        if (created?.id != null) savedEntryId = String(created.id)
+      }
+      await loadApi()
+      bumpSaved()
+      if (savedEntryId) setEditingEntryId(String(savedEntryId))
+      const segmentStartLocalResolved = utcIsoToNaiveLocal(lineStartIso, tz) || segmentStartLocal
+      setCargoLoadLinesDraft([
+        ...closedDraft,
+        {
+          key: newCargoLineDraftKey(),
+          qty: '',
+          manualQty: '',
+          atgQtyMode: 'auto',
+          start: segmentStartLocalResolved,
+          end: '',
+          qtyTouched: false,
+          tankIds: sessionTankIds.map(String),
+        },
+      ])
+      setActionToast({
+        message: closedSegmentCount > 0 ? t('cargoOpsSessionStartedNext') : t('cargoOpsSessionStarted'),
+        variant: 'success',
+      })
+      setPreparingNextSegment(false)
+    } catch (e) {
+      setFormError(e?.message || 'Failed to start transfer')
+    } finally {
+      setSessionBusy(false)
+    }
+  }
+
+  const handleCompleteTransfer = async () => {
+    if (!useCargoSessionMode || !openLineDraft) return
+    const remarkTrim = String(remark || '').trim()
+    if (!remarkTrim) {
+      setFormError('Remark is required.')
+      return
+    }
+    setFormError('')
+    setSessionBusy(true)
+    try {
+      const nowLocal = getNowForDateTimeLocal()
+      const startIso = normalizeForApi(openLineDraft.start, tz)
+      const endIso = ensureApiEndAfterStart(startIso, normalizeForApi(nowLocal, tz), tz)
+      const endLocal = utcIsoToNaiveLocal(endIso, tz) || nowLocal
+
+      const closedDraft = cargoLoadLinesDraft.filter((l) => l.key !== openLineDraft.key && l.start && l.end)
+      const closedApi = closedDraft.map((li) => {
+        const row = {
+          startAt: normalizeForApi(li.start, tz),
+          endAt: normalizeForApi(li.end, tz),
+          atgQtyMode: li.atgQtyMode === 'manual' ? 'manual' : 'auto',
+          tankIds: (li.tankIds || []).map(String),
+        }
+        const mq = parsePositiveQty(li.qty)
+        if (Number.isFinite(mq)) row.qty = mq
+        const manualMq = parsePositiveQty(li.manualQty)
+        if (Number.isFinite(manualMq)) row.manualQty = manualMq
+        return row
+      })
+
+      const openForStop = {
+        startAt: startIso,
+        start: openLineDraft.start,
+        tankIds: openLineDraft.tankIds,
+        atgQtyMode: openLineDraft.atgQtyMode,
+        manualQty: openLineDraft.manualQty,
+        qty: openLineDraft.qty,
+      }
+      const tankOptions = masterTankOptions.map((o) => ({
+        id: o.value,
+        hasAtg: tankMetaById.get(String(o.value))?.hasAtg === true,
+      }))
+      const stoppedLine = await buildStoppedCargoLine(openForStop, endIso, {
+        portId,
+        commodityType,
+        tankMetaById,
+        tankOptions,
+        tz,
+      })
+
+      const { atgTankIds, manualTankIds } = partitionDraftTanks(openLineDraft.tankIds, tankMetaById)
+      const atgQtyMode = openLineDraft.atgQtyMode === 'manual' ? 'manual' : 'auto'
+      const isMixed = atgTankIds.length > 0 && manualTankIds.length > 0
+      if (isMixed && atgQtyMode === 'auto') {
+        const manualMq = parsePositiveQty(openLineDraft.manualQty)
+        if (!Number.isFinite(manualMq)) {
+          setFormError(t('cargoOpsLineManualQtyRequired', { n: closedApi.length + 1 }))
+          return
+        }
+        stoppedLine.manualQty = manualMq
+      }
+      if (
+        atgTankIds.length > 0 &&
+        atgQtyMode === 'auto' &&
+        (stoppedLine.qty == null || stoppedLine.qty === '')
+      ) {
+        setFormError(t('cargoOpsLineAtgRequired', { n: closedApi.length + 1 }))
+        return
+      }
+      if (manualTankIds.length > 0 && atgTankIds.length === 0) {
+        const mq = parsePositiveQty(openLineDraft.manualQty || openLineDraft.qty)
+        if (!Number.isFinite(mq)) {
+          setFormError(t('cargoOpsLineQtyRequiredWhenEnd', { n: closedApi.length + 1 }))
+          return
+        }
+        stoppedLine.qty = mq
+      }
+
+      const siQty = cargoSiQty
+      if (siQty != null && Number.isFinite(Number(siQty)) && editingEntryId) {
+        const rows = milestoneActivitiesFor(activities, 'CARGO OPERATIONS')
+        const pendingLines = [
+          ...closedApi,
+          {
+            startAt: stoppedLine.startAt,
+            endAt: stoppedLine.endAt,
+            qty: stoppedLine.qty,
+          },
+        ]
+        const flatLines = collectCargoLoadLinesWithPending(rows, {
+          pendingEntryId: editingEntryId,
+          pendingLines,
+        })
+        const mismatch = detectCargoSiQtyMismatch({ siQty: Number(siQty), lines: flatLines })
+        if (mismatch) {
+          const msg = formatCargoSiQtyMismatchConfirm(mismatch, t)
+          if (!window.confirm(msg)) return
+        }
+      }
+
+      const cargoLoadLines = [...closedApi, stoppedLine]
+      if (!editingEntryId) {
+        setFormError('No activity to update.')
+        return
+      }
+      await updateOperationalEntry(
+        operationId,
+        editingEntryId,
+        {
+          milestoneKey: 'cargo_operations',
+          subStepTitle: subStepTitle.trim() || 'Cargo',
+          remark: remarkTrim,
+          startAt: normalizeForApi(startTime, tz),
+          endAt: null,
+          cargoLoadLines,
+        },
+        { scheduleIana: tz }
+      )
+      await loadApi()
+      bumpSaved()
+      const qtyStr =
+        stoppedLine.qty != null && Number.isFinite(Number(stoppedLine.qty))
+          ? String(stoppedLine.qty)
+          : ''
+      setCargoLoadLinesDraft([
+        ...closedDraft,
+        {
+          ...openLineDraft,
+          end: endLocal,
+          qty: qtyStr,
+          qtyTouched: true,
+        },
+      ])
+      setSessionTankIds(getSessionTankIdsFromDraft([
+        ...closedDraft,
+        { ...openLineDraft, end: endLocal, qty: qtyStr, tankIds: openLineDraft.tankIds },
+      ]))
+      setActionToast({ message: t('cargoOpsSessionCompleted'), variant: 'success' })
+    } catch (e) {
+      setFormError(e?.message || 'Failed to complete transfer')
+    } finally {
+      setSessionBusy(false)
+    }
+  }
+
+  const handleStartNextSegment = () => {
+    if (!useCargoSessionMode) return
+    const lastTanks = lastClosedLineDraft?.tankIds?.length
+      ? lastClosedLineDraft.tankIds.map(String)
+      : sessionTankIds
+    setSessionTankIds(lastTanks)
+    setPreparingNextSegment(true)
+  }
+
+  const handleAdjustTimestamps = () => {
+    setCargoAdvancedOpen(true)
+    window.requestAnimationFrame(() => {
+      document.getElementById('cargo-ops-advanced-segments')?.scrollIntoView({ behavior: 'smooth' })
+    })
+  }
+
+  const handleSessionSaveClose = () => {
+    syncFormFromMilestone(activeMilestone)
+    setFormModalOpen(false)
+    setEditingEntryId(null)
+  }
+
   const updateCargoLineDraft = useCallback((key, patch) => {
     setCargoLoadLinesDraft((prev) =>
       prev.map((row) => {
@@ -701,13 +1079,14 @@ export default function OperationalMilestoneWorkspace({
 
   const cargoLineAtgSignature = useMemo(
     () =>
+      `${liveAtgTick}|` +
       cargoLoadLinesDraft
         .map(
           (r) =>
             `${r.key}|${r.start}|${r.end}|${r.qtyTouched ? 1 : 0}|${r.atgQtyMode || 'auto'}|${(r.tankIds || []).join(',')}`
         )
         .join(';'),
-    [cargoLoadLinesDraft]
+    [cargoLoadLinesDraft, liveAtgTick]
   )
 
   useEffect(() => {
@@ -1154,6 +1533,11 @@ export default function OperationalMilestoneWorkspace({
   const endTimeRequired = activeMilestone === 'OTHER'
   const canMarkNa = activeMilestone && !naMap[activeMilestone]?.reason && activeRows.length === 0
   const isCargoOpsModal = activeMilestone === 'CARGO OPERATIONS'
+  const sessionPanelPhase = preparingNextSegment ? 'setup' : cargoSessionPhase
+  const sessionPanelBalance =
+    cargoOpsFormDerived?.lastBalance != null && Number.isFinite(cargoOpsFormDerived.lastBalance)
+      ? cargoOpsFormDerived.lastBalance
+      : null
 
   const subStepField = (
     <div className="berthing-modal__field">
@@ -1188,18 +1572,25 @@ export default function OperationalMilestoneWorkspace({
         </div>
         {!startOnlyForm ? (
           <>
-            <span className="cargo-ops-time-range__arrow" aria-hidden="true">→</span>
-            <div className="cargo-ops-time-range__field">
-              <input
-                type="datetime-local"
-                className="berthing-modal__input"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-              />
-              <span className="cargo-ops-time-range__caption">
-                End time {endTimeRequired ? <span className="required-star">*</span> : null}
-              </span>
-            </div>
+            {useCargoSessionMode && cargoSessionPhase === 'in_progress' && !endTime ? (
+              <p className="cargo-ops-time-range__caption text-steel">{t('cargoOpsSessionEndOnComplete')}</p>
+            ) : (
+              <>
+                <span className="cargo-ops-time-range__arrow" aria-hidden="true">→</span>
+                <div className="cargo-ops-time-range__field">
+                  <input
+                    type="datetime-local"
+                    className="berthing-modal__input"
+                    value={endTime}
+                    onChange={(e) => setEndTime(e.target.value)}
+                    disabled={useCargoSessionMode && cargoSessionPhase === 'in_progress'}
+                  />
+                  <span className="cargo-ops-time-range__caption">
+                    End time {endTimeRequired ? <span className="required-star">*</span> : null}
+                  </span>
+                </div>
+              </>
+            )}
           </>
         ) : null}
       </div>
@@ -1446,7 +1837,50 @@ export default function OperationalMilestoneWorkspace({
                   )
                 })()}
 
-                <div className="cargo-ops-section">
+                {useCargoSessionMode ? (
+                  <CargoOpsSessionPanel
+                    phase={sessionPanelPhase}
+                    purpose={purpose}
+                    operationId={operationId}
+                    openLoadLineId={openLoadLineId}
+                    sessionTankIds={sessionTankIds}
+                    onSessionTankIdsChange={setSessionTankIds}
+                    openLine={openLineDraft}
+                    openLineKey={openLineDraft?.key}
+                    atgRef={openLineDraft ? atgRefByLineKey[openLineDraft.key] : null}
+                    scheduleTimezone={tz}
+                    hourlyProgress={sessionOperationalProgress}
+                    tankMetaById={tankMetaById}
+                    masterTankOptions={masterTankOptions}
+                    metricLabel={cargoOpsFormDerived?.metricLabel ?? ''}
+                    lastClosedLine={lastClosedLineDraft}
+                    closedSegmentCount={closedSegmentCount}
+                    balanceRemaining={sessionPanelBalance}
+                    busy={sessionBusy}
+                    onStartTransfer={handleStartTransfer}
+                    onCompleteTransfer={handleCompleteTransfer}
+                    onStartNextSegment={handleStartNextSegment}
+                    onAdjustTimestamps={handleAdjustTimestamps}
+                    onUpdateOpenLine={updateCargoLineDraft}
+                  />
+                ) : null}
+
+                {useCargoSessionMode ? (
+                  <div className="cargo-ops-section cargo-ops-section--advanced-toggle">
+                    <button
+                      type="button"
+                      className="btn btn--small btn--soft cargo-ops-advanced-toggle"
+                      onClick={() => setCargoAdvancedOpen((o) => !o)}
+                      aria-expanded={cargoAdvancedOpen}
+                    >
+                      {cargoAdvancedOpen ? '▾' : '▸'} {t('cargoOpsSessionAdvancedToggle')}
+                    </button>
+                  </div>
+                ) : null}
+
+                {(!useCargoSessionMode || cargoAdvancedOpen) && (
+                <div className="cargo-ops-section" id={useCargoSessionMode ? 'cargo-ops-advanced-segments' : undefined}>
+                  {!useCargoSessionMode ? (
                   <div className="cargo-ops-section__header">
                     <p className="cargo-ops-section__label cargo-ops-section__label--inline">{t('cargoOpsLoadSegments')}</p>
                     <button
@@ -1458,6 +1892,23 @@ export default function OperationalMilestoneWorkspace({
                       + {t('cargoOpsAddLine')}
                     </button>
                   </div>
+                  ) : (
+                  <div className="cargo-ops-section__header">
+                    <p className="cargo-ops-section__label cargo-ops-section__label--inline">{t('cargoOpsLoadSegments')}</p>
+                    <button
+                      type="button"
+                      className="btn btn--small btn--secondary"
+                      onClick={() => addCargoLineDraft()}
+                      disabled={cargoOpsFormDerived?.canAddLine === false}
+                    >
+                      + {t('cargoOpsAddLine')}
+                    </button>
+                  </div>
+                  )}
+
+                  {(cargoOpsFormDerived?.lineRows || []).length === 0 && useCargoSessionMode ? (
+                    <p className="text-steel cargo-ops-session__hint">{t('cargoOpsSessionAdvancedEmpty')}</p>
+                  ) : null}
 
                   {(cargoOpsFormDerived?.lineRows || []).map((lr, idx) => {
                     const row = cargoLoadLinesDraft.find((d) => d.key === lr.key)
@@ -1719,6 +2170,7 @@ export default function OperationalMilestoneWorkspace({
                     )
                   })}
                 </div>
+                )}
               </>
             ) : null}
 
@@ -1757,12 +2209,39 @@ export default function OperationalMilestoneWorkspace({
               ) : null}
 
               <div className="operational-milestone-actions loading-step-card__actions">
-                <button type="button" className="btn btn--primary btn--small" onClick={() => handleAdd(false)}>
-                  Save
-                </button>
-                <button type="button" className="btn btn--small btn--soft" onClick={() => handleAdd(true)}>
-                  {isCargoOpsModal ? t('cargoOpsSaveAddEntry') : 'Save & add another'}
-                </button>
+                {useCargoSessionMode ? (
+                  <>
+                    {(sessionPanelPhase === 'segment_done' || (sessionPanelPhase === 'setup' && closedSegmentCount > 0 && !preparingNextSegment)) ? (
+                      <button
+                        type="button"
+                        className="btn btn--primary btn--small"
+                        disabled={sessionBusy}
+                        onClick={handleSessionSaveClose}
+                      >
+                        {t('cargoOpsSessionSaveClose')}
+                      </button>
+                    ) : null}
+                    {cargoAdvancedOpen ? (
+                      <>
+                        <button type="button" className="btn btn--primary btn--small" onClick={() => handleAdd(false)} disabled={sessionBusy}>
+                          Save
+                        </button>
+                        <button type="button" className="btn btn--small btn--soft" onClick={() => handleAdd(true)} disabled={sessionBusy}>
+                          {t('cargoOpsSaveAddEntry')}
+                        </button>
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <button type="button" className="btn btn--primary btn--small" onClick={() => handleAdd(false)}>
+                      Save
+                    </button>
+                    <button type="button" className="btn btn--small btn--soft" onClick={() => handleAdd(true)}>
+                      {isCargoOpsModal ? t('cargoOpsSaveAddEntry') : 'Save & add another'}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 

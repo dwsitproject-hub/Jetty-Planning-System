@@ -3,7 +3,7 @@
  * Per tank: |mass_end − mass_start| / hours; aggregate = sum of per-tank rates.
  */
 
-const DEFAULT_TOLERANCE_MS = 15 * 60 * 1000;
+export const DEFAULT_TOLERANCE_MS = 15 * 60 * 1000;
 
 /**
  * @param {import('pg').Pool|import('pg').PoolClient} db
@@ -11,7 +11,7 @@ const DEFAULT_TOLERANCE_MS = 15 * 60 * 1000;
  * @param {Date} at
  * @param {number} toleranceMs
  */
-async function nearestSampleAtOrBefore(db, tankId, at, toleranceMs) {
+export async function nearestSampleAtOrBefore(db, tankId, at, toleranceMs) {
   const r = await db.query(
     `SELECT id, tank_id, source_base_url, total_mass, sampled_at, status_text
      FROM tank_gauging_samples

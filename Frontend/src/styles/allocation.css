@@ -3551,6 +3551,112 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   padding-bottom: 0;
 }
 
+/* Cargo ops session-first UI (desktop) */
+.cargo-ops-session__tank-status {
+  margin-top: var(--spacing-2);
+  padding: var(--spacing-2);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-bg-subtle, #f8fafc);
+}
+.cargo-ops-session__tank-status-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin: 0 0 var(--spacing-1);
+}
+.cargo-ops-session__tank-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+}
+.cargo-ops-session__tank-list li {
+  margin-bottom: 0.25rem;
+}
+.cargo-ops-session__hint {
+  font-size: 0.82rem;
+  margin: var(--spacing-1) 0 0;
+}
+.cargo-ops-session__actions {
+  margin-top: var(--spacing-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-1);
+}
+.cargo-ops-session__actions--split {
+  justify-content: flex-end;
+}
+.cargo-ops-session--active {
+  border: 1px solid var(--color-primary-light, #93c5fd);
+  border-radius: var(--radius-md, 8px);
+  padding: var(--spacing-2);
+  background: var(--color-bg-subtle, #f8fafc);
+}
+.cargo-ops-session__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-bottom: var(--spacing-2);
+}
+.cargo-ops-session__badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-primary, #2563eb);
+  background: var(--color-primary-bg, #eff6ff);
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+}
+.cargo-ops-session__live-dot {
+  font-size: 0.82rem;
+  color: var(--color-success, #059669);
+}
+.cargo-ops-session__live-panel,
+.cargo-ops-session__manual-panel {
+  padding: var(--spacing-2);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  background: #fff;
+  margin-bottom: var(--spacing-2);
+}
+.cargo-ops-session__live-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin: 0 0 var(--spacing-1);
+}
+.cargo-ops-session__live-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+}
+.cargo-ops-session__live-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #94a3b8);
+}
+.cargo-ops-session__tank-deltas {
+  font-size: 0.8rem;
+  margin: var(--spacing-1) 0 0;
+}
+.cargo-ops-session--done {
+  padding: var(--spacing-2);
+  border: 1px dashed var(--color-border, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+}
+.cargo-ops-session__done-summary {
+  margin: 0 0 var(--spacing-1);
+  font-weight: 500;
+}
+.cargo-ops-section--advanced-toggle {
+  margin-top: calc(-1 * var(--spacing-1));
+}
+.cargo-ops-advanced-toggle {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+}
+
 /* Time range: Start → End on one row */
 .cargo-ops-time-range {
   display: grid;
@@ -4798,6 +4904,107 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   font-size: var(--font-size-body);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-charcoal);
+}
+
+.hourly-cargo-progress {
+  margin: var(--spacing-3) 0;
+}
+
+.hourly-cargo-progress__title {
+  margin: 0 0 var(--spacing-2);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+}
+
+.hourly-cargo-progress__current-hour {
+  margin: 0 0 var(--spacing-2);
+  font-size: var(--font-size-small);
+}
+
+.hourly-cargo-progress__table-wrap {
+  overflow-x: auto;
+}
+
+.hourly-cargo-progress__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-small);
+}
+
+.hourly-cargo-progress__table th,
+.hourly-cargo-progress__table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border-light);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.hourly-cargo-progress__badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: var(--font-weight-semibold);
+}
+
+.hourly-cargo-progress__badge--active {
+  background: rgba(34, 139, 34, 0.12);
+  color: #1b6b1b;
+}
+
+.hourly-cargo-progress__badge--flat {
+  background: rgba(120, 120, 120, 0.15);
+  color: #555;
+}
+
+.hourly-cargo-progress__badge--incomplete {
+  background: rgba(255, 165, 0, 0.15);
+  color: #9a6200;
+}
+
+.hourly-cargo-progress__source {
+  font-size: 0.75rem;
+  color: var(--color-text-steel);
+}
+
+.hourly-cargo-progress__source--manual {
+  font-weight: var(--font-weight-semibold);
+}
+
+.hourly-cargo-progress--compact .hourly-cargo-progress__table {
+  font-size: 0.75rem;
+}
+
+.cargo-ops-session__flat-badge {
+  margin-left: 8px;
+}
+
+.cargo-ops-session__checkpoint-panel {
+  margin-top: var(--spacing-3);
+  padding-top: var(--spacing-2);
+  border-top: 1px dashed var(--color-border-light);
+}
+
+.cargo-ops-session__checkpoint-form {
+  display: grid;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-2);
+}
+
+.cargo-ops-session__checkpoint-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.cargo-ops-session__checkpoint-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  font-size: var(--font-size-small);
 }
 
 .operation-activity-timeline--embedded .berthing-modal__card-title {

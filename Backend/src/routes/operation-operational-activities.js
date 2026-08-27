@@ -16,6 +16,7 @@ import {
   getOperationalProgress,
   partitionLineTanks,
 } from '../lib/operational-progress.js';
+import { snapshotHourlyDetailForLoadLine } from '../lib/atg-hourly-progress.js';
 
 const router = express.Router();
 
@@ -553,6 +554,11 @@ async function refreshOperationalProgressAfterCargoSave(q, operationId) {
     await aggregateAtgDailyProgressForOperation(q, operationId, { includeToday: true });
   } catch {
     /* non-fatal */
+  }
+  try {
+    await snapshotHourlyDetailForLoadLine(q, null, operationId);
+  } catch {
+    /* non-fatal if migration not applied */
   }
 }
 
@@ -1265,6 +1271,140 @@ router.get('/operations/:operationId/operational-progress', async (req, res) => 
   if (!progress) return res.status(404).json({ error: 'Operation not found' });
   res.json(progress);
 });
+
+/** GET /operations/:operationId/cargo-manual-checkpoints?loadLineId= */
+router.get('/operations/:operationId/cargo-manual-checkpoints', async (req, res) => {
+  const operationId = parseOperationId(req.params.operationId);
+  if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
+  await assertOperationAccess(operationId, req);
+
+  const loadLineId = Number(req.query.loadLineId);
+  if (!Number.isFinite(loadLineId) || loadLineId <= 0) {
+    return res.status(400).json({ error: 'loadLineId query param required' });
+  }
+
+  const access = await assertLoadLineBelongsToOperation(pool, loadLineId, operationId);
+  if (!access.ok) return res.status(access.status).json({ error: access.error });
+
+  try {
+    const r = await pool.query(
+      `SELECT id, load_line_id, recorded_at, cumulative_qty, remark, created_by, created_at
+       FROM operation_cargo_manual_checkpoints
+       WHERE load_line_id = $1
+       ORDER BY recorded_at ASC, id ASC`,
+      [loadLineId]
+    );
+    res.json({
+      checkpoints: (r.rows || []).map((row) => ({
+        id: String(row.id),
+        loadLineId: String(row.load_line_id),
+        recordedAt: new Date(row.recorded_at).toISOString(),
+        cumulativeQty: Number(row.cumulative_qty),
+        remark: row.remark ?? null,
+        createdBy: row.created_by != null ? String(row.created_by) : null,
+        createdAt: new Date(row.created_at).toISOString(),
+      })),
+    });
+  } catch {
+    return res.status(503).json({ error: 'Manual checkpoints not available (migration pending)' });
+  }
+});
+
+/** POST /operations/:operationId/cargo-manual-checkpoints */
+router.post('/operations/:operationId/cargo-manual-checkpoints', async (req, res) => {
+  const operationId = parseOperationId(req.params.operationId);
+  if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
+  await assertOperationAccess(operationId, req);
+
+  const body = req.body || {};
+  const loadLineId = Number(body.loadLineId ?? body.load_line_id);
+  const cumulativeQty = Number(body.cumulativeQty ?? body.cumulative_qty);
+  const recordedAtRaw = body.recordedAt ?? body.recorded_at;
+  const remark = body.remark != null ? String(body.remark).trim() : null;
+
+  if (!Number.isFinite(loadLineId) || loadLineId <= 0) {
+    return res.status(400).json({ error: 'loadLineId required' });
+  }
+  if (!Number.isFinite(cumulativeQty) || cumulativeQty < 0) {
+    return res.status(400).json({ error: 'cumulativeQty must be a non-negative number' });
+  }
+
+  const access = await assertLoadLineBelongsToOperation(pool, loadLineId, operationId);
+  if (!access.ok) return res.status(access.status).json({ error: access.error });
+
+  const tz = await loadOperationScheduleTimezone(pool, operationId);
+  const recordedAtIso = parseScheduleInstantToIso(recordedAtRaw, tz);
+  if (!recordedAtIso) {
+    return res.status(400).json({ error: 'recordedAt is required and must be a valid datetime' });
+  }
+
+  try {
+    const ins = await pool.query(
+      `INSERT INTO operation_cargo_manual_checkpoints (
+         load_line_id, recorded_at, cumulative_qty, remark, created_by
+       )
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, load_line_id, recorded_at, cumulative_qty, remark, created_by, created_at`,
+      [loadLineId, recordedAtIso, cumulativeQty, remark || null, req.userId ?? null]
+    );
+    const row = ins.rows[0];
+    await refreshOperationalProgressAfterCargoSave(pool, operationId);
+    res.status(201).json({
+      id: String(row.id),
+      loadLineId: String(row.load_line_id),
+      recordedAt: new Date(row.recorded_at).toISOString(),
+      cumulativeQty: Number(row.cumulative_qty),
+      remark: row.remark ?? null,
+      createdBy: row.created_by != null ? String(row.created_by) : null,
+      createdAt: new Date(row.created_at).toISOString(),
+    });
+  } catch {
+    return res.status(503).json({ error: 'Manual checkpoints not available (migration pending)' });
+  }
+});
+
+/** DELETE /operations/:operationId/cargo-manual-checkpoints/:checkpointId */
+router.delete('/operations/:operationId/cargo-manual-checkpoints/:checkpointId', async (req, res) => {
+  const operationId = parseOperationId(req.params.operationId);
+  const checkpointId = Number(req.params.checkpointId);
+  if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
+  if (!Number.isFinite(checkpointId) || checkpointId <= 0) {
+    return res.status(400).json({ error: 'Invalid checkpointId' });
+  }
+  await assertOperationAccess(operationId, req);
+
+  try {
+    const r = await pool.query(
+      `DELETE FROM operation_cargo_manual_checkpoints cp
+       USING operation_cargo_load_lines l
+       JOIN operation_operational_activities oa ON oa.id = l.operational_activity_id
+       WHERE cp.id = $1
+         AND cp.load_line_id = l.id
+         AND oa.operation_id = $2
+       RETURNING cp.id`,
+      [checkpointId, operationId]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Checkpoint not found' });
+    await refreshOperationalProgressAfterCargoSave(pool, operationId);
+    res.status(204).send();
+  } catch {
+    return res.status(503).json({ error: 'Manual checkpoints not available (migration pending)' });
+  }
+});
+
+async function assertLoadLineBelongsToOperation(q, loadLineId, operationId) {
+  const r = await q.query(
+    `SELECT l.id
+     FROM operation_cargo_load_lines l
+     JOIN operation_operational_activities oa ON oa.id = l.operational_activity_id
+     WHERE l.id = $1 AND oa.operation_id = $2 AND oa.deleted_at IS NULL`,
+    [loadLineId, operationId]
+  );
+  if (!r.rows.length) {
+    return { ok: false, status: 404, error: 'Load line not found for this operation' };
+  }
+  return { ok: true };
+}
 
 /** GET /operations/:operationId/activity-timeline */
 router.get('/operations/:operationId/activity-timeline', async (req, res) => {

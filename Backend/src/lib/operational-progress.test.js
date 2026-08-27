@@ -351,3 +351,15 @@ describe('summarizeCargoProgressContext', () => {
     assert.equal(result.movedQty, 700);
   });
 });
+
+describe('computeCompletionFromMovedQty integration', () => {
+  it('re-exports SI variance helpers from hourly module', async () => {
+    const { computeCompletionFromMovedQty } = await import('./atg-hourly-progress.js');
+    const over = computeCompletionFromMovedQty(10050, 10000);
+    assert.equal(over.completionPercent, 100);
+    assert.equal(over.siQtyVariance?.kind, 'over');
+    const under = computeCompletionFromMovedQty(9900, 10000);
+    assert.equal(under.completionPercent, 99);
+    assert.equal(under.siQtyVariance?.kind, 'under');
+  });
+});

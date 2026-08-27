@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { fetchActivityTimeline, fetchOperationalProgress } from '../api/operations'
 import CargoDischargeProgressChart from './CargoDischargeProgressChart'
+import HourlyCargoProgressTable from './HourlyCargoProgressTable'
 import OperationActivityTimeline from './OperationActivityTimeline'
 import CargoScheduleProgressIndicator from './CargoScheduleProgressIndicator'
 import { parseQtyDisplay } from '../utils/cargoQtyDisplay'
@@ -33,19 +34,32 @@ export default function OperationalProgressSection({
       setError(null)
       return
     }
-    setLoading(true)
-    setError(null)
-    Promise.all([fetchActivityTimeline(operationId), fetchOperationalProgress(operationId)])
-      .then(([timelineRes, progressRes]) => {
-        setEvents(Array.isArray(timelineRes?.events) ? timelineRes.events : [])
-        setProgress(progressRes || null)
-      })
-      .catch((e) => {
-        setEvents([])
-        setProgress(null)
-        setError(e?.message || 'Failed to load operational data')
-      })
-      .finally(() => setLoading(false))
+    let cancelled = false
+    const load = () => {
+      setLoading(true)
+      setError(null)
+      Promise.all([fetchActivityTimeline(operationId), fetchOperationalProgress(operationId)])
+        .then(([timelineRes, progressRes]) => {
+          if (cancelled) return
+          setEvents(Array.isArray(timelineRes?.events) ? timelineRes.events : [])
+          setProgress(progressRes || null)
+        })
+        .catch((e) => {
+          if (cancelled) return
+          setEvents([])
+          setProgress(null)
+          setError(e?.message || 'Failed to load operational data')
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false)
+        })
+    }
+    load()
+    const pollId = window.setInterval(load, 30000)
+    return () => {
+      cancelled = true
+      window.clearInterval(pollId)
+    }
   }, [operationId, refreshToken, refreshTokenProp])
 
   const dailyBars = useMemo(
@@ -66,6 +80,10 @@ export default function OperationalProgressSection({
 
   const cargoSiQty = progress?.siQty ?? parsedQty?.total ?? null
   const cargoSiMetricLabel = progress?.siMetric ?? parsedQty?.unit ?? null
+  const hourlyBuckets = useMemo(
+    () => (Array.isArray(progress?.hourlyBuckets) ? progress.hourlyBuckets : []),
+    [progress]
+  )
 
   return (
     <section className="berthing-modal__card operational-progress-section">
@@ -105,13 +123,21 @@ export default function OperationalProgressSection({
                   {rateSummary.balanceLine}
                 </span>
               ) : null}
-              {rateSummary.hourlyLine || rateSummary.dailyLine ? (
+              {rateSummary.currentHourLine || rateSummary.hourlyLine || rateSummary.dailyLine ? (
                 <span className="operational-progress-section__summary-item operational-progress-section__summary-rates">
-                  {[rateSummary.hourlyLine, rateSummary.dailyLine].filter(Boolean).join(' · ')}
+                  {[rateSummary.currentHourLine || rateSummary.hourlyLine, rateSummary.lastActiveHourLine, rateSummary.dailyLine]
+                    .filter(Boolean)
+                    .join(' · ')}
                 </span>
               ) : null}
             </div>
           )}
+
+          <HourlyCargoProgressTable
+            hourlyBuckets={hourlyBuckets}
+            unit={cargoSiMetricLabel ?? 'MT'}
+            currentHourLine={rateSummary.currentHourLine ?? null}
+          />
 
           <CargoDischargeProgressChart
             dailyBars={dailyBars}

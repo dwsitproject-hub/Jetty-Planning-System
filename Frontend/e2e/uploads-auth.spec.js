@@ -2,13 +2,11 @@ import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { API_ORIGIN, E2E_USER, E2E_PASSWORD } from './load-env.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const BACKEND = process.env.E2E_API_ORIGIN || 'http://localhost:3000';
-const USER = process.env.E2E_USERNAME || 'admin';
-const PASSWORD = process.env.E2E_PASSWORD || 'admin123';
 const PROBE_REL = 'operations/_security_probe/test.pdf';
-const PROBE_URL = `${BACKEND}/uploads/${PROBE_REL}`;
+const PROBE_URL = `${API_ORIGIN}/uploads/${PROBE_REL}`;
 const UPLOAD_ROOT = path.resolve(__dirname, '../../Backend/uploads');
 const PROBE_FULL = path.join(UPLOAD_ROOT, PROBE_REL);
 
@@ -27,8 +25,8 @@ test.afterAll(async () => {
 
 /** POST /auth/login; Playwright request context retains session cookies. */
 async function apiLogin(request) {
-  const loginRes = await request.post(`${BACKEND}/api/v1/auth/login`, {
-    data: { username: USER, password: PASSWORD },
+  const loginRes = await request.post(`${API_ORIGIN}/api/v1/auth/login`, {
+    data: { username: E2E_USER, password: E2E_PASSWORD },
   });
   return loginRes.status() === 200;
 }
@@ -40,7 +38,7 @@ test.describe('upload access (C-01)', () => {
     expect(uploads.status()).not.toBe(200);
 
     const stored = await request.get(
-      `${BACKEND}/api/v1/stored-files/view?path=${encodeURIComponent(PROBE_REL)}`
+      `${API_ORIGIN}/api/v1/stored-files/view?path=${encodeURIComponent(PROBE_REL)}`
     );
     expect(stored.status()).toBe(401);
   });
@@ -52,7 +50,7 @@ test.describe('upload access (C-01)', () => {
     }
 
     const noPort = await request.get(
-      `${BACKEND}/api/v1/stored-files/view?path=operations/seed-clearance/clearance-0003.pdf`
+      `${API_ORIGIN}/api/v1/stored-files/view?path=operations/seed-clearance/clearance-0003.pdf`
     );
     expect([403, 404]).toContain(noPort.status());
   });
@@ -63,7 +61,7 @@ test.describe('upload access (C-01)', () => {
       return;
     }
 
-    const opsRes = await request.get(`${BACKEND}/api/v1/operations`, {
+    const opsRes = await request.get(`${API_ORIGIN}/api/v1/operations`, {
       headers: { 'X-Selected-Port-Id': '1' },
     });
     if (opsRes.status() !== 200) {
@@ -79,7 +77,7 @@ test.describe('upload access (C-01)', () => {
 
     const pdfBody = Buffer.from('%PDF-1.4 e2e-upload-probe\n');
     const uploadRes = await request.post(
-      `${BACKEND}/api/v1/operation-documents/operations/${opId}/CLEARANCE`,
+      `${API_ORIGIN}/api/v1/operation-documents/operations/${opId}/CLEARANCE`,
       {
         headers: { 'X-Selected-Port-Id': '1' },
         multipart: {
@@ -104,14 +102,14 @@ test.describe('upload access (C-01)', () => {
     }
 
     const anonCtx = await request.newContext();
-    const anonView = await anonCtx.get(`${BACKEND}/api/v1/operation-documents/${docId}/view`);
+    const anonView = await anonCtx.get(`${API_ORIGIN}/api/v1/operation-documents/${docId}/view`);
     expect(anonView.status()).toBe(401);
 
     const clearanceDir = path.join(UPLOAD_ROOT, 'operations', String(opId), 'clearance');
     if (fs.existsSync(clearanceDir)) {
       const files = fs.readdirSync(clearanceDir);
       if (files.length > 0) {
-        const diskPath = `${BACKEND}/uploads/operations/${opId}/clearance/${files[files.length - 1]}`;
+        const diskPath = `${API_ORIGIN}/uploads/operations/${opId}/clearance/${files[files.length - 1]}`;
         const anonDisk = await anonCtx.get(diskPath);
         expect(anonDisk.status()).toBe(404);
         expect(anonDisk.status()).not.toBe(200);
