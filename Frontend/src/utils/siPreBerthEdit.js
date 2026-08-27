@@ -109,6 +109,22 @@ export function planListCanEditSiPreBerth(plan) {
   return n > 0
 }
 
+/** @param {object|null|undefined} plan @param {boolean} canDelete */
+export function planCanDelete(plan, canDelete) {
+  if (!canDelete || !plan) return false
+  const status = plan.approvalStatus || ''
+  if (status === 'Draft' || status === 'Rejected') return true
+  return planIsPreBerth(plan)
+}
+
+/** @returns {null | 'rbac' | 'berthed' | 'status'} */
+export function planDeleteDisabledReasonKey(plan, canDelete) {
+  if (!canDelete) return 'rbac'
+  if (planCanDelete(plan, true)) return null
+  if (!planIsPreBerth(plan)) return 'berthed'
+  return 'status'
+}
+
 /**
  * @param {{ planReopened?: boolean, saved?: object, vesselName?: string }} result
  * @param {(key: string, opts?: object) => string} t
