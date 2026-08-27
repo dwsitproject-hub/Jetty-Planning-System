@@ -8,6 +8,8 @@ import {
   planIsPreBerth,
   planListCanEditPlanPreBerth,
   planListCanEditSiPreBerth,
+  planCanDelete,
+  planDeleteDisabledReasonKey,
   resolveFirstSiIdFromPlan,
   resolvePlanIdFromRow,
   resolvePrimarySiIdFromRow,
@@ -125,5 +127,23 @@ describe('siPreBerthEdit', () => {
   it('canEditPlanPreBerthFromRow uses shipmentPlanId', () => {
     assert.equal(canEditPlanPreBerthFromRow({ shipmentPlanId: 3, status: 'INCOMING' }), true)
     assert.equal(canEditPlanPreBerthFromRow({ tbDateTime: '2026-01-01' }), false)
+  })
+
+  it('planCanDelete allows Draft, Rejected, and never-berthed Approved/Submitted', () => {
+    assert.equal(planCanDelete({ approvalStatus: 'Draft' }, true), true)
+    assert.equal(planCanDelete({ approvalStatus: 'Rejected' }, true), true)
+    assert.equal(planCanDelete({ approvalStatus: 'Approved' }, true), true)
+    assert.equal(planCanDelete({ approvalStatus: 'Submitted' }, true), true)
+    assert.equal(planCanDelete({ approvalStatus: 'Approved', tb: '2026-01-01' }, true), false)
+    assert.equal(planCanDelete({ approvalStatus: 'Draft' }, false), false)
+  })
+
+  it('planDeleteDisabledReasonKey reflects delete eligibility', () => {
+    assert.equal(planDeleteDisabledReasonKey({ approvalStatus: 'Approved' }, true), null)
+    assert.equal(
+      planDeleteDisabledReasonKey({ approvalStatus: 'Approved', tb: '2026-01-01' }, true),
+      'berthed'
+    )
+    assert.equal(planDeleteDisabledReasonKey({ approvalStatus: 'Approved' }, false), 'rbac')
   })
 })
