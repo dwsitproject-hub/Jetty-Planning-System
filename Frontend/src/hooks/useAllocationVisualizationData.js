@@ -5,6 +5,9 @@ import { usePortScope } from '../context/PortScopeContext'
 import { mergeBerthsStateForPlanPov, mergeQueueRowsForPlanPov } from '../utils/allocationPlanPovMerge'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { getEtcBreach, getEtcBreachRagStatus } from '../utils/etcBreach'
+import { getBerthingPlanStatus } from '../utils/berthingEligibility'
+import useAtBerthCargoProgress from './useAtBerthCargoProgress'
+import { mergeLiveCargoProgressFields } from '../utils/cargoQtyDisplay'
 
 function schematicMaterialDisplay(r) {
   return r?.materialDisplay ?? r?.material ?? r?.commodityShortDisplay ?? r?.commodity ?? '—'
@@ -47,6 +50,8 @@ function buildVesselById({ planViz, isPlanCentric, breachNowMs }) {
       cargoLastLoggedAt: r.cargoLastLoggedAt ?? null,
       openingHatchStartAt: r.openingHatchStartAt ?? null,
       openingCargoHandlingMethodName: r.openingCargoHandlingMethodName ?? null,
+      scheduleComparison: r.scheduleComparison ?? null,
+      operationId: r.operationId != null ? Number(r.operationId) : null,
       etaToCompletion: r.estimatedCompletionDateTime
         ? formatDateTimeDisplay(r.estimatedCompletionDateTime)
         : '—',
@@ -84,6 +89,8 @@ function buildVesselById({ planViz, isPlanCentric, breachNowMs }) {
         cargoLastLoggedAt: o.cargoLastLoggedAt ?? null,
         openingHatchStartAt: o.openingHatchStartAt ?? null,
         openingCargoHandlingMethodName: o.openingCargoHandlingMethodName ?? null,
+        scheduleComparison: o.scheduleComparison ?? null,
+        operationId: o.operationId != null ? Number(o.operationId) : null,
         etaToCompletion: o.estimatedCompletionDateTime
           ? formatDateTimeDisplay(o.estimatedCompletionDateTime)
           : '—',
@@ -94,6 +101,18 @@ function buildVesselById({ planViz, isPlanCentric, breachNowMs }) {
     }
   }
 
+  return map
+}
+
+function applyLiveCargoToVesselMap(map, cargoProgressByOpId, nowMs) {
+  if (!map || !cargoProgressByOpId) return map
+  for (const vesselId of Object.keys(map)) {
+    const opId = map[vesselId]?.operationId
+    if (opId == null) continue
+    const live = cargoProgressByOpId[String(opId)]
+    if (!live) continue
+    map[vesselId] = mergeLiveCargoProgressFields(map[vesselId], live, nowMs)
+  }
   return map
 }
 
@@ -210,10 +229,29 @@ export default function useAllocationVisualizationData(profile = 'plan') {
     }
   }, [isPlanCentric, list, scheduleList, berthsState])
 
-  const vesselById = useMemo(
-    () => buildVesselById({ planViz, isPlanCentric, breachNowMs }),
-    [planViz, isPlanCentric, breachNowMs]
+  const berthedOperationIds = useMemo(
+    () =>
+      [
+        ...new Set(
+          [...list, ...scheduleList]
+            .filter(
+              (r) =>
+                r.operationId != null &&
+                getBerthingPlanStatus(r, { planCentric: isPlanCentric }) === 'berthed'
+            )
+            .map((r) => Number(r.operationId))
+            .filter((n) => Number.isFinite(n) && n > 0)
+        ),
+      ],
+    [list, scheduleList, isPlanCentric]
   )
+
+  const cargoProgressByOpId = useAtBerthCargoProgress(berthedOperationIds)
+
+  const vesselById = useMemo(() => {
+    const map = buildVesselById({ planViz, isPlanCentric, breachNowMs })
+    return applyLiveCargoToVesselMap(map, cargoProgressByOpId, breachNowMs)
+  }, [planViz, isPlanCentric, breachNowMs, cargoProgressByOpId])
 
   const berthIds = useMemo(
     () => (Array.isArray(berthsState) ? berthsState.map((b) => b.id).filter(Boolean) : []),

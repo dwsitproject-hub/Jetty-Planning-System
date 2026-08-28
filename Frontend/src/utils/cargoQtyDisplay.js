@@ -96,3 +96,23 @@ export function computeCargoProgress(totalQtyDisplay, cargoMovedQty, cargoFirstL
     rateLine: `Rate ${formatRateNumber(ratePerHour)} ${qty.unit} / Hour`,
   }
 }
+
+/**
+ * Merge live at-berth cargo progress (ATG) into an overview/schematic vessel row.
+ * @param {object|null|undefined} row
+ * @param {object|null|undefined} liveSummary from GET /operations/at-berth/cargo-progress
+ * @param {number} [nowMs]
+ */
+export function mergeLiveCargoProgressFields(row, liveSummary, nowMs = Date.now()) {
+  if (!row || liveSummary?.movedQty == null) return row
+  const isLive = Boolean(liveSummary?.isLive || liveSummary?.hasActiveCargo)
+  return {
+    ...row,
+    cargoMovedQty: Number(liveSummary.movedQty) || 0,
+    cargoLastLoggedAt:
+      isLive && row.cargoFirstLoggedAt
+        ? new Date(nowMs).toISOString()
+        : row.cargoLastLoggedAt,
+    scheduleComparison: liveSummary,
+  }
+}

@@ -63,6 +63,8 @@ import {
   isPlanOnlySchedulingRow,
   showLateSiBerthingGateNotice,
 } from '../utils/berthingEligibility'
+import useAtBerthCargoProgress from '../hooks/useAtBerthCargoProgress'
+import { mergeLiveCargoProgressFields } from '../utils/cargoQtyDisplay'
 import { validateQueueRowSiReferencesForBerthing } from '../utils/siReferenceValidation'
 import { validateBerthingTimeline } from '../utils/validateScheduleTimeline'
 import {
@@ -893,6 +895,25 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     return () => clearInterval(id)
   }, [])
 
+  const berthedOperationIds = useMemo(
+    () =>
+      [
+        ...new Set(
+          [...list, ...scheduleList]
+            .filter(
+              (r) =>
+                r.operationId != null &&
+                getBerthingPlanStatus(r, { planCentric: isPlanCentric }) === 'berthed'
+            )
+            .map((r) => Number(r.operationId))
+            .filter((n) => Number.isFinite(n) && n > 0)
+        ),
+      ],
+    [list, scheduleList, isPlanCentric]
+  )
+
+  const cargoProgressByOpId = useAtBerthCargoProgress(berthedOperationIds)
+
   const vesselById = useMemo(() => {
     const map = {}
     const srcList = planViz.mergedList
@@ -932,6 +953,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         openingHatchStartAt: r.openingHatchStartAt ?? null,
         openingCargoHandlingMethodName: r.openingCargoHandlingMethodName ?? null,
         scheduleComparison: r.scheduleComparison ?? null,
+        operationId: r.operationId != null ? Number(r.operationId) : null,
         etaToCompletion: r.estimatedCompletionDateTime ? formatDateTimeDisplay(r.estimatedCompletionDateTime) : '—',
         ragStatus: getEtcBreachRagStatus(r, breachNowMs),
         etcBreach: getEtcBreach(r, breachNowMs),
@@ -966,6 +988,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         openingHatchStartAt: r.openingHatchStartAt ?? null,
         openingCargoHandlingMethodName: r.openingCargoHandlingMethodName ?? null,
         scheduleComparison: r.scheduleComparison ?? null,
+        operationId: r.operationId != null ? Number(r.operationId) : null,
         etaToCompletion: r.estimatedCompletionDateTime ? formatDateTimeDisplay(r.estimatedCompletionDateTime) : '—',
         ragStatus: getEtcBreachRagStatus(r, breachNowMs),
         etcBreach: getEtcBreach(r, breachNowMs),
@@ -1001,6 +1024,8 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
           cargoLastLoggedAt: o.cargoLastLoggedAt ?? null,
           openingHatchStartAt: o.openingHatchStartAt ?? null,
           openingCargoHandlingMethodName: o.openingCargoHandlingMethodName ?? null,
+          scheduleComparison: o.scheduleComparison ?? null,
+          operationId: o.operationId != null ? Number(o.operationId) : null,
           etaToCompletion: o.estimatedCompletionDateTime ? formatDateTimeDisplay(o.estimatedCompletionDateTime) : '—',
           ragStatus: getEtcBreachRagStatus(o, breachNowMs),
           etcBreach: getEtcBreach(o, breachNowMs),
@@ -1009,8 +1034,16 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       }
     }
 
+    for (const vesselId of Object.keys(map)) {
+      const opId = map[vesselId]?.operationId
+      if (opId == null) continue
+      const live = cargoProgressByOpId[String(opId)]
+      if (!live) continue
+      map[vesselId] = mergeLiveCargoProgressFields(map[vesselId], live, breachNowMs)
+    }
+
     return map
-  }, [planViz, isPlanCentric, breachNowMs])
+  }, [planViz, isPlanCentric, breachNowMs, cargoProgressByOpId])
 
   const vesselDetailRows = useMemo(() => {
     const byId = new Map()
