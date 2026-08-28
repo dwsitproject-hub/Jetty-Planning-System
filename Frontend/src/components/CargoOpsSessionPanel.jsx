@@ -8,6 +8,7 @@ import {
   fetchCargoManualCheckpoints,
 } from '../api/operations'
 import { formatTankStatusList, partitionDraftTanks } from '../utils/cargoSessionHelpers'
+import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 
 function formatQty(n, metricLabel) {
   if (n == null || !Number.isFinite(Number(n))) return '—'
@@ -184,6 +185,7 @@ export default function CargoOpsSessionPanel({
   onStartNextSegment,
   onAdjustTimestamps,
   onUpdateOpenLine,
+  onUpdateOpenSegmentTanks,
 }) {
   const { t } = useTranslation('pages')
 
@@ -289,12 +291,14 @@ export default function CargoOpsSessionPanel({
 
   if (phase === 'in_progress' && openLine) {
     const tankLabels = openTanks.map((tk) => tk.label.split(' · ')[0]).join(', ')
+    const segmentStartLabel = openLine.start ? formatDateTimeDisplay(openLine.start) : '—'
+    const editTankIds = (openLine.tankIds || sessionTankIds || []).map(String)
     return (
       <div className="cargo-ops-section cargo-ops-session cargo-ops-session--active">
         <div className="cargo-ops-session__head">
           <span className="cargo-ops-session__badge">{t('cargoOpsSessionInProgress')}</span>
           <span className="text-steel">
-            {t('cargoOpsSessionStartedAt', { time: formatTimeLocal(openLine.start) })}
+            {t('cargoOpsSessionStartedAtFull', { time: segmentStartLabel })}
             {tankLabels ? ` · ${tankLabels}` : ''}
           </span>
           {hasAtgTanks && atgQtyMode === 'auto' ? (
@@ -303,6 +307,26 @@ export default function CargoOpsSessionPanel({
             </span>
           ) : null}
         </div>
+
+        {onUpdateOpenSegmentTanks ? (
+          <div className="cargo-ops-session__tank-edit">
+            <p className="cargo-ops-section__label">
+              {purpose === 'Unloading' ? t('cargoOpsSourceTanks') : t('cargoOpsDestinationTanks')}
+            </p>
+            <DropdownMultiSelect
+              id="op-cargo-session-tanks-in-progress"
+              options={masterTankOptions}
+              selectedValues={editTankIds}
+              onChange={(ids) => onUpdateOpenSegmentTanks(ids)}
+              placeholder={t('cargoOpsTanksPlaceholder')}
+              emptyText={t('cargoOpsTanksEmpty')}
+              searchable
+              searchPlaceholder="Search..."
+              className="cargo-ops-tanks-dropdown"
+              disabled={busy}
+            />
+          </div>
+        ) : null}
 
         {hasAtgTanks && atgQtyMode === 'auto' ? (
           <div className="cargo-ops-session__live-panel">
@@ -350,9 +374,12 @@ export default function CargoOpsSessionPanel({
             ) : null}
             {hourlyBuckets.length > 0 ? (
               <HourlyCargoProgressTable
-                hourlyBuckets={hourlyBuckets.slice(-6)}
+                hourlyBuckets={hourlyBuckets}
                 unit={hourlyProgress?.siMetric || metricLabel?.split(' · ')[0] || 'MT'}
                 compact
+                collapsible
+                collapsedRowLimit={6}
+                segmentStartLabel={segmentStartLabel}
               />
             ) : null}
           </div>

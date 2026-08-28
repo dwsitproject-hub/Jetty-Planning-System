@@ -1234,6 +1234,7 @@ function Loading() {
               onOperationalSaved={bumpActivityLogRefresh}
               activityLogRefresh={activityLogRefresh}
               scheduleIana={scheduleEntryTz}
+              operationTbAt={allocationDetailRow?.tbDateTime ?? apiOp?.tbAt ?? null}
             />
           )
         })}

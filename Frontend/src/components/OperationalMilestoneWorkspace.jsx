@@ -28,11 +28,15 @@ import {
   formatCargoSiQtyMismatchConfirm,
 } from '../utils/cargoSiQtyMismatch.js'
 import {
+  buildLiveCargoProgressSnapshot,
   buildStoppedCargoLine,
   deriveCargoSessionPhase,
   getSessionTankIdsFromDraft,
   partitionDraftTanks,
   pickSegmentStartLocal,
+  resolveCargoProgressTotalLoaded,
+  resolveDefaultCargoOperationWindowStart,
+  sumClosedPersistedLineQty,
 } from '../utils/cargoSessionHelpers.js'
 import {
   ensureApiEndAfterStart,
@@ -196,6 +200,8 @@ export default function OperationalMilestoneWorkspace({
   cargoCommodity = null,
   /** Operation port id — filters shore tanks for liquid Cargo Operations. */
   portId = null,
+  /** TB (time alongside) — default operation window for first Cargo Operations entry. */
+  operationTbAt = null,
 }) {
   const { t } = useTranslation('pages')
   const tz = scheduleIana?.trim() || getScheduleEntryTimeZone()
@@ -237,6 +243,21 @@ export default function OperationalMilestoneWorkspace({
 
   const activities = useApi ? apiActivities : loadingOp?.activities || []
   const naMap = useApi ? apiNaMap : loadingOp?.milestoneNa || {}
+
+  const getDefaultCargoWindowStart = useCallback(() => {
+    const priorStarts = []
+    for (const label of ['OPENING', 'CARGO PRE-CONDITIONING']) {
+      for (const row of milestoneActivitiesFor(activities, label)) {
+        if (row.startTime) priorStarts.push(isoOrDatetimeToLocal(row.startTime))
+      }
+    }
+    return resolveDefaultCargoOperationWindowStart({
+      tbIso: operationTbAt,
+      priorMilestoneStarts: priorStarts,
+      getNowLocal: getNowForDateTimeLocal,
+      toLocal: isoOrDatetimeToLocal,
+    })
+  }, [activities, operationTbAt, getNowForDateTimeLocal, isoOrDatetimeToLocal])
 
   const [listCollapsed, setListCollapsed] = useState(() => readBool(OPERATIONAL_RAIL_COLLAPSED_KEY, false))
   useEffect(() => writeBool(OPERATIONAL_RAIL_COLLAPSED_KEY, listCollapsed), [listCollapsed])
@@ -483,7 +504,11 @@ export default function OperationalMilestoneWorkspace({
     // Default: fresh new entry
     setEditingEntryId(null)
     setRemark('')
-    const t0 = getNowForDateTimeLocal()
+    const cargoRows = cat === 'CARGO OPERATIONS' ? milestoneActivitiesFor(activities, 'CARGO OPERATIONS') : []
+    const t0 =
+      cat === 'CARGO OPERATIONS' && cargoRows.length === 0
+        ? getDefaultCargoWindowStart()
+        : getNowForDateTimeLocal()
     setStartTime(t0)
     setEndTime('')
     if (cat === 'OPENING') {
@@ -571,7 +596,11 @@ export default function OperationalMilestoneWorkspace({
     setEditingEntryId(null)
     setSubStepTitle(cat === 'OPENING' ? nextOpeningHatchLabel() : '')
     setRemark('')
-    const t0 = getNowForDateTimeLocal()
+    const cargoRows = cat === 'CARGO OPERATIONS' ? milestoneActivitiesFor(activities, 'CARGO OPERATIONS') : []
+    const t0 =
+      cat === 'CARGO OPERATIONS' && cargoRows.length === 0
+        ? getDefaultCargoWindowStart()
+        : getNowForDateTimeLocal()
     setStartTime(t0)
     setEndTime('')
     if (cat === 'CARGO OPERATIONS') {
@@ -595,7 +624,11 @@ export default function OperationalMilestoneWorkspace({
     setEditingEntryId(null)
     setSubStepTitle(m === 'OPENING' ? nextOpeningHatchLabel() : '')
     setRemark('')
-    const t0 = getNowForDateTimeLocal()
+    const cargoRows = m === 'CARGO OPERATIONS' ? milestoneActivitiesFor(activities, 'CARGO OPERATIONS') : []
+    const t0 =
+      m === 'CARGO OPERATIONS' && cargoRows.length === 0
+        ? getDefaultCargoWindowStart()
+        : getNowForDateTimeLocal()
     setStartTime(t0)
     setEndTime('')
     if (m === 'CARGO OPERATIONS') {
@@ -749,8 +782,12 @@ export default function OperationalMilestoneWorkspace({
   }, [useApi, activities])
 
   useEffect(() => {
-    if (!useCargoSessionMode || !operationId || !formModalOpen) {
-      setSessionOperationalProgress(null)
+    const shouldPoll =
+      operationId &&
+      useApi &&
+      ((formModalOpen && useCargoSessionMode) || openLoadLineId)
+    if (!shouldPoll) {
+      if (!openLoadLineId) setSessionOperationalProgress(null)
       return undefined
     }
     let cancelled = false
@@ -769,7 +806,67 @@ export default function OperationalMilestoneWorkspace({
       cancelled = true
       window.clearInterval(pollId)
     }
-  }, [useCargoSessionMode, operationId, formModalOpen, liveAtgTick])
+  }, [useCargoSessionMode, operationId, formModalOpen, liveAtgTick, openLoadLineId, useApi])
+
+  const closedPersistedSum = useMemo(
+    () => sumClosedPersistedLineQty(milestoneActivitiesFor(activities, 'CARGO OPERATIONS')),
+    [activities]
+  )
+
+  const liveCargoProgress = useMemo(
+    () =>
+      buildLiveCargoProgressSnapshot({
+        openLoadLineId,
+        openLineDraft: formModalOpen ? openLineDraft : null,
+        atgRef: openLineDraft ? atgRefByLineKey[openLineDraft.key] : null,
+        sessionOperationalProgress,
+        tankMetaById,
+        activityRows: milestoneActivitiesFor(activities, 'CARGO OPERATIONS'),
+      }),
+    [
+      openLoadLineId,
+      formModalOpen,
+      openLineDraft,
+      atgRefByLineKey,
+      sessionOperationalProgress,
+      tankMetaById,
+      activities,
+    ]
+  )
+
+  const cargoProgressTotalLoaded = useMemo(() => {
+    if (activeMilestone !== 'CARGO OPERATIONS') return null
+    const siQty = Number.isFinite(Number(cargoSiQty)) ? Number(cargoSiQty) : null
+    const loadedOther =
+      cargoOpsFormDerived != null && siQty != null && Number.isFinite(cargoOpsFormDerived.basis)
+        ? siQty - cargoOpsFormDerived.basis
+        : 0
+    return resolveCargoProgressTotalLoaded({
+      loadedOther,
+      cargoLoadLinesDraft,
+      sessionOperationalProgress,
+      openLineDraft,
+      atgRef: openLineDraft ? atgRefByLineKey[openLineDraft.key] : null,
+      tankMetaById,
+      useCargoSessionMode,
+      cargoSessionPhase,
+      commodityType,
+      closedPersistedSum,
+    })
+  }, [
+    activeMilestone,
+    cargoSiQty,
+    cargoOpsFormDerived,
+    cargoLoadLinesDraft,
+    sessionOperationalProgress,
+    openLineDraft,
+    atgRefByLineKey,
+    tankMetaById,
+    useCargoSessionMode,
+    cargoSessionPhase,
+    commodityType,
+    closedPersistedSum,
+  ])
 
   const handleStartTransfer = async () => {
     if (!useCargoSessionMode) return
@@ -790,10 +887,11 @@ export default function OperationalMilestoneWorkspace({
     setSessionBusy(true)
     try {
       const nowLocal = getNowForDateTimeLocal()
-      const segmentStartLocal = pickSegmentStartLocal(startTime, nowLocal, tz)
+      const closedDraft = cargoLoadLinesDraft.filter((l) => l.start && l.end)
+      const isFirstSegment = closedDraft.length === 0
+      const segmentStartLocal = isFirstSegment ? startTime : pickSegmentStartLocal(startTime, nowLocal, tz)
       const activityStartIso = normalizeForApi(startTime, tz)
       const segmentStartIso = normalizeForApi(segmentStartLocal, tz)
-      const closedDraft = cargoLoadLinesDraft.filter((l) => l.start && l.end)
       const prevLinesApi = closedDraft.map((li) => {
         let startIso
         let endIso
@@ -870,6 +968,68 @@ export default function OperationalMilestoneWorkspace({
       setPreparingNextSegment(false)
     } catch (e) {
       setFormError(e?.message || 'Failed to start transfer')
+    } finally {
+      setSessionBusy(false)
+    }
+  }
+
+  const handleUpdateOpenSegmentTanks = async (tankIds) => {
+    if (!useCargoSessionMode || !openLineDraft || !editingEntryId) return
+    const normalized = (tankIds || []).map(String).filter(Boolean)
+    if (normalized.length === 0) {
+      setFormError(t('cargoOpsTanksRequired'))
+      return
+    }
+    const remarkTrim = String(remark || '').trim()
+    if (!remarkTrim) {
+      setFormError('Remark is required.')
+      return
+    }
+    setFormError('')
+    setSessionBusy(true)
+    try {
+      const closedDraft = cargoLoadLinesDraft.filter((l) => l.key !== openLineDraft.key && l.start && l.end)
+      const closedApi = closedDraft.map((li) => {
+        const row = {
+          startAt: normalizeForApi(li.start, tz),
+          endAt: normalizeForApi(li.end, tz),
+          atgQtyMode: li.atgQtyMode === 'manual' ? 'manual' : 'auto',
+          tankIds: (li.tankIds || []).map(String),
+        }
+        const mq = parsePositiveQty(li.qty)
+        if (Number.isFinite(mq)) row.qty = mq
+        const manualMq = parsePositiveQty(li.manualQty)
+        if (Number.isFinite(manualMq)) row.manualQty = manualMq
+        return row
+      })
+      const openApi = {
+        startAt: normalizeForApi(openLineDraft.start, tz),
+        endAt: null,
+        tankIds: normalized,
+        atgQtyMode: openLineDraft.atgQtyMode === 'manual' ? 'manual' : 'auto',
+      }
+      const manualMq = parsePositiveQty(openLineDraft.manualQty)
+      if (Number.isFinite(manualMq)) openApi.manualQty = manualMq
+      await updateOperationalEntry(
+        operationId,
+        editingEntryId,
+        {
+          milestoneKey: 'cargo_operations',
+          subStepTitle: subStepTitle.trim() || 'Cargo',
+          remark: remarkTrim,
+          startAt: normalizeForApi(startTime, tz),
+          endAt: null,
+          cargoLoadLines: [...closedApi, openApi],
+        },
+        { scheduleIana: tz }
+      )
+      updateCargoLineDraft(openLineDraft.key, { tankIds: normalized })
+      setSessionTankIds(normalized)
+      await loadApi()
+      bumpSaved()
+      setActionToast({ message: t('cargoOpsSessionTanksUpdated'), variant: 'success' })
+    } catch (e) {
+      setFormError(e?.message || t('cargoOpsSessionTanksUpdateFailed'))
     } finally {
       setSessionBusy(false)
     }
@@ -1701,6 +1861,7 @@ export default function OperationalMilestoneWorkspace({
               onActivityLogRefresh={onOperationalSaved}
               cargoSiQty={cargoSiQty ?? null}
               cargoSiMetricLabel={cargoSiMetricCode ?? cargoSiMetricName ?? null}
+              liveCargoProgress={liveCargoProgress}
             />
             {formModalOpen ? (
               <div className="modal-overlay" onClick={() => { setFormModalOpen(false); setEditingEntryId(null) }} aria-hidden="true">
@@ -1784,16 +1945,10 @@ export default function OperationalMilestoneWorkspace({
               <>
                 {(() => {
                   const siQty = Number.isFinite(Number(cargoSiQty)) ? Number(cargoSiQty) : null
-                  const draftSum = cargoLoadLinesDraft.reduce((acc, d) => {
-                    const q = parseFloat(String(d.qty).replace(',', '.'))
-                    return acc + (Number.isFinite(q) && q > 0 ? q : 0)
-                  }, 0)
-                  const loadedOther = cargoOpsFormDerived != null
-                    ? (siQty != null && Number.isFinite(cargoOpsFormDerived.basis)
-                        ? siQty - cargoOpsFormDerived.basis
-                        : 0)
-                    : 0
-                  const totalLoaded = loadedOther + draftSum
+                  const totalLoaded =
+                    cargoProgressTotalLoaded != null && Number.isFinite(Number(cargoProgressTotalLoaded))
+                      ? Number(cargoProgressTotalLoaded)
+                      : 0
                   const pct = siQty != null && siQty > 0 ? Math.min(100, (totalLoaded / siQty) * 100) : null
                   const metricLabel = cargoOpsFormDerived?.metricLabel ?? ''
                   const balance = siQty != null ? siQty - totalLoaded : null
@@ -1862,6 +2017,7 @@ export default function OperationalMilestoneWorkspace({
                     onStartNextSegment={handleStartNextSegment}
                     onAdjustTimestamps={handleAdjustTimestamps}
                     onUpdateOpenLine={updateCargoLineDraft}
+                    onUpdateOpenSegmentTanks={handleUpdateOpenSegmentTanks}
                   />
                 ) : null}
 

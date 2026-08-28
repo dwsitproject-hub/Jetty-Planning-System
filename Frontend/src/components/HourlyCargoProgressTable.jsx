@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 function formatQty(n, unit = 'MT') {
@@ -57,10 +58,26 @@ export default function HourlyCargoProgressTable({
   unit = 'MT',
   compact = false,
   currentHourLine = null,
+  collapsible = false,
+  collapsedRowLimit = 6,
+  defaultExpanded = false,
+  segmentStartLabel = null,
 }) {
   const { t } = useTranslation('pages')
+  const [expanded, setExpanded] = useState(defaultExpanded)
+
+  const visibleBuckets = useMemo(() => {
+    if (!Array.isArray(hourlyBuckets) || hourlyBuckets.length === 0) return []
+    if (!collapsible || expanded || hourlyBuckets.length <= collapsedRowLimit) {
+      return hourlyBuckets
+    }
+    return hourlyBuckets.slice(-collapsedRowLimit)
+  }, [hourlyBuckets, collapsible, expanded, collapsedRowLimit])
 
   if (!hourlyBuckets?.length && !currentHourLine) return null
+
+  const totalCount = hourlyBuckets?.length ?? 0
+  const showToggle = collapsible && totalCount > collapsedRowLimit
 
   return (
     <div className={`hourly-cargo-progress${compact ? ' hourly-cargo-progress--compact' : ''}`}>
@@ -70,34 +87,57 @@ export default function HourlyCargoProgressTable({
       {currentHourLine ? (
         <p className="hourly-cargo-progress__current-hour text-steel">{currentHourLine}</p>
       ) : null}
-      {hourlyBuckets?.length ? (
-        <div className="hourly-cargo-progress__table-wrap">
-          <table className="hourly-cargo-progress__table">
-            <thead>
-              <tr>
-                <th>{t('cargoHourlyColTime')}</th>
-                <th>{t('cargoHourlyColQty')}</th>
-                <th>{t('cargoHourlyColRate')}</th>
-                <th>{t('cargoHourlyColStatus')}</th>
-                {!compact ? <th>{t('cargoHourlyColSource')}</th> : null}
-              </tr>
-            </thead>
-            <tbody>
-              {hourlyBuckets.map((row) => (
-                <tr
-                  key={row.hourStart}
-                  className={`hourly-cargo-progress__row hourly-cargo-progress__row--${row.movementStatus || 'active'}`}
-                >
-                  <td>{row.hourLabelLocal || row.hourStart}</td>
-                  <td>{formatQty(row.qtyMoved, unit)}</td>
-                  <td>{formatRate(row.rateTph, unit)}</td>
-                  <td>{movementBadge(row.movementStatus, t)}</td>
-                  {!compact ? <td>{sourceBadge(row.source, t)}</td> : null}
+      {showToggle && !expanded ? (
+        <p className="hourly-cargo-progress__range-hint text-steel">
+          {t('cargoHourlyShowingRecent', {
+            shown: collapsedRowLimit,
+            total: totalCount,
+            start: segmentStartLabel || '—',
+          })}
+        </p>
+      ) : null}
+      {visibleBuckets?.length ? (
+        <>
+          <div
+            className={`hourly-cargo-progress__table-wrap${expanded && showToggle ? ' hourly-cargo-progress__table-wrap--scroll' : ''}`}
+          >
+            <table className="hourly-cargo-progress__table">
+              <thead>
+                <tr>
+                  <th>{t('cargoHourlyColTime')}</th>
+                  <th>{t('cargoHourlyColQty')}</th>
+                  <th>{t('cargoHourlyColRate')}</th>
+                  <th>{t('cargoHourlyColStatus')}</th>
+                  {!compact ? <th>{t('cargoHourlyColSource')}</th> : null}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {visibleBuckets.map((row) => (
+                  <tr
+                    key={row.hourStart}
+                    className={`hourly-cargo-progress__row hourly-cargo-progress__row--${row.movementStatus || 'active'}`}
+                  >
+                    <td>{row.hourLabelLocal || row.hourStart}</td>
+                    <td>{formatQty(row.qtyMoved, unit)}</td>
+                    <td>{formatRate(row.rateTph, unit)}</td>
+                    <td>{movementBadge(row.movementStatus, t)}</td>
+                    {!compact ? <td>{sourceBadge(row.source, t)}</td> : null}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {showToggle ? (
+            <button
+              type="button"
+              className="btn btn--small btn--soft hourly-cargo-progress__toggle"
+              onClick={() => setExpanded((v) => !v)}
+              aria-expanded={expanded}
+            >
+              {expanded ? t('cargoHourlyShowLess') : t('cargoHourlyShowAll', { count: totalCount })}
+            </button>
+          ) : null}
+        </>
       ) : null}
     </div>
   )

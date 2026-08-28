@@ -4975,6 +4975,25 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   font-size: 0.75rem;
 }
 
+.hourly-cargo-progress__range-hint {
+  margin: 0 0 var(--spacing-2);
+  font-size: 0.8125rem;
+}
+
+.hourly-cargo-progress__table-wrap--scroll {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.hourly-cargo-progress__toggle {
+  margin-top: var(--spacing-2);
+}
+
+.cargo-ops-session__tank-edit {
+  margin-top: var(--spacing-2);
+  margin-bottom: var(--spacing-2);
+}
+
 .cargo-ops-session__flat-badge {
   margin-left: 8px;
 }

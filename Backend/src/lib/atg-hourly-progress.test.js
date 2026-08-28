@@ -21,6 +21,7 @@ describe('buildClockHourBuckets', () => {
     assert.equal(buckets[0].isPartial, true);
     assert.ok(buckets[0].effectiveHours > 0);
     assert.ok(buckets[0].hourLabelLocal.includes('–'));
+    assert.match(buckets[0].hourLabelLocal, /\d{2}\/\d{2} \d{2}:\d{2}–\d{2}:\d{2}/);
   });
 
   it('returns empty for invalid window', () => {

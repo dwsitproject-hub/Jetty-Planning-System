@@ -53,7 +53,7 @@ export function buildClockHourBuckets(windowStart, windowEnd, timezone) {
     buckets.push({
       hourStart: cursor.toUTC().toISO(),
       hourEnd: bucketEnd.toUTC().toISO(),
-      hourLabelLocal: `${cursor.toFormat('HH:mm')}–${bucketEnd.toFormat('HH:mm')} ${tzAbbrev}`,
+      hourLabelLocal: `${cursor.toFormat('dd/LL HH:mm')}–${bucketEnd.toFormat('HH:mm')} ${tzAbbrev}`,
       effectiveHours,
       isPartial,
     });

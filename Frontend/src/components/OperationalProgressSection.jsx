@@ -5,6 +5,7 @@ import HourlyCargoProgressTable from './HourlyCargoProgressTable'
 import OperationActivityTimeline from './OperationActivityTimeline'
 import CargoScheduleProgressIndicator from './CargoScheduleProgressIndicator'
 import { parseQtyDisplay } from '../utils/cargoQtyDisplay'
+import { buildLiveCargoProgressSnapshot } from '../utils/cargoSessionHelpers'
 
 /**
  * Operational progress block for Active Vessel Detail (rates, chart, Operational activity log).
@@ -85,6 +86,30 @@ export default function OperationalProgressSection({
     [progress]
   )
 
+  const liveCargoProgress = useMemo(() => {
+    let openLoadLineId = null
+    for (const ev of events) {
+      if (ev.source !== 'operational_activity') continue
+      const lines = ev.cargoLoadLines
+      if (!Array.isArray(lines)) continue
+      const open = lines.find((l) => l.startAt && !l.endAt && l.id != null)
+      if (open?.id) {
+        openLoadLineId = String(open.id)
+        break
+      }
+    }
+    return buildLiveCargoProgressSnapshot({
+      openLoadLineId,
+      openLineDraft: null,
+      atgRef: null,
+      sessionOperationalProgress: progress,
+      tankMetaById: null,
+      activityRows: events
+        .filter((ev) => ev.source === 'operational_activity')
+        .map((ev) => ({ cargoLoadLines: ev.cargoLoadLines || [] })),
+    })
+  }, [events, progress])
+
   return (
     <section className="berthing-modal__card operational-progress-section">
       <h3 className="berthing-modal__card-title">Operational progress</h3>
@@ -137,6 +162,8 @@ export default function OperationalProgressSection({
             hourlyBuckets={hourlyBuckets}
             unit={cargoSiMetricLabel ?? 'MT'}
             currentHourLine={rateSummary.currentHourLine ?? null}
+            collapsible
+            collapsedRowLimit={6}
           />
 
           <CargoDischargeProgressChart
@@ -160,6 +187,7 @@ export default function OperationalProgressSection({
             onActivityLogRefresh={bumpRefresh}
             cargoSiQty={cargoSiQty}
             cargoSiMetricLabel={cargoSiMetricLabel}
+            liveCargoProgress={liveCargoProgress}
             phaseFilter="Operational"
             title="Operational activity"
             hidePhaseColumn

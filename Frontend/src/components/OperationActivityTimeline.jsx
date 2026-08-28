@@ -10,6 +10,7 @@ import {
 import { resolveUploadUrl } from '../api/client'
 import FilePreviewLink from './FilePreviewLink'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import { approxRateTph } from '../utils/cargoSessionHelpers'
 import {
   buildActivityLogEditPath,
   activityLogRowCanDelete,
@@ -403,6 +404,8 @@ export default function OperationActivityTimeline({
   eventsOverride = undefined,
   loadingOverride = undefined,
   errorOverride = undefined,
+  /** Live qty for open cargo load line `{ openLoadLineId, movedQty }`. */
+  liveCargoProgress = null,
 }) {
   const navigate = useNavigate()
   const { t } = useTranslation('pages')
@@ -881,7 +884,16 @@ export default function OperationActivityTimeline({
                                         ? ev.cargoLoadLines
                                         : [{ lineOrder: null, qty: Number.isFinite(Number(ev.cargoMovedQty)) ? Number(ev.cargoMovedQty) : null, startedAt: ev.startAt ?? null, endedAt: ev.endAt ?? ev.cargoLastLineEndedAt ?? null }]
                                       return lines.map((line, lineIdx) => {
-                                        const qty = Number.isFinite(Number(line.qty)) ? Number(line.qty) : null
+                                        const lineId = line.id != null ? String(line.id) : null
+                                        const isOpenLive =
+                                          liveCargoProgress &&
+                                          lineId &&
+                                          String(liveCargoProgress.openLoadLineId) === lineId &&
+                                          !line.endedAt
+                                        let qty = Number.isFinite(Number(line.qty)) ? Number(line.qty) : null
+                                        if (qty == null && isOpenLive && liveCargoProgress.movedQty != null) {
+                                          qty = Number(liveCargoProgress.movedQty)
+                                        }
                                         cumQty += qty ?? 0
                                         const balance = siQty != null ? siQty - cumQty : null
                                         let rate = null
@@ -889,6 +901,8 @@ export default function OperationActivityTimeline({
                                           const ms = new Date(line.endedAt).getTime() - new Date(line.startedAt).getTime()
                                           const hours = ms / 3600000
                                           if (hours > 1e-9) rate = qty / hours
+                                        } else if (qty != null && isOpenLive && line.startedAt) {
+                                          rate = approxRateTph(qty, line.startedAt, new Date().toISOString())
                                         }
                                         const entryNum = ++globalLineIdx
                                         const rowKey = `${item.id}-nested-${ev.id}-line-${lineIdx}`

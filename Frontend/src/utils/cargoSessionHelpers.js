@@ -1,17 +1,13 @@
 import { fetchTankGaugingMassDelta } from '../api/tankGauging'
 import { normalizeForApi } from './scheduleDateTime'
-
-/** Partition selected tanks using master-tank hasAtg flags. */
-export function partitionDraftTanks(tankIds, tankMetaById) {
-  const atgTankIds = []
-  const manualTankIds = []
-  for (const id of tankIds || []) {
-    const meta = tankMetaById?.get(String(id))
-    if (meta?.hasAtg) atgTankIds.push(String(id))
-    else manualTankIds.push(String(id))
-  }
-  return { atgTankIds, manualTankIds }
-}
+export {
+  buildLiveCargoProgressSnapshot,
+  partitionDraftTanks,
+  resolveCargoProgressTotalLoaded,
+  resolveDefaultCargoOperationWindowStart,
+  resolveOpenLineLiveQty,
+  sumClosedPersistedLineQty,
+} from './cargoProgressResolvers.js'
 
 export function resolveLineTankIds(line) {
   if (Array.isArray(line?.tankIds) && line.tankIds.length) {
