@@ -4935,10 +4935,28 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   margin: var(--spacing-3) 0;
 }
 
+.hourly-cargo-progress__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-2);
+}
+
 .hourly-cargo-progress__title {
-  margin: 0 0 var(--spacing-2);
+  margin: 0;
   font-size: var(--font-size-body);
   font-weight: var(--font-weight-semibold);
+}
+
+.hourly-cargo-progress__export {
+  flex-shrink: 0;
+}
+
+.hourly-cargo-progress__export-error {
+  margin: 0 0 var(--spacing-2);
+  color: var(--danger-600, #c00);
+  font-size: var(--font-size-small);
 }
 
 .hourly-cargo-progress__current-hour {

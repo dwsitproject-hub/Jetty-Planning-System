@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { downloadHourlyTransferRatesExcel } from '../data/hourlyTransferRatesExcel'
 import { expandHourlyBucketsForDisplay, formatDisplayCargoQty } from '../utils/hourlyCargoDisplay'
 
 function formatRate(n, unit = 'MT') {
@@ -67,9 +68,14 @@ export default function HourlyCargoProgressTable({
   collapsedRowLimit = 6,
   defaultExpanded = false,
   segmentStartLabel = null,
+  jettyName = null,
+  vesselName = null,
+  exportable = false,
 }) {
   const { t } = useTranslation('pages')
   const [expanded, setExpanded] = useState(defaultExpanded)
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState('')
 
   const bucketsForDisplay = useMemo(() => {
     if (!Array.isArray(hourlyBuckets) || hourlyBuckets.length === 0) return []
@@ -88,12 +94,50 @@ export default function HourlyCargoProgressTable({
 
   const totalCount = hourlyBuckets?.length ?? 0
   const showToggle = collapsible && totalCount > collapsedRowLimit
+  const canExport =
+    exportable &&
+    Array.isArray(hourlyBuckets) &&
+    hourlyBuckets.length > 0 &&
+    expandHourlyBucketsForDisplay(hourlyBuckets, purpose).length > 0
+
+  const handleExportExcel = async () => {
+    setExportError('')
+    setExporting(true)
+    try {
+      await downloadHourlyTransferRatesExcel({
+        jettyName,
+        vesselName,
+        hourlyBuckets,
+        purpose,
+        unit,
+        t,
+      })
+    } catch (e) {
+      setExportError(e?.message || t('cargoHourlyExportFailed'))
+    } finally {
+      setExporting(false)
+    }
+  }
 
   return (
     <div className={`hourly-cargo-progress${compact ? ' hourly-cargo-progress--compact' : ''}`}>
       {!compact ? (
-        <h4 className="hourly-cargo-progress__title">{t('cargoHourlyTableTitle')}</h4>
+        <div className="hourly-cargo-progress__header">
+          <h4 className="hourly-cargo-progress__title">{t('cargoHourlyTableTitle')}</h4>
+          {canExport ? (
+            <button
+              type="button"
+              className="btn btn--small btn--soft hourly-cargo-progress__export"
+              onClick={handleExportExcel}
+              disabled={exporting}
+              title={t('cargoHourlyExportHint')}
+            >
+              {exporting ? t('cargoHourlyExporting') : t('cargoHourlyExportExcel')}
+            </button>
+          ) : null}
+        </div>
       ) : null}
+      {exportError ? <p className="hourly-cargo-progress__export-error">{exportError}</p> : null}
       {currentHourLine ? (
         <p className="hourly-cargo-progress__current-hour text-steel">{currentHourLine}</p>
       ) : null}

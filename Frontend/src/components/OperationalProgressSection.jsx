@@ -17,6 +17,8 @@ export default function OperationalProgressSection({
   basePath = null,
   scheduleTimezone = 'Asia/Jakarta',
   refreshToken: refreshTokenProp = 0,
+  jettyName = null,
+  vesselName = null,
 }) {
   const [events, setEvents] = useState([])
   const [progress, setProgress] = useState(null)
@@ -165,6 +167,9 @@ export default function OperationalProgressSection({
             currentHourLine={rateSummary.currentHourLine ?? null}
             collapsible
             collapsedRowLimit={6}
+            jettyName={jettyName}
+            vesselName={vesselName}
+            exportable
           />
 
           <CargoDischargeProgressChart

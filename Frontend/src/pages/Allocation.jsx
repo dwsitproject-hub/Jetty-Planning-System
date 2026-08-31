@@ -3566,6 +3566,8 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                       operationId={vessel.operationId}
                       totalQtyDisplay={vessel.totalQtyDisplay ?? null}
                       vesselId={vesselDetailModalVesselId}
+                      jettyName={vessel?.jettyOperationCode ?? null}
+                      vesselName={vessel?.vesselName ?? getVesselName(vesselDetailModalVesselId) ?? null}
                       basePath={
                         String(vessel?.purpose || '').trim() === 'Unloading' ? '/unloading' : '/loading'
                       }
