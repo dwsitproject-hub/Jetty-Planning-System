@@ -8,6 +8,7 @@ export default function SortableFilterableTableHead({
   filters,
   onFilterChange,
   leadingBlankCols = 0,
+  leadingBlankLabel,
   trailingBlankCols = 0,
   trailingBlankLabel = 'Actions',
 }) {
@@ -22,15 +23,16 @@ export default function SortableFilterableTableHead({
               ? 'allocation-table__action-col'
               : undefined
         }
+        aria-hidden={!label || undefined}
       >
-        {side === 'trailing' && count === 1 && label ? label : null}
+        {count === 1 && label ? label : null}
       </th>
     ))
 
   return (
     <>
       <tr>
-        {blankThs(leadingBlankCols, 'leading')}
+        {blankThs(leadingBlankCols, 'leading', leadingBlankLabel)}
         {columns.map((col) => (
           <th key={col.key} className="allocation-table__th">
             <button
