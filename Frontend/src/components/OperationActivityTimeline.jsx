@@ -885,33 +885,38 @@ export default function OperationActivityTimeline({
                                         : [{ lineOrder: null, qty: Number.isFinite(Number(ev.cargoMovedQty)) ? Number(ev.cargoMovedQty) : null, startedAt: ev.startAt ?? null, endedAt: ev.endAt ?? ev.cargoLastLineEndedAt ?? null }]
                                       return lines.map((line, lineIdx) => {
                                         const lineId = line.id != null ? String(line.id) : null
+                                        const isOpenLine = Boolean(
+                                          (line.startedAt || line.startAt) && !(line.endedAt || line.endAt)
+                                        )
                                         const isOpenLive =
                                           liveCargoProgress &&
-                                          lineId &&
-                                          String(liveCargoProgress.openLoadLineId) === lineId &&
-                                          !line.endedAt
+                                          isOpenLine &&
+                                          (!lineId ||
+                                            String(liveCargoProgress.openLoadLineId) === lineId)
                                         let qty = Number.isFinite(Number(line.qty)) ? Number(line.qty) : null
-                                        if (qty == null && isOpenLive && liveCargoProgress.movedQty != null) {
+                                        if (isOpenLive && liveCargoProgress.movedQty != null) {
                                           qty = Number(liveCargoProgress.movedQty)
                                         }
                                         cumQty += qty ?? 0
                                         const balance = siQty != null ? siQty - cumQty : null
                                         let rate = null
-                                        if (qty != null && line.startedAt && line.endedAt) {
-                                          const ms = new Date(line.endedAt).getTime() - new Date(line.startedAt).getTime()
+                                        const lineStart = line.startedAt || line.startAt
+                                        const lineEnd = line.endedAt || line.endAt
+                                        if (qty != null && lineStart && lineEnd) {
+                                          const ms = new Date(lineEnd).getTime() - new Date(lineStart).getTime()
                                           const hours = ms / 3600000
                                           if (hours > 1e-9) rate = qty / hours
-                                        } else if (qty != null && isOpenLive && line.startedAt) {
-                                          rate = approxRateTph(qty, line.startedAt, new Date().toISOString())
+                                        } else if (qty != null && isOpenLive && lineStart) {
+                                          rate = approxRateTph(qty, lineStart, new Date().toISOString())
                                         }
                                         const entryNum = ++globalLineIdx
                                         const rowKey = `${item.id}-nested-${ev.id}-line-${lineIdx}`
                                         return (
                                           <tr key={rowKey}>
                                             <td>Entry {entryNum}</td>
-                                            <td className="operation-activity-timeline__time">{line.startedAt ? formatDateTimeDisplay(line.startedAt) : '—'}</td>
+                                            <td className="operation-activity-timeline__time">{lineStart ? formatDateTimeDisplay(lineStart) : '—'}</td>
                                             <td className="operation-activity-timeline__time">
-                                              {line.endedAt ? formatDateTimeDisplay(line.endedAt) : t('cargoOpsLineInProgress')}
+                                              {(line.endedAt || line.endAt) ? formatDateTimeDisplay(line.endedAt || line.endAt) : t('cargoOpsLineInProgress')}
                                             </td>
                                             <td className="operation-activity-timeline__time">
                                               {qty != null ? `${qty.toLocaleString(undefined, { maximumFractionDigits: 6 })}${metricSuffix}` : '—'}

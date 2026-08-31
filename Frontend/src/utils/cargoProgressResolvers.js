@@ -1,5 +1,7 @@
 /** Pure cargo progress qty helpers (no API imports — safe for node:test). */
 
+import { readAtgQtyFromRef } from './atgQty.js'
+
 function parsePositiveQtyValue(s) {
   if (s == null || String(s).trim() === '') return NaN
   const n = Number(String(s).trim().replace(',', '.'))
@@ -36,12 +38,30 @@ export function sumClosedDraftLineQty(lines) {
     }, 0)
 }
 
+function lineStartAt(line) {
+  return line?.startAt ?? line?.startedAt ?? line?.start_at ?? null
+}
+
+function lineEndAt(line) {
+  return line?.endAt ?? line?.endedAt ?? line?.end_at ?? null
+}
+
+/** First open cargo load line (supports activity-timeline and operational-activities shapes). */
+export function findOpenCargoLoadLine(lines) {
+  if (!Array.isArray(lines)) return null
+  return (
+    lines.find((l) => lineStartAt(l) && !lineEndAt(l) && l.id != null) ??
+    lines.find((l) => lineStartAt(l) && !lineEndAt(l)) ??
+    null
+  )
+}
+
 /** Sum saved qty on all closed cargo load lines from activity rows. */
 export function sumClosedPersistedLineQty(activityRows) {
   let total = 0
   for (const act of activityRows || []) {
     for (const line of act.cargoLoadLines || []) {
-      if (!line.endAt) continue
+      if (!lineEndAt(line)) continue
       const q = Number(line.qty)
       if (Number.isFinite(q) && q > 0) total += q
     }
@@ -86,8 +106,6 @@ export function resolveOpenLineLiveQty({
   tankMetaById,
   closedPersistedSum,
 }) {
-  if (!openLineDraft) return null
-
   const closedSum =
     closedPersistedSum != null && Number.isFinite(Number(closedPersistedSum))
       ? Number(closedPersistedSum)
@@ -99,18 +117,18 @@ export function resolveOpenLineLiveQty({
     if (openFromApi > 0) return openFromApi
   }
 
+  if (!openLineDraft) return null
+
   const { atgTankIds, manualTankIds } = partitionDraftTanks(openLineDraft.tankIds, tankMetaById)
   const atgQtyMode = openLineDraft.atgQtyMode === 'manual' ? 'manual' : 'auto'
 
+  const atgQty = readAtgQtyFromRef(atgRef)
   const atgOk =
-    atgRef?.status === 'ok' &&
-    !atgRef.incomplete &&
-    atgRef.sumDeltaMass != null &&
-    Number.isFinite(Number(atgRef.sumDeltaMass))
+    atgRef?.status === 'ok' && !atgRef.incomplete && atgQty != null && atgQty > 0
 
   let openPart = 0
   if (atgTankIds.length > 0 && atgQtyMode === 'auto' && atgOk) {
-    openPart += Number(atgRef.sumDeltaMass)
+    openPart += atgQty
   }
 
   const manualMq = parsePositiveQtyValue(openLineDraft.manualQty)

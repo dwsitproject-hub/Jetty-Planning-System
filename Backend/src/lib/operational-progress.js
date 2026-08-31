@@ -2,8 +2,13 @@
  * Hybrid operational progress: ATG daily aggregates + manual proportional by operational day.
  */
 
-import { computeAtgWindowMassDelta } from './atg-window-rate.js';
+import { computeAtgWindowMassDelta, computeAtgWindowVolumeDelta } from './atg-window-rate.js';
 import { getHourlyOperationalProgress, aggregateHourlyProgressForOperation, computeDirectionalMovedQtyForWindow } from './atg-hourly-progress.js';
+import {
+  readAtgQtyFromResult,
+  resolveAtgMeasurementBasis,
+  resolveFlatThresholds,
+} from './atg-measurement.js';
 import { attachScheduleComparisonToSummary, evaluateCargoScheduleComparison } from './cargo-schedule-progress.js';
 import {
   currentOperationalDateKey,
@@ -103,6 +108,18 @@ function formatRateNumber(n) {
 }
 
 /**
+ * @param {import('pg').Pool|import('pg').PoolClient} db
+ * @param {object} params
+ * @param {'mass'|'volume'} params.measurementBasis
+ */
+async function computeAtgWindowDeltaForBasis(db, params) {
+  if (params.measurementBasis === 'volume') {
+    return computeAtgWindowVolumeDelta(db, params);
+  }
+  return computeAtgWindowMassDelta(db, params);
+}
+
+/**
  * @param {object} line
  * @param {string} timezone
  * @param {string} dayStartTime
@@ -179,6 +196,8 @@ async function upsertDailyProgressRow(db, row) {
 export async function computeAtgDailyBarsForLine(db, line, atgTankIds, timezone, dayStartTime, opts = {}) {
   if (!atgTankIds?.length) return { bars: [], atgStatus: 'unavailable', atgError: 'no_tanks' };
 
+  const measurementBasis = opts.measurementBasis || 'mass';
+
   const startIso = line.startedAt || line.startAt;
   const endIso = line.endedAt || line.endAt || new Date().toISOString();
   if (!startIso) return { bars: [], atgStatus: 'unavailable', atgError: 'no_start' };
@@ -203,14 +222,16 @@ export async function computeAtgDailyBarsForLine(db, line, atgTankIds, timezone,
     const windowStart = new Date(windowStartMs).toISOString();
     const windowEnd = new Date(windowEndMs).toISOString();
 
-    const result = await computeAtgWindowMassDelta(db, {
+    const result = await computeAtgWindowDeltaForBasis(db, {
       tankIds: atgTankIds,
       startAt: windowStart,
       endAt: windowEnd,
+      measurementBasis,
     });
 
-    if (result.ok && !result.incomplete && result.sumDeltaMass != null) {
-      const qtyMoved = Number(result.sumDeltaMass) || 0;
+    const atgQty = readAtgQtyFromResult(result);
+    if (result.ok && !result.incomplete && atgQty != null) {
+      const qtyMoved = Number(atgQty) || 0;
       okDays += 1;
       bars.push({ date: dateKey, qtyMoved, atgQty: qtyMoved, manualQty: 0 });
 
@@ -222,7 +243,13 @@ export async function computeAtgDailyBarsForLine(db, line, atgTankIds, timezone,
           progressDate: dateKey,
           qtyMoved,
           source: 'atg',
-          tankDetail: { sumDeltaMass: result.sumDeltaMass, tanks: result.tanks },
+          tankDetail: {
+            sumAtgQty: atgQty,
+            sumDeltaMass: result.sumDeltaMass ?? null,
+            sumDeltaVolumeKl: result.sumDeltaVolumeKl ?? null,
+            measurementBasis,
+            tanks: result.tanks,
+          },
           windowStart,
           windowEnd,
         });
@@ -276,20 +303,28 @@ export async function aggregateAtgDailyProgressForOperation(db, operationId, opt
       const windowEndMs = Math.min(lineEndMs, bounds.end.toMillis());
       if (windowEndMs <= windowStartMs) continue;
 
-      const result = await computeAtgWindowMassDelta(db, {
+      const result = await computeAtgWindowDeltaForBasis(db, {
         tankIds: atgTankIds,
         startAt: new Date(windowStartMs).toISOString(),
         endAt: new Date(windowEndMs).toISOString(),
+        measurementBasis: ctx.measurementBasis || resolveAtgMeasurementBasis(ctx.siMetric),
       });
 
-      if (result.ok && !result.incomplete && result.sumDeltaMass != null) {
+      const atgQty = readAtgQtyFromResult(result);
+      if (result.ok && !result.incomplete && atgQty != null) {
         await upsertDailyProgressRow(db, {
           operationId,
           loadLineId: line.id,
           progressDate: dateKey,
-          qtyMoved: Number(result.sumDeltaMass) || 0,
+          qtyMoved: Number(atgQty) || 0,
           source: 'atg',
-          tankDetail: { sumDeltaMass: result.sumDeltaMass, tanks: result.tanks },
+          tankDetail: {
+            sumAtgQty: atgQty,
+            sumDeltaMass: result.sumDeltaMass ?? null,
+            sumDeltaVolumeKl: result.sumDeltaVolumeKl ?? null,
+            measurementBasis: ctx.measurementBasis,
+            tanks: result.tanks,
+          },
           windowStart: new Date(windowStartMs).toISOString(),
           windowEnd: new Date(windowEndMs).toISOString(),
         });
@@ -391,26 +426,8 @@ export async function loadOperationProgressContext(db, operationId) {
   );
   const siQty = siR.rows[0]?.qty != null ? Number(siR.rows[0].qty) : null;
   const siMetric = siR.rows[0]?.metric_code || 'MT';
-
-  let flatRateThresholdTph = 2.0;
-  let minQtyMovedT = 1.0;
-  try {
-    const portR = await db.query(
-      `SELECT atg_flat_rate_threshold_tph, atg_min_qty_moved_t
-       FROM ports WHERE id = $1 AND deleted_at IS NULL`,
-      [row.port_id]
-    );
-    if (portR.rows[0]) {
-      if (portR.rows[0].atg_flat_rate_threshold_tph != null) {
-        flatRateThresholdTph = Number(portR.rows[0].atg_flat_rate_threshold_tph);
-      }
-      if (portR.rows[0].atg_min_qty_moved_t != null) {
-        minQtyMovedT = Number(portR.rows[0].atg_min_qty_moved_t);
-      }
-    }
-  } catch {
-    /* port threshold columns may not exist pre-migration */
-  }
+  const thresholdConfig = resolveFlatThresholds(siMetric);
+  const measurementBasis = thresholdConfig.measurementBasis;
 
   return {
     operationId,
@@ -418,8 +435,9 @@ export async function loadOperationProgressContext(db, operationId) {
     dayStartTime,
     commodityType: row.commodity_type === 'Solid' ? 'Solid' : 'Liquid',
     purpose: row.purpose === 'Unloading' ? 'Unloading' : 'Loading',
-    flatRateThresholdTph,
-    minQtyMovedT,
+    flatRateThresholdTph: thresholdConfig.flatRateThresholdTph,
+    minQtyMovedT: thresholdConfig.minQtyMovedT,
+    measurementBasis,
     lines,
     siQty,
     siMetric,
@@ -529,14 +547,16 @@ export async function getOperationalProgress(db, operationId) {
         const windowEndMs = Math.min(lineEndMs, bounds.end.toMillis());
         if (windowEndMs <= windowStartMs) continue;
 
-        const result = await computeAtgWindowMassDelta(db, {
+        const result = await computeAtgWindowDeltaForBasis(db, {
           tankIds: useAtgTanks,
           startAt: new Date(windowStartMs).toISOString(),
           endAt: new Date(windowEndMs).toISOString(),
+          measurementBasis: ctx.measurementBasis,
         });
 
-        if (result.ok && !result.incomplete && result.sumDeltaMass != null) {
-          const qtyMoved = Number(result.sumDeltaMass) || 0;
+        const atgQty = readAtgQtyFromResult(result);
+        if (result.ok && !result.incomplete && atgQty != null) {
+          const qtyMoved = Number(atgQty) || 0;
           atgBars.push({ date: dateKey, qtyMoved, atgQty: qtyMoved, manualQty: 0 });
           hasAtg = true;
         } else {
@@ -789,6 +809,7 @@ export function buildScheduleComparisonFromOverviewRow(row, nowMs = Date.now()) 
  * @param {Awaited<ReturnType<typeof loadOperationProgressContext>>} ctx
  */
 export async function summarizeCargoProgressContext(db, ctx, opts = {}) {
+  const measurementBasis = ctx?.measurementBasis || resolveAtgMeasurementBasis(ctx?.siMetric);
   const computeAtg =
     opts.computeAtg ??
     ((params) => {
@@ -797,7 +818,12 @@ export async function summarizeCargoProgressContext(db, ctx, opts = {}) {
           ...params,
           purpose: ctx.purpose,
           timezone: ctx.timezone,
+          measurementBasis,
+          siMetric: ctx.siMetric,
         });
+      }
+      if (measurementBasis === 'volume') {
+        return computeAtgWindowVolumeDelta(db, params);
       }
       return computeAtgWindowMassDelta(db, params);
     });
@@ -847,8 +873,9 @@ export async function summarizeCargoProgressContext(db, ctx, opts = {}) {
         startAt: line.startedAt,
         endAt: new Date().toISOString(),
       });
-      if (result.ok && result.sumDeltaMass != null) {
-        movedQty += Number(result.sumDeltaMass) || 0;
+      const atgQty = readAtgQtyFromResult(result);
+      if (result.ok && atgQty != null) {
+        movedQty += Number(atgQty) || 0;
         isLive = true;
         if (result.incomplete) atgPartial = true;
       } else if (mode === 'mixed' && line.manualQty != null) {

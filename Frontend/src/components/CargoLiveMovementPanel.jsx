@@ -7,6 +7,7 @@ import {
   fetchCargoManualCheckpoints,
 } from '../api/operations'
 import { partitionDraftTanks } from '../utils/cargoSessionHelpers'
+import { readAtgQtyFromRef } from '../utils/atgQty.js'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 
 function formatQty(n, metricLabel) {
@@ -182,11 +183,12 @@ export default function CargoLiveMovementPanel({
     return partitionDraftTanks(ids, tankMetaById)
   }, [openLine, tankMetaById])
 
+  const atgQty = readAtgQtyFromRef(atgRef)
   const atgOk =
     atgRef?.status === 'ok' &&
     !atgRef.incomplete &&
-    atgRef.sumDeltaMass != null &&
-    Number.isFinite(Number(atgRef.sumDeltaMass))
+    atgQty != null &&
+    atgQty > 0
 
   const atgQtyMode = openLine?.atgQtyMode === 'manual' ? 'manual' : 'auto'
   const isAllAtg = atgTankIds.length > 0 && manualTankIds.length === 0
@@ -196,7 +198,7 @@ export default function CargoLiveMovementPanel({
     hourlyProgress?.movedQty != null && Number.isFinite(Number(hourlyProgress.movedQty))
       ? Number(hourlyProgress.movedQty)
       : atgOk
-        ? Number(atgRef.sumDeltaMass)
+        ? atgQty
         : null
 
   const showManualCheckpoints =

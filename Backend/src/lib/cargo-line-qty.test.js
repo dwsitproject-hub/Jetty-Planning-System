@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { isAtgResolvable, resolveCargoLineQty } from './cargo-line-qty.js';
 
 const ATG_OK = { ok: true, incomplete: false, sumDeltaMass: 906.709 };
+const ATG_KL_OK = { ok: true, incomplete: false, sumAtgQty: 1200, sumDeltaVolumeKl: 1200 };
 const ATG_NO_SAMPLES = { ok: false, incomplete: true, sumDeltaMass: null, error: 'no_samples' };
 const ATG_PARTIAL = { ok: true, incomplete: true, sumDeltaMass: 400, error: 'partial_samples' };
 
@@ -31,6 +32,10 @@ describe('isAtgResolvable', () => {
     assert.equal(isAtgResolvable(ATG_PARTIAL), false);
     assert.equal(isAtgResolvable({ ok: true, incomplete: false, sumDeltaMass: 0 }), false);
   });
+
+  it('accepts KL volume delta via sumAtgQty', () => {
+    assert.equal(isAtgResolvable(ATG_KL_OK), true);
+  });
 });
 
 describe('resolveCargoLineQty — ATG available', () => {
@@ -46,6 +51,13 @@ describe('resolveCargoLineQty — ATG available', () => {
     const r = resolveCargoLineQty(allAtgLine());
     assert.equal(r.qty, 906.709);
     assert.equal(r.coerced, null);
+  });
+
+  it('uses KL volume ATG delta from sumAtgQty', () => {
+    const r = resolveCargoLineQty(allAtgLine({ atg: ATG_KL_OK, submittedQty: 999 }));
+    assert.equal(r.error, null);
+    assert.equal(r.qty, 1200);
+    assert.equal(r.coerced, 'qty_from_atg');
   });
 
   it('rejects a new manual override', () => {

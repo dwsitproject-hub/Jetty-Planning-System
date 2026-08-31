@@ -17,6 +17,7 @@ import {
 } from '../api/operations'
 import { fetchMasterTanks } from '../api/masterTanks'
 import { fetchTankGaugingMassDelta } from '../api/tankGauging'
+import { readAtgQtyFromRef } from '../utils/atgQty.js'
 import OperationActivityTimeline from './OperationActivityTimeline'
 import DropdownMultiSelect from './DropdownMultiSelect'
 import CargoLiveMovementPanel from './CargoLiveMovementPanel'
@@ -28,6 +29,7 @@ import {
 } from '../utils/cargoSiQtyMismatch.js'
 import {
   buildLiveCargoProgressSnapshot,
+  findOpenCargoLoadLine,
   partitionDraftTanks,
   resolveCargoProgressTotalLoaded,
   resolveDefaultCargoOperationWindowStart,
@@ -724,8 +726,7 @@ export default function OperationalMilestoneWorkspace({
     if (!useApi) return null
     const rows = milestoneActivitiesFor(activities, 'CARGO OPERATIONS')
     for (const act of rows) {
-      const lines = act.cargoLoadLines || []
-      const open = lines.find((l) => l.startAt && !l.endAt)
+      const open = findOpenCargoLoadLine(act.cargoLoadLines || [])
       if (open?.id) return String(open.id)
     }
     return null
@@ -906,22 +907,22 @@ export default function OperationalMilestoneWorkspace({
             startAt: startIso,
             endAt: endIso || undefined,
             purpose,
+            siMetric: cargoSiMetricCode || 'MT',
           })
+          const atgQty = readAtgQtyFromRef(data)
           nextRefs[row.key] = {
             status: 'ok',
-            sumDeltaMass: data.sumDeltaMass,
+            sumAtgQty: atgQty,
+            sumDeltaMass: data.sumDeltaMass ?? atgQty,
             incomplete: data.incomplete,
             tanks: Array.isArray(data.tanks) ? data.tanks : [],
             error: data.error,
             atgTankIds,
             manualTankIds,
           }
-          const atgOk =
-            !data.incomplete &&
-            data.sumDeltaMass != null &&
-            Number.isFinite(Number(data.sumDeltaMass))
+          const atgOk = !data.incomplete && atgQty != null && atgQty > 0
           if (endIso && !row.qtyTouched && atgOk) {
-            const atgPart = Number(data.sumDeltaMass)
+            const atgPart = atgQty
             if (manualTankIds.length > 0) {
               const mq = parsePositiveQty(row.manualQty)
               const total = Number.isFinite(mq) ? atgPart + mq : atgPart
@@ -951,7 +952,7 @@ export default function OperationalMilestoneWorkspace({
     return () => {
       cancelled = true
     }
-  }, [cargoLineAtgSignature, portId, commodityType, tz, tankMetaById, purpose])
+  }, [cargoLineAtgSignature, portId, commodityType, tz, tankMetaById, purpose, cargoSiMetricCode])
 
   const addCargoLineDraft = useCallback(() => {
     setCargoLoadLinesDraft((prev) => {
@@ -1063,11 +1064,8 @@ export default function OperationalMilestoneWorkspace({
           const isMixed = commodityType === 'Liquid' && atgTankIds.length > 0 && manualTankIds.length > 0
           const hasAtgTanks = commodityType === 'Liquid' && atgTankIds.length > 0
           const atgRef = atgRefByLineKey[li.key]
-          const atgOk =
-            atgRef?.status === 'ok' &&
-            !atgRef.incomplete &&
-            atgRef.sumDeltaMass != null &&
-            Number.isFinite(Number(atgRef.sumDeltaMass))
+          const atgQty = readAtgQtyFromRef(atgRef)
+          const atgOk = atgRef?.status === 'ok' && !atgRef.incomplete && atgQty != null && atgQty > 0
           if (isMixed && atgQtyMode === 'auto' && hasEnd && (manualQty == null || manualQty <= 0)) {
             return { error: t('cargoOpsLineManualQtyRequired', { n: i + 1 }) }
           }
@@ -1624,11 +1622,12 @@ export default function OperationalMilestoneWorkspace({
                     const isMixed =
                       commodityType === 'Liquid' && atgTankIds.length > 0 && manualTankIds.length > 0
                     const atgQtyMode = row.atgQtyMode === 'manual' ? 'manual' : 'auto'
+                    const atgQty = readAtgQtyFromRef(atgRef)
                     const atgOk =
                       atgRef?.status === 'ok' &&
                       !atgRef.incomplete &&
-                      atgRef.sumDeltaMass != null &&
-                      Number.isFinite(Number(atgRef.sumDeltaMass))
+                      atgQty != null &&
+                      atgQty > 0
                     const hasAtgTanks = commodityType === 'Liquid' && atgTankIds.length > 0
                     const atgUnavailable =
                       hasAtgTanks &&
@@ -1645,13 +1644,16 @@ export default function OperationalMilestoneWorkspace({
                     const manualToggleLocked = atgOk && !row.loadedManual
                     const atgNowAvailable = atgOk && atgQtyMode === 'manual'
                     const atgFmt = atgOk
-                      ? Number(atgRef.sumDeltaMass).toLocaleString(undefined, { maximumFractionDigits: 6 })
+                      ? atgQty.toLocaleString(undefined, { maximumFractionDigits: 6 })
                       : null
                     const atgTankHint =
                       atgRef?.status === 'ok' && Array.isArray(atgRef.tanks) && atgRef.tanks.length > 1
                         ? atgRef.tanks
-                            .filter((tk) => tk.deltaMass != null)
-                            .map((tk) => `${tk.code || tk.tankId} ${Number(tk.deltaMass) >= 0 ? '+' : ''}${Number(tk.deltaMass).toLocaleString(undefined, { maximumFractionDigits: 3 })}`)
+                            .filter((tk) => tk.deltaMass != null || tk.deltaKl != null)
+                            .map((tk) => {
+                              const delta = tk.deltaKl != null ? tk.deltaKl : tk.deltaMass
+                              return `${tk.code || tk.tankId} ${Number(delta) >= 0 ? '+' : ''}${Number(delta).toLocaleString(undefined, { maximumFractionDigits: 3 })}`
+                            })
                             .join(' · ')
                         : ''
                     const qtyAutoFilled =
@@ -1813,7 +1815,7 @@ export default function OperationalMilestoneWorkspace({
                                   <span className="cargo-line-card__atg-partial text-steel">
                                     {' '}
                                     ·{' '}
-                                    {atgRef.sumDeltaMass == null
+                                    {readAtgQtyFromRef(atgRef) == null
                                       ? t('cargoOpsAtgNoSamples')
                                       : t('cargoOpsAtgRatePartial')}
                                   </span>

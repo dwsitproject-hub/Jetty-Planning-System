@@ -1,7 +1,9 @@
 import { fetchTankGaugingMassDelta } from '../api/tankGauging'
+import { readAtgQtyFromRef } from './atgQty.js'
 import { normalizeForApi } from './scheduleDateTime'
 export {
   buildLiveCargoProgressSnapshot,
+  findOpenCargoLoadLine,
   partitionDraftTanks,
   resolveCargoProgressTotalLoaded,
   resolveDefaultCargoOperationWindowStart,
@@ -66,7 +68,7 @@ export function mapExistingCargoLine(l, entry) {
   }
 }
 
-export async function buildStoppedCargoLine(openLine, endIso, { portId, commodityType, tankMetaById, tankOptions, tz, purpose = null }) {
+export async function buildStoppedCargoLine(openLine, endIso, { portId, commodityType, tankMetaById, tankOptions, tz, purpose = null, siMetric = 'MT' }) {
   const tankIds = resolveLineTankIds(openLine)
   const line = {
     startAt: openLine.startAt,
@@ -101,16 +103,17 @@ export async function buildStoppedCargoLine(openLine, endIso, { portId, commodit
       startAt,
       endAt: endIso,
       purpose: purpose || undefined,
+      siMetric,
     })
-    const mass = Number(data?.sumDeltaMass)
+    const atgQty = readAtgQtyFromRef(data)
     const manualTankIds = tankIds.filter((id) => !tankHasAtg(id, { tankMetaById, tankOptions }))
     let manualPart = 0
     if (manualTankIds.length > 0) {
       const mq = Number(openLine.manualQty)
       if (Number.isFinite(mq) && mq > 0) manualPart = mq
     }
-    if (!data?.incomplete && Number.isFinite(mass) && mass > 0) {
-      line.qty = manualPart > 0 ? mass + manualPart : mass
+    if (!data?.incomplete && atgQty != null && atgQty > 0) {
+      line.qty = manualPart > 0 ? atgQty + manualPart : atgQty
     } else if (manualPart > 0) {
       line.qty = manualPart
     }

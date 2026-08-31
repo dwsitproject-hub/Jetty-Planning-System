@@ -4,10 +4,23 @@
  */
 
 import { DateTime } from 'luxon';
-import { DEFAULT_TOLERANCE_MS, nearestSampleAtOrBefore } from './atg-window-rate.js';
+import {
+  DEFAULT_FLAT_RATE_THRESHOLD_KL,
+  DEFAULT_FLAT_RATE_THRESHOLD_MT,
+  DEFAULT_MIN_QTY_MOVED_KL,
+  DEFAULT_MIN_QTY_MOVED_MT,
+  attachAtgQtyFields,
+  observedVolumeToKl,
+  resolveAtgMeasurementBasis,
+} from './atg-measurement.js';
+import {
+  DEFAULT_TOLERANCE_MS,
+  nearestSampleAtOrBefore,
+  nearestVolumeSampleAtOrBefore,
+} from './atg-window-rate.js';
 
-export const DEFAULT_FLAT_RATE_THRESHOLD_TPH = 2.0;
-export const DEFAULT_MIN_QTY_MOVED_T = 1.0;
+export const DEFAULT_FLAT_RATE_THRESHOLD_TPH = DEFAULT_FLAT_RATE_THRESHOLD_MT;
+export const DEFAULT_MIN_QTY_MOVED_T = DEFAULT_MIN_QTY_MOVED_MT;
 
 async function getCargoProgressHelpers() {
   return import('./operational-progress.js');
@@ -153,8 +166,19 @@ export function resolveBucketDisplayFields(bucket) {
       if (t.displayQtyMoved != null && Number.isFinite(Number(t.displayQtyMoved))) {
         return sum + Number(t.displayQtyMoved);
       }
+      if (t.rawDeltaLiters != null && Number.isFinite(Number(t.rawDeltaLiters))) {
+        return sum + Number(t.rawDeltaLiters);
+      }
+      if (t.rawDeltaKl != null && Number.isFinite(Number(t.rawDeltaKl))) {
+        return sum + Number(t.rawDeltaKl) * 1000;
+      }
       if (t.rawDeltaMass != null && Number.isFinite(Number(t.rawDeltaMass))) {
         return sum + Number(t.rawDeltaMass);
+      }
+      if (t.volumeStartKl != null && t.volumeEndKl != null) {
+        const start = Number(t.volumeStartKl);
+        const end = Number(t.volumeEndKl);
+        if (Number.isFinite(start) && Number.isFinite(end)) return sum + (end - start) * 1000;
       }
       if (t.massStart != null && t.massEnd != null) {
         const start = Number(t.massStart);
@@ -270,6 +294,126 @@ async function computeDirectionalMassDeltaForWindow(db, opts) {
 }
 
 /**
+ * @param {import('pg').Pool|import('pg').PoolClient} db
+ * @param {object} opts
+ */
+async function computeDirectionalVolumeDeltaForWindow(db, opts) {
+  const startAt = new Date(opts.startAt);
+  const endAt = new Date(opts.endAt);
+  const toleranceMs = Number.isFinite(opts.toleranceMs) ? opts.toleranceMs : DEFAULT_TOLERANCE_MS;
+  const purpose = opts.purpose || 'Loading';
+
+  if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime()) || endAt <= startAt) {
+    return { ok: false, sumQtyMoved: null, tanks: [], incomplete: true, directionMismatch: false };
+  }
+
+  const tankIds = (opts.tankIds || [])
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+
+  if (!tankIds.length) {
+    return { ok: false, sumQtyMoved: null, tanks: [], incomplete: true, directionMismatch: false };
+  }
+
+  const meta = await db.query(
+    `SELECT id, code, name FROM master_tanks WHERE id = ANY($1::bigint[]) AND deleted_at IS NULL`,
+    [tankIds]
+  );
+  const metaById = new Map(meta.rows.map((row) => [Number(row.id), row]));
+
+  const tanks = [];
+  let sumQtyMoved = 0;
+  let sumDisplayQtyMoved = 0;
+  let okCount = 0;
+  let anyDirectionMismatch = false;
+
+  for (const tankId of tankIds) {
+    const m = metaById.get(tankId);
+    const sStart = await nearestVolumeSampleAtOrBefore(db, tankId, startAt, toleranceMs);
+    const sEnd = await nearestVolumeSampleAtOrBefore(db, tankId, endAt, toleranceMs);
+
+    if (!sStart || !sEnd) {
+      tanks.push({
+        tankId: String(tankId),
+        code: m?.code ?? null,
+        name: m?.name ?? null,
+        volumeStartKl: sStart ? observedVolumeToKl(sStart.total_observed_volume) : null,
+        volumeEndKl: sEnd ? observedVolumeToKl(sEnd.total_observed_volume) : null,
+        qtyMoved: null,
+        rawDeltaKl: null,
+        rawDeltaLiters: null,
+        displayQtyMoved: null,
+        directionMismatch: false,
+        error: !sStart && !sEnd ? 'no_sample' : !sStart ? 'no_sample_start' : 'no_sample_end',
+      });
+      continue;
+    }
+
+    const volumeStartKl = observedVolumeToKl(sStart.total_observed_volume);
+    const volumeEndKl = observedVolumeToKl(sEnd.total_observed_volume);
+    if (volumeStartKl == null || volumeEndKl == null) {
+      tanks.push({
+        tankId: String(tankId),
+        code: m?.code ?? null,
+        name: m?.name ?? null,
+        volumeStartKl,
+        volumeEndKl,
+        qtyMoved: null,
+        rawDeltaKl: null,
+        rawDeltaLiters: null,
+        displayQtyMoved: null,
+        directionMismatch: false,
+        error: 'invalid_volume',
+      });
+      continue;
+    }
+
+    const { qtyMoved, directionMismatch, rawDeltaMass: rawDeltaKl } = computeDirectionalTankDelta(
+      volumeStartKl,
+      volumeEndKl,
+      purpose
+    );
+    const rawDeltaLiters = rawDeltaKl != null ? rawDeltaKl * 1000 : null;
+    if (directionMismatch) anyDirectionMismatch = true;
+    sumQtyMoved += qtyMoved;
+    sumDisplayQtyMoved += rawDeltaLiters ?? 0;
+    okCount += 1;
+
+    tanks.push({
+      tankId: String(tankId),
+      code: m?.code ?? null,
+      name: m?.name ?? null,
+      volumeStartKl,
+      volumeEndKl,
+      qtyMoved,
+      rawDeltaKl,
+      rawDeltaLiters,
+      displayQtyMoved: rawDeltaLiters,
+      directionMismatch,
+      error: null,
+    });
+  }
+
+  const incomplete = okCount < tankIds.length;
+  return {
+    ok: okCount > 0,
+    sumQtyMoved: okCount > 0 ? sumQtyMoved : null,
+    sumDisplayQtyMoved: okCount > 0 ? sumDisplayQtyMoved : null,
+    tanks,
+    incomplete,
+    directionMismatch: anyDirectionMismatch,
+  };
+}
+
+function computeDirectionalDeltaForWindow(db, opts) {
+  const basis = opts.measurementBasis === 'volume' ? 'volume' : 'mass';
+  if (basis === 'volume') {
+    return computeDirectionalVolumeDeltaForWindow(db, opts);
+  }
+  return computeDirectionalMassDeltaForWindow(db, opts);
+}
+
+/**
  * Directional moved qty over [startAt, endAt]: sum of clock-hour bucket qtyMoved (matches hourly progress).
  * @param {import('pg').Pool|import('pg').PoolClient} db
  * @param {object} opts
@@ -292,45 +436,54 @@ export async function computeDirectionalMovedQtyForWindow(db, opts) {
   const purpose = opts.purpose === 'Unloading' ? 'Unloading' : 'Loading';
   const timezone = opts.timezone || 'Asia/Jakarta';
   const toleranceMs = Number.isFinite(opts.toleranceMs) ? opts.toleranceMs : DEFAULT_TOLERANCE_MS;
+  const measurementBasis =
+    opts.measurementBasis === 'volume' || opts.measurementBasis === 'mass'
+      ? opts.measurementBasis
+      : resolveAtgMeasurementBasis(opts.siMetric);
   const tankIds = (opts.tankIds || [])
     .map((id) => Number(id))
     .filter((id) => Number.isFinite(id) && id > 0);
 
   if (!tankIds.length) {
-    return {
-      ok: false,
-      sumDeltaMass: null,
-      tanks: [],
-      incomplete: true,
-      directionMismatch: false,
-      error: 'no_tanks',
-    };
+    return attachAtgQtyFields(
+      {
+        ok: false,
+        sumDeltaMass: null,
+        tanks: [],
+        incomplete: true,
+        directionMismatch: false,
+        error: 'no_tanks',
+      },
+      measurementBasis
+    );
   }
 
   const buckets = buildClockHourBuckets(opts.startAt, opts.endAt, timezone);
   if (!buckets.length) {
-    return {
-      ok: false,
-      sumDeltaMass: null,
-      tanks: [],
-      incomplete: true,
-      directionMismatch: false,
-      error: 'invalid_window',
-    };
+    return attachAtgQtyFields(
+      {
+        ok: false,
+        sumDeltaMass: null,
+        tanks: [],
+        incomplete: true,
+        directionMismatch: false,
+        error: 'invalid_window',
+      },
+      measurementBasis
+    );
   }
 
   let sumQtyMoved = 0;
   let mergedTankDetail = null;
   let anyIncomplete = false;
   let anyDirectionMismatch = false;
+  const deltaOpts = { tankIds, purpose, toleranceMs, measurementBasis };
 
   for (const bucket of buckets) {
-    const result = await computeDirectionalMassDeltaForWindow(db, {
-      tankIds,
+    const result = await computeDirectionalDeltaForWindow(db, {
+      ...deltaOpts,
       startAt: bucket.hourStart,
       endAt: bucket.hourEnd,
-      purpose,
-      toleranceMs,
     });
     if (result.incomplete) anyIncomplete = true;
     if (result.directionMismatch) anyDirectionMismatch = true;
@@ -340,12 +493,10 @@ export async function computeDirectionalMovedQtyForWindow(db, opts) {
     mergedTankDetail = mergeTankDetailArrays(mergedTankDetail, result.tanks);
   }
 
-  const endpoint = await computeDirectionalMassDeltaForWindow(db, {
-    tankIds,
+  const endpoint = await computeDirectionalDeltaForWindow(db, {
+    ...deltaOpts,
     startAt: opts.startAt,
     endAt: opts.endAt,
-    purpose,
-    toleranceMs,
   });
   if (endpoint.incomplete) anyIncomplete = true;
   if (endpoint.directionMismatch) anyDirectionMismatch = true;
@@ -354,6 +505,20 @@ export async function computeDirectionalMovedQtyForWindow(db, opts) {
   const mergedTanks = normalizeTankDetailArray(mergedTankDetail);
   const tanks = mergedTanks.map((t) => {
     const ep = endpointById.get(String(t.tankId));
+    if (measurementBasis === 'volume') {
+      return {
+        tankId: t.tankId,
+        code: t.code ?? ep?.code ?? null,
+        name: t.name ?? ep?.name ?? null,
+        qtyMoved: Number(t.qtyMoved) || 0,
+        deltaKl: ep?.rawDeltaKl ?? (ep?.displayQtyMoved != null ? ep.displayQtyMoved / 1000 : null),
+        volumeStartKl: ep?.volumeStartKl ?? null,
+        volumeEndKl: ep?.volumeEndKl ?? null,
+        rawDeltaLiters: ep?.rawDeltaLiters ?? null,
+        directionMismatch: Boolean(t.directionMismatch || ep?.directionMismatch),
+        error: t.error ?? ep?.error ?? null,
+      };
+    }
     return {
       tankId: t.tankId,
       code: t.code ?? ep?.code ?? null,
@@ -368,14 +533,16 @@ export async function computeDirectionalMovedQtyForWindow(db, opts) {
   });
 
   const ok = endpoint.ok || sumQtyMoved > 0;
-  return {
+  const base = {
     ok,
-    sumDeltaMass: ok ? sumQtyMoved : null,
+    sumDeltaMass: measurementBasis === 'mass' && ok ? sumQtyMoved : null,
+    sumDeltaVolumeKl: measurementBasis === 'volume' && ok ? sumQtyMoved : null,
     tanks,
     incomplete: anyIncomplete,
     directionMismatch: anyDirectionMismatch,
     error: ok ? (anyIncomplete ? 'partial_samples' : null) : endpoint.error || 'no_samples',
   };
+  return attachAtgQtyFields(base, measurementBasis);
 }
 
 /**
@@ -408,15 +575,17 @@ export async function computeHourlyBucketsForLine(db, line, ctx, opts = {}) {
   };
   const purpose = ctx.purpose || 'Loading';
   const toleranceMs = ctx.sampleToleranceMs ?? DEFAULT_TOLERANCE_MS;
+  const measurementBasis = ctx.measurementBasis || resolveAtgMeasurementBasis(ctx.siMetric);
 
   const out = [];
   for (const bucket of buckets) {
-    const result = await computeDirectionalMassDeltaForWindow(db, {
+    const result = await computeDirectionalDeltaForWindow(db, {
       tankIds: atgTankIds,
       startAt: bucket.hourStart,
       endAt: bucket.hourEnd,
       purpose,
       toleranceMs,
+      measurementBasis,
     });
 
     const qtyMoved = result.ok && result.sumQtyMoved != null ? Number(result.sumQtyMoved) : 0;
@@ -586,6 +755,8 @@ export function mergeTankDetailArrays(prevDetail, nextDetail) {
     }
     prev.qtyMoved = (Number(prev.qtyMoved) || 0) + (Number(t.qtyMoved) || 0);
     prev.rawDeltaMass = (Number(prev.rawDeltaMass) || 0) + (Number(t.rawDeltaMass) || 0);
+    prev.rawDeltaKl = (Number(prev.rawDeltaKl) || 0) + (Number(t.rawDeltaKl) || 0);
+    prev.rawDeltaLiters = (Number(prev.rawDeltaLiters) || 0) + (Number(t.rawDeltaLiters) || 0);
     prev.displayQtyMoved = (Number(prev.displayQtyMoved) || 0) + (Number(t.displayQtyMoved) || 0);
     prev.directionMismatch = Boolean(prev.directionMismatch || t.directionMismatch);
   }
@@ -898,6 +1069,7 @@ async function upsertHourlyProgressRow(db, row) {
  */
 export async function aggregateHourlyProgressForOperation(db, operationId, opts = {}) {
   const { loadOperationProgressContext } = await import('./operational-progress.js');
+  const ctx = await loadOperationProgressContext(db, operationId);
   if (!ctx) return { ok: false, error: 'not_found' };
 
   const nowMs = Date.now();

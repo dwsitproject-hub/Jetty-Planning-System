@@ -586,6 +586,7 @@ export function useOperatorExecution(operationId) {
           commodityType,
           tankOptions,
           tz,
+          siMetric: operation?.cargoSiMetricCode ?? operation?.cargo_si_metric_code ?? 'MT',
         })
       })
     )

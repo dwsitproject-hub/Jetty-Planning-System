@@ -1,23 +1,19 @@
 /**
  * Server-authoritative quantity for a cargo load line segment.
- *
- * While ATG resolves for the segment window the quantity always comes from the
- * gauge delta, so a client can never persist a hand-typed number under
- * atg_qty_mode = 'auto'. Manual entry is only reachable through
- * atg_qty_mode = 'manual', which in turn is only accepted when ATG has no
- * usable data for that window (or the same window was already manual).
  */
+
+import { readAtgQtyFromResult } from './atg-measurement.js';
 
 /** Rounding noise between the client autofill and the server recompute. */
 const QTY_EPSILON = 1e-6;
 
 /**
- * @param {{ ok?: boolean, incomplete?: boolean, sumDeltaMass?: number|string|null }|null|undefined} atg
+ * @param {{ ok?: boolean, incomplete?: boolean, sumAtgQty?: number|null, sumDeltaMass?: number|string|null, sumDeltaVolumeKl?: number|null }|null|undefined} atg
  */
 export function isAtgResolvable(atg) {
   if (!atg || atg.ok !== true || atg.incomplete === true) return false;
-  const mass = Number(atg.sumDeltaMass);
-  return atg.sumDeltaMass != null && Number.isFinite(mass) && mass > 0;
+  const qty = readAtgQtyFromResult(atg);
+  return qty != null && Number.isFinite(qty) && qty > 0;
 }
 
 /**
@@ -64,7 +60,15 @@ export function resolveCargoLineQty({
   }
 
   if (isAtgResolvable(atg)) {
-    const atgPart = Number(atg.sumDeltaMass);
+    const atgPart = readAtgQtyFromResult(atg);
+    if (atgPart == null) {
+      return {
+        qty: null,
+        atgQtyMode: 'auto',
+        coerced: null,
+        error: 'ATG quantity is unavailable for this segment; mark "ATG not available" and enter the quantity manually',
+      };
+    }
 
     if (mode === 'manual') {
       if (!grandfatheredManual) {

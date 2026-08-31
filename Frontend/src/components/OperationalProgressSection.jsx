@@ -5,7 +5,7 @@ import HourlyCargoProgressTable from './HourlyCargoProgressTable'
 import OperationActivityTimeline from './OperationActivityTimeline'
 import CargoScheduleProgressIndicator from './CargoScheduleProgressIndicator'
 import { parseQtyDisplay } from '../utils/cargoQtyDisplay'
-import { buildLiveCargoProgressSnapshot } from '../utils/cargoSessionHelpers'
+import { buildLiveCargoProgressSnapshot, findOpenCargoLoadLine } from '../utils/cargoSessionHelpers'
 
 /**
  * Operational progress block for Active Vessel Detail (rates, chart, Operational activity log).
@@ -92,9 +92,7 @@ export default function OperationalProgressSection({
     let openLoadLineId = null
     for (const ev of events) {
       if (ev.source !== 'operational_activity') continue
-      const lines = ev.cargoLoadLines
-      if (!Array.isArray(lines)) continue
-      const open = lines.find((l) => l.startAt && !l.endAt && l.id != null)
+      const open = findOpenCargoLoadLine(ev.cargoLoadLines)
       if (open?.id) {
         openLoadLineId = String(open.id)
         break

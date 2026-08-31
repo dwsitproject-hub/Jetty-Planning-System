@@ -57,8 +57,19 @@ export function tankDisplayQty(tank, purpose) {
   if (tank?.displayQtyMoved != null && Number.isFinite(Number(tank.displayQtyMoved))) {
     return Number(tank.displayQtyMoved)
   }
+  if (tank?.rawDeltaLiters != null && Number.isFinite(Number(tank.rawDeltaLiters))) {
+    return Number(tank.rawDeltaLiters)
+  }
+  if (tank?.rawDeltaKl != null && Number.isFinite(Number(tank.rawDeltaKl))) {
+    return Number(tank.rawDeltaKl) * 1000
+  }
   if (tank?.rawDeltaMass != null && Number.isFinite(Number(tank.rawDeltaMass))) {
     return Number(tank.rawDeltaMass)
+  }
+  if (tank?.volumeStartKl != null && tank?.volumeEndKl != null) {
+    const start = Number(tank.volumeStartKl)
+    const end = Number(tank.volumeEndKl)
+    if (Number.isFinite(start) && Number.isFinite(end)) return (end - start) * 1000
   }
   if (tank?.massStart != null && tank?.massEnd != null) {
     const start = Number(tank.massStart)
@@ -70,6 +81,9 @@ export function tankDisplayQty(tank, purpose) {
   }
   if (tank?.deltaMass != null && Number.isFinite(Number(tank.deltaMass))) {
     return Number(tank.deltaMass)
+  }
+  if (tank?.deltaKl != null && Number.isFinite(Number(tank.deltaKl))) {
+    return Number(tank.deltaKl) * 1000
   }
   return null
 }
@@ -102,6 +116,7 @@ function effectiveHoursForBucket(bucket) {
 
 function tankHasDisplayData(tank, purpose) {
   if (tank?.massStart != null && tank?.massEnd != null) return true
+  if (tank?.volumeStartKl != null && tank?.volumeEndKl != null) return true
   return tankDisplayQty(tank, purpose) != null
 }
 

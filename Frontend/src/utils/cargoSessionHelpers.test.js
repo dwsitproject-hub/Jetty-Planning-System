@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   buildLiveCargoProgressSnapshot,
+  findOpenCargoLoadLine,
   partitionDraftTanks,
   resolveCargoProgressTotalLoaded,
   resolveDefaultCargoOperationWindowStart,
@@ -53,6 +54,41 @@ describe('cargoProgressResolvers', () => {
       },
     ]
     assert.equal(sumClosedPersistedLineQty(rows), 100)
+  })
+
+  it('resolveOpenLineLiveQty uses API moved minus closed persisted without draft', () => {
+    const qty = resolveOpenLineLiveQty({
+      openLineDraft: null,
+      atgRef: null,
+      sessionOperationalProgress: { movedQty: 850 },
+      tankMetaById: null,
+      closedPersistedSum: 100,
+    })
+    assert.equal(qty, 750)
+  })
+
+  it('findOpenCargoLoadLine accepts activity-timeline field names', () => {
+    const open = findOpenCargoLoadLine([
+      { id: '1', startedAt: '2026-01-01T10:00:00Z', endedAt: '2026-01-01T12:00:00Z', qty: 100 },
+      { id: '2', startedAt: '2026-01-02T10:00:00Z', endedAt: null, qty: 0 },
+    ])
+    assert.equal(open?.id, '2')
+  })
+
+  it('buildLiveCargoProgressSnapshot works from API progress without draft', () => {
+    const snap = buildLiveCargoProgressSnapshot({
+      openLoadLineId: '2',
+      openLineDraft: null,
+      atgRef: null,
+      sessionOperationalProgress: { movedQty: 850 },
+      tankMetaById: null,
+      activityRows: [
+        {
+          cargoLoadLines: [{ id: '1', endedAt: '2026-01-01T12:00:00Z', qty: 100 }],
+        },
+      ],
+    })
+    assert.deepEqual(snap, { openLoadLineId: '2', movedQty: 750, manualQty: null })
   })
 
   it('resolveOpenLineLiveQty uses API moved minus closed persisted', () => {

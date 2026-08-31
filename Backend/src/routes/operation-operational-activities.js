@@ -9,8 +9,9 @@ import { writeActivityLog } from '../lib/activity-log.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { promoteDockedToInProgressIfDocked } from '../lib/operation-auto-status.js';
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
-import { computeAtgWindowMassDelta } from '../lib/atg-window-rate.js';
+import { computeAtgWindowMassDelta, computeAtgWindowVolumeDelta } from '../lib/atg-window-rate.js';
 import { resolveCargoLineQty } from '../lib/cargo-line-qty.js';
+import { readAtgQtyFromResult, resolveAtgMeasurementBasis } from '../lib/atg-measurement.js';
 import {
   aggregateAtgDailyProgressForOperation,
   getOperationalProgress,
@@ -350,6 +351,8 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
 
   const grandfatheredManual = await loadManualLineWindows(q, excludeActivityId);
   const cargoAtgCtx = await loadOperationCargoAtgContext(q, operationId);
+  const siLine = await loadPrimarySiCargoLine(q, operationId);
+  const measurementBasis = resolveAtgMeasurementBasis(siLine?.metric_code);
 
   for (const p of parsed) {
     let atgTankIds = [];
@@ -366,6 +369,14 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
             endAt: p.endIso,
             purpose: cargoAtgCtx.purpose,
             timezone: cargoAtgCtx.timezone,
+            measurementBasis,
+            siMetric: siLine?.metric_code,
+          });
+        } else if (measurementBasis === 'volume') {
+          atg = await computeAtgWindowVolumeDelta(q, {
+            tankIds: atgTankIds,
+            startAt: p.startIso,
+            endAt: p.endIso,
           });
         } else {
           atg = await computeAtgWindowMassDelta(q, {
@@ -460,10 +471,14 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
 }
 
 function atgMassSnapshotFromResult(result) {
+  const atgQty = readAtgQtyFromResult(result);
   return {
-    atgMassDelta: result.ok ? result.sumDeltaMass : null,
+    atgMassDelta: result.ok ? atgQty : null,
     atgMassDetail: {
-      sumDeltaMass: result.sumDeltaMass,
+      sumAtgQty: atgQty,
+      sumDeltaMass: result.sumDeltaMass ?? null,
+      sumDeltaVolumeKl: result.sumDeltaVolumeKl ?? null,
+      measurementBasis: result.measurementBasis ?? null,
       incomplete: result.incomplete,
       error: result.error,
       tanks: result.tanks,
@@ -471,7 +486,7 @@ function atgMassSnapshotFromResult(result) {
   };
 }
 
-async function attachAtgMassSnapshots(client, lines, { commodityType }) {
+async function attachAtgMassSnapshots(client, lines, { commodityType, measurementBasis = 'mass' }) {
   const out = [];
   for (const ln of lines) {
     const tankIds = ln.tankIds || [];
@@ -494,11 +509,18 @@ async function attachAtgMassSnapshots(client, lines, { commodityType }) {
       continue;
     }
     const endAt = ln.endIso || new Date().toISOString();
-    const result = await computeAtgWindowMassDelta(client, {
-      tankIds: atgTankIds,
-      startAt: ln.startIso,
-      endAt,
-    });
+    const result =
+      measurementBasis === 'volume'
+        ? await computeAtgWindowVolumeDelta(client, {
+            tankIds: atgTankIds,
+            startAt: ln.startIso,
+            endAt,
+          })
+        : await computeAtgWindowMassDelta(client, {
+            tankIds: atgTankIds,
+            startAt: ln.startIso,
+            endAt,
+          });
     out.push({ ...ln, ...atgMassSnapshotFromResult(result) });
   }
   return out;
@@ -574,8 +596,8 @@ async function refreshOperationalProgressAfterCargoSave(q, operationId) {
 }
 
 async function insertCargoLoadLines(client, operationalActivityId, lines, opts = {}) {
-  const { commodityType = 'Liquid', operationId = null } = opts;
-  const enriched = await attachAtgMassSnapshots(client, lines, { commodityType });
+  const { commodityType = 'Liquid', operationId = null, measurementBasis = 'mass' } = opts;
+  const enriched = await attachAtgMassSnapshots(client, lines, { commodityType, measurementBasis });
   const lineIds = [];
   const out = [];
   for (let i = 0; i < enriched.length; i++) {
@@ -651,6 +673,11 @@ async function loadOperationCargoAtgContext(q, operationId) {
     purpose: row.purpose === 'Unloading' ? 'Unloading' : 'Loading',
     timezone: row.schedule_timezone || 'Asia/Jakarta',
   };
+}
+
+async function loadMeasurementBasisForOperation(q, operationId) {
+  const siLine = await loadPrimarySiCargoLine(q, operationId);
+  return resolveAtgMeasurementBasis(siLine?.metric_code);
 }
 
 async function validateTankIdsForPort(q, ids, operationId, errorPrefix) {
@@ -976,9 +1003,11 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
       let savedLines = null;
       const commodityType = await loadCommodityTypeForOperation(client, operationId);
       if (milestoneKey === 'cargo_operations' && linePack.lines?.length) {
+        const measurementBasis = await loadMeasurementBasisForOperation(client, operationId);
         savedLines = await insertCargoLoadLines(client, row.id, linePack.lines, {
           commodityType: commodityType || 'Liquid',
           operationId,
+          measurementBasis,
         });
       }
       if (milestoneKey === 'cargo_operations') {
@@ -1178,9 +1207,11 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
       let savedLinesPut = null;
       const commodityTypePut = await loadCommodityTypeForOperation(client, operationId);
       if (milestoneKey === 'cargo_operations' && linePack.lines?.length) {
+        const measurementBasisPut = await loadMeasurementBasisForOperation(client, operationId);
         savedLinesPut = await replaceCargoLoadLines(client, entryId, linePack.lines, {
           commodityType: commodityTypePut || 'Liquid',
           operationId,
+          measurementBasis: measurementBasisPut,
         });
       }
       if (milestoneKey === 'cargo_operations') {
@@ -1491,6 +1522,7 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
        LEFT JOIN LATERAL (
          SELECT jsonb_agg(
                   jsonb_build_object(
+                    'id', l.id,
                     'lineOrder', l.line_order,
                     'qty', l.qty,
                     'manualQty', l.manual_qty,
@@ -1604,11 +1636,16 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
           code: t.code ?? null,
           name: t.name ?? null,
         }));
+        const startedAt = l.startedAt ? new Date(l.startedAt).toISOString() : null;
+        const endedAt = l.endedAt ? new Date(l.endedAt).toISOString() : null;
         return {
+          id: l.id != null ? String(l.id) : null,
           lineOrder: l.lineOrder ?? null,
           qty: l.qty != null ? Number(l.qty) : null,
-          startedAt: l.startedAt ? new Date(l.startedAt).toISOString() : null,
-          endedAt: l.endedAt ? new Date(l.endedAt).toISOString() : null,
+          startAt: startedAt,
+          endAt: endedAt,
+          startedAt,
+          endedAt,
           atgMassDelta: l.atgMassDelta != null ? Number(l.atgMassDelta) : null,
           atgMassDetail: l.atgMassDetail ?? null,
           atgMassComputedAt: l.atgMassComputedAt ?? null,

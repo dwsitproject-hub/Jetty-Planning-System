@@ -6,7 +6,7 @@ import { pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePortScope } from '../middleware/port-scope.js';
 import { requirePageEdit, requirePageView } from '../middleware/permissions.js';
-import { computeAtgWindowMassDelta } from '../lib/atg-window-rate.js';
+import { computeAtgWindowMassDelta, computeAtgWindowVolumeDelta } from '../lib/atg-window-rate.js';
 import { computeDirectionalMovedQtyForWindow } from '../lib/atg-hourly-progress.js';
 import {
   createSource,
@@ -135,6 +135,12 @@ router.get('/mass-delta', async (req, res) => {
         ? 'Unloading'
         : 'Loading'
       : null;
+  const siMetricRaw = req.query.siMetric ?? req.query.si_metric;
+  const siMetric =
+    siMetricRaw != null && String(siMetricRaw).trim() !== ''
+      ? String(siMetricRaw).trim().toUpperCase()
+      : 'MT';
+  const measurementBasis = siMetric === 'KL' ? 'volume' : 'mass';
 
   if (portId == null) {
     return res.status(400).json({ error: 'portId is required' });
@@ -172,13 +178,20 @@ router.get('/mass-delta', async (req, res) => {
       endAt,
       purpose,
       timezone,
+      measurementBasis,
+      siMetric,
     });
+  } else if (measurementBasis === 'volume') {
+    result = await computeAtgWindowVolumeDelta(pool, { tankIds, startAt, endAt });
   } else {
     result = await computeAtgWindowMassDelta(pool, { tankIds, startAt, endAt });
   }
 
   res.json({
-    sumDeltaMass: result.sumDeltaMass,
+    sumAtgQty: result.sumAtgQty ?? result.sumDeltaMass ?? result.sumDeltaVolumeKl ?? null,
+    sumDeltaMass: result.sumDeltaMass ?? null,
+    qtyUnit: siMetric === 'KL' ? 'KL' : 'MT',
+    measurementBasis: result.measurementBasis ?? measurementBasis,
     incomplete: result.incomplete,
     error: result.error,
     directionMismatch: result.directionMismatch ?? false,

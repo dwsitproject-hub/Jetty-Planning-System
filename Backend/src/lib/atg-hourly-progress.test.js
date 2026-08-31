@@ -89,6 +89,12 @@ describe('computeDirectionalTankDelta', () => {
     assert.equal(netWindow.qtyMoved, 0);
     assert.ok(hour1.qtyMoved + hour2.qtyMoved > netWindow.qtyMoved);
   });
+
+  it('loading uses KL volume decrease', () => {
+    const r = computeDirectionalTankDelta(5000, 4500, 'Loading');
+    assert.equal(r.qtyMoved, 500);
+    assert.equal(r.directionMismatch, false);
+  });
 });
 
 describe('classifyHourDisplayStatus', () => {
