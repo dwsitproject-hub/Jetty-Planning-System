@@ -15,6 +15,8 @@ import SiDocumentModal from '../components/SiDocumentModal'
 import VesselInfoModal, { VesselNameButton } from '../components/VesselInfoModal'
 import ShipmentPlanCombinedFormModal from '../components/ShipmentPlanCombinedFormModal'
 import { ShipmentPlanRowActions } from '../components/SiTableRowActions.jsx'
+import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
+import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 import {
   canOpenPreBerthCombinedEdit,
   preBerthCombinedSaveToastMessage,
@@ -29,6 +31,26 @@ function approvalBadgeClass(status) {
 }
 
 const PLANS_LIST_PAGE_SIZE = 20
+
+function parseDateMs(val) {
+  if (!val) return null
+  const ms = new Date(val).getTime()
+  return Number.isNaN(ms) ? null : ms
+}
+
+function planRefLabel(row) {
+  return row.planReference || `Plan #${row.id}`
+}
+
+function siRefsStr(row) {
+  return (row.shippingInstructions || []).map((s) => s.referenceNumber || `SI-${s.id}`).join(' ')
+}
+
+function commodityQtyStr(row) {
+  return (row.shippingInstructions || [])
+    .map((s) => (s.commodityQtyDisplay || '').replace(/\n/g, ' '))
+    .join(' ')
+}
 
 export default function ShipmentPlansList() {
   const { t } = useTranslation('shipmentPlan')
@@ -50,18 +72,6 @@ export default function ShipmentPlansList() {
 
   const [combinedModal, setCombinedModal] = useState(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const [tableFilters, setTableFilters] = useState({
-    planRef: '',
-    vessel: '',
-    siRefs: '',
-    commodityQty: '',
-    purpose: '',
-    approval: '',
-    jetty: '',
-    eta: '',
-    externalReference: '',
-    requestedBy: '',
-  })
   const [plansListPage, setPlansListPage] = useState(1)
   const [siDocumentModalId, setSiDocumentModalId] = useState(null)
   const [vesselInfoPlanId, setVesselInfoPlanId] = useState(null)
@@ -114,36 +124,87 @@ export default function ShipmentPlansList() {
     return { total, pending, approved, draft }
   }, [list])
 
-  const filteredPlans = useMemo(() => {
-    const f = tableFilters
-    const inc = (hay, needle) =>
-      !needle?.trim() || String(hay ?? '').toLowerCase().includes(needle.trim().toLowerCase())
-    return list.filter((row) => {
-      const planLabel = row.planReference || `Plan #${row.id}`
-      if (!inc(planLabel, f.planRef)) return false
-      if (!inc(row.vesselName, f.vessel)) return false
-      const siStr = (row.shippingInstructions || []).map((s) => s.referenceNumber || `SI-${s.id}`).join(' ')
-      if (!inc(siStr, f.siRefs)) return false
-      const qtyStr = (row.shippingInstructions || []).map((s) => s.commodityQtyDisplay || '').join(' ')
-      if (!inc(qtyStr, f.commodityQty)) return false
-      const planPurposeStr = resolvePurposeLabel(row.purposeCode, null)
-      if (!inc(planPurposeStr, f.purpose)) return false
-      if (!inc(row.approvalStatus, f.approval)) return false
-      if (!inc(row.jettyName || '—', f.jetty)) return false
-      if (!inc(formatDateTimeDisplay(row.eta), f.eta)) return false
-      if (!inc(row.externalReference, f.externalReference)) return false
-      if (!inc(row.requestedBy, f.requestedBy)) return false
-      return true
-    })
-  }, [list, tableFilters])
+  const planTableColumns = useMemo(
+    () => [
+      {
+        key: 'planRef',
+        label: t('colPlanRef'),
+        getSortValue: (r) => planRefLabel(r).toLowerCase(),
+        getFilterValue: (r) => planRefLabel(r),
+      },
+      {
+        key: 'vessel',
+        label: t('colVessel'),
+        getSortValue: (r) => (r.vesselName || '').toLowerCase(),
+        getFilterValue: (r) => r.vesselName || '',
+      },
+      {
+        key: 'siRefs',
+        label: t('colSiRefs'),
+        getSortValue: (r) => siRefsStr(r).toLowerCase(),
+        getFilterValue: (r) => siRefsStr(r),
+      },
+      {
+        key: 'commodityQty',
+        label: t('colCommodityQty'),
+        getSortValue: (r) => commodityQtyStr(r).toLowerCase(),
+        getFilterValue: (r) => commodityQtyStr(r),
+      },
+      {
+        key: 'purpose',
+        label: t('colPurpose'),
+        getSortValue: (r) => resolvePurposeLabel(r.purposeCode, null).toLowerCase(),
+        getFilterValue: (r) => resolvePurposeLabel(r.purposeCode, null),
+      },
+      {
+        key: 'approval',
+        label: t('colApproval'),
+        getSortValue: (r) => (r.approvalStatus || '').toLowerCase(),
+        getFilterValue: (r) => r.approvalStatus || '',
+      },
+      {
+        key: 'jetty',
+        label: t('colJetty'),
+        getSortValue: (r) => (r.jettyName || '—').toLowerCase(),
+        getFilterValue: (r) => r.jettyName || '—',
+      },
+      {
+        key: 'eta',
+        label: t('colEta'),
+        getSortValue: (r) => parseDateMs(r.eta) ?? Number.NEGATIVE_INFINITY,
+        getFilterValue: (r) => formatDateTimeDisplay(r.eta),
+      },
+      {
+        key: 'externalReference',
+        label: t('colExternalReference'),
+        getSortValue: (r) => (r.externalReference || '').toLowerCase(),
+        getFilterValue: (r) => r.externalReference || '',
+      },
+      {
+        key: 'requestedBy',
+        label: t('colRequestedBy'),
+        getSortValue: (r) => (r.requestedBy || '').toLowerCase(),
+        getFilterValue: (r) => r.requestedBy || '',
+      },
+    ],
+    [t]
+  )
+
+  const {
+    displayRows: filteredAndSortedPlans,
+    filters,
+    updateFilter,
+    sortState,
+    handleSort,
+  } = useSortableFilterableRows(list, planTableColumns, { key: 'eta', dir: 'asc' })
 
   useEffect(() => {
     setPlansListPage(1)
-  }, [tableFilters, approvalFilter, purposeFilter, debouncedVesselQ])
+  }, [filters, sortState.key, sortState.dir, approvalFilter, purposeFilter, debouncedVesselQ])
 
   const plansListTotalPages = useMemo(
-    () => Math.max(1, Math.ceil(filteredPlans.length / PLANS_LIST_PAGE_SIZE)),
-    [filteredPlans.length]
+    () => Math.max(1, Math.ceil(filteredAndSortedPlans.length / PLANS_LIST_PAGE_SIZE)),
+    [filteredAndSortedPlans.length]
   )
 
   useEffect(() => {
@@ -152,16 +213,16 @@ export default function ShipmentPlansList() {
 
   const paginatedFilteredPlans = useMemo(() => {
     const start = (plansListPage - 1) * PLANS_LIST_PAGE_SIZE
-    return filteredPlans.slice(start, start + PLANS_LIST_PAGE_SIZE)
-  }, [filteredPlans, plansListPage])
+    return filteredAndSortedPlans.slice(start, start + PLANS_LIST_PAGE_SIZE)
+  }, [filteredAndSortedPlans, plansListPage])
 
   const plansPaginationRange = useMemo(() => {
-    const total = filteredPlans.length
+    const total = filteredAndSortedPlans.length
     if (total === 0) return { from: 0, to: 0 }
     const from = (plansListPage - 1) * PLANS_LIST_PAGE_SIZE + 1
     const to = Math.min(plansListPage * PLANS_LIST_PAGE_SIZE, total)
     return { from, to }
-  }, [filteredPlans.length, plansListPage])
+  }, [filteredAndSortedPlans.length, plansListPage])
 
   const openCreateModal = () => setCombinedModal({ mode: 'create' })
   const openEditModal = (row) => setCombinedModal({ mode: 'edit', planRow: row })
@@ -386,124 +447,15 @@ export default function ShipmentPlansList() {
         <div className="table-wrap shipping-instruction-table-desktop">
           <table className="data-table shipping-instruction-table">
             <thead>
-              <tr>
-                <th scope="col" className="si-table__col-actions shipping-instruction-table__th--actions">
-                  {t('colActions')}
-                </th>
-                <th className="shipping-instruction-table__th">{t('colPlanRef')}</th>
-                <th className="shipping-instruction-table__th">{t('colVessel')}</th>
-                <th className="shipping-instruction-table__th">{t('colSiRefs')}</th>
-                <th className="shipping-instruction-table__th">{t('colCommodityQty')}</th>
-                <th className="shipping-instruction-table__th">{t('colPurpose')}</th>
-                <th className="shipping-instruction-table__th">{t('colApproval')}</th>
-                <th className="shipping-instruction-table__th">{t('colJetty')}</th>
-                <th className="shipping-instruction-table__th">{t('colEta')}</th>
-                <th className="shipping-instruction-table__th">{t('colExternalReference')}</th>
-                <th className="shipping-instruction-table__th">{t('colRequestedBy')}</th>
-              </tr>
-              <tr className="shipping-instruction-table__filter-row">
-                <th className="si-table__col-actions" aria-hidden />
-                <th>
-                  <input
-                    type="text"
-                    className="shipping-instruction-table__filter"
-                    placeholder={t('filterPlaceholderShort')}
-                    value={tableFilters.planRef}
-                    onChange={(e) => setTableFilters((f) => ({ ...f, planRef: e.target.value }))}
-                    aria-label={t('filterPlanRef')}
-                  />
-                </th>
-                <th>
-                  <input
-                    type="text"
-                    className="shipping-instruction-table__filter"
-                    placeholder={t('filterPlaceholderShort')}
-                    value={tableFilters.vessel}
-                    onChange={(e) => setTableFilters((f) => ({ ...f, vessel: e.target.value }))}
-                    aria-label={t('filterVessel')}
-                  />
-                </th>
-                <th>
-                  <input
-                    type="text"
-                    className="shipping-instruction-table__filter"
-                    placeholder={t('filterPlaceholderShort')}
-                    value={tableFilters.siRefs}
-                    onChange={(e) => setTableFilters((f) => ({ ...f, siRefs: e.target.value }))}
-                    aria-label={t('filterSiRefs')}
-                  />
-                </th>
-                <th>
-                  <input
-                    type="text"
-                    className="shipping-instruction-table__filter"
-                    placeholder={t('filterPlaceholderShort')}
-                    value={tableFilters.commodityQty}
-                    onChange={(e) => setTableFilters((f) => ({ ...f, commodityQty: e.target.value }))}
-                    aria-label={t('filterCommodityQty')}
-                  />
-                </th>
-                <th>
-                  <input
-                    type="text"
-                    className="shipping-instruction-table__filter"
-                    placeholder={t('filterPlaceholderShort')}
-                    value={tableFilters.purpose}
-                    onChange={(e) => setTableFilters((f) => ({ ...f, purpose: e.target.value }))}
-                    aria-label={t('filterPlanPurpose')}
-                  />
-                </th>
-                <th>
-                  <input
-                    type="text"
-                    className="shipping-instruction-table__filter"
-                    placeholder={t('filterPlaceholderShort')}
-                    value={tableFilters.approval}
-                    onChange={(e) => setTableFilters((f) => ({ ...f, approval: e.target.value }))}
-                    aria-label={t('filterApproval')}
-                  />
-                </th>
-                <th>
-                  <input
-                    type="text"
-                    className="shipping-instruction-table__filter"
-                    placeholder={t('filterPlaceholderShort')}
-                    value={tableFilters.jetty}
-                    onChange={(e) => setTableFilters((f) => ({ ...f, jetty: e.target.value }))}
-                    aria-label={t('filterJetty')}
-                  />
-                </th>
-                <th>
-                  <input
-                    type="text"
-                    className="shipping-instruction-table__filter"
-                    placeholder={t('filterPlaceholderShort')}
-                    value={tableFilters.eta}
-                    onChange={(e) => setTableFilters((f) => ({ ...f, eta: e.target.value }))}
-                    aria-label={t('filterEta')}
-                  />
-                </th>
-                <th>
-                  <input
-                    type="text"
-                    className="shipping-instruction-table__filter"
-                    placeholder={t('filterPlaceholderShort')}
-                    value={tableFilters.externalReference}
-                    onChange={(e) => setTableFilters((f) => ({ ...f, externalReference: e.target.value }))}
-                    aria-label={t('filterExternalReference')}
-                  />
-                </th>
-                <th>
-                  <input
-                    type="text"
-                    className="shipping-instruction-table__filter"
-                    placeholder={t('filterPlaceholderShort')}
-                    value={tableFilters.requestedBy}
-                    onChange={(e) => setTableFilters((f) => ({ ...f, requestedBy: e.target.value }))}
-                    aria-label={t('filterRequestedBy')}
-                  />
-                </th>
-              </tr>
+              <SortableFilterableTableHead
+                columns={planTableColumns}
+                sortState={sortState}
+                onSort={handleSort}
+                filters={filters}
+                onFilterChange={updateFilter}
+                leadingBlankCols={1}
+                leadingBlankLabel={t('colActions')}
+              />
             </thead>
             <tbody>
               {paginatedFilteredPlans.map((row) => (
@@ -689,7 +641,7 @@ export default function ShipmentPlansList() {
           ))}
         </div>
 
-        {filteredPlans.length > 0 && (
+        {filteredAndSortedPlans.length > 0 && (
           <div
             className="shipment-plans-list__pagination"
             style={{
@@ -705,7 +657,7 @@ export default function ShipmentPlansList() {
               {t('paginationShowing', {
                 from: plansPaginationRange.from,
                 to: plansPaginationRange.to,
-                total: filteredPlans.length,
+                total: filteredAndSortedPlans.length,
               })}
             </p>
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
