@@ -7,6 +7,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePortScope } from '../middleware/port-scope.js';
 import { requirePageEdit, requirePageView } from '../middleware/permissions.js';
 import { computeAtgWindowMassDelta } from '../lib/atg-window-rate.js';
+import { computeDirectionalMovedQtyForWindow } from '../lib/atg-hourly-progress.js';
 import {
   createSource,
   deleteSource,
@@ -127,6 +128,13 @@ router.get('/mass-delta', async (req, res) => {
   const startAt = req.query.startAt ?? req.query.start_at;
   const endAtRaw = req.query.endAt ?? req.query.end_at;
   const endAt = endAtRaw != null && endAtRaw !== '' ? endAtRaw : new Date().toISOString();
+  const purposeRaw = req.query.purpose;
+  const purpose =
+    purposeRaw != null && String(purposeRaw).trim() !== ''
+      ? String(purposeRaw).trim() === 'Unloading'
+        ? 'Unloading'
+        : 'Loading'
+      : null;
 
   if (portId == null) {
     return res.status(400).json({ error: 'portId is required' });
@@ -150,11 +158,30 @@ router.get('/mass-delta', async (req, res) => {
     return res.status(400).json({ error: 'One or more tanks are invalid for this port' });
   }
 
-  const result = await computeAtgWindowMassDelta(pool, { tankIds, startAt, endAt });
+  let result;
+  if (purpose) {
+    const tzRow = await pool.query(
+      `SELECT COALESCE(schedule_timezone, 'Asia/Jakarta') AS schedule_timezone
+       FROM master_ports WHERE id = $1 AND deleted_at IS NULL`,
+      [portId]
+    );
+    const timezone = tzRow.rows[0]?.schedule_timezone || 'Asia/Jakarta';
+    result = await computeDirectionalMovedQtyForWindow(pool, {
+      tankIds,
+      startAt,
+      endAt,
+      purpose,
+      timezone,
+    });
+  } else {
+    result = await computeAtgWindowMassDelta(pool, { tankIds, startAt, endAt });
+  }
+
   res.json({
     sumDeltaMass: result.sumDeltaMass,
     incomplete: result.incomplete,
     error: result.error,
+    directionMismatch: result.directionMismatch ?? false,
     tanks: result.tanks,
   });
 });

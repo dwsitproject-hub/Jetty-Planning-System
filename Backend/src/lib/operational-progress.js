@@ -3,7 +3,7 @@
  */
 
 import { computeAtgWindowMassDelta } from './atg-window-rate.js';
-import { getHourlyOperationalProgress, aggregateHourlyProgressForOperation } from './atg-hourly-progress.js';
+import { getHourlyOperationalProgress, aggregateHourlyProgressForOperation, computeDirectionalMovedQtyForWindow } from './atg-hourly-progress.js';
 import { attachScheduleComparisonToSummary, evaluateCargoScheduleComparison } from './cargo-schedule-progress.js';
 import {
   currentOperationalDateKey,
@@ -789,7 +789,18 @@ export function buildScheduleComparisonFromOverviewRow(row, nowMs = Date.now()) 
  * @param {Awaited<ReturnType<typeof loadOperationProgressContext>>} ctx
  */
 export async function summarizeCargoProgressContext(db, ctx, opts = {}) {
-  const computeAtg = opts.computeAtg ?? ((params) => computeAtgWindowMassDelta(db, params));
+  const computeAtg =
+    opts.computeAtg ??
+    ((params) => {
+      if (ctx?.purpose) {
+        return computeDirectionalMovedQtyForWindow(db, {
+          ...params,
+          purpose: ctx.purpose,
+          timezone: ctx.timezone,
+        });
+      }
+      return computeAtgWindowMassDelta(db, params);
+    });
   if (!ctx) return null;
 
   const hasTankLine = ctx.lines.some((l) => l.tankIds?.length > 0);

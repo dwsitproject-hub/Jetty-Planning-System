@@ -16,7 +16,7 @@ import {
   getOperationalProgress,
   partitionLineTanks,
 } from '../lib/operational-progress.js';
-import { snapshotHourlyDetailForLoadLine } from '../lib/atg-hourly-progress.js';
+import { computeDirectionalMovedQtyForWindow, snapshotHourlyDetailForLoadLine } from '../lib/atg-hourly-progress.js';
 
 const router = express.Router();
 
@@ -349,6 +349,7 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
   }
 
   const grandfatheredManual = await loadManualLineWindows(q, excludeActivityId);
+  const cargoAtgCtx = await loadOperationCargoAtgContext(q, operationId);
 
   for (const p of parsed) {
     let atgTankIds = [];
@@ -358,11 +359,21 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
     if (commodityType !== 'Solid' && p.tankIds.length > 0) {
       ({ atgTankIds, manualTankIds } = await partitionLineTanks(q, p.tankIds));
       if (atgTankIds.length > 0 && p.hasEnd) {
-        atg = await computeAtgWindowMassDelta(q, {
-          tankIds: atgTankIds,
-          startAt: p.startIso,
-          endAt: p.endIso,
-        });
+        if (cargoAtgCtx?.purpose) {
+          atg = await computeDirectionalMovedQtyForWindow(q, {
+            tankIds: atgTankIds,
+            startAt: p.startIso,
+            endAt: p.endIso,
+            purpose: cargoAtgCtx.purpose,
+            timezone: cargoAtgCtx.timezone,
+          });
+        } else {
+          atg = await computeAtgWindowMassDelta(q, {
+            tankIds: atgTankIds,
+            startAt: p.startIso,
+            endAt: p.endIso,
+          });
+        }
       }
     }
 
@@ -623,6 +634,23 @@ async function loadOperationPortId(q, operationId) {
   );
   const portId = r.rows[0]?.port_id != null ? Number(r.rows[0].port_id) : null;
   return Number.isFinite(portId) ? portId : null;
+}
+
+async function loadOperationCargoAtgContext(q, operationId) {
+  const r = await q.query(
+    `SELECT o.purpose,
+            COALESCE(p.schedule_timezone, 'Asia/Jakarta') AS schedule_timezone
+     FROM operations o
+     JOIN master_ports p ON p.id = o.port_id AND p.deleted_at IS NULL
+     WHERE o.id = $1 AND o.deleted_at IS NULL`,
+    [operationId]
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+  return {
+    purpose: row.purpose === 'Unloading' ? 'Unloading' : 'Loading',
+    timezone: row.schedule_timezone || 'Asia/Jakarta',
+  };
 }
 
 async function validateTankIdsForPort(q, ids, operationId, errorPrefix) {

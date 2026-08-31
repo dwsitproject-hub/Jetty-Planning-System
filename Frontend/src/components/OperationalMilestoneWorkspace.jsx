@@ -20,6 +20,7 @@ import { fetchTankGaugingMassDelta } from '../api/tankGauging'
 import OperationActivityTimeline from './OperationActivityTimeline'
 import DropdownMultiSelect from './DropdownMultiSelect'
 import CargoOpsSessionPanel from './CargoOpsSessionPanel'
+import CompleteTransferModal from './CompleteTransferModal'
 import {
   collectCargoLoadLines,
   collectCargoLoadLinesWithPending,
@@ -365,6 +366,7 @@ export default function OperationalMilestoneWorkspace({
   const [liveAtgTick, setLiveAtgTick] = useState(0)
   const [sessionOperationalProgress, setSessionOperationalProgress] = useState(null)
   const [preparingNextSegment, setPreparingNextSegment] = useState(false)
+  const [completeTransferModalOpen, setCompleteTransferModalOpen] = useState(false)
 
   useEffect(() => {
     if (commodityType !== 'Liquid' || portId == null || portId === '') {
@@ -754,6 +756,12 @@ export default function OperationalMilestoneWorkspace({
     [cargoLoadLinesDraft]
   )
 
+  const completeTransferAtgTankIds = useMemo(() => {
+    if (!openLineDraft) return []
+    const { atgTankIds } = partitionDraftTanks(openLineDraft.tankIds, tankMetaById)
+    return atgTankIds
+  }, [openLineDraft, tankMetaById])
+
   const lastClosedLineDraft = useMemo(() => {
     const closed = cargoLoadLinesDraft.filter((l) => l.start && l.end)
     return closed.length ? closed[closed.length - 1] : null
@@ -1035,7 +1043,7 @@ export default function OperationalMilestoneWorkspace({
     }
   }
 
-  const handleCompleteTransfer = async () => {
+  const handleCompleteTransfer = () => {
     if (!useCargoSessionMode || !openLineDraft) return
     const remarkTrim = String(remark || '').trim()
     if (!remarkTrim) {
@@ -1043,12 +1051,23 @@ export default function OperationalMilestoneWorkspace({
       return
     }
     setFormError('')
+    setCompleteTransferModalOpen(true)
+  }
+
+  const finalizeCompleteTransfer = async (endLocalInput) => {
+    if (!useCargoSessionMode || !openLineDraft) return
+    const remarkTrim = String(remark || '').trim()
+    setCompleteTransferModalOpen(false)
+    setFormError('')
     setSessionBusy(true)
     try {
-      const nowLocal = getNowForDateTimeLocal()
       const startIso = normalizeForApi(openLineDraft.start, tz)
-      const endIso = ensureApiEndAfterStart(startIso, normalizeForApi(nowLocal, tz), tz)
-      const endLocal = utcIsoToNaiveLocal(endIso, tz) || nowLocal
+      const endIso = ensureApiEndAfterStart(
+        startIso,
+        normalizeForApi(endLocalInput, tz),
+        tz
+      )
+      const endLocal = utcIsoToNaiveLocal(endIso, tz) || endLocalInput
 
       const closedDraft = cargoLoadLinesDraft.filter((l) => l.key !== openLineDraft.key && l.start && l.end)
       const closedApi = closedDraft.map((li) => {
@@ -1083,6 +1102,7 @@ export default function OperationalMilestoneWorkspace({
         tankMetaById,
         tankOptions,
         tz,
+        purpose,
       })
 
       const { atgTankIds, manualTankIds } = partitionDraftTanks(openLineDraft.tankIds, tankMetaById)
@@ -1291,6 +1311,7 @@ export default function OperationalMilestoneWorkspace({
             tankIds: atgTankIds,
             startAt: startIso,
             endAt: endIso || undefined,
+            purpose,
           })
           nextRefs[row.key] = {
             status: 'ok',
@@ -1336,7 +1357,7 @@ export default function OperationalMilestoneWorkspace({
     return () => {
       cancelled = true
     }
-  }, [cargoLineAtgSignature, portId, commodityType, tz, tankMetaById])
+  }, [cargoLineAtgSignature, portId, commodityType, tz, tankMetaById, purpose])
 
   const addCargoLineDraft = useCallback(() => {
     setCargoLoadLinesDraft((prev) => {
@@ -2460,6 +2481,21 @@ export default function OperationalMilestoneWorkspace({
           </div>
         </div>
       ) : null}
+
+      <CompleteTransferModal
+        open={completeTransferModalOpen}
+        onCancel={() => setCompleteTransferModalOpen(false)}
+        onConfirm={finalizeCompleteTransfer}
+        segmentStartLocal={openLineDraft?.start}
+        defaultEndLocal={getNowForDateTimeLocal()}
+        purpose={purpose}
+        portId={portId}
+        atgTankIds={completeTransferAtgTankIds}
+        commodityType={commodityType}
+        metricLabel={cargoOpsFormDerived?.metricLabel ?? 'MT'}
+        scheduleTimezone={tz}
+        busy={sessionBusy}
+      />
     </>
   )
 }

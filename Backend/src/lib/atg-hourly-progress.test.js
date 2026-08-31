@@ -28,6 +28,21 @@ describe('buildClockHourBuckets', () => {
   it('returns empty for invalid window', () => {
     assert.deepEqual(buildClockHourBuckets('bad', '2026-08-27T10:00:00.000Z', 'Asia/Jakarta'), []);
   });
+
+  it('truncates buckets at an earlier end time', () => {
+    const full = buildClockHourBuckets(
+      '2026-08-27T07:30:00.000Z',
+      '2026-08-27T12:00:00.000Z',
+      'Asia/Jakarta'
+    );
+    const truncated = buildClockHourBuckets(
+      '2026-08-27T07:30:00.000Z',
+      '2026-08-27T09:00:00.000Z',
+      'Asia/Jakarta'
+    );
+    assert.ok(truncated.length < full.length);
+    assert.ok(truncated.length >= 1);
+  });
 });
 
 describe('computeDirectionalTankDelta', () => {
@@ -61,6 +76,18 @@ describe('computeDirectionalTankDelta', () => {
     const r = computeDirectionalTankDelta(900, 1000, 'Unloading');
     assert.equal(r.qtyMoved, 100);
     assert.equal(r.rawDeltaMass, 100);
+  });
+
+  it('hourly directional sum can exceed net endpoint delta when tank reverses mid-segment', () => {
+    const hour1 = computeDirectionalTankDelta(1000, 2000, 'Unloading');
+    const hour2 = computeDirectionalTankDelta(2000, 500, 'Unloading');
+    const netWindow = computeDirectionalTankDelta(1000, 500, 'Unloading');
+    assert.equal(hour1.qtyMoved, 1000);
+    assert.equal(hour2.qtyMoved, 0);
+    assert.equal(hour2.directionMismatch, true);
+    assert.equal(hour1.qtyMoved + hour2.qtyMoved, 1000);
+    assert.equal(netWindow.qtyMoved, 0);
+    assert.ok(hour1.qtyMoved + hour2.qtyMoved > netWindow.qtyMoved);
   });
 });
 

@@ -66,7 +66,7 @@ export function mapExistingCargoLine(l, entry) {
   }
 }
 
-export async function buildStoppedCargoLine(openLine, endIso, { portId, commodityType, tankMetaById, tankOptions, tz }) {
+export async function buildStoppedCargoLine(openLine, endIso, { portId, commodityType, tankMetaById, tankOptions, tz, purpose = null }) {
   const tankIds = resolveLineTankIds(openLine)
   const line = {
     startAt: openLine.startAt,
@@ -100,6 +100,7 @@ export async function buildStoppedCargoLine(openLine, endIso, { portId, commodit
       tankIds: atgTankIds,
       startAt,
       endAt: endIso,
+      purpose: purpose || undefined,
     })
     const mass = Number(data?.sumDeltaMass)
     const manualTankIds = tankIds.filter((id) => !tankHasAtg(id, { tankMetaById, tankOptions }))

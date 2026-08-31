@@ -270,6 +270,115 @@ async function computeDirectionalMassDeltaForWindow(db, opts) {
 }
 
 /**
+ * Directional moved qty over [startAt, endAt]: sum of clock-hour bucket qtyMoved (matches hourly progress).
+ * @param {import('pg').Pool|import('pg').PoolClient} db
+ * @param {object} opts
+ * @param {Array<number|string>} opts.tankIds
+ * @param {string|Date} opts.startAt
+ * @param {string|Date} opts.endAt
+ * @param {'Loading'|'Unloading'|string|null} [opts.purpose]
+ * @param {string} [opts.timezone]
+ * @param {number} [opts.toleranceMs]
+ * @returns {Promise<{
+ *   ok: boolean,
+ *   sumDeltaMass: number|null,
+ *   tanks: Array<object>,
+ *   incomplete: boolean,
+ *   directionMismatch: boolean,
+ *   error?: string|null,
+ * }>}
+ */
+export async function computeDirectionalMovedQtyForWindow(db, opts) {
+  const purpose = opts.purpose === 'Unloading' ? 'Unloading' : 'Loading';
+  const timezone = opts.timezone || 'Asia/Jakarta';
+  const toleranceMs = Number.isFinite(opts.toleranceMs) ? opts.toleranceMs : DEFAULT_TOLERANCE_MS;
+  const tankIds = (opts.tankIds || [])
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+
+  if (!tankIds.length) {
+    return {
+      ok: false,
+      sumDeltaMass: null,
+      tanks: [],
+      incomplete: true,
+      directionMismatch: false,
+      error: 'no_tanks',
+    };
+  }
+
+  const buckets = buildClockHourBuckets(opts.startAt, opts.endAt, timezone);
+  if (!buckets.length) {
+    return {
+      ok: false,
+      sumDeltaMass: null,
+      tanks: [],
+      incomplete: true,
+      directionMismatch: false,
+      error: 'invalid_window',
+    };
+  }
+
+  let sumQtyMoved = 0;
+  let mergedTankDetail = null;
+  let anyIncomplete = false;
+  let anyDirectionMismatch = false;
+
+  for (const bucket of buckets) {
+    const result = await computeDirectionalMassDeltaForWindow(db, {
+      tankIds,
+      startAt: bucket.hourStart,
+      endAt: bucket.hourEnd,
+      purpose,
+      toleranceMs,
+    });
+    if (result.incomplete) anyIncomplete = true;
+    if (result.directionMismatch) anyDirectionMismatch = true;
+    if (result.ok && result.sumQtyMoved != null) {
+      sumQtyMoved += Number(result.sumQtyMoved) || 0;
+    }
+    mergedTankDetail = mergeTankDetailArrays(mergedTankDetail, result.tanks);
+  }
+
+  const endpoint = await computeDirectionalMassDeltaForWindow(db, {
+    tankIds,
+    startAt: opts.startAt,
+    endAt: opts.endAt,
+    purpose,
+    toleranceMs,
+  });
+  if (endpoint.incomplete) anyIncomplete = true;
+  if (endpoint.directionMismatch) anyDirectionMismatch = true;
+
+  const endpointById = new Map((endpoint.tanks || []).map((t) => [String(t.tankId), t]));
+  const mergedTanks = normalizeTankDetailArray(mergedTankDetail);
+  const tanks = mergedTanks.map((t) => {
+    const ep = endpointById.get(String(t.tankId));
+    return {
+      tankId: t.tankId,
+      code: t.code ?? ep?.code ?? null,
+      name: t.name ?? ep?.name ?? null,
+      qtyMoved: Number(t.qtyMoved) || 0,
+      deltaMass: ep?.rawDeltaMass ?? ep?.displayQtyMoved ?? null,
+      massStart: ep?.massStart ?? null,
+      massEnd: ep?.massEnd ?? null,
+      directionMismatch: Boolean(t.directionMismatch || ep?.directionMismatch),
+      error: t.error ?? ep?.error ?? null,
+    };
+  });
+
+  const ok = endpoint.ok || sumQtyMoved > 0;
+  return {
+    ok,
+    sumDeltaMass: ok ? sumQtyMoved : null,
+    tanks,
+    incomplete: anyIncomplete,
+    directionMismatch: anyDirectionMismatch,
+    error: ok ? (anyIncomplete ? 'partial_samples' : null) : endpoint.error || 'no_samples',
+  };
+}
+
+/**
  * @param {import('pg').Pool|import('pg').PoolClient} db
  * @param {object} line
  * @param {object} ctx

@@ -364,11 +364,17 @@ export default function CargoOpsSessionPanel({
             {Array.isArray(atgRef?.tanks) && atgRef.tanks.length > 0 ? (
               <p className="cargo-ops-session__tank-deltas text-steel">
                 {atgRef.tanks
-                  .filter((tk) => tk.deltaMass != null)
-                  .map(
-                    (tk) =>
-                      `${tk.code || tk.tankId} ${Number(tk.deltaMass) >= 0 ? '+' : ''}${Number(tk.deltaMass).toLocaleString(undefined, { maximumFractionDigits: 3 })}`
-                  )
+                  .map((tk) => {
+                    const qty =
+                      tk.qtyMoved != null && Number.isFinite(Number(tk.qtyMoved))
+                        ? Number(tk.qtyMoved)
+                        : tk.deltaMass != null && Number.isFinite(Number(tk.deltaMass))
+                          ? Number(tk.deltaMass)
+                          : null
+                    if (qty == null) return null
+                    return `${tk.code || tk.tankId} ${qty >= 0 ? '+' : ''}${qty.toLocaleString(undefined, { maximumFractionDigits: 3 })}`
+                  })
+                  .filter(Boolean)
                   .join(' · ')}
               </p>
             ) : null}

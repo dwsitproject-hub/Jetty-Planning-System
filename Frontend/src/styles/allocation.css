@@ -5003,6 +5003,30 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   margin-top: var(--spacing-2);
 }
 
+.cargo-complete-transfer__hint {
+  margin: 0 0 var(--spacing-3);
+  font-size: var(--font-size-small);
+}
+
+.cargo-complete-transfer__preview {
+  margin: var(--spacing-3) 0;
+  padding: var(--spacing-2) var(--spacing-3);
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.cargo-complete-transfer__preview-label {
+  display: block;
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+  margin-bottom: var(--spacing-1);
+}
+
+.cargo-complete-transfer__tanks {
+  margin: var(--spacing-1) 0 0;
+  font-size: 0.8125rem;
+}
+
 .cargo-ops-session__tank-edit {
   margin-top: var(--spacing-2);
   margin-bottom: var(--spacing-2);
