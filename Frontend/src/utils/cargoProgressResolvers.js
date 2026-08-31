@@ -135,7 +135,6 @@ export function resolveCargoProgressTotalLoaded({
   atgRef,
   tankMetaById,
   useCargoSessionMode,
-  cargoSessionPhase,
   commodityType,
   closedPersistedSum,
 }) {
@@ -146,8 +145,7 @@ export function resolveCargoProgressTotalLoaded({
     return other + draftSum
   }
 
-  const inProgress = cargoSessionPhase === 'in_progress' && openLineDraft
-  if (inProgress) {
+  if (openLineDraft) {
     const apiMoved = sessionOperationalProgress?.movedQty
     if (apiMoved != null && Number.isFinite(Number(apiMoved))) {
       return Number(apiMoved)

@@ -3666,6 +3666,22 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   text-align: left;
 }
 
+.cargo-live-movement {
+  margin-top: var(--spacing-2);
+  padding-top: var(--spacing-2);
+  border-top: 1px solid var(--color-border-subtle, rgba(0, 0, 0, 0.08));
+}
+.cargo-live-movement--empty {
+  opacity: 0.92;
+}
+.cargo-live-movement__scope {
+  margin: 0 0 var(--spacing-1);
+  font-size: 0.875rem;
+}
+.cargo-live-movement .cargo-ops-session__live-panel {
+  margin-top: 0;
+}
+
 /* Time range: Start → End on one row */
 .cargo-ops-time-range {
   display: grid;

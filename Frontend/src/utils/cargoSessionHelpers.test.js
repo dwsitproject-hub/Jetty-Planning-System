@@ -79,7 +79,7 @@ describe('cargoProgressResolvers', () => {
     assert.equal(qty, 420)
   })
 
-  it('resolveCargoProgressTotalLoaded uses operation API total when session in progress', () => {
+  it('resolveCargoProgressTotalLoaded uses operation API total when open segment exists', () => {
     const meta = new Map([['1', { hasAtg: true }]])
     const total = resolveCargoProgressTotalLoaded({
       loadedOther: 0,
@@ -89,7 +89,6 @@ describe('cargoProgressResolvers', () => {
       atgRef: null,
       tankMetaById: meta,
       useCargoSessionMode: true,
-      cargoSessionPhase: 'in_progress',
       commodityType: 'Liquid',
       closedPersistedSum: 0,
     })
@@ -108,7 +107,6 @@ describe('cargoProgressResolvers', () => {
       atgRef: null,
       tankMetaById: new Map(),
       useCargoSessionMode: false,
-      cargoSessionPhase: null,
       commodityType: 'Solid',
       closedPersistedSum: 0,
     })
