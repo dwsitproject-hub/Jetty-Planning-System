@@ -162,7 +162,7 @@ router.get('/mass-delta', async (req, res) => {
   if (purpose) {
     const tzRow = await pool.query(
       `SELECT COALESCE(schedule_timezone, 'Asia/Jakarta') AS schedule_timezone
-       FROM master_ports WHERE id = $1 AND deleted_at IS NULL`,
+       FROM ports WHERE id = $1 AND deleted_at IS NULL`,
       [portId]
     );
     const timezone = tzRow.rows[0]?.schedule_timezone || 'Asia/Jakarta';

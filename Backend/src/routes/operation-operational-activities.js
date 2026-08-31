@@ -641,7 +641,7 @@ async function loadOperationCargoAtgContext(q, operationId) {
     `SELECT o.purpose,
             COALESCE(p.schedule_timezone, 'Asia/Jakarta') AS schedule_timezone
      FROM operations o
-     JOIN master_ports p ON p.id = o.port_id AND p.deleted_at IS NULL
+     JOIN ports p ON p.id = o.port_id AND p.deleted_at IS NULL
      WHERE o.id = $1 AND o.deleted_at IS NULL`,
     [operationId]
   );
