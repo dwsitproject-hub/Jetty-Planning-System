@@ -95,6 +95,39 @@ describe('mergeHourlyBuckets', () => {
     assert.equal(merged[0].qtyMoved, 80);
     assert.equal(merged[0].source, 'hybrid');
   });
+
+  it('merges tankDetail arrays for same hourStart', () => {
+    const merged = mergeHourlyBuckets(
+      [
+        [
+          {
+            hourStart: '2026-08-27T08:00:00.000Z',
+            hourEnd: '2026-08-27T09:00:00.000Z',
+            qtyMoved: 50,
+            source: 'atg',
+            movementStatus: 'active',
+            tankDetail: [{ tankId: '1', code: '5102', qtyMoved: 50 }],
+          },
+        ],
+        [
+          {
+            hourStart: '2026-08-27T08:00:00.000Z',
+            hourEnd: '2026-08-27T09:00:00.000Z',
+            qtyMoved: 30,
+            source: 'atg',
+            movementStatus: 'active',
+            tankDetail: [{ tankId: '2', code: '5103', qtyMoved: 30 }],
+          },
+        ],
+      ],
+      { flatRateThresholdTph: 2, minQtyMovedT: 1 }
+    );
+    assert.equal(merged.length, 1);
+    assert.equal(merged[0].qtyMoved, 80);
+    assert.equal(merged[0].tankDetail.length, 2);
+    const codes = merged[0].tankDetail.map((t) => t.code).sort();
+    assert.deepEqual(codes, ['5102', '5103']);
+  });
 });
 
 describe('computeCompletionFromMovedQty', () => {

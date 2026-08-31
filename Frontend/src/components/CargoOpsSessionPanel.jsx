@@ -376,6 +376,7 @@ export default function CargoOpsSessionPanel({
               <HourlyCargoProgressTable
                 hourlyBuckets={hourlyBuckets}
                 unit={hourlyProgress?.siMetric || metricLabel?.split(' · ')[0] || 'MT'}
+                purpose={purpose}
                 compact
                 collapsible
                 collapsedRowLimit={6}

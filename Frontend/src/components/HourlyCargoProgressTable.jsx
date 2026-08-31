@@ -1,10 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-
-function formatQty(n, unit = 'MT') {
-  if (n == null || !Number.isFinite(Number(n))) return '—'
-  return `${Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 })} ${unit}`
-}
+import { expandHourlyBucketsForDisplay, formatSignedCargoQty } from '../utils/hourlyCargoDisplay'
 
 function formatRate(n, unit = 'MT') {
   if (n == null || !Number.isFinite(Number(n))) return '—'
@@ -56,7 +52,9 @@ function sourceBadge(source, t) {
 export default function HourlyCargoProgressTable({
   hourlyBuckets = [],
   unit = 'MT',
+  purpose = null,
   compact = false,
+  showTankColumn = true,
   currentHourLine = null,
   collapsible = false,
   collapsedRowLimit = 6,
@@ -66,13 +64,18 @@ export default function HourlyCargoProgressTable({
   const { t } = useTranslation('pages')
   const [expanded, setExpanded] = useState(defaultExpanded)
 
-  const visibleBuckets = useMemo(() => {
+  const bucketsForDisplay = useMemo(() => {
     if (!Array.isArray(hourlyBuckets) || hourlyBuckets.length === 0) return []
     if (!collapsible || expanded || hourlyBuckets.length <= collapsedRowLimit) {
       return hourlyBuckets
     }
     return hourlyBuckets.slice(-collapsedRowLimit)
   }, [hourlyBuckets, collapsible, expanded, collapsedRowLimit])
+
+  const visibleRows = useMemo(
+    () => expandHourlyBucketsForDisplay(bucketsForDisplay),
+    [bucketsForDisplay]
+  )
 
   if (!hourlyBuckets?.length && !currentHourLine) return null
 
@@ -96,7 +99,7 @@ export default function HourlyCargoProgressTable({
           })}
         </p>
       ) : null}
-      {visibleBuckets?.length ? (
+      {visibleRows?.length ? (
         <>
           <div
             className={`hourly-cargo-progress__table-wrap${expanded && showToggle ? ' hourly-cargo-progress__table-wrap--scroll' : ''}`}
@@ -105,20 +108,22 @@ export default function HourlyCargoProgressTable({
               <thead>
                 <tr>
                   <th>{t('cargoHourlyColTime')}</th>
-                  <th>{t('cargoHourlyColQty')}</th>
+                  {showTankColumn ? <th>{t('cargoHourlyColTank')}</th> : null}
+                  <th title={t('cargoHourlyMovedSignHint')}>{t('cargoHourlyColQty')}</th>
                   <th>{t('cargoHourlyColRate')}</th>
                   <th>{t('cargoHourlyColStatus')}</th>
                   {!compact ? <th>{t('cargoHourlyColSource')}</th> : null}
                 </tr>
               </thead>
               <tbody>
-                {visibleBuckets.map((row) => (
+                {visibleRows.map((row) => (
                   <tr
-                    key={row.hourStart}
+                    key={row.rowKey}
                     className={`hourly-cargo-progress__row hourly-cargo-progress__row--${row.movementStatus || 'active'}`}
                   >
                     <td>{row.hourLabelLocal || row.hourStart}</td>
-                    <td>{formatQty(row.qtyMoved, unit)}</td>
+                    {showTankColumn ? <td>{row.tankCode}</td> : null}
+                    <td>{formatSignedCargoQty(row.tankQtyMoved, purpose, unit)}</td>
                     <td>{formatRate(row.rateTph, unit)}</td>
                     <td>{movementBadge(row.movementStatus, t)}</td>
                     {!compact ? <td>{sourceBadge(row.source, t)}</td> : null}

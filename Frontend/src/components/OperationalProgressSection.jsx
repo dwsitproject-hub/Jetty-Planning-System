@@ -161,6 +161,7 @@ export default function OperationalProgressSection({
           <HourlyCargoProgressTable
             hourlyBuckets={hourlyBuckets}
             unit={cargoSiMetricLabel ?? 'MT'}
+            purpose={progress?.purpose ?? null}
             currentHourLine={rateSummary.currentHourLine ?? null}
             collapsible
             collapsedRowLimit={6}

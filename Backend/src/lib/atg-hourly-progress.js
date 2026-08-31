@@ -346,6 +346,46 @@ export function computeHourlyBucketsFromManualCheckpoints(
 }
 
 /**
+ * Normalize tank detail from bucket row (array or legacy wrapper).
+ * @param {unknown} tankDetail
+ * @returns {Array<object>}
+ */
+export function normalizeTankDetailArray(tankDetail) {
+  if (Array.isArray(tankDetail)) return tankDetail;
+  if (tankDetail && typeof tankDetail === 'object' && Array.isArray(tankDetail.tanks)) {
+    return tankDetail.tanks;
+  }
+  return [];
+}
+
+/**
+ * Merge per-tank qty rows when combining hourly buckets for the same clock hour.
+ * @param {unknown} prevDetail
+ * @param {unknown} nextDetail
+ * @returns {Array<object>|null}
+ */
+export function mergeTankDetailArrays(prevDetail, nextDetail) {
+  const prevTanks = normalizeTankDetailArray(prevDetail);
+  const nextTanks = normalizeTankDetailArray(nextDetail);
+  if (!prevTanks.length && !nextTanks.length) return null;
+  if (!prevTanks.length) return nextTanks.map((t) => ({ ...t }));
+  if (!nextTanks.length) return prevTanks.map((t) => ({ ...t }));
+
+  const byKey = new Map();
+  for (const t of [...prevTanks, ...nextTanks]) {
+    const key = String(t.tankId ?? t.code ?? '');
+    if (!key) continue;
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, { ...t });
+      continue;
+    }
+    prev.qtyMoved = (Number(prev.qtyMoved) || 0) + (Number(t.qtyMoved) || 0);
+  }
+  return [...byKey.values()];
+}
+
+/**
  * Merge hourly buckets from multiple lines by hourStart (sum qty, recompute rate).
  * @param {Array<object>} bucketLists
  * @param {object} thresholds
@@ -362,6 +402,7 @@ export function mergeHourlyBuckets(bucketLists, thresholds = {}) {
         continue;
       }
       prev.qtyMoved = (Number(prev.qtyMoved) || 0) + (Number(b.qtyMoved) || 0);
+      prev.tankDetail = mergeTankDetailArrays(prev.tankDetail, b.tankDetail);
       if (prev.source !== b.source && b.source) {
         prev.source = prev.source === b.source ? prev.source : 'hybrid';
       }

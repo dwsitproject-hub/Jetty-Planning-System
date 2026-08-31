@@ -638,6 +638,7 @@ export async function getOperationalProgress(db, operationId) {
 
   return {
     source,
+    purpose: ctx.purpose,
     scheduleTimezone: ctx.timezone,
     operationalDayStart: ctx.dayStartTime,
     warnings: uniqueWarnings,
