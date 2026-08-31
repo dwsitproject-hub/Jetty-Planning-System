@@ -11,12 +11,81 @@ export function normalizeTankDetail(tankDetail) {
   return []
 }
 
-function tankQtyFromDetail(tank) {
+/**
+ * Apply display sign for progress magnitude: Unloading +, Loading −.
+ * @param {number|null|undefined} qty unsigned progress magnitude
+ * @param {'Loading'|'Unloading'|string|null|undefined} purpose
+ * @returns {number|null}
+ */
+export function applyCargoMovementSign(qty, purpose) {
+  const n = Number(qty)
+  if (!Number.isFinite(n)) return null
+  const magnitude = Math.abs(n)
+  if (String(purpose) === 'Unloading') return magnitude
+  return -magnitude
+}
+
+/**
+ * Format a signed display delta (ATG raw delta or already-signed qty).
+ * @param {number|null|undefined} signedQty
+ * @param {string} [unit]
+ */
+export function formatDisplayCargoQty(signedQty, unit = 'MT') {
+  const n = Number(signedQty)
+  if (!Number.isFinite(n)) return '—'
+  const prefix = n >= 0 ? '+' : ''
+  return `${prefix}${n.toLocaleString('en-US', { maximumFractionDigits: 2 })} ${unit}`
+}
+
+/**
+ * Format unsigned progress magnitude with purpose sign (manual checkpoints).
+ * @param {number|null|undefined} qty
+ * @param {'Loading'|'Unloading'|string|null|undefined} purpose
+ * @param {string} [unit]
+ */
+export function formatSignedCargoQty(qty, purpose, unit = 'MT') {
+  return formatDisplayCargoQty(applyCargoMovementSign(qty, purpose), unit)
+}
+
+/**
+ * Signed display qty for a tank row (prefers ATG raw delta over progress qtyMoved).
+ * @param {object|null|undefined} tank
+ * @param {'Loading'|'Unloading'|string|null|undefined} purpose
+ * @returns {number|null}
+ */
+export function tankDisplayQty(tank, purpose) {
+  if (tank?.displayQtyMoved != null && Number.isFinite(Number(tank.displayQtyMoved))) {
+    return Number(tank.displayQtyMoved)
+  }
+  if (tank?.rawDeltaMass != null && Number.isFinite(Number(tank.rawDeltaMass))) {
+    return Number(tank.rawDeltaMass)
+  }
+  if (tank?.massStart != null && tank?.massEnd != null) {
+    const start = Number(tank.massStart)
+    const end = Number(tank.massEnd)
+    if (Number.isFinite(start) && Number.isFinite(end)) return end - start
+  }
   if (tank?.qtyMoved != null && Number.isFinite(Number(tank.qtyMoved))) {
-    return Number(tank.qtyMoved)
+    return applyCargoMovementSign(Number(tank.qtyMoved), purpose)
   }
   if (tank?.deltaMass != null && Number.isFinite(Number(tank.deltaMass))) {
-    return Math.abs(Number(tank.deltaMass))
+    return Number(tank.deltaMass)
+  }
+  return null
+}
+
+/**
+ * Signed display qty for a bucket without per-tank split.
+ * @param {object} bucket
+ * @param {'Loading'|'Unloading'|string|null|undefined} purpose
+ * @returns {number|null}
+ */
+export function bucketDisplayQty(bucket, purpose) {
+  if (bucket?.displayQtyMoved != null && Number.isFinite(Number(bucket.displayQtyMoved))) {
+    return Number(bucket.displayQtyMoved)
+  }
+  if (bucket?.qtyMoved != null && Number.isFinite(Number(bucket.qtyMoved))) {
+    return applyCargoMovementSign(Number(bucket.qtyMoved), purpose)
   }
   return null
 }
@@ -31,68 +100,61 @@ function effectiveHoursForBucket(bucket) {
   return (endMs - startMs) / 3600000
 }
 
-/**
- * Apply display sign: Unloading +, Loading − (magnitude always positive input).
- * @param {number|null|undefined} qty
- * @param {'Loading'|'Unloading'|string|null|undefined} purpose
- * @returns {number|null}
- */
-export function applyCargoMovementSign(qty, purpose) {
-  const n = Number(qty)
-  if (!Number.isFinite(n)) return null
-  const magnitude = Math.abs(n)
-  if (String(purpose) === 'Unloading') return magnitude
-  return -magnitude
+function tankHasDisplayData(tank, purpose) {
+  if (tank?.massStart != null && tank?.massEnd != null) return true
+  return tankDisplayQty(tank, purpose) != null
 }
 
-/**
- * @param {number|null|undefined} qty unsigned magnitude
- * @param {'Loading'|'Unloading'|string|null|undefined} purpose
- * @param {string} [unit]
- */
-export function formatSignedCargoQty(qty, purpose, unit = 'MT') {
-  const signed = applyCargoMovementSign(qty, purpose)
-  if (signed == null) return '—'
-  const prefix = signed >= 0 ? '+' : ''
-  return `${prefix}${signed.toLocaleString('en-US', { maximumFractionDigits: 2 })} ${unit}`
+function displayRateForQty(qty, bucket, bucketRate) {
+  if (bucketRate != null && Number.isFinite(Number(bucketRate))) {
+    return Number(bucketRate)
+  }
+  const effectiveHours = effectiveHoursForBucket(bucket)
+  const absQty = Math.abs(Number(qty) || 0)
+  if (effectiveHours > 0) return absQty / effectiveHours
+  return absQty > 0 ? absQty : 0
 }
 
 /**
  * Expand hourly buckets into table rows (one row per tank when tankDetail present).
  * @param {Array<object>} hourlyBuckets
+ * @param {'Loading'|'Unloading'|string|null|undefined} [purpose]
  * @returns {Array<object>}
  */
-export function expandHourlyBucketsForDisplay(hourlyBuckets) {
+export function expandHourlyBucketsForDisplay(hourlyBuckets, purpose = null) {
   const rows = []
   for (const bucket of hourlyBuckets || []) {
-    const tanks = normalizeTankDetail(bucket.tankDetail).filter(
-      (t) => tankQtyFromDetail(t) != null && tankQtyFromDetail(t) > 0
+    const tanks = normalizeTankDetail(bucket.tankDetail).filter((t) =>
+      tankHasDisplayData(t, purpose)
     )
     const effectiveHours = effectiveHoursForBucket(bucket)
 
     if (tanks.length > 0) {
       for (const tk of tanks) {
-        const tankQtyMoved = tankQtyFromDetail(tk)
+        const tankDisplayQtyMoved = tankDisplayQty(tk, purpose)
         const tankCode = tk.code || tk.tankId || '—'
         const rateTph =
-          effectiveHours > 0 ? tankQtyMoved / effectiveHours : tankQtyMoved > 0 ? tankQtyMoved : 0
+          tk.displayRateTph != null && Number.isFinite(Number(tk.displayRateTph))
+            ? Number(tk.displayRateTph)
+            : displayRateForQty(tankDisplayQtyMoved, bucket, bucket.displayRateTph)
         rows.push({
           ...bucket,
           rowKey: `${bucket.hourStart}-${tankCode}`,
           tankCode,
-          tankQtyMoved,
+          tankDisplayQtyMoved,
           rateTph,
         })
       }
       continue
     }
 
+    const tankDisplayQtyMoved = bucketDisplayQty(bucket, purpose)
     rows.push({
       ...bucket,
       rowKey: String(bucket.hourStart),
       tankCode: '—',
-      tankQtyMoved: Number(bucket.qtyMoved) || 0,
-      rateTph: Number(bucket.rateTph) || 0,
+      tankDisplayQtyMoved,
+      rateTph: displayRateForQty(tankDisplayQtyMoved, bucket, bucket.displayRateTph ?? bucket.rateTph),
     })
   }
   return rows

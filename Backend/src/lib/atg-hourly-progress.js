@@ -67,29 +67,29 @@ export function buildClockHourBuckets(windowStart, windowEnd, timezone) {
  * @param {number|null} massStart
  * @param {number|null} massEnd
  * @param {'Loading'|'Unloading'|string|null} purpose
- * @returns {{ qtyMoved: number, directionMismatch: boolean }}
+ * @returns {{ qtyMoved: number, directionMismatch: boolean, rawDeltaMass: number|null }}
  */
 export function computeDirectionalTankDelta(massStart, massEnd, purpose) {
   if (massStart == null || massEnd == null) {
-    return { qtyMoved: 0, directionMismatch: false };
+    return { qtyMoved: 0, directionMismatch: false, rawDeltaMass: null };
   }
   const start = Number(massStart);
   const end = Number(massEnd);
   if (!Number.isFinite(start) || !Number.isFinite(end)) {
-    return { qtyMoved: 0, directionMismatch: false };
+    return { qtyMoved: 0, directionMismatch: false, rawDeltaMass: null };
   }
 
   const rawDelta = end - start;
   const p = String(purpose || 'Loading');
 
   if (p === 'Unloading') {
-    if (rawDelta < 0) return { qtyMoved: 0, directionMismatch: true };
-    return { qtyMoved: Math.max(0, rawDelta), directionMismatch: false };
+    if (rawDelta < 0) return { qtyMoved: 0, directionMismatch: true, rawDeltaMass: rawDelta };
+    return { qtyMoved: Math.max(0, rawDelta), directionMismatch: false, rawDeltaMass: rawDelta };
   }
 
   // Loading (default): shore tank mass decreases
-  if (rawDelta > 0) return { qtyMoved: 0, directionMismatch: true };
-  return { qtyMoved: Math.max(0, start - end), directionMismatch: false };
+  if (rawDelta > 0) return { qtyMoved: 0, directionMismatch: true, rawDeltaMass: rawDelta };
+  return { qtyMoved: Math.max(0, start - end), directionMismatch: false, rawDeltaMass: rawDelta };
 }
 
 /**
@@ -109,6 +109,72 @@ export function classifyHourMovement(qtyMoved, rateTph, thresholds = {}, opts = 
 
   if (qty < minQty || rate < flatThreshold) return 'flat_movement';
   return 'active';
+}
+
+/**
+ * Classify hourly row status for display (ATG raw delta), separate from progress qtyMoved.
+ * @param {number} displayQtyMoved signed raw ATG delta (massEnd - massStart)
+ * @param {boolean} directionMismatch
+ * @param {number} displayRateTph abs(displayQtyMoved) / effectiveHours
+ * @param {{ flatRateThresholdTph?: number, minQtyMovedT?: number }} thresholds
+ * @param {{ incomplete?: boolean }} [opts]
+ * @returns {'active'|'flat_movement'|'direction_mismatch'|'incomplete'}
+ */
+export function classifyHourDisplayStatus(
+  displayQtyMoved,
+  directionMismatch,
+  displayRateTph,
+  thresholds = {},
+  opts = {}
+) {
+  if (opts.incomplete) return 'incomplete';
+
+  const flatThreshold = Number(thresholds.flatRateThresholdTph ?? DEFAULT_FLAT_RATE_THRESHOLD_TPH);
+  const minQty = Number(thresholds.minQtyMovedT ?? DEFAULT_MIN_QTY_MOVED_T);
+  const absQty = Math.abs(Number(displayQtyMoved) || 0);
+  const rate = Number(displayRateTph) || 0;
+
+  if (absQty < minQty || rate < flatThreshold) return 'flat_movement';
+  if (directionMismatch) return 'direction_mismatch';
+  return 'active';
+}
+
+/**
+ * Resolve display fields from bucket (including legacy persisted rows without displayQtyMoved).
+ * @param {object} bucket
+ * @returns {{ displayQtyMoved: number, directionMismatch: boolean }}
+ */
+export function resolveBucketDisplayFields(bucket) {
+  const tanks = normalizeTankDetailArray(bucket?.tankDetail);
+  let displayQtyMoved = Number(bucket?.displayQtyMoved);
+
+  if (!Number.isFinite(displayQtyMoved) && tanks.length) {
+    displayQtyMoved = tanks.reduce((sum, t) => {
+      if (t.displayQtyMoved != null && Number.isFinite(Number(t.displayQtyMoved))) {
+        return sum + Number(t.displayQtyMoved);
+      }
+      if (t.rawDeltaMass != null && Number.isFinite(Number(t.rawDeltaMass))) {
+        return sum + Number(t.rawDeltaMass);
+      }
+      if (t.massStart != null && t.massEnd != null) {
+        const start = Number(t.massStart);
+        const end = Number(t.massEnd);
+        if (Number.isFinite(start) && Number.isFinite(end)) return sum + (end - start);
+      }
+      return sum;
+    }, 0);
+  }
+
+  if (!Number.isFinite(displayQtyMoved)) {
+    displayQtyMoved = Number(bucket?.qtyMoved) || 0;
+  }
+
+  let directionMismatch = Boolean(bucket?.directionMismatch);
+  if (!directionMismatch) {
+    directionMismatch = tanks.some((t) => t.directionMismatch);
+  }
+
+  return { displayQtyMoved, directionMismatch };
 }
 
 /**
@@ -141,6 +207,7 @@ async function computeDirectionalMassDeltaForWindow(db, opts) {
 
   const tanks = [];
   let sumQtyMoved = 0;
+  let sumDisplayQtyMoved = 0;
   let okCount = 0;
   let anyDirectionMismatch = false;
 
@@ -157,6 +224,8 @@ async function computeDirectionalMassDeltaForWindow(db, opts) {
         massStart: sStart?.total_mass != null ? Number(sStart.total_mass) : null,
         massEnd: sEnd?.total_mass != null ? Number(sEnd.total_mass) : null,
         qtyMoved: null,
+        rawDeltaMass: null,
+        displayQtyMoved: null,
         directionMismatch: false,
         error: !sStart && !sEnd ? 'no_sample' : !sStart ? 'no_sample_start' : 'no_sample_end',
       });
@@ -165,9 +234,14 @@ async function computeDirectionalMassDeltaForWindow(db, opts) {
 
     const massStart = Number(sStart.total_mass);
     const massEnd = Number(sEnd.total_mass);
-    const { qtyMoved, directionMismatch } = computeDirectionalTankDelta(massStart, massEnd, purpose);
+    const { qtyMoved, directionMismatch, rawDeltaMass } = computeDirectionalTankDelta(
+      massStart,
+      massEnd,
+      purpose
+    );
     if (directionMismatch) anyDirectionMismatch = true;
     sumQtyMoved += qtyMoved;
+    sumDisplayQtyMoved += rawDeltaMass ?? 0;
     okCount += 1;
 
     tanks.push({
@@ -177,6 +251,8 @@ async function computeDirectionalMassDeltaForWindow(db, opts) {
       massStart,
       massEnd,
       qtyMoved,
+      rawDeltaMass,
+      displayQtyMoved: rawDeltaMass,
       directionMismatch,
       error: null,
     });
@@ -186,6 +262,7 @@ async function computeDirectionalMassDeltaForWindow(db, opts) {
   return {
     ok: okCount > 0,
     sumQtyMoved: okCount > 0 ? sumQtyMoved : null,
+    sumDisplayQtyMoved: okCount > 0 ? sumDisplayQtyMoved : null,
     tanks,
     incomplete,
     directionMismatch: anyDirectionMismatch,
@@ -234,11 +311,23 @@ export async function computeHourlyBucketsForLine(db, line, ctx, opts = {}) {
     });
 
     const qtyMoved = result.ok && result.sumQtyMoved != null ? Number(result.sumQtyMoved) : 0;
+    const displayQtyMoved =
+      result.ok && result.sumDisplayQtyMoved != null ? Number(result.sumDisplayQtyMoved) : 0;
     const rateTph =
       bucket.effectiveHours > 0 ? qtyMoved / bucket.effectiveHours : qtyMoved > 0 ? qtyMoved : 0;
-    const movementStatus = classifyHourMovement(qtyMoved, rateTph, thresholds, {
-      incomplete: result.incomplete,
-    });
+    const displayRateTph =
+      bucket.effectiveHours > 0
+        ? Math.abs(displayQtyMoved) / bucket.effectiveHours
+        : Math.abs(displayQtyMoved) > 0
+          ? Math.abs(displayQtyMoved)
+          : 0;
+    const movementStatus = classifyHourDisplayStatus(
+      displayQtyMoved,
+      result.directionMismatch,
+      displayRateTph,
+      thresholds,
+      { incomplete: result.incomplete }
+    );
 
     out.push({
       loadLineId: line.id != null ? String(line.id) : null,
@@ -247,6 +336,8 @@ export async function computeHourlyBucketsForLine(db, line, ctx, opts = {}) {
       hourLabelLocal: bucket.hourLabelLocal,
       qtyMoved,
       rateTph,
+      displayQtyMoved,
+      displayRateTph,
       movementStatus,
       source: 'atg',
       isPartial: bucket.isPartial,
@@ -324,7 +415,9 @@ export function computeHourlyBucketsFromManualCheckpoints(
 
     const rateTph =
       bucket.effectiveHours > 0 ? qtyMoved / bucket.effectiveHours : qtyMoved > 0 ? qtyMoved : 0;
-    const movementStatus = classifyHourMovement(qtyMoved, rateTph, thresholds, {
+    const displayQtyMoved = qtyMoved;
+    const displayRateTph = rateTph;
+    const movementStatus = classifyHourDisplayStatus(displayQtyMoved, false, displayRateTph, thresholds, {
       incomplete: sorted.length === 0,
     });
 
@@ -334,6 +427,8 @@ export function computeHourlyBucketsFromManualCheckpoints(
       hourLabelLocal: bucket.hourLabelLocal,
       qtyMoved,
       rateTph,
+      displayQtyMoved,
+      displayRateTph,
       movementStatus,
       source: 'manual',
       isPartial: bucket.isPartial,
@@ -381,6 +476,9 @@ export function mergeTankDetailArrays(prevDetail, nextDetail) {
       continue;
     }
     prev.qtyMoved = (Number(prev.qtyMoved) || 0) + (Number(t.qtyMoved) || 0);
+    prev.rawDeltaMass = (Number(prev.rawDeltaMass) || 0) + (Number(t.rawDeltaMass) || 0);
+    prev.displayQtyMoved = (Number(prev.displayQtyMoved) || 0) + (Number(t.displayQtyMoved) || 0);
+    prev.directionMismatch = Boolean(prev.directionMismatch || t.directionMismatch);
   }
   return [...byKey.values()];
 }
@@ -402,6 +500,8 @@ export function mergeHourlyBuckets(bucketLists, thresholds = {}) {
         continue;
       }
       prev.qtyMoved = (Number(prev.qtyMoved) || 0) + (Number(b.qtyMoved) || 0);
+      prev.displayQtyMoved = (Number(prev.displayQtyMoved) || 0) + (Number(b.displayQtyMoved) || 0);
+      prev.directionMismatch = Boolean(prev.directionMismatch || b.directionMismatch);
       prev.tankDetail = mergeTankDetailArrays(prev.tankDetail, b.tankDetail);
       if (prev.source !== b.source && b.source) {
         prev.source = prev.source === b.source ? prev.source : 'hybrid';
@@ -419,13 +519,23 @@ export function mergeHourlyBuckets(bucketLists, thresholds = {}) {
       const startMs = new Date(b.hourStart).getTime();
       const endMs = new Date(b.hourEnd).getTime();
       const effectiveHours = (endMs - startMs) / 3600000;
-      const rateTph = effectiveHours > 0 ? b.qtyMoved / effectiveHours : 0;
+      const rateTph = effectiveHours > 0 ? (Number(b.qtyMoved) || 0) / effectiveHours : 0;
+      const { displayQtyMoved, directionMismatch } = resolveBucketDisplayFields(b);
+      const displayRateTph =
+        effectiveHours > 0 ? Math.abs(displayQtyMoved) / effectiveHours : 0;
       return {
         ...b,
+        displayQtyMoved,
+        displayRateTph,
+        directionMismatch,
         rateTph,
-        movementStatus: classifyHourMovement(b.qtyMoved, rateTph, thresholds, {
-          incomplete: b.movementStatus === 'incomplete',
-        }),
+        movementStatus: classifyHourDisplayStatus(
+          displayQtyMoved,
+          directionMismatch,
+          displayRateTph,
+          thresholds,
+          { incomplete: b.movementStatus === 'incomplete' }
+        ),
       };
     });
 }

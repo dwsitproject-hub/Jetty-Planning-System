@@ -4957,6 +4957,11 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   color: #555;
 }
 
+.hourly-cargo-progress__badge--reverse {
+  background: rgba(255, 165, 0, 0.18);
+  color: #9a6200;
+}
+
 .hourly-cargo-progress__badge--incomplete {
   background: rgba(255, 165, 0, 0.15);
   color: #9a6200;

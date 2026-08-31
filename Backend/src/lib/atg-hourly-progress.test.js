@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   buildClockHourBuckets,
   classifyHourMovement,
+  classifyHourDisplayStatus,
   computeCompletionFromMovedQty,
   computeDirectionalTankDelta,
   computeHourlyBucketsFromManualCheckpoints,
@@ -46,6 +47,49 @@ describe('computeDirectionalTankDelta', () => {
     const r = computeDirectionalTankDelta(900, 1000, 'Loading');
     assert.equal(r.qtyMoved, 0);
     assert.equal(r.directionMismatch, true);
+    assert.equal(r.rawDeltaMass, 100);
+  });
+
+  it('unloading mass decrease returns raw negative delta', () => {
+    const r = computeDirectionalTankDelta(1000, 800, 'Unloading');
+    assert.equal(r.qtyMoved, 0);
+    assert.equal(r.directionMismatch, true);
+    assert.equal(r.rawDeltaMass, -200);
+  });
+
+  it('unloading mass increase returns positive raw delta', () => {
+    const r = computeDirectionalTankDelta(900, 1000, 'Unloading');
+    assert.equal(r.qtyMoved, 100);
+    assert.equal(r.rawDeltaMass, 100);
+  });
+});
+
+describe('classifyHourDisplayStatus', () => {
+  const thresholds = { flatRateThresholdTph: 2, minQtyMovedT: 1 };
+
+  it('labels reverse movement when unloading tank decreases significantly', () => {
+    assert.equal(
+      classifyHourDisplayStatus(-200, true, 200, thresholds),
+      'direction_mismatch'
+    );
+  });
+
+  it('labels flat for tiny reverse delta below min qty', () => {
+    assert.equal(
+      classifyHourDisplayStatus(-0.5, true, 0.5, thresholds),
+      'flat_movement'
+    );
+  });
+
+  it('labels active for correct-direction unloading increase', () => {
+    assert.equal(classifyHourDisplayStatus(100, false, 100, thresholds), 'active');
+  });
+
+  it('labels incomplete when samples missing', () => {
+    assert.equal(
+      classifyHourDisplayStatus(-200, true, 200, thresholds, { incomplete: true }),
+      'incomplete'
+    );
   });
 });
 
@@ -127,6 +171,39 @@ describe('mergeHourlyBuckets', () => {
     assert.equal(merged[0].tankDetail.length, 2);
     const codes = merged[0].tankDetail.map((t) => t.code).sort();
     assert.deepEqual(codes, ['5102', '5103']);
+  });
+
+  it('preserves direction_mismatch status after merge when display delta is reverse', () => {
+    const merged = mergeHourlyBuckets(
+      [
+        [
+          {
+            hourStart: '2026-08-27T08:00:00.000Z',
+            hourEnd: '2026-08-27T09:00:00.000Z',
+            qtyMoved: 0,
+            displayQtyMoved: -220,
+            directionMismatch: true,
+            source: 'atg',
+            movementStatus: 'direction_mismatch',
+            tankDetail: [
+              {
+                tankId: '1',
+                code: '5102',
+                qtyMoved: 0,
+                rawDeltaMass: -220,
+                displayQtyMoved: -220,
+                directionMismatch: true,
+              },
+            ],
+          },
+        ],
+      ],
+      { flatRateThresholdTph: 2, minQtyMovedT: 1 }
+    );
+    assert.equal(merged.length, 1);
+    assert.equal(merged[0].qtyMoved, 0);
+    assert.equal(merged[0].displayQtyMoved, -220);
+    assert.equal(merged[0].movementStatus, 'direction_mismatch');
   });
 });
 

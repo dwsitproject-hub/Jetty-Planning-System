@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { expandHourlyBucketsForDisplay, formatSignedCargoQty } from '../utils/hourlyCargoDisplay'
+import { expandHourlyBucketsForDisplay, formatDisplayCargoQty } from '../utils/hourlyCargoDisplay'
 
 function formatRate(n, unit = 'MT') {
   if (n == null || !Number.isFinite(Number(n))) return '—'
@@ -8,6 +8,13 @@ function formatRate(n, unit = 'MT') {
 }
 
 function movementBadge(status, t) {
+  if (status === 'direction_mismatch') {
+    return (
+      <span className="hourly-cargo-progress__badge hourly-cargo-progress__badge--reverse">
+        {t('cargoHourlyReverseMovement')}
+      </span>
+    )
+  }
   if (status === 'flat_movement') {
     return (
       <span className="hourly-cargo-progress__badge hourly-cargo-progress__badge--flat">
@@ -73,8 +80,8 @@ export default function HourlyCargoProgressTable({
   }, [hourlyBuckets, collapsible, expanded, collapsedRowLimit])
 
   const visibleRows = useMemo(
-    () => expandHourlyBucketsForDisplay(bucketsForDisplay),
-    [bucketsForDisplay]
+    () => expandHourlyBucketsForDisplay(bucketsForDisplay, purpose),
+    [bucketsForDisplay, purpose]
   )
 
   if (!hourlyBuckets?.length && !currentHourLine) return null
@@ -123,7 +130,7 @@ export default function HourlyCargoProgressTable({
                   >
                     <td>{row.hourLabelLocal || row.hourStart}</td>
                     {showTankColumn ? <td>{row.tankCode}</td> : null}
-                    <td>{formatSignedCargoQty(row.tankQtyMoved, purpose, unit)}</td>
+                    <td>{formatDisplayCargoQty(row.tankDisplayQtyMoved, unit)}</td>
                     <td>{formatRate(row.rateTph, unit)}</td>
                     <td>{movementBadge(row.movementStatus, t)}</td>
                     {!compact ? <td>{sourceBadge(row.source, t)}</td> : null}
