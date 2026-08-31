@@ -96,20 +96,26 @@ function schematicMaterialDisplay(r) {
   return r?.commodityShortDisplay || r?.commodity || null
 }
 
-function getPhaseLink(label, vessel, plannedBerthingPath = '/allocation-plans') {
+function getPhaseLink(label, vessel, plannedBerthingPath = '/allocation-plans', { embed = false } = {}) {
   const phaseRoutes = {
     'Shipping Instruction': '/shipment-plans',
     'Planned berthing': plannedBerthingPath,
     'Clearance': '/verification',
   }
+  let path = null
   if (label === 'At-Berth') {
     const opId = vessel?.operationId
     if (!opId) return null
     const purpose = String(vessel?.purpose || '').trim()
     const base = purpose === 'Unloading' ? '/unloading' : '/loading'
-    return `${base}/op-${opId}/pre-checking`
+    path = `${base}/op-${opId}/pre-checking`
+  } else {
+    path = phaseRoutes[label] || '#'
   }
-  return phaseRoutes[label] || '#'
+  if (embed && path && path !== '#') {
+    return path.includes('?') ? `${path}&embed=1` : `${path}?embed=1`
+  }
+  return path
 }
 
 const PRIORITY_OPTIONS = ['Low', 'Moderate', 'High', 'Critical']
@@ -2777,7 +2783,13 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                             disabled={disabled}
                             title={disabled ? undefined : `Open ${label} activity in a popup`}
                             onClick={() => {
-                              if (!disabled && to) setPipelineEmbed({ url: to, label })
+                              if (!disabled && to) {
+                                setPipelineEmbed({
+                                  embedUrl: getPhaseLink(label, vessel, plannedBerthingPath, { embed: true }),
+                                  fullUrl: to,
+                                  label,
+                                })
+                              }
                             }}
                           >
                             {label}
@@ -3674,7 +3686,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                 {pipelineEmbed.label} — activity
               </h2>
               <span style={{ display: 'inline-flex', gap: 8 }}>
-                <Link to={pipelineEmbed.url} className="btn btn--small btn--ghost" title="Open as full page">
+                <Link to={pipelineEmbed.fullUrl} className="btn btn--small btn--ghost" title="Open as full page">
                   Open full page ↗
                 </Link>
                 <button
@@ -3690,7 +3702,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
               </span>
             </div>
             <iframe
-              src={pipelineEmbed.url}
+              src={pipelineEmbed.embedUrl}
               title={`${pipelineEmbed.label} activity`}
               style={{ border: 0, width: '100%', flex: 1, minHeight: 0 }}
             />

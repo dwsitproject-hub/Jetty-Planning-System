@@ -2716,6 +2716,15 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   text-decoration: underline;
 }
 
+.loading-page--embed {
+  padding-top: var(--spacing-2);
+}
+
+.loading-page--embed .page-title {
+  font-size: 1.15rem;
+  margin-bottom: var(--spacing-2);
+}
+
 .loading-step-card--completed .berthing-modal__card-title {
   color: var(--color-success, #0d6832);
 }
