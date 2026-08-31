@@ -494,7 +494,11 @@ export default function JettySchematic({
       v?.totalQtyDisplay,
       v?.cargoMovedQty,
       v?.cargoFirstLoggedAt,
-      v?.cargoLastLoggedAt
+      v?.cargoLastLoggedAt,
+      {
+        cargoSiQty: v?.cargoSiQty ?? v?.scheduleComparison?.siQty,
+        cargoSiMetric: v?.cargoSiMetric ?? v?.scheduleComparison?.siMetric,
+      }
     )
     const cargoLine = progress?.cargoLine ?? null
     const balanceLine = progress?.balanceLine ?? null

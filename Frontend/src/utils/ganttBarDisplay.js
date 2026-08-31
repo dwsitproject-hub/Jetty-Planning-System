@@ -222,10 +222,13 @@ export function buildPlannedBlockModel(seg) {
  * @param {string | null | undefined} [cargoLastLoggedAt]
  * @returns {string | null}
  */
-function applyCargoProgress(cargoText, cargoMovedQty, cargoFirstLoggedAt, cargoLastLoggedAt) {
+function applyCargoProgress(cargoText, cargoMovedQty, cargoFirstLoggedAt, cargoLastLoggedAt, row) {
   if (!cargoText || typeof cargoText !== 'string') return cargoText ?? null
   const lines = cargoText.split('\n')
-  const progress = computeCargoProgress(lines[0], cargoMovedQty, cargoFirstLoggedAt, cargoLastLoggedAt)
+  const progress = computeCargoProgress(lines[0], cargoMovedQty, cargoFirstLoggedAt, cargoLastLoggedAt, {
+    cargoSiQty: row?.cargoSiQty,
+    cargoSiMetric: row?.scheduleComparison?.siMetric,
+  })
   if (!progress) return cargoText
   const newFirstLine = `${progress.cargoLine} -- ${progress.rateLine}`
   return [newFirstLine, ...lines.slice(1)].join('\n')
@@ -246,7 +249,8 @@ export function buildActualBlockModel(seg, row) {
     seg.cargoDisplay || row?.totalQtyDisplay || null,
     row?.cargoMovedQty,
     row?.cargoFirstLoggedAt,
-    row?.cargoLastLoggedAt
+    row?.cargoLastLoggedAt,
+    row
   )
   const openingSuffix = formatHoseConveyorOnLine(
     row?.openingCargoHandlingMethodName,

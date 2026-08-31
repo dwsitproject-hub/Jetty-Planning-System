@@ -608,7 +608,6 @@ export async function getOperationalProgress(db, operationId) {
   const uniqueWarnings = [...new Set(warnings)];
 
   const cargoSummary = await summarizeCargoProgressContext(db, ctx);
-  const scheduleComparison = buildScheduleComparisonFromCargoSummary(ctx, cargoSummary);
 
   let hourlyProgress = {
     hourlyBuckets: [],
@@ -624,6 +623,12 @@ export async function getOperationalProgress(db, operationId) {
   }
 
   const hourlyMoved = hourlyProgress.movedQty ?? cargoSummary?.movedQty ?? done;
+  const scheduleComparison = buildScheduleComparisonFromCargoSummary(ctx, {
+    ...(cargoSummary || {}),
+    movedQty: hourlyMoved,
+    siQty: siTotal,
+    siMetric: unit,
+  });
   const completionPercent =
     hourlyProgress.completionPercent ??
     cargoSummary?.completionPercent ??
@@ -864,14 +869,85 @@ export async function summarizeCargoProgressContext(db, ctx, opts = {}) {
 }
 
 /**
+ * Canonical moved qty for live surfaces: hourly ATG aggregate (At-Berth engine), with fallbacks.
+ * @param {import('pg').Pool|import('pg').PoolClient} db
+ * @param {Awaited<ReturnType<typeof loadOperationProgressContext>>} ctx
+ * @param {object} [opts]
+ */
+export async function resolveLiveCargoProgressTotals(db, ctx, opts = {}) {
+  if (!ctx) {
+    return {
+      movedQty: 0,
+      siQty: null,
+      siMetric: 'MT',
+      cargoSummary: null,
+      hourlyProgress: null,
+      completionPercent: null,
+      source: 'manual',
+      isLive: false,
+      hasActiveCargo: false,
+      atgPartial: false,
+      connected: false,
+    };
+  }
+
+  const cargoSummary = await summarizeCargoProgressContext(db, ctx, opts);
+  let hourlyProgress = null;
+  try {
+    hourlyProgress = await getHourlyOperationalProgress(db, ctx, opts);
+  } catch {
+    /* hourly engine optional if samples unavailable */
+  }
+
+  const closedQty = ctx.lines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+  const movedQty =
+    hourlyProgress?.movedQty != null
+      ? Number(hourlyProgress.movedQty) || 0
+      : cargoSummary?.movedQty ?? closedQty;
+  const siQty = ctx.siQty;
+  const siMetric = ctx.siMetric || 'MT';
+  const hasOpenCargo = ctx.lines.some((l) => l.startedAt && !l.endedAt);
+
+  return {
+    movedQty,
+    siQty,
+    siMetric,
+    cargoSummary,
+    hourlyProgress,
+    completionPercent:
+      siQty != null && siQty > 0 ? Math.min(100, Math.round((movedQty / siQty) * 100)) : null,
+    source: cargoSummary?.source ?? (hourlyProgress ? 'atg' : 'manual'),
+    isLive: cargoSummary?.isLive ?? hasOpenCargo,
+    hasActiveCargo: cargoSummary?.hasActiveCargo ?? hasOpenCargo,
+    atgPartial: cargoSummary?.atgPartial ?? false,
+    connected: cargoSummary?.connected ?? false,
+  };
+}
+
+/**
  * @param {import('pg').Pool|import('pg').PoolClient} db
  * @param {number} operationId
  */
 export async function getAtBerthCargoProgressSummary(db, operationId, opts = {}) {
   const ctx = await loadOperationProgressContext(db, operationId);
   if (!ctx) return null;
-  const summary = await summarizeCargoProgressContext(db, ctx, opts);
-  if (!summary) return null;
+
+  const totals = await resolveLiveCargoProgressTotals(db, ctx, opts);
+  const hasActivity = ctx.lines.some((l) => l.startedAt) || totals.movedQty > 0;
+  if (!hasActivity && !totals.cargoSummary) return null;
+
+  const summary = {
+    connected: totals.connected,
+    source: totals.source,
+    movedQty: totals.movedQty,
+    siQty: totals.siQty,
+    siMetric: totals.siMetric,
+    completionPercent: totals.completionPercent,
+    isLive: totals.isLive,
+    hasActiveCargo: totals.hasActiveCargo,
+    atgPartial: totals.atgPartial,
+  };
+
   return attachScheduleComparisonToSummary(
     summary,
     {

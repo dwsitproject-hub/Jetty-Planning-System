@@ -132,7 +132,7 @@ export default function OperationalProgressSection({
           <CargoScheduleProgressIndicator
             mode="full"
             comparison={scheduleComparison}
-            movedQty={scheduleComparison?.movedQty ?? null}
+            movedQty={progress?.movedQty ?? scheduleComparison?.movedQty ?? null}
             siQty={scheduleComparison?.siQty ?? cargoSiQty}
             siMetric={scheduleComparison?.siMetric ?? cargoSiMetricLabel}
             sourceLabel={progress?.source ? String(progress.source).toUpperCase() : null}

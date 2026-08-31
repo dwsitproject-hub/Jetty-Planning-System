@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   buildManualDailyBarsForLine,
+  buildScheduleComparisonFromCargoSummary,
   mergeDailyBars,
   resolveLineMode,
   summarizeCargoProgressContext,
@@ -349,6 +350,28 @@ describe('summarizeCargoProgressContext', () => {
     assert.ok(result);
     assert.equal(result.source, 'hybrid');
     assert.equal(result.movedQty, 700);
+  });
+});
+
+describe('buildScheduleComparisonFromCargoSummary', () => {
+  it('uses hourly movedQty override when provided on cargo summary', () => {
+    const ctx = {
+      openingHatchStartAt: '2026-08-27T09:00:00+07:00',
+      tbAt: '2026-08-27T09:00:00+07:00',
+      dockingStartTime: null,
+      etcAt: '2026-09-02T22:00:00+07:00',
+      siMetric: 'MT',
+      lines: [],
+    };
+    const nowMs = new Date('2026-08-31T10:00:00+07:00').getTime();
+    const cmp = buildScheduleComparisonFromCargoSummary(
+      ctx,
+      { movedQty: 3803, siQty: 3001.443 },
+      nowMs
+    );
+    assert.equal(cmp.movedQty, 3803);
+    assert.equal(cmp.siQty, 3001.443);
+    assert.equal(cmp.actualPercent, 100);
   });
 });
 
