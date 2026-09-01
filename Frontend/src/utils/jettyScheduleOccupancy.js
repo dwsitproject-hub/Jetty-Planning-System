@@ -118,13 +118,14 @@ export function getArrivalMsForScheduleRow(row) {
   )
 }
 
-function departedBeforeDay(row, dayStartMs) {
+/** Sailed rows should never appear as schematic "Incoming" once the voyage has ended. */
+function voyageCompletedBeforeAsOf(row, asOfMs) {
   if (String(row?.status || '').trim().toUpperCase() !== 'SAILED') return false
   const actComp = parseMs(row?.actualCompletionDateTime)
   const castOff = parseMs(row?.castOffDateTime)
   const end = actComp ?? castOff
-  if (end == null) return false
-  return end < dayStartMs
+  if (end == null) return true
+  return end <= asOfMs
 }
 
 export function bankLaneKeyFromRow(row) {
@@ -213,7 +214,7 @@ export function buildIncomingByJettyForDate(scheduleRows, dateYmd, asOfMs) {
       const jettyId = jettyIdFromScheduleRow(r)
       if (!jettyId) return false
       if (isAlongsideOccupiedOnDate(r, dateYmd, asOfMs)) return false
-      if (departedBeforeDay(r, dayStart)) return false
+      if (voyageCompletedBeforeAsOf(r, asOfMs)) return false
       const arrivalMs = getArrivalMsForScheduleRow(r)
       if (arrivalMs == null || arrivalMs >= dayEnd) return false
       return true
