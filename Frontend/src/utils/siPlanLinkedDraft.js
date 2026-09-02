@@ -3,6 +3,8 @@
  * (used by ShippingInstructionCreateForm and multi-draft ShipmentPlansList create flow).
  */
 
+import { defaultMetricIdForBreakdownRow, validateBreakdownMetricRules } from './siBreakdownMetric.js'
+
 export function planEtaYmd(plan) {
   if (!plan?.eta) return ''
   const d = new Date(plan.eta)
@@ -11,12 +13,13 @@ export function planEtaYmd(plan) {
 }
 
 export function emptyBreakdownRow(lookups) {
-  const mt = lookups?.metrics?.find((m) => m.code === 'MT') || lookups?.metrics?.[0]
   const comm = lookups?.commodities?.[0]
+  const commodityId = comm?.id != null ? String(comm.id) : ''
+  const metricId = defaultMetricIdForBreakdownRow(commodityId, lookups)
   return {
     shipperId: '',
-    commodityId: comm?.id != null ? String(comm.id) : '',
-    metricId: mt?.id != null ? String(mt.id) : '',
+    commodityId,
+    metricId,
     qty: '',
     contractNo: '',
     poNo: '',
@@ -167,6 +170,8 @@ export function validateSiDraftForCreate(form, lookups, linkedPlan, options = {}
   if (distinctCommodityTypes.size > 1) {
     return 'All commodities on one shipping instruction must be the same type (Solid or Liquid).'
   }
+  const metricErr = validateBreakdownMetricRules(form.breakdown, lookups)
+  if (metricErr) return metricErr
   if (!form.vesselName?.trim()) return 'Vessel name is required.'
   return { pid, isLoading, isUnloading, ymd, documentDateVal: documentDateVal.trim(), breakdownPayload, num }
 }
