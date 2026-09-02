@@ -12,6 +12,7 @@ import {
   MAX_SI_VOYAGE_CHARS,
 } from '../constants/inputLimits'
 import { emptyBreakdownRow } from './siPlanLinkedDraft'
+import { applyCommodityDefaultMetric, getCommodityDefaultMetric } from './siBreakdownMetric'
 
 function norm(s) {
   return String(s || '')
@@ -288,16 +289,33 @@ export function proposeSiExtractMerge(form, fields, lookups, options = {}) {
         const m = (lookups.metrics || []).find((x) => String(x.code).toUpperCase() === code)
         if (m) metricId = String(m.id)
       }
-      return {
-        ...base,
-        commodityId,
-        metricId,
-        qty: r.qty != null && r.qty !== '' ? String(r.qty) : '',
-        contractNo: clip(r.contractNo, MAX_SI_BREAKDOWN_SHORT_CHARS),
-        poNo: clip(r.poNo, MAX_SI_BREAKDOWN_SHORT_CHARS),
-        soNo: clip(r.soNo, MAX_SI_BREAKDOWN_SHORT_CHARS),
-        remarks: clip(r.remarks, MAX_SI_BREAKDOWN_SHORT_CHARS),
+      const commodity = (lookups.commodities || []).find((c) => String(c.id) === String(commodityId))
+      const defaultMetric = getCommodityDefaultMetric(commodity, lookups)
+      if (defaultMetric) {
+        if (metricId !== String(defaultMetric.id) && r.metricCode) {
+          warnings.push({
+            key: 'si.breakdown.metric',
+            label: 'Unit',
+            extractedLabel: `${String(r.metricCode).toUpperCase()} adjusted to ${defaultMetric.code} per commodity default`,
+            scope: 'si',
+          })
+        }
+        metricId = String(defaultMetric.id)
       }
+      return applyCommodityDefaultMetric(
+        {
+          ...base,
+          commodityId,
+          metricId,
+          qty: r.qty != null && r.qty !== '' ? String(r.qty) : '',
+          contractNo: clip(r.contractNo, MAX_SI_BREAKDOWN_SHORT_CHARS),
+          poNo: clip(r.poNo, MAX_SI_BREAKDOWN_SHORT_CHARS),
+          soNo: clip(r.soNo, MAX_SI_BREAKDOWN_SHORT_CHARS),
+          remarks: clip(r.remarks, MAX_SI_BREAKDOWN_SHORT_CHARS),
+        },
+        commodityId,
+        lookups
+      )
     }
 
     const newRows = rows.map(buildRow)
