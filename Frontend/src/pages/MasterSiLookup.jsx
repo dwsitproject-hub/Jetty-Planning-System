@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useActivityLog } from '../context/ActivityLogContext'
 import { useRbac } from '../context/RbacContext'
 import { createSiLookupItem, deleteSiLookupItem, fetchSiLookupList, updateSiLookupItem } from '../api/siLookupCrud'
+import { fetchSiLookups } from '../api/siLookups'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
@@ -54,6 +55,8 @@ export default function MasterSiLookup({
   const [formCommodityType, setFormCommodityType] = useState('Liquid')
   const [formShortName, setFormShortName] = useState('')
   const [formKlToMtFactor, setFormKlToMtFactor] = useState('')
+  const [formDefaultMetricId, setFormDefaultMetricId] = useState('')
+  const [metricOptions, setMetricOptions] = useState([])
 
   const isCommodityMaster = apiType === 'commodities'
 
@@ -82,6 +85,12 @@ export default function MasterSiLookup({
         label: 'KL→MT factor',
         getSortValue: (it) => (it.klToMtFactor != null ? Number(it.klToMtFactor) : Number.POSITIVE_INFINITY),
         getFilterValue: (it) => (it.klToMtFactor != null ? String(it.klToMtFactor) : ''),
+      })
+      cols.push({
+        key: 'defaultMetricCode',
+        label: 'Default unit',
+        getSortValue: (it) => (it.defaultMetricCode || '').toLowerCase(),
+        getFilterValue: (it) => it.defaultMetricCode || '',
       })
     }
     if (enableStandardRateFields) {
@@ -149,6 +158,13 @@ export default function MasterSiLookup({
   }, [load])
 
   useEffect(() => {
+    if (!isCommodityMaster) return
+    fetchSiLookups()
+      .then((data) => setMetricOptions(Array.isArray(data?.metrics) ? data.metrics : []))
+      .catch(() => setMetricOptions([]))
+  }, [isCommodityMaster])
+
+  useEffect(() => {
     if (!toast?.message) return undefined
     const t = setTimeout(() => setToast(null), 3500)
     return () => clearTimeout(t)
@@ -159,6 +175,7 @@ export default function MasterSiLookup({
     setFormValue('')
     setFormShortName('')
     setFormKlToMtFactor('')
+    setFormDefaultMetricId('')
     setFormCommodityType('Liquid')
     setFormLoadingRate('')
     setFormLoadingMetric('MTPH')
@@ -176,6 +193,7 @@ export default function MasterSiLookup({
     setFormValue(item.value ?? '')
     setFormShortName(item.shortName ?? '')
     setFormKlToMtFactor(item.klToMtFactor != null ? String(item.klToMtFactor) : '')
+    setFormDefaultMetricId(item.defaultMetricId != null ? String(item.defaultMetricId) : '')
     setFormCommodityType(item.commodityType === 'Solid' ? 'Solid' : 'Liquid')
     const lr = item?.portRates?.loading ?? null
     const ur = item?.portRates?.unloading ?? null
@@ -199,6 +217,7 @@ export default function MasterSiLookup({
     setFormValue('')
     setFormShortName('')
     setFormKlToMtFactor('')
+    setFormDefaultMetricId('')
     setFormCommodityType('Liquid')
     setFormLoadingRate('')
     setFormLoadingMetric('MTPH')
@@ -279,6 +298,7 @@ export default function MasterSiLookup({
         payload.commodityType = formCommodityType
         payload.shortName = (formShortName || '').trim().toUpperCase()
         payload.klToMtFactor = formKlToMtFactor.trim() === '' ? null : Number(formKlToMtFactor)
+        payload.defaultMetricId = formDefaultMetricId.trim() === '' ? null : Number(formDefaultMetricId)
       }
       if (enableStandardRateFields) {
         if (formClearLoadingRate) {
@@ -343,6 +363,7 @@ export default function MasterSiLookup({
     formCommodityType,
     formShortName,
     formKlToMtFactor,
+    formDefaultMetricId,
   ])
 
   const handleDelete = useCallback(
@@ -447,6 +468,9 @@ export default function MasterSiLookup({
                     )}
                     {isCommodityMaster && (
                       <td>{it.klToMtFactor != null ? it.klToMtFactor : '—'}</td>
+                    )}
+                    {isCommodityMaster && (
+                      <td>{it.defaultMetricCode ?? '—'}</td>
                     )}
                     {enableStandardRateFields && (
                       <>
@@ -565,6 +589,30 @@ export default function MasterSiLookup({
                   placeholder="e.g. 0.8743"
                   disabled={!canDoEdit}
                 />
+              </div>
+            )}
+            {isCommodityMaster && (
+              <div className="modal__section">
+                <label htmlFor="si-commodity-default-metric" className="modal__label">
+                  Default unit{' '}
+                  <span className="text-steel">
+                    — optional; when set, SI breakdown must use this unit for this commodity
+                  </span>
+                </label>
+                <select
+                  id="si-commodity-default-metric"
+                  className="modal__input"
+                  value={formDefaultMetricId}
+                  onChange={(e) => setFormDefaultMetricId(e.target.value)}
+                  disabled={!canDoEdit}
+                >
+                  <option value="">— Not enforced —</option>
+                  {metricOptions.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.code} ({m.label})
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
             {enableStandardRateFields && (

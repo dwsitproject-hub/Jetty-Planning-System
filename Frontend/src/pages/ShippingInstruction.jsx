@@ -29,6 +29,12 @@ import {
   MAX_SI_VESSEL_NAME_CHARS,
   MAX_SI_VOYAGE_CHARS,
 } from '../constants/inputLimits'
+import { emptyBreakdownRow, nextDocId } from '../utils/siPlanLinkedDraft'
+import {
+  applyCommodityDefaultMetric,
+  metricsForBreakdownRow,
+  validateBreakdownMetricRules,
+} from '../utils/siBreakdownMetric'
 
 /** `YYYY-MM-DD` for `<input type="date" />` — API may return full ISO timestamps (e.g. from Postgres DATE via JSON). */
 function toDateInputValue(v) {
@@ -281,24 +287,6 @@ const SI_TABLE_COLUMNS = [
   },
 ]
 
-function emptyBreakdownRow(lookups) {
-  const mt = lookups?.metrics?.find((m) => m.code === 'MT') || lookups?.metrics?.[0]
-  const comm = lookups?.commodities?.[0]
-  return {
-    shipperId: '',
-    commodityId: comm?.id != null ? String(comm.id) : '',
-    metricId: mt?.id != null ? String(mt.id) : '',
-    qty: '',
-    contractNo: '',
-    poNo: '',
-    remarks: '',
-  }
-}
-
-function nextDocId() {
-  return 'doc-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
-}
-
 function nextSiId(list) {
   const year = new Date().getFullYear()
   const nums = list.map((n) => { const m = (n.siId || '').match(/SI-\d{4}-(\d+)/); return m ? parseInt(m[1], 10) : 0 })
@@ -421,6 +409,13 @@ export default function ShippingInstruction() {
       return { ...f, breakdown: next }
     })
   }
+  const updateBreakdownCommodity = (index, commodityId) => {
+    setForm((f) => {
+      const next = [...f.breakdown]
+      next[index] = applyCommodityDefaultMetric(next[index] || {}, commodityId, lookups)
+      return { ...f, breakdown: next }
+    })
+  }
 
   const removeBreakdownRow = (index) => {
     if (form.breakdown.length <= 1) return
@@ -539,6 +534,11 @@ export default function ShippingInstruction() {
         message: 'All commodities on one shipping instruction must be the same type (Solid or Liquid).',
         variant: 'error',
       })
+      return
+    }
+    const metricErr = validateBreakdownMetricRules(form.breakdown, lookups)
+    if (metricErr) {
+      setToast({ message: metricErr, variant: 'error' })
       return
     }
     try {
@@ -1302,7 +1302,7 @@ export default function ShippingInstruction() {
                           <td>
                             <select
                               value={row.commodityId}
-                              onChange={(e) => updateBreakdownRow(i, 'commodityId', e.target.value)}
+                              onChange={(e) => updateBreakdownCommodity(i, e.target.value)}
                               required
                               className="shipping-instruction-inline-input"
                               disabled={!lookups}
@@ -1330,11 +1330,11 @@ export default function ShippingInstruction() {
                               value={row.metricId}
                               onChange={(e) => updateBreakdownRow(i, 'metricId', e.target.value)}
                               required
-                              disabled={!lookups}
+                              disabled={!lookups || metricsForBreakdownRow(row.commodityId, lookups).length <= 1}
                               className="shipping-instruction-inline-input"
                             >
                               <option value="">—</option>
-                              {(lookups?.metrics || []).map((m) => (
+                              {metricsForBreakdownRow(row.commodityId, lookups).map((m) => (
                                 <option key={m.id} value={m.id}>{m.code} ({m.label})</option>
                               ))}
                             </select>

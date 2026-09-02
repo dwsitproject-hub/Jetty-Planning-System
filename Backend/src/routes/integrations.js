@@ -10,6 +10,7 @@
 import express from 'express';
 import { pool } from '../db.js';
 import { writeActivityLog } from '../lib/activity-log.js';
+import { validateIntegrationCargoMetricRules } from '../lib/si-breakdown-metric.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
 import {
   integrationRateLimit,
@@ -259,7 +260,10 @@ router.post('/shipping-instructions', async (req, res) => {
     ...new Set(value.cargo.map((c) => normalizeCargoShortName(c.cargoType)).filter(Boolean)),
   ];
   const cm = await pool.query(
-    `SELECT id, short_name, commodity_type FROM si_commodities WHERE UPPER(short_name) = ANY($1) AND deleted_at IS NULL`,
+    `SELECT c.id, c.short_name, c.commodity_type, c.default_metric_id, dm.code AS default_metric_code
+     FROM si_commodities c
+     LEFT JOIN metric dm ON dm.id = c.default_metric_id AND dm.deleted_at IS NULL
+     WHERE UPPER(c.short_name) = ANY($1) AND c.deleted_at IS NULL`,
     [cargoTypes]
   );
   const commodityByShortName = new Map(cm.rows.map((r) => [r.short_name.toUpperCase(), r]));
@@ -304,6 +308,15 @@ router.post('/shipping-instructions', async (req, res) => {
     return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
       { field: 'cargo[].unit', issue: `unit(s) not configured in JPS master data: ${missingUnits.join(', ')}` },
     ]);
+  }
+
+  const metricRuleIssues = validateIntegrationCargoMetricRules(
+    value.cargo,
+    commodityByShortName,
+    normalizeCargoShortName
+  );
+  if (metricRuleIssues) {
+    return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', metricRuleIssues);
   }
 
   // Agent: best-effort name match against master data; unmatched agents stay visible via plan remark.
