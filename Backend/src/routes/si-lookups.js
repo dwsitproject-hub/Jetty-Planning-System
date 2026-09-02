@@ -62,13 +62,25 @@ function normalizeKlToMtFactor(raw) {
   return n;
 }
 
+async function normalizeDefaultMetricId(raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null || raw === '') return null;
+  const n = parseInt(raw, 10);
+  if (Number.isNaN(n) || n < 1) return NaN;
+  const r = await pool.query(`SELECT id FROM metric WHERE id = $1 AND deleted_at IS NULL`, [n]);
+  if (r.rows.length === 0) return NaN;
+  return n;
+}
+
 async function selectCommoditiesWithRates({ portId, whereSql, params = [] }) {
   const portParam = portId == null ? null : Number(portId);
   return pool.query(
-    `SELECT c.id, c.name AS value, c.short_name, c.sort_order, c.commodity_type, c.kl_to_mt_factor, c.created_at, c.updated_at,
+    `SELECT c.id, c.name AS value, c.short_name, c.sort_order, c.commodity_type, c.kl_to_mt_factor,
+            c.default_metric_id, dm.code AS default_metric_code, c.created_at, c.updated_at,
             srl.id AS loading_standard_rate_id, srl.rate_value AS loading_rate_value, srl.rate_metric AS loading_rate_metric,
             sru.id AS unloading_standard_rate_id, sru.rate_value AS unloading_rate_value, sru.rate_metric AS unloading_rate_metric
      FROM si_commodities c
+     LEFT JOIN metric dm ON dm.id = c.default_metric_id AND dm.deleted_at IS NULL
      LEFT JOIN standard_rates srl
        ON srl.commodity_id = c.id
       AND srl.port_id = $1
@@ -125,6 +137,8 @@ function toCommodityListItem(row) {
     shortName: row.short_name,
     commodityType: row.commodity_type ?? 'Liquid',
     klToMtFactor: row.kl_to_mt_factor != null ? Number(row.kl_to_mt_factor) : null,
+    defaultMetricId: row.default_metric_id != null ? Number(row.default_metric_id) : null,
+    defaultMetricCode: row.default_metric_code ?? null,
     sortOrder: row.sort_order ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -268,7 +282,11 @@ router.get('/', async (_req, res) => {
     metrics,
   ] = await Promise.all([
     pool.query(
-      `SELECT id, name, short_name, sort_order, commodity_type, kl_to_mt_factor FROM si_commodities WHERE deleted_at IS NULL ORDER BY sort_order, name`
+      `SELECT c.id, c.name, c.short_name, c.sort_order, c.commodity_type, c.kl_to_mt_factor,
+              c.default_metric_id, dm.code AS default_metric_code
+       FROM si_commodities c
+       LEFT JOIN metric dm ON dm.id = c.default_metric_id AND dm.deleted_at IS NULL
+       WHERE c.deleted_at IS NULL ORDER BY c.sort_order, c.name`
     ),
     pool.query(
       `SELECT id, code, sort_order FROM si_trade_terms WHERE deleted_at IS NULL ORDER BY sort_order, code`
@@ -312,6 +330,8 @@ router.get('/', async (_req, res) => {
       shortName: r.short_name,
       commodityType: r.commodity_type ?? 'Liquid',
       klToMtFactor: r.kl_to_mt_factor != null ? Number(r.kl_to_mt_factor) : null,
+      defaultMetricId: r.default_metric_id != null ? Number(r.default_metric_id) : null,
+      defaultMetricCode: r.default_metric_code ?? null,
       sortOrder: r.sort_order,
     })),
     tradeTerms: tradeTerms.rows.map((r) => ({
@@ -458,11 +478,17 @@ router.post('/:type', async (req, res) => {
       if (Number.isNaN(klFactorRaw)) {
         return res.status(400).json({ error: 'klToMtFactor must be a positive number' });
       }
+      const defaultMetricRaw = await normalizeDefaultMetricId(
+        req.body.defaultMetricId ?? req.body.default_metric_id
+      );
+      if (Number.isNaN(defaultMetricRaw)) {
+        return res.status(400).json({ error: 'defaultMetricId must reference an active MT or KL metric' });
+      }
       const ins = await pool.query(
-        `INSERT INTO si_commodities (name, short_name, sort_order, commodity_type, kl_to_mt_factor)
-         VALUES ($1, $2, 0, $3, $4)
-         RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, created_at, updated_at`,
-        [cleaned, shortName, ct, klFactorRaw ?? null]
+        `INSERT INTO si_commodities (name, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id)
+         VALUES ($1, $2, 0, $3, $4, $5)
+         RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
+        [cleaned, shortName, ct, klFactorRaw ?? null, defaultMetricRaw ?? null]
       );
       const row = ins.rows[0];
       const portId = req.selectedPortId;
@@ -602,6 +628,7 @@ router.put('/:type/:id', async (req, res) => {
   let prevUnloadingValue = null;
   let prevUnloadingMetric = null;
   let prevKlToMtFactor = null;
+  let prevDefaultMetricId = null;
   if (type === 'commodities') {
     if (!req.userId) return res.status(401).json({ error: 'Authentication required' });
     await new Promise((resolve, reject) =>
@@ -621,6 +648,8 @@ router.put('/:type/:id', async (req, res) => {
     prevUnloadingValue = prevQ.rows[0].unloading_rate_value;
     prevUnloadingMetric = prevQ.rows[0].unloading_rate_metric;
     prevKlToMtFactor = prevQ.rows[0].kl_to_mt_factor != null ? Number(prevQ.rows[0].kl_to_mt_factor) : null;
+    prevDefaultMetricId =
+      prevQ.rows[0].default_metric_id != null ? Number(prevQ.rows[0].default_metric_id) : null;
   } else {
     const prevQ = await pool.query(
       `SELECT ${cfg.valueCol} AS v FROM ${cfg.table} WHERE id = $1 AND deleted_at IS NULL`,
@@ -638,41 +667,79 @@ router.put('/:type/:id', async (req, res) => {
     if (Number.isNaN(klFactorRaw)) {
       return res.status(400).json({ error: 'klToMtFactor must be a positive number' });
     }
+    const defaultMetricRaw = await normalizeDefaultMetricId(
+      req.body.defaultMetricId ?? req.body.default_metric_id
+    );
+    if (Number.isNaN(defaultMetricRaw)) {
+      return res.status(400).json({ error: 'defaultMetricId must reference an active MT or KL metric' });
+    }
     const ctRaw = req.body.commodityType ?? req.body.commodity_type;
     if (ctRaw !== undefined && ctRaw !== null && String(ctRaw).trim() !== '') {
       const ct = normalizeCommodityType(ctRaw);
       if (!ct) return res.status(400).json({ error: 'commodityType must be Solid or Liquid' });
-      if (klFactorRaw !== undefined) {
+      if (klFactorRaw !== undefined && defaultMetricRaw !== undefined) {
+        result = await pool.query(
+          `UPDATE si_commodities
+           SET name = $1, short_name = $2, commodity_type = $3, kl_to_mt_factor = $4, default_metric_id = $5, updated_at = NOW()
+           WHERE id = $6 AND deleted_at IS NULL
+           RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
+          [cleaned, shortName, ct, klFactorRaw, defaultMetricRaw, id]
+        );
+      } else if (klFactorRaw !== undefined) {
         result = await pool.query(
           `UPDATE si_commodities
            SET name = $1, short_name = $2, commodity_type = $3, kl_to_mt_factor = $4, updated_at = NOW()
            WHERE id = $5 AND deleted_at IS NULL
-           RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, created_at, updated_at`,
+           RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
           [cleaned, shortName, ct, klFactorRaw, id]
+        );
+      } else if (defaultMetricRaw !== undefined) {
+        result = await pool.query(
+          `UPDATE si_commodities
+           SET name = $1, short_name = $2, commodity_type = $3, default_metric_id = $4, updated_at = NOW()
+           WHERE id = $5 AND deleted_at IS NULL
+           RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
+          [cleaned, shortName, ct, defaultMetricRaw, id]
         );
       } else {
         result = await pool.query(
           `UPDATE si_commodities
            SET name = $1, short_name = $2, commodity_type = $3, updated_at = NOW()
            WHERE id = $4 AND deleted_at IS NULL
-           RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, created_at, updated_at`,
+           RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
           [cleaned, shortName, ct, id]
         );
       }
+    } else if (klFactorRaw !== undefined && defaultMetricRaw !== undefined) {
+      result = await pool.query(
+        `UPDATE si_commodities
+         SET name = $1, short_name = $2, kl_to_mt_factor = $3, default_metric_id = $4, updated_at = NOW()
+         WHERE id = $5 AND deleted_at IS NULL
+         RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
+        [cleaned, shortName, klFactorRaw, defaultMetricRaw, id]
+      );
     } else if (klFactorRaw !== undefined) {
       result = await pool.query(
         `UPDATE si_commodities
          SET name = $1, short_name = $2, kl_to_mt_factor = $3, updated_at = NOW()
          WHERE id = $4 AND deleted_at IS NULL
-         RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, created_at, updated_at`,
+         RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
         [cleaned, shortName, klFactorRaw, id]
+      );
+    } else if (defaultMetricRaw !== undefined) {
+      result = await pool.query(
+        `UPDATE si_commodities
+         SET name = $1, short_name = $2, default_metric_id = $3, updated_at = NOW()
+         WHERE id = $4 AND deleted_at IS NULL
+         RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
+        [cleaned, shortName, defaultMetricRaw, id]
       );
     } else {
       result = await pool.query(
         `UPDATE si_commodities
          SET name = $1, short_name = $2, updated_at = NOW()
          WHERE id = $3 AND deleted_at IS NULL
-         RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, created_at, updated_at`,
+         RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
         [cleaned, shortName, id]
       );
     }
@@ -768,6 +835,13 @@ router.put('/:type/:id', async (req, res) => {
         to: updatedItem.klToMtFactor != null ? String(updatedItem.klToMtFactor) : null,
       });
       await syncPlanVesselCapacityForCommodity(pool, id);
+    }
+    if (prevDefaultMetricId !== updatedItem.defaultMetricId) {
+      changesC.push({
+        field: 'Default unit',
+        from: prevDefaultMetricId != null ? String(prevDefaultMetricId) : null,
+        to: updatedItem.defaultMetricId != null ? String(updatedItem.defaultMetricId) : null,
+      });
     }
     const fromL = formatRateSnapshot(prevLoadingValue, prevLoadingMetric);
     const toL = updatedItem.portRates.loading
