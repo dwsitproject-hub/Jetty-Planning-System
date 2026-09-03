@@ -81,7 +81,7 @@ Browser → Server 1 (nginx :3080, public EIP or VPC)
 
 - **Server 1 (app):** unchanged for users — nginx proxies `/api/` to Server 2 (uploads served only via authenticated API routes, not public `/uploads/`). See `Frontend/nginx.alicloud-app.conf`.
 - **Server 2 (API):** `jps-api` + **Synology NAS** bind mount via `UPLOAD_HOST_PATH` (SI/operation documents); **`DATABASE_URL`** points at Server 3 via `DB_HOST` / `DB_PORT` in `Backend/.env`. Local dev falls back to **`jps_uploads`** volume.
-- **Server 3 (DB):** `jps-db` only; **not** exposed to the internet. Inbound **5432** from Server 2 private IP only.
+- **Server 3 (DB):** `jps-db` only; **not** exposed to the internet. Inbound **5432** from Server 2 private IP only. **Optional:** replace Server 3 with **ApsaraDB RDS** — API `DB_HOST` points at RDS endpoint; see [Guide/APSARADB-STAGING-CUTOVER.md](Guide/APSARADB-STAGING-CUTOVER.md).
 
 **Migration from two- to three-server:** [Guide/THREE-SERVER-DB-SPLIT-GUIDE.md](./Guide/THREE-SERVER-DB-SPLIT-GUIDE.md). **Production cutover:** [Guide/THREE-SERVER-DB-CUTOVER-RUNBOOK.md](./Guide/THREE-SERVER-DB-CUTOVER-RUNBOOK.md). Initial install and security groups: [Guide/ALICLOUD-DEPLOYMENT-GUIDE.md](./Guide/ALICLOUD-DEPLOYMENT-GUIDE.md) (two-server baseline; links to split guides).
 

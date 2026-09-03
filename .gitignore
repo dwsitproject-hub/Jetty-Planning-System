@@ -18,3 +18,8 @@ Docs/Reference SI/
 # Playwright / e2e output
 test-results/
 playwright-report/
+
+# DB migration artifacts (local/staging rehearsals)
+Backend/backups/*.dump
+Backend/backups/tmp-*.txt
+Backend/backups/login-body.json
