@@ -4889,6 +4889,18 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
 }
 
 /* Operational progress (vessel detail modal) */
+.operational-progress-section--refreshing {
+  opacity: 0.96;
+  transition: opacity 0.2s ease;
+}
+
+.operational-progress-section__refresh-hint {
+  margin-left: 0.65rem;
+  font-size: var(--font-size-small);
+  font-weight: 400;
+  color: var(--text-muted, #6b7280);
+}
+
 .operational-progress-section__summary {
   display: flex;
   flex-wrap: wrap;

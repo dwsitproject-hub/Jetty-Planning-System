@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchActivityTimeline, fetchOperationalProgress } from '../api/operations'
 import CargoDischargeProgressChart from './CargoDischargeProgressChart'
 import HourlyCargoProgressTable from './HourlyCargoProgressTable'
@@ -6,6 +6,9 @@ import OperationActivityTimeline from './OperationActivityTimeline'
 import CargoScheduleProgressIndicator from './CargoScheduleProgressIndicator'
 import { parseQtyDisplay } from '../utils/cargoQtyDisplay'
 import { buildLiveCargoProgressSnapshot, findOpenCargoLoadLine } from '../utils/cargoSessionHelpers'
+import { operationalProgressPayloadChanged } from '../utils/snapshotChanged'
+
+const POLL_MS = 30_000
 
 /**
  * Operational progress block for Active Vessel Detail (rates, chart, Operational activity log).
@@ -22,9 +25,16 @@ export default function OperationalProgressSection({
 }) {
   const [events, setEvents] = useState([])
   const [progress, setProgress] = useState(null)
-  const [loading, setLoading] = useState(false)
+  const [initialLoading, setInitialLoading] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [error, setError] = useState(null)
   const [refreshToken, setRefreshToken] = useState(0)
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
+
+  const eventsRef = useRef(events)
+  const progressRef = useRef(progress)
+  eventsRef.current = events
+  progressRef.current = progress
 
   const bumpRefresh = useCallback(() => {
     setRefreshToken((n) => n + 1)
@@ -35,33 +45,100 @@ export default function OperationalProgressSection({
       setEvents([])
       setProgress(null)
       setError(null)
-      return
+      setInitialLoading(false)
+      setIsRefreshing(false)
+      setHasLoadedOnce(false)
+      return undefined
     }
+
     let cancelled = false
-    const load = () => {
-      setLoading(true)
-      setError(null)
+    let pollId = null
+
+    const applyPayload = (timelineRes, progressRes, { silent }) => {
+      const nextEvents = Array.isArray(timelineRes?.events) ? timelineRes.events : []
+      const nextProgress = progressRes || null
+
+      setHasLoadedOnce(true)
+      if (!silent) setError(null)
+
+      if (
+        !operationalProgressPayloadChanged(
+          eventsRef.current,
+          nextEvents,
+          progressRef.current,
+          nextProgress
+        )
+      ) {
+        return
+      }
+
+      setEvents(nextEvents)
+      setProgress(nextProgress)
+    }
+
+    const load = ({ silent = false } = {}) => {
+      if (cancelled) return
+
+      if (!silent) {
+        const hasCached = eventsRef.current.length > 0 || progressRef.current != null
+        if (!hasCached) {
+          setInitialLoading(true)
+        }
+        setError(null)
+      } else {
+        setIsRefreshing(true)
+      }
+
       Promise.all([fetchActivityTimeline(operationId), fetchOperationalProgress(operationId)])
         .then(([timelineRes, progressRes]) => {
           if (cancelled) return
-          setEvents(Array.isArray(timelineRes?.events) ? timelineRes.events : [])
-          setProgress(progressRes || null)
+          applyPayload(timelineRes, progressRes, { silent })
         })
         .catch((e) => {
           if (cancelled) return
-          setEvents([])
-          setProgress(null)
-          setError(e?.message || 'Failed to load operational data')
+          const hasCached = eventsRef.current.length > 0 || progressRef.current != null
+          if (!silent && !hasCached) {
+            setEvents([])
+            setProgress(null)
+            setError(e?.message || 'Failed to load operational data')
+          }
         })
         .finally(() => {
-          if (!cancelled) setLoading(false)
+          if (cancelled) return
+          setInitialLoading(false)
+          setIsRefreshing(false)
         })
     }
-    load()
-    const pollId = window.setInterval(load, 30000)
+
+    const startPoll = () => {
+      if (pollId != null) window.clearInterval(pollId)
+      pollId = window.setInterval(() => load({ silent: true }), POLL_MS)
+    }
+
+    const stopPoll = () => {
+      if (pollId != null) {
+        window.clearInterval(pollId)
+        pollId = null
+      }
+    }
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        stopPoll()
+        return
+      }
+      load({ silent: true })
+      startPoll()
+    }
+
+    load({ silent: false })
+    startPoll()
+    document.addEventListener('visibilitychange', onVisibility)
+
     return () => {
       cancelled = true
-      window.clearInterval(pollId)
+      stopPoll()
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [operationId, refreshToken, refreshTokenProp])
 
@@ -110,11 +187,29 @@ export default function OperationalProgressSection({
     })
   }, [events, progress])
 
-  return (
-    <section className="berthing-modal__card operational-progress-section">
-      <h3 className="berthing-modal__card-title">Operational progress</h3>
+  const showInitialSpinner = initialLoading && !events.length && !progress
+  const showContent = hasLoadedOnce || events.length > 0 || progress != null
 
-      {loading && !events.length && !progress ? (
+  return (
+    <section
+      className={[
+        'berthing-modal__card',
+        'operational-progress-section',
+        isRefreshing ? 'operational-progress-section--refreshing' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      <h3 className="berthing-modal__card-title">
+        Operational progress
+        {isRefreshing ? (
+          <span className="operational-progress-section__refresh-hint" aria-live="polite">
+            Updating…
+          </span>
+        ) : null}
+      </h3>
+
+      {showInitialSpinner ? (
         <p className="text-steel">Loading operational data…</p>
       ) : null}
       {error ? (
@@ -123,7 +218,7 @@ export default function OperationalProgressSection({
         </p>
       ) : null}
 
-      {!loading && !error ? (
+      {showContent && !error ? (
         <>
           {Array.isArray(progress?.warnings) && progress.warnings.length > 0 ? (
             <p className="operational-progress-section__warning text-steel">{progress.warnings.join(' · ')}</p>
@@ -183,7 +278,7 @@ export default function OperationalProgressSection({
           <OperationActivityTimeline
             operationId={operationId}
             eventsOverride={events}
-            loadingOverride={loading}
+            loadingOverride={initialLoading}
             errorOverride={error}
             refreshToken={refreshToken}
             vesselId={vesselId}
