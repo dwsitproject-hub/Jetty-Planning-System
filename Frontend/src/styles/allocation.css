@@ -4059,6 +4059,10 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   background: #fff;
 }
 
+.operation-activity-timeline__nested-table .operation-activity-timeline__tank {
+  white-space: nowrap;
+}
+
 .operation-activity-timeline__row--cargo-nested > td:first-child {
   padding-left: var(--spacing-3);
   box-shadow: inset 3px 0 0 var(--color-primary, #c41e3a);

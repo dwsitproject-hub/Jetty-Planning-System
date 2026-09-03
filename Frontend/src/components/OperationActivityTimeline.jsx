@@ -11,6 +11,7 @@ import { resolveUploadUrl } from '../api/client'
 import FilePreviewLink from './FilePreviewLink'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { approxRateTph } from '../utils/cargoSessionHelpers'
+import { formatCargoLineTanksLabel } from '../utils/cargoProgressResolvers'
 import {
   buildActivityLogEditPath,
   activityLogRowCanDelete,
@@ -653,6 +654,14 @@ export default function OperationActivityTimeline({
     const canDelete = activityLogRowCanDelete(ev)
     const busy = deletingId === ev.id
     const rowDocs = timelineDocuments(ev)
+    const nestedTankLabel = nestedClass
+      ? formatCargoLineTanksLabel(
+          (Array.isArray(ev.cargoLoadLines) && ev.cargoLoadLines.length > 0
+            ? ev.cargoLoadLines[0]
+            : { tanks: ev.tanks ?? [] }),
+          ev.tanks
+        )
+      : null
     return (
       <article
         key={cardKey}
@@ -663,6 +672,12 @@ export default function OperationActivityTimeline({
           {showPhaseColumn ? <span className="text-steel">{ev.phase || '—'}</span> : null}
         </header>
         <dl className="allocation-mobile-card__grid">
+          {nestedTankLabel != null ? (
+            <>
+              <dt>{t('cargoHourlyColTank')}</dt>
+              <dd>{nestedTankLabel}</dd>
+            </>
+          ) : null}
           <dt>Status</dt>
           <dd>{timelineStatusDisplay(ev)}</dd>
           <dt>Remark</dt>
@@ -855,9 +870,7 @@ export default function OperationActivityTimeline({
                         </td>
                       </tr>
                       {expanded ? (() => {
-                        let cumQty = 0
                         let globalLineIdx = 0
-                        const siQty = Number.isFinite(Number(cargoSiQty)) ? Number(cargoSiQty) : null
                         const metricSuffix = cargoSiMetricLabel ? ` ${cargoSiMetricLabel}` : ''
                         return (
                           <tr id={`${item.id}-cargo-children`} className="operation-activity-timeline__row operation-activity-timeline__row--cargo-children-wrap">
@@ -871,18 +884,18 @@ export default function OperationActivityTimeline({
                                   <thead>
                                     <tr>
                                       <th>Entry</th>
+                                      <th className="operation-activity-timeline__tank">{t('cargoHourlyColTank')}</th>
                                       <th className="operation-activity-timeline__time">{t('cargoOpsLineStart')}</th>
                                       <th className="operation-activity-timeline__time">{t('cargoOpsLineEnd')}</th>
                                       <th className="operation-activity-timeline__time">{t('cargoOpsQtyMovement')}</th>
                                       <th className="operation-activity-timeline__time">{t('cargoOpsRate')} (/h)</th>
-                                      <th className="operation-activity-timeline__time">{t('cargoOpsBalance')}</th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {item.events.flatMap((ev) => {
                                       const lines = Array.isArray(ev.cargoLoadLines) && ev.cargoLoadLines.length > 0
                                         ? ev.cargoLoadLines
-                                        : [{ lineOrder: null, qty: Number.isFinite(Number(ev.cargoMovedQty)) ? Number(ev.cargoMovedQty) : null, startedAt: ev.startAt ?? null, endedAt: ev.endAt ?? ev.cargoLastLineEndedAt ?? null }]
+                                        : [{ lineOrder: null, qty: Number.isFinite(Number(ev.cargoMovedQty)) ? Number(ev.cargoMovedQty) : null, startedAt: ev.startAt ?? null, endedAt: ev.endAt ?? ev.cargoLastLineEndedAt ?? null, tanks: ev.tanks ?? [] }]
                                       return lines.map((line, lineIdx) => {
                                         const lineId = line.id != null ? String(line.id) : null
                                         const isOpenLine = Boolean(
@@ -897,8 +910,6 @@ export default function OperationActivityTimeline({
                                         if (isOpenLive && liveCargoProgress.movedQty != null) {
                                           qty = Number(liveCargoProgress.movedQty)
                                         }
-                                        cumQty += qty ?? 0
-                                        const balance = siQty != null ? siQty - cumQty : null
                                         let rate = null
                                         const lineStart = line.startedAt || line.startAt
                                         const lineEnd = line.endedAt || line.endAt
@@ -914,6 +925,7 @@ export default function OperationActivityTimeline({
                                         return (
                                           <tr key={rowKey}>
                                             <td>Entry {entryNum}</td>
+                                            <td className="operation-activity-timeline__tank">{formatCargoLineTanksLabel(line, ev.tanks)}</td>
                                             <td className="operation-activity-timeline__time">{lineStart ? formatDateTimeDisplay(lineStart) : '—'}</td>
                                             <td className="operation-activity-timeline__time">
                                               {(line.endedAt || line.endAt) ? formatDateTimeDisplay(line.endedAt || line.endAt) : t('cargoOpsLineInProgress')}
@@ -923,9 +935,6 @@ export default function OperationActivityTimeline({
                                             </td>
                                             <td className="operation-activity-timeline__time">
                                               {rate != null ? `${rate.toLocaleString(undefined, { maximumFractionDigits: 2 })}${metricSuffix}` : '—'}
-                                            </td>
-                                            <td className="operation-activity-timeline__time">
-                                              {balance != null ? `${balance.toLocaleString(undefined, { maximumFractionDigits: 6 })}${metricSuffix}` : '—'}
                                             </td>
                                           </tr>
                                         )

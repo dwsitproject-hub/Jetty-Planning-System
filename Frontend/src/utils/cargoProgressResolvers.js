@@ -2,6 +2,23 @@
 
 import { readAtgQtyFromRef } from './atgQty.js'
 
+const EMPTY_TANK_LABEL = '—'
+
+function tankCodesFromList(tanks) {
+  return (tanks || [])
+    .map((t) => (t?.code || t?.name || '').trim())
+    .filter(Boolean)
+}
+
+/** Display label for tanks on a cargo load line (e.g. "3502" or "3502, 3503"). */
+export function formatCargoLineTanksLabel(line, fallbackTanks) {
+  const fromLine = tankCodesFromList(line?.tanks)
+  if (fromLine.length) return fromLine.join(', ')
+  const fromFallback = tankCodesFromList(fallbackTanks)
+  if (fromFallback.length) return fromFallback.join(', ')
+  return EMPTY_TANK_LABEL
+}
+
 function parsePositiveQtyValue(s) {
   if (s == null || String(s).trim() === '') return NaN
   const n = Number(String(s).trim().replace(',', '.'))
