@@ -17,6 +17,7 @@ import {
   isShipmentPlanPreBerth,
   POST_BERTH_PLAN_EDIT_ERROR,
 } from '../lib/si-pre-berth-edit.js';
+import { softDeleteOperationInTransaction } from '../lib/operation-soft-delete.js';
 
 const router = express.Router();
 const PAGE_KEY = 'shipment-plan';
@@ -1095,7 +1096,8 @@ router.delete('/:id', requireAuth, async (req, res) => {
   try {
     await client.query('BEGIN');
     const p = await client.query(
-      `SELECT id, approval_status, plan_reference FROM shipment_plans WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL FOR UPDATE`,
+      `SELECT id, approval_status, plan_reference, tb, docking_start_time
+       FROM shipment_plans WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL FOR UPDATE`,
       [planId, selectedPortId]
     );
     if (p.rows.length === 0) {
@@ -1103,25 +1105,37 @@ router.delete('/:id', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Shipment plan not found' });
     }
     const row = p.rows[0];
-    if (row.approval_status !== 'Draft' && row.approval_status !== 'Rejected') {
+    const isDraftOrRejected = row.approval_status === 'Draft' || row.approval_status === 'Rejected';
+    const preBerth = await isShipmentPlanPreBerth(client, planId);
+    const hasPlanBerth = row.tb != null || row.docking_start_time != null;
+    const canDelete = isDraftOrRejected || (preBerth && !hasPlanBerth);
+    if (!canDelete) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Only Draft or Rejected plans can be deleted' });
+      const error = !preBerth || hasPlanBerth
+        ? 'Cannot delete shipment plan after berthing'
+        : 'Only Draft, Rejected, or never-berthed plans can be deleted';
+      return res.status(400).json({ error });
     }
 
     const sis = await client.query(
       `SELECT id FROM shipping_instructions WHERE shipment_plan_id = $1 AND deleted_at IS NULL FOR UPDATE`,
       [planId]
     );
+    let deletedOperationCount = 0;
     for (const si of sis.rows) {
-      const op = await client.query(
-        `SELECT 1 FROM operations WHERE shipping_instruction_id = $1 AND deleted_at IS NULL LIMIT 1`,
+      const ops = await client.query(
+        `SELECT id, tb FROM operations WHERE shipping_instruction_id = $1 AND deleted_at IS NULL`,
         [si.id]
       );
-      if (op.rows.length > 0) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({
-          error: 'Cannot delete shipment plan: a shipping instruction has active operations. Remove or complete operations first.',
-        });
+      for (const op of ops.rows) {
+        if (op.tb != null) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({
+            error: 'Cannot delete shipment plan: an operation has recorded berthing time.',
+          });
+        }
+        await softDeleteOperationInTransaction(client, op.id);
+        deletedOperationCount += 1;
       }
     }
 
@@ -1148,7 +1162,10 @@ router.delete('/:id', requireAuth, async (req, res) => {
       entityType: 'ShipmentPlan',
       entityId: String(planId),
       entityLabel: row.plan_reference || `Plan #${planId}`,
-      summary: 'Soft-deleted shipment plan and child shipping instructions',
+      summary:
+        deletedOperationCount > 0
+          ? 'Soft-deleted shipment plan, child shipping instructions, and pre-berth operations'
+          : 'Soft-deleted shipment plan and child shipping instructions',
       changes: [],
       actorUserId: req.userId ?? null,
     }).catch(() => {});

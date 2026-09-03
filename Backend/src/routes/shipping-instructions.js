@@ -13,6 +13,7 @@ import {
   reopenShipmentPlanForSiEdit,
   SUBMITTED_MATERIAL_EDIT_ERROR,
 } from '../lib/si-pre-berth-edit.js';
+import { validateBreakdownMetricRules } from '../lib/si-breakdown-metric.js';
 import { validateSiReferenceForBerthing } from '../lib/si-reference-validation.js';
 import { requireAuth } from '../middleware/auth.js';
 import { userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
@@ -222,6 +223,8 @@ async function validateBreakdownCommodityTypes(client, breakdown) {
 async function replaceBreakdown(client, siId, breakdown) {
   const typeErr = await validateBreakdownCommodityTypes(client, breakdown);
   if (typeErr) throw new Error(typeErr);
+  const metricErr = await validateBreakdownMetricRules(client, breakdown);
+  if (metricErr) throw new Error(metricErr);
   await client.query(
     `UPDATE public.shipping_instruction_breakdown SET deleted_at = NOW(), updated_at = NOW()
      WHERE shipping_instruction_id = $1 AND deleted_at IS NULL`,

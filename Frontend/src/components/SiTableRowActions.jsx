@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { planListCanEditPlanPreBerth } from '../utils/siPreBerthEdit'
+import { planListCanEditPlanPreBerth, planDeleteDisabledReasonKey } from '../utils/siPreBerthEdit'
 
 /** Action icons — outlined style, consistent size (18×18), use currentColor */
 export function IconRequestApproval() {
@@ -223,10 +223,23 @@ export function planViewHubDisabledReason(_plan, canView) {
   return null
 }
 
-export function planDeleteDisabledReason(plan, canDelete) {
-  if (!canDelete) return 'Disabled: your role cannot delete shipment plans.'
-  const s = plan?.approvalStatus || ''
-  if (s !== 'Draft' && s !== 'Rejected') return 'Disabled: only Draft or Rejected plans can be deleted.'
+function resolvePlanDeleteDisabledReason(plan, canDelete, tp) {
+  const key = planDeleteDisabledReasonKey(plan, canDelete)
+  if (key === 'rbac') {
+    return tp('planDeleteDisabledRbac', {
+      defaultValue: 'Disabled: your role cannot delete shipment plans.',
+    })
+  }
+  if (key === 'berthed') {
+    return tp('planDeleteDisabledBerthed', {
+      defaultValue: 'Disabled: cannot delete a plan that has berthed.',
+    })
+  }
+  if (key === 'status') {
+    return tp('planDeleteDisabledStatus', {
+      defaultValue: 'Disabled: only Draft, Rejected, or never-berthed plans can be deleted.',
+    })
+  }
   return null
 }
 
@@ -265,7 +278,12 @@ export function ShipmentPlanRowActions({
   const submitTitle = submitReason || t('actionSubmitForApproval')
   const approveReason = planOpenApprovalDisabledReason(plan, canApprove)
   const viewReason = planViewHubDisabledReason(plan, canView)
-  const deleteReason = planDeleteDisabledReason(plan, canDelete)
+  const deleteReason = resolvePlanDeleteDisabledReason(plan, canDelete, tp)
+  const deleteTitle =
+    deleteReason ||
+    tp('planActionDeletePlanTooltip', {
+      defaultValue: 'Delete this shipment plan (Draft, Rejected, or never berthed)',
+    })
 
   return (
     <div className="si-table__action-slots">
@@ -322,7 +340,7 @@ export function ShipmentPlanRowActions({
           type="button"
           className="btn btn--secondary btn--small si-table__action-btn si-table__action-icon si-table__action-btn--delete-si"
           disabled={Boolean(deleteReason)}
-          title={deleteReason || t('actionDeleteInstruction')}
+          title={deleteTitle}
           aria-label={deleteReason || tp('planActionDeletePlan')}
           onClick={onDelete}
         >

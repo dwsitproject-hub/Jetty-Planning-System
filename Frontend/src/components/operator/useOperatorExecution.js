@@ -25,6 +25,11 @@ import {
   utcIsoToNaiveLocal,
 } from '../../utils/scheduleDateTime'
 import { buildOperatorCargoSegments } from '../../utils/operatorCargoSegments'
+import {
+  collectCargoLoadLinesWithPending,
+  detectCargoSiQtyMismatch,
+  formatCargoSiQtyMismatchConfirm,
+} from '../../utils/cargoSiQtyMismatch.js'
 import i18n from '../../i18n'
 const POST_STEPS = [
   { uiKey: 'finalInspection', apiKey: 'final_inspection', label: 'FINAL INSPECTION' },
@@ -646,6 +651,20 @@ export function useOperatorExecution(operationId) {
       showToast(i18n.t('operator:toast.atgQtyPending'), 'error')
       return
     }
+    const siQty = operation?.cargoSiQty ?? operation?.cargo_si_qty
+    if (siQty != null && Number.isFinite(Number(siQty))) {
+      const flatLines = collectCargoLoadLinesWithPending(activities, {
+        pendingEntryId: entry.id,
+        pendingLines: lines,
+      })
+      const mismatch = detectCargoSiQtyMismatch({ siQty: Number(siQty), lines: flatLines })
+      if (mismatch) {
+        const msg = formatCargoSiQtyMismatchConfirm(mismatch, (key, params) =>
+          i18n.t(`pages:${key}`, params)
+        )
+        if (!window.confirm(msg)) return
+      }
+    }
     await runMutation(async () => {
       await updateOperationalEntry(
         operationId,
@@ -664,6 +683,7 @@ export function useOperatorExecution(operationId) {
     activities,
     commodityType,
     naByLabel,
+    operation,
     operationId,
     portId,
     purpose,

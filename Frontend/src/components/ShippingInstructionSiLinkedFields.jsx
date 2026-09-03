@@ -14,6 +14,10 @@ import {
   MAX_SI_VOYAGE_CHARS,
 } from '../constants/inputLimits'
 import { emptyBreakdownRow, nextDocId, planEtaYmd } from '../utils/siPlanLinkedDraft'
+import {
+  applyCommodityDefaultMetric,
+  metricsForBreakdownRow,
+} from '../utils/siBreakdownMetric'
 import ShippingInstructionDocumentUploadSection from './ShippingInstructionDocumentUploadSection'
 
 const FREIGHT_TERM_OPTIONS = [
@@ -77,6 +81,13 @@ export default function ShippingInstructionSiLinkedFields({
     setForm((f) => {
       const next = [...(f.breakdown || [])]
       next[index] = { ...next[index], [field]: value }
+      return { ...f, breakdown: next }
+    })
+  }
+  const updateBreakdownCommodity = (index, commodityId) => {
+    setForm((f) => {
+      const next = [...(f.breakdown || [])]
+      next[index] = applyCommodityDefaultMetric(next[index] || {}, commodityId, lookups)
       return { ...f, breakdown: next }
     })
   }
@@ -328,7 +339,7 @@ export default function ShippingInstructionSiLinkedFields({
                     <td>
                       <select
                         value={row.commodityId}
-                        onChange={(e) => updateBreakdownRow(i, 'commodityId', e.target.value)}
+                        onChange={(e) => updateBreakdownCommodity(i, e.target.value)}
                         required
                         className="shipping-instruction-inline-input"
                         disabled={!lookups}
@@ -357,11 +368,18 @@ export default function ShippingInstructionSiLinkedFields({
                         value={row.metricId}
                         onChange={(e) => updateBreakdownRow(i, 'metricId', e.target.value)}
                         required
-                        disabled={!lookups}
+                        disabled={!lookups || metricsForBreakdownRow(row.commodityId, lookups).length <= 1}
                         className="shipping-instruction-inline-input"
+                        title={
+                          metricsForBreakdownRow(row.commodityId, lookups).length <= 1
+                            ? t('breakdownMetricLockedHint', {
+                                defaultValue: 'Unit is fixed by commodity default in master data.',
+                              })
+                            : undefined
+                        }
                       >
                         <option value="">—</option>
-                        {(lookups?.metrics || []).map((m) => (
+                        {metricsForBreakdownRow(row.commodityId, lookups).map((m) => (
                           <option key={m.id} value={m.id}>
                             {m.code} ({m.label})
                           </option>

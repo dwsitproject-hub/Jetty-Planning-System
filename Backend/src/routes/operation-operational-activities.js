@@ -142,22 +142,6 @@ async function loadPrimarySiCargoLine(q, operationId) {
   return r.rows[0] ?? null;
 }
 
-/** Sum of load-line qty on other cargo_operations activities for the same operation (excludes excludeActivityId). */
-async function sumOtherCargoOpsLineQty(q, operationId, excludeActivityId) {
-  const r = await q.query(
-    `SELECT COALESCE(SUM(l.qty), 0)::numeric AS s
-     FROM operation_cargo_load_lines l
-     JOIN operation_operational_activities oa ON oa.id = l.operational_activity_id
-     WHERE oa.operation_id = $1
-       AND oa.deleted_at IS NULL
-       AND oa.entry_type = 'activity'
-       AND oa.milestone_key = 'cargo_operations'
-       AND ($2::bigint IS NULL OR oa.id <> $2::bigint)`,
-    [operationId, excludeActivityId]
-  );
-  return Number(r.rows[0]?.s || 0);
-}
-
 /** Stable identity for a load segment: window + tank set (instant-based, format agnostic). */
 function manualLineWindowKey(startAt, endAt, tankIds) {
   const stamp = (v) => {
@@ -442,7 +426,6 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
     }
   }
 
-  const totalQty = parsed.reduce((s, x) => s + (x.qty != null ? x.qty : 0), 0);
   const line = await loadPrimarySiCargoLine(q, operationId);
   if (!line || line.qty == null) {
     return {
@@ -451,17 +434,6 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
       error: 'Shipping instruction has no breakdown quantity for cargo operations',
     };
   }
-  const siQty = Number(line.qty);
-  const otherSum = await sumOtherCargoOpsLineQty(q, operationId, excludeActivityId);
-  const budget = siQty - otherSum;
-  if (totalQty > budget + 1e-9) {
-    return {
-      ok: false,
-      status: 400,
-      error: `Load line quantities exceed remaining quantity (remaining ${budget})`,
-    };
-  }
-
   const lines = parsed.map((p, idx) => ({
     qty: p.qty,
     manualQty: p.manualQty,
