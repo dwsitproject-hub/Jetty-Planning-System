@@ -20,7 +20,7 @@ import { fetchTankGaugingMassDelta } from '../api/tankGauging'
 import { readAtgQtyFromRef } from '../utils/atgQty.js'
 import OperationActivityTimeline from './OperationActivityTimeline'
 import DropdownMultiSelect from './DropdownMultiSelect'
-import CargoLiveMovementPanel from './CargoLiveMovementPanel'
+import CargoEntryHourlyPanel from './CargoEntryHourlyPanel'
 import {
   collectCargoLoadLines,
   detectCargoSiQtyMismatch,
@@ -42,6 +42,7 @@ import {
   nowToNaiveLocalInScheduleZone,
   utcIsoToNaiveLocal,
 } from '../utils/scheduleDateTime.js'
+import { useCargoSegmentHourly } from '../utils/useCargoSegmentHourly.js'
 import {
   MAX_ACTIVITY_REMARK_CHARS,
   MAX_MILESTONE_REASON_CHARS,
@@ -717,10 +718,16 @@ export default function OperationalMilestoneWorkspace({
   )
 
   useEffect(() => {
-    if (!useCargoSessionMode || !openLineDraft || !operationId) return undefined
+    if (!useCargoSessionMode || !formModalOpen || !operationId) return undefined
+    const hasOpenAtg = cargoLoadLinesDraft.some((l) => {
+      if (!l.start || l.end || l.atgQtyMode === 'manual') return false
+      const { atgTankIds } = partitionDraftTanks(l.tankIds, tankMetaById)
+      return atgTankIds.length > 0
+    })
+    if (!hasOpenAtg && !openLineDraft) return undefined
     const id = window.setInterval(() => setLiveAtgTick((n) => n + 1), 30000)
     return () => window.clearInterval(id)
-  }, [useCargoSessionMode, openLineDraft?.key, operationId])
+  }, [useCargoSessionMode, formModalOpen, operationId, openLineDraft, cargoLoadLinesDraft, tankMetaById])
 
   const openLoadLineId = useMemo(() => {
     if (!useApi) return null
@@ -758,6 +765,20 @@ export default function OperationalMilestoneWorkspace({
       window.clearInterval(pollId)
     }
   }, [useCargoSessionMode, operationId, formModalOpen, liveAtgTick, openLoadLineId, openLineDraft, useApi])
+
+  const normalizeSegmentInstant = useCallback(
+    (local) => normalizeForApi(local, tz),
+    [tz]
+  )
+
+  const segmentHourly = useCargoSegmentHourly({
+    operationId,
+    cargoLoadLinesDraft,
+    tankMetaById,
+    normalizeStartEnd: normalizeSegmentInstant,
+    liveAtgTick,
+    enabled: Boolean(useCargoSessionMode && formModalOpen && operationId),
+  })
 
   const closedPersistedSum = useMemo(
     () => sumClosedPersistedLineQty(milestoneActivitiesFor(activities, 'CARGO OPERATIONS')),
@@ -1869,25 +1890,43 @@ export default function OperationalMilestoneWorkspace({
                               </strong>
                             </span>
                           </div>
+
+                          {useCargoSessionMode && row.start ? (
+                            <CargoEntryHourlyPanel
+                              segmentStart={row.start}
+                              segmentEnd={row.end || null}
+                              hourlyData={segmentHourly.byKey.get(lr.key) ?? null}
+                              hourlyLoading={segmentHourly.loading}
+                              purpose={purpose}
+                              metricLabel={cargoOpsFormDerived?.metricLabel ?? ''}
+                              scheduleTimezone={tz}
+                              operationId={operationId}
+                              openLoadLineId={(() => {
+                                const n = Number(String(row.key))
+                                return Number.isFinite(n) && n > 0 ? String(n) : null
+                              })()}
+                              showAtgHourly={hasAtgTanks && atgQtyMode === 'auto'}
+                              showManualCheckpoints={
+                                !row.end &&
+                                row.start &&
+                                (() => {
+                                  const n = Number(String(row.key))
+                                  const lineId =
+                                    Number.isFinite(n) && n > 0 ? String(n) : null
+                                  return (
+                                    Boolean(lineId) &&
+                                    (atgQtyMode === 'manual' ||
+                                      (!hasAtgTanks && manualTankIds.length > 0))
+                                  )
+                                })()
+                              }
+                            />
+                          ) : null}
                         </div>
                       </div>
                     )
                   })}
                 </div>
-
-                {useCargoSessionMode ? (
-                  <CargoLiveMovementPanel
-                    openLine={openLineDraft}
-                    atgRef={openLineDraft ? atgRefByLineKey[openLineDraft.key] : null}
-                    hourlyProgress={sessionOperationalProgress}
-                    tankMetaById={tankMetaById}
-                    metricLabel={cargoOpsFormDerived?.metricLabel ?? ''}
-                    purpose={purpose}
-                    scheduleTimezone={tz}
-                    operationId={operationId}
-                    openLoadLineId={openLoadLineId}
-                  />
-                ) : null}
               </>
             ) : null}
 

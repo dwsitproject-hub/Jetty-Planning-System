@@ -901,12 +901,113 @@ async function loadManualCheckpointsForLine(db, loadLineId) {
 }
 
 /**
+ * Hourly buckets for a single cargo load line (not merged with other segments).
+ * @param {import('pg').Pool|import('pg').PoolClient} db
+ * @param {object} ctx from loadOperationProgressContext
+ * @param {object} line
+ * @param {object} [opts]
+ * @returns {Promise<Array<object>>}
+ */
+export async function getHourlyBucketsForLineEntry(db, ctx, line, opts = {}) {
+  const { partitionLineTanks, resolveLineMode } = await getCargoProgressHelpers();
+  const startIso = line.startedAt || line.startAt;
+  if (!startIso || !line.tankIds?.length) return [];
+
+  const { atgTankIds, manualTankIds } = await partitionLineTanks(db, line.tankIds);
+  const mode = resolveLineMode({
+    commodityType: ctx.commodityType,
+    atgTankIds,
+    manualTankIds,
+    atgQtyMode: line.atgQtyMode,
+  });
+
+  const endIso = line.endedAt || line.endAt || new Date().toISOString();
+  const lineForCompute = {
+    ...line,
+    startedAt: startIso,
+    endedAt: line.endedAt || line.endAt || null,
+  };
+
+  const bucketLists = [];
+  const thresholds = {
+    flatRateThresholdTph: ctx.flatRateThresholdTph ?? DEFAULT_FLAT_RATE_THRESHOLD_TPH,
+    minQtyMovedT: ctx.minQtyMovedT ?? DEFAULT_MIN_QTY_MOVED_T,
+  };
+
+  if (mode === 'manual' || line.atgQtyMode === 'manual') {
+    const checkpoints = line.id ? await loadManualCheckpointsForLine(db, line.id) : [];
+    if (checkpoints.length) {
+      bucketLists.push(
+        computeHourlyBucketsFromManualCheckpoints(checkpoints, startIso, endIso, ctx.timezone, ctx)
+      );
+    } else if ((line.endedAt || line.endAt) && line.qty != null) {
+      bucketLists.push(
+        computeHourlyBucketsFromManualCheckpoints(
+          [{ recordedAt: endIso, cumulativeQty: Number(line.qty) || 0 }],
+          startIso,
+          endIso,
+          ctx.timezone,
+          ctx
+        )
+      );
+    }
+    return mergeHourlyBuckets(bucketLists, thresholds);
+  }
+
+  if (line.endedAt && line.atgHourlyDetail && !opts.forceRecompute) {
+    const stored = Array.isArray(line.atgHourlyDetail) ? line.atgHourlyDetail : [];
+    if (stored.length) return stored;
+  }
+
+  if (line.id) {
+    const persisted = await loadPersistedHourlyBuckets(db, line.id);
+    if (persisted.length && line.endedAt && !opts.forceRecompute) {
+      return persisted;
+    }
+  }
+
+  const atgBuckets = await computeHourlyBucketsForLine(db, lineForCompute, ctx);
+  if (atgBuckets.length) bucketLists.push(atgBuckets);
+
+  if (mode === 'mixed' && line.manualQty != null && Number(line.manualQty) > 0) {
+    bucketLists.push(
+      computeHourlyBucketsFromManualCheckpoints(
+        [{ recordedAt: endIso, cumulativeQty: Number(line.manualQty) }],
+        startIso,
+        endIso,
+        ctx.timezone,
+        ctx
+      )
+    );
+  }
+
+  return mergeHourlyBuckets(bucketLists, thresholds);
+}
+
+/**
+ * Progress summary for one cargo segment (hourly buckets + moved qty + rate lines).
+ * @param {import('pg').Pool|import('pg').PoolClient} db
+ * @param {object} ctx
+ * @param {object} line
+ * @param {object} [opts]
+ */
+export async function getHourlyProgressForLine(db, ctx, line, opts = {}) {
+  const hourlyBuckets = await getHourlyBucketsForLineEntry(db, ctx, line, opts);
+  const movedQty = hourlyBuckets.reduce((s, b) => s + (Number(b.qtyMoved) || 0), 0);
+  const unit = ctx.siMetric || 'MT';
+  return {
+    hourlyBuckets,
+    movedQty,
+    rateSummary: buildHourlyRateSummary(hourlyBuckets, unit),
+  };
+}
+
+/**
  * @param {import('pg').Pool|import('pg').PoolClient} db
  * @param {object} ctx from loadOperationProgressContext
  * @param {object} [opts]
  */
 export async function getHourlyOperationalProgress(db, ctx, opts = {}) {
-  const { partitionLineTanks, resolveLineMode } = await getCargoProgressHelpers();
   if (!ctx?.lines?.length) {
     return {
       hourlyBuckets: [],
@@ -926,69 +1027,8 @@ export async function getHourlyOperationalProgress(db, ctx, opts = {}) {
 
   for (const line of ctx.lines) {
     if (!line.startedAt || !line.tankIds?.length) continue;
-
-    const { atgTankIds, manualTankIds } = await partitionLineTanks(db, line.tankIds);
-    const mode = resolveLineMode({
-      commodityType: ctx.commodityType,
-      atgTankIds,
-      manualTankIds,
-      atgQtyMode: line.atgQtyMode,
-    });
-
-    if (mode === 'manual' || line.atgQtyMode === 'manual') {
-      const checkpoints = await loadManualCheckpointsForLine(db, line.id);
-      if (checkpoints.length) {
-        allBucketLists.push(
-          computeHourlyBucketsFromManualCheckpoints(
-            checkpoints,
-            line.startedAt,
-            line.endedAt || new Date().toISOString(),
-            ctx.timezone,
-            ctx
-          )
-        );
-      } else if (line.endedAt && line.qty != null) {
-        allBucketLists.push(
-          computeHourlyBucketsFromManualCheckpoints(
-            [{ recordedAt: line.endedAt, cumulativeQty: Number(line.qty) || 0 }],
-            line.startedAt,
-            line.endedAt,
-            ctx.timezone,
-            ctx
-          )
-        );
-      }
-      continue;
-    }
-
-    if (line.endedAt && line.atgHourlyDetail && !opts.forceRecompute) {
-      const stored = Array.isArray(line.atgHourlyDetail) ? line.atgHourlyDetail : [];
-      if (stored.length) {
-        allBucketLists.push(stored);
-        continue;
-      }
-    }
-
-    const persisted = await loadPersistedHourlyBuckets(db, line.id);
-    if (persisted.length && line.endedAt && !opts.forceRecompute) {
-      allBucketLists.push(persisted);
-      continue;
-    }
-
-    const atgBuckets = await computeHourlyBucketsForLine(db, line, ctx);
-    if (atgBuckets.length) allBucketLists.push(atgBuckets);
-
-    if (mode === 'mixed' && line.manualQty != null && Number(line.manualQty) > 0) {
-      allBucketLists.push(
-        computeHourlyBucketsFromManualCheckpoints(
-          [{ recordedAt: line.endedAt || new Date().toISOString(), cumulativeQty: Number(line.manualQty) }],
-          line.startedAt,
-          line.endedAt || new Date().toISOString(),
-          ctx.timezone,
-          ctx
-        )
-      );
-    }
+    const lineBuckets = await getHourlyBucketsForLineEntry(db, ctx, line, opts);
+    if (lineBuckets.length) allBucketLists.push(lineBuckets);
   }
 
   const hourlyBuckets = mergeHourlyBuckets(allBucketLists, thresholds);

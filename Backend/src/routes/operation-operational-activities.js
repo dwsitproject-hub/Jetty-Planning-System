@@ -15,9 +15,14 @@ import { readAtgQtyFromResult, resolveAtgMeasurementBasis } from '../lib/atg-mea
 import {
   aggregateAtgDailyProgressForOperation,
   getOperationalProgress,
+  loadOperationProgressContext,
   partitionLineTanks,
 } from '../lib/operational-progress.js';
-import { computeDirectionalMovedQtyForWindow, snapshotHourlyDetailForLoadLine } from '../lib/atg-hourly-progress.js';
+import {
+  computeDirectionalMovedQtyForWindow,
+  getHourlyProgressForLine,
+  snapshotHourlyDetailForLoadLine,
+} from '../lib/atg-hourly-progress.js';
 
 const router = express.Router();
 
@@ -1329,6 +1334,142 @@ router.get('/operations/:operationId/operational-progress', async (req, res) => 
   const progress = await getOperationalProgress(pool, operationId);
   if (!progress) return res.status(404).json({ error: 'Operation not found' });
   res.json(progress);
+});
+
+function parseSegmentTankIds(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((id) => Number(id))
+    .filter((n) => Number.isFinite(n) && n > 0);
+}
+
+function parseSavedLoadLineId(raw) {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** POST /operations/:operationId/cargo-segment-hourly — per-entry hourly buckets (not merged). */
+router.post('/operations/:operationId/cargo-segment-hourly', async (req, res) => {
+  const operationId = parseOperationId(req.params.operationId);
+  if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
+  await assertOperationAccess(operationId, req);
+
+  const ctx = await loadOperationProgressContext(pool, operationId);
+  if (!ctx) return res.status(404).json({ error: 'Operation not found' });
+
+  const rawSegments = req.body?.segments ?? req.body?.Segments;
+  if (!Array.isArray(rawSegments)) {
+    return res.status(400).json({ error: 'segments must be a non-empty array' });
+  }
+  if (rawSegments.length === 0) {
+    return res.json({
+      scheduleTimezone: ctx.timezone,
+      purpose: ctx.purpose,
+      siMetric: ctx.siMetric,
+      segments: [],
+    });
+  }
+  if (rawSegments.length > 32) {
+    return res.status(400).json({ error: 'Too many segments (max 32)' });
+  }
+
+  const tz = ctx.timezone || 'Asia/Jakarta';
+  const dbLineById = new Map((ctx.lines || []).map((l) => [Number(l.id), l]));
+  const outSegments = [];
+
+  for (const seg of rawSegments) {
+    const clientKey = String(seg.clientKey ?? seg.client_key ?? '').trim();
+    if (!clientKey) {
+      return res.status(400).json({ error: 'Each segment requires clientKey' });
+    }
+
+    const loadLineId = parseSavedLoadLineId(seg.loadLineId ?? seg.load_line_id);
+    if (loadLineId != null) {
+      const access = await assertLoadLineBelongsToOperation(pool, loadLineId, operationId);
+      if (!access.ok) return res.status(access.status).json({ error: access.error });
+    }
+
+    const dbLine = loadLineId != null ? dbLineById.get(loadLineId) : null;
+    const draftStartRaw = seg.startAt ?? seg.start_at ?? null;
+    const draftEndRaw = seg.endAt ?? seg.end_at ?? null;
+    const draftTankIds = parseSegmentTankIds(seg.tankIds ?? seg.tank_ids);
+
+    let startIso = null;
+    if (draftStartRaw) {
+      startIso = parseScheduleInstantToIso(draftStartRaw, tz);
+      if (!startIso) {
+        return res.status(400).json({ error: `Invalid startAt for segment ${clientKey}` });
+      }
+    } else if (dbLine?.startedAt) {
+      startIso = dbLine.startedAt;
+    }
+
+    let endIso = null;
+    if (draftEndRaw) {
+      endIso = parseScheduleInstantToIso(draftEndRaw, tz);
+      if (!endIso) {
+        return res.status(400).json({ error: `Invalid endAt for segment ${clientKey}` });
+      }
+    } else if (dbLine?.endedAt) {
+      endIso = dbLine.endedAt;
+    }
+
+    const tankIds =
+      draftTankIds.length > 0 ? draftTankIds : dbLine?.tankIds?.length ? dbLine.tankIds : [];
+
+    if (!startIso || !tankIds.length) {
+      outSegments.push({
+        clientKey,
+        hourlyBuckets: [],
+        movedQty: 0,
+        rateSummary: { currentHourLine: null, lastActiveHourLine: null },
+      });
+      continue;
+    }
+
+    const atgQtyMode =
+      (seg.atgQtyMode ?? seg.atg_qty_mode) === 'manual'
+        ? 'manual'
+        : dbLine?.atgQtyMode === 'manual'
+          ? 'manual'
+          : 'auto';
+
+    const line = {
+      id: loadLineId ?? undefined,
+      startedAt: startIso,
+      endedAt: endIso,
+      tankIds,
+      atgQtyMode,
+      qty: dbLine?.qty ?? null,
+      manualQty: dbLine?.manualQty ?? null,
+      atgHourlyDetail: dbLine?.atgHourlyDetail ?? null,
+    };
+
+    try {
+      const progress = await getHourlyProgressForLine(pool, ctx, line);
+      outSegments.push({
+        clientKey,
+        hourlyBuckets: progress.hourlyBuckets,
+        movedQty: progress.movedQty,
+        rateSummary: progress.rateSummary,
+      });
+    } catch (e) {
+      outSegments.push({
+        clientKey,
+        hourlyBuckets: [],
+        movedQty: 0,
+        rateSummary: { currentHourLine: null, lastActiveHourLine: null },
+        error: e?.message || 'hourly_compute_failed',
+      });
+    }
+  }
+
+  res.json({
+    scheduleTimezone: ctx.timezone,
+    purpose: ctx.purpose,
+    siMetric: ctx.siMetric,
+    segments: outSegments,
+  });
 });
 
 /** GET /operations/:operationId/cargo-manual-checkpoints?loadLineId= */

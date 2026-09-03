@@ -7,6 +7,7 @@ import {
   computeCompletionFromMovedQty,
   computeDirectionalTankDelta,
   computeHourlyBucketsFromManualCheckpoints,
+  getHourlyBucketsForLineEntry,
   mergeHourlyBuckets,
   buildHourlyRateSummary,
 } from './atg-hourly-progress.js';
@@ -280,5 +281,36 @@ describe('buildHourlyRateSummary', () => {
     );
     assert.match(summary.currentHourLine, /15:00–16:00/);
     assert.match(summary.lastActiveHourLine, /14:00–15:00/);
+  });
+});
+
+describe('getHourlyBucketsForLineEntry window scoping', () => {
+  it('returns empty when start or tanks missing', async () => {
+    const buckets = await getHourlyBucketsForLineEntry(
+      {},
+      { commodityType: 'Liquid', timezone: 'Asia/Jakarta' },
+      { startedAt: null, tankIds: [1] }
+    );
+    assert.deepEqual(buckets, []);
+  });
+
+  it('buildClockHourBuckets respects segment end before next line start', () => {
+    const entry1 = buildClockHourBuckets(
+      '2026-09-03T00:01:00+07:00',
+      '2026-09-03T05:00:00+07:00',
+      'Asia/Jakarta'
+    );
+    const entry2 = buildClockHourBuckets(
+      '2026-09-03T05:01:00+07:00',
+      '2026-09-03T07:00:00+07:00',
+      'Asia/Jakarta'
+    );
+    assert.ok(entry1.length >= 1);
+    assert.ok(entry2.length >= 1);
+    const last1 = entry1[entry1.length - 1].hourEnd;
+    const first2 = entry2[0].hourStart;
+    assert.ok(new Date(last1).getTime() <= new Date('2026-09-03T05:00:00+07:00').getTime());
+    assert.ok(new Date(first2).getTime() >= new Date('2026-09-03T05:01:00+07:00').getTime());
+    assert.notDeepEqual(entry1.map((b) => b.hourStart), entry2.map((b) => b.hourStart));
   });
 });

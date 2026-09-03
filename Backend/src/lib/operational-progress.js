@@ -379,6 +379,7 @@ export async function loadOperationProgressContext(db, operationId) {
 
   const linesR = await db.query(
     `SELECT l.id, l.qty, l.manual_qty, l.atg_qty_mode, l.started_at, l.ended_at,
+            l.atg_hourly_detail,
             COALESCE(
               (SELECT array_agg(clt.tank_id ORDER BY clt.tank_id)
                FROM operation_cargo_load_line_tanks clt
@@ -401,6 +402,7 @@ export async function loadOperationProgressContext(db, operationId) {
     atgQtyMode: l.atg_qty_mode || 'auto',
     startedAt: l.started_at ? new Date(l.started_at).toISOString() : null,
     endedAt: l.ended_at ? new Date(l.ended_at).toISOString() : null,
+    atgHourlyDetail: Array.isArray(l.atg_hourly_detail) ? l.atg_hourly_detail : null,
     tankIds: (l.tank_ids || []).map(Number).filter((n) => n > 0),
   }));
 

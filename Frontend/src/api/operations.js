@@ -412,6 +412,10 @@ export function fetchOperationalProgress(operationId) {
   return apiGet(`/operations/${operationId}/operational-progress`)
 }
 
+export function fetchCargoSegmentHourly(operationId, segments) {
+  return apiPost(`/operations/${operationId}/cargo-segment-hourly`, { segments })
+}
+
 export function fetchCargoManualCheckpoints(operationId, loadLineId) {
   const q = loadLineId != null ? `?loadLineId=${encodeURIComponent(loadLineId)}` : ''
   return apiGet(`/operations/${operationId}/cargo-manual-checkpoints${q}`)
