@@ -87,6 +87,9 @@ Shipping Instruction → Allocation & Berthing → At-Berth → Loading/Unloadin
 | **TECH-SPEC-Jetty-Planning-System.md** | Technical specification: domains, workflows, API design, data model, RBAC, NFRs, implementation backlog, allocation overview & at-berth API details, shared datetime util. |
 | **technical-architecture.md** | Technical architecture: stack, environments, data model, APIs, security, deployment. |
 | **Dev-Notes.md** | Dev handover: branch status, local run, staging deployment, docs reference, next steps. |
+| **Guide/APSARADB-DOCUMENTATION-INDEX.md** | **ApsaraDB RDS migration:** index of runbooks, scripts, and related three-server docs (staging `.60` → RDS). |
+| **Guide/APSARADB-STAGING-CUTOVER.md** | Staging cutover: DB ECS `172.28.92.60` → ApsaraDB RDS; preflight, dump/restore, password trap, rollback. |
+| **Guide/APSARADB-LOCAL-ACCESS.md** | Connect from PC to RDS; local API on RDS; `#` password URL encoding. |
 | **Guide/ALICLOUD-DEPLOYMENT-GUIDE.md** | Deployment on Alicloud Ubuntu: security group, Docker, optional PostgreSQL, migrations, troubleshooting. |
 | **Guide/THREE-SERVER-DB-SPLIT-GUIDE.md** | Migrate from two-server (app + API/DB) to three-server (app, API, dedicated PostgreSQL): host audit, Compose split, networking, practice migration. |
 | **Guide/THREE-SERVER-DB-CUTOVER-RUNBOOK.md** | After-hours production cutover: prerequisites, final dump/restore, API-only compose, smoke test, rollback. |

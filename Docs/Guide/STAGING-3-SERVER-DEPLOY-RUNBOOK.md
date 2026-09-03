@@ -242,3 +242,17 @@ Add:
 **Verify:** Admin → Email Delivery Log; Activity Log on Notification Settings page shows job summaries.
 
 **Smoke test:** `cd Backend && npm run test:sla-notifications`
+
+---
+
+## 9. Optional — migrate DB to ApsaraDB RDS
+
+Replace dedicated DB ECS with **ApsaraDB RDS** (API still on Backend server; App unchanged).
+
+**Local rehearsal first:** [APSARADB-LOCAL-ACCESS.md](./APSARADB-LOCAL-ACCESS.md)
+
+**Staging cutover:** [APSARADB-STAGING-CUTOVER.md](./APSARADB-STAGING-CUTOVER.md) — script `Backend/scripts/apsaradb-staging-cutover.sh`
+
+**Full doc index:** [APSARADB-DOCUMENTATION-INDEX.md](./APSARADB-DOCUMENTATION-INDEX.md)
+
+After cutover, `Backend/.env` on API server uses `DB_HOST=<RDS endpoint>` instead of `DB_IP`. Keep DB ECS running until soak completes for rollback.
