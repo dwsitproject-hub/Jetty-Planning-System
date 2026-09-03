@@ -172,6 +172,7 @@ export default function CargoEntryHourlyPanel({
   scheduleTimezone = 'Asia/Jakarta',
 }) {
   const { t } = useTranslation('pages')
+  const [panelOpen, setPanelOpen] = useState(false)
 
   const unit = metricLabel?.split(' · ')[0] || 'MT'
   const hourlyBuckets = hourlyData?.hourlyBuckets || []
@@ -198,37 +199,54 @@ export default function CargoEntryHourlyPanel({
   if (!showAtgHourly) return null
 
   return (
-    <div className="cargo-entry-hourly">
-      <p className="cargo-entry-hourly__title">{t('cargoHourlyTableTitle')}</p>
-      <p className="text-steel cargo-entry-hourly__scope">{windowLabel}</p>
-      {hourlyLoading && hourlyBuckets.length === 0 ? (
-        <p className="text-steel cargo-entry-hourly__hint">{t('cargoEntryHourlyLoading')}</p>
-      ) : null}
-      {hourlyData?.error ? (
-        <p className="operational-form-warning">{hourlyData.error}</p>
-      ) : null}
-      {!hourlyLoading && hourlyBuckets.length === 0 && !hourlyData?.error ? (
-        <p className="text-steel cargo-entry-hourly__hint">{t('cargoEntryHourlyEmpty')}</p>
-      ) : null}
-      {movedQty != null && Number.isFinite(Number(movedQty)) ? (
-        <p className="text-steel cargo-entry-hourly__summary">
-          {t('cargoOpsSessionMovedSoFar')}: <strong>{formatQty(movedQty, metricLabel)}</strong>
-        </p>
-      ) : null}
-      {rateSummary.currentHourLine ? (
-        <p className="text-steel cargo-ops-session__hourly-line">{rateSummary.currentHourLine}</p>
-      ) : null}
-      {hourlyBuckets.length > 0 ? (
-        <HourlyCargoProgressTable
-          hourlyBuckets={hourlyBuckets}
-          unit={unit}
-          purpose={purpose}
-          compact
-          collapsible
-          collapsedRowLimit={6}
-          segmentStartLabel={segmentStartLabel}
-          currentHourLine={rateSummary.currentHourLine ?? null}
-        />
+    <div className={`cargo-entry-hourly${panelOpen ? ' cargo-entry-hourly--open' : ''}`}>
+      <button
+        type="button"
+        className="cargo-entry-hourly__toggle"
+        onClick={() => setPanelOpen((v) => !v)}
+        aria-expanded={panelOpen}
+        aria-controls={`cargo-entry-hourly-body-${openLoadLineId || segmentStart || 'draft'}`}
+      >
+        <span className="cargo-entry-hourly__chevron" aria-hidden>
+          {panelOpen ? '▾' : '▸'}
+        </span>
+        <span className="cargo-entry-hourly__title">{t('cargoHourlyTableTitle')}</span>
+      </button>
+      {panelOpen ? (
+        <div
+          id={`cargo-entry-hourly-body-${openLoadLineId || segmentStart || 'draft'}`}
+          className="cargo-entry-hourly__body"
+        >
+          <p className="text-steel cargo-entry-hourly__scope">{windowLabel}</p>
+          {hourlyLoading && hourlyBuckets.length === 0 ? (
+            <p className="text-steel cargo-entry-hourly__hint">{t('cargoEntryHourlyLoading')}</p>
+          ) : null}
+          {hourlyData?.error ? (
+            <p className="operational-form-warning">{hourlyData.error}</p>
+          ) : null}
+          {!hourlyLoading && hourlyBuckets.length === 0 && !hourlyData?.error ? (
+            <p className="text-steel cargo-entry-hourly__hint">{t('cargoEntryHourlyEmpty')}</p>
+          ) : null}
+          {movedQty != null && Number.isFinite(Number(movedQty)) ? (
+            <p className="text-steel cargo-entry-hourly__summary">
+              {t('cargoOpsSessionMovedSoFar')}: <strong>{formatQty(movedQty, metricLabel)}</strong>
+            </p>
+          ) : null}
+          {rateSummary.currentHourLine ? (
+            <p className="text-steel cargo-ops-session__hourly-line">{rateSummary.currentHourLine}</p>
+          ) : null}
+          {hourlyBuckets.length > 0 ? (
+            <HourlyCargoProgressTable
+              hourlyBuckets={hourlyBuckets}
+              unit={unit}
+              purpose={purpose}
+              compact
+              collapsible
+              collapsedRowLimit={6}
+              segmentStartLabel={segmentStartLabel}
+            />
+          ) : null}
+        </div>
       ) : null}
     </div>
   )

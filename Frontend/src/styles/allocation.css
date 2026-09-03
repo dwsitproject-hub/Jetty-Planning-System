@@ -3871,13 +3871,37 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   padding-top: var(--spacing-3);
   border-top: 1px dashed var(--color-border-light, #e2e8f0);
 }
+.cargo-entry-hourly__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  max-width: 100%;
+}
+.cargo-entry-hourly__toggle:hover .cargo-entry-hourly__title {
+  text-decoration: underline;
+}
+.cargo-entry-hourly__chevron {
+  font-size: 0.7rem;
+  color: var(--color-text-muted, #94a3b8);
+  line-height: 1;
+  flex-shrink: 0;
+}
 .cargo-entry-hourly__title {
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--color-text-secondary, #64748b);
-  margin: 0 0 var(--spacing-1);
+  margin: 0;
+}
+.cargo-entry-hourly__body {
+  margin-top: var(--spacing-2);
 }
 .cargo-entry-hourly__scope {
   font-size: 0.78rem;
