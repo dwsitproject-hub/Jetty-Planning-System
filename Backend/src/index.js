@@ -145,6 +145,9 @@ app.use((err, req, res, next) => {
   if (code === '22P02') {
     return res.status(400).json({ error: 'Invalid input' });
   }
+  if (code === '23503') {
+    return res.status(400).json({ error: 'Invalid tank or related record' });
+  }
   if (code === '23514') {
     const constraint = err?.constraint || null;
     if (constraint === 'operation_sub_processes_time_range_check') {

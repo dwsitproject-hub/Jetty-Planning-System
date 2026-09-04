@@ -508,12 +508,17 @@ async function attachAtgMassSnapshots(client, lines, { commodityType, measuremen
       out.push({ ...ln, atgMassDelta: null, atgMassDetail: null });
       continue;
     }
+    // In-progress segment: qty is live; skip ATG snapshot on save.
+    if (!ln.endIso) {
+      out.push({ ...ln, atgMassDelta: null, atgMassDetail: null });
+      continue;
+    }
     const { atgTankIds } = await partitionLineTanks(client, tankIds);
     if (atgTankIds.length === 0) {
       out.push({ ...ln, atgMassDelta: null, atgMassDetail: null });
       continue;
     }
-    const endAt = ln.endIso || new Date().toISOString();
+    const endAt = ln.endIso;
     const result =
       measurementBasis === 'volume'
         ? await computeAtgWindowVolumeDelta(client, {
@@ -590,18 +595,18 @@ async function fetchTanksForLoadLineIds(q, loadLineIds) {
 async function refreshOperationalProgressAfterCargoSave(q, operationId) {
   try {
     await aggregateAtgDailyProgressForOperation(q, operationId, { includeToday: true });
-  } catch {
-    /* non-fatal */
+  } catch (e) {
+    console.error('[cargo-save] daily progress refresh failed', { operationId, err: e?.message || e });
   }
   try {
     await snapshotHourlyDetailForLoadLine(q, null, operationId);
-  } catch {
-    /* non-fatal if migration not applied */
+  } catch (e) {
+    console.error('[cargo-save] hourly progress refresh failed', { operationId, err: e?.message || e });
   }
 }
 
 async function insertCargoLoadLines(client, operationalActivityId, lines, opts = {}) {
-  const { commodityType = 'Liquid', operationId = null, measurementBasis = 'mass' } = opts;
+  const { commodityType = 'Liquid', measurementBasis = 'mass' } = opts;
   const enriched = await attachAtgMassSnapshots(client, lines, { commodityType, measurementBasis });
   const lineIds = [];
   const out = [];
@@ -635,9 +640,6 @@ async function insertCargoLoadLines(client, operationalActivityId, lines, opts =
     out.push(mapCargoLoadLineRow(ins.rows[0]));
   }
   const tankMap = await fetchTanksForLoadLineIds(client, lineIds);
-  if (operationId != null) {
-    await refreshOperationalProgressAfterCargoSave(client, operationId);
-  }
   return out.map((row, i) => {
     const tanks = tankMap.get(lineIds[i]) || [];
     return { ...row, tanks, tankIds: tanks.map((t) => t.id) };
@@ -668,7 +670,8 @@ async function loadOperationCargoAtgContext(q, operationId) {
     `SELECT o.purpose,
             COALESCE(p.schedule_timezone, 'Asia/Jakarta') AS schedule_timezone
      FROM operations o
-     JOIN ports p ON p.id = o.port_id AND p.deleted_at IS NULL
+     LEFT JOIN jetties j ON j.id = o.jetty_id AND j.deleted_at IS NULL
+     JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
      WHERE o.id = $1 AND o.deleted_at IS NULL`,
     [operationId]
   );
@@ -1011,7 +1014,6 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
         const measurementBasis = await loadMeasurementBasisForOperation(client, operationId);
         savedLines = await insertCargoLoadLines(client, row.id, linePack.lines, {
           commodityType: commodityType || 'Liquid',
-          operationId,
           measurementBasis,
         });
       }
@@ -1020,6 +1022,9 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
       }
       await promoteDockedToInProgressIfDocked(client, operationId);
       await client.query('COMMIT');
+      if (milestoneKey === 'cargo_operations') {
+        await refreshOperationalProgressAfterCargoSave(pool, operationId);
+      }
       if (row.cargo_handling_method_id) {
         const m = await pool.query(
           `SELECT name FROM master_cargo_handling_methods WHERE id = $1 AND deleted_at IS NULL`,
@@ -1209,13 +1214,16 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
           operationId,
         ]
       );
+      if (!up.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Entry not found or was deleted' });
+      }
       let savedLinesPut = null;
       const commodityTypePut = await loadCommodityTypeForOperation(client, operationId);
       if (milestoneKey === 'cargo_operations' && linePack.lines?.length) {
         const measurementBasisPut = await loadMeasurementBasisForOperation(client, operationId);
         savedLinesPut = await replaceCargoLoadLines(client, entryId, linePack.lines, {
           commodityType: commodityTypePut || 'Liquid',
-          operationId,
           measurementBasis: measurementBasisPut,
         });
       }
@@ -1227,6 +1235,9 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
       }
       await promoteDockedToInProgressIfDocked(client, operationId);
       await client.query('COMMIT');
+      if (milestoneKey === 'cargo_operations') {
+        await refreshOperationalProgressAfterCargoSave(pool, operationId);
+      }
       const row = up.rows[0];
       if (row.cargo_handling_method_id) {
         const m = await pool.query(
