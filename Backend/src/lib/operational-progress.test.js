@@ -4,6 +4,7 @@ import {
   buildManualDailyBarsForLine,
   buildScheduleComparisonFromCargoSummary,
   mergeDailyBars,
+  resolveCanonicalMovedQty,
   resolveLineMode,
   summarizeCargoProgressContext,
 } from './operational-progress.js';
@@ -350,6 +351,30 @@ describe('summarizeCargoProgressContext', () => {
     assert.ok(result);
     assert.equal(result.source, 'hybrid');
     assert.equal(result.movedQty, 700);
+  });
+});
+
+describe('resolveCanonicalMovedQty', () => {
+  it('uses saved cargo summary when all segments are closed even if hourly under-reports', () => {
+    const moved = resolveCanonicalMovedQty(
+      { movedQty: 1797.008, hasActiveCargo: false },
+      { movedQty: 403.794 },
+      0
+    );
+    assert.equal(moved, 1797.008);
+  });
+
+  it('prefers hourly moved qty while a cargo segment is still open', () => {
+    const moved = resolveCanonicalMovedQty(
+      { movedQty: 500, hasActiveCargo: true },
+      { movedQty: 763.2 },
+      0
+    );
+    assert.equal(moved, 763.2);
+  });
+
+  it('falls back to closed line qty when cargo summary is absent', () => {
+    assert.equal(resolveCanonicalMovedQty(null, { movedQty: 100 }, 850), 850);
   });
 });
 
