@@ -49,14 +49,18 @@ import AdminEmailDeliveryLog from './pages/AdminEmailDeliveryLog'
 import DemurrageRiskCalculator from './pages/DemurrageRiskCalculator'
 import JettyLive from './pages/JettyLive'
 import DevOcrTest from './pages/DevOcrTest'
+import { isEmbedMode, isPipelineEmbedPath } from './utils/embedMode'
 
 function AppShell() {
   const location = useLocation()
   const isSiView = /^\/shipping-instruction\/view\/[^/]+$/.test(location.pathname)
   const isVizPopout = /^\/allocation\/visualization\/[^/]+$/.test(location.pathname)
   const isOperator = location.pathname.startsWith('/operator')
-  const isEmbed = new URLSearchParams(location.search).get('embed') === '1'
-  if ((isSiView && isEmbed) || (isVizPopout && isEmbed)) {
+  const isEmbed = isEmbedMode(location.search)
+  const isChromelessEmbed =
+    isEmbed &&
+    ((isSiView || isVizPopout || isPipelineEmbedPath(location.pathname)))
+  if (isChromelessEmbed) {
     return <Outlet />
   }
   if (isOperator) {

@@ -412,6 +412,23 @@ export function fetchOperationalProgress(operationId) {
   return apiGet(`/operations/${operationId}/operational-progress`)
 }
 
+export function fetchCargoSegmentHourly(operationId, segments) {
+  return apiPost(`/operations/${operationId}/cargo-segment-hourly`, { segments })
+}
+
+export function fetchCargoManualCheckpoints(operationId, loadLineId) {
+  const q = loadLineId != null ? `?loadLineId=${encodeURIComponent(loadLineId)}` : ''
+  return apiGet(`/operations/${operationId}/cargo-manual-checkpoints${q}`)
+}
+
+export function createCargoManualCheckpoint(operationId, body) {
+  return apiPost(`/operations/${operationId}/cargo-manual-checkpoints`, body)
+}
+
+export function deleteCargoManualCheckpoint(operationId, checkpointId) {
+  return apiDelete(`/operations/${operationId}/cargo-manual-checkpoints/${checkpointId}`)
+}
+
 export function fetchAtBerthCargoProgress(ids) {
   const q = Array.isArray(ids) && ids.length ? `?ids=${ids.join(',')}` : ''
   return apiGet(`/operations/at-berth/cargo-progress${q}`)

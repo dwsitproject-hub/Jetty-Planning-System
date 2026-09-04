@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, Fragment } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { fetchAllocationOverview } from '../api/allocation'
-import { setOperationShiftingOut } from '../api/operations'
+import { setOperationShiftingOut, fetchAtBerthCargoProgress } from '../api/operations'
 import { term } from '../i18n/term'
 import SiDetailModal from '../components/SiDetailModal'
 import SiDocumentModal from '../components/SiDocumentModal'
@@ -11,6 +11,9 @@ import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { atBerthExecutionOpenPath } from '../utils/atBerthOpenPath'
 import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
 import EtcBreachBadge from '../components/EtcBreachBadge'
+import CargoScheduleProgressIndicator, {
+  isCargoBehindSchedule,
+} from '../components/CargoScheduleProgressIndicator'
 import { getEtcBreach } from '../utils/etcBreach'
 import '../styles/etc-breach.css'
 import '../styles/allocation.css'
@@ -157,7 +160,15 @@ function buildAtBerthGroups(sortedRows, t, nowMs = Date.now()) {
   })
 }
 
-function createAtBerthColumns(nowMs) {
+function getRowScheduleComparison(row, cargoProgressByOpId = {}) {
+  const opId = row?.operationId
+  if (opId != null && cargoProgressByOpId[String(opId)]) {
+    return cargoProgressByOpId[String(opId)]
+  }
+  return row?.scheduleComparison ?? null
+}
+
+function createAtBerthColumns(nowMs, cargoProgressByOpId = {}, scheduleColumnLabel = 'Schedule') {
   return [
   {
     key: 'vesselName',
@@ -238,6 +249,27 @@ function createAtBerthColumns(nowMs) {
     getSortValue: (r) => getEtcBreach(r, nowMs)?.overMs ?? 0,
     getFilterValue: (r) =>
       `${r.estimatedCompletionDateTime || r.estimationOfCompletion || ''} ${formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion)}`,
+  },
+  {
+    key: 'schedule',
+    label: scheduleColumnLabel,
+    getValue: (r) => {
+      const cmp = getRowScheduleComparison(r, cargoProgressByOpId)
+      if (!cmp?.isBehindSchedule) return '—'
+      return (
+        <span className="at-berth-schedule-cell">
+          <CargoScheduleProgressIndicator comparison={cmp} mode="compact" />
+        </span>
+      )
+    },
+    getSortValue: (r) => {
+      const cmp = getRowScheduleComparison(r, cargoProgressByOpId)
+      return cmp?.isBehindSchedule ? cmp.scheduleGapPercent ?? 0 : -1
+    },
+    getFilterValue: (r) => {
+      const cmp = getRowScheduleComparison(r, cargoProgressByOpId)
+      return cmp?.isBehindSchedule ? `behind ${cmp.scheduleGapPercent ?? 0}` : ''
+    },
   },
   {
     key: 'phaseLabel',
@@ -343,7 +375,11 @@ export default function AtBerthExecutions() {
   const [purposeFilter, setPurposeFilter] = useState('All')
   const [overdueOnlyFilter, setOverdueOnlyFilter] = useState(false)
   const [breachNowMs, setBreachNowMs] = useState(() => Date.now())
-  const atBerthColumns = useMemo(() => createAtBerthColumns(breachNowMs), [breachNowMs])
+  const [cargoProgressByOpId, setCargoProgressByOpId] = useState({})
+  const atBerthColumns = useMemo(
+    () => createAtBerthColumns(breachNowMs, cargoProgressByOpId, tPages('atBerthScheduleColumn')),
+    [breachNowMs, cargoProgressByOpId, tPages]
+  )
   const filterKeys = atBerthColumns.map((c) => c.key)
   const [filters, setFilters] = useState(() =>
     Object.fromEntries(createAtBerthColumns().map((c) => [c.key, '']))
@@ -477,6 +513,40 @@ export default function AtBerthExecutions() {
   useEffect(() => {
     load()
   }, [load])
+
+  const berthedOperationIds = useMemo(
+    () =>
+      [
+        ...new Set(
+          queue
+            .filter((r) => r.operationId != null && getBerthingPlanStatus(r) === 'berthed')
+            .map((r) => Number(r.operationId))
+            .filter((n) => Number.isFinite(n) && n > 0)
+        ),
+      ],
+    [queue]
+  )
+
+  useEffect(() => {
+    if (!berthedOperationIds.length) {
+      setCargoProgressByOpId({})
+      return undefined
+    }
+    let cancelled = false
+    const refresh = () => {
+      fetchAtBerthCargoProgress(berthedOperationIds)
+        .then((res) => {
+          if (!cancelled) setCargoProgressByOpId(res?.summaries ?? {})
+        })
+        .catch(() => {})
+    }
+    refresh()
+    const id = setInterval(refresh, 60_000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [berthedOperationIds])
 
   /** Same queue rows as Allocation; only berthed vessels with an operation. */
   const rows = useMemo(() => {
@@ -691,10 +761,11 @@ export default function AtBerthExecutions() {
                   if (g.siCount <= 1) {
                     const r = g.shiftRow
                     const rowBreach = getEtcBreach(r, breachNowMs)
+                    const rowScheduleCmp = getRowScheduleComparison(r, cargoProgressByOpId)
                     return (
                       <Fragment key={g.key}>
                         <tr
-                          className={`allocation-table__row ${expandedDetailRowId === r.id ? 'allocation-table__row--expanded' : ''}${rowBreach ? ' allocation-table__row--etc-breach' : ''}`}
+                          className={`allocation-table__row ${expandedDetailRowId === r.id ? 'allocation-table__row--expanded' : ''}${rowBreach ? ' allocation-table__row--etc-breach' : ''}${isCargoBehindSchedule(rowScheduleCmp) ? ' cargo-schedule-behind' : ''}`}
                           onClick={() => setExpandedDetailRowId((id) => (id === r.id ? null : r.id))}
                         >
                           <td className="allocation-table__expand-col">
@@ -872,6 +943,8 @@ export default function AtBerthExecutions() {
                                   </span>
                                 ) : null}
                               </span>
+                            ) : col.key === 'schedule' ? (
+                              '—'
                             ) : col.key === 'phaseLabel' ? (
                               g.phaseDisplay
                             ) : col.key === 'status' ? (
@@ -885,10 +958,11 @@ export default function AtBerthExecutions() {
                       {expanded &&
                         g.children.map((r) => {
                           const childBreach = getEtcBreach(r, breachNowMs)
+                          const childScheduleCmp = getRowScheduleComparison(r, cargoProgressByOpId)
                           return (
                           <Fragment key={r.id}>
                             <tr
-                              className={`allocation-table__row allocation-table__row--plan-child ${expandedDetailRowId === r.id ? 'allocation-table__row--expanded' : ''}${childBreach ? ' allocation-table__row--etc-breach' : ''}`}
+                              className={`allocation-table__row allocation-table__row--plan-child ${expandedDetailRowId === r.id ? 'allocation-table__row--expanded' : ''}${childBreach ? ' allocation-table__row--etc-breach' : ''}${isCargoBehindSchedule(childScheduleCmp) ? ' cargo-schedule-behind' : ''}`}
                               onClick={() => setExpandedDetailRowId((id) => (id === r.id ? null : r.id))}
                             >
                               <td className="allocation-table__expand-col">

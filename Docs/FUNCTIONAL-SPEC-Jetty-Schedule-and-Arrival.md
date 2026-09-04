@@ -3,7 +3,7 @@
 **Product:** Jetty Planning & Monitoring System (JPS)  
 **Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **multi-jetty berthing** (span a vessel across adjacent jetties when enabled per port), **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, **uploaded document preview & download**, **Jetty Live CCTV** (per-jetty RTSP links, schematic camera control, browser stream page), **self-service change password** (header user menu), **Reporting → Jetty – Vessel Report** (jetty utilization summary and vessel detail), **Live Ops Dashboard** (real-time terminal control at `/`), **Ops Analytics Dashboard** (date-range performance at `/ops-analytics`), **Management Dashboard** (berth productivity & departure readiness for executives at `/management-dashboard`), and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.68 (see document history at end).
+**Version:** 1.69 (see document history at end).
 
 ---
 
@@ -39,6 +39,7 @@ This document describes **behaviour that is implemented in code**, including:
 - **Inbound Shipping Instruction integration (partner API):** external systems (e.g. EOS Export/Import, KLIPS) submit vessel calls via a machine-to-machine API; operators review them through the existing **Shipment plan** approval flow; the plans list shows **External reference** and **Requested by** after **ETA** (**§2.23**).
 - **Master Jetty — purpose-specific commodity capability:** each jetty maintains separate **Allowed for Unloading** and **Allowed for Loading** commodity lists; **Shipment Plans** jetty suggestions and save validation use the list that matches the plan **Purpose** (**§2.24**).
 - **Multi-jetty berthing:** when enabled on a port, operators may assign a **primary jetty** plus one or more **adjacent** jetties so a long vessel visually and logically spans multiple berth columns; occupancy, Gantt spanning bars, and schematic lane placeholders reflect spanned lanes per bank (**§2.28**).
+- **ATG cargo progress and quantity persistence:** liquid cargo operations record **segment start/end** on load lines; **moved quantity** is persisted when a segment closes (ATG-derived or manual), with optional **hourly rate breakdown** and **manual checkpoints** when ATG is unavailable (**§2.29**).
 - **Management Dashboard — berth productivity & departure readiness:** executive KPI page (`/management-dashboard`, RBAC page key **`management-dashboard`**) with period/purpose filters, clickable widget drill-down modals, voyage table with short commodity names, and inline milestone expansion (**§2.25**).
 
 For API field names, database columns, and shared code modules, see **TECH-SPEC-Jetty-Planning-System.md** and **§6** below for arrival/estimated completion mapping. Jetty Live deployment: **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**.
@@ -592,6 +593,64 @@ Technical contract: **`Frontend/src/pages/ManagementDashboard.jsx`**, **`Fronten
 
 Technical contract: migrations **095**, **096**; **TECH-SPEC §0.34**; **`Backend/src/lib/multi-jetty.js`**, **`Backend/src/routes/allocation.js`**, **`Backend/src/routes/jetties.js`**, **`Backend/src/routes/ports.js`**; **`Frontend/src/components/JettyAllocationSelect.jsx`**, **`JettyScheduleGantt.jsx`**, **`JettySchematic.jsx`**, **`Frontend/src/utils/jettyAdjacency.js`**, **`Frontend/src/utils/jettyScheduleOccupancy.js`**, **`Frontend/src/utils/allocationPlanPovMerge.js`**.
 
+### 2.29 ATG cargo progress and quantity persistence
+
+**Purpose:** For **Liquid** cargo with **ATG-connected tanks**, JPS tracks **how much product moved** during **Cargo Operations** and shows **hour-by-hour transfer rates** (clock-aligned in the port timezone). Operators still **close each transfer segment** with a start and end time; the system **persists the segment total** on save — progress is **not** read only from raw ATG samples after close.
+
+**Distinction from SI-declared quantity:** The **Commodity Qty** column in overview tables (**§2.21**) shows **Shipping Instruction breakdown** totals (planned cargo). **Operational moved quantity** below comes from **cargo load lines** and/or **ATG samples** during/at end of transfer — these may differ slightly from SI qty; variance is **informational** and does **not** block segment close or sign-off.
+
+#### 2.29.1 What is stored where
+
+| Lifecycle | User action | Persisted fields | How moved qty is determined |
+|-----------|-------------|------------------|----------------------------|
+| **Segment open** (transfer in progress) | **Start transfer** + tank selection; **end** not set | **`operation_cargo_load_lines.started_at`**, tank links, activity window on **`operation_operational_activities`** | **`qty` is null** on the load line — movement is **live** from **`tank_gauging_samples`** (Tankvision poll) |
+| **Segment closed** | **Complete transfer** (end time set) | Same row: **`ended_at`**, **`qty`**, optional **`manual_qty`**, **`atg_qty_mode`**, **`atg_mass_delta`** / **`atg_mass_detail`** / **`atg_mass_computed_at`** | **Saved on close:** server resolves qty from **ATG window delta** (`Loading` = tank mass **decrease**, `Unloading` = **increase**) or **operator manual entry** when ATG unavailable |
+| **Manual checkpoints** (ATG down, in progress) | **Log manual reading** (time + cumulative moved qty) | **`operation_cargo_manual_checkpoints`** *(migration **110**)* | Operator readings; hourly table allocates deltas between checkpoints |
+| **Hourly breakdown** (reporting / live UI) | *(automatic)* | **`operation_hourly_cargo_progress`** *(migration **110**, closed hours)*; snapshot **`atg_hourly_detail`** on load line at segment close | **Computed** from ATG samples or manual checkpoints; **Phase 1** can compute on read without migration |
+| **Daily breakdown** (existing chart) | *(automatic)* | **`operation_daily_cargo_progress`** | ATG delta per **operational day** (port **`operational_day_start`**) |
+
+**Raw ATG source:** **`tank_gauging_samples`** (`total_mass`, `sampled_at`) — populated by the Tankvision poller, **not** typed by operators. JPS **copies/snapshots** totals onto **`operation_cargo_load_lines`** at segment close so operational history does not depend on sample retention alone.
+
+#### 2.29.2 Cargo Operations session flow (desktop)
+
+| Phase | Operator steps | Quantity behaviour |
+|-------|----------------|-------------------|
+| **Setup** | Operation window start, remark, select tank(s), **Start transfer** | Creates/open load line with **start** only |
+| **In progress** | Wait (ATG) or enter manual qty / log checkpoints (ATG down) | **Operational progress** and session panel poll **`GET /operations/:id/operational-progress`** (~**30s**); show **moved so far**, **current clock-hour rate**, **Flat Movement** when rate below port threshold (default **2 MT/h**) |
+| **Complete transfer** | **Complete transfer** sets segment **end** | Server persists **`qty`**; mismatch vs SI shows **confirm** (over/under) — operator may proceed |
+| **Next segment** | **Start next segment** for multi-tank / multi-leg transfers | Each segment is its own load line row |
+
+**Advanced / backfill:** collapsed **Manual entry / multiple segments** form remains for historical edits and multi-line backfill.
+
+#### 2.29.3 Hourly progress rules
+
+| Rule | Behaviour |
+|------|-----------|
+| **Clock hours** | Buckets align to **port `schedule_timezone`** (e.g. 14:00–15:00 WITA), including **partial** first/last hours when start/end fall mid-hour |
+| **Direction** | **Loading:** shore tank mass decreases; **Unloading:** increases; wrong-direction noise → **0** for that hour (not `abs()`) |
+| **Flat Movement** | Hour labeled **Flat Movement** when rate **&lt; `atg_flat_rate_threshold_tph`** (default **2.0**) or moved qty **&lt; `atg_min_qty_moved_t`** (default **1.0 MT**) |
+| **Progress %** | `min(100, round(movedQty ÷ siQty × 100))`; bar may show **over SI** label when actual exceeds SI |
+| **SI variance** | **Non-blocking:** confirm on save when total ≠ SI; **no** server gate requiring exact SI match for close or sign-off |
+
+#### 2.29.4 UI surfaces
+
+| Surface | What the user sees |
+|---------|-------------------|
+| **Active Vessel Detail → Operational progress** | Daily chart (unchanged) + **hourly rate table** (clock time, moved qty, rate, Active / Flat Movement / Incomplete, source ATG / Manual) |
+| **Loading/Unloading → Cargo Operations (session panel)** | Live moved qty, **current hour rate**, compact hourly table, manual checkpoint form when ATG unavailable |
+| **Management Dashboard — Achieved cargo rate** | Still uses cargo-operations window totals; hourly detail is on operational progress views |
+
+#### 2.29.5 Rollout
+
+| Phase | Migration | Rollback |
+|-------|-----------|----------|
+| **P1** | None — hourly compute-on-read | Redeploy previous app build |
+| **P2+** | **110** — hourly persistence, port thresholds, manual checkpoints, line hourly snapshot | App rollback + **`Backend/rollback/110_rollback_hourly_cargo_progress.sql`** |
+
+Product proposal: **`Docs/ATG-Hourly-Cargo-Progress-Proposal.md`**. ATG drain/flat **phase** detection (multi-hour plateaus) remains a future enhancement (**Docs/ATG-Transfer-Drain-Detection-Algorithm-Draft.md**).
+
+Technical contract: **`Backend/src/lib/atg-hourly-progress.js`**, **`Backend/src/lib/operational-progress.js`**, **`Backend/src/lib/cargo-line-qty.js`**, **`Backend/src/lib/atg-window-rate.js`**, **`Backend/src/routes/operation-operational-activities.js`** (`GET /operations/:id/operational-progress`, manual checkpoint CRUD); migration **110**; **`Frontend/src/components/OperationalProgressSection.jsx`**, **`HourlyCargoProgressTable.jsx`**, **`CargoOpsSessionPanel.jsx`**, **`OperationalMilestoneWorkspace.jsx`**, **`Frontend/src/utils/cargoSiQtyMismatch.js`**.
+
 ---
 
 ## 3. Gantt data inputs (per queue row)
@@ -759,6 +818,7 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | DB — operations estimated completion | Migrations defining `operations.estimated_completion_time` (e.g. `Backend/migrations/004_shipping_operations_tables.sql` and related) |
 | Operation sign-off (request → approve) + Clearance pending queue | `Frontend/src/pages/Loading.jsx`, `Frontend/src/pages/Verification.jsx`, `Frontend/src/api/operations.js`; `Backend/src/routes/operations.js` (`POST .../signoff-request`, `POST .../signoff`, `GET .../pending-signoff-requests`); `Backend/migrations/049_operations_signoff_request.sql`; RBAC sub-row **Approve operation sign-off** — `Frontend/src/pages/AdminRoles.jsx`. Plan: **Docs/Plan/OPERATION-SIGNOFF-REQUEST-AND-APPROVAL-PLAN.md**. |
 | Stage tabs: Pre/Post **`— / n`** until persisted load (Case A, Option A) | `Frontend/src/pages/Loading.jsx` (`StageTabs`, `preCheckPersistHydrated` / `postCheckPersistHydrated`, `onPersistedHydrationDone`). Plan: **Docs/Plan/AT-BERTH-TWO-LEVEL-PHASE-AND-WORKSPACE-STAGE-PLAN.md**. |
+| **ATG cargo progress — hourly rates, segment qty persistence, manual checkpoints** | **§2.29** — `Backend/src/lib/atg-hourly-progress.js`, `Backend/src/lib/operational-progress.js`, `Backend/src/lib/cargo-line-qty.js`, `Backend/src/lib/atg-window-rate.js`, `Backend/src/routes/operation-operational-activities.js`; migration **110** + rollback **`110_rollback_hourly_cargo_progress.sql`**; `Frontend/src/components/OperationalProgressSection.jsx`, `HourlyCargoProgressTable.jsx`, `CargoOpsSessionPanel.jsx`, `OperationalMilestoneWorkspace.jsx`, `Frontend/src/utils/cargoSiQtyMismatch.js`; proposal **`Docs/ATG-Hourly-Cargo-Progress-Proposal.md`**. |
 
 ---
 
@@ -891,6 +951,7 @@ Cross-reference: **TECH-SPEC §0.20**, **`Backend/src/lib/schedule-instant.js`**
 
 | Version | Date | Notes |
 |---------|------|--------|
+| 1.69 | 2026-08-27 | **§2.29 ATG cargo progress and quantity persistence:** documents where **start/end** and **moved qty** are stored (`operation_cargo_load_lines` vs live **`tank_gauging_samples`**), manual checkpoints and hourly/daily progress tables (migration **110**), session-first Cargo Operations flow, clock-aligned hourly rates, Flat Movement, and **non-blocking** SI qty variance. **§1**, **§7** map. Cross-ref **`Docs/ATG-Hourly-Cargo-Progress-Proposal.md`**. |
 | 1.68 | 2026-08-18 | **§2.25 Management Dashboard — waterfall / drill-down alignment:** **Where the berth hours go** segments (including idle) now average the same per-voyage phase values as voyage drill-down expansion and waterfall modals; idle is no longer a residual of fleet-average berth minus other averages; **`postH`** and **`idleAtBerth`** share one definition; **`post > berth`** outlier guard mirrors pre. **§1**, **§7** map. `ManagementDashboard.jsx`. |
 | 1.67 | 2026-07-23 | **§2.28 Multi-jetty berthing:** port flag **Allow Multi-Jetty Berthing** (Master – Port); **Adjacent Jetties** on Master – Preferred Jetty; **`additionalJetties`** on Confirm Berthing / Log arrival / vessel detail; per-lane occupancy (**`occupiedCount`**, **`spannedByLanes`**); Gantt spanning overlay (adjacency-interleaved rows, seamless bar, unified drag, full-height late accent); schematic spanned lanes and horizontal span. **§2.1**, **§2.7**, **§3**, **§6**, **§7**, **§17.5–17.8**. Migrations **095**, **096**. TECH-SPEC **§0.34**. |
 | 1.66 | 2026-07-20 | **Three-tier operational dashboards:** split former Dashboard V2 into **Live Ops** (`/`, RBAC **`dashboard`**) and **Ops Analytics** (`/ops-analytics`, RBAC **`dashboard-analytics`**); **Management** RBAC key **`management-dashboard`** (migration **092**). **§2.18** structure/RBAC; **§2.26** Live Ops widgets (today KPIs, live poll, Live Berth Status, at-berth, arrivals); **§2.27** Ops Analytics (date range, pipeline actuals, performance KPIs, tonnage, weekly trends 2×2 grid, dotted grey projected upcoming weeks). **§2.7** KPI rows retargeted per tier; legacy Port activity / weather retired from tier pages. **§1**, **§2.25**, **§7** map. `LiveOpsDashboard.jsx`, `OpsAnalyticsDashboard.jsx`, `DashboardShell.jsx`. |

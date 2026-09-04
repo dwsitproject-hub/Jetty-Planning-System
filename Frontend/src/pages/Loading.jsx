@@ -63,6 +63,7 @@ import {
   MAX_REMARK_CHARS,
   MAX_SAMPLING_PALKA_FIELD_CHARS,
 } from '../constants/inputLimits'
+import { isEmbedMode, withEmbedParam } from '../utils/embedMode'
 
 function readBool(key, fallback = false) {
   try {
@@ -424,6 +425,8 @@ function Loading() {
   const { vesselId, section } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
+  const isEmbed = isEmbedMode(location.search)
+  const embedPath = useCallback((path) => withEmbedParam(path, location.search), [location.search])
   const isUnloading = location.pathname.startsWith('/unloading')
   const purpose = isUnloading ? 'Unloading' : 'Loading'
   const basePath = isUnloading ? '/unloading' : '/loading'
@@ -1006,16 +1009,18 @@ function Loading() {
 
   // Invalid section → redirect to hub
   if (section && !SECTIONS.some((s) => s.id === section)) {
-    return <Navigate to={`${basePath}/${vesselId}`} replace />
+    return <Navigate to={embedPath(`${basePath}/${vesselId}`)} replace />
   }
 
   // Hub: vesselId, no section → show 3 sub-page links
   if (!section) {
     return (
-      <div className="allocation-page loading-page">
-        <div style={{ marginBottom: 'var(--spacing-2)' }}>
-          <Link to="/at-berth" className="loading-back-link">{t('loadingBackOverview')}</Link>
-        </div>
+      <div className={`allocation-page loading-page${isEmbed ? ' loading-page--embed' : ''}`}>
+        {!isEmbed ? (
+          <div style={{ marginBottom: 'var(--spacing-2)' }}>
+            <Link to="/at-berth" className="loading-back-link">{t('loadingBackOverview')}</Link>
+          </div>
+        ) : null}
         <h1 className="page-title page-title-row">
           <span>{purposeLabel}: {vessel.vesselName}</span>
           <FlowPill purpose={purpose} />
@@ -1032,7 +1037,7 @@ function Loading() {
               onChange={(e) => {
                 const nextId = e.target.value
                 const path = section ? `${basePath}/op-${nextId}/${section}` : `${basePath}/op-${nextId}`
-                navigate(path)
+                navigate(embedPath(path))
               }}
             >
               {siblingOpsOnPlan.map((row) => (
@@ -1062,7 +1067,7 @@ function Loading() {
           {SECTIONS.map((sec) => (
             <Link
               key={sec.id}
-              to={`${basePath}/${vesselId}/${sec.id}`}
+              to={embedPath(`${basePath}/${vesselId}/${sec.id}`)}
               className={`loading-section-tabs__tab ${section === sec.id ? 'loading-section-tabs__tab--active' : ''}`}
             >
               {sec.label}
@@ -1119,10 +1124,12 @@ function Loading() {
   ]
 
   return (
-    <div className="allocation-page loading-page">
-      <div style={{ marginBottom: 'var(--spacing-2)' }}>
-        <Link to="/at-berth" className="loading-back-link">{t('loadingBackAtBerth')}</Link>
-      </div>
+    <div className={`allocation-page loading-page${isEmbed ? ' loading-page--embed' : ''}`}>
+      {!isEmbed ? (
+        <div style={{ marginBottom: 'var(--spacing-2)' }}>
+          <Link to="/at-berth" className="loading-back-link">{t('loadingBackAtBerth')}</Link>
+        </div>
+      ) : null}
       <h1 className="page-title page-title-row">
         <span>{sectionConfig?.label ?? section}: {vessel.vesselName}</span>
         <FlowPill purpose={purpose} />
@@ -1139,7 +1146,7 @@ function Loading() {
             value={String(operationId ?? '')}
             onChange={(e) => {
               const nextId = e.target.value
-              navigate(`${basePath}/op-${nextId}/${section}`)
+              navigate(embedPath(`${basePath}/op-${nextId}/${section}`))
             }}
           >
             {siblingOpsOnPlan.map((row) => (
@@ -1153,7 +1160,7 @@ function Loading() {
 
       <VesselDetailCard detail={vesselDetail} />
 
-      <StageTabs processStages={processStages} section={section} basePath={basePath} vesselId={vesselId} />
+      <StageTabs processStages={processStages} section={section} basePath={basePath} vesselId={vesselId} embedPath={embedPath} />
 
       {!mockMatchesRoutePurpose && operationId && apiOp ? (
         <OperationSignoffBanner
@@ -1234,6 +1241,7 @@ function Loading() {
               onOperationalSaved={bumpActivityLogRefresh}
               activityLogRefresh={activityLogRefresh}
               scheduleIana={scheduleEntryTz}
+              operationTbAt={allocationDetailRow?.tbDateTime ?? apiOp?.tbAt ?? null}
             />
           )
         })}
@@ -1248,7 +1256,7 @@ function Loading() {
   )
 }
 
-function StageTabs({ processStages, section, basePath, vesselId }) {
+function StageTabs({ processStages, section, basePath, vesselId, embedPath = (path) => path }) {
   return (
     <nav className="loading-stage-tabs" aria-label="Process stages">
       {processStages.map((s) => {
@@ -1260,7 +1268,7 @@ function StageTabs({ processStages, section, basePath, vesselId }) {
         return (
         <Link
           key={s.id}
-          to={`${basePath}/${vesselId}/${s.id}`}
+          to={embedPath(`${basePath}/${vesselId}/${s.id}`)}
           className={`loading-stage-tabs__tab loading-stage-tabs__tab--${statusClass} ${section === s.id ? 'loading-stage-tabs__tab--active' : ''}`}
           title={unknown ? `${s.label} (open tab to load progress)` : `${s.label} (${done}/${total} complete)`}
           aria-label={unknown ? `${s.label}, progress not loaded yet` : `${s.label} (${done} of ${total} complete)`}

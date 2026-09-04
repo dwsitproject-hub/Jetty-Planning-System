@@ -2,7 +2,14 @@
  * Hybrid operational progress: ATG daily aggregates + manual proportional by operational day.
  */
 
-import { computeAtgWindowMassDelta } from './atg-window-rate.js';
+import { computeAtgWindowMassDelta, computeAtgWindowVolumeDelta } from './atg-window-rate.js';
+import { getHourlyOperationalProgress, aggregateHourlyProgressForOperation, computeDirectionalMovedQtyForWindow } from './atg-hourly-progress.js';
+import {
+  readAtgQtyFromResult,
+  resolveAtgMeasurementBasis,
+  resolveFlatThresholds,
+} from './atg-measurement.js';
+import { attachScheduleComparisonToSummary, evaluateCargoScheduleComparison } from './cargo-schedule-progress.js';
 import {
   currentOperationalDateKey,
   DEFAULT_OPERATIONAL_DAY_START,
@@ -101,6 +108,18 @@ function formatRateNumber(n) {
 }
 
 /**
+ * @param {import('pg').Pool|import('pg').PoolClient} db
+ * @param {object} params
+ * @param {'mass'|'volume'} params.measurementBasis
+ */
+async function computeAtgWindowDeltaForBasis(db, params) {
+  if (params.measurementBasis === 'volume') {
+    return computeAtgWindowVolumeDelta(db, params);
+  }
+  return computeAtgWindowMassDelta(db, params);
+}
+
+/**
  * @param {object} line
  * @param {string} timezone
  * @param {string} dayStartTime
@@ -177,6 +196,8 @@ async function upsertDailyProgressRow(db, row) {
 export async function computeAtgDailyBarsForLine(db, line, atgTankIds, timezone, dayStartTime, opts = {}) {
   if (!atgTankIds?.length) return { bars: [], atgStatus: 'unavailable', atgError: 'no_tanks' };
 
+  const measurementBasis = opts.measurementBasis || 'mass';
+
   const startIso = line.startedAt || line.startAt;
   const endIso = line.endedAt || line.endAt || new Date().toISOString();
   if (!startIso) return { bars: [], atgStatus: 'unavailable', atgError: 'no_start' };
@@ -201,14 +222,16 @@ export async function computeAtgDailyBarsForLine(db, line, atgTankIds, timezone,
     const windowStart = new Date(windowStartMs).toISOString();
     const windowEnd = new Date(windowEndMs).toISOString();
 
-    const result = await computeAtgWindowMassDelta(db, {
+    const result = await computeAtgWindowDeltaForBasis(db, {
       tankIds: atgTankIds,
       startAt: windowStart,
       endAt: windowEnd,
+      measurementBasis,
     });
 
-    if (result.ok && !result.incomplete && result.sumDeltaMass != null) {
-      const qtyMoved = Number(result.sumDeltaMass) || 0;
+    const atgQty = readAtgQtyFromResult(result);
+    if (result.ok && !result.incomplete && atgQty != null) {
+      const qtyMoved = Number(atgQty) || 0;
       okDays += 1;
       bars.push({ date: dateKey, qtyMoved, atgQty: qtyMoved, manualQty: 0 });
 
@@ -220,7 +243,13 @@ export async function computeAtgDailyBarsForLine(db, line, atgTankIds, timezone,
           progressDate: dateKey,
           qtyMoved,
           source: 'atg',
-          tankDetail: { sumDeltaMass: result.sumDeltaMass, tanks: result.tanks },
+          tankDetail: {
+            sumAtgQty: atgQty,
+            sumDeltaMass: result.sumDeltaMass ?? null,
+            sumDeltaVolumeKl: result.sumDeltaVolumeKl ?? null,
+            measurementBasis,
+            tanks: result.tanks,
+          },
           windowStart,
           windowEnd,
         });
@@ -274,20 +303,28 @@ export async function aggregateAtgDailyProgressForOperation(db, operationId, opt
       const windowEndMs = Math.min(lineEndMs, bounds.end.toMillis());
       if (windowEndMs <= windowStartMs) continue;
 
-      const result = await computeAtgWindowMassDelta(db, {
+      const result = await computeAtgWindowDeltaForBasis(db, {
         tankIds: atgTankIds,
         startAt: new Date(windowStartMs).toISOString(),
         endAt: new Date(windowEndMs).toISOString(),
+        measurementBasis: ctx.measurementBasis || resolveAtgMeasurementBasis(ctx.siMetric),
       });
 
-      if (result.ok && !result.incomplete && result.sumDeltaMass != null) {
+      const atgQty = readAtgQtyFromResult(result);
+      if (result.ok && !result.incomplete && atgQty != null) {
         await upsertDailyProgressRow(db, {
           operationId,
           loadLineId: line.id,
           progressDate: dateKey,
-          qtyMoved: Number(result.sumDeltaMass) || 0,
+          qtyMoved: Number(atgQty) || 0,
           source: 'atg',
-          tankDetail: { sumDeltaMass: result.sumDeltaMass, tanks: result.tanks },
+          tankDetail: {
+            sumAtgQty: atgQty,
+            sumDeltaMass: result.sumDeltaMass ?? null,
+            sumDeltaVolumeKl: result.sumDeltaVolumeKl ?? null,
+            measurementBasis: ctx.measurementBasis,
+            tanks: result.tanks,
+          },
           windowStart: new Date(windowStartMs).toISOString(),
           windowEnd: new Date(windowEndMs).toISOString(),
         });
@@ -303,9 +340,13 @@ export async function aggregateAtgDailyProgressForOperation(db, operationId, opt
  * @param {import('pg').Pool|import('pg').PoolClient} db
  * @param {number} operationId
  */
-async function loadOperationProgressContext(db, operationId) {
+export async function loadOperationProgressContext(db, operationId) {
   const opR = await db.query(
-    `SELECT o.id, o.port_id, p.schedule_timezone, p.operational_day_start,
+    `SELECT o.id, o.port_id, o.purpose,
+            p.schedule_timezone, p.operational_day_start,
+            o.tb, o.docking_start_time,
+            COALESCE(sp.estimated_completion_time, o.estimated_completion_time) AS estimated_completion_time,
+            opening_agg.start_at AS opening_hatch_start_at,
             COALESCE(
               (SELECT sc.commodity_type
                FROM public.shipping_instruction_breakdown b
@@ -318,6 +359,16 @@ async function loadOperationProgressContext(db, operationId) {
      FROM operations o
      JOIN ports p ON p.id = o.port_id AND p.deleted_at IS NULL
      JOIN shipping_instructions si ON si.id = o.shipping_instruction_id AND si.deleted_at IS NULL
+     LEFT JOIN shipment_plans sp ON sp.id = si.shipment_plan_id AND sp.deleted_at IS NULL
+     LEFT JOIN LATERAL (
+       SELECT MIN(oa.start_at) AS start_at
+       FROM operation_operational_activities oa
+       WHERE oa.operation_id = o.id
+         AND oa.deleted_at IS NULL
+         AND oa.entry_type = 'activity'
+         AND oa.milestone_key = 'opening_hatch'
+         AND oa.start_at IS NOT NULL
+     ) opening_agg ON true
      WHERE o.id = $1 AND o.deleted_at IS NULL`,
     [operationId]
   );
@@ -328,6 +379,7 @@ async function loadOperationProgressContext(db, operationId) {
 
   const linesR = await db.query(
     `SELECT l.id, l.qty, l.manual_qty, l.atg_qty_mode, l.started_at, l.ended_at,
+            l.atg_hourly_detail,
             COALESCE(
               (SELECT array_agg(clt.tank_id ORDER BY clt.tank_id)
                FROM operation_cargo_load_line_tanks clt
@@ -350,6 +402,7 @@ async function loadOperationProgressContext(db, operationId) {
     atgQtyMode: l.atg_qty_mode || 'auto',
     startedAt: l.started_at ? new Date(l.started_at).toISOString() : null,
     endedAt: l.ended_at ? new Date(l.ended_at).toISOString() : null,
+    atgHourlyDetail: Array.isArray(l.atg_hourly_detail) ? l.atg_hourly_detail : null,
     tankIds: (l.tank_ids || []).map(Number).filter((n) => n > 0),
   }));
 
@@ -375,15 +428,31 @@ async function loadOperationProgressContext(db, operationId) {
   );
   const siQty = siR.rows[0]?.qty != null ? Number(siR.rows[0].qty) : null;
   const siMetric = siR.rows[0]?.metric_code || 'MT';
+  const thresholdConfig = resolveFlatThresholds(siMetric);
+  const measurementBasis = thresholdConfig.measurementBasis;
 
   return {
     operationId,
     timezone: row.schedule_timezone || 'Asia/Jakarta',
     dayStartTime,
     commodityType: row.commodity_type === 'Solid' ? 'Solid' : 'Liquid',
+    purpose: row.purpose === 'Unloading' ? 'Unloading' : 'Loading',
+    flatRateThresholdTph: thresholdConfig.flatRateThresholdTph,
+    minQtyMovedT: thresholdConfig.minQtyMovedT,
+    measurementBasis,
     lines,
     siQty,
     siMetric,
+    openingHatchStartAt: row.opening_hatch_start_at
+      ? new Date(row.opening_hatch_start_at).toISOString()
+      : null,
+    tbAt: row.tb ? new Date(row.tb).toISOString() : null,
+    dockingStartTime: row.docking_start_time
+      ? new Date(row.docking_start_time).toISOString()
+      : null,
+    etcAt: row.estimated_completion_time
+      ? new Date(row.estimated_completion_time).toISOString()
+      : null,
   };
 }
 
@@ -480,14 +549,16 @@ export async function getOperationalProgress(db, operationId) {
         const windowEndMs = Math.min(lineEndMs, bounds.end.toMillis());
         if (windowEndMs <= windowStartMs) continue;
 
-        const result = await computeAtgWindowMassDelta(db, {
+        const result = await computeAtgWindowDeltaForBasis(db, {
           tankIds: useAtgTanks,
           startAt: new Date(windowStartMs).toISOString(),
           endAt: new Date(windowEndMs).toISOString(),
+          measurementBasis: ctx.measurementBasis,
         });
 
-        if (result.ok && !result.incomplete && result.sumDeltaMass != null) {
-          const qtyMoved = Number(result.sumDeltaMass) || 0;
+        const atgQty = readAtgQtyFromResult(result);
+        if (result.ok && !result.incomplete && atgQty != null) {
+          const qtyMoved = Number(atgQty) || 0;
           atgBars.push({ date: dateKey, qtyMoved, atgQty: qtyMoved, manualQty: 0 });
           hasAtg = true;
         } else {
@@ -558,8 +629,38 @@ export async function getOperationalProgress(db, operationId) {
 
   const uniqueWarnings = [...new Set(warnings)];
 
+  const cargoSummary = await summarizeCargoProgressContext(db, ctx);
+
+  let hourlyProgress = {
+    hourlyBuckets: [],
+    movedQty: cargoSummary?.movedQty ?? done,
+    completionPercent: cargoSummary?.completionPercent ?? null,
+    siQtyVariance: null,
+    rateSummary: { currentHourLine: null, lastActiveHourLine: null },
+  };
+  try {
+    hourlyProgress = await getHourlyOperationalProgress(db, ctx);
+  } catch {
+    /* hourly engine optional if samples unavailable */
+  }
+
+  const hourlyMoved = hourlyProgress.movedQty ?? cargoSummary?.movedQty ?? done;
+  const scheduleComparison = buildScheduleComparisonFromCargoSummary(ctx, {
+    ...(cargoSummary || {}),
+    movedQty: hourlyMoved,
+    siQty: siTotal,
+    siMetric: unit,
+  });
+  const completionPercent =
+    hourlyProgress.completionPercent ??
+    cargoSummary?.completionPercent ??
+    (siTotal != null && siTotal > 0 ? Math.min(100, Math.round((hourlyMoved / siTotal) * 100)) : null);
+
+  const hourlyRateSummary = hourlyProgress.rateSummary || {};
+
   return {
     source,
+    purpose: ctx.purpose,
     scheduleTimezone: ctx.timezone,
     operationalDayStart: ctx.dayStartTime,
     warnings: uniqueWarnings,
@@ -567,14 +668,25 @@ export async function getOperationalProgress(db, operationId) {
     cumulativeSeries,
     siQty: siTotal,
     siMetric: unit,
+    movedQty: hourlyMoved,
+    completionPercent,
+    siQtyVariance: hourlyProgress.siQtyVariance ?? null,
+    hourlyBuckets: hourlyProgress.hourlyBuckets ?? [],
+    scheduleComparison,
     rateSummary: {
       movedLine:
         siTotal != null
-          ? `${formatQtyNumber(done)} ${unit} / ${formatQtyNumber(siTotal)} ${unit}`
-          : `${formatQtyNumber(done)} ${unit}`,
+          ? `${formatQtyNumber(hourlyMoved)} ${unit} / ${formatQtyNumber(siTotal)} ${unit}`
+          : `${formatQtyNumber(hourlyMoved)} ${unit}`,
       balanceLine:
-        siTotal != null ? `Balance ${formatQtyNumber(Math.max(0, siTotal - done))} ${unit}` : null,
-      hourlyLine: `Rate ${formatRateNumber(ratePerHour)} ${unit} / Hour`,
+        siTotal != null
+          ? `Balance ${formatQtyNumber(Math.max(0, siTotal - hourlyMoved))} ${unit}`
+          : null,
+      hourlyLine:
+        hourlyRateSummary.currentHourLine ||
+        `Rate ${formatRateNumber(ratePerHour)} ${unit} / Hour`,
+      currentHourLine: hourlyRateSummary.currentHourLine ?? null,
+      lastActiveHourLine: hourlyRateSummary.lastActiveHourLine ?? null,
       dailyLine: dailyPick
         ? `${formatRateNumber(dailyPick.qtyMoved)} ${unit} / Day (${formatOperationalDateLabel(dailyPick.date)})`
         : null,
@@ -599,6 +711,7 @@ export async function runDailyProgressAggregationSweep(db, opts = {}) {
   );
 
   let totalUpserted = 0;
+  let hourlyUpserted = 0;
   for (const port of portsR.rows) {
     const tz = port.schedule_timezone || 'Asia/Jakarta';
     const dayStart = parseOperationalDayStart(port.operational_day_start).formatted;
@@ -623,10 +736,73 @@ export async function runDailyProgressAggregationSweep(db, opts = {}) {
         includeToday: false,
       });
       totalUpserted += result.upserted || 0;
+      try {
+        const hourlyResult = await aggregateHourlyProgressForOperation(db, Number(op.id), {
+          onlyClosedHours: true,
+        });
+        hourlyUpserted += hourlyResult.upserted || 0;
+      } catch {
+        /* hourly table may not exist pre-migration */
+      }
     }
   }
 
-  return { ok: true, upserted: totalUpserted };
+  return { ok: true, upserted: totalUpserted, hourlyUpserted };
+}
+
+/**
+ * Build schedule comparison from progress context + optional live cargo summary.
+ * @param {Awaited<ReturnType<typeof loadOperationProgressContext>>} ctx
+ * @param {Awaited<ReturnType<typeof summarizeCargoProgressContext>>|null} [cargoSummary]
+ * @param {number} [nowMs]
+ */
+export function buildScheduleComparisonFromCargoSummary(ctx, cargoSummary, nowMs = Date.now()) {
+  if (!ctx) {
+    return evaluateCargoScheduleComparison({});
+  }
+
+  const movedQty =
+    cargoSummary?.movedQty ??
+    ctx.lines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+  const siQty = cargoSummary?.siQty ?? ctx.siQty;
+
+  return {
+    ...evaluateCargoScheduleComparison({
+      openingHatchStartAt: ctx.openingHatchStartAt,
+      tbAt: ctx.tbAt,
+      dockingStartTime: ctx.dockingStartTime,
+      etcMs: ctx.etcAt,
+      movedQty,
+      siQty,
+      nowMs,
+    }),
+    movedQty,
+    siQty,
+    siMetric: ctx.siMetric || 'MT',
+  };
+}
+
+/**
+ * Attach schedule comparison fields to overview/allocation rows (logged cargo qty, no live ATG).
+ * @param {object} row
+ * @param {number} [nowMs]
+ */
+export function buildScheduleComparisonFromOverviewRow(row, nowMs = Date.now()) {
+  const movedQty = row.cargoMovedQty ?? row.cargo_moved_qty ?? 0;
+  const siQty = row.cargoSiQty ?? row.cargo_si_qty;
+  return {
+    ...evaluateCargoScheduleComparison({
+      openingHatchStartAt: row.openingHatchStartAt ?? row.opening_hatch_start_datetime,
+      tbAt: row.tbDateTime ?? row.tb_datetime,
+      dockingStartTime: row.dockingStartTime ?? row.docking_start_time,
+      etcMs: row.estimatedCompletionDateTime ?? row.estimated_completion_datetime,
+      movedQty,
+      siQty,
+      nowMs,
+    }),
+    movedQty: Number(movedQty) || 0,
+    siQty: siQty != null ? Number(siQty) : null,
+  };
 }
 
 /**
@@ -635,7 +811,24 @@ export async function runDailyProgressAggregationSweep(db, opts = {}) {
  * @param {Awaited<ReturnType<typeof loadOperationProgressContext>>} ctx
  */
 export async function summarizeCargoProgressContext(db, ctx, opts = {}) {
-  const computeAtg = opts.computeAtg ?? ((params) => computeAtgWindowMassDelta(db, params));
+  const measurementBasis = ctx?.measurementBasis || resolveAtgMeasurementBasis(ctx?.siMetric);
+  const computeAtg =
+    opts.computeAtg ??
+    ((params) => {
+      if (ctx?.purpose) {
+        return computeDirectionalMovedQtyForWindow(db, {
+          ...params,
+          purpose: ctx.purpose,
+          timezone: ctx.timezone,
+          measurementBasis,
+          siMetric: ctx.siMetric,
+        });
+      }
+      if (measurementBasis === 'volume') {
+        return computeAtgWindowVolumeDelta(db, params);
+      }
+      return computeAtgWindowMassDelta(db, params);
+    });
   if (!ctx) return null;
 
   const hasTankLine = ctx.lines.some((l) => l.tankIds?.length > 0);
@@ -682,8 +875,9 @@ export async function summarizeCargoProgressContext(db, ctx, opts = {}) {
         startAt: line.startedAt,
         endAt: new Date().toISOString(),
       });
-      if (result.ok && result.sumDeltaMass != null) {
-        movedQty += Number(result.sumDeltaMass) || 0;
+      const atgQty = readAtgQtyFromResult(result);
+      if (result.ok && atgQty != null) {
+        movedQty += Number(atgQty) || 0;
         isLive = true;
         if (result.incomplete) atgPartial = true;
       } else if (mode === 'mixed' && line.manualQty != null) {
@@ -716,13 +910,95 @@ export async function summarizeCargoProgressContext(db, ctx, opts = {}) {
 }
 
 /**
+ * Canonical moved qty for live surfaces: hourly ATG aggregate (At-Berth engine), with fallbacks.
+ * @param {import('pg').Pool|import('pg').PoolClient} db
+ * @param {Awaited<ReturnType<typeof loadOperationProgressContext>>} ctx
+ * @param {object} [opts]
+ */
+export async function resolveLiveCargoProgressTotals(db, ctx, opts = {}) {
+  if (!ctx) {
+    return {
+      movedQty: 0,
+      siQty: null,
+      siMetric: 'MT',
+      cargoSummary: null,
+      hourlyProgress: null,
+      completionPercent: null,
+      source: 'manual',
+      isLive: false,
+      hasActiveCargo: false,
+      atgPartial: false,
+      connected: false,
+    };
+  }
+
+  const cargoSummary = await summarizeCargoProgressContext(db, ctx, opts);
+  let hourlyProgress = null;
+  try {
+    hourlyProgress = await getHourlyOperationalProgress(db, ctx, opts);
+  } catch {
+    /* hourly engine optional if samples unavailable */
+  }
+
+  const closedQty = ctx.lines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+  const movedQty =
+    hourlyProgress?.movedQty != null
+      ? Number(hourlyProgress.movedQty) || 0
+      : cargoSummary?.movedQty ?? closedQty;
+  const siQty = ctx.siQty;
+  const siMetric = ctx.siMetric || 'MT';
+  const hasOpenCargo = ctx.lines.some((l) => l.startedAt && !l.endedAt);
+
+  return {
+    movedQty,
+    siQty,
+    siMetric,
+    cargoSummary,
+    hourlyProgress,
+    completionPercent:
+      siQty != null && siQty > 0 ? Math.min(100, Math.round((movedQty / siQty) * 100)) : null,
+    source: cargoSummary?.source ?? (hourlyProgress ? 'atg' : 'manual'),
+    isLive: cargoSummary?.isLive ?? hasOpenCargo,
+    hasActiveCargo: cargoSummary?.hasActiveCargo ?? hasOpenCargo,
+    atgPartial: cargoSummary?.atgPartial ?? false,
+    connected: cargoSummary?.connected ?? false,
+  };
+}
+
+/**
  * @param {import('pg').Pool|import('pg').PoolClient} db
  * @param {number} operationId
  */
-export async function getAtBerthCargoProgressSummary(db, operationId) {
+export async function getAtBerthCargoProgressSummary(db, operationId, opts = {}) {
   const ctx = await loadOperationProgressContext(db, operationId);
   if (!ctx) return null;
-  return summarizeCargoProgressContext(db, ctx);
+
+  const totals = await resolveLiveCargoProgressTotals(db, ctx, opts);
+  const hasActivity = ctx.lines.some((l) => l.startedAt) || totals.movedQty > 0;
+  if (!hasActivity && !totals.cargoSummary) return null;
+
+  const summary = {
+    connected: totals.connected,
+    source: totals.source,
+    movedQty: totals.movedQty,
+    siQty: totals.siQty,
+    siMetric: totals.siMetric,
+    completionPercent: totals.completionPercent,
+    isLive: totals.isLive,
+    hasActiveCargo: totals.hasActiveCargo,
+    atgPartial: totals.atgPartial,
+  };
+
+  return attachScheduleComparisonToSummary(
+    summary,
+    {
+      openingHatchStartAt: ctx.openingHatchStartAt,
+      tbAt: ctx.tbAt,
+      dockingStartTime: ctx.dockingStartTime,
+      etcMs: ctx.etcAt,
+    },
+    opts.nowMs
+  );
 }
 
 /**
@@ -756,4 +1032,4 @@ export async function getAtBerthCargoProgressSummaries(db, operationIds, opts = 
   return summaries;
 }
 
-export { DEFAULT_OPERATIONAL_DAY_START, parseOperationalDayStart };
+export { DEFAULT_OPERATIONAL_DAY_START, parseOperationalDayStart, aggregateHourlyProgressForOperation };

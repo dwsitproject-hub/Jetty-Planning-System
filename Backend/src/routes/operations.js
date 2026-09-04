@@ -315,6 +315,7 @@ router.post('/:id/shifting-out', async (req, res) => {
       `SELECT ${OP_SELECT}
        FROM operations o
        JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
+       LEFT JOIN shipment_plans sp ON sp.id = si.shipment_plan_id
        LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
        LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
        WHERE o.id = $1 AND o.deleted_at IS NULL`,

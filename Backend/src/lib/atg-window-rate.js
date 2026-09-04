@@ -3,7 +3,9 @@
  * Per tank: |mass_end − mass_start| / hours; aggregate = sum of per-tank rates.
  */
 
-const DEFAULT_TOLERANCE_MS = 15 * 60 * 1000;
+import { attachAtgQtyFields, observedVolumeToKl } from './atg-measurement.js';
+
+export const DEFAULT_TOLERANCE_MS = 15 * 60 * 1000;
 
 /**
  * @param {import('pg').Pool|import('pg').PoolClient} db
@@ -11,7 +13,7 @@ const DEFAULT_TOLERANCE_MS = 15 * 60 * 1000;
  * @param {Date} at
  * @param {number} toleranceMs
  */
-async function nearestSampleAtOrBefore(db, tankId, at, toleranceMs) {
+export async function nearestSampleAtOrBefore(db, tankId, at, toleranceMs) {
   const r = await db.query(
     `SELECT id, tank_id, source_base_url, total_mass, sampled_at, status_text
      FROM tank_gauging_samples
@@ -33,6 +35,40 @@ async function nearestSampleAtOrBefore(db, tankId, at, toleranceMs) {
        AND sampled_at > $2
        AND sampled_at <= $2::timestamptz + ($3::bigint * INTERVAL '1 millisecond')
        AND total_mass IS NOT NULL
+     ORDER BY sampled_at ASC
+     LIMIT 1`,
+    [tankId, at.toISOString(), toleranceMs]
+  );
+  return r2.rows[0] || null;
+}
+
+/**
+ * @param {import('pg').Pool|import('pg').PoolClient} db
+ * @param {number} tankId
+ * @param {Date} at
+ * @param {number} toleranceMs
+ */
+export async function nearestVolumeSampleAtOrBefore(db, tankId, at, toleranceMs) {
+  const r = await db.query(
+    `SELECT id, tank_id, source_base_url, total_observed_volume, sampled_at, status_text
+     FROM tank_gauging_samples
+     WHERE tank_id = $1
+       AND sampled_at <= $2
+       AND sampled_at >= $2::timestamptz - ($3::bigint * INTERVAL '1 millisecond')
+       AND total_observed_volume IS NOT NULL
+     ORDER BY sampled_at DESC
+     LIMIT 1`,
+    [tankId, at.toISOString(), toleranceMs]
+  );
+  if (r.rows[0]) return r.rows[0];
+
+  const r2 = await db.query(
+    `SELECT id, tank_id, source_base_url, total_observed_volume, sampled_at, status_text
+     FROM tank_gauging_samples
+     WHERE tank_id = $1
+       AND sampled_at > $2
+       AND sampled_at <= $2::timestamptz + ($3::bigint * INTERVAL '1 millisecond')
+       AND total_observed_volume IS NOT NULL
      ORDER BY sampled_at ASC
      LIMIT 1`,
     [tankId, at.toISOString(), toleranceMs]
@@ -224,4 +260,118 @@ export async function computeAtgWindowMassDelta(db, opts) {
     incomplete,
     error: okCount === 0 ? 'no_samples' : incomplete ? 'partial_samples' : null,
   };
+}
+
+/**
+ * Volume delta over [startAt, endAt]: sum of |volumeEndKl − volumeStartKl| per tank.
+ * @param {import('pg').Pool|import('pg').PoolClient} db
+ * @param {object} opts
+ */
+export async function computeAtgWindowVolumeDelta(db, opts) {
+  const startAt = new Date(opts.startAt);
+  const endAt = new Date(opts.endAt);
+  const toleranceMs = Number.isFinite(opts.toleranceMs) ? opts.toleranceMs : DEFAULT_TOLERANCE_MS;
+
+  if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime())) {
+    return attachAtgQtyFields(
+      { ok: false, error: 'invalid_window', sumDeltaVolumeKl: null, tanks: [], incomplete: true },
+      'volume'
+    );
+  }
+  if (endAt.getTime() <= startAt.getTime()) {
+    return attachAtgQtyFields(
+      { ok: false, error: 'non_positive_duration', sumDeltaVolumeKl: null, tanks: [], incomplete: true },
+      'volume'
+    );
+  }
+
+  const tankIds = (opts.tankIds || [])
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+
+  if (!tankIds.length) {
+    return attachAtgQtyFields(
+      { ok: false, error: 'no_tanks', sumDeltaVolumeKl: null, tanks: [], incomplete: true },
+      'volume'
+    );
+  }
+
+  const meta = await db.query(
+    `SELECT id, code, name FROM master_tanks WHERE id = ANY($1::bigint[]) AND deleted_at IS NULL`,
+    [tankIds]
+  );
+  const metaById = new Map(meta.rows.map((row) => [Number(row.id), row]));
+
+  const tanks = [];
+  let sumDeltaVolumeKl = 0;
+  let okCount = 0;
+
+  for (const tankId of tankIds) {
+    const m = metaById.get(tankId);
+    const sStart = await nearestVolumeSampleAtOrBefore(db, tankId, startAt, toleranceMs);
+    const sEnd = await nearestVolumeSampleAtOrBefore(db, tankId, endAt, toleranceMs);
+
+    if (!sStart || !sEnd) {
+      tanks.push({
+        tankId: String(tankId),
+        code: m?.code ?? null,
+        name: m?.name ?? null,
+        sourceBaseUrl: sStart?.source_base_url || sEnd?.source_base_url || null,
+        volumeStartKl: sStart ? observedVolumeToKl(sStart.total_observed_volume) : null,
+        volumeEndKl: sEnd ? observedVolumeToKl(sEnd.total_observed_volume) : null,
+        deltaKl: null,
+        sampleStartAt: sStart?.sampled_at ?? null,
+        sampleEndAt: sEnd?.sampled_at ?? null,
+        error: !sStart && !sEnd ? 'no_sample' : !sStart ? 'no_sample_start' : 'no_sample_end',
+      });
+      continue;
+    }
+
+    const volumeStartKl = observedVolumeToKl(sStart.total_observed_volume);
+    const volumeEndKl = observedVolumeToKl(sEnd.total_observed_volume);
+    if (volumeStartKl == null || volumeEndKl == null) {
+      tanks.push({
+        tankId: String(tankId),
+        code: m?.code ?? null,
+        name: m?.name ?? null,
+        sourceBaseUrl: sEnd.source_base_url || sStart.source_base_url || null,
+        volumeStartKl,
+        volumeEndKl,
+        deltaKl: null,
+        sampleStartAt: sStart.sampled_at,
+        sampleEndAt: sEnd.sampled_at,
+        error: 'invalid_volume',
+      });
+      continue;
+    }
+
+    const deltaKl = volumeEndKl - volumeStartKl;
+    sumDeltaVolumeKl += Math.abs(deltaKl);
+    okCount += 1;
+
+    tanks.push({
+      tankId: String(tankId),
+      code: m?.code ?? null,
+      name: m?.name ?? null,
+      sourceBaseUrl: sEnd.source_base_url || sStart.source_base_url || null,
+      volumeStartKl,
+      volumeEndKl,
+      deltaKl,
+      sampleStartAt: sStart.sampled_at,
+      sampleEndAt: sEnd.sampled_at,
+      error: null,
+    });
+  }
+
+  const incomplete = okCount < tankIds.length;
+  return attachAtgQtyFields(
+    {
+      ok: okCount > 0,
+      sumDeltaVolumeKl: okCount > 0 ? sumDeltaVolumeKl : null,
+      tanks,
+      incomplete,
+      error: okCount === 0 ? 'no_samples' : incomplete ? 'partial_samples' : null,
+    },
+    'volume'
+  );
 }

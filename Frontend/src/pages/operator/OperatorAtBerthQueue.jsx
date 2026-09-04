@@ -83,7 +83,8 @@ function buildOperatorCargoLine(row) {
     row.totalQtyDisplay,
     row.cargoMovedQty,
     row.cargoFirstLoggedAt,
-    row.cargoLastLoggedAt
+    row.cargoLastLoggedAt,
+    { cargoSiQty: row.cargoSiQty }
   )
   if (!shortName && !progress) return null
   return {

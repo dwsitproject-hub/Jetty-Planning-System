@@ -63,6 +63,8 @@ import {
   isPlanOnlySchedulingRow,
   showLateSiBerthingGateNotice,
 } from '../utils/berthingEligibility'
+import useAtBerthCargoProgress from '../hooks/useAtBerthCargoProgress'
+import { mergeLiveCargoProgressFields } from '../utils/cargoQtyDisplay'
 import { validateQueueRowSiReferencesForBerthing } from '../utils/siReferenceValidation'
 import { validateBerthingTimeline } from '../utils/validateScheduleTimeline'
 import {
@@ -94,20 +96,26 @@ function schematicMaterialDisplay(r) {
   return r?.commodityShortDisplay || r?.commodity || null
 }
 
-function getPhaseLink(label, vessel, plannedBerthingPath = '/allocation-plans') {
+function getPhaseLink(label, vessel, plannedBerthingPath = '/allocation-plans', { embed = false } = {}) {
   const phaseRoutes = {
     'Shipping Instruction': '/shipment-plans',
     'Planned berthing': plannedBerthingPath,
     'Clearance': '/verification',
   }
+  let path = null
   if (label === 'At-Berth') {
     const opId = vessel?.operationId
     if (!opId) return null
     const purpose = String(vessel?.purpose || '').trim()
     const base = purpose === 'Unloading' ? '/unloading' : '/loading'
-    return `${base}/op-${opId}/pre-checking`
+    path = `${base}/op-${opId}/pre-checking`
+  } else {
+    path = phaseRoutes[label] || '#'
   }
-  return phaseRoutes[label] || '#'
+  if (embed && path && path !== '#') {
+    return path.includes('?') ? `${path}&embed=1` : `${path}?embed=1`
+  }
+  return path
 }
 
 const PRIORITY_OPTIONS = ['Low', 'Moderate', 'High', 'Critical']
@@ -893,6 +901,25 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     return () => clearInterval(id)
   }, [])
 
+  const berthedOperationIds = useMemo(
+    () =>
+      [
+        ...new Set(
+          [...list, ...scheduleList]
+            .filter(
+              (r) =>
+                r.operationId != null &&
+                getBerthingPlanStatus(r, { planCentric: isPlanCentric }) === 'berthed'
+            )
+            .map((r) => Number(r.operationId))
+            .filter((n) => Number.isFinite(n) && n > 0)
+        ),
+      ],
+    [list, scheduleList, isPlanCentric]
+  )
+
+  const cargoProgressByOpId = useAtBerthCargoProgress(berthedOperationIds)
+
   const vesselById = useMemo(() => {
     const map = {}
     const srcList = planViz.mergedList
@@ -925,12 +952,15 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         vesselGrossTonnage: r.vesselGrossTonnage ?? null,
         vesselCapacity: r.vesselCapacity ?? null,
         totalQtyDisplay: r.totalQtyDisplay || null,
+        cargoSiQty: r.cargoSiQty != null ? Number(r.cargoSiQty) : null,
         completionPercent: r.completionPercent != null ? Number(r.completionPercent) : null,
         cargoMovedQty: r.cargoMovedQty != null ? Number(r.cargoMovedQty) : 0,
         cargoFirstLoggedAt: r.cargoFirstLoggedAt ?? null,
         cargoLastLoggedAt: r.cargoLastLoggedAt ?? null,
         openingHatchStartAt: r.openingHatchStartAt ?? null,
         openingCargoHandlingMethodName: r.openingCargoHandlingMethodName ?? null,
+        scheduleComparison: r.scheduleComparison ?? null,
+        operationId: r.operationId != null ? Number(r.operationId) : null,
         etaToCompletion: r.estimatedCompletionDateTime ? formatDateTimeDisplay(r.estimatedCompletionDateTime) : '—',
         ragStatus: getEtcBreachRagStatus(r, breachNowMs),
         etcBreach: getEtcBreach(r, breachNowMs),
@@ -958,12 +988,15 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         vesselGrossTonnage: r.vesselGrossTonnage ?? null,
         vesselCapacity: r.vesselCapacity ?? null,
         totalQtyDisplay: r.totalQtyDisplay || null,
+        cargoSiQty: r.cargoSiQty != null ? Number(r.cargoSiQty) : null,
         completionPercent: r.completionPercent != null ? Number(r.completionPercent) : null,
         cargoMovedQty: r.cargoMovedQty != null ? Number(r.cargoMovedQty) : 0,
         cargoFirstLoggedAt: r.cargoFirstLoggedAt ?? null,
         cargoLastLoggedAt: r.cargoLastLoggedAt ?? null,
         openingHatchStartAt: r.openingHatchStartAt ?? null,
         openingCargoHandlingMethodName: r.openingCargoHandlingMethodName ?? null,
+        scheduleComparison: r.scheduleComparison ?? null,
+        operationId: r.operationId != null ? Number(r.operationId) : null,
         etaToCompletion: r.estimatedCompletionDateTime ? formatDateTimeDisplay(r.estimatedCompletionDateTime) : '—',
         ragStatus: getEtcBreachRagStatus(r, breachNowMs),
         etcBreach: getEtcBreach(r, breachNowMs),
@@ -993,12 +1026,15 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
           vesselGrossTonnage: o.vesselGrossTonnage ?? null,
           vesselCapacity: o.vesselCapacity ?? null,
           totalQtyDisplay: o.totalQtyDisplay || null,
+          cargoSiQty: o.cargoSiQty != null ? Number(o.cargoSiQty) : null,
           completionPercent: o.completionPercent != null ? Number(o.completionPercent) : null,
           cargoMovedQty: o.cargoMovedQty != null ? Number(o.cargoMovedQty) : 0,
           cargoFirstLoggedAt: o.cargoFirstLoggedAt ?? null,
           cargoLastLoggedAt: o.cargoLastLoggedAt ?? null,
           openingHatchStartAt: o.openingHatchStartAt ?? null,
           openingCargoHandlingMethodName: o.openingCargoHandlingMethodName ?? null,
+          scheduleComparison: o.scheduleComparison ?? null,
+          operationId: o.operationId != null ? Number(o.operationId) : null,
           etaToCompletion: o.estimatedCompletionDateTime ? formatDateTimeDisplay(o.estimatedCompletionDateTime) : '—',
           ragStatus: getEtcBreachRagStatus(o, breachNowMs),
           etcBreach: getEtcBreach(o, breachNowMs),
@@ -1007,8 +1043,16 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       }
     }
 
+    for (const vesselId of Object.keys(map)) {
+      const opId = map[vesselId]?.operationId
+      if (opId == null) continue
+      const live = cargoProgressByOpId[String(opId)]
+      if (!live) continue
+      map[vesselId] = mergeLiveCargoProgressFields(map[vesselId], live, breachNowMs)
+    }
+
     return map
-  }, [planViz, isPlanCentric, breachNowMs])
+  }, [planViz, isPlanCentric, breachNowMs, cargoProgressByOpId])
 
   const vesselDetailRows = useMemo(() => {
     const byId = new Map()
@@ -2739,7 +2783,13 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                             disabled={disabled}
                             title={disabled ? undefined : `Open ${label} activity in a popup`}
                             onClick={() => {
-                              if (!disabled && to) setPipelineEmbed({ url: to, label })
+                              if (!disabled && to) {
+                                setPipelineEmbed({
+                                  embedUrl: getPhaseLink(label, vessel, plannedBerthingPath, { embed: true }),
+                                  fullUrl: to,
+                                  label,
+                                })
+                              }
                             }}
                           >
                             {label}
@@ -3516,6 +3566,8 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                       operationId={vessel.operationId}
                       totalQtyDisplay={vessel.totalQtyDisplay ?? null}
                       vesselId={vesselDetailModalVesselId}
+                      jettyName={vessel?.jettyOperationCode ?? null}
+                      vesselName={vessel?.vesselName ?? getVesselName(vesselDetailModalVesselId) ?? null}
                       basePath={
                         String(vessel?.purpose || '').trim() === 'Unloading' ? '/unloading' : '/loading'
                       }
@@ -3636,7 +3688,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                 {pipelineEmbed.label} — activity
               </h2>
               <span style={{ display: 'inline-flex', gap: 8 }}>
-                <Link to={pipelineEmbed.url} className="btn btn--small btn--ghost" title="Open as full page">
+                <Link to={pipelineEmbed.fullUrl} className="btn btn--small btn--ghost" title="Open as full page">
                   Open full page ↗
                 </Link>
                 <button
@@ -3652,7 +3704,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
               </span>
             </div>
             <iframe
-              src={pipelineEmbed.url}
+              src={pipelineEmbed.embedUrl}
               title={`${pipelineEmbed.label} activity`}
               style={{ border: 0, width: '100%', flex: 1, minHeight: 0 }}
             />

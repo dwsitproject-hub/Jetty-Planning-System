@@ -18,6 +18,9 @@ import {
 import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { computeCargoProgress } from '../utils/cargoQtyDisplay'
 import { formatGanttMilestoneShort, formatHoseConveyorOnLine } from '../utils/ganttBarDisplay'
+import CargoScheduleProgressIndicator, {
+  isCargoBehindSchedule,
+} from './CargoScheduleProgressIndicator'
 import VisualizationPopoutButton from './VisualizationPopoutButton'
 import JettySpecModal from './JettySpecModal'
 import '../styles/jetty-schematic.css'
@@ -491,7 +494,11 @@ export default function JettySchematic({
       v?.totalQtyDisplay,
       v?.cargoMovedQty,
       v?.cargoFirstLoggedAt,
-      v?.cargoLastLoggedAt
+      v?.cargoLastLoggedAt,
+      {
+        cargoSiQty: v?.cargoSiQty ?? v?.scheduleComparison?.siQty,
+        cargoSiMetric: v?.cargoSiMetric ?? v?.scheduleComparison?.siMetric,
+      }
     )
     const cargoLine = progress?.cargoLine ?? null
     const balanceLine = progress?.balanceLine ?? null
@@ -501,9 +508,12 @@ export default function JettySchematic({
       v?.openingHatchStartAt
     )
     const berthedDur = tbMs != null && asOfMs > tbMs ? formatDurationShort(asOfMs - tbMs) : null
+    const scheduleBehind = isCargoBehindSchedule(v?.scheduleComparison)
 
     return (
-      <span className="jetty-slot__inner jetty-card__box">
+      <span
+        className={`jetty-slot__inner jetty-card__box${scheduleBehind ? ' jetty-card__box--schedule-behind' : ''}`}
+      >
         <span className="jetty-card__titlerow">
           <span className="jetty-card__lane-chip" aria-hidden>
             {laneSuffix}
@@ -514,8 +524,16 @@ export default function JettySchematic({
               className={`jetty-card__purpose-chip jetty-card__purpose-chip--${op === 'LOAD' ? 'load' : 'disch'}`}
               aria-hidden
             >
-              <PurposeBadge purpose={v?.purpose} loadDischarge={v?.loadDischarge} />
+              <PurposeBadge purpose={v?.purpose} loadDischarge={v?.loadDischarge} short="gantt" />
             </span>
+            {scheduleBehind ? (
+              <CargoScheduleProgressIndicator
+                comparison={v?.scheduleComparison}
+                mode="compact"
+                compactLabel
+                className="jetty-card__schedule-badge"
+              />
+            ) : null}
             {renderCardEtcBadge(v)}
           </span>
         </span>

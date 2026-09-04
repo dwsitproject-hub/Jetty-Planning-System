@@ -9,13 +9,20 @@ import { writeActivityLog } from '../lib/activity-log.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { promoteDockedToInProgressIfDocked } from '../lib/operation-auto-status.js';
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
-import { computeAtgWindowMassDelta } from '../lib/atg-window-rate.js';
+import { computeAtgWindowMassDelta, computeAtgWindowVolumeDelta } from '../lib/atg-window-rate.js';
 import { resolveCargoLineQty } from '../lib/cargo-line-qty.js';
+import { readAtgQtyFromResult, resolveAtgMeasurementBasis } from '../lib/atg-measurement.js';
 import {
   aggregateAtgDailyProgressForOperation,
   getOperationalProgress,
+  loadOperationProgressContext,
   partitionLineTanks,
 } from '../lib/operational-progress.js';
+import {
+  computeDirectionalMovedQtyForWindow,
+  getHourlyProgressForLine,
+  snapshotHourlyDetailForLoadLine,
+} from '../lib/atg-hourly-progress.js';
 
 const router = express.Router();
 
@@ -348,6 +355,9 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
   }
 
   const grandfatheredManual = await loadManualLineWindows(q, excludeActivityId);
+  const cargoAtgCtx = await loadOperationCargoAtgContext(q, operationId);
+  const siLine = await loadPrimarySiCargoLine(q, operationId);
+  const measurementBasis = resolveAtgMeasurementBasis(siLine?.metric_code);
 
   for (const p of parsed) {
     let atgTankIds = [];
@@ -357,11 +367,29 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
     if (commodityType !== 'Solid' && p.tankIds.length > 0) {
       ({ atgTankIds, manualTankIds } = await partitionLineTanks(q, p.tankIds));
       if (atgTankIds.length > 0 && p.hasEnd) {
-        atg = await computeAtgWindowMassDelta(q, {
-          tankIds: atgTankIds,
-          startAt: p.startIso,
-          endAt: p.endIso,
-        });
+        if (cargoAtgCtx?.purpose) {
+          atg = await computeDirectionalMovedQtyForWindow(q, {
+            tankIds: atgTankIds,
+            startAt: p.startIso,
+            endAt: p.endIso,
+            purpose: cargoAtgCtx.purpose,
+            timezone: cargoAtgCtx.timezone,
+            measurementBasis,
+            siMetric: siLine?.metric_code,
+          });
+        } else if (measurementBasis === 'volume') {
+          atg = await computeAtgWindowVolumeDelta(q, {
+            tankIds: atgTankIds,
+            startAt: p.startIso,
+            endAt: p.endIso,
+          });
+        } else {
+          atg = await computeAtgWindowMassDelta(q, {
+            tankIds: atgTankIds,
+            startAt: p.startIso,
+            endAt: p.endIso,
+          });
+        }
       }
     }
 
@@ -448,10 +476,14 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
 }
 
 function atgMassSnapshotFromResult(result) {
+  const atgQty = readAtgQtyFromResult(result);
   return {
-    atgMassDelta: result.ok ? result.sumDeltaMass : null,
+    atgMassDelta: result.ok ? atgQty : null,
     atgMassDetail: {
-      sumDeltaMass: result.sumDeltaMass,
+      sumAtgQty: atgQty,
+      sumDeltaMass: result.sumDeltaMass ?? null,
+      sumDeltaVolumeKl: result.sumDeltaVolumeKl ?? null,
+      measurementBasis: result.measurementBasis ?? null,
       incomplete: result.incomplete,
       error: result.error,
       tanks: result.tanks,
@@ -459,7 +491,7 @@ function atgMassSnapshotFromResult(result) {
   };
 }
 
-async function attachAtgMassSnapshots(client, lines, { commodityType }) {
+async function attachAtgMassSnapshots(client, lines, { commodityType, measurementBasis = 'mass' }) {
   const out = [];
   for (const ln of lines) {
     const tankIds = ln.tankIds || [];
@@ -482,11 +514,18 @@ async function attachAtgMassSnapshots(client, lines, { commodityType }) {
       continue;
     }
     const endAt = ln.endIso || new Date().toISOString();
-    const result = await computeAtgWindowMassDelta(client, {
-      tankIds: atgTankIds,
-      startAt: ln.startIso,
-      endAt,
-    });
+    const result =
+      measurementBasis === 'volume'
+        ? await computeAtgWindowVolumeDelta(client, {
+            tankIds: atgTankIds,
+            startAt: ln.startIso,
+            endAt,
+          })
+        : await computeAtgWindowMassDelta(client, {
+            tankIds: atgTankIds,
+            startAt: ln.startIso,
+            endAt,
+          });
     out.push({ ...ln, ...atgMassSnapshotFromResult(result) });
   }
   return out;
@@ -554,11 +593,16 @@ async function refreshOperationalProgressAfterCargoSave(q, operationId) {
   } catch {
     /* non-fatal */
   }
+  try {
+    await snapshotHourlyDetailForLoadLine(q, null, operationId);
+  } catch {
+    /* non-fatal if migration not applied */
+  }
 }
 
 async function insertCargoLoadLines(client, operationalActivityId, lines, opts = {}) {
-  const { commodityType = 'Liquid', operationId = null } = opts;
-  const enriched = await attachAtgMassSnapshots(client, lines, { commodityType });
+  const { commodityType = 'Liquid', operationId = null, measurementBasis = 'mass' } = opts;
+  const enriched = await attachAtgMassSnapshots(client, lines, { commodityType, measurementBasis });
   const lineIds = [];
   const out = [];
   for (let i = 0; i < enriched.length; i++) {
@@ -617,6 +661,28 @@ async function loadOperationPortId(q, operationId) {
   );
   const portId = r.rows[0]?.port_id != null ? Number(r.rows[0].port_id) : null;
   return Number.isFinite(portId) ? portId : null;
+}
+
+async function loadOperationCargoAtgContext(q, operationId) {
+  const r = await q.query(
+    `SELECT o.purpose,
+            COALESCE(p.schedule_timezone, 'Asia/Jakarta') AS schedule_timezone
+     FROM operations o
+     JOIN ports p ON p.id = o.port_id AND p.deleted_at IS NULL
+     WHERE o.id = $1 AND o.deleted_at IS NULL`,
+    [operationId]
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+  return {
+    purpose: row.purpose === 'Unloading' ? 'Unloading' : 'Loading',
+    timezone: row.schedule_timezone || 'Asia/Jakarta',
+  };
+}
+
+async function loadMeasurementBasisForOperation(q, operationId) {
+  const siLine = await loadPrimarySiCargoLine(q, operationId);
+  return resolveAtgMeasurementBasis(siLine?.metric_code);
 }
 
 async function validateTankIdsForPort(q, ids, operationId, errorPrefix) {
@@ -942,9 +1008,11 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
       let savedLines = null;
       const commodityType = await loadCommodityTypeForOperation(client, operationId);
       if (milestoneKey === 'cargo_operations' && linePack.lines?.length) {
+        const measurementBasis = await loadMeasurementBasisForOperation(client, operationId);
         savedLines = await insertCargoLoadLines(client, row.id, linePack.lines, {
           commodityType: commodityType || 'Liquid',
           operationId,
+          measurementBasis,
         });
       }
       if (milestoneKey === 'cargo_operations') {
@@ -1144,9 +1212,11 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
       let savedLinesPut = null;
       const commodityTypePut = await loadCommodityTypeForOperation(client, operationId);
       if (milestoneKey === 'cargo_operations' && linePack.lines?.length) {
+        const measurementBasisPut = await loadMeasurementBasisForOperation(client, operationId);
         savedLinesPut = await replaceCargoLoadLines(client, entryId, linePack.lines, {
           commodityType: commodityTypePut || 'Liquid',
           operationId,
+          measurementBasis: measurementBasisPut,
         });
       }
       if (milestoneKey === 'cargo_operations') {
@@ -1266,6 +1336,276 @@ router.get('/operations/:operationId/operational-progress', async (req, res) => 
   res.json(progress);
 });
 
+function parseSegmentTankIds(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((id) => Number(id))
+    .filter((n) => Number.isFinite(n) && n > 0);
+}
+
+function parseSavedLoadLineId(raw) {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** POST /operations/:operationId/cargo-segment-hourly — per-entry hourly buckets (not merged). */
+router.post('/operations/:operationId/cargo-segment-hourly', async (req, res) => {
+  const operationId = parseOperationId(req.params.operationId);
+  if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
+  await assertOperationAccess(operationId, req);
+
+  const ctx = await loadOperationProgressContext(pool, operationId);
+  if (!ctx) return res.status(404).json({ error: 'Operation not found' });
+
+  const rawSegments = req.body?.segments ?? req.body?.Segments;
+  if (!Array.isArray(rawSegments)) {
+    return res.status(400).json({ error: 'segments must be a non-empty array' });
+  }
+  if (rawSegments.length === 0) {
+    return res.json({
+      scheduleTimezone: ctx.timezone,
+      purpose: ctx.purpose,
+      siMetric: ctx.siMetric,
+      segments: [],
+    });
+  }
+  if (rawSegments.length > 32) {
+    return res.status(400).json({ error: 'Too many segments (max 32)' });
+  }
+
+  const tz = ctx.timezone || 'Asia/Jakarta';
+  const dbLineById = new Map((ctx.lines || []).map((l) => [Number(l.id), l]));
+  const outSegments = [];
+
+  for (const seg of rawSegments) {
+    const clientKey = String(seg.clientKey ?? seg.client_key ?? '').trim();
+    if (!clientKey) {
+      return res.status(400).json({ error: 'Each segment requires clientKey' });
+    }
+
+    const loadLineId = parseSavedLoadLineId(seg.loadLineId ?? seg.load_line_id);
+    if (loadLineId != null) {
+      const access = await assertLoadLineBelongsToOperation(pool, loadLineId, operationId);
+      if (!access.ok) return res.status(access.status).json({ error: access.error });
+    }
+
+    const dbLine = loadLineId != null ? dbLineById.get(loadLineId) : null;
+    const draftStartRaw = seg.startAt ?? seg.start_at ?? null;
+    const draftEndRaw = seg.endAt ?? seg.end_at ?? null;
+    const draftTankIds = parseSegmentTankIds(seg.tankIds ?? seg.tank_ids);
+
+    let startIso = null;
+    if (draftStartRaw) {
+      startIso = parseScheduleInstantToIso(draftStartRaw, tz);
+      if (!startIso) {
+        return res.status(400).json({ error: `Invalid startAt for segment ${clientKey}` });
+      }
+    } else if (dbLine?.startedAt) {
+      startIso = dbLine.startedAt;
+    }
+
+    let endIso = null;
+    if (draftEndRaw) {
+      endIso = parseScheduleInstantToIso(draftEndRaw, tz);
+      if (!endIso) {
+        return res.status(400).json({ error: `Invalid endAt for segment ${clientKey}` });
+      }
+    } else if (dbLine?.endedAt) {
+      endIso = dbLine.endedAt;
+    }
+
+    const tankIds =
+      draftTankIds.length > 0 ? draftTankIds : dbLine?.tankIds?.length ? dbLine.tankIds : [];
+
+    if (!startIso || !tankIds.length) {
+      outSegments.push({
+        clientKey,
+        hourlyBuckets: [],
+        movedQty: 0,
+        rateSummary: { currentHourLine: null, lastActiveHourLine: null },
+      });
+      continue;
+    }
+
+    const atgQtyMode =
+      (seg.atgQtyMode ?? seg.atg_qty_mode) === 'manual'
+        ? 'manual'
+        : dbLine?.atgQtyMode === 'manual'
+          ? 'manual'
+          : 'auto';
+
+    const line = {
+      id: loadLineId ?? undefined,
+      startedAt: startIso,
+      endedAt: endIso,
+      tankIds,
+      atgQtyMode,
+      qty: dbLine?.qty ?? null,
+      manualQty: dbLine?.manualQty ?? null,
+      atgHourlyDetail: dbLine?.atgHourlyDetail ?? null,
+    };
+
+    try {
+      const progress = await getHourlyProgressForLine(pool, ctx, line);
+      outSegments.push({
+        clientKey,
+        hourlyBuckets: progress.hourlyBuckets,
+        movedQty: progress.movedQty,
+        rateSummary: progress.rateSummary,
+      });
+    } catch (e) {
+      outSegments.push({
+        clientKey,
+        hourlyBuckets: [],
+        movedQty: 0,
+        rateSummary: { currentHourLine: null, lastActiveHourLine: null },
+        error: e?.message || 'hourly_compute_failed',
+      });
+    }
+  }
+
+  res.json({
+    scheduleTimezone: ctx.timezone,
+    purpose: ctx.purpose,
+    siMetric: ctx.siMetric,
+    segments: outSegments,
+  });
+});
+
+/** GET /operations/:operationId/cargo-manual-checkpoints?loadLineId= */
+router.get('/operations/:operationId/cargo-manual-checkpoints', async (req, res) => {
+  const operationId = parseOperationId(req.params.operationId);
+  if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
+  await assertOperationAccess(operationId, req);
+
+  const loadLineId = Number(req.query.loadLineId);
+  if (!Number.isFinite(loadLineId) || loadLineId <= 0) {
+    return res.status(400).json({ error: 'loadLineId query param required' });
+  }
+
+  const access = await assertLoadLineBelongsToOperation(pool, loadLineId, operationId);
+  if (!access.ok) return res.status(access.status).json({ error: access.error });
+
+  try {
+    const r = await pool.query(
+      `SELECT id, load_line_id, recorded_at, cumulative_qty, remark, created_by, created_at
+       FROM operation_cargo_manual_checkpoints
+       WHERE load_line_id = $1
+       ORDER BY recorded_at ASC, id ASC`,
+      [loadLineId]
+    );
+    res.json({
+      checkpoints: (r.rows || []).map((row) => ({
+        id: String(row.id),
+        loadLineId: String(row.load_line_id),
+        recordedAt: new Date(row.recorded_at).toISOString(),
+        cumulativeQty: Number(row.cumulative_qty),
+        remark: row.remark ?? null,
+        createdBy: row.created_by != null ? String(row.created_by) : null,
+        createdAt: new Date(row.created_at).toISOString(),
+      })),
+    });
+  } catch {
+    return res.status(503).json({ error: 'Manual checkpoints not available (migration pending)' });
+  }
+});
+
+/** POST /operations/:operationId/cargo-manual-checkpoints */
+router.post('/operations/:operationId/cargo-manual-checkpoints', async (req, res) => {
+  const operationId = parseOperationId(req.params.operationId);
+  if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
+  await assertOperationAccess(operationId, req);
+
+  const body = req.body || {};
+  const loadLineId = Number(body.loadLineId ?? body.load_line_id);
+  const cumulativeQty = Number(body.cumulativeQty ?? body.cumulative_qty);
+  const recordedAtRaw = body.recordedAt ?? body.recorded_at;
+  const remark = body.remark != null ? String(body.remark).trim() : null;
+
+  if (!Number.isFinite(loadLineId) || loadLineId <= 0) {
+    return res.status(400).json({ error: 'loadLineId required' });
+  }
+  if (!Number.isFinite(cumulativeQty) || cumulativeQty < 0) {
+    return res.status(400).json({ error: 'cumulativeQty must be a non-negative number' });
+  }
+
+  const access = await assertLoadLineBelongsToOperation(pool, loadLineId, operationId);
+  if (!access.ok) return res.status(access.status).json({ error: access.error });
+
+  const tz = await loadOperationScheduleTimezone(pool, operationId);
+  const recordedAtIso = parseScheduleInstantToIso(recordedAtRaw, tz);
+  if (!recordedAtIso) {
+    return res.status(400).json({ error: 'recordedAt is required and must be a valid datetime' });
+  }
+
+  try {
+    const ins = await pool.query(
+      `INSERT INTO operation_cargo_manual_checkpoints (
+         load_line_id, recorded_at, cumulative_qty, remark, created_by
+       )
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, load_line_id, recorded_at, cumulative_qty, remark, created_by, created_at`,
+      [loadLineId, recordedAtIso, cumulativeQty, remark || null, req.userId ?? null]
+    );
+    const row = ins.rows[0];
+    await refreshOperationalProgressAfterCargoSave(pool, operationId);
+    res.status(201).json({
+      id: String(row.id),
+      loadLineId: String(row.load_line_id),
+      recordedAt: new Date(row.recorded_at).toISOString(),
+      cumulativeQty: Number(row.cumulative_qty),
+      remark: row.remark ?? null,
+      createdBy: row.created_by != null ? String(row.created_by) : null,
+      createdAt: new Date(row.created_at).toISOString(),
+    });
+  } catch {
+    return res.status(503).json({ error: 'Manual checkpoints not available (migration pending)' });
+  }
+});
+
+/** DELETE /operations/:operationId/cargo-manual-checkpoints/:checkpointId */
+router.delete('/operations/:operationId/cargo-manual-checkpoints/:checkpointId', async (req, res) => {
+  const operationId = parseOperationId(req.params.operationId);
+  const checkpointId = Number(req.params.checkpointId);
+  if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
+  if (!Number.isFinite(checkpointId) || checkpointId <= 0) {
+    return res.status(400).json({ error: 'Invalid checkpointId' });
+  }
+  await assertOperationAccess(operationId, req);
+
+  try {
+    const r = await pool.query(
+      `DELETE FROM operation_cargo_manual_checkpoints cp
+       USING operation_cargo_load_lines l
+       JOIN operation_operational_activities oa ON oa.id = l.operational_activity_id
+       WHERE cp.id = $1
+         AND cp.load_line_id = l.id
+         AND oa.operation_id = $2
+       RETURNING cp.id`,
+      [checkpointId, operationId]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Checkpoint not found' });
+    await refreshOperationalProgressAfterCargoSave(pool, operationId);
+    res.status(204).send();
+  } catch {
+    return res.status(503).json({ error: 'Manual checkpoints not available (migration pending)' });
+  }
+});
+
+async function assertLoadLineBelongsToOperation(q, loadLineId, operationId) {
+  const r = await q.query(
+    `SELECT l.id
+     FROM operation_cargo_load_lines l
+     JOIN operation_operational_activities oa ON oa.id = l.operational_activity_id
+     WHERE l.id = $1 AND oa.operation_id = $2 AND oa.deleted_at IS NULL`,
+    [loadLineId, operationId]
+  );
+  if (!r.rows.length) {
+    return { ok: false, status: 404, error: 'Load line not found for this operation' };
+  }
+  return { ok: true };
+}
+
 /** GET /operations/:operationId/activity-timeline */
 router.get('/operations/:operationId/activity-timeline', async (req, res) => {
   const operationId = parseOperationId(req.params.operationId);
@@ -1323,6 +1663,7 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
        LEFT JOIN LATERAL (
          SELECT jsonb_agg(
                   jsonb_build_object(
+                    'id', l.id,
                     'lineOrder', l.line_order,
                     'qty', l.qty,
                     'manualQty', l.manual_qty,
@@ -1436,11 +1777,16 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
           code: t.code ?? null,
           name: t.name ?? null,
         }));
+        const startedAt = l.startedAt ? new Date(l.startedAt).toISOString() : null;
+        const endedAt = l.endedAt ? new Date(l.endedAt).toISOString() : null;
         return {
+          id: l.id != null ? String(l.id) : null,
           lineOrder: l.lineOrder ?? null,
           qty: l.qty != null ? Number(l.qty) : null,
-          startedAt: l.startedAt ? new Date(l.startedAt).toISOString() : null,
-          endedAt: l.endedAt ? new Date(l.endedAt).toISOString() : null,
+          startAt: startedAt,
+          endAt: endedAt,
+          startedAt,
+          endedAt,
           atgMassDelta: l.atgMassDelta != null ? Number(l.atgMassDelta) : null,
           atgMassDetail: l.atgMassDetail ?? null,
           atgMassComputedAt: l.atgMassComputedAt ?? null,
