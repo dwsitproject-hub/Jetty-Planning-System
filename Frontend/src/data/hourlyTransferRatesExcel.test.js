@@ -16,6 +16,7 @@ describe('hourlyTransferRatesExcel', () => {
       hourlyBuckets: [
         {
           hourStart: '2026-08-28T00:00:00.000Z',
+          hourEnd: '2026-08-28T01:00:00.000Z',
           hourLabelLocal: '28/08 00:00–01:00 GMT+8',
           movementStatus: 'active',
           source: 'atg',
@@ -29,12 +30,13 @@ describe('hourlyTransferRatesExcel', () => {
           rateTph: 57.8,
         },
       ],
+      timeZone: 'Asia/Jakarta',
     })
 
     assert.equal(rows.length, 1)
     assert.equal(rows[0].jetty, '01')
     assert.equal(rows[0].vesselName, 'BG MEL 02')
-    assert.equal(rows[0].clockHour, '28/08 00:00–01:00 GMT+8')
+    assert.equal(rows[0].clockHour, '28 Aug 07:00 - 08:00')
     assert.equal(rows[0].tank, '5102')
     assert.equal(rows[0].moved, '+57.82 MT')
     assert.equal(rows[0].rate, '57.8 MT/h')

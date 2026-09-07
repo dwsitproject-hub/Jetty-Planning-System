@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs'
-import { expandHourlyBucketsForDisplay, formatDisplayCargoQty } from '../utils/hourlyCargoDisplay.js'
+import { expandHourlyBucketsForDisplay, formatDisplayCargoQty, formatHourlyRangeDisplay } from '../utils/hourlyCargoDisplay.js'
 
 export const HOURLY_TRANSFER_RATES_COLUMNS = [
   { key: 'jetty', label: 'Jetty' },
@@ -64,6 +64,7 @@ export function formatHourlySourceLabel(source, t) {
  * @param {'Loading'|'Unloading'|string|null} [opts.purpose]
  * @param {string} [opts.unit]
  * @param {(key: string) => string} [opts.t]
+ * @param {string} [opts.timeZone] optional IANA zone for clock hour display (defaults to browser zone)
  */
 export function buildHourlyTransferRatesExportRows({
   jettyName = '',
@@ -72,14 +73,16 @@ export function buildHourlyTransferRatesExportRows({
   purpose = null,
   unit = 'MT',
   t,
+  timeZone,
 }) {
   const jetty = String(jettyName || '').trim() || '—'
   const vessel = String(vesselName || '').trim() || '—'
   const rows = expandHourlyBucketsForDisplay(hourlyBuckets, purpose)
+  const rangeOpts = timeZone ? { timeZone } : undefined
   return rows.map((row) => ({
     jetty,
     vesselName: vessel,
-    clockHour: row.hourLabelLocal || row.hourStart || '—',
+    clockHour: formatHourlyRangeDisplay(row.hourStart, row.hourEnd, rangeOpts),
     tank: row.tankCode || '—',
     moved: formatDisplayCargoQty(row.tankDisplayQtyMoved, unit),
     rate: formatRateForExport(row.rateTph, unit),

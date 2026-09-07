@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import HourlyCargoProgressTable from './HourlyCargoProgressTable'
 import {
@@ -7,6 +7,7 @@ import {
   fetchCargoManualCheckpoints,
 } from '../api/operations'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import { buildClientHourlyRateSummary } from '../utils/hourlyCargoDisplay'
 
 function formatQty(n, metricLabel) {
   if (n == null || !Number.isFinite(Number(n))) return '—'
@@ -176,7 +177,10 @@ export default function CargoEntryHourlyPanel({
 
   const unit = metricLabel?.split(' · ')[0] || 'MT'
   const hourlyBuckets = hourlyData?.hourlyBuckets || []
-  const rateSummary = hourlyData?.rateSummary || {}
+  const clientHourlySummary = useMemo(
+    () => buildClientHourlyRateSummary(hourlyBuckets, unit),
+    [hourlyBuckets, unit]
+  )
   const movedQty = hourlyData?.movedQty
   const segmentStartLabel = segmentStart ? formatDateTimeDisplay(segmentStart) : '—'
   const segmentEndLabel = segmentEnd ? formatDateTimeDisplay(segmentEnd) : null
@@ -232,8 +236,8 @@ export default function CargoEntryHourlyPanel({
               {t('cargoOpsSessionMovedSoFar')}: <strong>{formatQty(movedQty, metricLabel)}</strong>
             </p>
           ) : null}
-          {rateSummary.currentHourLine ? (
-            <p className="text-steel cargo-ops-session__hourly-line">{rateSummary.currentHourLine}</p>
+          {clientHourlySummary.currentHourLine ? (
+            <p className="text-steel cargo-ops-session__hourly-line">{clientHourlySummary.currentHourLine}</p>
           ) : null}
           {hourlyBuckets.length > 0 ? (
             <HourlyCargoProgressTable
@@ -244,6 +248,7 @@ export default function CargoEntryHourlyPanel({
               collapsible
               collapsedRowLimit={6}
               segmentStartLabel={segmentStartLabel}
+              currentHourLine={clientHourlySummary.currentHourLine}
             />
           ) : null}
         </div>
