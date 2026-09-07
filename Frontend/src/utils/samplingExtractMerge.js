@@ -171,6 +171,10 @@ export function proposeSamplingExtractMerge(sampling, fields, context = {}) {
     warnings.push({
       code: 'vessel_mismatch',
       message: `Document is for "${String(fields.vesselName).trim()}" but this operation is "${String(context.vesselName).trim()}". Check you uploaded the right report.`,
+      params: {
+        documentVessel: String(fields.vesselName).trim(),
+        operationVessel: String(context.vesselName).trim(),
+      },
     })
   }
 
@@ -180,6 +184,7 @@ export function proposeSamplingExtractMerge(sampling, fields, context = {}) {
     warnings.push({
       code: 'palka_count',
       message: `Found ${applicable} palka rows but this vessel is recorded as having ${expectedPalka}.`,
+      params: { found: applicable, expected: expectedPalka },
     })
   }
 
@@ -192,12 +197,14 @@ export function proposeSamplingExtractMerge(sampling, fields, context = {}) {
     warnings.push({
       code: 'avg_ffa_mismatch',
       message: `Report states an FFA average of ${statedFfa} but the rows read average ${avgFfa.toFixed(2)}. Some rows may be missing or misread.`,
+      params: { stated: statedFfa, computed: avgFfa.toFixed(2) },
     })
   }
   if (statedMoisture != null && avgMoisture != null && Math.abs(statedMoisture - avgMoisture) > AVERAGE_TOLERANCE) {
     warnings.push({
       code: 'avg_moisture_mismatch',
       message: `Report states a Moisture average of ${statedMoisture} but the rows read average ${avgMoisture.toFixed(2)}. Some rows may be missing or misread.`,
+      params: { stated: statedMoisture, computed: avgMoisture.toFixed(2) },
     })
   }
 

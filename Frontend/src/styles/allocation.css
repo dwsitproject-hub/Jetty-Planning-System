@@ -4798,15 +4798,43 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   color: var(--color-text-charcoal);
 }
 
+.sampling-entry-block__title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 var(--spacing-2);
+}
+
+.sampling-entry-block__title-row .sampling-entry-block__title {
+  margin: 0;
+}
+
+.berthing-modal__label-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .sampling-entry-block__title--table {
   margin-bottom: var(--spacing-2);
 }
 
 .sampling-entry-block__grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
   gap: var(--spacing-2) var(--spacing-3);
   align-items: end;
+}
+
+.sampling-entry-block__grid .berthing-modal__field {
+  min-width: 0;
+}
+
+.sampling-entry-block__grid--palka {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+
+.sampling-entry-block__grid--quality {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .sampling-entry-block__grid .berthing-modal__input {
@@ -4828,11 +4856,11 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
 }
 
 @media (max-width: 1240px) {
-  .sampling-entry-block__grid {
+  .sampling-entry-block__grid--palka {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .sampling-entry-block__actions {
+  .sampling-entry-block__grid--palka .sampling-entry-block__actions {
     grid-column: 1 / -1;
     justify-content: flex-end;
   }
@@ -4983,7 +5011,8 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
 }
 
 @media (max-width: 980px) {
-  .sampling-entry-block__grid {
+  .sampling-entry-block__grid--palka,
+  .sampling-entry-block__grid--quality {
     grid-template-columns: 1fr;
   }
 }

@@ -1,28 +1,21 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   defaultSamplingExtractChoices,
   samplingExtractChoicesAreEmpty,
 } from '../utils/samplingExtractMerge'
+import { translateExtractWarning } from '../utils/samplingExtractI18n'
 
-const SOURCE_LABELS = {
-  xlsx: 'Excel file',
-  pdf_text: 'PDF text',
-  ocr_image: 'Scanned image',
+const SOURCE_KEYS = {
+  xlsx: 'extractReview.sourceXlsx',
+  pdf_text: 'extractReview.sourcePdf',
+  ocr_image: 'extractReview.sourceOcr',
 }
 
 /**
  * Review what was read from a sampling quality report before any of it reaches the form.
  *
  * Rendered as a nested overlay because the SAMPLING form itself already sits in a modal.
- *
- * @param {{
- *   open: boolean,
- *   proposal: object|null,
- *   fileName?: string,
- *   source?: string,
- *   onCancel: () => void,
- *   onApply: (choices: object) => void,
- * }} props
  */
 export default function SamplingExtractReviewModal({
   open,
@@ -32,6 +25,7 @@ export default function SamplingExtractReviewModal({
   onCancel,
   onApply,
 }) {
+  const { t } = useTranslation('loading')
   const [choices, setChoices] = useState(() => defaultSamplingExtractChoices(proposal))
 
   useEffect(() => {
@@ -59,6 +53,12 @@ export default function SamplingExtractReviewModal({
     setChoices((c) => ({ ...c, quality: { ...c.quality, [key]: mode } }))
   const allNewSelected = newRecords.length > 0 && newRecords.every((r) => choices.includeNew?.[r.key])
 
+  const sourceLabel = SOURCE_KEYS[source] ? t(SOURCE_KEYS[source]) : ''
+  const metaLead =
+    foundCount > 0
+      ? t('extractReview.foundRows', { count: foundCount })
+      : t('extractReview.noRows')
+
   return (
     <div className="modal-overlay modal-overlay--nested" onClick={onCancel} aria-hidden="true">
       <div
@@ -69,21 +69,18 @@ export default function SamplingExtractReviewModal({
         aria-labelledby="sampling-extract-title"
       >
         <h2 id="sampling-extract-title" className="modal__title">
-          Review extracted sampling data
+          {t('extractReview.title')}
         </h2>
         <p className="text-steel sampling-extract-modal__meta">
-          {foundCount > 0
-            ? `Found ${foundCount} palka row${foundCount === 1 ? '' : 's'}`
-            : 'No palka rows detected'}
-          {fileName ? ` in ${fileName}` : ''}
-          {SOURCE_LABELS[source] ? ` (${SOURCE_LABELS[source]})` : ''}. Nothing is changed until you
-          press Apply.
+          {metaLead}
+          {fileName ? t('extractReview.inFile', { fileName }) : ''}
+          {sourceLabel ? ` (${sourceLabel})` : ''}. {t('extractReview.nothingUntilApply')}
         </p>
 
         {warnings.length > 0 && (
           <ul className="sampling-extract-modal__warnings" role="alert">
             {warnings.map((w) => (
-              <li key={w.code}>{w.message}</li>
+              <li key={w.code}>{translateExtractWarning(t, w)}</li>
             ))}
           </ul>
         )}
@@ -91,36 +88,37 @@ export default function SamplingExtractReviewModal({
         {qualityProposals.length > 0 && (
           <div className="loading-detail-activity-table-wrap">
             <h4 className="sampling-entry-block__title sampling-entry-block__title--table">
-              Quality Summary (as stated on the report)
+              {t('sampling.qualitySummaryTitle')}
             </h4>
             <table className="loading-detail-activity-table sampling-extract-modal__table">
               <thead>
                 <tr>
-                  <th>Field</th>
-                  <th>Value</th>
-                  <th>Status</th>
-                  <th>Action</th>
+                  <th>{t('extractReview.field')}</th>
+                  <th>{t('extractReview.value')}</th>
+                  <th>{t('extractReview.status')}</th>
+                  <th>{t('extractReview.action')}</th>
                 </tr>
               </thead>
               <tbody>
                 {qualityProposals.map((item) => {
                   const mode = choices.quality?.[item.key] || 'keep'
+                  const fieldLabel = t(`qualityField.${item.key}`)
                   if (item.status === 'unchanged') {
                     return (
                       <tr key={item.key} className="sampling-extract-modal__row--muted">
-                        <td>{item.label}</td>
+                        <td>{fieldLabel}</td>
                         <td className="sampling-cell--numeric">{item.extracted}</td>
                         <td>
-                          <span className="sampling-extract-modal__badge">Already matches</span>
+                          <span className="sampling-extract-modal__badge">{t('extractReview.badgeUnchanged')}</span>
                         </td>
-                        <td className="text-steel">No change</td>
+                        <td className="text-steel">{t('extractReview.noChange')}</td>
                       </tr>
                     )
                   }
                   if (item.status === 'conflict') {
                     return (
                       <tr key={item.key}>
-                        <td>{item.label}</td>
+                        <td>{fieldLabel}</td>
                         <td className="sampling-cell--numeric">
                           <span className="sampling-extract-modal__was">{item.current}</span>
                           {' → '}
@@ -128,7 +126,7 @@ export default function SamplingExtractReviewModal({
                         </td>
                         <td>
                           <span className="sampling-extract-modal__badge sampling-extract-modal__badge--conflict">
-                            Already entered
+                            {t('extractReview.badgeConflict')}
                           </span>
                         </td>
                         <td>
@@ -140,7 +138,7 @@ export default function SamplingExtractReviewModal({
                                 checked={mode === 'keep'}
                                 onChange={() => setQualityMode(item.key, 'keep')}
                               />
-                              <span>Keep current</span>
+                              <span>{t('extractReview.keepCurrent')}</span>
                             </label>
                             <label>
                               <input
@@ -149,7 +147,7 @@ export default function SamplingExtractReviewModal({
                                 checked={mode === 'extracted'}
                                 onChange={() => setQualityMode(item.key, 'extracted')}
                               />
-                              <span>Use extracted</span>
+                              <span>{t('extractReview.useExtracted')}</span>
                             </label>
                           </div>
                         </td>
@@ -158,11 +156,11 @@ export default function SamplingExtractReviewModal({
                   }
                   return (
                     <tr key={item.key}>
-                      <td>{item.label}</td>
+                      <td>{fieldLabel}</td>
                       <td className="sampling-cell--numeric">{item.extracted}</td>
                       <td>
                         <span className="sampling-extract-modal__badge sampling-extract-modal__badge--new">
-                          New
+                          {t('extractReview.badgeNew')}
                         </span>
                       </td>
                       <td>
@@ -171,9 +169,9 @@ export default function SamplingExtractReviewModal({
                             type="checkbox"
                             checked={mode === 'extracted'}
                             onChange={(e) => setQualityMode(item.key, e.target.checked ? 'extracted' : 'keep')}
-                            aria-label={`Fill ${item.label}`}
+                            aria-label={t('extractReview.fillField', { field: fieldLabel })}
                           />
-                          <span>Include</span>
+                          <span>{t('extractReview.include')}</span>
                         </label>
                       </td>
                     </tr>
@@ -185,19 +183,16 @@ export default function SamplingExtractReviewModal({
         )}
 
         {foundCount === 0 ? (
-          <p className="sampling-extract-modal__empty">
-            No palka FFA / Moisture values could be read from this file. Enter them manually, or try
-            uploading the original Excel file or a clearer scan.
-          </p>
+          <p className="sampling-extract-modal__empty">{t('extractReview.emptyExtract')}</p>
         ) : (
           <div className="loading-detail-activity-table-wrap">
             <table className="loading-detail-activity-table sampling-extract-modal__table">
               <thead>
                 <tr>
-                  <th>No. Palka</th>
-                  <th>(%), FFA</th>
-                  <th>(%), Moisture</th>
-                  <th>Status</th>
+                  <th>{t('sampling.noPalka')}</th>
+                  <th>{t('sampling.ffa')}</th>
+                  <th>{t('sampling.moisture')}</th>
+                  <th>{t('extractReview.status')}</th>
                   <th>
                     {newRecords.length > 0 ? (
                       <label className="sampling-extract-modal__select-all">
@@ -210,10 +205,10 @@ export default function SamplingExtractReviewModal({
                             setChoices((c) => ({ ...c, includeNew: next }))
                           }}
                         />
-                        <span>All new</span>
+                        <span>{t('extractReview.allNew')}</span>
                       </label>
                     ) : (
-                      'Action'
+                      t('extractReview.action')
                     )}
                   </th>
                 </tr>
@@ -226,7 +221,7 @@ export default function SamplingExtractReviewModal({
                     <td className="sampling-cell--numeric">{row.moisture}</td>
                     <td>
                       <span className="sampling-extract-modal__badge sampling-extract-modal__badge--new">
-                        New
+                        {t('extractReview.badgeNew')}
                       </span>
                     </td>
                     <td>
@@ -235,9 +230,9 @@ export default function SamplingExtractReviewModal({
                           type="checkbox"
                           checked={Boolean(choices.includeNew?.[row.key])}
                           onChange={(e) => setIncludeNew(row.key, e.target.checked)}
-                          aria-label={`Include palka ${row.noPalka}`}
+                          aria-label={t('extractReview.includePalka', { palka: row.noPalka })}
                         />
-                        <span>Include</span>
+                        <span>{t('extractReview.include')}</span>
                       </label>
                     </td>
                   </tr>
@@ -262,7 +257,7 @@ export default function SamplingExtractReviewModal({
                       </td>
                       <td>
                         <span className="sampling-extract-modal__badge sampling-extract-modal__badge--conflict">
-                          Already entered
+                          {t('extractReview.badgeConflict')}
                         </span>
                       </td>
                       <td>
@@ -274,7 +269,7 @@ export default function SamplingExtractReviewModal({
                               checked={mode === 'keep'}
                               onChange={() => setConflictMode(row.key, 'keep')}
                             />
-                            <span>Keep current</span>
+                            <span>{t('extractReview.keepCurrent')}</span>
                           </label>
                           <label>
                             <input
@@ -283,7 +278,7 @@ export default function SamplingExtractReviewModal({
                               checked={mode === 'extracted'}
                               onChange={() => setConflictMode(row.key, 'extracted')}
                             />
-                            <span>Use extracted</span>
+                            <span>{t('extractReview.useExtracted')}</span>
                           </label>
                         </div>
                       </td>
@@ -297,9 +292,9 @@ export default function SamplingExtractReviewModal({
                     <td className="sampling-cell--numeric">{row.ffa}</td>
                     <td className="sampling-cell--numeric">{row.moisture}</td>
                     <td>
-                      <span className="sampling-extract-modal__badge">Already matches</span>
+                      <span className="sampling-extract-modal__badge">{t('extractReview.badgeUnchanged')}</span>
                     </td>
-                    <td className="text-steel">No change</td>
+                    <td className="text-steel">{t('extractReview.noChange')}</td>
                   </tr>
                 ))}
               </tbody>
@@ -316,9 +311,9 @@ export default function SamplingExtractReviewModal({
                 onChange={(e) => setChoices((c) => ({ ...c, applyStartTime: e.target.checked }))}
               />
               <span>
-                Set Start Time to the document date ({startTimeHint.value.replace('T', ' ')})
+                {t('extractReview.startTimeOption', { value: startTimeHint.value.replace('T', ' ') })}
                 {startTimeHint.currentValue
-                  ? ` — replaces ${startTimeHint.currentValue.replace('T', ' ')}`
+                  ? t('extractReview.startTimeReplace', { value: startTimeHint.currentValue.replace('T', ' ') })
                   : ''}
               </span>
             </label>
@@ -327,18 +322,17 @@ export default function SamplingExtractReviewModal({
 
         <div className="modal__actions">
           <button type="button" className="btn btn--secondary" onClick={onCancel}>
-            Cancel
+            {t('extractReview.cancel')}
           </button>
-          {/* A report can yield only summary values when no palka label reads, and those are still worth applying. */}
           {(foundCount > 0 || qualityProposals.length > 0) && (
             <button
               type="button"
               className="btn btn--primary"
               onClick={() => onApply(choices)}
               disabled={nothingToApply}
-              title={nothingToApply ? 'Select at least one row or option' : undefined}
+              title={nothingToApply ? t('extractReview.applyDisabledTitle') : undefined}
             >
-              Apply
+              {t('extractReview.apply')}
             </button>
           )}
         </div>

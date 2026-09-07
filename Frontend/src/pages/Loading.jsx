@@ -44,11 +44,13 @@ import { usePortScope } from '../context/PortScopeContext'
 import FlowPill from '../components/FlowPill'
 import OperationalMilestoneWorkspace from '../components/OperationalMilestoneWorkspace'
 import OperationActivityTimeline from '../components/OperationActivityTimeline'
+import FormLabelWithTooltip from '../components/FormLabelWithTooltip'
 import SamplingExtractReviewModal from '../components/SamplingExtractReviewModal'
 import {
   useSamplingDocumentExtract,
   samplingDocumentIsExtractable,
 } from '../hooks/useSamplingDocumentExtract'
+import { formatSamplingExtractApplyMessage } from '../utils/samplingExtractI18n'
 import { operationalMilestoneDoneCount, viewModelFromOperationalEntries } from '../data/operationalMilestones'
 import {
   computeProcessStagesNumbers,
@@ -1555,18 +1557,36 @@ function PrecheckDocumentsEdit({
   removingKey,
   accept = 'image/*,.pdf',
   hint,
+  tooltip,
+  copy,
   onExtract,
   extractingKey,
 }) {
   const { openFilePreview } = useFilePreview()
   const list = documents || []
+  const uploadLabel = copy?.uploadLabel ?? 'Upload document'
+  const chooseFiles = copy?.chooseFiles ?? 'Choose files'
+  const filesSelected = copy?.filesSelected ?? ((count) => `${count} file(s) selected`)
+  const extractData = copy?.extractData ?? 'Extract data'
+  const extractReading = copy?.extractReading ?? 'Reading…'
+  const extractTitle = copy?.extractTitle ?? 'Read palka FFA and Moisture values from this document'
+  const extractAria = copy?.extractAria ?? ((name) => `Extract data from ${name || 'file'}`)
+  const openDocument = copy?.openDocument ?? 'Open document in new tab'
+  const openDocumentAria = copy?.openDocumentAria ?? ((name) => `Open document: ${name || 'file'}`)
+  const removeDocument = copy?.removeDocument ?? 'Remove document'
+  const removeDocumentAria = copy?.removeDocumentAria ?? ((name) => `Remove document: ${name || 'file'}`)
+
   return (
     <div className="berthing-modal__field">
-      <label className="berthing-modal__label">Upload document</label>
-      {hint ? <p className="precheck-doc-hint text-steel">{hint}</p> : null}
+      {tooltip ? (
+        <FormLabelWithTooltip label={uploadLabel} tooltip={tooltip} />
+      ) : (
+        <label className="berthing-modal__label">{uploadLabel}</label>
+      )}
+      {hint && !tooltip ? <p className="precheck-doc-hint text-steel">{hint}</p> : null}
       <label className="berthing-modal__file-zone">
         <span className="berthing-modal__file-zone-text">
-          {list.length ? `${list.length} file(s) selected` : 'Choose files'}
+          {list.length ? filesSelected(list.length) : chooseFiles}
         </span>
         <input
           type="file"
@@ -1588,8 +1608,8 @@ function PrecheckDocumentsEdit({
                 <button
                   type="button"
                   className="berthing-modal__doc-open-btn"
-                  title="Open document in new tab"
-                  aria-label={`Open document: ${f.name || 'file'}`}
+                  title={openDocument}
+                  aria-label={openDocumentAria(f.name || 'file')}
                   onClick={() => {
                     const href = precheckDocumentHref(f.url)
                     if (href && href !== '#') {
@@ -1604,19 +1624,19 @@ function PrecheckDocumentsEdit({
                 <button
                   type="button"
                   className="btn btn--secondary btn--small precheck-doc-list__extract"
-                  title="Read palka FFA and Moisture values from this document"
-                  aria-label={`Extract data from ${f.name || 'file'}`}
+                  title={extractTitle}
+                  aria-label={extractAria(f.name || 'file')}
                   disabled={extractingKey != null}
                   onClick={() => onExtract(f, i)}
                 >
-                  {extractingKey === `${sectionKey}-${i}` ? 'Reading…' : 'Extract data'}
+                  {extractingKey === `${sectionKey}-${i}` ? extractReading : extractData}
                 </button>
               ) : null}
               <button
                 type="button"
                 className="berthing-modal__nor-delete-btn"
-                title="Remove document"
-                aria-label={`Remove document: ${f.name || 'file'}`}
+                title={removeDocument}
+                aria-label={removeDocumentAria(f.name || 'file')}
                 disabled={f.id != null && removingKey === `${sectionKey}-${f.id}`}
                 onClick={() => onRemoveIndex(i)}
               >
@@ -1631,11 +1651,11 @@ function PrecheckDocumentsEdit({
 }
 
 /** View mode: links only (no delete — use Edit to remove documents) */
-function PrecheckDocumentsRead({ documents }) {
+function PrecheckDocumentsRead({ documents, documentsLabel = 'Documents' }) {
   const list = documents || []
   return (
     <div className="precheck-section__row precheck-section__row--block">
-      <span className="precheck-section__label">Documents</span>
+      <span className="precheck-section__label">{documentsLabel}</span>
       <div className="precheck-section__value">
         {list.length === 0 ? (
           '—'
@@ -1681,6 +1701,7 @@ function PreCheckingSections({
   onPersistedHydrationDone,
   scheduleEntryTz,
 }) {
+  const { t: tLoading } = useTranslation('loading')
   const preCheckTabs = useMemo(() => getPreCheckSubTabs(purpose), [purpose])
   const [searchParams, setSearchParams] = useSearchParams()
   const [activeSubTab, setActiveSubTab] = useState('keyMeeting')
@@ -2304,7 +2325,7 @@ function PreCheckingSections({
       docKey: `sampling-${index}`,
       sampling: draft.sampling || {},
       context: { vesselName, numberOfPalka },
-      onError: (message) => setPersistError(message),
+      onError: (message) => setPersistError(message || tLoading('sampling.extractError')),
     })
   }
 
@@ -2313,7 +2334,7 @@ function PreCheckingSections({
     const result = samplingExtract.applyReview(choices, draft.sampling || {})
     if (!result) return
     setDraft((prev) => ({ ...prev, sampling: result.nextSampling }))
-    setSaveSuccessMessage(`${result.message} Review the values, then Save.`)
+    setSaveSuccessMessage(`${formatSamplingExtractApplyMessage(tLoading, result.summary, samplingExtract.fileName)} ${tLoading('sampling.extractReviewThenSave')}`)
   }
 
   const addSamplingRecord = () => {
@@ -2752,7 +2773,7 @@ function PreCheckingSections({
       )}
       {activeSubTab === 'sampling' && (
       <PreCheckSectionCard
-        title="SAMPLING"
+        title={tLoading('sampling.title')}
         isEditing={editingSection === 'sampling'}
         onEdit={() => startEdit('sampling')}
         onSave={() => saveSection('sampling', 'final')}
@@ -2763,7 +2784,7 @@ function PreCheckingSections({
         {editingSection === 'sampling' ? (
           <>
             <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Start Time</label>
+              <label className="berthing-modal__label">{tLoading('sampling.startTime')}</label>
               <input
                 type="datetime-local"
                 className="berthing-modal__input"
@@ -2772,7 +2793,7 @@ function PreCheckingSections({
               />
             </div>
             <div className="berthing-modal__field">
-              <label className="berthing-modal__label">End Time</label>
+              <label className="berthing-modal__label">{tLoading('sampling.endTime')}</label>
               <input
                 type="datetime-local"
                 className="berthing-modal__input"
@@ -2787,118 +2808,67 @@ function PreCheckingSections({
               onRemoveIndex={(i) => removePrecheckDocumentAt('sampling', i)}
               removingKey={removingDoc}
               accept="image/*,.pdf,.xlsx"
-              hint="Upload the quality report (Excel, PDF or photo), then use Extract data to read the per-palka FFA and Moisture values. You review them before they are filled in."
+              tooltip={tLoading('sampling.uploadTooltip')}
+              copy={{
+                uploadLabel: tLoading('sampling.uploadLabel'),
+                chooseFiles: tLoading('sampling.chooseFiles'),
+                filesSelected: (count) => tLoading('sampling.filesSelected', { count }),
+                extractData: tLoading('sampling.extractData'),
+                extractReading: tLoading('sampling.extractReading'),
+                extractTitle: tLoading('sampling.extractTitle'),
+                extractAria: (name) => tLoading('sampling.extractAria', { name: name || 'file' }),
+                openDocument: tLoading('sampling.openDocument'),
+                openDocumentAria: (name) => tLoading('sampling.openDocumentAria', { name: name || 'file' }),
+                removeDocument: tLoading('sampling.removeDocument'),
+                removeDocumentAria: (name) => tLoading('sampling.removeDocumentAria', { name: name || 'file' }),
+              }}
               onExtract={requestSamplingExtract}
               extractingKey={samplingExtract.extractingKey}
             />
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Remark</label>
-              <textarea
-                className="berthing-modal__input berthing-modal__textarea"
-                value={draft.sampling?.remark || ''}
-                onChange={(e) => updateDraft('sampling', 'remark', e.target.value)}
-                maxLength={MAX_REMARK_CHARS}
-                rows={4}
-                placeholder="Optional remark"
-              />
-            </div>
             <section className="sampling-entry-block">
-              <h4 className="sampling-entry-block__title">Quality Summary (as stated on the report)</h4>
-              <div className="sampling-entry-block__grid">
+              <h4 className="sampling-entry-block__title">{tLoading('sampling.entriesTitle')}</h4>
+              <div className="sampling-entry-block__grid sampling-entry-block__grid--palka">
                 <div className="berthing-modal__field">
-                  <label className="berthing-modal__label">(%), FFA Average</label>
-                  <input
-                    type="text"
-                    className="berthing-modal__input"
-                    value={draft.sampling?.ffaAverage || ''}
-                    onChange={(e) => updateDraft('sampling', 'ffaAverage', e.target.value)}
-                    maxLength={MAX_SAMPLING_METRIC_CHARS}
-                    placeholder="e.g. 7.62"
-                  />
-                </div>
-                <div className="berthing-modal__field">
-                  <label className="berthing-modal__label">(%), Moisture Average</label>
-                  <input
-                    type="text"
-                    className="berthing-modal__input"
-                    value={draft.sampling?.moistureAverage || ''}
-                    onChange={(e) => updateDraft('sampling', 'moistureAverage', e.target.value)}
-                    maxLength={MAX_SAMPLING_METRIC_CHARS}
-                    placeholder="e.g. 0.26"
-                  />
-                </div>
-                <div className="berthing-modal__field">
-                  <label className="berthing-modal__label">DOBI</label>
-                  <input
-                    type="text"
-                    className="berthing-modal__input"
-                    value={draft.sampling?.dobi || ''}
-                    onChange={(e) => updateDraft('sampling', 'dobi', e.target.value)}
-                    maxLength={MAX_SAMPLING_METRIC_CHARS}
-                    placeholder="e.g. 1.90"
-                  />
-                </div>
-                <div className="berthing-modal__field">
-                  <label className="berthing-modal__label">(gI2/100g), Iodine Value</label>
-                  <input
-                    type="text"
-                    className="berthing-modal__input"
-                    value={draft.sampling?.iodineValue || ''}
-                    onChange={(e) => updateDraft('sampling', 'iodineValue', e.target.value)}
-                    maxLength={MAX_SAMPLING_METRIC_CHARS}
-                    placeholder="e.g. 52.11"
-                  />
-                </div>
-              </div>
-              <p className="sampling-entry-block__hint">
-                The figures printed in the report&apos;s own summary box. These stay as stated even when a palka row is
-                missing, so they can differ from the averages computed below.
-              </p>
-            </section>
-            <section className="sampling-entry-block">
-              <h4 className="sampling-entry-block__title">Sampling Entries (Per Palka)</h4>
-              <div className="sampling-entry-block__grid">
-                <div className="berthing-modal__field">
-                  <label className="berthing-modal__label">No. Palka</label>
+                  <label className="berthing-modal__label">{tLoading('sampling.noPalka')}</label>
                   <input
                     type="text"
                     className="berthing-modal__input"
                     value={samplingForm.noPalka}
                     onChange={(e) => setSamplingForm((f) => ({ ...f, noPalka: e.target.value }))}
                     maxLength={MAX_SAMPLING_PALKA_FIELD_CHARS}
-                    placeholder="e.g. 1P, 2P, 3P"
+                    placeholder={tLoading('sampling.placeholderPalka')}
                   />
                 </div>
                 <div className="berthing-modal__field">
-                  <label className="berthing-modal__label">(%), FFA</label>
+                  <label className="berthing-modal__label">{tLoading('sampling.ffa')}</label>
                   <input
                     type="text"
                     className="berthing-modal__input"
                     value={samplingForm.ffa}
                     onChange={(e) => setSamplingForm((f) => ({ ...f, ffa: e.target.value }))}
                     maxLength={MAX_SAMPLING_PALKA_FIELD_CHARS}
-                    placeholder="e.g. 4.91"
+                    placeholder={tLoading('sampling.placeholderMetric', { value: '4.91' })}
                   />
                 </div>
                 <div className="berthing-modal__field">
-                  <label className="berthing-modal__label">(%), Moisture</label>
+                  <label className="berthing-modal__label">{tLoading('sampling.moisture')}</label>
                   <input
                     type="text"
                     className="berthing-modal__input"
                     value={samplingForm.moisture}
                     onChange={(e) => setSamplingForm((f) => ({ ...f, moisture: e.target.value }))}
                     maxLength={MAX_SAMPLING_PALKA_FIELD_CHARS}
-                    placeholder="e.g. 0.25"
+                    placeholder={tLoading('sampling.placeholderMetric', { value: '0.25' })}
                   />
                 </div>
                 <div className="sampling-entry-block__actions loading-step-card__actions">
                   {editingSamplingRecordId ? (
                     <>
                       <button type="button" className="btn btn--primary btn--small" onClick={updateSamplingRecord}>
-                        Update
+                        {tLoading('sampling.update')}
                       </button>
                       <button type="button" className="btn btn--small btn--secondary" onClick={cancelEditSamplingRecord}>
-                        Cancel
+                        {tLoading('sampling.cancel')}
                       </button>
                     </>
                   ) : (
@@ -2906,36 +2876,108 @@ function PreCheckingSections({
                       type="button"
                       className="btn btn--primary btn--small"
                       onClick={addSamplingRecord}
-                      title="Press Enter in field, then Add"
+                      title={tLoading('sampling.addTitle')}
                     >
-                      Add
+                      {tLoading('sampling.add')}
                     </button>
                   )}
                 </div>
               </div>
-              <p className="sampling-entry-block__hint">Enter per-palka FFA and Moisture values, then add to the list.</p>
+              <p className="sampling-entry-block__hint">{tLoading('sampling.entriesHint')}</p>
             </section>
+            <section className="sampling-entry-block">
+              <FormLabelWithTooltip
+                as="h4"
+                label={tLoading('sampling.qualitySummaryTitle')}
+                tooltip={tLoading('sampling.qualitySummaryTooltip')}
+              />
+              <div className="sampling-entry-block__grid sampling-entry-block__grid--quality">
+                <div className="berthing-modal__field">
+                  <label className="berthing-modal__label">{tLoading('sampling.ffaAverage')}</label>
+                  <input
+                    type="text"
+                    className="berthing-modal__input"
+                    value={draft.sampling?.ffaAverage || ''}
+                    onChange={(e) => updateDraft('sampling', 'ffaAverage', e.target.value)}
+                    maxLength={MAX_SAMPLING_METRIC_CHARS}
+                    placeholder={tLoading('sampling.placeholderMetric', { value: '7.62' })}
+                  />
+                </div>
+                <div className="berthing-modal__field">
+                  <label className="berthing-modal__label">{tLoading('sampling.moistureAverage')}</label>
+                  <input
+                    type="text"
+                    className="berthing-modal__input"
+                    value={draft.sampling?.moistureAverage || ''}
+                    onChange={(e) => updateDraft('sampling', 'moistureAverage', e.target.value)}
+                    maxLength={MAX_SAMPLING_METRIC_CHARS}
+                    placeholder={tLoading('sampling.placeholderMetric', { value: '0.26' })}
+                  />
+                </div>
+                <div className="berthing-modal__field">
+                  <label className="berthing-modal__label">{tLoading('sampling.dobi')}</label>
+                  <input
+                    type="text"
+                    className="berthing-modal__input"
+                    value={draft.sampling?.dobi || ''}
+                    onChange={(e) => updateDraft('sampling', 'dobi', e.target.value)}
+                    maxLength={MAX_SAMPLING_METRIC_CHARS}
+                    placeholder={tLoading('sampling.placeholderMetric', { value: '1.90' })}
+                  />
+                </div>
+                <div className="berthing-modal__field">
+                  <label className="berthing-modal__label">{tLoading('sampling.iodineValue')}</label>
+                  <input
+                    type="text"
+                    className="berthing-modal__input"
+                    value={draft.sampling?.iodineValue || ''}
+                    onChange={(e) => updateDraft('sampling', 'iodineValue', e.target.value)}
+                    maxLength={MAX_SAMPLING_METRIC_CHARS}
+                    placeholder={tLoading('sampling.placeholderMetric', { value: '52.11' })}
+                  />
+                </div>
+              </div>
+            </section>
+            <div className="berthing-modal__field">
+              <label className="berthing-modal__label">{tLoading('sampling.remark')}</label>
+              <textarea
+                className="berthing-modal__input berthing-modal__textarea"
+                value={draft.sampling?.remark || ''}
+                onChange={(e) => updateDraft('sampling', 'remark', e.target.value)}
+                maxLength={MAX_REMARK_CHARS}
+                rows={4}
+                placeholder={tLoading('sampling.remarkPlaceholder')}
+              />
+            </div>
             <div className="sampling-summary-chips" role="status" aria-live="polite">
-              <span className="sampling-summary-chip">Total Palka sampled: {samplingSummary.count}</span>
-              <span className="sampling-summary-chip">Avg FFA (from rows below): {samplingSummary.avgFfa == null ? '—' : samplingSummary.avgFfa.toFixed(2)}</span>
-              <span className="sampling-summary-chip">Avg Moisture (from rows below): {samplingSummary.avgMoisture == null ? '—' : samplingSummary.avgMoisture.toFixed(2)}</span>
+              <span className="sampling-summary-chip">{tLoading('sampling.chipTotal', { count: samplingSummary.count })}</span>
+              <span className="sampling-summary-chip">
+                {tLoading('sampling.chipAvgFfa', {
+                  value: samplingSummary.avgFfa == null ? '—' : samplingSummary.avgFfa.toFixed(2),
+                })}
+              </span>
+              <span className="sampling-summary-chip">
+                {tLoading('sampling.chipAvgMoisture', {
+                  value: samplingSummary.avgMoisture == null ? '—' : samplingSummary.avgMoisture.toFixed(2),
+                })}
+              </span>
             </div>
             <div className="loading-detail-activity-table-wrap">
-              <h4 className="sampling-entry-block__title sampling-entry-block__title--table">Recorded Samples</h4>
+              <h4 className="sampling-entry-block__title sampling-entry-block__title--table">{tLoading('sampling.recordedSamples')}</h4>
               <table className="loading-detail-activity-table">
                 <thead>
                   <tr>
-                    <th>No. Palka</th>
-                    <th>(%), FFA</th>
-                    <th>(%), Moisture</th>
-                    <th>Actions</th>
+                    <th>{tLoading('sampling.noPalka')}</th>
+                    <th>{tLoading('sampling.ffa')}</th>
+                    <th>{tLoading('sampling.moisture')}</th>
+                    <th>{tLoading('sampling.actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {samplingRecords.length === 0 ? (
                     <tr>
                       <td colSpan={4} className="loading-detail-activity-empty">
-                        No sampling records yet. Add one above.
+                        {tLoading('sampling.noRecordsYet')}
                       </td>
                     </tr>
                   ) : (
@@ -2946,10 +2988,10 @@ function PreCheckingSections({
                         <td className="sampling-cell--numeric">{formatSamplingMetric(rec.moisture)}</td>
                         <td>
                           <button type="button" className="btn btn--small" onClick={() => startEditSamplingRecord(rec)}>
-                            Edit
+                            {tLoading('sampling.edit')}
                           </button>
                           <button type="button" className="btn btn--small btn--secondary" onClick={() => deleteSamplingRecord(rec.id)}>
-                            Delete
+                            {tLoading('sampling.delete')}
                           </button>
                         </td>
                       </tr>
@@ -2962,7 +3004,7 @@ function PreCheckingSections({
         ) : (
           <>
             <div className="precheck-section__row">
-              <span className="precheck-section__label">Start Time</span>
+              <span className="precheck-section__label">{tLoading('sampling.startTime')}</span>
               <span className="precheck-section__value">
                 {data.sampling?.startTime || data.sampling?.dateTime
                   ? formatDateTimeDisplay(data.sampling?.startTime || data.sampling?.dateTime)
@@ -2970,40 +3012,51 @@ function PreCheckingSections({
               </span>
             </div>
             <div className="precheck-section__row">
-              <span className="precheck-section__label">End Time</span>
+              <span className="precheck-section__label">{tLoading('sampling.endTime')}</span>
               <span className="precheck-section__value">
                 {data.sampling?.endTime ? formatDateTimeDisplay(data.sampling.endTime) : '—'}
               </span>
             </div>
-            <PrecheckDocumentsRead documents={data.sampling?.documents} />
-            <div className="precheck-section__row precheck-section__row--block">
-              <span className="precheck-section__label">Remark</span>
-              <span className="precheck-section__value">{data.sampling?.remark || '—'}</span>
-            </div>
+            <PrecheckDocumentsRead documents={data.sampling?.documents} documentsLabel={tLoading('sampling.documents')} />
             <div className="precheck-section__row">
-              <span className="precheck-section__label">Quality Summary (as stated on the report)</span>
+              <span className="precheck-section__label">{tLoading('sampling.qualitySummaryTitle')}</span>
               <span className="precheck-section__value">
-                FFA Average: {data.sampling?.ffaAverage || '—'} · Moisture Average:{' '}
-                {data.sampling?.moistureAverage || '—'} · DOBI: {data.sampling?.dobi || '—'} · Iodine Value:{' '}
-                {data.sampling?.iodineValue || '—'}
+                {tLoading('sampling.qualitySummaryReadonly', {
+                  ffa: data.sampling?.ffaAverage || '—',
+                  moisture: data.sampling?.moistureAverage || '—',
+                  dobi: data.sampling?.dobi || '—',
+                  iodine: data.sampling?.iodineValue || '—',
+                })}
               </span>
             </div>
+            <div className="precheck-section__row precheck-section__row--block">
+              <span className="precheck-section__label">{tLoading('sampling.remark')}</span>
+              <span className="precheck-section__value">{data.sampling?.remark || '—'}</span>
+            </div>
             <div className="sampling-summary-chips" role="status" aria-live="polite">
-              <span className="sampling-summary-chip">Total Palka sampled: {samplingSummary.count}</span>
-              <span className="sampling-summary-chip">Avg FFA (from rows below): {samplingSummary.avgFfa == null ? '—' : samplingSummary.avgFfa.toFixed(2)}</span>
-              <span className="sampling-summary-chip">Avg Moisture (from rows below): {samplingSummary.avgMoisture == null ? '—' : samplingSummary.avgMoisture.toFixed(2)}</span>
+              <span className="sampling-summary-chip">{tLoading('sampling.chipTotal', { count: samplingSummary.count })}</span>
+              <span className="sampling-summary-chip">
+                {tLoading('sampling.chipAvgFfa', {
+                  value: samplingSummary.avgFfa == null ? '—' : samplingSummary.avgFfa.toFixed(2),
+                })}
+              </span>
+              <span className="sampling-summary-chip">
+                {tLoading('sampling.chipAvgMoisture', {
+                  value: samplingSummary.avgMoisture == null ? '—' : samplingSummary.avgMoisture.toFixed(2),
+                })}
+              </span>
             </div>
             {!samplingRecords.length ? (
-              <p className="text-steel precheck-section__placeholder">No sampling records.</p>
+              <p className="text-steel precheck-section__placeholder">{tLoading('sampling.noRecords')}</p>
             ) : (
               <div className="loading-detail-activity-table-wrap">
-                <h4 className="sampling-entry-block__title sampling-entry-block__title--table">Sampling Entries</h4>
+                <h4 className="sampling-entry-block__title sampling-entry-block__title--table">{tLoading('sampling.samplingEntriesTable')}</h4>
                 <table className="loading-detail-activity-table">
                   <thead>
                     <tr>
-                      <th>No. Palka</th>
-                      <th>(%), FFA</th>
-                      <th>(%), Moisture</th>
+                      <th>{tLoading('sampling.noPalka')}</th>
+                      <th>{tLoading('sampling.ffa')}</th>
+                      <th>{tLoading('sampling.moisture')}</th>
                     </tr>
                   </thead>
                   <tbody>
