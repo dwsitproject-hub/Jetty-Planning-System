@@ -267,6 +267,12 @@ export function upsertSubProcess(operationId, subProcessKey, body, opts = {}) {
     status: body.status,
     skipReason: body.skipReason,
     remark: body.remark,
+    // Sampling quality summary columns. Undefined keys drop out of the JSON body, and the API
+    // preserves any of these it is not sent, so other sub-processes are unaffected.
+    ffaAverage: body.ffaAverage,
+    moistureAverage: body.moistureAverage,
+    dobi: body.dobi,
+    iodineValue: body.iodineValue,
     payload: body.payload,
   }
 

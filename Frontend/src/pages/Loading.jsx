@@ -44,6 +44,11 @@ import { usePortScope } from '../context/PortScopeContext'
 import FlowPill from '../components/FlowPill'
 import OperationalMilestoneWorkspace from '../components/OperationalMilestoneWorkspace'
 import OperationActivityTimeline from '../components/OperationActivityTimeline'
+import SamplingExtractReviewModal from '../components/SamplingExtractReviewModal'
+import {
+  useSamplingDocumentExtract,
+  samplingDocumentIsExtractable,
+} from '../hooks/useSamplingDocumentExtract'
 import { operationalMilestoneDoneCount, viewModelFromOperationalEntries } from '../data/operationalMilestones'
 import {
   computeProcessStagesNumbers,
@@ -61,6 +66,7 @@ import { term } from '../i18n/term'
 import {
   MAX_POSTCHECK_RESULT_CHARS,
   MAX_REMARK_CHARS,
+  MAX_SAMPLING_METRIC_CHARS,
   MAX_SAMPLING_PALKA_FIELD_CHARS,
 } from '../constants/inputLimits'
 import { isEmbedMode, withEmbedParam } from '../utils/embedMode'
@@ -1180,6 +1186,8 @@ function Loading() {
           <>
             <PreCheckingSections
               vesselId={vesselId}
+              vesselName={vesselDetail?.vesselName}
+              numberOfPalka={vesselDetail?.numberOfPalka}
               basePath={basePath}
               operationId={operationId}
               purpose={purpose}
@@ -1535,13 +1543,27 @@ function OpenDocumentIcon() {
   )
 }
 
-/** Edit mode: pick files, list pending + saved; remove uses NOR modal trash icon */
-function PrecheckDocumentsEdit({ sectionKey, documents, onAddFiles, onRemoveIndex, removingKey }) {
+/**
+ * Edit mode: pick files, list pending + saved; remove uses NOR modal trash icon.
+ * When `onExtract` is supplied (sampling only), each readable file also offers data extraction.
+ */
+function PrecheckDocumentsEdit({
+  sectionKey,
+  documents,
+  onAddFiles,
+  onRemoveIndex,
+  removingKey,
+  accept = 'image/*,.pdf',
+  hint,
+  onExtract,
+  extractingKey,
+}) {
   const { openFilePreview } = useFilePreview()
   const list = documents || []
   return (
     <div className="berthing-modal__field">
       <label className="berthing-modal__label">Upload document</label>
+      {hint ? <p className="precheck-doc-hint text-steel">{hint}</p> : null}
       <label className="berthing-modal__file-zone">
         <span className="berthing-modal__file-zone-text">
           {list.length ? `${list.length} file(s) selected` : 'Choose files'}
@@ -1549,7 +1571,7 @@ function PrecheckDocumentsEdit({ sectionKey, documents, onAddFiles, onRemoveInde
         <input
           type="file"
           multiple
-          accept="image/*,.pdf"
+          accept={accept}
           className="berthing-modal__file-input"
           onChange={(e) => {
             onAddFiles(e.target.files)
@@ -1576,6 +1598,18 @@ function PrecheckDocumentsEdit({ sectionKey, documents, onAddFiles, onRemoveInde
                   }}
                 >
                   <OpenDocumentIcon />
+                </button>
+              ) : null}
+              {onExtract && samplingDocumentIsExtractable(f) ? (
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--small precheck-doc-list__extract"
+                  title="Read palka FFA and Moisture values from this document"
+                  aria-label={`Extract data from ${f.name || 'file'}`}
+                  disabled={extractingKey != null}
+                  onClick={() => onExtract(f, i)}
+                >
+                  {extractingKey === `${sectionKey}-${i}` ? 'Reading…' : 'Extract data'}
                 </button>
               ) : null}
               <button
@@ -1627,6 +1661,8 @@ function PrecheckDocumentsRead({ documents }) {
 /** Pre-Checking sections: KEY MEETING, NOR ACCEPTED, INSPECTION (Loading only), SAMPLING, INITIAL SOUNDING, INITIAL DRAFT SURVEY */
 function PreCheckingSections({
   vesselId,
+  vesselName,
+  numberOfPalka,
   basePath,
   operationId,
   purpose,
@@ -1660,6 +1696,7 @@ function PreCheckingSections({
   const [savingSection, setSavingSection] = useState(null)
   const [saveSuccessMessage, setSaveSuccessMessage] = useState(null)
   const [removingDoc, setRemovingDoc] = useState(null)
+  const samplingExtract = useSamplingDocumentExtract()
 
   const data = getPreChecking(vesselId)
   const norFromArrival = getArrivalNor(vesselId)
@@ -1737,6 +1774,10 @@ function PreCheckingSections({
             }
             if (section === 'sampling') {
               merged.records = Array.isArray(row.payload?.records) ? row.payload.records : []
+              merged.ffaAverage = row.ffaAverage ?? ''
+              merged.moistureAverage = row.moistureAverage ?? ''
+              merged.dobi = row.dobi ?? ''
+              merged.iodineValue = row.iodineValue ?? ''
             }
             if (section === 'norAccepted') {
               const p = row.payload && typeof row.payload === 'object' ? row.payload : {}
@@ -1934,6 +1975,11 @@ function PreCheckingSections({
         startAt: startTime,
         endAt: endTime,
         remark: sectionDraft?.remark || '',
+        // Top-level, not inside payload: these are typed columns on the sub-process row.
+        ffaAverage: sectionDraft?.ffaAverage ?? '',
+        moistureAverage: sectionDraft?.moistureAverage ?? '',
+        dobi: sectionDraft?.dobi ?? '',
+        iodineValue: sectionDraft?.iodineValue ?? '',
         payload: { records: sectionDraft?.records || [] },
       }
     }
@@ -2249,6 +2295,26 @@ function PreCheckingSections({
       avgMoisture: avg(moistureVals),
     }
   })()
+
+  /** Read palka values out of an attached quality report; opens the review modal. */
+  const requestSamplingExtract = (doc, index) => {
+    setPersistError(null)
+    samplingExtract.requestExtract({
+      doc,
+      docKey: `sampling-${index}`,
+      sampling: draft.sampling || {},
+      context: { vesselName, numberOfPalka },
+      onError: (message) => setPersistError(message),
+    })
+  }
+
+  /** Commit the operator's review selections into the sampling draft. */
+  const applySamplingExtract = (choices) => {
+    const result = samplingExtract.applyReview(choices, draft.sampling || {})
+    if (!result) return
+    setDraft((prev) => ({ ...prev, sampling: result.nextSampling }))
+    setSaveSuccessMessage(`${result.message} Review the values, then Save.`)
+  }
 
   const addSamplingRecord = () => {
     const { noPalka, ffa, moisture } = samplingForm
@@ -2720,6 +2786,10 @@ function PreCheckingSections({
               onAddFiles={(files) => addSectionDocuments('sampling', files)}
               onRemoveIndex={(i) => removePrecheckDocumentAt('sampling', i)}
               removingKey={removingDoc}
+              accept="image/*,.pdf,.xlsx"
+              hint="Upload the quality report (Excel, PDF or photo), then use Extract data to read the per-palka FFA and Moisture values. You review them before they are filled in."
+              onExtract={requestSamplingExtract}
+              extractingKey={samplingExtract.extractingKey}
             />
             <div className="berthing-modal__field">
               <label className="berthing-modal__label">Remark</label>
@@ -2732,6 +2802,59 @@ function PreCheckingSections({
                 placeholder="Optional remark"
               />
             </div>
+            <section className="sampling-entry-block">
+              <h4 className="sampling-entry-block__title">Quality Summary (as stated on the report)</h4>
+              <div className="sampling-entry-block__grid">
+                <div className="berthing-modal__field">
+                  <label className="berthing-modal__label">(%), FFA Average</label>
+                  <input
+                    type="text"
+                    className="berthing-modal__input"
+                    value={draft.sampling?.ffaAverage || ''}
+                    onChange={(e) => updateDraft('sampling', 'ffaAverage', e.target.value)}
+                    maxLength={MAX_SAMPLING_METRIC_CHARS}
+                    placeholder="e.g. 7.62"
+                  />
+                </div>
+                <div className="berthing-modal__field">
+                  <label className="berthing-modal__label">(%), Moisture Average</label>
+                  <input
+                    type="text"
+                    className="berthing-modal__input"
+                    value={draft.sampling?.moistureAverage || ''}
+                    onChange={(e) => updateDraft('sampling', 'moistureAverage', e.target.value)}
+                    maxLength={MAX_SAMPLING_METRIC_CHARS}
+                    placeholder="e.g. 0.26"
+                  />
+                </div>
+                <div className="berthing-modal__field">
+                  <label className="berthing-modal__label">DOBI</label>
+                  <input
+                    type="text"
+                    className="berthing-modal__input"
+                    value={draft.sampling?.dobi || ''}
+                    onChange={(e) => updateDraft('sampling', 'dobi', e.target.value)}
+                    maxLength={MAX_SAMPLING_METRIC_CHARS}
+                    placeholder="e.g. 1.90"
+                  />
+                </div>
+                <div className="berthing-modal__field">
+                  <label className="berthing-modal__label">(gI2/100g), Iodine Value</label>
+                  <input
+                    type="text"
+                    className="berthing-modal__input"
+                    value={draft.sampling?.iodineValue || ''}
+                    onChange={(e) => updateDraft('sampling', 'iodineValue', e.target.value)}
+                    maxLength={MAX_SAMPLING_METRIC_CHARS}
+                    placeholder="e.g. 52.11"
+                  />
+                </div>
+              </div>
+              <p className="sampling-entry-block__hint">
+                The figures printed in the report&apos;s own summary box. These stay as stated even when a palka row is
+                missing, so they can differ from the averages computed below.
+              </p>
+            </section>
             <section className="sampling-entry-block">
               <h4 className="sampling-entry-block__title">Sampling Entries (Per Palka)</h4>
               <div className="sampling-entry-block__grid">
@@ -2794,8 +2917,8 @@ function PreCheckingSections({
             </section>
             <div className="sampling-summary-chips" role="status" aria-live="polite">
               <span className="sampling-summary-chip">Total Palka sampled: {samplingSummary.count}</span>
-              <span className="sampling-summary-chip">Avg FFA: {samplingSummary.avgFfa == null ? '—' : samplingSummary.avgFfa.toFixed(2)}</span>
-              <span className="sampling-summary-chip">Avg Moisture: {samplingSummary.avgMoisture == null ? '—' : samplingSummary.avgMoisture.toFixed(2)}</span>
+              <span className="sampling-summary-chip">Avg FFA (from rows below): {samplingSummary.avgFfa == null ? '—' : samplingSummary.avgFfa.toFixed(2)}</span>
+              <span className="sampling-summary-chip">Avg Moisture (from rows below): {samplingSummary.avgMoisture == null ? '—' : samplingSummary.avgMoisture.toFixed(2)}</span>
             </div>
             <div className="loading-detail-activity-table-wrap">
               <h4 className="sampling-entry-block__title sampling-entry-block__title--table">Recorded Samples</h4>
@@ -2857,10 +2980,18 @@ function PreCheckingSections({
               <span className="precheck-section__label">Remark</span>
               <span className="precheck-section__value">{data.sampling?.remark || '—'}</span>
             </div>
+            <div className="precheck-section__row">
+              <span className="precheck-section__label">Quality Summary (as stated on the report)</span>
+              <span className="precheck-section__value">
+                FFA Average: {data.sampling?.ffaAverage || '—'} · Moisture Average:{' '}
+                {data.sampling?.moistureAverage || '—'} · DOBI: {data.sampling?.dobi || '—'} · Iodine Value:{' '}
+                {data.sampling?.iodineValue || '—'}
+              </span>
+            </div>
             <div className="sampling-summary-chips" role="status" aria-live="polite">
               <span className="sampling-summary-chip">Total Palka sampled: {samplingSummary.count}</span>
-              <span className="sampling-summary-chip">Avg FFA: {samplingSummary.avgFfa == null ? '—' : samplingSummary.avgFfa.toFixed(2)}</span>
-              <span className="sampling-summary-chip">Avg Moisture: {samplingSummary.avgMoisture == null ? '—' : samplingSummary.avgMoisture.toFixed(2)}</span>
+              <span className="sampling-summary-chip">Avg FFA (from rows below): {samplingSummary.avgFfa == null ? '—' : samplingSummary.avgFfa.toFixed(2)}</span>
+              <span className="sampling-summary-chip">Avg Moisture (from rows below): {samplingSummary.avgMoisture == null ? '—' : samplingSummary.avgMoisture.toFixed(2)}</span>
             </div>
             {!samplingRecords.length ? (
               <p className="text-steel precheck-section__placeholder">No sampling records.</p>
@@ -2984,6 +3115,15 @@ function PreCheckingSections({
               </div>
             </div>
           ) : null}
+          {/* Nested overlay: the sampling form above already occupies .modal-overlay */}
+          <SamplingExtractReviewModal
+            open={samplingExtract.reviewOpen}
+            proposal={samplingExtract.proposal}
+            fileName={samplingExtract.fileName}
+            source={samplingExtract.source}
+            onCancel={samplingExtract.cancelReview}
+            onApply={applySamplingExtract}
+          />
         </div>
       </div>
     </div>

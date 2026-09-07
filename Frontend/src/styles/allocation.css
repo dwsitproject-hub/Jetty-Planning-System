@@ -4860,6 +4860,128 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+/* Sampling document extract — upload hint, per-file action, and the review modal that
+   sits above the Pre-Checking form modal (hence .modal-overlay--nested). */
+.precheck-doc-hint {
+  margin: 0 0 var(--spacing-2);
+  font-size: var(--font-size-small);
+  line-height: 1.4;
+}
+
+.precheck-doc-list__extract {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.sampling-extract-modal {
+  max-width: min(96vw, 860px);
+}
+
+.sampling-extract-modal__meta {
+  margin: 0 0 var(--spacing-3);
+  font-size: var(--font-size-small);
+  line-height: 1.45;
+}
+
+.sampling-extract-modal__warnings {
+  margin: 0 0 var(--spacing-3);
+  padding: var(--spacing-2) var(--spacing-3) var(--spacing-2) var(--spacing-5);
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-sm);
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: var(--font-size-small);
+  line-height: 1.45;
+}
+
+.sampling-extract-modal__warnings > li + li {
+  margin-top: 4px;
+}
+
+.sampling-extract-modal__empty {
+  margin: 0 0 var(--spacing-3);
+  padding: var(--spacing-3);
+  border: 1px dashed var(--color-border-light);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-steel);
+  font-size: var(--font-size-small);
+  line-height: 1.45;
+}
+
+.sampling-extract-modal__table th,
+.sampling-extract-modal__table td {
+  vertical-align: middle;
+}
+
+.sampling-extract-modal__row--muted {
+  color: var(--color-text-steel);
+  background: var(--color-bg-subtle, #f5f5f5);
+}
+
+.sampling-extract-modal__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-light);
+  background: var(--color-bg-lighter);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.sampling-extract-modal__badge--new {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.sampling-extract-modal__badge--conflict {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.sampling-extract-modal__was {
+  color: var(--color-text-steel);
+  text-decoration: line-through;
+}
+
+.sampling-extract-modal__choice {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sampling-extract-modal__choice label,
+.sampling-extract-modal__include,
+.sampling-extract-modal__select-all,
+.sampling-extract-modal__option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-regular);
+  cursor: pointer;
+}
+
+.sampling-extract-modal__options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  margin-top: var(--spacing-3);
+  padding-top: var(--spacing-3);
+  border-top: 1px solid var(--color-border-light);
+}
+
+.sampling-extract-modal__option > span {
+  line-height: 1.4;
+}
+
+.sampling-extract-modal .modal__actions .btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 @media (max-width: 980px) {
   .sampling-entry-block__grid {
     grid-template-columns: 1fr;
