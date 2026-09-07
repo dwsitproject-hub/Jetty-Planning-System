@@ -43,6 +43,7 @@ import { getScheduleEntryTimeZone, normalizeForApi } from '../utils/scheduleDate
 import { usePortScope } from '../context/PortScopeContext'
 import FlowPill from '../components/FlowPill'
 import OperationalMilestoneWorkspace from '../components/OperationalMilestoneWorkspace'
+import SoundingCapturePanel from '../components/SoundingCapturePanel'
 import OperationActivityTimeline from '../components/OperationActivityTimeline'
 import FormLabelWithTooltip from '../components/FormLabelWithTooltip'
 import SamplingExtractReviewModal from '../components/SamplingExtractReviewModal'
@@ -1194,6 +1195,8 @@ function Loading() {
               operationId={operationId}
               purpose={purpose}
               commodityType={apiOp?.commodityType === 'Solid' ? 'Solid' : 'Liquid'}
+              portId={apiOp?.portId ?? null}
+              siMetric={resolvedCargoSiMetricCode || 'MT'}
               operationNorTenderedAt={apiOp?.norTenderedAt ?? null}
               operationNorAcceptedAt={apiOp?.norAcceptedAt ?? null}
               operationDemurrageLiabilityFromAt={apiOp?.demurrageLiabilityFromAt ?? null}
@@ -1361,6 +1364,7 @@ function mergeInitialCargoHydration(current, row) {
     if (en) next.endTime = next.endTime || en
   }
   next.cargoCheckingType = typeFromKey || p.cargoCheckingType || current.cargoCheckingType
+  next.tankReadings = Array.isArray(p.tankReadings) ? p.tankReadings : current.tankReadings || []
   return next
 }
 
@@ -1687,6 +1691,8 @@ function PreCheckingSections({
   operationId,
   purpose,
   commodityType = 'Liquid',
+  portId = null,
+  siMetric = 'MT',
   operationNorTenderedAt,
   operationNorAcceptedAt,
   operationDemurrageLiabilityFromAt,
@@ -1717,6 +1723,7 @@ function PreCheckingSections({
   const [savingSection, setSavingSection] = useState(null)
   const [saveSuccessMessage, setSaveSuccessMessage] = useState(null)
   const [removingDoc, setRemovingDoc] = useState(null)
+  const [soundingSessionActive, setSoundingSessionActive] = useState(false)
   const samplingExtract = useSamplingDocumentExtract()
 
   const data = getPreChecking(vesselId)
@@ -1725,6 +1732,16 @@ function PreCheckingSections({
   useEffect(() => {
     writeBool(PRECHECK_RAIL_COLLAPSED_KEY, listCollapsed)
   }, [listCollapsed])
+
+  useEffect(() => {
+    if (!soundingSessionActive) return undefined
+    const handler = (e) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [soundingSessionActive])
 
   useEffect(() => {
     if (purpose === 'Unloading' && activeSubTab === 'inspection') {
@@ -1939,6 +1956,7 @@ function PreCheckingSections({
         documents:
           icc.documents?.length ? icc.documents : [...(snd.documents || []), ...(dr.documents || [])],
         cargoCheckingType: icc.cargoCheckingType || (commodityType === 'Solid' ? 'Draft Survey' : 'Sounding'),
+        tankReadings: Array.isArray(icc.tankReadings) ? icc.tankReadings : [],
       }
     }
     if (sectionKey === 'sampling') {
@@ -2006,13 +2024,17 @@ function PreCheckingSections({
     }
     if (sectionKey === 'initialCargoChecking') {
       const cargoCheckingType = commodityType === 'Solid' ? 'Draft Survey' : 'Sounding'
+      const payload = { cargoCheckingType }
+      if (commodityType === 'Liquid') {
+        payload.tankReadings = Array.isArray(sectionDraft?.tankReadings) ? sectionDraft.tankReadings : []
+      }
       return {
         status: 'Done',
         occurredAt: startTime,
         startAt: startTime,
         endAt: endTime,
         remark: sectionDraft?.remark || sectionDraft?.result || '',
-        payload: { cargoCheckingType },
+        payload,
       }
     }
     return {
@@ -2134,6 +2156,16 @@ function PreCheckingSections({
       }
     } else {
       const sectionDraft = draft[sectionKey] || {}
+      if (
+        sectionKey === 'initialCargoChecking' &&
+        commodityType === 'Liquid' &&
+        !isDraft &&
+        !(Array.isArray(sectionDraft.tankReadings) && sectionDraft.tankReadings.length > 0)
+      ) {
+        setPersistError(tLoading('sounding.saveRequiresReading'))
+        setSavingSection(null)
+        return
+      }
       setPreCheckingSection(vesselId, sectionKey, { ...sectionDraft, status: nextStatus })
       try {
         if (operationId) {
@@ -2278,6 +2310,9 @@ function PreCheckingSections({
   }
 
   const cancelEdit = () => {
+    if (soundingSessionActive && !window.confirm(tLoading('sounding.cancelEditConfirm'))) {
+      return
+    }
     setEditingSection(null)
     setEditingSamplingRecordId(null)
     setSamplingForm({ noPalka: '', ffa: '', moisture: '' })
@@ -3090,17 +3125,17 @@ function PreCheckingSections({
         {editingSection === 'initialCargoChecking' ? (
           <>
             <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Checking type</label>
+              <label className="berthing-modal__label">{tLoading('icc.checkingType')}</label>
               <input
                 type="text"
                 className="berthing-modal__input"
                 readOnly
-                value={commodityType === 'Solid' ? 'Draft Survey' : 'Sounding'}
-                title="Derived from shipping instruction commodity type"
+                value={commodityType === 'Solid' ? tLoading('icc.draftSurvey') : tLoading('icc.sounding')}
+                title={tLoading('icc.checkingTypeHint')}
               />
             </div>
             <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Start Time</label>
+              <label className="berthing-modal__label">{tLoading('icc.startTime')}</label>
               <input
                 type="datetime-local"
                 className="berthing-modal__input"
@@ -3109,7 +3144,7 @@ function PreCheckingSections({
               />
             </div>
             <div className="berthing-modal__field">
-              <label className="berthing-modal__label">End Time</label>
+              <label className="berthing-modal__label">{tLoading('icc.endTime')}</label>
               <input
                 type="datetime-local"
                 className="berthing-modal__input"
@@ -3117,6 +3152,18 @@ function PreCheckingSections({
                 onChange={(e) => updateDraft('initialCargoChecking', 'endTime', e.target.value)}
               />
             </div>
+            {commodityType === 'Liquid' ? (
+              <SoundingCapturePanel
+                operationId={operationId}
+                portId={portId}
+                siMetric={siMetric}
+                tankReadings={draft.initialCargoChecking?.tankReadings || []}
+                onTankReadingsChange={(readings) =>
+                  updateDraft('initialCargoChecking', 'tankReadings', readings)
+                }
+                onSessionActiveChange={setSoundingSessionActive}
+              />
+            ) : null}
             <PrecheckDocumentsEdit
               sectionKey="initialCargoChecking"
               documents={draft.initialCargoChecking?.documents}
@@ -3125,27 +3172,28 @@ function PreCheckingSections({
               removingKey={removingDoc}
             />
             <div className="berthing-modal__field">
-              <label className="berthing-modal__label">Remark</label>
+              <label className="berthing-modal__label">{tLoading('icc.remark')}</label>
               <textarea
                 className="berthing-modal__input berthing-modal__textarea"
                 value={draft.initialCargoChecking?.remark || ''}
                 onChange={(e) => updateDraft('initialCargoChecking', 'remark', e.target.value)}
                 maxLength={MAX_REMARK_CHARS}
                 rows={4}
-                placeholder="Optional remark"
+                placeholder={tLoading('icc.remarkPlaceholder')}
               />
             </div>
           </>
         ) : (
           <>
             <div className="precheck-section__row">
-              <span className="precheck-section__label">Checking type</span>
+              <span className="precheck-section__label">{tLoading('icc.checkingType')}</span>
               <span className="precheck-section__value">
-                {data.initialCargoChecking?.cargoCheckingType || (commodityType === 'Solid' ? 'Draft Survey' : 'Sounding')}
+                {data.initialCargoChecking?.cargoCheckingType ||
+                  (commodityType === 'Solid' ? tLoading('icc.draftSurvey') : tLoading('icc.sounding'))}
               </span>
             </div>
             <div className="precheck-section__row">
-              <span className="precheck-section__label">Start Time</span>
+              <span className="precheck-section__label">{tLoading('icc.startTime')}</span>
               <span className="precheck-section__value">
                 {data.initialCargoChecking?.startTime || data.initialCargoChecking?.dateTime
                   ? formatDateTimeDisplay(data.initialCargoChecking?.startTime || data.initialCargoChecking?.dateTime)
@@ -3153,14 +3201,21 @@ function PreCheckingSections({
               </span>
             </div>
             <div className="precheck-section__row">
-              <span className="precheck-section__label">End Time</span>
+              <span className="precheck-section__label">{tLoading('icc.endTime')}</span>
               <span className="precheck-section__value">
                 {data.initialCargoChecking?.endTime ? formatDateTimeDisplay(data.initialCargoChecking.endTime) : '—'}
               </span>
             </div>
+            {commodityType === 'Liquid' ? (
+              <SoundingCapturePanel
+                readOnly
+                siMetric={siMetric}
+                tankReadings={data.initialCargoChecking?.tankReadings || []}
+              />
+            ) : null}
             <PrecheckDocumentsRead documents={data.initialCargoChecking?.documents} />
             <div className="precheck-section__row precheck-section__row--block">
-              <span className="precheck-section__label">Remark</span>
+              <span className="precheck-section__label">{tLoading('icc.remark')}</span>
               <span className="precheck-section__value">{data.initialCargoChecking?.remark || '—'}</span>
             </div>
           </>
