@@ -2,21 +2,36 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { fetchMasterTanks } from '../api/masterTanks'
 import {
+  addTankToSoundingSession,
   cancelSoundingSession,
   confirmSoundingManualReading,
   createSoundingSession,
   fetchSoundingSession,
   lockSoundingReading,
+  skipAtgSoundingTank,
   unlockSoundingTank,
 } from '../api/soundingSessions'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
-import DropdownMultiSelect from './DropdownMultiSelect'
 import InteractiveTooltip from './InteractiveTooltip'
 import '../styles/sounding-capture.css'
 
 function formatMetric(n, digits = 3) {
   if (n == null || !Number.isFinite(Number(n))) return '—'
   return Number(n).toLocaleString(undefined, { maximumFractionDigits: digits })
+}
+
+function toLocalDatetimeInputValue(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function mergeTankReadings(existing, incoming) {
+  const byId = new Map((Array.isArray(existing) ? existing : []).map((r) => [Number(r.tankId), r]))
+  for (const row of incoming) {
+    if (row) byId.set(Number(row.tankId), row)
+  }
+  return [...byId.values()]
 }
 
 function badgeClass(state) {
@@ -45,26 +60,48 @@ function primaryFromSide(side, siMetric) {
 }
 
 function sessionTankToReading(tank, sessionId) {
-  if (!tank.isComplete || !tank.atgCaptured || !tank.manualCaptured) return null
-  const atgLockedAt = tank.atgCaptured.lockedAt
-  const manualCapturedAt = tank.manualCaptured.capturedAt
+  if (!tank?.isComplete || !tank.manualCaptured) return null
+  const manual = tank.manualCaptured
+  const atg = tank.atgCaptured
+  const atgSkipped = Boolean(tank.atgSkipped)
+  const timestamps = [tank.soundedAt, manual?.capturedAt, atg?.lockedAt].filter(Boolean)
   const lockedAt =
-    atgLockedAt && manualCapturedAt
-      ? new Date(
-          Math.max(new Date(atgLockedAt).getTime(), new Date(manualCapturedAt).getTime())
-        ).toISOString()
-      : atgLockedAt || manualCapturedAt
+    timestamps.length > 0
+      ? new Date(Math.max(...timestamps.map((ts) => new Date(ts).getTime()))).toISOString()
+      : null
+
+  if (atgSkipped || !atg) {
+    return {
+      tankId: Number(tank.tankId),
+      tankCode: tank.tankCode,
+      captureMode: 'manual',
+      soundedAt: tank.soundedAt,
+      atgSkipped: true,
+      manual: { ...manual },
+      lockedAt,
+      atgSourceBaseUrl: tank.sourceBaseUrl,
+      sessionId,
+    }
+  }
+
   return {
     tankId: Number(tank.tankId),
     tankCode: tank.tankCode,
     captureMode: 'dual',
-    measurementBasis: tank.measurementBasis,
-    atg: { ...tank.atgCaptured },
-    manual: { ...tank.manualCaptured },
+    soundedAt: tank.soundedAt,
+    atgSkipped: false,
+    atg: { ...atg },
+    manual: { ...manual },
     lockedAt,
     atgSourceBaseUrl: tank.sourceBaseUrl,
     sessionId,
   }
+}
+
+function atgSourceLabel(row, t) {
+  if (row.captureMode === 'manual' || row.atgSkipped) return t('sounding.atgSourceSkipped')
+  if (row.atg?.source === 'sample') return t('sounding.atgSourceSample')
+  return t('sounding.atgSourceLive')
 }
 
 function CapturedValues({ side, siMetric, t, showTimestamp = true }) {
@@ -129,6 +166,7 @@ function SoundingTankCard({
   tank,
   siMetric,
   onLock,
+  onSkipAtg,
   onUnlock,
   onConfirmManual,
   busy,
@@ -139,7 +177,14 @@ function SoundingTankCard({
   const isComplete = Boolean(tank.isComplete)
   const atgCaptured = tank.atgCaptured
   const manualCaptured = tank.manualCaptured
-  const isLiveAtg = !atgCaptured && tank.state !== 'error'
+  const atgSkipped = Boolean(tank.atgSkipped)
+  const isHistorical = tank.captureMode === 'historical'
+  const isLiveAtg = !atgCaptured && !atgSkipped && !isHistorical && tank.state !== 'error'
+  const atgHeading = isHistorical
+    ? t('sounding.atgHistorical')
+    : atgCaptured?.source === 'sample'
+      ? t('sounding.atgSample')
+      : t('sounding.atgLive')
 
   const [manualMass, setManualMass] = useState('')
   const [manualVolume, setManualVolume] = useState('')
@@ -178,6 +223,12 @@ function SoundingTankCard({
       ? manualVolume.trim() !== '' && Number.isFinite(Number(manualVolume))
       : manualMass.trim() !== '' && Number.isFinite(Number(manualMass))
   const manualReady = manualPrimaryFilled && Number.isFinite(Number(manualTemp))
+  const canEnterManual = Boolean(atgCaptured || atgSkipped)
+
+  const historicalReasonKey =
+    tank.historicalLookup?.reason === 'outside_tolerance'
+      ? 'sounding.historicalOutsideTolerance'
+      : 'sounding.historicalNoSample'
 
   return (
     <div
@@ -189,7 +240,7 @@ function SoundingTankCard({
           {tank.tankCode}
           {tank.tankName ? ` — ${tank.tankName}` : ''}
         </div>
-        {(atgCaptured || manualCaptured) && (
+        {(atgCaptured || manualCaptured || atgSkipped) && !isComplete ? (
           <button
             type="button"
             className="btn btn--small btn--secondary"
@@ -198,8 +249,21 @@ function SoundingTankCard({
           >
             {t('sounding.resound')}
           </button>
-        )}
+        ) : null}
       </div>
+
+      {tank.soundedAt ? (
+        <div className="sounding-tank-card__sounded-at">
+          {t('sounding.soundingTime')}: {formatDateTimeDisplay(tank.soundedAt)}
+          {isHistorical ? (
+            <span className="sounding-tank-card__mode-pill">{t('sounding.modeHistorical')}</span>
+          ) : (
+            <span className="sounding-tank-card__mode-pill sounding-tank-card__mode-pill--live">
+              {t('sounding.modeLive')}
+            </span>
+          )}
+        </div>
+      ) : null}
 
       {isComplete ? (
         <div className="sounding-tank-card__complete-badge">
@@ -212,8 +276,12 @@ function SoundingTankCard({
       <div className="sounding-tank-card__compare">
         <div className="sounding-tank-card__compare-col sounding-tank-card__compare-col--atg">
           <div className="sounding-tank-card__compare-head">
-            <div className="sounding-tank-card__compare-heading">{t('sounding.atgLive')}</div>
-            {atgCaptured ? (
+            <div className="sounding-tank-card__compare-heading">{atgHeading}</div>
+            {atgSkipped ? (
+              <span className="sounding-status-badge sounding-status-badge--manual">
+                {t('sounding.statusAtgSkipped')}
+              </span>
+            ) : atgCaptured ? (
               <span className="sounding-status-badge sounding-status-badge--locked">
                 {t('sounding.statusCaptured')}
               </span>
@@ -224,8 +292,15 @@ function SoundingTankCard({
             )}
           </div>
 
-          {atgCaptured ? (
+          {atgSkipped ? (
+            <p className="sounding-tank-card__compare-hint">{t('sounding.atgSkippedHint')}</p>
+          ) : atgCaptured ? (
             <CapturedValues side={atgCaptured} siMetric={siMetric} t={t} />
+          ) : isHistorical && tank.historicalLookup && !tank.historicalLookup.found ? (
+            <div className="sounding-tank-card__historical-miss" role="status">
+              <p>{t(historicalReasonKey)}</p>
+              <p className="sounding-tank-card__compare-hint">{t('sounding.historicalSkipHint')}</p>
+            </div>
           ) : (
             <>
               <div className="sounding-tank-card__compare-values">
@@ -247,6 +322,8 @@ function SoundingTankCard({
               <div className="sounding-tank-card__details">
                 {tank.state === 'error' ? (
                   tank.errorMessage || t('sounding.atgErrorHint')
+                ) : isHistorical ? (
+                  t('sounding.historicalLookupHint')
                 ) : (
                   <>
                     <div>
@@ -269,16 +346,26 @@ function SoundingTankCard({
             </>
           )}
 
-          {!atgCaptured ? (
-            <div className="sounding-tank-card__compare-footer">
+          {!atgCaptured && !atgSkipped ? (
+            <div className="sounding-tank-card__compare-footer sounding-tank-card__compare-footer--dual">
+              {!isHistorical ? (
+                <button
+                  type="button"
+                  className="btn btn--small sounding-btn--accept-atg"
+                  disabled={busy || !tank.canCaptureAtg}
+                  aria-label={t('sounding.lockAria', { tank: tank.tankCode })}
+                  onClick={() => onLock(tank.tankId)}
+                >
+                  {t('sounding.captureAtg')}
+                </button>
+              ) : null}
               <button
                 type="button"
-                className="btn btn--small sounding-btn--accept-atg"
-                disabled={busy || !tank.canCaptureAtg}
-                aria-label={t('sounding.lockAria', { tank: tank.tankCode })}
-                onClick={() => onLock(tank.tankId)}
+                className="btn btn--small btn--secondary"
+                disabled={busy || !tank.canSkipAtg}
+                onClick={() => onSkipAtg(tank.tankId)}
               >
-                {t('sounding.captureAtg')}
+                {t('sounding.skipAtg')}
               </button>
             </div>
           ) : null}
@@ -298,7 +385,11 @@ function SoundingTankCard({
             <CapturedValues side={manualCaptured} siMetric={siMetric} t={t} showTimestamp />
           ) : (
             <>
-              <p className="sounding-tank-card__compare-hint">{t('sounding.manualEntryHint')}</p>
+              <p className="sounding-tank-card__compare-hint">
+                {canEnterManual
+                  ? t('sounding.manualEntryHint')
+                  : t('sounding.manualEntryBlockedHint')}
+              </p>
               <div className="sounding-tank-card__manual-form">
                 {siMetric === 'KL' ? (
                   <div className="sounding-tank-card__manual-field">
@@ -308,6 +399,7 @@ function SoundingTankCard({
                       step="any"
                       className="sounding-tank-card__manual-input"
                       value={manualVolume}
+                      disabled={!canEnterManual || busy}
                       onChange={(e) => setManualVolume(e.target.value)}
                     />
                   </div>
@@ -319,6 +411,7 @@ function SoundingTankCard({
                       step="any"
                       className="sounding-tank-card__manual-input"
                       value={manualMass}
+                      disabled={!canEnterManual || busy}
                       onChange={(e) => setManualMass(e.target.value)}
                     />
                   </div>
@@ -330,6 +423,7 @@ function SoundingTankCard({
                     step="any"
                     className="sounding-tank-card__manual-input"
                     value={manualTemp}
+                    disabled={!canEnterManual || busy}
                     onChange={(e) => setManualTemp(e.target.value)}
                   />
                 </div>
@@ -338,7 +432,7 @@ function SoundingTankCard({
                 <button
                   type="button"
                   className="btn btn--small btn--secondary sounding-btn--accept-manual"
-                  disabled={busy || !manualReady}
+                  disabled={busy || !manualReady || !canEnterManual}
                   onClick={handleConfirmManual}
                 >
                   {t('sounding.captureManual')}
@@ -349,16 +443,17 @@ function SoundingTankCard({
         </div>
       </div>
 
-      {!isComplete && (atgCaptured || manualCaptured) ? (
-        <p className="sounding-tank-card__pending-hint">
-          {t('sounding.captureBothHint')}
-        </p>
+      {!isComplete && (atgCaptured || atgSkipped) && !manualCaptured ? (
+        <p className="sounding-tank-card__pending-hint">{t('sounding.captureManualHint')}</p>
+      ) : null}
+      {!isComplete && !atgCaptured && !atgSkipped && !manualCaptured ? (
+        <p className="sounding-tank-card__pending-hint">{t('sounding.captureAtgOrSkipHint')}</p>
       ) : null}
     </div>
   )
 }
 
-function SoundingReadingsTable({ tankReadings, siMetric, t }) {
+function SoundingReadingsTable({ tankReadings, siMetric, t, onResound, readOnly }) {
   const primaryHeader = siMetric === 'KL' ? t('sounding.volumeKl') : t('sounding.massMt')
   if (!Array.isArray(tankReadings) || tankReadings.length === 0) {
     return <p className="sounding-capture-panel__empty">{t('sounding.noReadings')}</p>
@@ -370,6 +465,7 @@ function SoundingReadingsTable({ tankReadings, siMetric, t }) {
         <thead>
           <tr>
             <th>{t('sounding.tableTank')}</th>
+            <th>{t('sounding.soundingTime')}</th>
             {hasDual ? (
               <>
                 <th>{t('sounding.tableAtg')} {primaryHeader}</th>
@@ -381,16 +477,18 @@ function SoundingReadingsTable({ tankReadings, siMetric, t }) {
               <>
                 <th>{primaryHeader}</th>
                 <th>{t('sounding.temperature')}</th>
-                <th>{t('sounding.tableMode')}</th>
               </>
             )}
+            <th>{t('sounding.tableAtgSource')}</th>
             <th>{t('sounding.lockedAt')}</th>
+            {!readOnly && onResound ? <th>{t('sounding.tableActions')}</th> : null}
           </tr>
         </thead>
         <tbody>
           {tankReadings.map((row) => (
             <tr key={String(row.tankId)}>
               <td>{row.tankCode || row.tankId}</td>
+              <td>{row.soundedAt ? formatDateTimeDisplay(row.soundedAt) : '—'}</td>
               {row.captureMode === 'dual' ? (
                 <>
                   <td className="sounding-cell--numeric">
@@ -413,17 +511,30 @@ function SoundingReadingsTable({ tankReadings, siMetric, t }) {
               ) : (
                 <>
                   <td className="sounding-cell--numeric">
-                    {formatMetric(siMetric === 'KL' ? row.volumeKl : row.massMt)}
+                    {formatMetric(primaryFromSide(row.manual, siMetric) ?? (siMetric === 'KL' ? row.volumeKl : row.massMt))}
                   </td>
                   <td className="sounding-cell--numeric">
-                    {row.temperatureC != null ? `${formatMetric(row.temperatureC, 1)} °C` : '—'}
-                  </td>
-                  <td>
-                    {row.captureMode === 'manual' ? t('sounding.modeManual') : t('sounding.modeAtg')}
+                    {row.manual?.temperatureC != null
+                      ? `${formatMetric(row.manual.temperatureC, 1)} °C`
+                      : row.temperatureC != null
+                        ? `${formatMetric(row.temperatureC, 1)} °C`
+                        : '—'}
                   </td>
                 </>
               )}
+              <td>{atgSourceLabel(row, t)}</td>
               <td>{row.lockedAt ? formatDateTimeDisplay(row.lockedAt) : '—'}</td>
+              {!readOnly && onResound ? (
+                <td>
+                  <button
+                    type="button"
+                    className="btn btn--small btn--secondary"
+                    onClick={() => onResound(row.tankId)}
+                  >
+                    {t('sounding.resound')}
+                  </button>
+                </td>
+              ) : null}
             </tr>
           ))}
         </tbody>
@@ -443,7 +554,8 @@ export default function SoundingCapturePanel({
 }) {
   const { t } = useTranslation('loading')
   const [atgTanks, setAtgTanks] = useState([])
-  const [selectedTankIds, setSelectedTankIds] = useState([])
+  const [selectedTankId, setSelectedTankId] = useState('')
+  const [soundedAtLocal, setSoundedAtLocal] = useState(() => toLocalDatetimeInputValue())
   const [sessionId, setSessionId] = useState(null)
   const [session, setSession] = useState(null)
   const [loadingTanks, setLoadingTanks] = useState(false)
@@ -464,9 +576,6 @@ export default function SoundingCapturePanel({
         if (cancelled) return
         const rows = (Array.isArray(list) ? list : []).filter((tk) => tk.hasAtg)
         setAtgTanks(rows)
-        if (Array.isArray(tankReadings) && tankReadings.length) {
-          setSelectedTankIds(tankReadings.map((r) => String(r.tankId)))
-        }
       })
       .catch(() => {
         if (!cancelled) setAtgTanks([])
@@ -477,15 +586,47 @@ export default function SoundingCapturePanel({
     return () => {
       cancelled = true
     }
-  }, [portId, tankReadings])
+  }, [portId])
 
-  const syncReadingsFromSession = useCallback(
-    (sess) => {
+  const completedTankIds = useMemo(
+    () => new Set((tankReadings || []).map((r) => Number(r.tankId))),
+    [tankReadings]
+  )
+
+  const inSessionTankIds = useMemo(
+    () => new Set((session?.tanks || []).map((tk) => Number(tk.tankId))),
+    [session?.tanks]
+  )
+
+  const availableTankOptions = useMemo(
+    () =>
+      atgTanks
+        .filter((tk) => !completedTankIds.has(Number(tk.id)) && !inSessionTankIds.has(Number(tk.id)))
+        .map((tk) => ({
+          value: String(tk.id),
+          label: tk.name ? `${tk.code} — ${tk.name}` : String(tk.code || tk.id),
+        })),
+    [atgTanks, completedTankIds, inSessionTankIds]
+  )
+
+  const mergeCompletedFromSession = useCallback(
+    (sess, currentReadings) => {
       if (!sess || !onTankReadingsChange) return
-      const readings = (sess.tanks || [])
+      const fromSession = (sess.tanks || [])
         .map((tk) => sessionTankToReading(tk, sess.sessionId))
         .filter(Boolean)
-      onTankReadingsChange(readings)
+      if (fromSession.length) {
+        onTankReadingsChange(mergeTankReadings(currentReadings, fromSession))
+      }
+    },
+    [onTankReadingsChange]
+  )
+
+  const mergeCompletedFromTankDto = useCallback(
+    (tankDto, sid, currentReadings) => {
+      if (!tankDto?.isComplete || !onTankReadingsChange) return
+      const row = sessionTankToReading(tankDto, sid)
+      if (row) onTankReadingsChange(mergeTankReadings(currentReadings, [row]))
     },
     [onTankReadingsChange]
   )
@@ -502,7 +643,7 @@ export default function SoundingCapturePanel({
         .then((data) => {
           if (cancelled) return
           setSession(data)
-          syncReadingsFromSession(data)
+          mergeCompletedFromSession(data, tankReadings)
         })
         .catch(() => {
           if (!cancelled) setSession(null)
@@ -514,7 +655,7 @@ export default function SoundingCapturePanel({
       cancelled = true
       clearInterval(timer)
     }
-  }, [sessionId, readOnly, syncReadingsFromSession])
+  }, [sessionId, readOnly, mergeCompletedFromSession, tankReadings])
 
   useEffect(
     () => () => {
@@ -525,26 +666,38 @@ export default function SoundingCapturePanel({
     [sessionId]
   )
 
-  const tankOptions = useMemo(
-    () =>
-      atgTanks.map((tk) => ({
-        value: String(tk.id),
-        label: tk.name ? `${tk.code} — ${tk.name}` : String(tk.code || tk.id),
-      })),
-    [atgTanks]
-  )
+  const applyActionResult = (data, currentReadings) => {
+    if (data?.session) setSession(data.session)
+    if (data?.tank) mergeCompletedFromTankDto(data.tank, sessionId, currentReadings)
+  }
 
-  const handleStartSession = async () => {
-    if (!operationId || !selectedTankIds.length) return
+  const handleBeginCapture = async () => {
+    if (!operationId || !selectedTankId) return
+    const soundedAt = new Date(soundedAtLocal).toISOString()
+    if (Number.isNaN(new Date(soundedAtLocal).getTime())) {
+      setError(t('sounding.invalidSoundingTime'))
+      return
+    }
     setError(null)
     setBusy(true)
     try {
-      const data = await createSoundingSession(operationId, {
-        tankIds: selectedTankIds.map(Number),
-        siMetric: metric,
-      })
-      setSessionId(data.sessionId)
-      setSession(data)
+      if (sessionId && session?.active) {
+        const data = await addTankToSoundingSession(sessionId, {
+          tankId: Number(selectedTankId),
+          soundedAt,
+        })
+        applyActionResult(data, tankReadings)
+      } else {
+        const data = await createSoundingSession(operationId, {
+          tankIds: [Number(selectedTankId)],
+          siMetric: metric,
+          soundedAt,
+        })
+        setSessionId(data.sessionId)
+        setSession(data)
+      }
+      setSelectedTankId('')
+      setSoundedAtLocal(toLocalDatetimeInputValue())
     } catch (e) {
       setError(e?.message || t('sounding.startFailed'))
     } finally {
@@ -570,7 +723,7 @@ export default function SoundingCapturePanel({
     if (!id) return null
     const data = await fetchSoundingSession(id)
     setSession(data)
-    syncReadingsFromSession(data)
+    mergeCompletedFromSession(data, tankReadings)
     return data
   }
 
@@ -579,10 +732,26 @@ export default function SoundingCapturePanel({
     setBusy(true)
     setError(null)
     try {
-      await lockSoundingReading(sessionId, tankId)
-      await refreshSession()
+      const data = await lockSoundingReading(sessionId, tankId)
+      applyActionResult(data, tankReadings)
+      if (!data?.session) await refreshSession()
     } catch (e) {
       setError(e?.message || t('sounding.lockFailed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleSkipAtg = async (tankId) => {
+    if (!sessionId) return
+    setBusy(true)
+    setError(null)
+    try {
+      const data = await skipAtgSoundingTank(sessionId, Number(tankId))
+      applyActionResult(data, tankReadings)
+      if (!data?.session) await refreshSession()
+    } catch (e) {
+      setError(e?.message || t('sounding.skipAtgFailed'))
     } finally {
       setBusy(false)
     }
@@ -607,13 +776,14 @@ export default function SoundingCapturePanel({
     setBusy(true)
     setError(null)
     try {
-      await confirmSoundingManualReading(sessionId, {
+      const data = await confirmSoundingManualReading(sessionId, {
         tankId,
         massMt: form.massMt,
         volumeKl: form.volumeKl,
         temperatureC: form.temperatureC,
       })
-      await refreshSession()
+      applyActionResult(data, tankReadings)
+      if (!data?.session) await refreshSession()
     } catch (e) {
       setError(e?.message || t('sounding.manualFailed'))
     } finally {
@@ -621,19 +791,21 @@ export default function SoundingCapturePanel({
     }
   }
 
-  const sessionActive = Boolean(sessionId && session?.active)
-  const displayTanks = session?.tanks || []
+  const handleResoundCompleted = (tankId) => {
+    if (!onTankReadingsChange) return
+    onTankReadingsChange(
+      (tankReadings || []).filter((r) => Number(r.tankId) !== Number(tankId))
+    )
+  }
 
-  const selectedLabels = useMemo(() => {
-    const byId = new Map(atgTanks.map((tk) => [String(tk.id), tk]))
-    return selectedTankIds.map((id) => byId.get(String(id))?.code || id).join(', ')
-  }, [atgTanks, selectedTankIds])
+  const displayTanks = session?.tanks || []
+  const hasInProgress = displayTanks.length > 0
 
   if (readOnly) {
     return (
       <section className="sounding-capture-panel" aria-label={t('sounding.panelTitle')}>
         <SoundingPanelHeader t={t} />
-        <SoundingReadingsTable tankReadings={tankReadings} siMetric={metric} t={t} />
+        <SoundingReadingsTable tankReadings={tankReadings} siMetric={metric} t={t} readOnly />
       </section>
     )
   }
@@ -644,59 +816,31 @@ export default function SoundingCapturePanel({
 
       {error ? <div className="sounding-capture-panel__banner" role="alert">{error}</div> : null}
 
-      {!sessionActive ? (
-        <>
-          <div className="berthing-modal__field sounding-capture-panel__tanks-field">
-            <label className="berthing-modal__label" htmlFor="sounding-tank-select">
-              {t('sounding.selectTanks')}
-            </label>
-            {loadingTanks ? (
-              <p className="sounding-capture-panel__hint">{t('sounding.loadingTanks')}</p>
-            ) : atgTanks.length === 0 ? (
-              <p className="sounding-capture-panel__empty">{t('sounding.noAtgTanks')}</p>
-            ) : (
-              <DropdownMultiSelect
-                id="sounding-tank-select"
-                options={tankOptions}
-                selectedValues={selectedTankIds}
-                onChange={setSelectedTankIds}
-                placeholder={t('sounding.tanksPlaceholder')}
-                emptyText={t('sounding.noAtgTanks')}
-                searchable
-                searchPlaceholder={t('sounding.tanksSearchPlaceholder')}
-                className="cargo-ops-tanks-dropdown sounding-capture-panel__tanks-dropdown"
-              />
-            )}
-            <p className="sounding-capture-panel__hint">{t('sounding.selectHint')}</p>
-          </div>
-          {Array.isArray(tankReadings) && tankReadings.length > 0 ? (
-            <SoundingReadingsTable tankReadings={tankReadings} siMetric={metric} t={t} />
-          ) : null}
-          <div className="sounding-capture-panel__actions">
-            <button
-              type="button"
-              className="btn btn--primary btn--small"
-              disabled={busy || !selectedTankIds.length || !operationId}
-              onClick={handleStartSession}
-            >
-              {t('sounding.startSession')}
-            </button>
-          </div>
-        </>
-      ) : (
+      {Array.isArray(tankReadings) && tankReadings.length > 0 ? (
+        <div className="sounding-capture-panel__completed">
+          <h5 className="sounding-capture-panel__section-title">{t('sounding.completedTanks')}</h5>
+          <SoundingReadingsTable
+            tankReadings={tankReadings}
+            siMetric={metric}
+            t={t}
+            onResound={handleResoundCompleted}
+          />
+        </div>
+      ) : null}
+
+      {hasInProgress ? (
         <>
           <div className="sounding-capture-panel__session-bar">
             <div className="sounding-capture-panel__session-meta">
               <span className="sounding-capture-panel__session-pill sounding-capture-panel__session-pill--live">
-                {t('sounding.sessionActive', { seconds: Math.round((session?.pollIntervalMs || 2000) / 1000) })}
-              </span>
-              <span className="sounding-capture-panel__session-pill">
-                {t('sounding.sessionTanks', { tanks: selectedLabels })}
+                {t('sounding.sessionActive', {
+                  seconds: Math.round((session?.pollIntervalMs || 2000) / 1000),
+                })}
               </span>
               <span className="sounding-capture-panel__session-pill">
                 {t('sounding.progress', {
-                  locked: session?.lockedCount ?? 0,
-                  total: session?.totalTanks ?? displayTanks.length,
+                  locked: completedTankIds.size,
+                  total: completedTankIds.size + displayTanks.length,
                 })}
               </span>
             </div>
@@ -721,12 +865,84 @@ export default function SoundingCapturePanel({
               siMetric={metric}
               busy={busy}
               onLock={handleLock}
+              onSkipAtg={handleSkipAtg}
               onUnlock={handleUnlock}
               onConfirmManual={handleConfirmManual}
             />
           ))}
         </>
-      )}
+      ) : null}
+
+      {availableTankOptions.length > 0 || loadingTanks ? (
+        <div className="sounding-capture-panel__composer">
+          <h5 className="sounding-capture-panel__section-title">{t('sounding.addTank')}</h5>
+          <div className="sounding-capture-panel__composer-grid">
+            <div className="berthing-modal__field">
+              <label className="berthing-modal__label" htmlFor="sounding-add-tank">
+                {t('sounding.selectTank')}
+              </label>
+              {loadingTanks ? (
+                <p className="sounding-capture-panel__hint">{t('sounding.loadingTanks')}</p>
+              ) : (
+                <select
+                  id="sounding-add-tank"
+                  className="sounding-capture-panel__select"
+                  value={selectedTankId}
+                  onChange={(e) => setSelectedTankId(e.target.value)}
+                >
+                  <option value="">{t('sounding.tankPlaceholder')}</option>
+                  {availableTankOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <div className="berthing-modal__field">
+              <label className="berthing-modal__label" htmlFor="sounding-time">
+                {t('sounding.soundingTime')}
+                <InteractiveTooltip
+                  items={[{ primary: t('sounding.soundingTimeTooltip') }]}
+                  maxWidth={300}
+                  placement="right"
+                >
+                  <span
+                    className="form-label-with-info__icon sounding-capture-panel__info-icon"
+                    aria-label={t('sounding.soundingTimeTooltip')}
+                    tabIndex={0}
+                    role="img"
+                  >
+                    ⓘ
+                  </span>
+                </InteractiveTooltip>
+              </label>
+              <input
+                id="sounding-time"
+                type="datetime-local"
+                className="sounding-capture-panel__datetime"
+                value={soundedAtLocal}
+                onChange={(e) => setSoundedAtLocal(e.target.value)}
+              />
+            </div>
+          </div>
+          <p className="sounding-capture-panel__hint">{t('sounding.addTankHint')}</p>
+          <div className="sounding-capture-panel__actions">
+            <button
+              type="button"
+              className="btn btn--primary btn--small"
+              disabled={busy || !selectedTankId || !operationId}
+              onClick={handleBeginCapture}
+            >
+              {t('sounding.beginCapture')}
+            </button>
+          </div>
+        </div>
+      ) : !loadingTanks && atgTanks.length === 0 ? (
+        <p className="sounding-capture-panel__empty">{t('sounding.noAtgTanks')}</p>
+      ) : !loadingTanks && completedTankIds.size >= atgTanks.length ? (
+        <p className="sounding-capture-panel__hint">{t('sounding.allTanksComplete')}</p>
+      ) : null}
     </section>
   )
 }

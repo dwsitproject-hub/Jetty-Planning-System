@@ -24,7 +24,7 @@
     "test:atg-hourly-progress": "node --test src/lib/atg-hourly-progress.test.js",
     "test:cargo-schedule-progress": "node --test src/lib/cargo-schedule-progress.test.js",
     "test:cargo-line-qty": "node --test src/lib/cargo-line-qty.test.js",
-    "test:sounding-stabilization": "node --test src/lib/atg-stabilization.test.js src/lib/sounding-tank-readings.test.js",
+    "test:sounding-stabilization": "node --test src/lib/atg-stabilization.test.js src/lib/sounding-tank-readings.test.js src/lib/sounding-atg-historical.test.js",
     "test:sounding-session-load": "node scripts/test-sounding-session-load.mjs",
     "test:security": "node scripts/test-security-rbac-uploads.mjs",
     "grant-admin-access": "node scripts/grant-admin-full-access.js",

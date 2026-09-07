@@ -41,10 +41,12 @@ describe('validateAndNormalizeTankReadings', () => {
           tankId: 12,
           tankCode: 'TK-5104',
           captureMode: 'dual',
+          soundedAt: '2026-09-07T07:20:00.000Z',
           atg: {
             massMt: 2720.413,
             temperatureC: 44,
             lockedAt: '2026-09-07T07:25:00.000Z',
+            source: 'live',
           },
           manual: {
             massMt: 2720,
@@ -58,7 +60,55 @@ describe('validateAndNormalizeTankReadings', () => {
     );
     assert.equal(out.length, 1);
     assert.equal(out[0].captureMode, 'dual');
+    assert.equal(out[0].soundedAt, '2026-09-07T07:20:00.000Z');
     assert.equal(out[0].atg.massMt, 2720.413);
+    assert.equal(out[0].atg.source, 'live');
+    assert.equal(out[0].manual.massMt, 2720);
+  });
+
+  it('accepts dual reading without atg when atgSkipped is set', () => {
+    const out = validateAndNormalizeTankReadings(
+      [
+        {
+          tankId: 5,
+          tankCode: 'TK-5201',
+          captureMode: 'dual',
+          atgSkipped: true,
+          manual: {
+            massMt: 1000,
+            temperatureC: 30,
+            capturedAt: '2026-09-07T08:00:00.000Z',
+          },
+          lockedAt: '2026-09-07T08:00:00.000Z',
+        },
+      ],
+      { siMetric: 'MT' }
+    );
+    assert.equal(out[0].captureMode, 'dual');
+    assert.equal(out[0].atg, undefined);
+  });
+
+  it('normalizes manual-only capture mode', () => {
+    const out = validateAndNormalizeTankReadings(
+      [
+        {
+          tankId: 8,
+          tankCode: 'TK-5104',
+          captureMode: 'manual',
+          soundedAt: '2026-09-01T08:00:00.000Z',
+          manual: {
+            massMt: 2720,
+            temperatureC: 44,
+            capturedAt: '2026-09-01T08:05:00.000Z',
+          },
+          lockedAt: '2026-09-01T08:05:00.000Z',
+        },
+      ],
+      { siMetric: 'MT' }
+    );
+    assert.equal(out[0].captureMode, 'manual');
+    assert.equal(out[0].atgSkipped, true);
+    assert.equal(out[0].soundedAt, '2026-09-01T08:00:00.000Z');
     assert.equal(out[0].manual.massMt, 2720);
   });
 

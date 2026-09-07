@@ -32,6 +32,7 @@ export function resolveSoundingStabilizationConfig() {
     minSamples: Math.max(2, Number(process.env.SOUNDING_MIN_SAMPLES ?? 5) || 5),
     sessionTtlMs: Math.max(60_000, Number(process.env.SOUNDING_SESSION_TTL_MS ?? 30 * 60 * 1000) || 30 * 60 * 1000),
     maxConsecutiveErrors: Math.max(1, Number(process.env.SOUNDING_MAX_ATG_ERRORS ?? 3) || 3),
+    liveWindowMs: Math.max(60_000, Number(process.env.SOUNDING_LIVE_WINDOW_MS ?? 5 * 60 * 1000) || 5 * 60 * 1000),
   };
 }
 

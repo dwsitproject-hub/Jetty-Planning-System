@@ -5,12 +5,14 @@ import express from 'express';
 import { assertOperationInSelectedPort } from '../lib/operation-access.js';
 import { pool } from '../db.js';
 import {
+  addTankToSoundingSession,
   cancelSoundingSession,
   confirmManualSoundingReading,
   createSoundingSession,
   getSoundingSession,
   lockSoundingTank,
   setSoundingTankManualMode,
+  skipAtgSoundingTank,
   unlockSoundingTank,
 } from '../lib/sounding-session-manager.js';
 
@@ -79,15 +81,18 @@ router.post('/operations/:operationId/sounding-sessions', async (req, res) => {
   }
 
   const tankIds = parseTankIds(req.body);
-  if (!tankIds.length) return res.status(400).json({ error: 'tankIds is required' });
+  const tankId = parseTankId(req.body?.tankId ?? req.body?.tank_id);
+  const ids = tankIds.length ? tankIds : tankId != null ? [tankId] : [];
 
   const siMetric = req.body?.siMetric ?? req.body?.si_metric ?? op.si_metric ?? 'MT';
+  const soundedAt = req.body?.soundedAt ?? req.body?.sounded_at ?? null;
   try {
     const session = await createSoundingSession({
       operationId,
       portId: Number(op.port_id),
-      tankIds,
+      tankIds: ids,
       siMetric,
+      soundedAt,
       userId: req.userId ?? null,
     });
     res.status(201).json(session);
@@ -112,6 +117,45 @@ router.delete('/sounding-sessions/:sessionId', async (req, res) => {
   await assertOperationAccess(Number(existing.operationId), req);
   cancelSoundingSession(req.params.sessionId);
   res.json({ ok: true });
+});
+
+/** POST /sounding-sessions/:sessionId/tanks */
+router.post('/sounding-sessions/:sessionId/tanks', async (req, res) => {
+  const existing = getSoundingSession(req.params.sessionId);
+  if (!existing) return res.status(404).json({ error: 'Sounding session not found' });
+  await assertOperationAccess(Number(existing.operationId), req);
+
+  const tankId = parseTankId(req.body?.tankId ?? req.body?.tank_id);
+  if (tankId == null) return res.status(400).json({ error: 'tankId is required' });
+
+  try {
+    const tank = await addTankToSoundingSession(req.params.sessionId, {
+      tankId,
+      soundedAt: req.body?.soundedAt ?? req.body?.sounded_at ?? null,
+    });
+    res.json({ tank, session: getSoundingSession(req.params.sessionId) });
+  } catch (err) {
+    const status = err.statusCode ?? 500;
+    res.status(status).json({ error: err.message || 'Failed to add tank' });
+  }
+});
+
+/** POST /sounding-sessions/:sessionId/skip-atg */
+router.post('/sounding-sessions/:sessionId/skip-atg', async (req, res) => {
+  const existing = getSoundingSession(req.params.sessionId);
+  if (!existing) return res.status(404).json({ error: 'Sounding session not found' });
+  await assertOperationAccess(Number(existing.operationId), req);
+
+  const tankId = parseTankId(req.body?.tankId ?? req.body?.tank_id);
+  if (tankId == null) return res.status(400).json({ error: 'tankId is required' });
+
+  try {
+    const tank = skipAtgSoundingTank(req.params.sessionId, tankId);
+    res.json({ tank, session: getSoundingSession(req.params.sessionId) });
+  } catch (err) {
+    const status = err.statusCode ?? 500;
+    res.status(status).json({ error: err.message || 'Failed to skip ATG' });
+  }
 });
 
 /** POST /sounding-sessions/:sessionId/lock */

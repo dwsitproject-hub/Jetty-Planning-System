@@ -8,6 +8,7 @@ import {
   resolveSoundingStabilizationConfig,
 } from './atg-stabilization.js';
 import { observedVolumeToKl, resolveAtgMeasurementBasis } from './atg-measurement.js';
+import { lookupHistoricalAtgReading } from './sounding-atg-historical.js';
 import { resolveEnabledSources } from './tank-gauging-source-config.js';
 import {
   fetchTankParameters,
@@ -37,11 +38,52 @@ function startCleanupTimer() {
   if (cleanupTimer.unref) cleanupTimer.unref();
 }
 
-/**
- * @param {import('pg').Pool} db
- * @param {number[]} tankIds
- * @param {number} portId
- */
+function parseSoundedAt(raw) {
+  if (raw == null || raw === '') return new Date();
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) {
+    throw Object.assign(new Error('soundedAt is invalid'), { statusCode: 400 });
+  }
+  return d;
+}
+
+function resolveTankCaptureMode(soundedAt) {
+  const ms = Math.abs(Date.now() - new Date(soundedAt).getTime());
+  return ms <= config.liveWindowMs ? 'live' : 'historical';
+}
+
+function createTankRecord(row, soundedAtInput) {
+  const soundedAt = parseSoundedAt(soundedAtInput).toISOString();
+  return {
+    tankId: Number(row.tank_id),
+    code: row.code,
+    name: row.name,
+    externalTankId: Number(row.external_tank_id),
+    sourceBaseUrl: row.source_base_url,
+    sourceUnitName: row.source_unit_name,
+    soundedAt,
+    captureMode: resolveTankCaptureMode(soundedAt),
+    manualMode: false,
+    atgCaptured: null,
+    atgSkipped: false,
+    manualCaptured: null,
+    historicalLookup: null,
+    lastReading: null,
+    tracker: new TankStabilizationTracker({
+      windowSec: config.windowSec,
+      stableThresholdPct: config.stableThresholdPct,
+      stableHoldSec: config.stableHoldSec,
+      minSamples: config.minSamples,
+    }),
+  };
+}
+
+function tankShouldPollLive(tank) {
+  if (tank.atgCaptured || tank.atgSkipped) return false;
+  if (tank.captureMode !== 'live') return false;
+  return true;
+}
+
 async function loadTankMappings(db, tankIds, portId) {
   if (!tankIds.length) return [];
   const r = await db.query(
@@ -78,18 +120,35 @@ function hostFromUrl(baseUrl) {
   }
 }
 
-/**
- * @param {object} session
- */
+async function applyHistoricalAtgToTank(session, tank) {
+  const result = await lookupHistoricalAtgReading(pool, {
+    tankId: tank.tankId,
+    soundedAt: tank.soundedAt,
+    siMetric: session.siMetric,
+    sourceBaseUrl: tank.sourceBaseUrl,
+  });
+  tank.historicalLookup = {
+    found: result.found,
+    reason: result.reason ?? null,
+    matchQuality: result.matchQuality ?? null,
+    sampledAt: result.sampledAt ?? null,
+  };
+  if (result.found && result.reading) {
+    tank.atgCaptured = {
+      ...result.reading,
+      stabilization: { state: 'sample', matchQuality: result.matchQuality },
+    };
+  }
+}
+
 async function pollSessionOnce(session) {
   if (!session.active) return;
   const sources = await resolveEnabledSources(pool, { portId: session.portId });
   const authByBase = new Map(sources.map((s) => [trimBaseUrl(s.baseUrl), s.auth]));
 
-  /** @type {Map<string, { externalIds: number[], tankIds: number[] }>} */
   const groups = new Map();
   for (const tank of session.tanks.values()) {
-    if (tank.atgCaptured) continue;
+    if (!tankShouldPollLive(tank)) continue;
     if (tank.tracker.state === 'locked' || tank.tracker.state === 'manual') continue;
     if (tank.manualMode) continue;
     const base = trimBaseUrl(tank.sourceBaseUrl);
@@ -141,8 +200,7 @@ async function pollSessionOnce(session) {
         };
         tank.tracker.addSample({
           value,
-          temperatureC:
-            reading.temperatureC != null ? Number(reading.temperatureC) : null,
+          temperatureC: reading.temperatureC != null ? Number(reading.temperatureC) : null,
           sampledAt,
         });
       }
@@ -195,31 +253,30 @@ function destroySession(sessionId, reason = 'cancelled') {
   return true;
 }
 
-function buildAtgCaptured(session, tank, snapshot) {
-  if (session.measurementBasis === 'mass') {
-    return {
-      massMt: snapshot.value,
-      volumeKl:
-        tank.lastReading?.totalObservedVolume != null
-          ? observedVolumeToKl(tank.lastReading.totalObservedVolume)
-          : null,
-      temperatureC: snapshot.temperatureC,
-      levelMm: tank.lastReading?.levelMm ?? null,
-      observedDensityKgM3: tank.lastReading?.observedDensityKgM3 ?? null,
-      lockedAt: snapshot.lockedAt,
-      stabilization: snapshot.stabilization,
-      variancePct: snapshot.stabilization?.variancePct ?? null,
-    };
-  }
-  return {
-    massMt: tank.lastReading?.totalMass ?? null,
-    volumeKl: snapshot.value,
+function buildAtgCaptured(session, tank, snapshot, source = 'live') {
+  const base = {
+    source,
     temperatureC: snapshot.temperatureC,
     levelMm: tank.lastReading?.levelMm ?? null,
     observedDensityKgM3: tank.lastReading?.observedDensityKgM3 ?? null,
     lockedAt: snapshot.lockedAt,
     stabilization: snapshot.stabilization,
     variancePct: snapshot.stabilization?.variancePct ?? null,
+  };
+  if (session.measurementBasis === 'mass') {
+    return {
+      ...base,
+      massMt: snapshot.value,
+      volumeKl:
+        tank.lastReading?.totalObservedVolume != null
+          ? observedVolumeToKl(tank.lastReading.totalObservedVolume)
+          : null,
+    };
+  }
+  return {
+    ...base,
+    massMt: tank.lastReading?.totalMass ?? null,
+    volumeKl: snapshot.value,
   };
 }
 
@@ -228,7 +285,10 @@ function buildManualCaptured(session, body) {
   if (!Number.isFinite(temperatureC)) {
     throw Object.assign(new Error('temperatureC is required for manual reading'), { statusCode: 400 });
   }
-  const capturedAt = new Date().toISOString();
+  const capturedAt =
+    body.capturedAt && !Number.isNaN(new Date(body.capturedAt).getTime())
+      ? new Date(body.capturedAt).toISOString()
+      : new Date().toISOString();
   if (session.measurementBasis === 'volume') {
     const volumeKl = body.volumeKl != null ? Number(body.volumeKl) : null;
     if (volumeKl == null || !Number.isFinite(volumeKl)) {
@@ -254,37 +314,108 @@ function buildManualCaptured(session, body) {
 }
 
 function tankIsComplete(tank) {
-  return Boolean(tank.atgCaptured && tank.manualCaptured);
+  return Boolean(tank.manualCaptured && (tank.atgCaptured || tank.atgSkipped));
+}
+
+export function buildTankReadingRow(session, tank) {
+  if (!tankIsComplete(tank)) return null;
+  const manual = tank.manualCaptured;
+  const atg = tank.atgCaptured;
+  const timestamps = [tank.soundedAt, manual?.capturedAt, atg?.lockedAt].filter(Boolean);
+  const lockedAt =
+    timestamps.length > 0
+      ? new Date(Math.max(...timestamps.map((t) => new Date(t).getTime()))).toISOString()
+      : null;
+
+  if (tank.atgSkipped || !atg) {
+    return {
+      tankId: tank.tankId,
+      tankCode: tank.code,
+      captureMode: 'manual',
+      measurementBasis: session.measurementBasis,
+      soundedAt: tank.soundedAt,
+      atgSkipped: true,
+      manual: {
+        massMt: manual.massMt,
+        volumeKl: manual.volumeKl,
+        temperatureC: manual.temperatureC,
+        capturedAt: manual.capturedAt,
+      },
+      lockedAt,
+      atgSourceBaseUrl: tank.sourceBaseUrl,
+      sessionId: session.sessionId,
+    };
+  }
+
+  return {
+    tankId: tank.tankId,
+    tankCode: tank.code,
+    captureMode: 'dual',
+    measurementBasis: session.measurementBasis,
+    soundedAt: tank.soundedAt,
+    atgSkipped: false,
+    atg: {
+      massMt: atg.massMt,
+      volumeKl: atg.volumeKl,
+      temperatureC: atg.temperatureC,
+      levelMm: atg.levelMm ?? null,
+      observedDensityKgM3: atg.observedDensityKgM3 ?? null,
+      lockedAt: atg.lockedAt,
+      stabilization: atg.stabilization,
+      variancePct: atg.variancePct ?? null,
+      source: atg.source ?? 'live',
+      sampleId: atg.sampleId ?? null,
+      matchQuality: atg.matchQuality ?? null,
+    },
+    manual: {
+      massMt: manual.massMt,
+      volumeKl: manual.volumeKl,
+      temperatureC: manual.temperatureC,
+      capturedAt: manual.capturedAt,
+    },
+    lockedAt,
+    atgSourceBaseUrl: tank.sourceBaseUrl,
+    sessionId: session.sessionId,
+  };
 }
 
 function tankToDto(session, tank) {
   const status = tank.tracker.getStatus();
   const isComplete = tankIsComplete(tank);
+  const isLiveAtg = tank.captureMode === 'live' && !tank.atgCaptured && !tank.atgSkipped;
   return {
     tankId: String(tank.tankId),
     tankCode: tank.code,
     tankName: tank.name,
     sourceBaseUrl: tank.sourceBaseUrl,
     sourceHost: hostFromUrl(tank.sourceBaseUrl),
+    soundedAt: tank.soundedAt,
+    captureMode: tank.captureMode,
     isComplete,
     atgCaptured: tank.atgCaptured,
+    atgSkipped: Boolean(tank.atgSkipped),
     manualCaptured: tank.manualCaptured,
+    historicalLookup: tank.historicalLookup,
     manualMode: Boolean(tank.manualMode),
-    state: status.state,
+    state: isLiveAtg ? status.state : tank.atgCaptured ? 'locked' : tank.atgSkipped ? 'manual' : status.state,
     measurementBasis: session.measurementBasis,
     massMt:
       session.measurementBasis === 'mass'
-        ? status.latestValue
-        : tank.lastReading?.totalMass ?? null,
+        ? isLiveAtg
+          ? status.latestValue
+          : tank.atgCaptured?.massMt ?? null
+        : tank.lastReading?.totalMass ?? tank.atgCaptured?.massMt ?? null,
     volumeKl:
       session.measurementBasis === 'volume'
-        ? status.latestValue
+        ? isLiveAtg
+          ? status.latestValue
+          : tank.atgCaptured?.volumeKl ?? null
         : tank.lastReading?.totalObservedVolume != null
           ? observedVolumeToKl(tank.lastReading.totalObservedVolume)
-          : null,
-    temperatureC: status.latestTemperatureC,
-    levelMm: tank.lastReading?.levelMm ?? null,
-    observedDensityKgM3: tank.lastReading?.observedDensityKgM3 ?? null,
+          : tank.atgCaptured?.volumeKl ?? null,
+    temperatureC: isLiveAtg ? status.latestTemperatureC : tank.atgCaptured?.temperatureC ?? status.latestTemperatureC,
+    levelMm: tank.lastReading?.levelMm ?? tank.atgCaptured?.levelMm ?? null,
+    observedDensityKgM3: tank.lastReading?.observedDensityKgM3 ?? tank.atgCaptured?.observedDensityKgM3 ?? null,
     variancePct: status.variancePct,
     stableDurationSec: status.stableDurationSec,
     stableHoldSec: status.stableHoldSec,
@@ -292,8 +423,9 @@ function tankToDto(session, tank) {
     minSamples: status.minSamples,
     lastSampleAt: status.lastSampleAt,
     errorMessage: status.errorMessage,
-    canCaptureAtg: status.state === 'stable',
-    canLock: status.state === 'stable',
+    canCaptureAtg: isLiveAtg && status.state === 'stable',
+    canLock: isLiveAtg && status.state === 'stable',
+    canSkipAtg: !tank.atgCaptured && !tank.atgSkipped && !isComplete,
   };
 }
 
@@ -308,6 +440,7 @@ function sessionToDto(session) {
     measurementBasis: session.measurementBasis,
     active: session.active,
     pollIntervalMs: config.pollIntervalMs,
+    liveWindowMs: config.liveWindowMs,
     expiresAt: new Date(session.expiresAt).toISOString(),
     lastPollAt: session.lastPollAt,
     tanks,
@@ -317,62 +450,81 @@ function sessionToDto(session) {
   };
 }
 
-/**
- * @param {{ operationId: number, portId: number, tankIds: number[], siMetric?: string, userId?: number|null }} input
- */
+function touchSession(session) {
+  session.updatedAt = Date.now();
+  session.expiresAt = Date.now() + config.sessionTtlMs;
+}
+
+async function initTankInSession(session, row, soundedAt) {
+  const tank = createTankRecord(row, soundedAt);
+  if (tank.captureMode === 'historical') {
+    await applyHistoricalAtgToTank(session, tank);
+  }
+  session.tanks.set(tank.tankId, tank);
+  return tank;
+}
+
+function maybeRemoveCompletedTank(session, tank) {
+  if (!tankIsComplete(tank)) return false;
+  session.tanks.delete(tank.tankId);
+  if (session.tanks.size === 0) {
+    stopPollLoop(session);
+  }
+  return true;
+}
+
+function getSessionOrThrow(sessionId) {
+  const session = sessions.get(String(sessionId));
+  if (!session) {
+    throw Object.assign(new Error('Sounding session not found'), { statusCode: 404 });
+  }
+  if (Date.now() > session.expiresAt) {
+    destroySession(String(sessionId), 'expired');
+    throw Object.assign(new Error('Sounding session not found'), { statusCode: 404 });
+  }
+  touchSession(session);
+  return session;
+}
+
+function getTankOrThrow(session, tankId) {
+  const tank = session.tanks.get(Number(tankId));
+  if (!tank) {
+    throw Object.assign(new Error('Tank not in session'), { statusCode: 404 });
+  }
+  return tank;
+}
+
 export async function createSoundingSession(input) {
   startCleanupTimer();
   const operationId = Number(input.operationId);
   const portId = Number(input.portId);
   const tankIds = [...new Set((input.tankIds || []).map(Number).filter((n) => n > 0))];
-  if (!operationId || !portId || !tankIds.length) {
-    throw Object.assign(new Error('operationId, portId, and tankIds are required'), { statusCode: 400 });
+  if (!operationId || !portId) {
+    throw Object.assign(new Error('operationId and portId are required'), { statusCode: 400 });
   }
 
   const existingId = sessionIdByOperation.get(operationId);
+  if (existingId && input.reuse !== false) {
+    const existing = sessions.get(existingId);
+    if (existing && existing.active && Date.now() <= existing.expiresAt) {
+      touchSession(existing);
+      if (tankIds.length) {
+        for (const tankId of tankIds) {
+          if (!existing.tanks.has(tankId)) {
+            await addTankToSoundingSession(existingId, { tankId, soundedAt: input.soundedAt });
+          }
+        }
+      }
+      return sessionToDto(existing);
+    }
+  }
+
   if (existingId) destroySession(existingId, 'replaced');
-
-  const rows = await loadTankMappings(pool, tankIds, portId);
-  if (!rows.length) {
-    throw Object.assign(new Error('No ATG-mapped tanks found for selection'), { statusCode: 400 });
-  }
-
-  const foundIds = new Set(rows.map((r) => Number(r.tank_id)));
-  const missing = tankIds.filter((id) => !foundIds.has(id));
-  if (missing.length) {
-    throw Object.assign(
-      new Error(`Tanks not ATG-mapped or not found: ${missing.join(', ')}`),
-      { statusCode: 400 }
-    );
-  }
 
   const siMetric = String(input.siMetric || 'MT').trim().toUpperCase() || 'MT';
   const measurementBasis = resolveAtgMeasurementBasis(siMetric);
   const sessionId = crypto.randomUUID();
   const now = Date.now();
-
-  /** @type {Map<number, object>} */
-  const tanks = new Map();
-  for (const row of rows) {
-    tanks.set(Number(row.tank_id), {
-      tankId: Number(row.tank_id),
-      code: row.code,
-      name: row.name,
-      externalTankId: Number(row.external_tank_id),
-      sourceBaseUrl: row.source_base_url,
-      sourceUnitName: row.source_unit_name,
-      manualMode: false,
-      atgCaptured: null,
-      manualCaptured: null,
-      lastReading: null,
-      tracker: new TankStabilizationTracker({
-        windowSec: config.windowSec,
-        stableThresholdPct: config.stableThresholdPct,
-        stableHoldSec: config.stableHoldSec,
-        minSamples: config.minSamples,
-      }),
-    });
-  }
 
   const session = {
     sessionId,
@@ -381,7 +533,7 @@ export async function createSoundingSession(input) {
     siMetric,
     measurementBasis,
     userId: input.userId ?? null,
-    tanks,
+    tanks: new Map(),
     active: true,
     createdAt: now,
     updatedAt: now,
@@ -393,9 +545,40 @@ export async function createSoundingSession(input) {
 
   sessions.set(sessionId, session);
   sessionIdByOperation.set(operationId, sessionId);
-  startPollLoop(session);
 
+  if (tankIds.length) {
+    const rows = await loadTankMappings(pool, tankIds, portId);
+    if (!rows.length) {
+      throw Object.assign(new Error('No ATG-mapped tanks found for selection'), { statusCode: 400 });
+    }
+    for (const row of rows) {
+      await initTankInSession(session, row, input.soundedAt);
+    }
+  }
+
+  startPollLoop(session);
   return sessionToDto(session);
+}
+
+export async function addTankToSoundingSession(sessionId, input) {
+  const session = getSessionOrThrow(sessionId);
+  const tankId = Number(input.tankId);
+  if (!Number.isFinite(tankId) || tankId <= 0) {
+    throw Object.assign(new Error('tankId is required'), { statusCode: 400 });
+  }
+  if (session.tanks.has(tankId)) {
+    throw Object.assign(new Error('Tank already in session'), { statusCode: 409 });
+  }
+
+  const rows = await loadTankMappings(pool, [tankId], session.portId);
+  if (!rows.length) {
+    throw Object.assign(new Error('Tank not ATG-mapped or not found'), { statusCode: 400 });
+  }
+
+  const tank = await initTankInSession(session, rows[0], input.soundedAt);
+  startPollLoop(session);
+  touchSession(session);
+  return tankToDto(session, tank);
 }
 
 export function getSoundingSession(sessionId) {
@@ -405,7 +588,7 @@ export function getSoundingSession(sessionId) {
     destroySession(sessionId, 'expired');
     return null;
   }
-  session.updatedAt = Date.now();
+  touchSession(session);
   return sessionToDto(session);
 }
 
@@ -414,118 +597,96 @@ export function cancelSoundingSession(sessionId) {
 }
 
 export function lockSoundingTank(sessionId, tankId) {
-  const session = sessions.get(String(sessionId));
-  if (!session) {
-    throw Object.assign(new Error('Sounding session not found'), { statusCode: 404 });
-  }
-  const tank = session.tanks.get(Number(tankId));
-  if (!tank) {
-    throw Object.assign(new Error('Tank not in session'), { statusCode: 404 });
+  const session = getSessionOrThrow(sessionId);
+  const tank = getTankOrThrow(session, tankId);
+  if (tank.captureMode !== 'live') {
+    throw Object.assign(new Error('Live ATG capture is not available for historical sounding time'), {
+      statusCode: 409,
+    });
   }
   const snapshot = tank.tracker.buildStableSnapshot({ captureMode: 'auto' });
-  tank.atgCaptured = buildAtgCaptured(session, tank, snapshot);
-  session.updatedAt = Date.now();
-  return tankToDto(session, tank);
+  tank.atgCaptured = buildAtgCaptured(session, tank, snapshot, 'live');
+  tank.atgSkipped = false;
+  touchSession(session);
+  const dto = tankToDto(session, tank);
+  maybeRemoveCompletedTank(session, tank);
+  return dto;
+}
+
+export function skipAtgSoundingTank(sessionId, tankId) {
+  const session = getSessionOrThrow(sessionId);
+  const tank = getTankOrThrow(session, tankId);
+  if (tank.atgCaptured) {
+    throw Object.assign(new Error('ATG already captured for this tank'), { statusCode: 409 });
+  }
+  tank.atgSkipped = true;
+  tank.atgCaptured = null;
+  touchSession(session);
+  const dto = tankToDto(session, tank);
+  maybeRemoveCompletedTank(session, tank);
+  return dto;
 }
 
 export function unlockSoundingTank(sessionId, tankId) {
-  const session = sessions.get(String(sessionId));
-  if (!session) {
-    throw Object.assign(new Error('Sounding session not found'), { statusCode: 404 });
-  }
-  const tank = session.tanks.get(Number(tankId));
-  if (!tank) {
-    throw Object.assign(new Error('Tank not in session'), { statusCode: 404 });
-  }
+  const session = getSessionOrThrow(sessionId);
+  const tank = getTankOrThrow(session, tankId);
   tank.manualMode = false;
   tank.atgCaptured = null;
+  tank.atgSkipped = false;
   tank.manualCaptured = null;
+  tank.historicalLookup = null;
+  tank.captureMode = resolveTankCaptureMode(tank.soundedAt);
   tank.tracker.unlock();
-  session.updatedAt = Date.now();
+  touchSession(session);
   return tankToDto(session, tank);
 }
 
 export function setSoundingTankManualMode(sessionId, tankId, enabled) {
-  const session = sessions.get(String(sessionId));
-  if (!session) {
-    throw Object.assign(new Error('Sounding session not found'), { statusCode: 404 });
-  }
-  const tank = session.tanks.get(Number(tankId));
-  if (!tank) {
-    throw Object.assign(new Error('Tank not in session'), { statusCode: 404 });
-  }
+  const session = getSessionOrThrow(sessionId);
+  const tank = getTankOrThrow(session, tankId);
   tank.manualMode = Boolean(enabled);
   if (tank.manualMode) {
     tank.tracker.unlock();
   }
-  session.updatedAt = Date.now();
+  touchSession(session);
   return tankToDto(session, tank);
 }
 
-/**
- * @param {number} tankId
- * @param {{ massMt?: number, volumeKl?: number, temperatureC: number }} body
- */
 export function confirmManualSoundingReading(sessionId, tankId, body) {
-  const session = sessions.get(String(sessionId));
-  if (!session) {
-    throw Object.assign(new Error('Sounding session not found'), { statusCode: 404 });
+  const session = getSessionOrThrow(sessionId);
+  const tank = getTankOrThrow(session, tankId);
+  if (!tank.atgCaptured && !tank.atgSkipped && tank.captureMode === 'live') {
+    throw Object.assign(new Error('Capture or skip ATG before saving manual reading'), {
+      statusCode: 409,
+    });
   }
-  const tank = session.tanks.get(Number(tankId));
-  if (!tank) {
-    throw Object.assign(new Error('Tank not in session'), { statusCode: 404 });
+  if (!tank.atgCaptured && !tank.atgSkipped && tank.captureMode === 'historical') {
+    throw Object.assign(new Error('Historical ATG unavailable — skip ATG or pick another time'), {
+      statusCode: 409,
+    });
   }
-  tank.manualCaptured = buildManualCaptured(session, body);
+  tank.manualCaptured = buildManualCaptured(session, {
+    ...body,
+    capturedAt: body.capturedAt ?? tank.soundedAt,
+  });
   tank.manualMode = false;
-  session.updatedAt = Date.now();
-  return tankToDto(session, tank);
+  touchSession(session);
+  const dto = tankToDto(session, tank);
+  maybeRemoveCompletedTank(session, tank);
+  return dto;
 }
 
-/** Build persisted tankReadings array from session locked tanks. */
 export function buildTankReadingsFromSession(sessionId) {
   const session = sessions.get(String(sessionId));
   if (!session) return [];
   const out = [];
   for (const tank of session.tanks.values()) {
-    if (!tankIsComplete(tank)) continue;
-    const atg = tank.atgCaptured;
-    const manual = tank.manualCaptured;
-    const lockedAt =
-      atg?.lockedAt && manual?.capturedAt
-        ? new Date(
-            Math.max(new Date(atg.lockedAt).getTime(), new Date(manual.capturedAt).getTime())
-          ).toISOString()
-        : atg?.lockedAt ?? manual?.capturedAt ?? null;
-    out.push({
-      tankId: tank.tankId,
-      tankCode: tank.code,
-      captureMode: 'dual',
-      measurementBasis: session.measurementBasis,
-      atg: {
-        massMt: atg.massMt,
-        volumeKl: atg.volumeKl,
-        temperatureC: atg.temperatureC,
-        levelMm: atg.levelMm ?? null,
-        observedDensityKgM3: atg.observedDensityKgM3 ?? null,
-        lockedAt: atg.lockedAt,
-        stabilization: atg.stabilization,
-        variancePct: atg.variancePct ?? null,
-      },
-      manual: {
-        massMt: manual.massMt,
-        volumeKl: manual.volumeKl,
-        temperatureC: manual.temperatureC,
-        capturedAt: manual.capturedAt,
-      },
-      lockedAt,
-      atgSourceBaseUrl: tank.sourceBaseUrl,
-      sessionId: session.sessionId,
-    });
+    const row = buildTankReadingRow(session, tank);
+    if (row) out.push(row);
   }
   return out;
 }
 
-/** Test hook — clear all sessions. */
 export function _resetSoundingSessionsForTests() {
   for (const id of [...sessions.keys()]) {
     destroySession(id, 'test_reset');

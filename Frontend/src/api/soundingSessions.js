@@ -30,3 +30,11 @@ export function setSoundingManualMode(sessionId, tankId, enabled) {
 export function confirmSoundingManualReading(sessionId, body) {
   return apiPost(`/sounding-sessions/${encodeURIComponent(String(sessionId))}/manual`, body)
 }
+
+export function addTankToSoundingSession(sessionId, body) {
+  return apiPost(`/sounding-sessions/${encodeURIComponent(String(sessionId))}/tanks`, body)
+}
+
+export function skipAtgSoundingTank(sessionId, tankId) {
+  return apiPost(`/sounding-sessions/${encodeURIComponent(String(sessionId))}/skip-atg`, { tankId })
+}
