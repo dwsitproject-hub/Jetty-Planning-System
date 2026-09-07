@@ -2885,6 +2885,46 @@ function PreCheckingSections({
               </div>
               <p className="sampling-entry-block__hint">{tLoading('sampling.entriesHint')}</p>
             </section>
+            <div className="loading-detail-activity-table-wrap sampling-recorded-table-wrap">
+              <h4 className="sampling-entry-block__title sampling-entry-block__title--table">{tLoading('sampling.recordedSamples')}</h4>
+              <table className="loading-detail-activity-table sampling-recorded-table">
+                <thead>
+                  <tr>
+                    <th>{tLoading('sampling.noPalka')}</th>
+                    <th>{tLoading('sampling.ffa')}</th>
+                    <th>{tLoading('sampling.moisture')}</th>
+                    <th>{tLoading('sampling.actions')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {samplingRecords.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="loading-detail-activity-empty">
+                        {tLoading('sampling.noRecordsYet')}
+                      </td>
+                    </tr>
+                  ) : (
+                    samplingRecords.map((rec) => (
+                      <tr key={rec.id}>
+                        <td>{rec.noPalka || '—'}</td>
+                        <td className="sampling-cell--numeric">{formatSamplingMetric(rec.ffa)}</td>
+                        <td className="sampling-cell--numeric">{formatSamplingMetric(rec.moisture)}</td>
+                        <td className="sampling-record-actions-cell">
+                          <div className="sampling-record-actions">
+                            <button type="button" className="btn btn--small btn--edit" onClick={() => startEditSamplingRecord(rec)}>
+                              {tLoading('sampling.edit')}
+                            </button>
+                            <button type="button" className="btn btn--small btn--delete" onClick={() => deleteSamplingRecord(rec.id)}>
+                              {tLoading('sampling.delete')}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
             <section className="sampling-entry-block">
               <FormLabelWithTooltip
                 as="h4"
@@ -2961,44 +3001,6 @@ function PreCheckingSections({
                   value: samplingSummary.avgMoisture == null ? '—' : samplingSummary.avgMoisture.toFixed(2),
                 })}
               </span>
-            </div>
-            <div className="loading-detail-activity-table-wrap">
-              <h4 className="sampling-entry-block__title sampling-entry-block__title--table">{tLoading('sampling.recordedSamples')}</h4>
-              <table className="loading-detail-activity-table">
-                <thead>
-                  <tr>
-                    <th>{tLoading('sampling.noPalka')}</th>
-                    <th>{tLoading('sampling.ffa')}</th>
-                    <th>{tLoading('sampling.moisture')}</th>
-                    <th>{tLoading('sampling.actions')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {samplingRecords.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="loading-detail-activity-empty">
-                        {tLoading('sampling.noRecordsYet')}
-                      </td>
-                    </tr>
-                  ) : (
-                    samplingRecords.map((rec) => (
-                      <tr key={rec.id}>
-                        <td>{rec.noPalka || '—'}</td>
-                        <td className="sampling-cell--numeric">{formatSamplingMetric(rec.ffa)}</td>
-                        <td className="sampling-cell--numeric">{formatSamplingMetric(rec.moisture)}</td>
-                        <td>
-                          <button type="button" className="btn btn--small" onClick={() => startEditSamplingRecord(rec)}>
-                            {tLoading('sampling.edit')}
-                          </button>
-                          <button type="button" className="btn btn--small btn--secondary" onClick={() => deleteSamplingRecord(rec.id)}>
-                            {tLoading('sampling.delete')}
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
             </div>
           </>
         ) : (

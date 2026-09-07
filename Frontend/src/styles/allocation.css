@@ -4789,6 +4789,8 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
 
 .sampling-entry-block {
   margin-top: var(--spacing-2);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .sampling-entry-block__title {
@@ -4820,33 +4822,68 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
 }
 
 .sampling-entry-block__grid {
+  --sampling-input-width-palka: 4.75rem;
+  --sampling-input-width-metric: 5.75rem;
   display: grid;
-  gap: var(--spacing-2) var(--spacing-3);
+  gap: var(--spacing-2) var(--spacing-4);
   align-items: end;
 }
 
 .sampling-entry-block__grid .berthing-modal__field {
   min-width: 0;
+  width: max-content;
 }
 
 .sampling-entry-block__grid--palka {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  --sampling-input-width-palka: 3.75rem;
+  --sampling-input-width-metric: 4.5rem;
+  grid-template-columns: auto auto auto;
+  column-gap: var(--spacing-2);
+  row-gap: var(--spacing-2);
+}
+
+.sampling-entry-block__grid--palka .berthing-modal__field {
+  width: auto;
+  max-width: 100%;
+}
+
+.sampling-entry-block__grid--palka .berthing-modal__label {
+  max-width: var(--sampling-input-width-metric);
+  white-space: normal;
+  line-height: 1.25;
+}
+
+.sampling-entry-block__grid--palka .berthing-modal__field:first-child .berthing-modal__label {
+  max-width: var(--sampling-input-width-palka);
+}
+
+.sampling-entry-block__grid--palka .sampling-entry-block__actions {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+  min-width: 0;
 }
 
 .sampling-entry-block__grid--quality {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: auto auto;
+  column-gap: var(--spacing-6);
+  row-gap: var(--spacing-3);
 }
 
 .sampling-entry-block__grid .berthing-modal__input {
-  width: 100%;
-  max-width: none;
+  width: var(--sampling-input-width-metric);
+  max-width: var(--sampling-input-width-metric);
   min-width: 0;
+}
+
+.sampling-entry-block__grid--palka .berthing-modal__field:first-child .berthing-modal__input {
+  width: var(--sampling-input-width-palka);
+  max-width: var(--sampling-input-width-palka);
 }
 
 .sampling-entry-block__actions {
   justify-content: flex-start;
   margin-bottom: 0;
-  min-width: 96px;
+  min-width: 0;
 }
 
 .sampling-entry-block__hint {
@@ -4855,16 +4892,6 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   color: var(--color-text-steel);
 }
 
-@media (max-width: 1240px) {
-  .sampling-entry-block__grid--palka {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .sampling-entry-block__grid--palka .sampling-entry-block__actions {
-    grid-column: 1 / -1;
-    justify-content: flex-end;
-  }
-}
 
 .sampling-summary-chips {
   display: flex;
@@ -4886,6 +4913,56 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
 .sampling-cell--numeric {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.sampling-recorded-table th,
+.sampling-recorded-table td {
+  padding: 4px 8px;
+  vertical-align: middle;
+}
+
+.sampling-record-actions-cell {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.sampling-record-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.sampling-record-actions .btn {
+  min-height: 0;
+  height: auto;
+  margin-right: 0;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.2;
+  border-radius: var(--radius-sm);
+}
+
+.sampling-record-actions .btn--edit {
+  background: #2563eb;
+  color: #fff;
+  border-color: #1d4ed8;
+}
+
+.sampling-record-actions .btn--edit:hover {
+  background: #1d4ed8;
+  border-color: #1e40af;
+}
+
+.sampling-record-actions .btn--delete {
+  background: #dc2626;
+  color: #fff;
+  border-color: #b91c1c;
+}
+
+.sampling-record-actions .btn--delete:hover {
+  background: #b91c1c;
+  border-color: #991b1b;
 }
 
 /* Sampling document extract — upload hint, per-file action, and the review modal that
@@ -5013,7 +5090,7 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
 @media (max-width: 980px) {
   .sampling-entry-block__grid--palka,
   .sampling-entry-block__grid--quality {
-    grid-template-columns: 1fr;
+    grid-template-columns: auto;
   }
 }
 
