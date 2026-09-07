@@ -9,6 +9,7 @@ import {
 import { partitionDraftTanks } from '../utils/cargoSessionHelpers'
 import { readAtgQtyFromRef } from '../utils/atgQty.js'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import { buildClientHourlyRateSummary } from '../utils/hourlyCargoDisplay'
 
 function formatQty(n, metricLabel) {
   if (n == null || !Number.isFinite(Number(n))) return '—'
@@ -176,6 +177,12 @@ export default function CargoLiveMovementPanel({
     [hourlyProgress]
   )
 
+  const unit = hourlyProgress?.siMetric || metricLabel?.split(' · ')[0] || 'MT'
+  const clientHourlySummary = useMemo(
+    () => buildClientHourlyRateSummary(hourlyBuckets, unit),
+    [hourlyBuckets, unit]
+  )
+
   const currentHourBucket = hourlyBuckets.length ? hourlyBuckets[hourlyBuckets.length - 1] : null
 
   const { atgTankIds, manualTankIds } = useMemo(() => {
@@ -261,9 +268,9 @@ export default function CargoLiveMovementPanel({
               <p className="text-steel">{t('cargoOpsSessionAtgLoading')}</p>
             ) : null}
           </div>
-          {hourlyProgress?.rateSummary?.currentHourLine ? (
+          {clientHourlySummary.currentHourLine ? (
             <p className="text-steel cargo-ops-session__hourly-line">
-              {hourlyProgress.rateSummary.currentHourLine}
+              {clientHourlySummary.currentHourLine}
             </p>
           ) : null}
           {Array.isArray(atgRef?.tanks) && atgRef.tanks.length > 0 ? (
@@ -286,12 +293,13 @@ export default function CargoLiveMovementPanel({
           {hourlyBuckets.length > 0 ? (
             <HourlyCargoProgressTable
               hourlyBuckets={hourlyBuckets}
-              unit={hourlyProgress?.siMetric || metricLabel?.split(' · ')[0] || 'MT'}
+              unit={unit}
               purpose={purpose}
               compact
               collapsible
               collapsedRowLimit={6}
               segmentStartLabel={segmentStartLabel}
+              currentHourLine={clientHourlySummary.currentHourLine}
             />
           ) : null}
         </div>

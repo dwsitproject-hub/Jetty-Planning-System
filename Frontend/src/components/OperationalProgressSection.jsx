@@ -5,6 +5,7 @@ import HourlyCargoProgressTable from './HourlyCargoProgressTable'
 import OperationActivityTimeline from './OperationActivityTimeline'
 import CargoScheduleProgressIndicator from './CargoScheduleProgressIndicator'
 import { parseQtyDisplay } from '../utils/cargoQtyDisplay'
+import { buildClientHourlyRateSummary } from '../utils/hourlyCargoDisplay'
 import { buildLiveCargoProgressSnapshot, findOpenCargoLoadLine } from '../utils/cargoSessionHelpers'
 import { operationalProgressPayloadChanged } from '../utils/snapshotChanged'
 
@@ -164,6 +165,10 @@ export default function OperationalProgressSection({
     () => (Array.isArray(progress?.hourlyBuckets) ? progress.hourlyBuckets : []),
     [progress]
   )
+  const clientHourlySummary = useMemo(
+    () => buildClientHourlyRateSummary(hourlyBuckets, cargoSiMetricLabel ?? 'MT'),
+    [hourlyBuckets, cargoSiMetricLabel]
+  )
 
   const liveCargoProgress = useMemo(() => {
     let openLoadLineId = null
@@ -243,9 +248,9 @@ export default function OperationalProgressSection({
                   {rateSummary.balanceLine}
                 </span>
               ) : null}
-              {rateSummary.currentHourLine || rateSummary.hourlyLine || rateSummary.dailyLine ? (
+              {clientHourlySummary.currentHourLine || rateSummary.hourlyLine || rateSummary.dailyLine ? (
                 <span className="operational-progress-section__summary-item operational-progress-section__summary-rates">
-                  {[rateSummary.currentHourLine || rateSummary.hourlyLine, rateSummary.lastActiveHourLine, rateSummary.dailyLine]
+                  {[clientHourlySummary.currentHourLine || rateSummary.hourlyLine, clientHourlySummary.lastActiveHourLine, rateSummary.dailyLine]
                     .filter(Boolean)
                     .join(' · ')}
                 </span>
@@ -257,7 +262,7 @@ export default function OperationalProgressSection({
             hourlyBuckets={hourlyBuckets}
             unit={cargoSiMetricLabel ?? 'MT'}
             purpose={progress?.purpose ?? null}
-            currentHourLine={rateSummary.currentHourLine ?? null}
+            currentHourLine={clientHourlySummary.currentHourLine ?? null}
             collapsible
             collapsedRowLimit={6}
             jettyName={jettyName}

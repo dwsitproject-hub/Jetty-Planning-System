@@ -2,6 +2,73 @@
  * Hourly cargo table display helpers: per-tank row expansion and signed moved qty.
  */
 
+import { DateTime } from 'luxon'
+import { getAppLocaleTag } from './formatDateTimeDisplay.js'
+import { getClientIanaTimeZone } from './scheduleDateTime.js'
+
+/**
+ * Format an hourly bucket time range in browser/user timezone: `dd MMM HH:mm - HH:mm`.
+ * @param {unknown} hourStart UTC ISO instant
+ * @param {unknown} hourEnd UTC ISO instant
+ * @param {{ timeZone?: string, locale?: string }} [opts]
+ * @returns {string}
+ */
+export function formatHourlyRangeDisplay(hourStart, hourEnd, opts = {}) {
+  if (hourStart == null || hourEnd == null) return '—'
+
+  const timeZone = opts.timeZone || getClientIanaTimeZone()
+  const locale = opts.locale || getAppLocaleTag()
+
+  const start = DateTime.fromISO(String(hourStart), { zone: 'utc' }).setZone(timeZone).setLocale(locale)
+  const end = DateTime.fromISO(String(hourEnd), { zone: 'utc' }).setZone(timeZone).setLocale(locale)
+
+  if (!start.isValid || !end.isValid) return '—'
+
+  return `${start.toFormat('dd MMM HH:mm')} - ${end.toFormat('HH:mm')}`
+}
+
+/**
+ * Build current/last-active summary lines from hourly buckets (browser timezone).
+ * @param {Array<object>} hourlyBuckets
+ * @param {string} [unit]
+ * @param {{ timeZone?: string, locale?: string }} [opts]
+ * @returns {{ currentHourLine: string|null, lastActiveHourLine: string|null }}
+ */
+export function buildClientHourlyRateSummary(hourlyBuckets, unit = 'MT', opts = {}) {
+  if (!Array.isArray(hourlyBuckets) || hourlyBuckets.length === 0) {
+    return { currentHourLine: null, lastActiveHourLine: null }
+  }
+
+  const rangeOpts =
+    opts.timeZone || opts.locale ? { timeZone: opts.timeZone, locale: opts.locale } : undefined
+
+  const current = hourlyBuckets[hourlyBuckets.length - 1]
+  const currentRange = formatHourlyRangeDisplay(current.hourStart, current.hourEnd, rangeOpts)
+  const currentRate = Number(current.rateTph) || 0
+  const currentHourLine =
+    currentRange !== '—'
+      ? `Current hour (${currentRange}): ${currentRate.toLocaleString('en-US', { maximumFractionDigits: 1 })} ${unit}/h`
+      : null
+
+  let lastActive = null
+  for (let i = hourlyBuckets.length - 1; i >= 0; i -= 1) {
+    if (hourlyBuckets[i].movementStatus === 'active') {
+      lastActive = hourlyBuckets[i]
+      break
+    }
+  }
+
+  const lastActiveRange = lastActive
+    ? formatHourlyRangeDisplay(lastActive.hourStart, lastActive.hourEnd, rangeOpts)
+    : '—'
+  const lastActiveLine =
+    lastActive && lastActiveRange !== '—'
+      ? `Last active: ${lastActiveRange} · ${(Number(lastActive.rateTph) || 0).toLocaleString('en-US', { maximumFractionDigits: 1 })} ${unit}/h`
+      : null
+
+  return { currentHourLine, lastActiveHourLine: lastActiveLine }
+}
+
 /** @param {unknown} tankDetail */
 export function normalizeTankDetail(tankDetail) {
   if (Array.isArray(tankDetail)) return tankDetail

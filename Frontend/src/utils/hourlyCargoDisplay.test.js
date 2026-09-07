@@ -3,12 +3,69 @@ import assert from 'node:assert/strict'
 import {
   applyCargoMovementSign,
   bucketDisplayQty,
+  buildClientHourlyRateSummary,
   expandHourlyBucketsForDisplay,
   formatDisplayCargoQty,
+  formatHourlyRangeDisplay,
   formatSignedCargoQty,
   normalizeTankDetail,
   tankDisplayQty,
 } from './hourlyCargoDisplay.js'
+
+describe('formatHourlyRangeDisplay', () => {
+  it('formats bucket range in browser timezone as dd MMM HH:mm - HH:mm', () => {
+    const range = formatHourlyRangeDisplay(
+      '2026-09-06T19:00:00.000Z',
+      '2026-09-06T20:00:00.000Z',
+      { timeZone: 'Asia/Jakarta', locale: 'en-GB' }
+    )
+    assert.equal(range, '07 Sept 02:00 - 03:00')
+  })
+
+  it('shows different wall times for Makassar vs Jakarta', () => {
+    const start = '2026-09-06T18:00:00.000Z'
+    const end = '2026-09-06T19:00:00.000Z'
+    const makassar = formatHourlyRangeDisplay(start, end, {
+      timeZone: 'Asia/Makassar',
+      locale: 'en-GB',
+    })
+    const jakarta = formatHourlyRangeDisplay(start, end, {
+      timeZone: 'Asia/Jakarta',
+      locale: 'en-GB',
+    })
+    assert.equal(makassar, '07 Sept 02:00 - 03:00')
+    assert.equal(jakarta, '07 Sept 01:00 - 02:00')
+  })
+
+  it('returns em dash for missing instants', () => {
+    assert.equal(formatHourlyRangeDisplay(null, '2026-09-06T19:00:00.000Z'), '—')
+  })
+})
+
+describe('buildClientHourlyRateSummary', () => {
+  it('builds summary lines without hourLabelLocal (persisted buckets)', () => {
+    const summary = buildClientHourlyRateSummary(
+      [
+        {
+          hourStart: '2026-09-06T18:00:00.000Z',
+          hourEnd: '2026-09-06T19:00:00.000Z',
+          rateTph: 41.3,
+          movementStatus: 'flat_movement',
+        },
+        {
+          hourStart: '2026-09-06T19:00:00.000Z',
+          hourEnd: '2026-09-06T20:00:00.000Z',
+          rateTph: 13.6,
+          movementStatus: 'active',
+        },
+      ],
+      'MT',
+      { timeZone: 'Asia/Jakarta', locale: 'en-GB' }
+    )
+    assert.match(summary.currentHourLine, /Current hour \(07 Sept 02:00 - 03:00\): 13\.6 MT\/h/)
+    assert.match(summary.lastActiveHourLine, /Last active: 07 Sept 02:00 - 03:00 · 13\.6 MT\/h/)
+  })
+})
 
 describe('normalizeTankDetail', () => {
   it('accepts array or legacy tanks wrapper', () => {

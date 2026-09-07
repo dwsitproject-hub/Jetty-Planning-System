@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { downloadHourlyTransferRatesExcel } from '../data/hourlyTransferRatesExcel'
-import { expandHourlyBucketsForDisplay, formatDisplayCargoQty } from '../utils/hourlyCargoDisplay'
+import { expandHourlyBucketsForDisplay, formatDisplayCargoQty, formatHourlyRangeDisplay } from '../utils/hourlyCargoDisplay'
 
 function formatRate(n, unit = 'MT') {
   if (n == null || !Number.isFinite(Number(n))) return '—'
@@ -172,7 +172,7 @@ export default function HourlyCargoProgressTable({
                     key={row.rowKey}
                     className={`hourly-cargo-progress__row hourly-cargo-progress__row--${row.movementStatus || 'active'}`}
                   >
-                    <td>{row.hourLabelLocal || row.hourStart}</td>
+                    <td>{formatHourlyRangeDisplay(row.hourStart, row.hourEnd)}</td>
                     {showTankColumn ? <td>{row.tankCode}</td> : null}
                     <td>{formatDisplayCargoQty(row.tankDisplayQtyMoved, unit)}</td>
                     <td>{formatRate(row.rateTph, unit)}</td>
