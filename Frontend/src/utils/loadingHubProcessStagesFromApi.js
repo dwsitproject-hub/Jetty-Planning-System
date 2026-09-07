@@ -273,6 +273,10 @@ export function mergePreCheckSubRowsToPreData(subRows, scheduleIana = getSchedul
       }
       if (section === 'sampling') {
         merged.records = Array.isArray(row.payload?.records) ? row.payload.records : []
+        merged.ffaAverage = row.ffaAverage ?? ''
+        merged.moistureAverage = row.moistureAverage ?? ''
+        merged.dobi = row.dobi ?? ''
+        merged.iodineValue = row.iodineValue ?? ''
       }
       if (section === 'norAccepted') {
         const p = row.payload && typeof row.payload === 'object' ? row.payload : {}

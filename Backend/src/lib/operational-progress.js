@@ -20,6 +20,20 @@ import {
 } from './operational-day.js';
 
 /**
+ * Pick moved qty for overview surfaces: hourly ATG only while a cargo segment is still open.
+ * Closed segments use saved line qty / cargo summary so incomplete hourly persistence cannot under-report.
+ * @param {Awaited<ReturnType<typeof summarizeCargoProgressContext>>|null|undefined} cargoSummary
+ * @param {{ movedQty?: number|null, completionPercent?: number|null }|null|undefined} hourlyProgress
+ * @param {number} [fallbackQty]
+ */
+export function resolveCanonicalMovedQty(cargoSummary, hourlyProgress, fallbackQty = 0) {
+  const summaryMoved = cargoSummary?.movedQty ?? fallbackQty;
+  const useHourly = Boolean(cargoSummary?.hasActiveCargo) && hourlyProgress?.movedQty != null;
+  if (useHourly) return Number(hourlyProgress.movedQty) || 0;
+  return Number(summaryMoved) || 0;
+}
+
+/**
  * @param {import('pg').Pool|import('pg').PoolClient} db
  * @param {number|string} tankId
  */
@@ -644,7 +658,7 @@ export async function getOperationalProgress(db, operationId) {
     /* hourly engine optional if samples unavailable */
   }
 
-  const hourlyMoved = hourlyProgress.movedQty ?? cargoSummary?.movedQty ?? done;
+  const hourlyMoved = resolveCanonicalMovedQty(cargoSummary, hourlyProgress, done);
   const scheduleComparison = buildScheduleComparisonFromCargoSummary(ctx, {
     ...(cargoSummary || {}),
     movedQty: hourlyMoved,
@@ -652,9 +666,10 @@ export async function getOperationalProgress(db, operationId) {
     siMetric: unit,
   });
   const completionPercent =
-    hourlyProgress.completionPercent ??
-    cargoSummary?.completionPercent ??
-    (siTotal != null && siTotal > 0 ? Math.min(100, Math.round((hourlyMoved / siTotal) * 100)) : null);
+    cargoSummary?.hasActiveCargo && hourlyProgress.completionPercent != null
+      ? hourlyProgress.completionPercent
+      : cargoSummary?.completionPercent ??
+        (siTotal != null && siTotal > 0 ? Math.min(100, Math.round((hourlyMoved / siTotal) * 100)) : null);
 
   const hourlyRateSummary = hourlyProgress.rateSummary || {};
 
@@ -941,10 +956,7 @@ export async function resolveLiveCargoProgressTotals(db, ctx, opts = {}) {
   }
 
   const closedQty = ctx.lines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
-  const movedQty =
-    hourlyProgress?.movedQty != null
-      ? Number(hourlyProgress.movedQty) || 0
-      : cargoSummary?.movedQty ?? closedQty;
+  const movedQty = resolveCanonicalMovedQty(cargoSummary, hourlyProgress, closedQty);
   const siQty = ctx.siQty;
   const siMetric = ctx.siMetric || 'MT';
   const hasOpenCargo = ctx.lines.some((l) => l.startedAt && !l.endedAt);
@@ -956,7 +968,11 @@ export async function resolveLiveCargoProgressTotals(db, ctx, opts = {}) {
     cargoSummary,
     hourlyProgress,
     completionPercent:
-      siQty != null && siQty > 0 ? Math.min(100, Math.round((movedQty / siQty) * 100)) : null,
+      cargoSummary?.hasActiveCargo && hourlyProgress?.completionPercent != null
+        ? hourlyProgress.completionPercent
+        : siQty != null && siQty > 0
+          ? Math.min(100, Math.round((movedQty / siQty) * 100))
+          : null,
     source: cargoSummary?.source ?? (hourlyProgress ? 'atg' : 'manual'),
     isLive: cargoSummary?.isLive ?? hasOpenCargo,
     hasActiveCargo: cargoSummary?.hasActiveCargo ?? hasOpenCargo,
