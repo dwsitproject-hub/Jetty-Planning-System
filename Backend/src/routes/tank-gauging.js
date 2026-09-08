@@ -7,6 +7,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePortScope } from '../middleware/port-scope.js';
 import { requirePageEdit, requirePageView } from '../middleware/permissions.js';
 import { computeAtgWindowMassDelta, computeAtgWindowVolumeDelta } from '../lib/atg-window-rate.js';
+import { lookupHistoricalAtgReading } from '../lib/sounding-atg-historical.js';
 import { computeDirectionalMovedQtyForWindow } from '../lib/atg-hourly-progress.js';
 import {
   createSource,
@@ -119,6 +120,47 @@ router.get('/latest', ...requirePageView(PAGE_KEY), async (req, res) => {
   );
 
   res.json(r.rows.map(toReading));
+});
+
+/** GET /tank-gauging/historical-reading — nearest sample for ICC backdated sounding */
+router.get('/historical-reading', async (req, res) => {
+  const portId = parsePortId(req.query.portId ?? req.query.port_id);
+  const tankId = parseInt(String(req.query.tankId ?? req.query.tank_id ?? ''), 10);
+  const at = req.query.at ?? req.query.soundedAt ?? req.query.sounded_at;
+  const siMetric = req.query.siMetric ?? req.query.si_metric ?? 'MT';
+
+  if (portId == null) {
+    return res.status(400).json({ error: 'portId is required' });
+  }
+  if (!assertPortAllowed(req, portId)) {
+    return res.status(403).json({ error: 'Selected port is not assigned to this user' });
+  }
+  if (!Number.isFinite(tankId) || tankId <= 0) {
+    return res.status(400).json({ error: 'tankId is required' });
+  }
+  if (!at) {
+    return res.status(400).json({ error: 'at is required' });
+  }
+
+  const portCheck = await pool.query(
+    `SELECT id FROM master_tanks WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
+    [tankId, portId]
+  );
+  if (!portCheck.rows.length) {
+    return res.status(400).json({ error: 'Tank not found for this port' });
+  }
+
+  try {
+    const result = await lookupHistoricalAtgReading(pool, {
+      tankId,
+      soundedAt: at,
+      siMetric,
+    });
+    res.json(result);
+  } catch (err) {
+    const status = err.statusCode ?? 500;
+    res.status(status).json({ error: err.message || 'Historical lookup failed' });
+  }
 });
 
 /** GET /tank-gauging/mass-delta — segment mass Δ for cargo ops (no tank-farm page permission required) */
