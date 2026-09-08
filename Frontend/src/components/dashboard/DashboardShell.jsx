@@ -629,30 +629,6 @@ export default function DashboardShell({ mode = 'live' }) {
     return { total, stale, healthy, pct }
   }, [atgSyncHealthData])
 
-  // ─── Jetty status ─────────────────────────────────────────────────────────
-  const jettyStatusCounts = useMemo(() => {
-    const m = { Available: 0, 'Out of Service': 0 }
-    for (const j of jetties) {
-      const s = j.status || 'Available'
-      if (s === 'Out of Service') m['Out of Service'] += 1
-      else m.Available += 1
-    }
-    return m
-  }, [jetties])
-
-  const jettyStatusLists = useMemo(() => {
-    const avail = [], oos = []
-    for (const j of jetties) {
-      const name = (j?.name || '').trim()
-      const label = name.replace(/^Jetty\s+/i, '').trim() || name || '—'
-      if ((j?.status || '') === 'Out of Service') oos.push(label)
-      else avail.push(label)
-    }
-    avail.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-    oos.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-    return { avail, oos }
-  }, [jetties])
-
   // ─── Performance (from plans + ops, both filtered by date range) ──────────
   const performance = useMemo(() => {
     const tolMs = 6 * 3600000
@@ -1495,23 +1471,6 @@ export default function DashboardShell({ mode = 'live' }) {
 
         {isLive && (
         <>
-        {/* Jetty Status */}
-        <div className="v2-kpi-card">
-          <div className="v2-kpi-card__label">{t('jettyStatus')} <span className="v2-basis-chip">{t('v2BasisLive')}</span></div>
-          <div className="v2-kpi-card__jetty-row">
-            <InteractiveTooltip title={t('jettyTooltipAvail')} items={jettyStatusLists.avail.map((l) => ({ primary: l }))} emptyText={t('jettyEmptyAvail')}>
-              <span className="v2-kpi-jetty-chip v2-kpi-jetty-chip--ok">
-                ✓ {t('available')} <strong>{jettyStatusCounts.Available}</strong>
-              </span>
-            </InteractiveTooltip>
-            <InteractiveTooltip title={t('jettyTooltipOos')} items={jettyStatusLists.oos.map((l) => ({ primary: l }))} emptyText={t('jettyEmptyOos')}>
-              <span className="v2-kpi-jetty-chip v2-kpi-jetty-chip--bad">
-                ✕ {t('outOfService')} <strong>{jettyStatusCounts['Out of Service']}</strong>
-              </span>
-            </InteractiveTooltip>
-          </div>
-        </div>
-
         {/* Awaiting departure: ops finished, not cast off (clearance lag) */}
         <div className={`v2-kpi-card${awaitingDeparture.length > 0 ? ' v2-kpi-card--accent-amber' : ''}`}>
           <div className="v2-kpi-card__label">{t('v2AwaitDeparture')} <span className="v2-basis-chip">{t('v2BasisLive')}</span></div>
