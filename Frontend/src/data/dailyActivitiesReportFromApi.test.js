@@ -7,6 +7,8 @@ import {
   buildSingleOperationReportBlock,
   buildVesselActivitiesTimelog,
   mapEventToTemplateId,
+  operationIsEligibleForReport,
+  operationScheduleOverlapsRange,
   operationMatchesPlanRefFilter,
   operationMatchesPurposeFilter,
   resolveOperationPurpose,
@@ -173,6 +175,20 @@ test('mapEventToTemplateId covers sub-process and milestone keys', () => {
   assert.equal(mapEventToTemplateId({ source: 'sub_process', subProcessKey: 'inspection' }), null)
 })
 
+test('operationIsEligibleForReport includes pre-berth and excludes sailed without TB', () => {
+  assert.equal(operationIsEligibleForReport({ status: 'PENDING' }), true)
+  assert.equal(operationIsEligibleForReport({ status: 'ALLOCATED' }), true)
+  assert.equal(operationIsEligibleForReport({ status: 'DOCKED' }), true)
+  assert.equal(operationIsEligibleForReport({ status: 'SAILED', tbAt: '2026-06-01T00:00:00.000Z' }), true)
+  assert.equal(operationIsEligibleForReport({ status: 'SAILED' }), false)
+})
+
+test('operationScheduleOverlapsRange uses ETA and related schedule fields', () => {
+  const op = { eta: '2026-09-05T08:00:00.000Z' }
+  assert.equal(operationScheduleOverlapsRange(op, null, '2026-09-01', '2026-09-07'), true)
+  assert.equal(operationScheduleOverlapsRange(op, null, '2026-10-01', '2026-10-07'), false)
+})
+
 test('buildSingleOperationReportBlock uses operation-level date filter and full checklist', () => {
   const op = { id: 7, vesselName: 'MV Alpha', purpose: 'Loading', status: 'IN_PROGRESS' }
   const events = [
@@ -193,4 +209,20 @@ test('buildSingleOperationReportBlock uses operation-level date filter and full 
 
   const noEvents = buildSingleOperationReportBlock(op, null, null, [], '2026-08-01', '2026-08-07', new Map())
   assert.equal(noEvents, null)
+})
+
+test('buildSingleOperationReportBlock includes pre-berth op when ETA is in date range', () => {
+  const op = {
+    id: 99,
+    vesselName: 'MV Pre-Berth',
+    status: 'ALLOCATED',
+    eta: '2026-09-05T08:00:00.000Z',
+  }
+  const block = buildSingleOperationReportBlock(op, null, null, [], '2026-09-01', '2026-09-07', new Map())
+  assert.ok(block)
+  assert.equal(block.timelog.length, VESSEL_ACTIVITIES_TIMELOG_TEMPLATE.length)
+  assert.ok(block.timelog.every((r) => r.isPlaceholder))
+
+  const outOfRange = buildSingleOperationReportBlock(op, null, null, [], '2026-10-01', '2026-10-07', new Map())
+  assert.equal(outOfRange, null)
 })

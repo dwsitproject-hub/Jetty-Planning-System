@@ -7,7 +7,7 @@ import { fetchShippingInstruction } from '../api/shippingInstructions'
 import { fetchJetties } from '../api/jetties'
 import { fetchShipmentPlans } from '../api/shipmentPlans'
 import {
-  operationIsBerthedForReport,
+  operationIsEligibleForReport,
   buildSingleOperationReportBlock,
   DAILY_ACTIVITIES_HEADER_FIELDS,
   DAILY_ACTIVITIES_HEADER_DATETIME_KEYS,
@@ -52,7 +52,7 @@ export default function DailyActivitiesReport() {
   const [selectedJettyIds, setSelectedJettyIds] = useState([])
 
   const [jetties, setJetties] = useState([])
-  const [berthedOps, setBerthedOps] = useState([])
+  const [eligibleOps, setEligibleOps] = useState([])
   const [overviewByOpId, setOverviewByOpId] = useState(() => new Map())
   const [planRefByShipmentPlanId, setPlanRefByShipmentPlanId] = useState(() => new Map())
   const [filterDataLoading, setFilterDataLoading] = useState(false)
@@ -66,7 +66,7 @@ export default function DailyActivitiesReport() {
   useEffect(() => {
     if (selectedPortId == null) {
       setJetties([])
-      setBerthedOps([])
+      setEligibleOps([])
       setOverviewByOpId(new Map())
       setPlanRefByShipmentPlanId(new Map())
       setFilterLoadError(null)
@@ -85,15 +85,15 @@ export default function DailyActivitiesReport() {
         ])
         if (cancelled) return
         setJetties(Array.isArray(jetList) ? jetList : [])
-        const berthed = (Array.isArray(ops) ? ops : []).filter(operationIsBerthedForReport)
-        setBerthedOps(berthed)
+        const eligible = (Array.isArray(ops) ? ops : []).filter(operationIsEligibleForReport)
+        setEligibleOps(eligible)
         setOverviewByOpId(buildOverviewByOpId(overview))
         setPlanRefByShipmentPlanId(buildPlanRefByShipmentPlanId(plans))
       } catch (e) {
         if (!cancelled) {
           setFilterLoadError(e?.message || 'Failed to load filters')
           setJetties([])
-          setBerthedOps([])
+          setEligibleOps([])
           setOverviewByOpId(new Map())
           setPlanRefByShipmentPlanId(new Map())
         }
@@ -126,7 +126,7 @@ export default function DailyActivitiesReport() {
   )
 
   const vesselSelectOptions = useMemo(() => {
-    return [...berthedOps]
+    return [...eligibleOps]
       .sort((a, b) => {
         const na = `${a.vesselName || ''} ${a.referenceNumber || ''}`.toLowerCase()
         const nb = `${b.vesselName || ''} ${b.referenceNumber || ''}`.toLowerCase()
@@ -143,7 +143,7 @@ export default function DailyActivitiesReport() {
           label: [op.vesselName || '—', op.referenceNumber, planRef].filter(Boolean).join(' · '),
         }
       })
-  }, [berthedOps, overviewByOpId, planRefByShipmentPlanId])
+  }, [eligibleOps, overviewByOpId, planRefByShipmentPlanId])
 
   const canRunReport = selectedPortId != null && !requiresSelection && !noPortAssigned
 
@@ -160,7 +160,7 @@ export default function DailyActivitiesReport() {
       const overviewByOpIdForReport = buildOverviewByOpId(overview)
       const planRefByShipmentPlanIdForReport = buildPlanRefByShipmentPlanId(plans)
 
-      let ops = (Array.isArray(operations) ? operations : []).filter(operationIsBerthedForReport)
+      let ops = (Array.isArray(operations) ? operations : []).filter(operationIsEligibleForReport)
 
       if (planRefFilter.trim()) {
         ops = ops.filter((o) =>
@@ -268,8 +268,8 @@ export default function DailyActivitiesReport() {
     <div className="allocation-page daily-activities-report">
       <h1 className="page-title">{t('dailyActivitiesReport')}</h1>
       <p className="allocation-page__intro">
-        At-berth operations for the selected port (including sailed), with activity timeline from Pre / Operational / Post.
-        Vessels not yet alongside (no TB / docking) are excluded. Filter by date range, plan ref, purpose, jetty, or operation.
+        Operations for the selected port (pre-berth, at-berth, and sailed), with activity checklist from Pre / Operational / Post.
+        Filter by date range, plan ref, purpose, jetty, or operation.
       </p>
       <p className="text-steel">
         <Link to="/reporting" className="link">← Back to Reporting</Link>

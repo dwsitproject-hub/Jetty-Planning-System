@@ -68,17 +68,20 @@ function endOfDay(s) {
   return d.getTime()
 }
 
+const PRE_BERTH_STATUSES = ['PENDING', 'ALLOCATED']
+
 /**
- * Same berthed idea as Allocation / At-Berth: TB/docking or active berth status.
+ * Include pre-berth (PENDING/ALLOCATED), at-berth, and sailed operations.
  * SAILED is included only if there was a berth time (alongside).
  */
-export function operationIsBerthedForReport(op) {
+export function operationIsEligibleForReport(op) {
   if (!op) return false
   const st = String(op.status || '').toUpperCase()
   const hasBerthMark = Boolean(op.dockingStartTime || op.tbAt)
   if (st === 'SAILED') {
     return hasBerthMark
   }
+  if (PRE_BERTH_STATUSES.includes(st)) return true
   if (AT_BERTH_STATUSES.includes(st)) return true
   return hasBerthMark
 }
@@ -275,6 +278,31 @@ export function timelogEntryOverlapsRange(entry, startDate, endDate) {
   return bottom <= rangeEnd && top >= rangeStart
 }
 
+export function operationScheduleOverlapsRange(op, overviewRow, startDate, endDate) {
+  if (!startDate || !endDate) return true
+  const scheduleDates = [
+    op?.eta,
+    op?.ta,
+    op?.etb,
+    op?.tbAt,
+    op?.dockingStartTime,
+    op?.estimatedCompletionTime,
+    op?.castOffAt,
+    op?.sailedAt,
+    overviewRow?.etaDateTime,
+    overviewRow?.taDateTime,
+    overviewRow?.etbDateTime,
+    overviewRow?.plannedEtbDateTime,
+    overviewRow?.tbDateTime,
+    overviewRow?.estimatedCompletionDateTime,
+    overviewRow?.castOffDateTime,
+  ]
+  return scheduleDates.some((iso) => {
+    if (!iso) return false
+    return timelogEntryOverlapsRange({ dateTime: iso, endDateTime: iso }, startDate, endDate)
+  })
+}
+
 function summarizeQuantityFromSiBreakdown(breakdown) {
   if (!Array.isArray(breakdown) || breakdown.length === 0) return '—'
   return breakdown
@@ -391,7 +419,9 @@ export function buildSingleOperationReportBlock(op, si, overviewRow, events, sta
   const hasRange = Boolean(startDate && endDate)
   const hasFilledInRange =
     !hasRange || filledRows.some((row) => timelogEntryOverlapsRange(row, startDate, endDate))
-  if (hasRange && !hasFilledInRange) return null
+  const hasScheduleInRange =
+    !hasRange || operationScheduleOverlapsRange(op, overviewRow, startDate, endDate)
+  if (hasRange && !hasFilledInRange && !hasScheduleInRange) return null
   return {
     vesselId: String(op.id),
     vesselName: op.vesselName || '—',
