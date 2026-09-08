@@ -16,6 +16,7 @@ import {
   buildActivityLogEditPath,
   activityLogRowCanDelete,
 } from '../utils/atBerthActivityLogNav'
+import { operationalActivityEventStatusForTimeline } from '../utils/operationalActivityEventStatus.js'
 
 function formatTimelineDuration(startIso, endIso) {
   if (!startIso || !endIso) return '—'
@@ -67,17 +68,7 @@ function parseOperationalEntryId(ev) {
 }
 
 function timelineStatusDisplay(ev) {
-  if (ev.source === 'operational_milestone_na') return 'N/A'
-  if (ev.source === 'sub_process') {
-    const s = ev.status != null ? String(ev.status).trim() : ''
-    return s || '—'
-  }
-  if (ev.source === 'operational_activity') {
-    if (ev.endAt) return 'Done'
-    if (ev.startAt) return 'In Progress'
-    return '—'
-  }
-  return '—'
+  return operationalActivityEventStatusForTimeline(ev)
 }
 
 const REMARK_PREVIEW_MAX_CHARS = 120
