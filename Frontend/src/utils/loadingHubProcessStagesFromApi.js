@@ -98,7 +98,6 @@ function mergeInitialCargoHydration(current, row, scheduleIana = getScheduleEntr
     if (en) next.endTime = next.endTime || en
   }
   next.cargoCheckingType = typeFromKey || p.cargoCheckingType || current.cargoCheckingType
-  next.tankReadings = Array.isArray(p.tankReadings) ? p.tankReadings : current.tankReadings || []
   return next
 }
 

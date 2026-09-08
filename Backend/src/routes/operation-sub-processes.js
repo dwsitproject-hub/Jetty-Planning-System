@@ -25,7 +25,6 @@ import {
   runSamplingDocumentExtract,
   toMetricNumber,
 } from '../lib/sampling-document-extract.js';
-import { validateAndNormalizeTankReadings } from '../lib/sounding-tank-readings.js';
 
 const POST_CHECK_AUTO_KEYS = new Set([
   'final_inspection',
@@ -510,22 +509,6 @@ router.put('/operations/:operationId/sub-processes/:subProcessKey', async (req, 
       });
     }
     req.body.payload = { ...(payloadIn && typeof payloadIn === 'object' ? payloadIn : {}), cargoCheckingType: expected };
-
-    if (ctx.commodity_type === 'Liquid' && expected === 'Sounding') {
-      const status = String(req.body?.status ?? '').trim();
-      const isDraft = status === 'In Progress';
-      const siMetric = req.body?.siMetric ?? payloadIn?.siMetric ?? 'MT';
-      try {
-        const tankReadings = validateAndNormalizeTankReadings(payloadIn?.tankReadings, {
-          siMetric,
-          requireReadings: !isDraft,
-        });
-        req.body.payload = { ...req.body.payload, tankReadings };
-      } catch (err) {
-        const code = err.statusCode ?? 400;
-        return res.status(code).json({ error: err.message || 'Invalid tank readings' });
-      }
-    }
   }
 
   const before = await loadSubProcess(operationId, phase, key);
