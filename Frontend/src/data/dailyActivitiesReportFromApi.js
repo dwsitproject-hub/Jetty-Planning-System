@@ -2,6 +2,8 @@
  * Build Daily Activities Report rows from live API data (operations, SI, activity timeline).
  */
 
+import { operationalActivityEventStatus } from '../utils/operationalActivityEventStatus.js'
+
 export const DAILY_ACTIVITIES_HEADER_DATETIME_KEYS = new Set([
   'eta',
   'actualArrival',
@@ -87,14 +89,7 @@ export function operationIsEligibleForReport(op) {
 }
 
 function statusForTimelineEvent(ev) {
-  if (ev.source === 'sub_process') return ev.status || '—'
-  if (ev.source === 'operational_milestone_na') return 'N/A'
-  if (ev.source === 'operational_activity') {
-    if (ev.endAt) return 'Done'
-    if (ev.startAt) return 'In progress'
-    return '—'
-  }
-  return '—'
+  return operationalActivityEventStatus(ev)
 }
 
 export const VESSEL_ACTIVITIES_TIMELOG_TEMPLATE = [

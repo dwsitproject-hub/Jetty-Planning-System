@@ -166,6 +166,32 @@ test('buildVesselActivitiesTimelog supports multiple rows in one category', () =
   assert.equal(cargoRows[1].dateTime, '2026-08-06T14:00:00.000Z')
 })
 
+test('buildVesselActivitiesTimelog marks start-only Opening and Pre-conditioning as Done', () => {
+  const events = [
+    {
+      source: 'operational_activity',
+      milestoneKey: 'opening_hatch',
+      startAt: '2026-07-16T08:40:00.000Z',
+      subStepTitle: 'Open ramdoor',
+      cargoHandlingMethodName: 'Conveyor',
+      remark: 'Unload by truck',
+    },
+    {
+      source: 'operational_activity',
+      milestoneKey: 'cargo_pre_conditioning',
+      startAt: '2026-07-16T10:22:00.000Z',
+      remark: 'N/a',
+    },
+  ]
+  const rows = buildVesselActivitiesTimelog(events)
+  const opening = rows.find((r) => r.category === 'Operational - Opening')
+  const preCond = rows.find((r) => r.category === 'Operational - Cargo Pre-Conditioning')
+  assert.equal(opening?.status, 'Done')
+  assert.equal(opening?.endDateTime, '')
+  assert.equal(preCond?.status, 'Done')
+  assert.equal(preCond?.endDateTime, '')
+})
+
 test('mapEventToTemplateId covers sub-process and milestone keys', () => {
   assert.equal(mapEventToTemplateId({ source: 'sub_process', subProcessKey: 'nor_accepted' }), 'pre_nor')
   assert.equal(
