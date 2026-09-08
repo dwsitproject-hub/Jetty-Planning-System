@@ -1,40 +1,28 @@
 import ExcelJS from 'exceljs'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay.js'
-
-const HEADER_FIELDS = [
-  { key: 'jetty', label: 'Jetty' },
-  { key: 'vessel', label: 'Vessel' },
-  { key: 'commodity', label: 'Commodity' },
-  { key: 'quantity', label: 'Quantity' },
-  { key: 'stowage', label: 'Stowage' },
-  { key: 'loadPort', label: 'Load port' },
-  { key: 'dischPort', label: 'Disch port' },
-  { key: 'shipper', label: 'Shipper' },
-  { key: 'consignee', label: 'Consignee' },
-  { key: 'surveyor', label: 'Surveyor' },
-  { key: 'agent', label: 'Agent' },
-  { key: 'demurrageLiabilityFrom', label: 'Demurrage liability from' },
-  { key: 'operationStatus', label: 'Operation status' },
-]
+import {
+  DAILY_ACTIVITIES_HEADER_FIELDS,
+  DAILY_ACTIVITIES_HEADER_DATETIME_KEYS,
+} from './dailyActivitiesReportFromApi.js'
 
 function headerCellValue(key, header) {
   const raw = header[key]
-  if (key === 'demurrageLiabilityFrom') return formatDateTimeDisplay(raw)
+  if (DAILY_ACTIVITIES_HEADER_DATETIME_KEYS.has(key)) return formatDateTimeDisplay(raw)
   return raw ?? '—'
 }
 
 /**
- * Build an ExcelJS workbook for the Daily Activities Report.
+ * Build an ExcelJS workbook for the Vessel Activities Report.
  * One sheet, stacked blocks per operation: Header table, Timelog table.
  */
 export function buildDailyActivitiesReportWorkbook(reportVessels, startDate, endDate) {
   const workbook = new ExcelJS.Workbook()
   workbook.creator = 'Jetty Planning System'
-  const sheet = workbook.addWorksheet('Daily Activities Report', { views: [{ showGridLines: true }] })
+  const sheet = workbook.addWorksheet('Vessel Activities Report', { views: [{ showGridLines: true }] })
 
   let row = 1
 
-  sheet.getCell(row, 1).value = 'Daily Activities Report'
+  sheet.getCell(row, 1).value = 'Vessel Activities Report'
   sheet.getCell(row, 1).font = { bold: true, size: 14 }
   row += 1
 
@@ -53,7 +41,7 @@ export function buildDailyActivitiesReportWorkbook(reportVessels, startDate, end
     sheet.getCell(row, 1).value = 'Header'
     sheet.getCell(row, 1).font = { bold: true }
     row += 1
-    HEADER_FIELDS.forEach(({ key, label }) => {
+    DAILY_ACTIVITIES_HEADER_FIELDS.forEach(({ key, label }) => {
       sheet.getCell(row, 1).value = label
       sheet.getCell(row, 2).value = headerCellValue(key, header)
       row += 1
@@ -96,7 +84,7 @@ export function buildDailyActivitiesReportWorkbook(reportVessels, startDate, end
 }
 
 /**
- * Generate and download the Daily Activities Report as .xlsx.
+ * Generate and download the Vessel Activities Report as .xlsx.
  * @param {Array} reportVessels - blocks from buildSingleOperationReportBlock (header + timelog)
  * @param {string} startDate - e.g. '2026-03-01'
  * @param {string} endDate - e.g. '2026-03-07'
@@ -107,7 +95,7 @@ export async function downloadDailyActivitiesReportExcel(reportVessels, startDat
   const blob = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   })
-  const filename = `DailyActivitiesReport_${startDate || 'start'}_to_${endDate || 'end'}.xlsx`
+  const filename = `VesselActivitiesReport_${startDate || 'start'}_to_${endDate || 'end'}.xlsx`
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url

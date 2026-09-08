@@ -5787,7 +5787,7 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   color: var(--color-primary);
 }
 
-/* Daily Activities Report */
+/* Vessel Activities Report */
 .daily-activities-report__filters {
   margin-bottom: var(--spacing-4);
 }
@@ -5801,7 +5801,7 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
 
 .daily-activities-report__multi-section {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: var(--spacing-4);
   margin-bottom: var(--spacing-4);
 }

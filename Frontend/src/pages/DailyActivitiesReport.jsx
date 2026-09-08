@@ -1,34 +1,28 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { fetchOperations, fetchActivityTimeline } from '../api/operations'
 import { fetchAllocationOverview } from '../api/allocation'
 import { fetchShippingInstruction } from '../api/shippingInstructions'
 import { fetchJetties } from '../api/jetties'
+import { fetchShipmentPlans } from '../api/shipmentPlans'
 import {
   operationIsBerthedForReport,
   buildSingleOperationReportBlock,
+  DAILY_ACTIVITIES_HEADER_FIELDS,
+  DAILY_ACTIVITIES_HEADER_DATETIME_KEYS,
+  DAILY_ACTIVITIES_PURPOSE_OPTIONS,
+  buildOverviewByOpId,
+  buildPlanRefByShipmentPlanId,
+  resolveOperationPlanReference,
+  operationMatchesPlanRefFilter,
+  operationMatchesPurposeFilter,
 } from '../data/dailyActivitiesReportFromApi'
 import { downloadDailyActivitiesReportExcel } from '../data/dailyActivitiesReportExcel'
 import { usePortScope } from '../context/PortScopeContext'
 import DropdownMultiSelect from '../components/DropdownMultiSelect'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import '../styles/allocation.css'
-
-const HEADER_FIELDS = [
-  { key: 'jetty', label: 'Jetty' },
-  { key: 'vessel', label: 'Vessel' },
-  { key: 'commodity', label: 'Commodity' },
-  { key: 'quantity', label: 'Quantity' },
-  { key: 'stowage', label: 'Stowage' },
-  { key: 'loadPort', label: 'Load port' },
-  { key: 'dischPort', label: 'Disch port' },
-  { key: 'shipper', label: 'Shipper' },
-  { key: 'consignee', label: 'Consignee' },
-  { key: 'surveyor', label: 'Surveyor' },
-  { key: 'agent', label: 'Agent' },
-  { key: 'demurrageLiabilityFrom', label: 'Demurrage liability from' },
-  { key: 'operationStatus', label: 'Operation status' },
-]
 
 function getDefaultDateRange() {
   const end = new Date()
@@ -41,6 +35,7 @@ function getDefaultDateRange() {
 }
 
 export default function DailyActivitiesReport() {
+  const { t } = useTranslation('pages')
   const {
     selectedPortId,
     requiresSelection,
@@ -51,11 +46,15 @@ export default function DailyActivitiesReport() {
 
   const [startDate, setStartDate] = useState(defaultRange.startDate)
   const [endDate, setEndDate] = useState(defaultRange.endDate)
+  const [planRefFilter, setPlanRefFilter] = useState('')
+  const [selectedPurposes, setSelectedPurposes] = useState([])
   const [selectedOperationIds, setSelectedOperationIds] = useState([])
   const [selectedJettyIds, setSelectedJettyIds] = useState([])
 
   const [jetties, setJetties] = useState([])
   const [berthedOps, setBerthedOps] = useState([])
+  const [overviewByOpId, setOverviewByOpId] = useState(() => new Map())
+  const [planRefByShipmentPlanId, setPlanRefByShipmentPlanId] = useState(() => new Map())
   const [filterDataLoading, setFilterDataLoading] = useState(false)
   const [filterLoadError, setFilterLoadError] = useState(null)
 
@@ -68,6 +67,8 @@ export default function DailyActivitiesReport() {
     if (selectedPortId == null) {
       setJetties([])
       setBerthedOps([])
+      setOverviewByOpId(new Map())
+      setPlanRefByShipmentPlanId(new Map())
       setFilterLoadError(null)
       return
     }
@@ -76,19 +77,25 @@ export default function DailyActivitiesReport() {
     setFilterLoadError(null)
     ;(async () => {
       try {
-        const [jetList, ops] = await Promise.all([
+        const [jetList, ops, overview, plans] = await Promise.all([
           fetchJetties(selectedPortId),
           fetchOperations({ portId: selectedPortId }),
+          fetchAllocationOverview(),
+          fetchShipmentPlans(),
         ])
         if (cancelled) return
         setJetties(Array.isArray(jetList) ? jetList : [])
         const berthed = (Array.isArray(ops) ? ops : []).filter(operationIsBerthedForReport)
         setBerthedOps(berthed)
+        setOverviewByOpId(buildOverviewByOpId(overview))
+        setPlanRefByShipmentPlanId(buildPlanRefByShipmentPlanId(plans))
       } catch (e) {
         if (!cancelled) {
           setFilterLoadError(e?.message || 'Failed to load filters')
           setJetties([])
           setBerthedOps([])
+          setOverviewByOpId(new Map())
+          setPlanRefByShipmentPlanId(new Map())
         }
       } finally {
         if (!cancelled) setFilterDataLoading(false)
@@ -103,6 +110,8 @@ export default function DailyActivitiesReport() {
     setAppliedFilters(null)
     setReportVessels([])
     setReportError(null)
+    setPlanRefFilter('')
+    setSelectedPurposes([])
     setSelectedOperationIds([])
     setSelectedJettyIds([])
   }, [selectedPortId])
@@ -123,11 +132,18 @@ export default function DailyActivitiesReport() {
         const nb = `${b.vesselName || ''} ${b.referenceNumber || ''}`.toLowerCase()
         return na.localeCompare(nb)
       })
-      .map((op) => ({
-        value: String(op.id),
-        label: [op.vesselName || '—', op.referenceNumber].filter(Boolean).join(' · '),
-      }))
-  }, [berthedOps])
+      .map((op) => {
+        const planRef = resolveOperationPlanReference(
+          op,
+          overviewByOpId.get(Number(op.id)),
+          planRefByShipmentPlanId
+        )
+        return {
+          value: String(op.id),
+          label: [op.vesselName || '—', op.referenceNumber, planRef].filter(Boolean).join(' · '),
+        }
+      })
+  }, [berthedOps, overviewByOpId, planRefByShipmentPlanId])
 
   const canRunReport = selectedPortId != null && !requiresSelection && !noPortAssigned
 
@@ -136,17 +152,24 @@ export default function DailyActivitiesReport() {
     setReportLoading(true)
     setReportError(null)
     try {
-      const [operations, overview] = await Promise.all([
+      const [operations, overview, plans] = await Promise.all([
         fetchOperations({ portId: selectedPortId }),
         fetchAllocationOverview(),
+        fetchShipmentPlans(),
       ])
-      const overviewByOpId = new Map()
-      for (const row of overview?.queue || []) {
-        if (row.operationId != null) overviewByOpId.set(Number(row.operationId), row)
-      }
+      const overviewByOpIdForReport = buildOverviewByOpId(overview)
+      const planRefByShipmentPlanIdForReport = buildPlanRefByShipmentPlanId(plans)
 
       let ops = (Array.isArray(operations) ? operations : []).filter(operationIsBerthedForReport)
 
+      if (planRefFilter.trim()) {
+        ops = ops.filter((o) =>
+          operationMatchesPlanRefFilter(o, overviewByOpIdForReport, planRefFilter, planRefByShipmentPlanIdForReport)
+        )
+      }
+      if (selectedPurposes.length > 0) {
+        ops = ops.filter((o) => operationMatchesPurposeFilter(o, overviewByOpIdForReport, selectedPurposes))
+      }
       if (selectedJettyIds.length > 0) {
         const want = new Set(selectedJettyIds.map((id) => Number(id)))
         ops = ops.filter((o) => o.jettyId != null && want.has(Number(o.jettyId)))
@@ -178,10 +201,11 @@ export default function DailyActivitiesReport() {
             const block = buildSingleOperationReportBlock(
               op,
               siMap.get(op.shippingInstructionId) ?? null,
-              overviewByOpId.get(Number(op.id)),
+              overviewByOpIdForReport.get(Number(op.id)),
               events,
               startDate,
-              endDate
+              endDate,
+              planRefByShipmentPlanIdForReport
             )
             if (block) blocks.push(block)
           } catch {
@@ -195,6 +219,8 @@ export default function DailyActivitiesReport() {
       setAppliedFilters({
         startDate,
         endDate,
+        planRefFilter,
+        selectedPurposes: [...selectedPurposes],
         selectedOperationIds: [...selectedOperationIds],
         selectedJettyIds: [...selectedJettyIds],
       })
@@ -210,6 +236,8 @@ export default function DailyActivitiesReport() {
     selectedPortId,
     selectedJettyIds,
     selectedOperationIds,
+    selectedPurposes,
+    planRefFilter,
     startDate,
     endDate,
   ])
@@ -230,7 +258,7 @@ export default function DailyActivitiesReport() {
   }, [appliedFilters, reportVessels])
 
   function renderHeaderValue(key, raw) {
-    if (key === 'demurrageLiabilityFrom') {
+    if (DAILY_ACTIVITIES_HEADER_DATETIME_KEYS.has(key)) {
       return formatDateTimeDisplay(raw)
     }
     return raw ?? '—'
@@ -238,10 +266,10 @@ export default function DailyActivitiesReport() {
 
   return (
     <div className="allocation-page daily-activities-report">
-      <h1 className="page-title">Daily Activities Report</h1>
+      <h1 className="page-title">{t('dailyActivitiesReport')}</h1>
       <p className="allocation-page__intro">
         At-berth operations for the selected port (including sailed), with activity timeline from Pre / Operational / Post.
-        Vessels not yet alongside (no TB / docking) are excluded. Filter by date range and optionally by jetty or operation.
+        Vessels not yet alongside (no TB / docking) are excluded. Filter by date range, plan ref, purpose, jetty, or operation.
       </p>
       <p className="text-steel">
         <Link to="/reporting" className="link">← Back to Reporting</Link>
@@ -261,7 +289,7 @@ export default function DailyActivitiesReport() {
       <section className="card daily-activities-report__filters">
         <h2 className="card__title">Filters</h2>
         {filterLoadError && <p className="text-steel" role="alert">{filterLoadError}</p>}
-        {filterDataLoading && canRunReport && <p className="text-steel">Loading jetties and operations…</p>}
+        {filterDataLoading && canRunReport && <p className="text-steel">Loading jetties, operations, and allocation data…</p>}
         <div className="daily-activities-report__filter-grid">
           <div className="daily-activities-report__field">
             <label htmlFor="report-start-date" className="daily-activities-report__label">Start date</label>
@@ -285,8 +313,30 @@ export default function DailyActivitiesReport() {
               disabled={!canRunReport}
             />
           </div>
+          <div className="daily-activities-report__field">
+            <label htmlFor="report-plan-ref" className="daily-activities-report__label">Plan Ref (optional)</label>
+            <input
+              id="report-plan-ref"
+              type="text"
+              className="daily-activities-report__input"
+              value={planRefFilter}
+              onChange={(e) => setPlanRefFilter(e.target.value)}
+              placeholder="e.g. SP-26-01-00001"
+              disabled={!canRunReport}
+            />
+          </div>
         </div>
         <div className="daily-activities-report__multi-section">
+          <DropdownMultiSelect
+            id="report-purpose"
+            label="Purpose (optional, multi-select)"
+            placeholder="Select purpose..."
+            options={DAILY_ACTIVITIES_PURPOSE_OPTIONS}
+            selectedValues={selectedPurposes}
+            onChange={setSelectedPurposes}
+            className="daily-activities-report__dropdown"
+            disabled={!canRunReport}
+          />
           <DropdownMultiSelect
             id="report-jetty"
             label="Jetty (optional, multi-select)"
@@ -305,6 +355,8 @@ export default function DailyActivitiesReport() {
             selectedValues={selectedOperationIds}
             onChange={setSelectedOperationIds}
             className="daily-activities-report__dropdown"
+            searchable
+            searchPlaceholder="Search vessel, SI, or plan ref..."
             disabled={!canRunReport || vesselSelectOptions.length === 0}
           />
         </div>
@@ -350,7 +402,7 @@ export default function DailyActivitiesReport() {
             <div className="daily-activities-report__header">
               <h3 className="daily-activities-report__section-title">Header</h3>
               <dl className="daily-activities-report__header-dl">
-                {HEADER_FIELDS.map(({ key, label }) => (
+                {DAILY_ACTIVITIES_HEADER_FIELDS.map(({ key, label }) => (
                   <div key={key} className="daily-activities-report__header-row">
                     <dt>{label}</dt>
                     <dd>{renderHeaderValue(key, header[key])}</dd>
