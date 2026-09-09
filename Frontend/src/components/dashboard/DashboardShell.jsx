@@ -805,6 +805,7 @@ export default function DashboardShell({ mode = 'live' }) {
           if (line?.commodityName) names.add(line.commodityName)
         }
       }
+      const hasTa = Boolean(parseIso(p.ta))
       rows.push({
         id: p.id,
         vesselName: p.vesselName || `Plan #${p.id}`,
@@ -813,6 +814,8 @@ export default function DashboardShell({ mode = 'live' }) {
         etaIso: p.eta || null,
         etbIso: p.etb || null,
         inHours: evalResult.inHours,
+        overdue: evalResult.overdue && !hasTa,
+        anchored: hasTa,
         qtyMt: Number.isFinite(Number(p.vesselCapacity)) && Number(p.vesselCapacity) > 0
           ? Number(p.vesselCapacity)
           : null,
@@ -1734,7 +1737,18 @@ export default function DashboardShell({ mode = 'live' }) {
                       <b>{a.vesselName}</b>
                       {a.agentName ? <span className="v2-board-code">{a.agentName}</span> : null}
                     </td>
-                    <td>{a.etaIso ? formatDateTimeDisplay(a.etaIso) : '—'}</td>
+                    <td>
+                      {a.etaIso ? formatDateTimeDisplay(a.etaIso) : '—'}
+                      {' '}
+                      {a.overdue ? (
+                        <span className="v2-board-chip v2-board-chip--over">{t('v2ArrivalsOverdue')}</span>
+                      ) : a.etaIso ? (
+                        <span className="v2-board-chip v2-board-chip--ghost">{formatDurationHours(a.inHours)}</span>
+                      ) : null}
+                      {a.anchored ? (
+                        <span className="v2-board-chip v2-board-chip--soon">{t('v2ArrivalsAnchored')}</span>
+                      ) : null}
+                    </td>
                     <td>{a.etbIso ? formatDateTimeDisplay(a.etbIso) : '—'}</td>
                     <td>{a.jettyName || '—'}</td>
                     <td>
