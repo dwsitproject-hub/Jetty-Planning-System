@@ -1,6 +1,9 @@
 {
   "appName": "Jetty Planning System",
   "tagline": "Penjadwalan cerdas untuk pelabuhan yang lebih efisien",
+  "corpName": "KPN CORP",
+  "loginPitch": "Rencanakan sandar, pantau operasi, dan jaga setiap jetty tetap bergerak dari satu tempat.",
+  "copyright": "© {{year}} KPN Corporation. Hak cipta dilindungi.",
   "sidebarBrand": "Jetty Planning",
   "sidebarSub": "Konsol operasi",
   "toggleMenu": "Buka/tutup menu",
