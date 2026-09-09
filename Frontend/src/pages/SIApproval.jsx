@@ -5,7 +5,7 @@ import { useRbac } from '../context/RbacContext'
 import { formatBlSplitFromBreakdown, getPrintedSiNumber, formatFreightForSi } from '../utils/siBlSplit'
 import { formatSiSignOffDate } from '../utils/siFormPlaceDate'
 import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
-import { getShipperLines } from '../utils/siViewModel'
+import { SI_FORM_APPROVAL_SIGNATURE_NOTE, getShipperLines } from '../utils/siViewModel'
 import SiFormReferenceDates from '../components/SiFormReferenceDates'
 import FlowPill from '../components/FlowPill'
 import '../styles/si-approval.css'
@@ -463,7 +463,7 @@ export default function SIApproval() {
               <div className="si-form__approval-signature" />
               <div className="si-form__approval-name">
                 {(decision === 'approved' || (si.status || '').toLowerCase() === 'approved')
-                  ? (si.approverNameSnapshot || '—')
+                  ? (si.approverNameSnapshot || SI_FORM_APPROVAL_SIGNATURE_NOTE)
                   : '—'}
               </div>
               <div className="si-form__approval-title">

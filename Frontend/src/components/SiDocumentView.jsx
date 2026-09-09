@@ -1,7 +1,7 @@
 import { formatBlSplitFromBreakdown, getPrintedSiNumber, formatFreightForSi } from '../utils/siBlSplit'
 import { formatSiSignOffDate } from '../utils/siFormPlaceDate'
 import SiFormReferenceDates from './SiFormReferenceDates'
-import { SI_FORM_COMPANY, formatEtaBontang, getShipperLines } from '../utils/siViewModel'
+import { SI_FORM_APPROVAL_SIGNATURE_NOTE, SI_FORM_COMPANY, formatEtaBontang, getShipperLines } from '../utils/siViewModel'
 import '../styles/si-view.css'
 import '../styles/si-approval.css'
 
@@ -95,7 +95,7 @@ export default function SiDocumentView({ si, npwpMaster }) {
             </div>
           )}
           <div className="si-form__approval-signature" />
-          <div className="si-form__approval-name">{si.approverNameSnapshot || '—'}</div>
+          <div className="si-form__approval-name">{si.approverNameSnapshot || SI_FORM_APPROVAL_SIGNATURE_NOTE}</div>
           <div className="si-form__approval-title">{si.approverTitleSnapshot || 'OPERATION HEAD'}</div>
         </div>
       </div>
