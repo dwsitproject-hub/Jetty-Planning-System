@@ -2367,6 +2367,26 @@
 }
 
 /* ── Berth board (At Berth Now) ── */
+.v2-berth-board__row {
+  cursor: pointer;
+}
+
+.v2-berth-board__row:hover td {
+  background: color-mix(in srgb, var(--v2-atberth-color, #10B981) 8%, transparent);
+}
+
+.v2-berth-board__row:focus-visible td {
+  outline: 2px solid var(--color-primary, #c0392b);
+  outline-offset: -2px;
+}
+
+.v2-berth-board__vessel-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+}
+
 .v2-berth-board {
   margin: 8px 0 10px;
 }
@@ -2499,6 +2519,24 @@
 }
 
 /* ── Arrivals panel ── */
+.v2-arrivals__head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.v2-arrivals__window {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.v2-arrivals__window .btn--small {
+  min-width: 2.5rem;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+
 .v2-arrivals__hint {
   font-size: var(--font-size-xs);
   color: var(--color-text-steel);
