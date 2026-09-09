@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchOperations, fetchAtBerth, fetchSubProcesses, fetchOperationalActivities, fetchAtBerthCargoProgress } from '../../api/operations'
+import { fetchAllocationOverview, fetchAllocationPlanOverview } from '../../api/allocation'
 import { fetchShipmentPlans } from '../../api/shipmentPlans'
+import ActiveVesselDetailModal from '../allocation/ActiveVesselDetailModal'
 import { fetchDashboardV2Weekly, fetchDashboardV2PipelineActuals, fetchDashboardV2SlotOccupancy, fetchDashboardV2SlaAtRisk, fetchDashboardV2AtgSyncHealth } from '../../api/dashboardV2'
 import { fetchJetties } from '../../api/jetties'
 import { fetchSiLookups } from '../../api/siLookups'
@@ -26,6 +28,12 @@ import {
   filterOps,
   pruneInvalidCommoditySelection,
 } from '../../utils/dashboardFilters'
+import {
+  ARRIVALS_WINDOW_DEFAULT_DAYS,
+  ARRIVALS_WINDOW_OPTIONS,
+  evaluateArrivalPlan,
+  getArrivalsSectionTitle,
+} from '../../utils/dashboardArrivalsWindow'
 import {
   AT_BERTH_PHASES,
   PHASE_EMOJI,
@@ -76,6 +84,9 @@ export default function DashboardShell({ mode = 'live' }) {
   const [berthDetails, setBerthDetails] = useState({})
   const [cargoProgressByOpId, setCargoProgressByOpId] = useState({})
   const [nowTick, setNowTick] = useState(() => Date.now())
+  const [arrivalsWindowDays, setArrivalsWindowDays] = useState(ARRIVALS_WINDOW_DEFAULT_DAYS)
+  const [activeVesselModal, setActiveVesselModal] = useState(null)
+  const [allocationModalData, setAllocationModalData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [weeklyLoading, setWeeklyLoading] = useState(false)
   const [apiErr, setApiErr] = useState(null)
@@ -153,18 +164,10 @@ export default function DashboardShell({ mode = 'live' }) {
     }
 
     if (isLive) {
-      const arrivalsStart = new Date()
-      arrivalsStart.setDate(arrivalsStart.getDate() - 1)
-      const arrivalsEnd = new Date()
-      arrivalsEnd.setDate(arrivalsEnd.getDate() + 3)
-
       const [rAtBerth, rJetties, rArrivals, rCargoProgress] = await Promise.all([
         run('at-berth', fetchAtBerth),
         run('jetties', () => fetchJetties(selectedPortId)),
-        run('arrivals', () => fetchShipmentPlans({
-          startDate: fmtLocalDate(arrivalsStart),
-          endDate: fmtLocalDate(arrivalsEnd),
-        })),
+        run('arrivals', () => fetchShipmentPlans()),
         run('cargo-progress', fetchAtBerthCargoProgress),
       ])
 
@@ -176,21 +179,12 @@ export default function DashboardShell({ mode = 'live' }) {
       setArrivalPlans(Array.isArray(rArrivals.v) ? rArrivals.v : [])
       setCargoProgressByOpId(rCargoProgress.v?.summaries ?? {})
     } else {
-      // Arrivals window is live (yesterday → +3 days), independent of the selected range
-      const arrivalsStart = new Date()
-      arrivalsStart.setDate(arrivalsStart.getDate() - 1)
-      const arrivalsEnd = new Date()
-      arrivalsEnd.setDate(arrivalsEnd.getDate() + 3)
-
       const [rPlans, rOps, rAtBerth, rJetties, rArrivals, rAllOps] = await Promise.all([
         run('plans', () => fetchShipmentPlans({ startDate, endDate })),
         run('operations', () => fetchOperations({ startDate, endDate })),
         run('at-berth', fetchAtBerth),
         run('jetties', () => fetchJetties(selectedPortId)),
-        run('arrivals', () => fetchShipmentPlans({
-          startDate: fmtLocalDate(arrivalsStart),
-          endDate: fmtLocalDate(arrivalsEnd),
-        })),
+        run('arrivals', () => fetchShipmentPlans()),
         run('operations-all', () => fetchOperations()),
       ])
 
@@ -206,6 +200,54 @@ export default function DashboardShell({ mode = 'live' }) {
     setLastUpdated(new Date())
     setLoading(false)
   }, [selectedPortId, startDate, endDate, isLive, isAnalytics])
+
+  const refreshAllocationForModal = useCallback(async () => {
+    if (selectedPortId == null) {
+      setAllocationModalData(null)
+      return null
+    }
+    try {
+      let data
+      try {
+        data = await fetchAllocationPlanOverview()
+      } catch {
+        data = await fetchAllocationOverview()
+      }
+      const payload = {
+        queue: Array.isArray(data?.queue) ? data.queue : [],
+        scheduleQueue: Array.isArray(data?.scheduleQueue) ? data.scheduleQueue : [],
+        berths: Array.isArray(data?.berths) ? data.berths : [],
+      }
+      setAllocationModalData(payload)
+      return payload
+    } catch {
+      setAllocationModalData(null)
+      return null
+    }
+  }, [selectedPortId])
+
+  useEffect(() => {
+    if (!isLive || selectedPortId == null) {
+      setAllocationModalData(null)
+      return undefined
+    }
+    refreshAllocationForModal()
+    return undefined
+  }, [isLive, selectedPortId, refreshAllocationForModal])
+
+  const openAtBerthVesselModal = useCallback(async (row) => {
+    if (row?.operationId == null) return
+    let data = allocationModalData
+    if (!data) {
+      data = await refreshAllocationForModal()
+    }
+    const pool = [...(data?.queue ?? []), ...(data?.scheduleQueue ?? [])]
+    const match = pool.find((r) => Number(r.operationId) === Number(row.operationId))
+    setActiveVesselModal({
+      vesselId: match?.vesselId ?? `op-${row.operationId}`,
+      planId: match?.shipmentPlanId ?? row.shipmentPlanId ?? null,
+    })
+  }, [allocationModalData, refreshAllocationForModal])
 
   const refreshWeekly = useCallback(async () => {
     if (selectedPortId == null) {
@@ -705,6 +747,8 @@ export default function DashboardShell({ mode = 'live' }) {
       }
       return {
         id: o.id,
+        operationId: o.id,
+        shipmentPlanId: o.shipmentPlanId ?? null,
         vesselName: o.vesselName || `Op #${o.id}`,
         code: o.jettyOperationCode,
         jettyName: o.jettyName || '—',
@@ -742,18 +786,19 @@ export default function DashboardShell({ mode = 'live' }) {
     return rows
   }, [filteredAtBerth, nowTick])
 
-  // ─── Arriving soon (live window: overdue ≤24h + next 72h, not alongside) ──
+  const arrivalsSectionTitle = useMemo(
+    () => getArrivalsSectionTitle(arrivalsWindowDays, t),
+    [arrivalsWindowDays, t],
+  )
+
+  // ─── Arriving soon (ETA-first: any overdue + ETA within selected period, not alongside) ──
   const arrivals = useMemo(() => {
     const rows = []
     for (const p of filterPlans(arrivalPlans, filters)) {
       if (p.approvalStatus === 'Rejected') continue
       if (parseIso(p.tb) || parseIso(p.sailedAt)) continue
-      const etb = parseIso(p.etb)
-      const eta = parseIso(p.eta)
-      const when = etb || eta
-      if (!when) continue
-      const tMs = when.getTime()
-      if (tMs > nowTick + 72 * 3600000 || tMs < nowTick - 24 * 3600000) continue
+      const evalResult = evaluateArrivalPlan(p, nowTick, arrivalsWindowDays, parseIso)
+      if (!evalResult) continue
       const names = new Set()
       for (const si of p.shippingInstructions || []) {
         for (const line of si.breakdown || []) {
@@ -765,11 +810,9 @@ export default function DashboardShell({ mode = 'live' }) {
         vesselName: p.vesselName || `Plan #${p.id}`,
         jettyName: p.jettyName,
         purpose: p.purposeCode,
-        whenIso: etb ? p.etb : p.eta,
-        whenKind: etb ? 'ETB' : 'ETA',
-        inHours: (tMs - nowTick) / 3600000,
-        overdue: tMs < nowTick,
-        anchored: !!parseIso(p.ta),
+        etaIso: p.eta || null,
+        etbIso: p.etb || null,
+        inHours: evalResult.inHours,
         qtyMt: Number.isFinite(Number(p.vesselCapacity)) && Number(p.vesselCapacity) > 0
           ? Number(p.vesselCapacity)
           : null,
@@ -780,7 +823,7 @@ export default function DashboardShell({ mode = 'live' }) {
     }
     rows.sort((a, b) => a.inHours - b.inHours)
     return rows
-  }, [arrivalPlans, filters, nowTick])
+  }, [arrivalPlans, arrivalsWindowDays, filters, nowTick])
 
   // ─── Tonnage in the selected range: planned (plans, ETA window) vs sailed
   // (cast-off within range — shares sailedInRange so it matches the pipeline) ──
@@ -1540,12 +1583,24 @@ export default function DashboardShell({ mode = 'live' }) {
                     {berthBoard.map((r) => (
                       <tr
                         key={r.id}
-                        className={
-                          isCargoBehindSchedule(r.cargoProgress) ? 'cargo-schedule-behind' : undefined
-                        }
+                        className={[
+                          'v2-berth-board__row',
+                          isCargoBehindSchedule(r.cargoProgress) ? 'cargo-schedule-behind' : null,
+                        ].filter(Boolean).join(' ')}
+                        role="button"
+                        tabIndex={0}
+                        title={t('v2BoardVesselOpenDetail')}
+                        aria-label={t('v2BoardVesselOpenDetailNamed', { name: r.vesselName })}
+                        onClick={() => openAtBerthVesselModal(r)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            openAtBerthVesselModal(r)
+                          }
+                        }}
                       >
                         <td>
-                          <b>{r.vesselName}</b>
+                          <b className="v2-berth-board__vessel-link">{r.vesselName}</b>
                           {r.code ? <span className="v2-board-code">{r.code}</span> : null}
                         </td>
                         <td>{r.jettyName}</td>
@@ -1614,24 +1669,57 @@ export default function DashboardShell({ mode = 'live' }) {
         )}
       </section>
 
-      {/* ── Arriving soon (live, next 72h) ── */}
+      <ActiveVesselDetailModal
+        vesselId={activeVesselModal?.vesselId ?? null}
+        planId={activeVesselModal?.planId ?? null}
+        onClose={() => setActiveVesselModal(null)}
+        readOnly
+        isPlanCentric
+        canEditAllocation={false}
+        queueList={allocationModalData?.queue ?? []}
+        scheduleList={allocationModalData?.scheduleQueue ?? []}
+        berthsState={allocationModalData?.berths ?? []}
+        onRefreshOverview={refreshAllocationForModal}
+      />
+
+      {/* ── Arriving soon (live, ETA-first window) ── */}
       <section className="card v2-arrivals">
         <div className="v2-atberth__head">
-          <h2 className="card__title">{t('v2ArrivalsTitle')} <span className="v2-basis-chip">{t('v2BasisLive')}</span></h2>
-          <Link to="/allocation-plans" className="btn btn--small btn--primary">{t('viewAll')}</Link>
+          <h2 className="card__title">{arrivalsSectionTitle} <span className="v2-basis-chip">{t('v2BasisLive')}</span></h2>
+          <div className="v2-arrivals__head-actions">
+            <div
+              className="v2-arrivals__window"
+              role="group"
+              aria-label={t('v2ArrivalsWindowAria')}
+            >
+              {ARRIVALS_WINDOW_OPTIONS.map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  className={`btn btn--small ${arrivalsWindowDays === d ? 'btn--primary' : 'btn--ghost'}`}
+                  aria-pressed={arrivalsWindowDays === d}
+                  onClick={() => setArrivalsWindowDays(d)}
+                >
+                  {t(`v2ArrivalsWindow${d}d`)}
+                </button>
+              ))}
+            </div>
+            <Link to="/allocation-plans" className="btn btn--small btn--primary">{t('viewAll')}</Link>
+          </div>
         </div>
-        <p className="v2-arrivals__hint">{t('v2ArrivalsHint')}</p>
+        <p className="v2-arrivals__hint">{t('v2ArrivalsHint', { days: arrivalsWindowDays })}</p>
         {loading ? (
           <p className="text-steel">{t('loadingEllipsis')}</p>
         ) : arrivals.length === 0 ? (
-          <p className="text-steel">{t('v2ArrivalsEmpty')}</p>
+          <p className="text-steel">{t('v2ArrivalsEmpty', { days: arrivalsWindowDays })}</p>
         ) : (
           <div className="table-wrap">
             <table className="data-table">
               <thead>
                 <tr>
                   <th>{t('v2BoardVessel')}</th>
-                  <th>{t('v2ArrivalsWhen')}</th>
+                  <th>{t('v2ArrivalsEta')}</th>
+                  <th>{t('v2ArrivalsEtb')}</th>
                   <th>{t('v2BoardJetty')}</th>
                   <th>{t('v2FilterPurpose')}</th>
                   <th>{t('v2ArrivalsCommodity')}</th>
@@ -1646,16 +1734,8 @@ export default function DashboardShell({ mode = 'live' }) {
                       <b>{a.vesselName}</b>
                       {a.agentName ? <span className="v2-board-code">{a.agentName}</span> : null}
                     </td>
-                    <td>
-                      {a.whenKind} {formatDateTimeDisplay(a.whenIso)}
-                      {' '}
-                      {a.overdue ? (
-                        <span className="v2-board-chip v2-board-chip--over">{t('v2ArrivalsOverdue')}</span>
-                      ) : (
-                        <span className="v2-board-chip v2-board-chip--ghost">{formatDurationHours(a.inHours)}</span>
-                      )}
-                      {a.anchored && <span className="v2-board-chip v2-board-chip--soon">{t('v2ArrivalsAnchored')}</span>}
-                    </td>
+                    <td>{a.etaIso ? formatDateTimeDisplay(a.etaIso) : '—'}</td>
+                    <td>{a.etbIso ? formatDateTimeDisplay(a.etbIso) : '—'}</td>
                     <td>{a.jettyName || '—'}</td>
                     <td>
                       {a.purpose ? (
