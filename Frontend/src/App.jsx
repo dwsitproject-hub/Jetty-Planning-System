@@ -32,6 +32,7 @@ import Verification from './pages/Verification'
 import Reporting from './pages/Reporting'
 import DailyActivitiesReport from './pages/DailyActivitiesReport'
 import VesselReport from './pages/VesselReport'
+import CargoMovementReport from './pages/CargoMovementReport'
 import Master from './pages/Master'
 import MasterPort from './pages/MasterPort'
 import MasterJetty from './pages/MasterJetty'
@@ -155,6 +156,7 @@ function App() {
                   <Route path="/reporting" element={<Reporting />} />
                   <Route path="/reporting/daily-activities" element={<DailyActivitiesReport />} />
                   <Route path="/reporting/vessel" element={<VesselReport />} />
+                  <Route path="/reporting/cargo-movement" element={<CargoMovementReport />} />
                   <Route path="/demurrage-risk-calculator" element={<DemurrageRiskCalculator />} />
                   <Route path="/master" element={<Master />} />
                   <Route path="/master/port" element={<MasterPort />} />

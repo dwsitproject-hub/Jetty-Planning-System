@@ -5833,6 +5833,41 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   cursor: not-allowed;
 }
 
+.cargo-movement-report__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+
+.cargo-movement-report__lookup-input {
+  width: 100%;
+  max-width: 40rem;
+}
+
+.cargo-movement-report__hint {
+  margin: 0;
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+  line-height: 1.4;
+}
+
+.cargo-movement-report__dates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(10rem, 14rem));
+  gap: var(--spacing-3);
+  align-items: start;
+}
+
+.cargo-movement-report__dates-hint {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 640px) {
+  .cargo-movement-report__dates {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Dropdown multi-select (trigger + panel with checkboxes) */
 .dropdown-multi {
   position: relative;

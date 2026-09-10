@@ -13,6 +13,11 @@ const REPORTS = [
     titleKey: 'reportingVesselTitle',
     descKey: 'reportingVesselDesc',
   },
+  {
+    path: '/reporting/cargo-movement',
+    titleKey: 'reportingCargoTitle',
+    descKey: 'reportingCargoDesc',
+  },
 ]
 
 export default function Reporting() {
