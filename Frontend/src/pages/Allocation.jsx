@@ -73,10 +73,11 @@ import {
   resolvePlanIdFromRow,
 } from '../utils/siPreBerthEdit'
 import {
-  ETC_BREACH_STATUS_FILTER_LEGACY,
-  ETC_BREACH_STATUS_FILTER_PLAN,
-  LEGACY_STATUS_FILTER_DEFAULT,
-  PLAN_CENTRIC_STATUS_FILTER_DEFAULT,
+  QUEUE_STATUS_BERTHED,
+  QUEUE_STATUS_ETC_BREACHED,
+  QUEUE_STATUS_FILTER_DEFAULT,
+  QUEUE_STATUS_INCOMING,
+  QUEUE_STATUS_WAITING_TO_BERTH,
   planCentricSiColumnDisplay,
   rowPassesAllocationStatusFilter,
 } from '../utils/allocationQueueStatusFilter'
@@ -487,10 +488,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   const [filters, setFilters] = useState(() =>
     Object.fromEntries(ALLOCATION_FILTER_STATE_KEYS.map((k) => [k, '']))
   )
-  const [statusFilter, setStatusFilter] = useState(() =>
-    isPlanCentric ? { ...PLAN_CENTRIC_STATUS_FILTER_DEFAULT } : { ...LEGACY_STATUS_FILTER_DEFAULT }
-  )
-  const [etcBreachFilter, setEtcBreachFilter] = useState(false)
+  const [queueStatusFilter, setQueueStatusFilter] = useState(QUEUE_STATUS_FILTER_DEFAULT)
   const [breachNowMs, setBreachNowMs] = useState(() => Date.now())
   const [sortState, setSortState] = useState({ key: 'sequence', dir: 'asc' })
   const [expandedId, setExpandedId] = useState(null)
@@ -2140,9 +2138,12 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
             ? queueKpiFilter.planIds.has(Number(r.shipmentPlanId))
             : r.vesselId != null && queueKpiFilter.vesselIds.has(r.vesselId)
         if (!match) return false
-      } else if (etcBreachFilter) {
-        if (rowStatus !== 'berthed' || !getEtcBreach(r, breachNowMs)) return false
-      } else if (!rowPassesAllocationStatusFilter(r, rowStatus, statusFilter, isPlanCentric)) {
+      } else if (
+        !rowPassesAllocationStatusFilter(r, rowStatus, queueStatusFilter, {
+          breachNowMs,
+          planCentric: isPlanCentric,
+        })
+      ) {
         return false
       }
       return filterKeys.every((key) => {
@@ -2163,9 +2164,8 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     isPlanCentric,
     planCentricMergedQueue,
     list,
-    etcBreachFilter,
     breachNowMs,
-    statusFilter,
+    queueStatusFilter,
     filterKeys,
     filters,
     allocationColumnDefsBase,
@@ -3296,50 +3296,25 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                 role="group"
                 aria-label={isPlanCentric ? tAlloc('statusFilterAriaPlan') : tAlloc('statusFilterAria')}
               >
-                <button
-                  type="button"
-                  className={`btn btn--small ${statusFilter.showIncoming && !etcBreachFilter ? 'btn--primary' : 'btn--ghost'}`}
-                  aria-pressed={Boolean(statusFilter.showIncoming) && !etcBreachFilter}
-                  disabled={etcBreachFilter}
-                  onClick={() =>
-                    setStatusFilter((prev) => ({ ...prev, showIncoming: !prev.showIncoming }))
-                  }
-                >
-                  {isPlanCentric ? tAlloc('statusShowIncoming') : tAlloc('statusIncoming')}
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn--small ${statusFilter.showBerthed || etcBreachFilter ? 'btn--primary' : 'btn--ghost'}`}
-                  aria-pressed={Boolean(statusFilter.showBerthed) || etcBreachFilter}
-                  onClick={() => {
-                    if (etcBreachFilter) {
-                      setEtcBreachFilter(false)
-                      setStatusFilter((prev) => ({ ...prev, showBerthed: true, showIncoming: false }))
-                      return
-                    }
-                    setStatusFilter((prev) => ({ ...prev, showBerthed: !prev.showBerthed }))
-                  }}
-                >
-                  {tAlloc('statusBerthed')}
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn--small ${etcBreachFilter ? 'btn--primary' : 'btn--ghost'}`}
-                  aria-pressed={etcBreachFilter}
-                  onClick={() => {
-                    const next = !etcBreachFilter
-                    setEtcBreachFilter(next)
-                    if (next) {
-                      setStatusFilter(
-                        isPlanCentric
-                          ? { ...ETC_BREACH_STATUS_FILTER_PLAN }
-                          : { ...ETC_BREACH_STATUS_FILTER_LEGACY }
-                      )
-                    }
-                  }}
-                >
-                  {tAlloc('statusEtcBreach')}
-                </button>
+                {[
+                  {
+                    key: QUEUE_STATUS_INCOMING,
+                    label: isPlanCentric ? tAlloc('statusShowIncoming') : tAlloc('statusIncoming'),
+                  },
+                  { key: QUEUE_STATUS_WAITING_TO_BERTH, label: tAlloc('statusWaitingToBerth') },
+                  { key: QUEUE_STATUS_BERTHED, label: tAlloc('statusBerthed') },
+                  { key: QUEUE_STATUS_ETC_BREACHED, label: tAlloc('statusEtcBreach') },
+                ].map(({ key, label }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`btn btn--small ${queueStatusFilter === key ? 'btn--primary' : 'btn--ghost'}`}
+                    aria-pressed={queueStatusFilter === key}
+                    onClick={() => setQueueStatusFilter(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
             {isPlanCentric ? (
