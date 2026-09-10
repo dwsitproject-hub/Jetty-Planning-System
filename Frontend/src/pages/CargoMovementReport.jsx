@@ -27,8 +27,6 @@ export default function CargoMovementReport() {
   } = usePortScope()
 
   const [lookup, setLookup] = useState('')
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
 
   const [appliedFilters, setAppliedFilters] = useState(null)
   const [reportBlocks, setReportBlocks] = useState([])
@@ -41,8 +39,6 @@ export default function CargoMovementReport() {
     setReportBlocks([])
     setReportError(null)
     setLookup('')
-    setStartDate('')
-    setEndDate('')
   }, [selectedPortId])
 
   const canRunReport = selectedPortId != null && !requiresSelection && !noPortAssigned
@@ -60,8 +56,6 @@ export default function CargoMovementReport() {
       const planRefByShipmentPlanId = buildPlanRefByShipmentPlanId(plans)
       const matches = filterOperationsForCargoMovement(operations, {
         lookup,
-        startDate,
-        endDate,
         planRefByShipmentPlanId,
       })
 
@@ -78,8 +72,6 @@ export default function CargoMovementReport() {
       setReportBlocks(sortCargoMovementBlocksNewestFirst(blocks))
       setAppliedFilters({
         lookup: lookup.trim(),
-        startDate,
-        endDate,
       })
     } catch (e) {
       setReportError(e?.message || t('cargoMovementFailed'))
@@ -88,7 +80,7 @@ export default function CargoMovementReport() {
     } finally {
       setReportLoading(false)
     }
-  }, [canRunReport, selectedPortId, lookup, startDate, endDate, t])
+  }, [canRunReport, selectedPortId, lookup, t])
 
   const handleDownloadExcel = useCallback(async () => {
     if (!appliedFilters || reportBlocks.length === 0) return
@@ -96,8 +88,6 @@ export default function CargoMovementReport() {
     try {
       await downloadCargoMovementReportExcel(reportBlocks, {
         lookup: appliedFilters.lookup,
-        startDate: appliedFilters.startDate,
-        endDate: appliedFilters.endDate,
         t,
       })
     } finally {
@@ -148,38 +138,6 @@ export default function CargoMovementReport() {
               autoComplete="off"
             />
             <p className="cargo-movement-report__hint">{t('cargoMovementLookupHint')}</p>
-          </div>
-
-          <div className="cargo-movement-report__dates">
-            <div className="daily-activities-report__field">
-              <label htmlFor="cargo-movement-start-date" className="daily-activities-report__label">
-                {t('cargoMovementStartDate')}
-              </label>
-              <input
-                id="cargo-movement-start-date"
-                type="date"
-                className="daily-activities-report__input"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                disabled={!canRunReport}
-              />
-            </div>
-            <div className="daily-activities-report__field">
-              <label htmlFor="cargo-movement-end-date" className="daily-activities-report__label">
-                {t('cargoMovementEndDate')}
-              </label>
-              <input
-                id="cargo-movement-end-date"
-                type="date"
-                className="daily-activities-report__input"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                disabled={!canRunReport}
-              />
-            </div>
-            <p className="cargo-movement-report__hint cargo-movement-report__dates-hint">
-              {t('cargoMovementDateHint')}
-            </p>
           </div>
 
           <div className="daily-activities-report__actions">

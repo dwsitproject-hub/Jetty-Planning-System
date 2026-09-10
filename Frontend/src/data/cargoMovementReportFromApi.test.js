@@ -7,7 +7,6 @@ import {
   CARGO_MOVEMENT_HEADER_FIELDS,
   filterOperationsForCargoMovement,
   formatCargoMovementQty,
-  operationMatchesCargoDateRange,
   operationMatchesCargoLookup,
   sortCargoMovementBlocksNewestFirst,
 } from './cargoMovementReportFromApi.js'
@@ -78,13 +77,6 @@ describe('filterOperationsForCargoMovement', () => {
     })
     assert.equal(matches.length, 2)
     assert.deepEqual(matches.map((o) => o.id), [1, 3])
-  })
-
-  it('optional date range narrows matches when both dates are set', () => {
-    const op = sampleOp({ eta: '2026-09-02T00:00:00.000Z' })
-    assert.equal(operationMatchesCargoDateRange(op, '', ''), true)
-    assert.equal(operationMatchesCargoDateRange(op, '2026-09-01', '2026-09-10'), true)
-    assert.equal(operationMatchesCargoDateRange(op, '2026-08-01', '2026-08-10'), false)
   })
 })
 

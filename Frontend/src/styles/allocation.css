@@ -5851,23 +5851,6 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   line-height: 1.4;
 }
 
-.cargo-movement-report__dates {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(10rem, 14rem));
-  gap: var(--spacing-3);
-  align-items: start;
-}
-
-.cargo-movement-report__dates-hint {
-  grid-column: 1 / -1;
-}
-
-@media (max-width: 640px) {
-  .cargo-movement-report__dates {
-    grid-template-columns: 1fr;
-  }
-}
-
 /* Dropdown multi-select (trigger + panel with checkboxes) */
 .dropdown-multi {
   position: relative;

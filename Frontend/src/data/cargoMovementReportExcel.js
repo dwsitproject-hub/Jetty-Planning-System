@@ -25,10 +25,7 @@ export function buildCargoMovementReportWorkbook(blocks, meta = {}) {
   sheet.getCell(row, 1).font = { bold: true, size: 14 }
   row += 1
 
-  const metaParts = [
-    meta.lookup ? `Lookup: ${meta.lookup}` : null,
-    meta.startDate && meta.endDate ? `Date range: ${meta.startDate} to ${meta.endDate}` : null,
-  ].filter(Boolean)
+  const metaParts = [meta.lookup ? `Lookup: ${meta.lookup}` : null].filter(Boolean)
   if (metaParts.length) {
     sheet.getCell(row, 1).value = metaParts.join(' · ')
     sheet.getCell(row, 1).font = { italic: true }

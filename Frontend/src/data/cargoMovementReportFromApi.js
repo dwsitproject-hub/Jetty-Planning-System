@@ -5,7 +5,6 @@
 
 import {
   buildPlanRefByShipmentPlanId,
-  operationScheduleOverlapsRange,
   resolveOperationPlanReference,
 } from './dailyActivitiesReportFromApi.js'
 
@@ -59,16 +58,6 @@ export function operationMatchesCargoLookup(op, term, planRefByShipmentPlanId) {
     fieldContains(op.referenceNumber, needle) ||
     fieldContains(siFallback, needle)
   )
-}
-
-/**
- * Optional date range: applied only when both start and end are set.
- */
-export function operationMatchesCargoDateRange(op, startDate, endDate) {
-  const start = String(startDate || '').trim()
-  const end = String(endDate || '').trim()
-  if (!start || !end) return true
-  return operationScheduleOverlapsRange(op, null, start, end)
 }
 
 export function formatCargoMovementQty(op, progress) {
@@ -141,11 +130,9 @@ export async function mapWithConcurrency(items, concurrency, mapper) {
   return results
 }
 
-export function filterOperationsForCargoMovement(operations, { lookup, startDate, endDate, planRefByShipmentPlanId }) {
-  return (Array.isArray(operations) ? operations : []).filter(
-    (op) =>
-      operationMatchesCargoLookup(op, lookup, planRefByShipmentPlanId) &&
-      operationMatchesCargoDateRange(op, startDate, endDate)
+export function filterOperationsForCargoMovement(operations, { lookup, planRefByShipmentPlanId }) {
+  return (Array.isArray(operations) ? operations : []).filter((op) =>
+    operationMatchesCargoLookup(op, lookup, planRefByShipmentPlanId)
   )
 }
 
