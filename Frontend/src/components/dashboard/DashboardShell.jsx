@@ -10,7 +10,7 @@ import { fetchSiLookups } from '../../api/siLookups'
 import { useTranslation } from 'react-i18next'
 import { usePortScope } from '../../context/PortScopeContext'
 import { useRbac } from '../../context/RbacContext'
-import { formatDateDisplay, formatDateTimeDisplay, getAppLocaleTag } from '../../utils/formatDateTimeDisplay'
+import { formatDateDisplay, formatDateTimeCompact, formatDateTimeDisplay, getAppLocaleTag } from '../../utils/formatDateTimeDisplay'
 import InteractiveTooltip from '../InteractiveTooltip'
 import WidgetDetailModal from '../WidgetDetailModal'
 import DashboardV2WeeklyTrends from '../DashboardV2WeeklyTrends'
@@ -33,6 +33,8 @@ import {
   ARRIVALS_WINDOW_OPTIONS,
   evaluateArrivalPlan,
   getArrivalsSectionTitle,
+  isWaitingToBerth,
+  planCommodityShortLabels,
 } from '../../utils/dashboardArrivalsWindow'
 import {
   AT_BERTH_PHASES,
@@ -52,6 +54,16 @@ import {
 } from '../../utils/dashboardPageUtils'
 import '../../styles/dashboard.css'
 import '../../styles/allocation.css'
+
+function ArrivalsHintButton({ title, hint, ariaLabel }) {
+  return (
+    <InteractiveTooltip title={title} subtitle={hint} emptyText="" interactiveChild>
+      <button type="button" className="v2-arrivals__hint-btn" aria-label={ariaLabel}>
+        i
+      </button>
+    </InteractiveTooltip>
+  )
+}
 
 function atgHostLabel(baseUrl) {
   try {
@@ -791,7 +803,34 @@ export default function DashboardShell({ mode = 'live' }) {
     [arrivalsWindowDays, t],
   )
 
-  // ─── Arriving soon (ETA-first: any overdue + ETA within selected period, not alongside) ──
+  const waitingToBerth = useMemo(() => {
+    const rows = []
+    for (const p of filterPlans(arrivalPlans, filters)) {
+      if (p.approvalStatus === 'Rejected') continue
+      if (!isWaitingToBerth(p, parseIso)) continue
+      const ta = parseIso(p.ta)
+      rows.push({
+        id: p.id,
+        vesselName: p.vesselName || `Plan #${p.id}`,
+        jettyName: p.jettyName,
+        purpose: p.purposeCode,
+        taIso: p.ta || null,
+        etbIso: p.etb || null,
+        tbIso: p.tb || null,
+        taMs: ta ? ta.getTime() : Number.POSITIVE_INFINITY,
+        qtyMt: Number.isFinite(Number(p.vesselCapacity)) && Number(p.vesselCapacity) > 0
+          ? Number(p.vesselCapacity)
+          : null,
+        commodity: planCommodityShortLabels(p),
+        approvalStatus: p.approvalStatus,
+        agentName: p.agentName,
+      })
+    }
+    rows.sort((a, b) => a.taMs - b.taMs)
+    return rows
+  }, [arrivalPlans, filters])
+
+  // ─── Arriving soon (no TA; overdue ETA + ETA within selected period) ──
   const arrivals = useMemo(() => {
     const rows = []
     for (const p of filterPlans(arrivalPlans, filters)) {
@@ -799,13 +838,6 @@ export default function DashboardShell({ mode = 'live' }) {
       if (parseIso(p.tb) || parseIso(p.sailedAt)) continue
       const evalResult = evaluateArrivalPlan(p, nowTick, arrivalsWindowDays, parseIso)
       if (!evalResult) continue
-      const names = new Set()
-      for (const si of p.shippingInstructions || []) {
-        for (const line of si.breakdown || []) {
-          if (line?.commodityName) names.add(line.commodityName)
-        }
-      }
-      const hasTa = Boolean(parseIso(p.ta))
       rows.push({
         id: p.id,
         vesselName: p.vesselName || `Plan #${p.id}`,
@@ -814,12 +846,11 @@ export default function DashboardShell({ mode = 'live' }) {
         etaIso: p.eta || null,
         etbIso: p.etb || null,
         inHours: evalResult.inHours,
-        overdue: evalResult.overdue && !hasTa,
-        anchored: hasTa,
+        overdue: evalResult.overdue,
         qtyMt: Number.isFinite(Number(p.vesselCapacity)) && Number(p.vesselCapacity) > 0
           ? Number(p.vesselCapacity)
           : null,
-        commodity: [...names].join(' · ') || '—',
+        commodity: planCommodityShortLabels(p),
         approvalStatus: p.approvalStatus,
         agentName: p.agentName,
       })
@@ -1685,10 +1716,88 @@ export default function DashboardShell({ mode = 'live' }) {
         onRefreshOverview={refreshAllocationForModal}
       />
 
-      {/* ── Arriving soon (live, ETA-first window) ── */}
+      <div className="v2-preberth-row">
       <section className="card v2-arrivals">
         <div className="v2-atberth__head">
-          <h2 className="card__title">{arrivalsSectionTitle} <span className="v2-basis-chip">{t('v2BasisLive')}</span></h2>
+          <h2 className="card__title">
+            <span className="v2-arrivals__title-wrap">
+              {t('v2WaitingToBerthTitle')}
+              <span className="v2-basis-chip">{t('v2BasisLive')}</span>
+              <ArrivalsHintButton
+                title={t('v2WaitingToBerthTitle')}
+                hint={t('v2WaitingToBerthHint')}
+                ariaLabel={t('v2WaitingToBerthHintAria')}
+              />
+            </span>
+          </h2>
+          <Link to="/allocation-plans" className="btn btn--small btn--primary">{t('viewAll')}</Link>
+        </div>
+        {loading ? (
+          <p className="text-steel">{t('loadingEllipsis')}</p>
+        ) : waitingToBerth.length === 0 ? (
+          <p className="text-steel">{t('v2WaitingToBerthEmpty')}</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>{t('v2BoardVessel')}</th>
+                  <th>{t('v2ArrivalsTa')}</th>
+                  <th>{t('v2ArrivalsEtb')}</th>
+                  <th>{t('v2ArrivalsTb')}</th>
+                  <th>{t('v2BoardJetty')}</th>
+                  <th>{t('v2FilterPurpose')}</th>
+                  <th>{t('v2ArrivalsCommodity')}</th>
+                  <th className="v2-board-r">{t('v2ArrivalsQty')}</th>
+                  <th>{t('v2ArrivalsStatus')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {waitingToBerth.map((a) => (
+                  <tr key={a.id}>
+                    <td>
+                      <b>{a.vesselName}</b>
+                      {a.agentName ? <span className="v2-board-code">{a.agentName}</span> : null}
+                    </td>
+                    <td>{a.taIso ? formatDateTimeCompact(a.taIso) : '—'}</td>
+                    <td>{a.etbIso ? formatDateTimeCompact(a.etbIso) : '—'}</td>
+                    <td>{a.tbIso ? formatDateTimeCompact(a.tbIso) : '—'}</td>
+                    <td>{a.jettyName || '—'}</td>
+                    <td>
+                      {a.purpose ? (
+                        <span className={`v2-board-chip v2-board-chip--${a.purpose === 'Loading' ? 'load' : 'disch'}`}>
+                          {a.purpose === 'Loading' ? t('purposeLoading') : t('purposeUnloading')}
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td className="v2-arrivals__commodity">{a.commodity}</td>
+                    <td className="v2-board-r">{a.qtyMt != null ? a.qtyMt.toLocaleString(getAppLocaleTag()) : '—'}</td>
+                    <td>
+                      <span className={`v2-board-chip ${a.approvalStatus === 'Approved' ? 'v2-board-chip--ok' : 'v2-board-chip--ghost'}`}>
+                        {a.approvalStatus}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="card v2-arrivals">
+        <div className="v2-atberth__head">
+          <h2 className="card__title">
+            <span className="v2-arrivals__title-wrap">
+              {arrivalsSectionTitle}
+              <span className="v2-basis-chip">{t('v2BasisLive')}</span>
+              <ArrivalsHintButton
+                title={arrivalsSectionTitle}
+                hint={t('v2ArrivalsHint', { days: arrivalsWindowDays })}
+                ariaLabel={t('v2ArrivalsHintAria')}
+              />
+            </span>
+          </h2>
           <div className="v2-arrivals__head-actions">
             <div
               className="v2-arrivals__window"
@@ -1710,7 +1819,6 @@ export default function DashboardShell({ mode = 'live' }) {
             <Link to="/allocation-plans" className="btn btn--small btn--primary">{t('viewAll')}</Link>
           </div>
         </div>
-        <p className="v2-arrivals__hint">{t('v2ArrivalsHint', { days: arrivalsWindowDays })}</p>
         {loading ? (
           <p className="text-steel">{t('loadingEllipsis')}</p>
         ) : arrivals.length === 0 ? (
@@ -1738,18 +1846,15 @@ export default function DashboardShell({ mode = 'live' }) {
                       {a.agentName ? <span className="v2-board-code">{a.agentName}</span> : null}
                     </td>
                     <td>
-                      {a.etaIso ? formatDateTimeDisplay(a.etaIso) : '—'}
+                      {a.etaIso ? formatDateTimeCompact(a.etaIso) : '—'}
                       {' '}
                       {a.overdue ? (
                         <span className="v2-board-chip v2-board-chip--over">{t('v2ArrivalsOverdue')}</span>
                       ) : a.etaIso ? (
                         <span className="v2-board-chip v2-board-chip--ghost">{formatDurationHours(a.inHours)}</span>
                       ) : null}
-                      {a.anchored ? (
-                        <span className="v2-board-chip v2-board-chip--soon">{t('v2ArrivalsAnchored')}</span>
-                      ) : null}
                     </td>
-                    <td>{a.etbIso ? formatDateTimeDisplay(a.etbIso) : '—'}</td>
+                    <td>{a.etbIso ? formatDateTimeCompact(a.etbIso) : '—'}</td>
                     <td>{a.jettyName || '—'}</td>
                     <td>
                       {a.purpose ? (
@@ -1772,6 +1877,7 @@ export default function DashboardShell({ mode = 'live' }) {
           </div>
         )}
       </section>
+      </div>
       </>
       )}
 

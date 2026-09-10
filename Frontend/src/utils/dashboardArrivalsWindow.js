@@ -16,6 +16,32 @@ export function getArrivalsSectionTitle(windowDays, t) {
 }
 
 /**
+ * Arrived at port (TA) and not yet alongside (no TB / not sailed).
+ * @param {object} plan
+ * @param {(iso: string|null|undefined) => Date|null} parseIso
+ */
+export function isWaitingToBerth(plan, parseIso) {
+  if (!parseIso(plan?.ta)) return false
+  if (parseIso(plan?.tb) || parseIso(plan?.sailedAt)) return false
+  return true
+}
+
+/**
+ * Unique commodity short names from SI breakdown (falls back to full name).
+ * @param {object} plan
+ */
+export function planCommodityShortLabels(plan) {
+  const names = new Set()
+  for (const si of plan?.shippingInstructions || []) {
+    for (const line of si.breakdown || []) {
+      const label = String(line?.commodityShortName || line?.commodityName || '').trim()
+      if (label) names.add(label)
+    }
+  }
+  return [...names].join(' · ') || '—'
+}
+
+/**
  * @param {object} plan
  * @param {number} nowMs
  * @param {3 | 7 | 14} windowDays
@@ -23,6 +49,7 @@ export function getArrivalsSectionTitle(windowDays, t) {
  * @returns {{ include: boolean, whenIso: string|null, whenKind: 'ETA'|'ETB', inHours: number, overdue: boolean }|null}
  */
 export function evaluateArrivalPlan(plan, nowMs, windowDays, parseIso) {
+  if (parseIso(plan?.ta)) return null
   const eta = parseIso(plan?.eta)
   const etb = parseIso(plan?.etb)
   const windowMs = windowDays * MS_PER_DAY

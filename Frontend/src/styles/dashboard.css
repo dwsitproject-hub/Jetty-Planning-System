@@ -2519,6 +2519,41 @@
 }
 
 /* ── Arrivals panel ── */
+.v2-preberth-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-3, 12px);
+  align-items: start;
+}
+
+.v2-preberth-row > .v2-arrivals {
+  min-width: 0;
+}
+
+.v2-arrivals__title-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.v2-arrivals__hint-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  padding: 0;
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-steel, #6b7280);
+  font-size: 0.7rem;
+  font-weight: var(--font-weight-semibold, 600);
+  line-height: 1;
+  cursor: help;
+}
+
 .v2-arrivals__head-actions {
   display: flex;
   align-items: center;
@@ -3678,6 +3713,10 @@
 
 @media (max-width: 900px) {
   .v2-bottom-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .v2-preberth-row {
     grid-template-columns: 1fr;
   }
 }

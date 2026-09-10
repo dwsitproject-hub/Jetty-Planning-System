@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   formatDateDisplay,
   formatDateTimeDisplay,
+  formatDateTimeCompact,
   stripLegacyDatetimeLt,
 } from './formatDateTimeDisplay.js'
 import { JPS_LOCALE_STORAGE_KEY } from '../i18n/constants.js'
@@ -59,5 +60,17 @@ describe('formatDateTimeDisplay', () => {
     localStorage.setItem(JPS_LOCALE_STORAGE_KEY, 'id')
     const out = formatDateDisplay('2026-05-15')
     assert.match(out, /^15\/Mei\/2026$/)
+  })
+
+  it('formats compact datetime as DD MMM HH:mm without year', () => {
+    const out = formatDateTimeCompact('2026-03-25T14:30:00')
+    assert.match(out, /^25 Mar 14:30$/)
+    assert.doesNotMatch(out, /2026/)
+  })
+
+  it('formats compact datetime with Indonesian month when locale is id', () => {
+    localStorage.setItem(JPS_LOCALE_STORAGE_KEY, 'id')
+    const out = formatDateTimeCompact('2026-05-15T08:05:00')
+    assert.match(out, /^15 Mei 08:05$/)
   })
 })

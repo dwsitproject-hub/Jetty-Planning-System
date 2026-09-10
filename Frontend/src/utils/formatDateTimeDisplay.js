@@ -7,6 +7,7 @@
  * - formatDateTimeDisplay: ISO / timestamps → `DD/MMM/YYYY HH:mm` (24h, locale-aware via `jps_locale`: en → en-GB, id → id-ID).
  *   Unparseable strings are returned with a trailing ` LT` removed (legacy API/cache).
  * - formatDateDisplay: date-only values → `DD/MMM/YYYY`.
+ * - formatDateTimeCompact: ISO / timestamps → `DD MMM HH:mm` (no year; Live Ops arrivals widgets).
  * - stripLegacyDatetimeLt: only removes a trailing ` LT` / ` lt` from a string.
  */
 
@@ -103,6 +104,39 @@ function fallbackDayMonthYearHourMinute(d, localeTag) {
 }
 
 /**
+ * @param {Date} d
+ * @param {'en-GB'|'id-ID'} localeTag
+ */
+function formatDayMonthHourMinute(d, localeTag) {
+  const parts = new Intl.DateTimeFormat(localeTag, {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(d)
+  const byType = partsByType(parts)
+  const day = String(byType.day ?? '').padStart(2, '0')
+  const month = byType.month ?? ''
+  const hour = String(byType.hour ?? '').padStart(2, '0')
+  const minute = String(byType.minute ?? '').padStart(2, '0')
+  if (!day || !month) return null
+  return `${day} ${month} ${hour}:${minute}`
+}
+
+/**
+ * @param {Date} d
+ * @param {'en-GB'|'id-ID'} localeTag
+ */
+function fallbackDayMonthHourMinute(d, localeTag) {
+  const day = String(d.getDate()).padStart(2, '0')
+  const month = d.toLocaleString(localeTag, { month: 'short' })
+  const hours = String(d.getHours()).padStart(2, '0')
+  const mins = String(d.getMinutes()).padStart(2, '0')
+  return `${day} ${month} ${hours}:${mins}`
+}
+
+/**
  * @param {unknown} value
  * @returns {{ raw: string, d: Date } | null}
  */
@@ -169,4 +203,23 @@ export function formatDateTimeDisplay(value) {
   const formatted = formatDayMonthYearHourMinute(parsed.d, localeTag)
   if (formatted) return formatted
   return fallbackDayMonthYearHourMinute(parsed.d, localeTag)
+}
+
+/**
+ * Compact datetime for dense Live Ops tables: `DD MMM HH:mm` (no year).
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function formatDateTimeCompact(value) {
+  const parsed = parseDisplayValue(value)
+  if (!parsed) {
+    if (value == null || value === '') return '—'
+    const stripped = stripLegacyDatetimeLt(value)
+    return stripped || '—'
+  }
+
+  const localeTag = getAppLocaleTag()
+  const formatted = formatDayMonthHourMinute(parsed.d, localeTag)
+  if (formatted) return formatted
+  return fallbackDayMonthHourMinute(parsed.d, localeTag)
 }

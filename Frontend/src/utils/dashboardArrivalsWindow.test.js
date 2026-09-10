@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import {
   evaluateArrivalPlan,
   getArrivalsSectionTitle,
+  isWaitingToBerth,
+  planCommodityShortLabels,
   ARRIVALS_WINDOW_DEFAULT_DAYS,
 } from './dashboardArrivalsWindow.js'
 
@@ -89,6 +91,16 @@ describe('evaluateArrivalPlan', () => {
     assert.equal(r.whenKind, 'ETB')
   })
 
+  it('excludes plans that already have TA', () => {
+    const r = evaluateArrivalPlan(
+      { eta: '2026-09-10T11:00:00.000Z', ta: '2026-09-09T08:00:00.000Z' },
+      NOW,
+      3,
+      parseIso,
+    )
+    assert.equal(r, null)
+  })
+
   it('excludes when no ETA and ETB beyond window', () => {
     const r = evaluateArrivalPlan(
       { eta: null, etb: '2026-09-20T09:00:00.000Z' },
@@ -97,6 +109,47 @@ describe('evaluateArrivalPlan', () => {
       parseIso,
     )
     assert.equal(r, null)
+  })
+})
+
+describe('isWaitingToBerth', () => {
+  it('is true when TA is set and TB is not', () => {
+    assert.equal(
+      isWaitingToBerth({ ta: '2026-09-08T10:00:00.000Z', tb: null }, parseIso),
+      true,
+    )
+  })
+
+  it('is false when TA is missing', () => {
+    assert.equal(isWaitingToBerth({ eta: '2026-09-10T11:00:00.000Z' }, parseIso), false)
+  })
+
+  it('is false when TB or sailed is set', () => {
+    assert.equal(
+      isWaitingToBerth({ ta: '2026-09-08T10:00:00.000Z', tb: '2026-09-09T10:00:00.000Z' }, parseIso),
+      false,
+    )
+    assert.equal(
+      isWaitingToBerth({ ta: '2026-09-08T10:00:00.000Z', sailedAt: '2026-09-09T10:00:00.000Z' }, parseIso),
+      false,
+    )
+  })
+})
+
+describe('planCommodityShortLabels', () => {
+  it('prefers short name and joins unique values', () => {
+    const label = planCommodityShortLabels({
+      shippingInstructions: [
+        {
+          breakdown: [
+            { commodityShortName: 'CPO', commodityName: 'CRUDE PALM OIL' },
+            { commodityShortName: 'CPO', commodityName: 'CRUDE PALM OIL' },
+            { commodityName: 'FAME' },
+          ],
+        },
+      ],
+    })
+    assert.equal(label, 'CPO · FAME')
   })
 })
 
