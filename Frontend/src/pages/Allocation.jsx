@@ -51,6 +51,20 @@ import {
   isVesselSailed,
 } from '../utils/allocationVesselPhase'
 import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
+import ColumnSelectFilter from '../components/ColumnSelectFilter'
+import ColumnDateRangeFilter from '../components/ColumnDateRangeFilter'
+import {
+  PURPOSE_FILTER_OPTIONS,
+  uniqueCommodityShortOptions,
+  rowMatchesCommodityShort,
+  rowMatchesPurpose,
+} from '../utils/tableCommodityPurposeFilters'
+import {
+  dateRangeFilterParts,
+  emptyFilterValue,
+  mergeDateRangeBound,
+  rowMatchesColumnFilter,
+} from '../utils/sortableFilterableTable'
 import EtcBreachBadge from '../components/EtcBreachBadge'
 import { getEtcBreach, getEtcBreachRagStatus } from '../utils/etcBreach'
 import AllocationLateSiNotice from '../components/AllocationLateSiNotice'
@@ -165,6 +179,8 @@ const ALLOCATION_COLUMNS = [
   {
     key: 'commodityQty',
     label: 'Commodity Qty',
+    filterType: 'select',
+    matchesFilter: (r, selected) => rowMatchesCommodityShort(r, selected),
     getValue: (r) => r.totalQtyDisplay || '—',
     getSortValue: (r) => (r.totalQtyDisplay || '').toLowerCase(),
     getFilterValue: (r) => r.totalQtyDisplay || '',
@@ -173,12 +189,15 @@ const ALLOCATION_COLUMNS = [
   {
     key: 'purpose',
     label: 'Purpose',
+    filterType: 'select',
+    selectOptions: PURPOSE_FILTER_OPTIONS,
+    matchesFilter: (r, selected) => rowMatchesPurpose(r, selected),
     getValue: (r) => <PurposeBadge purpose={r.purpose} loadDischarge={r.loadDischarge} />,
     getSortValue: (r) => resolvePurposeLabel(r.purpose, r.loadDischarge).toLowerCase(),
   },
   { key: 'remark', label: 'Remark', getValue: (r) => r.remark || r.remarks || '—', getSortValue: (r) => (r.remark || r.remarks || '').toLowerCase() },
-  { key: 'eta', label: 'ETA', getValue: (r) => formatDateTimeDisplay(r.etaDateTime || r.eta) || '—', getSortValue: (r) => parseDateMs(r.etaDateTime || r.eta) ?? Number.NEGATIVE_INFINITY },
-  { key: 'etb', label: 'ETB', getValue: (r) => formatDateTimeDisplay(r.etbDateTime || r.etb) || '—', getSortValue: (r) => parseDateMs(r.etbDateTime || r.etb) ?? Number.NEGATIVE_INFINITY },
+  { key: 'eta', label: 'ETA', filterType: 'dateRange', getDateIso: (r) => r.etaDateTime || r.eta || null, getValue: (r) => formatDateTimeDisplay(r.etaDateTime || r.eta) || '—', getSortValue: (r) => parseDateMs(r.etaDateTime || r.eta) ?? Number.NEGATIVE_INFINITY },
+  { key: 'etb', label: 'ETB', filterType: 'dateRange', getDateIso: (r) => r.etbDateTime || r.etb || null, getValue: (r) => formatDateTimeDisplay(r.etbDateTime || r.etb) || '—', getSortValue: (r) => parseDateMs(r.etbDateTime || r.etb) ?? Number.NEGATIVE_INFINITY },
   { key: 'jetty', label: 'Jetty', getValue: (r) => r.jetty || '—', getSortValue: (r) => (r.jetty || '').toLowerCase() },
 ]
 
@@ -211,6 +230,8 @@ const PLAN_CENTRIC_ALLOCATION_COLUMNS = [
   {
     key: 'commodityQty',
     label: 'Commodity Qty',
+    filterType: 'select',
+    matchesFilter: (r, selected) => rowMatchesCommodityShort(r, selected),
     getValue: (r) => r.totalQtyDisplay || '—',
     getSortValue: (r) => (r.totalQtyDisplay || '').toLowerCase(),
     getFilterValue: (r) => r.totalQtyDisplay || '',
@@ -218,6 +239,9 @@ const PLAN_CENTRIC_ALLOCATION_COLUMNS = [
   {
     key: 'purpose',
     label: 'Purpose',
+    filterType: 'select',
+    selectOptions: PURPOSE_FILTER_OPTIONS,
+    matchesFilter: (r, selected) => rowMatchesPurpose(r, selected),
     getValue: (r) => <PurposeBadge purpose={r.purpose} loadDischarge={r.loadDischarge} />,
     getSortValue: (r) => resolvePurposeLabel(r.purpose, r.loadDischarge).toLowerCase(),
     getFilterValue: (r) => resolvePurposeLabel(r.purpose, r.loadDischarge),
@@ -252,18 +276,38 @@ const PLAN_CENTRIC_ALLOCATION_COLUMNS = [
     getValue: (r) => r.surveyor || '—',
     getSortValue: (r) => (r.surveyor || '').toLowerCase(),
   },
-  { key: 'eta', label: 'ETA', getValue: (r) => formatDateTimeDisplay(r.etaDateTime || r.eta) || '—', getSortValue: (r) => parseDateMs(r.etaDateTime || r.eta) ?? Number.NEGATIVE_INFINITY, getFilterValue: (r) => formatDateTimeDisplay(r.etaDateTime || r.eta) || '' },
+  {
+    key: 'eta',
+    label: 'ETA',
+    filterType: 'dateRange',
+    getDateIso: (r) => r.etaDateTime || r.eta || null,
+    getValue: (r) => formatDateTimeDisplay(r.etaDateTime || r.eta) || '—',
+    getSortValue: (r) => parseDateMs(r.etaDateTime || r.eta) ?? Number.NEGATIVE_INFINITY,
+    getFilterValue: (r) => formatDateTimeDisplay(r.etaDateTime || r.eta) || '',
+  },
   {
     key: 'ta',
     label: 'TA',
+    filterType: 'dateRange',
+    getDateIso: (r) => r.taDateTime || null,
     getValue: (r) => formatDateTimeDisplay(r.taDateTime) || '—',
     getSortValue: (r) => parseDateMs(r.taDateTime) ?? Number.NEGATIVE_INFINITY,
     getFilterValue: (r) => formatDateTimeDisplay(r.taDateTime) || '',
   },
-  { key: 'etb', label: 'ETB', getValue: (r) => formatDateTimeDisplay(r.etbDateTime || r.etb) || '—', getSortValue: (r) => parseDateMs(r.etbDateTime || r.etb) ?? Number.NEGATIVE_INFINITY, getFilterValue: (r) => formatDateTimeDisplay(r.etbDateTime || r.etb) || '' },
+  {
+    key: 'etb',
+    label: 'ETB',
+    filterType: 'dateRange',
+    getDateIso: (r) => r.etbDateTime || r.etb || null,
+    getValue: (r) => formatDateTimeDisplay(r.etbDateTime || r.etb) || '—',
+    getSortValue: (r) => parseDateMs(r.etbDateTime || r.etb) ?? Number.NEGATIVE_INFINITY,
+    getFilterValue: (r) => formatDateTimeDisplay(r.etbDateTime || r.etb) || '',
+  },
   {
     key: 'tb',
     label: 'TB',
+    filterType: 'dateRange',
+    getDateIso: (r) => r.tbDateTime || null,
     getValue: (r) => formatDateTimeDisplay(r.tbDateTime) || '—',
     getSortValue: (r) => parseDateMs(r.tbDateTime) ?? Number.NEGATIVE_INFINITY,
     getFilterValue: (r) => formatDateTimeDisplay(r.tbDateTime) || '',
@@ -271,6 +315,8 @@ const PLAN_CENTRIC_ALLOCATION_COLUMNS = [
   {
     key: 'etc',
     label: 'ETC',
+    filterType: 'dateRange',
+    getDateIso: (r) => r.estimatedCompletionDateTime || r.estimationOfCompletion || null,
     getValue: (r) =>
       formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion) || '—',
     getSortValue: (r) => parseDateMs(r.estimatedCompletionDateTime) ?? Number.NEGATIVE_INFINITY,
@@ -312,6 +358,19 @@ const ALLOCATION_FILTER_STATE_KEYS = [
     ...PLAN_CENTRIC_ALLOCATION_COLUMNS.map((c) => c.key),
   ]),
 ]
+
+function allocationColumnForFilterKey(key) {
+  return (
+    PLAN_CENTRIC_ALLOCATION_COLUMNS.find((c) => c.key === key) ||
+    ALLOCATION_COLUMNS.find((c) => c.key === key)
+  )
+}
+
+function emptyAllocationFilters() {
+  return Object.fromEntries(
+    ALLOCATION_FILTER_STATE_KEYS.map((k) => [k, emptyFilterValue(allocationColumnForFilterKey(k))])
+  )
+}
 
 /** Next / previous displayed queue row that has a shipment plan (for plan-centric ↑/↓). */
 function findAdjacentPlanRowInDisplay(rows, fromIdx, dir) {
@@ -485,9 +544,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   const [scheduleList, setScheduleList] = useState([])
   const [berthsState, setBerthsState] = useState([])
   const [allocationLookups, setAllocationLookups] = useState(null)
-  const [filters, setFilters] = useState(() =>
-    Object.fromEntries(ALLOCATION_FILTER_STATE_KEYS.map((k) => [k, '']))
-  )
+  const [filters, setFilters] = useState(() => emptyAllocationFilters())
   const [queueStatusFilter, setQueueStatusFilter] = useState(QUEUE_STATUS_FILTER_DEFAULT)
   const [breachNowMs, setBreachNowMs] = useState(() => Date.now())
   const [sortState, setSortState] = useState({ key: 'sequence', dir: 'asc' })
@@ -2147,16 +2204,16 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         return false
       }
       return filterKeys.every((key) => {
-        const f = (filters[key] || '').trim().toLowerCase()
-        if (!f) return true
         const col = allocationColumnDefsBase.find((c) => c.key === key)
-        const val = col?.getFilterValue
-          ? col.getFilterValue(r)
-          : key === 'purpose'
-            ? resolvePurposeLabel(r.purpose, r.loadDischarge) || r[key]
-            : key === 'planReference'
-              ? r.planReference || (r.shipmentPlanId != null ? `Plan #${r.shipmentPlanId}` : '')
-              : r[key]
+        if (col) return rowMatchesColumnFilter(r, col, filters[key])
+        const raw = filters[key]
+        if (raw && typeof raw === 'object') return true
+        const f = String(raw || '').trim().toLowerCase()
+        if (!f) return true
+        const val =
+          key === 'planReference'
+            ? r.planReference || (r.shipmentPlanId != null ? `Plan #${r.shipmentPlanId}` : '')
+            : r[key]
         return String(val ?? '').toLowerCase().includes(f)
       })
     })
@@ -2171,6 +2228,11 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     allocationColumnDefsBase,
     queueKpiFilter,
   ])
+
+  const commodityShortOptions = useMemo(
+    () => uniqueCommodityShortOptions(isPlanCentric ? planCentricMergedQueue : list),
+    [isPlanCentric, planCentricMergedQueue, list]
+  )
 
   const sortedList = [...filteredList].sort((a, b) => {
     const col = allocationColumnDefsBase.find((c) => c.key === sortState.key)
@@ -3359,14 +3421,34 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                 <th className="allocation-table__action-col"></th>
                 {visibleAllocationTableColumns.map((col) => (
                   <th key={col.key}>
-                    <input
-                      type="text"
-                      className="allocation-table__filter"
-                      placeholder={tAlloc('filterPlaceholder', { label: allocColLabel(col.key, col.label) })}
-                      value={filters[col.key]}
-                      onChange={(e) => updateFilter(col.key, e.target.value)}
-                      aria-label={tAlloc('filterBy', { label: allocColLabel(col.key, col.label) })}
-                    />
+                    {col.filterType === 'select' ? (
+                      <ColumnSelectFilter
+                        value={filters[col.key]}
+                        onChange={(value) => updateFilter(col.key, value)}
+                        options={col.key === 'commodityQty' ? commodityShortOptions : col.selectOptions || []}
+                        allLabel={tAlloc('filterAll')}
+                        ariaLabel={tAlloc('filterSelectAria', { label: allocColLabel(col.key, col.label) })}
+                      />
+                    ) : col.filterType === 'dateRange' ? (
+                      <ColumnDateRangeFilter
+                        from={dateRangeFilterParts(filters[col.key]).from}
+                        to={dateRangeFilterParts(filters[col.key]).to}
+                        onChange={(bound, value) =>
+                          updateFilter(col.key, mergeDateRangeBound(filters[col.key], bound, value))
+                        }
+                        fromAria={tAlloc('dateRangeFromAria', { label: allocColLabel(col.key, col.label) })}
+                        toAria={tAlloc('dateRangeToAria', { label: allocColLabel(col.key, col.label) })}
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        className="allocation-table__filter"
+                        placeholder={tAlloc('filterPlaceholder', { label: allocColLabel(col.key, col.label) })}
+                        value={filters[col.key] ?? ''}
+                        onChange={(e) => updateFilter(col.key, e.target.value)}
+                        aria-label={tAlloc('filterBy', { label: allocColLabel(col.key, col.label) })}
+                      />
+                    )}
                   </th>
                 ))}
               </tr>

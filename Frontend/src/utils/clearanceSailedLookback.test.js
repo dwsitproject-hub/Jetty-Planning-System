@@ -2,6 +2,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   countSailedWithinDays,
+  isIsoInLocalDateRange,
   isWithinSailedLookback,
   sailedLookbackTime,
   SAILED_LOOKBACK_DAY_OPTIONS,
@@ -54,5 +55,25 @@ describe('clearanceSailedLookback', () => {
     assert.equal(countSailedWithinDays(rows, null, NOW), 2)
     assert.equal(countSailedWithinDays(rows, 3, NOW), 1)
     assert.equal(countSailedWithinDays(rows, 14, NOW), 2)
+  })
+})
+
+describe('isIsoInLocalDateRange', () => {
+  const iso = new Date(2026, 7, 29, 15, 30).toISOString()
+
+  it('passes when no bounds are set', () => {
+    assert.equal(isIsoInLocalDateRange(iso, '', ''), true)
+    assert.equal(isIsoInLocalDateRange(null, '', ''), true)
+  })
+
+  it('includes the from and to calendar days', () => {
+    assert.equal(isIsoInLocalDateRange(iso, '2026-08-29', '2026-08-29'), true)
+    assert.equal(isIsoInLocalDateRange(iso, '2026-08-28', '2026-08-30'), true)
+  })
+
+  it('excludes dates outside the range and missing timestamps', () => {
+    assert.equal(isIsoInLocalDateRange(iso, '2026-08-30', ''), false)
+    assert.equal(isIsoInLocalDateRange(iso, '', '2026-08-28'), false)
+    assert.equal(isIsoInLocalDateRange(null, '2026-08-29', ''), false)
   })
 })

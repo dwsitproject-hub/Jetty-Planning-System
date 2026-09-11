@@ -18,6 +18,12 @@ import { ShipmentPlanRowActions } from '../components/SiTableRowActions.jsx'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 import {
+  PURPOSE_FILTER_OPTIONS,
+  uniqueCommodityShortOptions,
+  rowMatchesCommodityShort,
+  rowMatchesPurpose,
+} from '../utils/tableCommodityPurposeFilters.js'
+import {
   canOpenPreBerthCombinedEdit,
   preBerthCombinedSaveToastMessage,
 } from '../utils/siPreBerthEdit'
@@ -31,6 +37,7 @@ function approvalBadgeClass(status) {
 }
 
 const PLANS_LIST_PAGE_SIZE = 20
+const PLAN_APPROVAL_STATUS_OPTIONS = ['Draft', 'Submitted', 'Approved', 'Rejected']
 
 function parseDateMs(val) {
   if (!val) return null
@@ -147,18 +154,32 @@ export default function ShipmentPlansList() {
       {
         key: 'commodityQty',
         label: t('colCommodityQty'),
+        filterType: 'select',
+        selectOptions: uniqueCommodityShortOptions(list),
+        matchesFilter: (r, selected) => rowMatchesCommodityShort(r, selected),
+        filterAllLabel: t('filterAll'),
+        filterAriaLabel: t('filterCommodityQty'),
         getSortValue: (r) => commodityQtyStr(r).toLowerCase(),
         getFilterValue: (r) => commodityQtyStr(r),
       },
       {
         key: 'purpose',
         label: t('colPurpose'),
+        filterType: 'select',
+        selectOptions: PURPOSE_FILTER_OPTIONS,
+        matchesFilter: (r, selected) => rowMatchesPurpose(r, selected),
+        filterAllLabel: t('filterAll'),
+        filterAriaLabel: t('filterPlanPurpose'),
         getSortValue: (r) => resolvePurposeLabel(r.purposeCode, null).toLowerCase(),
         getFilterValue: (r) => resolvePurposeLabel(r.purposeCode, null),
       },
       {
         key: 'approval',
         label: t('colApproval'),
+        filterType: 'select',
+        selectOptions: PLAN_APPROVAL_STATUS_OPTIONS,
+        filterAllLabel: t('filterAll'),
+        filterAriaLabel: t('filterApprovalColumn'),
         getSortValue: (r) => (r.approvalStatus || '').toLowerCase(),
         getFilterValue: (r) => r.approvalStatus || '',
       },
@@ -171,6 +192,10 @@ export default function ShipmentPlansList() {
       {
         key: 'eta',
         label: t('colEta'),
+        filterType: 'dateRange',
+        getDateIso: (r) => r.eta || null,
+        dateRangeFromAria: t('dateRangeFromAria', { column: t('colEta') }),
+        dateRangeToAria: t('dateRangeToAria', { column: t('colEta') }),
         getSortValue: (r) => parseDateMs(r.eta) ?? Number.NEGATIVE_INFINITY,
         getFilterValue: (r) => formatDateTimeDisplay(r.eta),
       },
@@ -187,7 +212,7 @@ export default function ShipmentPlansList() {
         getFilterValue: (r) => r.requestedBy || '',
       },
     ],
-    [t]
+    [t, list]
   )
 
   const {
@@ -458,7 +483,14 @@ export default function ShipmentPlansList() {
               />
             </thead>
             <tbody>
-              {paginatedFilteredPlans.map((row) => (
+              {paginatedFilteredPlans.length === 0 ? (
+                <tr>
+                  <td className="text-steel clearance-table__empty" colSpan={planTableColumns.length + 1}>
+                    {t('noRowsMatch')}
+                  </td>
+                </tr>
+              ) : (
+                paginatedFilteredPlans.map((row) => (
                 <tr key={row.id} className="shipping-instruction-table__row">
                   <td className="si-table__col-actions" onClick={(e) => e.stopPropagation()}>
                     <ShipmentPlanRowActions
@@ -559,13 +591,17 @@ export default function ShipmentPlansList() {
                   <td>{row.externalReference || '—'}</td>
                   <td>{row.requestedBy || '—'}</td>
                 </tr>
-              ))}
+                ))
+              )}
             </tbody>
           </table>
         </div>
 
         <div className="allocation-mobile-cards shipping-instruction-mobile-cards" aria-label={t('tableSectionTitle')}>
-          {paginatedFilteredPlans.map((row) => (
+          {paginatedFilteredPlans.length === 0 ? (
+            <p className="text-steel">{t('noRowsMatch')}</p>
+          ) : (
+            paginatedFilteredPlans.map((row) => (
             <article key={`plan-mobile-${row.id}`} className="allocation-mobile-card">
               <header className="allocation-mobile-card__header">
                 <strong>{row.planReference || `Plan #${row.id}`}</strong>
@@ -638,7 +674,8 @@ export default function ShipmentPlansList() {
                 />
               </div>
             </article>
-          ))}
+          ))
+          )}
         </div>
 
         {filteredAndSortedPlans.length > 0 && (

@@ -15,6 +15,7 @@ import FilePreviewLink from '../components/FilePreviewLink'
 import SiDetailModal from '../components/SiDetailModal'
 import SiDocumentModal from '../components/SiDocumentModal'
 import VesselInfoModal, { VesselNameButton } from '../components/VesselInfoModal'
+import ColumnSelectFilter from '../components/ColumnSelectFilter'
 import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
 import '../styles/allocation.css'
 import '../styles/file-preview.css'
@@ -22,9 +23,17 @@ import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { validateCastOffDepart } from '../utils/validateCastOffDepart'
 import {
   countSailedWithinDays,
+  isIsoInLocalDateRange,
   isWithinSailedLookback,
   SAILED_LOOKBACK_DAY_OPTIONS,
 } from '../utils/clearanceSailedLookback.js'
+import {
+  PURPOSE_FILTER_OPTIONS,
+  commodityShortNamesFromRow,
+  rowMatchesCommodityShort,
+  uniqueCommodityShortOptions,
+  rowMatchesPurpose,
+} from '../utils/tableCommodityPurposeFilters.js'
 import '../styles/modal.css'
 
 const CLEARANCE_PAGE_SIZE = 20
@@ -72,26 +81,37 @@ const CLEARANCE_COLUMNS = [
   {
     key: 'commodityQty',
     label: 'Commodity Qty',
+    filterType: 'select',
+    getSelectOptions: uniqueCommodityShortOptions,
+    matchesFilter: (r, selected) => rowMatchesCommodityShort(r, selected),
     getValue: (r) => r.totalQtyDisplay || r.totalQty || '—',
     getSortValue: (r) => (r.totalQtyDisplay || r.totalQty || '').toLowerCase(),
   },
-  { key: 'purpose', label: 'Purpose', getValue: (r) => (
-    <span className="loading-list__badge loading-list__badge--purpose" data-purpose={r.purpose}>{r.purpose}</span>
-  ), getSortValue: (r) => (r.purpose || '').toLowerCase() },
+  {
+    key: 'purpose',
+    label: 'Purpose',
+    filterType: 'select',
+    selectOptions: PURPOSE_FILTER_OPTIONS,
+    matchesFilter: (r, selected) => rowMatchesPurpose(r, selected),
+    getValue: (r) => (
+      <span className="loading-list__badge loading-list__badge--purpose" data-purpose={r.purpose}>{r.purpose}</span>
+    ),
+    getSortValue: (r) => (r.purpose || '').toLowerCase(),
+  },
   { key: 'status', label: 'Status', getValue: (r) => r.status || '—', getSortValue: (r) => (r.status || '').toLowerCase() },
   {
     key: 'castOffAt',
     label: 'CAST Off',
+    filterType: 'dateRange',
     getValue: (r) => formatDateTimeDisplay(r.castOffAt),
     getSortValue: (r) => r.castOffAt || '',
-    getFilterValue: (r) => formatDateTimeDisplay(r.castOffAt),
   },
   {
     key: 'sailedAt',
     label: 'Sailed At',
+    filterType: 'dateRange',
     getValue: (r) => formatDateTimeDisplay(r.sailedAt),
     getSortValue: (r) => r.sailedAt || '',
-    getFilterValue: (r) => formatDateTimeDisplay(r.sailedAt),
   },
   {
     key: 'vesselPhoto',
@@ -101,6 +121,16 @@ const CLEARANCE_COLUMNS = [
     getSortValue: (r) => (r.vesselPhotoUrl ? '1' : '0'),
   },
 ]
+
+function emptyClearanceFilterValue(col) {
+  return col.filterType === 'dateRange' ? { from: '', to: '' } : ''
+}
+
+function initialClearanceFilters() {
+  return Object.fromEntries(
+    CLEARANCE_COLUMNS.filter((c) => c.filterable !== false).map((c) => [c.key, emptyClearanceFilterValue(c)])
+  )
+}
 
 /** One clearance row per shipment plan for Ready / Sailed; pending sign-off stays per SI. */
 function collapseVerificationRowsByPlan(rows) {
@@ -128,6 +158,8 @@ function collapseVerificationRowsByPlan(rows) {
       totalQtyValues.length > 1
         ? totalQtyValues.join('\n')
         : totalQtyValues[0] || primary.totalQtyDisplay || primary.totalQty || '—'
+    const shorts = [...new Set(grp.flatMap((g) => commodityShortNamesFromRow(g)))]
+    const breakdown = grp.flatMap((g) => (Array.isArray(g.cargoBreakdownSummary) ? g.cargoBreakdownSummary : []))
     merged.push({
       ...primary,
       operationId: primary.operationId,
@@ -136,9 +168,38 @@ function collapseVerificationRowsByPlan(rows) {
       totalQty: qtyJoined,
       totalQtyDisplay: qtyJoined,
       commodityQty: qtyJoined,
+      commodityShortDisplay: shorts.join(' · ') || primary.commodityShortDisplay,
+      cargoBreakdownSummary: breakdown,
     })
   }
   return [...singles, ...merged]
+}
+
+function mapClearanceOperation(o, extras) {
+  return {
+    operationId: o.id,
+    shipmentPlanId: o.shipmentPlanId ?? null,
+    jettyOperationCode: o.jettyOperationCode,
+    shippingInstructionId: o.shippingInstructionId ?? null,
+    vesselName: o.vesselName,
+    purpose: o.purpose,
+    si: o.referenceNumber ?? '—',
+    referenceNumber: o.referenceNumber,
+    commodity: o.commodityDisplay || o.commodity || '—',
+    commodityDisplay: o.commodityDisplay || o.commodity || '—',
+    commodityShortDisplay: o.commodityShortDisplay || o.commodityDisplay || o.commodity || '—',
+    cargoBreakdownSummary: Array.isArray(o.cargoBreakdownSummary) ? o.cargoBreakdownSummary : [],
+    totalQty: o.totalQtyDisplay || '—',
+    totalQtyDisplay: o.totalQtyDisplay || '—',
+    commodityQty: o.totalQtyDisplay || '—',
+    jettyName: o.jettyName,
+    castOffAt: o.castOffAt,
+    sailedAt: o.sailedAt,
+    tbAt: o.tbAt,
+    clearanceDocumentUrl: o.clearanceDocumentUrl,
+    vesselPhotoUrl: o.vesselPhotoUrl,
+    ...extras,
+  }
 }
 
 function latestTimelineInstant(events) {
@@ -214,77 +275,20 @@ export default function Verification() {
         fetchOperations({ status: 'SAILED' }),
         pendingPromise,
       ])
-      const pending = (pendingRaw || []).map((o) => ({
-        operationId: o.id,
-        shipmentPlanId: o.shipmentPlanId ?? null,
-        jettyOperationCode: o.jettyOperationCode,
-        shippingInstructionId: o.shippingInstructionId ?? null,
-        vesselName: o.vesselName,
-        purpose: o.purpose,
-        si: o.referenceNumber ?? '—',
-        referenceNumber: o.referenceNumber,
-        commodity: o.commodityDisplay || o.commodity || '—',
-        commodityDisplay: o.commodityDisplay || o.commodity || '—',
-        totalQty: o.totalQtyDisplay || '—',
-        totalQtyDisplay: o.totalQtyDisplay || '—',
-        commodityQty: o.totalQtyDisplay || '—',
-        jettyName: o.jettyName,
+      const pending = (pendingRaw || []).map((o) => mapClearanceOperation(o, {
         status: 'Pending sign-off',
         apiStatus: 'PENDING_SIGNOFF',
         signoffRequestedAt: o.signoffRequestedAt,
         signoffRequestRemark: o.signoffRequestRemark,
         signoffRequestedByUsername: o.signoffRequestedByUsername,
-        castOffAt: o.castOffAt,
-        sailedAt: o.sailedAt,
-        tbAt: o.tbAt,
-        clearanceDocumentUrl: o.clearanceDocumentUrl,
-        vesselPhotoUrl: o.vesselPhotoUrl,
       }))
-      const ready = (signedOff || []).map((o) => ({
-        operationId: o.id,
-        shipmentPlanId: o.shipmentPlanId ?? null,
-        jettyOperationCode: o.jettyOperationCode,
-        shippingInstructionId: o.shippingInstructionId ?? null,
-        vesselName: o.vesselName,
-        purpose: o.purpose,
-        si: o.referenceNumber ?? '—',
-        referenceNumber: o.referenceNumber,
-        commodity: o.commodityDisplay || o.commodity || '—',
-        commodityDisplay: o.commodityDisplay || o.commodity || '—',
-        totalQty: o.totalQtyDisplay || '—',
-        totalQtyDisplay: o.totalQtyDisplay || '—',
-        commodityQty: o.totalQtyDisplay || '—',
-        jettyName: o.jettyName,
+      const ready = (signedOff || []).map((o) => mapClearanceOperation(o, {
         status: 'Ready to Sail',
         apiStatus: o.status,
-        castOffAt: o.castOffAt,
-        sailedAt: o.sailedAt,
-        tbAt: o.tbAt,
-        clearanceDocumentUrl: o.clearanceDocumentUrl,
-        vesselPhotoUrl: o.vesselPhotoUrl,
       }))
-      const done = (sailed || []).map((o) => ({
-        operationId: o.id,
-        shipmentPlanId: o.shipmentPlanId ?? null,
-        jettyOperationCode: o.jettyOperationCode,
-        shippingInstructionId: o.shippingInstructionId ?? null,
-        vesselName: o.vesselName,
-        purpose: o.purpose,
-        si: o.referenceNumber ?? '—',
-        referenceNumber: o.referenceNumber,
-        commodity: o.commodityDisplay || o.commodity || '—',
-        commodityDisplay: o.commodityDisplay || o.commodity || '—',
-        totalQty: o.totalQtyDisplay || '—',
-        totalQtyDisplay: o.totalQtyDisplay || '—',
-        commodityQty: o.totalQtyDisplay || '—',
-        jettyName: o.jettyName,
+      const done = (sailed || []).map((o) => mapClearanceOperation(o, {
         status: 'Sailed',
         apiStatus: o.status,
-        castOffAt: o.castOffAt,
-        sailedAt: o.sailedAt,
-        tbAt: o.tbAt,
-        clearanceDocumentUrl: o.clearanceDocumentUrl,
-        vesselPhotoUrl: o.vesselPhotoUrl,
       }))
       const pendingWithSiblings = pending.map((r) => ({ ...r, siblingOperationIds: [r.operationId] }))
       setRows([...pendingWithSiblings, ...collapseVerificationRowsByPlan(ready), ...collapseVerificationRowsByPlan(done)])
@@ -306,8 +310,7 @@ export default function Verification() {
     return () => clearTimeout(t)
   }, [toast])
 
-  const filterKeys = CLEARANCE_COLUMNS.filter((c) => c.filterable !== false).map((c) => c.key)
-  const [filters, setFilters] = useState(() => Object.fromEntries(filterKeys.map((k) => [k, ''])))
+  const [filters, setFilters] = useState(initialClearanceFilters)
   const [sortState, setSortState] = useState({ key: 'vesselName', dir: 'asc' })
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [sailedLookbackDays, setSailedLookbackDays] = useState(null)
@@ -334,6 +337,13 @@ export default function Verification() {
     setFilters((f) => ({ ...f, [key]: value }))
     setListPage(1)
   }
+  const updateDateRangeFilter = (key, bound, value) => {
+    setFilters((f) => {
+      const prev = f[key] && typeof f[key] === 'object' ? f[key] : { from: '', to: '' }
+      return { ...f, [key]: { ...prev, [bound]: value } }
+    })
+    setListPage(1)
+  }
   const handleSort = (key) => {
     setSortState((s) => ({ key, dir: s.key === key && s.dir === 'asc' ? 'desc' : 'asc' }))
     setListPage(1)
@@ -350,11 +360,21 @@ export default function Verification() {
   })
 
   const filteredVessels = rowsAfterStatusFilter.filter((r) => {
-    return filterKeys.every((key) => {
-      const f = (filters[key] || '').trim().toLowerCase()
+    return CLEARANCE_COLUMNS.every((col) => {
+      if (col.filterable === false) return true
+      if (col.filterType === 'dateRange') {
+        const range = filters[col.key] && typeof filters[col.key] === 'object' ? filters[col.key] : {}
+        return isIsoInLocalDateRange(r[col.key], range.from, range.to)
+      }
+      if (col.filterType === 'select') {
+        const selected = String(filters[col.key] || '').trim()
+        if (!selected) return true
+        if (col.matchesFilter) return col.matchesFilter(r, selected)
+        return String(r[col.key] ?? '') === selected
+      }
+      const f = String(filters[col.key] || '').trim().toLowerCase()
       if (!f) return true
-      const col = CLEARANCE_COLUMNS.find((c) => c.key === key)
-      const val = col?.getFilterValue ? col.getFilterValue(r) : r[key]
+      const val = col.getFilterValue ? col.getFilterValue(r) : r[col.key]
       return String(val ?? '').toLowerCase().includes(f)
     })
   })
@@ -449,7 +469,7 @@ export default function Verification() {
   }, [])
 
   const clearFilters = () => {
-    setFilters(Object.fromEntries(filterKeys.map((k) => [k, ''])))
+    setFilters(initialClearanceFilters())
     setStatusFilter('ALL')
     setSailedLookbackDays(null)
     setListPage(1)
@@ -710,8 +730,6 @@ export default function Verification() {
           <p className="text-steel">{t('clearanceFetchingLatest')}</p>
         ) : rows.length === 0 ? (
           <p className="text-steel">{t('clearanceNoOperations')}</p>
-        ) : sortedVessels.length === 0 ? (
-          <p className="text-steel">{t('clearanceNoRowsMatch')}</p>
         ) : (
           <>
           <div className="table-wrap allocation-table-desktop">
@@ -735,7 +753,38 @@ export default function Verification() {
                   <th className="allocation-table__expand-col" />
                   {CLEARANCE_COLUMNS.map((col) => (
                     <th key={col.key}>
-                      {col.filterable === false ? null : (
+                      {col.filterable === false ? null : col.filterType === 'dateRange' ? (
+                        <div className="clearance-date-range-filter">
+                          <input
+                            type="date"
+                            className="allocation-table__filter clearance-date-range-filter__input"
+                            value={filters[col.key]?.from || ''}
+                            onChange={(e) => updateDateRangeFilter(col.key, 'from', e.target.value)}
+                            aria-label={t('clearanceDateRangeFromAria', {
+                              column: t(CLEARANCE_COLUMN_LABEL_KEYS[col.key] || col.label),
+                            })}
+                          />
+                          <input
+                            type="date"
+                            className="allocation-table__filter clearance-date-range-filter__input"
+                            value={filters[col.key]?.to || ''}
+                            onChange={(e) => updateDateRangeFilter(col.key, 'to', e.target.value)}
+                            aria-label={t('clearanceDateRangeToAria', {
+                              column: t(CLEARANCE_COLUMN_LABEL_KEYS[col.key] || col.label),
+                            })}
+                          />
+                        </div>
+                      ) : col.filterType === 'select' ? (
+                        <ColumnSelectFilter
+                          value={filters[col.key] || ''}
+                          onChange={(value) => updateFilter(col.key, value)}
+                          options={col.getSelectOptions ? col.getSelectOptions(rows) : col.selectOptions || []}
+                          allLabel={t('clearanceAll')}
+                          ariaLabel={t('clearanceFilterSelectAria', {
+                            column: t(CLEARANCE_COLUMN_LABEL_KEYS[col.key] || col.label),
+                          })}
+                        />
+                      ) : (
                         <input
                           type="text"
                           className="allocation-table__filter"
@@ -750,7 +799,14 @@ export default function Verification() {
                 </tr>
               </thead>
               <tbody>
-                {pagedVessels.flatMap((v) => {
+                {pagedVessels.length === 0 ? (
+                  <tr>
+                    <td className="text-steel clearance-table__empty" colSpan={CLEARANCE_COLUMNS.length + 2}>
+                      {t('clearanceNoRowsMatch')}
+                    </td>
+                  </tr>
+                ) : (
+                  pagedVessels.flatMap((v) => {
                   const expanded = Boolean(expandedRows[v.operationId])
                   const mainRow = (
                     <tr key={v.operationId} className={`allocation-table__row ${expanded ? 'allocation-table__row--expanded' : ''}`}>
@@ -904,12 +960,16 @@ export default function Verification() {
                     </tr>
                   )
                   return [mainRow, detailRow]
-                })}
+                })
+                )}
               </tbody>
             </table>
           </div>
           <div className="allocation-mobile-cards" aria-label={t('clearanceOperationCardsAria')}>
-            {pagedVessels.map((v) => (
+            {pagedVessels.length === 0 ? (
+              <p className="text-steel">{t('clearanceNoRowsMatch')}</p>
+            ) : (
+              pagedVessels.map((v) => (
               <article key={`clearance-mobile-${v.operationId}`} className="allocation-mobile-card">
                 <header className="allocation-mobile-card__header">
                   <strong>{v.vesselName || '—'}</strong>
@@ -1056,7 +1116,8 @@ export default function Verification() {
                       </div>
                     ) : null}
               </article>
-            ))}
+            ))
+            )}
           </div>
           {paginationBar}
           </>

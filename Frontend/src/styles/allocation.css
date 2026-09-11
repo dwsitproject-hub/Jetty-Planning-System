@@ -1632,6 +1632,12 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   box-sizing: border-box;
 }
 
+select.allocation-table__filter {
+  background: var(--color-bg, #fff);
+  cursor: pointer;
+  min-width: 6.5rem;
+}
+
 .allocation-table__row {
   cursor: pointer;
   transition: background var(--duration-fast) var(--easing-default);
@@ -5601,6 +5607,25 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.clearance-date-range-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 8.25rem;
+}
+
+.clearance-date-range-filter__input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.15rem 0.25rem;
+  font-size: 0.75rem;
+}
+
+.clearance-table__empty {
+  padding: var(--spacing-4) var(--spacing-3);
+  text-align: center;
 }
 
 .clearance-table thead th {

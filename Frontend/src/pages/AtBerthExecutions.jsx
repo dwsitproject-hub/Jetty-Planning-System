@@ -10,6 +10,24 @@ import VesselInfoModal, { VesselNameButton } from '../components/VesselInfoModal
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { atBerthExecutionOpenPath } from '../utils/atBerthOpenPath'
 import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
+import ColumnSelectFilter from '../components/ColumnSelectFilter'
+import ColumnDateRangeFilter from '../components/ColumnDateRangeFilter'
+import {
+  PURPOSE_FILTER_OPTIONS,
+  uniqueCommodityShortOptions,
+  rowMatchesCommodityShort,
+  rowMatchesPurpose,
+  groupMatchesCommodityShort,
+  groupMatchesPurpose,
+  groupMatchesExactLabel,
+} from '../utils/tableCommodityPurposeFilters'
+import {
+  dateRangeFilterParts,
+  emptyFilterValue,
+  mergeDateRangeBound,
+  rowMatchesColumnFilter,
+  uniqueSortedOptions,
+} from '../utils/sortableFilterableTable'
 import EtcBreachBadge from '../components/EtcBreachBadge'
 import CargoScheduleProgressIndicator, {
   isCargoBehindSchedule,
@@ -28,9 +46,15 @@ const PHASE_EMOJI = {
   'Post-Checking': '✅',
 }
 
-const PURPOSES = [{ key: 'Loading' }, { key: 'Unloading' }]
+const AT_BERTH_PHASE_ORDER = [
+  'Pre-Checking',
+  'Operational',
+  'Post-Checking',
+  'Ready to Sail',
+  'Signed off',
+]
 
-const FILTER_OPTIONS = [{ value: 'All' }, { value: 'Loading' }, { value: 'Unloading' }]
+const PURPOSES = [{ key: 'Loading' }, { key: 'Unloading' }]
 
 /** Same rule as Allocation "Incoming vessel & berthing plan" status filter. */
 function getBerthingPlanStatus(row) {
@@ -194,6 +218,8 @@ function createAtBerthColumns(nowMs, cargoProgressByOpId = {}, scheduleColumnLab
   {
     key: 'commodityQty',
     label: 'Commodity Qty',
+    filterType: 'select',
+    matchesFilter: (r, selected) => rowMatchesCommodityShort(r, selected),
     getValue: (r) => r.totalQtyDisplay || '—',
     getSortValue: (r) => (r.totalQtyDisplay || '').toLowerCase(),
     getFilterValue: (r) => r.totalQtyDisplay || '',
@@ -201,6 +227,9 @@ function createAtBerthColumns(nowMs, cargoProgressByOpId = {}, scheduleColumnLab
   {
     key: 'purpose',
     label: 'Purpose',
+    filterType: 'select',
+    selectOptions: PURPOSE_FILTER_OPTIONS,
+    matchesFilter: (r, selected) => rowMatchesPurpose(r, selected),
     getValue: (r) => (
       <span className="loading-list__badge loading-list__badge--purpose" data-purpose={r.purpose}>
         {r.purpose || '—'}
@@ -219,6 +248,8 @@ function createAtBerthColumns(nowMs, cargoProgressByOpId = {}, scheduleColumnLab
   {
     key: 'ta',
     label: 'TA',
+    filterType: 'dateRange',
+    getDateIso: (r) => r.taDateTime || null,
     getValue: (r) => formatDateTimeDisplay(r.taDateTime),
     getSortValue: (r) => parseDateMs(r.taDateTime) ?? 0,
     getFilterValue: (r) => `${r.taDateTime || ''} ${formatDateTimeDisplay(r.taDateTime)}`,
@@ -226,6 +257,8 @@ function createAtBerthColumns(nowMs, cargoProgressByOpId = {}, scheduleColumnLab
   {
     key: 'tb',
     label: 'TB',
+    filterType: 'dateRange',
+    getDateIso: (r) => r.tbDateTime || null,
     getValue: (r) => formatDateTimeDisplay(r.tbDateTime),
     getSortValue: (r) => parseDateMs(r.tbDateTime) ?? 0,
     getFilterValue: (r) => `${r.tbDateTime || ''} ${formatDateTimeDisplay(r.tbDateTime)}`,
@@ -233,6 +266,8 @@ function createAtBerthColumns(nowMs, cargoProgressByOpId = {}, scheduleColumnLab
   {
     key: 'etc',
     label: 'ETC',
+    filterType: 'dateRange',
+    getDateIso: (r) => r.estimatedCompletionDateTime || r.estimationOfCompletion || null,
     getValue: (r) => {
       const breach = getEtcBreach(r, nowMs)
       return (
@@ -274,6 +309,7 @@ function createAtBerthColumns(nowMs, cargoProgressByOpId = {}, scheduleColumnLab
   {
     key: 'phaseLabel',
     label: 'Phase',
+    filterType: 'select',
     getValue: (r) => statusToPhase(r.status),
     getSortValue: (r) => statusToPhase(r.status).toLowerCase(),
     getFilterValue: (r) => statusToPhase(r.status),
@@ -281,6 +317,7 @@ function createAtBerthColumns(nowMs, cargoProgressByOpId = {}, scheduleColumnLab
   {
     key: 'status',
     label: 'Status',
+    filterType: 'select',
     getValue: (r) => r.status || '—',
     getSortValue: (r) => (r.status || '').toLowerCase(),
     getFilterValue: (r) => r.status,
@@ -372,7 +409,6 @@ export default function AtBerthExecutions() {
   const [queue, setQueue] = useState([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState(null)
-  const [purposeFilter, setPurposeFilter] = useState('All')
   const [overdueOnlyFilter, setOverdueOnlyFilter] = useState(false)
   const [breachNowMs, setBreachNowMs] = useState(() => Date.now())
   const [cargoProgressByOpId, setCargoProgressByOpId] = useState({})
@@ -380,9 +416,8 @@ export default function AtBerthExecutions() {
     () => createAtBerthColumns(breachNowMs, cargoProgressByOpId, tPages('atBerthScheduleColumn')),
     [breachNowMs, cargoProgressByOpId, tPages]
   )
-  const filterKeys = atBerthColumns.map((c) => c.key)
   const [filters, setFilters] = useState(() =>
-    Object.fromEntries(createAtBerthColumns().map((c) => [c.key, '']))
+    Object.fromEntries(createAtBerthColumns().map((c) => [c.key, emptyFilterValue(c)]))
   )
   const [sortState, setSortState] = useState({ key: 'vesselName', dir: 'asc' })
   const [expandedGroupKey, setExpandedGroupKey] = useState(null)
@@ -580,18 +615,23 @@ export default function AtBerthExecutions() {
     return out
   }, [rows, breachNowMs])
 
-  const byPurpose = purposeFilter === 'All' ? rows : rows.filter((v) => v.purpose === purposeFilter)
   const updateFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }))
   const handleSort = (key) => setSortState((s) => ({ key, dir: s.key === key && s.dir === 'asc' ? 'desc' : 'asc' }))
+  const commodityShortOptions = useMemo(() => uniqueCommodityShortOptions(rows), [rows])
+  const phaseOptions = useMemo(
+    () => uniqueSortedOptions(rows.map((r) => statusToPhase(r.status)), AT_BERTH_PHASE_ORDER),
+    [rows]
+  )
+  const statusOptions = useMemo(
+    () => uniqueSortedOptions(rows.map((r) => r.status)),
+    [rows]
+  )
 
-  const filteredVessels = byPurpose.filter((r) => {
+  const filteredVessels = rows.filter((r) => {
     if (overdueOnlyFilter && !getEtcBreach(r, breachNowMs)) return false
-    return filterKeys.every((key) => {
-      const f = (filters[key] || '').trim().toLowerCase()
-      if (!f) return true
-      const col = atBerthColumns.find((c) => c.key === key)
-      const raw = col?.getFilterValue ? col.getFilterValue(r) : r[key]
-      return String(raw ?? '').toLowerCase().includes(f)
+    return atBerthColumns.every((col) => {
+      if (col.filterType === 'select') return true
+      return rowMatchesColumnFilter(r, col, filters[col.key])
     })
   })
 
@@ -616,8 +656,15 @@ export default function AtBerthExecutions() {
   })
 
   const vesselGroups = useMemo(
-    () => buildAtBerthGroups(sortedVessels, t, breachNowMs),
-    [sortedVessels, t, breachNowMs]
+    () =>
+      buildAtBerthGroups(sortedVessels, t, breachNowMs).filter(
+        (g) =>
+          groupMatchesCommodityShort(g.children, filters.commodityQty) &&
+          groupMatchesPurpose(g.children, filters.purpose) &&
+          groupMatchesExactLabel(g.children, filters.phaseLabel, (c) => statusToPhase(c.status)) &&
+          groupMatchesExactLabel(g.children, filters.status, (c) => c.status)
+      ),
+    [sortedVessels, t, breachNowMs, filters.commodityQty, filters.purpose, filters.phaseLabel, filters.status]
   )
 
   useEffect(() => {
@@ -685,35 +732,19 @@ export default function AtBerthExecutions() {
       <section className="card at-berth-list-section">
         <div className="at-berth-list-section__header">
           <h2 className="card__title">{t('vesselsTitle')}</h2>
-          <div className="allocation-tabs at-berth-filter" role="tablist">
-            {FILTER_OPTIONS.map(({ value }) => (
-              <button
-                key={value}
-                type="button"
-                role="tab"
-                aria-selected={purposeFilter === value}
-                className={`allocation-tabs__tab ${purposeFilter === value ? 'allocation-tabs__tab--active' : ''}`}
-                onClick={() => setPurposeFilter(value)}
-              >
-                {value === 'All' ? t('filterAll') : labelByPurpose[value] || value}
-              </button>
-            ))}
-            <label className="allocation-plan-status-filter__option at-berth-overdue-filter">
-              <input
-                type="checkbox"
-                checked={overdueOnlyFilter}
-                onChange={(e) => setOverdueOnlyFilter(e.target.checked)}
-              />
-              {t('filterOverdueOnly')}
-            </label>
-          </div>
+          <label className="allocation-plan-status-filter__option at-berth-overdue-filter">
+            <input
+              type="checkbox"
+              checked={overdueOnlyFilter}
+              onChange={(e) => setOverdueOnlyFilter(e.target.checked)}
+            />
+            {t('filterOverdueOnly')}
+          </label>
         </div>
         {loading ? (
           <p className="text-steel">{t('loading')}</p>
         ) : rows.length === 0 ? (
           <p className="text-steel">{t('emptyNoOps')}</p>
-        ) : vesselGroups.length === 0 ? (
-          <p className="text-steel">{t('emptyNoFilterMatch')}</p>
         ) : (
           <>
           <div className="table-wrap allocation-table-desktop">
@@ -743,20 +774,55 @@ export default function AtBerthExecutions() {
                   <th className="allocation-table__action-col" />
                   {atBerthColumns.map((col) => (
                     <th key={col.key}>
-                      <input
-                        type="text"
-                        className="allocation-table__filter"
-                        placeholder={t('filterPlaceholder', { label: colLabel(col.key, col.label) })}
-                        value={filters[col.key]}
-                        onChange={(e) => updateFilter(col.key, e.target.value)}
-                        aria-label={t('filterBy', { label: colLabel(col.key, col.label) })}
-                      />
+                      {col.filterType === 'select' ? (
+                        <ColumnSelectFilter
+                          value={filters[col.key]}
+                          onChange={(value) => updateFilter(col.key, value)}
+                          options={
+                            col.key === 'commodityQty'
+                              ? commodityShortOptions
+                              : col.key === 'phaseLabel'
+                                ? phaseOptions
+                                : col.key === 'status'
+                                  ? statusOptions
+                                  : col.selectOptions || []
+                          }
+                          allLabel={t('filterAll')}
+                          ariaLabel={t('filterSelectAria', { label: colLabel(col.key, col.label) })}
+                        />
+                      ) : col.filterType === 'dateRange' ? (
+                        <ColumnDateRangeFilter
+                          from={dateRangeFilterParts(filters[col.key]).from}
+                          to={dateRangeFilterParts(filters[col.key]).to}
+                          onChange={(bound, value) =>
+                            updateFilter(col.key, mergeDateRangeBound(filters[col.key], bound, value))
+                          }
+                          fromAria={t('dateRangeFromAria', { label: colLabel(col.key, col.label) })}
+                          toAria={t('dateRangeToAria', { label: colLabel(col.key, col.label) })}
+                        />
+                      ) : (
+                        <input
+                          type="text"
+                          className="allocation-table__filter"
+                          placeholder={t('filterPlaceholder', { label: colLabel(col.key, col.label) })}
+                          value={filters[col.key] ?? ''}
+                          onChange={(e) => updateFilter(col.key, e.target.value)}
+                          aria-label={t('filterBy', { label: colLabel(col.key, col.label) })}
+                        />
+                      )}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {vesselGroups.map((g) => {
+                {vesselGroups.length === 0 ? (
+                  <tr>
+                    <td className="text-steel clearance-table__empty" colSpan={tableColSpan}>
+                      {t('emptyNoFilterMatch')}
+                    </td>
+                  </tr>
+                ) : (
+                vesselGroups.map((g) => {
                   const opId = g.shiftRow?.operationId
                   if (g.siCount <= 1) {
                     const r = g.shiftRow
@@ -1053,12 +1119,16 @@ export default function AtBerthExecutions() {
                         })}
                     </Fragment>
                   )
-                })}
+                })
+                )}
               </tbody>
             </table>
           </div>
           <div className="allocation-mobile-cards" aria-label="At-berth vessel cards">
-            {vesselGroups.map((g) => {
+            {vesselGroups.length === 0 ? (
+              <p className="text-steel">{t('emptyNoFilterMatch')}</p>
+            ) : (
+            vesselGroups.map((g) => {
               if (g.siCount <= 1) {
                 const r = g.shiftRow
                 const mobileBreach = getEtcBreach(r, breachNowMs)
@@ -1261,7 +1331,8 @@ export default function AtBerthExecutions() {
                   ) : null}
                 </article>
               )
-            })}
+            })
+            )}
           </div>
           </>
         )}

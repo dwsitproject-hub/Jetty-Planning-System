@@ -71,6 +71,11 @@ test.describe('P1 — SAILED pipeline + cast-off validation', () => {
     await expect(page.getByRole('columnheader', { name: /cast off/i })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: /sailed at/i })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: /vessel photo/i })).toBeVisible();
+    await expect(page.getByLabel(/filter commodity qty/i)).toBeVisible();
+    await expect(page.getByLabel(/filter purpose/i)).toBeVisible();
+    await expect(page.getByLabel(/filter purpose/i)).toHaveValue('');
+    await expect(page.getByLabel(/filter purpose/i).locator('option', { hasText: 'Loading' })).toHaveCount(1);
+    await expect(page.getByLabel(/filter purpose/i).locator('option', { hasText: 'Unloading' })).toHaveCount(1);
     await expect(page.getByRole('navigation', { name: /clearance list pages/i })).toBeVisible();
     await expect(page.getByText(/showing \d+[–-]\d+ of \d+/i)).toBeVisible();
 
