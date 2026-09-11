@@ -36,6 +36,7 @@ import {
   isWaitingToBerth,
   planCommodityShortLabels,
 } from '../../utils/dashboardArrivalsWindow'
+import { SAILED_LOOKBACK_MS, summarizeSailedSince } from '../../utils/dashboardSailed'
 import {
   AT_BERTH_PHASES,
   PHASE_EMOJI,
@@ -176,16 +177,18 @@ export default function DashboardShell({ mode = 'live' }) {
     }
 
     if (isLive) {
-      const [rAtBerth, rJetties, rArrivals, rCargoProgress] = await Promise.all([
+      const sailedSinceIso = new Date(Date.now() - SAILED_LOOKBACK_MS).toISOString()
+      const [rAtBerth, rJetties, rArrivals, rCargoProgress, rSailed] = await Promise.all([
         run('at-berth', fetchAtBerth),
         run('jetties', () => fetchJetties(selectedPortId)),
         run('arrivals', () => fetchShipmentPlans()),
         run('cargo-progress', fetchAtBerthCargoProgress),
+        run('sailed', () => fetchOperations({ status: 'SAILED', castOffFrom: sailedSinceIso })),
       ])
 
       setPlans([])
       setOps([])
-      setAllOps([])
+      setAllOps(Array.isArray(rSailed.v) ? rSailed.v : [])
       setAtBerth(Array.isArray(rAtBerth.v) ? rAtBerth.v : [])
       setJetties(Array.isArray(rJetties.v) ? rJetties.v : [])
       setArrivalPlans(Array.isArray(rArrivals.v) ? rArrivals.v : [])
@@ -525,10 +528,10 @@ export default function DashboardShell({ mode = 'live' }) {
   const commodityIndex = useMemo(
     () => buildPlanCommodityIndex(
       isLive ? arrivalPlans : plans,
-      isLive ? atBerth : ops,
+      isLive ? [...atBerth, ...allOps] : ops,
       commodityIdByName
     ),
-    [isLive, arrivalPlans, atBerth, plans, ops, commodityIdByName]
+    [isLive, arrivalPlans, atBerth, allOps, plans, ops, commodityIdByName]
   )
 
   const filters = useMemo(() => ({
@@ -575,11 +578,12 @@ export default function DashboardShell({ mode = 'live' }) {
 
   const rejectedPlanIds = useMemo(() => {
     const s = new Set()
-    for (const p of filteredPlans) {
+    const source = isLive ? arrivalPlans : filteredPlans
+    for (const p of source) {
       if (p.approvalStatus === 'Rejected') s.add(p.id)
     }
     return s
-  }, [filteredPlans])
+  }, [isLive, arrivalPlans, filteredPlans])
 
   // ─── At-berth phase counts (from live at-berth data, refined by sub-process detail) ──
   const atBerthCounts = useMemo(() => {
@@ -598,8 +602,8 @@ export default function DashboardShell({ mode = 'live' }) {
   }), [atBerthCounts])
 
   const filteredAllOps = useMemo(
-    () => filterOps(allOps, filters, commodityIndex, plans),
-    [allOps, filters, commodityIndex, plans]
+    () => filterOps(allOps, filters, commodityIndex, indexPlans),
+    [allOps, filters, commodityIndex, indexPlans]
   )
 
   // ─── Live operational stages (same source as At Berth Now / occupancy).
@@ -662,13 +666,18 @@ export default function DashboardShell({ mode = 'live' }) {
     return { count, qty, rows }
   }, [filteredAllOps, rejectedPlanIds, startDate, endDate])
 
+  const sailedLast72h = useMemo(
+    () => summarizeSailedSince(filteredAllOps, nowTick - SAILED_LOOKBACK_MS, parseIso, rejectedPlanIds),
+    [filteredAllOps, nowTick, rejectedPlanIds],
+  )
+
   // Bottom clearance row — live/range figures matching the pipeline stages
   const opStats = useMemo(() => ({
     atBerth: pipelineLive.atBerth,
     signoffApproved: pipelineLive.readyToSail,
     signoffRequested: pipelineLive.signoffRequested,
-    sailed: sailedInRange.count,
-  }), [pipelineLive, sailedInRange.count])
+    sailed: isLive ? sailedLast72h.count : sailedInRange.count,
+  }), [isLive, pipelineLive, sailedInRange.count, sailedLast72h.count])
 
   const slotOccupancyIsTodayOnly = isLive || isTodayOnlyRange(kpiStartDate, kpiEndDate)
   const slotOccupancyIsRange = !isLive && kpiStartDate !== kpiEndDate
@@ -1693,11 +1702,34 @@ export default function DashboardShell({ mode = 'live' }) {
                 <span>{t('clearancePendingSignOff')}</span>
                 <strong>{opStats.signoffRequested}</strong>
               </div>
-              <div className="v2-clearance-card v2-clearance-card--sailed">
-                <span aria-hidden>🚀</span>
-                <span>{t('clearanceSailed')}</span>
-                <strong>{opStats.sailed}</strong>
-              </div>
+              <InteractiveTooltip
+                title={t('clearanceSailed72h')}
+                subtitle={t('clearanceSailed72hHint', { count: sailedLast72h.count })}
+                emptyText={t('clearanceSailed72hEmpty')}
+                items={sailedLast72h.vessels.map((v) => ({
+                  primary: v.vesselName,
+                  secondary: t('clearanceSailed72hItem', {
+                    jetty: v.jettyName,
+                    opId: v.operationCode || (v.id != null ? `#${v.id}` : '—'),
+                    when: formatDateTimeCompact(new Date(v.offMs).toISOString()),
+                  }),
+                }))}
+                maxWidth={380}
+                maxHeight={260}
+                placement="left"
+                interactiveChild
+              >
+                <div
+                  className="v2-clearance-card v2-clearance-card--sailed"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${t('clearanceSailed72hAria')}: ${opStats.sailed}`}
+                >
+                  <span aria-hidden>🚀</span>
+                  <span>{t('clearanceSailed72h')}</span>
+                  <strong>{opStats.sailed}</strong>
+                </div>
+              </InteractiveTooltip>
             </div>
           </>
         )}

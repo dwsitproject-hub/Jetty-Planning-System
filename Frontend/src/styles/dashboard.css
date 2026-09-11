@@ -3291,6 +3291,11 @@
 .v2-clearance-card--sailed {
   border-color: rgba(148, 163, 184, 0.3);
   background: rgba(148, 163, 184, 0.05);
+  cursor: pointer;
+}
+
+.v2-clearance-card--sailed:hover {
+  border-color: rgba(148, 163, 184, 0.6);
 }
 
 .v2-clearance-card--pending {

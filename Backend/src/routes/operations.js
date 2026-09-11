@@ -495,7 +495,14 @@ router.get('/', async (req, res) => {
   if (String(req.query.signoff_requested || '') === '1') {
     query += ` AND o.signoff_requested_at IS NOT NULL AND o.status = 'SIGNOFF_REQUESTED'`;
   }
-  const { start_date: startDate, end_date: endDate } = req.query;
+  const { start_date: startDate, end_date: endDate, cast_off_from: castOffFrom } = req.query;
+  if (castOffFrom && typeof castOffFrom === 'string' && castOffFrom.trim()) {
+    const d = new Date(castOffFrom.trim());
+    if (!Number.isNaN(d.getTime())) {
+      query += ` AND COALESCE(sp.cast_off_at, o.cast_off_at, o.sailed_at, o.actual_completion_time) >= $${i++}::timestamptz`;
+      params.push(d.toISOString());
+    }
+  }
   if (startDate && typeof startDate === 'string' && startDate.trim()) {
     const d = new Date(startDate.trim());
     if (!Number.isNaN(d.getTime())) {
