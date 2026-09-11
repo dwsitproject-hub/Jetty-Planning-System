@@ -1703,7 +1703,7 @@ export default function DashboardShell({ mode = 'live' }) {
                 <strong>{opStats.signoffRequested}</strong>
               </div>
               <InteractiveTooltip
-                title={t('clearanceSailed72h')}
+                title={t('clearanceSailed')}
                 subtitle={t('clearanceSailed72hHint', { count: sailedLast72h.count })}
                 emptyText={t('clearanceSailed72hEmpty')}
                 items={sailedLast72h.vessels.map((v) => ({
@@ -1726,7 +1726,7 @@ export default function DashboardShell({ mode = 'live' }) {
                   aria-label={`${t('clearanceSailed72hAria')}: ${opStats.sailed}`}
                 >
                   <span aria-hidden>🚀</span>
-                  <span>{t('clearanceSailed72h')}</span>
+                  <span>{t('clearanceSailed')}</span>
                   <strong>{opStats.sailed}</strong>
                 </div>
               </InteractiveTooltip>
