@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 function clamp(n, min, max) {
@@ -85,7 +85,7 @@ export default function InteractiveTooltip({
 
   useEffect(() => () => cancelScheduledClose(), [cancelScheduledClose])
 
-  const computePosition = useCallback(() => {
+  const computePosition = useCallback((tooltipEl) => {
     const el = triggerRef.current
     if (!el) return null
     // For absolutely-positioned interactive children (e.g. Gantt bars), measure the child box
@@ -93,21 +93,27 @@ export default function InteractiveTooltip({
     const anchor = resolveAnchorElement(el, interactiveChild)
     if (!anchor) return null
     const r = anchor.getBoundingClientRect()
-    const gap = 10
-    const estW = Math.min(maxWidth, 360)
+    const gap = 8
     const viewportPad = 12
-    let flip = false
+    const measured = tooltipEl instanceof HTMLElement ? tooltipEl.getBoundingClientRect().width : 0
+    const tipW = measured > 0 ? measured : Math.min(maxWidth, 240)
+    const preferRight = placement === 'right'
+    const fitsLeft = r.left - gap - tipW >= viewportPad
+    const fitsRight = r.right + gap + tipW <= window.innerWidth - viewportPad
+    let side = preferRight ? 'right' : 'left'
+    if (side === 'left' && !fitsLeft && fitsRight) side = 'right'
+    if (side === 'right' && !fitsRight && fitsLeft) side = 'left'
+    if (side === 'left' && !fitsLeft && !fitsRight) {
+      side = r.left >= window.innerWidth - r.right ? 'left' : 'right'
+    }
+    if (side === 'right' && !fitsRight && !fitsLeft) {
+      side = r.left >= window.innerWidth - r.right ? 'left' : 'right'
+    }
 
-    let left = placement === 'right' ? r.right + gap : r.left - gap - estW
-    if (left < viewportPad) {
-      left = r.right + gap
-      flip = true
-    }
-    if (left + estW > window.innerWidth - viewportPad) {
-      left = window.innerWidth - viewportPad - estW
-    }
+    let left = side === 'right' ? r.right + gap : r.left - gap - tipW
+    left = clamp(left, viewportPad, Math.max(viewportPad, window.innerWidth - viewportPad - tipW))
     const top = clamp(r.top + r.height / 2, viewportPad + 10, window.innerHeight - viewportPad - 10)
-    return { left, top, flip }
+    return { left, top, flip: side === 'right' }
   }, [interactiveChild, maxWidth, placement])
 
   const openNow = useCallback(() => {
@@ -117,6 +123,17 @@ export default function InteractiveTooltip({
     setPos(p)
     setOpen(true)
   }, [cancelScheduledClose, computePosition])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    const next = computePosition(tooltipRef.current)
+    if (!next) return
+    setPos((prev) => (
+      prev && prev.left === next.left && prev.top === next.top && prev.flip === next.flip
+        ? prev
+        : next
+    ))
+  }, [open, computePosition, safeItems, title, subtitle, emptyText])
 
   const onKeyDown = useCallback(
     (e) => {
