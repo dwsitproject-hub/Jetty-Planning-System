@@ -1,7 +1,6 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { fetchPorts } from '../api/ports'
 import {
   createMasterTank,
   deleteMasterTank,
@@ -11,7 +10,9 @@ import {
   updateMasterTank,
 } from '../api/masterTanks'
 import { useActivityLog } from '../context/ActivityLogContext'
+import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
+import MasterWorkingPortBar from '../components/MasterWorkingPortBar.jsx'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
@@ -46,9 +47,10 @@ export default function MasterTanks() {
   const canDoEdit = canEdit(PAGE_KEY)
   const canDoDelete = canDelete(PAGE_KEY)
   const fileInputRef = useRef(null)
+  const { selectedPortId, noPortAssigned, requiresSelection } = usePortScope()
+  const portId = selectedPortId != null ? String(selectedPortId) : ''
+  const canManage = Boolean(portId) && !requiresSelection && !noPortAssigned
 
-  const [ports, setPorts] = useState([])
-  const [portId, setPortId] = useState('')
   const [tanks, setTanks] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -63,21 +65,6 @@ export default function MasterTanks() {
   const [formCode, setFormCode] = useState('')
   const [formName, setFormName] = useState('')
   const [formDescription, setFormDescription] = useState('')
-
-  const loadPorts = useCallback(async () => {
-    try {
-      const list = await fetchPorts()
-      const arr = Array.isArray(list) ? list : []
-      setPorts(arr)
-      setPortId((prev) => {
-        if (prev && arr.some((p) => String(p.id) === String(prev))) return prev
-        return arr[0] ? String(arr[0].id) : ''
-      })
-    } catch (e) {
-      setPorts([])
-      setError(e?.message || 'Failed to load ports')
-    }
-  }, [])
 
   const loadTanks = useCallback(async () => {
     if (!portId) {
@@ -97,10 +84,6 @@ export default function MasterTanks() {
       setLoading(false)
     }
   }, [portId])
-
-  useEffect(() => {
-    loadPorts()
-  }, [loadPorts])
 
   useEffect(() => {
     loadTanks()
@@ -237,11 +220,6 @@ export default function MasterTanks() {
     { key: 'code', dir: 'asc' }
   )
 
-  const portOptions = useMemo(
-    () => ports.map((p) => ({ value: String(p.id), label: p.name || `Port #${p.id}` })),
-    [ports]
-  )
-
   return (
     <div className="allocation-page">
       <h1 className="page-title">{t('masterHubTanksTitle')}</h1>
@@ -249,6 +227,7 @@ export default function MasterTanks() {
       <p className="text-steel">
         <Link to="/master" className="link">← Back to Master Menu</Link>
       </p>
+      <MasterWorkingPortBar />
 
       {error && (
         <p className="allocation-page__intro" style={{ color: 'var(--color-danger, #c00)' }} role="alert">
@@ -293,22 +272,7 @@ export default function MasterTanks() {
         <div className="card__header-row" style={{ flexWrap: 'wrap', gap: '0.75rem' }}>
           <h2 className="card__title">Shore tanks</h2>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <label className="text-steel" htmlFor="master-tanks-port" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              Port
-              <select
-                id="master-tanks-port"
-                className="berthing-modal__input"
-                value={portId}
-                onChange={(e) => setPortId(e.target.value)}
-                style={{ minWidth: 180 }}
-              >
-                {portOptions.length === 0 ? <option value="">No ports</option> : null}
-                {portOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </label>
-            <button type="button" className="btn btn--secondary btn--small" onClick={() => loadTanks()} disabled={loading || !portId}>
+            <button type="button" className="btn btn--secondary btn--small" onClick={() => loadTanks()} disabled={loading || !canManage}>
               Refresh
             </button>
             <button
@@ -334,15 +298,15 @@ export default function MasterTanks() {
               style={{ display: 'none' }}
               onChange={handleImportFile}
             />
-            <button type="button" className="btn btn--primary" onClick={openAdd} disabled={!canDoEdit || !portId}>
+            <button type="button" className="btn btn--primary" onClick={openAdd} disabled={!canDoEdit || !canManage}>
               Add Tank
             </button>
           </div>
         </div>
         {loading ? (
           <p className="text-steel">Loading tanks…</p>
-        ) : !portId ? (
-          <p className="text-steel">Select a port to view tanks.</p>
+        ) : !canManage ? (
+          <p className="text-steel">{t('masterNeedWorkingPort')}</p>
         ) : tanks.length === 0 ? (
           <p className="text-steel">No tanks for this port. Click Add Tank or Import CSV.</p>
         ) : (

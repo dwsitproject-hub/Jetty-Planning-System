@@ -151,6 +151,7 @@
   "formEtaFromRequired": "ETA from *",
   "formEtaToRequired": "ETA to *",
   "formPreferredJetty": "Preferred jetty",
+  "jettyOtherPortSuffix": "other port",
   "formVoyageOptional": "Voyage no. (optional)",
   "formRouteFreightSection": "Route & freight",
   "formDestination": "Destination",

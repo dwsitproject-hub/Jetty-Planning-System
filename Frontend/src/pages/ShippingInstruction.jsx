@@ -11,6 +11,7 @@ import {
 } from '../api/shippingInstructions'
 import { fetchSiLookups } from '../api/siLookups'
 import { useActivityLog } from '../context/ActivityLogContext'
+import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
 import PurposeBadge from '../components/PurposeBadge'
 import { SiRowActions, canViewAsDocument } from '../components/SiTableRowActions'
@@ -30,6 +31,7 @@ import {
   MAX_SI_VOYAGE_CHARS,
 } from '../constants/inputLimits'
 import { emptyBreakdownRow, nextDocId } from '../utils/siPlanLinkedDraft'
+import { filterJettiesForPort, jettySelectLabel } from '../utils/portScopedLookups'
 import {
   applyCommodityDefaultMetric,
   metricsForBreakdownRow,
@@ -299,6 +301,7 @@ export default function ShippingInstruction() {
   const navigate = useNavigate()
   const { logActivity } = useActivityLog()
   const { canApprove, canDelete } = useRbac()
+  const { selectedPortId } = usePortScope()
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [editingSnapshot, setEditingSnapshot] = useState(null)
@@ -389,6 +392,10 @@ export default function ShippingInstruction() {
   const selectedPurpose = useMemo(
     () => (lookups?.purposes || []).find((p) => String(p.id) === String(form.purposeId)) || null,
     [lookups?.purposes, form.purposeId]
+  )
+  const jettyOptions = useMemo(
+    () => filterJettiesForPort(lookups?.jetties, selectedPortId, form.preferredJettyId),
+    [lookups?.jetties, selectedPortId, form.preferredJettyId]
   )
   const purposeCode = selectedPurpose?.code || null
   const purposeChosen = !!form.purposeId
@@ -1172,8 +1179,8 @@ export default function ShippingInstruction() {
                     <label htmlFor="jetty">{t('formPreferredJetty')}</label>
                     <select id="jetty" value={form.preferredJettyId} onChange={(e) => updateForm({ preferredJettyId: e.target.value })} disabled={!lookups}>
                       <option value="">—</option>
-                      {(lookups?.jetties || []).map((j) => (
-                        <option key={j.id} value={j.id}>{j.label}</option>
+                      {(jettyOptions || []).map((j) => (
+                        <option key={j.id} value={j.id}>{jettySelectLabel(j, t('jettyOtherPortSuffix'))}</option>
                       ))}
                     </select>
                   </div>

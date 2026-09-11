@@ -1,11 +1,12 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { fetchPorts } from '../api/ports'
 import { fetchSiLookups } from '../api/siLookups'
 import { fetchJetties, createJetty, updateJettyApi, updateJettyStatus } from '../api/jetties'
 import { ApiError } from '../api/client'
 import { useActivityLog } from '../context/ActivityLogContext'
+import { usePortScope } from '../context/PortScopeContext'
+import MasterWorkingPortBar from '../components/MasterWorkingPortBar.jsx'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/shipping-instruction.css'
@@ -19,10 +20,6 @@ import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js
 import { jettyShortName, jettyNamesForIds } from '../utils/jettyAdjacency.js'
 
 const JETTY_STATUS_OPTIONS = ['Available', 'Out of Service']
-
-function jettyPortLabel(j, portNameFn) {
-  return j.portName || portNameFn(j.portId)
-}
 
 function commodityDisplayLabel(c) {
   return c?.shortName ? `${c.shortName} - ${c.name}` : c?.name || ''
@@ -160,7 +157,7 @@ function JettyAdjacencyMultiSelect({ idPrefix, label, disabled, selectedIds, onS
 export default function MasterJetty() {
   const { t } = useTranslation('pages')
   const { logActivity } = useActivityLog()
-  const [ports, setPorts] = useState([])
+  const { selectedPortId, selectedPort, noPortAssigned, requiresSelection } = usePortScope()
   const [jetties, setJetties] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -193,31 +190,38 @@ export default function MasterJetty() {
   }, [toast])
 
   const loadAll = useCallback(async () => {
+    if (selectedPortId == null) {
+      setJetties([])
+      setLoading(false)
+      return
+    }
     setError(null)
     setLoading(true)
     try {
-      const [p, j, lk] = await Promise.all([fetchPorts(), fetchJetties(), fetchSiLookups().catch(() => null)])
-      setPorts(Array.isArray(p) ? p : [])
+      const [j, lk] = await Promise.all([
+        fetchJetties(selectedPortId),
+        fetchSiLookups().catch(() => null),
+      ])
       setJetties(Array.isArray(j) ? j : [])
       setCommodityMaster(Array.isArray(lk?.commodities) ? lk.commodities : [])
     } catch (e) {
       setError(e?.message || 'Failed to load')
-      setPorts([])
       setJetties([])
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [selectedPortId])
 
   useEffect(() => {
     loadAll()
   }, [loadAll])
 
-  const portName = (portId) => ports.find((p) => p.id === portId)?.name ?? portId ?? '—'
+  const workingPortName = selectedPort?.name || (selectedPortId != null ? String(selectedPortId) : '—')
+  const canManage = selectedPortId != null && !requiresSelection && !noPortAssigned
 
   const openAdd = useCallback(() => {
     setEditingId(null)
-    setFormPortId(ports[0]?.id != null ? String(ports[0].id) : '')
+    setFormPortId(selectedPortId != null ? String(selectedPortId) : '')
     setFormOrderNo('')
     setFormJettyName('')
     setFormCapacity('1')
@@ -234,7 +238,7 @@ export default function MasterJetty() {
     setFormStatus('Available')
     setStatusWhenOpened('Available')
     setModalOpen(true)
-  }, [ports])
+  }, [selectedPortId])
 
   const openEdit = useCallback((jetty) => {
     setEditingId(jetty.id)
@@ -264,7 +268,7 @@ export default function MasterJetty() {
   }, [])
 
   const handleSubmit = useCallback(async () => {
-    const portId = parseInt(formPortId, 10)
+    const portId = selectedPortId != null ? Number(selectedPortId) : parseInt(formPortId, 10)
     const jettyName = (formJettyName || '').trim()
     if (Number.isNaN(portId) || !jettyName) return
     const orderNo = Math.max(0, Math.min(32767, parseInt(formOrderNo, 10) || 0))
@@ -310,7 +314,7 @@ export default function MasterJetty() {
           action: 'update',
           entityType: 'Jetty',
           entityLabel: jettyName,
-          details: portName(portId),
+          details: workingPortName,
         })
         setToast({ message: `Jetty saved: ${jettyName}.`, variant: 'success' })
       } else {
@@ -337,7 +341,7 @@ export default function MasterJetty() {
           action: 'add',
           entityType: 'Jetty',
           entityLabel: jettyName,
-          details: portName(portId),
+          details: workingPortName,
         })
         setToast({ message: `Jetty added: ${jettyName}.`, variant: 'success' })
       }
@@ -356,6 +360,7 @@ export default function MasterJetty() {
     }
   }, [
     editingId,
+    selectedPortId,
     formPortId,
     formOrderNo,
     formJettyName,
@@ -373,13 +378,10 @@ export default function MasterJetty() {
     loadAll,
     closeModal,
     logActivity,
+    workingPortName,
   ])
 
-  const portAllowsMultiJetty = useMemo(() => {
-    const pid = parseInt(formPortId, 10)
-    if (Number.isNaN(pid)) return false
-    return ports.find((p) => Number(p.id) === pid)?.allowMultiJetyBerthing === true
-  }, [ports, formPortId])
+  const portAllowsMultiJetty = selectedPort?.allowMultiJetyBerthing === true
 
   const adjacencyJettyOptions = useMemo(() => {
     const pid = parseInt(formPortId, 10)
@@ -389,12 +391,6 @@ export default function MasterJetty() {
 
   const jettyColumns = useMemo(
     () => [
-      {
-        key: 'port',
-        label: 'Port',
-        getSortValue: (j) => jettyPortLabel(j, portName).toLowerCase(),
-        getFilterValue: (j) => jettyPortLabel(j, portName),
-      },
       {
         key: 'orderNo',
         label: 'Order',
@@ -460,13 +456,13 @@ export default function MasterJetty() {
         getFilterValue: (j) => j.description || '',
       },
     ],
-    [ports, jetties]
+    [jetties]
   )
 
   const { displayRows, filters, updateFilter, sortState, handleSort } = useSortableFilterableRows(
     jetties,
     jettyColumns,
-    { key: 'port', dir: 'asc' }
+    { key: 'orderNo', dir: 'asc' }
   )
 
   return (
@@ -497,6 +493,7 @@ export default function MasterJetty() {
       <p className="text-steel">
         <Link to="/master" className="link">← Back to Master Menu</Link>
       </p>
+      <MasterWorkingPortBar />
       {error && (
         <p className="allocation-page__intro" style={{ color: 'var(--color-danger, #c00)' }} role="alert">
           {error}
@@ -514,17 +511,17 @@ export default function MasterJetty() {
               type="button"
               className="btn btn--primary"
               onClick={openAdd}
-              disabled={ports.length === 0}
-              title={ports.length === 0 ? 'Add a port first' : ''}
+              disabled={!canManage}
+              title={!canManage ? t('masterNeedWorkingPort') : ''}
             >
               Add Jetty
             </button>
           </div>
         </div>
-        {loading ? (
+        {!canManage ? (
+          <p className="text-steel">{t('masterNeedWorkingPort')}</p>
+        ) : loading ? (
           <p className="text-steel">Loading…</p>
-        ) : ports.length === 0 ? (
-          <p className="text-steel">No ports. Add a port in Master – Port first.</p>
         ) : jetties.length === 0 ? (
           <p className="text-steel">No jetties. Click Add Jetty.</p>
         ) : (
@@ -543,7 +540,6 @@ export default function MasterJetty() {
               <tbody>
                 {displayRows.map((j) => (
                   <tr key={j.id}>
-                    <td>{jettyPortLabel(j, portName)}</td>
                     <td>{j.orderNo ?? '—'}</td>
                     <td><strong>{j.name || '—'}</strong></td>
                     <td>{j.capacity ?? 1}</td>
@@ -579,15 +575,7 @@ export default function MasterJetty() {
             <h2 className="modal__title">{editingId != null ? 'Edit Jetty' : 'Add Jetty'}</h2>
             <div className="modal__section">
               <label className="modal__label">Port</label>
-              <select
-                className="modal__input"
-                value={formPortId}
-                onChange={(e) => setFormPortId(e.target.value)}
-              >
-                {ports.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
+              <input className="modal__input" value={workingPortName} readOnly />
             </div>
             <div className="modal__section">
               <label className="modal__label">Order #</label>

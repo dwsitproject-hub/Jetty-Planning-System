@@ -99,6 +99,7 @@ import {
   computeAllocationJettyAdvice,
   validateJettyAdviceSelection,
 } from '../utils/jettyAdvice'
+import { filterJettiesForPort } from '../utils/portScopedLookups'
 import '../styles/etc-breach.css'
 
 /** Standardized pipeline flow (match Dashboard Vessel pipeline) */
@@ -745,11 +746,10 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     [berthsState]
   )
 
-  const portJetties = useMemo(() => {
-    const all = allocationLookups?.jetties
-    if (!Array.isArray(all) || !selectedPortId) return []
-    return all.filter((j) => Number(j.portId) === Number(selectedPortId))
-  }, [allocationLookups, selectedPortId])
+  const portJetties = useMemo(
+    () => filterJettiesForPort(allocationLookups?.jetties, selectedPortId),
+    [allocationLookups?.jetties, selectedPortId]
+  )
 
   // Multi-jetty berthing: entire "Additional jetties" picker is gated by the port flag. If the
   // flag is off (or the port changes mid-session), drop any stale selection so it can't be submitted.

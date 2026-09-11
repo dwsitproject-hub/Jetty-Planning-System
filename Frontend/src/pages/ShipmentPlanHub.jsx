@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
@@ -7,12 +7,14 @@ import {
   updateShipmentPlan,
 } from '../api/shipmentPlans'
 import { fetchSiLookups } from '../api/siLookups'
+import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
 import PurposeBadge from '../components/PurposeBadge'
 import ShipmentPlanCombinedFormModal from '../components/ShipmentPlanCombinedFormModal'
 import { planHubCanEditPlan, preBerthCombinedSaveToastMessage } from '../utils/siPreBerthEdit'
 import { MAX_SI_VESSEL_NAME_CHARS, MAX_SI_VOYAGE_CHARS } from '../constants/inputLimits'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import { filterJettiesForPort, jettySelectLabel } from '../utils/portScopedLookups'
 import '../styles/shipping-instruction.css'
 
 function approvalBadgeClass(status) {
@@ -33,6 +35,7 @@ export default function ShipmentPlanHub() {
   const navigate = useNavigate()
   const { t } = useTranslation('shipmentPlan')
   const { canView, canEdit, canApprove } = useRbac()
+  const { selectedPortId } = usePortScope()
   const [plan, setPlan] = useState(null)
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState(null)
@@ -81,6 +84,11 @@ export default function ShipmentPlanHub() {
     const tid = window.setTimeout(() => setToast(null), 5500)
     return () => window.clearTimeout(tid)
   }, [toast])
+
+  const jettyOptions = useMemo(
+    () => filterJettiesForPort(lookups?.jetties, selectedPortId, formJettyId),
+    [lookups?.jetties, selectedPortId, formJettyId]
+  )
 
   const openEdit = () => {
     if (!plan) return
@@ -381,8 +389,8 @@ export default function ShipmentPlanHub() {
                     <label htmlFor="hub-jetty">{t('formJettyOptional')}</label>
                     <select id="hub-jetty" value={formJettyId} onChange={(e) => setFormJettyId(e.target.value)}>
                       <option value="">—</option>
-                      {(lookups?.jetties || []).map((j) => (
-                        <option key={j.id} value={j.id}>{j.label || j.name}</option>
+                      {(jettyOptions || []).map((j) => (
+                        <option key={j.id} value={j.id}>{jettySelectLabel(j, t('jettyOtherPortSuffix'))}</option>
                       ))}
                     </select>
                   </div>

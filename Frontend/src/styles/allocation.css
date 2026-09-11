@@ -5843,6 +5843,113 @@ select.allocation-table__filter {
   color: var(--color-primary);
 }
 
+.master-hub-section {
+  margin-top: var(--spacing-6);
+}
+
+.master-hub-section:first-of-type {
+  margin-top: var(--spacing-4);
+}
+
+.master-hub-section__title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  margin: 0 0 var(--spacing-1);
+  color: var(--color-text-charcoal);
+}
+
+.master-hub-section__hint {
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+  margin: 0 0 var(--spacing-3);
+  line-height: 1.4;
+}
+
+.reporting-list__card .master-hub-badge {
+  display: inline-block;
+  margin-bottom: var(--spacing-2);
+}
+
+.master-hub-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-medium);
+  color: var(--color-text-steel);
+  background: var(--color-bg-muted, #f3f4f6);
+  white-space: nowrap;
+}
+
+.master-hub-badge--per-port {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: transparent;
+}
+
+.master-hub-badge--shared,
+.master-hub-badge--site {
+  color: var(--color-text-steel);
+}
+
+.master-hub-card__note {
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+  margin: 0 0 var(--spacing-3);
+  line-height: 1.35;
+  font-style: italic;
+}
+
+.master-working-port-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin: 0 0 var(--spacing-4);
+  padding: var(--spacing-3) var(--spacing-4);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-card, #fff);
+}
+
+.master-working-port-bar__label {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+}
+
+.master-working-port-bar__select {
+  min-width: 180px;
+  max-width: 100%;
+}
+
+.master-working-port-bar__meta {
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+.master-working-port-bar__hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+  line-height: 1.4;
+}
+
+.master-rates-chip {
+  display: inline-block;
+  margin: 0 0 var(--spacing-3);
+  padding: 0.25rem 0.6rem;
+  font-size: var(--font-size-small);
+  color: var(--color-text-charcoal);
+  border: 1px solid var(--color-border-medium);
+  border-radius: 999px;
+  background: var(--color-bg-muted, #f3f4f6);
+}
+
 /* Vessel Activities Report */
 .daily-activities-report__filters {
   margin-bottom: var(--spacing-4);

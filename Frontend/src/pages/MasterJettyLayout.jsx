@@ -1,8 +1,10 @@
 import { useState, useCallback, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { fetchJetties } from '../api/jetties'
 import { fetchJettyLayout, saveJettyLayout } from '../api/jettyLayout'
 import { usePortScope } from '../context/PortScopeContext'
+import MasterWorkingPortBar from '../components/MasterWorkingPortBar.jsx'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/dashboard.css'
@@ -18,8 +20,8 @@ const emptyColumn = () => ({
 })
 
 export default function MasterJettyLayout() {
-  const { selectedPortId, selectedPort, requiresSelection, noPortAssigned, noPortMessage } = usePortScope()
-  const activePortId = selectedPortId != null ? String(selectedPortId) : ''
+  const { t } = useTranslation('pages')
+  const { selectedPortId, requiresSelection, noPortAssigned, noPortMessage } = usePortScope()
   const [columnCount, setColumnCount] = useState(3)
   const [columns, setColumns] = useState(() => [emptyColumn(), emptyColumn(), emptyColumn()])
   const [loading, setLoading] = useState(false)
@@ -159,14 +161,16 @@ export default function MasterJettyLayout() {
       <p className="text-steel">
         <Link to="/master" className="link">← Back to Master Menu</Link>
       </p>
+      <MasterWorkingPortBar
+        meta={
+          canLoad
+            ? `· ${jetties.length} ${jetties.length === 1 ? 'jetty' : 'jetties'}`
+            : null
+        }
+      />
       {noPortAssigned && (
         <p className="allocation-page__intro" style={{ color: 'var(--color-danger, #c00)' }} role="alert">
           {noPortMessage}
-        </p>
-      )}
-      {requiresSelection && (
-        <p className="allocation-page__intro" style={{ color: 'var(--color-danger, #c00)' }} role="alert">
-          Select a port first (top bar port switcher), then return here.
         </p>
       )}
       {error && (
@@ -178,23 +182,6 @@ export default function MasterJettyLayout() {
       <section className="card">
         <h2 className="card__title">Layout editor</h2>
         <div className="jetty-layout-editor">
-          <div className="jetty-layout-editor__field">
-            {selectedPort ? (
-              <div className="dashboard-port-chip" role="status">
-                <span className="dashboard-port-chip__dot" aria-hidden />
-                <span className="dashboard-port-chip__label">Port</span>
-                <span className="dashboard-port-chip__name">{selectedPort.name}</span>
-                <span className="dashboard-port-chip__meta">
-                  · {jetties.length} jetty{jetties.length === 1 ? '' : 'ies'}
-                </span>
-              </div>
-            ) : (
-              <>
-                <label className="modal__label">Active port</label>
-                <input className="modal__input" value={activePortId || '—'} readOnly />
-              </>
-            )}
-          </div>
           {canLoad && (
             <>
               <div className="jetty-layout-editor__field">
@@ -275,7 +262,7 @@ export default function MasterJettyLayout() {
               </div>
             </>
           )}
-          {!canLoad && !requiresSelection && !noPortAssigned && <p className="text-steel">Select a port to edit its jetty layout.</p>}
+          {!canLoad && !noPortAssigned && <p className="text-steel">{t('masterNeedWorkingPort')}</p>}
         </div>
       </section>
     </div>

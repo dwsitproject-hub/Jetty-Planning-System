@@ -1,6 +1,8 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useActivityLog } from '../context/ActivityLogContext'
+import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
 import { createSiLookupItem, deleteSiLookupItem, fetchSiLookupList, updateSiLookupItem } from '../api/siLookupCrud'
 import { fetchSiLookups } from '../api/siLookups'
@@ -30,7 +32,9 @@ export default function MasterSiLookup({
   showDelete = true,
   enableStandardRateFields = false,
 }) {
+  const { t } = useTranslation('pages')
   const { logActivity } = useActivityLog()
+  const { selectedPort } = usePortScope()
   const { canEdit, canDelete } = useRbac()
 
   const [items, setItems] = useState([])
@@ -398,6 +402,13 @@ export default function MasterSiLookup({
   return (
     <div className="allocation-page">
       <h1 className="page-title">{title}</h1>
+      {enableStandardRateFields ? (
+        <p className="master-rates-chip" role="status">
+          {selectedPort?.name
+            ? t('masterRatesForPort', { name: selectedPort.name })
+            : t('masterRatesNoPort')}
+        </p>
+      ) : null}
       <p className="text-steel" style={{ fontSize: 'var(--font-size-small)' }}>
         <Link to="/master" className="link">← Back to Master Menu</Link>
       </p>

@@ -34,7 +34,12 @@ function isPathActive(path, currentPath) {
 
 function isPortScopeBypassed(pathname) {
   if (!pathname) return false
-  return pathname.startsWith('/admin') || pathname.startsWith('/master')
+  if (pathname.startsWith('/admin')) return true
+  if (pathname === '/master' || pathname === '/master/') return true
+  if (pathname === '/master/port' || pathname.startsWith('/master/port/')) return true
+  if (pathname.startsWith('/master/si-')) return true
+  if (pathname.startsWith('/master/freight-terms')) return true
+  return false
 }
 
 const SIDEBAR_COLLAPSED_KEY = 'jps_sidebar_collapsed'

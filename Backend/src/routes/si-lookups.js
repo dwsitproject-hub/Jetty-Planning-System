@@ -6,7 +6,7 @@ import { pool } from '../db.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { syncPlanVesselCapacityForCommodity } from '../lib/syncPlanVesselCapacity.js';
 import { optionalAuth } from '../middleware/auth.js';
-import { requirePortScope } from '../middleware/port-scope.js';
+import { loadUserAssignedPorts, requirePortScope } from '../middleware/port-scope.js';
 
 const router = express.Router();
 router.use(optionalAuth);
@@ -269,7 +269,21 @@ async function assertDeletable(pool, type, id) {
   return { ok: true };
 }
 
-router.get('/', async (_req, res) => {
+async function resolveJettyPortIds(req) {
+  if (!req.userId) return [];
+  const assigned = await loadUserAssignedPorts(req.userId);
+  const assignedIds = assigned.map((p) => Number(p.id)).filter((id) => Number.isFinite(id));
+  const selectedRaw =
+    req.headers['x-selected-port-id'] ?? req.headers['x-port-id'] ?? req.query?.port_id ?? null;
+  const parsed = parseInt(String(selectedRaw ?? '').trim(), 10);
+  if (Number.isFinite(parsed) && assignedIds.includes(parsed)) {
+    return [parsed];
+  }
+  return assignedIds;
+}
+
+router.get('/', async (req, res) => {
+  const jettyPortIds = await resolveJettyPortIds(req);
   const [
     commodities,
     tradeTerms,
@@ -315,8 +329,9 @@ router.get('/', async (_req, res) => {
                FROM jetty_adjacencies ja WHERE ja.jetty_id = j.id) AS adjacent_jetty_ids
        FROM jetties j
        JOIN ports p ON j.port_id = p.id AND p.deleted_at IS NULL
-       WHERE j.deleted_at IS NULL
-       ORDER BY p.name, j.order_no, j.name`
+       WHERE j.deleted_at IS NULL AND j.port_id = ANY($1::bigint[])
+       ORDER BY p.name, j.order_no, j.name`,
+      [jettyPortIds]
     ),
     pool.query(
       `SELECT id, code, label, sort_order FROM public.metric WHERE deleted_at IS NULL ORDER BY sort_order, code`
@@ -370,7 +385,7 @@ router.get('/', async (_req, res) => {
       name: r.name,
       portId: r.port_id,
       portName: r.port_name,
-      label: `${r.port_name} — ${r.name}`,
+      label: r.name,
       status: r.status ?? null,
       jettyLengthM: r.jetty_length_m != null ? Number(r.jetty_length_m) : null,
       jettyDraft: r.jetty_draft != null ? Number(r.jetty_draft) : null,
