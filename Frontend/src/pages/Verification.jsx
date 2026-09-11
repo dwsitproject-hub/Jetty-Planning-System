@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useSearchParams } from 'react-router-dom'
 import { fetchOperations, fetchPendingSignoffRequests, depart, uploadOperationDocuments, signoff, fetchActivityTimeline } from '../api/operations'
@@ -17,9 +17,43 @@ import SiDocumentModal from '../components/SiDocumentModal'
 import VesselInfoModal, { VesselNameButton } from '../components/VesselInfoModal'
 import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
 import '../styles/allocation.css'
+import '../styles/file-preview.css'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { validateCastOffDepart } from '../utils/validateCastOffDepart'
+import {
+  countSailedWithinDays,
+  isWithinSailedLookback,
+  SAILED_LOOKBACK_DAY_OPTIONS,
+} from '../utils/clearanceSailedLookback.js'
 import '../styles/modal.css'
+
+const CLEARANCE_PAGE_SIZE = 20
+
+const CLEARANCE_COLUMN_LABEL_KEYS = {
+  vesselName: 'clearanceColVessel',
+  jettyOperationCode: 'clearanceColJettyOperationId',
+  si: 'clearanceColSi',
+  commodityQty: 'clearanceColCommodityQty',
+  purpose: 'clearanceColPurpose',
+  status: 'clearanceColStatus',
+  castOffAt: 'clearanceCastOff',
+  sailedAt: 'clearanceColSailedAt',
+  vesselPhoto: 'clearanceColVesselPhoto',
+}
+
+function VesselPhotoLink({ url, children }) {
+  if (!url) return '—'
+  return (
+    <FilePreviewLink
+      url={resolveUploadUrl(url)}
+      name="Vessel photo"
+      mimeType="image/jpeg"
+      className="file-preview-link"
+    >
+      {children}
+    </FilePreviewLink>
+  )
+}
 
 const CLEARANCE_COLUMNS = [
   { key: 'vesselName', label: 'Vessel', getValue: (r) => <strong>{r.vesselName || '—'}</strong>, getSortValue: (r) => (r.vesselName || '').toLowerCase() },
@@ -45,6 +79,27 @@ const CLEARANCE_COLUMNS = [
     <span className="loading-list__badge loading-list__badge--purpose" data-purpose={r.purpose}>{r.purpose}</span>
   ), getSortValue: (r) => (r.purpose || '').toLowerCase() },
   { key: 'status', label: 'Status', getValue: (r) => r.status || '—', getSortValue: (r) => (r.status || '').toLowerCase() },
+  {
+    key: 'castOffAt',
+    label: 'CAST Off',
+    getValue: (r) => formatDateTimeDisplay(r.castOffAt),
+    getSortValue: (r) => r.castOffAt || '',
+    getFilterValue: (r) => formatDateTimeDisplay(r.castOffAt),
+  },
+  {
+    key: 'sailedAt',
+    label: 'Sailed At',
+    getValue: (r) => formatDateTimeDisplay(r.sailedAt),
+    getSortValue: (r) => r.sailedAt || '',
+    getFilterValue: (r) => formatDateTimeDisplay(r.sailedAt),
+  },
+  {
+    key: 'vesselPhoto',
+    label: 'Vessel Photo',
+    filterable: false,
+    getValue: (r) => (r.vesselPhotoUrl ? 'View' : '—'),
+    getSortValue: (r) => (r.vesselPhotoUrl ? '1' : '0'),
+  },
 ]
 
 /** One clearance row per shipment plan for Ready / Sailed; pending sign-off stays per SI. */
@@ -251,29 +306,45 @@ export default function Verification() {
     return () => clearTimeout(t)
   }, [toast])
 
-  const filterKeys = CLEARANCE_COLUMNS.map((c) => c.key)
+  const filterKeys = CLEARANCE_COLUMNS.filter((c) => c.filterable !== false).map((c) => c.key)
   const [filters, setFilters] = useState(() => Object.fromEntries(filterKeys.map((k) => [k, ''])))
   const [sortState, setSortState] = useState({ key: 'vesselName', dir: 'asc' })
   const [statusFilter, setStatusFilter] = useState('ALL')
+  const [sailedLookbackDays, setSailedLookbackDays] = useState(null)
+  const [listPage, setListPage] = useState(1)
   const [expandedRows, setExpandedRows] = useState({})
   const [expandedMobileRows, setExpandedMobileRows] = useState({})
 
   useEffect(() => {
     if (searchParams.get('filter') === 'pending') {
       setStatusFilter('PENDING')
+      setListPage(1)
     }
   }, [searchParams])
 
   const readyCount = rows.filter((r) => r.apiStatus === 'SIGNOFF_APPROVED').length
   const departedCount = rows.filter((r) => r.apiStatus === 'SAILED').length
   const pendingSignoffCount = rows.filter((r) => r.apiStatus === 'PENDING_SIGNOFF').length
+  const sailedLookbackCounts = {
+    all: countSailedWithinDays(rows, null),
+    ...Object.fromEntries(SAILED_LOOKBACK_DAY_OPTIONS.map((days) => [days, countSailedWithinDays(rows, days)])),
+  }
 
-  const updateFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }))
-  const handleSort = (key) => setSortState((s) => ({ key, dir: s.key === key && s.dir === 'asc' ? 'desc' : 'asc' }))
+  const updateFilter = (key, value) => {
+    setFilters((f) => ({ ...f, [key]: value }))
+    setListPage(1)
+  }
+  const handleSort = (key) => {
+    setSortState((s) => ({ key, dir: s.key === key && s.dir === 'asc' ? 'desc' : 'asc' }))
+    setListPage(1)
+  }
 
   const rowsAfterStatusFilter = rows.filter((r) => {
     if (statusFilter === 'READY') return r.apiStatus === 'SIGNOFF_APPROVED'
-    if (statusFilter === 'SAILED') return r.apiStatus === 'SAILED'
+    if (statusFilter === 'SAILED') {
+      if (r.apiStatus !== 'SAILED') return false
+      return isWithinSailedLookback(r, sailedLookbackDays)
+    }
     if (statusFilter === 'PENDING') return r.apiStatus === 'PENDING_SIGNOFF'
     return true
   })
@@ -282,7 +353,8 @@ export default function Verification() {
     return filterKeys.every((key) => {
       const f = (filters[key] || '').trim().toLowerCase()
       if (!f) return true
-      const val = r[key]
+      const col = CLEARANCE_COLUMNS.find((c) => c.key === key)
+      const val = col?.getFilterValue ? col.getFilterValue(r) : r[key]
       return String(val ?? '').toLowerCase().includes(f)
     })
   })
@@ -296,6 +368,65 @@ export default function Verification() {
       ? String(va).localeCompare(String(vb), undefined, { numeric: true })
       : String(vb).localeCompare(String(va), undefined, { numeric: true })
   })
+
+  useEffect(() => {
+    setListPage(1)
+  }, [statusFilter, sailedLookbackDays, filters, sortState.key, sortState.dir])
+
+  const listTotalPages = useMemo(
+    () => Math.max(1, Math.ceil(sortedVessels.length / CLEARANCE_PAGE_SIZE)),
+    [sortedVessels.length]
+  )
+
+  useEffect(() => {
+    setListPage((p) => Math.min(p, listTotalPages))
+  }, [listTotalPages])
+
+  const pagedVessels = useMemo(() => {
+    const start = (listPage - 1) * CLEARANCE_PAGE_SIZE
+    return sortedVessels.slice(start, start + CLEARANCE_PAGE_SIZE)
+  }, [sortedVessels, listPage])
+
+  const listPaginationRange = useMemo(() => {
+    const total = sortedVessels.length
+    if (total === 0) return { from: 0, to: 0 }
+    const from = (listPage - 1) * CLEARANCE_PAGE_SIZE + 1
+    const to = Math.min(listPage * CLEARANCE_PAGE_SIZE, total)
+    return { from, to }
+  }, [sortedVessels.length, listPage])
+
+  const paginationBar = sortedVessels.length > 0 ? (
+    <div className="clearance-pagination" role="navigation" aria-label={t('clearancePaginationAria')}>
+      <p className="text-steel clearance-pagination__summary">
+        {t('clearancePaginationShowing', {
+          from: listPaginationRange.from,
+          to: listPaginationRange.to,
+          total: sortedVessels.length,
+        })}
+      </p>
+      <div className="clearance-pagination__controls">
+        <button
+          type="button"
+          className="btn btn--secondary btn--small"
+          disabled={listPage <= 1}
+          onClick={() => setListPage((p) => Math.max(1, p - 1))}
+        >
+          {t('clearancePaginationPrev')}
+        </button>
+        <span className="text-steel clearance-pagination__page">
+          {t('clearancePaginationPageOf', { page: listPage, totalPages: listTotalPages })}
+        </span>
+        <button
+          type="button"
+          className="btn btn--secondary btn--small"
+          disabled={listPage >= listTotalPages}
+          onClick={() => setListPage((p) => Math.min(listTotalPages, p + 1))}
+        >
+          {t('clearancePaginationNext')}
+        </button>
+      </div>
+    </div>
+  ) : null
 
   const openModal = useCallback(
     (op) => {
@@ -320,6 +451,8 @@ export default function Verification() {
   const clearFilters = () => {
     setFilters(Object.fromEntries(filterKeys.map((k) => [k, ''])))
     setStatusFilter('ALL')
+    setSailedLookbackDays(null)
+    setListPage(1)
   }
 
   const hubPathForRow = (r) => {
@@ -504,28 +637,40 @@ export default function Verification() {
             <button
               type="button"
               className={`btn btn--small ${statusFilter === 'ALL' ? 'btn--primary' : 'btn--ghost'}`}
-              onClick={() => setStatusFilter('ALL')}
+              onClick={() => {
+                setStatusFilter('ALL')
+                setListPage(1)
+              }}
             >
               {t('clearanceAll')} ({rows.length})
             </button>
             <button
               type="button"
               className={`btn btn--small ${statusFilter === 'READY' ? 'btn--primary' : 'btn--ghost'}`}
-              onClick={() => setStatusFilter('READY')}
+              onClick={() => {
+                setStatusFilter('READY')
+                setListPage(1)
+              }}
             >
               {t('clearanceReadyToSail')} ({readyCount})
             </button>
             <button
               type="button"
               className={`btn btn--small ${statusFilter === 'SAILED' ? 'btn--primary' : 'btn--ghost'}`}
-              onClick={() => setStatusFilter('SAILED')}
+              onClick={() => {
+                setStatusFilter('SAILED')
+                setListPage(1)
+              }}
             >
               {t('clearanceSailed')} ({departedCount})
             </button>
             <button
               type="button"
               className={`btn btn--small ${statusFilter === 'PENDING' ? 'btn--primary' : 'btn--ghost'}`}
-              onClick={() => setStatusFilter('PENDING')}
+              onClick={() => {
+                setStatusFilter('PENDING')
+                setListPage(1)
+              }}
             >
               {t('clearancePendingSignoff')} ({pendingSignoffCount})
             </button>
@@ -534,6 +679,33 @@ export default function Verification() {
             </button>
           </div>
         </div>
+        {statusFilter === 'SAILED' ? (
+          <div className="clearance-sailed-lookback" role="group" aria-label={t('clearanceSailedLookbackAria')}>
+            <button
+              type="button"
+              className={`btn btn--small ${sailedLookbackDays == null ? 'btn--primary' : 'btn--ghost'}`}
+              onClick={() => {
+                setSailedLookbackDays(null)
+                setListPage(1)
+              }}
+            >
+              {t('clearanceSailedLookbackAll')} ({sailedLookbackCounts.all})
+            </button>
+            {SAILED_LOOKBACK_DAY_OPTIONS.map((days) => (
+              <button
+                key={days}
+                type="button"
+                className={`btn btn--small ${sailedLookbackDays === days ? 'btn--primary' : 'btn--ghost'}`}
+                onClick={() => {
+                  setSailedLookbackDays(days)
+                  setListPage(1)
+                }}
+              >
+                {t('clearanceSailedLookbackDays', { days })} ({sailedLookbackCounts[days]})
+              </button>
+            ))}
+          </div>
+        ) : null}
         {loading ? (
           <p className="text-steel">{t('clearanceFetchingLatest')}</p>
         ) : rows.length === 0 ? (
@@ -550,19 +722,7 @@ export default function Verification() {
                   {CLEARANCE_COLUMNS.map((col) => (
                     <th key={col.key} className="allocation-table__th">
                       <button type="button" className="allocation-table__sort" onClick={() => handleSort(col.key)}>
-                        {col.key === 'vesselName'
-                          ? t('clearanceColVessel')
-                          : col.key === 'jettyOperationCode'
-                            ? t('clearanceColJettyOperationId')
-                            : col.key === 'si'
-                            ? t('clearanceColSi')
-                            : col.key === 'commodityQty'
-                              ? t('clearanceColCommodityQty')
-                            : col.key === 'purpose'
-                              ? t('clearanceColPurpose')
-                              : col.key === 'status'
-                                ? t('clearanceColStatus')
-                                : col.label}
+                        {t(CLEARANCE_COLUMN_LABEL_KEYS[col.key] || col.label)}
                         <span className="allocation-table__sort-icon">
                           {sortState.key === col.key ? (sortState.dir === 'asc' ? ' ↑' : ' ↓') : ' ⇅'}
                         </span>
@@ -575,19 +735,22 @@ export default function Verification() {
                   <th className="allocation-table__expand-col" />
                   {CLEARANCE_COLUMNS.map((col) => (
                     <th key={col.key}>
-                      <input
-                        type="text"
-                        className="allocation-table__filter"
-                        value={filters[col.key]}
-                        onChange={(e) => updateFilter(col.key, e.target.value)}
-                      />
+                      {col.filterable === false ? null : (
+                        <input
+                          type="text"
+                          className="allocation-table__filter"
+                          value={filters[col.key] || ''}
+                          onChange={(e) => updateFilter(col.key, e.target.value)}
+                          aria-label={t(CLEARANCE_COLUMN_LABEL_KEYS[col.key] || col.label)}
+                        />
+                      )}
                     </th>
                   ))}
                   <th className="allocation-table__action-col" />
                 </tr>
               </thead>
               <tbody>
-                {sortedVessels.flatMap((v) => {
+                {pagedVessels.flatMap((v) => {
                   const expanded = Boolean(expandedRows[v.operationId])
                   const mainRow = (
                     <tr key={v.operationId} className={`allocation-table__row ${expanded ? 'allocation-table__row--expanded' : ''}`}>
@@ -643,6 +806,8 @@ export default function Verification() {
                               onClick={() => setVesselInfoPlanId(v.shipmentPlanId)}
                               strong
                             />
+                          ) : col.key === 'vesselPhoto' ? (
+                            <VesselPhotoLink url={v.vesselPhotoUrl}>{t('clearanceView')}</VesselPhotoLink>
                           ) : (
                             col.getValue(v)
                           )}
@@ -733,10 +898,6 @@ export default function Verification() {
                                 ) : null}
                               </>
                             ) : null}
-                            <dt>CAST Off</dt>
-                            <dd>{formatDateTimeDisplay(v.castOffAt)}</dd>
-                            <dt>Sailed At</dt>
-                            <dd>{formatDateTimeDisplay(v.sailedAt)}</dd>
                           </dl>
                         </div>
                       </td>
@@ -748,7 +909,7 @@ export default function Verification() {
             </table>
           </div>
           <div className="allocation-mobile-cards" aria-label={t('clearanceOperationCardsAria')}>
-            {sortedVessels.map((v) => (
+            {pagedVessels.map((v) => (
               <article key={`clearance-mobile-${v.operationId}`} className="allocation-mobile-card">
                 <header className="allocation-mobile-card__header">
                   <strong>{v.vesselName || '—'}</strong>
@@ -797,6 +958,12 @@ export default function Verification() {
                   <dd>{v.status || '—'}</dd>
                   <dt>{t('clearanceCastOff')}</dt>
                   <dd>{formatDateTimeDisplay(v.castOffAt)}</dd>
+                  <dt>{t('clearanceColSailedAt')}</dt>
+                  <dd>{formatDateTimeDisplay(v.sailedAt)}</dd>
+                  <dt>{t('clearanceColVesselPhoto')}</dt>
+                  <dd>
+                    <VesselPhotoLink url={v.vesselPhotoUrl}>{t('clearanceView')}</VesselPhotoLink>
+                  </dd>
                 </dl>
                 <div className="allocation-mobile-card__actions">
                   <button
@@ -883,18 +1050,15 @@ export default function Verification() {
                               </>
                             ) : null}
                           </>
-                        ) : null}
-                        <dt>CAST Off</dt>
-                        <dd>{formatDateTimeDisplay(v.castOffAt)}</dd>
-                        <dt>Sailed At</dt>
-                        <dd>{formatDateTimeDisplay(v.sailedAt)}</dd>
-                      </dl>
-                    </div>
-                  </div>
-                ) : null}
+                            ) : null}
+                          </dl>
+                        </div>
+                      </div>
+                    ) : null}
               </article>
             ))}
           </div>
+          {paginationBar}
           </>
         )}
       </section>

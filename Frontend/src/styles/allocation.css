@@ -5570,6 +5570,39 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
   gap: var(--spacing-2);
 }
 
+.clearance-sailed-lookback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+  margin: 0 0 var(--spacing-3);
+}
+
+.clearance-page .table-wrap {
+  padding-right: 2.25rem;
+}
+
+.clearance-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: var(--spacing-3);
+}
+
+.clearance-pagination__summary,
+.clearance-pagination__page {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.clearance-pagination__controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .clearance-table thead th {
   position: sticky;
   top: 0;
@@ -5578,11 +5611,9 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
 }
 
 .clearance-table .allocation-table__action-col {
-  position: sticky;
-  right: 0;
-  z-index: 1;
-  background: #fff;
-  box-shadow: -1px 0 0 var(--color-border-light);
+  position: static;
+  min-width: 5.5rem;
+  box-shadow: none;
 }
 
 .clearance-table thead .allocation-table__action-col {
@@ -6404,12 +6435,14 @@ button.jetty-schedule-gantt__phase-segment--btn:focus-visible {
     align-items: flex-start;
   }
 
-  .clearance-status-filter {
+  .clearance-status-filter,
+  .clearance-sailed-lookback {
     display: flex;
     width: 100%;
   }
 
-  .clearance-status-filter .btn {
+  .clearance-status-filter .btn,
+  .clearance-sailed-lookback .btn {
     flex: 1 1 auto;
   }
 

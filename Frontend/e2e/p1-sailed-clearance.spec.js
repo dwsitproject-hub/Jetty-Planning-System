@@ -60,10 +60,21 @@ test.describe('P1 — SAILED pipeline + cast-off validation', () => {
     await page.goto('/verification');
     await page.getByRole('button', { name: /sailed \(\d+\)/i }).click();
 
-    const viewBtn = page.locator('table tbody tr').first().getByRole('button', { name: /^view$/i });
-    if (!(await viewBtn.isVisible().catch(() => false))) {
+    await expect(page.getByRole('button', { name: /within 3 days/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /within 7 days/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /within 14 days/i })).toBeVisible();
+
+    const table = page.locator('table.clearance-table');
+    if (!(await table.isVisible().catch(() => false))) {
       test.skip(true, 'No SAILED operations in local DB');
     }
+    await expect(page.getByRole('columnheader', { name: /cast off/i })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /sailed at/i })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /vessel photo/i })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: /clearance list pages/i })).toBeVisible();
+    await expect(page.getByText(/showing \d+[–-]\d+ of \d+/i)).toBeVisible();
+
+    const viewBtn = table.locator('tbody tr').first().locator('.allocation-table__action-col').getByRole('button', { name: /^view$/i });
     await viewBtn.click();
 
     await expect(page.locator('.modal').filter({ hasText: /\(Sailed\)/i })).toBeVisible({ timeout: 10000 });
