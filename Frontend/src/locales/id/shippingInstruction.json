@@ -151,6 +151,7 @@
   "formEtaFromRequired": "ETA dari *",
   "formEtaToRequired": "ETA hingga *",
   "formPreferredJetty": "Jetty pilihan",
+  "jettyOtherPortSuffix": "pelabuhan lain",
   "formVoyageOptional": "No. voyage (opsional)",
   "formRouteFreightSection": "Rute & freight",
   "formDestination": "Tujuan",

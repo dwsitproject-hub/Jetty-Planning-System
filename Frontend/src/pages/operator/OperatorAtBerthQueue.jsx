@@ -7,6 +7,7 @@ import PurposeBadge from '../../components/PurposeBadge'
 import { useRbac } from '../../context/RbacContext'
 import { formatDateTimeDisplay } from '../../utils/formatDateTimeDisplay'
 import { computeCargoProgress } from '../../utils/cargoQtyDisplay'
+import { commodityRowTitle } from '../../utils/commodityShortTitle.js'
 import { evaluatePreCheckingComplete } from '../../utils/loadingHubProcessStagesFromApi'
 
 const SORT_OPTIONS = [
@@ -89,6 +90,7 @@ function buildOperatorCargoLine(row) {
   if (!shortName && !progress) return null
   return {
     shortName: shortName || '—',
+    longName: commodityRowTitle(row),
     qtyLine: progress?.cargoLine ?? null,
     done: progress?.done ?? 0,
     total: progress?.qty?.total ?? 0,
@@ -324,6 +326,7 @@ export default function OperatorAtBerthQueue() {
                 <div className="operator-vessel-card__cargo">
                   <OperatorCargoProgress
                     shortName={g.cargo.shortName}
+                    longName={g.cargo.longName}
                     qtyLine={g.cargo.qtyLine}
                     done={g.cargo.done}
                     total={g.cargo.total}
@@ -362,6 +365,7 @@ export default function OperatorAtBerthQueue() {
                               <span className="operator-vessel-card__child-cargo">
                                 <OperatorCargoProgress
                                   shortName={childCargo.shortName}
+                                  longName={childCargo.longName}
                                   qtyLine={childCargo.qtyLine}
                                   done={childCargo.done}
                                   total={childCargo.total}

@@ -1,10 +1,11 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { fetchPorts } from '../api/ports'
 import { fetchTankGaugingLatest } from '../api/tankGauging'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
 import TankGaugingSourcesModal from '../components/TankGaugingSourcesModal.jsx'
+import MasterWorkingPortBar from '../components/MasterWorkingPortBar.jsx'
+import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 import '../styles/allocation.css'
@@ -111,28 +112,14 @@ export default function TankFarm() {
   const { t } = useTranslation('pages')
   const { canEdit } = useRbac()
   const canEditTankFarm = canEdit(PAGE_KEY)
-  const [ports, setPorts] = useState([])
-  const [portId, setPortId] = useState('')
+  const { selectedPortId, selectedPort, noPortAssigned, requiresSelection } = usePortScope()
+  const portId = selectedPortId != null ? String(selectedPortId) : ''
+  const canManage = Boolean(portId) && !requiresSelection && !noPortAssigned
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [refreshedAt, setRefreshedAt] = useState(null)
   const [configOpen, setConfigOpen] = useState(false)
-
-  const loadPorts = useCallback(async () => {
-    try {
-      const list = await fetchPorts()
-      const arr = Array.isArray(list) ? list : []
-      setPorts(arr)
-      setPortId((prev) => {
-        if (prev && arr.some((p) => String(p.id) === String(prev))) return prev
-        return arr[0] ? String(arr[0].id) : ''
-      })
-    } catch (e) {
-      setPorts([])
-      setError(e?.message || 'Failed to load ports')
-    }
-  }, [])
 
   const loadReadings = useCallback(async () => {
     if (!portId) {
@@ -153,10 +140,6 @@ export default function TankFarm() {
       setLoading(false)
     }
   }, [portId])
-
-  useEffect(() => {
-    loadPorts()
-  }, [loadPorts])
 
   useEffect(() => {
     loadReadings()
@@ -188,15 +171,7 @@ export default function TankFarm() {
     { key: 'sourceBaseUrl', dir: 'asc' }
   )
 
-  const portOptions = useMemo(
-    () => ports.map((p) => ({ value: String(p.id), label: p.name || `Port #${p.id}` })),
-    [ports]
-  )
-
-  const selectedPortName = useMemo(() => {
-    const p = ports.find((x) => String(x.id) === String(portId))
-    return p?.name || (portId ? `Port #${portId}` : '')
-  }, [ports, portId])
+  const selectedPortName = selectedPort?.name || (portId ? `Port #${portId}` : '')
 
   return (
     <div className="allocation-page" data-page-key={PAGE_KEY}>
@@ -205,6 +180,7 @@ export default function TankFarm() {
       <p className="text-steel">
         <Link to="/master" className="link">← Back to Master Menu</Link>
       </p>
+      <MasterWorkingPortBar />
 
       {error && (
         <p className="allocation-page__intro" style={{ color: 'var(--color-danger, #c00)' }} role="alert">
@@ -216,21 +192,6 @@ export default function TankFarm() {
         <div className="card__header-row" style={{ flexWrap: 'wrap', gap: '0.75rem' }}>
           <h2 className="card__title">{t('tankFarmTableTitle')}</h2>
           <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <label className="text-steel" htmlFor="tank-farm-port" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              {t('tankFarmPortLabel')}
-              <select
-                id="tank-farm-port"
-                className="berthing-modal__input"
-                value={portId}
-                onChange={(e) => setPortId(e.target.value)}
-                style={{ minWidth: 180 }}
-              >
-                {portOptions.length === 0 ? <option value="">{t('tankFarmNoPorts')}</option> : null}
-                {portOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </label>
             <span className="text-steel" style={{ fontSize: '0.9rem' }}>
               {t('tankFarmLastRefreshed')}:{' '}
               {refreshedAt ? refreshedAt.toLocaleTimeString() : '—'}
@@ -244,7 +205,7 @@ export default function TankFarm() {
               type="button"
               className="btn btn--secondary btn--small"
               onClick={() => loadReadings()}
-              disabled={loading || !portId}
+              disabled={loading || !canManage}
             >
               {t('tankFarmRefresh')}
             </button>
@@ -253,7 +214,7 @@ export default function TankFarm() {
                 type="button"
                 className="btn btn--secondary btn--small"
                 onClick={() => setConfigOpen(true)}
-                disabled={!portId}
+                disabled={!canManage}
               >
                 {t('tankFarmConfiguration')}
               </button>
@@ -261,7 +222,9 @@ export default function TankFarm() {
           </div>
         </div>
 
-        {loading && rows.length === 0 ? (
+        { !canManage ? (
+          <p className="text-steel">{t('masterNeedWorkingPort')}</p>
+        ) : loading && rows.length === 0 ? (
           <p className="text-steel">{t('tankFarmLoading')}</p>
         ) : displayRows.length === 0 ? (
           <p className="text-steel">{t('tankFarmEmpty')}</p>

@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { fetchActivityLogs } from '../api/activityLogs'
-import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import { formatActivityLogChangeValue, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import '../styles/activity-log.css'
 
 const ACTION_LABELS = { add: 'Added', update: 'Updated', delete: 'Deleted' }
@@ -208,9 +208,9 @@ export default function ActivityLogPanel({ pageKey }) {
                           <li key={idx} className="activity-log-entry__change">
                             <div className="activity-log-entry__change-field">{c.field}</div>
                             <div className="activity-log-entry__change-values">
-                              <span className="activity-log-entry__change-from">{c.from ?? '—'}</span>
+                              <span className="activity-log-entry__change-from">{formatActivityLogChangeValue(c.from)}</span>
                               <span className="activity-log-entry__change-arrow">→</span>
-                              <span className="activity-log-entry__change-to">{c.to ?? '—'}</span>
+                              <span className="activity-log-entry__change-to">{formatActivityLogChangeValue(c.to)}</span>
                             </div>
                           </li>
                         ))}

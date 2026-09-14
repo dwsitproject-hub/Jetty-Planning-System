@@ -108,7 +108,9 @@ export default function GanttDenseBlock({
       </div>
       {showCommodity ? (
         <div className="gantt-dense-block__row gantt-dense-block__row--commodity">
-          <span className="gantt-dense-block__commodity">{model.materialDisplay}</span>
+          <span className="gantt-dense-block__commodity" title={model.commodityTitle || undefined}>
+            {model.materialDisplay}
+          </span>
         </div>
       ) : null}
       {showEstimate ? (

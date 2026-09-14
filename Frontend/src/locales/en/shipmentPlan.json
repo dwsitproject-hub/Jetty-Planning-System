@@ -41,6 +41,7 @@
   "jettyAdviceNeedEta": "Set ETA to enable jetty suggestions.",
   "jettyAdviceNeedMasterSpecs": "Configure jetty length, DWT, and commodities in Master – Preferred Jetty to enable suggestions.",
   "jettyNotSuitable": "exceeds jetty specs",
+  "jettyOtherPortSuffix": "other port",
   "jettySpanRequired": "span required",
   "jettyOccupiedAtEta": "occupied at ETA",
   "jettyReasonLoa": "LOA {{loa}} m exceeds jetty length {{len}} m",

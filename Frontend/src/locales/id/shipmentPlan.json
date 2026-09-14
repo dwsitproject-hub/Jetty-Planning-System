@@ -41,6 +41,7 @@
   "jettyAdviceNeedEta": "Isi ETA untuk mengaktifkan saran jetty.",
   "jettyAdviceNeedMasterSpecs": "Konfigurasi panjang jetty, DWT, dan komoditas di Master – Preferred Jetty untuk mengaktifkan saran.",
   "jettyNotSuitable": "melebihi spesifikasi jetty",
+  "jettyOtherPortSuffix": "pelabuhan lain",
   "jettySpanRequired": "perlu span",
   "jettyOccupiedAtEta": "terisi pada ETA",
   "jettyReasonLoa": "LOA {{loa}} m melebihi panjang jetty {{len}} m",

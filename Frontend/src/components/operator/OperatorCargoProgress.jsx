@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 
 export default function OperatorCargoProgress({
   shortName,
+  longName,
   qtyLine,
   done = 0,
   total = 0,
@@ -21,7 +22,9 @@ export default function OperatorCargoProgress({
     <div className={`operator-cargo-progress${className ? ` ${className}` : ''}`}>
       <div className="operator-cargo-progress__head">
         {shortName ? (
-          <span className="operator-cargo-progress__name">{shortName}</span>
+          <span className="operator-cargo-progress__name" title={longName || undefined}>
+            {shortName}
+          </span>
         ) : null}
         {qtyLine ? <span className="operator-cargo-progress__qty">{qtyLine}</span> : null}
       </div>

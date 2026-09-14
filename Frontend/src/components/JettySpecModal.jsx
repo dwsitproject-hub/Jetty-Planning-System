@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { commodityObjectTitle } from '../utils/commodityShortTitle.js'
 import '../styles/modal.css'
 import '../styles/jetty-spec-modal.css'
 
@@ -35,6 +36,7 @@ function CommodityBadgeGroup({ type, commodities }) {
           <span
             key={c.id}
             className={`jetty-spec-modal__commodity-badge jetty-spec-modal__commodity-badge--${type.toLowerCase()}`}
+            title={commodityObjectTitle(c)}
           >
             {c.shortName || c.name}
           </span>

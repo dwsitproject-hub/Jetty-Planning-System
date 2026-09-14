@@ -18,6 +18,7 @@ import {
 import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { computeCargoProgress } from '../utils/cargoQtyDisplay'
 import { formatGanttMilestoneShort, formatHoseConveyorOnLine } from '../utils/ganttBarDisplay'
+import { commodityLongTitle } from '../utils/commodityShortTitle.js'
 import CargoScheduleProgressIndicator, {
   isCargoBehindSchedule,
 } from './CargoScheduleProgressIndicator'
@@ -538,7 +539,10 @@ export default function JettySchematic({
           </span>
         </span>
         <span className="jetty-slot__line jetty-card__tb-etc">{tbEtcLine}</span>
-        <span className="jetty-slot__line jetty-card__cargo jetty-slot__line--material">
+        <span
+          className="jetty-slot__line jetty-card__cargo jetty-slot__line--material"
+          title={commodityLongTitle(materialDisplay, v?.commodityDisplay)}
+        >
           {materialDisplay}
           {cargoLine ? `  ${cargoLine}` : ''}
           {rateLine ? ` -- ${rateLine}` : ''}

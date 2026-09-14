@@ -902,7 +902,7 @@ function FragmentRow({ r, eff, open, onToggle }) {
     <>
       <tr className="mgmt-vrow" onClick={onToggle}>
         <td><b>{r.vessel}</b><br /><span className="text-steel" style={{ fontSize: 11 }}>{r.code}</span></td>
-        <td><span className={`mgmt-chip ${r.purpose === 'Loading' ? 'mgmt-chip--load' : 'mgmt-chip--disch'}`}>{r.purpose === 'Loading' ? 'LOAD' : 'DISCH'}</span></td>
+        <td><span className={`mgmt-chip ${r.purpose === 'Loading' ? 'mgmt-chip--load' : 'mgmt-chip--disch'}`}>{r.purpose === 'Loading' ? 'LOAD' : 'UNLOAD'}</span></td>
         <td>{r.jetty || '—'}</td><td>{r.commodity || '—'}</td>
         <td className="mgmt-r">{fmt(r.qty)}</td><td className="mgmt-r">{fmt(r.wait, 1)}</td>
         <td className="mgmt-r">{fmt(r.berth, 1)}</td><td className="mgmt-r">{fmt(r.opsH, 1)}</td>

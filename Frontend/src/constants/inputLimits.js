@@ -27,6 +27,8 @@ export const MAX_MASTER_JETTY_NAME_CHARS = 100
 export const MAX_MASTER_DESCRIPTION_CHARS = 100
 export const MAX_RTSP_LINK_CHARS = 512
 export const MAX_MASTER_PORT_NAME_CHARS = 100
+/** Optional full legal / long name on Master Shipper, Surveyor, Agent */
+export const MAX_MASTER_LONG_NAME_CHARS = 200
 
 export const MAX_SI_BL_SPLIT_CHARS = 50
 export const MAX_SI_BILL_OF_LADING_CLAUSE_CHARS = 200

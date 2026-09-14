@@ -12,11 +12,13 @@ import {
   updateShippingInstruction,
 } from '../api/shippingInstructions'
 import { attachDraftSiDocuments, deleteSiDocument } from '../api/siDocuments'
+import { usePortScope } from '../context/PortScopeContext'
 import { fetchSiLookups } from '../api/siLookups'
 import {
   computeShipmentPlanJettyAdvice,
   validateJettyAdviceSelection,
 } from '../utils/jettyAdvice'
+import { filterJettiesForPort, jettySelectLabel } from '../utils/portScopedLookups'
 import FormLabelWithInfo from './FormLabelWithInfo'
 import ShippingInstructionSiLinkedFields from './ShippingInstructionSiLinkedFields'
 import ShippingInstructionDocumentUploadSection from './ShippingInstructionDocumentUploadSection'
@@ -79,6 +81,7 @@ export default function ShipmentPlanCombinedFormModal({
   logActivity,
 }) {
   const { t } = useTranslation('shipmentPlan')
+  const { selectedPortId } = usePortScope()
   const [toast, setToast] = useState(null)
   const [lookups, setLookups] = useState(null)
   const [modalSiLoading, setModalSiLoading] = useState(false)
@@ -370,10 +373,15 @@ export default function ShipmentPlanCombinedFormModal({
     return gt + totalCargoMt
   }, [formVesselGt, totalCargoMt])
 
+  const portJetties = useMemo(
+    () => filterJettiesForPort(lookups?.jetties, selectedPortId, formJettyId),
+    [lookups?.jetties, selectedPortId, formJettyId]
+  )
+
   const jettyAdvice = useMemo(
     () =>
       computeShipmentPlanJettyAdvice({
-        jetties: lookups?.jetties,
+        jetties: portJetties,
         list: occupancyRows,
         formVesselLoa,
         vesselDwtComputed,
@@ -383,14 +391,14 @@ export default function ShipmentPlanCombinedFormModal({
         editingPlan,
         siDrafts,
       }),
-    [lookups, occupancyRows, formVesselLoa, vesselDwtComputed, formEta, formPurposeId, editingPlan, siDrafts]
+    [portJetties, lookups, occupancyRows, formVesselLoa, vesselDwtComputed, formEta, formPurposeId, editingPlan, siDrafts]
   )
 
   const validateJettySelection = () => {
     const result = validateJettyAdviceSelection({
       jettyAdvice,
       selectedJettyId: formJettyId,
-      jetties: lookups?.jetties,
+      jetties: portJetties,
       ctx: { loa: formVesselLoa, dwt: vesselDwtComputed },
       t,
     })
@@ -1087,7 +1095,7 @@ export default function ShipmentPlanCombinedFormModal({
                     <label htmlFor="sp-jetty">{t('formJettyOptional')}</label>
                     <select id="sp-jetty" value={formJettyId} onChange={(e) => setFormJettyId(e.target.value)}>
                       <option value="">—</option>
-                      {(lookups?.jetties || [])
+                      {(portJetties || [])
                         .filter((j) => {
                           const a = jettyAdvice.byId[j.id]
                           if (!jettyAdvice.adviceReady || !a || a.fits) return true
@@ -1103,7 +1111,7 @@ export default function ShipmentPlanCombinedFormModal({
                           }
                           return (
                             <option key={j.id} value={j.id}>
-                              {(j.label || j.name) + suffix}
+                              {jettySelectLabel(j, t('jettyOtherPortSuffix')) + suffix}
                             </option>
                           )
                         })}

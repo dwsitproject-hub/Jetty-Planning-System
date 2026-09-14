@@ -35,7 +35,9 @@ import {
   getArrivalsSectionTitle,
   isWaitingToBerth,
   planCommodityShortLabels,
+  planCommodityTitle,
 } from '../../utils/dashboardArrivalsWindow'
+import { commodityLongTitle } from '../../utils/commodityShortTitle.js'
 import { SAILED_LOOKBACK_MS, summarizeSailedSince } from '../../utils/dashboardSailed'
 import {
   AT_BERTH_PHASES,
@@ -755,6 +757,10 @@ export default function DashboardShell({ mode = 'live' }) {
 
   // ─── Berth board (live): one row per operation alongside ──────────────────
   const berthBoard = useMemo(() => {
+    const planById = new Map()
+    for (const p of indexPlans) {
+      if (p?.id != null) planById.set(Number(p.id), p)
+    }
     const rows = filteredAtBerth.map((o) => {
       const tb = parseIso(o.tbAt || o.dockingStartTime)
       const etc = parseIso(o.estimatedCompletionTime)
@@ -766,6 +772,17 @@ export default function DashboardShell({ mode = 'live' }) {
         etcDeltaH = (etc.getTime() - nowTick) / 3600000
         etcState = opsFinished ? 'done' : etcDeltaH < 0 ? 'over' : etcDeltaH < 12 ? 'soon' : 'ok'
       }
+      const fromPlan = planCommodityShortLabels(planById.get(Number(o.shipmentPlanId)))
+      const short = String(o.commodityShortDisplay || '').trim()
+      const long = String(o.commodityDisplay || o.commodity || '').trim()
+      const shortIsUsable = short && short !== '—' && short !== long
+      const commodity = shortIsUsable
+        ? short
+        : (fromPlan && fromPlan !== '—')
+          ? fromPlan
+          : (long && long !== '—')
+            ? long
+            : '—'
       return {
         id: o.id,
         operationId: o.id,
@@ -776,6 +793,10 @@ export default function DashboardShell({ mode = 'live' }) {
         purpose: o.purpose,
         status: o.status,
         phase: phaseForCardDetailed(o, berthDetails[o.id]),
+        commodity,
+        commodityTitle:
+          commodityLongTitle(commodity, long)
+          || planCommodityTitle(planById.get(Number(o.shipmentPlanId))),
         alongsideHours: tb ? (nowTick - tb.getTime()) / 3600000 : null,
         etcState,
         etcDeltaH,
@@ -787,7 +808,7 @@ export default function DashboardShell({ mode = 'live' }) {
     })
     rows.sort((a, b) => (b.alongsideHours ?? 0) - (a.alongsideHours ?? 0))
     return rows
-  }, [filteredAtBerth, berthDetails, cargoProgressByOpId, nowTick])
+  }, [filteredAtBerth, berthDetails, cargoProgressByOpId, indexPlans, nowTick])
 
   // ─── Ops finished but not cast off (live clearance-lag alert) ──────────────
   const awaitingDeparture = useMemo(() => {
@@ -831,6 +852,7 @@ export default function DashboardShell({ mode = 'live' }) {
           ? Number(p.vesselCapacity)
           : null,
         commodity: planCommodityShortLabels(p),
+        commodityTitle: planCommodityTitle(p),
         approvalStatus: p.approvalStatus,
         agentName: p.agentName,
       })
@@ -860,6 +882,7 @@ export default function DashboardShell({ mode = 'live' }) {
           ? Number(p.vesselCapacity)
           : null,
         commodity: planCommodityShortLabels(p),
+        commodityTitle: planCommodityTitle(p),
         approvalStatus: p.approvalStatus,
         agentName: p.agentName,
       })
@@ -1616,6 +1639,7 @@ export default function DashboardShell({ mode = 'live' }) {
                       <th>{t('v2BoardJetty')}</th>
                       <th>{t('v2FilterPurpose')}</th>
                       <th>{t('v2BoardPhase')}</th>
+                      <th>{t('v2ArrivalsCommodity')}</th>
                       <th className="v2-board-r">{t('v2BoardCargoMoved')}</th>
                       <th className="v2-board-r">{t('v2BoardAlongside')}</th>
                       <th className="v2-board-r">{t('v2BoardEtc')}</th>
@@ -1657,6 +1681,7 @@ export default function DashboardShell({ mode = 'live' }) {
                             ? `${PHASE_EMOJI[r.phase] || ''} ${phaseShortLabel[r.phase]}`
                             : r.readyToSail ? `✅ ${t('clearanceReady')}` : `⚠ ${t('clearancePendingSignOff')}`}
                         </td>
+                        <td className="v2-arrivals__commodity" title={r.commodityTitle}>{r.commodity}</td>
                         <td className="v2-board-r">
                           <BerthBoardCargoCell cargoProgress={r.cargoProgress} />
                         </td>
@@ -1716,7 +1741,7 @@ export default function DashboardShell({ mode = 'live' }) {
                 }))}
                 maxWidth={380}
                 maxHeight={260}
-                placement="left"
+                placement="top"
                 interactiveChild
               >
                 <div
@@ -1802,7 +1827,7 @@ export default function DashboardShell({ mode = 'live' }) {
                         </span>
                       ) : '—'}
                     </td>
-                    <td className="v2-arrivals__commodity">{a.commodity}</td>
+                    <td className="v2-arrivals__commodity" title={a.commodityTitle}>{a.commodity}</td>
                     <td className="v2-board-r">{a.qtyMt != null ? a.qtyMt.toLocaleString(getAppLocaleTag()) : '—'}</td>
                     <td>
                       <span className={`v2-board-chip ${a.approvalStatus === 'Approved' ? 'v2-board-chip--ok' : 'v2-board-chip--ghost'}`}>
@@ -1895,7 +1920,7 @@ export default function DashboardShell({ mode = 'live' }) {
                         </span>
                       ) : '—'}
                     </td>
-                    <td className="v2-arrivals__commodity">{a.commodity}</td>
+                    <td className="v2-arrivals__commodity" title={a.commodityTitle}>{a.commodity}</td>
                     <td className="v2-board-r">{a.qtyMt != null ? a.qtyMt.toLocaleString(getAppLocaleTag()) : '—'}</td>
                     <td>
                       <span className={`v2-board-chip ${a.approvalStatus === 'Approved' ? 'v2-board-chip--ok' : 'v2-board-chip--ghost'}`}>

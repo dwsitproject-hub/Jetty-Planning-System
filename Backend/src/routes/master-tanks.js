@@ -7,6 +7,12 @@ import express from 'express';
 import multer from 'multer';
 import { pool } from '../db.js';
 import { writeActivityLog } from '../lib/activity-log.js';
+import {
+  actorUserIdFromReq,
+  masterAuditJoinSql,
+  masterAuditSelectSql,
+  pickMasterAudit,
+} from '../lib/master-row-audit.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePortScope } from '../middleware/port-scope.js';
 import { requirePageDelete, requirePageEdit, requirePageView } from '../middleware/permissions.js';
@@ -29,8 +35,7 @@ function toTank(row) {
     description: row.description ?? null,
     sortOrder: Number(row.sort_order ?? 0),
     hasAtg: row.has_atg === true,
-    createdAt: row.created_at ?? null,
-    updatedAt: row.updated_at ?? null,
+    ...pickMasterAudit(row),
   };
 }
 
@@ -54,7 +59,8 @@ router.get('/', async (req, res) => {
     return res.status(403).json({ error: 'Selected port is not assigned to this user' });
   }
   const r = await pool.query(
-    `SELECT t.id, t.port_id, t.code, t.name, t.description, t.sort_order, t.created_at, t.updated_at,
+    `SELECT t.id, t.port_id, t.code, t.name, t.description, t.sort_order,
+            ${masterAuditSelectSql('t')},
             p.name AS port_name,
             EXISTS (
               SELECT 1
@@ -67,6 +73,7 @@ router.get('/', async (req, res) => {
             ) AS has_atg
      FROM master_tanks t
      JOIN ports p ON p.id = t.port_id AND p.deleted_at IS NULL
+     ${masterAuditJoinSql('t')}
      WHERE t.port_id = $1 AND t.deleted_at IS NULL
      ORDER BY t.sort_order ASC, LOWER(t.code) ASC, t.id ASC`,
     [portId]
@@ -188,9 +195,9 @@ router.post('/import-csv', ...requirePageEdit('master-tanks'), upload.single('fi
     if (existing.rows.length > 0) {
       await pool.query(
         `UPDATE master_tanks
-         SET code = $1, name = $2, description = $3, updated_at = NOW()
-         WHERE id = $4`,
-        [code, name, description, existing.rows[0].id]
+         SET code = $1, name = $2, description = $3, updated_by = $4, updated_at = NOW()
+         WHERE id = $5`,
+        [code, name, description, actorUserIdFromReq(req), existing.rows[0].id]
       );
       updated += 1;
     } else {
@@ -199,10 +206,11 @@ router.post('/import-csv', ...requirePageEdit('master-tanks'), upload.single('fi
         [portId]
       );
       const sortOrder = Number(maxOrd.rows[0]?.m || 0) + 1;
+      const actorId = actorUserIdFromReq(req);
       await pool.query(
-        `INSERT INTO master_tanks (port_id, code, name, description, sort_order)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [portId, code, name, description, sortOrder]
+        `INSERT INTO master_tanks (port_id, code, name, description, sort_order, created_by, updated_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+        [portId, code, name, description, sortOrder, actorId]
       );
       created += 1;
     }
@@ -255,11 +263,12 @@ router.post('/', ...requirePageEdit('master-tanks'), async (req, res) => {
   }
 
   try {
+    const actorId = actorUserIdFromReq(req);
     const ins = await pool.query(
-      `INSERT INTO master_tanks (port_id, code, name, description, sort_order)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO master_tanks (port_id, code, name, description, sort_order, created_by, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $6)
        RETURNING id, port_id, code, name, description, sort_order, created_at, updated_at`,
-      [portId, code, name, description, sortOrder]
+      [portId, code, name, description, sortOrder, actorId]
     );
     const portNameR = await pool.query(`SELECT name FROM ports WHERE id = $1`, [portId]);
     const row = { ...ins.rows[0], port_name: portNameR.rows[0]?.name ?? null };
@@ -309,16 +318,18 @@ router.put('/:id', ...requirePageEdit('master-tanks'), async (req, res) => {
   if (!code) return res.status(400).json({ error: 'code is required' });
 
   try {
+    const actorId = actorUserIdFromReq(req);
     const upd = await pool.query(
       `UPDATE master_tanks
        SET code = $1,
            name = $2,
            description = $3,
            sort_order = COALESCE($4, sort_order),
+           updated_by = $5,
            updated_at = NOW()
-       WHERE id = $5 AND deleted_at IS NULL
+       WHERE id = $6 AND deleted_at IS NULL
        RETURNING id, port_id, code, name, description, sort_order, created_at, updated_at`,
-      [code, name, description, Number.isFinite(sortOrder) ? sortOrder : null, id]
+      [code, name, description, Number.isFinite(sortOrder) ? sortOrder : null, actorId, id]
     );
     const portNameR = await pool.query(`SELECT name FROM ports WHERE id = $1`, [upd.rows[0].port_id]);
     const row = { ...upd.rows[0], port_name: portNameR.rows[0]?.name ?? null };

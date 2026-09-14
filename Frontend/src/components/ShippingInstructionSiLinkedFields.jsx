@@ -14,11 +14,14 @@ import {
   MAX_SI_VOYAGE_CHARS,
 } from '../constants/inputLimits'
 import { emptyBreakdownRow, nextDocId, planEtaYmd } from '../utils/siPlanLinkedDraft'
+import { commodityObjectTitle } from '../utils/commodityShortTitle.js'
+import { filterJettiesForPort, jettySelectLabel } from '../utils/portScopedLookups'
 import {
   applyCommodityDefaultMetric,
   metricsForBreakdownRow,
 } from '../utils/siBreakdownMetric'
 import ShippingInstructionDocumentUploadSection from './ShippingInstructionDocumentUploadSection'
+import { usePortScope } from '../context/PortScopeContext'
 
 const FREIGHT_TERM_OPTIONS = [
   { value: '', label: '—' },
@@ -62,10 +65,15 @@ export default function ShippingInstructionSiLinkedFields({
   extractResultPanel = null,
 }) {
   const { t } = useTranslation('shippingInstruction')
+  const { selectedPortId } = usePortScope()
   const effectivePurposeId = linkedPlan?.purposeId != null ? String(linkedPlan.purposeId) : form.purposeId
   const selectedPurpose = useMemo(
     () => (lookups?.purposes || []).find((p) => String(p.id) === String(effectivePurposeId)) || null,
     [lookups?.purposes, effectivePurposeId]
+  )
+  const jettyOptions = useMemo(
+    () => filterJettiesForPort(lookups?.jetties, selectedPortId, form.preferredJettyId),
+    [lookups?.jetties, selectedPortId, form.preferredJettyId]
   )
   const purposeCode = selectedPurpose?.code || null
   const purposeChosen = Boolean(effectivePurposeId)
@@ -190,9 +198,9 @@ export default function ShippingInstructionSiLinkedFields({
                   disabled={!lookups}
                 >
                   <option value="">—</option>
-                  {(lookups?.jetties || []).map((j) => (
+                  {(jettyOptions || []).map((j) => (
                     <option key={j.id} value={j.id}>
-                      {j.label}
+                      {jettySelectLabel(j, t('jettyOtherPortSuffix'))}
                     </option>
                   ))}
                 </select>
@@ -346,7 +354,7 @@ export default function ShippingInstructionSiLinkedFields({
                       >
                         <option value="">—</option>
                         {(lookups?.commodities || []).map((c) => (
-                          <option key={c.id} value={c.id}>
+                          <option key={c.id} value={c.id} title={commodityObjectTitle(c)}>
                             {c.shortName || c.name}
                           </option>
                         ))}

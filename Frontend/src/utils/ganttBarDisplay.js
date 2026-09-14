@@ -1,5 +1,6 @@
 import { formatDateTimeDisplay } from './formatDateTimeDisplay.js'
 import { computeCargoProgress } from './cargoQtyDisplay.js'
+import { commodityLongTitle } from './commodityShortTitle.js'
 
 /** Gantt bar layout constants (keep in sync with allocation.css --gantt-bar-*). */
 export const GANTT_BAR_HEIGHT = 48
@@ -188,6 +189,7 @@ export function formatGanttMilestoneEntriesCompact(entries, translate) {
  * @returns {object}
  */
 export function buildPlannedBlockModel(seg) {
+  const materialDisplay = seg.materialDisplay || null
   return {
     vesselName: seg.vesselName || '—',
     purposeLabel: seg.purposeLabel || null,
@@ -196,9 +198,10 @@ export function buildPlannedBlockModel(seg) {
     etaMs: seg.etaMs ?? null,
     etbMs: seg.plannedEtbMs ?? null,
     etcMs: seg.estCompMs ?? null,
-    materialDisplay: seg.materialDisplay || null,
+    materialDisplay,
+    commodityTitle: commodityLongTitle(materialDisplay, seg.commodityDisplay),
     cargoDisplay: seg.cargoDisplay || null,
-    materialQtyLine: formatMaterialQtyLine(seg.materialDisplay, seg.cargoDisplay),
+    materialQtyLine: formatMaterialQtyLine(materialDisplay, seg.cargoDisplay),
     milestoneLine: formatGanttMilestoneLine([
       { label: 'ETA', ms: seg.etaMs },
       { label: 'ETB', ms: seg.plannedEtbMs },
@@ -271,6 +274,7 @@ export function buildActualBlockModel(seg, row) {
     actualCompMs,
     etcMs: seg.estCompMs ?? null,
     materialDisplay,
+    commodityTitle: commodityLongTitle(materialDisplay, seg.commodityDisplay || row?.commodityDisplay),
     cargoDisplay: cargoWithOpening,
     materialQtyLine: formatMaterialQtyLine(materialDisplay, cargoWithOpening),
     estimateLine: formatGanttMilestoneLine([
