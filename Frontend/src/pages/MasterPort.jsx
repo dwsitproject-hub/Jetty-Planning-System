@@ -11,6 +11,11 @@ import { getIanaTimeZoneOptions, mergeTimezoneOptionsWithOrphan } from '../utils
 import SearchableSingleSelect from '../components/SearchableSingleSelect.jsx'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
+import {
+  formatMasterCreatedLine,
+  formatMasterLastUpdatedLine,
+  MASTER_AUDIT_COLUMNS,
+} from '../utils/formatMasterAudit.js'
 
 const PAGE_KEY = 'master-port'
 
@@ -43,6 +48,7 @@ const PORT_COLUMNS = [
     label: 'Multi-Jetty Berthing',
     getSortValue: (p) => (p.allowMultiJetyBerthing ? 1 : 0),
   },
+  ...MASTER_AUDIT_COLUMNS,
 ]
 
 export default function MasterPort() {
@@ -280,6 +286,8 @@ export default function MasterPort() {
                         : '—'}
                     </td>
                     <td className="text-steel">{p.allowMultiJetyBerthing ? 'Yes' : 'No'}</td>
+                    <td className="text-steel">{formatMasterCreatedLine(p)}</td>
+                    <td className="text-steel">{formatMasterLastUpdatedLine(p)}</td>
                     <td className="allocation-table__action-col">
                       <div className="allocation-table__action-btns">
                         <button

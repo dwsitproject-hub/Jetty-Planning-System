@@ -14,6 +14,7 @@ import {
   MAX_SI_VOYAGE_CHARS,
 } from '../constants/inputLimits'
 import { emptyBreakdownRow, nextDocId, planEtaYmd } from '../utils/siPlanLinkedDraft'
+import { commodityObjectTitle } from '../utils/commodityShortTitle.js'
 import { filterJettiesForPort, jettySelectLabel } from '../utils/portScopedLookups'
 import {
   applyCommodityDefaultMetric,
@@ -353,7 +354,7 @@ export default function ShippingInstructionSiLinkedFields({
                       >
                         <option value="">—</option>
                         {(lookups?.commodities || []).map((c) => (
-                          <option key={c.id} value={c.id}>
+                          <option key={c.id} value={c.id} title={commodityObjectTitle(c)}>
                             {c.shortName || c.name}
                           </option>
                         ))}

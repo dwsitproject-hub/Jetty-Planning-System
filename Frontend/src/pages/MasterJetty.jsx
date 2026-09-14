@@ -18,11 +18,16 @@ import {
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 import { jettyShortName, jettyNamesForIds } from '../utils/jettyAdjacency.js'
+import {
+  formatMasterCreatedLine,
+  formatMasterLastUpdatedLine,
+  MASTER_AUDIT_COLUMNS,
+} from '../utils/formatMasterAudit.js'
 
 const JETTY_STATUS_OPTIONS = ['Available', 'Out of Service']
 
 function commodityDisplayLabel(c) {
-  return c?.shortName ? `${c.shortName} - ${c.name}` : c?.name || ''
+  return (c?.shortName || c?.name || '').trim()
 }
 
 function commodityNamesList(commodities) {
@@ -455,6 +460,7 @@ export default function MasterJetty() {
         getSortValue: (j) => (j.description || '').toLowerCase(),
         getFilterValue: (j) => j.description || '',
       },
+      ...MASTER_AUDIT_COLUMNS,
     ],
     [jetties]
   )
@@ -551,6 +557,8 @@ export default function MasterJetty() {
                     <td>{jettyNamesForIds(jetties, j.adjacentJettyIds).join(', ') || '—'}</td>
                     <td>{j.status || '—'}</td>
                     <td>{j.description ? (j.description.length > 40 ? `${j.description.slice(0, 40)}…` : j.description) : '—'}</td>
+                    <td className="text-steel">{formatMasterCreatedLine(j)}</td>
+                    <td className="text-steel">{formatMasterLastUpdatedLine(j)}</td>
                     <td>
                       <button type="button" className="btn btn--small btn--secondary" onClick={() => openEdit(j)}>
                         Edit

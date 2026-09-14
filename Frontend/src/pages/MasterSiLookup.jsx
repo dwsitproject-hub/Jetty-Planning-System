@@ -8,8 +8,14 @@ import { createSiLookupItem, deleteSiLookupItem, fetchSiLookupList, updateSiLook
 import { fetchSiLookups } from '../api/siLookups'
 import '../styles/allocation.css'
 import '../styles/modal.css'
+import { MAX_MASTER_LONG_NAME_CHARS } from '../constants/inputLimits'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
+import {
+  formatMasterCreatedLine,
+  formatMasterLastUpdatedLine,
+  MASTER_AUDIT_COLUMNS,
+} from '../utils/formatMasterAudit.js'
 
 const RATE_METRIC_OPTIONS = [
   { value: 'KLPH', label: 'KLPH' },
@@ -60,9 +66,19 @@ export default function MasterSiLookup({
   const [formShortName, setFormShortName] = useState('')
   const [formKlToMtFactor, setFormKlToMtFactor] = useState('')
   const [formDefaultMetricId, setFormDefaultMetricId] = useState('')
+  const [formLongName, setFormLongName] = useState('')
   const [metricOptions, setMetricOptions] = useState([])
 
   const isCommodityMaster = apiType === 'commodities'
+  const hasLongName = apiType === 'shippers' || apiType === 'surveyors' || apiType === 'agents'
+  const longNameLabel =
+    apiType === 'shippers'
+      ? 'Shipper Long Name'
+      : apiType === 'surveyors'
+        ? 'Surveyor Long Name'
+        : apiType === 'agents'
+          ? 'Agent Long Name'
+          : 'Long Name'
 
   const tableColumns = useMemo(() => {
     const cols = []
@@ -78,6 +94,14 @@ export default function MasterSiLookup({
       label: isCommodityMaster ? 'Commodity name' : valueLabel,
       getSortValue: (it) => (it.value || '').toLowerCase(),
     })
+    if (hasLongName) {
+      cols.push({
+        key: 'longName',
+        label: longNameLabel,
+        getSortValue: (it) => (it.longName || '').toLowerCase(),
+        getFilterValue: (it) => it.longName || '',
+      })
+    }
     if (isCommodityMaster) {
       cols.push({
         key: 'commodityType',
@@ -134,8 +158,9 @@ export default function MasterSiLookup({
         }
       )
     }
+    cols.push(...MASTER_AUDIT_COLUMNS)
     return cols
-  }, [valueLabel, isCommodityMaster, enableStandardRateFields])
+  }, [valueLabel, isCommodityMaster, enableStandardRateFields, hasLongName, longNameLabel])
 
   const { displayRows, filters, updateFilter, sortState, handleSort } = useSortableFilterableRows(
     items,
@@ -177,6 +202,7 @@ export default function MasterSiLookup({
   const openAdd = useCallback(() => {
     setEditingId(null)
     setFormValue('')
+    setFormLongName('')
     setFormShortName('')
     setFormKlToMtFactor('')
     setFormDefaultMetricId('')
@@ -195,6 +221,7 @@ export default function MasterSiLookup({
   const openEdit = useCallback((item) => {
     setEditingId(item.id)
     setFormValue(item.value ?? '')
+    setFormLongName(item.longName ?? '')
     setFormShortName(item.shortName ?? '')
     setFormKlToMtFactor(item.klToMtFactor != null ? String(item.klToMtFactor) : '')
     setFormDefaultMetricId(item.defaultMetricId != null ? String(item.defaultMetricId) : '')
@@ -219,6 +246,7 @@ export default function MasterSiLookup({
     setModalOpen(false)
     setEditingId(null)
     setFormValue('')
+    setFormLongName('')
     setFormShortName('')
     setFormKlToMtFactor('')
     setFormDefaultMetricId('')
@@ -298,6 +326,9 @@ export default function MasterSiLookup({
     setError(null)
     try {
       const payload = { value }
+      if (hasLongName) {
+        payload.longName = (formLongName || '').trim() || null
+      }
       if (isCommodityMaster) {
         payload.commodityType = formCommodityType
         payload.shortName = (formShortName || '').trim().toUpperCase()
@@ -368,6 +399,8 @@ export default function MasterSiLookup({
     formShortName,
     formKlToMtFactor,
     formDefaultMetricId,
+    hasLongName,
+    formLongName,
   ])
 
   const handleDelete = useCallback(
@@ -474,6 +507,9 @@ export default function MasterSiLookup({
                       </td>
                     )}
                     <td>{it.value ?? '—'}</td>
+                    {hasLongName && (
+                      <td className="text-steel">{it.longName || '—'}</td>
+                    )}
                     {isCommodityMaster && (
                       <td>{it.commodityType === 'Solid' ? 'Solid' : 'Liquid'}</td>
                     )}
@@ -491,6 +527,8 @@ export default function MasterSiLookup({
                         <td>{it?.portRates?.unloading != null ? it.portRates.unloading.rateMetric : '—'}</td>
                       </>
                     )}
+                    <td className="text-steel">{formatMasterCreatedLine(it)}</td>
+                    <td className="text-steel">{formatMasterLastUpdatedLine(it)}</td>
                     <td className="allocation-table__action-col">
                       <div style={{ display: 'inline-flex', gap: '0.5rem' }}>
                         <button
@@ -567,6 +605,23 @@ export default function MasterSiLookup({
                 disabled={!canDoEdit}
               />
             </div>
+            {hasLongName && (
+              <div className="modal__section">
+                <label htmlFor="si-lookup-long-name" className="modal__label">
+                  {longNameLabel} <span className="text-steel">— optional</span>
+                </label>
+                <input
+                  id="si-lookup-long-name"
+                  type="text"
+                  className="modal__input"
+                  value={formLongName}
+                  onChange={(e) => setFormLongName(e.target.value)}
+                  maxLength={MAX_MASTER_LONG_NAME_CHARS}
+                  placeholder="Full legal name"
+                  disabled={!canDoEdit}
+                />
+              </div>
+            )}
             {isCommodityMaster && (
               <div className="modal__section">
                 <label htmlFor="si-commodity-type" className="modal__label">

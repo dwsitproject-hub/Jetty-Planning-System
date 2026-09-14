@@ -8,12 +8,17 @@
  *   Unparseable strings are returned with a trailing ` LT` removed (legacy API/cache).
  * - formatDateDisplay: date-only values → `DD/MMM/YYYY`.
  * - formatDateTimeCompact: ISO / timestamps → `DD MMM HH:mm` (no year; Live Ops arrivals widgets).
+ * - formatActivityLogChangeValue: zoned ISO datetimes in activity-log diffs → user TZ via
+ *   formatDateTimeDisplay; other values (IDs, names, date-only) left as-is.
  * - stripLegacyDatetimeLt: only removes a trailing ` LT` / ` lt` from a string.
  */
 
 import { JPS_LOCALE_STORAGE_KEY } from '../i18n/constants.js'
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/
+/** UTC / offset ISO instants stored in activity_logs.changes_json (not naive or date-only). */
+const ZONED_ISO_DATETIME =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/i
 
 /** @returns {'en-GB'|'id-ID'} */
 export function getAppLocaleTag() {
@@ -222,4 +227,18 @@ export function formatDateTimeCompact(value) {
   const formatted = formatDayMonthHourMinute(parsed.d, localeTag)
   if (formatted) return formatted
   return fallbackDayMonthHourMinute(parsed.d, localeTag)
+}
+
+/**
+ * Activity Log from/to cells: format zoned ISO datetimes in the user (browser) timezone.
+ * Leave jetty IDs, names, numbers, and date-only strings unchanged.
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function formatActivityLogChangeValue(value) {
+  if (value == null || value === '') return '—'
+  const raw = String(value).trim()
+  if (!raw) return '—'
+  if (ZONED_ISO_DATETIME.test(raw)) return formatDateTimeDisplay(raw)
+  return raw
 }

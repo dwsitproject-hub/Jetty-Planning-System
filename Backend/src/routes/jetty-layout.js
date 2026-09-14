@@ -6,6 +6,12 @@
 import express from 'express';
 import { pool } from '../db.js';
 import { writeActivityLog } from '../lib/activity-log.js';
+import {
+  actorUserIdFromReq,
+  masterAuditJoinSql,
+  masterAuditSelectSql,
+  pickMasterAudit,
+} from '../lib/master-row-audit.js';
 
 const router = express.Router();
 
@@ -90,15 +96,19 @@ function diffLayout(before, after, idToName) {
 router.get('/', async (req, res) => {
   const selectedPortId = Number(req.selectedPortId);
   const r = await pool.query(
-    `SELECT layout_json
-     FROM jetty_layouts
-     WHERE port_id = $1 AND deleted_at IS NULL
-     ORDER BY updated_at DESC, id DESC
+    `SELECT layout_json, ${masterAuditSelectSql('jl')}
+     FROM jetty_layouts jl
+     ${masterAuditJoinSql('jl')}
+     WHERE jl.port_id = $1 AND jl.deleted_at IS NULL
+     ORDER BY jl.updated_at DESC, jl.id DESC
      LIMIT 1`,
     [selectedPortId]
   );
-  const layout = r.rows[0]?.layout_json ?? null;
-  res.json(layout ? { portId: selectedPortId, ...layout } : { portId: selectedPortId, columns: [] });
+  const row = r.rows[0];
+  const layout = row?.layout_json ?? null;
+  res.json(layout
+    ? { portId: selectedPortId, ...layout, ...pickMasterAudit(row) }
+    : { portId: selectedPortId, columns: [] });
 });
 
 router.put('/', async (req, res) => {
@@ -124,22 +134,23 @@ router.put('/', async (req, res) => {
 
     // Unique constraint is partial (deleted_at IS NULL), so use an explicit update-or-insert flow.
     let saved = null;
+    const actorId = actorUserIdFromReq(req);
     if (beforeRow?.id) {
       const up = await client.query(
         `UPDATE jetty_layouts
-         SET layout_json = $1, updated_at = NOW()
-         WHERE id = $2 AND deleted_at IS NULL
-         RETURNING id, layout_json, created_at, updated_at`,
-        [JSON.stringify(after), beforeRow.id]
+         SET layout_json = $1, updated_by = $2, updated_at = NOW()
+         WHERE id = $3 AND deleted_at IS NULL
+         RETURNING id, layout_json, created_at, updated_at, created_by, updated_by`,
+        [JSON.stringify(after), actorId, beforeRow.id]
       );
       saved = up.rows[0] ?? null;
     }
     if (!saved) {
       const ins = await client.query(
-        `INSERT INTO jetty_layouts (port_id, layout_json)
-         VALUES ($1, $2)
-         RETURNING id, layout_json, created_at, updated_at`,
-        [selectedPortId, JSON.stringify(after)]
+        `INSERT INTO jetty_layouts (port_id, layout_json, created_by, updated_by)
+         VALUES ($1, $2, $3, $3)
+         RETURNING id, layout_json, created_at, updated_at, created_by, updated_by`,
+        [selectedPortId, JSON.stringify(after), actorId]
       );
       saved = ins.rows[0];
     }
@@ -158,8 +169,20 @@ router.put('/', async (req, res) => {
       actorUserId: req.userId ?? null,
     });
 
+    const auditRes = await client.query(
+      `SELECT ${masterAuditSelectSql('jl')}
+       FROM jetty_layouts jl
+       ${masterAuditJoinSql('jl')}
+       WHERE jl.id = $1`,
+      [saved.id]
+    );
+
     await client.query('COMMIT');
-    res.json({ portId: selectedPortId, ...saved.layout_json });
+    res.json({
+      portId: selectedPortId,
+      ...saved.layout_json,
+      ...pickMasterAudit(auditRes.rows[0]),
+    });
   } catch (e) {
     await client.query('ROLLBACK');
     throw e;

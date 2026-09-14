@@ -17,6 +17,11 @@ import '../styles/allocation.css'
 import '../styles/modal.css'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
+import {
+  formatMasterCreatedLine,
+  formatMasterLastUpdatedLine,
+  MASTER_AUDIT_COLUMNS,
+} from '../utils/formatMasterAudit.js'
 
 const PAGE_KEY = 'master-tanks'
 
@@ -38,6 +43,7 @@ const TANK_COLUMNS = [
     getSortValue: (t) => (t.description || '').toLowerCase(),
     getFilterValue: (t) => t.description || '',
   },
+  ...MASTER_AUDIT_COLUMNS,
 ]
 
 export default function MasterTanks() {
@@ -334,6 +340,8 @@ export default function MasterTanks() {
                           : tank.description
                         : '—'}
                     </td>
+                    <td className="text-steel">{formatMasterCreatedLine(tank)}</td>
+                    <td className="text-steel">{formatMasterLastUpdatedLine(tank)}</td>
                     <td className="allocation-table__action-col">
                       <div className="allocation-table__action-btns">
                         <button

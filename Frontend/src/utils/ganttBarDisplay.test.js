@@ -184,6 +184,7 @@ describe('buildActualBlockModel', () => {
       }
     )
     assert.equal(model.materialDisplay, 'CPO')
+    assert.equal(model.commodityTitle, 'CRUDE PALM OIL')
     assert.equal(model.materialQtyLine, 'CPO · 500 MT / 2,500 MT -- Rate 0 MT / Hour')
   })
 

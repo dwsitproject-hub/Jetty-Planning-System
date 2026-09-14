@@ -5,6 +5,7 @@ import { fetchJetties } from '../api/jetties'
 import { fetchJettyLayout, saveJettyLayout } from '../api/jettyLayout'
 import { usePortScope } from '../context/PortScopeContext'
 import MasterWorkingPortBar from '../components/MasterWorkingPortBar.jsx'
+import { formatMasterCreatedLine, formatMasterLastUpdatedLine } from '../utils/formatMasterAudit.js'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/dashboard.css'
@@ -28,6 +29,7 @@ export default function MasterJettyLayout() {
   const [error, setError] = useState(null)
   const [jetties, setJetties] = useState([])
   const [toast, setToast] = useState(null) // { message, variant }
+  const [auditStamp, setAuditStamp] = useState(null)
 
   const canLoad = selectedPortId != null && !requiresSelection && !noPortAssigned
 
@@ -41,6 +43,7 @@ export default function MasterJettyLayout() {
     if (!canLoad) {
       setColumns([emptyColumn(), emptyColumn(), emptyColumn()])
       setColumnCount(3)
+      setAuditStamp(null)
       return
     }
     let cancelled = false
@@ -54,6 +57,7 @@ export default function MasterJettyLayout() {
         ])
         if (cancelled) return
         setJetties(Array.isArray(jetList) ? jetList : [])
+        setAuditStamp(layout?.updatedAt ? layout : null)
         const cols = Array.isArray(layout?.columns) ? layout.columns : []
         if (cols.length > 0) {
           setColumns(cols.map((c) => ({ ...c, top: { ...c.top }, middle: { ...c.middle }, bottom: { ...c.bottom } })))
@@ -68,6 +72,7 @@ export default function MasterJettyLayout() {
           setColumns([emptyColumn(), emptyColumn(), emptyColumn()])
           setColumnCount(3)
           setJetties([])
+          setAuditStamp(null)
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -113,7 +118,8 @@ export default function MasterJettyLayout() {
     setLoading(true)
     ;(async () => {
       try {
-        await saveJettyLayout(columns)
+        const saved = await saveJettyLayout(columns)
+        if (saved?.updatedAt) setAuditStamp(saved)
         setToast({ message: 'Layout saved.', variant: 'success' })
       } catch (e) {
         const msg = e?.message || 'Save failed'
@@ -181,6 +187,13 @@ export default function MasterJettyLayout() {
 
       <section className="card">
         <h2 className="card__title">Layout editor</h2>
+        {auditStamp?.updatedAt ? (
+          <p className="text-steel" style={{ marginTop: 0 }}>
+            {formatMasterCreatedLine(auditStamp)}
+            {' · '}
+            {formatMasterLastUpdatedLine(auditStamp)}
+          </p>
+        ) : null}
         <div className="jetty-layout-editor">
           {canLoad && (
             <>
