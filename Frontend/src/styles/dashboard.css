@@ -1281,9 +1281,14 @@
 .jps-tooltip {
   position: fixed;
   z-index: 4000;
+  width: max-content;
   transform: translateY(-50%);
   max-width: min(var(--jps-tooltip-maxw, 320px), calc(100vw - 24px));
   pointer-events: auto;
+}
+
+.jps-tooltip--top {
+  transform: translate(-50%, -100%);
 }
 
 .jps-tooltip__inner {
@@ -1316,6 +1321,17 @@
   border-width: 6px 6px 6px 0;
   border-color: transparent #fff transparent transparent;
   filter: drop-shadow(-1px 0 0 var(--color-border-light));
+}
+
+.jps-tooltip--top .jps-tooltip__inner::after {
+  top: auto;
+  bottom: -6px;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  border-width: 6px 6px 0 6px;
+  border-color: #fff transparent transparent transparent;
+  filter: drop-shadow(0 1px 0 var(--color-border-light));
 }
 
 .jps-tooltip__title {
