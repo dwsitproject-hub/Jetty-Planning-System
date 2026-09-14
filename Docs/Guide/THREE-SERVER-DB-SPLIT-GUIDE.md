@@ -507,7 +507,7 @@ docker compose --env-file Backend/.env -f Backend/infra/docker-compose.db.yml ex
 
 | Task | Detail |
 |------|--------|
-| Backups | Nightly `pg_dump` cron on Server 3; copy off-host |
+| Backups | Nightly `pg_dump` cron on Server 3; copy off-host — [DB-DAILY-BACKUP-CRON.md](./DB-DAILY-BACKUP-CRON.md) |
 | Monitoring | `pg_isready`, disk free on `/data/jps-postgres` |
 | DBA access | SSH tunnel to `127.0.0.1:5436` on Server 3 (loopback bind) — do not open 5432 to the internet |
 | Docs | Update security group diagrams in [ALICLOUD-DEPLOYMENT-GUIDE.md](./ALICLOUD-DEPLOYMENT-GUIDE.md) when cutover is complete |
@@ -521,6 +521,8 @@ docker compose --env-file Backend/.env -f Backend/infra/docker-compose.db.yml ex
 | `docker-compose.backend-api-only.yml` | Root entrypoint (same as infra) |
 | `Backend/infra/postgres/postgresql.conf`, `pg_hba.conf` | Remote access + low-RAM tuning |
 | `Docs/Guide/THREE-SERVER-DB-CUTOVER-RUNBOOK.md` | Maintenance-window steps |
+| `Backend/scripts/backup-db-daily.sh` | Daily dump + Synology copy + 14-day purge |
+| `Docs/Guide/DB-DAILY-BACKUP-CRON.md` | Cron install and restore |
 
 ---
 
