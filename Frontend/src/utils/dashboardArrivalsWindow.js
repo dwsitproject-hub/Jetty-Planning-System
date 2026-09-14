@@ -1,5 +1,7 @@
 /** Live Ops — "Arriving next …" window (ETA-first, optional period in days). */
 
+import { commodityLongTitle } from './commodityShortTitle.js'
+
 export const ARRIVALS_WINDOW_OPTIONS = [3, 7, 14]
 export const ARRIVALS_WINDOW_DEFAULT_DAYS = 3
 
@@ -39,6 +41,26 @@ export function planCommodityShortLabels(plan) {
     }
   }
   return [...names].join(' · ') || '—'
+}
+
+/**
+ * Unique full commodity names from SI breakdown (joined the same way as shorts).
+ * @param {object} plan
+ */
+export function planCommodityLongLabels(plan) {
+  const names = new Set()
+  for (const si of plan?.shippingInstructions || []) {
+    for (const line of si.breakdown || []) {
+      const label = String(line?.commodityName || '').trim()
+      if (label) names.add(label)
+    }
+  }
+  return [...names].join(' · ')
+}
+
+/** Native `title` when the visible short label differs from the full names. */
+export function planCommodityTitle(plan) {
+  return commodityLongTitle(planCommodityShortLabels(plan), planCommodityLongLabels(plan))
 }
 
 /**

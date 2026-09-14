@@ -35,7 +35,9 @@ import {
   getArrivalsSectionTitle,
   isWaitingToBerth,
   planCommodityShortLabels,
+  planCommodityTitle,
 } from '../../utils/dashboardArrivalsWindow'
+import { commodityLongTitle } from '../../utils/commodityShortTitle.js'
 import { SAILED_LOOKBACK_MS, summarizeSailedSince } from '../../utils/dashboardSailed'
 import {
   AT_BERTH_PHASES,
@@ -792,6 +794,9 @@ export default function DashboardShell({ mode = 'live' }) {
         status: o.status,
         phase: phaseForCardDetailed(o, berthDetails[o.id]),
         commodity,
+        commodityTitle:
+          commodityLongTitle(commodity, long)
+          || planCommodityTitle(planById.get(Number(o.shipmentPlanId))),
         alongsideHours: tb ? (nowTick - tb.getTime()) / 3600000 : null,
         etcState,
         etcDeltaH,
@@ -847,6 +852,7 @@ export default function DashboardShell({ mode = 'live' }) {
           ? Number(p.vesselCapacity)
           : null,
         commodity: planCommodityShortLabels(p),
+        commodityTitle: planCommodityTitle(p),
         approvalStatus: p.approvalStatus,
         agentName: p.agentName,
       })
@@ -876,6 +882,7 @@ export default function DashboardShell({ mode = 'live' }) {
           ? Number(p.vesselCapacity)
           : null,
         commodity: planCommodityShortLabels(p),
+        commodityTitle: planCommodityTitle(p),
         approvalStatus: p.approvalStatus,
         agentName: p.agentName,
       })
@@ -1674,7 +1681,7 @@ export default function DashboardShell({ mode = 'live' }) {
                             ? `${PHASE_EMOJI[r.phase] || ''} ${phaseShortLabel[r.phase]}`
                             : r.readyToSail ? `✅ ${t('clearanceReady')}` : `⚠ ${t('clearancePendingSignOff')}`}
                         </td>
-                        <td className="v2-arrivals__commodity">{r.commodity}</td>
+                        <td className="v2-arrivals__commodity" title={r.commodityTitle}>{r.commodity}</td>
                         <td className="v2-board-r">
                           <BerthBoardCargoCell cargoProgress={r.cargoProgress} />
                         </td>
@@ -1820,7 +1827,7 @@ export default function DashboardShell({ mode = 'live' }) {
                         </span>
                       ) : '—'}
                     </td>
-                    <td className="v2-arrivals__commodity">{a.commodity}</td>
+                    <td className="v2-arrivals__commodity" title={a.commodityTitle}>{a.commodity}</td>
                     <td className="v2-board-r">{a.qtyMt != null ? a.qtyMt.toLocaleString(getAppLocaleTag()) : '—'}</td>
                     <td>
                       <span className={`v2-board-chip ${a.approvalStatus === 'Approved' ? 'v2-board-chip--ok' : 'v2-board-chip--ghost'}`}>
@@ -1913,7 +1920,7 @@ export default function DashboardShell({ mode = 'live' }) {
                         </span>
                       ) : '—'}
                     </td>
-                    <td className="v2-arrivals__commodity">{a.commodity}</td>
+                    <td className="v2-arrivals__commodity" title={a.commodityTitle}>{a.commodity}</td>
                     <td className="v2-board-r">{a.qtyMt != null ? a.qtyMt.toLocaleString(getAppLocaleTag()) : '—'}</td>
                     <td>
                       <span className={`v2-board-chip ${a.approvalStatus === 'Approved' ? 'v2-board-chip--ok' : 'v2-board-chip--ghost'}`}>

@@ -5,6 +5,8 @@ import {
   getArrivalsSectionTitle,
   isWaitingToBerth,
   planCommodityShortLabels,
+  planCommodityLongLabels,
+  planCommodityTitle,
   ARRIVALS_WINDOW_DEFAULT_DAYS,
 } from './dashboardArrivalsWindow.js'
 
@@ -150,6 +152,36 @@ describe('planCommodityShortLabels', () => {
       ],
     })
     assert.equal(label, 'CPO · FAME')
+  })
+})
+
+describe('planCommodityTitle', () => {
+  const plan = {
+    shippingInstructions: [
+      {
+        breakdown: [
+          { commodityShortName: 'CPO', commodityName: 'CRUDE PALM OIL' },
+          { commodityShortName: 'PFAD', commodityName: 'PALM FATTY ACID DISTILLATE' },
+        ],
+      },
+    ],
+  }
+
+  it('joins unique full names', () => {
+    assert.equal(planCommodityLongLabels(plan), 'CRUDE PALM OIL · PALM FATTY ACID DISTILLATE')
+  })
+
+  it('returns a title when short and long differ', () => {
+    assert.equal(planCommodityTitle(plan), 'CRUDE PALM OIL · PALM FATTY ACID DISTILLATE')
+  })
+
+  it('returns undefined when short and long are the same', () => {
+    assert.equal(
+      planCommodityTitle({
+        shippingInstructions: [{ breakdown: [{ commodityShortName: 'FAME', commodityName: 'FAME' }] }],
+      }),
+      undefined,
+    )
   })
 })
 
