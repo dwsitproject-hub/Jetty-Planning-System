@@ -1,107 +1,102 @@
 # Daily production DB backup (Linux cron)
 
-Full `pg_dump` of production Postgres on the **DB host**, copied to **Synology** via the API host, with rolling retention.
+After the **ApsaraDB** cutover, live Postgres is RDS (not DB ECS `.59`). This job dumps **RDS** from the **API host** and copies new files to Synology **without touching** existing `jps_db_YYYYMMDD.dump` files (pre-cutover ECS dumps).
 
 | Item | Value |
 |------|--------|
-| Script | `Backend/scripts/backup-db-daily.sh` |
-| Runs on | Production DB host `172.28.92.59` |
+| Script | Live crontab: `/opt/jetty-planning-system/backups/jps-backup-db-daily.sh` (copy from `Backend/scripts/jps-backup-db-daily.sh`) |
+| Runs on | Production **API** `172.28.80.51` (hostname ECS-DB) |
+| Source | ApsaraDB `pgm-d9jn3khh0b3907w4.pgsql.ap-southeast-5.rds.aliyuncs.com` |
 | Cadence | Daily **02:00** server local time |
-| Local copy | `/opt/jetty-planning-system/backups/daily/jps_db_YYYYMMDD.dump` — **3 days** |
-| Synology copy | `/mnt/synology/JETTYPLANNING/db-backups/` on API host `172.28.80.51` — **14 days** |
+| New dumps | `jps_db_rds_YYYYMMDD.dump` |
+| Local copy | `/opt/jetty-planning-system/backups/daily/` — **3 days** of `jps_db_rds_*` only |
+| Synology | `/mnt/synology/JETTYPLANNING/db-backups/` — **14 days** of `jps_db_rds_*` only |
+| Untouched | Existing `jps_db_YYYYMMDD.dump` on NAS (never overwritten or purged by this job) |
 
-This is **Postgres only**. Upload files already live on Synology; they are not part of this job.
+Also keep **Alicloud RDS automated snapshots** enabled.
 
-**Do not** use `docker exec -t` on `pg_dump` (TTY corrupts custom-format dumps). The script writes the dump inside the container and uses `docker cp`.
+This is **Postgres only**. Uploads already live on Synology.
 
-## Prerequisites
+**Disable** the old crontab on **`172.28.92.59`**. That job dumps `jps-db` (stale) and would overwrite `jps_db_YYYYMMDD.dump` on NAS.
 
-1. `jps-db` is running on the DB host (`Backend/infra/docker-compose.db.yml`).
-2. Passwordless SSH from the DB host to the API host (the cron user, usually `root`).
-3. Synology share mounted on the API host at `/mnt/synology/JETTYPLANNING` (same mount as uploads).
-4. `rsync` and `flock` installed on the DB host (standard on Ubuntu).
+---
 
-One-time SSH check (from `172.28.92.59`):
-
-```bash
-ssh -o BatchMode=yes root@172.28.80.51 'mkdir -p /mnt/synology/JETTYPLANNING/db-backups && echo writable-ok'
-```
-
-If this fails, install an SSH key for the cron user before enabling crontab.
-
-## Install crontab (DB host)
+## Install (API host `.51`)
 
 ```bash
-chmod +x /opt/jetty-planning-system/Backend/scripts/backup-db-daily.sh
-
+cd /opt/jetty-planning-system
+git pull   # pick up backup-db-daily.sh RDS mode
+chmod +x Backend/scripts/backup-db-daily.sh
 sudo mkdir -p /var/log /opt/jetty-planning-system/backups/daily
 sudo touch /var/log/jps-db-backup.log
-# ensure the cron user can append the log and write the backup dir
 ```
+
+`Backend/.env` must have `DB_HOST` = prod RDS hostname and `POSTGRES_PASSWORD` = RDS password (already true after cutover). The script sources `.env`.
+
+**Smoke test** (writes `jps_db_rds_YYYYMMDD.dump` only):
+
+```bash
+/opt/jetty-planning-system/Backend/scripts/backup-db-daily.sh
+ls -lh /opt/jetty-planning-system/backups/daily/jps_db_rds_*.dump
+ls -lh /mnt/synology/JETTYPLANNING/db-backups/jps_db_rds_*.dump
+ls /mnt/synology/JETTYPLANNING/db-backups/jps_db_*.dump | head   # old files still present
+tail -n 30 /var/log/jps-db-backup.log
+```
+
+Expect a large dump (~GB), log `mode=rds` / `dump ok` / `backup complete`.
+
+**Crontab on `.51`:**
 
 ```bash
 crontab -e
 ```
 
-Add:
-
 ```cron
-# Daily Postgres dump — 02:00 server local time (DB host only)
+# Daily dump of production ApsaraDB RDS → Synology (jps_db_rds_*.dump only)
 0 2 * * * /opt/jetty-planning-system/Backend/scripts/backup-db-daily.sh >> /var/log/jps-db-backup.log 2>&1
 ```
 
-Optional overrides in the crontab line (defaults match production):
+On `.59`, remove or comment the old `backup-db-daily.sh` line.
 
-```cron
-0 2 * * * JPS_BACKUP_REMOTE=root@172.28.80.51:/mnt/synology/JETTYPLANNING/db-backups JPS_BACKUP_LOCAL_DAYS=3 JPS_BACKUP_NAS_DAYS=14 /opt/jetty-planning-system/Backend/scripts/backup-db-daily.sh >> /var/log/jps-db-backup.log 2>&1
-```
+---
 
-Set `JPS_BACKUP_REMOTE=` (empty) to dump locally only. If IT mounts Synology on the DB host, set `JPS_BACKUP_REMOTE` to that local path instead of `user@host:path`.
+## What the script does (RDS mode)
 
-## First-run smoke test
+1. Detects RDS from `DB_HOST` (`*.rds.aliyuncs.com`) or `JPS_BACKUP_MODE=rds`.
+2. `pg_dump -Fc` via `docker run --network host postgres:18` to RDS (user `postgres` by default).
+3. Verifies `TABLE DATA` in the dump TOC.
+4. Copies to `/mnt/synology/JETTYPLANNING/db-backups/jps_db_rds_YYYYMMDD.dump`.
+5. Purges only `jps_db_rds_*.dump` older than 3 days (local) / 14 days (NAS).
 
-On `172.28.92.59`:
+---
 
-```bash
-/opt/jetty-planning-system/Backend/scripts/backup-db-daily.sh
-ls -lh /opt/jetty-planning-system/backups/daily/
-ssh root@172.28.80.51 'ls -lh /mnt/synology/JETTYPLANNING/db-backups/'
-tail -n 20 /var/log/jps-db-backup.log
-```
-
-Expect a non-zero `jps_db_YYYYMMDD.dump`, log lines `dump ok` and `backup complete`, and the same file on Synology.
-
-## What the script does
-
-1. `pg_dump -Fc --no-owner --no-acl` inside `jps-db` (no TTY).
-2. `pg_restore -l` must list at least one `TABLE DATA` entry.
-3. `docker cp` to the local daily directory; `chmod 600`.
-4. `rsync` to Synology via the API host.
-5. Delete `jps_db_YYYYMMDD.dump` files whose **filename date** is older than 3 days (local) or 14 days (NAS).
-
-Purge runs only after a verified dump. If the dump or NAS copy fails, old files are left in place.
-
-## Restore (maintenance window)
-
-`--clean` replaces existing objects. Take a fresh dump first if the current database still has value.
+## Restore into RDS (maintenance window)
 
 ```bash
-DUMP=/opt/jetty-planning-system/backups/daily/jps_db_YYYYMMDD.dump
-# or: /mnt/synology/JETTYPLANNING/db-backups/jps_db_YYYYMMDD.dump copied to the DB host
-
-docker cp "$DUMP" jps-db:/tmp/restore.dump
-docker exec jps-db pg_restore -U jps_user -d jps_db --no-owner --no-acl --clean --if-exists /tmp/restore.dump
-docker exec jps-db rm -f /tmp/restore.dump
+DUMP=/mnt/synology/JETTYPLANNING/db-backups/jps_db_rds_YYYYMMDD.dump
+# load PGPASSWORD from Backend/.env
+docker run --rm --network host -e PGPASSWORD \
+  -v "$(dirname "$DUMP"):/b" postgres:18 \
+  pg_restore -h pgm-d9jn3khh0b3907w4.pgsql.ap-southeast-5.rds.aliyuncs.com \
+  -U postgres -d jps_db --no-owner --no-acl --clean --if-exists \
+  "/b/$(basename "$DUMP")"
 ```
 
-Do **not** pipe a custom-format dump into `pg_restore` on stdin. Use `docker cp` and a file path.
+`--clean` replaces objects on **live RDS**. Plan a window. Do not restore into `jps-db` on `.59` if the API points at RDS.
+
+---
 
 ## Failure signs
 
 | Symptom | Likely cause |
 |---------|----------------|
-| `container jps-db is not running` | Compose down on the DB host |
+| `requires JPS_BACKUP_RDS_HOST or DB_HOST` | `.env` not sourced / `DB_HOST` missing |
+| `set PGPASSWORD or POSTGRES_PASSWORD` | RDS password not in `.env` |
+| `pg_dump` timeout / no response | Use `--network host` (script does); check RDS SG for `.51` |
 | `dump TOC has no TABLE DATA` | Corrupt or empty dump |
-| `Permission denied (publickey)` | SSH key missing for DB → API |
-| NAS copy fails; local dump exists | Synology unmounted or `db-backups` not writable |
-| `another backup-db-daily.sh is already running` | Previous run still in progress (lock file) |
+| NAS copy fails | `/mnt/synology/JETTYPLANNING` unmounted |
+| `another backup-db-daily.sh is already running` | Previous run still in progress |
+
+## Legacy container mode
+
+`JPS_BACKUP_MODE=container` still dumps `jps-db`. Do **not** enable that on `.59` with the default NAS remote — it uses `jps_db_YYYYMMDD.dump` and would change old Synology files.
