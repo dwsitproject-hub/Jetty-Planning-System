@@ -5,6 +5,10 @@ import OperatorStateChip from './OperatorStateChip'
 export default function OperatorMilestoneCards({
   milestones,
   commodityType,
+  purpose,
+  cargoMetricLabel,
+  segmentHourlyByKey,
+  segmentHourlyLoading,
   canEdit,
   busy,
   onStart,
@@ -47,6 +51,10 @@ export default function OperatorMilestoneCards({
             {isCargo && cargoSegments.length > 0 ? (
               <OperatorCargoSegmentList
                 segments={cargoSegments}
+                purpose={purpose}
+                cargoMetricLabel={cargoMetricLabel}
+                segmentHourlyByKey={segmentHourlyByKey}
+                segmentHourlyLoading={segmentHourlyLoading}
                 canEdit={canEdit}
                 busy={busy}
                 onEditSegment={onEditCargoSegment}

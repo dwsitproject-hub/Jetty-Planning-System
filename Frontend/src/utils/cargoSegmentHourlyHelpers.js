@@ -58,6 +58,40 @@ export function buildCargoSegmentHourlyRequests(draftLines, tankMetaById, normal
   return segments
 }
 
+/**
+ * Build POST /cargo-segment-hourly payloads from persisted operator segment rows.
+ * @param {Array<object>} segments - operator segments with clientKey, loadLineId, startAt, endAt, tankIds, atgQtyMode
+ * @param {Map<string, { hasAtg?: boolean }>} tankMetaById
+ */
+export function buildOperatorSegmentHourlyRequests(segments, tankMetaById) {
+  if (!Array.isArray(segments) || segments.length === 0) return []
+
+  const out = []
+  for (const seg of segments) {
+    const clientKey = String(seg.clientKey ?? '')
+    if (!clientKey || !seg.startAt) continue
+
+    const atgQtyMode = seg.atgQtyMode === 'manual' ? 'manual' : 'auto'
+    if (atgQtyMode === 'manual') continue
+
+    const tankIds = (seg.tankIds || [])
+      .map(String)
+      .filter((id) => tankMetaById?.get(id)?.hasAtg)
+    if (tankIds.length === 0) continue
+
+    const loadLineId = parseSavedLoadLineId(seg.loadLineId ?? seg.clientKey)
+    out.push({
+      clientKey,
+      ...(loadLineId != null ? { loadLineId: String(loadLineId) } : {}),
+      startAt: seg.startAt,
+      endAt: seg.endAt || null,
+      tankIds,
+      atgQtyMode,
+    })
+  }
+  return out
+}
+
 /** Signature for debounced refetch (draft edits + live tick). */
 export function cargoSegmentHourlySignature(segments, liveTick = 0) {
   return `${liveTick}|${(segments || [])

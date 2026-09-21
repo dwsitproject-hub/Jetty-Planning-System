@@ -174,6 +174,10 @@ export default function OperatorExecutionPage() {
           <OperatorMilestoneCards
             milestones={exec.milestones}
             commodityType={exec.commodityType}
+            purpose={exec.purpose}
+            cargoMetricLabel={exec.cargoMetricLabel}
+            segmentHourlyByKey={exec.segmentHourlyByKey}
+            segmentHourlyLoading={exec.segmentHourlyLoading}
             canEdit={editable}
             busy={exec.busy}
             onStart={handleStart}
