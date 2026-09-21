@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   buildCargoSegmentHourlyRequests,
+  buildOperatorSegmentHourlyRequests,
   cargoSegmentHourlySignature,
   mapCargoSegmentHourlyResponse,
 } from './cargoSegmentHourlyHelpers.js'
@@ -85,6 +86,41 @@ describe('cargoSegmentHourlyHelpers', () => {
     })
     assert.equal(map.get('101')?.movedQty, 10)
     assert.equal(map.get('101')?.hourlyBuckets.length, 1)
+  })
+
+  it('buildOperatorSegmentHourlyRequests uses persisted segment ISO windows and ATG tanks', () => {
+    const segments = buildOperatorSegmentHourlyRequests(
+      [
+        {
+          clientKey: '301',
+          loadLineId: '301',
+          startAt: '2026-08-26T16:30:00.000Z',
+          endAt: '2026-08-28T00:47:00.000Z',
+          tankIds: ['5102', '99'],
+          atgQtyMode: 'auto',
+        },
+        {
+          clientKey: '302',
+          startAt: '2026-08-28T01:00:00.000Z',
+          endAt: null,
+          tankIds: ['5102'],
+          atgQtyMode: 'manual',
+        },
+        {
+          clientKey: '303',
+          startAt: '2026-08-28T02:00:00.000Z',
+          endAt: null,
+          tankIds: ['99'],
+          atgQtyMode: 'auto',
+        },
+      ],
+      tankMeta
+    )
+    assert.equal(segments.length, 1)
+    assert.equal(segments[0].clientKey, '301')
+    assert.equal(segments[0].loadLineId, '301')
+    assert.equal(segments[0].tankIds.join(','), '5102')
+    assert.equal(segments[0].endAt, '2026-08-28T00:47:00.000Z')
   })
 
   it('cargoSegmentHourlySignature changes when segment windows differ', () => {

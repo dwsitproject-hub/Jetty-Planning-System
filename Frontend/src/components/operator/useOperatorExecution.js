@@ -24,6 +24,7 @@ import {
   utcIsoToNaiveLocal,
 } from '../../utils/scheduleDateTime'
 import { buildOperatorCargoSegments } from '../../utils/operatorCargoSegments'
+import { useOperatorCargoSegmentHourly } from './useOperatorCargoSegmentHourly'
 import {
   collectCargoLoadLinesWithPending,
   detectCargoSiQtyMismatch,
@@ -312,6 +313,28 @@ export function useOperatorExecution(operationId) {
     }
   }, [commodityType, portId])
 
+  const cargoSegments = useMemo(
+    () =>
+      buildOperatorCargoSegments(activities, purpose, {
+        commodityType,
+        tankOptions,
+      }),
+    [activities, purpose, commodityType, tankOptions]
+  )
+
+  const cargoMetricLabel = useMemo(() => {
+    const code = operation?.cargoSiMetricCode ?? operation?.cargo_si_metric_code ?? 'MT'
+    const name = operation?.cargoSiMetricName ?? operation?.cargo_si_metric_name
+    return [code, name].filter(Boolean).join(' · ') || 'MT'
+  }, [operation])
+
+  const { byKey: segmentHourlyByKey, loading: segmentHourlyLoading } = useOperatorCargoSegmentHourly({
+    operationId,
+    segments: cargoSegments,
+    tankOptions,
+    enabled: commodityType === 'Liquid' && Boolean(operationId),
+  })
+
   const milestones = useMemo(() => {
     const defs = getMilestoneListForPurpose(purpose)
     return defs.map((m) => {
@@ -320,12 +343,12 @@ export function useOperatorExecution(operationId) {
         return {
           ...m,
           ...state,
-          cargoSegments: buildOperatorCargoSegments(activities, purpose),
+          cargoSegments,
         }
       }
       return { ...m, ...state }
     })
-  }, [purpose, activities, naByLabel])
+  }, [purpose, activities, naByLabel, cargoSegments])
 
   const postSteps = useMemo(() => {
     return POST_STEPS.map((s) => {
@@ -774,6 +797,9 @@ export function useOperatorExecution(operationId) {
     portId,
     siblings,
     tankOptions,
+    cargoMetricLabel,
+    segmentHourlyByKey,
+    segmentHourlyLoading,
     milestones,
     postSteps,
     activityLog,
