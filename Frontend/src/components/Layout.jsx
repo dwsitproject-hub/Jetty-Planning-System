@@ -37,6 +37,7 @@ function isPortScopeBypassed(pathname) {
   if (pathname.startsWith('/admin')) return true
   if (pathname === '/master' || pathname === '/master/') return true
   if (pathname === '/master/port' || pathname.startsWith('/master/port/')) return true
+  if (pathname.startsWith('/master/vessel')) return true
   if (pathname.startsWith('/master/si-')) return true
   if (pathname.startsWith('/master/freight-terms')) return true
   return false

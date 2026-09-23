@@ -62,7 +62,7 @@ describe('rowSupportsActualDates', () => {
 })
 
 describe('buildGanttDragProposal — move', () => {
-  it('shifts ETA/ETB (estimation) and TA/TB (actual) by the delta', () => {
+  it('shifts ETB (estimation) and TB (actual) by the delta, not arrival', () => {
     const p = buildGanttDragProposal({
       kind: 'move',
       deltaMs: 2 * H,
@@ -74,17 +74,11 @@ describe('buildGanttDragProposal — move', () => {
     assert.equal(p.jettyChange, null)
     assert.deepEqual(
       p.estimation.map((c) => [c.field, c.toMs]),
-      [
-        ['etaDateTime', ETA + 2 * H],
-        ['etbDateTime', ETB + 2 * H],
-      ]
+      [['etbDateTime', ETB + 2 * H]]
     )
     assert.deepEqual(
       p.actual.map((c) => [c.field, c.toMs]),
-      [
-        ['taDateTime', TA + 2 * H],
-        ['tbDateTime', TB + 2 * H],
-      ]
+      [['tbDateTime', TB + 2 * H]]
     )
     assert.equal(p.needsChoice, true)
   })
@@ -181,8 +175,8 @@ describe('buildArrivalPayloadFromProposal', () => {
     assert.equal(payload.shippingInstructionId, 4)
     assert.equal(payload.shipmentPlanId, undefined)
     assert.equal(payload.jetty, '2B')
-    assert.equal(payload.taDateTime, new Date(TA + 2 * H).toISOString())
     assert.equal(payload.tbDateTime, new Date(TB + 2 * H).toISOString())
+    assert.equal('taDateTime' in payload, false, 'arrival left unchanged')
     assert.equal('etaDateTime' in payload, false, 'estimation fields omitted for actual choice')
     assert.equal('etbDateTime' in payload, false)
   })
@@ -198,9 +192,22 @@ describe('buildArrivalPayloadFromProposal', () => {
     const payload = buildArrivalPayloadFromProposal(p, 'estimation', planOnlyRow, 'allocation-plan')
     assert.equal(payload.shipmentPlanId, 14)
     assert.equal(payload.operationId, undefined)
-    assert.equal(payload.etaDateTime, new Date(ETA + H).toISOString())
     assert.equal(payload.etbDateTime, new Date(ETB + H).toISOString())
+    assert.equal('etaDateTime' in payload, false, 'arrival left unchanged when ETB exists')
     assert.equal('taDateTime' in payload, false)
     assert.equal('tbDateTime' in payload, false)
+  })
+
+  it('falls back to ETA on plan-only move when ETB is missing', () => {
+    const p = buildGanttDragProposal({
+      kind: 'move',
+      deltaMs: H,
+      seg: seg({ plannedEtbMs: null, taMs: null, tbMs: null, layer: 'planned', estimateOnly: true }),
+      row: planOnlyRow,
+      targetJettyId: null,
+    })
+    const payload = buildArrivalPayloadFromProposal(p, 'estimation', planOnlyRow, 'allocation-plan')
+    assert.equal(payload.etaDateTime, new Date(ETA + H).toISOString())
+    assert.equal('etbDateTime' in payload, false)
   })
 })

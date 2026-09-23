@@ -441,6 +441,12 @@ export function fetchAtBerthCargoProgress(ids) {
   return apiGet(`/operations/at-berth/cargo-progress${q}`)
 }
 
+export function fetchAtBerthFlowPattern(lookbackDays = 14) {
+  const n = Number(lookbackDays)
+  const q = Number.isFinite(n) && n > 0 ? `?lookbackDays=${n}` : ''
+  return apiGet(`/operations/at-berth/flow-pattern${q}`)
+}
+
 export function fetchCargoHandlingMethods() {
   return apiGet('/master/cargo-handling-methods')
 }

@@ -2486,6 +2486,24 @@
   white-space: nowrap;
 }
 
+.v2-board-qty__rate {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-steel, #5b6675);
+  margin-top: 1px;
+}
+
+.v2-board-qty__rate {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-steel, #5b6675);
+  margin-top: 1px;
+}
+
 .v2-board-qty__meta {
   display: inline-flex;
   align-items: center;

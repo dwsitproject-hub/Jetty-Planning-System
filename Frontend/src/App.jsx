@@ -38,6 +38,7 @@ import MasterPort from './pages/MasterPort'
 import MasterJetty from './pages/MasterJetty'
 import MasterJettyLayout from './pages/MasterJettyLayout'
 import MasterTanks from './pages/MasterTanks'
+import MasterVessel from './pages/MasterVessel'
 import TankFarm from './pages/TankFarm'
 import MasterSiLookup from './pages/MasterSiLookup'
 import MasterFreightTerms from './pages/MasterFreightTerms'
@@ -45,6 +46,7 @@ import Admin from './pages/Admin'
 import AdminUsers from './pages/AdminUsers'
 import AdminRoles from './pages/AdminRoles'
 import AdminPartnerApi from './pages/AdminPartnerApi'
+import AdminDataHub from './pages/AdminDataHub'
 import AdminNotifications from './pages/AdminNotifications'
 import AdminEmailDeliveryLog from './pages/AdminEmailDeliveryLog'
 import DemurrageRiskCalculator from './pages/DemurrageRiskCalculator'
@@ -163,6 +165,7 @@ function App() {
                   <Route path="/master/jetty" element={<MasterJetty />} />
                   <Route path="/master/jetty-layout" element={<MasterJettyLayout />} />
                   <Route path="/master/tanks" element={<MasterTanks />} />
+                  <Route path="/master/vessel" element={<MasterVessel />} />
                   <Route path="/tank-farm" element={<TankFarm />} />
                   <Route
                     path="/master/si-term"
@@ -242,6 +245,7 @@ function App() {
                   <Route path="/admin/users" element={<AdminUsers />} />
                   <Route path="/admin/roles" element={<AdminRoles />} />
                   <Route path="/admin/partner-api" element={<AdminPartnerApi />} />
+                  <Route path="/admin/datahub" element={<AdminDataHub />} />
                   <Route path="/admin/notifications" element={<AdminNotifications />} />
                   <Route path="/admin/notifications/email-log" element={<AdminEmailDeliveryLog />} />
                   <Route path="/dev/ocr-test" element={<DevOcrTest />} />

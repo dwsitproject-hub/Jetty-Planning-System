@@ -86,6 +86,20 @@ export function formatRateNumber(n) {
 }
 
 /**
+ * Compact avg-rate label for dashboards, e.g. "Avg 50 MT/h". Returns null when rate is missing.
+ * @param {number | null | undefined} rate
+ * @param {string | null | undefined} [unit]
+ */
+export function formatAvgFlowRateLabel(rate, unit = 'MT') {
+  const v = Number(rate)
+  if (!Number.isFinite(v) || v <= 0) return null
+  const u = unit && String(unit).trim() ? String(unit).trim() : 'MT'
+  return `Avg ${formatRateNumber(v)} ${u}/h`
+}
+
+export const formatAvgFlowRateLine = formatAvgFlowRateLabel
+
+/**
  * Compute moved/total cargo progress from a totalQtyDisplay string and an actual moved
  * quantity (sum of logged cargo load lines). Purely data-driven: no fallback to
  * completion_percent or operation status, so 0 logged lines always shows as 0 moved.

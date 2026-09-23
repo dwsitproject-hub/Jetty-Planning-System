@@ -1,7 +1,7 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.45
-**Last Updated**: 2026-07-23  
+**Version**: 1.46
+**Last Updated**: 2026-09-23  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
@@ -73,6 +73,62 @@
 
 **Deploy order:** Run **095** and **096** before or with API/frontend builds that read/write **`additional_jetties`** and **`jetty_adjacencies`**.
 
+### 0.35 Shipment plans — master vessel link (snapshot model) (2026-09-23)
+
+**Purpose:** New shipment plans must reference a row in **`master_vessels`**. Plan columns **`vessel_name`**, **`vessel_loa_m`**, **`vessel_gross_tonnage`**, and **`vessel_draft`** are **snapshots** copied from master at create or re-pick time. Legacy plans keep **`master_vessel_id` NULL** and retain free-text vessel fields unchanged. Functional behaviour: **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.30**.
+
+**Database (migration):**
+
+| Migration | Objects |
+|-----------|---------|
+| **`118_shipment_plans_master_vessel_id.sql`** | **`shipment_plans.master_vessel_id`** (`BIGINT`, FK → **`master_vessels`**, `ON DELETE RESTRICT`); partial index **`idx_shipment_plans_master_vessel_id`**. **No backfill** at go-live — existing rows remain NULL. |
+
+**Shared lib — `Backend/src/lib/resolve-master-vessel.js`:**
+
+| Export | Role |
+|--------|------|
+| **`planSnapshotFromMasterRow(row)`** | Builds snapshot `{ master_vessel_id, vessel_name, vessel_loa_m, vessel_gross_tonnage, vessel_draft }` from master row; LOA from **`vessel_length_overall`**. |
+| **`loadActiveMasterVessel(client, id)`** | Loads non-deleted **`master_vessels`** row by id. |
+| **`parseMasterVesselIdBody(raw)`** | Validates required positive integer **`master_vessel_id`** on create. |
+| **`linkedPlanRejectsDirectVesselFields(body)`** | Returns error when a linked plan PATCH includes direct **`vessel_name` / `vessel_loa_m` / `vessel_gross_tonnage` / `vessel_draft`**. |
+| **`resolveMasterVesselForIntegration(client, { hubCode, vesselName })`** | Partner resolution: prefer **`vessel_hub_code`**; else unique case-insensitive **`vessel_name`** match (ambiguous name → error, send **`vessel_hub_code`**). |
+| **`countActivePlansForMaster(client, masterVesselId)`** | Counts non-deleted **`shipment_plans`** referencing the master row. |
+
+Tests: **`Backend/src/lib/resolve-master-vessel.test.js`**.
+
+**API — shipment plans (`Backend/src/routes/shipment-plans.js`):**
+
+- **`POST /shipment-plans`** — **`master_vessel_id`** required (**400** if omitted). Snapshot fields written from master; optional **`vessel_capacity`** still accepted separately.
+- **`PATCH /shipment-plans/:id`** — **dual-mode:** linked plans reject direct vessel dimension fields; optional new **`master_vessel_id`** re-picks master and refreshes snapshot. Legacy plans (**`master_vessel_id` NULL**) accept free-text **`vessel_name` / `vessel_loa_m` / `vessel_gross_tonnage` / `vessel_draft`** as before.
+- **`PATCH /shipment-plans/:id/vessel-info`** — vessel info editable in **any** approval status. Linked plans: body must include **`master_vessel_id`** (re-pick only; no-op when unchanged). Legacy plans: free-text fields as before.
+- **`toPlanListRow`** exposes **`masterVesselId`** and **`vesselLinkStatus`** (`linked` \| `legacy`).
+
+**API — shipping instructions (`Backend/src/routes/shipping-instructions.js`):**
+
+- **`POST /shipping-instructions`** without **`shipment_plan_id`** — implicit plan create requires **`master_vessel_id`** and snapshots vessel fields from master.
+
+**API — integration (`Backend/src/routes/integrations.js`):**
+
+- **`POST /shipping-instructions`** — resolves master via **`resolveMasterVesselForIntegration`** from partner payload **`vessel_hub_code`** and/or **`vessel_name`** before plan insert (see **§0.33** update).
+
+**API — master vessels (`Backend/src/routes/master-vessels.js`):**
+
+- **`DELETE /master-vessels/:id`** — **409** when **`countActivePlansForMaster`** > 0 (*shipment plan(s) reference this master vessel*).
+
+**Frontend:**
+
+| Module | Role |
+|--------|------|
+| **`Frontend/src/components/ShipmentPlanCombinedFormModal.jsx`** | **Master vessel** dropdown required on create; on linked pre-berth edit, re-pick master only — LOA/GT/draft read-only (auto-filled from master). |
+| **`Frontend/src/components/VesselInfoModal.jsx`** | Dual-mode vessel info: linked → master re-pick; legacy → free-text name/LOA/GT/draft. |
+| **`Frontend/src/pages/ShipmentPlansList.jsx`** | **Legacy** badge when **`vesselLinkStatus === 'legacy'`**. |
+| **`Frontend/src/api/shipmentPlans.js`** | Create/patch payloads include **`masterVesselId`**; **`patchShipmentPlanVesselInfo`**. |
+| **`Frontend/e2e/master-vessel-wiring.spec.ts`** | E2E coverage for create, legacy edit, and re-pick flows. |
+
+**Deploy order:** Run migration **118** before or with API/frontend builds that require **`master_vessel_id`** on plan create.
+
+**Deferred (Project B):** Bulk backfill of legacy plans and “Refresh from master” push — **`Docs/Future/MASTER-VESSEL-PUSH-TO-PLANS.md`**, QA stub **`Backend/scripts/qa-master-vessel-link-deferred.sql`**.
+
 ### 0.33 Inbound Shipping Instruction integration API (`/api/v1/integrations`) (2026-06-12)
 
 **Purpose:** Machine-to-machine API for external partners (EOS Export/Import, KLIPS, etc.) to submit **Shipping Instructions** into JPS. Creates real **`shipment_plans`** + **`shipping_instructions`** + breakdown rows; operators review via existing **`shipment-plan`** approval UI. Partner contract: **Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md**; local test walkthrough: **Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-API-TEST-GUIDE.md**. Functional behaviour: **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.23**.
@@ -101,13 +157,20 @@
 - Rate limit **120 req/min** per key (`express-rate-limit`, env **`INTEGRATION_RATE_LIMIT_PER_MINUTE`**).
 - Response envelope: **`{ success: true, data }`** / **`{ success: false, error: { code, message, details }, request_id }`**.
 
-**Routes — `Backend/src/routes/integrations.js`:**
+**Routes — `Backend/src/routes/integrations.js`** + **`Backend/src/routes/integration-master.js`** (mounted on same router):
 
 | Method | Path | Behaviour |
 |--------|------|-----------|
-| **`POST`** | **`/shipping-instructions`** | Validates payload (vessel, purpose, eta, cargo lines with **`cargo_type`** → **`si_commodities.short_name`** (case-insensitive, normalized uppercase), **`unit`** → **`metric.code`**). **`port_id`** must be a valid (non-deleted) **`ports`** row; unknown port → **400** **`VALIDATION_ERROR`**. Keys are **not** port-scoped. Transaction: insert **`shipment_plans`** (`approval_status` **`Submitted`**, **`external_reference`**, **`requested_by`** = payload **`requested_by`** or **`partnerName`**), **`shipping_instructions`** (`status` **`Submitted`**), **`shipping_instruction_breakdown`**, **`integration_submissions`**. Triggers **`shipment_plan.submitted`** notification + activity log. Returns **201** with partner status **`Pending`**. Duplicate **`external_reference`** → **409** **`DUPLICATE_REFERENCE`**. Unknown **`cargo_type`** → **400** with **`valid_cargo_types`** listing active **`short_name`** values. |
-| **`GET`** | **`/shipping-instructions/:id`** | Lookup by SI id scoped to caller’s **`api_key_id`** via **`integration_submissions`**. |
+| **`POST`** | **`/shipping-instructions`** | Validates payload (purpose, eta, **`vessel_hub_code`** and/or **`vessel_name`** via **`validateIntegrationVesselInput`** — **`vessel_hub_code` sufficient alone**; optional **`trade_term`**, **`surveyor_name`**, cargo lines with **`cargo_type`** → **`si_commodities.short_name`**, **`unit`** → **`metric.code`**, optional **`po_no`**, **`so_no`**, **`shipper_name`**). Resolves **`master_vessels`** via **`resolveMasterVesselForIntegration`** (**§0.35**). **`port_id`** must be a valid **`ports`** row. Transaction: insert linked plan (snapshot vessel fields + **`master_vessel_id`**) + SI + breakdown, **`integration_submissions`**. Returns **201** with canonical **`vessel_name`**, **`vessel_hub_code`**, **`Pending`**. |
+| **`PATCH`** | **`/shipping-instructions/:id`** or **`?external_reference=`** | While partner status **`Pending`**: update SI header (**`trade_term`**, **`surveyor_name`**) and/or breakdown **`po_no`**, **`so_no`**, **`shipper_name`** (match lines by **`line_order`** or **`contract_no`**). No vessel change. Else **409** **`INVALID_STATE`**. Returns **200** status shape. |
+| **`GET`** | **`/shipping-instructions/:id`** | Lookup by SI id scoped to caller’s **`api_key_id`**. Includes **`vessel_hub_code`** from linked **`master_vessels`**. |
 | **`GET`** | **`/shipping-instructions?external_reference=`** | Same payload shape; lookup by partner reference. |
+| **`GET`** | **`/terms`**, **`/agents`**, **`/surveyors`**, **`/shippers`** | List active master rows (`si_trade_terms`, `si_agents`, `si_surveyors`, `si_shippers`). |
+| **`GET`** | **`/agents/:id`**, **`/surveyors/:id`**, **`/shippers/:id`** | Single master row. |
+| **`POST`** | **`/agents`**, **`/shippers`** | Upsert by **`name`** (case-insensitive); optional **`long_name`**. **201** created, **200** matched existing. |
+| **`PATCH`** | **`/agents/:id`**, **`/shippers/:id`** | Update **`name`** / **`long_name`**. |
+
+**Shared lib — `Backend/src/lib/integration-master-data.js`:** list/resolve/upsert helpers, **`deriveExternalStatus`**, **`findPartnerSubmission`**, **`matchBreakdownLineIndex`**. Tests: **`integration-master-data.test.js`**.
 
 **External status derivation (partner-facing):**
 
@@ -124,17 +187,18 @@
 - Set on **`POST /shipment-plans`** (`Backend/src/routes/shipment-plans.js`) and on implicit plan create in **`POST /shipping-instructions`** when no **`shipment_plan_id`** (`Backend/src/routes/shipping-instructions.js`).
 - **`external_reference`** remains **null** for manual creates (integration-only).
 - **`requested_by`** is **not** updated on plan edit — captures **initiator at create time** only.
+- **`master_vessel_id`** is **required** on manual create (**§0.35**); vessel name/LOA/GT/draft are snapshotted from master.
 
 **Internal API — shipment plan list (`Backend/src/routes/shipment-plans.js`):**
 
-- **`toPlanListRow`** exposes **`externalReference`**, **`requestedBy`** from **`sp.*`** (list/detail SQL already selects plan columns).
+- **`toPlanListRow`** exposes **`externalReference`**, **`requestedBy`**, **`masterVesselId`**, **`vesselLinkStatus`** (`linked` \| `legacy`) from **`sp.*`** (list/detail SQL already selects plan columns). See **§0.35**.
 
 **Frontend — `Frontend/src/pages/ShipmentPlansList.jsx`:**
 
 - Table columns after **ETA**: **External reference**, **Requested by**; client-side filters **`externalReference`**, **`requestedBy`**.
 - i18n **`colExternalReference`**, **`colRequestedBy`**, **`filterExternalReference`**, **`filterRequestedBy`** in **`Frontend/src/locales/en/shipmentPlan.json`** and **`id/shipmentPlan.json`**.
 
-**Error codes (integration envelope):** **`INVALID_API_KEY`**, **`VALIDATION_ERROR`**, **`DUPLICATE_REFERENCE`**, **`NOT_FOUND`**, **`RATE_LIMITED`**, **`INTERNAL_ERROR`**.
+**Error codes (integration envelope):** **`INVALID_API_KEY`**, **`VALIDATION_ERROR`**, **`DUPLICATE_REFERENCE`**, **`INVALID_STATE`**, **`NOT_FOUND`**, **`RATE_LIMITED`**, **`INTERNAL_ERROR`**.
 
 ### 0.32 Overview tables — Commodity Qty column (`siBreakdownDisplay`) (2026-05-26)
 

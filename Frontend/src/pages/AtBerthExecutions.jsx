@@ -32,6 +32,8 @@ import EtcBreachBadge from '../components/EtcBreachBadge'
 import CargoScheduleProgressIndicator, {
   isCargoBehindSchedule,
 } from '../components/CargoScheduleProgressIndicator'
+import AtBerthFlowPatternPanel from '../components/AtBerthFlowPatternPanel'
+import AtBerthVesselHourlyRate from '../components/AtBerthVesselHourlyRate'
 import { getEtcBreach } from '../utils/etcBreach'
 import '../styles/etc-breach.css'
 import '../styles/allocation.css'
@@ -392,6 +394,14 @@ function AtBerthDetailPanel({ r, onOpenSiDetail, nowMs = Date.now() }) {
         <dt>{t('dtRemark')}</dt>
         <dd>{r.remark || r.remarks || '—'}</dd>
       </dl>
+      {r.operationId ? (
+        <AtBerthVesselHourlyRate
+          operationId={r.operationId}
+          purpose={r.purpose}
+          vesselName={r.vesselName}
+          jettyName={r.jetty}
+        />
+      ) : null}
     </div>
   )
 }
@@ -728,6 +738,8 @@ export default function AtBerthExecutions() {
           ))}
         </div>
       </section>
+
+      <AtBerthFlowPatternPanel />
 
       <section className="card at-berth-list-section">
         <div className="at-berth-list-section__header">

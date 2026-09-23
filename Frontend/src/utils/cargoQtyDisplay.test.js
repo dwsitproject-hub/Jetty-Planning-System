@@ -4,6 +4,8 @@ import {
   mergeLiveCargoProgressFields,
   computeCargoProgress,
   resolveCargoQtyTotal,
+  formatAvgFlowRateLabel,
+  formatAvgFlowRateLine,
 } from './cargoQtyDisplay.js'
 
 describe('resolveCargoQtyTotal', () => {
@@ -69,5 +71,17 @@ describe('mergeLiveCargoProgressFields', () => {
     assert.equal(merged.cargoSiMetric, 'MT')
     assert.equal(merged.cargoLastLoggedAt, '2026-08-31T03:00:00.000Z')
     assert.equal(merged.scheduleComparison, live)
+  })
+})
+
+describe('formatAvgFlowRateLabel', () => {
+  it('formats positive rates', () => {
+    assert.equal(formatAvgFlowRateLabel(50, 'MT'), 'Avg 50 MT/h')
+    assert.equal(formatAvgFlowRateLine(12.34, 'KL'), 'Avg 12.3 KL/h')
+  })
+
+  it('returns null when rate is missing or zero', () => {
+    assert.equal(formatAvgFlowRateLabel(0), null)
+    assert.equal(formatAvgFlowRateLabel(null), null)
   })
 })

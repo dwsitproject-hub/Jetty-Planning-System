@@ -3,8 +3,8 @@ import { computeCargoProgress } from './cargoQtyDisplay.js'
 import { commodityLongTitle } from './commodityShortTitle.js'
 
 /** Gantt bar layout constants (keep in sync with allocation.css --gantt-bar-*). */
-export const GANTT_BAR_HEIGHT = 48
-export const GANTT_BAR_STACK_STEP = 54
+export const GANTT_BAR_HEIGHT = 72
+export const GANTT_BAR_STACK_STEP = 78
 
 /**
  * @param {object | null | undefined} r
@@ -121,42 +121,70 @@ export function formatMaterialQtyLine(material, cargo) {
 }
 
 /**
- * Planned milestone entries for Gantt bars (ETA / ETB / ETC).
+ * Compact wait duration (TB − TA) for Gantt bars, e.g. "17.5 d".
+ * Always days, one decimal (12 hours → "0.5 d").
+ * @param {number | null | undefined} waitMs
+ * @returns {string | null}
+ */
+export function formatWaitDaysFromMs(waitMs) {
+  const ms = Number(waitMs)
+  if (!Number.isFinite(ms) || ms < 0) return null
+  const days = ms / 86400000
+  const rounded = Math.round(days * 10) / 10
+  return `${rounded.toLocaleString('en-US', { maximumFractionDigits: 1 })} d`
+}
+
+/** @deprecated Use formatWaitDaysFromMs — kept for callers that still import hours. */
+export function formatWaitHoursFromMs(waitMs) {
+  return formatWaitDaysFromMs(waitMs)
+}
+
+/**
+ * Planned in-bar milestones (ETB / ETC). Arrival (ETA) stays on the tooltip.
  * @param {object} model
  * @returns {Array<{ key: string, label: string, ms: number | null }>}
  */
 export function buildGanttPlannedMilestoneEntries(model) {
   return [
-    { key: 'ganttBarEta', label: 'ETA', ms: model.etaMs ?? null },
     { key: 'ganttBarEtb', label: 'ETB', ms: model.etbMs ?? null },
     { key: 'ganttBarEtc', label: 'ETC', ms: model.etcMs ?? null },
   ]
 }
 
 /**
- * Estimate milestone entries for actual Gantt bars (ETA / ETB / ETC).
+ * Estimate in-bar milestones for actual Gantt bars (ETB / ETC).
  * @param {object} model
  * @returns {Array<{ key: string, label: string, ms: number | null }>}
  */
 export function buildGanttEstimateMilestoneEntries(model) {
   const etcMs = model.etcMs ?? model.estCompMs ?? null
   return [
-    { key: 'ganttBarEta', label: 'ETA', ms: model.etaMs ?? null },
     { key: 'ganttBarEtb', label: 'ETB', ms: model.etbMs ?? null },
     { key: 'ganttBarEtc', label: 'ETC', ms: etcMs },
   ]
 }
 
 /**
- * Actual milestone entries for Gantt bars (TA / TB / TC).
+ * Actual in-bar milestones (TB / TC). Arrival (TA) stays on the tooltip.
  * @param {object} model
  * @returns {Array<{ key: string, label: string, ms: number | null }>}
  */
 export function buildGanttActualMilestoneEntries(model) {
   return [
-    { key: 'ganttBarTa', label: 'TA', ms: model.taMs ?? null },
     { key: 'ganttBarTb', label: 'TB', ms: model.tbMs ?? null },
     { key: 'ganttBarActualCompletion', label: 'TC', ms: model.actualCompMs ?? null },
+  ]
+}
+
+/**
+ * Arrival context for tooltips (ETA / TA), not drawn on the bar.
+ * @param {object} model
+ * @returns {Array<{ key: string, label: string, ms: number | null }>}
+ */
+export function buildGanttArrivalMilestoneEntries(model) {
+  return [
+    { key: 'ganttBarEta', label: 'ETA', ms: model.etaMs ?? null },
+    { key: 'ganttBarTa', label: 'TA', ms: model.taMs ?? null },
   ]
 }
 
@@ -202,8 +230,15 @@ export function buildPlannedBlockModel(seg) {
     commodityTitle: commodityLongTitle(materialDisplay, seg.commodityDisplay),
     cargoDisplay: seg.cargoDisplay || null,
     materialQtyLine: formatMaterialQtyLine(materialDisplay, seg.cargoDisplay),
+    waitLine: null,
+    avgRateLine: '—',
+    arrivalLine: formatGanttMilestoneLine(
+      [
+        { label: 'ETA', ms: seg.etaMs },
+        { label: 'TA', ms: null },
+      ].filter((e) => e.ms != null)
+    ),
     milestoneLine: formatGanttMilestoneLine([
-      { label: 'ETA', ms: seg.etaMs },
       { label: 'ETB', ms: seg.plannedEtbMs },
       { label: 'ETC', ms: seg.estCompMs },
     ]),
@@ -262,6 +297,26 @@ export function buildActualBlockModel(seg, row) {
   const cargoWithOpening =
     openingSuffix && cargoDisplay ? `${cargoDisplay} · ${openingSuffix}` : cargoDisplay
 
+  const waitMs =
+    seg.waitMs != null
+      ? seg.waitMs
+      : seg.taMs != null && seg.tbMs != null && seg.tbMs > seg.taMs
+        ? seg.tbMs - seg.taMs
+        : null
+  const waitLine = formatWaitDaysFromMs(waitMs)
+
+  const progress = computeCargoProgress(
+    seg.cargoDisplay || row?.totalQtyDisplay || null,
+    row?.cargoMovedQty,
+    row?.cargoFirstLoggedAt,
+    row?.cargoLastLoggedAt,
+    {
+      cargoSiQty: row?.cargoSiQty,
+      cargoSiMetric: row?.scheduleComparison?.siMetric,
+    }
+  )
+  const avgRateLine = progress?.rateLine || '—'
+
   return {
     vesselName: seg.vesselName || '—',
     purposeLabel: seg.purposeLabel || row?.planPurposeLabel || row?.purpose || null,
@@ -277,13 +332,19 @@ export function buildActualBlockModel(seg, row) {
     commodityTitle: commodityLongTitle(materialDisplay, seg.commodityDisplay || row?.commodityDisplay),
     cargoDisplay: cargoWithOpening,
     materialQtyLine: formatMaterialQtyLine(materialDisplay, cargoWithOpening),
+    waitLine,
+    avgRateLine,
+    arrivalLine: formatGanttMilestoneLine(
+      [
+        { label: 'ETA', ms: seg.etaMs },
+        { label: 'TA', ms: seg.taMs },
+      ].filter((e) => e.ms != null)
+    ),
     estimateLine: formatGanttMilestoneLine([
-      { label: 'ETA', ms: seg.etaMs },
       { label: 'ETB', ms: seg.plannedEtbMs },
       { label: 'ETC', ms: seg.estCompMs },
     ]),
     milestoneLine: formatGanttMilestoneLine([
-      { label: 'TA', ms: seg.taMs },
       { label: 'TB', ms: seg.tbMs },
       { label: 'TC', ms: actualCompMs },
     ]),
@@ -320,6 +381,7 @@ export function ganttDenseBlockAriaLabel(model, layer) {
   parts.push(model.milestoneLine)
   if (model.materialDisplay) parts.push(model.materialDisplay)
   if (model.materialQtyLine) parts.push(model.materialQtyLine)
+  if (model.waitLine) parts.push(`⌛ ${model.waitLine}`)
   return parts.filter(Boolean).join(', ')
 }
 
@@ -342,9 +404,25 @@ export function buildGanttBarTooltipItems(model, layer, options = {}) {
     primary: layer === 'planned' ? 'Planned milestones' : 'Actual milestones',
     secondary: model.milestoneLine,
   })
+  if (model.etaMs != null || model.taMs != null) {
+    items.push({
+      primary: 'Arrival',
+      secondary: model.arrivalLine,
+    })
+  }
   if (model.materialQtyLine) {
     items.push({ primary: 'Cargo', secondary: model.materialQtyLine })
   }
+  if (model.waitLine) {
+    items.push({
+      primary: options.waitLabel || 'Waiting days (Berth − Arrival)',
+      secondary: model.waitLine,
+    })
+  }
+  items.push({
+    primary: 'Avg flow rate',
+    secondary: model.avgRateLine || '—',
+  })
   if (model.status) {
     items.push({ primary: 'Status', secondary: model.status })
   }

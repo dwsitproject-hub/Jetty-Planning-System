@@ -1,7 +1,19 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { fetchMyPorts } from '../api/usersApi'
 import { getSelectedPortId, setSelectedPortId as persistSelectedPortId } from '../api/client'
+import { parsePortIdParam, stripPortScopeParam } from '../utils/portScopeUrl.js'
 import { useAuth } from './AuthContext'
+
+function readInitialSelectedPortId() {
+  if (typeof window === 'undefined') return getSelectedPortId()
+  const fromUrl = parsePortIdParam(window.location.search)
+  if (fromUrl != null) {
+    persistSelectedPortId(fromUrl)
+    return fromUrl
+  }
+  return getSelectedPortId()
+}
 
 const PortScopeContext = createContext({
   loading: false,
@@ -18,11 +30,24 @@ const PortScopeContext = createContext({
 
 export function PortScopeProvider({ children }) {
   const { me } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [assignedPorts, setAssignedPorts] = useState([])
-  const [selectedPortId, setSelectedPortIdState] = useState(getSelectedPortId())
+  const [selectedPortId, setSelectedPortIdState] = useState(readInitialSelectedPortId)
   const [noPortMessage, setNoPortMessage] = useState('No port assigned, please contact Jetty Planning System Admin')
+
+  useLayoutEffect(() => {
+    const portIdFromUrl = parsePortIdParam(location.search)
+    if (portIdFromUrl == null) return
+    setSelectedPortIdState(portIdFromUrl)
+    persistSelectedPortId(portIdFromUrl)
+    const cleanedSearch = stripPortScopeParam(location.search)
+    if (cleanedSearch !== (location.search || '')) {
+      navigate({ pathname: location.pathname, search: cleanedSearch }, { replace: true })
+    }
+  }, [location.pathname, location.search, navigate])
 
   const refreshPorts = useCallback(async () => {
     // Do not clear sessionStorage here: `me` is null while auth is still loading after a

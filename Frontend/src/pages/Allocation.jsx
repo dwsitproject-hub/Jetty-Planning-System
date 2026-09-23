@@ -1,7 +1,7 @@
 /* @refresh reload */
-import { useState, Fragment, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useState, Fragment, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import JettySchematic from '../components/JettySchematic'
 import JettyScheduleGantt from '../components/JettyScheduleGantt'
 import AllocationPlanExportMenu from '../components/AllocationPlanExportMenu'
@@ -100,6 +100,12 @@ import {
   validateJettyAdviceSelection,
 } from '../utils/jettyAdvice'
 import { filterJettiesForPort } from '../utils/portScopedLookups'
+import { parseVizTabParam, stripVizTabParam } from '../utils/portScopeUrl.js'
+
+function readInitialVisualTab() {
+  if (typeof window === 'undefined') return 'schematic'
+  return parseVizTabParam(window.location.search) ?? 'schematic'
+}
 import '../styles/etc-breach.css'
 
 /** Standardized pipeline flow (match Dashboard Vessel pipeline) */
@@ -520,6 +526,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   const { t: tAlloc } = useTranslation('allocation')
   const { t: tSp } = useTranslation('shipmentPlan')
   const location = useLocation()
+  const navigate = useNavigate()
   const isPlanCentric = pageProfile === 'planCentric'
   const rbacPageKey = 'allocation-plan'
   const activityLogPageKey = rbacPageKey
@@ -631,8 +638,18 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   const [vesselPhotosByVesselId, setVesselPhotosByVesselId] = useState({}) // { [vesselId]: [{ url, name }] }
   const [berthingSuccessMessage, setBerthingSuccessMessage] = useState(null)
   const [arrivalSuccessMessage, setArrivalSuccessMessage] = useState(null)
-  const [visualTab, setVisualTab] = useState('schematic') // 'schematic' | 'jettySchedule'
+  const [visualTab, setVisualTab] = useState(readInitialVisualTab) // 'schematic' | 'jettySchedule'
   const schematicExportRef = useRef(null)
+
+  useLayoutEffect(() => {
+    const tab = parseVizTabParam(location.search)
+    if (tab == null) return
+    setVisualTab(tab)
+    const cleanedSearch = stripVizTabParam(location.search)
+    if (cleanedSearch !== (location.search || '')) {
+      navigate({ pathname: location.pathname, search: cleanedSearch }, { replace: true })
+    }
+  }, [location.pathname, location.search, navigate])
   const queueExportRef = useRef(null)
   const [planExporting, setPlanExporting] = useState(false)
   const [siDetailId, setSiDetailId] = useState(null)

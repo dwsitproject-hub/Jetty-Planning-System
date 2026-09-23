@@ -2,11 +2,22 @@ import { useTranslation } from 'react-i18next'
 import CargoScheduleProgressIndicator, {
   isCargoBehindSchedule,
 } from '../CargoScheduleProgressIndicator'
+import { computeCargoRatePerHour, formatAvgFlowRateLabel } from '../../utils/cargoQtyDisplay'
 
 function formatQty(n) {
   const v = Number(n)
   if (!Number.isFinite(v)) return '—'
   return Math.round(v).toLocaleString('en-US')
+}
+
+function resolveAvgRate(cargoProgress) {
+  const fromApi = Number(cargoProgress?.avgRateTph)
+  if (Number.isFinite(fromApi) && fromApi > 0) return fromApi
+  return computeCargoRatePerHour(
+    cargoProgress?.movedQty,
+    cargoProgress?.firstLoggedAt,
+    cargoProgress?.lastLoggedAt
+  )
 }
 
 /**
@@ -31,6 +42,7 @@ export default function BerthBoardCargoCell({ cargoProgress = null }) {
 
   const line = total ? `${moved} / ${total} ${unit}` : `${moved} ${unit}`
   const detail = pct ? `${line} · ${pct}` : line
+  const rateLine = formatAvgFlowRateLabel(resolveAvgRate(cargoProgress), unit)
 
   const source = cargoProgress.source
   const badgeKey =
@@ -46,13 +58,16 @@ export default function BerthBoardCargoCell({ cargoProgress = null }) {
         ? 'v2-board-qty-badge--hybrid'
         : 'v2-board-qty-badge--manual'
 
-  const titleParts = [detail, t(badgeKey)]
+  const titleParts = [detail]
+  if (rateLine) titleParts.push(rateLine)
+  titleParts.push(t(badgeKey))
   if (cargoProgress.isLive) titleParts.push(t('v2BoardQtyLiveHint'))
   if (cargoProgress.atgPartial) titleParts.push(t('v2BoardQtyAtgPartial'))
 
   return (
     <div className="v2-board-qty" title={titleParts.join(' · ')}>
       <span className="v2-board-qty__line">{detail}</span>
+      {rateLine ? <span className="v2-board-qty__rate">{rateLine}</span> : null}
       <span className="v2-board-qty__meta">
         {cargoProgress.isLive && (source === 'atg' || source === 'hybrid') ? (
           <span className="v2-board-qty-live" aria-hidden title={t('v2BoardQtyLiveHint')} />
