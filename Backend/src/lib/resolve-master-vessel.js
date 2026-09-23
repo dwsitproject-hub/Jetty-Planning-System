@@ -54,6 +54,41 @@ export async function loadActiveMasterVessel(client, id) {
 }
 
 /**
+ * Partner POST validation: vessel_hub_code alone is sufficient; vessel_name required only when omitted.
+ * @returns {{ errors: Array<{field: string, issue: string}>, hubCode: string | null, vesselName: string | null }}
+ */
+export function validateIntegrationVesselInput(vesselHubCodeRaw, vesselNameRaw) {
+  const errors = [];
+  const push = (field, issue) => errors.push({ field, issue });
+
+  const hubCode =
+    vesselHubCodeRaw != null && String(vesselHubCodeRaw).trim() !== ''
+      ? String(vesselHubCodeRaw).trim()
+      : null;
+  const vesselName =
+    vesselNameRaw != null && String(vesselNameRaw).trim() !== '' ? String(vesselNameRaw).trim() : null;
+
+  if (hubCode && hubCode.length > 50) push('vessel_hub_code', 'max length 50');
+  if (vesselName && vesselName.length > 200) push('vessel_name', 'max length 200');
+
+  if (!hubCode && !vesselName) {
+    push('vessel_hub_code', 'required when vessel_name is omitted');
+    push('vessel_name', 'required when vessel_hub_code is omitted');
+  }
+
+  return { errors, hubCode, vesselName };
+}
+
+/** Map resolve/snapshot errors to the most helpful partner field name. */
+export function integrationVesselErrorField(errorMessage, { hubCode } = {}) {
+  const msg = String(errorMessage ?? '');
+  if (msg.includes('vessel_hub_code')) return 'vessel_hub_code';
+  if (msg.includes('vessel_name') && hubCode) return 'vessel_name';
+  if (hubCode) return 'vessel_hub_code';
+  return 'vessel_name';
+}
+
+/**
  * @param {import('pg').Pool | import('pg').PoolClient} client
  * @param {{ hubCode?: string | null, vesselName?: string | null }} opts
  */
@@ -65,23 +100,23 @@ export async function resolveMasterVesselForIntegration(client, { hubCode, vesse
        FROM master_vessels WHERE hub_code = $1 AND deleted_at IS NULL`,
       [hub]
     );
-    if (r.rows.length === 0) return { error: `No master vessel found for hub_code "${hub}"` };
+    if (r.rows.length === 0) return { error: `No master vessel found for vessel_hub_code "${hub}"` };
     const row = r.rows[0];
     const name = vesselName != null && String(vesselName).trim() !== '' ? String(vesselName).trim() : null;
     if (name && name.toLowerCase() !== String(row.vessel_name).trim().toLowerCase()) {
-      return { error: 'vessel_name does not match the master vessel for hub_code' };
+      return { error: 'vessel_name does not match the master vessel for vessel_hub_code' };
     }
     return row;
   }
   const name = vesselName != null && String(vesselName).trim() !== '' ? String(vesselName).trim() : null;
-  if (!name) return { error: 'vessel_name is required when hub_code is omitted' };
+  if (!name) return { error: 'vessel_name is required when vessel_hub_code is omitted' };
   const r = await client.query(
     `SELECT id, hub_code, vessel_name, vessel_gross_tonnage, vessel_draft, vessel_length_overall
      FROM master_vessels WHERE LOWER(vessel_name) = LOWER($1) AND deleted_at IS NULL`,
     [name]
   );
   if (r.rows.length === 0) return { error: `No master vessel matches vessel_name "${name}"` };
-  if (r.rows.length > 1) return { error: `Multiple master vessels match vessel_name "${name}"; send hub_code` };
+  if (r.rows.length > 1) return { error: `Multiple master vessels match vessel_name "${name}"; send vessel_hub_code` };
   return r.rows[0];
 }
 

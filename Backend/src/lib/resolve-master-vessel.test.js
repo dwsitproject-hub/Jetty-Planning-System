@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  integrationVesselErrorField,
   LINKED_VESSEL_FIELD_ERROR,
   linkedPlanRejectsDirectVesselFields,
   parseLoaMFromMaster,
   parsePositiveNumber,
   planSnapshotFromMasterRow,
+  validateIntegrationVesselInput,
 } from './resolve-master-vessel.js';
 
 describe('resolve-master-vessel', () => {
@@ -41,6 +43,36 @@ describe('resolve-master-vessel', () => {
   describe('linkedPlanRejectsDirectVesselFields', () => {
     it('rejects vessel_name override', () => {
       assert.equal(linkedPlanRejectsDirectVesselFields({ vessel_name: 'X' }), LINKED_VESSEL_FIELD_ERROR);
+    });
+  });
+
+  describe('validateIntegrationVesselInput', () => {
+    it('accepts vessel_hub_code only', () => {
+      const r = validateIntegrationVesselInput('VSL-0001', null);
+      assert.equal(r.errors.length, 0);
+      assert.equal(r.hubCode, 'VSL-0001');
+      assert.equal(r.vesselName, null);
+    });
+
+    it('accepts vessel_name only', () => {
+      const r = validateIntegrationVesselInput('', 'MV TEST');
+      assert.equal(r.errors.length, 0);
+      assert.equal(r.hubCode, null);
+      assert.equal(r.vesselName, 'MV TEST');
+    });
+
+    it('requires at least one identifier', () => {
+      const r = validateIntegrationVesselInput(null, '');
+      assert.ok(r.errors.length >= 2);
+    });
+  });
+
+  describe('integrationVesselErrorField', () => {
+    it('maps unknown vessel_hub_code to vessel_hub_code field', () => {
+      assert.equal(
+        integrationVesselErrorField('No master vessel found for vessel_hub_code "X"', { hubCode: 'X' }),
+        'vessel_hub_code'
+      );
     });
   });
 });
