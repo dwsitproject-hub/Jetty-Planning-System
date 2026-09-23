@@ -164,13 +164,11 @@ export const PARTNER_SUBMISSION_LOOKUP_SQL = `
          GREATEST(si.updated_at, sp.updated_at) AS last_updated_at,
          sp.approval_status, sp.rejection_reason,
          sp.vessel_name, sp.voyage_no, sp.eta, sp.port_id,
-         mv.hub_code AS master_hub_code,
          spp.code AS purpose,
          o.status AS op_status, o.docking_start_time, j.name AS jetty_name
   FROM integration_submissions s
   JOIN shipping_instructions si ON si.id = s.shipping_instruction_id AND si.deleted_at IS NULL
   JOIN shipment_plans sp ON sp.id = s.shipment_plan_id AND sp.deleted_at IS NULL
-  LEFT JOIN master_vessels mv ON mv.id = sp.master_vessel_id AND mv.deleted_at IS NULL
   LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
   LEFT JOIN LATERAL (
     SELECT op.status, op.docking_start_time, op.jetty_id

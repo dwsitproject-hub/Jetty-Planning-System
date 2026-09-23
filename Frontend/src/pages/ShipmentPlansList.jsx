@@ -529,12 +529,7 @@ export default function ShipmentPlansList() {
                   </td>
                   <td>{row.planReference || `Plan #${row.id}`}</td>
                   <td>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
-                      <VesselNameButton name={row.vesselName} onClick={() => setVesselInfoPlanId(row.id)} />
-                      {row.vesselLinkStatus === 'legacy' ? (
-                        <span className="badge badge--muted" title={t('vesselLinkLegacyBadge')}>{t('vesselLinkLegacyBadge')}</span>
-                      ) : null}
-                    </span>
+                    <VesselNameButton name={row.vesselName} onClick={() => setVesselInfoPlanId(row.id)} />
                   </td>
                   <td>
                     {(row.shippingInstructions || []).length ? (

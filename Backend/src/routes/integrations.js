@@ -283,7 +283,7 @@ function toStatusResponse(row) {
     requested_by: payload.requested_by ?? null,
     status,
     vessel_name: row.vessel_name,
-    vessel_hub_code: row.master_hub_code ?? null,
+    vessel_hub_code: payload.vessel_hub_code ?? null,
     voyage_no: row.voyage_no ?? null,
     purpose: row.purpose ?? payload.purpose ?? null,
     eta: row.eta ? new Date(row.eta).toISOString() : payload.eta ?? null,
@@ -512,15 +512,14 @@ router.post('/shipping-instructions', async (req, res) => {
 
     const planIns = await client.query(
       `INSERT INTO shipment_plans (
-         port_id, master_vessel_id, vessel_name, vessel_loa_m, vessel_gross_tonnage, vessel_draft,
+         port_id, vessel_name, vessel_loa_m, vessel_gross_tonnage, vessel_draft,
          eta, purpose_id, voyage_no, agent_id, remark,
          external_reference, requested_by,
          approval_status, submitted_at, created_at, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'Submitted',NOW(),NOW(),NOW())
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'Submitted',NOW(),NOW(),NOW())
        RETURNING id`,
       [
         value.portId,
-        vesselSnap.master_vessel_id,
         vesselSnap.vessel_name,
         vesselSnap.vessel_loa_m,
         vesselSnap.vessel_gross_tonnage,

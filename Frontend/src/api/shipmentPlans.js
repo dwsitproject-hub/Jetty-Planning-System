@@ -17,7 +17,6 @@ export function fetchShipmentPlan(id) {
 
 export function createShipmentPlan(body) {
   return apiPost('/shipment-plans', {
-    master_vessel_id: body.masterVesselId,
     vessel_name: body.vesselName,
     vessel_capacity: body.vesselCapacity ?? null,
     vessel_loa_m: body.vesselLoaM ?? null,
@@ -32,7 +31,7 @@ export function createShipmentPlan(body) {
 }
 
 export function updateShipmentPlan(id, body) {
-  const payload = {
+  return apiPatch(`/shipment-plans/${id}`, {
     vessel_name: body.vesselName,
     vessel_capacity: body.vesselCapacity,
     vessel_loa_m: body.vesselLoaM,
@@ -43,25 +42,17 @@ export function updateShipmentPlan(id, body) {
     purpose_id: body.purposeId,
     voyage_no: body.voyageNo,
     agent_id: body.agentId,
-  }
-  if (body.masterVesselId != null && body.masterVesselId !== '') {
-    payload.master_vessel_id = body.masterVesselId
-  }
-  return apiPatch(`/shipment-plans/${id}`, payload)
+  })
 }
 
 /** Vessel information only (name/LOA/GT/draft) — allowed in any approval status. Cargo MT is synced from breakdown. */
 export function updateShipmentPlanVesselInfo(id, body) {
-  const payload = {}
-  if (body.masterVesselId != null && body.masterVesselId !== '') {
-    payload.master_vessel_id = body.masterVesselId
-  } else {
-    payload.vessel_name = body.vesselName
-    payload.vessel_loa_m = body.vesselLoaM
-    payload.vessel_gross_tonnage = body.vesselGrossTonnage
-    payload.vessel_draft = body.vesselDraft
-  }
-  return apiPatch(`/shipment-plans/${id}/vessel-info`, payload)
+  return apiPatch(`/shipment-plans/${id}/vessel-info`, {
+    vessel_name: body.vesselName,
+    vessel_loa_m: body.vesselLoaM,
+    vessel_gross_tonnage: body.vesselGrossTonnage,
+    vessel_draft: body.vesselDraft,
+  })
 }
 
 export function submitShipmentPlan(id) {

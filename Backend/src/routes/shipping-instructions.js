@@ -16,11 +16,6 @@ import {
 import { validateBreakdownMetricRules } from '../lib/si-breakdown-metric.js';
 import { validateSiReferenceForBerthing } from '../lib/si-reference-validation.js';
 import { requireAuth } from '../middleware/auth.js';
-import {
-  loadActiveMasterVessel,
-  parseMasterVesselIdBody,
-  planSnapshotFromMasterRow,
-} from '../lib/resolve-master-vessel.js';
 import { userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
 
 const FREIGHT_TERMS = ['PREPAID', 'COLLECT', 'AS_PER_CHARTER_PARTY', 'OTHER'];
@@ -634,7 +629,7 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Invalid shipment_plan_id' });
     }
     const pr = await pool.query(
-      `SELECT id, approval_status, vessel_name, eta, purpose_id, voyage_no, agent_id, master_vessel_id
+      `SELECT id, approval_status, vessel_name, eta, purpose_id, voyage_no, agent_id
        FROM shipment_plans WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
       [pid, selectedPortId]
     );
@@ -771,64 +766,32 @@ router.post('/', requireAuth, async (req, res) => {
       const voyageOverride =
         voyage_no != null && String(voyage_no).trim() !== '' ? trimText(voyage_no, 64) : null;
       const aid = typeof approval_id === 'string' ? approval_id.trim() || null : null;
-      if (planRowForLink.master_vessel_id == null) {
-        await client.query(
-          `UPDATE shipment_plans SET
-             vessel_name = COALESCE(NULLIF(TRIM($1::text), ''), vessel_name),
-             voyage_no = COALESCE($2, voyage_no),
-             jetty_id = COALESCE($3, jetty_id),
-             approval_id = COALESCE(NULLIF(TRIM($4::text), ''), approval_id),
-             updated_at = NOW()
-           WHERE id = $5 AND port_id = $6 AND deleted_at IS NULL`,
-          [
-            typeof vessel_name === 'string' ? vessel_name : '',
-            voyageOverride,
-            preferredJettyIdParsed,
-            aid ?? '',
-            shipmentPlanId,
-            selectedPortId,
-          ]
-        );
-      } else {
-        await client.query(
-          `UPDATE shipment_plans SET
-             voyage_no = COALESCE($1, voyage_no),
-             jetty_id = COALESCE($2, jetty_id),
-             approval_id = COALESCE(NULLIF(TRIM($3::text), ''), approval_id),
-             updated_at = NOW()
-           WHERE id = $4 AND port_id = $5 AND deleted_at IS NULL`,
-          [voyageOverride, preferredJettyIdParsed, aid ?? '', shipmentPlanId, selectedPortId]
-        );
-      }
+      await client.query(
+        `UPDATE shipment_plans SET
+           vessel_name = COALESCE(NULLIF(TRIM($1::text), ''), vessel_name),
+           voyage_no = COALESCE($2, voyage_no),
+           jetty_id = COALESCE($3, jetty_id),
+           approval_id = COALESCE(NULLIF(TRIM($4::text), ''), approval_id),
+           updated_at = NOW()
+         WHERE id = $5 AND port_id = $6 AND deleted_at IS NULL`,
+        [
+          typeof vessel_name === 'string' ? vessel_name : '',
+          voyageOverride,
+          preferredJettyIdParsed,
+          aid ?? '',
+          shipmentPlanId,
+          selectedPortId,
+        ]
+      );
     } else {
-      const masterVesselIdParsed = parseMasterVesselIdBody(b.master_vessel_id);
-      if (masterVesselIdParsed?.error) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ error: masterVesselIdParsed.error });
-      }
-      const masterRow = await loadActiveMasterVessel(client, masterVesselIdParsed);
-      if (masterRow?.error) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ error: masterRow.error });
-      }
-      const vesselSnap = planSnapshotFromMasterRow(masterRow);
-      if (vesselSnap?.error) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ error: vesselSnap.error });
-      }
       const planIns = await client.query(
         `INSERT INTO shipment_plans (
-           port_id, master_vessel_id, vessel_name, vessel_loa_m, vessel_gross_tonnage, vessel_draft,
-           jetty_id, eta, purpose_id, voyage_no, requested_by, created_at, updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
+           port_id, vessel_name, jetty_id, eta, purpose_id, voyage_no, requested_by, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
          RETURNING id`,
         [
           selectedPortId,
-          vesselSnap.master_vessel_id,
-          vesselSnap.vessel_name,
-          vesselSnap.vessel_loa_m,
-          vesselSnap.vessel_gross_tonnage,
-          vesselSnap.vessel_draft,
+          vessel_name.trim(),
           preferredJettyIdParsed,
           etaInstant,
           purposeIdVal,

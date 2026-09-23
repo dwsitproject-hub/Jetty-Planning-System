@@ -10,7 +10,6 @@ import express from 'express';
 import { pool } from '../db.js';
 import { requirePageDelete, requirePageEdit, requirePageView } from '../middleware/permissions.js';
 import { writeActivityLog } from '../lib/activity-log.js';
-import { countActivePlansForMaster } from '../lib/resolve-master-vessel.js';
 import {
   actorUserIdFromReq,
   masterAuditJoinSql,
@@ -263,13 +262,6 @@ router.delete('/:id(\\d+)', ...requirePageDelete('master-vessel'), async (req, r
     [id]
   );
   if (existing.rows.length === 0) return res.status(404).json({ error: 'Vessel not found' });
-
-  const planRefCount = await countActivePlansForMaster(pool, id);
-  if (planRefCount > 0) {
-    return res.status(409).json({
-      error: `Cannot delete vessel: ${planRefCount} shipment plan(s) reference this master vessel`,
-    });
-  }
 
   await pool.query(
     `UPDATE master_vessels SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`,
