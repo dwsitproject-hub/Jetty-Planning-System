@@ -115,6 +115,25 @@ COMMENT ON TABLE datahub_vessel_sync_items IS
   'Staged DataHub vessel records awaiting user review; only approved rows are written to master_vessels.';
 
 -- RBAC page catalog
+-- After pg_restore the permissions id sequence can lag behind MAX(id) and cause
+-- "duplicate key value violates unique constraint permissions_pkey".
+SELECT setval(
+  pg_get_serial_sequence('permissions', 'id'),
+  COALESCE((SELECT MAX(id) FROM permissions), 0)
+);
+
+-- Revive a soft-deleted row instead of inserting a duplicate resource_key.
+UPDATE permissions
+SET
+  deleted_at = NULL,
+  can_view = FALSE,
+  can_edit = FALSE,
+  can_delete = FALSE,
+  updated_at = NOW()
+WHERE resource_type = 'page'
+  AND resource_key = 'master-vessel'
+  AND deleted_at IS NOT NULL;
+
 INSERT INTO permissions (resource_type, resource_key, can_view, can_edit, can_delete)
 SELECT 'page', 'master-vessel', FALSE, FALSE, FALSE
 WHERE NOT EXISTS (
@@ -122,6 +141,11 @@ WHERE NOT EXISTS (
   WHERE p.deleted_at IS NULL
     AND p.resource_type = 'page'
     AND p.resource_key = 'master-vessel'
+);
+
+SELECT setval(
+  pg_get_serial_sequence('role_permissions', 'id'),
+  COALESCE((SELECT MAX(id) FROM role_permissions), 0)
 );
 
 -- Mirror master-jetty grants onto master-vessel
