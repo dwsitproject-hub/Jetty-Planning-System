@@ -43,15 +43,16 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
   // "Best" = non-sailed over sailed; among same sailed status, latest TB wins.
   // This prevents old/SAILED docking rows from overwriting the current berth bar.
   const bestActualOpsRow = new Map()
-  // jetty+bankLaneKey groups that have any actual milestone (TA or TB): these render
-  // only their actual bar — the estimate (planned) bar is suppressed for them.
-  const hasActualByKey = new Set()
-  for (const r of sorted) {
-    const jettyId = jettyIdFromScheduleRow(r)
-    if (!jettyId) continue
-    if (parseMs(r.taDateTime) != null || parseMs(r.tbDateTime) != null) {
-      hasActualByKey.add(`${jettyId}\0${bankLaneKeyFromRow(r)}`)
-    }
+    // jetty+bankLaneKey groups that have TB: these render only their actual
+    // alongside bar — the estimate (planned) bar is suppressed for them.
+    // TA without TB is waiting-to-berth and stays off the occupancy chart.
+    const hasActualByKey = new Set()
+    for (const r of sorted) {
+      const jettyId = jettyIdFromScheduleRow(r)
+      if (!jettyId) continue
+      if (parseMs(r.tbDateTime) != null) {
+        hasActualByKey.add(`${jettyId}\0${bankLaneKeyFromRow(r)}`)
+      }
     const tbMs = parseMs(r.tbDateTime)
     if (tbMs == null) continue
     const bk = bankLaneKeyFromRow(r)
@@ -103,8 +104,8 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
     const isSailed = sourceStatus === 'SAILED'
     const status = isSailed ? 'Sailed off' : tb != null ? 'Berthing' : 'Arriving'
 
-    // Estimate bar: only for vessels with no actual milestones yet. Once TA/TB is
-    // recorded the single actual bar (which also shows ETA/ETB) represents the vessel.
+    // Estimate bar: ETB preferred, ETA only when ETB is missing so the vessel
+    // does not vanish. Once TB is recorded the actual alongside bar represents it.
     const plannedStart = plannedEtb ?? eta
     const plannedDedupKey = `${jettyId}\0${bankLaneKey}`
     if (
@@ -157,74 +158,6 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
       )
     }
 
-    if (ta != null && tb == null) {
-      let transitEnd
-      let transitGradient = true
-      let transitLabel
-      const hasEst = estComp != null
-      const hasAct = actComp != null
-
-      if (hasEst && hasAct) {
-        if (actComp > ta) {
-          transitEnd = actComp
-          transitGradient = false
-          transitLabel = 'Actual · TA → actual completion (berth time TBD)'
-        } else {
-          transitEnd = ta + DEFAULT_TAIL_MS
-          transitLabel = 'Actual · TA recorded (berth time TBD — tail is indicative)'
-        }
-      } else if (hasEst && !hasAct) {
-        if (estComp > ta) {
-          transitEnd = estComp
-          transitGradient = true
-          transitLabel =
-            'Actual · TA → est. completion (berth TBD — open end; actual completion not recorded)'
-        } else {
-          transitEnd = ta + DEFAULT_TAIL_MS
-          transitLabel = 'Actual · TA recorded (berth time TBD — tail is indicative)'
-        }
-      } else if (!hasEst && hasAct) {
-        if (actComp > ta) {
-          transitEnd = actComp
-          transitGradient = false
-          transitLabel = 'Actual · TA → actual completion (berth time TBD)'
-        } else {
-          transitEnd = ta + DEFAULT_TAIL_MS
-          transitLabel = 'Actual · TA recorded (berth time TBD — tail is indicative)'
-        }
-      } else {
-        transitEnd = ta + DEFAULT_TAIL_MS
-        transitLabel = 'Actual · TA recorded (berth time TBD — tail is indicative)'
-      }
-
-      pushSegment(
-        out,
-        {
-          layer: 'actual',
-          phase: 'transit',
-          jettyId,
-          bankLaneKey,
-          vesselId,
-          vesselName,
-          additionalJetties,
-          ...rowMeta,
-          gradient: transitGradient,
-          status,
-          label: transitLabel,
-          startMs: ta,
-          endMs: transitEnd,
-          plannedEtbMs: plannedEtb,
-          etaMs: eta,
-          tbMs: tb,
-          taMs: ta,
-          actualCompMs,
-          startSource: 'TA',
-        },
-        windowStartMs,
-        windowEndMs
-      )
-    }
-
     if (tb != null) {
       // Only emit the "best" actual ops segment per jetty+bankLaneKey (dedup)
       const actualDedupKey = `${jettyId}\0${bankLaneKey}`
@@ -270,6 +203,7 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
           etcOverduePct,
           overMs: isBreached ? nowMs - estComp : null,
           startSource: 'TB',
+          waitMs: ta != null && tb > ta ? tb - ta : null,
         },
         windowStartMs,
         windowEndMs

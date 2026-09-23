@@ -34,6 +34,38 @@ export function resolveCanonicalMovedQty(cargoSummary, hourlyProgress, fallbackQ
 }
 
 /**
+ * Earliest cargo-ops start and latest cargo-ops end from progress lines.
+ * @param {Array<{ startedAt?: string|null, endedAt?: string|null }>} [lines]
+ */
+export function cargoWindowFromLines(lines = []) {
+  let firstLoggedAt = null;
+  let lastLoggedAt = null;
+  for (const l of lines) {
+    if (l?.startedAt && (!firstLoggedAt || l.startedAt < firstLoggedAt)) firstLoggedAt = l.startedAt;
+    const end = l?.endedAt || l?.startedAt;
+    if (end && (!lastLoggedAt || end > lastLoggedAt)) lastLoggedAt = end;
+  }
+  return { firstLoggedAt, lastLoggedAt };
+}
+
+/**
+ * Average MT/h: moved qty ÷ hours between first start and last end.
+ * For live cargo, pass lastLoggedAt as now so the window stays open.
+ * @param {number|null|undefined} movedQty
+ * @param {string|null|undefined} firstLoggedAt
+ * @param {string|null|undefined} lastLoggedAt
+ */
+export function computeAvgRateTph(movedQty, firstLoggedAt, lastLoggedAt) {
+  const qty = Number(movedQty) || 0;
+  if (qty <= 0) return 0;
+  const startMs = firstLoggedAt ? new Date(firstLoggedAt).getTime() : NaN;
+  const endMs = lastLoggedAt ? new Date(lastLoggedAt).getTime() : NaN;
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return 0;
+  const hours = (endMs - startMs) / 3600000;
+  return hours > 0 ? qty / hours : 0;
+}
+
+/**
  * @param {import('pg').Pool|import('pg').PoolClient} db
  * @param {number|string} tankId
  */
@@ -620,19 +652,11 @@ export async function getOperationalProgress(db, operationId) {
 
   let firstLoggedAt = null;
   let lastLoggedAt = null;
-  for (const l of ctx.lines) {
-    if (l.startedAt && (!firstLoggedAt || l.startedAt < firstLoggedAt)) firstLoggedAt = l.startedAt;
-    const end = l.endedAt || l.startedAt;
-    if (end && (!lastLoggedAt || end > lastLoggedAt)) lastLoggedAt = end;
-  }
+  ({ firstLoggedAt, lastLoggedAt } = cargoWindowFromLines(ctx.lines));
 
   const siTotal = ctx.siQty;
   const unit = ctx.siMetric || 'MT';
-  let ratePerHour = 0;
-  if (firstLoggedAt && lastLoggedAt) {
-    const hours = (new Date(lastLoggedAt).getTime() - new Date(firstLoggedAt).getTime()) / 3600000;
-    if (hours > 0) ratePerHour = done / hours;
-  }
+  const ratePerHour = computeAvgRateTph(done, firstLoggedAt, lastLoggedAt);
 
   const dailyPick =
     dailyBars.find((b) => b.date === todayKey) || dailyBars[dailyBars.length - 1] || null;
@@ -993,6 +1017,13 @@ export async function getAtBerthCargoProgressSummary(db, operationId, opts = {})
   const hasActivity = ctx.lines.some((l) => l.startedAt) || totals.movedQty > 0;
   if (!hasActivity && !totals.cargoSummary) return null;
 
+  const { firstLoggedAt, lastLoggedAt } = cargoWindowFromLines(ctx.lines);
+  const nowMs = opts.nowMs ?? Date.now();
+  const rateEndAt = totals.isLive || totals.hasActiveCargo
+    ? new Date(nowMs).toISOString()
+    : lastLoggedAt;
+  const avgRateTph = computeAvgRateTph(totals.movedQty, firstLoggedAt, rateEndAt);
+
   const summary = {
     connected: totals.connected,
     source: totals.source,
@@ -1003,6 +1034,9 @@ export async function getAtBerthCargoProgressSummary(db, operationId, opts = {})
     isLive: totals.isLive,
     hasActiveCargo: totals.hasActiveCargo,
     atgPartial: totals.atgPartial,
+    avgRateTph,
+    firstLoggedAt,
+    lastLoggedAt: rateEndAt,
   };
 
   return attachScheduleComparisonToSummary(
@@ -1033,7 +1067,7 @@ export async function getAtBerthCargoProgressSummaries(db, operationIds, opts = 
     const pairs = await Promise.all(
       batch.map(async (id) => {
         try {
-          const summary = await getAtBerthCargoProgressSummary(db, id);
+          const summary = await getAtBerthCargoProgressSummary(db, id, opts);
           return [String(id), summary];
         } catch {
           return [String(id), null];

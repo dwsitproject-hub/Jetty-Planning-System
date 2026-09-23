@@ -19,6 +19,7 @@ import { userHasPageApprove, userHasPageDelete, userHasPageEdit } from '../middl
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
 import { enrichRowsWithCargoDisplay } from '../lib/siBreakdownDisplay.js';
 import { getAtBerthCargoProgressSummaries } from '../lib/operational-progress.js';
+import { computeAtBerthFlowPattern } from '../lib/at-berth-flow-pattern.js';
 
 const router = express.Router();
 const AT_BERTH_STATUSES = [
@@ -273,6 +274,16 @@ router.get('/at-berth/cargo-progress', async (req, res) => {
 
   const summaries = await getAtBerthCargoProgressSummaries(pool, operationIds);
   res.json({ summaries });
+});
+
+router.get('/at-berth/flow-pattern', async (req, res) => {
+  const selectedPortId = Number(req.selectedPortId);
+  if (!Number.isFinite(selectedPortId) || selectedPortId <= 0) {
+    return res.status(400).json({ error: 'Port is required' });
+  }
+  const lookbackDays = Number(req.query.lookbackDays) > 0 ? Number(req.query.lookbackDays) : 14;
+  const pattern = await computeAtBerthFlowPattern(pool, selectedPortId, { lookbackDays });
+  res.json(pattern);
 });
 
 /**

@@ -71,5 +71,12 @@
   "groupMixed": "Campuran",
   "shiftOutAffectsIntro": "Berlaku untuk panggilan kapal ini (semua instruksi):",
   "fullDetail": "Detail lengkap",
-  "hideDetail": "Sembunyikan detail"
+  "hideDetail": "Sembunyikan detail",
+  "flowPatternTitle": "Laju alir rata-rata per jam",
+  "flowPatternHint": "MT/jam per jam clock untuk kapal di dermaga plus 14 hari terakhir, Loading vs Unloading, dibanding laju standar.",
+  "flowPatternError": "Tidak dapat memuat laju alir per jam.",
+  "flowPatternStdLoading": "Standar · Loading",
+  "flowPatternStdUnloading": "Standar · Unloading",
+  "flowPatternVesselTitle": "MT/jam per jam untuk panggilan ini",
+  "flowPatternVesselEmpty": "Belum ada laju kargo per jam untuk kapal ini."
 }

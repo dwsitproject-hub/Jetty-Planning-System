@@ -13,7 +13,7 @@ import { formatOverdueDuration } from '../utils/etcBreach'
 
 function GanttVesselIcon() {
   return (
-    <svg className="gantt-dense-block__icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+    <svg className="gantt-dense-block__icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
       <path
         fill="currentColor"
         d="M2 20h20v2H2v-2zm2-2h16l-2-6H6L4 18zm2.5-8L8 6h8l.5 2 2.5 4H7L6.5 10z"
@@ -24,7 +24,7 @@ function GanttVesselIcon() {
 
 function GanttCompletedIcon() {
   return (
-    <svg className="gantt-dense-block__icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+    <svg className="gantt-dense-block__icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
       <path fill="currentColor" d="M9.2 16.6 4.9 12.3l1.4-1.4 2.9 2.9 8-8 1.4 1.4-9.4 9.4z" />
     </svg>
   )
@@ -79,9 +79,14 @@ export default function GanttDenseBlock({
 
   const showCommodity = Boolean(model.materialDisplay)
   const showCargoDetail =
-    density === 'full' &&
+    density !== 'narrow' &&
     Boolean(model.materialQtyLine) &&
     model.materialQtyLine !== model.materialDisplay
+
+  const waitLabel = model.waitLine
+    ? t('ganttBarWait', { wait: model.waitLine, defaultValue: '⌛ {{wait}}' })
+    : null
+  const showWait = layer === 'actual' && Boolean(waitLabel)
 
   return (
     <div
@@ -106,11 +111,18 @@ export default function GanttDenseBlock({
           </span>
         ) : null}
       </div>
-      {showCommodity ? (
+      {showCommodity || showWait ? (
         <div className="gantt-dense-block__row gantt-dense-block__row--commodity">
-          <span className="gantt-dense-block__commodity" title={model.commodityTitle || undefined}>
-            {model.materialDisplay}
-          </span>
+          {showCommodity ? (
+            <span className="gantt-dense-block__commodity" title={model.commodityTitle || undefined}>
+              {model.materialDisplay}
+            </span>
+          ) : null}
+          {showWait ? (
+            <span className="gantt-dense-block__wait" title={waitLabel}>
+              {waitLabel}
+            </span>
+          ) : null}
         </div>
       ) : null}
       {showEstimate ? (

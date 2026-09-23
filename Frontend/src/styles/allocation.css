@@ -242,8 +242,8 @@ html.allocation-viz-popout-open #root {
 .jetty-schedule-gantt {
   margin-top: 0;
   --jetty-schedule-id-col: 200px;
-  --gantt-bar-height: 48px;
-  --gantt-bar-stack-step: 54px;
+  --gantt-bar-height: 72px;
+  --gantt-bar-stack-step: 78px;
 }
 
 .jetty-schedule-gantt__filters {
@@ -646,13 +646,13 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 .gantt-dense-block {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 2px;
+  justify-content: flex-start;
+  gap: 1px;
   width: 100%;
   min-width: 0;
   height: 100%;
   min-height: 0;
-  padding: 4px 8px;
+  padding: 3px 6px;
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -672,12 +672,14 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 }
 
 .gantt-dense-block__row--title {
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   font-weight: var(--font-weight-semibold);
+  line-height: 1.15;
 }
 
 .gantt-dense-block__row--dates,
-.gantt-dense-block__row--cargo {
+.gantt-dense-block__row--cargo,
+.gantt-dense-block__row--wait {
   display: block;
 }
 
@@ -696,12 +698,12 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 
 .gantt-dense-block__dates {
   display: block;
-  font-size: 8px;
-  line-height: 1.15;
+  font-size: 7px;
+  line-height: 1.2;
+  letter-spacing: 0;
   opacity: 0.95;
-  overflow: hidden;
+  overflow: visible;
   white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
 .gantt-dense-block__commodity {
@@ -716,9 +718,19 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 
 .gantt-dense-block__cargo {
   display: block;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: var(--font-weight-semibold);
+  line-height: 1.2;
+  overflow: visible;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.gantt-dense-block__wait {
+  display: block;
+  font-size: 8px;
   line-height: 1.15;
+  opacity: 0.95;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -754,7 +766,22 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 }
 
 .gantt-dense-block__row--commodity {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gantt-dense-block__row--commodity .gantt-dense-block__commodity {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.gantt-dense-block__row--commodity .gantt-dense-block__wait {
+  flex: 0 0 auto;
+  font-size: 9px;
+  font-weight: var(--font-weight-semibold);
+  opacity: 1;
 }
 
 .gantt-dense-block__aging {
@@ -866,8 +893,8 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 
 .gantt-dense-block .loading-list__badge--purpose {
   padding: 0 4px;
-  font-size: 10px;
-  line-height: 1.3;
+  font-size: 9px;
+  line-height: 1.2;
   flex-shrink: 0;
 }
 
@@ -5414,6 +5441,56 @@ select.allocation-table__filter {
 .at-berth-summary {
   margin-bottom: var(--spacing-3);
 }
+
+.at-berth-flow {
+  margin-bottom: var(--spacing-3);
+  padding: 14px 16px;
+}
+.at-berth-flow__sub {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+}
+.at-berth-flow__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.at-berth-flow__swatch {
+  display: inline-block;
+  width: 16px;
+  height: 3px;
+  margin-right: 4px;
+  vertical-align: middle;
+  border-radius: 2px;
+}
+.at-berth-flow__swatch--load { background: #1e8a52; }
+.at-berth-flow__swatch--disc { background: #2d6fb8; }
+.at-berth-flow__swatch--std-load { background: transparent; border-top: 2px dashed #1e8a52; height: 0; }
+.at-berth-flow__swatch--std-disc { background: transparent; border-top: 2px dashed #2d6fb8; height: 0; }
+.at-berth-flow__insight {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.at-berth-flow__error { color: #c00; font-size: 13px; }
+.at-berth-rate-chart { width: 100%; }
+.at-berth-rate-chart__svg { width: 100%; height: auto; display: block; }
+.at-berth-rate-chart__grid { stroke: #eceee9; stroke-width: 1; }
+.at-berth-rate-chart__axis { stroke: #c5cbd3; stroke-width: 1; }
+.at-berth-rate-chart__tick,
+.at-berth-rate-chart__xtick,
+.at-berth-rate-chart__ylabel { fill: #5b6675; font-size: 11px; }
+.at-berth-rate-chart__line { stroke-width: 2; }
+.at-berth-rate-chart__line--load { stroke: #1e8a52; }
+.at-berth-rate-chart__line--disc { stroke: #2d6fb8; }
+.at-berth-rate-chart__std { stroke-width: 1.5; stroke-dasharray: 5 4; }
+.at-berth-rate-chart__std--load { stroke: #1e8a52; }
+.at-berth-rate-chart__std--disc { stroke: #2d6fb8; }
+.at-berth-vessel-rate { margin-top: 16px; }
+.at-berth-vessel-rate__title { font-size: 13px; margin: 0 0 8px; }
 
 .at-berth-summary__groups {
   display: grid;

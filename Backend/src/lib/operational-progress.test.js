@@ -3,6 +3,8 @@ import { describe, it } from 'node:test';
 import {
   buildManualDailyBarsForLine,
   buildScheduleComparisonFromCargoSummary,
+  cargoWindowFromLines,
+  computeAvgRateTph,
   mergeDailyBars,
   resolveCanonicalMovedQty,
   resolveLineMode,
@@ -411,3 +413,28 @@ describe('computeCompletionFromMovedQty integration', () => {
     assert.equal(under.siQtyVariance?.kind, 'under');
   });
 });
+
+describe('computeAvgRateTph', () => {
+  it('divides moved qty by cargo-ops hours', () => {
+    const rate = computeAvgRateTph(500, '2026-06-01T00:00:00Z', '2026-06-01T10:00:00Z');
+    assert.equal(rate, 50);
+  });
+
+  it('returns 0 when qty or window is missing', () => {
+    assert.equal(computeAvgRateTph(0, '2026-06-01T00:00:00Z', '2026-06-01T10:00:00Z'), 0);
+    assert.equal(computeAvgRateTph(100, null, '2026-06-01T10:00:00Z'), 0);
+    assert.equal(computeAvgRateTph(100, '2026-06-01T10:00:00Z', '2026-06-01T10:00:00Z'), 0);
+  });
+});
+
+describe('cargoWindowFromLines', () => {
+  it('uses earliest start and latest end', () => {
+    const w = cargoWindowFromLines([
+      { startedAt: '2026-06-01T02:00:00Z', endedAt: '2026-06-01T04:00:00Z' },
+      { startedAt: '2026-06-01T00:00:00Z', endedAt: null },
+    ]);
+    assert.equal(w.firstLoggedAt, '2026-06-01T00:00:00Z');
+    assert.equal(w.lastLoggedAt, '2026-06-01T04:00:00Z');
+  });
+});
+

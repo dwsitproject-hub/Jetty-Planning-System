@@ -64,7 +64,25 @@ describe('buildScheduleSegments planned dedup', () => {
     assert.equal(actual[0].plannedEtbMs, new Date(JUN_21).getTime(), 'actual bar carries ETB')
   })
 
-  it('suppresses the planned segment when TA exists even without TB (transit)', () => {
+  it('keeps the planned ETB bar when TA exists without TB (waiting, not occupying)', () => {
+    const plan = [
+      row({
+        shipmentPlanId: 14,
+        vesselId: 'op-100',
+        etaDateTime: JUN_10,
+        plannedEtbDateTime: JUN_21,
+        etbDateTime: JUN_21,
+        taDateTime: JUN_20,
+        operationId: 100,
+      }),
+    ]
+    const segs = buildScheduleSegments(plan, WINDOW_START, WINDOW_END, JUN_24)
+    assert.equal(segs.filter((s) => s.layer === 'planned').length, 1)
+    assert.equal(segs.filter((s) => s.layer === 'actual' && s.phase === 'transit').length, 0)
+    assert.equal(segs[0].startSource, 'ETB')
+  })
+
+  it('does not emit a TA transit bar; actual occupancy starts at TB', () => {
     const plan = [
       row({
         shipmentPlanId: 14,
@@ -75,10 +93,40 @@ describe('buildScheduleSegments planned dedup', () => {
       }),
     ]
     const segs = buildScheduleSegments(plan, WINDOW_START, WINDOW_END, JUN_24)
-    assert.equal(segs.filter((s) => s.layer === 'planned').length, 0)
-    const transit = segs.filter((s) => s.layer === 'actual' && s.phase === 'transit')
-    assert.equal(transit.length, 1)
-    assert.equal(transit[0].etaMs, new Date(JUN_10).getTime(), 'transit bar carries ETA')
+    assert.equal(segs.filter((s) => s.layer === 'actual' && s.phase === 'transit').length, 0)
+  })
+
+  it('falls back to ETA when ETB is missing and labels the start source', () => {
+    const plan = [
+      row({
+        shipmentPlanId: 14,
+        vesselId: 'op-100',
+        etaDateTime: JUN_10,
+        operationId: 100,
+      }),
+    ]
+    const segs = buildScheduleSegments(plan, WINDOW_START, WINDOW_END, JUN_24)
+    const planned = segs.filter((s) => s.layer === 'planned')
+    assert.equal(planned.length, 1)
+    assert.equal(planned[0].startSource, 'ETA')
+    assert.equal(planned[0].startMs, new Date(JUN_10).getTime())
+  })
+
+  it('attaches waitMs (TA → TB) on actual alongside bars', () => {
+    const plan = [
+      row({
+        shipmentPlanId: 14,
+        vesselId: 'op-100',
+        taDateTime: JUN_20,
+        tbDateTime: JUN_21,
+        operationId: 100,
+      }),
+    ]
+    const segs = buildScheduleSegments(plan, WINDOW_START, WINDOW_END, JUN_24)
+    const actual = segs.find((s) => s.layer === 'actual' && s.phase === 'ops')
+    assert.ok(actual)
+    assert.equal(actual.waitMs, new Date(JUN_21).getTime() - new Date(JUN_20).getTime())
+    assert.equal(actual.startSource, 'TB')
   })
 })
 
