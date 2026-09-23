@@ -49,6 +49,13 @@ export function intervalsOverlap(a0, a1, b0, b1) {
   return a0 < b1 && b0 < a1;
 }
 
+export function getBerthPlanProbeEndMs(row) {
+  const real = getBerthPlanRealEndMs(row);
+  if (real != null) return real;
+  const start = getBerthPlanStartMs(row);
+  return start != null ? start + DEFAULT_BERTH_TAIL_MS : null;
+}
+
 export function getTargetJettyShortIdFromRow(row) {
   const raw = String(row?.jetty || row?.jettyName || '').trim();
   if (!raw) return null;
@@ -106,10 +113,7 @@ export function validateBerthPlanJettyAssignment({
 
   const cap = Math.max(1, Number(jettyCapacity) || 1);
   const candidateStart = getBerthPlanStartMs(candidate);
-  const candidateRealEnd = getBerthPlanRealEndMs(candidate);
-  const candidateEnd =
-    candidateRealEnd ??
-    (candidateStart != null ? candidateStart + DEFAULT_BERTH_TAIL_MS : null);
+  const candidateEnd = getBerthPlanProbeEndMs(candidate);
 
   const blockMissingEtc =
     messages.blockMissingEtc ??
@@ -123,33 +127,32 @@ export function validateBerthPlanJettyAssignment({
     return getTargetJettyShortIdFromRow(other) === jetty;
   });
 
-  for (const other of othersOnJetty) {
-    if (!isBerthPlanMissingEtc(other)) continue;
-    const vesselName = other.vesselName || `Plan #${other.shipmentPlanId ?? other.id ?? '?'}`;
-    return {
-      ok: false,
-      reason: 'missing_etc',
-      message: blockMissingEtc.replace('{{vessel}}', vesselName).replace('{{jetty}}', jetty),
-      blockingVessel: vesselName,
-    };
-  }
-
   if (candidateStart == null || candidateEnd == null) return { ok: true };
 
-  let overlapCount = 0;
-  let firstOverlap = null;
+  const overlappingOthers = [];
 
   for (const other of othersOnJetty) {
     const otherStart = getBerthPlanStartMs(other);
-    const otherEnd = getBerthPlanRealEndMs(other);
+    const otherEnd = getBerthPlanProbeEndMs(other);
     if (otherStart == null || otherEnd == null) continue;
     if (!intervalsOverlap(candidateStart, candidateEnd, otherStart, otherEnd)) continue;
-    overlapCount += 1;
-    if (!firstOverlap) firstOverlap = { other, otherEnd };
+    overlappingOthers.push({ other, otherEnd });
   }
 
-  if (overlapCount >= cap && firstOverlap) {
-    const { other, otherEnd } = firstOverlap;
+  if (overlappingOthers.length >= cap) {
+    const missingEtcOverlap = overlappingOthers.find(({ other }) => isBerthPlanMissingEtc(other));
+    if (missingEtcOverlap) {
+      const { other } = missingEtcOverlap;
+      const vesselName = other.vesselName || `Plan #${other.shipmentPlanId ?? other.id ?? '?'}`;
+      return {
+        ok: false,
+        reason: 'missing_etc',
+        message: blockMissingEtc.replace('{{vessel}}', vesselName).replace('{{jetty}}', jetty),
+        blockingVessel: vesselName,
+      };
+    }
+
+    const { other, otherEnd } = overlappingOthers[0];
     const vesselName = other.vesselName || `Plan #${other.shipmentPlanId ?? other.id ?? '?'}`;
     const endLabel =
       messages.formatEnd?.(otherEnd) ??

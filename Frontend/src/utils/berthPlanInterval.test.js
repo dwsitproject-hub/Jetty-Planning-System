@@ -40,7 +40,7 @@ describe('berthPlanInterval', () => {
     assert.equal(intervalsOverlap(0, 10, 10, 20), false)
   })
 
-  it('CHANG LONG without ETC blocks ALINYA on same jetty', () => {
+  it('CHANG LONG without ETC blocks ALINYA on single-lane jetty when windows overlap', () => {
     const schedule = [
       { vesselId: 'a', vesselName: 'MT CHANG LONG 79', jetty: '3A', etbDateTime: ETB_A },
       { vesselId: 'b', vesselName: 'MT ALINYA', jetty: '3A', etbDateTime: ETB_B },
@@ -54,6 +54,57 @@ describe('berthPlanInterval', () => {
     assert.equal(result.ok, false)
     assert.equal(result.reason, 'missing_etc')
     assert.match(result.message, /CHANG LONG/)
+  })
+
+  it('double-bank jetty allows second vessel when incumbent lacks ETC but capacity remains', () => {
+    const schedule = [
+      { vesselId: 'a', vesselName: 'Vessel A', jetty: '2A', etbDateTime: ETB_A },
+      { vesselId: 'x', vesselName: 'Vessel X', jetty: '2A', etbDateTime: ETB_B },
+    ]
+    const result = validateBerthPlanJettyAssignment({
+      candidate: schedule[1],
+      scheduleRows: schedule,
+      jettyShortId: '2A',
+      jettyCapacity: 2,
+    })
+    assert.equal(result.ok, true)
+  })
+
+  it('double-bank jetty blocks third overlapping plan when two incumbents already fill capacity', () => {
+    const schedule = [
+      {
+        vesselId: 'b',
+        vesselName: 'Vessel B',
+        jetty: '2B',
+        etbDateTime: ETB_A,
+        estimatedCompletionDateTime: ETC_A,
+      },
+      { vesselId: 'c', vesselName: 'Vessel C', jetty: '2B', etbDateTime: ETB_A },
+      { vesselId: 'x', vesselName: 'Vessel X', jetty: '2B', etbDateTime: ETB_B },
+    ]
+    const result = validateBerthPlanJettyAssignment({
+      candidate: schedule[2],
+      scheduleRows: schedule,
+      jettyShortId: '2B',
+      jettyCapacity: 2,
+    })
+    assert.equal(result.ok, false)
+    assert.equal(result.reason, 'missing_etc')
+    assert.match(result.message, /Vessel C/)
+  })
+
+  it('single-lane jetty allows sequential plan after incumbent +3d probe window', () => {
+    const schedule = [
+      { vesselId: 'a', vesselName: 'Vessel A', jetty: '3A', etbDateTime: ETB_A },
+      { vesselId: 'x', vesselName: 'Vessel X', jetty: '3A', etbDateTime: ETB_C },
+    ]
+    const result = validateBerthPlanJettyAssignment({
+      candidate: schedule[1],
+      scheduleRows: schedule,
+      jettyShortId: '3A',
+      jettyCapacity: 1,
+    })
+    assert.equal(result.ok, true)
   })
 
   it('CHANG LONG with ETC allows ALINYA when ETB is after ETC', () => {
