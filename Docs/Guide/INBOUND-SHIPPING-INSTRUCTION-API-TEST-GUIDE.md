@@ -1,7 +1,7 @@
 # Inbound Shipping Instruction API — Test Guide
 
-> **Audience:** JPS developers and operators who need to test the partner integration API locally.
-> **Hand off to external developers:** Use [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) (v3.0) — it includes the full API contract, **staging environment**, and self-service test walkthrough.
+> **Version:** 1.3 (API v4.2) · **Audience:** JPS developers and operators who need to test the partner integration API locally.
+> **Hand off to external developers:** Use [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) (v4.2) — it includes the full API contract, **staging environment**, and self-service test walkthrough.
 
 ---
 
@@ -9,9 +9,11 @@
 
 You simulate an **external system** (ERP, agency software, etc.) that:
 
-1. **Submits** a Shipping Instruction to JPS (`POST`)
-2. **Polls** for review status (`GET`)
-3. **Observes** the lifecycle: `Pending` → `Approved` / `Rejected` → `Allocated`
+1. **Syncs master data** — list terms/agents/surveyors/shippers (`GET`); upsert agents/shippers (`POST`/`PATCH`)
+2. **Submits** a Shipping Instruction to JPS (`POST`) — including optional PO/SO, shipper, trade term on breakdown lines
+3. **Updates** PO/SO while Pending (`PATCH`)
+4. **Polls** for review status (`GET`)
+5. **Observes** the lifecycle: `Pending` → `Approved` / `Rejected` → `Allocated`
 
 The operator review (approve, reject, allocate a jetty) happens in the normal JPS web app — that is how you complete the end-to-end test.
 
@@ -94,6 +96,18 @@ Your test payload must use values that exist in JPS master data:
 | `cargo[].cargo_type` | Must match a commodity **short name** in JPS (case-insensitive), e.g. `CPO`, `CPKO`, `POME` |
 | `cargo[].unit` | `MT` or `KL` only |
 | `purpose` | `Loading` or `Unloading` |
+| `trade_term` | Optional; must match a code from `GET /terms` (e.g. `FOB`, `CIF`) |
+| `surveyor_name` | Optional; must match a name from `GET /surveyors` |
+| `cargo[].shipper_name` | Optional; shipper must exist — create first via `POST /shippers` |
+| `cargo[].po_no` / `so_no` | Optional; stored on breakdown lines; can also be set later via `PATCH` |
+| `vessel_hub_code` | **Preferred** vessel identifier — sufficient alone; must exist in `master_vessels` |
+| `vessel_name` | Required only when `vessel_hub_code` omitted; must match exactly one master vessel |
+
+Pick a test `vessel_hub_code` from your local master data (DB column is `hub_code`):
+
+```powershell
+docker exec jps-api node -e "import('pg').then(async ({default:pg})=>{const p=new pg.Pool({connectionString:process.env.DATABASE_URL});const r=await p.query('SELECT hub_code,vessel_name FROM master_vessels WHERE deleted_at IS NULL AND hub_code IS NOT NULL ORDER BY id LIMIT 5');r.rows.forEach(x=>console.log(x.hub_code+' | '+x.vessel_name));await p.end();})"
+```
 
 #### Commodity mapping (`cargo_type` → JPS short name)
 
@@ -150,29 +164,72 @@ For staging/production, replace the host with your HTTPS domain (see the [partne
 
 curl is built into Windows 10/11. Use `curl.exe` in PowerShell so you do not hit the `Invoke-WebRequest` alias.
 
+> **PowerShell tip:** Always save JSON bodies to a file under `$env:TEMP` and pass `--data "@$env:TEMP\file.json"`. Inline `-d '{"name":"..."}'` often breaks due to quoting.
+
 ### 4.1 Set variables
 
 ```powershell
 $API_KEY = "jps_live_PASTE_YOUR_KEY_HERE"
 $BASE    = "http://localhost:3000/api/v1/integrations"
+$SI_ID   = $null   # fill after first POST
 ```
 
-### 4.2 Test 1 — Submit a shipping instruction (expect `201`)
+### 4.2 Automated full test run (recommended)
 
-Save a sample payload to a file (easier than inline JSON on Windows):
+Runs 16 checks (master data, shipper upsert, SI submit with **vessel_hub_code**, PATCH, negatives) and writes a markdown report:
+
+```powershell
+$env:JPS_INTEGRATION_API_KEY = "jps_live_PASTE_YOUR_KEY_HERE"
+powershell -ExecutionPolicy Bypass -File Backend\scripts\run-integration-self-test.ps1
+```
+
+Report output: `Backend/tmp-integration-self-test-report.md`
+
+### 4.3 Manual step-by-step tests
+
+Recommended order matches a real partner flow: master data → upsert shipper → submit → PATCH → poll → error paths.
+
+#### 4.3.1 List master data (expect `200`)
+
+```powershell
+curl.exe "$BASE/terms" -H "x-api-key: $API_KEY"
+curl.exe "$BASE/agents" -H "x-api-key: $API_KEY"
+curl.exe "$BASE/surveyors" -H "x-api-key: $API_KEY"
+curl.exe "$BASE/shippers" -H "x-api-key: $API_KEY"
+```
+
+#### 4.3.2 Upsert shipper (expect `201` or `200`)
+
+```powershell
+@'
+{"name":"PT Integration Test Shipper","long_name":"PT Integration Test Shipper Long"}
+'@ | Set-Content -Path "$env:TEMP\shipper.json" -Encoding UTF8
+
+curl.exe -X POST "$BASE/shippers" `
+  -H "x-api-key: $API_KEY" `
+  -H "Content-Type: application/json" `
+  --data "@$env:TEMP\shipper.json"
+```
+
+Run again with the same file — expect **200** (matched existing name).
+
+#### 4.3.3 Submit a shipping instruction (expect `201`)
+
+Use a **unique** `external_reference` each run:
 
 ```powershell
 @'
 {
   "external_reference": "SI-TEST-001",
   "port_id": 1,
-  "vessel_name": "MV TEST VESSEL",
+  "vessel_hub_code": "PASTE_HUB_CODE_FROM_QUERY_ABOVE",
   "voyage_no": "VY-001",
   "purpose": "Loading",
   "eta": "2026-06-20T08:00:00Z",
   "etd": "2026-06-22T18:00:00Z",
   "agent_name": "PT Test Agency",
   "agent_contact": "ops@test.example.com",
+  "trade_term": "FOB",
   "notes": "My first API test",
   "cargo": [
     {
@@ -180,7 +237,10 @@ Save a sample payload to a file (easier than inline JSON on Windows):
       "description": "Main lot",
       "tonnage": 25000,
       "unit": "MT",
-      "contract_no": "CTR-001"
+      "contract_no": "CTR-001",
+      "po_no": "PO-TEST-001",
+      "so_no": "SO-TEST-001",
+      "shipper_name": "PT Integration Test Shipper"
     }
   ]
 }
@@ -208,65 +268,50 @@ curl.exe -X POST "$BASE/shipping-instructions" `
 }
 ```
 
-**Save the `id`** from `data.id` — you need it for the next step.
+**Save `data.id`** into `$SI_ID` for later steps.
 
-> Use a **new** `external_reference` (e.g. `SI-TEST-002`) for each new submission. Reusing the same reference returns `409 DUPLICATE_REFERENCE`.
+> Reusing the same `external_reference` returns `409 DUPLICATE_REFERENCE`.
 
-### 4.3 Test 2 — Check status by id (expect `200`, status `Pending`)
+#### 4.3.4 PATCH PO/SO while Pending (expect `200`)
 
-Replace `41` with your id:
+Replace `41` with your `$SI_ID`:
+
+```powershell
+@'
+{"cargo":[{"line_order":0,"po_no":"PO-UPDATED-001","so_no":"SO-UPDATED-001"}]}
+'@ | Set-Content -Path "$env:TEMP\si-patch.json" -Encoding UTF8
+
+curl.exe -X PATCH "$BASE/shipping-instructions/41" `
+  -H "x-api-key: $API_KEY" `
+  -H "Content-Type: application/json" `
+  --data "@$env:TEMP\si-patch.json"
+```
+
+After operator approval, the same PATCH returns **409** `INVALID_STATE`.
+
+#### 4.3.5 Check status by id (expect `200`, status `Pending`)
 
 ```powershell
 curl.exe "$BASE/shipping-instructions/41" -H "x-api-key: $API_KEY"
 ```
 
-### 4.4 Test 3 — Check status by external reference
-
-Useful if you lost the id:
+#### 4.3.6 Check status by external reference
 
 ```powershell
 curl.exe "$BASE/shipping-instructions?external_reference=SI-TEST-001" -H "x-api-key: $API_KEY"
 ```
 
-### 4.5 Test 4 — Duplicate submission (expect `409`)
+#### 4.3.7 Negative tests
 
-Run the same `POST` from Test 1 again without changing `external_reference`:
-
-```powershell
-curl.exe -X POST "$BASE/shipping-instructions" `
-  -H "x-api-key: $API_KEY" `
-  -H "Content-Type: application/json" `
-  --data "@$env:TEMP\si-test.json"
-```
-
-Expected: `"code": "DUPLICATE_REFERENCE"` and `details.existing_id` pointing to the original submission.
-
-### 4.6 Test 5 — Invalid API key (expect `401`)
-
-```powershell
-curl.exe "$BASE/shipping-instructions/41" -H "x-api-key: jps_live_wrong"
-```
-
-Expected: `"code": "INVALID_API_KEY"`.
-
-### 4.7 Test 6 — Unknown port (expect `400`)
-
-Copy the JSON file, change `"port_id": 1` to `"port_id": 99` (a port that does not exist), and use a new `external_reference` (e.g. `SI-TEST-003`):
-
-```powershell
-curl.exe -X POST "$BASE/shipping-instructions" `
-  -H "x-api-key: $API_KEY" `
-  -H "Content-Type: application/json" `
-  --data "@$env:TEMP\si-bad-port.json"
-```
-
-Expected: `"code": "VALIDATION_ERROR"` with an `unknown port` issue in `details`.
-
-### 4.8 Test 7 — Unknown cargo type (expect `400`)
-
-Use `"cargo_type": "FAKE_CARGO"` and a new `external_reference`:
-
-Expected: `"code": "VALIDATION_ERROR"` with `valid_cargo_types` in `details`.
+| Test | Command | Expected |
+|------|---------|----------|
+| Duplicate submit | Re-run POST from §4.3.3 unchanged | `409 DUPLICATE_REFERENCE` |
+| Bad API key | `curl.exe "$BASE/shipping-instructions/41" -H "x-api-key: jps_live_wrong"` | `401 INVALID_API_KEY` |
+| Unknown port | Change `"port_id": 99` + new `external_reference` in JSON file | `400 VALIDATION_ERROR` |
+| Unknown cargo | Change `"cargo_type": "FAKE_CARGO"` + new reference | `400` with `valid_cargo_types` |
+| Unknown shipper | Use `"shipper_name": "Does Not Exist"` on POST | `400` — create via `POST /shippers` first |
+| Unknown vessel_hub_code | Use `"vessel_hub_code": "INVALID-HUB"` on POST | `400` on `vessel_hub_code` field |
+| PATCH after approve | PATCH same SI after operator approves in UI | `409 INVALID_STATE` |
 
 ---
 
@@ -315,7 +360,13 @@ Click **Send**. Status should be `200 OK`, `"status": "Pending"`.
 | URL | `{{baseUrl}}/shipping-instructions?external_reference=SI-TEST-001` |
 | Headers | `x-api-key`: `{{apiKey}}` |
 
-Duplicate these three requests in the collection to build a reusable test suite for your team.
+Also add:
+
+| Method | URL | Body |
+|--------|-----|------|
+| `GET` | `{{baseUrl}}/terms` | — |
+| `POST` | `{{baseUrl}}/shippers` | `{"name":"PT Test Shipper"}` |
+| `PATCH` | `{{baseUrl}}/shipping-instructions/{{siId}}` | `{"cargo":[{"line_order":0,"po_no":"PO-1","so_no":"SO-1"}]}` |
 
 ---
 
@@ -374,12 +425,13 @@ Always note `request_id` when reporting failures — it helps trace the request 
 
 | HTTP | Error code | Meaning |
 |------|------------|---------|
-| `201` | — | Instruction created |
-| `200` | — | Status retrieved |
+| `201` | — | Instruction or master record created |
+| `200` | — | Status retrieved, master upsert matched existing, or PATCH applied |
 | `400` | `VALIDATION_ERROR` | Fix the JSON payload |
 | `401` | `INVALID_API_KEY` | Missing or wrong `x-api-key` |
 | `404` | `NOT_FOUND` | Unknown id or reference (or not yours) |
 | `409` | `DUPLICATE_REFERENCE` | Same `external_reference` already submitted |
+| `409` | `INVALID_STATE` | PATCH when status is not `Pending` |
 | `429` | `RATE_LIMITED` | Over 120 requests/minute — wait and retry |
 | `500` | `INTERNAL_ERROR` | Server error — retry with backoff |
 
@@ -390,12 +442,16 @@ Always note `request_id` when reporting failures — it helps trace the request 
 - [ ] Backend up — `http://localhost:3000/api/v1/health` returns OK
 - [ ] Migration `084` applied — `docker exec jps-api npm run migrate`
 - [ ] API key created and saved — `create-integration-api-key.mjs`
-- [ ] `POST` with valid payload → `201`, status `Pending`, note the `id`
-- [ ] `GET` by id → `200`, status `Pending`
+- [ ] Automated self-test passes — `run-integration-self-test.ps1` (or manual §4.3)
+- [ ] `GET /terms`, `/shippers` → `200`
+- [ ] `POST /shippers` → `201` then duplicate → `200`
+- [ ] `POST` SI with PO/SO/shipper/trade_term → `201`, status `Pending`
+- [ ] `PATCH` PO/SO while Pending → `200`
+- [ ] `GET` by id and `external_reference` → `200`
 - [ ] Duplicate `POST` → `409 DUPLICATE_REFERENCE`
 - [ ] Bad key → `401 INVALID_API_KEY`
 - [ ] Plan visible in JPS web app (Shipment Plans / approval)
-- [ ] Approve in UI → `GET` shows `Approved`
+- [ ] Approve in UI → `GET` shows `Approved`; PATCH → `409 INVALID_STATE`
 - [ ] Allocate jetty in UI → `GET` shows `Allocated`
 
 ---
@@ -407,7 +463,11 @@ Always note `request_id` when reporting failures — it helps trace the request 
 | `401 INVALID_API_KEY` | Missing/wrong header | Add `-H "x-api-key: jps_live_..."` |
 | `400` unknown port | `port_id` is not a valid JPS port | Use a real `port_id` (e.g. `1` on staging) |
 | `400` unknown cargo | Typo in `cargo_type` or full name instead of short code | Use commodity short name from §2.4 mapping table or `valid_cargo_types` in the error |
+| `400` vessel_hub_code / vessel_name | Missing or unknown vessel identifier | Send valid **`vessel_hub_code`** from master data (preferred) |
 | `409 DUPLICATE_REFERENCE` | Reused `external_reference` | Change to a new reference for each test |
+| `409 INVALID_STATE` on PATCH | SI no longer Pending | Submit new instruction or PATCH only before approval |
+| `400` unknown shipper | `shipper_name` not in master | `POST /shippers` first, then submit or PATCH |
+| Inline JSON fails in PowerShell | Quoting/escaping | Use `@' ... '@ \| Set-Content` + `--data "@file.json"` |
 | Status stuck on `Pending` | No operator action yet | Approve/reject in JPS web app |
 | Status never `Allocated` | No jetty assigned | Complete allocation in JPS after approval |
 | Connection refused | API not running | `docker compose up -d` in `Backend/` |
@@ -446,9 +506,12 @@ Both columns should show table names, not `null`.
 
 | File | Purpose |
 |------|---------|
-| [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) | Full API contract for external partners |
+| [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) | Full API contract for external partners (v4.0) |
+| [Backend/scripts/run-integration-self-test.ps1](../../Backend/scripts/run-integration-self-test.ps1) | Automated local self-test + report |
 | [Backend/scripts/create-integration-api-key.mjs](../../Backend/scripts/create-integration-api-key.mjs) | Create/list/revoke API keys |
-| [Backend/src/routes/integrations.js](../../Backend/src/routes/integrations.js) | Route implementation |
+| [Backend/src/routes/integrations.js](../../Backend/src/routes/integrations.js) | SI submit/GET/PATCH routes |
+| [Backend/src/routes/integration-master.js](../../Backend/src/routes/integration-master.js) | Master data routes |
+| [Backend/src/lib/integration-master-data.js](../../Backend/src/lib/integration-master-data.js) | Shared master-data helpers |
 | [Backend/migrations/084_integration_partner_api.sql](../../Backend/migrations/084_integration_partner_api.sql) | Database schema |
 
 ---
@@ -457,4 +520,7 @@ Both columns should show table names, not `null`.
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 1.3 | 2026-09-23 | v4.2 API: renamed **`hub_code`** → **`vessel_hub_code`** |
+| 1.2 | 2026-09-23 | v4.1 API: **vessel_hub_code** primary vessel identifier; self-test resolves master vessel from DB |
+| 1.1 | 2026-09-21 | v4.0 API: master data + PATCH tests; automated `run-integration-self-test.ps1`; fixed duplicate §4 numbering; PowerShell file-based JSON guidance; `INVALID_STATE` and shipper prerequisites |
 | 1.0 | 2026-06-12 | Initial test guide: curl, Postman, operator lifecycle, checklist |
