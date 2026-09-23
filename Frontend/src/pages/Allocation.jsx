@@ -597,11 +597,9 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     setPlanTimesSaving(true)
     setPlanTimesMsg(null)
     const hasOp = vesselRow?.operationId != null && vesselRow.operationId !== ''
-    const hasSi = vesselRow?.shippingInstructionId != null && vesselRow.shippingInstructionId !== ''
     const payload = { activityLogPage: 'allocation-plan' }
     if (hasOp) payload.operationId = vesselRow.operationId
-    if (hasSi) payload.shippingInstructionId = vesselRow.shippingInstructionId
-    if (!hasOp && !hasSi) payload.shipmentPlanId = vesselRow?.shipmentPlanId
+    else payload.shipmentPlanId = vesselRow?.shipmentPlanId
     const put = (key, raw) => {
       // Only send touched, non-empty values (clearing a milestone is not supported here).
       if (raw == null || String(raw).trim() === '') return
@@ -609,8 +607,8 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     }
     put('etaDateTime', planTimesEdit.eta)
     put('etbDateTime', planTimesEdit.etb)
-    if (hasOp || hasSi) {
-      put('taDateTime', planTimesEdit.ta)
+    put('taDateTime', planTimesEdit.ta)
+    if (hasOp) {
       put('tbDateTime', planTimesEdit.tb)
       put('estimatedCompletionDateTime', planTimesEdit.etc)
       put('actualCompletionDateTime', planTimesEdit.act)
@@ -618,9 +616,9 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     const timelineErr = validateBerthingTimeline({
       eta: planTimesEdit.eta,
       etb: planTimesEdit.etb,
-      ta: hasOp || hasSi ? planTimesEdit.ta : null,
-      tb: hasOp || hasSi ? planTimesEdit.tb : null,
-      etc: hasOp || hasSi ? planTimesEdit.etc : null,
+      ta: planTimesEdit.ta,
+      tb: hasOp ? planTimesEdit.tb : null,
+      etc: hasOp ? planTimesEdit.etc : null,
     })
     if (timelineErr) {
       setPlanTimesMsg(timelineErr)
@@ -1559,7 +1557,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     const timelineErr = validateBerthingTimeline({
       eta: updated.etaDateTime,
       etb: updated.etbDateTime,
-      ta: planOnlySave ? null : updated.taDateTime,
+      ta: updated.taDateTime,
       tb: planOnlySave ? null : updated.tbDateTime,
       etc: planOnlySave ? null : updated.estimatedCompletionDateTime,
     })
@@ -1572,20 +1570,21 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     try {
       const arrivalPayload = {
         activityLogPage: activityLogPageKey,
-        operationId: updated.operationId,
-        shippingInstructionId: updated.shippingInstructionId,
-        shipmentPlanId: planOnlySave ? updated.shipmentPlanId : undefined,
         noPkk: updated.noPkk ?? '',
         jetty: updated.jetty ?? '',
         additionalJetties: allowMultiJetty ? arrivalUpdateAdditionalJetties : [],
         priority: updated.priority || '',
         etaDateTime: normalizeForApiOrEmpty(updated.etaDateTime, scheduleEntryTz),
         etbDateTime: normalizeForApiOrEmpty(updated.etbDateTime, scheduleEntryTz),
+        taDateTime: normalizeForApiOrEmpty(updated.taDateTime, scheduleEntryTz),
         remark: updated.remark ?? updated.remarks ?? '',
       }
-      if (!planOnlySave) {
+      if (planOnlySave) {
+        arrivalPayload.shipmentPlanId = updated.shipmentPlanId
+      } else {
+        arrivalPayload.operationId = updated.operationId
+        arrivalPayload.shippingInstructionId = updated.shippingInstructionId
         Object.assign(arrivalPayload, {
-          taDateTime: normalizeForApiOrEmpty(updated.taDateTime, scheduleEntryTz),
           pobDateTime: normalizeForApiOrEmpty(updated.pobDateTime, scheduleEntryTz),
           tbDateTime: normalizeForApiOrEmpty(updated.tbDateTime, scheduleEntryTz),
           sobDateTime: normalizeForApiOrEmpty(updated.sobDateTime, scheduleEntryTz),
@@ -3269,7 +3268,6 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                     onChange={(e) => setArrivalUpdateForm((f) => ({ ...f, etaDateTime: e.target.value }))}
                   />
                 </div>
-                {!isPlanOnlySchedulingRow(arrivalUpdateForm) && (
                 <div className="berthing-modal__field">
                   <label htmlFor="arrival-ta" className="berthing-modal__label">TA</label>
                   <input
@@ -3280,7 +3278,6 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                     onChange={(e) => setArrivalUpdateForm((f) => ({ ...f, taDateTime: e.target.value }))}
                   />
                 </div>
-                )}
                 <div className="berthing-modal__field">
                   <label htmlFor="arrival-etb" className="berthing-modal__label">
                     ETB

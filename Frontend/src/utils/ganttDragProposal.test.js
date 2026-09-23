@@ -53,10 +53,11 @@ describe('jettyIdFromRowKey', () => {
 })
 
 describe('rowSupportsActualDates', () => {
-  it('requires an operation or shipping instruction', () => {
+  it('requires an operation (SI alone is not enough)', () => {
     assert.equal(rowSupportsActualDates(opRow), true)
     assert.equal(rowSupportsActualDates({ operationId: 3 }), true)
     assert.equal(rowSupportsActualDates(planOnlyRow), false)
+    assert.equal(rowSupportsActualDates({ shippingInstructionId: 4, shipmentPlanId: 14 }), false)
     assert.equal(rowSupportsActualDates(null), false)
   })
 })
@@ -172,7 +173,7 @@ describe('buildArrivalPayloadFromProposal', () => {
     })
     const payload = buildArrivalPayloadFromProposal(p, 'actual', opRow, 'allocation-plan')
     assert.equal(payload.operationId, 9)
-    assert.equal(payload.shippingInstructionId, 4)
+    assert.equal(payload.shippingInstructionId, undefined)
     assert.equal(payload.shipmentPlanId, undefined)
     assert.equal(payload.jetty, '2B')
     assert.equal(payload.tbDateTime, new Date(TB + 2 * H).toISOString())
@@ -196,6 +197,21 @@ describe('buildArrivalPayloadFromProposal', () => {
     assert.equal('etaDateTime' in payload, false, 'arrival left unchanged when ETB exists')
     assert.equal('taDateTime' in payload, false)
     assert.equal('tbDateTime' in payload, false)
+  })
+
+  it('routes pre-operation rows with SI through shipmentPlanId only', () => {
+    const siOnlyRow = { operationId: null, shippingInstructionId: 4, shipmentPlanId: 14 }
+    const p = buildGanttDragProposal({
+      kind: 'move',
+      deltaMs: H,
+      seg: seg({ plannedEtbMs: null, taMs: null, tbMs: null, layer: 'planned', estimateOnly: true }),
+      row: siOnlyRow,
+      targetJettyId: null,
+    })
+    const payload = buildArrivalPayloadFromProposal(p, 'estimation', siOnlyRow, 'allocation-plan')
+    assert.equal(payload.shipmentPlanId, 14)
+    assert.equal(payload.operationId, undefined)
+    assert.equal(payload.shippingInstructionId, undefined)
   })
 
   it('falls back to ETA on plan-only move when ETB is missing', () => {

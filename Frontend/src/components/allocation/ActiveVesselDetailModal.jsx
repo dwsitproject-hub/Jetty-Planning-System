@@ -325,19 +325,17 @@ export default function ActiveVesselDetailModal({
     setPlanTimesSaving(true)
     setPlanTimesMsg(null)
     const hasOp = vesselRow?.operationId != null && vesselRow.operationId !== ''
-    const hasSi = vesselRow?.shippingInstructionId != null && vesselRow.shippingInstructionId !== ''
     const payload = { activityLogPage }
     if (hasOp) payload.operationId = vesselRow.operationId
-    if (hasSi) payload.shippingInstructionId = vesselRow.shippingInstructionId
-    if (!hasOp && !hasSi) payload.shipmentPlanId = vesselRow?.shipmentPlanId
+    else payload.shipmentPlanId = vesselRow?.shipmentPlanId
     const put = (key, raw) => {
       if (raw == null || String(raw).trim() === '') return
       payload[key] = normalizeForApiOrEmpty(raw, scheduleEntryTz)
     }
     put('etaDateTime', planTimesEdit.eta)
     put('etbDateTime', planTimesEdit.etb)
-    if (hasOp || hasSi) {
-      put('taDateTime', planTimesEdit.ta)
+    put('taDateTime', planTimesEdit.ta)
+    if (hasOp) {
       put('tbDateTime', planTimesEdit.tb)
       put('estimatedCompletionDateTime', planTimesEdit.etc)
       put('actualCompletionDateTime', planTimesEdit.act)
@@ -345,9 +343,9 @@ export default function ActiveVesselDetailModal({
     const timelineErr = validateBerthingTimeline({
       eta: planTimesEdit.eta,
       etb: planTimesEdit.etb,
-      ta: hasOp || hasSi ? planTimesEdit.ta : null,
-      tb: hasOp || hasSi ? planTimesEdit.tb : null,
-      etc: hasOp || hasSi ? planTimesEdit.etc : null,
+      ta: planTimesEdit.ta,
+      tb: hasOp ? planTimesEdit.tb : null,
+      etc: hasOp ? planTimesEdit.etc : null,
     })
     if (timelineErr) {
       setPlanTimesMsg(timelineErr)
@@ -914,11 +912,11 @@ export default function ActiveVesselDetailModal({
                             {planTimesMsg}
                           </p>
                         ) : null}
-                        {planTimesEdit && !(vessel?.operationId || vessel?.shippingInstructionId) ? (
+                        {planTimesEdit && !vessel?.operationId ? (
                           <p className="text-steel" style={{ fontSize: '0.8rem', margin: '4px 0' }}>
                             {tAlloc('planTimesPlanOnlyHint', {
                               defaultValue:
-                                'Plan has no operation yet — only ETA and ETB can be updated here (actuals are set at berthing).',
+                                'Plan has no operation yet — only ETA, TA, and ETB can be updated here (TB and completion are set at berthing).',
                             })}
                           </p>
                         ) : null}
@@ -943,7 +941,7 @@ export default function ActiveVesselDetailModal({
                             </div>
                             <div className="berthing-modal__vessel-row">
                               <dt title={tAlloc('ttPlanTa')}>{tAlloc('planModalLblTa', { defaultValue: 'Actual Time of Arrival (TA)' })}</dt>
-                              <dd>{planTimesEdit && (vessel?.operationId || vessel?.shippingInstructionId) ? (
+                              <dd>{planTimesEdit ? (
                                 <input type="datetime-local" className="berthing-modal__input" value={planTimesEdit.ta} onChange={(e) => setPlanTimesEdit((f) => ({ ...f, ta: e.target.value }))} />
                               ) : (
                                 planTa
@@ -959,7 +957,7 @@ export default function ActiveVesselDetailModal({
                             </div>
                             <div className="berthing-modal__vessel-row">
                               <dt title={tAlloc('ttPlanTb')}>{tAlloc('planModalLblTb', { defaultValue: 'Actual Time of Berthing (TB)' })}</dt>
-                              <dd>{planTimesEdit && (vessel?.operationId || vessel?.shippingInstructionId) ? (
+                              <dd>{planTimesEdit && vessel?.operationId ? (
                                 <input type="datetime-local" className="berthing-modal__input" value={planTimesEdit.tb} onChange={(e) => setPlanTimesEdit((f) => ({ ...f, tb: e.target.value }))} />
                               ) : (
                                 planTb
@@ -971,7 +969,7 @@ export default function ActiveVesselDetailModal({
                             </div>
                             <div className="berthing-modal__vessel-row">
                               <dt title={tAlloc('ttPlanEstCompletion')}>{tAlloc('planModalLblEstCompletion', { defaultValue: 'Est. Completion' })}</dt>
-                              <dd>{planTimesEdit && (vessel?.operationId || vessel?.shippingInstructionId) ? (
+                              <dd>{planTimesEdit && vessel?.operationId ? (
                                 <input type="datetime-local" className="berthing-modal__input" value={planTimesEdit.etc} onChange={(e) => setPlanTimesEdit((f) => ({ ...f, etc: e.target.value }))} />
                               ) : (
                                 planEstCompletion
@@ -983,7 +981,7 @@ export default function ActiveVesselDetailModal({
                             </div>
                             <div className="berthing-modal__vessel-row">
                               <dt>{tAlloc('actualCompletion')}</dt>
-                              <dd>{planTimesEdit && (vessel?.operationId || vessel?.shippingInstructionId) ? (
+                              <dd>{planTimesEdit && vessel?.operationId ? (
                                 <input type="datetime-local" className="berthing-modal__input" value={planTimesEdit.act} onChange={(e) => setPlanTimesEdit((f) => ({ ...f, act: e.target.value }))} />
                               ) : (
                                 formatModalDateTime(planDetail?.actualCompletionTime) || '—'

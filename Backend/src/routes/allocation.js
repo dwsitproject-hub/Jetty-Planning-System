@@ -227,7 +227,6 @@ async function runArrivalOperationUpdate(client, paramsWithUpdatedBy, paramsWith
 }
 
 const BERTHING_ARRIVAL_BODY_KEYS = [
-  'taDateTime',
   'tbDateTime',
   'pobDateTime',
   'sobDateTime',
@@ -1166,7 +1165,7 @@ router.put('/arrival', async (req, res) => {
         return res.status(400).json({ error: PLAN_BERTHING_GATE_MSG });
       }
       const planRes = await client.query(
-        `SELECT id, vessel_name, plan_reference, eta, etb, jetty_id, priority, remark, no_pkk,
+        `SELECT id, vessel_name, plan_reference, eta, ta, etb, jetty_id, priority, remark, no_pkk,
                 estimated_completion_time,
                 approval_status,
                 (SELECT COUNT(*)::int FROM shipping_instructions si
@@ -1207,6 +1206,9 @@ router.put('/arrival', async (req, res) => {
       const eta = Object.prototype.hasOwnProperty.call(b, 'etaDateTime')
         ? parseTsPlan(b.etaDateTime)
         : planBefore.eta;
+      const ta = Object.prototype.hasOwnProperty.call(b, 'taDateTime')
+        ? parseTsPlan(b.taDateTime)
+        : planBefore.ta;
       const etb = Object.prototype.hasOwnProperty.call(b, 'etbDateTime')
         ? parseTsPlan(b.etbDateTime)
         : planBefore.etb;
@@ -1275,6 +1277,7 @@ router.put('/arrival', async (req, res) => {
       const noPkk = b.noPkk != null ? String(b.noPkk).trim() : planBefore.no_pkk;
       const planUpdParams = [
         eta,
+        ta,
         etb,
         jettyId,
         priority || null,
@@ -1289,15 +1292,16 @@ router.put('/arrival', async (req, res) => {
         await client.query(
           `UPDATE shipment_plans SET
              eta = COALESCE($1, eta),
-             etb = COALESCE($2, etb),
-             jetty_id = COALESCE($3, jetty_id),
-             priority = COALESCE($4, priority),
-             remark = COALESCE($5, remark),
-             no_pkk = COALESCE($6, no_pkk),
-             additional_jetties = COALESCE($7::bigint[], additional_jetties),
+             ta = COALESCE($2, ta),
+             etb = COALESCE($3, etb),
+             jetty_id = COALESCE($4, jetty_id),
+             priority = COALESCE($5, priority),
+             remark = COALESCE($6, remark),
+             no_pkk = COALESCE($7, no_pkk),
+             additional_jetties = COALESCE($8::bigint[], additional_jetties),
              updated_at = NOW(),
-             updated_by = $8
-           WHERE id = $9 AND port_id = $10 AND deleted_at IS NULL`,
+             updated_by = $9
+           WHERE id = $10 AND port_id = $11 AND deleted_at IS NULL`,
           planUpdParams
         );
       } catch (e) {
@@ -1305,15 +1309,16 @@ router.put('/arrival', async (req, res) => {
           await client.query(
             `UPDATE shipment_plans SET
                eta = COALESCE($1, eta),
-               etb = COALESCE($2, etb),
-               jetty_id = COALESCE($3, jetty_id),
-               priority = COALESCE($4, priority),
-               remark = COALESCE($5, remark),
-               no_pkk = COALESCE($6, no_pkk),
-               additional_jetties = COALESCE($7::bigint[], additional_jetties),
+               ta = COALESCE($2, ta),
+               etb = COALESCE($3, etb),
+               jetty_id = COALESCE($4, jetty_id),
+               priority = COALESCE($5, priority),
+               remark = COALESCE($6, remark),
+               no_pkk = COALESCE($7, no_pkk),
+               additional_jetties = COALESCE($8::bigint[], additional_jetties),
                updated_at = NOW()
-             WHERE id = $8 AND port_id = $9 AND deleted_at IS NULL`,
-            [eta, etb, jettyId, priority || null, remark || null, noPkk || null, additionalJettiesForSql, shipmentPlanIdDirect, selectedPortId]
+             WHERE id = $9 AND port_id = $10 AND deleted_at IS NULL`,
+            [eta, ta, etb, jettyId, priority || null, remark || null, noPkk || null, additionalJettiesForSql, shipmentPlanIdDirect, selectedPortId]
           );
         } else {
           throw e;
@@ -1329,6 +1334,7 @@ router.put('/arrival', async (req, res) => {
         summary: 'Saved plan scheduling update (late SI — no operation yet)',
         changes: [
           { field: 'ETA', from: planBefore.eta, to: eta },
+          { field: 'TA', from: planBefore.ta, to: ta },
           { field: 'ETB', from: planBefore.etb, to: etb },
           { field: 'Jetty ID', from: planBefore.jetty_id, to: jettyId },
         ].filter((c) => c.from !== c.to),

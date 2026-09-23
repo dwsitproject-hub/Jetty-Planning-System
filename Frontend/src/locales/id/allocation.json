@@ -162,7 +162,7 @@
   "columnsMenuTitle": "Tampilkan kolom",
   "columnsMenuAria": "Pilih kolom tabel yang ditampilkan",
   "lateSiSchedulingNoticeTitle": "Perencanaan saja hingga rencana pengiriman disetujui",
-  "lateSiSchedulingNoticeBody": "Anda dapat menetapkan dermaga dan waktu perencanaan di sini. Setelah rencana pengiriman disetujui dan memiliki minimal satu shipping instruction, gunakan Sandar untuk TA, TB, ETC, dan foto kapal.",
+  "lateSiSchedulingNoticeBody": "Anda dapat menetapkan dermaga dan mencatat ETA, TA, dan ETB di sini. Setelah rencana pengiriman disetujui dan memiliki minimal satu shipping instruction, gunakan Sandar untuk TB, ETC, dan foto kapal.",
   "berthingSiGateTooltip": "Rencana pengiriman harus disetujui sebelum sandar.",
   "berthingNoSiTooltip": "Tambahkan minimal satu shipping instruction dan setujui rencana pengiriman sebelum sandar.",
   "updateShipmentPlan": "Perbarui rencana pengiriman",

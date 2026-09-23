@@ -26,12 +26,10 @@ export function jettyIdFromRowKey(rowKey) {
   return i > 0 ? s.slice(0, i) : null
 }
 
-/** Row can carry Actual milestones only when an operation/SI exists (not plan-only). */
+/** Row can carry Actual milestones only when an operation exists (not pre-operation scheduling). */
 export function rowSupportsActualDates(row) {
   if (!row) return false
-  const hasOp = row.operationId != null && row.operationId !== ''
-  const hasSi = row.shippingInstructionId != null && row.shippingInstructionId !== ''
-  return hasOp || hasSi
+  return row.operationId != null && row.operationId !== ''
 }
 
 function pushShift(list, field, label, fromMs, deltaMs) {
@@ -167,13 +165,10 @@ export function buildCandidateFromProposal(proposal, choice, row) {
 
 export function buildArrivalPayloadFromProposal(proposal, choice, row, activityLogPage) {
   const hasOp = row?.operationId != null && row.operationId !== ''
-  const hasSi = row?.shippingInstructionId != null && row.shippingInstructionId !== ''
-  const planOnly = !hasOp && !hasSi
 
   const payload = { activityLogPage }
   if (hasOp) payload.operationId = row.operationId
-  if (hasSi) payload.shippingInstructionId = row.shippingInstructionId
-  if (planOnly) payload.shipmentPlanId = row.shipmentPlanId
+  else payload.shipmentPlanId = row.shipmentPlanId
 
   if (proposal.jettyChange) payload.jetty = proposal.jettyChange.to
 

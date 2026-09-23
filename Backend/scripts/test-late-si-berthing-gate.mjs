@@ -5,7 +5,6 @@
 import { validateSiReferenceForBerthing } from '../src/lib/si-reference-validation.js';
 
 const BERTHING_KEYS = [
-  'taDateTime',
   'tbDateTime',
   'pobDateTime',
   'sobDateTime',
@@ -42,6 +41,7 @@ assert(!attachBerthingEligibility({ shipmentPlanId: 1 }, planMap).berthingAllowe
 assert(attachBerthingEligibility({ shipmentPlanId: 2 }, planMap).berthingAllowed, 'approved plan with SIs');
 
 assert(!bodyHasBerthingArrivalFields({ jetty: '1A', etaDateTime: '2026-06-01T10:00' }), 'plan fields only');
+assert(!bodyHasBerthingArrivalFields({ taDateTime: '2026-06-01T11:00' }), 'ta allowed on plan-only path');
 assert(bodyHasBerthingArrivalFields({ tbDateTime: '2026-06-01T12:00' }), 'tb blocks plan-only');
 
 const BERTHING_PLAN_GATE_TOOLTIP = 'Shipment plan must be approved before berthing.';
