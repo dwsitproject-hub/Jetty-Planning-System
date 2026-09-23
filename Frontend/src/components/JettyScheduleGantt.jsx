@@ -23,10 +23,12 @@ import {
 import {
   buildGanttDragProposal,
   buildArrivalPayloadFromProposal,
+  buildCandidateFromProposal,
   jettyIdFromRowKey,
   snapDeltaMs,
   GANTT_DRAG_THRESHOLD_PX,
 } from '../utils/ganttDragProposal.js'
+import { validateBerthPlanJettyAssignment } from '../utils/berthPlanInterval.js'
 import { saveArrivalUpdate as saveArrivalUpdateApi } from '../api/allocation'
 import { ApiError } from '../api/client'
 import { useRbac } from '../context/RbacContext'
@@ -785,6 +787,36 @@ export default function JettyScheduleGantt({
         : proposal.canActual
           ? 'actual'
           : 'none'
+    const targetJetty =
+      proposal.jettyChange?.to ??
+      (String(row?.jetty || '').trim().split('/')[0].trim() || null)
+    if (targetJetty) {
+      const berth = (Array.isArray(berthsState) ? berthsState : []).find((b) => b.id === targetJetty)
+      const candidate = buildCandidateFromProposal(proposal, choice, row)
+      const block = validateBerthPlanJettyAssignment({
+        candidate,
+        scheduleRows: list || [],
+        jettyShortId: targetJetty,
+        jettyCapacity: berth?.capacity != null ? Number(berth.capacity) : 1,
+        excludeVesselId: row?.vesselId ?? null,
+        excludeShipmentPlanId: row?.shipmentPlanId ?? null,
+        messages: {
+          blockMissingEtc: tAlloc('berthPlanBlockMissingEtc', {
+            defaultValue:
+              'Enter estimated completion (ETC) for {{vessel}} on {{jetty}} before allocating another vessel here.',
+          }),
+          blockOverlap: tAlloc('berthPlanBlockOverlap', {
+            defaultValue:
+              '{{jetty}} is occupied by {{vessel}} until {{end}}. Choose a later ETB or another jetty.',
+          }),
+          formatEnd: (ms) => formatDateTimeDisplay(new Date(ms).toISOString()),
+        },
+      })
+      if (!block.ok) {
+        setPendingSaveError(block.message)
+        return
+      }
+    }
     setPendingSaving(true)
     setPendingSaveError(null)
     try {
@@ -1044,6 +1076,41 @@ export default function JettyScheduleGantt({
       ? Math.max(1, Number(pendingTargetBerth.capacity) || 1)
       : 1
   const pendingTargetFull = Boolean(pendingTargetBerth) && pendingTargetOcc >= pendingTargetCap
+  const pendingBerthPlanBlock = useMemo(() => {
+    if (!pendingProposal || !pendingChange?.row) return null
+    const targetJetty =
+      pendingProposal.jettyChange?.to ??
+      (String(pendingChange.row?.jetty || '').trim().split('/')[0].trim() || null)
+    if (!targetJetty) return null
+    const berth = (Array.isArray(berthsState) ? berthsState : []).find((b) => b.id === targetJetty)
+    const choice = pendingProposal.needsChoice
+      ? pendingChoice
+      : pendingProposal.canEstimation
+        ? 'estimation'
+        : pendingProposal.canActual
+          ? 'actual'
+          : 'none'
+    const candidate = buildCandidateFromProposal(pendingProposal, choice, pendingChange.row)
+    return validateBerthPlanJettyAssignment({
+      candidate,
+      scheduleRows: list || [],
+      jettyShortId: targetJetty,
+      jettyCapacity: berth?.capacity != null ? Number(berth.capacity) : 1,
+      excludeVesselId: pendingChange.row?.vesselId ?? null,
+      excludeShipmentPlanId: pendingChange.row?.shipmentPlanId ?? null,
+      messages: {
+        blockMissingEtc: tAlloc('berthPlanBlockMissingEtc', {
+          defaultValue:
+            'Enter estimated completion (ETC) for {{vessel}} on {{jetty}} before allocating another vessel here.',
+        }),
+        blockOverlap: tAlloc('berthPlanBlockOverlap', {
+          defaultValue:
+            '{{jetty}} is occupied by {{vessel}} until {{end}}. Choose a later ETB or another jetty.',
+        }),
+        formatEnd: (ms) => formatDateTimeDisplay(new Date(ms).toISOString()),
+      },
+    })
+  }, [pendingProposal, pendingChange, pendingChoice, list, berthsState, tAlloc])
   const pendingDateChanges = pendingProposal
     ? pendingProposal.needsChoice
       ? pendingChoice === 'actual'
@@ -1291,7 +1358,11 @@ export default function JettyScheduleGantt({
                       'The lane (01/02) within the jetty is assigned automatically — the bar may appear on a different lane row.',
                   })}
                 </p>
-                {pendingTargetFull ? (
+                {pendingBerthPlanBlock && !pendingBerthPlanBlock.ok ? (
+                  <p className="jetty-schedule-gantt__confirm-warning" role="alert">
+                    {pendingBerthPlanBlock.message}
+                  </p>
+                ) : pendingTargetFull ? (
                   <p className="jetty-schedule-gantt__confirm-warning">
                     {tAlloc('ganttDragJettyFullWarning', {
                       defaultValue:
@@ -1400,7 +1471,9 @@ export default function JettyScheduleGantt({
                 type="button"
                 className="btn btn--primary btn--small"
                 onClick={handleConfirmPendingChange}
-                disabled={pendingSaving}
+                disabled={
+                  pendingSaving || (pendingBerthPlanBlock != null && !pendingBerthPlanBlock.ok)
+                }
               >
                 {pendingSaving
                   ? tAlloc('ganttDragSaving', { defaultValue: 'Saving…' })

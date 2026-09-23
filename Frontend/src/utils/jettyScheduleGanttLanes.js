@@ -1,5 +1,6 @@
 import { resolvePurposeLabel } from './resolvePurposeLabel.js'
 import { materialDisplayFromRow } from './ganttBarDisplay.js'
+import { DEFAULT_BERTH_TAIL_MS, isBerthPlanMissingEtc } from './berthPlanInterval.js'
 import {
   parseMs,
   resolveActualAlongsideEnd,
@@ -9,7 +10,7 @@ import {
 } from './jettyScheduleOccupancy.js'
 
 /** Default +3 calendar days from planned/actual start when completions unknown (display only) */
-export const DEFAULT_TAIL_MS = 3 * 24 * 60 * 60 * 1000
+export const DEFAULT_TAIL_MS = DEFAULT_BERTH_TAIL_MS
 
 function clipToWindow(startMs, endMs, wStart, wEnd) {
   if (endMs <= wStart || startMs >= wEnd) return null
@@ -31,9 +32,9 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
     const seqB = b.sequence ?? 99
     if (seqA !== seqB) return seqA - seqB
     const startA =
-      parseMs(a.plannedEtbDateTime) ?? parseMs(a.etbDateTime) ?? parseMs(a.etaDateTime) ?? Infinity
+      parseMs(a.plannedEtbDateTime) ?? parseMs(a.etbDateTime) ?? parseMs(a.tbDateTime) ?? Infinity
     const startB =
-      parseMs(b.plannedEtbDateTime) ?? parseMs(b.etbDateTime) ?? parseMs(b.etaDateTime) ?? Infinity
+      parseMs(b.plannedEtbDateTime) ?? parseMs(b.etbDateTime) ?? parseMs(b.tbDateTime) ?? Infinity
     return startA - startB
   })
   const out = []
@@ -43,16 +44,20 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
   // "Best" = non-sailed over sailed; among same sailed status, latest TB wins.
   // This prevents old/SAILED docking rows from overwriting the current berth bar.
   const bestActualOpsRow = new Map()
-    // jetty+bankLaneKey groups that have TB: these render only their actual
-    // alongside bar — the estimate (planned) bar is suppressed for them.
-    // TA without TB is waiting-to-berth and stays off the occupancy chart.
-    const hasActualByKey = new Set()
-    for (const r of sorted) {
-      const jettyId = jettyIdFromScheduleRow(r)
-      if (!jettyId) continue
-      if (parseMs(r.tbDateTime) != null) {
-        hasActualByKey.add(`${jettyId}\0${bankLaneKeyFromRow(r)}`)
-      }
+  // jetty+bankLaneKey groups that have TB: these render only their actual
+  // alongside bar — the estimate (planned) bar is suppressed for them.
+  // TA without TB is waiting-to-berth and stays off the occupancy chart.
+  const hasActualByKey = new Set()
+  for (const r of sorted) {
+    const jettyId = jettyIdFromScheduleRow(r)
+    if (!jettyId) continue
+    if (parseMs(r.tbDateTime) != null) {
+      hasActualByKey.add(`${jettyId}\0${bankLaneKeyFromRow(r)}`)
+    }
+  }
+  for (const r of sorted) {
+    const jettyId = jettyIdFromScheduleRow(r)
+    if (!jettyId) continue
     const tbMs = parseMs(r.tbDateTime)
     if (tbMs == null) continue
     const bk = bankLaneKeyFromRow(r)
@@ -104,9 +109,9 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
     const isSailed = sourceStatus === 'SAILED'
     const status = isSailed ? 'Sailed off' : tb != null ? 'Berthing' : 'Arriving'
 
-    // Estimate bar: ETB preferred, ETA only when ETB is missing so the vessel
-    // does not vanish. Once TB is recorded the actual alongside bar represents it.
-    const plannedStart = plannedEtb ?? eta
+    // Berthing Plan: ETB only — no ETA fallback. Once TB is recorded the actual bar represents it.
+    const plannedStart = plannedEtb
+    const missingEtc = isBerthPlanMissingEtc(r)
     const plannedDedupKey = `${jettyId}\0${bankLaneKey}`
     if (
       plannedStart != null &&
@@ -151,7 +156,8 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
           tbMs: tb,
           taMs: ta,
           estCompMs: estComp,
-          startSource: plannedEtb != null ? 'ETB' : 'ETA',
+          missingEtc,
+          startSource: 'ETB',
         },
         windowStartMs,
         windowEndMs
@@ -163,7 +169,7 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
       const actualDedupKey = `${jettyId}\0${bankLaneKey}`
       if (bestActualOpsRow.get(actualDedupKey) !== r) return
 
-      const { endMs: opsEnd, gradient, label } = resolveActualAlongsideEnd({
+      let { endMs: opsEnd, gradient, label } = resolveActualAlongsideEnd({
         tb,
         estComp,
         isSailed,
@@ -171,6 +177,14 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
         castOff,
         nowMs,
       })
+      if (estComp == null && !isSailed) {
+        const displayFloor = (plannedEtb ?? tb) + DEFAULT_TAIL_MS
+        if (opsEnd < displayFloor) {
+          opsEnd = displayFloor
+          gradient = true
+          label = 'Actual · alongside (+3 days — est. completion not set)'
+        }
+      }
 
       const isBreached = !isSailed && estComp != null && nowMs > estComp
       const spanMs = opsEnd - tb
@@ -204,6 +218,7 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
           overMs: isBreached ? nowMs - estComp : null,
           startSource: 'TB',
           waitMs: ta != null && tb > ta ? tb - ta : null,
+          missingEtc: isBerthPlanMissingEtc(r),
         },
         windowStartMs,
         windowEndMs

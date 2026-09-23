@@ -242,6 +242,7 @@ export function buildPlannedBlockModel(seg) {
       { label: 'ETB', ms: seg.plannedEtbMs },
       { label: 'ETC', ms: seg.estCompMs },
     ]),
+    missingEtc: Boolean(seg.missingEtc),
   }
 }
 
@@ -351,6 +352,7 @@ export function buildActualBlockModel(seg, row) {
     etcOverdue: Boolean(seg.etcOverdue),
     overMs: seg.overMs ?? null,
     estCompMs: seg.estCompMs ?? null,
+    missingEtc: Boolean(seg.missingEtc),
   }
 }
 

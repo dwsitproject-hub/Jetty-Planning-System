@@ -19,7 +19,8 @@ import {
   normalizeForApiOrEmpty,
   utcIsoToNaiveLocal,
 } from '../../utils/scheduleDateTime'
-import { isBerthOutOfService, jettyOosAllocationMessage, berthOtherOccupants } from '../../utils/jettyAvailability'
+import { isBerthOutOfService, jettyOosAllocationMessage } from '../../utils/jettyAvailability'
+import { validateBerthPlanJettyAssignment } from '../../utils/berthPlanInterval.js'
 import PurposeBadge from '../PurposeBadge'
 import SiDetailModal from '../SiDetailModal'
 import SiDocumentModal from '../SiDocumentModal'
@@ -94,19 +95,6 @@ function formatVesselRecordLastUpdatedLine(vessel) {
   const d = new Date(raw)
   if (Number.isNaN(d.getTime())) return null
   return `Last updated on ${formatDateTimeDisplay(raw)}${by ? ` by ${by}` : ''}`
-}
-
-function getArrivalMsForJettyValidation(row) {
-  return (
-    parseDateMs(row?.etaDateTime) ??
-    parseDateMs(row?.etbDateTime) ??
-    parseDateMs(row?.taDateTime) ??
-    null
-  )
-}
-
-function getCompletionMsForJettyValidation(row) {
-  return parseDateMs(row?.actualCompletionDateTime) ?? parseDateMs(row?.estimatedCompletionDateTime) ?? null
 }
 
 function getTargetJettyId(row) {
@@ -472,31 +460,35 @@ export default function ActiveVesselDetailModal({
         setVesselDetailEditError(jettyOosAllocationMessage(targetJettyId, canViewMasterJetty))
         return
       }
-      const capacity = berth.capacity != null ? Number(berth.capacity) : 1
-      const others = berthOtherOccupants(berth, vessel.vesselId)
-      const isFull = others.length >= Math.max(1, capacity)
-      if (isFull) {
-        const firstOccId = others[0]?.vesselId
-        const occupantName = firstOccId ? getVesselName(firstOccId) : 'another vessel'
-        const candidateArrivalMs = getArrivalMsForJettyValidation({
+      const berthPlanCheck = validateBerthPlanJettyAssignment({
+        candidate: {
           ...vessel,
-          etaDateTime: vesselDetailDraft.etaDateTime || vessel.etaDateTime,
+          jetty: targetJettyId,
           etbDateTime: vesselDetailDraft.etbDateTime || vessel.etbDateTime,
-          taDateTime: vesselDetailDraft.taDateTime || vessel.taDateTime,
-        })
-        const completionCandidates = others
-          .map((o) => queueList.find((x) => x.vesselId === o.vesselId))
-          .map((row) => getCompletionMsForJettyValidation(row))
-          .filter((x) => x != null)
-        const earliestFreeMs = completionCandidates.length ? Math.min(...completionCandidates) : null
-        const canAllocateAfterCompletion =
-          candidateArrivalMs != null && earliestFreeMs != null && candidateArrivalMs >= earliestFreeMs
-        if (!canAllocateAfterCompletion) {
-          setVesselDetailEditError(
-            `Jetty ${targetJettyId} is full. Example occupant: ${occupantName}.`,
-          )
-          return
-        }
+          tbDateTime: vesselDetailDraft.tbDateTime || vessel.tbDateTime,
+          estimatedCompletionDateTime:
+            vesselDetailDraft.estimatedCompletionDateTime || vessel.estimatedCompletionDateTime,
+        },
+        scheduleRows: scheduleList,
+        jettyShortId: targetJettyId,
+        jettyCapacity: berth.capacity != null ? Number(berth.capacity) : 1,
+        excludeVesselId: vessel.vesselId,
+        excludeShipmentPlanId: vessel.shipmentPlanId,
+        messages: {
+          blockMissingEtc: tAlloc('berthPlanBlockMissingEtc', {
+            defaultValue:
+              'Enter estimated completion (ETC) for {{vessel}} on {{jetty}} before allocating another vessel here.',
+          }),
+          blockOverlap: tAlloc('berthPlanBlockOverlap', {
+            defaultValue:
+              '{{jetty}} is occupied by {{vessel}} until {{end}}. Choose a later ETB or another jetty.',
+          }),
+          formatEnd: (ms) => formatDateTimeDisplay(new Date(ms).toISOString()),
+        },
+      })
+      if (!berthPlanCheck.ok) {
+        setVesselDetailEditError(berthPlanCheck.message)
+        return
       }
     }
 

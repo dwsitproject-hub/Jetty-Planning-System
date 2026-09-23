@@ -820,6 +820,14 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   color: #4b5563;
 }
 
+.gantt-missing-etc-warn {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0.85;
+  cursor: help;
+}
+
 /* Late (past ETC) chip — always shown when overdue, regardless of bar width */
 .gantt-dense-block__late-chip {
   flex: 0 0 auto;

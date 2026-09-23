@@ -38,6 +38,7 @@ import {
   planCommodityTitle,
 } from '../../utils/dashboardArrivalsWindow'
 import { commodityLongTitle } from '../../utils/commodityShortTitle.js'
+import { formatWaitDaysFromMs } from '../../utils/ganttBarDisplay.js'
 import { SAILED_LOOKBACK_MS, summarizeSailedSince } from '../../utils/dashboardSailed'
 import {
   AT_BERTH_PHASES,
@@ -762,7 +763,11 @@ export default function DashboardShell({ mode = 'live' }) {
       if (p?.id != null) planById.set(Number(p.id), p)
     }
     const rows = filteredAtBerth.map((o) => {
+      const plan = planById.get(Number(o.shipmentPlanId))
+      const ta = parseIso(o.ta) || parseIso(plan?.ta)
       const tb = parseIso(o.tbAt || o.dockingStartTime)
+      const waitToBerthMs =
+        ta && tb && tb.getTime() >= ta.getTime() ? tb.getTime() - ta.getTime() : null
       const etc = parseIso(o.estimatedCompletionTime)
       const opsFinished =
         ['SIGNOFF_REQUESTED', 'SIGNOFF_APPROVED'].includes(o.status) || !!o.operationsCompletedAt
@@ -798,6 +803,7 @@ export default function DashboardShell({ mode = 'live' }) {
           commodityLongTitle(commodity, long)
           || planCommodityTitle(planById.get(Number(o.shipmentPlanId))),
         alongsideHours: tb ? (nowTick - tb.getTime()) / 3600000 : null,
+        waitToBerthLabel: formatWaitDaysFromMs(waitToBerthMs) || '—',
         etcState,
         etcDeltaH,
         norAccepted: !!o.norAcceptedAt,
@@ -839,6 +845,8 @@ export default function DashboardShell({ mode = 'live' }) {
       if (p.approvalStatus === 'Rejected') continue
       if (!isWaitingToBerth(p, parseIso)) continue
       const ta = parseIso(p.ta)
+      const taMs = ta ? ta.getTime() : Number.POSITIVE_INFINITY
+      const waitToBerthMs = Number.isFinite(taMs) && nowTick >= taMs ? nowTick - taMs : null
       rows.push({
         id: p.id,
         vesselName: p.vesselName || `Plan #${p.id}`,
@@ -847,7 +855,8 @@ export default function DashboardShell({ mode = 'live' }) {
         taIso: p.ta || null,
         etbIso: p.etb || null,
         tbIso: p.tb || null,
-        taMs: ta ? ta.getTime() : Number.POSITIVE_INFINITY,
+        taMs,
+        waitToBerthLabel: formatWaitDaysFromMs(waitToBerthMs) || '—',
         qtyMt: Number.isFinite(Number(p.vesselCapacity)) && Number(p.vesselCapacity) > 0
           ? Number(p.vesselCapacity)
           : null,
@@ -859,7 +868,7 @@ export default function DashboardShell({ mode = 'live' }) {
     }
     rows.sort((a, b) => a.taMs - b.taMs)
     return rows
-  }, [arrivalPlans, filters])
+  }, [arrivalPlans, filters, nowTick])
 
   // ─── Arriving soon (no TA; overdue ETA + ETA within selected period) ──
   const arrivals = useMemo(() => {
@@ -1641,6 +1650,7 @@ export default function DashboardShell({ mode = 'live' }) {
                       <th>{t('v2BoardPhase')}</th>
                       <th>{t('v2ArrivalsCommodity')}</th>
                       <th className="v2-board-r">{t('v2BoardCargoMoved')}</th>
+                      <th className="v2-board-r" title={t('v2BoardWaitingToBerthHintAtBerth')}>{t('v2BoardWaitingToBerth')}</th>
                       <th className="v2-board-r">{t('v2BoardAlongside')}</th>
                       <th className="v2-board-r">{t('v2BoardEtc')}</th>
                       <th>{t('v2BoardFlags')}</th>
@@ -1685,6 +1695,7 @@ export default function DashboardShell({ mode = 'live' }) {
                         <td className="v2-board-r">
                           <BerthBoardCargoCell cargoProgress={r.cargoProgress} />
                         </td>
+                        <td className="v2-board-r v2-board-wait" title={t('v2BoardWaitingToBerthHintAtBerth')}>{r.waitToBerthLabel}</td>
                         <td className="v2-board-r">{formatDurationHours(r.alongsideHours)}</td>
                         <td className="v2-board-r">
                           {r.etcState === 'none' ? (
@@ -1800,6 +1811,7 @@ export default function DashboardShell({ mode = 'live' }) {
                 <tr>
                   <th>{t('v2BoardVessel')}</th>
                   <th>{t('v2ArrivalsTa')}</th>
+                  <th className="v2-board-r" title={t('v2BoardWaitingToBerthHintQueue')}>{t('v2BoardWaitingToBerth')}</th>
                   <th>{t('v2ArrivalsEtb')}</th>
                   <th>{t('v2ArrivalsTb')}</th>
                   <th>{t('v2BoardJetty')}</th>
@@ -1817,6 +1829,7 @@ export default function DashboardShell({ mode = 'live' }) {
                       {a.agentName ? <span className="v2-board-code">{a.agentName}</span> : null}
                     </td>
                     <td>{a.taIso ? formatDateTimeCompact(a.taIso) : '—'}</td>
+                    <td className="v2-board-r v2-board-wait" title={t('v2BoardWaitingToBerthHintQueue')}>{a.waitToBerthLabel}</td>
                     <td>{a.etbIso ? formatDateTimeCompact(a.etbIso) : '—'}</td>
                     <td>{a.tbIso ? formatDateTimeCompact(a.tbIso) : '—'}</td>
                     <td>{a.jettyName || '—'}</td>

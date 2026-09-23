@@ -23,6 +23,7 @@ import {
   validatePlanSiReferencesForBerthing,
 } from '../lib/si-reference-validation.js';
 import { validateBerthingTimeline } from '../lib/validate-schedule-timeline.js';
+import { assertBerthPlanJettyAllowed } from '../lib/berth-plan-validation.js';
 
 const router = express.Router();
 const SCHEDULE_SAILED_LOOKBACK_DAYS = 90;
@@ -1166,6 +1167,7 @@ router.put('/arrival', async (req, res) => {
       }
       const planRes = await client.query(
         `SELECT id, vessel_name, plan_reference, eta, etb, jetty_id, priority, remark, no_pkk,
+                estimated_completion_time,
                 approval_status,
                 (SELECT COUNT(*)::int FROM shipping_instructions si
                  WHERE si.shipment_plan_id = shipment_plans.id AND si.deleted_at IS NULL) AS si_count
@@ -1220,6 +1222,31 @@ router.put('/arrival', async (req, res) => {
       if (jettyBeingAssigned && !etb) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'ETB is required when assigning a jetty.' });
+      }
+
+      if (jettyEffective) {
+        const jettyShort = b.jetty != null ? String(b.jetty).trim().split('/')[0].trim() : null;
+        const etcPlan = Object.prototype.hasOwnProperty.call(b, 'estimatedCompletionDateTime')
+          ? parseTsPlan(b.estimatedCompletionDateTime)
+          : planBefore.estimated_completion_time;
+        const berthCheck = await assertBerthPlanJettyAllowed(client, {
+          portId: selectedPortId,
+          jettyId: jettyEffective,
+          jettyShortId: jettyShort,
+          candidate: {
+            shipmentPlanId: shipmentPlanIdDirect,
+            vesselId: `plan-${shipmentPlanIdDirect}`,
+            vesselName: planBefore.vessel_name,
+            jetty: jettyShort,
+            etbDateTime: etb,
+            estimatedCompletionDateTime: etcPlan,
+          },
+          excludeShipmentPlanId: shipmentPlanIdDirect,
+        });
+        if (!berthCheck.ok) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: berthCheck.message });
+        }
       }
 
       // Multi-jetty berthing: no SI exists yet at plan-only stage, so commodity-type is not checked here.
@@ -1516,6 +1543,31 @@ router.put('/arrival', async (req, res) => {
     if (jettyBeingAssigned && !etb) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'ETB is required when assigning a jetty.' });
+    }
+
+    if (jettyEffective) {
+      const jettyShort = b.jetty != null ? String(b.jetty).trim().split('/')[0].trim() : null;
+      const berthCheck = await assertBerthPlanJettyAllowed(client, {
+        portId: selectedPortId,
+        jettyId: jettyEffective,
+        jettyShortId: jettyShort,
+        candidate: {
+          shipmentPlanId,
+          operationId: opRow.id,
+          vesselId: `op-${opRow.id}`,
+          vesselName: si.vessel_name ?? planBefore?.vessel_name ?? null,
+          jetty: jettyShort,
+          etbDateTime: etb,
+          tbDateTime: tb,
+          estimatedCompletionDateTime: estimatedCompletion,
+        },
+        excludeShipmentPlanId: shipmentPlanId,
+        excludeOperationId: opRow.id,
+      });
+      if (!berthCheck.ok) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: berthCheck.message });
+      }
     }
 
     // Multi-jetty berthing: validate additional jetties against port flag, adjacency,

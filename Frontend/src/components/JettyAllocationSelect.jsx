@@ -1,6 +1,8 @@
 import { useTranslation } from 'react-i18next'
 import { jettyShortName } from '../utils/jettyAdvice'
 import { getAdjacentBerthIds } from '../utils/jettyAdjacency'
+import { validateBerthPlanJettyAssignment } from '../utils/berthPlanInterval.js'
+import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 
 /**
  * Multi-jetty berthing: checkbox list of jetties adjacent to the selected primary jetty.
@@ -123,8 +125,11 @@ export default function JettyAllocationSelect({
   additionalJetties = [],
   onAdditionalJettiesChange,
   vesselLoaM,
+  berthPlanScheduleRows = null,
+  berthPlanCandidate = null,
 }) {
   const { t } = useTranslation('shipmentPlan')
+  const { t: tAlloc } = useTranslation('allocation')
   const adviceReady = jettyAdvice?.adviceReady ?? false
   const hasConfiguredSpecs = jettyAdvice?.hasConfiguredSpecs ?? false
   const hasLoa = jettyAdvice?.hasLoa ?? false
@@ -147,6 +152,30 @@ export default function JettyAllocationSelect({
     if (allowMultiJetty && a.loaOkMulti && a.dwtOk && a.commodityOk) return true
     return shortId === selectedShortId
   })
+
+  const berthPlanBlockForJetty = (shortId) => {
+    if (!berthPlanCandidate || !Array.isArray(berthPlanScheduleRows)) return null
+    const berth = berthsState.find((b) => b.id === shortId)
+    return validateBerthPlanJettyAssignment({
+      candidate: { ...berthPlanCandidate, jetty: shortId },
+      scheduleRows: berthPlanScheduleRows,
+      jettyShortId: shortId,
+      jettyCapacity: berth?.capacity != null ? Number(berth.capacity) : 1,
+      excludeVesselId: berthPlanCandidate.vesselId ?? null,
+      excludeShipmentPlanId: berthPlanCandidate.shipmentPlanId ?? null,
+      messages: {
+        blockMissingEtc: tAlloc('berthPlanBlockMissingEtc', {
+          defaultValue:
+            'Enter estimated completion (ETC) for {{vessel}} on {{jetty}} before allocating another vessel here.',
+        }),
+        blockOverlap: tAlloc('berthPlanBlockOverlap', {
+          defaultValue:
+            '{{jetty}} is occupied by {{vessel}} until {{end}}. Choose a later ETB or another jetty.',
+        }),
+        formatEnd: (ms) => formatDateTimeDisplay(new Date(ms).toISOString()),
+      },
+    })
+  }
 
   const buildOptionLabel = (shortId) => {
     const a = jettyAdvice?.byShortId?.[shortId]
@@ -176,6 +205,11 @@ export default function JettyAllocationSelect({
       else if (a.loaOkMulti && !a.loaOkSingle) label += ` — ✓ ${t('jettySpanRequired')}`
       else if (a.occupied) label += ` — ${t('jettyOccupiedAtEta')}`
       else if (a.hasSpecs) label += ' — ✓'
+    }
+
+    const berthBlock = berthPlanBlockForJetty(shortId)
+    if (berthBlock && !berthBlock.ok && shortId !== selectedShortId) {
+      label += ` — ✗ ${berthBlock.message}`
     }
 
     return label
@@ -230,11 +264,15 @@ export default function JettyAllocationSelect({
         aria-required={required || undefined}
       >
         <option value="">{placeholder}</option>
-        {filteredShortIds.map((shortId) => (
-          <option key={shortId} value={shortId}>
-            {buildOptionLabel(shortId)}
-          </option>
-        ))}
+        {filteredShortIds.map((shortId) => {
+          const block = berthPlanBlockForJetty(shortId)
+          const blocked = block && !block.ok && shortId !== selectedShortId
+          return (
+            <option key={shortId} value={shortId} disabled={blocked}>
+              {buildOptionLabel(shortId)}
+            </option>
+          )
+        })}
       </select>
       {hintMessage ? (
         <p

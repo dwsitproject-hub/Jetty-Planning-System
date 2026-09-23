@@ -139,6 +139,32 @@ export function buildGanttDragProposal({ kind, deltaMs, seg, row, targetJettyId 
  * @param {string} activityLogPage
  * @returns {object} payload for saveArrivalUpdate
  */
+/**
+ * Merge a drag proposal into a schedule row for berth-plan validation previews.
+ * @param {object} proposal
+ * @param {'estimation' | 'actual' | 'none'} choice
+ * @param {object} row
+ * @returns {object}
+ */
+export function buildCandidateFromProposal(proposal, choice, row) {
+  const candidate = { ...row }
+  if (proposal.jettyChange) candidate.jetty = proposal.jettyChange.to
+  const chosen =
+    proposal.needsChoice
+      ? choice === 'actual'
+        ? proposal.actual
+        : proposal.estimation
+      : [
+          ...proposal.estimation,
+          ...(proposal.canActual ? proposal.actual : []),
+          ...proposal.always,
+        ]
+  for (const c of chosen) {
+    if (c.toMs != null) candidate[c.field] = new Date(c.toMs).toISOString()
+  }
+  return candidate
+}
+
 export function buildArrivalPayloadFromProposal(proposal, choice, row, activityLogPage) {
   const hasOp = row?.operationId != null && row.operationId !== ''
   const hasSi = row?.shippingInstructionId != null && row.shippingInstructionId !== ''

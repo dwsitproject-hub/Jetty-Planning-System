@@ -1,4 +1,6 @@
-/** Shared jetty suitability advice: LOA, DWT, commodity capability, and ETA-window occupancy. */
+/** Shared jetty suitability advice: LOA, DWT, commodity capability, and berth-window occupancy. */
+
+import { DEFAULT_BERTH_TAIL_MS } from './berthPlanInterval.js';
 
 const MS_PER_DAY = 24 * 3600 * 1000;
 
@@ -209,8 +211,8 @@ export function computeJettyAdvice({
 
         const startRaw =
           jettyKey === 'shortName'
-            ? p.etaDateTime || p.eta
-            : p.eta;
+            ? p.tbDateTime || p.etbDateTime || p.plannedEtbDateTime || p.tb || p.etb
+            : p.tbAt || p.dockingStartTime || p.etb || p.tb;
         const start = startRaw ? new Date(startRaw).getTime() : NaN;
         if (!Number.isFinite(start)) continue;
 
@@ -218,12 +220,11 @@ export function computeJettyAdvice({
           jettyKey === 'shortName'
             ? p.estimatedCompletionDateTime ||
               p.actualCompletionDateTime ||
-              p.castOffDateTime ||
-              p.etbDateTime
+              p.castOffDateTime
             : p.sailedAt || p.castOffAt || p.actualCompletionTime || p.estimatedCompletionTime;
-        const endMs = endRaw ? new Date(endRaw).getTime() : start + MS_PER_DAY;
+        const endMs = endRaw ? new Date(endRaw).getTime() : start + DEFAULT_BERTH_TAIL_MS;
 
-        if (etaMs >= start && etaMs <= endMs) {
+        if (etaMs >= start && etaMs < endMs) {
           occupied = true;
           break;
         }
@@ -437,8 +438,10 @@ export function computeAllocationJettyAdvice({
   const hasLoa = Number.isFinite(loaNum) && loaNum > 0;
   const etaMs =
     parseDateTimeLocalMs(referenceDateTime) ??
-    parseDateTimeLocalMs(row.etaDateTime) ??
-    (row.eta ? new Date(row.eta).getTime() : null);
+    parseDateTimeLocalMs(row.etbDateTime) ??
+    parseDateTimeLocalMs(row.tbDateTime) ??
+    parseDateTimeLocalMs(row.plannedEtbDateTime) ??
+    null;
   const hasEta = Number.isFinite(etaMs);
 
   const advice = computeJettyAdvice({

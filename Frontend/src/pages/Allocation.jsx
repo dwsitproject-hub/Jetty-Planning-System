@@ -29,7 +29,7 @@ import {
   nowToNaiveLocalInScheduleZone,
   utcIsoToNaiveLocal,
 } from '../utils/scheduleDateTime'
-import { isBerthOutOfService, jettyOosAllocationMessage, berthOtherOccupants } from '../utils/jettyAvailability'
+import { isBerthOutOfService, jettyOosAllocationMessage } from '../utils/jettyAvailability'
 import PurposeBadge, { resolvePurposeLabel } from '../components/PurposeBadge'
 import SiDetailModal from '../components/SiDetailModal'
 import SiDocumentModal from '../components/SiDocumentModal'
@@ -99,6 +99,10 @@ import {
   computeAllocationJettyAdvice,
   validateJettyAdviceSelection,
 } from '../utils/jettyAdvice'
+import {
+  isBerthPlanMissingEtc,
+  validateBerthPlanJettyAssignment,
+} from '../utils/berthPlanInterval.js'
 import { filterJettiesForPort } from '../utils/portScopedLookups'
 import { parseVizTabParam, stripVizTabParam } from '../utils/portScopeUrl.js'
 
@@ -411,17 +415,36 @@ function formatVesselRecordLastUpdatedLine(vessel) {
   return `Last updated on ${formatDateTimeDisplay(raw)}${by ? ` by ${by}` : ''}`
 }
 
-function getArrivalMsForJettyValidation(row) {
-  return (
-    parseDateMs(row?.etaDateTime) ??
-    parseDateMs(row?.etbDateTime) ??
-    parseDateMs(row?.taDateTime) ??
-    null
-  )
-}
-
-function getCompletionMsForJettyValidation(row) {
-  return parseDateMs(row?.actualCompletionDateTime) ?? parseDateMs(row?.estimatedCompletionDateTime) ?? null
+function runBerthPlanJettyValidation({
+  candidate,
+  jettyShortId,
+  scheduleRows,
+  berthsState,
+  t,
+  excludeVesselId = null,
+  excludeShipmentPlanId = null,
+}) {
+  const berth = berthsState?.find((b) => b.id === jettyShortId)
+  const capacity = berth?.capacity != null ? Number(berth.capacity) : 1
+  return validateBerthPlanJettyAssignment({
+    candidate,
+    scheduleRows,
+    jettyShortId,
+    jettyCapacity: capacity,
+    excludeVesselId,
+    excludeShipmentPlanId,
+    messages: {
+      blockMissingEtc: t('berthPlanBlockMissingEtc', {
+        defaultValue:
+          'Enter estimated completion (ETC) for {{vessel}} on {{jetty}} before allocating another vessel here.',
+      }),
+      blockOverlap: t('berthPlanBlockOverlap', {
+        defaultValue:
+          '{{jetty}} is occupied by {{vessel}} until {{end}}. Choose a later ETB or another jetty.',
+      }),
+      formatEnd: (ms) => formatDateTimeDisplay(new Date(ms).toISOString()),
+    },
+  })
 }
 
 function AllocationDetailPanel({ r, tAlloc, onOpenSiDetail, queueList, nowMs = Date.now() }) {
@@ -788,7 +811,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       computeAllocationJettyAdvice({
         jetties: portJetties,
         row: arrivalUpdateForm,
-        referenceDateTime: arrivalUpdateForm?.etaDateTime,
+        referenceDateTime: arrivalUpdateForm?.etbDateTime || arrivalUpdateForm?.tbDateTime,
         occupancyRows: jettyOccupancyRows,
         allowMultiJetty,
       }),
@@ -797,10 +820,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
 
   const berthingJettyAdvice = useMemo(() => {
     const referenceDateTime =
-      berthingTb?.trim() ||
-      berthingConfirmRow?.etbDateTime ||
-      berthingConfirmRow?.etaDateTime ||
-      null
+      berthingTb?.trim() || berthingConfirmRow?.etbDateTime || null
     return computeAllocationJettyAdvice({
       jetties: portJetties,
       row: berthingConfirmRow,
@@ -1173,9 +1193,24 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
           ...c,
           getValue: (r) => {
             const breach = getEtcBreach(r, breachNowMs)
+            const etcLabel =
+              formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion) || '—'
+            const missingEtc = isBerthPlanMissingEtc(r)
             return (
               <span className="at-berth-etc-cell">
-                {formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion) || '—'}
+                {etcLabel}
+                {missingEtc ? (
+                  <span
+                    className="gantt-missing-etc-warn"
+                    title={tAlloc('ganttMissingEtcWarn', {
+                      defaultValue:
+                        'Estimated completion (ETC) not set — schedule bar uses +3 days for display only.',
+                    })}
+                    aria-label={tAlloc('ganttMissingEtcWarn')}
+                  >
+                    ⏱️❓
+                  </span>
+                ) : null}
                 {breach ? (
                   <span className="at-berth-etc-cell__badge">
                     <EtcBreachBadge overMs={breach.overMs} etcMs={breach.etcMs} size="sm" />
@@ -1211,7 +1246,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         },
       }
     })
-  }, [berthsState, allocationColumnDefsBase, breachNowMs])
+  }, [berthsState, allocationColumnDefsBase, breachNowMs, tAlloc])
 
   const [visibleColumnKeys, setVisibleColumnKeys] = useState(
     () => new Set(PLAN_CENTRIC_DEFAULT_VISIBLE_COLUMN_KEYS)
@@ -1477,36 +1512,25 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         setArrivalSaving(false)
         return
       }
-      const capacity = berth.capacity != null ? Number(berth.capacity) : 1
-      const others = berthOtherOccupants(berth, arrivalUpdateForm.vesselId)
-      const isFull = others.length >= Math.max(1, capacity)
-      if (isFull) {
-        const firstOccId = others[0]?.vesselId
-        const occupantName = firstOccId ? getVesselName(firstOccId) : 'another vessel'
-        const occupantRow = firstOccId ? list.find((x) => x.vesselId === firstOccId) : null
-        const candidateArrivalMs = getArrivalMsForJettyValidation(arrivalUpdateForm)
-        const completionCandidates = others
-          .map((o) => list.find((x) => x.vesselId === o.vesselId))
-          .map((row) => getCompletionMsForJettyValidation(row))
-          .filter((x) => x != null)
-        const earliestFreeMs = completionCandidates.length ? Math.min(...completionCandidates) : null
-
-        const canAllocateAfterCompletion =
-          candidateArrivalMs != null &&
-          earliestFreeMs != null &&
-          candidateArrivalMs >= earliestFreeMs
-
-        if (!canAllocateAfterCompletion) {
-          const completionHint =
-            earliestFreeMs != null
-              ? ` Earliest estimated completion: ${formatDateTimeDisplay(new Date(earliestFreeMs).toISOString())}.`
-              : ' Estimated/actual completion for current occupants is not set.'
-          setArrivalSaveMsg(
-            `Jetty ${targetJettyId} is full (${others.length}/${Math.max(1, capacity)}). Example occupant: ${occupantName}.${completionHint} Please choose another jetty or set a later arrival.`
-          )
-          setArrivalSaving(false)
-          return
-        }
+      const berthPlanCheck = runBerthPlanJettyValidation({
+        candidate: {
+          ...arrivalUpdateForm,
+          jetty: targetJettyId,
+          etbDateTime: arrivalUpdateForm.etbDateTime,
+          tbDateTime: arrivalUpdateForm.tbDateTime,
+          estimatedCompletionDateTime: arrivalUpdateForm.estimatedCompletionDateTime,
+        },
+        jettyShortId: targetJettyId,
+        scheduleRows: planViz.mergedSchedule,
+        berthsState,
+        t: tAlloc,
+        excludeVesselId: arrivalUpdateForm.vesselId,
+        excludeShipmentPlanId: arrivalUpdateForm.shipmentPlanId,
+      })
+      if (!berthPlanCheck.ok) {
+        setArrivalSaveMsg(berthPlanCheck.message)
+        setArrivalSaving(false)
+        return
       }
     }
 
@@ -1685,16 +1709,22 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       } else if (isBerthOutOfService(berth)) {
         errors.push(jettyOosAllocationMessage(targetJettyId, canViewMasterJetty))
       } else {
-        const capacity = berth.capacity != null ? Number(berth.capacity) : 1
-        const others = berthOtherOccupants(berth, berthingConfirmRow.vesselId)
-        const isFull = others.length >= Math.max(1, capacity)
-        if (isFull) {
-          const occupantId = others[0]?.vesselId
-          const occupantName = occupantId ? getVesselName(occupantId) : 'another vessel'
-          errors.push(
-            `Jetty ${targetJettyId} is full (${others.length}/${Math.max(1, capacity)}). Example occupant: ${occupantName}. Please choose another jetty.`
-          )
-        }
+        const berthPlanCheck = runBerthPlanJettyValidation({
+          candidate: {
+            ...berthingConfirmRow,
+            jetty: targetJettyId,
+            etbDateTime: berthingConfirmRow.etbDateTime,
+            tbDateTime: berthingTb,
+            estimatedCompletionDateTime: berthingEstimatedCompletion,
+          },
+          jettyShortId: targetJettyId,
+          scheduleRows: planViz.mergedSchedule,
+          berthsState,
+          t: tAlloc,
+          excludeVesselId: berthingConfirmRow.vesselId,
+          excludeShipmentPlanId: berthingConfirmRow.shipmentPlanId,
+        })
+        if (!berthPlanCheck.ok) errors.push(berthPlanCheck.message)
       }
     }
     if (!(berthingTa || '').trim()) {
@@ -2030,36 +2060,25 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         setVesselDetailEditError(jettyOosAllocationMessage(targetJettyId, canViewMasterJetty))
         return
       }
-      const capacity = berth.capacity != null ? Number(berth.capacity) : 1
-      const others = berthOtherOccupants(berth, vessel.vesselId)
-      const isFull = others.length >= Math.max(1, capacity)
-      if (isFull) {
-        const firstOccId = others[0]?.vesselId
-        const occupantName = firstOccId ? getVesselName(firstOccId) : 'another vessel'
-        const occupantRow = firstOccId ? list.find((x) => x.vesselId === firstOccId) : null
-        const candidateArrivalMs = getArrivalMsForJettyValidation({
+      const berthPlanCheck = runBerthPlanJettyValidation({
+        candidate: {
           ...vessel,
-          etaDateTime: vesselDetailDraft.etaDateTime || vessel.etaDateTime,
+          jetty: targetJettyId,
           etbDateTime: vesselDetailDraft.etbDateTime || vessel.etbDateTime,
-          taDateTime: vesselDetailDraft.taDateTime || vessel.taDateTime,
-        })
-        const completionCandidates = others
-          .map((o) => list.find((x) => x.vesselId === o.vesselId))
-          .map((row) => getCompletionMsForJettyValidation(row))
-          .filter((x) => x != null)
-        const earliestFreeMs = completionCandidates.length ? Math.min(...completionCandidates) : null
-        const canAllocateAfterCompletion =
-          candidateArrivalMs != null && earliestFreeMs != null && candidateArrivalMs >= earliestFreeMs
-        if (!canAllocateAfterCompletion) {
-          const completionHint =
-            earliestFreeMs != null
-              ? ` Earliest estimated completion: ${formatDateTimeDisplay(new Date(earliestFreeMs).toISOString())}.`
-              : ' Estimated/actual completion for current occupants is not set.'
-          setVesselDetailEditError(
-            `Jetty ${targetJettyId} is full (${others.length}/${Math.max(1, capacity)}). Example occupant: ${occupantName}.${completionHint} Please choose another jetty or set a later arrival.`
-          )
-          return
-        }
+          tbDateTime: vesselDetailDraft.tbDateTime || vessel.tbDateTime,
+          estimatedCompletionDateTime:
+            vesselDetailDraft.estimatedCompletionDateTime || vessel.estimatedCompletionDateTime,
+        },
+        jettyShortId: targetJettyId,
+        scheduleRows: planViz.mergedSchedule,
+        berthsState,
+        t: tAlloc,
+        excludeVesselId: vessel.vesselId,
+        excludeShipmentPlanId: vessel.shipmentPlanId,
+      })
+      if (!berthPlanCheck.ok) {
+        setVesselDetailEditError(berthPlanCheck.message)
+        return
       }
     }
 
@@ -2684,7 +2703,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         isPlanCentric={isPlanCentric}
         canEditAllocation={canEditAllocation}
         queueList={list}
-        scheduleList={scheduleList}
+        scheduleList={planViz.mergedSchedule}
         berthsState={berthsState}
         onRefreshOverview={refreshOverview}
         plannedBerthingPath={plannedBerthingPath}
@@ -2781,6 +2800,14 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                     additionalJetties={berthingAdditionalJetties}
                     onAdditionalJettiesChange={setBerthingAdditionalJetties}
                     vesselLoaM={berthingConfirmRow?.vesselLoaM}
+                    berthPlanScheduleRows={planViz.mergedSchedule}
+                    berthPlanCandidate={{
+                      ...berthingConfirmRow,
+                      jetty: berthingSelectedJetty,
+                      etbDateTime: berthingConfirmRow?.etbDateTime,
+                      tbDateTime: berthingTb,
+                      estimatedCompletionDateTime: berthingEstimatedCompletion,
+                    }}
                   />
                   <div className="berthing-modal__field">
                     <label htmlFor="berthing-pob" className="berthing-modal__label">Pilot on Board (POB)</label>
@@ -3304,6 +3331,14 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                   additionalJetties={arrivalUpdateAdditionalJetties}
                   onAdditionalJettiesChange={setArrivalUpdateAdditionalJetties}
                   vesselLoaM={arrivalUpdateForm.vesselLoaM}
+                  berthPlanScheduleRows={planViz.mergedSchedule}
+                  berthPlanCandidate={{
+                    ...arrivalUpdateForm,
+                    jetty: arrivalUpdateForm.jetty,
+                    etbDateTime: arrivalUpdateForm.etbDateTime,
+                    tbDateTime: arrivalUpdateForm.tbDateTime,
+                    estimatedCompletionDateTime: arrivalUpdateForm.estimatedCompletionDateTime,
+                  }}
                 />
               </section>
 

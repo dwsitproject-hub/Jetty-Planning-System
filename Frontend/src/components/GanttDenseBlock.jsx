@@ -102,6 +102,21 @@ export default function GanttDenseBlock({
             short="gantt"
           />
         ) : null}
+        {model.missingEtc ? (
+          <span
+            className="gantt-missing-etc-warn"
+            title={t('ganttMissingEtcWarn', {
+              defaultValue:
+                'Estimated completion (ETC) not set — schedule bar uses +3 days for display only.',
+            })}
+            aria-label={t('ganttMissingEtcWarn', {
+              defaultValue:
+                'Estimated completion (ETC) not set — schedule bar uses +3 days for display only.',
+            })}
+          >
+            ⏱️❓
+          </span>
+        ) : null}
         {isLate ? (
           <span
             className="gantt-dense-block__late-chip"
