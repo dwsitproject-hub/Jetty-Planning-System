@@ -30,8 +30,6 @@ import enFilePreview from '../locales/en/filePreview.json'
 import idFilePreview from '../locales/id/filePreview.json'
 import enOperator from '../locales/en/operator.json'
 import idOperator from '../locales/id/operator.json'
-import enVesselTracking from '../locales/en/vesselTracking.json'
-import idVesselTracking from '../locales/id/vesselTracking.json'
 
 export function getInitialLanguage() {
   try {
@@ -63,7 +61,6 @@ i18n.use(initReactI18next).init({
       notifications: enNotifications,
       filePreview: enFilePreview,
       operator: enOperator,
-      vesselTracking: enVesselTracking,
     },
     id: {
       common: idCommon,
@@ -80,13 +77,12 @@ i18n.use(initReactI18next).init({
       notifications: idNotifications,
       filePreview: idFilePreview,
       operator: idOperator,
-      vesselTracking: idVesselTracking,
     },
   },
   lng: getInitialLanguage(),
   fallbackLng: 'en',
   defaultNS: 'common',
-  ns: ['common', 'nav', 'auth', 'terms', 'pages', 'dashboard', 'shippingInstruction', 'shipmentPlan', 'allocation', 'atBerth', 'loading', 'notifications', 'filePreview', 'operator', 'vesselTracking'],
+  ns: ['common', 'nav', 'auth', 'terms', 'pages', 'dashboard', 'shippingInstruction', 'shipmentPlan', 'allocation', 'atBerth', 'loading', 'notifications', 'filePreview', 'operator'],
   interpolation: {
     escapeValue: false,
   },

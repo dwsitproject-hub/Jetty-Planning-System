@@ -51,7 +51,6 @@ import AdminNotifications from './pages/AdminNotifications'
 import AdminEmailDeliveryLog from './pages/AdminEmailDeliveryLog'
 import DemurrageRiskCalculator from './pages/DemurrageRiskCalculator'
 import JettyLive from './pages/JettyLive'
-import VesselTracking from './pages/VesselTracking'
 import DevOcrTest from './pages/DevOcrTest'
 import { isEmbedMode, isPipelineEmbedPath } from './utils/embedMode'
 
@@ -142,7 +141,6 @@ function App() {
                     }
                   />
                   <Route path="/allocation-plans" element={<AllocationPlanBerthing />} />
-                  <Route path="/vessel-tracking" element={<VesselTracking />} />
                   <Route path="/allocation/visualization/:mode" element={<AllocationVisualizationPopout />} />
                   <Route path="/berthing" element={<Navigate to="/allocation-plans" replace />} />
                   <Route path="/at-berth" element={<AtBerthExecutions />} />
