@@ -10,6 +10,21 @@
 import express from 'express';
 import { pool } from '../db.js';
 import { writeActivityLog } from '../lib/activity-log.js';
+import {
+  deriveExternalStatus,
+  findPartnerSubmission,
+  listValidSurveyorNames,
+  listValidTradeTermCodes,
+  matchBreakdownLineIndex,
+  PARTNER_SUBMISSION_LOOKUP_SQL,
+  resolveShipperByName,
+  resolveSurveyorByName,
+  resolveTradeTermByCode,
+} from '../lib/integration-master-data.js';
+import {
+  planSnapshotFromMasterRow,
+  resolveMasterVesselForIntegration,
+} from '../lib/resolve-master-vessel.js';
 import { validateIntegrationCargoMetricRules } from '../lib/si-breakdown-metric.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
 import {
@@ -18,6 +33,7 @@ import {
   sendIntegrationError,
   sendIntegrationSuccess,
 } from '../middleware/integration-auth.js';
+import integrationMasterRoutes from './integration-master.js';
 
 const router = express.Router();
 const PAGE_KEY = 'shipment-plan';
@@ -26,6 +42,7 @@ const VALID_UNITS = ['MT', 'KL'];
 
 router.use(requireIntegrationKey);
 router.use(integrationRateLimit);
+router.use(integrationMasterRoutes);
 
 /** Matches buildPlanReference in routes/shipment-plans.js (SP-YY-MM-#####). */
 function buildPlanReference(planId) {
@@ -71,6 +88,9 @@ function validateSubmission(body) {
 
   const portId = Number.parseInt(b.port_id, 10);
   if (!Number.isFinite(portId) || Number.isNaN(portId)) push('port_id', 'required integer');
+
+  const hubCode = asTrimmedString(b.hub_code);
+  if (hubCode.length > 50) push('hub_code', 'max length 50');
 
   const vesselName = asTrimmedString(b.vessel_name);
   if (!vesselName) push('vessel_name', 'required');
@@ -130,14 +150,40 @@ function validateSubmission(body) {
       const contractNo = asTrimmedString(l.contract_no);
       if (contractNo.length > 100) push(`cargo[${i}].contract_no`, 'max length 100');
 
+      const poNo = asTrimmedString(l.po_no);
+      if (poNo.length > 100) push(`cargo[${i}].po_no`, 'max length 100');
+
+      const soNo = asTrimmedString(l.so_no);
+      if (soNo.length > 100) push(`cargo[${i}].so_no`, 'max length 100');
+
+      const shipperName = asTrimmedString(l.shipper_name);
+      if (shipperName.length > 200) push(`cargo[${i}].shipper_name`, 'max length 200');
+
       cargo.push({
         cargoType,
         description: description || null,
         tonnage,
         unit,
         contractNo: contractNo || null,
+        poNo: poNo || null,
+        soNo: soNo || null,
+        shipperName: shipperName || null,
       });
     });
+  }
+
+  let tradeTerm = null;
+  if (b.trade_term != null && b.trade_term !== '') {
+    tradeTerm = asTrimmedString(b.trade_term).toUpperCase();
+    if (!tradeTerm) push('trade_term', 'invalid');
+    else if (tradeTerm.length > 50) push('trade_term', 'max length 50');
+  }
+
+  let surveyorName = null;
+  if (b.surveyor_name != null && b.surveyor_name !== '') {
+    surveyorName = asTrimmedString(b.surveyor_name);
+    if (!surveyorName) push('surveyor_name', 'invalid');
+    else if (surveyorName.length > 200) push('surveyor_name', 'max length 200');
   }
 
   return {
@@ -145,6 +191,7 @@ function validateSubmission(body) {
     value: {
       externalReference,
       portId,
+      hubCode: hubCode || null,
       vesselName,
       voyageNo: voyageNo || null,
       purpose,
@@ -154,41 +201,78 @@ function validateSubmission(body) {
       agentContact: agentContact || null,
       notes: notes || null,
       requestedBy: requestedBy || null,
+      tradeTerm,
+      surveyorName,
       cargo,
     },
   };
 }
 
-/** Maps internal plan/operation state to the external Pending/Approved/Rejected/Allocated status. */
-function deriveExternalStatus(row) {
-  if (row.approval_status === 'Rejected') return 'Rejected';
-  const opStatus = row.op_status || null;
-  if (opStatus && opStatus !== 'PENDING') return 'Allocated';
-  if (row.approval_status === 'Approved') return 'Approved';
-  return 'Pending';
+/** Validates PATCH body for Pending shipping instructions (PO/SO/shipper/header fields only). */
+function validatePatchBody(body) {
+  const errors = [];
+  const b = body && typeof body === 'object' ? body : {};
+  const push = (field, issue) => errors.push({ field, issue });
+
+  let tradeTerm = undefined;
+  if (b.trade_term != null && b.trade_term !== '') {
+    tradeTerm = asTrimmedString(b.trade_term).toUpperCase();
+    if (!tradeTerm) push('trade_term', 'invalid');
+    else if (tradeTerm.length > 50) push('trade_term', 'max length 50');
+  }
+
+  let surveyorName = undefined;
+  if (b.surveyor_name != null && b.surveyor_name !== '') {
+    surveyorName = asTrimmedString(b.surveyor_name);
+    if (!surveyorName) push('surveyor_name', 'invalid');
+    else if (surveyorName.length > 200) push('surveyor_name', 'max length 200');
+  }
+
+  const cargo = [];
+  if (b.cargo != null) {
+    if (!Array.isArray(b.cargo) || b.cargo.length === 0) {
+      push('cargo', 'must be a non-empty array when provided');
+    } else {
+      b.cargo.forEach((line, i) => {
+        const l = line && typeof line === 'object' ? line : {};
+        const lineOrderRaw = l.line_order;
+        const lineOrder =
+          lineOrderRaw != null && lineOrderRaw !== ''
+            ? Number.parseInt(lineOrderRaw, 10)
+            : null;
+        const contractNo = asTrimmedString(l.contract_no);
+        if ((lineOrder == null || Number.isNaN(lineOrder)) && !contractNo) {
+          push(`cargo[${i}]`, 'line_order or contract_no required to identify the line');
+        }
+        if (lineOrder != null && (Number.isNaN(lineOrder) || lineOrder < 0)) {
+          push(`cargo[${i}].line_order`, 'must be a non-negative integer');
+        }
+
+        let poNo = undefined;
+        if (l.po_no != null) poNo = asTrimmedString(l.po_no) || null;
+        let soNo = undefined;
+        if (l.so_no != null) soNo = asTrimmedString(l.so_no) || null;
+        let shipperName = undefined;
+        if (l.shipper_name != null) shipperName = asTrimmedString(l.shipper_name) || null;
+
+        if (poNo && poNo.length > 100) push(`cargo[${i}].po_no`, 'max length 100');
+        if (soNo && soNo.length > 100) push(`cargo[${i}].so_no`, 'max length 100');
+        if (shipperName && shipperName.length > 200) push(`cargo[${i}].shipper_name`, 'max length 200');
+
+        cargo.push({ lineOrder, contractNo: contractNo || null, poNo, soNo, shipperName });
+      });
+    }
+  }
+
+  const hasHeader = tradeTerm !== undefined || surveyorName !== undefined;
+  if (!hasHeader && cargo.length === 0) {
+    push('body', 'at least one field to update is required');
+  }
+
+  return { errors, value: { tradeTerm, surveyorName, cargo } };
 }
 
-const STATUS_LOOKUP_SQL = `
-  SELECT s.id AS submission_id, s.external_reference, s.received_at, s.payload,
-         si.id AS si_id,
-         GREATEST(si.updated_at, sp.updated_at) AS last_updated_at,
-         sp.approval_status, sp.rejection_reason,
-         sp.vessel_name, sp.voyage_no, sp.eta, sp.port_id,
-         spp.code AS purpose,
-         o.status AS op_status, o.docking_start_time, j.name AS jetty_name
-  FROM integration_submissions s
-  JOIN shipping_instructions si ON si.id = s.shipping_instruction_id
-  JOIN shipment_plans sp ON sp.id = s.shipment_plan_id
-  LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
-  LEFT JOIN LATERAL (
-    SELECT op.status, op.docking_start_time, op.jetty_id
-    FROM operations op
-    WHERE op.shipping_instruction_id = si.id AND op.deleted_at IS NULL
-    ORDER BY op.id DESC
-    LIMIT 1
-  ) o ON true
-  LEFT JOIN jetties j ON j.id = o.jetty_id
-  WHERE s.api_key_id = $1`;
+const STATUS_LOOKUP_SQL = PARTNER_SUBMISSION_LOOKUP_SQL;
 
 function toStatusResponse(row) {
   const status = deriveExternalStatus(row);
@@ -319,6 +403,57 @@ router.post('/shipping-instructions', async (req, res) => {
     return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', metricRuleIssues);
   }
 
+  let tradeTermId = null;
+  if (value.tradeTerm) {
+    const tt = await resolveTradeTermByCode(pool, value.tradeTerm);
+    if (!tt) {
+      const validTerms = await listValidTradeTermCodes(pool);
+      return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
+        {
+          field: 'trade_term',
+          issue: `unknown trade term: ${value.tradeTerm}`,
+          valid_trade_terms: validTerms,
+        },
+      ]);
+    }
+    tradeTermId = Number(tt.id);
+  }
+
+  let surveyorId = null;
+  if (value.surveyorName) {
+    const sv = await resolveSurveyorByName(pool, value.surveyorName);
+    if (!sv) {
+      const validSurveyors = await listValidSurveyorNames(pool);
+      return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
+        {
+          field: 'surveyor_name',
+          issue: `unknown surveyor: ${value.surveyorName}`,
+          valid_surveyors: validSurveyors,
+        },
+      ]);
+    }
+    surveyorId = Number(sv.id);
+  }
+
+  const shipperIdsByLine = [];
+  for (let i = 0; i < value.cargo.length; i += 1) {
+    const line = value.cargo[i];
+    if (!line.shipperName) {
+      shipperIdsByLine.push(null);
+      continue;
+    }
+    const sh = await resolveShipperByName(pool, line.shipperName);
+    if (!sh) {
+      return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
+        {
+          field: `cargo[${i}].shipper_name`,
+          issue: `unknown shipper: ${line.shipperName}. Create it first via POST /shippers`,
+        },
+      ]);
+    }
+    shipperIdsByLine.push(Number(sh.id));
+  }
+
   // Agent: best-effort name match against master data; unmatched agents stay visible via plan remark.
   let agentId = null;
   const ar = await pool.query(
@@ -348,16 +483,36 @@ router.post('/shipping-instructions', async (req, res) => {
   let receivedAt;
   try {
     await client.query('BEGIN');
+
+    const masterRow = await resolveMasterVesselForIntegration(client, {
+      hubCode: value.hubCode,
+      vesselName: value.vesselName,
+    });
+    if (masterRow?.error) {
+      await client.query('ROLLBACK');
+      return sendIntegrationError(res, 400, [{ field: 'vessel_name', issue: masterRow.error }]);
+    }
+    const vesselSnap = planSnapshotFromMasterRow(masterRow);
+    if (vesselSnap?.error) {
+      await client.query('ROLLBACK');
+      return sendIntegrationError(res, 400, [{ field: 'vessel_name', issue: vesselSnap.error }]);
+    }
+
     const planIns = await client.query(
       `INSERT INTO shipment_plans (
-         port_id, vessel_name, eta, purpose_id, voyage_no, agent_id, remark,
+         port_id, master_vessel_id, vessel_name, vessel_loa_m, vessel_gross_tonnage, vessel_draft,
+         eta, purpose_id, voyage_no, agent_id, remark,
          external_reference, requested_by,
          approval_status, submitted_at, created_at, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Submitted',NOW(),NOW(),NOW())
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'Submitted',NOW(),NOW(),NOW())
        RETURNING id`,
       [
         value.portId,
-        value.vesselName,
+        vesselSnap.master_vessel_id,
+        vesselSnap.vessel_name,
+        vesselSnap.vessel_loa_m,
+        vesselSnap.vessel_gross_tonnage,
+        vesselSnap.vessel_draft,
         value.eta,
         purposeId,
         value.voyageNo,
@@ -373,10 +528,20 @@ router.post('/shipping-instructions', async (req, res) => {
 
     const siIns = await client.query(
       `INSERT INTO shipping_instructions (
-         reference_number, status, eta_from, eta_to, agent_id, note, shipment_plan_id
-       ) VALUES ($1,'Submitted',$2,$3,$4,$5,$6)
+         reference_number, status, eta_from, eta_to, agent_id, note, shipment_plan_id,
+         trade_term_id, surveyor_id
+       ) VALUES ($1,'Submitted',$2,$3,$4,$5,$6,$7,$8)
        RETURNING id, created_at`,
-      [value.externalReference, etaFrom, etaTo, agentId, value.notes, planId]
+      [
+        value.externalReference,
+        etaFrom,
+        etaTo,
+        agentId,
+        value.notes,
+        planId,
+        tradeTermId,
+        surveyorId,
+      ]
     );
     siId = Number(siIns.rows[0].id);
 
@@ -385,9 +550,21 @@ router.post('/shipping-instructions', async (req, res) => {
       const commodity = commodityByShortName.get(normalizeCargoShortName(line.cargoType));
       await client.query(
         `INSERT INTO public.shipping_instruction_breakdown (
-           shipping_instruction_id, commodity_id, metric_id, qty, contract_no, remarks, line_order
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [siId, Number(commodity.id), metricByCode.get(line.unit), line.tonnage, line.contractNo, line.description, lineOrder++]
+           shipping_instruction_id, commodity_id, metric_id, qty, contract_no, po_no, so_no,
+           shipper_id, remarks, line_order
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [
+          siId,
+          Number(commodity.id),
+          metricByCode.get(line.unit),
+          line.tonnage,
+          line.contractNo,
+          line.poNo,
+          line.soNo,
+          shipperIdsByLine[lineOrder],
+          line.description,
+          lineOrder++,
+        ]
       );
     }
 
@@ -462,6 +639,184 @@ router.post('/shipping-instructions', async (req, res) => {
     port_id: value.portId,
     received_at: new Date(receivedAt).toISOString(),
   });
+});
+
+async function applyPartnerPatch(req, res, { siId, externalReference }) {
+  const key = req.integrationKey;
+  const { errors, value } = validatePatchBody(req.body);
+  if (errors.length > 0) {
+    return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', errors);
+  }
+
+  const submission = await findPartnerSubmission(pool, key.id, { siId, externalReference });
+  if (!submission) {
+    const label = siId != null ? `Shipping instruction ${siId}` : `external_reference '${externalReference}'`;
+    return sendIntegrationError(res, 404, 'NOT_FOUND', `${label} not found`);
+  }
+
+  const status = deriveExternalStatus(submission);
+  if (status !== 'Pending') {
+    return sendIntegrationError(
+      res,
+      409,
+      'INVALID_STATE',
+      `Instruction cannot be updated when status is '${status}'. Submit a new instruction with a new external_reference.`,
+      { status }
+    );
+  }
+
+  let tradeTermId = undefined;
+  if (value.tradeTerm !== undefined) {
+    const tt = await resolveTradeTermByCode(pool, value.tradeTerm);
+    if (!tt) {
+      const validTerms = await listValidTradeTermCodes(pool);
+      return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
+        {
+          field: 'trade_term',
+          issue: `unknown trade term: ${value.tradeTerm}`,
+          valid_trade_terms: validTerms,
+        },
+      ]);
+    }
+    tradeTermId = Number(tt.id);
+  }
+
+  let surveyorId = undefined;
+  if (value.surveyorName !== undefined) {
+    const sv = await resolveSurveyorByName(pool, value.surveyorName);
+    if (!sv) {
+      const validSurveyors = await listValidSurveyorNames(pool);
+      return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
+        {
+          field: 'surveyor_name',
+          issue: `unknown surveyor: ${value.surveyorName}`,
+          valid_surveyors: validSurveyors,
+        },
+      ]);
+    }
+    surveyorId = Number(sv.id);
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    if (tradeTermId !== undefined || surveyorId !== undefined) {
+      const siSets = ['updated_at = NOW()'];
+      const siParams = [];
+      if (tradeTermId !== undefined) {
+        siSets.push(`trade_term_id = $${siParams.length + 1}`);
+        siParams.push(tradeTermId);
+      }
+      if (surveyorId !== undefined) {
+        siSets.push(`surveyor_id = $${siParams.length + 1}`);
+        siParams.push(surveyorId);
+      }
+      siParams.push(Number(submission.si_id));
+      await client.query(
+        `UPDATE shipping_instructions SET ${siSets.join(', ')} WHERE id = $${siParams.length} AND deleted_at IS NULL`,
+        siParams
+      );
+    }
+
+    if (value.cargo.length > 0) {
+      const br = await client.query(
+        `SELECT id, line_order, contract_no, po_no, so_no, shipper_id
+         FROM shipping_instruction_breakdown
+         WHERE shipping_instruction_id = $1 AND deleted_at IS NULL
+         ORDER BY line_order, id`,
+        [Number(submission.si_id)]
+      );
+
+      for (let i = 0; i < value.cargo.length; i += 1) {
+        const patchLine = value.cargo[i];
+        const idx = matchBreakdownLineIndex(br.rows, patchLine);
+        if (idx < 0) {
+          await client.query('ROLLBACK');
+          client.release();
+          return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
+            {
+              field: `cargo[${i}]`,
+              issue: 'no matching breakdown line (use line_order or contract_no)',
+            },
+          ]);
+        }
+
+        const row = br.rows[idx];
+        let shipperId = undefined;
+        if (patchLine.shipperName !== undefined) {
+          if (patchLine.shipperName) {
+            const sh = await resolveShipperByName(client, patchLine.shipperName);
+            if (!sh) {
+              await client.query('ROLLBACK');
+              client.release();
+              return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
+                {
+                  field: `cargo[${i}].shipper_name`,
+                  issue: `unknown shipper: ${patchLine.shipperName}. Create it first via POST /shippers`,
+                },
+              ]);
+            }
+            shipperId = Number(sh.id);
+          } else {
+            shipperId = null;
+          }
+        }
+
+        const sets = ['updated_at = NOW()'];
+        const params = [];
+        if (patchLine.poNo !== undefined) {
+          sets.push(`po_no = $${params.length + 1}`);
+          params.push(patchLine.poNo);
+        }
+        if (patchLine.soNo !== undefined) {
+          sets.push(`so_no = $${params.length + 1}`);
+          params.push(patchLine.soNo);
+        }
+        if (shipperId !== undefined) {
+          sets.push(`shipper_id = $${params.length + 1}`);
+          params.push(shipperId);
+        }
+        params.push(Number(row.id));
+        await client.query(
+          `UPDATE shipping_instruction_breakdown SET ${sets.join(', ')} WHERE id = $${params.length}`,
+          params
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    client.release();
+    console.error('[integrations] patch failed:', e);
+    return sendIntegrationError(res, 500, 'INTERNAL_ERROR', 'Unexpected error while updating the instruction');
+  }
+  client.release();
+
+  const refreshed = await findPartnerSubmission(pool, key.id, { siId: Number(submission.si_id) });
+  return sendIntegrationSuccess(res, 200, toStatusResponse(refreshed));
+}
+
+/** PATCH by external_reference: /shipping-instructions?external_reference=... */
+router.patch('/shipping-instructions', async (req, res) => {
+  const extRef = asTrimmedString(req.query.external_reference);
+  if (!extRef) {
+    return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Query parameter external_reference is required', [
+      { field: 'external_reference', issue: 'required' },
+    ]);
+  }
+  return applyPartnerPatch(req, res, { externalReference: extRef });
+});
+
+router.patch('/shipping-instructions/:id', async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) {
+    return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Invalid id', [
+      { field: 'id', issue: 'must be an integer' },
+    ]);
+  }
+  return applyPartnerPatch(req, res, { siId: id });
 });
 
 /** Lookup by partner reference: GET /shipping-instructions?external_reference=... */

@@ -34,8 +34,17 @@ export async function openCreatePlanModal(page: Page) {
   await expect(modal.locator('#sp-vessel')).toBeVisible();
 }
 
-/** Fill shared plan header fields (purpose, vessel, ETA). */
-export async function fillPlanHeader(page: Page, opts: { vessel: string; eta: string; purposeLabel?: string }) {
+/** Fill shared plan header fields (purpose, vessel/master, ETA). */
+export async function fillPlanHeader(
+  page: Page,
+  opts: {
+    vessel?: string;
+    masterVesselId?: string | number;
+    eta: string;
+    purposeLabel?: string;
+    legacyDimensions?: { loa: string; gt: string; draft: string };
+  }
+) {
   const modal = planModal(page);
   const purposeSelect = modal.locator('#sp-purpose');
   await expect(purposeSelect).toBeEnabled({ timeout: 20_000 });
@@ -52,7 +61,30 @@ export async function fillPlanHeader(page: Page, opts: { vessel: string; eta: st
   }
   await expect(purposeSelect).not.toHaveValue('');
 
-  await modal.locator('#sp-vessel').fill(opts.vessel);
+  const vesselField = modal.locator('#sp-vessel');
+  const tag = await vesselField.evaluate((el) => el.tagName.toLowerCase());
+  if (tag === 'select') {
+    await expect(async () => {
+      expect(await vesselField.locator('option[value]:not([value=""])').count()).toBeGreaterThan(0);
+    }).toPass({ timeout: 20_000 });
+    if (opts.masterVesselId != null && opts.masterVesselId !== '') {
+      await vesselField.selectOption(String(opts.masterVesselId));
+    } else if (opts.vessel) {
+      await vesselField.selectOption({ label: new RegExp(opts.vessel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') });
+    } else {
+      const val = await vesselField.locator('option[value]:not([value=""])').first().getAttribute('value');
+      await vesselField.selectOption(val ?? '');
+    }
+    await expect(modal.locator('#sp-vessel-loa')).not.toHaveValue('', { timeout: 15_000 });
+    await expect(modal.locator('#sp-vessel-gt')).not.toHaveValue('', { timeout: 15_000 });
+    await expect(modal.locator('#sp-vessel-draft')).not.toHaveValue('', { timeout: 15_000 });
+  } else {
+    await vesselField.fill(opts.vessel ?? '');
+    const dims = opts.legacyDimensions ?? { loa: '120', gt: '3500', draft: '6.5' };
+    await modal.locator('#sp-vessel-loa').fill(dims.loa);
+    await modal.locator('#sp-vessel-gt').fill(dims.gt);
+    await modal.locator('#sp-vessel-draft').fill(dims.draft);
+  }
   await modal.locator('#sp-eta').fill(opts.eta);
 }
 
@@ -79,7 +111,10 @@ export async function addSiDraftToOpenModal(page: Page, siRef?: string) {
 }
 
 /** Save plan without any SI draft cards (late-SI path step 1). */
-export async function createPlanOnly(page: Page, opts: { vessel: string; eta: string }) {
+export async function createPlanOnly(
+  page: Page,
+  opts: { vessel?: string; masterVesselId?: string | number; eta: string }
+) {
   await openCreatePlanModal(page);
   await fillPlanHeader(page, opts);
   const modal = planModal(page);
@@ -92,11 +127,20 @@ export async function createPlanOnly(page: Page, opts: { vessel: string; eta: st
   ]);
   const created = await response.json();
   await expect(modal).toBeHidden({ timeout: 15_000 });
-  return created as { id: number; planReference?: string };
+  return created as {
+    id: number;
+    planReference?: string;
+    masterVesselId?: number | null;
+    vesselName?: string;
+    vesselLinkStatus?: string;
+  };
 }
 
 /** Create plan + one SI without reference number (optional ref until berthing). */
-export async function createPlanWithSiNoRef(page: Page, opts: { vessel: string; eta: string }) {
+export async function createPlanWithSiNoRef(
+  page: Page,
+  opts: { vessel?: string; masterVesselId?: string | number; eta: string }
+) {
   await openCreatePlanModal(page);
   await fillPlanHeader(page, opts);
   await addSiDraftToOpenModal(page);
@@ -112,7 +156,10 @@ export async function createPlanWithSiNoRef(page: Page, opts: { vessel: string; 
 }
 
 /** Create plan + one SI in the combined modal (normal flow step 1). */
-export async function createPlanWithSi(page: Page, opts: { vessel: string; eta: string; siRef: string }) {
+export async function createPlanWithSi(
+  page: Page,
+  opts: { vessel?: string; masterVesselId?: string | number; eta: string; siRef: string }
+) {
   await openCreatePlanModal(page);
   await fillPlanHeader(page, opts);
   await addSiDraftToOpenModal(page, opts.siRef);
