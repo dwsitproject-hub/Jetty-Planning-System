@@ -18,6 +18,12 @@ import {
   POST_BERTH_PLAN_EDIT_ERROR,
 } from '../lib/si-pre-berth-edit.js';
 import { softDeleteOperationInTransaction } from '../lib/operation-soft-delete.js';
+import {
+  linkedPlanRejectsDirectVesselFields,
+  loadActiveMasterVessel,
+  parseMasterVesselIdBody,
+  planSnapshotFromMasterRow,
+} from '../lib/resolve-master-vessel.js';
 
 const router = express.Router();
 const PAGE_KEY = 'shipment-plan';
@@ -92,6 +98,8 @@ function toPlanListRow(row) {
     portId: Number(row.port_id),
     planReference: row.plan_reference ?? null,
     vesselName: row.vessel_name,
+    masterVesselId: row.master_vessel_id != null ? Number(row.master_vessel_id) : null,
+    vesselLinkStatus: row.master_vessel_id != null ? 'linked' : 'legacy',
     vesselCapacity: row.vessel_capacity != null ? Number(row.vessel_capacity) : null,
     vesselLoaM: row.vessel_loa_m != null ? Number(row.vessel_loa_m) : null,
     vesselGrossTonnage: row.vessel_gross_tonnage != null ? Number(row.vessel_gross_tonnage) : null,
@@ -306,8 +314,13 @@ router.post('/', requireAuth, async (req, res) => {
   }
   const selectedPortId = Number(req.selectedPortId);
   const b = req.body || {};
-  const vesselName = typeof b.vessel_name === 'string' ? b.vessel_name.trim() : '';
-  if (!vesselName) return res.status(400).json({ error: 'vessel_name is required' });
+  const masterVesselIdParsed = parseMasterVesselIdBody(b.master_vessel_id);
+  if (masterVesselIdParsed?.error) return res.status(400).json({ error: masterVesselIdParsed.error });
+
+  const masterRow = await loadActiveMasterVessel(pool, masterVesselIdParsed);
+  if (masterRow?.error) return res.status(400).json({ error: masterRow.error });
+  const vesselSnap = planSnapshotFromMasterRow(masterRow);
+  if (vesselSnap?.error) return res.status(400).json({ error: vesselSnap.error });
 
   let vesselCapacity = null;
   if (b.vessel_capacity != null && b.vessel_capacity !== '') {
@@ -316,19 +329,6 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'vessel_capacity must be a positive number' });
     }
   }
-
-  const requirePositive = (raw, field) => {
-    if (raw == null || raw === '') return { error: `${field} is required` };
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) return { error: `${field} must be a positive number` };
-    return n;
-  };
-  const vesselLoaM = requirePositive(b.vessel_loa_m, 'vessel_loa_m');
-  if (vesselLoaM?.error) return res.status(400).json({ error: vesselLoaM.error });
-  const vesselGt = requirePositive(b.vessel_gross_tonnage, 'vessel_gross_tonnage');
-  if (vesselGt?.error) return res.status(400).json({ error: vesselGt.error });
-  const vesselDraft = requirePositive(b.vessel_draft, 'vessel_draft');
-  if (vesselDraft?.error) return res.status(400).json({ error: vesselDraft.error });
 
   let purposeId = null;
   if (b.purpose_id != null && b.purpose_id !== '') {
@@ -379,12 +379,27 @@ router.post('/', requireAuth, async (req, res) => {
     await client.query('BEGIN');
     const ins = await client.query(
       `INSERT INTO shipment_plans (
-         port_id, vessel_name, vessel_capacity, vessel_loa_m, vessel_gross_tonnage, vessel_draft,
+         port_id, master_vessel_id, vessel_name, vessel_capacity, vessel_loa_m, vessel_gross_tonnage, vessel_draft,
          jetty_id, eta, purpose_id, voyage_no, agent_id,
          requested_by, created_at, updated_at, updated_by
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW(), $13)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW(), $14)
        RETURNING id`,
-      [selectedPortId, vesselName, vesselCapacity, vesselLoaM, vesselGt, vesselDraft, jettyId, eta, purposeId, voyageNo, agentId, requestedBy, req.userId ?? null]
+      [
+        selectedPortId,
+        vesselSnap.master_vessel_id,
+        vesselSnap.vessel_name,
+        vesselCapacity,
+        vesselSnap.vessel_loa_m,
+        vesselSnap.vessel_gross_tonnage,
+        vesselSnap.vessel_draft,
+        jettyId,
+        eta,
+        purposeId,
+        voyageNo,
+        agentId,
+        requestedBy,
+        req.userId ?? null,
+      ]
     );
     const planId = ins.rows[0].id;
     const ref = buildPlanReference(planId);
@@ -399,7 +414,7 @@ router.post('/', requireAuth, async (req, res) => {
       entityLabel: ref,
       summary: 'Created shipment plan (Draft)',
       changes: [
-        { field: 'Vessel', from: null, to: vesselName },
+        { field: 'Vessel', from: null, to: vesselSnap.vessel_name },
         { field: 'Plan ref', from: null, to: ref },
       ],
       actorUserId: req.userId ?? null,
@@ -472,7 +487,7 @@ router.patch('/:id', requireAuth, async (req, res) => {
   const b = req.body || {};
 
   const cur = await pool.query(
-    `SELECT id, approval_status, vessel_name, jetty_id, eta FROM shipment_plans WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
+    `SELECT id, approval_status, vessel_name, jetty_id, eta, master_vessel_id FROM shipment_plans WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
     [planId, selectedPortId]
   );
   if (cur.rows.length === 0) return res.status(404).json({ error: 'Shipment plan not found' });
@@ -487,12 +502,17 @@ router.patch('/:id', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Plan can only be edited in Draft or Rejected state' });
   }
 
-  const vesselName =
-    b.vessel_name != null && typeof b.vessel_name === 'string' ? b.vessel_name.trim() : null;
-  if (vesselName === '') return res.status(400).json({ error: 'vessel_name cannot be empty' });
+  const linkedMasterId =
+    cur.rows[0].master_vessel_id != null ? Number(cur.rows[0].master_vessel_id) : null;
+  const isLinkedPlan = linkedMasterId != null;
 
-  let vesselCapacity = undefined;
-  if ('vessel_capacity' in b) {
+  let vesselName = undefined;
+  let vesselLoaM = undefined;
+  let vesselGt = undefined;
+  let vesselDraft = undefined;
+  let masterVesselId = undefined;
+
+  let vesselCapacity = undefined;  if ('vessel_capacity' in b) {
     if (b.vessel_capacity == null || b.vessel_capacity === '') {
       vesselCapacity = null;
     } else {
@@ -503,19 +523,43 @@ router.patch('/:id', requireAuth, async (req, res) => {
     }
   }
 
-  const patchPositive = (key) => {
-    if (!(key in b)) return undefined;
-    if (b[key] == null || b[key] === '') return { error: `${key} cannot be empty` };
-    const n = Number(b[key]);
-    if (!Number.isFinite(n) || n <= 0) return { error: `${key} must be a positive number` };
-    return n;
-  };
-  const vesselLoaM = patchPositive('vessel_loa_m');
-  if (vesselLoaM?.error) return res.status(400).json({ error: vesselLoaM.error });
-  const vesselGt = patchPositive('vessel_gross_tonnage');
-  if (vesselGt?.error) return res.status(400).json({ error: vesselGt.error });
-  const vesselDraft = patchPositive('vessel_draft');
-  if (vesselDraft?.error) return res.status(400).json({ error: vesselDraft.error });
+  if (isLinkedPlan) {
+    const rejectMsg = linkedPlanRejectsDirectVesselFields(b);
+    if (rejectMsg) return res.status(400).json({ error: rejectMsg });
+    if ('master_vessel_id' in b) {
+      const newMasterId = parseMasterVesselIdBody(b.master_vessel_id);
+      if (newMasterId?.error) return res.status(400).json({ error: newMasterId.error });
+      if (newMasterId !== linkedMasterId) {
+        const masterRow = await loadActiveMasterVessel(pool, newMasterId);
+        if (masterRow?.error) return res.status(400).json({ error: masterRow.error });
+        const snap = planSnapshotFromMasterRow(masterRow);
+        if (snap?.error) return res.status(400).json({ error: snap.error });
+        masterVesselId = snap.master_vessel_id;
+        vesselName = snap.vessel_name;
+        vesselLoaM = snap.vessel_loa_m;
+        vesselGt = snap.vessel_gross_tonnage;
+        vesselDraft = snap.vessel_draft;
+      }
+    }
+  } else {
+    vesselName =
+      b.vessel_name != null && typeof b.vessel_name === 'string' ? b.vessel_name.trim() : null;
+    if (vesselName === '') return res.status(400).json({ error: 'vessel_name cannot be empty' });
+
+    const patchPositive = (key) => {
+      if (!(key in b)) return undefined;
+      if (b[key] == null || b[key] === '') return { error: `${key} cannot be empty` };
+      const n = Number(b[key]);
+      if (!Number.isFinite(n) || n <= 0) return { error: `${key} must be a positive number` };
+      return n;
+    };
+    vesselLoaM = patchPositive('vessel_loa_m');
+    if (vesselLoaM?.error) return res.status(400).json({ error: vesselLoaM.error });
+    vesselGt = patchPositive('vessel_gross_tonnage');
+    if (vesselGt?.error) return res.status(400).json({ error: vesselGt.error });
+    vesselDraft = patchPositive('vessel_draft');
+    if (vesselDraft?.error) return res.status(400).json({ error: vesselDraft.error });
+  }
 
   let jettyId = undefined;
   if ('jetty_id' in b) {
@@ -571,6 +615,10 @@ router.patch('/:id', requireAuth, async (req, res) => {
   const sets = [];
   const params = [];
   let i = 1;
+  if (masterVesselId !== undefined) {
+    sets.push(`master_vessel_id = $${i++}`);
+    params.push(masterVesselId);
+  }
   if (vesselName != null) {
     sets.push(`vessel_name = $${i++}`);
     params.push(vesselName);
@@ -668,44 +716,77 @@ router.patch('/:id/vessel-info', requireAuth, async (req, res) => {
   const b = req.body || {};
 
   const cur = await pool.query(
-    `SELECT id, plan_reference, vessel_name, vessel_capacity, vessel_loa_m, vessel_gross_tonnage, vessel_draft
+    `SELECT id, plan_reference, vessel_name, vessel_capacity, vessel_loa_m, vessel_gross_tonnage, vessel_draft, master_vessel_id
      FROM shipment_plans WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
     [planId, selectedPortId]
   );
   if (cur.rows.length === 0) return res.status(404).json({ error: 'Shipment plan not found' });
   const beforeRow = cur.rows[0];
 
-  const vesselName = typeof b.vessel_name === 'string' ? b.vessel_name.trim() : null;
-  if ('vessel_name' in b && !vesselName) {
-    return res.status(400).json({ error: 'vessel_name cannot be empty' });
-  }
-
-  const patchPositive = (key) => {
-    if (!(key in b)) return undefined;
-    if (b[key] == null || b[key] === '') return { error: `${key} cannot be empty` };
-    const n = Number(b[key]);
-    if (!Number.isFinite(n) || n <= 0) return { error: `${key} must be a positive number` };
-    return n;
-  };
-  const fields = {};
-  for (const key of ['vessel_loa_m', 'vessel_gross_tonnage', 'vessel_draft']) {
-    const v = patchPositive(key);
-    if (v?.error) return res.status(400).json({ error: v.error });
-    if (v !== undefined) fields[key] = v;
-  }
+  const linkedMasterId =
+    beforeRow.master_vessel_id != null ? Number(beforeRow.master_vessel_id) : null;
 
   const sets = [];
   const params = [];
   let i = 1;
-  if (vesselName) {
-    sets.push(`vessel_name = $${i++}`);
-    params.push(vesselName);
+
+  if (linkedMasterId != null) {
+    const rejectMsg = linkedPlanRejectsDirectVesselFields(b);
+    if (rejectMsg) return res.status(400).json({ error: rejectMsg });
+    if (!('master_vessel_id' in b)) {
+      return res.status(400).json({ error: 'Linked plan vessel info can only be changed via master_vessel_id' });
+    }
+    const newMasterId = parseMasterVesselIdBody(b.master_vessel_id);
+    if (newMasterId?.error) return res.status(400).json({ error: newMasterId.error });
+    if (newMasterId !== linkedMasterId) {
+      const masterRow = await loadActiveMasterVessel(pool, newMasterId);
+      if (masterRow?.error) return res.status(400).json({ error: masterRow.error });
+      const snap = planSnapshotFromMasterRow(masterRow);
+      if (snap?.error) return res.status(400).json({ error: snap.error });
+      sets.push(`master_vessel_id = $${i++}`);
+      params.push(snap.master_vessel_id);
+      sets.push(`vessel_name = $${i++}`);
+      params.push(snap.vessel_name);
+      sets.push(`vessel_loa_m = $${i++}`);
+      params.push(snap.vessel_loa_m);
+      sets.push(`vessel_gross_tonnage = $${i++}`);
+      params.push(snap.vessel_gross_tonnage);
+      sets.push(`vessel_draft = $${i++}`);
+      params.push(snap.vessel_draft);
+    }
+  } else {
+    const vesselName = typeof b.vessel_name === 'string' ? b.vessel_name.trim() : null;
+    if ('vessel_name' in b && !vesselName) {
+      return res.status(400).json({ error: 'vessel_name cannot be empty' });
+    }
+
+    const patchPositive = (key) => {
+      if (!(key in b)) return undefined;
+      if (b[key] == null || b[key] === '') return { error: `${key} cannot be empty` };
+      const n = Number(b[key]);
+      if (!Number.isFinite(n) || n <= 0) return { error: `${key} must be a positive number` };
+      return n;
+    };
+    const fields = {};
+    for (const key of ['vessel_loa_m', 'vessel_gross_tonnage', 'vessel_draft']) {
+      const v = patchPositive(key);
+      if (v?.error) return res.status(400).json({ error: v.error });
+      if (v !== undefined) fields[key] = v;
+    }
+
+    if (vesselName) {
+      sets.push(`vessel_name = $${i++}`);
+      params.push(vesselName);
+    }
+    for (const [col, val] of Object.entries(fields)) {
+      sets.push(`${col} = $${i++}`);
+      params.push(val);
+    }
   }
-  for (const [col, val] of Object.entries(fields)) {
-    sets.push(`${col} = $${i++}`);
-    params.push(val);
+  if (sets.length === 0) {
+    const plan = await loadPlan(pool, planId, selectedPortId);
+    return res.json(toPlanListRow({ ...plan, si_count: 0 }));
   }
-  if (sets.length === 0) return res.status(400).json({ error: 'No fields to update' });
   sets.push(`updated_at = NOW()`);
   sets.push(`updated_by = $${i++}`);
   params.push(req.userId ?? null);
