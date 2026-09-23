@@ -27,6 +27,7 @@ const MASTER_SECTIONS = [
     titleKey: 'masterSectionAllPortsTitle',
     hintKey: 'masterSectionAllPortsHint',
     items: [
+      { path: '/master/vessel', titleKey: 'masterHubVesselTitle', descKey: 'masterHubVesselDesc', badgeKey: 'masterBadgeShared', badgeKind: 'shared' },
       { path: '/master/si-term', titleKey: 'masterHubSiTermTitle', descKey: 'masterHubSiTermDesc', badgeKey: 'masterBadgeShared', badgeKind: 'shared' },
       { path: '/master/si-shipper', titleKey: 'masterHubSiShipperTitle', descKey: 'masterHubSiShipperDesc', badgeKey: 'masterBadgeShared', badgeKind: 'shared' },
       { path: '/master/si-loading-port', titleKey: 'masterHubSiLoadingPortTitle', descKey: 'masterHubSiLoadingPortDesc', badgeKey: 'masterBadgeShared', badgeKind: 'shared' },

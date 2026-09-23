@@ -1,0 +1,68 @@
+/* Review screen for a staged DataHub vessel sync. */
+
+.modal--datahub-sync {
+  max-width: 1100px;
+}
+
+.datahub-sync__body {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.datahub-sync__group {
+  margin-bottom: var(--spacing-4, 1rem);
+}
+
+.datahub-sync__group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2, 0.5rem);
+}
+
+.datahub-sync__group-title {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.datahub-sync__group-hint {
+  margin: 0.15rem 0 0.5rem;
+  font-size: 0.85em;
+}
+
+.datahub-sync__diff {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.datahub-sync__diff-field {
+  display: inline-block;
+  min-width: 9rem;
+  font-weight: 600;
+}
+
+.datahub-sync__diff-old {
+  color: var(--color-danger, #c00);
+  text-decoration: line-through;
+}
+
+.datahub-sync__diff-arrow {
+  margin: 0 0.35rem;
+  color: var(--color-steel, #667);
+}
+
+.datahub-sync__diff-new {
+  color: var(--color-success, #0a7);
+  font-weight: 600;
+}
+
+.datahub-sync__unchanged {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+  columns: 3;
+  font-size: 0.9em;
+}
