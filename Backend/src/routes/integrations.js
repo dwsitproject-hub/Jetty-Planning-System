@@ -22,8 +22,10 @@ import {
   resolveTradeTermByCode,
 } from '../lib/integration-master-data.js';
 import {
+  integrationVesselErrorField,
   planSnapshotFromMasterRow,
   resolveMasterVesselForIntegration,
+  validateIntegrationVesselInput,
 } from '../lib/resolve-master-vessel.js';
 import { validateIntegrationCargoMetricRules } from '../lib/si-breakdown-metric.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
@@ -89,12 +91,10 @@ function validateSubmission(body) {
   const portId = Number.parseInt(b.port_id, 10);
   if (!Number.isFinite(portId) || Number.isNaN(portId)) push('port_id', 'required integer');
 
-  const hubCode = asTrimmedString(b.hub_code);
-  if (hubCode.length > 50) push('hub_code', 'max length 50');
-
-  const vesselName = asTrimmedString(b.vessel_name);
-  if (!vesselName) push('vessel_name', 'required');
-  else if (vesselName.length > 200) push('vessel_name', 'max length 200');
+  const vesselInput = validateIntegrationVesselInput(b.vessel_hub_code, b.vessel_name);
+  vesselInput.errors.forEach((e) => push(e.field, e.issue));
+  const hubCode = vesselInput.hubCode;
+  const vesselName = vesselInput.vesselName ?? '';
 
   const voyageNo = asTrimmedString(b.voyage_no);
   if (voyageNo.length > 50) push('voyage_no', 'max length 50');
@@ -191,8 +191,8 @@ function validateSubmission(body) {
     value: {
       externalReference,
       portId,
-      hubCode: hubCode || null,
-      vesselName,
+      hubCode,
+      vesselName: vesselName || null,
       voyageNo: voyageNo || null,
       purpose,
       eta,
@@ -283,6 +283,7 @@ function toStatusResponse(row) {
     requested_by: payload.requested_by ?? null,
     status,
     vessel_name: row.vessel_name,
+    vessel_hub_code: row.master_hub_code ?? null,
     voyage_no: row.voyage_no ?? null,
     purpose: row.purpose ?? payload.purpose ?? null,
     eta: row.eta ? new Date(row.eta).toISOString() : payload.eta ?? null,
@@ -481,6 +482,8 @@ router.post('/shipping-instructions', async (req, res) => {
   let planId;
   let planRef;
   let receivedAt;
+  let resolvedVesselName = null;
+  let resolvedHubCode = null;
   try {
     await client.query('BEGIN');
 
@@ -490,13 +493,22 @@ router.post('/shipping-instructions', async (req, res) => {
     });
     if (masterRow?.error) {
       await client.query('ROLLBACK');
-      return sendIntegrationError(res, 400, [{ field: 'vessel_name', issue: masterRow.error }]);
+      client.release();
+      const field = integrationVesselErrorField(masterRow.error, { hubCode: value.hubCode });
+      return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
+        { field, issue: masterRow.error },
+      ]);
     }
     const vesselSnap = planSnapshotFromMasterRow(masterRow);
     if (vesselSnap?.error) {
       await client.query('ROLLBACK');
-      return sendIntegrationError(res, 400, [{ field: 'vessel_name', issue: vesselSnap.error }]);
+      client.release();
+      return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
+        { field: 'vessel_name', issue: vesselSnap.error },
+      ]);
     }
+    resolvedVesselName = vesselSnap.vessel_name;
+    resolvedHubCode = masterRow.hub_code ?? null;
 
     const planIns = await client.query(
       `INSERT INTO shipment_plans (
@@ -602,7 +614,7 @@ router.post('/shipping-instructions', async (req, res) => {
     entityLabel: planRef,
     summary: `Shipping instruction submitted via integration API (${key.partnerName})`,
     changes: [
-      { field: 'Vessel', from: null, to: value.vesselName },
+      { field: 'Vessel', from: null, to: resolvedVesselName },
       { field: 'External reference', from: null, to: value.externalReference },
       ...(effectiveRequestedBy ? [{ field: 'Requested by', from: null, to: effectiveRequestedBy }] : []),
       { field: 'Approval status', from: null, to: 'Submitted' },
@@ -635,7 +647,8 @@ router.post('/shipping-instructions', async (req, res) => {
     external_reference: value.externalReference,
     requested_by: effectiveRequestedBy,
     status: 'Pending',
-    vessel_name: value.vesselName,
+    vessel_name: resolvedVesselName,
+    vessel_hub_code: resolvedHubCode,
     port_id: value.portId,
     received_at: new Date(receivedAt).toISOString(),
   });
