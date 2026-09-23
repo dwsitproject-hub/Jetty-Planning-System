@@ -6,6 +6,7 @@ const ADMIN_ITEMS = [
   { path: '/admin/users', titleKey: 'adminHubUsersTitle', descKey: 'adminHubUsersDesc' },
   { path: '/admin/roles', titleKey: 'adminHubRolesTitle', descKey: 'adminHubRolesDesc' },
   { path: '/admin/partner-api', titleKey: 'adminHubPartnerApiTitle', descKey: 'adminHubPartnerApiDesc' },
+  { path: '/admin/datahub', titleKey: 'adminHubDataHubTitle', descKey: 'adminHubDataHubDesc' },
   { path: '/admin/notifications', titleKey: 'adminHubNotificationsTitle', descKey: 'adminHubNotificationsDesc' },
   { path: '/admin/notifications/email-log', titleKey: 'adminHubEmailLogTitle', descKey: 'adminHubEmailLogDesc' },
 ]
