@@ -1,4 +1,7 @@
 import { useTranslation } from 'react-i18next'
+import CargoScheduleProgressIndicator, {
+  isCargoBehindSchedule,
+} from '../CargoScheduleProgressIndicator'
 
 function formatQty(n) {
   const v = Number(n)
@@ -56,6 +59,9 @@ export default function BerthBoardCargoCell({ cargoProgress = null }) {
         ) : null}
         <span className={`v2-board-qty-badge ${badgeClass}`}>{t(badgeKey)}</span>
       </span>
+      <CargoScheduleProgressIndicator comparison={cargoProgress} mode="compact" />
     </div>
   )
 }
+
+export { isCargoBehindSchedule }

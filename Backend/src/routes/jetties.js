@@ -6,6 +6,12 @@ import { pool } from '../db.js';
 import { requirePageEdit, requirePageView } from '../middleware/permissions.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { countBlockingOperationsOnJetty, isJettyUnavailableMasterStatus } from '../lib/jetty-blocking.js';
+import {
+  actorUserIdFromReq,
+  masterAuditJoinSql,
+  masterAuditSelectSql,
+  pickMasterAudit,
+} from '../lib/master-row-audit.js';
 
 const VALID_STATUSES = ['Available', 'Out of Service'];
 const MAX_RTSP_LINK_CHARS = 512;
@@ -30,7 +36,7 @@ function parseRequiredSpec(raw, field) {
 const COMMODITY_PURPOSES = ['Loading', 'Unloading'];
 
 const JETTY_SELECT_COLS = `j.id, j.port_id, j.order_no, j.name, j.description, j.rtsp_link, j.status, j.capacity,
-              j.jetty_length_m, j.jetty_draft, j.jetty_dwt, j.created_at, j.updated_at,
+              j.jetty_length_m, j.jetty_draft, j.jetty_dwt, ${masterAuditSelectSql('j')},
               (SELECT COALESCE(json_agg(json_build_object('id', c.id, 'name', c.name, 'shortName', c.short_name, 'commodityType', c.commodity_type) ORDER BY c.name), '[]'::json)
                FROM jetty_commodities jc JOIN si_commodities c ON c.id = jc.commodity_id AND c.deleted_at IS NULL
                WHERE jc.jetty_id = j.id AND jc.operational_purpose = 'Unloading') AS unloading_commodities_json,
@@ -151,6 +157,7 @@ router.get('/', async (req, res) => {
       `SELECT ${JETTY_SELECT_COLS},
               p.name AS port_name
        FROM jetties j JOIN ports p ON j.port_id = p.id AND p.deleted_at IS NULL
+       ${masterAuditJoinSql('j')}
        WHERE j.port_id = $1 AND j.deleted_at IS NULL ORDER BY j.order_no ASC, j.name ASC`,
       [id]
     );
@@ -159,6 +166,7 @@ router.get('/', async (req, res) => {
       `SELECT ${JETTY_SELECT_COLS},
               p.name AS port_name
        FROM jetties j JOIN ports p ON j.port_id = p.id AND p.deleted_at IS NULL
+       ${masterAuditJoinSql('j')}
        WHERE j.deleted_at IS NULL
        ORDER BY p.name ASC, j.order_no ASC, j.name ASC`
     );
@@ -173,6 +181,7 @@ router.get('/:id', async (req, res) => {
     `SELECT ${JETTY_SELECT_COLS},
             p.name AS port_name
      FROM jetties j JOIN ports p ON j.port_id = p.id AND p.deleted_at IS NULL
+     ${masterAuditJoinSql('j')}
      WHERE j.id = $1 AND j.deleted_at IS NULL`,
     [id]
   );
@@ -217,11 +226,12 @@ router.post('/', ...requirePageEdit('master-jetty'), async (req, res) => {
   const capRaw = capacity != null && capacity !== '' ? parseInt(capacity, 10) : null;
   const cap = capRaw == null || Number.isNaN(capRaw) ? null : capRaw;
   if (cap != null && cap < 1) return res.status(400).json({ error: 'capacity must be an integer >= 1' });
+  const actorId = actorUserIdFromReq(req);
   const result = await pool.query(
-    `INSERT INTO jetties (port_id, order_no, name, description, capacity, rtsp_link, jetty_length_m, jetty_draft, jetty_dwt)
-     VALUES ($1, $2, $3, $4, COALESCE($5, 1), $6, $7, $8, $9)
+    `INSERT INTO jetties (port_id, order_no, name, description, capacity, rtsp_link, jetty_length_m, jetty_draft, jetty_dwt, created_by, updated_by)
+     VALUES ($1, $2, $3, $4, COALESCE($5, 1), $6, $7, $8, $9, $10, $10)
      RETURNING id, port_id, order_no, name, description, rtsp_link, status, capacity, jetty_length_m, jetty_draft, jetty_dwt, created_at, updated_at`,
-    [portId, Number.isNaN(orderNo) ? 0 : orderNo, name.trim(), description?.trim() ?? null, cap, rtspLink, lengthM, draft, dwt]
+    [portId, Number.isNaN(orderNo) ? 0 : orderNo, name.trim(), description?.trim() ?? null, cap, rtspLink, lengthM, draft, dwt, actorId]
   );
   const row = result.rows[0];
   await saveJettyCommoditiesByPurpose(row.id, {
@@ -312,6 +322,7 @@ router.put('/:id', ...requirePageEdit('master-jetty'), async (req, res) => {
   const capRaw = capacity != null && capacity !== '' ? parseInt(capacity, 10) : null;
   const cap = capRaw == null || Number.isNaN(capRaw) ? null : capRaw;
   if (cap != null && cap < 1) return res.status(400).json({ error: 'capacity must be an integer >= 1' });
+  const actorId = actorUserIdFromReq(req);
   const result = await pool.query(
     `UPDATE jetties SET
        port_id = COALESCE($1, port_id),
@@ -323,10 +334,11 @@ router.put('/:id', ...requirePageEdit('master-jetty'), async (req, res) => {
        jetty_length_m = $7,
        jetty_draft = $8,
        jetty_dwt = $9,
+       updated_by = $10,
        updated_at = NOW()
-     WHERE id = $10 AND deleted_at IS NULL
+     WHERE id = $11 AND deleted_at IS NULL
      RETURNING id, port_id, order_no, name, description, rtsp_link, status, capacity, jetty_length_m, jetty_draft, jetty_dwt, created_at, updated_at`,
-    [portId, orderNo, cap, name.trim(), description?.trim() ?? null, rtspLink, lengthM, draft, dwt, id]
+    [portId, orderNo, cap, name.trim(), description?.trim() ?? null, rtspLink, lengthM, draft, dwt, actorId, id]
   );
   if (result.rows.length === 0) return res.status(404).json({ error: 'Jetty not found' });
   const row = result.rows[0];
@@ -429,10 +441,11 @@ router.put('/:id/status', ...requirePageEdit('master-jetty'), async (req, res) =
         });
       }
     }
+    const actorId = actorUserIdFromReq(req);
     const up = await client.query(
-      `UPDATE jetties SET status = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL
+      `UPDATE jetties SET status = $1, updated_by = $2, updated_at = NOW() WHERE id = $3 AND deleted_at IS NULL
        RETURNING id, port_id, order_no, name, description, status, created_at, updated_at`,
-      [status, id]
+      [status, actorId, id]
     );
     if (up.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -517,8 +530,7 @@ function toJetty(row) {
     adjacentJettyIds: Array.isArray(row.adjacent_jetty_ids_json)
       ? row.adjacent_jetty_ids_json.map((n) => Number(n))
       : (row.adjacentJettyIds ?? []),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    ...pickMasterAudit(row),
   };
 }
 

@@ -15,6 +15,8 @@ export const MAX_MILESTONE_SUBSTEP_TITLE_CHARS = 100
 
 export const MAX_POSTCHECK_RESULT_CHARS = 500
 export const MAX_SAMPLING_PALKA_FIELD_CHARS = 20
+/** Sampling quality summary values (FFA/Moisture average, DOBI, Iodine Value) */
+export const MAX_SAMPLING_METRIC_CHARS = 10
 
 export const MAX_LOGIN_USERNAME_CHARS = 50
 /** Login identifier field accepts username or email (RFC 5321 local+domain max). */
@@ -25,6 +27,8 @@ export const MAX_MASTER_JETTY_NAME_CHARS = 100
 export const MAX_MASTER_DESCRIPTION_CHARS = 100
 export const MAX_RTSP_LINK_CHARS = 512
 export const MAX_MASTER_PORT_NAME_CHARS = 100
+/** Optional full legal / long name on Master Shipper, Surveyor, Agent */
+export const MAX_MASTER_LONG_NAME_CHARS = 200
 
 export const MAX_SI_BL_SPLIT_CHARS = 50
 export const MAX_SI_BILL_OF_LADING_CLAUSE_CHARS = 200

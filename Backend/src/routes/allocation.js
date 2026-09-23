@@ -16,6 +16,7 @@ import { requirePageView, requirePageViewAny, userHasPageEdit } from '../middlew
 import { JETTY_OUT_OF_SERVICE } from '../lib/jetty-blocking.js';
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
 import { enrichRowsWithCargoDisplay } from '../lib/siBreakdownDisplay.js';
+import { buildScheduleComparisonFromOverviewRow } from '../lib/operational-progress.js';
 import { validateMultiJettySelection } from '../lib/multi-jetty.js';
 import {
   SI_REFERENCE_BERTHING_ERROR,
@@ -417,7 +418,7 @@ async function selectOperationRecordStamp(operationId) {
 
 function formatListRow(r) {
   // Keep a shape similar to existing Allocation.jsx expectations.
-  return {
+  const row = {
     id: String(r.row_id),
     jettyOperationCode: r.jetty_operation_code ?? undefined,
     sequence: r.sequence != null ? Number(r.sequence) : null,
@@ -475,6 +476,7 @@ function formatListRow(r) {
     shiftingOutAt: r.shifting_out_at || null,
     completionPercent: r.completion_percent != null ? Number(r.completion_percent) : 0,
     cargoMovedQty: r.cargo_moved_qty != null ? Number(r.cargo_moved_qty) : 0,
+    cargoSiQty: r.cargo_si_qty != null ? Number(r.cargo_si_qty) : null,
     cargoFirstLoggedAt: r.cargo_first_started_at || null,
     cargoLastLoggedAt: r.cargo_last_ended_at || null,
     source: r.source_kind,
@@ -489,6 +491,10 @@ function formatListRow(r) {
     recordLastUpdatedByDisplayName:
       r.record_last_updated_by_display_name ?? r.recordLastUpdatedByDisplayName ?? null,
   };
+  if (row.operationId != null) {
+    row.scheduleComparison = buildScheduleComparisonFromOverviewRow(row);
+  }
+  return row;
 }
 
 /** Rank for choosing one occupant when several operations share the same shipment plan on one jetty. */
@@ -567,6 +573,9 @@ function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = 
         cargo_agg.moved_qty AS cargo_moved_qty,
         cargo_agg.first_started_at AS cargo_first_started_at,
         cargo_agg.last_ended_at AS cargo_last_ended_at,
+        (SELECT SUM(b.qty::numeric)
+         FROM shipping_instruction_breakdown b
+         WHERE b.shipping_instruction_id = si.id AND b.deleted_at IS NULL) AS cargo_si_qty,
         opening_agg.start_at AS opening_hatch_start_datetime,
         opening_agg.method_name AS opening_cargo_handling_method_name,
         COALESCE(sp.sequence, o.sequence) AS sequence,

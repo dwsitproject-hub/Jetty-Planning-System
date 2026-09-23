@@ -39,6 +39,17 @@ async function listMigrationFiles() {
     .sort();
 }
 
+async function syncSchemaMigrationsSequence(client) {
+  // After DB restore or manual inserts, BIGSERIAL can lag behind MAX(id) and cause
+  // "duplicate key value violates unique constraint schema_migrations_pkey" on insert.
+  await client.query(`
+    SELECT setval(
+      pg_get_serial_sequence('schema_migrations', 'id'),
+      COALESCE((SELECT MAX(id) FROM schema_migrations), 0)
+    );
+  `);
+}
+
 async function applyMigration(name) {
   const fullPath = path.join(migrationsDir, name);
   const sql = await fs.readFile(fullPath, 'utf8');
@@ -50,6 +61,7 @@ async function applyMigration(name) {
     if (sql.trim().length > 0) {
       await client.query(sql);
     }
+    await syncSchemaMigrationsSequence(client);
     await client.query(`INSERT INTO schema_migrations (name) VALUES ($1);`, [name]);
     await client.query('COMMIT');
   } catch (err) {

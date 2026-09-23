@@ -1,20 +1,22 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchOperations, fetchAtBerth, fetchSubProcesses, fetchOperationalActivities, fetchAtBerthCargoProgress } from '../../api/operations'
+import { fetchAllocationOverview, fetchAllocationPlanOverview } from '../../api/allocation'
 import { fetchShipmentPlans } from '../../api/shipmentPlans'
+import ActiveVesselDetailModal from '../allocation/ActiveVesselDetailModal'
 import { fetchDashboardV2Weekly, fetchDashboardV2PipelineActuals, fetchDashboardV2SlotOccupancy, fetchDashboardV2SlaAtRisk, fetchDashboardV2AtgSyncHealth } from '../../api/dashboardV2'
 import { fetchJetties } from '../../api/jetties'
 import { fetchSiLookups } from '../../api/siLookups'
 import { useTranslation } from 'react-i18next'
 import { usePortScope } from '../../context/PortScopeContext'
 import { useRbac } from '../../context/RbacContext'
-import { formatDateDisplay, formatDateTimeDisplay, getAppLocaleTag } from '../../utils/formatDateTimeDisplay'
+import { formatDateDisplay, formatDateTimeCompact, formatDateTimeDisplay, getAppLocaleTag } from '../../utils/formatDateTimeDisplay'
 import InteractiveTooltip from '../InteractiveTooltip'
 import WidgetDetailModal from '../WidgetDetailModal'
 import DashboardV2WeeklyTrends from '../DashboardV2WeeklyTrends'
 import DropdownMultiSelect from '../DropdownMultiSelect'
 import DateRangePicker from './DateRangePicker'
-import BerthBoardCargoCell from './BerthBoardCargoCell'
+import BerthBoardCargoCell, { isCargoBehindSchedule } from './BerthBoardCargoCell'
 import { computePipelinePartition } from '../../utils/dashboardPipelinePartition'
 import { isLegacyVesselPipelineEnabled } from '../../utils/pipelineActualsBeta'
 import {
@@ -26,6 +28,17 @@ import {
   filterOps,
   pruneInvalidCommoditySelection,
 } from '../../utils/dashboardFilters'
+import {
+  ARRIVALS_WINDOW_DEFAULT_DAYS,
+  ARRIVALS_WINDOW_OPTIONS,
+  evaluateArrivalPlan,
+  getArrivalsSectionTitle,
+  isWaitingToBerth,
+  planCommodityShortLabels,
+  planCommodityTitle,
+} from '../../utils/dashboardArrivalsWindow'
+import { commodityLongTitle } from '../../utils/commodityShortTitle.js'
+import { SAILED_LOOKBACK_MS, summarizeSailedSince } from '../../utils/dashboardSailed'
 import {
   AT_BERTH_PHASES,
   PHASE_EMOJI,
@@ -44,6 +57,16 @@ import {
 } from '../../utils/dashboardPageUtils'
 import '../../styles/dashboard.css'
 import '../../styles/allocation.css'
+
+function ArrivalsHintButton({ title, hint, ariaLabel }) {
+  return (
+    <InteractiveTooltip title={title} subtitle={hint} emptyText="" interactiveChild>
+      <button type="button" className="v2-arrivals__hint-btn" aria-label={ariaLabel}>
+        i
+      </button>
+    </InteractiveTooltip>
+  )
+}
 
 function atgHostLabel(baseUrl) {
   try {
@@ -76,6 +99,9 @@ export default function DashboardShell({ mode = 'live' }) {
   const [berthDetails, setBerthDetails] = useState({})
   const [cargoProgressByOpId, setCargoProgressByOpId] = useState({})
   const [nowTick, setNowTick] = useState(() => Date.now())
+  const [arrivalsWindowDays, setArrivalsWindowDays] = useState(ARRIVALS_WINDOW_DEFAULT_DAYS)
+  const [activeVesselModal, setActiveVesselModal] = useState(null)
+  const [allocationModalData, setAllocationModalData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [weeklyLoading, setWeeklyLoading] = useState(false)
   const [apiErr, setApiErr] = useState(null)
@@ -153,44 +179,29 @@ export default function DashboardShell({ mode = 'live' }) {
     }
 
     if (isLive) {
-      const arrivalsStart = new Date()
-      arrivalsStart.setDate(arrivalsStart.getDate() - 1)
-      const arrivalsEnd = new Date()
-      arrivalsEnd.setDate(arrivalsEnd.getDate() + 3)
-
-      const [rAtBerth, rJetties, rArrivals, rCargoProgress] = await Promise.all([
+      const sailedSinceIso = new Date(Date.now() - SAILED_LOOKBACK_MS).toISOString()
+      const [rAtBerth, rJetties, rArrivals, rCargoProgress, rSailed] = await Promise.all([
         run('at-berth', fetchAtBerth),
         run('jetties', () => fetchJetties(selectedPortId)),
-        run('arrivals', () => fetchShipmentPlans({
-          startDate: fmtLocalDate(arrivalsStart),
-          endDate: fmtLocalDate(arrivalsEnd),
-        })),
+        run('arrivals', () => fetchShipmentPlans()),
         run('cargo-progress', fetchAtBerthCargoProgress),
+        run('sailed', () => fetchOperations({ status: 'SAILED', castOffFrom: sailedSinceIso })),
       ])
 
       setPlans([])
       setOps([])
-      setAllOps([])
+      setAllOps(Array.isArray(rSailed.v) ? rSailed.v : [])
       setAtBerth(Array.isArray(rAtBerth.v) ? rAtBerth.v : [])
       setJetties(Array.isArray(rJetties.v) ? rJetties.v : [])
       setArrivalPlans(Array.isArray(rArrivals.v) ? rArrivals.v : [])
       setCargoProgressByOpId(rCargoProgress.v?.summaries ?? {})
     } else {
-      // Arrivals window is live (yesterday → +3 days), independent of the selected range
-      const arrivalsStart = new Date()
-      arrivalsStart.setDate(arrivalsStart.getDate() - 1)
-      const arrivalsEnd = new Date()
-      arrivalsEnd.setDate(arrivalsEnd.getDate() + 3)
-
       const [rPlans, rOps, rAtBerth, rJetties, rArrivals, rAllOps] = await Promise.all([
         run('plans', () => fetchShipmentPlans({ startDate, endDate })),
         run('operations', () => fetchOperations({ startDate, endDate })),
         run('at-berth', fetchAtBerth),
         run('jetties', () => fetchJetties(selectedPortId)),
-        run('arrivals', () => fetchShipmentPlans({
-          startDate: fmtLocalDate(arrivalsStart),
-          endDate: fmtLocalDate(arrivalsEnd),
-        })),
+        run('arrivals', () => fetchShipmentPlans()),
         run('operations-all', () => fetchOperations()),
       ])
 
@@ -206,6 +217,54 @@ export default function DashboardShell({ mode = 'live' }) {
     setLastUpdated(new Date())
     setLoading(false)
   }, [selectedPortId, startDate, endDate, isLive, isAnalytics])
+
+  const refreshAllocationForModal = useCallback(async () => {
+    if (selectedPortId == null) {
+      setAllocationModalData(null)
+      return null
+    }
+    try {
+      let data
+      try {
+        data = await fetchAllocationPlanOverview()
+      } catch {
+        data = await fetchAllocationOverview()
+      }
+      const payload = {
+        queue: Array.isArray(data?.queue) ? data.queue : [],
+        scheduleQueue: Array.isArray(data?.scheduleQueue) ? data.scheduleQueue : [],
+        berths: Array.isArray(data?.berths) ? data.berths : [],
+      }
+      setAllocationModalData(payload)
+      return payload
+    } catch {
+      setAllocationModalData(null)
+      return null
+    }
+  }, [selectedPortId])
+
+  useEffect(() => {
+    if (!isLive || selectedPortId == null) {
+      setAllocationModalData(null)
+      return undefined
+    }
+    refreshAllocationForModal()
+    return undefined
+  }, [isLive, selectedPortId, refreshAllocationForModal])
+
+  const openAtBerthVesselModal = useCallback(async (row) => {
+    if (row?.operationId == null) return
+    let data = allocationModalData
+    if (!data) {
+      data = await refreshAllocationForModal()
+    }
+    const pool = [...(data?.queue ?? []), ...(data?.scheduleQueue ?? [])]
+    const match = pool.find((r) => Number(r.operationId) === Number(row.operationId))
+    setActiveVesselModal({
+      vesselId: match?.vesselId ?? `op-${row.operationId}`,
+      planId: match?.shipmentPlanId ?? row.shipmentPlanId ?? null,
+    })
+  }, [allocationModalData, refreshAllocationForModal])
 
   const refreshWeekly = useCallback(async () => {
     if (selectedPortId == null) {
@@ -471,10 +530,10 @@ export default function DashboardShell({ mode = 'live' }) {
   const commodityIndex = useMemo(
     () => buildPlanCommodityIndex(
       isLive ? arrivalPlans : plans,
-      isLive ? atBerth : ops,
+      isLive ? [...atBerth, ...allOps] : ops,
       commodityIdByName
     ),
-    [isLive, arrivalPlans, atBerth, plans, ops, commodityIdByName]
+    [isLive, arrivalPlans, atBerth, allOps, plans, ops, commodityIdByName]
   )
 
   const filters = useMemo(() => ({
@@ -521,11 +580,12 @@ export default function DashboardShell({ mode = 'live' }) {
 
   const rejectedPlanIds = useMemo(() => {
     const s = new Set()
-    for (const p of filteredPlans) {
+    const source = isLive ? arrivalPlans : filteredPlans
+    for (const p of source) {
       if (p.approvalStatus === 'Rejected') s.add(p.id)
     }
     return s
-  }, [filteredPlans])
+  }, [isLive, arrivalPlans, filteredPlans])
 
   // ─── At-berth phase counts (from live at-berth data, refined by sub-process detail) ──
   const atBerthCounts = useMemo(() => {
@@ -544,8 +604,8 @@ export default function DashboardShell({ mode = 'live' }) {
   }), [atBerthCounts])
 
   const filteredAllOps = useMemo(
-    () => filterOps(allOps, filters, commodityIndex, plans),
-    [allOps, filters, commodityIndex, plans]
+    () => filterOps(allOps, filters, commodityIndex, indexPlans),
+    [allOps, filters, commodityIndex, indexPlans]
   )
 
   // ─── Live operational stages (same source as At Berth Now / occupancy).
@@ -608,13 +668,18 @@ export default function DashboardShell({ mode = 'live' }) {
     return { count, qty, rows }
   }, [filteredAllOps, rejectedPlanIds, startDate, endDate])
 
+  const sailedLast72h = useMemo(
+    () => summarizeSailedSince(filteredAllOps, nowTick - SAILED_LOOKBACK_MS, parseIso, rejectedPlanIds),
+    [filteredAllOps, nowTick, rejectedPlanIds],
+  )
+
   // Bottom clearance row — live/range figures matching the pipeline stages
   const opStats = useMemo(() => ({
     atBerth: pipelineLive.atBerth,
     signoffApproved: pipelineLive.readyToSail,
     signoffRequested: pipelineLive.signoffRequested,
-    sailed: sailedInRange.count,
-  }), [pipelineLive, sailedInRange.count])
+    sailed: isLive ? sailedLast72h.count : sailedInRange.count,
+  }), [isLive, pipelineLive, sailedInRange.count, sailedLast72h.count])
 
   const slotOccupancyIsTodayOnly = isLive || isTodayOnlyRange(kpiStartDate, kpiEndDate)
   const slotOccupancyIsRange = !isLive && kpiStartDate !== kpiEndDate
@@ -628,30 +693,6 @@ export default function DashboardShell({ mode = 'live' }) {
     const pct = total > 0 ? Math.round((healthy / total) * 100) : 0
     return { total, stale, healthy, pct }
   }, [atgSyncHealthData])
-
-  // ─── Jetty status ─────────────────────────────────────────────────────────
-  const jettyStatusCounts = useMemo(() => {
-    const m = { Available: 0, 'Out of Service': 0 }
-    for (const j of jetties) {
-      const s = j.status || 'Available'
-      if (s === 'Out of Service') m['Out of Service'] += 1
-      else m.Available += 1
-    }
-    return m
-  }, [jetties])
-
-  const jettyStatusLists = useMemo(() => {
-    const avail = [], oos = []
-    for (const j of jetties) {
-      const name = (j?.name || '').trim()
-      const label = name.replace(/^Jetty\s+/i, '').trim() || name || '—'
-      if ((j?.status || '') === 'Out of Service') oos.push(label)
-      else avail.push(label)
-    }
-    avail.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-    oos.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-    return { avail, oos }
-  }, [jetties])
 
   // ─── Performance (from plans + ops, both filtered by date range) ──────────
   const performance = useMemo(() => {
@@ -716,6 +757,10 @@ export default function DashboardShell({ mode = 'live' }) {
 
   // ─── Berth board (live): one row per operation alongside ──────────────────
   const berthBoard = useMemo(() => {
+    const planById = new Map()
+    for (const p of indexPlans) {
+      if (p?.id != null) planById.set(Number(p.id), p)
+    }
     const rows = filteredAtBerth.map((o) => {
       const tb = parseIso(o.tbAt || o.dockingStartTime)
       const etc = parseIso(o.estimatedCompletionTime)
@@ -727,14 +772,31 @@ export default function DashboardShell({ mode = 'live' }) {
         etcDeltaH = (etc.getTime() - nowTick) / 3600000
         etcState = opsFinished ? 'done' : etcDeltaH < 0 ? 'over' : etcDeltaH < 12 ? 'soon' : 'ok'
       }
+      const fromPlan = planCommodityShortLabels(planById.get(Number(o.shipmentPlanId)))
+      const short = String(o.commodityShortDisplay || '').trim()
+      const long = String(o.commodityDisplay || o.commodity || '').trim()
+      const shortIsUsable = short && short !== '—' && short !== long
+      const commodity = shortIsUsable
+        ? short
+        : (fromPlan && fromPlan !== '—')
+          ? fromPlan
+          : (long && long !== '—')
+            ? long
+            : '—'
       return {
         id: o.id,
+        operationId: o.id,
+        shipmentPlanId: o.shipmentPlanId ?? null,
         vesselName: o.vesselName || `Op #${o.id}`,
         code: o.jettyOperationCode,
         jettyName: o.jettyName || '—',
         purpose: o.purpose,
         status: o.status,
         phase: phaseForCardDetailed(o, berthDetails[o.id]),
+        commodity,
+        commodityTitle:
+          commodityLongTitle(commodity, long)
+          || planCommodityTitle(planById.get(Number(o.shipmentPlanId))),
         alongsideHours: tb ? (nowTick - tb.getTime()) / 3600000 : null,
         etcState,
         etcDeltaH,
@@ -746,7 +808,7 @@ export default function DashboardShell({ mode = 'live' }) {
     })
     rows.sort((a, b) => (b.alongsideHours ?? 0) - (a.alongsideHours ?? 0))
     return rows
-  }, [filteredAtBerth, berthDetails, cargoProgressByOpId, nowTick])
+  }, [filteredAtBerth, berthDetails, cargoProgressByOpId, indexPlans, nowTick])
 
   // ─── Ops finished but not cast off (live clearance-lag alert) ──────────────
   const awaitingDeparture = useMemo(() => {
@@ -766,45 +828,68 @@ export default function DashboardShell({ mode = 'live' }) {
     return rows
   }, [filteredAtBerth, nowTick])
 
-  // ─── Arriving soon (live window: overdue ≤24h + next 72h, not alongside) ──
-  const arrivals = useMemo(() => {
+  const arrivalsSectionTitle = useMemo(
+    () => getArrivalsSectionTitle(arrivalsWindowDays, t),
+    [arrivalsWindowDays, t],
+  )
+
+  const waitingToBerth = useMemo(() => {
     const rows = []
     for (const p of filterPlans(arrivalPlans, filters)) {
       if (p.approvalStatus === 'Rejected') continue
-      if (parseIso(p.tb) || parseIso(p.sailedAt)) continue
-      const etb = parseIso(p.etb)
-      const eta = parseIso(p.eta)
-      const when = etb || eta
-      if (!when) continue
-      const tMs = when.getTime()
-      if (tMs > nowTick + 72 * 3600000 || tMs < nowTick - 24 * 3600000) continue
-      const names = new Set()
-      for (const si of p.shippingInstructions || []) {
-        for (const line of si.breakdown || []) {
-          if (line?.commodityName) names.add(line.commodityName)
-        }
-      }
+      if (!isWaitingToBerth(p, parseIso)) continue
+      const ta = parseIso(p.ta)
       rows.push({
         id: p.id,
         vesselName: p.vesselName || `Plan #${p.id}`,
         jettyName: p.jettyName,
         purpose: p.purposeCode,
-        whenIso: etb ? p.etb : p.eta,
-        whenKind: etb ? 'ETB' : 'ETA',
-        inHours: (tMs - nowTick) / 3600000,
-        overdue: tMs < nowTick,
-        anchored: !!parseIso(p.ta),
+        taIso: p.ta || null,
+        etbIso: p.etb || null,
+        tbIso: p.tb || null,
+        taMs: ta ? ta.getTime() : Number.POSITIVE_INFINITY,
         qtyMt: Number.isFinite(Number(p.vesselCapacity)) && Number(p.vesselCapacity) > 0
           ? Number(p.vesselCapacity)
           : null,
-        commodity: [...names].join(' · ') || '—',
+        commodity: planCommodityShortLabels(p),
+        commodityTitle: planCommodityTitle(p),
+        approvalStatus: p.approvalStatus,
+        agentName: p.agentName,
+      })
+    }
+    rows.sort((a, b) => a.taMs - b.taMs)
+    return rows
+  }, [arrivalPlans, filters])
+
+  // ─── Arriving soon (no TA; overdue ETA + ETA within selected period) ──
+  const arrivals = useMemo(() => {
+    const rows = []
+    for (const p of filterPlans(arrivalPlans, filters)) {
+      if (p.approvalStatus === 'Rejected') continue
+      if (parseIso(p.tb) || parseIso(p.sailedAt)) continue
+      const evalResult = evaluateArrivalPlan(p, nowTick, arrivalsWindowDays, parseIso)
+      if (!evalResult) continue
+      rows.push({
+        id: p.id,
+        vesselName: p.vesselName || `Plan #${p.id}`,
+        jettyName: p.jettyName,
+        purpose: p.purposeCode,
+        etaIso: p.eta || null,
+        etbIso: p.etb || null,
+        inHours: evalResult.inHours,
+        overdue: evalResult.overdue,
+        qtyMt: Number.isFinite(Number(p.vesselCapacity)) && Number(p.vesselCapacity) > 0
+          ? Number(p.vesselCapacity)
+          : null,
+        commodity: planCommodityShortLabels(p),
+        commodityTitle: planCommodityTitle(p),
         approvalStatus: p.approvalStatus,
         agentName: p.agentName,
       })
     }
     rows.sort((a, b) => a.inHours - b.inHours)
     return rows
-  }, [arrivalPlans, filters, nowTick])
+  }, [arrivalPlans, arrivalsWindowDays, filters, nowTick])
 
   // ─── Tonnage in the selected range: planned (plans, ETA window) vs sailed
   // (cast-off within range — shares sailedInRange so it matches the pipeline) ──
@@ -1495,23 +1580,6 @@ export default function DashboardShell({ mode = 'live' }) {
 
         {isLive && (
         <>
-        {/* Jetty Status */}
-        <div className="v2-kpi-card">
-          <div className="v2-kpi-card__label">{t('jettyStatus')} <span className="v2-basis-chip">{t('v2BasisLive')}</span></div>
-          <div className="v2-kpi-card__jetty-row">
-            <InteractiveTooltip title={t('jettyTooltipAvail')} items={jettyStatusLists.avail.map((l) => ({ primary: l }))} emptyText={t('jettyEmptyAvail')}>
-              <span className="v2-kpi-jetty-chip v2-kpi-jetty-chip--ok">
-                ✓ {t('available')} <strong>{jettyStatusCounts.Available}</strong>
-              </span>
-            </InteractiveTooltip>
-            <InteractiveTooltip title={t('jettyTooltipOos')} items={jettyStatusLists.oos.map((l) => ({ primary: l }))} emptyText={t('jettyEmptyOos')}>
-              <span className="v2-kpi-jetty-chip v2-kpi-jetty-chip--bad">
-                ✕ {t('outOfService')} <strong>{jettyStatusCounts['Out of Service']}</strong>
-              </span>
-            </InteractiveTooltip>
-          </div>
-        </div>
-
         {/* Awaiting departure: ops finished, not cast off (clearance lag) */}
         <div className={`v2-kpi-card${awaitingDeparture.length > 0 ? ' v2-kpi-card--accent-amber' : ''}`}>
           <div className="v2-kpi-card__label">{t('v2AwaitDeparture')} <span className="v2-basis-chip">{t('v2BasisLive')}</span></div>
@@ -1571,6 +1639,7 @@ export default function DashboardShell({ mode = 'live' }) {
                       <th>{t('v2BoardJetty')}</th>
                       <th>{t('v2FilterPurpose')}</th>
                       <th>{t('v2BoardPhase')}</th>
+                      <th>{t('v2ArrivalsCommodity')}</th>
                       <th className="v2-board-r">{t('v2BoardCargoMoved')}</th>
                       <th className="v2-board-r">{t('v2BoardAlongside')}</th>
                       <th className="v2-board-r">{t('v2BoardEtc')}</th>
@@ -1579,9 +1648,26 @@ export default function DashboardShell({ mode = 'live' }) {
                   </thead>
                   <tbody>
                     {berthBoard.map((r) => (
-                      <tr key={r.id}>
+                      <tr
+                        key={r.id}
+                        className={[
+                          'v2-berth-board__row',
+                          isCargoBehindSchedule(r.cargoProgress) ? 'cargo-schedule-behind' : null,
+                        ].filter(Boolean).join(' ')}
+                        role="button"
+                        tabIndex={0}
+                        title={t('v2BoardVesselOpenDetail')}
+                        aria-label={t('v2BoardVesselOpenDetailNamed', { name: r.vesselName })}
+                        onClick={() => openAtBerthVesselModal(r)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            openAtBerthVesselModal(r)
+                          }
+                        }}
+                      >
                         <td>
-                          <b>{r.vesselName}</b>
+                          <b className="v2-berth-board__vessel-link">{r.vesselName}</b>
                           {r.code ? <span className="v2-board-code">{r.code}</span> : null}
                         </td>
                         <td>{r.jettyName}</td>
@@ -1595,6 +1681,7 @@ export default function DashboardShell({ mode = 'live' }) {
                             ? `${PHASE_EMOJI[r.phase] || ''} ${phaseShortLabel[r.phase]}`
                             : r.readyToSail ? `✅ ${t('clearanceReady')}` : `⚠ ${t('clearancePendingSignOff')}`}
                         </td>
+                        <td className="v2-arrivals__commodity" title={r.commodityTitle}>{r.commodity}</td>
                         <td className="v2-board-r">
                           <BerthBoardCargoCell cargoProgress={r.cargoProgress} />
                         </td>
@@ -1640,34 +1727,167 @@ export default function DashboardShell({ mode = 'live' }) {
                 <span>{t('clearancePendingSignOff')}</span>
                 <strong>{opStats.signoffRequested}</strong>
               </div>
-              <div className="v2-clearance-card v2-clearance-card--sailed">
-                <span aria-hidden>🚀</span>
-                <span>{t('clearanceSailed')}</span>
-                <strong>{opStats.sailed}</strong>
-              </div>
+              <InteractiveTooltip
+                title={t('clearanceSailed')}
+                subtitle={t('clearanceSailed72hHint', { count: sailedLast72h.count })}
+                emptyText={t('clearanceSailed72hEmpty')}
+                items={sailedLast72h.vessels.map((v) => ({
+                  primary: v.vesselName,
+                  secondary: t('clearanceSailed72hItem', {
+                    jetty: v.jettyName,
+                    opId: v.operationCode || (v.id != null ? `#${v.id}` : '—'),
+                    when: formatDateTimeCompact(new Date(v.offMs).toISOString()),
+                  }),
+                }))}
+                maxWidth={380}
+                maxHeight={260}
+                placement="top"
+                interactiveChild
+              >
+                <div
+                  className="v2-clearance-card v2-clearance-card--sailed"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${t('clearanceSailed72hAria')}: ${opStats.sailed}`}
+                >
+                  <span aria-hidden>🚀</span>
+                  <span>{t('clearanceSailed')}</span>
+                  <strong>{opStats.sailed}</strong>
+                </div>
+              </InteractiveTooltip>
             </div>
           </>
         )}
       </section>
 
-      {/* ── Arriving soon (live, next 72h) ── */}
+      <ActiveVesselDetailModal
+        vesselId={activeVesselModal?.vesselId ?? null}
+        planId={activeVesselModal?.planId ?? null}
+        onClose={() => setActiveVesselModal(null)}
+        readOnly
+        isPlanCentric
+        canEditAllocation={false}
+        queueList={allocationModalData?.queue ?? []}
+        scheduleList={allocationModalData?.scheduleQueue ?? []}
+        berthsState={allocationModalData?.berths ?? []}
+        onRefreshOverview={refreshAllocationForModal}
+      />
+
+      <div className="v2-preberth-row">
       <section className="card v2-arrivals">
         <div className="v2-atberth__head">
-          <h2 className="card__title">{t('v2ArrivalsTitle')} <span className="v2-basis-chip">{t('v2BasisLive')}</span></h2>
+          <h2 className="card__title">
+            <span className="v2-arrivals__title-wrap">
+              {t('v2WaitingToBerthTitle')}
+              <span className="v2-basis-chip">{t('v2BasisLive')}</span>
+              <ArrivalsHintButton
+                title={t('v2WaitingToBerthTitle')}
+                hint={t('v2WaitingToBerthHint')}
+                ariaLabel={t('v2WaitingToBerthHintAria')}
+              />
+            </span>
+          </h2>
           <Link to="/allocation-plans" className="btn btn--small btn--primary">{t('viewAll')}</Link>
         </div>
-        <p className="v2-arrivals__hint">{t('v2ArrivalsHint')}</p>
         {loading ? (
           <p className="text-steel">{t('loadingEllipsis')}</p>
-        ) : arrivals.length === 0 ? (
-          <p className="text-steel">{t('v2ArrivalsEmpty')}</p>
+        ) : waitingToBerth.length === 0 ? (
+          <p className="text-steel">{t('v2WaitingToBerthEmpty')}</p>
         ) : (
           <div className="table-wrap">
             <table className="data-table">
               <thead>
                 <tr>
                   <th>{t('v2BoardVessel')}</th>
-                  <th>{t('v2ArrivalsWhen')}</th>
+                  <th>{t('v2ArrivalsTa')}</th>
+                  <th>{t('v2ArrivalsEtb')}</th>
+                  <th>{t('v2ArrivalsTb')}</th>
+                  <th>{t('v2BoardJetty')}</th>
+                  <th>{t('v2FilterPurpose')}</th>
+                  <th>{t('v2ArrivalsCommodity')}</th>
+                  <th className="v2-board-r">{t('v2ArrivalsQty')}</th>
+                  <th>{t('v2ArrivalsStatus')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {waitingToBerth.map((a) => (
+                  <tr key={a.id}>
+                    <td>
+                      <b>{a.vesselName}</b>
+                      {a.agentName ? <span className="v2-board-code">{a.agentName}</span> : null}
+                    </td>
+                    <td>{a.taIso ? formatDateTimeCompact(a.taIso) : '—'}</td>
+                    <td>{a.etbIso ? formatDateTimeCompact(a.etbIso) : '—'}</td>
+                    <td>{a.tbIso ? formatDateTimeCompact(a.tbIso) : '—'}</td>
+                    <td>{a.jettyName || '—'}</td>
+                    <td>
+                      {a.purpose ? (
+                        <span className={`v2-board-chip v2-board-chip--${a.purpose === 'Loading' ? 'load' : 'disch'}`}>
+                          {a.purpose === 'Loading' ? t('purposeLoading') : t('purposeUnloading')}
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td className="v2-arrivals__commodity" title={a.commodityTitle}>{a.commodity}</td>
+                    <td className="v2-board-r">{a.qtyMt != null ? a.qtyMt.toLocaleString(getAppLocaleTag()) : '—'}</td>
+                    <td>
+                      <span className={`v2-board-chip ${a.approvalStatus === 'Approved' ? 'v2-board-chip--ok' : 'v2-board-chip--ghost'}`}>
+                        {a.approvalStatus}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="card v2-arrivals">
+        <div className="v2-atberth__head">
+          <h2 className="card__title">
+            <span className="v2-arrivals__title-wrap">
+              {arrivalsSectionTitle}
+              <span className="v2-basis-chip">{t('v2BasisLive')}</span>
+              <ArrivalsHintButton
+                title={arrivalsSectionTitle}
+                hint={t('v2ArrivalsHint', { days: arrivalsWindowDays })}
+                ariaLabel={t('v2ArrivalsHintAria')}
+              />
+            </span>
+          </h2>
+          <div className="v2-arrivals__head-actions">
+            <div
+              className="v2-arrivals__window"
+              role="group"
+              aria-label={t('v2ArrivalsWindowAria')}
+            >
+              {ARRIVALS_WINDOW_OPTIONS.map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  className={`btn btn--small ${arrivalsWindowDays === d ? 'btn--primary' : 'btn--ghost'}`}
+                  aria-pressed={arrivalsWindowDays === d}
+                  onClick={() => setArrivalsWindowDays(d)}
+                >
+                  {t(`v2ArrivalsWindow${d}d`)}
+                </button>
+              ))}
+            </div>
+            <Link to="/allocation-plans" className="btn btn--small btn--primary">{t('viewAll')}</Link>
+          </div>
+        </div>
+        {loading ? (
+          <p className="text-steel">{t('loadingEllipsis')}</p>
+        ) : arrivals.length === 0 ? (
+          <p className="text-steel">{t('v2ArrivalsEmpty', { days: arrivalsWindowDays })}</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>{t('v2BoardVessel')}</th>
+                  <th>{t('v2ArrivalsEta')}</th>
+                  <th>{t('v2ArrivalsEtb')}</th>
                   <th>{t('v2BoardJetty')}</th>
                   <th>{t('v2FilterPurpose')}</th>
                   <th>{t('v2ArrivalsCommodity')}</th>
@@ -1683,15 +1903,15 @@ export default function DashboardShell({ mode = 'live' }) {
                       {a.agentName ? <span className="v2-board-code">{a.agentName}</span> : null}
                     </td>
                     <td>
-                      {a.whenKind} {formatDateTimeDisplay(a.whenIso)}
+                      {a.etaIso ? formatDateTimeCompact(a.etaIso) : '—'}
                       {' '}
                       {a.overdue ? (
                         <span className="v2-board-chip v2-board-chip--over">{t('v2ArrivalsOverdue')}</span>
-                      ) : (
+                      ) : a.etaIso ? (
                         <span className="v2-board-chip v2-board-chip--ghost">{formatDurationHours(a.inHours)}</span>
-                      )}
-                      {a.anchored && <span className="v2-board-chip v2-board-chip--soon">{t('v2ArrivalsAnchored')}</span>}
+                      ) : null}
                     </td>
+                    <td>{a.etbIso ? formatDateTimeCompact(a.etbIso) : '—'}</td>
                     <td>{a.jettyName || '—'}</td>
                     <td>
                       {a.purpose ? (
@@ -1700,7 +1920,7 @@ export default function DashboardShell({ mode = 'live' }) {
                         </span>
                       ) : '—'}
                     </td>
-                    <td className="v2-arrivals__commodity">{a.commodity}</td>
+                    <td className="v2-arrivals__commodity" title={a.commodityTitle}>{a.commodity}</td>
                     <td className="v2-board-r">{a.qtyMt != null ? a.qtyMt.toLocaleString(getAppLocaleTag()) : '—'}</td>
                     <td>
                       <span className={`v2-board-chip ${a.approvalStatus === 'Approved' ? 'v2-board-chip--ok' : 'v2-board-chip--ghost'}`}>
@@ -1714,6 +1934,7 @@ export default function DashboardShell({ mode = 'live' }) {
           </div>
         )}
       </section>
+      </div>
       </>
       )}
 

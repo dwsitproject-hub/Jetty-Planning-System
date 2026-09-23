@@ -1281,9 +1281,14 @@
 .jps-tooltip {
   position: fixed;
   z-index: 4000;
+  width: max-content;
   transform: translateY(-50%);
   max-width: min(var(--jps-tooltip-maxw, 320px), calc(100vw - 24px));
   pointer-events: auto;
+}
+
+.jps-tooltip--top {
+  transform: translate(-50%, -100%);
 }
 
 .jps-tooltip__inner {
@@ -1316,6 +1321,17 @@
   border-width: 6px 6px 6px 0;
   border-color: transparent #fff transparent transparent;
   filter: drop-shadow(-1px 0 0 var(--color-border-light));
+}
+
+.jps-tooltip--top .jps-tooltip__inner::after {
+  top: auto;
+  bottom: -6px;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  border-width: 6px 6px 0 6px;
+  border-color: #fff transparent transparent transparent;
+  filter: drop-shadow(0 1px 0 var(--color-border-light));
 }
 
 .jps-tooltip__title {
@@ -2367,6 +2383,26 @@
 }
 
 /* ── Berth board (At Berth Now) ── */
+.v2-berth-board__row {
+  cursor: pointer;
+}
+
+.v2-berth-board__row:hover td {
+  background: color-mix(in srgb, var(--v2-atberth-color, #10B981) 8%, transparent);
+}
+
+.v2-berth-board__row:focus-visible td {
+  outline: 2px solid var(--color-primary, #c0392b);
+  outline-offset: -2px;
+}
+
+.v2-berth-board__vessel-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+}
+
 .v2-berth-board {
   margin: 8px 0 10px;
 }
@@ -2499,6 +2535,59 @@
 }
 
 /* ── Arrivals panel ── */
+.v2-preberth-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-3, 12px);
+  align-items: start;
+}
+
+.v2-preberth-row > .v2-arrivals {
+  min-width: 0;
+}
+
+.v2-arrivals__title-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.v2-arrivals__hint-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  padding: 0;
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-steel, #6b7280);
+  font-size: 0.7rem;
+  font-weight: var(--font-weight-semibold, 600);
+  line-height: 1;
+  cursor: help;
+}
+
+.v2-arrivals__head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.v2-arrivals__window {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.v2-arrivals__window .btn--small {
+  min-width: 2.5rem;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+
 .v2-arrivals__hint {
   font-size: var(--font-size-xs);
   color: var(--color-text-steel);
@@ -3125,6 +3214,20 @@
   grid-template-columns: repeat(4, 1fr);
   gap: var(--spacing-2);
   margin-top: var(--spacing-2);
+  align-items: stretch;
+}
+
+.v2-clearance-row > .jps-tooltip-trigger {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-self: stretch;
+}
+
+.v2-clearance-row > .jps-tooltip-trigger > .v2-clearance-card {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
 }
 
 .v2-live-berth-status__row {
@@ -3178,7 +3281,11 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 4px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: var(--spacing-2) var(--spacing-1);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border-light);
@@ -3218,6 +3325,11 @@
 .v2-clearance-card--sailed {
   border-color: rgba(148, 163, 184, 0.3);
   background: rgba(148, 163, 184, 0.05);
+  cursor: pointer;
+}
+
+.v2-clearance-card--sailed:hover {
+  border-color: rgba(148, 163, 184, 0.6);
 }
 
 .v2-clearance-card--pending {
@@ -3640,6 +3752,10 @@
 
 @media (max-width: 900px) {
   .v2-bottom-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .v2-preberth-row {
     grid-template-columns: 1fr;
   }
 }

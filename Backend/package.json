@@ -9,6 +9,7 @@
     "dev": "node --watch src/index.js",
     "migrate": "node scripts/run-migrations.js",
     "test:si-parser": "node scripts/test-si-document-parser.mjs",
+    "test:sampling-parser": "node scripts/test-sampling-document-parser.mjs",
     "test:si-breakdown-display": "node scripts/test-si-breakdown-display.mjs",
     "test:late-si-berthing-gate": "node scripts/test-late-si-berthing-gate.mjs",
     "test:incoming-si-filter": "node scripts/test-incoming-si-filter.mjs",
@@ -20,6 +21,8 @@
     "run:purge-tank-gauging-samples": "node scripts/purge-tank-gauging-samples.js",
     "run:aggregate-daily-cargo-progress": "node scripts/aggregate-daily-cargo-progress.js",
     "test:operational-progress": "node --test src/lib/operational-progress.test.js",
+    "test:atg-hourly-progress": "node --test src/lib/atg-hourly-progress.test.js",
+    "test:cargo-schedule-progress": "node --test src/lib/cargo-schedule-progress.test.js",
     "test:cargo-line-qty": "node --test src/lib/cargo-line-qty.test.js",
     "test:security": "node scripts/test-security-rbac-uploads.mjs",
     "grant-admin-access": "node scripts/grant-admin-full-access.js",
@@ -34,6 +37,7 @@
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
     "express": "^4.21.0",
     "express-async-errors": "^3.1.1",
     "express-rate-limit": "^7.5.0",
@@ -45,6 +49,7 @@
     "nodemailer": "^8.0.10",
     "pdf-parse": "^2.4.5",
     "pg": "^8.13.0",
+    "sharp": "^0.35.4",
     "tesseract.js": "^7.0.0"
   }
 }

@@ -51,18 +51,35 @@ import {
   isVesselSailed,
 } from '../utils/allocationVesselPhase'
 import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
+import ColumnSelectFilter from '../components/ColumnSelectFilter'
+import ColumnDateRangeFilter from '../components/ColumnDateRangeFilter'
+import {
+  PURPOSE_FILTER_OPTIONS,
+  uniqueCommodityShortOptions,
+  rowMatchesCommodityShort,
+  rowMatchesPurpose,
+} from '../utils/tableCommodityPurposeFilters'
+import {
+  dateRangeFilterParts,
+  emptyFilterValue,
+  mergeDateRangeBound,
+  rowMatchesColumnFilter,
+} from '../utils/sortableFilterableTable'
 import EtcBreachBadge from '../components/EtcBreachBadge'
 import { getEtcBreach, getEtcBreachRagStatus } from '../utils/etcBreach'
 import AllocationLateSiNotice from '../components/AllocationLateSiNotice'
 import BerthingActionButton from '../components/BerthingActionButton'
 import ShipmentPlanCombinedFormModal from '../components/ShipmentPlanCombinedFormModal'
 import JettyAllocationSelect from '../components/JettyAllocationSelect'
+import ActiveVesselDetailModal from '../components/allocation/ActiveVesselDetailModal'
 import {
   berthingDisabledReason,
   getBerthingPlanStatus,
   isPlanOnlySchedulingRow,
   showLateSiBerthingGateNotice,
 } from '../utils/berthingEligibility'
+import useAtBerthCargoProgress from '../hooks/useAtBerthCargoProgress'
+import { mergeLiveCargoProgressFields } from '../utils/cargoQtyDisplay'
 import { validateQueueRowSiReferencesForBerthing } from '../utils/siReferenceValidation'
 import { validateBerthingTimeline } from '../utils/validateScheduleTimeline'
 import {
@@ -70,10 +87,11 @@ import {
   resolvePlanIdFromRow,
 } from '../utils/siPreBerthEdit'
 import {
-  ETC_BREACH_STATUS_FILTER_LEGACY,
-  ETC_BREACH_STATUS_FILTER_PLAN,
-  LEGACY_STATUS_FILTER_DEFAULT,
-  PLAN_CENTRIC_STATUS_FILTER_DEFAULT,
+  QUEUE_STATUS_BERTHED,
+  QUEUE_STATUS_ETC_BREACHED,
+  QUEUE_STATUS_FILTER_DEFAULT,
+  QUEUE_STATUS_INCOMING,
+  QUEUE_STATUS_WAITING_TO_BERTH,
   planCentricSiColumnDisplay,
   rowPassesAllocationStatusFilter,
 } from '../utils/allocationQueueStatusFilter'
@@ -81,6 +99,7 @@ import {
   computeAllocationJettyAdvice,
   validateJettyAdviceSelection,
 } from '../utils/jettyAdvice'
+import { filterJettiesForPort } from '../utils/portScopedLookups'
 import '../styles/etc-breach.css'
 
 /** Standardized pipeline flow (match Dashboard Vessel pipeline) */
@@ -94,20 +113,26 @@ function schematicMaterialDisplay(r) {
   return r?.commodityShortDisplay || r?.commodity || null
 }
 
-function getPhaseLink(label, vessel, plannedBerthingPath = '/allocation-plans') {
+function getPhaseLink(label, vessel, plannedBerthingPath = '/allocation-plans', { embed = false } = {}) {
   const phaseRoutes = {
     'Shipping Instruction': '/shipment-plans',
     'Planned berthing': plannedBerthingPath,
     'Clearance': '/verification',
   }
+  let path = null
   if (label === 'At-Berth') {
     const opId = vessel?.operationId
     if (!opId) return null
     const purpose = String(vessel?.purpose || '').trim()
     const base = purpose === 'Unloading' ? '/unloading' : '/loading'
-    return `${base}/op-${opId}/pre-checking`
+    path = `${base}/op-${opId}/pre-checking`
+  } else {
+    path = phaseRoutes[label] || '#'
   }
-  return phaseRoutes[label] || '#'
+  if (embed && path && path !== '#') {
+    return path.includes('?') ? `${path}&embed=1` : `${path}?embed=1`
+  }
+  return path
 }
 
 const PRIORITY_OPTIONS = ['Low', 'Moderate', 'High', 'Critical']
@@ -155,6 +180,8 @@ const ALLOCATION_COLUMNS = [
   {
     key: 'commodityQty',
     label: 'Commodity Qty',
+    filterType: 'select',
+    matchesFilter: (r, selected) => rowMatchesCommodityShort(r, selected),
     getValue: (r) => r.totalQtyDisplay || '—',
     getSortValue: (r) => (r.totalQtyDisplay || '').toLowerCase(),
     getFilterValue: (r) => r.totalQtyDisplay || '',
@@ -163,12 +190,15 @@ const ALLOCATION_COLUMNS = [
   {
     key: 'purpose',
     label: 'Purpose',
+    filterType: 'select',
+    selectOptions: PURPOSE_FILTER_OPTIONS,
+    matchesFilter: (r, selected) => rowMatchesPurpose(r, selected),
     getValue: (r) => <PurposeBadge purpose={r.purpose} loadDischarge={r.loadDischarge} />,
     getSortValue: (r) => resolvePurposeLabel(r.purpose, r.loadDischarge).toLowerCase(),
   },
   { key: 'remark', label: 'Remark', getValue: (r) => r.remark || r.remarks || '—', getSortValue: (r) => (r.remark || r.remarks || '').toLowerCase() },
-  { key: 'eta', label: 'ETA', getValue: (r) => formatDateTimeDisplay(r.etaDateTime || r.eta) || '—', getSortValue: (r) => parseDateMs(r.etaDateTime || r.eta) ?? Number.NEGATIVE_INFINITY },
-  { key: 'etb', label: 'ETB', getValue: (r) => formatDateTimeDisplay(r.etbDateTime || r.etb) || '—', getSortValue: (r) => parseDateMs(r.etbDateTime || r.etb) ?? Number.NEGATIVE_INFINITY },
+  { key: 'eta', label: 'ETA', filterType: 'dateRange', getDateIso: (r) => r.etaDateTime || r.eta || null, getValue: (r) => formatDateTimeDisplay(r.etaDateTime || r.eta) || '—', getSortValue: (r) => parseDateMs(r.etaDateTime || r.eta) ?? Number.NEGATIVE_INFINITY },
+  { key: 'etb', label: 'ETB', filterType: 'dateRange', getDateIso: (r) => r.etbDateTime || r.etb || null, getValue: (r) => formatDateTimeDisplay(r.etbDateTime || r.etb) || '—', getSortValue: (r) => parseDateMs(r.etbDateTime || r.etb) ?? Number.NEGATIVE_INFINITY },
   { key: 'jetty', label: 'Jetty', getValue: (r) => r.jetty || '—', getSortValue: (r) => (r.jetty || '').toLowerCase() },
 ]
 
@@ -201,6 +231,8 @@ const PLAN_CENTRIC_ALLOCATION_COLUMNS = [
   {
     key: 'commodityQty',
     label: 'Commodity Qty',
+    filterType: 'select',
+    matchesFilter: (r, selected) => rowMatchesCommodityShort(r, selected),
     getValue: (r) => r.totalQtyDisplay || '—',
     getSortValue: (r) => (r.totalQtyDisplay || '').toLowerCase(),
     getFilterValue: (r) => r.totalQtyDisplay || '',
@@ -208,6 +240,9 @@ const PLAN_CENTRIC_ALLOCATION_COLUMNS = [
   {
     key: 'purpose',
     label: 'Purpose',
+    filterType: 'select',
+    selectOptions: PURPOSE_FILTER_OPTIONS,
+    matchesFilter: (r, selected) => rowMatchesPurpose(r, selected),
     getValue: (r) => <PurposeBadge purpose={r.purpose} loadDischarge={r.loadDischarge} />,
     getSortValue: (r) => resolvePurposeLabel(r.purpose, r.loadDischarge).toLowerCase(),
     getFilterValue: (r) => resolvePurposeLabel(r.purpose, r.loadDischarge),
@@ -242,18 +277,38 @@ const PLAN_CENTRIC_ALLOCATION_COLUMNS = [
     getValue: (r) => r.surveyor || '—',
     getSortValue: (r) => (r.surveyor || '').toLowerCase(),
   },
-  { key: 'eta', label: 'ETA', getValue: (r) => formatDateTimeDisplay(r.etaDateTime || r.eta) || '—', getSortValue: (r) => parseDateMs(r.etaDateTime || r.eta) ?? Number.NEGATIVE_INFINITY, getFilterValue: (r) => formatDateTimeDisplay(r.etaDateTime || r.eta) || '' },
+  {
+    key: 'eta',
+    label: 'ETA',
+    filterType: 'dateRange',
+    getDateIso: (r) => r.etaDateTime || r.eta || null,
+    getValue: (r) => formatDateTimeDisplay(r.etaDateTime || r.eta) || '—',
+    getSortValue: (r) => parseDateMs(r.etaDateTime || r.eta) ?? Number.NEGATIVE_INFINITY,
+    getFilterValue: (r) => formatDateTimeDisplay(r.etaDateTime || r.eta) || '',
+  },
   {
     key: 'ta',
     label: 'TA',
+    filterType: 'dateRange',
+    getDateIso: (r) => r.taDateTime || null,
     getValue: (r) => formatDateTimeDisplay(r.taDateTime) || '—',
     getSortValue: (r) => parseDateMs(r.taDateTime) ?? Number.NEGATIVE_INFINITY,
     getFilterValue: (r) => formatDateTimeDisplay(r.taDateTime) || '',
   },
-  { key: 'etb', label: 'ETB', getValue: (r) => formatDateTimeDisplay(r.etbDateTime || r.etb) || '—', getSortValue: (r) => parseDateMs(r.etbDateTime || r.etb) ?? Number.NEGATIVE_INFINITY, getFilterValue: (r) => formatDateTimeDisplay(r.etbDateTime || r.etb) || '' },
+  {
+    key: 'etb',
+    label: 'ETB',
+    filterType: 'dateRange',
+    getDateIso: (r) => r.etbDateTime || r.etb || null,
+    getValue: (r) => formatDateTimeDisplay(r.etbDateTime || r.etb) || '—',
+    getSortValue: (r) => parseDateMs(r.etbDateTime || r.etb) ?? Number.NEGATIVE_INFINITY,
+    getFilterValue: (r) => formatDateTimeDisplay(r.etbDateTime || r.etb) || '',
+  },
   {
     key: 'tb',
     label: 'TB',
+    filterType: 'dateRange',
+    getDateIso: (r) => r.tbDateTime || null,
     getValue: (r) => formatDateTimeDisplay(r.tbDateTime) || '—',
     getSortValue: (r) => parseDateMs(r.tbDateTime) ?? Number.NEGATIVE_INFINITY,
     getFilterValue: (r) => formatDateTimeDisplay(r.tbDateTime) || '',
@@ -261,6 +316,8 @@ const PLAN_CENTRIC_ALLOCATION_COLUMNS = [
   {
     key: 'etc',
     label: 'ETC',
+    filterType: 'dateRange',
+    getDateIso: (r) => r.estimatedCompletionDateTime || r.estimationOfCompletion || null,
     getValue: (r) =>
       formatDateTimeDisplay(r.estimatedCompletionDateTime || r.estimationOfCompletion) || '—',
     getSortValue: (r) => parseDateMs(r.estimatedCompletionDateTime) ?? Number.NEGATIVE_INFINITY,
@@ -302,6 +359,19 @@ const ALLOCATION_FILTER_STATE_KEYS = [
     ...PLAN_CENTRIC_ALLOCATION_COLUMNS.map((c) => c.key),
   ]),
 ]
+
+function allocationColumnForFilterKey(key) {
+  return (
+    PLAN_CENTRIC_ALLOCATION_COLUMNS.find((c) => c.key === key) ||
+    ALLOCATION_COLUMNS.find((c) => c.key === key)
+  )
+}
+
+function emptyAllocationFilters() {
+  return Object.fromEntries(
+    ALLOCATION_FILTER_STATE_KEYS.map((k) => [k, emptyFilterValue(allocationColumnForFilterKey(k))])
+  )
+}
 
 /** Next / previous displayed queue row that has a shipment plan (for plan-centric ↑/↓). */
 function findAdjacentPlanRowInDisplay(rows, fromIdx, dir) {
@@ -475,13 +545,8 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   const [scheduleList, setScheduleList] = useState([])
   const [berthsState, setBerthsState] = useState([])
   const [allocationLookups, setAllocationLookups] = useState(null)
-  const [filters, setFilters] = useState(() =>
-    Object.fromEntries(ALLOCATION_FILTER_STATE_KEYS.map((k) => [k, '']))
-  )
-  const [statusFilter, setStatusFilter] = useState(() =>
-    isPlanCentric ? { ...PLAN_CENTRIC_STATUS_FILTER_DEFAULT } : { ...LEGACY_STATUS_FILTER_DEFAULT }
-  )
-  const [etcBreachFilter, setEtcBreachFilter] = useState(false)
+  const [filters, setFilters] = useState(() => emptyAllocationFilters())
+  const [queueStatusFilter, setQueueStatusFilter] = useState(QUEUE_STATUS_FILTER_DEFAULT)
   const [breachNowMs, setBreachNowMs] = useState(() => Date.now())
   const [sortState, setSortState] = useState({ key: 'sequence', dir: 'asc' })
   const [expandedId, setExpandedId] = useState(null)
@@ -659,8 +724,6 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       setPlanExporting(false)
     }
   }, [])
-  /** Embedded At-Berth / Clearance activity popup (vessel pipeline). */
-  const [pipelineEmbed, setPipelineEmbed] = useState(null)
   const [shiftSavingByOpId, setShiftSavingByOpId] = useState({})
   /** `minPlanId-maxPlanId` while swapping berthing sequence (shipment_plans only). */
   const [planSequenceBusyPair, setPlanSequenceBusyPair] = useState(null)
@@ -683,11 +746,10 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     [berthsState]
   )
 
-  const portJetties = useMemo(() => {
-    const all = allocationLookups?.jetties
-    if (!Array.isArray(all) || !selectedPortId) return []
-    return all.filter((j) => Number(j.portId) === Number(selectedPortId))
-  }, [allocationLookups, selectedPortId])
+  const portJetties = useMemo(
+    () => filterJettiesForPort(allocationLookups?.jetties, selectedPortId),
+    [allocationLookups?.jetties, selectedPortId]
+  )
 
   // Multi-jetty berthing: entire "Additional jetties" picker is gated by the port flag. If the
   // flag is off (or the port changes mid-session), drop any stale selection so it can't be submitted.
@@ -893,6 +955,25 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     return () => clearInterval(id)
   }, [])
 
+  const berthedOperationIds = useMemo(
+    () =>
+      [
+        ...new Set(
+          [...list, ...scheduleList]
+            .filter(
+              (r) =>
+                r.operationId != null &&
+                getBerthingPlanStatus(r, { planCentric: isPlanCentric }) === 'berthed'
+            )
+            .map((r) => Number(r.operationId))
+            .filter((n) => Number.isFinite(n) && n > 0)
+        ),
+      ],
+    [list, scheduleList, isPlanCentric]
+  )
+
+  const cargoProgressByOpId = useAtBerthCargoProgress(berthedOperationIds)
+
   const vesselById = useMemo(() => {
     const map = {}
     const srcList = planViz.mergedList
@@ -915,6 +996,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         purpose: r.purpose || null,
         loadDischarge: r.loadDischarge ?? null,
         commodity: r.commodity || null,
+        commodityDisplay: r.commodityDisplay || null,
         materialDisplay: schematicMaterialDisplay(r),
         agent: r.agent || null,
         tbDateTime: r.tbDateTime ?? null,
@@ -925,12 +1007,15 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         vesselGrossTonnage: r.vesselGrossTonnage ?? null,
         vesselCapacity: r.vesselCapacity ?? null,
         totalQtyDisplay: r.totalQtyDisplay || null,
+        cargoSiQty: r.cargoSiQty != null ? Number(r.cargoSiQty) : null,
         completionPercent: r.completionPercent != null ? Number(r.completionPercent) : null,
         cargoMovedQty: r.cargoMovedQty != null ? Number(r.cargoMovedQty) : 0,
         cargoFirstLoggedAt: r.cargoFirstLoggedAt ?? null,
         cargoLastLoggedAt: r.cargoLastLoggedAt ?? null,
         openingHatchStartAt: r.openingHatchStartAt ?? null,
         openingCargoHandlingMethodName: r.openingCargoHandlingMethodName ?? null,
+        scheduleComparison: r.scheduleComparison ?? null,
+        operationId: r.operationId != null ? Number(r.operationId) : null,
         etaToCompletion: r.estimatedCompletionDateTime ? formatDateTimeDisplay(r.estimatedCompletionDateTime) : '—',
         ragStatus: getEtcBreachRagStatus(r, breachNowMs),
         etcBreach: getEtcBreach(r, breachNowMs),
@@ -948,6 +1033,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         purpose: r.purpose || null,
         loadDischarge: r.loadDischarge ?? null,
         commodity: r.commodity || null,
+        commodityDisplay: r.commodityDisplay || null,
         materialDisplay: schematicMaterialDisplay(r),
         agent: r.agent || null,
         tbDateTime: r.tbDateTime ?? null,
@@ -958,12 +1044,15 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         vesselGrossTonnage: r.vesselGrossTonnage ?? null,
         vesselCapacity: r.vesselCapacity ?? null,
         totalQtyDisplay: r.totalQtyDisplay || null,
+        cargoSiQty: r.cargoSiQty != null ? Number(r.cargoSiQty) : null,
         completionPercent: r.completionPercent != null ? Number(r.completionPercent) : null,
         cargoMovedQty: r.cargoMovedQty != null ? Number(r.cargoMovedQty) : 0,
         cargoFirstLoggedAt: r.cargoFirstLoggedAt ?? null,
         cargoLastLoggedAt: r.cargoLastLoggedAt ?? null,
         openingHatchStartAt: r.openingHatchStartAt ?? null,
         openingCargoHandlingMethodName: r.openingCargoHandlingMethodName ?? null,
+        scheduleComparison: r.scheduleComparison ?? null,
+        operationId: r.operationId != null ? Number(r.operationId) : null,
         etaToCompletion: r.estimatedCompletionDateTime ? formatDateTimeDisplay(r.estimatedCompletionDateTime) : '—',
         ragStatus: getEtcBreachRagStatus(r, breachNowMs),
         etcBreach: getEtcBreach(r, breachNowMs),
@@ -983,6 +1072,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
           purpose: o.purpose || null,
           loadDischarge: o.loadDischarge ?? null,
           commodity: null,
+          commodityDisplay: o.commodityDisplay || null,
           materialDisplay: schematicMaterialDisplay(o),
           agent: o.agent || null,
           tbDateTime: o.tbDateTime ?? null,
@@ -993,12 +1083,15 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
           vesselGrossTonnage: o.vesselGrossTonnage ?? null,
           vesselCapacity: o.vesselCapacity ?? null,
           totalQtyDisplay: o.totalQtyDisplay || null,
+          cargoSiQty: o.cargoSiQty != null ? Number(o.cargoSiQty) : null,
           completionPercent: o.completionPercent != null ? Number(o.completionPercent) : null,
           cargoMovedQty: o.cargoMovedQty != null ? Number(o.cargoMovedQty) : 0,
           cargoFirstLoggedAt: o.cargoFirstLoggedAt ?? null,
           cargoLastLoggedAt: o.cargoLastLoggedAt ?? null,
           openingHatchStartAt: o.openingHatchStartAt ?? null,
           openingCargoHandlingMethodName: o.openingCargoHandlingMethodName ?? null,
+          scheduleComparison: o.scheduleComparison ?? null,
+          operationId: o.operationId != null ? Number(o.operationId) : null,
           etaToCompletion: o.estimatedCompletionDateTime ? formatDateTimeDisplay(o.estimatedCompletionDateTime) : '—',
           ragStatus: getEtcBreachRagStatus(o, breachNowMs),
           etcBreach: getEtcBreach(o, breachNowMs),
@@ -1007,8 +1100,16 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       }
     }
 
+    for (const vesselId of Object.keys(map)) {
+      const opId = map[vesselId]?.operationId
+      if (opId == null) continue
+      const live = cargoProgressByOpId[String(opId)]
+      if (!live) continue
+      map[vesselId] = mergeLiveCargoProgressFields(map[vesselId], live, breachNowMs)
+    }
+
     return map
-  }, [planViz, isPlanCentric, breachNowMs])
+  }, [planViz, isPlanCentric, breachNowMs, cargoProgressByOpId])
 
   const vesselDetailRows = useMemo(() => {
     const byId = new Map()
@@ -2097,22 +2198,25 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
             ? queueKpiFilter.planIds.has(Number(r.shipmentPlanId))
             : r.vesselId != null && queueKpiFilter.vesselIds.has(r.vesselId)
         if (!match) return false
-      } else if (etcBreachFilter) {
-        if (rowStatus !== 'berthed' || !getEtcBreach(r, breachNowMs)) return false
-      } else if (!rowPassesAllocationStatusFilter(r, rowStatus, statusFilter, isPlanCentric)) {
+      } else if (
+        !rowPassesAllocationStatusFilter(r, rowStatus, queueStatusFilter, {
+          breachNowMs,
+          planCentric: isPlanCentric,
+        })
+      ) {
         return false
       }
       return filterKeys.every((key) => {
-        const f = (filters[key] || '').trim().toLowerCase()
-        if (!f) return true
         const col = allocationColumnDefsBase.find((c) => c.key === key)
-        const val = col?.getFilterValue
-          ? col.getFilterValue(r)
-          : key === 'purpose'
-            ? resolvePurposeLabel(r.purpose, r.loadDischarge) || r[key]
-            : key === 'planReference'
-              ? r.planReference || (r.shipmentPlanId != null ? `Plan #${r.shipmentPlanId}` : '')
-              : r[key]
+        if (col) return rowMatchesColumnFilter(r, col, filters[key])
+        const raw = filters[key]
+        if (raw && typeof raw === 'object') return true
+        const f = String(raw || '').trim().toLowerCase()
+        if (!f) return true
+        const val =
+          key === 'planReference'
+            ? r.planReference || (r.shipmentPlanId != null ? `Plan #${r.shipmentPlanId}` : '')
+            : r[key]
         return String(val ?? '').toLowerCase().includes(f)
       })
     })
@@ -2120,14 +2224,18 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     isPlanCentric,
     planCentricMergedQueue,
     list,
-    etcBreachFilter,
     breachNowMs,
-    statusFilter,
+    queueStatusFilter,
     filterKeys,
     filters,
     allocationColumnDefsBase,
     queueKpiFilter,
   ])
+
+  const commodityShortOptions = useMemo(
+    () => uniqueCommodityShortOptions(isPlanCentric ? planCentricMergedQueue : list),
+    [isPlanCentric, planCentricMergedQueue, list]
+  )
 
   const sortedList = [...filteredList].sort((a, b) => {
     const col = allocationColumnDefsBase.find((c) => c.key === sortState.key)
@@ -2552,1039 +2660,19 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         </div>
       </div>
 
-      {/* Active Vessel Detail modal (opens when user clicks an occupied ship block) */}
-      {vesselDetailModalVesselId && (
-        <div
-          className="modal-overlay"
-          onClick={() => closeVesselDetailModal()}
-          aria-hidden="true"
-        >
-          <div
-            className="modal modal--wide"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-labelledby="vessel-detail-modal-title"
-            aria-modal="true"
-          >
-            <h2 id="vessel-detail-modal-title" className="modal__title">
-              {isPlanCentric && vesselDetailPlanId != null ? (
-                <span>
-                  {tAlloc('planModalTitleWithVessel', {
-                    defaultValue: 'Active vessel - {{name}}',
-                    name: getVesselName(vesselDetailModalVesselId) || '—',
-                  })}
-                </span>
-              ) : (
-                <>
-                  ⚓ {tAlloc('activeVesselDetailTitle', { defaultValue: 'Active Vessel Detail' })}:{' '}
-                  {getVesselName(vesselDetailModalVesselId)}
-                </>
-              )}
-            </h2>
-            {(() => {
-              const vesselRow = vesselDetailRows.find((r) => r.vesselId === vesselDetailModalVesselId)
-              const vessel = vesselRow || null
-              const phases = UNIFIED_PHASES
-              const currentPhaseIndex = deriveCurrentPhaseIndex(vessel)
-              const currentPhaseLabel = currentPhaseLabelForVessel(vessel, phases)
-              const readyToSail = isVesselReadyToSail(vessel)
-              const hasSailed = isVesselSailed(vessel)
-              const formatModalDateTime = (val) => {
-                if (val == null || val === '') return '—'
-                return formatDateTimeDisplay(val)
-              }
-              const eta = formatModalDateTime(vessel?.etaDateTime)
-              const ta = formatModalDateTime(vessel?.taDateTime)
-              const etb = formatModalDateTime(vessel?.etbDateTime)
-              const pob = formatModalDateTime(vessel?.pobDateTime)
-              const tb = formatModalDateTime(vessel?.tbDateTime)
-              const sob = formatModalDateTime(vessel?.sobDateTime)
-              const norTendered = formatModalDateTime(vessel?.norTenderedDateTime)
-              const norAccepted = formatModalDateTime(vessel?.norAcceptedDateTime)
-              const demurrageFrom = formatModalDateTime(vessel?.demurrageLiabilityFromDateTime)
-              const estCompletion = formatModalDateTime(vessel?.estimatedCompletionDateTime)
-              const operationsCompleted = formatModalDateTime(vessel?.operationsCompletedDateTime)
-              const actualCompletion = formatModalDateTime(vessel?.actualCompletionDateTime)
-              const tbMs = parseDateMs(vessel?.tbDateTime)
-              const estCompMs = parseDateMs(vessel?.estimatedCompletionDateTime)
-              const opsCompMs = parseDateMs(vessel?.operationsCompletedDateTime)
-              const nowMs = Date.now()
-              const isPlanDetailMode = Boolean(isPlanCentric && vesselDetailPlanId != null)
-              const planTbEffective = planDetail?.tb ?? planDetail?.dockingStartTime
-              const planEta = formatModalDateTime(planDetail?.eta)
-              const planTa = formatModalDateTime(planDetail?.ta)
-              const planEtb = formatModalDateTime(planDetail?.etb)
-              const planTb = formatModalDateTime(planTbEffective)
-              const planEstCompletion = formatModalDateTime(planDetail?.estimatedCompletionTime)
-              const planOpsCompleted = formatModalDateTime(planDetail?.operationsCompletedAt)
-              const planTbMs = parseDateMs(planTbEffective)
-              const planEstCompMs = parseDateMs(planDetail?.estimatedCompletionTime)
-              const planOpsCompMs = parseDateMs(planDetail?.operationsCompletedAt)
-              const planAlongsideEndMs = getPlanAlongsideEndMs(planDetail, vessel, nowMs)
-              const planTimeSinceBerthing =
-                planTbMs != null
-                  ? formatDuration(Math.max(0, planAlongsideEndMs - planTbMs))
-                  : '—'
-              const planSailed = isPlanOrVesselSailed(planDetail, vessel)
-              const planEstTimeRemaining = planSailed
-                ? tAlloc('planModalSailed', { defaultValue: 'Sailed' })
-                : planOpsCompMs != null
-                  ? tAlloc('planModalCompleted', { defaultValue: 'Completed' })
-                  : planEstCompMs != null
-                    ? planEstCompMs > nowMs
-                      ? formatDuration(planEstCompMs - nowMs)
-                      : tAlloc('planModalOverdue', { defaultValue: 'Overdue' })
-                    : '—'
-              const vesselAlongsideEndMs = getVesselAlongsideEndMs(vessel, nowMs)
-              const timeSinceBerthing =
-                tbMs != null ? formatDuration(Math.max(0, vesselAlongsideEndMs - tbMs)) : '—'
-              const estTimeRemaining = hasSailed
-                ? tAlloc('planModalSailed', { defaultValue: 'Sailed' })
-                : opsCompMs != null
-                  ? tAlloc('planModalCompleted', { defaultValue: 'Completed' })
-                  : estCompMs != null
-                    ? estCompMs > nowMs
-                      ? formatDuration(estCompMs - nowMs)
-                      : 'Overdue'
-                    : '—'
-              const canVesselDetailEdit = Boolean(canEditAllocation && vessel?.operationId)
-              const d = vesselDetailDraft
-              const lastUpdatedText = formatVesselRecordLastUpdatedLine(vessel)
-              const existingBerthPhotos = vesselPhotosByVesselId[vesselDetailModalVesselId] || []
-              return (
-                <>
-                <div className="vessel-detail-modal__body">
-                  <section className="berthing-modal__card berthing-modal__card--vessel">
-                    <h3 className="berthing-modal__card-title">Vessel info</h3>
-                    <dl className="berthing-modal__vessel-dl">
-                      <div className="berthing-modal__vessel-row">
-                        <dt>Vessel name</dt>
-                        <dd className="berthing-modal__vessel-dl--bold">{vessel?.vesselName || '—'}</dd>
-                      </div>
-                      <div className="berthing-modal__vessel-row">
-                        <dt>SI No</dt>
-                        <dd className="berthing-modal__vessel-dl--bold">{vessel?.shippingInstruction || '—'}</dd>
-                      </div>
-                      <div className="berthing-modal__vessel-row">
-                        <dt>{tAlloc('dtJettyOperationId', { defaultValue: 'Jetty Operation ID' })}</dt>
-                        <dd className="berthing-modal__vessel-dl--bold">
-                          {vessel?.shippingInstructionId ? (
-                            <a
-                              href="#"
-                              onClick={(e) => {
-                                e.preventDefault()
-                                openSiDetailModal(vessel.shippingInstructionId)
-                              }}
-                              aria-label={tAlloc('openSiDetailFromJettyOp')}
-                            >
-                              {vessel?.jettyOperationCode || '—'}
-                            </a>
-                          ) : (
-                            vessel?.jettyOperationCode || '—'
-                          )}
-                        </dd>
-                      </div>
-                      <div className="berthing-modal__vessel-row">
-                        <dt>Purpose</dt>
-                        <dd>
-                          <PurposeBadge purpose={vessel?.purpose} loadDischarge={vessel?.loadDischarge} />
-                        </dd>
-                      </div>
-                      <div className="berthing-modal__vessel-row">
-                        <dt>Commodity</dt>
-                        <dd>{vessel?.commodity || '—'}</dd>
-                      </div>
-                    </dl>
-                  </section>
-
-                  <section className="berthing-modal__card">
-                    <h3 className="berthing-modal__card-title">Vessel pipeline</h3>
-                    <p className="phase-stepper__current-text">Current: {currentPhaseLabel}</p>
-                    <p className="phase-stepper__hint" aria-label="Phase status legend">
-                      <span className="phase-stepper__hint-item phase-stepper__hint-item--completed">Done</span>
-                      <span className="phase-stepper__hint-item phase-stepper__hint-item--in-progress">In progress</span>
-                      <span className="phase-stepper__hint-item phase-stepper__hint-item--not-started">Not started</span>
-                    </p>
-                    <div className="phase-stepper" role="list" aria-label="Current phase steps">
-                      {phases.map((label, index) => {
-                        const isCompleted = index < currentPhaseIndex
-                        const isCurrent = index === currentPhaseIndex
-                        const state = isCompleted ? 'completed' : isCurrent ? 'in-progress' : 'not-started'
-                        const isClearance = label === 'Clearance'
-                        const to = label === 'Shipping Instruction' ? null : getPhaseLink(label, vessel)
-                        const disabled =
-                          // At-Berth deep link requires an operation id.
-                          (label === 'At-Berth' && !vessel?.operationId) ||
-                          // Clearance should not be clickable until ready to sail.
-                          (isClearance && !readyToSail && !hasSailed) ||
-                          // If we couldn't resolve a route, disable.
-                          !to
-                        const content = label === 'Shipping Instruction' ? (
-                          <button
-                            type="button"
-                            className="phase-stepper__step-label phase-stepper__step-label--link phase-stepper__step-label--btn"
-                            onClick={() => {
-                              if (!vessel?.shippingInstructionId) return
-                              openSiDocumentModal(vessel.shippingInstructionId)
-                            }}
-                            disabled={!vessel?.shippingInstructionId}
-                            title={vessel?.shippingInstructionId ? 'Open shipping instruction document' : 'Shipping instruction not available'}
-                          >
-                            {label}
-                          </button>
-                        ) : label === 'At-Berth' || label === 'Clearance' ? (
-                          <button
-                            type="button"
-                            className={`phase-stepper__step-label phase-stepper__step-label--link phase-stepper__step-label--btn${disabled ? ' disabled' : ''}`}
-                            disabled={disabled}
-                            title={disabled ? undefined : `Open ${label} activity in a popup`}
-                            onClick={() => {
-                              if (!disabled && to) setPipelineEmbed({ url: to, label })
-                            }}
-                          >
-                            {label}
-                          </button>
-                        ) : (
-                          <Link
-                            to={disabled ? '#' : to}
-                            className={`phase-stepper__step-label phase-stepper__step-label--link${disabled ? ' disabled' : ''}`}
-                            aria-disabled={disabled}
-                            onClick={(e) => {
-                              if (disabled) e.preventDefault()
-                            }}
-                          >
-                            {label}
-                          </Link>
-                        )
-                        return (
-                          <Fragment key={index}>
-                            <div
-                              className={`phase-stepper__step phase-stepper__step--${state}`}
-                              role="listitem"
-                              aria-current={isCurrent ? 'step' : undefined}
-                            >
-                              <span className="phase-stepper__circle" aria-hidden="true" />
-                              {isCurrent && <span className="phase-stepper__current-mark" aria-hidden="true">●</span>}
-                              {content}
-                            </div>
-                            {index < phases.length - 1 && (
-                              <span
-                                className={`phase-stepper__connector${index < currentPhaseIndex ? ' phase-stepper__connector--completed' : ''}${index === currentPhaseIndex ? ' phase-stepper__connector--current' : ''}`}
-                                aria-hidden="true"
-                              >
-                                →
-                              </span>
-                            )}
-                          </Fragment>
-                        )
-                      })}
-                    </div>
-                  </section>
-
-                  {isPlanDetailMode ? (
-                    <>
-                      <section className="berthing-modal__card">
-                        <h3 className="berthing-modal__card-title">
-                          {tAlloc('planModalSiSection', { defaultValue: 'Shipping instructions on this plan' })}
-                        </h3>
-                        {vesselDetailPlanQueueRows.length === 0 ? (
-                          <p className="text-steel">{tAlloc('planModalSiEmpty', { defaultValue: 'No queue rows for this plan in the current overview.' })}</p>
-                        ) : (
-                          <div className="table-wrap">
-                            <table className="data-table vessel-detail-modal__si-table">
-                              <thead>
-                                <tr>
-                                  <th>{tAlloc('colShippingInstruction')}</th>
-                                  <th>{tAlloc('colJettyOperationId')}</th>
-                                  <th>{tAlloc('colBerthingSequence')}</th>
-                                  <th>{tAlloc('planModalColStatus', { defaultValue: 'Status' })}</th>
-                                  <th>{tAlloc('colJetty')}</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {vesselDetailPlanQueueRows.map((row) => (
-                                  <tr key={row.vesselId || row.id}>
-                                    <td>
-                                      {row.shippingInstructionId ? (
-                                        <a
-                                          href="#"
-                                          className="link"
-                                          onClick={(e) => {
-                                            e.preventDefault()
-                                            openSiDocumentModal(row.shippingInstructionId)
-                                          }}
-                                        >
-                                          {row.shippingInstruction || '—'}
-                                        </a>
-                                      ) : (
-                                        row.shippingInstruction || '—'
-                                      )}
-                                    </td>
-                                    <td>
-                                      {row.shippingInstructionId ? (
-                                        <a
-                                          href="#"
-                                          className="link"
-                                          onClick={(e) => {
-                                            e.preventDefault()
-                                            openSiDetailModal(row.shippingInstructionId)
-                                          }}
-                                        >
-                                          {row.jettyOperationCode || '—'}
-                                        </a>
-                                      ) : (
-                                        row.jettyOperationCode || '—'
-                                      )}
-                                    </td>
-                                    <td>—</td>
-                                    <td>{row.status || '—'}</td>
-                                    <td>{row.jetty || '—'}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </section>
-                      <section className="berthing-modal__card berthing-modal__card--vessel">
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                          <h3 className="berthing-modal__card-title" style={{ marginBottom: 0 }}>
-                            {tAlloc('planModalPlanTimesSection', { defaultValue: 'Time & status (shipment plan)' })}
-                          </h3>
-                          {canEditAllocation && !planDetailLoading && planDetail ? (
-                            planTimesEdit ? (
-                              <span style={{ display: 'inline-flex', gap: 6 }}>
-                                <button
-                                  type="button"
-                                  className="btn btn--small btn--secondary"
-                                  onClick={() => {
-                                    setPlanTimesEdit(null)
-                                    setPlanTimesMsg(null)
-                                  }}
-                                  disabled={planTimesSaving}
-                                >
-                                  Cancel
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn btn--small btn--primary"
-                                  onClick={() => savePlanTimes(vessel)}
-                                  disabled={planTimesSaving}
-                                >
-                                  {planTimesSaving ? 'Saving…' : 'Save times'}
-                                </button>
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                className="btn btn--small btn--secondary"
-                                onClick={() =>
-                                  setPlanTimesEdit({
-                                    eta: toDateTimeLocalValue(planDetail?.eta) || '',
-                                    ta: toDateTimeLocalValue(planDetail?.ta) || '',
-                                    etb: toDateTimeLocalValue(planDetail?.etb) || '',
-                                    tb: toDateTimeLocalValue(planDetail?.tb ?? planDetail?.dockingStartTime) || '',
-                                    etc: toDateTimeLocalValue(planDetail?.estimatedCompletionTime) || '',
-                                    act: toDateTimeLocalValue(planDetail?.actualCompletionTime) || '',
-                                  })
-                                }
-                              >
-                                Edit times
-                              </button>
-                            )
-                          ) : null}
-                        </div>
-                        {planTimesMsg ? (
-                          <p className="allocation-arrival-save-msg allocation-arrival-save-msg--error" role="alert">
-                            {planTimesMsg}
-                          </p>
-                        ) : null}
-                        {planTimesEdit && !(vessel?.operationId || vessel?.shippingInstructionId) ? (
-                          <p className="text-steel" style={{ fontSize: '0.8rem', margin: '4px 0' }}>
-                            {tAlloc('planTimesPlanOnlyHint', {
-                              defaultValue:
-                                'Plan has no operation yet — only ETA and ETB can be updated here (actuals are set at berthing).',
-                            })}
-                          </p>
-                        ) : null}
-                        {planDetailLoading ? (
-                          <p className="text-steel">{tAlloc('planModalPlanTimesLoading', { defaultValue: 'Loading plan times…' })}</p>
-                        ) : planDetailError ? (
-                          <p className="allocation-arrival-save-msg allocation-arrival-save-msg--error" role="alert">
-                            {tAlloc('planModalPlanTimesError', {
-                              defaultValue: 'Could not load plan times: {{message}}',
-                              message: planDetailError,
-                            })}
-                          </p>
-                        ) : (
-                          <dl className="berthing-modal__vessel-dl">
-                            <div className="berthing-modal__vessel-row">
-                              <dt title={tAlloc('ttPlanEta')}>{tAlloc('planModalLblEta', { defaultValue: 'Estimated Time of Arrival (ETA)' })}</dt>
-                              <dd>{planTimesEdit ? (
-                                <input type="datetime-local" className="berthing-modal__input" value={planTimesEdit.eta} onChange={(e) => setPlanTimesEdit((f) => ({ ...f, eta: e.target.value }))} />
-                              ) : (
-                                planEta
-                              )}</dd>
-                            </div>
-                            <div className="berthing-modal__vessel-row">
-                              <dt title={tAlloc('ttPlanTa')}>{tAlloc('planModalLblTa', { defaultValue: 'Actual Time of Arrival (TA)' })}</dt>
-                              <dd>{planTimesEdit && (vessel?.operationId || vessel?.shippingInstructionId) ? (
-                                <input type="datetime-local" className="berthing-modal__input" value={planTimesEdit.ta} onChange={(e) => setPlanTimesEdit((f) => ({ ...f, ta: e.target.value }))} />
-                              ) : (
-                                planTa
-                              )}</dd>
-                            </div>
-                            <div className="berthing-modal__vessel-row">
-                              <dt title={tAlloc('ttPlanEtb')}>{tAlloc('planModalLblEtb', { defaultValue: 'Estimated Time of Berthing (ETB)' })}</dt>
-                              <dd>{planTimesEdit ? (
-                                <input type="datetime-local" className="berthing-modal__input" value={planTimesEdit.etb} onChange={(e) => setPlanTimesEdit((f) => ({ ...f, etb: e.target.value }))} />
-                              ) : (
-                                planEtb
-                              )}</dd>
-                            </div>
-                            <div className="berthing-modal__vessel-row">
-                              <dt title={tAlloc('ttPlanTb')}>{tAlloc('planModalLblTb', { defaultValue: 'Actual Time of Berthing (TB)' })}</dt>
-                              <dd>{planTimesEdit && (vessel?.operationId || vessel?.shippingInstructionId) ? (
-                                <input type="datetime-local" className="berthing-modal__input" value={planTimesEdit.tb} onChange={(e) => setPlanTimesEdit((f) => ({ ...f, tb: e.target.value }))} />
-                              ) : (
-                                planTb
-                              )}</dd>
-                            </div>
-                            <div className="berthing-modal__vessel-row">
-                              <dt title={tAlloc('ttPlanTimeSince')}>{tAlloc('planModalLblTimeSinceBerth', { defaultValue: 'Time Since Berthing' })}</dt>
-                              <dd>{planTimeSinceBerthing}</dd>
-                            </div>
-                            <div className="berthing-modal__vessel-row">
-                              <dt title={tAlloc('ttPlanEstCompletion')}>{tAlloc('planModalLblEstCompletion', { defaultValue: 'Est. Completion' })}</dt>
-                              <dd>{planTimesEdit && (vessel?.operationId || vessel?.shippingInstructionId) ? (
-                                <input type="datetime-local" className="berthing-modal__input" value={planTimesEdit.etc} onChange={(e) => setPlanTimesEdit((f) => ({ ...f, etc: e.target.value }))} />
-                              ) : (
-                                planEstCompletion
-                              )}</dd>
-                            </div>
-                            <div className="berthing-modal__vessel-row">
-                              <dt>{tAlloc('operationsCompleted')}</dt>
-                              <dd>{planOpsCompleted || '—'}</dd>
-                            </div>
-                            <div className="berthing-modal__vessel-row">
-                              <dt>{tAlloc('actualCompletion')}</dt>
-                              <dd>{planTimesEdit && (vessel?.operationId || vessel?.shippingInstructionId) ? (
-                                <input type="datetime-local" className="berthing-modal__input" value={planTimesEdit.act} onChange={(e) => setPlanTimesEdit((f) => ({ ...f, act: e.target.value }))} />
-                              ) : (
-                                formatModalDateTime(planDetail?.actualCompletionTime) || '—'
-                              )}</dd>
-                            </div>
-                            <div className="berthing-modal__vessel-row">
-                              <dt title={tAlloc('ttPlanEstRemaining')}>{tAlloc('planModalLblEstRemaining', { defaultValue: 'Est. Time Remaining' })}</dt>
-                              <dd>{planEstTimeRemaining}</dd>
-                            </div>
-                          </dl>
-                        )}
-                      </section>
-                      <p className="text-steel" style={{ fontSize: '0.9rem', margin: '0 0 0.75rem' }}>
-                        {tAlloc('planModalRepresentativeOpsHint', {
-                          defaultValue:
-                            'Edit, NOR, operation times, documents, and berthing photos in the sections below follow the primary operation on this plan.',
-                        })}
-                      </p>
-                    </>
-                  ) : null}
-
-                  <div className="vessel-detail-modal__meta-row" aria-live="polite">
-                    <p
-                      className="vessel-detail-modal__last-updated"
-                      title={lastUpdatedText ? undefined : 'Shows when the operation (or SI) row was last saved. Run DB migration 044 and redeploy the API to include “by name” after edits.'}
-                    >
-                      {lastUpdatedText || 'Last updated —'}
-                    </p>
-                    {canVesselDetailEdit && !vesselDetailEditing ? (
-                      <button
-                        type="button"
-                        className="vessel-detail-modal__icon-btn"
-                        title="Edit"
-                        aria-label="Edit"
-                        onClick={() => openVesselDetailEdit(vessel)}
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                        </svg>
-                      </button>
-                    ) : null}
-                  </div>
-                  {vesselDetailEditing ? (
-                    <p className="vessel-detail-modal__edit-hint">
-                      Changes apply to calculated fields (e.g. time since berthing) after saving.
-                    </p>
-                  ) : null}
-                  {vesselDetailEditing && vesselDetailEditError ? (
-                    <p className="allocation-arrival-save-msg allocation-arrival-save-msg--error" role="alert">
-                      {vesselDetailEditError}
-                    </p>
-                  ) : null}
-
-                  {(!isPlanDetailMode || vesselDetailEditing) && (
-                  <section className="berthing-modal__card berthing-modal__card--vessel">
-                    <h3 className="berthing-modal__card-title">Times &amp; status</h3>
-                    {vesselDetailEditing && d ? (
-                      <div className="vessel-detail-modal__times-extras">
-                        <div className="berthing-modal__field">
-                          <label htmlFor="vessel-detail-priority" className="berthing-modal__label">Priority</label>
-                          <select
-                            id="vessel-detail-priority"
-                            className="berthing-modal__input"
-                            value={d.priority || ''}
-                            onChange={(e) =>
-                              setVesselDetailDraft((prev) => (prev ? { ...prev, priority: e.target.value } : prev))
-                            }
-                          >
-                            <option value="">—</option>
-                            {PRIORITY_OPTIONS.map((p) => (
-                              <option key={p} value={p}>{p}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="berthing-modal__field">
-                          <label htmlFor="vessel-detail-jetty" className="berthing-modal__label">Jetty</label>
-                          <select
-                            id="vessel-detail-jetty"
-                            className="berthing-modal__input"
-                            value={d.jetty || ''}
-                            onChange={(e) =>
-                              setVesselDetailDraft((prev) => (prev ? { ...prev, jetty: e.target.value } : prev))
-                            }
-                          >
-                            <option value="">— Select jetty —</option>
-                            {berthIds.map((jid) => {
-                              const b = berthsState.find((bb) => bb.id === jid)
-                              const cap = b?.capacity != null ? Number(b.capacity) : 1
-                              const occList =
-                                Array.isArray(b?.occupants) ? b.occupants : b?.currentVesselId ? [{ vesselId: b.currentVesselId }] : []
-                              // Multi-jetty berthing: `occupiedCount` also counts a vessel spanning in
-                              // from an adjacent jetty (see `berthOtherOccupants`) — don't recompute
-                              // from `occList.length` alone or a spanned-into jetty looks fully vacant.
-                              const occCount = b?.occupiedCount != null ? Number(b.occupiedCount) : occList.length
-                              const label =
-                                occCount > 0
-                                  ? `${jid} – Occupied (${occCount}/${Math.max(1, cap)})`
-                                  : `${jid} – Vacant (0/${Math.max(1, cap)})`
-                              return (
-                                <option key={jid} value={jid}>
-                                  {label}
-                                </option>
-                              )
-                            })}
-                          </select>
-                        </div>
-                      </div>
-                    ) : null}
-                    <dl className="berthing-modal__vessel-dl">
-                      <div className="berthing-modal__vessel-row">
-                        <dt>Estimated Time of Arrival (ETA)</dt>
-                        <dd>
-                          {vesselDetailEditing && d ? (
-                            <input
-                              type="datetime-local"
-                              className="berthing-modal__input"
-                              value={d.etaDateTime}
-                              onChange={(e) =>
-                                setVesselDetailDraft((prev) => (prev ? { ...prev, etaDateTime: e.target.value } : prev))
-                              }
-                              aria-label="Estimated Time of Arrival"
-                            />
-                          ) : (
-                            eta
-                          )}
-                        </dd>
-                      </div>
-                      <div className="berthing-modal__vessel-row">
-                        <dt>Actual Time of Arrival (TA)</dt>
-                        <dd>
-                          {vesselDetailEditing && d ? (
-                            <input
-                              type="datetime-local"
-                              className="berthing-modal__input"
-                              value={d.taDateTime}
-                              onChange={(e) =>
-                                setVesselDetailDraft((prev) => (prev ? { ...prev, taDateTime: e.target.value } : prev))
-                              }
-                              aria-label="Actual Time of Arrival"
-                            />
-                          ) : (
-                            ta
-                          )}
-                        </dd>
-                      </div>
-                      <div className="berthing-modal__vessel-row">
-                        <dt>
-                          Estimated Time of Berthing (ETB)
-                          {vesselDetailEditing && isEtbRequiredForVesselDetailDraft(d) ? (
-                            <span className="required-star"> *</span>
-                          ) : null}
-                        </dt>
-                        <dd>
-                          {vesselDetailEditing && d ? (
-                            <>
-                              <input
-                                type="datetime-local"
-                                className="berthing-modal__input"
-                                value={d.etbDateTime}
-                                onChange={(e) =>
-                                  setVesselDetailDraft((prev) => (prev ? { ...prev, etbDateTime: e.target.value } : prev))
-                                }
-                                aria-label="Estimated Time of Berthing"
-                                aria-required={isEtbRequiredForVesselDetailDraft(d) || undefined}
-                              />
-                              {isEtbRequiredForVesselDetailDraft(d) && !d.etbDateTime ? (
-                                <p className="berthing-modal__jetty-hint berthing-modal__jetty-hint--error" role="alert">
-                                  Required when assigning a jetty.
-                                </p>
-                              ) : null}
-                            </>
-                          ) : (
-                            etb
-                          )}
-                        </dd>
-                      </div>
-                      <div className="berthing-modal__vessel-row">
-                        <dt>Actual Time of Berthing (TB)</dt>
-                        <dd>
-                          {vesselDetailEditing && d ? (
-                            <input
-                              type="datetime-local"
-                              className="berthing-modal__input"
-                              value={d.tbDateTime}
-                              onChange={(e) =>
-                                setVesselDetailDraft((prev) => (prev ? { ...prev, tbDateTime: e.target.value } : prev))
-                              }
-                              aria-label="Actual Time of Berthing"
-                            />
-                          ) : (
-                            tb
-                          )}
-                        </dd>
-                      </div>
-                      <div className="berthing-modal__vessel-row">
-                        <dt>Pilot on Board (POB)</dt>
-                        <dd>
-                          {vesselDetailEditing && d ? (
-                            <input
-                              type="datetime-local"
-                              className="berthing-modal__input"
-                              value={d.pobDateTime}
-                              onChange={(e) =>
-                                setVesselDetailDraft((prev) => (prev ? { ...prev, pobDateTime: e.target.value } : prev))
-                              }
-                              aria-label="Pilot on Board"
-                            />
-                          ) : (
-                            pob
-                          )}
-                        </dd>
-                      </div>
-                      <div className="berthing-modal__vessel-row">
-                        <dt>Surveyor on Board (SOB)</dt>
-                        <dd>
-                          {vesselDetailEditing && d ? (
-                            <input
-                              type="datetime-local"
-                              className="berthing-modal__input"
-                              value={d.sobDateTime}
-                              onChange={(e) =>
-                                setVesselDetailDraft((prev) => (prev ? { ...prev, sobDateTime: e.target.value } : prev))
-                              }
-                              aria-label="Surveyor on Board"
-                            />
-                          ) : (
-                            sob
-                          )}
-                        </dd>
-                      </div>
-                      <div className="berthing-modal__vessel-row">
-                        <dt>Time Since Berthing</dt>
-                        <dd>{timeSinceBerthing}</dd>
-                      </div>
-                      <div className="berthing-modal__vessel-row">
-                        <dt>Est. Completion</dt>
-                        <dd>
-                          {vesselDetailEditing && d ? (
-                            <input
-                              type="datetime-local"
-                              className="berthing-modal__input"
-                              value={d.estimatedCompletionDateTime}
-                              onChange={(e) =>
-                                setVesselDetailDraft((prev) =>
-                                  prev ? { ...prev, estimatedCompletionDateTime: e.target.value } : prev
-                                )
-                              }
-                              aria-label="Estimated completion"
-                            />
-                          ) : (
-                            estCompletion
-                          )}
-                        </dd>
-                      </div>
-                      <div className="berthing-modal__vessel-row">
-                        <dt>{tAlloc('operationsCompleted')}</dt>
-                        <dd>{operationsCompleted || '—'}</dd>
-                      </div>
-                      <div className="berthing-modal__vessel-row">
-                        <dt>{tAlloc('actualCompletion')}</dt>
-                        <dd>{actualCompletion || '—'}</dd>
-                      </div>
-                      <div className="berthing-modal__vessel-row">
-                        <dt>Est. Time Remaining</dt>
-                        <dd>{estTimeRemaining}</dd>
-                      </div>
-                    </dl>
-                  </section>
-                  )}
-
-                  <section className="berthing-modal__card">
-                    <h3 className="berthing-modal__card-title">Arrival documents</h3>
-                    {vesselDetailEditing && d ? (
-                      <div className="berthing-modal__form-section">
-                        <div className="berthing-modal__field">
-                          <label htmlFor="vessel-detail-no-pkk" className="berthing-modal__label">No PKK</label>
-                          <input
-                            id="vessel-detail-no-pkk"
-                            type="text"
-                            className="berthing-modal__input"
-                            value={d.noPkk ?? ''}
-                            onChange={(e) =>
-                              setVesselDetailDraft((prev) => (prev ? { ...prev, noPkk: e.target.value } : prev))
-                            }
-                            placeholder="e.g. PKK-2026-001"
-                          />
-                        </div>
-                        <div className="berthing-modal__field">
-                          <label htmlFor="vessel-detail-nor-doc" className="berthing-modal__label">Notice of Readiness</label>
-                          {Array.isArray(vessel?.norDocuments) && vessel.norDocuments.length > 0 ? (
-                            <ul
-                              className="berthing-modal__file-list"
-                              style={{ marginTop: 'var(--spacing-1)', fontSize: 'var(--font-size-small)' }}
-                            >
-                              {vessel.norDocuments.map((doc) => (
-                                <li key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  <FilePreviewLink
-                                    url={fileUrl(doc.url)}
-                                    name={doc.name || 'NOR document'}
-                                    mimeType={doc.mimeType ?? null}
-                                    className="file-preview-link"
-                                  />
-                                  <button
-                                    type="button"
-                                    className="berthing-modal__nor-delete-btn"
-                                    title="Delete NOR document"
-                                    aria-label={`Delete NOR document: ${doc.name || 'document'}`}
-                                    onClick={async () => {
-                                      if (!window.confirm('Delete this NOR document?')) return
-                                      try {
-                                        await deleteOperationDocument(doc.id)
-                                        await refreshOverview()
-                                      } catch (err) {
-                                        setVesselDetailEditError(err?.message || 'Delete failed')
-                                      }
-                                    }}
-                                  >
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                                      <path d="M3 6h18" />
-                                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-                                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                      <line x1="10" x2="10" y1="11" y2="17" />
-                                      <line x1="14" x2="14" y1="11" y2="17" />
-                                    </svg>
-                                  </button>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : null}
-                          <label className="berthing-modal__file-zone" htmlFor="vessel-detail-nor-doc">
-                            <span className="berthing-modal__file-zone-text">
-                              {vesselDetailNorNewFiles.length > 0
-                                ? `${vesselDetailNorNewFiles.length} new file(s) chosen`
-                                : 'Choose NOR document'}
-                            </span>
-                            <input
-                              id="vessel-detail-nor-doc"
-                              type="file"
-                              accept=".pdf,image/*"
-                              multiple
-                              onChange={(e) => addVesselDetailNorNewFiles(e.target.files)}
-                              className="berthing-modal__file-input"
-                            />
-                          </label>
-                          {vesselDetailNorNewFiles.length > 0 ? (
-                            <ul className="berthing-modal__file-list" style={{ marginTop: 'var(--spacing-1)', fontSize: 'var(--font-size-small)', color: 'var(--color-text-steel)' }}>
-                              {vesselDetailNorNewFiles.map((f, i) => (
-                                <li key={i}>{f.name}</li>
-                              ))}
-                            </ul>
-                          ) : null}
-                        </div>
-                        <div className="berthing-modal__field">
-                          <label htmlFor="vessel-detail-nor-tendered" className="berthing-modal__label">NOR Tendered Date &amp; Time</label>
-                          <input
-                            id="vessel-detail-nor-tendered"
-                            type="datetime-local"
-                            className="berthing-modal__input"
-                            value={d.norTenderedDateTime || ''}
-                            onChange={(e) =>
-                              setVesselDetailDraft((prev) =>
-                                prev ? { ...prev, norTenderedDateTime: e.target.value } : prev
-                              )
-                            }
-                          />
-                        </div>
-                        <div className="berthing-modal__field">
-                          <label htmlFor="vessel-detail-nor-accepted" className="berthing-modal__label">NOR Accepted Date &amp; Time</label>
-                          <input
-                            id="vessel-detail-nor-accepted"
-                            type="datetime-local"
-                            className="berthing-modal__input"
-                            value={d.norAcceptedDateTime || ''}
-                            onChange={(e) =>
-                              setVesselDetailDraft((prev) =>
-                                prev ? { ...prev, norAcceptedDateTime: e.target.value } : prev
-                              )
-                            }
-                          />
-                        </div>
-                        <div className="berthing-modal__field">
-                          <label htmlFor="vessel-detail-demurrage" className="berthing-modal__label">Demurrage liability from</label>
-                          <input
-                            id="vessel-detail-demurrage"
-                            type="datetime-local"
-                            className="berthing-modal__input"
-                            value={d.demurrageLiabilityFromDateTime || ''}
-                            onChange={(e) =>
-                              setVesselDetailDraft((prev) =>
-                                prev ? { ...prev, demurrageLiabilityFromDateTime: e.target.value } : prev
-                              )
-                            }
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <dl className="berthing-modal__vessel-dl">
-                        <div className="berthing-modal__vessel-row">
-                          <dt>No PKK</dt>
-                          <dd className="berthing-modal__vessel-dl--bold">{vessel?.noPkk || '—'}</dd>
-                        </div>
-                        <div className="berthing-modal__vessel-row">
-                          <dt>Notice of Readiness (NOR)</dt>
-                          <dd>
-                            {Array.isArray(vessel?.norDocuments) && vessel.norDocuments.length > 0 ? (
-                              <ul className="berthing-modal__docs-list">
-                                {vessel.norDocuments.map((doc) => (
-                                  <li key={doc.id || doc.url || doc.name}>
-                                    <FilePreviewLink
-                                      url={fileUrl(doc.url)}
-                                      name={doc.name || 'NOR document'}
-                                      mimeType={doc.mimeType ?? null}
-                                      className="berthing-modal__doc-link file-preview-link"
-                                    />
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : (
-                              '—'
-                            )}
-                          </dd>
-                        </div>
-                        <div className="berthing-modal__vessel-row">
-                          <dt>NOR Tendered Date &amp; Time</dt>
-                          <dd>{norTendered}</dd>
-                        </div>
-                        <div className="berthing-modal__vessel-row">
-                          <dt>NOR Accepted Date &amp; Time</dt>
-                          <dd>{norAccepted}</dd>
-                        </div>
-                        <div className="berthing-modal__vessel-row">
-                          <dt>Demurrage liability from</dt>
-                          <dd>{demurrageFrom}</dd>
-                        </div>
-                      </dl>
-                    )}
-                  </section>
-
-                  {(vesselDetailEditing || existingBerthPhotos.length > 0) && (
-                    <section className="berthing-modal__card">
-                      <h3 className="berthing-modal__card-title">Berthing details (vessel photo)</h3>
-                      {existingBerthPhotos.length > 0 ? (
-                        <ul className="vessel-detail-modal__photos">
-                          {existingBerthPhotos.map((photo, i) => (
-                            <li key={i} className="vessel-detail-modal__photo-item">
-                              <AuthenticatedFileImage
-                                url={photo.url}
-                                alt={photo.name || 'Vessel'}
-                                className="vessel-detail-modal__photo-img vessel-detail-modal__photo-img--clickable"
-                                role="button"
-                                tabIndex={0}
-                                onClick={() =>
-                                  openFilePreview({
-                                    url: photo.url,
-                                    name: photo.name || 'Vessel photo',
-                                    mimeType: photo.mimeType || 'image/jpeg',
-                                  })
-                                }
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault()
-                                    openFilePreview({
-                                      url: photo.url,
-                                      name: photo.name || 'Vessel photo',
-                                      mimeType: photo.mimeType || 'image/jpeg',
-                                    })
-                                  }
-                                }}
-                              />
-                              {photo.name ? <span className="vessel-detail-modal__photo-caption">{photo.name}</span> : null}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : vesselDetailEditing ? (
-                        <p className="berthing-modal__empty" style={{ marginTop: 0 }}>No vessel photos yet.</p>
-                      ) : null}
-                      {vesselDetailEditing ? (
-                        <div className="berthing-modal__form-section" style={{ marginTop: 'var(--spacing-3)' }}>
-                          <label className="berthing-modal__label">Add vessel photos (optional)</label>
-                          <label htmlFor="vessel-detail-berthing-photos" className="berthing-modal__file-zone">
-                            <span className="berthing-modal__file-zone-text">
-                              {vesselDetailBerthingNewPhotos.length > 0
-                                ? `${vesselDetailBerthingNewPhotos.length} new file(s) chosen`
-                                : 'Choose files or drop here'}
-                            </span>
-                            <input
-                              id="vessel-detail-berthing-photos"
-                              type="file"
-                              accept="image/*"
-                              multiple
-                              onChange={addVesselDetailBerthingNewPhotos}
-                              className="berthing-modal__file-input"
-                              aria-label="Upload vessel photos"
-                            />
-                          </label>
-                          {vesselDetailBerthingNewPhotos.length > 0 ? (
-                            <ul className="berthing-modal__photo-list" aria-label="New vessel photos">
-                              {vesselDetailBerthingNewPhotos.map((p) => (
-                                <li key={p.id} className="berthing-modal__photo-item">
-                                  <img
-                                    src={p.previewUrl}
-                                    alt={p.file.name}
-                                    className="berthing-modal__photo-thumb berthing-modal__photo-preview--clickable"
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={() =>
-                                      openFilePreview({
-                                        url: p.previewUrl,
-                                        name: p.file.name,
-                                        mimeType: p.file.type || 'image/jpeg',
-                                      })
-                                    }
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter' || e.key === ' ') {
-                                        e.preventDefault()
-                                        openFilePreview({
-                                          url: p.previewUrl,
-                                          name: p.file.name,
-                                          mimeType: p.file.type || 'image/jpeg',
-                                        })
-                                      }
-                                    }}
-                                  />
-                                  <span className="berthing-modal__photo-name" title={p.file.name}>{p.file.name}</span>
-                                  <button
-                                    type="button"
-                                    className="btn btn--small berthing-modal__photo-remove"
-                                    onClick={() => removeVesselDetailBerthingNewPhoto(p.id)}
-                                    aria-label={`Remove ${p.file.name}`}
-                                  >
-                                    Remove
-                                  </button>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </section>
-                  )}
-
-                  {vessel?.operationId ? (
-                    <OperationalProgressSection
-                      operationId={vessel.operationId}
-                      totalQtyDisplay={vessel.totalQtyDisplay ?? null}
-                      vesselId={vesselDetailModalVesselId}
-                      basePath={
-                        String(vessel?.purpose || '').trim() === 'Unloading' ? '/unloading' : '/loading'
-                      }
-                      scheduleTimezone={selectedPort?.scheduleTimezone ?? 'Asia/Jakarta'}
-                    />
-                  ) : null}
-
-                  <section className="berthing-modal__card">
-                    <h3 className="berthing-modal__card-title">Remarks</h3>
-                    {vesselDetailEditing && d ? (
-                      <textarea
-                        id="vessel-detail-remarks"
-                        className="berthing-modal__textarea"
-                        rows={4}
-                        value={d.remark ?? ''}
-                        onChange={(e) =>
-                          setVesselDetailDraft((prev) => (prev ? { ...prev, remark: e.target.value } : prev))
-                        }
-                        maxLength={MAX_REMARK_CHARS}
-                        placeholder="Remarks"
-                        aria-label="Remarks"
-                      />
-                    ) : (
-                      <p className="berthing-modal__empty" style={{ marginTop: 0 }}>
-                        {vessel?.remark || vessel?.remarks || '—'}
-                      </p>
-                    )}
-                  </section>
-                </div>
-                <div className="modal__footer vessel-detail-modal__footer">
-                  {vesselDetailEditing ? (
-                    <>
-                      <button
-                        type="button"
-                        className="btn btn--small"
-                        onClick={cancelVesselDetailEdit}
-                        disabled={vesselDetailEditSaving}
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--primary btn--small"
-                        onClick={() => saveVesselDetailEdit(vessel)}
-                        disabled={vesselDetailEditSaving}
-                      >
-                        {vesselDetailEditSaving ? 'Saving…' : 'Save changes'}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--small"
-                        onClick={() => closeVesselDetailModal()}
-                        disabled={vesselDetailEditSaving}
-                      >
-                        Close
-                      </button>
-                    </>
-                  ) : (
-                    <button type="button" className="btn btn--primary btn--small" onClick={() => closeVesselDetailModal()}>
-                      Close
-                    </button>
-                  )}
-                </div>
-                </>
-              )
-            })()}
-          </div>
-        </div>
-      )}
+      <ActiveVesselDetailModal
+        vesselId={vesselDetailModalVesselId}
+        planId={vesselDetailPlanId}
+        onClose={closeVesselDetailModal}
+        isPlanCentric={isPlanCentric}
+        canEditAllocation={canEditAllocation}
+        queueList={list}
+        scheduleList={scheduleList}
+        berthsState={berthsState}
+        onRefreshOverview={refreshOverview}
+        plannedBerthingPath={plannedBerthingPath}
+        activityLogPage={activityLogPageKey}
+      />
 
       <ShipmentPlanCombinedFormModal
         isOpen={preBerthCombinedPlanId != null}
@@ -3606,59 +2694,6 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         onSaved={() => refreshOverview().catch(() => {})}
         onOpenPlanPreBerthEdit={(pid) => setPreBerthCombinedPlanId(pid)}
       />
-      {pipelineEmbed ? (
-        <div
-          className="modal-overlay"
-          onClick={() => {
-            setPipelineEmbed(null)
-            refreshOverview().catch(() => {})
-          }}
-          aria-hidden="true"
-        >
-          <div
-            className="modal"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label={`${pipelineEmbed.label} activity`}
-            style={{ width: 'min(1280px, 96vw)', maxWidth: '96vw', height: '88vh', display: 'flex', flexDirection: 'column', padding: 0 }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '10px 16px',
-                borderBottom: '1px solid #e5e7eb',
-              }}
-            >
-              <h2 className="modal__title" style={{ margin: 0, fontSize: '1.05rem' }}>
-                {pipelineEmbed.label} — activity
-              </h2>
-              <span style={{ display: 'inline-flex', gap: 8 }}>
-                <Link to={pipelineEmbed.url} className="btn btn--small btn--ghost" title="Open as full page">
-                  Open full page ↗
-                </Link>
-                <button
-                  type="button"
-                  className="btn btn--small btn--secondary"
-                  onClick={() => {
-                    setPipelineEmbed(null)
-                    refreshOverview().catch(() => {})
-                  }}
-                >
-                  Close
-                </button>
-              </span>
-            </div>
-            <iframe
-              src={pipelineEmbed.url}
-              title={`${pipelineEmbed.label} activity`}
-              style={{ border: 0, width: '100%', flex: 1, minHeight: 0 }}
-            />
-          </div>
-        </div>
-      ) : null}
       <SiDocumentModal
         isOpen={Boolean(siDocumentModalId)}
         siId={siDocumentModalId}
@@ -4326,50 +3361,25 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                 role="group"
                 aria-label={isPlanCentric ? tAlloc('statusFilterAriaPlan') : tAlloc('statusFilterAria')}
               >
-                <button
-                  type="button"
-                  className={`btn btn--small ${statusFilter.showIncoming && !etcBreachFilter ? 'btn--primary' : 'btn--ghost'}`}
-                  aria-pressed={Boolean(statusFilter.showIncoming) && !etcBreachFilter}
-                  disabled={etcBreachFilter}
-                  onClick={() =>
-                    setStatusFilter((prev) => ({ ...prev, showIncoming: !prev.showIncoming }))
-                  }
-                >
-                  {isPlanCentric ? tAlloc('statusShowIncoming') : tAlloc('statusIncoming')}
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn--small ${statusFilter.showBerthed || etcBreachFilter ? 'btn--primary' : 'btn--ghost'}`}
-                  aria-pressed={Boolean(statusFilter.showBerthed) || etcBreachFilter}
-                  onClick={() => {
-                    if (etcBreachFilter) {
-                      setEtcBreachFilter(false)
-                      setStatusFilter((prev) => ({ ...prev, showBerthed: true, showIncoming: false }))
-                      return
-                    }
-                    setStatusFilter((prev) => ({ ...prev, showBerthed: !prev.showBerthed }))
-                  }}
-                >
-                  {tAlloc('statusBerthed')}
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn--small ${etcBreachFilter ? 'btn--primary' : 'btn--ghost'}`}
-                  aria-pressed={etcBreachFilter}
-                  onClick={() => {
-                    const next = !etcBreachFilter
-                    setEtcBreachFilter(next)
-                    if (next) {
-                      setStatusFilter(
-                        isPlanCentric
-                          ? { ...ETC_BREACH_STATUS_FILTER_PLAN }
-                          : { ...ETC_BREACH_STATUS_FILTER_LEGACY }
-                      )
-                    }
-                  }}
-                >
-                  {tAlloc('statusEtcBreach')}
-                </button>
+                {[
+                  {
+                    key: QUEUE_STATUS_INCOMING,
+                    label: isPlanCentric ? tAlloc('statusShowIncoming') : tAlloc('statusIncoming'),
+                  },
+                  { key: QUEUE_STATUS_WAITING_TO_BERTH, label: tAlloc('statusWaitingToBerth') },
+                  { key: QUEUE_STATUS_BERTHED, label: tAlloc('statusBerthed') },
+                  { key: QUEUE_STATUS_ETC_BREACHED, label: tAlloc('statusEtcBreach') },
+                ].map(({ key, label }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`btn btn--small ${queueStatusFilter === key ? 'btn--primary' : 'btn--ghost'}`}
+                    aria-pressed={queueStatusFilter === key}
+                    onClick={() => setQueueStatusFilter(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
             {isPlanCentric ? (
@@ -4414,14 +3424,34 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                 <th className="allocation-table__action-col"></th>
                 {visibleAllocationTableColumns.map((col) => (
                   <th key={col.key}>
-                    <input
-                      type="text"
-                      className="allocation-table__filter"
-                      placeholder={tAlloc('filterPlaceholder', { label: allocColLabel(col.key, col.label) })}
-                      value={filters[col.key]}
-                      onChange={(e) => updateFilter(col.key, e.target.value)}
-                      aria-label={tAlloc('filterBy', { label: allocColLabel(col.key, col.label) })}
-                    />
+                    {col.filterType === 'select' ? (
+                      <ColumnSelectFilter
+                        value={filters[col.key]}
+                        onChange={(value) => updateFilter(col.key, value)}
+                        options={col.key === 'commodityQty' ? commodityShortOptions : col.selectOptions || []}
+                        allLabel={tAlloc('filterAll')}
+                        ariaLabel={tAlloc('filterSelectAria', { label: allocColLabel(col.key, col.label) })}
+                      />
+                    ) : col.filterType === 'dateRange' ? (
+                      <ColumnDateRangeFilter
+                        from={dateRangeFilterParts(filters[col.key]).from}
+                        to={dateRangeFilterParts(filters[col.key]).to}
+                        onChange={(bound, value) =>
+                          updateFilter(col.key, mergeDateRangeBound(filters[col.key], bound, value))
+                        }
+                        fromAria={tAlloc('dateRangeFromAria', { label: allocColLabel(col.key, col.label) })}
+                        toAria={tAlloc('dateRangeToAria', { label: allocColLabel(col.key, col.label) })}
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        className="allocation-table__filter"
+                        placeholder={tAlloc('filterPlaceholder', { label: allocColLabel(col.key, col.label) })}
+                        value={filters[col.key] ?? ''}
+                        onChange={(e) => updateFilter(col.key, e.target.value)}
+                        aria-label={tAlloc('filterBy', { label: allocColLabel(col.key, col.label) })}
+                      />
+                    )}
                   </th>
                 ))}
               </tr>

@@ -7,6 +7,8 @@ export const SI_FORM_COMPANY = {
   address: 'GAMA TOWER, LT 41, JL HR RASUNA SAID, KAV C 22, KARET KUNINGAN, SETIABUDI, KOTA ADM. JAKARTA SELATAN, DKI JAKARTA, 12940',
 }
 
+export const SI_FORM_APPROVAL_SIGNATURE_NOTE = 'Approved through system, signature not required'
+
 /** Same rule as main list: formal document after approval (Loading or Unloading). */
 export function canViewAsDocument(si) {
   if (!si) return false

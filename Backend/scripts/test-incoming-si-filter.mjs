@@ -19,7 +19,7 @@ function assert(cond, msg) {
   if (!cond) throw new Error(`ASSERT: ${msg}`);
 }
 
-const incomingFilter = { showIncoming: true, showBerthed: false };
+const incomingFilter = 'incoming';
 
 // Plan-only row: SI column is —, not plan ref
 const planOnlyFlat = [

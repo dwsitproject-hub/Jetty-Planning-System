@@ -596,7 +596,19 @@ export const defaultPreCheckingSection = () => ({
   keyMeeting: { startTime: '', endTime: '', documents: [], remark: '' },
   norAccepted: { startTime: '', endTime: '', norTenderedDateTime: '', norAcceptedDateTime: '', documents: [], remark: '' },
   inspection: { startTime: '', endTime: '', documents: [], remark: '', inspectionType: '' },
-  sampling: { startTime: '', endTime: '', documents: [], remark: '', records: [] },
+  // ffaAverage/moistureAverage/dobi/iodineValue hold the report's own stated figures,
+  // which are not the averages derived from `records`.
+  sampling: {
+    startTime: '',
+    endTime: '',
+    documents: [],
+    remark: '',
+    records: [],
+    ffaAverage: '',
+    moistureAverage: '',
+    dobi: '',
+    iodineValue: '',
+  },
   initialCargoChecking: { startTime: '', endTime: '', documents: [], remark: '', cargoCheckingType: '' },
 })
 

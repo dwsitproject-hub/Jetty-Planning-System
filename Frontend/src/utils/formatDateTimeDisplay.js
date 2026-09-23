@@ -7,12 +7,18 @@
  * - formatDateTimeDisplay: ISO / timestamps → `DD/MMM/YYYY HH:mm` (24h, locale-aware via `jps_locale`: en → en-GB, id → id-ID).
  *   Unparseable strings are returned with a trailing ` LT` removed (legacy API/cache).
  * - formatDateDisplay: date-only values → `DD/MMM/YYYY`.
+ * - formatDateTimeCompact: ISO / timestamps → `DD MMM HH:mm` (no year; Live Ops arrivals widgets).
+ * - formatActivityLogChangeValue: zoned ISO datetimes in activity-log diffs → user TZ via
+ *   formatDateTimeDisplay; other values (IDs, names, date-only) left as-is.
  * - stripLegacyDatetimeLt: only removes a trailing ` LT` / ` lt` from a string.
  */
 
 import { JPS_LOCALE_STORAGE_KEY } from '../i18n/constants.js'
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/
+/** UTC / offset ISO instants stored in activity_logs.changes_json (not naive or date-only). */
+const ZONED_ISO_DATETIME =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/i
 
 /** @returns {'en-GB'|'id-ID'} */
 export function getAppLocaleTag() {
@@ -103,6 +109,39 @@ function fallbackDayMonthYearHourMinute(d, localeTag) {
 }
 
 /**
+ * @param {Date} d
+ * @param {'en-GB'|'id-ID'} localeTag
+ */
+function formatDayMonthHourMinute(d, localeTag) {
+  const parts = new Intl.DateTimeFormat(localeTag, {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(d)
+  const byType = partsByType(parts)
+  const day = String(byType.day ?? '').padStart(2, '0')
+  const month = byType.month ?? ''
+  const hour = String(byType.hour ?? '').padStart(2, '0')
+  const minute = String(byType.minute ?? '').padStart(2, '0')
+  if (!day || !month) return null
+  return `${day} ${month} ${hour}:${minute}`
+}
+
+/**
+ * @param {Date} d
+ * @param {'en-GB'|'id-ID'} localeTag
+ */
+function fallbackDayMonthHourMinute(d, localeTag) {
+  const day = String(d.getDate()).padStart(2, '0')
+  const month = d.toLocaleString(localeTag, { month: 'short' })
+  const hours = String(d.getHours()).padStart(2, '0')
+  const mins = String(d.getMinutes()).padStart(2, '0')
+  return `${day} ${month} ${hours}:${mins}`
+}
+
+/**
  * @param {unknown} value
  * @returns {{ raw: string, d: Date } | null}
  */
@@ -169,4 +208,37 @@ export function formatDateTimeDisplay(value) {
   const formatted = formatDayMonthYearHourMinute(parsed.d, localeTag)
   if (formatted) return formatted
   return fallbackDayMonthYearHourMinute(parsed.d, localeTag)
+}
+
+/**
+ * Compact datetime for dense Live Ops tables: `DD MMM HH:mm` (no year).
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function formatDateTimeCompact(value) {
+  const parsed = parseDisplayValue(value)
+  if (!parsed) {
+    if (value == null || value === '') return '—'
+    const stripped = stripLegacyDatetimeLt(value)
+    return stripped || '—'
+  }
+
+  const localeTag = getAppLocaleTag()
+  const formatted = formatDayMonthHourMinute(parsed.d, localeTag)
+  if (formatted) return formatted
+  return fallbackDayMonthHourMinute(parsed.d, localeTag)
+}
+
+/**
+ * Activity Log from/to cells: format zoned ISO datetimes in the user (browser) timezone.
+ * Leave jetty IDs, names, numbers, and date-only strings unchanged.
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function formatActivityLogChangeValue(value) {
+  if (value == null || value === '') return '—'
+  const raw = String(value).trim()
+  if (!raw) return '—'
+  if (ZONED_ISO_DATETIME.test(raw)) return formatDateTimeDisplay(raw)
+  return raw
 }

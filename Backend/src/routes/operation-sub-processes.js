@@ -20,6 +20,11 @@ import { writeActivityLog } from '../lib/activity-log.js';
 import { sendStoredFileAttachment, sendStoredFileInline } from '../lib/send-stored-file.js';
 import { promoteInProgressToPostOpsIfInProgress } from '../lib/operation-auto-status.js';
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
+import {
+  metricToString,
+  runSamplingDocumentExtract,
+  toMetricNumber,
+} from '../lib/sampling-document-extract.js';
 
 const POST_CHECK_AUTO_KEYS = new Set([
   'final_inspection',
@@ -111,6 +116,56 @@ function normalizeForChange(v) {
   return String(v);
 }
 
+/**
+ * The quality figures the report prints in its own summary box. Only the Pre-Checking
+ * sampling sub-process has them; the columns stay NULL for every other key.
+ *
+ * Ceilings are per field: FFA, moisture and DOBI are the extract's 0-100 metric range,
+ * while iodine value needs more headroom — CPO sits near 52 but other oils run higher.
+ */
+const QUALITY_SUMMARY_FIELDS = [
+  { body: 'ffaAverage', column: 'ffa_average', label: 'FFA Average', max: 100 },
+  { body: 'moistureAverage', column: 'moisture_average', label: 'Moisture Average', max: 100 },
+  { body: 'dobi', column: 'dobi', label: 'DOBI', max: 100 },
+  { body: 'iodineValue', column: 'iodine_value', label: 'Iodine Value', max: 200 },
+];
+
+/**
+ * Read the quality figures out of a request body.
+ *
+ * `provided` drives the same omit-keeps-existing merge the other Pre-Checking columns use,
+ * so a save that leaves a field out never clears it. An explicit empty string does clear it.
+ *
+ * @returns {Record<string, { provided: boolean, value: number|null }>}
+ */
+function readQualitySummary(key, body = {}) {
+  const out = {};
+  for (const field of QUALITY_SUMMARY_FIELDS) {
+    const raw = key === 'sampling' ? body[field.body] : undefined;
+    if (raw === undefined) {
+      out[field.body] = { provided: false, value: null };
+      continue;
+    }
+    if (raw === null || String(raw).trim() === '') {
+      out[field.body] = { provided: true, value: null };
+      continue;
+    }
+    const n = toMetricNumber(raw);
+    if (n == null || n < 0 || n > field.max) {
+      throw Object.assign(new Error(`Invalid ${field.label}`), { statusCode: 400 });
+    }
+    out[field.body] = { provided: true, value: n };
+  }
+  return out;
+}
+
+/** Postgres returns numeric as a string ("7.620"); the form and the log want "7.62". */
+function formatQualityMetric(raw) {
+  if (raw == null) return null;
+  const n = toMetricNumber(raw);
+  return n == null ? null : metricToString(n);
+}
+
 function summarizeSamplingRecords(payload) {
   const records = Array.isArray(payload?.records) ? payload.records : [];
   if (records.length === 0) return null;
@@ -157,7 +212,8 @@ async function loadOperationPrecheckContext(operationId) {
 
 async function loadSubProcess(operationId, phase, key) {
   const r = await pool.query(
-    `SELECT id, operation_id, phase, sub_process_key, status, occurred_at, start_at, end_at, skip_reason, remark, payload_json, created_at, updated_at
+    `SELECT id, operation_id, phase, sub_process_key, status, occurred_at, start_at, end_at, skip_reason, remark, payload_json,
+            ffa_average, moisture_average, dobi, iodine_value, created_at, updated_at
      FROM operation_sub_processes
      WHERE operation_id = $1
        AND phase = $2
@@ -180,6 +236,7 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
   const skipReason = body.skipReason != null ? String(body.skipReason).trim() : undefined;
   const remark = body.remark != null ? String(body.remark) : undefined;
   const payload = sanitizePayload(body.payload);
+  const quality = readQualitySummary(key, body);
   if (status === 'Skipped' && !(skipReason && skipReason.trim())) {
     throw Object.assign(new Error('skipReason is required when status is Skipped'), { statusCode: 400 });
   }
@@ -252,8 +309,12 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
              skip_reason = CASE WHEN $8::boolean THEN NULLIF($9, '') ELSE skip_reason END,
              remark = CASE WHEN $10::boolean THEN COALESCE($11, '') ELSE remark END,
              payload_json = CASE WHEN $12::boolean THEN $13::jsonb ELSE payload_json END,
+             ffa_average = CASE WHEN $14::boolean THEN $15::numeric ELSE ffa_average END,
+             moisture_average = CASE WHEN $16::boolean THEN $17::numeric ELSE moisture_average END,
+             dobi = CASE WHEN $18::boolean THEN $19::numeric ELSE dobi END,
+             iodine_value = CASE WHEN $20::boolean THEN $21::numeric ELSE iodine_value END,
              updated_at = NOW()
-           WHERE id = $14`,
+           WHERE id = $22`,
           [
             status !== undefined ? status : null,
             occurredAt === undefined ? null : occurredAt,
@@ -268,6 +329,14 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
             remark !== undefined ? remark : null,
             payload !== undefined,
             payload !== undefined ? JSON.stringify(payload) : null,
+            quality.ffaAverage.provided,
+            quality.ffaAverage.value,
+            quality.moistureAverage.provided,
+            quality.moistureAverage.value,
+            quality.dobi.provided,
+            quality.dobi.value,
+            quality.iodineValue.provided,
+            quality.iodineValue.value,
             id,
           ]
         );
@@ -280,8 +349,9 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
       }
       const ins = await client.query(
         `INSERT INTO operation_sub_processes
-         (operation_id, phase, sub_process_key, status, occurred_at, start_at, end_at, skip_reason, remark, payload_json)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         (operation_id, phase, sub_process_key, status, occurred_at, start_at, end_at, skip_reason, remark, payload_json,
+          ffa_average, moisture_average, dobi, iodine_value)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
          RETURNING id`,
         [
           operationId,
@@ -294,6 +364,10 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
           skipReason ?? null,
           remark ?? null,
           payload !== undefined ? JSON.stringify(payload) : null,
+          quality.ffaAverage.value,
+          quality.moistureAverage.value,
+          quality.dobi.value,
+          quality.iodineValue.value,
         ]
       );
       id = ins.rows[0].id;
@@ -324,6 +398,10 @@ function toSubProcessRow(r) {
     skipReason: r.skip_reason ?? null,
     remark: r.remark ?? null,
     payload: r.payload_json ?? null,
+    ffaAverage: formatQualityMetric(r.ffa_average),
+    moistureAverage: formatQualityMetric(r.moisture_average),
+    dobi: formatQualityMetric(r.dobi),
+    iodineValue: formatQualityMetric(r.iodine_value),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -366,7 +444,8 @@ router.get('/operations/:operationId/sub-processes', async (req, res) => {
   }
 
   const r = await pool.query(
-    `SELECT id, operation_id, phase, sub_process_key, status, occurred_at, start_at, end_at, skip_reason, remark, payload_json, created_at, updated_at
+    `SELECT id, operation_id, phase, sub_process_key, status, occurred_at, start_at, end_at, skip_reason, remark, payload_json,
+            ffa_average, moisture_average, dobi, iodine_value, created_at, updated_at
      FROM operation_sub_processes
      WHERE operation_id = $1
        AND deleted_at IS NULL
@@ -435,7 +514,8 @@ router.put('/operations/:operationId/sub-processes/:subProcessKey', async (req, 
   const before = await loadSubProcess(operationId, phase, key);
   const id = await upsertSubProcess(operationId, phase, key, req.body || {});
   const out = await pool.query(
-    `SELECT id, operation_id, phase, sub_process_key, status, occurred_at, start_at, end_at, skip_reason, remark, payload_json, created_at, updated_at
+    `SELECT id, operation_id, phase, sub_process_key, status, occurred_at, start_at, end_at, skip_reason, remark, payload_json,
+            ffa_average, moisture_average, dobi, iodine_value, created_at, updated_at
      FROM operation_sub_processes
      WHERE id = $1`,
     [id]
@@ -457,6 +537,12 @@ router.put('/operations/:operationId/sub-processes/:subProcessKey', async (req, 
             from: normalizeForChange(summarizeSamplingRecords(before?.payload_json)),
             to: normalizeForChange(summarizeSamplingRecords(after?.payload_json)),
           },
+          // Formatted on both sides so "1.900" against "1.90" is not logged as an edit.
+          ...QUALITY_SUMMARY_FIELDS.map((field) => ({
+            field: field.label,
+            from: normalizeForChange(formatQualityMetric(before?.[field.column])),
+            to: normalizeForChange(formatQualityMetric(after?.[field.column])),
+          })),
         ]
       : []),
   ].filter((c) => c.from !== c.to);
@@ -640,6 +726,32 @@ router.get('/sub-process-documents/:documentId/view', async (req, res) => {
     return res.status(404).json({ error: 'Document file not found' });
   }
   return sendStoredFileInline(res, full, row.original_name, `sub-process-document-${documentId}`);
+});
+
+/**
+ * Re-read a saved sampling document and return extracted per-palka quality values, so an
+ * operator can autofill from an attachment uploaded in an earlier editing session.
+ * Nothing is written here; the client reviews the values before applying them.
+ */
+router.post('/sub-process-documents/:documentId/extract-sampling', async (req, res) => {
+  const documentId = parseInt(req.params.documentId, 10);
+  if (!Number.isFinite(documentId)) return res.status(400).json({ error: 'Invalid document id' });
+  const row = await loadSubProcessDocumentRow(documentId);
+  if (!row) return res.status(404).json({ error: 'Document not found' });
+  await assertOperationInSelectedPort(row.operation_id, req.selectedPortId);
+  const full = resolveStoredPath(row.stored_path);
+  if (!full || !fsSync.existsSync(full)) {
+    return res.status(404).json({ error: 'Document file not found' });
+  }
+  try {
+    const buf = await fs.readFile(full);
+    const out = await runSamplingDocumentExtract(buf);
+    return res.json(out);
+  } catch (e) {
+    const code = Number(e?.statusCode);
+    const status = Number.isInteger(code) && code >= 400 && code < 500 ? code : 500;
+    return res.status(status).json({ error: e?.message || 'Extract failed' });
+  }
 });
 
 router.get('/sub-process-documents/:documentId/download', async (req, res) => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 function clamp(n, min, max) {
@@ -46,7 +46,7 @@ export default function InteractiveTooltip({
   emptyText = 'No items.',
   maxWidth = 320,
   maxHeight = 220,
-  placement = 'left', // 'left' | 'right'
+  placement = 'left', // 'left' | 'right' | 'top'
   interactiveChild = false,
   children,
 }) {
@@ -85,7 +85,7 @@ export default function InteractiveTooltip({
 
   useEffect(() => () => cancelScheduledClose(), [cancelScheduledClose])
 
-  const computePosition = useCallback(() => {
+  const computePosition = useCallback((tooltipEl) => {
     const el = triggerRef.current
     if (!el) return null
     // For absolutely-positioned interactive children (e.g. Gantt bars), measure the child box
@@ -93,21 +93,52 @@ export default function InteractiveTooltip({
     const anchor = resolveAnchorElement(el, interactiveChild)
     if (!anchor) return null
     const r = anchor.getBoundingClientRect()
-    const gap = 10
-    const estW = Math.min(maxWidth, 360)
+    const gap = 8
     const viewportPad = 12
-    let flip = false
+    const box = tooltipEl instanceof HTMLElement
+      ? (tooltipEl.querySelector('.jps-tooltip__inner') || tooltipEl)
+      : null
+    const boxRect = box instanceof HTMLElement ? box.getBoundingClientRect() : null
+    const tipW = boxRect?.width > 0 ? boxRect.width : Math.min(maxWidth, 240)
+    const tipH = boxRect?.height > 0 ? boxRect.height : 88
+    const midY = clamp(r.top + r.height / 2, viewportPad + 10, window.innerHeight - viewportPad - 10)
 
-    let left = placement === 'right' ? r.right + gap : r.left - gap - estW
-    if (left < viewportPad) {
-      left = r.right + gap
-      flip = true
+    if (placement === 'top' && r.top - gap - tipH >= viewportPad) {
+      return {
+        left: clamp(r.left + r.width / 2, viewportPad + 24, window.innerWidth - viewportPad - 24),
+        top: r.top - gap,
+        right: null,
+        flip: false,
+        place: 'top',
+      }
     }
-    if (left + estW > window.innerWidth - viewportPad) {
-      left = window.innerWidth - viewportPad - estW
+
+    const preferRight = placement === 'right'
+    const fitsLeft = r.left - gap - tipW >= viewportPad
+    const fitsRight = r.right + gap + tipW <= window.innerWidth - viewportPad
+    let side = preferRight ? 'right' : 'left'
+    if (side === 'left' && !fitsLeft && fitsRight) side = 'right'
+    if (side === 'right' && !fitsRight && fitsLeft) side = 'left'
+    if (!fitsLeft && !fitsRight) {
+      side = r.left >= window.innerWidth - r.right ? 'left' : 'right'
     }
-    const top = clamp(r.top + r.height / 2, viewportPad + 10, window.innerHeight - viewportPad - 10)
-    return { left, top, flip }
+
+    if (side === 'left') {
+      return {
+        left: null,
+        right: Math.max(viewportPad, window.innerWidth - r.left + gap),
+        top: midY,
+        flip: false,
+        place: 'left',
+      }
+    }
+    return {
+      left: r.right + gap,
+      right: null,
+      top: midY,
+      flip: true,
+      place: 'right',
+    }
   }, [interactiveChild, maxWidth, placement])
 
   const openNow = useCallback(() => {
@@ -117,6 +148,22 @@ export default function InteractiveTooltip({
     setPos(p)
     setOpen(true)
   }, [cancelScheduledClose, computePosition])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    const next = computePosition(tooltipRef.current)
+    if (!next) return
+    setPos((prev) => (
+      prev
+      && prev.left === next.left
+      && prev.right === next.right
+      && prev.top === next.top
+      && prev.flip === next.flip
+      && prev.place === next.place
+        ? prev
+        : next
+    ))
+  }, [open, computePosition, safeItems, title, subtitle, emptyText])
 
   const onKeyDown = useCallback(
     (e) => {
@@ -154,8 +201,14 @@ export default function InteractiveTooltip({
       ? createPortal(
           <div
             ref={tooltipRef}
-            className={`jps-tooltip${pos.flip ? ' jps-tooltip--flip' : ''}`}
-            style={{ left: pos.left, top: pos.top, ['--jps-tooltip-maxw']: `${maxWidth}px`, ['--jps-tooltip-maxh']: `${maxHeight}px` }}
+            className={`jps-tooltip${pos.flip ? ' jps-tooltip--flip' : ''}${pos.place === 'top' ? ' jps-tooltip--top' : ''}`}
+            style={{
+              left: pos.left == null ? 'auto' : pos.left,
+              right: pos.right == null ? 'auto' : pos.right,
+              top: pos.top,
+              ['--jps-tooltip-maxw']: `${maxWidth}px`,
+              ['--jps-tooltip-maxh']: `${maxHeight}px`,
+            }}
             role="tooltip"
             onMouseEnter={cancelScheduledClose}
             onMouseLeave={scheduleClose}

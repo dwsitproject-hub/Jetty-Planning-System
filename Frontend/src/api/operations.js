@@ -57,6 +57,7 @@ export function fetchOperations(params = {}) {
   if (params.signoffRequested) sp.set('signoff_requested', '1')
   if (params.startDate) sp.set('start_date', params.startDate)
   if (params.endDate) sp.set('end_date', params.endDate)
+  if (params.castOffFrom) sp.set('cast_off_from', params.castOffFrom)
   const q = sp.toString()
   return apiGet(`/operations${q ? `?${q}` : ''}`)
 }
@@ -267,6 +268,12 @@ export function upsertSubProcess(operationId, subProcessKey, body, opts = {}) {
     status: body.status,
     skipReason: body.skipReason,
     remark: body.remark,
+    // Sampling quality summary columns. Undefined keys drop out of the JSON body, and the API
+    // preserves any of these it is not sent, so other sub-processes are unaffected.
+    ffaAverage: body.ffaAverage,
+    moistureAverage: body.moistureAverage,
+    dobi: body.dobi,
+    iodineValue: body.iodineValue,
     payload: body.payload,
   }
 
@@ -410,6 +417,23 @@ export function fetchActivityTimeline(operationId) {
 
 export function fetchOperationalProgress(operationId) {
   return apiGet(`/operations/${operationId}/operational-progress`)
+}
+
+export function fetchCargoSegmentHourly(operationId, segments) {
+  return apiPost(`/operations/${operationId}/cargo-segment-hourly`, { segments })
+}
+
+export function fetchCargoManualCheckpoints(operationId, loadLineId) {
+  const q = loadLineId != null ? `?loadLineId=${encodeURIComponent(loadLineId)}` : ''
+  return apiGet(`/operations/${operationId}/cargo-manual-checkpoints${q}`)
+}
+
+export function createCargoManualCheckpoint(operationId, body) {
+  return apiPost(`/operations/${operationId}/cargo-manual-checkpoints`, body)
+}
+
+export function deleteCargoManualCheckpoint(operationId, checkpointId) {
+  return apiDelete(`/operations/${operationId}/cargo-manual-checkpoints/${checkpointId}`)
 }
 
 export function fetchAtBerthCargoProgress(ids) {

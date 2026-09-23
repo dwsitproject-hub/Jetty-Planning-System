@@ -64,7 +64,7 @@ export async function slaAtRiskAtSnapshot(client, portId, tIso, filters) {
  */
 async function slaAtRiskItemsAtSnapshot(client, portId, tIso, filters, limit = 5) {
   const params = [portId, tIso];
-  const { filterSql } = appendOpPlanFilters('', params, 3, filters);
+  const { filterSql, nextIndex } = appendOpPlanFilters('', params, 3, filters);
   const baseWhere = slaBaseWhere(filterSql);
 
   const r = await client.query(
@@ -88,7 +88,7 @@ async function slaAtRiskItemsAtSnapshot(client, portId, tIso, filters, limit = 5
          )) / 3600.0
        )
      ) DESC, si.shipment_plan_id ASC
-     LIMIT $3`,
+     LIMIT $${nextIndex}`,
     [...params, limit]
   );
 

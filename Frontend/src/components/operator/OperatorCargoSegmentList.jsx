@@ -1,7 +1,17 @@
 import { useTranslation } from 'react-i18next'
+import CargoEntryHourlyPanel from '../CargoEntryHourlyPanel'
 import { formatDateTimeDisplay } from '../../utils/formatDateTimeDisplay'
 
-export default function OperatorCargoSegmentList({ segments, canEdit, busy, onEditSegment }) {
+export default function OperatorCargoSegmentList({
+  segments,
+  purpose,
+  cargoMetricLabel,
+  segmentHourlyByKey,
+  segmentHourlyLoading,
+  canEdit,
+  busy,
+  onEditSegment,
+}) {
   const { t } = useTranslation('operator')
   const list = Array.isArray(segments) ? segments : []
   if (list.length === 0) return null
@@ -20,7 +30,7 @@ export default function OperatorCargoSegmentList({ segments, canEdit, busy, onEd
 
           return (
             <li
-              key={`${seg.entryId}-${seg.lineIndex}`}
+              key={seg.clientKey ?? `${seg.entryId}-${seg.lineIndex}`}
               className={`operator-cargo-segment${seg.isOpen ? ' operator-cargo-segment--open' : ''}`}
             >
               <div className="operator-cargo-segment__head">
@@ -59,6 +69,18 @@ export default function OperatorCargoSegmentList({ segments, canEdit, busy, onEd
                     </button>
                   ) : null}
                 </div>
+              ) : null}
+              {seg.showHourly ? (
+                <CargoEntryHourlyPanel
+                  segmentStart={seg.startAt}
+                  segmentEnd={seg.endAt}
+                  hourlyData={segmentHourlyByKey?.get?.(seg.clientKey) ?? null}
+                  hourlyLoading={segmentHourlyLoading}
+                  purpose={purpose}
+                  metricLabel={cargoMetricLabel}
+                  showAtgHourly
+                  openLoadLineId={seg.loadLineId}
+                />
               ) : null}
             </li>
           )

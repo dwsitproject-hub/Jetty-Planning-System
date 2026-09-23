@@ -1,6 +1,9 @@
 {
   "appName": "Jetty Planning System",
   "tagline": "Smart scheduling for smarter ports",
+  "corpName": "KPN CORP",
+  "loginPitch": "Plan berthing, track operations, and keep every jetty moving from one place.",
+  "copyright": "© {{year}} KPN Corporation. All rights reserved.",
   "sidebarBrand": "Jetty Planning",
   "sidebarSub": "Operations console",
   "toggleMenu": "Toggle menu",

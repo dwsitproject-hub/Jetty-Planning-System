@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { fetchAllocationOverview } from '../../api/allocation'
 import { fetchMasterTanks } from '../../api/masterTanks'
-import { fetchTankGaugingMassDelta } from '../../api/tankGauging'
 import {
   createOperationalEntry,
   fetchOperation,
@@ -25,11 +24,17 @@ import {
   utcIsoToNaiveLocal,
 } from '../../utils/scheduleDateTime'
 import { buildOperatorCargoSegments } from '../../utils/operatorCargoSegments'
+import { useOperatorCargoSegmentHourly } from './useOperatorCargoSegmentHourly'
 import {
   collectCargoLoadLinesWithPending,
   detectCargoSiQtyMismatch,
   formatCargoSiQtyMismatchConfirm,
 } from '../../utils/cargoSiQtyMismatch.js'
+import {
+  buildStoppedCargoLine,
+  mapExistingCargoLine,
+  resolveLineTankIds,
+} from '../../utils/cargoSessionHelpers.js'
 import i18n from '../../i18n'
 const POST_STEPS = [
   { uiKey: 'finalInspection', apiKey: 'final_inspection', label: 'FINAL INSPECTION' },
@@ -186,66 +191,6 @@ function operatorNowLocal(tz) {
   return nowToNaiveLocalWithSecondsInScheduleZone(tz)
 }
 
-async function buildStoppedCargoLine(openLine, endIso, { portId, commodityType, tankOptions, tz }) {
-  const tankIds = resolveLineTankIds(openLine)
-  const line = {
-    startAt: openLine.startAt,
-    endAt: endIso,
-    tankIds,
-    atgQtyMode: 'auto',
-  }
-  if (commodityType !== 'Liquid' || !portId || tankIds.length === 0) return line
-
-  const atgTankIds = tankIds.filter((id) =>
-    tankOptions?.find((t) => String(t.id) === String(id))?.hasAtg
-  )
-  if (atgTankIds.length === 0) return line
-
-  try {
-    const data = await fetchTankGaugingMassDelta({
-      portId,
-      tankIds: atgTankIds,
-      startAt: normalizeForApi(openLine.startAt, tz),
-      endAt: endIso,
-    })
-    const mass = Number(data?.sumDeltaMass)
-    if (!data?.incomplete && Number.isFinite(mass) && mass > 0) {
-      line.qty = mass
-    }
-  } catch {
-    /* backend may compute ATG on save when qty omitted for pure ATG lines */
-  }
-  return line
-}
-
-function resolveLineTankIds(line) {
-  if (Array.isArray(line?.tankIds) && line.tankIds.length) {
-    return line.tankIds.map(String)
-  }
-  if (Array.isArray(line?.tanks) && line.tanks.length) {
-    return line.tanks.map((t) => String(t.id)).filter(Boolean)
-  }
-  return []
-}
-
-function mapExistingCargoLine(l, entry) {
-  let tankIds = resolveLineTankIds(l)
-  if (tankIds.length === 0 && entry) {
-    const lineCount = (entry.cargoLoadLines || []).length
-    if (lineCount === 1) {
-      tankIds = resolveLineTankIds({ tankIds: entry.tankIds, tanks: entry.tanks })
-    }
-  }
-  return {
-    startAt: l.startAt,
-    endAt: l.endAt,
-    qty: l.qty,
-    tankIds,
-    atgQtyMode: l.atgQtyMode || 'auto',
-    manualQty: l.manualQty,
-  }
-}
-
 function assertLiquidCargoLinesHaveTanks(lines, { requireAllLines = true } = {}) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
@@ -368,6 +313,28 @@ export function useOperatorExecution(operationId) {
     }
   }, [commodityType, portId])
 
+  const cargoSegments = useMemo(
+    () =>
+      buildOperatorCargoSegments(activities, purpose, {
+        commodityType,
+        tankOptions,
+      }),
+    [activities, purpose, commodityType, tankOptions]
+  )
+
+  const cargoMetricLabel = useMemo(() => {
+    const code = operation?.cargoSiMetricCode ?? operation?.cargo_si_metric_code ?? 'MT'
+    const name = operation?.cargoSiMetricName ?? operation?.cargo_si_metric_name
+    return [code, name].filter(Boolean).join(' · ') || 'MT'
+  }, [operation])
+
+  const { byKey: segmentHourlyByKey, loading: segmentHourlyLoading } = useOperatorCargoSegmentHourly({
+    operationId,
+    segments: cargoSegments,
+    tankOptions,
+    enabled: commodityType === 'Liquid' && Boolean(operationId),
+  })
+
   const milestones = useMemo(() => {
     const defs = getMilestoneListForPurpose(purpose)
     return defs.map((m) => {
@@ -376,12 +343,12 @@ export function useOperatorExecution(operationId) {
         return {
           ...m,
           ...state,
-          cargoSegments: buildOperatorCargoSegments(activities, purpose),
+          cargoSegments,
         }
       }
       return { ...m, ...state }
     })
-  }, [purpose, activities, naByLabel])
+  }, [purpose, activities, naByLabel, cargoSegments])
 
   const postSteps = useMemo(() => {
     return POST_STEPS.map((s) => {
@@ -637,7 +604,13 @@ export function useOperatorExecution(operationId) {
             atgQtyMode: l.atgQtyMode || 'auto',
           }
         }
-        return buildStoppedCargoLine(l, endIso, { portId, commodityType, tankOptions, tz })
+        return buildStoppedCargoLine(l, endIso, {
+          portId,
+          commodityType,
+          tankOptions,
+          tz,
+          siMetric: operation?.cargoSiMetricCode ?? operation?.cargo_si_metric_code ?? 'MT',
+        })
       })
     )
     const openStopped = lines.find((l) => l.endAt && (l.qty == null || l.qty === ''))
@@ -824,6 +797,9 @@ export function useOperatorExecution(operationId) {
     portId,
     siblings,
     tankOptions,
+    cargoMetricLabel,
+    segmentHourlyByKey,
+    segmentHourlyLoading,
     milestones,
     postSteps,
     activityLog,

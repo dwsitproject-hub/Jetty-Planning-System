@@ -35,6 +35,20 @@ export function parseQtyDisplay(display) {
 }
 
 /**
+ * Resolve cargo total qty + unit — prefer numeric SI breakdown qty (source of truth).
+ * @param {{ cargoSiQty?: number|null, cargoSiMetric?: string|null, totalQtyDisplay?: string|null }} opts
+ * @returns {{ total: number, unit: string } | null}
+ */
+export function resolveCargoQtyTotal({ cargoSiQty, cargoSiMetric, totalQtyDisplay } = {}) {
+  const si = Number(cargoSiQty)
+  if (Number.isFinite(si) && si > 0) {
+    const unit = cargoSiMetric && String(cargoSiMetric).trim() ? String(cargoSiMetric).trim() : 'MT'
+    return { total: si, unit }
+  }
+  return parseQtyDisplay(totalQtyDisplay)
+}
+
+/**
  * @param {number} n
  * @returns {string}
  */
@@ -79,20 +93,54 @@ export function formatRateNumber(n) {
  * @param {number | null | undefined} cargoMovedQty
  * @param {string | null | undefined} [cargoFirstLoggedAt] earliest logged Cargo Operations entry's started_at
  * @param {string | null | undefined} [cargoLastLoggedAt] latest logged Cargo Operations entry's ended_at
+ * @param {{ cargoSiQty?: number|null, cargoSiMetric?: string|null }} [qtyOpts]
  * @returns {{ qty: { total: number, unit: string }, done: number, ratePerHour: number, cargoLine: string, balanceLine: string, rateLine: string } | null}
  */
-export function computeCargoProgress(totalQtyDisplay, cargoMovedQty, cargoFirstLoggedAt, cargoLastLoggedAt) {
-  const qty = parseQtyDisplay(totalQtyDisplay)
+export function computeCargoProgress(
+  totalQtyDisplay,
+  cargoMovedQty,
+  cargoFirstLoggedAt,
+  cargoLastLoggedAt,
+  qtyOpts = {}
+) {
+  const qty = resolveCargoQtyTotal({
+    cargoSiQty: qtyOpts.cargoSiQty,
+    cargoSiMetric: qtyOpts.cargoSiMetric,
+    totalQtyDisplay,
+  })
   if (!qty) return null
   const moved = Number(cargoMovedQty) || 0
-  const done = Math.max(0, Math.min(qty.total, moved))
+  const done = Math.max(0, moved)
+  const balance = Math.max(0, qty.total - moved)
   const ratePerHour = computeCargoRatePerHour(moved, cargoFirstLoggedAt, cargoLastLoggedAt)
   return {
     qty,
     done,
     ratePerHour,
     cargoLine: `${formatQtyNumber(done)} ${qty.unit} / ${formatQtyNumber(qty.total)} ${qty.unit}`,
-    balanceLine: `Balance ${formatQtyNumber(qty.total - done)} ${qty.unit}`,
+    balanceLine: `Balance ${formatQtyNumber(balance)} ${qty.unit}`,
     rateLine: `Rate ${formatRateNumber(ratePerHour)} ${qty.unit} / Hour`,
+  }
+}
+
+/**
+ * Merge live at-berth cargo progress (ATG) into an overview/schematic vessel row.
+ * @param {object|null|undefined} row
+ * @param {object|null|undefined} liveSummary from GET /operations/at-berth/cargo-progress
+ * @param {number} [nowMs]
+ */
+export function mergeLiveCargoProgressFields(row, liveSummary, nowMs = Date.now()) {
+  if (!row || liveSummary?.movedQty == null) return row
+  const isLive = Boolean(liveSummary?.isLive || liveSummary?.hasActiveCargo)
+  return {
+    ...row,
+    cargoMovedQty: Number(liveSummary.movedQty) || 0,
+    cargoSiQty: liveSummary.siQty != null ? Number(liveSummary.siQty) : row.cargoSiQty,
+    cargoSiMetric: liveSummary.siMetric ?? row.cargoSiMetric ?? null,
+    cargoLastLoggedAt:
+      isLive && row.cargoFirstLoggedAt
+        ? new Date(nowMs).toISOString()
+        : row.cargoLastLoggedAt,
+    scheduleComparison: liveSummary,
   }
 }

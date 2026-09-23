@@ -32,6 +32,7 @@ import Verification from './pages/Verification'
 import Reporting from './pages/Reporting'
 import DailyActivitiesReport from './pages/DailyActivitiesReport'
 import VesselReport from './pages/VesselReport'
+import CargoMovementReport from './pages/CargoMovementReport'
 import Master from './pages/Master'
 import MasterPort from './pages/MasterPort'
 import MasterJetty from './pages/MasterJetty'
@@ -49,14 +50,18 @@ import AdminEmailDeliveryLog from './pages/AdminEmailDeliveryLog'
 import DemurrageRiskCalculator from './pages/DemurrageRiskCalculator'
 import JettyLive from './pages/JettyLive'
 import DevOcrTest from './pages/DevOcrTest'
+import { isEmbedMode, isPipelineEmbedPath } from './utils/embedMode'
 
 function AppShell() {
   const location = useLocation()
   const isSiView = /^\/shipping-instruction\/view\/[^/]+$/.test(location.pathname)
   const isVizPopout = /^\/allocation\/visualization\/[^/]+$/.test(location.pathname)
   const isOperator = location.pathname.startsWith('/operator')
-  const isEmbed = new URLSearchParams(location.search).get('embed') === '1'
-  if ((isSiView && isEmbed) || (isVizPopout && isEmbed)) {
+  const isEmbed = isEmbedMode(location.search)
+  const isChromelessEmbed =
+    isEmbed &&
+    ((isSiView || isVizPopout || isPipelineEmbedPath(location.pathname)))
+  if (isChromelessEmbed) {
     return <Outlet />
   }
   if (isOperator) {
@@ -151,6 +156,7 @@ function App() {
                   <Route path="/reporting" element={<Reporting />} />
                   <Route path="/reporting/daily-activities" element={<DailyActivitiesReport />} />
                   <Route path="/reporting/vessel" element={<VesselReport />} />
+                  <Route path="/reporting/cargo-movement" element={<CargoMovementReport />} />
                   <Route path="/demurrage-risk-calculator" element={<DemurrageRiskCalculator />} />
                   <Route path="/master" element={<Master />} />
                   <Route path="/master/port" element={<MasterPort />} />

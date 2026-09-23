@@ -1,6 +1,10 @@
 /**
  * Sortable column headers + per-column filter row (Allocation table pattern).
  */
+import ColumnSelectFilter from './ColumnSelectFilter.jsx'
+import ColumnDateRangeFilter from './ColumnDateRangeFilter.jsx'
+import { dateRangeFilterParts, mergeDateRangeBound } from '../utils/sortableFilterableTable.js'
+
 export default function SortableFilterableTableHead({
   columns,
   sortState,
@@ -54,15 +58,35 @@ export default function SortableFilterableTableHead({
         {blankThs(leadingBlankCols, 'leading')}
         {columns.map((col) => (
           <th key={col.key}>
-            <input
-              type="text"
-              className="allocation-table__filter"
-              placeholder={`Filter ${col.label}`}
-              value={filters[col.key] ?? ''}
-              onChange={(e) => onFilterChange(col.key, e.target.value)}
-              onClick={(e) => e.stopPropagation()}
-              aria-label={`Filter by ${col.label}`}
-            />
+            {col.filterType === 'select' ? (
+              <ColumnSelectFilter
+                value={filters[col.key] ?? ''}
+                onChange={(value) => onFilterChange(col.key, value)}
+                options={col.selectOptions || []}
+                allLabel={col.filterAllLabel || 'All'}
+                ariaLabel={col.filterAriaLabel || `Filter by ${col.label}`}
+              />
+            ) : col.filterType === 'dateRange' ? (
+              <ColumnDateRangeFilter
+                from={dateRangeFilterParts(filters[col.key]).from}
+                to={dateRangeFilterParts(filters[col.key]).to}
+                onChange={(bound, value) =>
+                  onFilterChange(col.key, mergeDateRangeBound(filters[col.key], bound, value))
+                }
+                fromAria={col.dateRangeFromAria || `${col.label} from`}
+                toAria={col.dateRangeToAria || `${col.label} to`}
+              />
+            ) : (
+              <input
+                type="text"
+                className="allocation-table__filter"
+                placeholder={`Filter ${col.label}`}
+                value={filters[col.key] ?? ''}
+                onChange={(e) => onFilterChange(col.key, e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                aria-label={`Filter by ${col.label}`}
+              />
+            )}
           </th>
         ))}
         {blankThs(trailingBlankCols, 'trailing')}

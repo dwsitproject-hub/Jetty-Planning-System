@@ -706,6 +706,113 @@
   gap: var(--spacing-2);
 }
 
+/* Hourly transfer rates (read-only, scoped inside segment card) */
+.operator-cargo-segment .cargo-entry-hourly {
+  margin-top: var(--spacing-2);
+  padding-top: var(--spacing-2);
+  border-top: 1px dashed var(--color-border-light);
+}
+
+.operator-cargo-segment .cargo-entry-hourly__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: var(--spacing-1) 0;
+  min-height: var(--op-tap-min);
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  max-width: 100%;
+  touch-action: manipulation;
+}
+
+.operator-cargo-segment .cargo-entry-hourly__title {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.operator-cargo-segment .cargo-entry-hourly__chevron {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.operator-cargo-segment .cargo-entry-hourly__body {
+  margin-top: var(--spacing-2);
+}
+
+.operator-cargo-segment .cargo-entry-hourly__scope,
+.operator-cargo-segment .cargo-entry-hourly__summary,
+.operator-cargo-segment .cargo-entry-hourly__hint,
+.operator-cargo-segment .cargo-ops-session__hourly-line {
+  font-size: var(--font-size-small);
+  color: var(--color-text-muted);
+  margin: 0 0 var(--spacing-2);
+}
+
+.operator-cargo-segment .hourly-cargo-progress {
+  margin: var(--spacing-2) 0 0;
+}
+
+.operator-cargo-segment .hourly-cargo-progress__table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.operator-cargo-segment .hourly-cargo-progress--compact .hourly-cargo-progress__table {
+  font-size: 0.75rem;
+  min-width: 520px;
+}
+
+.operator-cargo-segment .hourly-cargo-progress__table th,
+.operator-cargo-segment .hourly-cargo-progress__table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border-light);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.operator-cargo-segment .hourly-cargo-progress__badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.operator-cargo-segment .hourly-cargo-progress__badge--active {
+  background: var(--op-success-bg);
+  color: var(--op-success);
+}
+
+.operator-cargo-segment .hourly-cargo-progress__badge--flat {
+  background: rgba(120, 120, 120, 0.12);
+  color: var(--color-text-steel);
+}
+
+.operator-cargo-segment .hourly-cargo-progress__badge--reverse,
+.operator-cargo-segment .hourly-cargo-progress__badge--incomplete {
+  background: #fff7ed;
+  color: var(--op-active);
+}
+
+.operator-cargo-segment .hourly-cargo-progress__toggle {
+  margin-top: var(--spacing-2);
+  min-height: var(--op-tap-min);
+}
+
+.operator-cargo-segment .hourly-cargo-progress__table-wrap--scroll {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
 .operator-milestone__meta {
   color: var(--color-text-steel);
   font-size: var(--font-size-small);

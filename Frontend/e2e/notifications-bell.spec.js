@@ -1,14 +1,11 @@
 import { test, expect } from '@playwright/test';
-
-const BACKEND = process.env.E2E_API_ORIGIN || 'http://localhost:3000';
-const USER = process.env.E2E_USERNAME || 'admin';
-const PASSWORD = process.env.E2E_PASSWORD || 'admin123';
+import { API_ORIGIN, E2E_USER, E2E_PASSWORD } from './load-env.js';
 
 test.describe('Notification bell (in-app center)', () => {
   test('bell visible after login; panel opens; API unread returns 200 or 404', async ({ page }) => {
     await page.goto('/login');
-    await page.locator('#login-username').fill(USER);
-    await page.locator('#login-password').fill(PASSWORD);
+    await page.locator('#login-username').fill(E2E_USER);
+    await page.locator('#login-password').fill(E2E_PASSWORD);
     await page.locator('form').getByRole('button', { name: /sign in/i }).click();
     await expect(page).not.toHaveURL(/\/login$/i, { timeout: 20000 });
 
@@ -43,7 +40,7 @@ test.describe('Notification bell (in-app center)', () => {
     expect(at, 'session cookie').toBeTruthy();
     expect(xsrf, 'xsrf cookie').toBeTruthy();
 
-    const unread = await page.request.get(`${BACKEND}/api/v1/notifications/unread-count`, {
+    const unread = await page.request.get(`${API_ORIGIN}/api/v1/notifications/unread-count`, {
       headers: {
         Cookie: `jps_at=${at}; jps_xsrf=${xsrf}`,
         'X-XSRF-TOKEN': xsrf,

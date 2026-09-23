@@ -81,7 +81,13 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
     const loadDischarge = r.loadDischarge ?? null
     const cargoDisplay = r.totalQtyDisplay || null
     const materialDisplay = materialDisplayFromRow(r)
-    const rowMeta = { purposeLabel, loadDischarge, cargoDisplay, materialDisplay }
+    const rowMeta = {
+      purposeLabel,
+      loadDischarge,
+      cargoDisplay,
+      materialDisplay,
+      commodityDisplay: r.commodityDisplay || null,
+    }
     const additionalJetties = Array.isArray(r.additionalJetties)
       ? r.additionalJetties.filter(Boolean)
       : []

@@ -747,6 +747,22 @@ button.jetty-schematic__lane:focus-visible {
   align-items: center;
   gap: 3px;
   margin-left: auto;
+  flex-wrap: nowrap;
+  min-width: 0;
+  max-width: 55%;
+}
+
+.jetty-card__title-actions .jetty-card__schedule-badge,
+.jetty-card__title-actions .cargo-schedule-badge {
+  margin: 0;
+  font-size: 0.55rem;
+  padding: 0 4px;
+  line-height: 1.2;
+  max-width: 3.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  white-space: nowrap;
 }
 
 .jetty-card__etc-badge {

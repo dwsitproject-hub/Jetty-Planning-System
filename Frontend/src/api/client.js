@@ -166,13 +166,17 @@ export async function apiGet(path) {
   return parseResponse(res)
 }
 
-export async function apiPost(path, body) {
+export async function apiPost(path, body, timeoutMs = DEFAULT_TIMEOUT_MS) {
   const url = `${BASE}${path.startsWith('/') ? path : `/${path}`}`
-  const res = await fetchWithTimeout(url, {
-    method: 'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify(body ?? {}),
-  })
+  const res = await fetchWithTimeout(
+    url,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    },
+    timeoutMs
+  )
   return parseResponse(res)
 }
 

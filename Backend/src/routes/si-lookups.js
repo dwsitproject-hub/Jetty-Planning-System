@@ -4,9 +4,15 @@
 import express from 'express';
 import { pool } from '../db.js';
 import { writeActivityLog } from '../lib/activity-log.js';
+import {
+  actorUserIdFromReq,
+  masterAuditJoinSql,
+  masterAuditSelectSql,
+  pickMasterAudit,
+} from '../lib/master-row-audit.js';
 import { syncPlanVesselCapacityForCommodity } from '../lib/syncPlanVesselCapacity.js';
 import { optionalAuth } from '../middleware/auth.js';
-import { requirePortScope } from '../middleware/port-scope.js';
+import { loadUserAssignedPorts, requirePortScope } from '../middleware/port-scope.js';
 
 const router = express.Router();
 router.use(optionalAuth);
@@ -76,11 +82,13 @@ async function selectCommoditiesWithRates({ portId, whereSql, params = [] }) {
   const portParam = portId == null ? null : Number(portId);
   return pool.query(
     `SELECT c.id, c.name AS value, c.short_name, c.sort_order, c.commodity_type, c.kl_to_mt_factor,
-            c.default_metric_id, dm.code AS default_metric_code, c.created_at, c.updated_at,
+            c.default_metric_id, dm.code AS default_metric_code,
+            ${masterAuditSelectSql('c')},
             srl.id AS loading_standard_rate_id, srl.rate_value AS loading_rate_value, srl.rate_metric AS loading_rate_metric,
             sru.id AS unloading_standard_rate_id, sru.rate_value AS unloading_rate_value, sru.rate_metric AS unloading_rate_metric
      FROM si_commodities c
      LEFT JOIN metric dm ON dm.id = c.default_metric_id AND dm.deleted_at IS NULL
+     ${masterAuditJoinSql('c')}
      LEFT JOIN standard_rates srl
        ON srl.commodity_id = c.id
       AND srl.port_id = $1
@@ -98,12 +106,39 @@ async function selectCommoditiesWithRates({ portId, whereSql, params = [] }) {
 
 const CRUD_TYPES = {
   'trade-terms': { table: 'si_trade_terms', valueCol: 'code', refCol: 'trade_term_id' },
-  shippers: { table: 'si_shippers', valueCol: 'name', refCol: 'shipper_id' },
+  shippers: { table: 'si_shippers', valueCol: 'name', refCol: 'shipper_id', hasLongName: true },
   'loading-ports': { table: 'si_loading_ports', valueCol: 'name', refCol: 'loading_port_id' },
-  surveyors: { table: 'si_surveyors', valueCol: 'name', refCol: 'surveyor_id' },
-  agents: { table: 'si_agents', valueCol: 'name', refCol: 'agent_id' },
+  surveyors: { table: 'si_surveyors', valueCol: 'name', refCol: 'surveyor_id', hasLongName: true },
+  agents: { table: 'si_agents', valueCol: 'name', refCol: 'agent_id', hasLongName: true },
   commodities: { table: 'si_commodities', valueCol: 'name', refCol: 'commodity_id' },
 };
+
+const LONG_NAME_TYPES = new Set(['shippers', 'surveyors', 'agents']);
+
+function normalizeLongName(raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  const v = String(raw).trim();
+  return v || null;
+}
+
+function lookupSelectSql(type) {
+  const cfg = getTypeConfig(type);
+  const longCol = cfg.hasLongName ? ', t.long_name' : '';
+  return `SELECT t.id, t.${cfg.valueCol} AS value, t.sort_order${longCol},
+     ${masterAuditSelectSql('t')}
+   FROM ${cfg.table} t
+   ${masterAuditJoinSql('t')}`;
+}
+
+async function fetchLookupItem(type, id) {
+  const result = await pool.query(
+    `${lookupSelectSql(type)}
+     WHERE t.id = $1 AND t.deleted_at IS NULL`,
+    [id],
+  );
+  return result.rows[0] ?? null;
+}
 
 function isValidType(type) {
   return Object.prototype.hasOwnProperty.call(CRUD_TYPES, type);
@@ -119,8 +154,8 @@ function toItem(row, type) {
     id: row.id,
     value: row.value,
     sortOrder: row.sort_order ?? null,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    ...pickMasterAudit(row),
+    ...(cfg.hasLongName ? { longName: row.long_name ?? null } : {}),
     // keep name/code fields for convenience/debugging
     ...(cfg.valueCol === 'code' ? { code: row.value } : { name: row.value }),
   };
@@ -140,8 +175,7 @@ function toCommodityListItem(row) {
     defaultMetricId: row.default_metric_id != null ? Number(row.default_metric_id) : null,
     defaultMetricCode: row.default_metric_code ?? null,
     sortOrder: row.sort_order ?? null,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    ...pickMasterAudit(row),
     portRates: {
       loading: row.loading_standard_rate_id
         ? {
@@ -269,7 +303,21 @@ async function assertDeletable(pool, type, id) {
   return { ok: true };
 }
 
-router.get('/', async (_req, res) => {
+async function resolveJettyPortIds(req) {
+  if (!req.userId) return [];
+  const assigned = await loadUserAssignedPorts(req.userId);
+  const assignedIds = assigned.map((p) => Number(p.id)).filter((id) => Number.isFinite(id));
+  const selectedRaw =
+    req.headers['x-selected-port-id'] ?? req.headers['x-port-id'] ?? req.query?.port_id ?? null;
+  const parsed = parseInt(String(selectedRaw ?? '').trim(), 10);
+  if (Number.isFinite(parsed) && assignedIds.includes(parsed)) {
+    return [parsed];
+  }
+  return assignedIds;
+}
+
+router.get('/', async (req, res) => {
+  const jettyPortIds = await resolveJettyPortIds(req);
   const [
     commodities,
     tradeTerms,
@@ -295,15 +343,15 @@ router.get('/', async (_req, res) => {
       `SELECT id, code, label, sort_order FROM si_purposes WHERE deleted_at IS NULL ORDER BY sort_order, code`
     ),
     pool.query(
-      `SELECT id, name, sort_order FROM si_shippers WHERE deleted_at IS NULL ORDER BY sort_order, name`
+      `SELECT id, name, long_name, sort_order FROM si_shippers WHERE deleted_at IS NULL ORDER BY sort_order, name`
     ),
     pool.query(
       `SELECT id, name, sort_order FROM si_loading_ports WHERE deleted_at IS NULL ORDER BY sort_order, name`
     ),
     pool.query(
-      `SELECT id, name, sort_order FROM si_surveyors WHERE deleted_at IS NULL ORDER BY sort_order, name`
+      `SELECT id, name, long_name, sort_order FROM si_surveyors WHERE deleted_at IS NULL ORDER BY sort_order, name`
     ),
-    pool.query(`SELECT id, name, sort_order FROM si_agents WHERE deleted_at IS NULL ORDER BY sort_order, name`),
+    pool.query(`SELECT id, name, long_name, sort_order FROM si_agents WHERE deleted_at IS NULL ORDER BY sort_order, name`),
     pool.query(
       `SELECT j.id, j.name, j.port_id, j.jetty_length_m, j.jetty_draft, j.jetty_dwt, j.status, p.name AS port_name,
               p.allow_multi_jetty_berthing,
@@ -315,8 +363,9 @@ router.get('/', async (_req, res) => {
                FROM jetty_adjacencies ja WHERE ja.jetty_id = j.id) AS adjacent_jetty_ids
        FROM jetties j
        JOIN ports p ON j.port_id = p.id AND p.deleted_at IS NULL
-       WHERE j.deleted_at IS NULL
-       ORDER BY p.name, j.order_no, j.name`
+       WHERE j.deleted_at IS NULL AND j.port_id = ANY($1::bigint[])
+       ORDER BY p.name, j.order_no, j.name`,
+      [jettyPortIds]
     ),
     pool.query(
       `SELECT id, code, label, sort_order FROM public.metric WHERE deleted_at IS NULL ORDER BY sort_order, code`
@@ -348,6 +397,7 @@ router.get('/', async (_req, res) => {
     shippers: shippers.rows.map((r) => ({
       id: r.id,
       name: r.name,
+      longName: r.long_name ?? null,
       sortOrder: r.sort_order,
     })),
     loadingPorts: loadingPorts.rows.map((r) => ({
@@ -358,11 +408,13 @@ router.get('/', async (_req, res) => {
     surveyors: surveyors.rows.map((r) => ({
       id: r.id,
       name: r.name,
+      longName: r.long_name ?? null,
       sortOrder: r.sort_order,
     })),
     agents: agents.rows.map((r) => ({
       id: r.id,
       name: r.name,
+      longName: r.long_name ?? null,
       sortOrder: r.sort_order,
     })),
     jetties: jetties.rows.map((r) => ({
@@ -370,7 +422,7 @@ router.get('/', async (_req, res) => {
       name: r.name,
       portId: r.port_id,
       portName: r.port_name,
-      label: `${r.port_name} — ${r.name}`,
+      label: r.name,
       status: r.status ?? null,
       jettyLengthM: r.jetty_length_m != null ? Number(r.jetty_length_m) : null,
       jettyDraft: r.jetty_draft != null ? Number(r.jetty_draft) : null,
@@ -407,10 +459,9 @@ router.get('/:type', async (req, res) => {
   }
   const cfg = getTypeConfig(type);
   const result = await pool.query(
-    `SELECT id, ${cfg.valueCol} AS value, sort_order, created_at, updated_at
-     FROM ${cfg.table}
-     WHERE deleted_at IS NULL
-     ORDER BY sort_order, ${cfg.valueCol} ASC`,
+    `${lookupSelectSql(type)}
+     WHERE t.deleted_at IS NULL
+     ORDER BY t.sort_order, t.${cfg.valueCol} ASC`,
   );
   res.json(result.rows.map((r) => toItem(r, type)));
 });
@@ -433,11 +484,9 @@ router.get('/:type/:id', async (req, res) => {
       return res.json(toCommodityListItem(result.rows[0]));
     });
   }
-  const cfg = getTypeConfig(type);
   const result = await pool.query(
-    `SELECT id, ${cfg.valueCol} AS value, sort_order, created_at, updated_at
-     FROM ${cfg.table}
-     WHERE id = $1 AND deleted_at IS NULL`,
+    `${lookupSelectSql(type)}
+     WHERE t.id = $1 AND t.deleted_at IS NULL`,
     [id],
   );
   if (result.rows.length === 0) return res.status(404).json({ error: 'Item not found' });
@@ -484,11 +533,12 @@ router.post('/:type', async (req, res) => {
       if (Number.isNaN(defaultMetricRaw)) {
         return res.status(400).json({ error: 'defaultMetricId must reference an active MT or KL metric' });
       }
+      const actorId = actorUserIdFromReq(req);
       const ins = await pool.query(
-        `INSERT INTO si_commodities (name, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id)
-         VALUES ($1, $2, 0, $3, $4, $5)
+        `INSERT INTO si_commodities (name, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_by, updated_by)
+         VALUES ($1, $2, 0, $3, $4, $5, $6, $6)
          RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-        [cleaned, shortName, ct, klFactorRaw ?? null, defaultMetricRaw ?? null]
+        [cleaned, shortName, ct, klFactorRaw ?? null, defaultMetricRaw ?? null, actorId]
       );
       const row = ins.rows[0];
       const portId = req.selectedPortId;
@@ -559,7 +609,7 @@ router.post('/:type', async (req, res) => {
 
       writeActivityLog({
         pageKey: tm.pageKey,
-        action: 'create',
+        action: 'add',
         entityType: tm.entityType,
         entityId: String(createdItem.id),
         entityLabel: cleaned,
@@ -572,18 +622,29 @@ router.post('/:type', async (req, res) => {
     });
   }
 
-  const result = await pool.query(
-    `INSERT INTO ${cfg.table} (${cfg.valueCol}, sort_order)
-     VALUES ($1, 0)
-     RETURNING id, ${cfg.valueCol} AS value, sort_order, created_at, updated_at`,
-    [cleaned],
-  );
-  const row = result.rows[0];
+  const actorId = actorUserIdFromReq(req);
+  const longName = LONG_NAME_TYPES.has(type)
+    ? (normalizeLongName(req.body?.longName ?? req.body?.long_name) ?? null)
+    : null;
+  const result = LONG_NAME_TYPES.has(type)
+    ? await pool.query(
+        `INSERT INTO ${cfg.table} (${cfg.valueCol}, sort_order, long_name, created_by, updated_by)
+         VALUES ($1, 0, $2, $3, $3)
+         RETURNING id`,
+        [cleaned, longName, actorId],
+      )
+    : await pool.query(
+        `INSERT INTO ${cfg.table} (${cfg.valueCol}, sort_order, created_by, updated_by)
+         VALUES ($1, 0, $2, $2)
+         RETURNING id`,
+        [cleaned, actorId],
+      );
+  const row = await fetchLookupItem(type, result.rows[0].id);
 
   const tm = getTypeMeta(type);
   writeActivityLog({
     pageKey: tm.pageKey,
-    action: 'create',
+    action: 'add',
     entityType: tm.entityType,
     entityId: String(row.id),
     entityLabel: cleaned,
@@ -621,6 +682,7 @@ router.put('/:type/:id', async (req, res) => {
   const cleaned = type === 'trade-terms' ? value.trim().toUpperCase() : value.trim();
 
   let prevName;
+  let prevLongName = null;
   let prevShortName = null;
   let prevCommodityType = null;
   let prevLoadingValue = null;
@@ -652,11 +714,13 @@ router.put('/:type/:id', async (req, res) => {
       prevQ.rows[0].default_metric_id != null ? Number(prevQ.rows[0].default_metric_id) : null;
   } else {
     const prevQ = await pool.query(
-      `SELECT ${cfg.valueCol} AS v FROM ${cfg.table} WHERE id = $1 AND deleted_at IS NULL`,
+      `SELECT ${cfg.valueCol} AS v${cfg.hasLongName ? ', long_name' : ''}
+       FROM ${cfg.table} WHERE id = $1 AND deleted_at IS NULL`,
       [id],
     );
     if (prevQ.rows.length === 0) return res.status(404).json({ error: 'Item not found' });
     prevName = prevQ.rows[0].v;
+    if (cfg.hasLongName) prevLongName = prevQ.rows[0].long_name ?? null;
   }
 
   let result;
@@ -744,17 +808,38 @@ router.put('/:type/:id', async (req, res) => {
       );
     }
   } else {
-    result = await pool.query(
-      `UPDATE ${cfg.table}
-       SET ${cfg.valueCol} = $1, updated_at = NOW()
-       WHERE id = $2 AND deleted_at IS NULL
-       RETURNING id, ${cfg.valueCol} AS value, sort_order, created_at, updated_at`,
-      [cleaned, id]
-    );
+    const actorId = actorUserIdFromReq(req);
+    const longName = cfg.hasLongName
+      ? (normalizeLongName(req.body?.longName ?? req.body?.long_name) ?? null)
+      : null;
+    if (cfg.hasLongName) {
+      result = await pool.query(
+        `UPDATE ${cfg.table}
+         SET ${cfg.valueCol} = $1, long_name = $2, updated_by = $3, updated_at = NOW()
+         WHERE id = $4 AND deleted_at IS NULL
+         RETURNING id`,
+        [cleaned, longName, actorId, id]
+      );
+    } else {
+      result = await pool.query(
+        `UPDATE ${cfg.table}
+         SET ${cfg.valueCol} = $1, updated_by = $2, updated_at = NOW()
+         WHERE id = $3 AND deleted_at IS NULL
+         RETURNING id`,
+        [cleaned, actorId, id]
+      );
+    }
   }
   if (result.rows.length === 0) return res.status(404).json({ error: 'Item not found' });
 
   if (type === 'commodities') {
+    const actorId = actorUserIdFromReq(req);
+    if (actorId) {
+      await pool.query(
+        `UPDATE si_commodities SET updated_by = $1 WHERE id = $2 AND deleted_at IS NULL`,
+        [actorId, id],
+      );
+    }
     const portId = req.selectedPortId;
 
     await pool.query(
@@ -868,9 +953,16 @@ router.put('/:type/:id', async (req, res) => {
     return res.json(updatedItem);
   }
 
+  const updatedRow = await fetchLookupItem(type, id);
   const tm = getTypeMeta(type);
   const changes = [];
   if (prevName !== cleaned) changes.push({ field: 'Name', from: prevName, to: cleaned });
+  if (cfg.hasLongName) {
+    const nextLong = updatedRow?.long_name ?? null;
+    if ((prevLongName || null) !== (nextLong || null)) {
+      changes.push({ field: 'Long name', from: prevLongName, to: nextLong });
+    }
+  }
   writeActivityLog({
     pageKey: tm.pageKey,
     action: 'update',
@@ -882,7 +974,7 @@ router.put('/:type/:id', async (req, res) => {
     meta: { siLookupType: type },
     actorUserId: req.userId ?? null,
   }).catch(() => {});
-  res.json(toItem(result.rows[0], type));
+  res.json(toItem(updatedRow, type));
 });
 
 /** Master CRUD: DELETE /si-lookups/:type/:id (soft delete) */

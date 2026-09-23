@@ -427,9 +427,10 @@ async function pdfTextFromBuffer(buffer) {
   }
 }
 
-async function imageOcrBuffer(buffer) {
+async function imageOcrBuffer(buffer, ocrParams) {
   const worker = await createWorker('eng+ind', undefined, { logger: () => {} });
   try {
+    if (ocrParams) await worker.setParameters(ocrParams);
     const r = await worker.recognize(buffer);
     return (r?.data?.text || '').trim();
   } finally {
@@ -440,15 +441,17 @@ async function imageOcrBuffer(buffer) {
 /**
  * @param {Buffer} buffer
  * @param {string} mime from magic bytes
+ * @param {{ ocrParams?: Record<string, unknown> }} [opts] tesseract overrides for the image path;
+ *   omit to keep tesseract's own defaults.
  */
-export async function extractRawTextFromBuffer(buffer, mime) {
+export async function extractRawTextFromBuffer(buffer, mime, opts = {}) {
   if (mime === 'application/pdf') {
     const txt = await pdfTextFromBuffer(buffer);
     if (txt && txt.length >= 20) return txt.slice(0, MAX_TEXT_CHARS);
     return '';
   }
   if (mime.startsWith('image/')) {
-    return (await imageOcrBuffer(buffer)).slice(0, MAX_TEXT_CHARS);
+    return (await imageOcrBuffer(buffer, opts.ocrParams)).slice(0, MAX_TEXT_CHARS);
   }
   return '';
 }

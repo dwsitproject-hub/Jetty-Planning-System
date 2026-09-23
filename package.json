@@ -9,6 +9,8 @@
     "build": "npm --prefix Frontend run build",
     "preview": "npm --prefix Frontend run preview",
     "test:e2e": "npm --prefix Frontend run test:e2e",
+    "test:e2e:smoke": "npm --prefix Frontend run test:e2e:smoke",
+    "test:e2e:install": "npm --prefix Frontend run test:e2e:install",
     "rebuild": "node Backend/scripts/rebuild-docker.mjs && node Frontend/scripts/rebuild.mjs",
     "rebuild:backend": "node Backend/scripts/rebuild-docker.mjs",
     "rebuild:frontend": "node Frontend/scripts/rebuild.mjs"

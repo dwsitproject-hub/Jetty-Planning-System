@@ -1,24 +1,43 @@
-/** Default queue view for plan-centric allocation-plans. */
-export const PLAN_CENTRIC_STATUS_FILTER_DEFAULT = {
-  showIncoming: true,
-  showBerthed: false,
+import { getEtcBreach } from './etcBreach.js'
+
+/** Exclusive queue status stages (one selected at a time). */
+export const QUEUE_STATUS_INCOMING = 'incoming'
+export const QUEUE_STATUS_WAITING_TO_BERTH = 'waitingToBerth'
+export const QUEUE_STATUS_BERTHED = 'berthed'
+export const QUEUE_STATUS_ETC_BREACHED = 'etcBreached'
+
+export const QUEUE_STATUS_STAGES = [
+  QUEUE_STATUS_INCOMING,
+  QUEUE_STATUS_WAITING_TO_BERTH,
+  QUEUE_STATUS_BERTHED,
+  QUEUE_STATUS_ETC_BREACHED,
+]
+
+/** Default queue view for plan-centric and legacy allocation. */
+export const QUEUE_STATUS_FILTER_DEFAULT = QUEUE_STATUS_INCOMING
+export const PLAN_CENTRIC_STATUS_FILTER_DEFAULT = QUEUE_STATUS_FILTER_DEFAULT
+export const LEGACY_STATUS_FILTER_DEFAULT = QUEUE_STATUS_FILTER_DEFAULT
+
+function hasQueueArrivalTime(row) {
+  const ta = row?.taDateTime || row?.ta
+  if (!ta) return false
+  const t = new Date(ta).getTime()
+  return !Number.isNaN(t)
 }
 
-/** Default queue view for legacy allocation. */
-export const LEGACY_STATUS_FILTER_DEFAULT = {
-  showIncoming: true,
-  showBerthed: false,
+function isSailedRow(row) {
+  return String(row?.status || '').toUpperCase() === 'SAILED'
 }
 
-/** When ETC-breach-only mode is on (plan-centric). */
-export const ETC_BREACH_STATUS_FILTER_PLAN = {
-  showIncoming: false,
-  showBerthed: true,
-}
-
-export const ETC_BREACH_STATUS_FILTER_LEGACY = {
-  showIncoming: false,
-  showBerthed: true,
+/**
+ * Incoming-family row that has logged TA and is not sailed (dashboard Waiting to Berth).
+ * @param {object|null|undefined} row
+ * @param {'incoming'|'berthed'} rowStatus
+ */
+export function isAllocationQueueWaitingToBerth(row, rowStatus) {
+  if (rowStatus !== 'incoming') return false
+  if (isSailedRow(row)) return false
+  return hasQueueArrivalTime(row)
 }
 
 /**
@@ -85,12 +104,26 @@ export function planCentricSiColumnDisplay(row) {
 /**
  * @param {object} row
  * @param {'incoming'|'berthed'} rowStatus
- * @param {{ showIncoming?: boolean, showBerthed?: boolean }} statusFilter
- * @param {boolean} isPlanCentric
+ * @param {'incoming'|'waitingToBerth'|'berthed'|'etcBreached'} queueStatusFilter
+ * @param {{ breachNowMs?: number, planCentric?: boolean }|boolean} [options]
  */
-export function rowPassesAllocationStatusFilter(row, rowStatus, statusFilter, isPlanCentric) {
-  if (rowStatus === 'berthed') return Boolean(statusFilter.showBerthed)
-  if (rowStatus !== 'incoming') return false
-  if (!statusFilter.showIncoming) return false
-  return true
+export function rowPassesAllocationStatusFilter(row, rowStatus, queueStatusFilter, options = {}) {
+  const opts = typeof options === 'boolean' ? { planCentric: options } : options || {}
+  const stage = String(queueStatusFilter || '')
+  const waiting = isAllocationQueueWaitingToBerth(row, rowStatus)
+
+  if (stage === QUEUE_STATUS_INCOMING) {
+    return rowStatus === 'incoming' && !hasQueueArrivalTime(row)
+  }
+  if (stage === QUEUE_STATUS_WAITING_TO_BERTH) {
+    return waiting
+  }
+  if (stage === QUEUE_STATUS_BERTHED) {
+    return rowStatus === 'berthed'
+  }
+  if (stage === QUEUE_STATUS_ETC_BREACHED) {
+    if (rowStatus !== 'berthed') return false
+    return Boolean(getEtcBreach(row, opts.breachNowMs))
+  }
+  return false
 }
