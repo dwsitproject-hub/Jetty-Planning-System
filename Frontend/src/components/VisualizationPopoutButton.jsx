@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { usePortScope } from '../context/PortScopeContext'
 
 /**
  * Opens jetty schematic or schedule in a chromeless embed route (new browser window).
@@ -10,13 +11,18 @@ export default function VisualizationPopoutButton({
   className = '',
 }) {
   const { t } = useTranslation('allocation')
+  const { selectedPortId } = usePortScope()
 
   const handleClick = () => {
     const params = new URLSearchParams()
     params.set('embed', '1')
     params.set('profile', profile === 'legacy' ? 'legacy' : 'plan')
+    if (selectedPortId != null) {
+      params.set('portId', String(selectedPortId))
+    }
     const url = `${window.location.origin}/allocation/visualization/${mode}?${params.toString()}`
-    window.open(url, '_blank', 'noopener,noreferrer,width=1440,height=900')
+    // Keep window.opener so Full View can focus the Allocation tab on "Manage in Allocation".
+    window.open(url, '_blank', 'noreferrer,width=1440,height=900')
   }
 
   const title = t('vizOpenFullViewHint', { defaultValue: 'Opens in a new window for a larger view' })

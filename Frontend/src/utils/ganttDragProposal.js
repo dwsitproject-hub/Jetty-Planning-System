@@ -3,8 +3,8 @@
  *
  * A gesture on a bar produces a "proposal" describing which schedule fields would
  * change. Date gestures are ambiguous by design: the user must choose whether the
- * shift applies to the Estimation milestones (ETA/ETB) or the Actual milestones
- * (TA/TB). Jetty (row) changes are unambiguous.
+ * shift applies to the Estimation milestone (ETB) or the Actual milestone (TB).
+ * Arrival (ETA/TA) is left unchanged. Jetty (row) changes are unambiguous.
  */
 
 /** Drag deltas snap to 30 minutes so drops land on clean times. */
@@ -66,10 +66,16 @@ export function buildGanttDragProposal({ kind, deltaMs, seg, row, targetJettyId 
 
   if (delta !== 0) {
     if (kind === 'move') {
-      pushShift(estimation, 'etaDateTime', 'ETA', seg.etaMs, delta)
-      pushShift(estimation, 'etbDateTime', 'ETB', seg.plannedEtbMs, delta)
-      pushShift(actual, 'taDateTime', 'TA', seg.taMs, delta)
-      pushShift(actual, 'tbDateTime', 'TB', seg.tbMs, delta)
+      if (seg.plannedEtbMs != null) {
+        pushShift(estimation, 'etbDateTime', 'ETB', seg.plannedEtbMs, delta)
+      } else {
+        pushShift(estimation, 'etaDateTime', 'ETA', seg.etaMs, delta)
+      }
+      if (seg.tbMs != null) {
+        pushShift(actual, 'tbDateTime', 'TB', seg.tbMs, delta)
+      } else {
+        pushShift(actual, 'taDateTime', 'TA', seg.taMs, delta)
+      }
     } else if (kind === 'resize-start') {
       // The left edge is the bar's start milestone: TB (alongside) or TA (transit)
       // on the actual side, ETB (fallback ETA) on the estimation side.

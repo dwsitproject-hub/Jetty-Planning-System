@@ -106,7 +106,7 @@ describe('formatHoseConveyorOnLine', () => {
 })
 
 describe('buildPlannedBlockModel', () => {
-  it('includes ETA ETB ETC and material qty', () => {
+  it('includes ETB ETC on the bar and ETA on arrival, plus material qty', () => {
     const model = buildPlannedBlockModel({
       vesselName: 'MV TEST',
       purposeLabel: 'Loading',
@@ -117,9 +117,10 @@ describe('buildPlannedBlockModel', () => {
       cargoDisplay: '5,000 MT',
     })
     assert.equal(model.vesselName, 'MV TEST')
-    assert.match(model.milestoneLine, /ETA/)
     assert.match(model.milestoneLine, /ETB/)
     assert.match(model.milestoneLine, /ETC/)
+    assert.doesNotMatch(model.milestoneLine, /ETA/)
+    assert.match(model.arrivalLine, /ETA/)
     assert.equal(model.materialQtyLine, 'CPO · 5,000 MT')
   })
 })
@@ -171,6 +172,27 @@ describe('buildActualBlockModel', () => {
       }
     )
     assert.equal(model.cargoDisplay, '500 MT / 2,500 MT -- Rate 50 MT / Hour')
+    assert.equal(model.avgRateLine, 'Rate 50 MT / Hour')
+  })
+
+  it('formats wait days (TB − TA) on actual bars', () => {
+    const ta = Date.parse('2026-06-01T00:00:00Z')
+    const tb = Date.parse('2026-06-18T12:00:00Z')
+    const model = buildActualBlockModel(
+      { vesselName: 'V1', taMs: ta, tbMs: tb, waitMs: tb - ta, cargoDisplay: '1 MT' },
+      null
+    )
+    assert.equal(model.waitLine, '17.5 d')
+  })
+
+  it('formats sub-day waits as decimal days', () => {
+    const ta = Date.parse('2026-06-01T00:00:00Z')
+    const tb = Date.parse('2026-06-01T12:00:00Z')
+    const model = buildActualBlockModel(
+      { vesselName: 'V1', taMs: ta, tbMs: tb, waitMs: tb - ta, cargoDisplay: '1 MT' },
+      null
+    )
+    assert.equal(model.waitLine, '0.5 d')
   })
 
   it('prefers commodityShortDisplay over commodityDisplay for the material name, without duplicating the full name', () => {
@@ -206,11 +228,11 @@ describe('buildActualBlockModel', () => {
 })
 
 describe('buildGanttMilestoneEntries', () => {
-  it('orders planned entries as ETA ETB ETC', () => {
+  it('orders planned in-bar entries as ETB ETC', () => {
     const entries = buildGanttPlannedMilestoneEntries({ etaMs: 1, etbMs: 2, etcMs: 3 })
     assert.deepEqual(
       entries.map((e) => e.label),
-      ['ETA', 'ETB', 'ETC']
+      ['ETB', 'ETC']
     )
   })
 
@@ -218,16 +240,16 @@ describe('buildGanttMilestoneEntries', () => {
     const entries = buildGanttEstimateMilestoneEntries({ etaMs: 1, etbMs: 2, estCompMs: 3 })
     assert.deepEqual(
       entries.map((e) => e.label),
-      ['ETA', 'ETB', 'ETC']
+      ['ETB', 'ETC']
     )
-    assert.equal(entries[2].ms, 3)
+    assert.equal(entries[1].ms, 3)
   })
 
   it('uses TC for actual completion entries', () => {
     const entries = buildGanttActualMilestoneEntries({ taMs: 10, tbMs: 20, actualCompMs: 30 })
     assert.deepEqual(
       entries.map((e) => e.label),
-      ['TA', 'TB', 'TC']
+      ['TB', 'TC']
     )
   })
 
@@ -242,7 +264,7 @@ describe('buildGanttMilestoneEntries', () => {
     })
     assert.deepEqual(
       entries.map((e) => e.label),
-      ['ETA', 'ETB', 'ETC', 'TA', 'TB', 'TC']
+      ['ETB', 'ETC', 'TB', 'TC']
     )
   })
 })
@@ -265,14 +287,19 @@ describe('buildGanttBarTooltipItems', () => {
     assert.ok(items.some((i) => i.primary === 'Click me'))
   })
 
-  it('includes estimate line for actual bars when present', () => {
+  it('includes estimate line, wait, and avg rate for actual bars', () => {
+    const ta = Date.parse('2026-06-01T00:00:00Z')
+    const tb = Date.parse('2026-06-01T04:00:00Z')
     const model = buildActualBlockModel(
-      { vesselName: 'V1', etaMs: 1, plannedEtbMs: 2, taMs: 10, tbMs: 20, actualCompMs: 30 },
+      { vesselName: 'V1', etaMs: 1, plannedEtbMs: 2, taMs: ta, tbMs: tb, actualCompMs: 30 },
       null
     )
     const items = buildGanttBarTooltipItems(model, 'actual')
     assert.ok(items.some((i) => i.primary === 'Estimate'))
     assert.ok(items.some((i) => i.primary === 'Actual milestones'))
+    assert.ok(items.some((i) => i.primary === 'Arrival'))
+    assert.ok(items.some((i) => i.primary === 'Waiting days (Berth − Arrival)' && i.secondary === '0.2 d'))
+    assert.ok(items.some((i) => i.primary === 'Avg flow rate'))
   })
 })
 

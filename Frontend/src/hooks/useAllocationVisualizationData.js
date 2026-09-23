@@ -123,10 +123,13 @@ function applyLiveCargoToVesselMap(map, cargoProgressByOpId, nowMs) {
 /**
  * Shared allocation overview data for schematic / schedule visualizations (incl. popout).
  * @param {'plan' | 'legacy'} profile
+ * @param {number|null|undefined} portIdHint - popout windows have isolated sessionStorage; pass ?portId= from parent
  */
-export default function useAllocationVisualizationData(profile = 'plan') {
+export default function useAllocationVisualizationData(profile = 'plan', portIdHint = null) {
   const isPlanCentric = profile === 'plan'
-  const { selectedPortId, selectedPort } = usePortScope()
+  const { selectedPortId: scopedPortId, selectedPort: scopedPort } = usePortScope()
+  const selectedPortId = scopedPortId ?? (Number.isFinite(Number(portIdHint)) && Number(portIdHint) > 0 ? Number(portIdHint) : null)
+  const selectedPort = scopedPort ?? null
   const overviewFetcher = useMemo(
     () => (isPlanCentric ? fetchAllocationPlanOverview : fetchAllocationOverview),
     [isPlanCentric]

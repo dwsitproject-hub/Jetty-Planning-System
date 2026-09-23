@@ -1,9 +1,11 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useLayoutEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Navigate, useParams, useSearchParams } from 'react-router-dom'
 import JettySchematic from '../components/JettySchematic'
 import JettyScheduleGantt from '../components/JettyScheduleGantt'
 import useAllocationVisualizationData from '../hooks/useAllocationVisualizationData'
+import { usePortScope } from '../context/PortScopeContext'
+import { parsePortIdParam, popoutModeToVizTab, withAllocationReturnParams } from '../utils/portScopeUrl.js'
 import '../styles/allocation.css'
 
 const VALID_MODES = new Set(['schematic', 'schedule'])
@@ -14,9 +16,17 @@ export default function AllocationVisualizationPopout() {
   const { t } = useTranslation('allocation')
 
   const profile = searchParams.get('profile') === 'legacy' ? 'legacy' : 'plan'
+  const portIdHint = parsePortIdParam(searchParams)
+  const { setSelectedPortId } = usePortScope()
+
+  useLayoutEffect(() => {
+    if (portIdHint != null) {
+      setSelectedPortId(portIdHint)
+    }
+  }, [portIdHint, setSelectedPortId])
 
   const { loading, error, isPlanCentric, selectedPort, planViz, vesselById, berthIds, berthsState, jetties, breachNowMs, reload } =
-    useAllocationVisualizationData(profile)
+    useAllocationVisualizationData(profile, portIdHint)
 
   useEffect(() => {
     document.documentElement.classList.add('allocation-viz-popout-open')
@@ -27,7 +37,7 @@ export default function AllocationVisualizationPopout() {
     if (mode === 'schematic') {
       return t('jettySchematic', { defaultValue: 'Jetty schematic' })
     }
-    return t('jettySchedule', { defaultValue: 'Jetty schedule' })
+    return t('jettySchedule', { defaultValue: 'Berthing Plan' })
   }, [mode, t])
 
   const closeHint = t('vizPopoutCloseHint', { defaultValue: 'Close this window to return to Allocation' })
@@ -36,19 +46,23 @@ export default function AllocationVisualizationPopout() {
     return <Navigate to="/allocation-plans" replace />
   }
 
-  const manageHref = '/allocation-plans'
+  const manageHref = withAllocationReturnParams('/allocation-plans', {
+    portId: portIdHint,
+    vizTab: popoutModeToVizTab(mode),
+  })
 
   const handleManageClick = () => {
     if (window.opener && !window.opener.closed) {
       try {
         window.opener.focus()
         window.opener.location.href = manageHref
+        window.close()
         return
       } catch {
         /* fall through */
       }
     }
-    window.open(manageHref, '_blank', 'noopener,noreferrer')
+    window.open(manageHref, '_blank', 'noreferrer')
   }
 
   const headerTitle = selectedPort?.name ? `${title} · ${selectedPort.name}` : title

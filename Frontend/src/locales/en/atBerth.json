@@ -73,5 +73,12 @@
   "groupMixed": "Mixed",
   "shiftOutAffectsIntro": "Applies to this vessel call (all instructions):",
   "fullDetail": "Full detail",
-  "hideDetail": "Hide full detail"
+  "hideDetail": "Hide full detail",
+  "flowPatternTitle": "Average flow rate by hour",
+  "flowPatternHint": "Clock-hour MT/h for vessels at berth plus the last 14 days, Loading vs Unloading, compared with the standard rate.",
+  "flowPatternError": "Could not load hourly flow rates.",
+  "flowPatternStdLoading": "Standard · Loading",
+  "flowPatternStdUnloading": "Standard · Unloading",
+  "flowPatternVesselTitle": "Hourly MT/h this call",
+  "flowPatternVesselEmpty": "No hourly cargo rate logged yet for this vessel."
 }

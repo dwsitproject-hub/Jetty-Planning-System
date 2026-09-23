@@ -8,6 +8,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { fetchOperations, fetchSubProcesses, fetchOperationalActivities } from '../api/operations'
 import WidgetDetailModal from '../components/WidgetDetailModal'
+import { computeFlow } from '../utils/managementDashboardFlow'
 import '../styles/management-dashboard.css'
 import '../styles/modal.css'
 
@@ -55,13 +56,6 @@ function buildPhaseBars(r) {
   const post = postH(r)
   if (post != null) bars.push(['Post-checking', post, 'wf-post'])
   return bars
-}
-
-const median = (a) => {
-  const s = a.filter((x) => x != null).sort((x, y) => x - y)
-  if (!s.length) return null
-  const m = Math.floor(s.length / 2)
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
 }
 
 const DAY = 24 * H
@@ -154,38 +148,6 @@ function toRow(o, detail) {
   }
 }
 
-const dedup = (rs) => {
-  const seen = new Set()
-  return rs.filter((r) => {
-    const k = `${r.vessel}|${r.tb}`
-    if (seen.has(k)) return false
-    seen.add(k)
-    return true
-  })
-}
-
-function computeFlow(rows) {
-  const sailed = rows.filter((r) => r.status === 'SAILED' && r.castOff)
-  const dd = dedup(sailed)
-  const thr = sailed.reduce((s, r) => s + r.qty, 0)
-  const withBoth = dd.filter((r) => r.berth && r.opsH != null)
-  return {
-    voyages: dd.length,
-    throughput: thr,
-    berth: median(dd.map((r) => r.berth)),
-    wait: median(dd.map((r) => r.wait)),
-    eff: withBoth.length
-      ? (withBoth.reduce((s, r) => s + r.opsH, 0) / withBoth.reduce((s, r) => s + r.berth, 0)) * 100
-      : null,
-    onTime: dd.filter((r) => r.late != null).length
-      ? (dd.filter((r) => r.late != null && r.late <= 0).length / dd.filter((r) => r.late != null).length) * 100
-      : null,
-    late: median(dd.map((r) => r.late)),
-    sailedRows: dd,
-    allSailed: sailed,
-  }
-}
-
 function Delta({ cur, prev, lowerIsBetter = false, unit = '' }) {
   if (cur == null || prev == null || prev === 0) return <span className="mgmt-delta mgmt-delta--na">vs prev: —</span>
   const pct = ((cur - prev) / Math.abs(prev)) * 100
@@ -196,12 +158,6 @@ function Delta({ cur, prev, lowerIsBetter = false, unit = '' }) {
       {arrow} {Math.abs(pct).toFixed(0)}%{unit} vs prev
     </span>
   )
-}
-
-function lateLabel(late) {
-  if (late == null) return '—'
-  if (late <= 0) return 'on time'
-  return `+${fmt(late / 24, 1)}d`
 }
 
 export default function ManagementDashboard() {
@@ -398,10 +354,13 @@ export default function ManagementDashboard() {
           footer: flowFooter,
           stats: [
             { label: 'Total MT', value: fmt(Math.round(cur.throughput)) },
+            { label: 'Loading', value: `${fmt(Math.round(cur.loading.throughput))} MT` },
+            { label: 'Unloading', value: `${fmt(Math.round(cur.unloading.throughput))} MT` },
             { label: 'Voyages', value: String(cur.voyages) },
           ],
           columns: [
             { label: 'Vessel', cell: (r) => r.vessel },
+            { label: 'Purpose', cell: (r) => r.purpose || '—' },
             { label: 'Jetty', cell: (r) => r.jetty || '—' },
             { label: 'Commodity', cell: (r) => r.commodity || '—' },
             { label: 'Qty (MT)', cell: (r) => fmt(r.qty), align: 'right' },
@@ -418,10 +377,13 @@ export default function ManagementDashboard() {
           footer: flowFooter,
           stats: [
             { label: 'Median', value: `${fmt(cur.berth, 1)} h` },
+            { label: 'Loading', value: `${fmt(cur.loading.berth, 1)} h` },
+            { label: 'Unloading', value: `${fmt(cur.unloading.berth, 1)} h` },
             { label: 'Voyages', value: String(rows.length) },
           ],
           columns: [
             { label: 'Vessel', cell: (r) => r.vessel },
+            { label: 'Purpose', cell: (r) => r.purpose || '—' },
             { label: 'Jetty', cell: (r) => r.jetty || '—' },
             { label: 'Berth h', cell: (r) => fmt(r.berth, 1), align: 'right' },
             { label: 'Ops h', cell: (r) => fmt(r.opsH, 1), align: 'right' },
@@ -435,15 +397,18 @@ export default function ManagementDashboard() {
       case 'wait': {
         const rows = cur.sailedRows.filter((r) => r.wait != null).sort((a, b) => b.wait - a.wait)
         setActiveModal({
-          title: 'Median wait to berth',
-          subtitle: `${rows.length} voyages · median ${fmt(cur.wait, 1)} h`,
+          title: 'Average wait to berth',
+          subtitle: `${rows.length} voyages · average ${fmt(cur.wait, 1)} h`,
           footer: flowFooter,
           stats: [
-            { label: 'Median', value: `${fmt(cur.wait, 1)} h` },
+            { label: 'Average', value: `${fmt(cur.wait, 1)} h` },
+            { label: 'Loading', value: `${fmt(cur.loading.wait, 1)} h` },
+            { label: 'Unloading', value: `${fmt(cur.unloading.wait, 1)} h` },
             { label: 'Voyages', value: String(rows.length) },
           ],
           columns: [
             { label: 'Vessel', cell: (r) => r.vessel },
+            { label: 'Purpose', cell: (r) => r.purpose || '—' },
             { label: 'Jetty', cell: (r) => r.jetty || '—' },
             { label: 'Wait h', cell: (r) => fmt(r.wait, 1), align: 'right' },
             { label: 'TB', cell: (r) => fmtDate(r.tb) },
@@ -453,70 +418,30 @@ export default function ManagementDashboard() {
         })
         break
       }
-      case 'eff': {
+      case 'rate': {
         const rows = cur.sailedRows
-          .filter((r) => r.berth && r.opsH != null)
-          .sort((a, b) => (effPct(a) || 0) - (effPct(b) || 0))
-        const excluded = cur.sailedRows.length - rows.length
+          .filter((r) => r.opsH && r.opsH > 0)
+          .map((r) => ({ ...r, rate: r.qty / r.opsH }))
+          .sort((a, b) => (b.rate || 0) - (a.rate || 0))
         setActiveModal({
-          title: 'Effective ops ratio',
-          subtitle: `${rows.length} of ${cur.sailedRows.length} voyages included${excluded ? ` (${excluded} missing cargo-ops window)` : ''}`,
+          title: 'Average flow rate',
+          subtitle: `${rows.length} voyages · average ${fmt(cur.rate, 1)} MT/h`,
           footer: flowFooter,
           stats: [
-            { label: 'Ratio', value: cur.eff == null ? '—' : `${fmt(cur.eff, 0)}%` },
-            { label: 'Included', value: String(rows.length) },
+            { label: 'Average', value: `${fmt(cur.rate, 1)} MT/h` },
+            { label: 'Loading', value: `${fmt(cur.loading.rate, 1)} MT/h` },
+            { label: 'Unloading', value: `${fmt(cur.unloading.rate, 1)} MT/h` },
+            { label: 'Voyages', value: String(rows.length) },
           ],
           columns: [
             { label: 'Vessel', cell: (r) => r.vessel },
-            { label: 'Berth h', cell: (r) => fmt(r.berth, 1), align: 'right' },
+            { label: 'Purpose', cell: (r) => r.purpose || '—' },
+            { label: 'Qty (MT)', cell: (r) => fmt(r.qty), align: 'right' },
             { label: 'Ops h', cell: (r) => fmt(r.opsH, 1), align: 'right' },
-            { label: 'Effective %', cell: (r) => `${fmt(effPct(r), 0)}%`, align: 'right' },
+            { label: 'Rate', cell: (r) => `${fmt(r.rate, 0)} MT/h`, align: 'right' },
             { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
           ],
           rows,
-        })
-        break
-      }
-      case 'onTime': {
-        const withLate = cur.sailedRows.filter((r) => r.late != null)
-        const onTimeN = withLate.filter((r) => r.late <= 0).length
-        setActiveModal({
-          title: 'On-time vs ETC',
-          subtitle: `${onTimeN} of ${withLate.length} voyages on time · ${cur.onTime == null ? '—' : `${fmt(cur.onTime, 0)}%`}`,
-          footer: flowFooter,
-          stats: [
-            { label: 'On-time %', value: cur.onTime == null ? '—' : `${fmt(cur.onTime, 0)}%` },
-            { label: 'With ETC', value: String(withLate.length) },
-          ],
-          columns: [
-            { label: 'Vessel', cell: (r) => r.vessel },
-            { label: 'ETC', cell: (r) => fmtDate(r.etc) },
-            { label: 'Ops done', cell: (r) => fmtDate(r.opsDone) },
-            { label: 'vs ETC', cell: (r) => lateLabel(r.late) },
-            { label: 'Lateness (h)', cell: (r) => fmt(r.late, 1), align: 'right' },
-          ],
-          rows: withLate.sort((a, b) => (b.late || 0) - (a.late || 0)),
-        })
-        break
-      }
-      case 'late': {
-        const withLate = cur.sailedRows.filter((r) => r.late != null)
-        setActiveModal({
-          title: 'Median lateness',
-          subtitle: `${withLate.length} voyages with ETC · median ${cur.late == null ? '—' : `${fmt(cur.late / 24, 1)} days`}`,
-          footer: flowFooter,
-          stats: [
-            { label: 'Median', value: cur.late == null ? '—' : `${fmt(cur.late / 24, 1)} days` },
-            { label: 'Voyages', value: String(withLate.length) },
-          ],
-          columns: [
-            { label: 'Vessel', cell: (r) => r.vessel },
-            { label: 'Lateness (days)', cell: (r) => fmt(r.late / 24, 1), align: 'right' },
-            { label: 'ETC', cell: (r) => fmtDate(r.etc) },
-            { label: 'Ops done', cell: (r) => fmtDate(r.opsDone) },
-            { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
-          ],
-          rows: withLate.sort((a, b) => (b.late || 0) - (a.late || 0)),
         })
         break
       }
@@ -644,12 +569,54 @@ export default function ManagementDashboard() {
   }, [flowFooter])
 
   const kpiTiles = [
-    { key: 'throughput', l: 'Cargo throughput', v: fmt(Math.round(cur.throughput)), u: 'MT', n: `${cur.voyages} voyages sailed`, d: <Delta cur={cur.throughput} prev={prev?.throughput} /> },
-    { key: 'berth', l: 'Median berth time', v: fmt(cur.berth, 1), u: 'h', n: 'TB → cast-off', d: <Delta cur={cur.berth} prev={prev?.berth} lowerIsBetter /> },
-    { key: 'wait', l: 'Median wait to berth', v: fmt(cur.wait, 1), u: 'h', n: 'TA → TB', d: <Delta cur={cur.wait} prev={prev?.wait} lowerIsBetter /> },
-    { key: 'eff', l: 'Effective ops ratio', v: cur.eff == null ? '—' : `${fmt(cur.eff, 0)}%`, u: '', n: 'cargo-ops ÷ berth hours', d: <Delta cur={cur.eff} prev={prev?.eff} />, cls: cur.eff != null && cur.eff < 40 ? 'mgmt-kpi--bad' : '' },
-    { key: 'onTime', l: 'On-time vs ETC', v: cur.onTime == null ? '—' : `${fmt(cur.onTime, 0)}%`, u: '', n: 'ops done ≤ estimate', d: <Delta cur={cur.onTime} prev={prev?.onTime} />, cls: cur.onTime === 0 ? 'mgmt-kpi--bad' : '' },
-    { key: 'late', l: 'Median lateness', v: cur.late == null ? '—' : fmt(cur.late / 24, 1), u: 'days', n: 'beyond Est. Completion', d: <Delta cur={cur.late} prev={prev?.late} lowerIsBetter />, cls: 'mgmt-kpi--bad' },
+    {
+      key: 'throughput',
+      l: 'Cargo throughput',
+      v: fmt(Math.round(cur.throughput)),
+      u: 'MT',
+      split: [
+        { k: 'Loading', v: fmt(Math.round(cur.loading.throughput)), u: 'MT' },
+        { k: 'Unloading', v: fmt(Math.round(cur.unloading.throughput)), u: 'MT' },
+      ],
+      n: `${cur.voyages} voyages sailed`,
+      d: <Delta cur={cur.throughput} prev={prev?.throughput} />,
+    },
+    {
+      key: 'berth',
+      l: 'Median berth time',
+      v: fmt(cur.berth, 1),
+      u: 'h',
+      split: [
+        { k: 'Loading', v: fmt(cur.loading.berth, 1), u: 'h' },
+        { k: 'Unloading', v: fmt(cur.unloading.berth, 1), u: 'h' },
+      ],
+      n: 'TB → cast-off',
+      d: <Delta cur={cur.berth} prev={prev?.berth} lowerIsBetter />,
+    },
+    {
+      key: 'wait',
+      l: 'Average wait to berth',
+      v: fmt(cur.wait, 1),
+      u: 'h',
+      split: [
+        { k: 'Loading', v: fmt(cur.loading.wait, 1), u: 'h' },
+        { k: 'Unloading', v: fmt(cur.unloading.wait, 1), u: 'h' },
+      ],
+      n: 'TA → TB',
+      d: <Delta cur={cur.wait} prev={prev?.wait} lowerIsBetter />,
+    },
+    {
+      key: 'rate',
+      l: 'Average flow rate',
+      v: fmt(cur.rate, 1),
+      u: 'MT/h',
+      split: [
+        { k: 'Loading', v: fmt(cur.loading.rate, 1), u: 'MT/h' },
+        { k: 'Unloading', v: fmt(cur.unloading.rate, 1), u: 'MT/h' },
+      ],
+      n: 'qty ÷ cargo-ops hours',
+      d: <Delta cur={cur.rate} prev={prev?.rate} />,
+    },
   ]
 
   const drStages = [
@@ -731,6 +698,16 @@ export default function ManagementDashboard() {
               >
                 <div className="mgmt-kpi__lbl">{t.l}</div>
                 <div className="mgmt-kpi__val">{t.v} <span className="mgmt-kpi__unit">{t.u}</span></div>
+                {t.split ? (
+                  <div className="mgmt-kpi__split">
+                    {t.split.map((s) => (
+                      <span key={s.k} className={`mgmt-kpi__split-item mgmt-kpi__split-item--${s.k.toLowerCase()}`}>
+                        <span className="mgmt-kpi__split-k">{s.k}</span>
+                        <span className="mgmt-kpi__split-v">{s.v === '—' ? '—' : `${s.v} ${s.u}`}</span>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
                 <div className="mgmt-kpi__note">{t.n}</div>
                 {t.d}
               </div>

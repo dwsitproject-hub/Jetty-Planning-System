@@ -229,6 +229,7 @@
   "v2BoardJetty": "Jetty",
   "v2BoardPhase": "Phase",
   "v2BoardCargoMoved": "Cargo moved",
+  "v2BoardAvgRate": "Avg {{rate}} {{unit}}/h",
   "v2BoardAlongside": "Alongside",
   "v2BoardEtc": "ETC",
   "v2BoardFlags": "Flags",

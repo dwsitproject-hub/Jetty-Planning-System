@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef } from 'react'
+import { useMemo, useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import html2canvas from 'html2canvas'
 import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
@@ -30,6 +30,7 @@ import {
 import { saveArrivalUpdate as saveArrivalUpdateApi } from '../api/allocation'
 import { ApiError } from '../api/client'
 import { useRbac } from '../context/RbacContext'
+import { scrollGanttContainerToToday } from '../utils/jettyScheduleGanttScroll.js'
 import '../styles/dashboard.css'
 import '../styles/etc-breach.css'
 
@@ -456,11 +457,49 @@ export default function JettyScheduleGantt({
       ? `minmax(160px, 200px) repeat(${nCols}, minmax(${DAY_COL_MIN}px, ${DAY_COL_MIN}px))`
       : 'minmax(160px, 200px)'
 
+  const scrollRef = useRef(null)
+  const initialScrollDoneRef = useRef(false)
+  const [scrollToTodayTick, setScrollToTodayTick] = useState(0)
+
   const handleResetRange = () => {
     const next = defaultDateRangeInputs()
     setDateFrom(next.from)
     setDateTo(next.to)
+    setScrollToTodayTick((t) => t + 1)
   }
+
+  const tryScrollToToday = () => {
+    const shouldScroll = scrollToTodayTick > 0 || !initialScrollDoneRef.current
+    if (!shouldScroll || rangeError || nCols === 0 || !showNowLine) {
+      if (shouldScroll) initialScrollDoneRef.current = true
+      return false
+    }
+    const el = scrollRef.current
+    if (!el) return false
+    const applied = scrollGanttContainerToToday(el, {
+      windowStartMs,
+      windowEndMs,
+      nowMs,
+      dayColWidthPx: DAY_COL_MIN,
+    })
+    if (applied) initialScrollDoneRef.current = true
+    return applied
+  }
+
+  useLayoutEffect(() => {
+    tryScrollToToday()
+  }, [nCols, rangeError, showNowLine, windowStartMs, windowEndMs, nowMs, scrollToTodayTick])
+
+  // Berthing Plan lives in a hidden tab on Allocation — retry when the panel gains size.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(() => {
+      tryScrollToToday()
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [nCols, rangeError, showNowLine, windowStartMs, windowEndMs, nowMs, scrollToTodayTick])
 
   const exportRef = useRef(null)
   const [exporting, setExporting] = useState(false)
@@ -886,6 +925,9 @@ export default function JettyScheduleGantt({
             clickHint: canClick
               ? tAlloc('ganttClickVesselDetail', { defaultValue: 'Click to open vessel details.' })
               : null,
+            waitLabel: tAlloc('ganttTooltipWaitDays', {
+              defaultValue: 'Waiting days (Berth − Arrival)',
+            }),
           })
           const handles = canDrag ? (
             <>
@@ -1017,7 +1059,7 @@ export default function JettyScheduleGantt({
     <section className={`jetty-schedule-gantt${isPopout ? ' jetty-schedule-gantt--popout' : ' card'}`}>
       {!isPopout ? (
         <div className="card__title-row">
-          <h2 className="card__title">Jetty schedule</h2>
+          <h2 className="card__title">{tAlloc('jettySchedule', { defaultValue: 'Berthing Plan' })}</h2>
           {!hidePopoutButton ? (
             <VisualizationPopoutButton mode="schedule" profile={popoutProfile} />
           ) : null}
@@ -1073,7 +1115,7 @@ export default function JettyScheduleGantt({
       <div className="jetty-schedule-gantt__export-area" ref={exportRef}>
         {exporting ? (
           <div className="jetty-schedule-gantt__export-title">
-            {tAlloc('jettySchedule', { defaultValue: 'Jetty schedule' })} · {dateFrom} → {dateTo}
+            {tAlloc('jettySchedule', { defaultValue: 'Berthing Plan' })} · {dateFrom} → {dateTo}
           </div>
         ) : null}
         {isPopout ? (
@@ -1089,7 +1131,7 @@ export default function JettyScheduleGantt({
         </div>
       )}
 
-      <div className="jetty-schedule-gantt__scroll">
+      <div className="jetty-schedule-gantt__scroll" ref={scrollRef}>
         <div
           className="jetty-schedule-gantt__matrix"
           style={nCols > 0 ? { minWidth: `${200 + nCols * DAY_COL_MIN}px` } : undefined}
@@ -1280,7 +1322,7 @@ export default function JettyScheduleGantt({
                   />
                   <span>
                     {tAlloc('ganttDragChoiceEstimation', {
-                      defaultValue: 'Estimation (ETA / ETB)',
+                      defaultValue: 'Estimation (ETB)',
                     })}
                   </span>
                 </label>
@@ -1293,7 +1335,7 @@ export default function JettyScheduleGantt({
                     onChange={() => setPendingChoice('actual')}
                   />
                   <span>
-                    {tAlloc('ganttDragChoiceActual', { defaultValue: 'Actual (TA / TB)' })}
+                    {tAlloc('ganttDragChoiceActual', { defaultValue: 'Actual (TB)' })}
                   </span>
                 </label>
               </fieldset>
@@ -1305,11 +1347,11 @@ export default function JettyScheduleGantt({
                 {pendingProposal.canEstimation
                   ? tAlloc('ganttDragEstimationOnlyNote', {
                       defaultValue:
-                        'Only estimation dates (ETA/ETB) will change — no actual times are recorded yet.',
+                        'Only estimation dates (ETB) will change — no actual times are recorded yet.',
                     })
                   : tAlloc('ganttDragActualOnlyNote', {
                       defaultValue:
-                        'Only actual dates (TA/TB) will change — no estimation dates are set.',
+                        'Only actual dates (TB) will change — no estimation dates are set.',
                     })}
               </p>
             ) : null}

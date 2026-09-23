@@ -46,6 +46,12 @@ export default function ActualSegmentedGanttBar({
     primary: `${p.label}: From ${p.fromLabel} (${p.fromShort}) to ${p.toLabel} (${p.toShort})`,
     secondary: p.duration,
   }))
+  if (blockModel.waitLine) {
+    tooltipItems.unshift({
+      primary: t('ganttTooltipWaitDays', { defaultValue: 'Waiting days (Berth − Arrival)' }),
+      secondary: blockModel.waitLine,
+    })
+  }
   if (blockModel.materialQtyLine) {
     tooltipItems.unshift({ primary: 'Cargo', secondary: blockModel.materialQtyLine })
   }

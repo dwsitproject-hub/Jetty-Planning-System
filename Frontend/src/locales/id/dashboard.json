@@ -229,6 +229,7 @@
   "v2BoardJetty": "Jetty",
   "v2BoardPhase": "Fase",
   "v2BoardCargoMoved": "Kargo dipindahkan",
+  "v2BoardAvgRate": "Rata-rata {{rate}} {{unit}}/jam",
   "v2BoardAlongside": "Bersandar",
   "v2BoardEtc": "ETC",
   "v2BoardFlags": "Penanda",
