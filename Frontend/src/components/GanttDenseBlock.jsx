@@ -47,6 +47,8 @@ export default function GanttDenseBlock({
   showLateChip = true,
   showAvgFlow = false,
   showPlannedWait = false,
+  showEtr = false,
+  pinLabel = false,
 }) {
   const { t } = useTranslation('allocation')
   const density = densityProp ?? resolveGanttBarDensity(barWidthPct)
@@ -96,10 +98,16 @@ export default function GanttDenseBlock({
   const avgFlowLabel =
     showAvgFlow && model.avgRateLine && model.avgRateLine !== '—' ? model.avgRateLine : null
 
-  return (
-    <div
-      className={`gantt-dense-block gantt-dense-block--${layer} gantt-dense-block--${density}${overlay ? ' gantt-dense-block--overlay' : ''}${isLate ? ' gantt-dense-block--late' : ''}`}
-    >
+  const etrLabel =
+    showEtr &&
+    layer === 'actual' &&
+    density !== 'narrow' &&
+    model.etrDuration
+      ? t('ganttBarEtr', { duration: model.etrDuration, defaultValue: 'ETR {{duration}}' })
+      : null
+
+  const blockBody = (
+    <>
       <div className="gantt-dense-block__row gantt-dense-block__row--title">
         {statusIcon}
         <span className="gantt-dense-block__vessel">{model.vesselName}</span>
@@ -134,7 +142,7 @@ export default function GanttDenseBlock({
           </span>
         ) : null}
       </div>
-      {showCommodity || showWait || avgFlowLabel ? (
+      {showCommodity || showWait || avgFlowLabel || etrLabel ? (
         <div className="gantt-dense-block__row gantt-dense-block__row--commodity">
           {showCommodity ? (
             <span className="gantt-dense-block__commodity" title={model.commodityTitle || undefined}>
@@ -152,6 +160,16 @@ export default function GanttDenseBlock({
               title={t('ganttBarAvgFlow', { rate: avgFlowLabel, defaultValue: '{{rate}}' })}
             >
               {avgFlowLabel}
+            </span>
+          ) : null}
+          {etrLabel ? (
+            <span
+              className="gantt-dense-block__etr"
+              title={t('cardEtrTooltip', {
+                defaultValue: 'Estimated time to finish remaining cargo (balance ÷ rate)',
+              })}
+            >
+              {etrLabel}
             </span>
           ) : null}
         </div>
@@ -181,6 +199,14 @@ export default function GanttDenseBlock({
           <span className="gantt-dense-block__cargo">{model.materialQtyLine}</span>
         </div>
       ) : null}
+    </>
+  )
+
+  return (
+    <div
+      className={`gantt-dense-block gantt-dense-block--${layer} gantt-dense-block--${density}${overlay ? ' gantt-dense-block--overlay' : ''}${isLate ? ' gantt-dense-block--late' : ''}${pinLabel ? ' gantt-dense-block--pinned' : ''}`}
+    >
+      {pinLabel ? <div className="gantt-dense-block__pin">{blockBody}</div> : blockBody}
     </div>
   )
 }

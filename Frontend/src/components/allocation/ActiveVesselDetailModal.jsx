@@ -39,6 +39,9 @@ import {
 } from '../../utils/allocationVesselPhase'
 import { validateBerthingTimeline } from '../../utils/validateScheduleTimeline'
 import { resolveActiveVesselRow } from '../../utils/resolveActiveVesselRow.js'
+import useAtBerthCargoProgress from '../../hooks/useAtBerthCargoProgress.js'
+import { mergeLiveCargoProgressFields } from '../../utils/cargoQtyDisplay.js'
+import { resolveVesselEtrDisplay } from '../../utils/ganttBarDisplay.js'
 import '../../styles/allocation.css'
 import '../../styles/modal.css'
 
@@ -209,6 +212,25 @@ export default function ActiveVesselDetailModal({
       return (Number(a.shippingInstructionId) || 0) - (Number(b.shippingInstructionId) || 0)
     })
   }, [isPlanCentric, planId, queueList, scheduleList])
+
+  const modalVesselRow = useMemo(
+    () => resolveActiveVesselRow(vesselId, vesselDetailRows, vesselDetailPlanQueueRows) || null,
+    [vesselId, vesselDetailRows, vesselDetailPlanQueueRows],
+  )
+
+  const modalOpIds = useMemo(() => {
+    const opId = Number(modalVesselRow?.operationId)
+    return Number.isFinite(opId) && opId > 0 ? [opId] : []
+  }, [modalVesselRow?.operationId])
+
+  const cargoProgressByOpId = useAtBerthCargoProgress(modalOpIds)
+
+  const vesselForEtr = useMemo(() => {
+    if (!modalVesselRow) return null
+    const opId = Number(modalVesselRow.operationId)
+    const live = Number.isFinite(opId) ? cargoProgressByOpId[opId] : null
+    return mergeLiveCargoProgressFields(modalVesselRow, live)
+  }, [modalVesselRow, cargoProgressByOpId])
 
   const fileUrl = (p) => resolveUploadUrl(p)
 
@@ -614,7 +636,6 @@ export default function ActiveVesselDetailModal({
               const operationsCompleted = formatModalDateTime(vessel?.operationsCompletedDateTime)
               const actualCompletion = formatModalDateTime(vessel?.actualCompletionDateTime)
               const tbMs = parseDateMs(vessel?.tbDateTime)
-              const estCompMs = parseDateMs(vessel?.estimatedCompletionDateTime)
               const opsCompMs = parseDateMs(vessel?.operationsCompletedDateTime)
               const nowMs = Date.now()
               const isPlanDetailMode = Boolean(isPlanCentric && planId != null)
@@ -626,7 +647,6 @@ export default function ActiveVesselDetailModal({
               const planEstCompletion = formatModalDateTime(planDetail?.estimatedCompletionTime)
               const planOpsCompleted = formatModalDateTime(planDetail?.operationsCompletedAt)
               const planTbMs = parseDateMs(planTbEffective)
-              const planEstCompMs = parseDateMs(planDetail?.estimatedCompletionTime)
               const planOpsCompMs = parseDateMs(planDetail?.operationsCompletedAt)
               const planAlongsideEndMs = getPlanAlongsideEndMs(planDetail, vessel, nowMs)
               const planTimeSinceBerthing =
@@ -634,27 +654,19 @@ export default function ActiveVesselDetailModal({
                   ? formatDuration(Math.max(0, planAlongsideEndMs - planTbMs))
                   : '—'
               const planSailed = isPlanOrVesselSailed(planDetail, vessel)
-              const planEstTimeRemaining = planSailed
-                ? tAlloc('planModalSailed', { defaultValue: 'Sailed' })
-                : planOpsCompMs != null
-                  ? tAlloc('planModalCompleted', { defaultValue: 'Completed' })
-                  : planEstCompMs != null
-                    ? planEstCompMs > nowMs
-                      ? formatDuration(planEstCompMs - nowMs)
-                      : tAlloc('planModalOverdue', { defaultValue: 'Overdue' })
-                    : '—'
+              const planEstTimeRemaining = resolveVesselEtrDisplay(vesselForEtr, {
+                hasSailed: planSailed,
+                hasCompleted: planOpsCompMs != null,
+                t: tAlloc,
+              })
               const vesselAlongsideEndMs = getVesselAlongsideEndMs(vessel, nowMs)
               const timeSinceBerthing =
                 tbMs != null ? formatDuration(Math.max(0, vesselAlongsideEndMs - tbMs)) : '—'
-              const estTimeRemaining = hasSailed
-                ? tAlloc('planModalSailed', { defaultValue: 'Sailed' })
-                : opsCompMs != null
-                  ? tAlloc('planModalCompleted', { defaultValue: 'Completed' })
-                  : estCompMs != null
-                    ? estCompMs > nowMs
-                      ? formatDuration(estCompMs - nowMs)
-                      : 'Overdue'
-                    : '—'
+              const estTimeRemaining = resolveVesselEtrDisplay(vesselForEtr, {
+                hasSailed,
+                hasCompleted: opsCompMs != null,
+                t: tAlloc,
+              })
               const canVesselDetailEdit = Boolean(canEditAllocation && !readOnly && vessel?.operationId)
               const d = vesselDetailDraft
               const lastUpdatedText = formatVesselRecordLastUpdatedLine(vessel)
@@ -989,7 +1001,11 @@ export default function ActiveVesselDetailModal({
                               )}</dd>
                             </div>
                             <div className="berthing-modal__vessel-row">
-                              <dt title={tAlloc('ttPlanEstRemaining')}>{tAlloc('planModalLblEstRemaining', { defaultValue: 'Est. Time Remaining' })}</dt>
+                              <dt title={tAlloc('ttPlanEstRemaining')}>
+                                {tAlloc('planModalLblEstRemaining', {
+                                  defaultValue: 'Estimated Time Remaining (ETR)',
+                                })}
+                              </dt>
                               <dd>{planEstTimeRemaining}</dd>
                             </div>
                           </dl>
@@ -1247,7 +1263,11 @@ export default function ActiveVesselDetailModal({
                         <dd>{actualCompletion || '—'}</dd>
                       </div>
                       <div className="berthing-modal__vessel-row">
-                        <dt>Est. Time Remaining</dt>
+                        <dt title={tAlloc('ttPlanEstRemaining')}>
+                          {tAlloc('planModalLblEstRemaining', {
+                            defaultValue: 'Estimated Time Remaining (ETR)',
+                          })}
+                        </dt>
                         <dd>{estTimeRemaining}</dd>
                       </div>
                     </dl>

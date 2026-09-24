@@ -77,6 +77,48 @@ export function computeCargoRatePerHour(movedQty, firstLoggedAt, lastLoggedAt) {
 }
 
 /**
+ * Prefer live ATG avgRateTph when available; otherwise derive from logged cargo window.
+ * @param {{ avgRateTph?: number|null, movedQty?: number|null, firstLoggedAt?: string|null, lastLoggedAt?: string|null }} params
+ * @returns {number}
+ */
+export function resolveCargoRatePerHour({
+  avgRateTph,
+  movedQty,
+  firstLoggedAt,
+  lastLoggedAt,
+} = {}) {
+  const fromApi = Number(avgRateTph)
+  if (Number.isFinite(fromApi) && fromApi > 0) return fromApi
+  return computeCargoRatePerHour(movedQty, firstLoggedAt, lastLoggedAt)
+}
+
+/**
+ * Estimated time remaining to finish remaining cargo: balance / rate (hours → ms).
+ * @returns {number|null}
+ */
+export function computeCargoEtrMs(balance, ratePerHour) {
+  const b = Number(balance)
+  const r = Number(ratePerHour)
+  if (!Number.isFinite(b) || b <= 0 || !Number.isFinite(r) || r <= 0) return null
+  return (b / r) * 3600000
+}
+
+/**
+ * @param {number} balance
+ * @param {number} ratePerHour
+ * @param {(ms: number) => string|null|undefined} formatDurationFn
+ * @param {string} [label]
+ * @returns {string|null}
+ */
+export function formatCargoEtrLine(balance, ratePerHour, formatDurationFn, label = 'ETR') {
+  const ms = computeCargoEtrMs(balance, ratePerHour)
+  if (ms == null || typeof formatDurationFn !== 'function') return null
+  const duration = formatDurationFn(ms)
+  if (!duration) return null
+  return `${label} ${duration}`
+}
+
+/**
  * @param {number} n
  * @returns {string}
  */
@@ -107,8 +149,8 @@ export const formatAvgFlowRateLine = formatAvgFlowRateLabel
  * @param {number | null | undefined} cargoMovedQty
  * @param {string | null | undefined} [cargoFirstLoggedAt] earliest logged Cargo Operations entry's started_at
  * @param {string | null | undefined} [cargoLastLoggedAt] latest logged Cargo Operations entry's ended_at
- * @param {{ cargoSiQty?: number|null, cargoSiMetric?: string|null }} [qtyOpts]
- * @returns {{ qty: { total: number, unit: string }, done: number, ratePerHour: number, cargoLine: string, balanceLine: string, rateLine: string } | null}
+ * @param {{ cargoSiQty?: number|null, cargoSiMetric?: string|null, avgRateTph?: number|null }} [qtyOpts]
+ * @returns {{ qty: { total: number, unit: string }, done: number, balance: number, ratePerHour: number, etrMs: number|null, cargoLine: string, balanceLine: string, rateLine: string } | null}
  */
 export function computeCargoProgress(
   totalQtyDisplay,
@@ -126,13 +168,21 @@ export function computeCargoProgress(
   const moved = Number(cargoMovedQty) || 0
   const done = Math.max(0, moved)
   const balance = Math.max(0, qty.total - moved)
-  const ratePerHour = computeCargoRatePerHour(moved, cargoFirstLoggedAt, cargoLastLoggedAt)
+  const ratePerHour = resolveCargoRatePerHour({
+    avgRateTph: qtyOpts.avgRateTph,
+    movedQty: moved,
+    firstLoggedAt: cargoFirstLoggedAt,
+    lastLoggedAt: cargoLastLoggedAt,
+  })
+  const etrMs = computeCargoEtrMs(balance, ratePerHour)
   return {
     qty,
     done,
+    balance,
     ratePerHour,
+    etrMs,
     cargoLine: `${formatQtyNumber(done)} ${qty.unit} / ${formatQtyNumber(qty.total)} ${qty.unit}`,
-    balanceLine: `Balance ${formatQtyNumber(balance)} ${qty.unit}`,
+    balanceLine: balance > 0 ? `Balance ${formatQtyNumber(balance)} ${qty.unit}` : `Balance 0 ${qty.unit}`,
     rateLine: `Rate ${formatRateNumber(ratePerHour)} ${qty.unit} / Hour`,
   }
 }

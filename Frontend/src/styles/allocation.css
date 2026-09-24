@@ -643,6 +643,31 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   z-index: 5;
 }
 
+/* Long bars (Berthing Plan): pinned label panel stays visible while scrolling horizontally. */
+.jetty-schedule-gantt__bar--long {
+  overflow: visible;
+}
+
+.gantt-dense-block--pinned {
+  overflow: visible;
+  padding: 0;
+}
+
+.gantt-dense-block__pin {
+  position: relative;
+  z-index: 3;
+  width: max-content;
+  max-width: min(520px, 60vw);
+  background: inherit;
+  padding: 3px 6px;
+  box-sizing: border-box;
+  /* translateX set by applyGanttLongBarPinTransforms on scroll */
+}
+
+.jetty-schedule-gantt__export-area--capturing .gantt-dense-block__pin {
+  transform: none !important;
+}
+
 .gantt-dense-block {
   display: flex;
   flex-direction: column;
@@ -792,6 +817,15 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   opacity: 1;
 }
 
+.gantt-dense-block__etr {
+  flex: 0 0 auto;
+  font-size: 9px;
+  font-weight: var(--font-weight-semibold);
+  color: #1d4ed8;
+  opacity: 0.95;
+  white-space: nowrap;
+}
+
 .gantt-dense-block__avg-flow {
   flex: 0 0 auto;
   font-size: 9px;
@@ -804,6 +838,13 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   background: rgba(var(--color-primary-rgb, 37, 99, 235), 0.1);
   border: 1px solid rgba(var(--color-primary-rgb, 37, 99, 235), 0.35);
   color: var(--color-primary-700, #1d4ed8);
+  text-transform: none;
+}
+
+.jetty-schedule-gantt__legend-chip--etr {
+  background: rgba(29, 78, 216, 0.08);
+  border: 1px solid rgba(29, 78, 216, 0.35);
+  color: #1d4ed8;
   text-transform: none;
 }
 

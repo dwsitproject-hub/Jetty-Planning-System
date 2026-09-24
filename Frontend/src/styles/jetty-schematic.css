@@ -132,6 +132,11 @@
   font-weight: var(--font-weight-semibold);
 }
 
+.jetty-card__etr {
+  color: #1d4ed8;
+  font-weight: var(--font-weight-semibold);
+}
+
 .jetty-schematic__legend-item {
   display: inline-flex;
   align-items: center;

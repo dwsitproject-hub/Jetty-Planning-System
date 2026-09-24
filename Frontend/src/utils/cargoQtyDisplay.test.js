@@ -3,10 +3,24 @@ import assert from 'node:assert/strict'
 import {
   mergeLiveCargoProgressFields,
   computeCargoProgress,
+  computeCargoEtrMs,
+  resolveCargoRatePerHour,
   resolveCargoQtyTotal,
   formatAvgFlowRateLabel,
   formatAvgFlowRateLine,
+  formatCargoEtrLine,
 } from './cargoQtyDisplay.js'
+
+function formatDurationShort(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return null
+  const mins = Math.floor(ms / 60000)
+  const days = Math.floor(mins / 1440)
+  const hours = Math.floor((mins % 1440) / 60)
+  const rem = mins % 60
+  if (days > 0) return `${days}d ${hours}h`
+  if (hours > 0) return `${hours}h ${rem}m`
+  return `${rem}m`
+}
 
 describe('resolveCargoQtyTotal', () => {
   it('prefers numeric SI qty over formatted display text', () => {
@@ -24,6 +38,43 @@ describe('resolveCargoQtyTotal', () => {
   })
 })
 
+describe('resolveCargoRatePerHour', () => {
+  it('prefers avgRateTph over logged-window rate', () => {
+    assert.equal(
+      resolveCargoRatePerHour({
+        avgRateTph: 95.5,
+        movedQty: 731,
+        firstLoggedAt: '2026-09-23T10:00:00.000Z',
+        lastLoggedAt: '2026-09-24T12:00:00.000Z',
+      }),
+      95.5
+    )
+  })
+
+  it('falls back to logged-window rate when avgRateTph missing', () => {
+    const rate = resolveCargoRatePerHour({
+      movedQty: 100,
+      firstLoggedAt: '2026-09-23T10:00:00.000Z',
+      lastLoggedAt: '2026-09-23T12:00:00.000Z',
+    })
+    assert.equal(rate, 50)
+  })
+})
+
+describe('computeCargoEtrMs', () => {
+  it('computes balance divided by rate in milliseconds', () => {
+    const ms = computeCargoEtrMs(769, 95.5)
+    assert.ok(ms != null)
+    assert.ok(Math.abs(ms - (769 / 95.5) * 3600000) < 1)
+    assert.equal(formatCargoEtrLine(769, 95.5, formatDurationShort), 'ETR 8h 3m')
+  })
+
+  it('returns null when balance or rate is zero', () => {
+    assert.equal(computeCargoEtrMs(0, 95.5), null)
+    assert.equal(computeCargoEtrMs(769, 0), null)
+  })
+})
+
 describe('computeCargoProgress', () => {
   it('uses SI qty for denominator and shows actual moved when over target', () => {
     const progress = computeCargoProgress(
@@ -35,7 +86,23 @@ describe('computeCargoProgress', () => {
     )
     assert.equal(progress.cargoLine, '3,803 MT / 3,001 MT')
     assert.equal(progress.balanceLine, 'Balance 0 MT')
+    assert.equal(progress.balance, 0)
+    assert.equal(progress.etrMs, null)
     assert.ok(progress.ratePerHour > 0)
+  })
+
+  it('includes etrMs when balance and avgRateTph are positive', () => {
+    const progress = computeCargoProgress(
+      '1,500 MT',
+      731,
+      '2026-09-23T10:00:00.000Z',
+      '2026-09-24T12:00:00.000Z',
+      { cargoSiQty: 1500, cargoSiMetric: 'MT', avgRateTph: 95.5 }
+    )
+    assert.equal(progress.balance, 769)
+    assert.equal(progress.ratePerHour, 95.5)
+    assert.ok(progress.etrMs != null)
+    assert.equal(formatCargoEtrLine(progress.balance, progress.ratePerHour, formatDurationShort), 'ETR 8h 3m')
   })
 })
 

@@ -43,6 +43,12 @@ export function resolveGanttBarDensity(barWidthPct) {
   return 'full'
 }
 
+/** Long bars benefit from a pinned label panel while scrolling horizontally (~5+ days in a 28-day window). */
+export function isLongGanttBar(rawWidthPct, { minPct = 18 } = {}) {
+  const pct = Number(rawWidthPct)
+  return Number.isFinite(pct) && pct >= minPct
+}
+
 /**
  * @param {number | null | undefined} ms
  * @returns {string}
@@ -236,6 +242,55 @@ export function formatGanttMilestoneEntriesCompact(entries, translate) {
  * @param {object | null | undefined} row
  * @returns {string}
  */
+/** "3d 4h" / "8h 3m" — matches Jetty schematic card duration labels. */
+export function formatGanttDurationShort(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return null
+  const mins = Math.floor(ms / 60000)
+  const days = Math.floor(mins / 1440)
+  const hours = Math.floor((mins % 1440) / 60)
+  const rem = mins % 60
+  if (days > 0) return `${days}d ${hours}h`
+  if (hours > 0) return `${hours}h ${rem}m`
+  return `${rem}m`
+}
+
+/**
+ * Estimated time remaining from balance ÷ rate (same inputs as schematic ETR).
+ * @returns {string|null} duration only, e.g. "8h 3m"
+ */
+export function resolveGanttEtrDuration(row) {
+  if (!row) return null
+  const progress = computeCargoProgress(
+    row?.totalQtyDisplay || row?.cargoDisplay || null,
+    row?.cargoMovedQty,
+    row?.cargoFirstLoggedAt,
+    row?.cargoLastLoggedAt,
+    {
+      cargoSiQty: row?.cargoSiQty ?? row?.scheduleComparison?.siQty,
+      cargoSiMetric: row?.cargoSiMetric ?? row?.scheduleComparison?.siMetric,
+      avgRateTph: row?.scheduleComparison?.avgRateTph,
+    }
+  )
+  if (!progress?.etrMs) return null
+  return formatGanttDurationShort(progress.etrMs)
+}
+
+/**
+ * Modal / detail display for ETR with sailed and completed overrides.
+ * @param {object | null | undefined} row
+ * @param {{ hasSailed?: boolean, hasCompleted?: boolean, t?: (key: string, opts?: object) => string }} [opts]
+ * @returns {string}
+ */
+export function resolveVesselEtrDisplay(row, { hasSailed = false, hasCompleted = false, t } = {}) {
+  if (hasSailed) {
+    return t?.('planModalSailed', { defaultValue: 'Sailed' }) ?? 'Sailed'
+  }
+  if (hasCompleted) {
+    return t?.('planModalCompleted', { defaultValue: 'Completed' }) ?? 'Completed'
+  }
+  return resolveGanttEtrDuration(row) ?? '—'
+}
+
 export function resolveGanttAvgRateLine(row) {
   if (!row) return '—'
   const fromApi = Number(row?.scheduleComparison?.avgRateTph)
@@ -301,6 +356,7 @@ export function buildPlannedBlockModel(seg, options = {}) {
     waitLine,
     waitTooltipMode,
     avgRateLine: '—',
+    etrDuration: null,
     arrivalLine: formatGanttMilestoneLine(
       [
         { label: 'ETA', ms: seg.etaMs },
@@ -396,6 +452,7 @@ export function buildActualBlockModel(seg, row, options = {}) {
     : null
 
   const avgRateLine = resolveGanttAvgRateLine(row)
+  const etrDuration = planCentric ? resolveGanttEtrDuration(row) : null
 
   return {
     vesselName: seg.vesselName || '—',
@@ -415,6 +472,7 @@ export function buildActualBlockModel(seg, row, options = {}) {
     waitLine,
     waitTooltipMode,
     avgRateLine,
+    etrDuration,
     arrivalLine: formatGanttMilestoneLine(
       [
         { label: 'ETA', ms: seg.etaMs },
@@ -465,6 +523,7 @@ export function ganttDenseBlockAriaLabel(model, layer) {
   if (model.materialQtyLine) parts.push(model.materialQtyLine)
   if (model.waitLine) parts.push(`⌛ ${model.waitLine}`)
   if (model.avgRateLine && model.avgRateLine !== '—') parts.push(model.avgRateLine)
+  if (model.etrDuration) parts.push(`ETR ${model.etrDuration}`)
   return parts.filter(Boolean).join(', ')
 }
 
@@ -506,6 +565,12 @@ export function buildGanttBarTooltipItems(model, layer, options = {}) {
     primary: 'Avg flow rate',
     secondary: model.avgRateLine || '—',
   })
+  if (model.etrDuration) {
+    items.push({
+      primary: options.etrLabel || 'ETR (balance ÷ rate)',
+      secondary: model.etrDuration,
+    })
+  }
   if (model.status) {
     items.push({ primary: 'Status', secondary: model.status })
   }

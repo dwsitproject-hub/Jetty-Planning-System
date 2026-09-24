@@ -1,6 +1,51 @@
 /** Sticky jetty-id column width — matches `--jetty-schedule-id-col` in allocation.css */
 export const JETTY_SCHEDULE_ID_COL_PX = 200
 
+/** Gap between the sticky jetty-id column and a pinned long-bar label panel. */
+export const GANTT_LONG_BAR_PIN_PADDING_PX = 6
+
+/**
+ * Horizontal translate for a long Gantt bar label so it stays just right of the jetty-id column
+ * while the bar scrolls. Sticky CSS cannot do this inside absolutely positioned bars.
+ * @returns {number} pixels to translate right (>= 0)
+ */
+export function computeGanttPinTranslateX({
+  barViewportLeftPx,
+  barWidthPx,
+  pinWidthPx,
+  idColWidthPx = JETTY_SCHEDULE_ID_COL_PX,
+  pinPaddingPx = GANTT_LONG_BAR_PIN_PADDING_PX,
+}) {
+  if (!Number.isFinite(barViewportLeftPx) || !Number.isFinite(barWidthPx)) return 0
+  const targetLeft = idColWidthPx + pinPaddingPx
+  const shift = Math.max(0, targetLeft - barViewportLeftPx)
+  const pinW = Number.isFinite(pinWidthPx) && pinWidthPx > 0 ? pinWidthPx : 0
+  const maxShift = Math.max(0, barWidthPx - pinW - pinPaddingPx)
+  return Math.min(shift, maxShift)
+}
+
+/** Apply translateX to every long-bar label pin inside a Gantt scroll container. */
+export function applyGanttLongBarPinTransforms(scrollEl, { enabled = true } = {}) {
+  if (!scrollEl) return
+  const scrollRect = scrollEl.getBoundingClientRect()
+  const pins = scrollEl.querySelectorAll('.jetty-schedule-gantt__bar--long .gantt-dense-block__pin')
+  pins.forEach((pin) => {
+    if (!enabled) {
+      pin.style.transform = ''
+      return
+    }
+    const bar = pin.closest('.jetty-schedule-gantt__bar--long')
+    if (!bar) return
+    const barRect = bar.getBoundingClientRect()
+    const tx = computeGanttPinTranslateX({
+      barViewportLeftPx: barRect.left - scrollRect.left,
+      barWidthPx: barRect.width,
+      pinWidthPx: pin.offsetWidth,
+    })
+    pin.style.transform = tx > 0 ? `translateX(${tx}px)` : ''
+  })
+}
+
 const MS_PER_DAY = 86400000
 
 /**

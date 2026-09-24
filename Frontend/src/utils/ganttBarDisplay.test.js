@@ -3,12 +3,14 @@ import assert from 'node:assert/strict'
 import {
   materialDisplayFromRow,
   resolveGanttBarDensity,
+  isLongGanttBar,
   formatGanttMilestoneLine,
   formatMaterialQtyLine,
   formatHoseConveyorOnLine,
   buildPlannedBlockModel,
   buildActualBlockModel,
   buildGanttBarTooltipItems,
+  resolveGanttEtrDuration,
   buildGanttPlannedMilestoneEntries,
   buildGanttEstimateMilestoneEntries,
   buildGanttActualMilestoneEntries,
@@ -43,6 +45,24 @@ describe('resolveGanttBarDensity', () => {
     assert.equal(resolveGanttBarDensity(10), 'narrow')
     assert.equal(resolveGanttBarDensity(20), 'medium')
     assert.equal(resolveGanttBarDensity(40), 'full')
+  })
+})
+
+describe('isLongGanttBar', () => {
+  it('returns true when raw width meets default threshold', () => {
+    assert.equal(isLongGanttBar(18), true)
+    assert.equal(isLongGanttBar(25), true)
+  })
+
+  it('returns false below threshold or for invalid input', () => {
+    assert.equal(isLongGanttBar(17.9), false)
+    assert.equal(isLongGanttBar(null), false)
+    assert.equal(isLongGanttBar(undefined), false)
+  })
+
+  it('respects custom minPct', () => {
+    assert.equal(isLongGanttBar(10, { minPct: 10 }), true)
+    assert.equal(isLongGanttBar(9, { minPct: 10 }), false)
   })
 })
 
@@ -220,6 +240,35 @@ describe('buildActualBlockModel', () => {
     assert.equal(model.avgRateLine, 'Avg 42 MT/h')
   })
 
+  it('includes etrDuration on plan-centric actual bars when balance and rate exist', () => {
+    const model = buildActualBlockModel(
+      { vesselName: 'V1', taMs: 10, tbMs: 20 },
+      {
+        totalQtyDisplay: '1,500 MT',
+        cargoMovedQty: 731,
+        cargoSiQty: 1500,
+        cargoSiMetric: 'MT',
+        scheduleComparison: { avgRateTph: 95.5, siMetric: 'MT' },
+      },
+      { planCentric: true }
+    )
+    assert.equal(model.etrDuration, '8h 3m')
+  })
+
+  it('omits etrDuration when not plan-centric', () => {
+    const model = buildActualBlockModel(
+      { vesselName: 'V1', taMs: 10, tbMs: 20 },
+      {
+        totalQtyDisplay: '1,500 MT',
+        cargoMovedQty: 731,
+        cargoSiQty: 1500,
+        cargoSiMetric: 'MT',
+        scheduleComparison: { avgRateTph: 95.5, siMetric: 'MT' },
+      }
+    )
+    assert.equal(model.etrDuration, null)
+  })
+
   it('uses ETB fallback for berthed wait when TB is missing on segment', () => {
     const ta = Date.parse('2026-06-01T00:00:00Z')
     const etb = Date.parse('2026-06-02T00:00:00Z')
@@ -331,6 +380,31 @@ describe('buildGanttMilestoneEntries', () => {
   })
 })
 
+describe('resolveGanttEtrDuration', () => {
+  it('returns duration from balance divided by avgRateTph', () => {
+    assert.equal(
+      resolveGanttEtrDuration({
+        cargoSiQty: 1500,
+        cargoSiMetric: 'MT',
+        cargoMovedQty: 731,
+        scheduleComparison: { avgRateTph: 95.5 },
+      }),
+      '8h 3m'
+    )
+  })
+
+  it('returns null when balance is zero', () => {
+    assert.equal(
+      resolveGanttEtrDuration({
+        cargoSiQty: 1500,
+        cargoMovedQty: 1500,
+        scheduleComparison: { avgRateTph: 95.5 },
+      }),
+      null
+    )
+  })
+})
+
 describe('buildGanttBarTooltipItems', () => {
   it('includes milestones, cargo, and click hint for planned bars', () => {
     const model = buildPlannedBlockModel({
@@ -362,6 +436,23 @@ describe('buildGanttBarTooltipItems', () => {
     assert.ok(items.some((i) => i.primary === 'Arrival'))
     assert.ok(items.some((i) => i.primary === 'Waiting days (Berth − Arrival)' && i.secondary === '0.2 d'))
     assert.ok(items.some((i) => i.primary === 'Avg flow rate'))
+  })
+
+  it('includes ETR when model has etrDuration', () => {
+    const model = buildActualBlockModel(
+      { vesselName: 'V1', taMs: 10, tbMs: 20 },
+      {
+        cargoSiQty: 1500,
+        cargoSiMetric: 'MT',
+        cargoMovedQty: 731,
+        scheduleComparison: { avgRateTph: 95.5 },
+      },
+      { planCentric: true }
+    )
+    const items = buildGanttBarTooltipItems(model, 'actual', {
+      etrLabel: 'ETR (balance ÷ rate)',
+    })
+    assert.ok(items.some((i) => i.primary === 'ETR (balance ÷ rate)' && i.secondary === '8h 3m'))
   })
 })
 

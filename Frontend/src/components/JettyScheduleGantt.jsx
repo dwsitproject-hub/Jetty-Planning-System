@@ -18,6 +18,7 @@ import {
   buildPlannedBlockModel,
   buildGanttBarTooltipItems,
   ganttDenseBlockAriaLabel,
+  isLongGanttBar,
   GANTT_BAR_STACK_STEP,
   GANTT_BAR_HEIGHT,
 } from '../utils/ganttBarDisplay.js'
@@ -33,7 +34,10 @@ import { validateBerthPlanJettyAssignment } from '../utils/berthPlanInterval.js'
 import { saveArrivalUpdate as saveArrivalUpdateApi } from '../api/allocation'
 import { ApiError } from '../api/client'
 import { useRbac } from '../context/RbacContext'
-import { scrollGanttContainerToToday } from '../utils/jettyScheduleGanttScroll.js'
+import {
+  applyGanttLongBarPinTransforms,
+  scrollGanttContainerToToday,
+} from '../utils/jettyScheduleGanttScroll.js'
 import '../styles/dashboard.css'
 import '../styles/etc-breach.css'
 
@@ -161,8 +165,10 @@ function renderDenseBarContent(seg, layer, barWidthPct, sourceRow, blockOptions,
     layer === 'planned'
       ? buildPlannedBlockModel(seg, blockOptions)
       : buildActualBlockModel(seg, sourceRow, blockOptions)
+  const pinLabel = ganttUiOptions.pinLongLabels && isLongGanttBar(barWidthPct)
   return {
     model,
+    pinLabel,
     content: (
       <GanttDenseBlock
         layer={layer}
@@ -171,6 +177,8 @@ function renderDenseBarContent(seg, layer, barWidthPct, sourceRow, blockOptions,
         showLateChip={ganttUiOptions.showLateChip}
         showAvgFlow={ganttUiOptions.showAvgFlow}
         showPlannedWait={ganttUiOptions.showPlannedWait}
+        showEtr={ganttUiOptions.showEtr}
+        pinLabel={pinLabel}
       />
     ),
   }
@@ -246,6 +254,8 @@ export default function JettyScheduleGantt({
       showLateChip: !isPlanProfile,
       showAvgFlow: isPlanProfile,
       showPlannedWait: isPlanProfile,
+      showEtr: isPlanProfile,
+      pinLongLabels: isPlanProfile,
     }),
     [isPlanProfile]
   )
@@ -532,7 +542,18 @@ export default function JettyScheduleGantt({
 
   useLayoutEffect(() => {
     tryScrollToToday()
-  }, [nCols, rangeError, showNowLine, windowStartMs, windowEndMs, nowMs, scrollToTodayTick])
+    if (isPlanProfile) applyGanttLongBarPinTransforms(scrollRef.current)
+  }, [
+    isPlanProfile,
+    nCols,
+    rangeError,
+    showNowLine,
+    windowStartMs,
+    windowEndMs,
+    nowMs,
+    scrollToTodayTick,
+    segments,
+  ])
 
   // Berthing Plan lives in a hidden tab on Allocation — retry when the panel gains size.
   useEffect(() => {
@@ -540,10 +561,25 @@ export default function JettyScheduleGantt({
     if (!el || typeof ResizeObserver === 'undefined') return undefined
     const observer = new ResizeObserver(() => {
       tryScrollToToday()
+      if (isPlanProfile) applyGanttLongBarPinTransforms(el)
     })
     observer.observe(el)
     return () => observer.disconnect()
-  }, [nCols, rangeError, showNowLine, windowStartMs, windowEndMs, nowMs, scrollToTodayTick])
+  }, [isPlanProfile, nCols, rangeError, showNowLine, windowStartMs, windowEndMs, nowMs, scrollToTodayTick, segments])
+
+  // Long-bar labels: CSS sticky fails inside absolute bars — sync translateX to scroll instead.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || !isPlanProfile) return undefined
+    const syncPins = () => applyGanttLongBarPinTransforms(el)
+    el.addEventListener('scroll', syncPins, { passive: true })
+    window.addEventListener('resize', syncPins)
+    syncPins()
+    return () => {
+      el.removeEventListener('scroll', syncPins)
+      window.removeEventListener('resize', syncPins)
+    }
+  }, [isPlanProfile, segments, nCols, dateFrom, dateTo])
 
   const exportRef = useRef(null)
   const [exporting, setExporting] = useState(false)
@@ -894,6 +930,7 @@ export default function JettyScheduleGantt({
     const fullWidth = Math.ceil((matrix ? matrix.scrollWidth : node.scrollWidth) + 16)
     node.classList.add('jetty-schedule-gantt__export-area--capturing')
     node.style.width = `${fullWidth}px`
+    applyGanttLongBarPinTransforms(scrollRef.current, { enabled: false })
     let objectUrl = null
     try {
       void node.offsetHeight
@@ -934,6 +971,7 @@ export default function JettyScheduleGantt({
     } finally {
       node.classList.remove('jetty-schedule-gantt__export-area--capturing')
       node.style.width = ''
+      if (isPlanProfile) applyGanttLongBarPinTransforms(scrollRef.current)
       if (objectUrl) setTimeout(() => URL.revokeObjectURL(objectUrl), 10000)
       setExporting(false)
     }
@@ -988,8 +1026,7 @@ export default function JettyScheduleGantt({
               : spanEdge === 'up'
                 ? ' jetty-schedule-gantt__bar--span-primary-up'
                 : ''
-          const barClassName = `${pillClass}${canClick ? ' jetty-schedule-gantt__bar--btn' : ''}${canDrag ? ' jetty-schedule-gantt__bar--draggable' : ''}${spanEdgeClass}`
-          const { model: blockModel, content: denseContent } = renderDenseBarContent(
+          const { model: blockModel, pinLabel, content: denseContent } = renderDenseBarContent(
             seg,
             barLayer,
             _rawWidthPct,
@@ -997,11 +1034,15 @@ export default function JettyScheduleGantt({
             blockOptions,
             ganttUiOptions
           )
+          const barClassName = `${pillClass}${canClick ? ' jetty-schedule-gantt__bar--btn' : ''}${canDrag ? ' jetty-schedule-gantt__bar--draggable' : ''}${spanEdgeClass}${pinLabel ? ' jetty-schedule-gantt__bar--long' : ''}`
           const tooltipItems = buildGanttBarTooltipItems(blockModel, barLayer, {
             clickHint: canClick
               ? tAlloc('ganttClickVesselDetail', { defaultValue: 'Click to open vessel details.' })
               : null,
             waitLabel: resolveWaitTooltipLabel(blockModel, tAlloc),
+            etrLabel: tAlloc('ganttTooltipEtr', {
+              defaultValue: 'ETR (balance ÷ rate)',
+            }),
           })
           const handles = canDrag ? (
             <>
@@ -1089,12 +1130,20 @@ export default function JettyScheduleGantt({
         {tAlloc('ganttLegendEstimate', { defaultValue: 'Estimate (no actual yet)' })}
       </span>
       {isPlanProfile ? (
-        <span className="allocation-schedule__legend-item">
-          <span className="jetty-schedule-gantt__legend-chip jetty-schedule-gantt__legend-chip--avg-flow" aria-hidden>
-            {tAlloc('ganttLegendAvgFlowSample', { defaultValue: 'Avg 50 MT/h' })}
+        <>
+          <span className="allocation-schedule__legend-item">
+            <span className="jetty-schedule-gantt__legend-chip jetty-schedule-gantt__legend-chip--avg-flow" aria-hidden>
+              {tAlloc('ganttLegendAvgFlowSample', { defaultValue: 'Avg 50 MT/h' })}
+            </span>
+            {tAlloc('ganttLegendAvgFlow', { defaultValue: 'Avg MT/h flow (logged cargo)' })}
           </span>
-          {tAlloc('ganttLegendAvgFlow', { defaultValue: 'Avg MT/h flow (logged cargo)' })}
-        </span>
+          <span className="allocation-schedule__legend-item">
+            <span className="jetty-schedule-gantt__legend-chip jetty-schedule-gantt__legend-chip--etr" aria-hidden>
+              {tAlloc('ganttLegendEtrSample', { defaultValue: 'ETR 8h 3m' })}
+            </span>
+            {tAlloc('ganttLegendEtr', { defaultValue: 'ETR (balance ÷ rate)' })}
+          </span>
+        </>
       ) : (
         <span className="allocation-schedule__legend-item">
           <span className="jetty-schedule-gantt__legend-chip jetty-schedule-gantt__legend-chip--late" aria-hidden>
