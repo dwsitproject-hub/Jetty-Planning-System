@@ -50,7 +50,7 @@ function BatchIdCell({ batchId, t }) {
   return (
     <span className="admin-ops-purge-table__batch-cell">
       <code title={batchId}>{shortBatchId(batchId)}</code>
-      <button type="button" className="btn btn--secondary btn--small admin-ops-copy-btn" onClick={copy}>
+      <button type="button" className="btn btn--ghost admin-ops-copy-btn" onClick={copy}>
         {copied ? t('adminOpsCopied') : t('adminOpsCopy')}
       </button>
     </span>
@@ -266,7 +266,7 @@ export function TechnicalJsonDetails({ details, open, onToggle, t }) {
     <div className="admin-ops-card__details">
       <button
         type="button"
-        className="btn btn--secondary btn--small"
+        className="btn btn--ghost admin-ops-tech-toggle"
         onClick={onToggle}
         aria-expanded={open}
       >

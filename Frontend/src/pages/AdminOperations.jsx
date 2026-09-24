@@ -243,7 +243,7 @@ export default function AdminOperations() {
   }
 
   return (
-    <div className="allocation-page">
+    <div className="allocation-page admin-ops-page">
       <div className="admin-ops-page-header">
         <div>
           <h1 className="page-title">{t('adminOpsTitle')}</h1>
@@ -254,7 +254,7 @@ export default function AdminOperations() {
           </p>
           <p className="text-steel admin-ops-page-header__intro">{t('adminOpsIntro')}</p>
         </div>
-        <button type="button" className="btn btn--secondary btn--small" onClick={load} disabled={loading}>
+        <button type="button" className="btn btn--secondary admin-ops-refresh-btn" onClick={load} disabled={loading}>
           {loading ? t('adminOpsRefreshing') : t('adminOpsRefresh')}
         </button>
       </div>

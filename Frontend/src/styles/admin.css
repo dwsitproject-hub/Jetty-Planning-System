@@ -33,6 +33,19 @@
   color: #e65100;
 }
 
+/* Override global 44px touch target on dense health dashboard controls */
+.admin-ops-page .btn {
+  min-height: unset;
+  padding: 3px 10px;
+  font-size: var(--font-size-xs);
+  line-height: 1.35;
+}
+
+.admin-ops-refresh-btn {
+  padding: 4px 12px;
+  font-size: var(--font-size-small);
+}
+
 .admin-ops-page-header {
   display: flex;
   align-items: flex-start;
@@ -272,7 +285,7 @@
 }
 
 .admin-ops-card__details {
-  margin-top: var(--spacing-2);
+  margin-top: var(--spacing-1);
 }
 
 .admin-ops-card__json {
@@ -304,10 +317,10 @@
 
 .admin-ops-purge-table th,
 .admin-ops-purge-table td {
-  padding: 6px 8px;
+  padding: 4px 8px;
   border-bottom: 1px solid var(--color-border-light);
   text-align: left;
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 .admin-ops-purge-table th {
@@ -329,14 +342,37 @@
 .admin-ops-purge-table__batch-cell {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  gap: 4px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 
 .admin-ops-copy-btn {
-  padding: 0 6px;
-  min-height: 22px;
+  padding: 0 4px;
+  min-height: unset;
   font-size: 10px;
+  font-weight: var(--font-weight-normal);
+  color: var(--color-text-steel);
+  border: none;
+}
+
+.admin-ops-copy-btn:hover {
+  color: var(--color-text-charcoal);
+  background: var(--color-bg-subtle, #f4f6f8);
+}
+
+.admin-ops-tech-toggle {
+  padding: 2px 0;
+  font-size: 11px;
+  font-weight: var(--font-weight-normal);
+  color: var(--color-text-steel);
+  border: none;
+}
+
+.admin-ops-tech-toggle:hover {
+  color: var(--color-text-charcoal);
+  background: transparent;
+  text-decoration: underline;
 }
 
 .admin-ops-purge-table__row--latest {
