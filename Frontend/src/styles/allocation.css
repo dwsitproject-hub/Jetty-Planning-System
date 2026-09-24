@@ -246,6 +246,17 @@ html.allocation-viz-popout-open #root {
   --gantt-bar-stack-step: 78px;
 }
 
+/* Berthing Plan bars carry avg rate, balance, and ETR — need extra vertical room */
+.jetty-schedule-gantt--plan {
+  --gantt-bar-height: 90px;
+  --gantt-bar-stack-step: 96px;
+}
+
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__bar {
+  justify-content: flex-start;
+  align-items: stretch;
+}
+
 .jetty-schedule-gantt__filters {
   display: flex;
   flex-wrap: wrap;
@@ -751,6 +762,19 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   word-break: break-word;
 }
 
+.gantt-dense-block__balance-etr {
+  display: block;
+  font-size: 8px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.2;
+  overflow: visible;
+  white-space: nowrap;
+}
+
+.gantt-dense-block__row--cargo .gantt-dense-block__cargo + .gantt-dense-block__balance-etr {
+  margin-top: 1px;
+}
+
 .gantt-dense-block__wait {
   display: block;
   font-size: 8px;
@@ -817,6 +841,84 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   opacity: 1;
 }
 
+/* Berthing Plan compact layout — fewer rows, middot-separated groups */
+.gantt-dense-block--plan-compact {
+  gap: 1px;
+  padding: 4px 7px;
+}
+
+.gantt-dense-block--plan-compact .gantt-dense-block__row--title {
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.gantt-dense-block--plan-compact .gantt-dense-block__icon {
+  width: 13px;
+  height: 13px;
+}
+
+.gantt-dense-block__row--meta {
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.2;
+  color: #334155;
+}
+
+.gantt-dense-block__sep {
+  opacity: 0.55;
+  font-weight: var(--font-weight-normal);
+}
+
+.gantt-dense-block__wait-chip {
+  flex: 0 0 auto;
+  font-size: 9px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.3;
+  padding: 0 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  background: rgba(100, 116, 139, 0.12);
+  color: #475569;
+}
+
+.gantt-dense-block__row--schedule .gantt-dense-block__dates {
+  font-size: 10px;
+  line-height: 1.2;
+  opacity: 0.92;
+}
+
+.gantt-dense-block__row--progress {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  min-width: 0;
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #1e293b;
+}
+
+.gantt-dense-block__row--progress .gantt-dense-block__progress-qty,
+.gantt-dense-block__row--progress .gantt-dense-block__balance {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gantt-dense-block__row--progress .gantt-dense-block__etr {
+  flex: 0 0 auto;
+  font-size: inherit;
+}
+
+.gantt-dense-block--plan-compact .gantt-dense-block__avg-flow-chip {
+  font-size: 10px;
+  padding: 0 7px;
+}
+
 .gantt-dense-block__etr {
   flex: 0 0 auto;
   font-size: 9px;
@@ -832,6 +934,20 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   font-weight: var(--font-weight-semibold);
   opacity: 0.95;
   white-space: nowrap;
+}
+
+/* Avg MT/h chip in title row — same slot as the legacy LATE chip */
+.gantt-dense-block__avg-flow-chip {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: var(--font-weight-bold);
+  line-height: 1.5;
+  white-space: nowrap;
+  background: rgba(var(--color-primary-rgb, 37, 99, 235), 0.14);
+  border: 1px solid rgba(var(--color-primary-rgb, 37, 99, 235), 0.4);
+  color: var(--color-primary-700, #1d4ed8);
 }
 
 .jetty-schedule-gantt__legend-chip--avg-flow {

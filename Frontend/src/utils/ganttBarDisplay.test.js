@@ -252,6 +252,7 @@ describe('buildActualBlockModel', () => {
       },
       { planCentric: true }
     )
+    assert.equal(model.balanceLine, 'Balance 769 MT')
     assert.equal(model.etrDuration, '8h 3m')
   })
 

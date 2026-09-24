@@ -19,8 +19,8 @@ import {
   buildGanttBarTooltipItems,
   ganttDenseBlockAriaLabel,
   isLongGanttBar,
-  GANTT_BAR_STACK_STEP,
-  GANTT_BAR_HEIGHT,
+  resolveGanttBarMetrics,
+  resolveGanttWaitTooltip,
 } from '../utils/ganttBarDisplay.js'
 import {
   buildGanttDragProposal,
@@ -49,21 +49,6 @@ function defaultDateRangeInputsForProfile(popoutProfile) {
   return popoutProfile === 'plan'
     ? defaultPlanCentricDateRangeInputs()
     : defaultLegacyMonthDateRangeInputs()
-}
-
-function resolveWaitTooltipLabel(model, tAlloc) {
-  if (model.waitTooltipMode === 'waiting') {
-    return tAlloc('ganttTooltipWaitQueue', { defaultValue: 'Waiting to Berth (now − TA)' })
-  }
-  if (model.waitTooltipMode === 'berthedEtbFallback') {
-    return tAlloc('ganttTooltipWaitBerthedEtb', {
-      defaultValue: 'Waiting to Berth (ETB − TA, TB not recorded)',
-    })
-  }
-  if (model.waitTooltipMode === 'berthed') {
-    return tAlloc('ganttTooltipWaitBerthed', { defaultValue: 'Waiting to Berth (TB − TA)' })
-  }
-  return tAlloc('ganttTooltipWaitDays', { defaultValue: 'Waiting days (Berth − Arrival)' })
 }
 
 function buildDateColumns(windowStartMs, windowEndMs) {
@@ -142,10 +127,10 @@ function segmentPillClass(seg) {
   return `jetty-schedule-gantt__bar ${segmentColorClass(seg)}${overdueMod}`
 }
 
-function ganttBarInlineStyle(seg, posStyle, stackIndex) {
+function ganttBarInlineStyle(seg, posStyle, stackIndex, stackStep) {
   return {
     ...posStyle,
-    top: `${6 + stackIndex * GANTT_BAR_STACK_STEP}px`,
+    top: `${6 + stackIndex * stackStep}px`,
     ...(seg.etcOverdue && seg.etcOverduePct != null
       ? { '--etc-overdue-start': `${seg.etcOverduePct}%` }
       : {}),
@@ -259,6 +244,8 @@ export default function JettyScheduleGantt({
     }),
     [isPlanProfile]
   )
+
+  const barMetrics = useMemo(() => resolveGanttBarMetrics(isPlanProfile), [isPlanProfile])
 
   const { windowStartMs, windowEndMs, dateColumns, baseSegments, totalMs, rangeError } = useMemo(() => {
     const plan = Array.isArray(list) ? list : []
@@ -401,7 +388,7 @@ export default function JettyScheduleGantt({
       ro.disconnect()
       window.removeEventListener('resize', scheduleMeasure)
     }
-  }, [rowDefs, segments])
+  }, [rowDefs, segments, barMetrics.height])
 
   const spanningBars = useMemo(() => {
     if (!spanLayout.rowRects.size) return []
@@ -466,7 +453,7 @@ export default function JettyScheduleGantt({
       let height
       if (extendsDown) {
         top = barRect.top + barRect.height
-        height = farthestRowRect.top + barOffsetWithinRow + GANTT_BAR_HEIGHT - top
+        height = farthestRowRect.top + barOffsetWithinRow + barMetrics.height - top
       } else {
         top = farthestRowRect.top + barOffsetWithinRow
         height = barRect.top - top
@@ -490,7 +477,7 @@ export default function JettyScheduleGantt({
       })
     }
     return out
-  }, [segments, orderedBerthIds, berthsState, spanLayout, windowStartMs, totalMs])
+  }, [segments, orderedBerthIds, berthsState, spanLayout, windowStartMs, totalMs, barMetrics.height])
 
   // Multi-jetty berthing: which edge (if any) of the REAL primary bar touches its span
   // extension, keyed the same way as `spanRef` — used to drop that edge's border/radius so the
@@ -995,7 +982,7 @@ export default function JettyScheduleGantt({
       }
       return level
     })
-    const laneH = Math.max(30, 8 + Math.max(1, levelEnds.length) * GANTT_BAR_STACK_STEP)
+    const laneH = Math.max(30, 8 + Math.max(1, levelEnds.length) * barMetrics.stackStep)
     return (
       <div
         className="jetty-schedule-gantt__track jetty-schedule-gantt__track--actual"
@@ -1005,7 +992,7 @@ export default function JettyScheduleGantt({
           const pos = segmentTrackStyle(seg, windowStartMs, totalMs)
           if (!pos) return null
           const { rawWidthPct: _rawWidthPct, ...posStyle } = pos
-          const style = ganttBarInlineStyle(seg, posStyle, stackIndexBySeg[i])
+          const style = ganttBarInlineStyle(seg, posStyle, stackIndexBySeg[i], barMetrics.stackStep)
 
           const barLayer = seg.layer === 'planned' ? 'planned' : 'actual'
           const pillClass = segmentPillClass(seg)
@@ -1039,7 +1026,7 @@ export default function JettyScheduleGantt({
             clickHint: canClick
               ? tAlloc('ganttClickVesselDetail', { defaultValue: 'Click to open vessel details.' })
               : null,
-            waitLabel: resolveWaitTooltipLabel(blockModel, tAlloc),
+            waitLabel: resolveGanttWaitTooltip(blockModel, tAlloc),
             etrLabel: tAlloc('ganttTooltipEtr', {
               defaultValue: 'ETR (balance ÷ rate)',
             }),
@@ -1223,7 +1210,9 @@ export default function JettyScheduleGantt({
     : []
 
   return (
-    <section className={`jetty-schedule-gantt${isPopout ? ' jetty-schedule-gantt--popout' : ' card'}`}>
+    <section
+      className={`jetty-schedule-gantt${isPlanProfile ? ' jetty-schedule-gantt--plan' : ''}${isPopout ? ' jetty-schedule-gantt--popout' : ' card'}`}
+    >
       {!isPopout ? (
         <div className="card__title-row">
           <h2 className="card__title">{tAlloc('jettySchedule', { defaultValue: 'Berthing Plan' })}</h2>

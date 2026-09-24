@@ -10,6 +10,19 @@ import { computeWaitToBerthMs, waitToBerthTooltipMode } from './waitToBerth.js'
 /** Gantt bar layout constants (keep in sync with allocation.css --gantt-bar-*). */
 export const GANTT_BAR_HEIGHT = 72
 export const GANTT_BAR_STACK_STEP = 78
+/** Taller bars for Berthing Plan (extra cargo/balance/ETR rows). */
+export const GANTT_PLAN_BAR_HEIGHT = 90
+export const GANTT_PLAN_BAR_STACK_STEP = 96
+
+/**
+ * @param {boolean} [planCentric]
+ * @returns {{ height: number, stackStep: number }}
+ */
+export function resolveGanttBarMetrics(planCentric = false) {
+  return planCentric
+    ? { height: GANTT_PLAN_BAR_HEIGHT, stackStep: GANTT_PLAN_BAR_STACK_STEP }
+    : { height: GANTT_BAR_HEIGHT, stackStep: GANTT_BAR_STACK_STEP }
+}
 
 /**
  * @param {object | null | undefined} r
@@ -258,9 +271,9 @@ export function formatGanttDurationShort(ms) {
  * Estimated time remaining from balance ÷ rate (same inputs as schematic ETR).
  * @returns {string|null} duration only, e.g. "8h 3m"
  */
-export function resolveGanttEtrDuration(row) {
+function resolveGanttCargoProgress(row) {
   if (!row) return null
-  const progress = computeCargoProgress(
+  return computeCargoProgress(
     row?.totalQtyDisplay || row?.cargoDisplay || null,
     row?.cargoMovedQty,
     row?.cargoFirstLoggedAt,
@@ -271,6 +284,14 @@ export function resolveGanttEtrDuration(row) {
       avgRateTph: row?.scheduleComparison?.avgRateTph,
     }
   )
+}
+
+export function resolveGanttBalanceLine(row) {
+  return resolveGanttCargoProgress(row)?.balanceLine ?? null
+}
+
+export function resolveGanttEtrDuration(row) {
+  const progress = resolveGanttCargoProgress(row)
   if (!progress?.etrMs) return null
   return formatGanttDurationShort(progress.etrMs)
 }
@@ -356,6 +377,7 @@ export function buildPlannedBlockModel(seg, options = {}) {
     waitLine,
     waitTooltipMode,
     avgRateLine: '—',
+    balanceLine: null,
     etrDuration: null,
     arrivalLine: formatGanttMilestoneLine(
       [
@@ -453,6 +475,7 @@ export function buildActualBlockModel(seg, row, options = {}) {
 
   const avgRateLine = resolveGanttAvgRateLine(row)
   const etrDuration = planCentric ? resolveGanttEtrDuration(row) : null
+  const balanceLine = planCentric ? resolveGanttBalanceLine(row) : null
 
   return {
     vesselName: seg.vesselName || '—',
@@ -472,6 +495,7 @@ export function buildActualBlockModel(seg, row, options = {}) {
     waitLine,
     waitTooltipMode,
     avgRateLine,
+    balanceLine,
     etrDuration,
     arrivalLine: formatGanttMilestoneLine(
       [
@@ -510,6 +534,27 @@ export function parseRowActualCompMs(row) {
 }
 
 /**
+ * Tooltip for in-bar wait duration (matches Live Ops / queue semantics).
+ * @param {object} model
+ * @param {(key: string, opts?: object) => string} t
+ * @returns {string}
+ */
+export function resolveGanttWaitTooltip(model, t) {
+  if (model.waitTooltipMode === 'waiting') {
+    return t('ganttTooltipWaitQueue', { defaultValue: 'Waiting to Berth (now − TA)' })
+  }
+  if (model.waitTooltipMode === 'berthedEtbFallback') {
+    return t('ganttTooltipWaitBerthedEtb', {
+      defaultValue: 'Waiting to Berth (ETB − TA, TB not recorded)',
+    })
+  }
+  if (model.waitTooltipMode === 'berthed') {
+    return t('ganttTooltipWaitBerthed', { defaultValue: 'Waiting to Berth (TB − TA)' })
+  }
+  return t('ganttTooltipWaitDays', { defaultValue: 'Waiting days (Berth − Arrival)' })
+}
+
+/**
  * @param {object} model
  * @param {'planned' | 'actual'} layer
  * @returns {string}
@@ -521,7 +566,7 @@ export function ganttDenseBlockAriaLabel(model, layer) {
   parts.push(model.milestoneLine)
   if (model.materialDisplay) parts.push(model.materialDisplay)
   if (model.materialQtyLine) parts.push(model.materialQtyLine)
-  if (model.waitLine) parts.push(`⌛ ${model.waitLine}`)
+  if (model.waitLine) parts.push(`Wait ${model.waitLine}`)
   if (model.avgRateLine && model.avgRateLine !== '—') parts.push(model.avgRateLine)
   if (model.etrDuration) parts.push(`ETR ${model.etrDuration}`)
   return parts.filter(Boolean).join(', ')
