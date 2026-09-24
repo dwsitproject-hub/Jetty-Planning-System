@@ -18,6 +18,46 @@
   color: var(--color-text-steel);
 }
 
+.admin-status-badge--warning {
+  background: #fff8e1;
+  color: #e65100;
+}
+
+.admin-status-badge--error {
+  background: #ffebee;
+  color: #b71c1c;
+}
+
+.admin-ops-grid {
+  display: grid;
+  gap: var(--spacing-3);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
+}
+
+.admin-ops-card__summary {
+  margin: 0.35rem 0 0;
+  font-size: var(--font-size-small);
+}
+
+.admin-ops-card__actions {
+  margin: var(--spacing-2) 0 0;
+  font-size: var(--font-size-small);
+}
+
+.admin-ops-card__details {
+  margin-top: var(--spacing-2);
+}
+
+.admin-ops-card__json {
+  margin-top: var(--spacing-2);
+  padding: var(--spacing-2);
+  max-height: 16rem;
+  overflow: auto;
+  font-size: 11px;
+  background: var(--color-bg-lighter);
+  border-radius: var(--radius-sm);
+}
+
 .admin-tabs {
   display: flex;
   gap: 0;

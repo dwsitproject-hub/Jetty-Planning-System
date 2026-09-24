@@ -94,7 +94,7 @@ docker run --rm --network host -e PGPASSWORD \
 | `set PGPASSWORD or POSTGRES_PASSWORD` | RDS password not in `.env` |
 | `pg_dump` timeout / no response | Use `--network host` (script does); check RDS SG for `.51` |
 | `dump TOC has no TABLE DATA` | Corrupt or empty dump |
-| NAS copy fails | `/mnt/synology/JETTYPLANNING` unmounted |
+| NAS copy fails | `/mnt/synology/JETTYPLANNING` unmounted or writing to local disk — see [SYNOLOGY-MOUNT-TROUBLESHOOTING-AND-RECOVERY.md](./SYNOLOGY-MOUNT-TROUBLESHOOTING-AND-RECOVERY.md) |
 | `another backup-db-daily.sh is already running` | Previous run still in progress |
 
 ## Legacy container mode

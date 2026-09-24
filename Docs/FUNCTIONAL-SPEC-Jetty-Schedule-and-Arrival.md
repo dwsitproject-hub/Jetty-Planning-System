@@ -3,7 +3,7 @@
 **Product:** Jetty Planning & Monitoring System (JPS)  
 **Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **multi-jetty berthing** (span a vessel across adjacent jetties when enabled per port), **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, **uploaded document preview & download**, **Jetty Live CCTV** (per-jetty RTSP links, schematic camera control, browser stream page), **self-service change password** (header user menu), **Reporting → Jetty – Vessel Report** (jetty utilization summary and vessel detail), **Live Ops Dashboard** (real-time terminal control at `/`), **Ops Analytics Dashboard** (date-range performance at `/ops-analytics`), **Management Dashboard** (berth productivity & departure readiness for executives at `/management-dashboard`), and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.71 (see document history at end).
+**Version:** 1.72 (see document history at end).
 
 ---
 
@@ -41,6 +41,7 @@ This document describes **behaviour that is implemented in code**, including:
 - **Multi-jetty berthing:** when enabled on a port, operators may assign a **primary jetty** plus one or more **adjacent** jetties so a long vessel visually and logically spans multiple berth columns; occupancy, Gantt spanning bars, and schematic lane placeholders reflect spanned lanes per bank (**§2.28**).
 - **ATG cargo progress and quantity persistence:** liquid cargo operations record **segment start/end** on load lines; **moved quantity** is persisted when a segment closes (ATG-derived or manual), with optional **hourly rate breakdown** and **manual checkpoints** when ATG is unavailable (**§2.29**).
 - **Master vessel link on shipment plans:** new plans require a **Master vessel** pick from **`master_vessels`**; name/LOA/GT/draft are **snapshots** on the plan. Legacy plans (no link) keep free-text vessel fields and show a **Legacy** badge on the plans list (**§2.30**).
+- **Admin Operations Dashboard:** infrastructure health cards (ATG sync, purge job, Synology mount, DataHub, Partner Integration API) with optional **email alerts** when a check newly becomes unhealthy (**§2.31**).
 - **Management Dashboard — berth productivity & departure readiness:** executive KPI page (`/management-dashboard`, RBAC page key **`management-dashboard`**) with period/purpose filters, clickable widget drill-down modals, voyage table with short commodity names, and inline milestone expansion (**§2.25**).
 
 For API field names, database columns, and shared code modules, see **TECH-SPEC-Jetty-Planning-System.md** and **§6** below for arrival/estimated completion mapping. Jetty Live deployment: **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**.
@@ -463,6 +464,7 @@ External business systems can submit **Shipping Instructions** into JPS without 
 | **Master data sync** | Partners **`GET`** terms, agents, surveyors, shippers for mapping. **`POST`/`PATCH`** upsert **agents** and **shippers** by name. Terms and surveyors are read-only for partners (JPS Master UI). |
 | **PO/SO updates** | **`PATCH /shipping-instructions`** while partner status is **Pending** — update **`po_no`**, **`so_no`**, shipper, trade term, or surveyor on existing submissions. Not allowed after approve/reject/allocate (**409**). |
 | **Security (summary)** | HTTPS + **`x-api-key`** header per partner; rate limit **120 requests/minute** per key. Keys are **not** port-scoped; each request must include a valid **`port_id`** (unknown port is rejected). |
+| **Operator monitoring** | **Admin → Operations Dashboard** (`/admin/operations`) shows a **Partner Integration API** card: active keys, last API activity, submissions in the last 7 days, and per-partner usage. Manage keys under **Admin → Partner API Keys** (`/admin/partner-api`). See **§2.31**. |
 | **Vessel resolution (master link)** | Partner payload uses **`vessel_hub_code`** (DataHub vessel code) as the **primary identifier** — sufficient alone. JPS resolves **`master_vessels`**, sets **`master_vessel_id`**, and snapshots name/LOA/GT/draft onto the new plan. Optional **`vessel_name`** cross-checks the master when both are sent. When **`vessel_hub_code`** is omitted, **`vessel_name`** must match **exactly one** active master vessel (case-insensitive). **201/GET** return canonical **`vessel_name`** and **`vessel_hub_code`**. Partner API **v4.2**. See **§2.30**. |
 
 Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.33**, **§0.35**. Migrations **084** (`integration_api_keys`, `integration_submissions`), **085** (`shipment_plans.external_reference`, `shipment_plans.requested_by`), **086** (`si_commodities.short_name`), **118** (`shipment_plans.master_vessel_id`).
@@ -699,6 +701,27 @@ Soft-deleting a **Master vessel** (**`/master/vessel`**) is blocked (**409**) wh
 
 Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.35**; **`Backend/src/lib/resolve-master-vessel.js`**; routes **`shipment-plans.js`**, **`shipping-instructions.js`**, **`integrations.js`**, **`master-vessels.js`**; UI **`ShipmentPlanCombinedFormModal.jsx`**, **`VesselInfoModal.jsx`**, **`ShipmentPlansList.jsx`**; E2E **`Frontend/e2e/master-vessel-wiring.spec.ts`**.
 
+### 2.31 Admin Operations Dashboard (infrastructure health)
+
+**Purpose:** Give administrators a single page for **background infrastructure and integration health** — complementing operational dashboards (Live Ops, Analytics, Management) which focus on vessel calls and berth productivity.
+
+| Area | Behaviour |
+|------|------------|
+| **Access** | **Admin hub → Operations Dashboard** (`/admin/operations`). Same **`admin`** page permission as User Management, Notifications, Partner API keys. No operational port selection required. |
+| **Layout** | **Email alerts** settings card at top; grid of **health check cards** below. Each card shows title, status badge (**Healthy** / **Degraded** / **Unhealthy** / **Unknown** / **Disabled**), summary line, optional link to related admin page, and expandable JSON **details**. Manual **Refresh** reloads all checks. |
+| **Overall status** | Worst status among non-disabled checks (unhealthy beats degraded beats unknown beats healthy). |
+| **ATG sync** | Per-port enabled ATG sources; **degraded**/**unhealthy** when poll data is stale vs 60-minute threshold. |
+| **ATG sample purge** | Last purge batch from audit log; **unknown** if no runs yet; **degraded**/**unhealthy** when last run exceeds expected daily cadence. |
+| **Synology upload mount** | Upload directory writable; host cron heartbeat **`.jps-mount-health.json`** under NAS mount (see Synology runbook). **Unknown** until mount check cron is installed. |
+| **DataHub API** | Integration enabled/disabled; credentials completeness; last sync success and age. |
+| **Partner Integration API** | Active vs revoked API keys; last API activity (**`last_used_at`** or latest submission); submission count in last 7 days; per-partner breakdown (30-day submissions). **Disabled** when no active keys. **Unknown** when keys exist but never used. **Healthy** when activity within 7 days; **Degraded** when stale > 7 days (low-volume partners — not **Unhealthy** in v1). |
+| **Email alerts** | Checkbox **Email alerts when a check becomes unhealthy**. Recipient default **`it-project@energi-up.com`**. When enabled and SMTP is configured, a **host cron job** emails IT on **new** unhealthy transitions only (not repeated while still unhealthy; first cron run seeds state without email). Works on **staging or production** — controlled by the checkbox, not by environment label. If enabled but SMTP missing, banner explains setup under **Admin → Notifications**. |
+| **Deploy / local dev** | New checks require a **rebuilt API** (`docker compose … up -d --build jps-api`). Restart-only leaves an old image without new cards (e.g. Partner Integration API). |
+
+Operational runbooks: **`Docs/Guide/ADMIN-OPS-EMAIL-ALERTS.md`**, **`Docs/Guide/SYNOLOGY-MOUNT-TROUBLESHOOTING-AND-RECOVERY.md` §10**.
+
+Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.36**; **`Backend/src/lib/admin-ops-checks.js`**, **`admin-ops-partner-api-check.js`**, **`admin-ops-alert-job.js`**; **`Frontend/src/pages/AdminOperations.jsx`**, **`Admin.jsx`**; migration **`118_admin_ops_alert_settings.sql`**.
+
 ---
 
 ## 3. Gantt data inputs (per queue row)
@@ -868,6 +891,7 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | Stage tabs: Pre/Post **`— / n`** until persisted load (Case A, Option A) | `Frontend/src/pages/Loading.jsx` (`StageTabs`, `preCheckPersistHydrated` / `postCheckPersistHydrated`, `onPersistedHydrationDone`). Plan: **Docs/Plan/AT-BERTH-TWO-LEVEL-PHASE-AND-WORKSPACE-STAGE-PLAN.md**. |
 | **ATG cargo progress — hourly rates, segment qty persistence, manual checkpoints** | **§2.29** — `Backend/src/lib/atg-hourly-progress.js`, `Backend/src/lib/operational-progress.js`, `Backend/src/lib/cargo-line-qty.js`, `Backend/src/lib/atg-window-rate.js`, `Backend/src/routes/operation-operational-activities.js`; migration **110** + rollback **`110_rollback_hourly_cargo_progress.sql`**; `Frontend/src/components/OperationalProgressSection.jsx`, `HourlyCargoProgressTable.jsx`, `CargoOpsSessionPanel.jsx`, `OperationalMilestoneWorkspace.jsx`, `Frontend/src/utils/cargoSiQtyMismatch.js`; proposal **`Docs/ATG-Hourly-Cargo-Progress-Proposal.md`**. |
 | **Master vessel link on shipment plans (snapshot model)** | **§2.30** — migration **118**; `Backend/src/lib/resolve-master-vessel.js`, `Backend/src/routes/shipment-plans.js`, `shipping-instructions.js`, `integrations.js`, `master-vessels.js`; `Frontend/src/components/ShipmentPlanCombinedFormModal.jsx`, `VesselInfoModal.jsx`, `Frontend/src/pages/ShipmentPlansList.jsx`, `Frontend/src/api/shipmentPlans.js`, `Frontend/src/api/masterVessels.js`; E2E **`Frontend/e2e/master-vessel-wiring.spec.ts`**; deferred push doc **`Docs/Future/MASTER-VESSEL-PUSH-TO-PLANS.md`**. TECH-SPEC **§0.35**. |
+| **Admin Operations Dashboard (infrastructure health & email alerts)** | **§2.31** — `Backend/src/lib/admin-ops-checks.js`, `admin-ops-partner-api-check.js`, `admin-ops-alert-job.js`, `Backend/src/routes/admin-ops.js`, `Backend/scripts/run-admin-ops-alerts.js`, `Backend/scripts/check-synology-mount.sh`; migration **`118_admin_ops_alert_settings.sql`**; `Frontend/src/pages/AdminOperations.jsx`, `Frontend/src/api/adminOps.js`; guides **`Docs/Guide/ADMIN-OPS-EMAIL-ALERTS.md`**, **`Docs/Guide/SYNOLOGY-MOUNT-TROUBLESHOOTING-AND-RECOVERY.md` §10**. TECH-SPEC **§0.36**. |
 
 ---
 
@@ -1000,6 +1024,7 @@ Cross-reference: **TECH-SPEC §0.20**, **`Backend/src/lib/schedule-instant.js`**
 
 | Version | Date | Notes |
 |---------|------|--------|
+| 1.72 | 2026-09-24 | **§2.31 Admin Operations Dashboard:** infrastructure health cards (ATG sync, purge, Synology mount, DataHub, Partner Integration API); optional **email alerts** on newly unhealthy checks; user-controlled toggle (staging or production). **§2.23** operator monitoring row. **§1**, **§7** map. Migration **`118_admin_ops_alert_settings.sql`**. TECH-SPEC **§0.36**; **`Docs/Guide/ADMIN-OPS-EMAIL-ALERTS.md`**. |
 | 1.71 | 2026-09-23 | **§2.30 Master vessel link on shipment plans (snapshot model):** new plans require **Master vessel** pick; linked plans re-pick master only (LOA/GT/draft read-only); legacy plans keep free-text fields and **Legacy** badge on plans list; partner API **`hub_code`** / unique **`vessel_name`** resolution; master delete guard. **§1**, **§2.13**, **§2.23**, **§7** map. Migration **118**. TECH-SPEC **§0.35**. |
 | 1.69 | 2026-08-27 | **§2.29 ATG cargo progress and quantity persistence:** documents where **start/end** and **moved qty** are stored (`operation_cargo_load_lines` vs live **`tank_gauging_samples`**), manual checkpoints and hourly/daily progress tables (migration **110**), session-first Cargo Operations flow, clock-aligned hourly rates, Flat Movement, and **non-blocking** SI qty variance. **§1**, **§7** map. Cross-ref **`Docs/ATG-Hourly-Cargo-Progress-Proposal.md`**. |
 | 1.70 | 2026-09-21 | **§2.23** partner API v4.0: GET master data (terms, agents, surveyors, shippers); POST/PATCH agents and shippers; POST submit + PATCH SI for **`po_no`**, **`so_no`**, shipper, trade term, surveyor while Pending. TECH-SPEC **§0.33**. |

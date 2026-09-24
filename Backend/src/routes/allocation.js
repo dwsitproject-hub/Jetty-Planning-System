@@ -1143,11 +1143,27 @@ router.put('/arrival', async (req, res) => {
 
   const hasOp = operationId != null && !Number.isNaN(operationId);
   const hasSi = shippingInstructionId != null && !Number.isNaN(shippingInstructionId);
-  const hasPlanOnly =
-    shipmentPlanIdDirect != null &&
-    !Number.isNaN(shipmentPlanIdDirect) &&
+  let shipmentPlanIdResolved = shipmentPlanIdDirect;
+  if (
     !hasOp &&
-    !hasSi;
+    (shipmentPlanIdResolved == null || Number.isNaN(shipmentPlanIdResolved)) &&
+    hasSi
+  ) {
+    const siPlanRes = await pool.query(
+      `SELECT shipment_plan_id FROM shipping_instructions WHERE id = $1 AND deleted_at IS NULL`,
+      [shippingInstructionId]
+    );
+    const pid = siPlanRes.rows[0]?.shipment_plan_id;
+    if (pid != null && !Number.isNaN(Number(pid))) {
+      shipmentPlanIdResolved = Number(pid);
+    }
+  }
+  const schedulingOnly = !bodyHasBerthingArrivalFields(b);
+  const hasPlanOnly =
+    shipmentPlanIdResolved != null &&
+    !Number.isNaN(shipmentPlanIdResolved) &&
+    !hasOp &&
+    schedulingOnly;
 
   if (!hasOp && !hasSi && !hasPlanOnly) {
     return res.status(400).json({
@@ -1172,7 +1188,7 @@ router.put('/arrival', async (req, res) => {
                  WHERE si.shipment_plan_id = shipment_plans.id AND si.deleted_at IS NULL) AS si_count
          FROM shipment_plans
          WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
-        [shipmentPlanIdDirect, selectedPortId]
+        [shipmentPlanIdResolved, selectedPortId]
       );
       if (planRes.rows.length === 0) {
         await client.query('ROLLBACK');
@@ -1236,14 +1252,14 @@ router.put('/arrival', async (req, res) => {
           jettyId: jettyEffective,
           jettyShortId: jettyShort,
           candidate: {
-            shipmentPlanId: shipmentPlanIdDirect,
-            vesselId: `plan-${shipmentPlanIdDirect}`,
+            shipmentPlanId: shipmentPlanIdResolved,
+            vesselId: `plan-${shipmentPlanIdResolved}`,
             vesselName: planBefore.vessel_name,
             jetty: jettyShort,
             etbDateTime: etb,
             estimatedCompletionDateTime: etcPlan,
           },
-          excludeShipmentPlanId: shipmentPlanIdDirect,
+          excludeShipmentPlanId: shipmentPlanIdResolved,
         });
         if (!berthCheck.ok) {
           await client.query('ROLLBACK');
@@ -1285,7 +1301,7 @@ router.put('/arrival', async (req, res) => {
         noPkk || null,
         additionalJettiesForSql,
         req.userId ?? null,
-        shipmentPlanIdDirect,
+        shipmentPlanIdResolved,
         selectedPortId,
       ];
       try {
@@ -1318,7 +1334,7 @@ router.put('/arrival', async (req, res) => {
                additional_jetties = COALESCE($8::bigint[], additional_jetties),
                updated_at = NOW()
              WHERE id = $9 AND port_id = $10 AND deleted_at IS NULL`,
-            [eta, ta, etb, jettyId, priority || null, remark || null, noPkk || null, additionalJettiesForSql, shipmentPlanIdDirect, selectedPortId]
+            [eta, ta, etb, jettyId, priority || null, remark || null, noPkk || null, additionalJettiesForSql, shipmentPlanIdResolved, selectedPortId]
           );
         } else {
           throw e;
@@ -1329,8 +1345,8 @@ router.put('/arrival', async (req, res) => {
         pageKey: 'allocation-plan',
         action: 'update',
         entityType: 'ShipmentPlan',
-        entityId: String(shipmentPlanIdDirect),
-        entityLabel: planBefore.plan_reference || planBefore.vessel_name || `Plan #${shipmentPlanIdDirect}`,
+        entityId: String(shipmentPlanIdResolved),
+        entityLabel: planBefore.plan_reference || planBefore.vessel_name || `Plan #${shipmentPlanIdResolved}`,
         summary: 'Saved plan scheduling update (late SI — no operation yet)',
         changes: [
           { field: 'ETA', from: planBefore.eta, to: eta },
@@ -1338,12 +1354,12 @@ router.put('/arrival', async (req, res) => {
           { field: 'ETB', from: planBefore.etb, to: etb },
           { field: 'Jetty ID', from: planBefore.jetty_id, to: jettyId },
         ].filter((c) => c.from !== c.to),
-        meta: { shipmentPlanId: shipmentPlanIdDirect, planOnly: true },
+        meta: { shipmentPlanId: shipmentPlanIdResolved, planOnly: true },
         actorUserId: req.userId ?? null,
       }).catch(() => {});
       return res.json({
         ok: true,
-        shipmentPlanId: shipmentPlanIdDirect,
+        shipmentPlanId: shipmentPlanIdResolved,
         operationId: null,
       });
     }
@@ -1380,6 +1396,24 @@ router.put('/arrival', async (req, res) => {
       );
       opRow = ex.rows[0] ?? null;
       if (!opRow) {
+        if (bodyHasBerthingArrivalFields(b)) {
+          const siPlanForGate = await client.query(
+            `SELECT si.shipment_plan_id FROM shipping_instructions si WHERE si.id = $1 AND si.deleted_at IS NULL`,
+            [shippingInstructionId]
+          );
+          const planIdForGate =
+            siPlanForGate.rows[0]?.shipment_plan_id != null
+              ? Number(siPlanForGate.rows[0].shipment_plan_id)
+              : null;
+          const gateErr =
+            planIdForGate != null
+              ? await validatePlanBerthingGate(client, planIdForGate, selectedPortId)
+              : PLAN_BERTHING_GATE_MSG;
+          if (gateErr) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: gateErr });
+          }
+        }
         const insRow = await insertOperationForApprovedPlanSi(
           client,
           shippingInstructionId,

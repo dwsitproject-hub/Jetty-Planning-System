@@ -1,7 +1,7 @@
 ## Jetty Planning & Monitoring System – Technical Specification
 
-**Version**: 1.46
-**Last Updated**: 2026-09-23  
+**Version**: 1.47
+**Last Updated**: 2026-09-24  
 **Author**: AI Engineering Manager (based on PRD by Rian Dharmawan)
 
 ---
@@ -129,6 +129,66 @@ Tests: **`Backend/src/lib/resolve-master-vessel.test.js`**.
 
 **Deferred (Project B):** Bulk backfill of legacy plans and “Refresh from master” push — **`Docs/Future/MASTER-VESSEL-PUSH-TO-PLANS.md`**, QA stub **`Backend/scripts/qa-master-vessel-link-deferred.sql`**.
 
+### 0.36 Admin Operations Dashboard — infrastructure health & alerts (2026-09-24)
+
+**Purpose:** Aggregated **infrastructure and batch-job** status for administrators at **`/admin/operations`**, linked from **Admin hub → Operations Dashboard**. Extensible check registry; optional **email alerts** when any check **newly becomes unhealthy**. Functional behaviour: **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.31**. Runbooks: **`Docs/Guide/ADMIN-OPS-EMAIL-ALERTS.md`**, **`Docs/Guide/SYNOLOGY-MOUNT-TROUBLESHOOTING-AND-RECOVERY.md` §10**.
+
+**RBAC:** **`requireAdminPageView`** (same **`admin`** page permission as Users, Roles, Notifications).
+
+**API — `Backend/src/routes/admin-ops.js`** (mounted **`apiV1.use('/admin-ops', adminOpsRoutes)`**):
+
+| Method | Path | Role |
+|--------|------|------|
+| **`GET`** | **`/admin-ops/status`** | Runs all checks; returns **`checkedAt`**, **`overall`**, **`checks[]`**, plus alert settings snapshot (**`emailAlertsEnabled`**, **`emailAlertsActive`**, **`alertEmail`**, **`smtpConfigured`**) |
+| **`GET`** | **`/admin-ops/settings`** | Alert toggle + SMTP readiness |
+| **`PUT`** | **`/admin-ops/settings`** | Body **`{ emailAlertsEnabled }`** — persists toggle; activity log **`AdminOpsAlertSettings`** |
+
+**Check registry — `Backend/src/lib/admin-ops-checks.js` (`ADMIN_OPS_CHECK_REGISTRY`):**
+
+| Check id | Function | Data source |
+|----------|----------|-------------|
+| **`atg_sync`** | **`checkAtgSync`** | **`computeAtgSyncHealth`** per port — stale ATG sources vs **`DEFAULT_ATG_STALE_MS`** (60 min) |
+| **`purge_job`** | **`checkPurgeJob`** | **`tank_gauging_purge_log`** — last batch age (expected ~daily cron) |
+| **`synology_mount`** | **`checkSynologyMount`** | Upload root writability + **`.jps-mount-health.json`** heartbeat from host cron **`Backend/scripts/check-synology-mount.sh`** |
+| **`datahub`** | **`checkDataHub`** | **`getDataHubConfigForAdmin`** — enabled flag, credentials, last sync OK/age |
+| **`partner_api`** | **`checkPartnerApi`** | **`integration_api_keys`** + **`integration_submissions`** — active keys, last activity, 7d submission count, per-partner 30d stats (**`admin-ops-partner-api-check.js`**) |
+
+Each check returns normalized payload: **`id`**, **`title`**, **`status`** (`healthy` \| `degraded` \| `unhealthy` \| `unknown` \| `disabled`), **`summary`**, **`details`**, optional **`actionHref`** / **`actionLabel`**. **`deriveOverallStatus`** picks worst non-disabled status.
+
+**Partner API check status rules (`derivePartnerApiStatus`):**
+
+| Condition | Status |
+|-----------|--------|
+| 0 active keys | **`disabled`** |
+| Active keys, never used | **`unknown`** |
+| Last activity ≤ **7 days** (`max(last_used_at, last_submission_at)`) | **`healthy`** |
+| Last activity > **7 days** | **`degraded`** (v1 — not **`unhealthy`**, avoids false alarms for low-volume partners) |
+
+**Email alert job — `Backend/src/lib/admin-ops-alert-job.js` + `Backend/scripts/run-admin-ops-alerts.js`:**
+
+- Host cron (recommended **every 15 min**) runs checks and compares against **`admin_ops_alert_state`**.
+- Sends email to **`admin_ops_alert_settings.alert_email`** (default **`it-project@energi-up.com`**) only when a check **transitions into `unhealthy`** (not on first run seed, not while still unhealthy).
+- Gates: dashboard **`email_alerts_enabled`**, global **`NOTIFICATION_EMAIL_ENABLED`**, SMTP configured (**`getSmtpTransport`**).
+- Direct **`sendMail`** (external mailbox — not SLA user-recipient model). Delivery log: **`admin_ops_alert_deliveries`**.
+
+**Database (migration):**
+
+| Migration | Objects |
+|-----------|---------|
+| **`118_admin_ops_alert_settings.sql`** | **`admin_ops_alert_settings`** (singleton **`email_alerts_enabled`**, **`alert_email`**); **`admin_ops_alert_state`** (per-check last status); **`admin_ops_alert_deliveries`** |
+
+**Frontend:**
+
+| Module | Role |
+|--------|------|
+| **`Frontend/src/pages/AdminOperations.jsx`** | Check cards + email alerts checkbox |
+| **`Frontend/src/pages/Admin.jsx`** | Hub card **Operations Dashboard** |
+| **`Frontend/src/api/adminOps.js`** | **`fetchAdminOpsStatus`**, **`updateAdminOpsSettings`** |
+
+**Deploy note:** API image must include latest **`admin-ops-*`** modules — **`docker compose … up -d --build jps-api`** (restart-only leaves an old image without new checks). Install host crons: **`check-synology-mount.sh`**, **`npm run run:admin-ops-alerts`**.
+
+Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
+
 ### 0.33 Inbound Shipping Instruction integration API (`/api/v1/integrations`) (2026-06-12)
 
 **Purpose:** Machine-to-machine API for external partners (EOS Export/Import, KLIPS, etc.) to submit **Shipping Instructions** into JPS. Creates real **`shipment_plans`** + **`shipping_instructions`** + breakdown rows; operators review via existing **`shipment-plan`** approval UI. Partner contract: **Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md**; local test walkthrough: **Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-API-TEST-GUIDE.md**. Functional behaviour: **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.23**.
@@ -171,6 +231,8 @@ Tests: **`Backend/src/lib/resolve-master-vessel.test.js`**.
 | **`PATCH`** | **`/agents/:id`**, **`/shippers/:id`** | Update **`name`** / **`long_name`**. |
 
 **Shared lib — `Backend/src/lib/integration-master-data.js`:** list/resolve/upsert helpers, **`deriveExternalStatus`**, **`findPartnerSubmission`**, **`matchBreakdownLineIndex`**. Tests: **`integration-master-data.test.js`**.
+
+**Admin monitoring — §0.36:** **`checkPartnerApi`** on **Admin → Operations Dashboard** reads **`last_used_at`** and **`integration_submissions`** for usage telemetry (no partner-facing health endpoint).
 
 **External status derivation (partner-facing):**
 
