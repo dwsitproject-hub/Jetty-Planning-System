@@ -44,13 +44,17 @@ export default function GanttDenseBlock({
   barWidthPct,
   density: densityProp,
   overlay = false,
+  showLateChip = true,
+  showAvgFlow = false,
+  showPlannedWait = false,
 }) {
   const { t } = useTranslation('allocation')
   const density = densityProp ?? resolveGanttBarDensity(barWidthPct)
   const isSailed = model.status === 'Sailed off'
   const statusIcon = isSailed ? <GanttCompletedIcon /> : <GanttVesselIcon />
 
-  const isLate = layer === 'actual' && model.etcOverdue && model.overMs != null && model.overMs > 0
+  const isLate =
+    showLateChip && layer === 'actual' && model.etcOverdue && model.overMs != null && model.overMs > 0
 
   const resolvedPurpose = resolvePurposeLabel(model.purposeLabel, model.loadDischarge)
   const showPurpose = resolvedPurpose === 'Loading' || resolvedPurpose === 'Unloading'
@@ -86,7 +90,11 @@ export default function GanttDenseBlock({
   const waitLabel = model.waitLine
     ? t('ganttBarWait', { wait: model.waitLine, defaultValue: '⌛ {{wait}}' })
     : null
-  const showWait = layer === 'actual' && Boolean(waitLabel)
+  const showWait =
+    Boolean(waitLabel) && (layer === 'actual' || (showPlannedWait && layer === 'planned'))
+
+  const avgFlowLabel =
+    showAvgFlow && model.avgRateLine && model.avgRateLine !== '—' ? model.avgRateLine : null
 
   return (
     <div
@@ -126,7 +134,7 @@ export default function GanttDenseBlock({
           </span>
         ) : null}
       </div>
-      {showCommodity || showWait ? (
+      {showCommodity || showWait || avgFlowLabel ? (
         <div className="gantt-dense-block__row gantt-dense-block__row--commodity">
           {showCommodity ? (
             <span className="gantt-dense-block__commodity" title={model.commodityTitle || undefined}>
@@ -136,6 +144,14 @@ export default function GanttDenseBlock({
           {showWait ? (
             <span className="gantt-dense-block__wait" title={waitLabel}>
               {waitLabel}
+            </span>
+          ) : null}
+          {avgFlowLabel ? (
+            <span
+              className="gantt-dense-block__avg-flow"
+              title={t('ganttBarAvgFlow', { rate: avgFlowLabel, defaultValue: '{{rate}}' })}
+            >
+              {avgFlowLabel}
             </span>
           ) : null}
         </div>

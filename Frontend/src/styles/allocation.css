@@ -698,7 +698,7 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 
 .gantt-dense-block__dates {
   display: block;
-  font-size: 7px;
+  font-size: 9px;
   line-height: 1.2;
   letter-spacing: 0;
   opacity: 0.95;
@@ -756,6 +756,14 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   opacity: 0.9;
 }
 
+.gantt-dense-block--narrow .gantt-dense-block__dates {
+  font-size: 8px;
+}
+
+.gantt-dense-block--medium .gantt-dense-block__dates {
+  font-size: 8px;
+}
+
 .gantt-dense-block--medium .gantt-dense-block__commodity {
   font-size: 8px;
 }
@@ -782,6 +790,21 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   font-size: 9px;
   font-weight: var(--font-weight-semibold);
   opacity: 1;
+}
+
+.gantt-dense-block__avg-flow {
+  flex: 0 0 auto;
+  font-size: 9px;
+  font-weight: var(--font-weight-semibold);
+  opacity: 0.95;
+  white-space: nowrap;
+}
+
+.jetty-schedule-gantt__legend-chip--avg-flow {
+  background: rgba(var(--color-primary-rgb, 37, 99, 235), 0.1);
+  border: 1px solid rgba(var(--color-primary-rgb, 37, 99, 235), 0.35);
+  color: var(--color-primary-700, #1d4ed8);
+  text-transform: none;
 }
 
 .gantt-dense-block__aging {

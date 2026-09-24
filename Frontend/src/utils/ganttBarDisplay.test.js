@@ -123,6 +123,23 @@ describe('buildPlannedBlockModel', () => {
     assert.match(model.arrivalLine, /ETA/)
     assert.equal(model.materialQtyLine, 'CPO · 5,000 MT')
   })
+
+  it('shows live wait on planned bars when planCentric and TA without TB', () => {
+    const ta = Date.parse('2026-06-01T00:00:00Z')
+    const now = Date.parse('2026-06-03T00:00:00Z')
+    const model = buildPlannedBlockModel(
+      {
+        vesselName: 'V1',
+        taMs: ta,
+        tbMs: null,
+        status: 'Arriving',
+        plannedEtbMs: now,
+      },
+      { nowMs: now, planCentric: true }
+    )
+    assert.equal(model.waitLine, '2 d')
+    assert.equal(model.waitTooltipMode, 'waiting')
+  })
 })
 
 describe('buildActualBlockModel', () => {
@@ -172,7 +189,52 @@ describe('buildActualBlockModel', () => {
       }
     )
     assert.equal(model.cargoDisplay, '500 MT / 2,500 MT -- Rate 50 MT / Hour')
-    assert.equal(model.avgRateLine, 'Rate 50 MT / Hour')
+    assert.equal(model.avgRateLine, 'Avg 50 MT/h')
+  })
+
+  it('omits rate from cargo line on plan-centric bars (shown separately as Avg MT/h)', () => {
+    const model = buildActualBlockModel(
+      { vesselName: 'V1', taMs: 10, tbMs: 20 },
+      {
+        commodityDisplay: 'CPO',
+        totalQtyDisplay: 'CPO 2,500 MT',
+        cargoMovedQty: 500,
+        cargoFirstLoggedAt: '2026-06-01T00:00:00Z',
+        cargoLastLoggedAt: '2026-06-01T10:00:00Z',
+      },
+      { planCentric: true }
+    )
+    assert.equal(model.cargoDisplay, '500 MT / 2,500 MT')
+    assert.equal(model.materialQtyLine, '500 MT / 2,500 MT')
+    assert.equal(model.avgRateLine, 'Avg 50 MT/h')
+  })
+
+  it('prefers scheduleComparison avgRateTph for avgRateLine', () => {
+    const model = buildActualBlockModel(
+      { vesselName: 'V1', taMs: 10, tbMs: 20 },
+      {
+        totalQtyDisplay: '2,500 MT',
+        scheduleComparison: { avgRateTph: 42, siMetric: 'MT' },
+      }
+    )
+    assert.equal(model.avgRateLine, 'Avg 42 MT/h')
+  })
+
+  it('uses ETB fallback for berthed wait when TB is missing on segment', () => {
+    const ta = Date.parse('2026-06-01T00:00:00Z')
+    const etb = Date.parse('2026-06-02T00:00:00Z')
+    const model = buildActualBlockModel(
+      {
+        vesselName: 'V1',
+        taMs: ta,
+        tbMs: null,
+        plannedEtbMs: etb,
+        cargoDisplay: '1 MT',
+      },
+      null
+    )
+    assert.equal(model.waitLine, '1 d')
+    assert.equal(model.waitTooltipMode, 'berthedEtbFallback')
   })
 
   it('formats wait days (TB − TA) on actual bars', () => {

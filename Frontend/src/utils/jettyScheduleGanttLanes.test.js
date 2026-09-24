@@ -80,6 +80,8 @@ describe('buildScheduleSegments planned dedup', () => {
     assert.equal(segs.filter((s) => s.layer === 'planned').length, 1)
     assert.equal(segs.filter((s) => s.layer === 'actual' && s.phase === 'transit').length, 0)
     assert.equal(segs[0].startSource, 'ETB')
+    const taMs = new Date(JUN_20).getTime()
+    assert.equal(segs[0].waitMs, JUN_24 - taMs)
   })
 
   it('does not emit a TA transit bar; actual occupancy starts at TB', () => {

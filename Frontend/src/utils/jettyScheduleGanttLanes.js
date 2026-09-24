@@ -1,6 +1,7 @@
 import { resolvePurposeLabel } from './resolvePurposeLabel.js'
 import { materialDisplayFromRow } from './ganttBarDisplay.js'
 import { DEFAULT_BERTH_TAIL_MS, isBerthPlanMissingEtc } from './berthPlanInterval.js'
+import { computeWaitToBerthMs } from './waitToBerth.js'
 import {
   parseMs,
   resolveActualAlongsideEnd,
@@ -158,6 +159,10 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
           estCompMs: estComp,
           missingEtc,
           startSource: 'ETB',
+          waitMs:
+            ta != null && tb == null && !isSailed
+              ? computeWaitToBerthMs({ taMs: ta, nowMs, mode: 'waiting' })
+              : null,
         },
         windowStartMs,
         windowEndMs
@@ -217,7 +222,12 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
           etcOverduePct,
           overMs: isBreached ? nowMs - estComp : null,
           startSource: 'TB',
-          waitMs: ta != null && tb > ta ? tb - ta : null,
+          waitMs: computeWaitToBerthMs({
+            taMs: ta,
+            tbMs: tb,
+            etbMs: plannedEtb,
+            mode: 'berthed',
+          }),
           missingEtc: isBerthPlanMissingEtc(r),
         },
         windowStartMs,
