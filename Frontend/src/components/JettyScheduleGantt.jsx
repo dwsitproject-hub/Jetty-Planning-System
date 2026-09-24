@@ -3,9 +3,10 @@ import { useTranslation } from 'react-i18next'
 import html2canvas from 'html2canvas'
 import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import {
-  toDateInputValue,
   parseDateInputStart,
   parseDateInputEndExclusive,
+  defaultPlanCentricDateRangeInputs,
+  defaultLegacyMonthDateRangeInputs,
 } from '../utils/jettyScheduleOccupancy'
 import { buildScheduleSegments, assignBankLanesByVessel } from '../utils/jettyScheduleGanttLanes'
 import { buildAdjacencyAwareRowDefs } from '../utils/jettyAdjacency'
@@ -40,11 +41,25 @@ import '../styles/etc-breach.css'
 const MAX_RANGE_MS = 548 * 24 * 60 * 60 * 1000
 const DAY_COL_MIN = 72
 
-function defaultDateRangeInputs() {
-  const today = new Date()
-  const from = new Date(today.getFullYear(), today.getMonth(), 1, 0, 0, 0, 0)
-  const to = new Date(today.getFullYear(), today.getMonth() + 1, 0, 0, 0, 0, 0)
-  return { from: toDateInputValue(from), to: toDateInputValue(to) }
+function defaultDateRangeInputsForProfile(popoutProfile) {
+  return popoutProfile === 'plan'
+    ? defaultPlanCentricDateRangeInputs()
+    : defaultLegacyMonthDateRangeInputs()
+}
+
+function resolveWaitTooltipLabel(model, tAlloc) {
+  if (model.waitTooltipMode === 'waiting') {
+    return tAlloc('ganttTooltipWaitQueue', { defaultValue: 'Waiting to Berth (now − TA)' })
+  }
+  if (model.waitTooltipMode === 'berthedEtbFallback') {
+    return tAlloc('ganttTooltipWaitBerthedEtb', {
+      defaultValue: 'Waiting to Berth (ETB − TA, TB not recorded)',
+    })
+  }
+  if (model.waitTooltipMode === 'berthed') {
+    return tAlloc('ganttTooltipWaitBerthed', { defaultValue: 'Waiting to Berth (TB − TA)' })
+  }
+  return tAlloc('ganttTooltipWaitDays', { defaultValue: 'Waiting days (Berth − Arrival)' })
 }
 
 function buildDateColumns(windowStartMs, windowEndMs) {
@@ -133,18 +148,32 @@ function ganttBarInlineStyle(seg, posStyle, stackIndex) {
   }
 }
 
-function ganttBarAriaLabel(seg, layer) {
+function ganttBarAriaLabel(seg, layer, blockOptions) {
   const model =
-    layer === 'planned' ? buildPlannedBlockModel(seg) : buildActualBlockModel(seg, null)
+    layer === 'planned'
+      ? buildPlannedBlockModel(seg, blockOptions)
+      : buildActualBlockModel(seg, null, blockOptions)
   return ganttDenseBlockAriaLabel(model, layer)
 }
 
-function renderDenseBarContent(seg, layer, barWidthPct, sourceRow = null) {
+function renderDenseBarContent(seg, layer, barWidthPct, sourceRow, blockOptions, ganttUiOptions) {
   const model =
     layer === 'planned'
-      ? buildPlannedBlockModel(seg)
-      : buildActualBlockModel(seg, sourceRow)
-  return { model, content: <GanttDenseBlock layer={layer} model={model} barWidthPct={barWidthPct} /> }
+      ? buildPlannedBlockModel(seg, blockOptions)
+      : buildActualBlockModel(seg, sourceRow, blockOptions)
+  return {
+    model,
+    content: (
+      <GanttDenseBlock
+        layer={layer}
+        model={model}
+        barWidthPct={barWidthPct}
+        showLateChip={ganttUiOptions.showLateChip}
+        showAvgFlow={ganttUiOptions.showAvgFlow}
+        showPlannedWait={ganttUiOptions.showPlannedWait}
+      />
+    ),
+  }
 }
 
 function findScheduleSourceRow(listRows, seg) {
@@ -192,7 +221,8 @@ export default function JettyScheduleGantt({
   isPopout = false,
 }) {
   const { t: tAlloc } = useTranslation('allocation')
-  const def = useMemo(() => defaultDateRangeInputs(), [])
+  const isPlanProfile = popoutProfile === 'plan'
+  const def = useMemo(() => defaultDateRangeInputsForProfile(popoutProfile), [popoutProfile])
   const [dateFrom, setDateFrom] = useState(def.from)
   const [dateTo, setDateTo] = useState(def.to)
 
@@ -207,6 +237,18 @@ export default function JettyScheduleGantt({
   }, [])
 
   const nowMs = Date.now()
+  const blockOptions = useMemo(
+    () => ({ nowMs, planCentric: isPlanProfile }),
+    [nowMs, isPlanProfile, tick]
+  )
+  const ganttUiOptions = useMemo(
+    () => ({
+      showLateChip: !isPlanProfile,
+      showAvgFlow: isPlanProfile,
+      showPlannedWait: isPlanProfile,
+    }),
+    [isPlanProfile]
+  )
 
   const { windowStartMs, windowEndMs, dateColumns, baseSegments, totalMs, rangeError } = useMemo(() => {
     const plan = Array.isArray(list) ? list : []
@@ -464,7 +506,7 @@ export default function JettyScheduleGantt({
   const [scrollToTodayTick, setScrollToTodayTick] = useState(0)
 
   const handleResetRange = () => {
-    const next = defaultDateRangeInputs()
+    const next = defaultDateRangeInputsForProfile(popoutProfile)
     setDateFrom(next.from)
     setDateTo(next.to)
     setScrollToTodayTick((t) => t + 1)
@@ -936,7 +978,7 @@ export default function JettyScheduleGantt({
           const showEndHandle =
             canDrag && !isSailed && sourceRow &&
             (sourceRow.operationId != null || sourceRow.shippingInstructionId != null)
-          const ariaLabel = ganttBarAriaLabel(seg, barLayer)
+          const ariaLabel = ganttBarAriaLabel(seg, barLayer, blockOptions)
           // Multi-jetty berthing: drop the border/radius on whichever edge connects to this
           // bar's span extension, so the two pieces read as one seamless rectangle.
           const spanEdge = spanEdgeByAnchor.get(spanAnchorKey(seg))
@@ -951,15 +993,15 @@ export default function JettyScheduleGantt({
             seg,
             barLayer,
             _rawWidthPct,
-            barLayer === 'actual' ? sourceRow : null
+            barLayer === 'actual' ? sourceRow : null,
+            blockOptions,
+            ganttUiOptions
           )
           const tooltipItems = buildGanttBarTooltipItems(blockModel, barLayer, {
             clickHint: canClick
               ? tAlloc('ganttClickVesselDetail', { defaultValue: 'Click to open vessel details.' })
               : null,
-            waitLabel: tAlloc('ganttTooltipWaitDays', {
-              defaultValue: 'Waiting days (Berth − Arrival)',
-            }),
+            waitLabel: resolveWaitTooltipLabel(blockModel, tAlloc),
           })
           const handles = canDrag ? (
             <>
@@ -1046,12 +1088,21 @@ export default function JettyScheduleGantt({
         <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--planned-solid" />
         {tAlloc('ganttLegendEstimate', { defaultValue: 'Estimate (no actual yet)' })}
       </span>
-      <span className="allocation-schedule__legend-item">
-        <span className="jetty-schedule-gantt__legend-chip jetty-schedule-gantt__legend-chip--late" aria-hidden>
-          {tAlloc('ganttLateChip', { defaultValue: 'LATE' })}
+      {isPlanProfile ? (
+        <span className="allocation-schedule__legend-item">
+          <span className="jetty-schedule-gantt__legend-chip jetty-schedule-gantt__legend-chip--avg-flow" aria-hidden>
+            {tAlloc('ganttLegendAvgFlowSample', { defaultValue: 'Avg 50 MT/h' })}
+          </span>
+          {tAlloc('ganttLegendAvgFlow', { defaultValue: 'Avg MT/h flow (logged cargo)' })}
         </span>
-        {tAlloc('ganttLegendLatePastEtc', { defaultValue: 'Late (past ETC)' })}
-      </span>
+      ) : (
+        <span className="allocation-schedule__legend-item">
+          <span className="jetty-schedule-gantt__legend-chip jetty-schedule-gantt__legend-chip--late" aria-hidden>
+            {tAlloc('ganttLateChip', { defaultValue: 'LATE' })}
+          </span>
+          {tAlloc('ganttLegendLatePastEtc', { defaultValue: 'Late (past ETC)' })}
+        </span>
+      )}
       <span className="allocation-schedule__legend-item">
         <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--status-sailed-off" />
         {tAlloc('ganttLegendSailed', { defaultValue: 'Sailed off' })}

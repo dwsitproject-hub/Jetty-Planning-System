@@ -12,6 +12,24 @@ export function toDateInputValue(d) {
   return `${y}-${m}-${day}`
 }
 
+/** Berthing Plan default Gantt window: 14 days before today through 14 days after. */
+export function defaultPlanCentricDateRangeInputs(referenceDate = new Date()) {
+  const today = startOfDay(referenceDate)
+  const from = new Date(today)
+  from.setDate(from.getDate() - 14)
+  const to = new Date(today)
+  to.setDate(to.getDate() + 14)
+  return { from: toDateInputValue(from), to: toDateInputValue(to) }
+}
+
+/** Legacy allocation Gantt default: current calendar month. */
+export function defaultLegacyMonthDateRangeInputs(referenceDate = new Date()) {
+  const today = startOfDay(referenceDate)
+  const from = new Date(today.getFullYear(), today.getMonth(), 1, 0, 0, 0, 0)
+  const to = new Date(today.getFullYear(), today.getMonth() + 1, 0, 0, 0, 0, 0)
+  return { from: toDateInputValue(from), to: toDateInputValue(to) }
+}
+
 export function parseDateInputStart(str) {
   if (!str || !/^\d{4}-\d{2}-\d{2}$/.test(str)) return null
   const [y, m, d] = str.split('-').map(Number)
