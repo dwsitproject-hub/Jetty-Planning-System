@@ -38,6 +38,7 @@ import {
   isVesselSailed,
 } from '../../utils/allocationVesselPhase'
 import { validateBerthingTimeline } from '../../utils/validateScheduleTimeline'
+import { resolveActiveVesselRow } from '../../utils/resolveActiveVesselRow.js'
 import '../../styles/allocation.css'
 import '../../styles/modal.css'
 
@@ -589,8 +590,8 @@ export default function ActiveVesselDetailModal({
               )}
             </h2>
             {(() => {
-              const vesselRow = vesselDetailRows.find((r) => r.vesselId === vesselId)
-              const vessel = vesselRow || null
+              const vessel =
+                resolveActiveVesselRow(vesselId, vesselDetailRows, vesselDetailPlanQueueRows) || null
               const phases = UNIFIED_PHASES
               const currentPhaseIndex = deriveCurrentPhaseIndex(vessel)
               const currentPhaseLabel = currentPhaseLabelForVessel(vessel, phases)
