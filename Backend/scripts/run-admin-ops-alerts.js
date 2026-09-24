@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * CLI entry for Admin Operations unhealthy email alerts (cron / Task Scheduler).
+ * CLI entry for System Health Dashboard unhealthy email alerts (cron / Task Scheduler).
  * Usage: node scripts/run-admin-ops-alerts.js [--dry-run]
  */
 import 'dotenv/config';

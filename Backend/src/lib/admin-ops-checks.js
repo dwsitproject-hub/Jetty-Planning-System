@@ -1,5 +1,5 @@
 /**
- * Admin Operations Dashboard — extensible health check registry.
+ * System Health Dashboard — extensible health check registry.
  * Each check returns a normalized card payload for GET /api/v1/admin-ops/status.
  */
 import fs from 'node:fs';
@@ -121,7 +121,7 @@ export async function checkPurgeJob(db) {
   if (!existsR.rows[0]?.ok) {
     return checkResult(
       'purge_job',
-      'ATG sample purge',
+      'ATG data purging',
       'unknown',
       'Purge audit table not found (run migrations)',
       {},
@@ -129,26 +129,28 @@ export async function checkPurgeJob(db) {
     );
   }
 
-  const lastR = await db.query(
-    `SELECT batch_id, action, COUNT(*)::int AS row_count, MAX(acted_at) AS last_acted_at
-     FROM tank_gauging_purge_log
-     GROUP BY batch_id, action
-     ORDER BY last_acted_at DESC
-     LIMIT 6`
-  );
-
-  const lastBatchR = await db.query(
-    `SELECT batch_id, MAX(acted_at) AS last_acted_at,
+  const recentBatchesR = await db.query(
+    `SELECT batch_id,
             COUNT(*) FILTER (WHERE action = 'archive')::int AS archived,
-            COUNT(*) FILTER (WHERE action = 'delete')::int AS deleted
+            COUNT(*) FILTER (WHERE action = 'delete')::int AS deleted,
+            MIN(acted_at) AS first_acted_at,
+            MAX(acted_at) AS last_acted_at
      FROM tank_gauging_purge_log
      GROUP BY batch_id
-     ORDER BY last_acted_at DESC
-     LIMIT 1`
+     ORDER BY MAX(acted_at) DESC
+     LIMIT 5`
   );
 
-  const lastBatch = lastBatchR.rows[0] ?? null;
-  const lastAt = lastBatch?.last_acted_at ?? null;
+  const recentBatches = recentBatchesR.rows.map((row) => ({
+    batchId: row.batch_id,
+    archived: Number(row.archived) || 0,
+    deleted: Number(row.deleted) || 0,
+    firstActedAt: row.first_acted_at,
+    lastActedAt: row.last_acted_at,
+  }));
+
+  const lastBatch = recentBatches[0] ?? null;
+  const lastAt = lastBatch?.lastActedAt ?? null;
   const age = ageMs(lastAt);
 
   let status = 'unknown';
@@ -164,24 +166,19 @@ export async function checkPurgeJob(db) {
 
   const summary = !lastAt
     ? 'No purge runs recorded yet'
-    : `Last batch ${lastBatch.batch_id?.slice(0, 8) ?? '—'}… at ${new Date(lastAt).toISOString()} (archive ${lastBatch.archived ?? 0}, delete ${lastBatch.deleted ?? 0})`;
+    : `Last batch ${lastBatch.batchId?.slice(0, 8) ?? '—'}… at ${new Date(lastAt).toISOString()} (archive ${lastBatch.archived.toLocaleString('en-US')}, delete ${lastBatch.deleted.toLocaleString('en-US')})`;
 
-  return checkResult('purge_job', 'ATG sample purge', status, summary, {
+  return checkResult('purge_job', 'ATG data purging', status, summary, {
     lastBatch: lastBatch
       ? {
-          batchId: lastBatch.batch_id,
+          batchId: lastBatch.batchId,
           lastActedAt: lastAt,
           archived: lastBatch.archived,
           deleted: lastBatch.deleted,
           ageHours: age != null ? Math.round(age / 3600000) : null,
         }
       : null,
-    recentRuns: lastR.rows.map((r) => ({
-      batchId: r.batch_id,
-      action: r.action,
-      rowCount: r.row_count,
-      lastActedAt: r.last_acted_at,
-    })),
+    recentBatches,
     expectedCadence: 'Daily ~02:20 server time (cron)',
   });
 }

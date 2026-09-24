@@ -101,7 +101,7 @@ docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps
 
 The plaintext key is shown **once**. Store it in your secrets manager or `.env` file immediately.
 
-**JPS operators — monitor key usage:** **Admin → Operations Dashboard** (`/admin/operations`) includes a **Partner Integration API** card: active keys, last API activity, submissions in the last 7 days, and per-partner stats. Manage keys under **Admin → Partner API Keys** (`/admin/partner-api`).
+**JPS operators — monitor key usage:** **Admin → System Health Dashboard** (`/admin/operations`) includes a **Partner Integration API** card: active keys, last API activity, submissions in the last 7 days, and per-partner stats. Manage keys under **Admin → Partner API Keys** (`/admin/partner-api`).
 
 ### 2.2 Header
 

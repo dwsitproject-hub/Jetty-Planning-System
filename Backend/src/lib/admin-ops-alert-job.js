@@ -1,5 +1,5 @@
 /**
- * Scheduled Admin Operations alert job: email when a check newly becomes unhealthy.
+ * Scheduled System Health Dashboard alert job: email when a check newly becomes unhealthy.
  */
 import { runAdminOpsChecks } from './admin-ops-checks.js';
 import {

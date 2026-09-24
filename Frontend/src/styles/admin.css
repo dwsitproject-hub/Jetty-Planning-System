@@ -58,6 +58,59 @@
   border-radius: var(--radius-sm);
 }
 
+.admin-ops-purge-table-wrap {
+  margin-top: var(--spacing-2);
+}
+
+.admin-ops-purge-table__title {
+  margin: 0 0 var(--spacing-1);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-steel);
+}
+
+.admin-ops-purge-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-xs);
+}
+
+.admin-ops-purge-table th,
+.admin-ops-purge-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border-light);
+  text-align: left;
+  vertical-align: top;
+}
+
+.admin-ops-purge-table th {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-steel);
+  background: var(--color-bg-lighter);
+}
+
+.admin-ops-purge-table__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.admin-ops-purge-table__batch code {
+  font-size: 10px;
+  word-break: break-all;
+}
+
+.admin-ops-purge-table__window {
+  font-size: 10px;
+  color: var(--color-text-steel);
+  white-space: nowrap;
+}
+
+.admin-ops-purge-table__empty {
+  margin: var(--spacing-2) 0 0;
+  font-size: var(--font-size-small);
+}
+
 .admin-tabs {
   display: flex;
   gap: 0;

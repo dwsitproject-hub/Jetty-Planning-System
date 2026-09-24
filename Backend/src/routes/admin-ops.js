@@ -1,5 +1,5 @@
 /**
- * Admin Operations Dashboard — aggregated infrastructure / batch job status.
+ * System Health Dashboard — aggregated infrastructure / batch job status.
  * Extensible via ADMIN_OPS_CHECK_REGISTRY in admin-ops-checks.js.
  */
 import express from 'express';
@@ -56,8 +56,8 @@ router.put('/settings', async (req, res) => {
       action: 'update',
       entityType: 'AdminOpsAlertSettings',
       entityId: '1',
-      entityLabel: 'Operations email alerts',
-      summary: `Operations email alerts ${body.emailAlertsEnabled ? 'enabled' : 'disabled'}`,
+      entityLabel: 'System health email alerts',
+      summary: `System health email alerts ${body.emailAlertsEnabled ? 'enabled' : 'disabled'}`,
       actorUserId: req.userId ?? null,
     }).catch(() => {});
     res.json(await buildSettingsResponse());

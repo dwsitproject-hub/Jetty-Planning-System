@@ -129,9 +129,9 @@ Tests: **`Backend/src/lib/resolve-master-vessel.test.js`**.
 
 **Deferred (Project B):** Bulk backfill of legacy plans and “Refresh from master” push — **`Docs/Future/MASTER-VESSEL-PUSH-TO-PLANS.md`**, QA stub **`Backend/scripts/qa-master-vessel-link-deferred.sql`**.
 
-### 0.36 Admin Operations Dashboard — infrastructure health & alerts (2026-09-24)
+### 0.36 System Health Dashboard — infrastructure health & alerts (2026-09-24)
 
-**Purpose:** Aggregated **infrastructure and batch-job** status for administrators at **`/admin/operations`**, linked from **Admin hub → Operations Dashboard**. Extensible check registry; optional **email alerts** when any check **newly becomes unhealthy**. Functional behaviour: **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.31**. Runbooks: **`Docs/Guide/ADMIN-OPS-EMAIL-ALERTS.md`**, **`Docs/Guide/SYNOLOGY-MOUNT-TROUBLESHOOTING-AND-RECOVERY.md` §10**.
+**Purpose:** Aggregated **infrastructure and batch-job** status for administrators at **`/admin/operations`**, linked from **Admin hub → System Health Dashboard**. Extensible check registry; optional **email alerts** when any check **newly becomes unhealthy**. Functional behaviour: **FUNCTIONAL-SPEC-Jetty-Schedule-and-Arrival.md §2.31**. Runbooks: **`Docs/Guide/ADMIN-OPS-EMAIL-ALERTS.md`**, **`Docs/Guide/SYNOLOGY-MOUNT-TROUBLESHOOTING-AND-RECOVERY.md` §10**.
 
 **RBAC:** **`requireAdminPageView`** (same **`admin`** page permission as Users, Roles, Notifications).
 
@@ -148,7 +148,7 @@ Tests: **`Backend/src/lib/resolve-master-vessel.test.js`**.
 | Check id | Function | Data source |
 |----------|----------|-------------|
 | **`atg_sync`** | **`checkAtgSync`** | **`computeAtgSyncHealth`** per port — stale ATG sources vs **`DEFAULT_ATG_STALE_MS`** (60 min) |
-| **`purge_job`** | **`checkPurgeJob`** | **`tank_gauging_purge_log`** — last batch age (expected ~daily cron) |
+| **`purge_job`** | **`checkPurgeJob`** | **`tank_gauging_purge_log`** — last 5 batches with archive/delete counts; last batch age (expected ~daily cron) |
 | **`synology_mount`** | **`checkSynologyMount`** | Upload root writability + **`.jps-mount-health.json`** heartbeat from host cron **`Backend/scripts/check-synology-mount.sh`** |
 | **`datahub`** | **`checkDataHub`** | **`getDataHubConfigForAdmin`** — enabled flag, credentials, last sync OK/age |
 | **`partner_api`** | **`checkPartnerApi`** | **`integration_api_keys`** + **`integration_submissions`** — active keys, last activity, 7d submission count, per-partner 30d stats (**`admin-ops-partner-api-check.js`**) |
@@ -182,7 +182,7 @@ Each check returns normalized payload: **`id`**, **`title`**, **`status`** (`hea
 | Module | Role |
 |--------|------|
 | **`Frontend/src/pages/AdminOperations.jsx`** | Check cards + email alerts checkbox |
-| **`Frontend/src/pages/Admin.jsx`** | Hub card **Operations Dashboard** |
+| **`Frontend/src/pages/Admin.jsx`** | Hub card **System Health Dashboard** |
 | **`Frontend/src/api/adminOps.js`** | **`fetchAdminOpsStatus`**, **`updateAdminOpsSettings`** |
 
 **Deploy note:** API image must include latest **`admin-ops-*`** modules — **`docker compose … up -d --build jps-api`** (restart-only leaves an old image without new checks). Install host crons: **`check-synology-mount.sh`**, **`npm run run:admin-ops-alerts`**.
@@ -232,7 +232,7 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 **Shared lib — `Backend/src/lib/integration-master-data.js`:** list/resolve/upsert helpers, **`deriveExternalStatus`**, **`findPartnerSubmission`**, **`matchBreakdownLineIndex`**. Tests: **`integration-master-data.test.js`**.
 
-**Admin monitoring — §0.36:** **`checkPartnerApi`** on **Admin → Operations Dashboard** reads **`last_used_at`** and **`integration_submissions`** for usage telemetry (no partner-facing health endpoint).
+**Admin monitoring — §0.36:** **`checkPartnerApi`** on **Admin → System Health Dashboard** reads **`last_used_at`** and **`integration_submissions`** for usage telemetry (no partner-facing health endpoint).
 
 **External status derivation (partner-facing):**
 

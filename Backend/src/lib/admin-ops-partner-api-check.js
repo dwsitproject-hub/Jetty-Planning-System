@@ -1,5 +1,5 @@
 /**
- * Admin Operations Dashboard — Partner Integration API usage telemetry.
+ * System Health Dashboard — Partner Integration API usage telemetry.
  */
 export const PARTNER_API_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 

@@ -1,4 +1,4 @@
--- Admin Operations Dashboard: email alert settings, check state, delivery log.
+-- System Health Dashboard: email alert settings, check state, delivery log.
 
 BEGIN;
 

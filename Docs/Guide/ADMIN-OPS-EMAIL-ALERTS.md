@@ -1,10 +1,10 @@
-# Admin Operations — unhealthy email alerts
+# System Health Dashboard — unhealthy email alerts
 
-Email **`it-project@energi-up.com`** when any Operations Dashboard check **newly becomes unhealthy**. Sending is controlled only by the **dashboard checkbox** — works on staging or production when enabled.
+Email **`it-project@energi-up.com`** when any System Health Dashboard check **newly becomes unhealthy**. Sending is controlled only by the **dashboard checkbox** — works on staging or production when enabled.
 
 ## Dashboard toggle
 
-1. Open **Admin → Operations Dashboard** (`/admin/operations`).
+1. Open **Admin → System Health Dashboard** (`/admin/operations`).
 2. Enable **Email alerts when a check becomes unhealthy**.
 3. If unticked, no alert emails are sent (cron still updates state).
 
@@ -24,7 +24,7 @@ Configure SMTP under **Admin → Notifications** (same as SLA emails).
 
 ### 3. Enable toggle
 
-On the Operations Dashboard, tick **Email alerts when a check becomes unhealthy**.
+On the System Health Dashboard, tick **Email alerts when a check becomes unhealthy**.
 
 ### 4. Cron (every 15 minutes)
 
@@ -57,7 +57,7 @@ tail -20 /var/log/jps-admin-ops-alerts.log
 | First cron run (no prior state) | No (seed only) |
 | Recovery to healthy | No recovery email |
 
-Checks: ATG sync, ATG sample purge, Synology upload mount, DataHub API, Partner Integration API.
+Checks: ATG sync, ATG data purging, Synology upload mount, DataHub API, Partner Integration API.
 
 ## Related
 

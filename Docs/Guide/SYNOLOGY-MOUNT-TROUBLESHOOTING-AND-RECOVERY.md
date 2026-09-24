@@ -394,7 +394,7 @@ The Sep 2026 incident could have been caught **hours earlier** with a small host
 
 Script: [`Backend/scripts/check-synology-mount.sh`](../../Backend/scripts/check-synology-mount.sh)
 
-The script writes **`.jps-mount-health.json`** under the upload root on each run. The **Admin → Operations Dashboard** (`GET /api/v1/admin-ops/status`) reads that heartbeat for the Synology card.
+The script writes **`.jps-mount-health.json`** under the upload root on each run. The **Admin → System Health Dashboard** (`GET /api/v1/admin-ops/status`) reads that heartbeat for the Synology card.
 
 It verifies:
 
@@ -457,9 +457,9 @@ Ask IT for **`mnt-synology-JETTYPLANNING.mount`** (see **§8**) so reboots auto-
 
 Today `GET /health` returns `{ status: 'ok' }` only. A future enhancement could add `upload_storage: { writable, onNas }` by checking a sentinel file or mount metadata — but **host cron (A)** is simpler and catches problems even when the API container is up but writing to the wrong disk.
 
-### E. Admin Operations email alerts
+### E. System Health email alerts
 
-The **Admin → Operations Dashboard** can email **`it-project@energi-up.com`** when any check **newly becomes unhealthy** (ATG sync, purge job, Synology mount, DataHub). Enable the checkbox on the dashboard (staging or production). If unticked, no emails are sent.
+The **Admin → System Health Dashboard** can email **`it-project@energi-up.com`** when any check **newly becomes unhealthy** (ATG sync, purge job, Synology mount, DataHub). Enable the checkbox on the dashboard (staging or production). If unticked, no emails are sent.
 
 **Cron on API host, every 15 minutes:**
 
@@ -500,6 +500,6 @@ Requires SMTP configured under **Admin → Notifications**. First cron run seeds
 | [HOTFIX-DEPLOY-RUNBOOK.md](./HOTFIX-DEPLOY-RUNBOOK.md) | API deploy on ECS-DB |
 | [SLA-EMAIL-NOTIFICATIONS-SETUP.md](./SLA-EMAIL-NOTIFICATIONS-SETUP.md) | In-app email queue (optional alert destination) |
 | `Backend/scripts/check-synology-mount.sh` | Proactive CIFS / bind health check (cron) |
-| `Backend/scripts/run-admin-ops-alerts.js` | Operations Dashboard unhealthy email alerts (cron) |
+| `Backend/scripts/run-admin-ops-alerts.js` | System Health Dashboard unhealthy email alerts (cron) |
 | `docker-compose.backend-api-only.yml` | `${UPLOAD_HOST_PATH:-jps_uploads}:/var/jps/uploads` |
 | `Backend/.env` | `UPLOAD_HOST_PATH=/mnt/synology/JETTYPLANNING` |

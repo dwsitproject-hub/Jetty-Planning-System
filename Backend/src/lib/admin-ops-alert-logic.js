@@ -1,5 +1,5 @@
 /**
- * Pure helpers for Admin Operations unhealthy email alerts (unit-testable without DB).
+ * Pure helpers for System Health Dashboard unhealthy email alerts (unit-testable without DB).
  */
 import { getPublicAppBaseUrl } from './notifications.js';
 
@@ -46,7 +46,7 @@ export function buildAdminOpsAlertEmail(newlyUnhealthy, checkedAt) {
   const baseUrl = getPublicAppBaseUrl();
   const dashboardUrl = `${baseUrl}/admin/operations`;
   const lines = [
-    'Jetty Planning System — Operations Dashboard alert',
+    'Jetty Planning System — System Health Dashboard alert',
     '',
     `Checked at: ${checkedAt}`,
     '',
@@ -60,7 +60,7 @@ export function buildAdminOpsAlertEmail(newlyUnhealthy, checkedAt) {
   }
   lines.push(`Open dashboard: ${dashboardUrl}`);
   lines.push('');
-  lines.push('This email was sent because email alerts are enabled on the Operations Dashboard.');
+  lines.push('This email was sent because email alerts are enabled on the System Health Dashboard.');
 
   return { subject, text: lines.join('\n') };
 }

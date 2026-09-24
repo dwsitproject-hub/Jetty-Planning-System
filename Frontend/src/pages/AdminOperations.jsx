@@ -26,8 +26,59 @@ function statusBadgeClass(status) {
   }
 }
 
-function CheckCard({ check, statusLabel }) {
+function formatCount(n) {
+  const num = Number(n)
+  if (!Number.isFinite(num)) return '—'
+  return num.toLocaleString()
+}
+
+function PurgeBatchTable({ batches, t }) {
+  if (!batches?.length) {
+    return <p className="text-steel admin-ops-purge-table__empty">{t('adminOpsPurgeNoBatches')}</p>
+  }
+
+  return (
+    <div className="admin-ops-purge-table-wrap">
+      <h3 className="admin-ops-purge-table__title">{t('adminOpsPurgeBatchLogTitle')}</h3>
+      <table className="admin-ops-purge-table">
+        <thead>
+          <tr>
+            <th>{t('adminOpsPurgeBatchId')}</th>
+            <th className="admin-ops-purge-table__num">{t('adminOpsPurgeArchive')}</th>
+            <th className="admin-ops-purge-table__num">{t('adminOpsPurgeDelete')}</th>
+            <th>{t('adminOpsPurgeRunWindow')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {batches.map((batch) => (
+            <tr key={batch.batchId}>
+              <td className="admin-ops-purge-table__batch" title={batch.batchId}>
+                <code>{batch.batchId}</code>
+              </td>
+              <td className="admin-ops-purge-table__num">{formatCount(batch.archived)}</td>
+              <td className="admin-ops-purge-table__num">{formatCount(batch.deleted)}</td>
+              <td className="admin-ops-purge-table__window">
+                {formatWhen(batch.firstActedAt)}
+                {batch.firstActedAt !== batch.lastActedAt ? (
+                  <>
+                    {' '}
+                    → {formatWhen(batch.lastActedAt)}
+                  </>
+                ) : null}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function CheckCard({ check, statusLabel, t }) {
   const [open, setOpen] = useState(false)
+  const purgeBatches = check.id === 'purge_job' ? check.details?.recentBatches : null
+  const hasRawDetails =
+    check.details && Object.keys(check.details).some((key) => key !== 'recentBatches')
 
   return (
     <article className="card admin-ops-card">
@@ -39,6 +90,10 @@ function CheckCard({ check, statusLabel }) {
         <span className={statusBadgeClass(check.status)}>{statusLabel(check.status)}</span>
       </div>
 
+      {check.id === 'purge_job' ? (
+        <PurgeBatchTable batches={purgeBatches ?? []} t={t} />
+      ) : null}
+
       {check.actionHref ? (
         <p className="admin-ops-card__actions">
           <Link to={check.actionHref} className="link">
@@ -47,7 +102,7 @@ function CheckCard({ check, statusLabel }) {
         </p>
       ) : null}
 
-      {check.details && Object.keys(check.details).length > 0 ? (
+      {hasRawDetails ? (
         <div className="admin-ops-card__details">
           <button
             type="button"
@@ -55,7 +110,7 @@ function CheckCard({ check, statusLabel }) {
             onClick={() => setOpen((v) => !v)}
             aria-expanded={open}
           >
-            {open ? 'Hide details' : 'Show details'}
+            {open ? t('adminOpsHideDetails') : t('adminOpsShowDetails')}
           </button>
           {open ? (
             <pre className="admin-ops-card__json">{JSON.stringify(check.details, null, 2)}</pre>
@@ -83,7 +138,7 @@ export default function AdminOperations() {
       let msg = e?.message || 'Failed to load operations status'
       if (e?.status === 404) {
         msg =
-          'Operations status API not found. Restart the backend (npm run dev in Backend/) after pulling the latest code, then refresh.'
+          'System health status API not found. Restart the backend (npm run dev in Backend/) after pulling the latest code, then refresh.'
       } else if (e?.status === 403) {
         msg = 'Admin permission required to view operations status.'
       }
@@ -189,7 +244,7 @@ export default function AdminOperations() {
 
       <div className="admin-ops-grid">
         {(data?.checks ?? []).map((check) => (
-          <CheckCard key={check.id} check={check} statusLabel={statusLabel} />
+          <CheckCard key={check.id} check={check} statusLabel={statusLabel} t={t} />
         ))}
       </div>
     </div>
