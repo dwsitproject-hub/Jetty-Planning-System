@@ -894,9 +894,19 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
           if (fallback?.vesselId) resolved = fallback.vesselId
         }
       }
+      if (typeof vesselId !== 'string' || !vesselId.startsWith('plan-')) {
+        const directRow =
+          list.find((r) => r.vesselId === vesselId) ||
+          scheduleList.find((r) => r.vesselId === vesselId) ||
+          null
+        const pid = directRow?.shipmentPlanId != null ? Number(directRow.shipmentPlanId) : null
+        if (pid != null && !Number.isNaN(pid)) {
+          setVesselDetailPlanId(pid)
+        }
+      }
       setVesselDetailModalVesselId(resolved || vesselId)
     },
-    [isPlanCentric, planViz.planVesselToRepresentativeVesselId, list]
+    [isPlanCentric, planViz.planVesselToRepresentativeVesselId, list, scheduleList]
   )
 
   useEffect(() => {
@@ -2702,7 +2712,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         isPlanCentric={isPlanCentric}
         canEditAllocation={canEditAllocation}
         queueList={list}
-        scheduleList={planViz.mergedSchedule}
+        scheduleList={scheduleList}
         berthsState={berthsState}
         onRefreshOverview={refreshOverview}
         plannedBerthingPath={plannedBerthingPath}
