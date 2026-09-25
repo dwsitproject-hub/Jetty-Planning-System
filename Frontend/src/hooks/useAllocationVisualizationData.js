@@ -5,7 +5,7 @@ import { usePortScope } from '../context/PortScopeContext'
 import { mergeBerthsStateForPlanPov, mergeQueueRowsForPlanPov } from '../utils/allocationPlanPovMerge'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { getEtcBreach, getEtcBreachRagStatus } from '../utils/etcBreach'
-import { getBerthingPlanStatus } from '../utils/berthingEligibility'
+import { shouldPollLiveCargoProgress } from '../utils/berthingEligibility'
 import useAtBerthCargoProgress from './useAtBerthCargoProgress'
 import { mergeLiveCargoProgressFields } from '../utils/cargoQtyDisplay'
 
@@ -241,11 +241,7 @@ export default function useAllocationVisualizationData(profile = 'plan', portIdH
       [
         ...new Set(
           [...list, ...scheduleList]
-            .filter(
-              (r) =>
-                r.operationId != null &&
-                getBerthingPlanStatus(r, { planCentric: isPlanCentric }) === 'berthed'
-            )
+            .filter((r) => shouldPollLiveCargoProgress(r, { planCentric: isPlanCentric }))
             .map((r) => Number(r.operationId))
             .filter((n) => Number.isFinite(n) && n > 0)
         ),

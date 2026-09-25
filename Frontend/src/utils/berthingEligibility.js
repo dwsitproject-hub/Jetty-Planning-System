@@ -50,6 +50,24 @@ export function isPreOperationSchedulingRow(row) {
 /** @alias isPreOperationSchedulingRow */
 export const isPlanOnlySchedulingRow = isPreOperationSchedulingRow;
 
+/**
+ * Whether an operation should be polled for live at-berth cargo progress (avg rate / moved
+ * qty on the allocation Gantt). Broader than `getBerthingPlanStatus === 'berthed'`: a row
+ * whose cargo segment has already opened (`cargoFirstLoggedAt` set) must always be included,
+ * even if berthing-eligibility status classification misses it (e.g. multi-SI shipment plan
+ * quirks, stale `status`/`tbDateTime`). Without this, the operation is stuck on the static
+ * overview snapshot, which can never reflect an in-progress (not yet closed) cargo segment —
+ * see `cargoQtyDisplay.js` `computeCargoProgress`'s matching "pending" guard on the display side.
+ * @param {object|null|undefined} row - allocation queue / schedule row
+ * @param {{ planCentric?: boolean }} [options]
+ * @returns {boolean}
+ */
+export function shouldPollLiveCargoProgress(row, options = {}) {
+  if (!row || row.operationId == null) return false
+  if (getBerthingPlanStatus(row, options) === 'berthed') return true
+  return Boolean(row.cargoFirstLoggedAt) && !row.shiftingOut
+}
+
 /** Incoming vs berthed for allocation-plans status filter (plan-centric aware). */
 export function getBerthingPlanStatus(row, options = {}) {
   const planCentric = Boolean(options.planCentric);

@@ -76,6 +76,7 @@ import {
   berthingDisabledReason,
   getBerthingPlanStatus,
   isPlanOnlySchedulingRow,
+  shouldPollLiveCargoProgress,
   showLateSiBerthingGateNotice,
 } from '../utils/berthingEligibility'
 import useAtBerthCargoProgress from '../hooks/useAtBerthCargoProgress'
@@ -1005,11 +1006,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       [
         ...new Set(
           [...list, ...scheduleList]
-            .filter(
-              (r) =>
-                r.operationId != null &&
-                getBerthingPlanStatus(r, { planCentric: isPlanCentric }) === 'berthed'
-            )
+            .filter((r) => shouldPollLiveCargoProgress(r, { planCentric: isPlanCentric }))
             .map((r) => Number(r.operationId))
             .filter((n) => Number.isFinite(n) && n > 0)
         ),

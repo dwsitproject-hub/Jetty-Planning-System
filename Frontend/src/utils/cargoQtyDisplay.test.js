@@ -104,6 +104,42 @@ describe('computeCargoProgress', () => {
     assert.ok(progress.etrMs != null)
     assert.equal(formatCargoEtrLine(progress.balance, progress.ratePerHour, formatDurationShort), 'ETR 8h 3m')
   })
+
+  it('returns null (pending) when a segment has opened but not closed and no live rate arrived yet', () => {
+    // Matches the production bug: an actively-unloading vessel whose static snapshot has
+    // cargoMovedQty=0 (SUM only counts closed load lines) and cargoLastLoggedAt=null (segment
+    // still open), with no live scheduleComparison.avgRateTph merged in yet. Asserting a
+    // confident "0 MT moved" here would be misleading — the real value is unknown, not zero.
+    const progress = computeCargoProgress('2,000 MT', 0, '2026-09-12T14:48:00.000Z', null, {})
+    assert.equal(progress, null)
+  })
+
+  it('still reports a confident zero when no cargo activity has started at all', () => {
+    // No cargoFirstLoggedAt at all — genuinely "nothing logged yet", distinct from "logged but
+    // not caught up with live data yet". Existing (pre-fix) behavior must be preserved.
+    const progress = computeCargoProgress('2,000 MT', 0, null, null, {})
+    assert.equal(progress.cargoLine, '0 MT / 2,000 MT')
+    assert.equal(progress.balanceLine, 'Balance 2,000 MT')
+  })
+
+  it('does not treat an already-closed segment (cargoLastLoggedAt set) as pending', () => {
+    const progress = computeCargoProgress(
+      '2,000 MT',
+      0,
+      '2026-09-12T14:48:00.000Z',
+      '2026-09-12T20:00:00.000Z',
+      {}
+    )
+    assert.equal(progress.cargoLine, '0 MT / 2,000 MT')
+  })
+
+  it('does not treat a row with a live avgRateTph as pending', () => {
+    const progress = computeCargoProgress('2,000 MT', 0, '2026-09-12T14:48:00.000Z', null, {
+      avgRateTph: 42,
+    })
+    assert.equal(progress.cargoLine, '0 MT / 2,000 MT')
+    assert.equal(progress.ratePerHour, 42)
+  })
 })
 
 describe('mergeLiveCargoProgressFields', () => {

@@ -145,6 +145,14 @@ export const formatAvgFlowRateLine = formatAvgFlowRateLabel
  * Compute moved/total cargo progress from a totalQtyDisplay string and an actual moved
  * quantity (sum of logged cargo load lines). Purely data-driven: no fallback to
  * completion_percent or operation status, so 0 logged lines always shows as 0 moved.
+ *
+ * Exception: when a cargo segment has opened (`cargoFirstLoggedAt` set) but has neither
+ * closed yet (`cargoLastLoggedAt` null) nor received a live ATG rate (`avgRateTph`), the
+ * static `cargoMovedQty` snapshot is structurally unable to reflect an in-progress segment
+ * (the backing DB aggregate only sums/maxes *closed* load lines — see
+ * `Backend/src/routes/allocation.js` `cargo_agg`). In that window we don't yet know the real
+ * moved qty, so we return `null` (pending) instead of asserting a confident "0 MT moved" that
+ * is very likely stale/wrong once live data catches up.
  * @param {string | null | undefined} totalQtyDisplay
  * @param {number | null | undefined} cargoMovedQty
  * @param {string | null | undefined} [cargoFirstLoggedAt] earliest logged Cargo Operations entry's started_at
@@ -166,6 +174,9 @@ export function computeCargoProgress(
   })
   if (!qty) return null
   const moved = Number(cargoMovedQty) || 0
+  const hasLiveRate = Number(qtyOpts.avgRateTph) > 0
+  const isPending = moved <= 0 && Boolean(cargoFirstLoggedAt) && !cargoLastLoggedAt && !hasLiveRate
+  if (isPending) return null
   const done = Math.max(0, moved)
   const balance = Math.max(0, qty.total - moved)
   const ratePerHour = resolveCargoRatePerHour({

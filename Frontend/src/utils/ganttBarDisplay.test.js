@@ -229,6 +229,41 @@ describe('buildActualBlockModel', () => {
     assert.equal(model.avgRateLine, 'Avg 50 MT/h')
   })
 
+  it('does not claim 0 MT moved for an open segment with no live rate yet (shows plain total, no Avg chip)', () => {
+    // Reproduces the production bug: an actively-unloading vessel (cargoFirstLoggedAt set,
+    // not yet closed, no live scheduleComparison merged in) must not render a confident
+    // "0 MT / total MT -- Rate 0 MT / Hour" — the static snapshot can't know the real moved
+    // qty yet for an in-progress segment.
+    const model = buildActualBlockModel(
+      { vesselName: 'V1', taMs: 10, tbMs: 20 },
+      {
+        commodityDisplay: 'CPO',
+        totalQtyDisplay: 'CPO 2,000 MT',
+        cargoMovedQty: 0,
+        cargoFirstLoggedAt: '2026-09-12T14:48:00Z',
+        cargoLastLoggedAt: null,
+      }
+    )
+    assert.equal(model.cargoDisplay, 'CPO 2,000 MT')
+    assert.equal(model.avgRateLine, '—')
+  })
+
+  it('omits balance/ETR for a plan-centric bar while a segment is pending live data', () => {
+    const model = buildActualBlockModel(
+      { vesselName: 'V1', taMs: 10, tbMs: 20 },
+      {
+        totalQtyDisplay: '2,000 MT',
+        cargoMovedQty: 0,
+        cargoFirstLoggedAt: '2026-09-12T14:48:00Z',
+        cargoLastLoggedAt: null,
+      },
+      { planCentric: true }
+    )
+    assert.equal(model.balanceLine, null)
+    assert.equal(model.etrDuration, null)
+    assert.equal(model.avgRateLine, '—')
+  })
+
   it('prefers scheduleComparison avgRateTph for avgRateLine', () => {
     const model = buildActualBlockModel(
       { vesselName: 'V1', taMs: 10, tbMs: 20 },
