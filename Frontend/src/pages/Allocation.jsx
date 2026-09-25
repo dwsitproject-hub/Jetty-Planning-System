@@ -80,7 +80,7 @@ import {
   showLateSiBerthingGateNotice,
 } from '../utils/berthingEligibility'
 import useAtBerthCargoProgress from '../hooks/useAtBerthCargoProgress'
-import { mergeLiveCargoProgressFields } from '../utils/cargoQtyDisplay'
+import { mergeLiveCargoProgressFields, mergeLiveCargoProgressIntoRows } from '../utils/cargoQtyDisplay'
 import { validateQueueRowSiReferencesForBerthing } from '../utils/siReferenceValidation'
 import { validateBerthingTimeline } from '../utils/validateScheduleTimeline'
 import {
@@ -1152,6 +1152,14 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
 
     return map
   }, [planViz, isPlanCentric, breachNowMs, cargoProgressByOpId])
+
+  // JettyScheduleGantt (Berthing Plan) reads directly from planViz.mergedSchedule rather than
+  // vesselById, so it needs its own live-merged copy — otherwise its Avg rate / moved qty /
+  // balance chips only reflect the periodic backend snapshot instead of live ATG data.
+  const scheduleListLive = useMemo(
+    () => mergeLiveCargoProgressIntoRows(planViz.mergedSchedule, cargoProgressByOpId, breachNowMs),
+    [planViz, cargoProgressByOpId, breachNowMs]
+  )
 
   const vesselDetailRows = useMemo(() => {
     const byId = new Map()
@@ -2694,7 +2702,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
             berthIds={berthIds}
             berthsState={berthsState}
             jetties={portJetties}
-            list={planViz.mergedSchedule}
+            list={scheduleListLive}
             onSelectVessel={(vesselId) => vesselId && selectVesselFromVisualization(vesselId)}
             onScheduleChanged={refreshOverview}
             popoutProfile={isPlanCentric ? 'plan' : 'legacy'}

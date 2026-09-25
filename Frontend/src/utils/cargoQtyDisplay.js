@@ -219,3 +219,23 @@ export function mergeLiveCargoProgressFields(row, liveSummary, nowMs = Date.now(
     scheduleComparison: liveSummary,
   }
 }
+
+/**
+ * Apply mergeLiveCargoProgressFields across an array of rows (e.g. a Gantt's schedule list),
+ * keyed by each row's operationId. Rows without a matching live summary pass through unchanged.
+ * @param {Array<object>|null|undefined} rows
+ * @param {Record<string, object>|null|undefined} cargoProgressByOpId
+ * @param {number} [nowMs]
+ * @returns {Array<object>}
+ */
+export function mergeLiveCargoProgressIntoRows(rows, cargoProgressByOpId, nowMs = Date.now()) {
+  if (!Array.isArray(rows)) return rows ?? []
+  if (!cargoProgressByOpId || !Object.keys(cargoProgressByOpId).length) return rows
+  return rows.map((row) => {
+    const opId = row?.operationId
+    if (opId == null) return row
+    const live = cargoProgressByOpId[String(opId)]
+    if (!live) return row
+    return mergeLiveCargoProgressFields(row, live, nowMs)
+  })
+}

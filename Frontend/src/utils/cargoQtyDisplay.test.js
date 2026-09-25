@@ -2,6 +2,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   mergeLiveCargoProgressFields,
+  mergeLiveCargoProgressIntoRows,
   computeCargoProgress,
   computeCargoEtrMs,
   resolveCargoRatePerHour,
@@ -174,6 +175,39 @@ describe('mergeLiveCargoProgressFields', () => {
     assert.equal(merged.cargoSiMetric, 'MT')
     assert.equal(merged.cargoLastLoggedAt, '2026-08-31T03:00:00.000Z')
     assert.equal(merged.scheduleComparison, live)
+  })
+})
+
+describe('mergeLiveCargoProgressIntoRows', () => {
+  it('merges live data into rows keyed by operationId, leaving unmatched rows untouched', () => {
+    const rows = [
+      { vesselId: 'op-111', operationId: 111, cargoMovedQty: 0, cargoFirstLoggedAt: '2026-09-24T17:24:00.000Z', cargoLastLoggedAt: null },
+      { vesselId: 'op-122', operationId: 122, cargoMovedQty: 1948.835, cargoLastLoggedAt: '2026-09-23T05:21:00.000Z' },
+      { vesselId: 'op-999', operationId: 999, cargoMovedQty: 0 },
+    ]
+    const cargoProgressByOpId = {
+      111: { movedQty: 769.576, siQty: 2000, isLive: true, hasActiveCargo: true, avgRateTph: 55.35 },
+    }
+    const nowMs = new Date('2026-09-25T07:20:00.000Z').getTime()
+    const merged = mergeLiveCargoProgressIntoRows(rows, cargoProgressByOpId, nowMs)
+
+    assert.equal(merged[0].cargoMovedQty, 769.576)
+    assert.equal(merged[0].cargoLastLoggedAt, '2026-09-25T07:20:00.000Z')
+    assert.equal(merged[0].scheduleComparison.avgRateTph, 55.35)
+    // Rows without a matching live summary (closed session, or no operationId match) pass through unchanged.
+    assert.equal(merged[1], rows[1])
+    assert.equal(merged[2], rows[2])
+  })
+
+  it('returns the same array reference when there is no live data yet', () => {
+    const rows = [{ vesselId: 'op-1', operationId: 1, cargoMovedQty: 0 }]
+    assert.equal(mergeLiveCargoProgressIntoRows(rows, {}), rows)
+    assert.equal(mergeLiveCargoProgressIntoRows(rows, null), rows)
+  })
+
+  it('returns an empty array for non-array input', () => {
+    assert.deepEqual(mergeLiveCargoProgressIntoRows(null, { 1: {} }), [])
+    assert.deepEqual(mergeLiveCargoProgressIntoRows(undefined, { 1: {} }), [])
   })
 })
 
