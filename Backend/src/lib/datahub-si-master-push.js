@@ -1,7 +1,7 @@
 /**
  * Push SI master rows (incoterm, commodity) to DataHub inbound API.
  */
-import { postInboundEntity, putInboundEntity } from './datahub-client.js';
+import { hubCommodityTypeForPush, postInboundEntity, putInboundEntity } from './datahub-client.js';
 import { hubRecordToLinkage } from './datahub-vessel-linkage.js';
 import { getEffectiveDataHubConfig, updateDataHubSyncHealth } from './datahub-config.js';
 import { pool } from '../db.js';
@@ -99,23 +99,31 @@ export async function tryPushIncotermAfterSave(localRow, actorId = null, fetchIm
   }
 }
 
+export function localCommodityToHubPayload(localRow) {
+  const long_name = str(localRow.name ?? localRow.value);
+  const short_name = str(localRow.short_name ?? localRow.shortName);
+  if (!long_name) throw new Error('Commodity long name is required to push to DataHub');
+  if (!short_name) throw new Error('Commodity short name is required to push to DataHub');
+  const ct = localRow.commodity_type ?? localRow.commodityType;
+  const payload = {
+    short_name: short_name.toUpperCase(),
+    long_name,
+    type: hubCommodityTypeForPush(ct === 'Solid' ? 'Solid' : 'Liquid'),
+  };
+  if (localRow.hs_code ?? localRow.hsCode) payload.hs_code = str(localRow.hs_code ?? localRow.hsCode);
+  const metricCode = str(localRow.default_metric_code ?? localRow.defaultMetricCode);
+  if (metricCode) payload.uom = metricCode.toUpperCase() === 'KL' ? 'KL' : 'MT';
+  const hubCode = str(localRow.hub_code ?? localRow.hubCode);
+  return { payload, hubCode };
+}
+
 export async function tryPushCommodityAfterSave(localRow, actorId = null, fetchImpl = fetch) {
   const cfg = await getEffectiveDataHubConfig(pool);
   if (!cfg.enabled || !cfg.baseUrl || !cfg.publicKey || !cfg.privateKey) {
     return { ok: false, skipped: true, reason: 'integration_disabled' };
   }
   try {
-    const metricCode = str(localRow.default_metric_code ?? localRow.defaultMetricCode);
-    const payload = { name: str(localRow.name ?? localRow.value) };
-    if (!payload.name) throw new Error('Commodity name is required');
-    if (localRow.hs_code ?? localRow.hsCode) payload.hs_code = str(localRow.hs_code ?? localRow.hsCode);
-    const shortName = str(localRow.short_name ?? localRow.shortName);
-    if (shortName) payload.short_name = shortName.toUpperCase();
-    const ct = localRow.commodity_type ?? localRow.commodityType;
-    if (ct === 'Solid' || ct === 'Liquid') payload.type = ct;
-    if (metricCode) payload.uom = metricCode.toUpperCase() === 'KL' ? 'KL' : 'MT';
-    const hubCode = str(localRow.hub_code ?? localRow.hubCode);
-    if (hubCode) payload.code = hubCode;
+    const { payload, hubCode } = localCommodityToHubPayload(localRow);
 
     let httpStatus;
     let body;

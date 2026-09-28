@@ -201,11 +201,16 @@ export function normalizeHubCommodityType(raw) {
   return null;
 }
 
+/** JPS commodity_type → DHM inbound ENUM (`liquid` | `solid`). */
+export function hubCommodityTypeForPush(commodityType) {
+  return commodityType === 'Solid' ? 'solid' : 'liquid';
+}
+
 /** DHM commodity → local si_commodities columns (before JPS-only defaults). */
 export function normalizeHubCommodity(record) {
   const data = record?.data && typeof record.data === 'object' ? record.data : null;
   if (!data) return null;
-  const name = str(data.name);
+  const name = str(data.long_name ?? data.longName ?? data.name);
   if (!name) return null;
   const uom = str(data.uom);
   const values = {

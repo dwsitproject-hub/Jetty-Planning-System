@@ -51,12 +51,13 @@ describe('datahub-commodity-sync', () => {
       version: 1,
       data: {
         code: 'CMD-0001',
-        name: 'CRUDE PALM OIL',
+        long_name: 'CRUDE PALM OIL',
         short_name: 'cpo',
-        type: 'Liquid',
+        type: 'liquid',
         uom: 'KL',
       },
     });
+    assert.equal(hub.values.name, 'CRUDE PALM OIL');
     assert.equal(hub.values.short_name, 'cpo');
     assert.equal(hub.values.commodity_type, 'Liquid');
     assert.equal(hub.values.uom, 'KL');
@@ -67,7 +68,7 @@ describe('datahub-commodity-sync', () => {
       normalizeHubCommodity({
         id: 'u1',
         version: 1,
-        data: { code: 'CMD-0001', name: 'CRUDE PALM OIL', uom: 'KL' },
+        data: { code: 'CMD-0001', long_name: 'CRUDE PALM OIL', short_name: 'CPO', type: 'liquid', uom: 'KL' },
       }),
     ];
     const { items } = buildCommoditySyncPlan(hub, [], { KL: 1, MT: 2 });
@@ -83,9 +84,9 @@ describe('datahub-commodity-sync', () => {
         version: 1,
         data: {
           code: 'CMD-0099',
-          name: 'PALM OIL RBD',
+          long_name: 'PALM OIL RBD',
           short_name: 'CPO',
-          type: 'Solid',
+          type: 'solid',
           uom: 'MT',
         },
       }),

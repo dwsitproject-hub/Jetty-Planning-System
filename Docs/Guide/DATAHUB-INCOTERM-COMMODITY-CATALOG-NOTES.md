@@ -20,9 +20,9 @@ node scripts/probe-datahub-catalog.mjs
 | DHM | Master – Term (`si_trade_terms`) | Master – Commodity (`si_commodities`) |
 | --- | --- | --- |
 | `code` | `hub_code` | `hub_code` |
-| `name` | `code` (Incoterm, uppercased) | `name` |
+| `name` | `code` (Incoterm, uppercased) | — (DHM uses `long_name` for full name) |
+| `long_name` | `long_name` (when in sync payload) | `name` (JPS commodity long name) |
 | `description` | `description` | — |
-| `long_name` | `long_name` (when present in sync payload) | — |
 | `hs_code` | — | `hs_code` |
 | `short_name` | — | `short_name` (short commodity name) |
 | `type` | — | `commodity_type` (`Liquid` \| `Solid`) |
