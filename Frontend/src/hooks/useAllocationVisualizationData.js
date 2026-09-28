@@ -5,9 +5,9 @@ import { usePortScope } from '../context/PortScopeContext'
 import { mergeBerthsStateForPlanPov, mergeQueueRowsForPlanPov } from '../utils/allocationPlanPovMerge'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { getEtcBreach, getEtcBreachRagStatus } from '../utils/etcBreach'
-import { getBerthingPlanStatus } from '../utils/berthingEligibility'
+import { shouldPollLiveCargoProgress } from '../utils/berthingEligibility'
 import useAtBerthCargoProgress from './useAtBerthCargoProgress'
-import { mergeLiveCargoProgressFields } from '../utils/cargoQtyDisplay'
+import { mergeLiveCargoProgressFields, mergeLiveCargoProgressIntoRows } from '../utils/cargoQtyDisplay'
 
 function schematicMaterialDisplay(r) {
   return r?.materialDisplay ?? r?.material ?? r?.commodityShortDisplay ?? r?.commodity ?? '—'
@@ -241,11 +241,7 @@ export default function useAllocationVisualizationData(profile = 'plan', portIdH
       [
         ...new Set(
           [...list, ...scheduleList]
-            .filter(
-              (r) =>
-                r.operationId != null &&
-                getBerthingPlanStatus(r, { planCentric: isPlanCentric }) === 'berthed'
-            )
+            .filter((r) => shouldPollLiveCargoProgress(r, { planCentric: isPlanCentric }))
             .map((r) => Number(r.operationId))
             .filter((n) => Number.isFinite(n) && n > 0)
         ),
@@ -260,6 +256,14 @@ export default function useAllocationVisualizationData(profile = 'plan', portIdH
     return applyLiveCargoToVesselMap(map, cargoProgressByOpId, breachNowMs)
   }, [planViz, isPlanCentric, breachNowMs, cargoProgressByOpId])
 
+  // JettyScheduleGantt (Berthing Plan) reads directly from planViz.mergedSchedule rather than
+  // vesselById, so it needs its own live-merged copy — otherwise its Avg rate / moved qty /
+  // balance chips only reflect the periodic backend snapshot instead of live ATG data.
+  const scheduleListLive = useMemo(
+    () => mergeLiveCargoProgressIntoRows(planViz.mergedSchedule, cargoProgressByOpId, breachNowMs),
+    [planViz, cargoProgressByOpId, breachNowMs]
+  )
+
   const berthIds = useMemo(
     () => (Array.isArray(berthsState) ? berthsState.map((b) => b.id).filter(Boolean) : []),
     [berthsState]
@@ -273,6 +277,7 @@ export default function useAllocationVisualizationData(profile = 'plan', portIdH
     selectedPort,
     planViz,
     vesselById,
+    scheduleListLive,
     berthIds,
     berthsState,
     jetties,
