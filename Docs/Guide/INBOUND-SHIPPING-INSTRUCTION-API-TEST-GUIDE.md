@@ -1,7 +1,7 @@
 # Inbound Shipping Instruction API — Test Guide
 
-> **Version:** 1.3 (API v4.2) · **Audience:** JPS developers and operators who need to test the partner integration API locally.
-> **Hand off to external developers:** Use [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) (v4.2) — it includes the full API contract, **staging environment**, and self-service test walkthrough.
+> **Version:** 1.4 (API v5.0) · **Audience:** JPS developers and operators who need to test the partner integration API locally.
+> **Hand off to external developers:** Use [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) (v5.0) — webhooks, enriched GET schedule, and staging walkthrough.
 
 ---
 
@@ -13,7 +13,8 @@ You simulate an **external system** (ERP, agency software, etc.) that:
 2. **Submits** a Shipping Instruction to JPS (`POST`) — including optional PO/SO, shipper, trade term on breakdown lines
 3. **Updates** PO/SO while Pending (`PATCH`)
 4. **Polls** for review status (`GET`)
-5. **Observes** the lifecycle: `Pending` → `Approved` / `Rejected` → `Allocated`
+5. **Registers a webhook** (v5.0) or **polls** enriched GET for approval + milestones
+6. **Observes** the lifecycle: `Pending` → `Approved` / `Rejected` → `Allocated` → `Sailed`
 
 The operator review (approve, reject, allocate a jetty) happens in the normal JPS web app — that is how you complete the end-to-end test.
 

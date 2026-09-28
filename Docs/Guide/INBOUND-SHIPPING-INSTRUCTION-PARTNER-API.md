@@ -1,8 +1,10 @@
 # Jetty Planning System — Shipping Instruction API Integration Guide
 
-> **Version:** 4.2 · **Audience:** External full-stack developers building an integration from your system (EOS Export/Import, KLIPS, ERP, TMS, etc.) into the Jetty Planning System (JPS).
+> **Version:** 5.0 · **Audience:** External full-stack developers building an integration from your system (EOS Export/Import, KLIPS, ERP, TMS, etc.) into the Jetty Planning System (JPS).
 >
-> **What you can do:** Sync reference master data (terms, agents, surveyors, shippers), upsert agents/shippers, submit Shipping Instructions (with PO/SO on cargo lines), update PO/SO while Pending, and poll review status. JPS operators review, approve, and allocate jetty resources in the web app — your system does not need to implement that workflow.
+> **What you can do:** Sync reference master data, submit Shipping Instructions, update PO/SO while Pending, **receive approval and milestone updates via webhooks**, and poll enriched status (including TA, ETB, TB, ETC, TC, cast off, sailed). JPS operators update berthing milestones in the web app — your system receives those changes; you do not write them back via API.
+>
+> **What's new in v5.0:** Webhook registration (`POST/PATCH /webhooks`), signed outbound events (`status.changed`, `schedule.updated`), enriched `GET` response with `approval`, `schedule`, and `plan_reference`. New partner status **`Sailed`**. v4.x clients remain compatible (new JSON fields are additive). Response header **`X-JPS-API-Version: 5.0`** on all integration endpoints.
 >
 > **This document is self-contained:** API contract, staging environment details, and step-by-step tests you can run yourself.
 
@@ -18,7 +20,9 @@
 4. JPS creates a real **Shipment Plan** + **Shipping Instruction** with partner status **`Pending`**.
 5. A JPS operator **reviews** in the web app and **Approves** or **Rejects**.
 6. Once approved, an operator **allocates** a jetty/berth → status becomes **`Allocated`**.
-7. Your system **polls** `GET` to track the lifecycle.
+7. Operators log **milestones** (TA, ETB, TB, ETC, TC, cast off, sailed) in JPS.
+8. Your system **registers a webhook** (recommended) and/or **polls** `GET` to track approval status and milestones.
+9. When the vessel **departs**, status becomes **`Sailed`**.
 
 ```mermaid
 flowchart LR
@@ -26,10 +30,14 @@ flowchart LR
     pendingState -->|JPS operator approves| approvedState[Approved]
     pendingState -->|JPS operator rejects| rejectedState[Rejected]
     approvedState -->|Jetty allocated| allocatedState[Allocated]
-    allocatedState --> yourPoll[Your system GET]
-    approvedState --> yourPoll
-    rejectedState --> yourPoll
-    pendingState --> yourPoll
+    allocatedState -->|Depart| sailedState[Sailed]
+    jpsWebhook[JPS webhook POST] --> yourReceiver[Your webhook URL]
+    allocatedState --> jpsWebhook
+    approvedState --> jpsWebhook
+    rejectedState --> jpsWebhook
+    sailedState --> jpsWebhook
+    allocatedState --> yourPoll[Your system GET fallback]
+    sailedState --> yourPoll
 ```
 
 ### 1.2 Source identification
@@ -178,6 +186,10 @@ result = r.json()
 | `GET` | `/shippers/{id}` | Get one shipper |
 | `POST` | `/shippers` | Create or match shipper by name (upsert) |
 | `PATCH` | `/shippers/{id}` | Update shipper name / long name |
+| `POST` | `/webhooks` | Register HTTPS webhook URL (v5.0) |
+| `PATCH` | `/webhooks/{id}` | Update webhook URL, events, or rotate secret |
+| `GET` | `/webhooks` | List your webhook endpoints |
+| `DELETE` | `/webhooks/{id}` | Deactivate a webhook endpoint |
 
 Full staging submit URL:
 
@@ -283,7 +295,7 @@ curl -sS "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions/10"
   -H "x-api-key: $JPS_API_KEY"
 ```
 
-**Success — `200 OK` (allocated example):**
+**Success — `200 OK` (v5.0 enriched example):**
 
 ```json
 {
@@ -293,6 +305,7 @@ curl -sS "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions/10"
     "external_reference": "EOS-EXPORT-2026-091",
     "requested_by": "developer@your-company.com",
     "status": "Allocated",
+    "plan_reference": "SP-26-09-00010",
     "vessel_name": "MV NUSANTARA",
     "vessel_hub_code": "VSL-0001",
     "voyage_no": "VY-8891",
@@ -300,9 +313,27 @@ curl -sS "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions/10"
     "eta": "2026-07-01T08:00:00.000Z",
     "etd": "2026-07-03T18:00:00Z",
     "port_id": 1,
+    "approval": {
+      "status": "Approved",
+      "approved_at": "2026-06-16T01:00:00.000Z",
+      "rejected_at": null,
+      "rejection_reason": null
+    },
+    "schedule": {
+      "eta": "2026-07-01T08:00:00.000Z",
+      "ta": "2026-07-01T09:30:00.000Z",
+      "etb": "2026-07-01T10:00:00.000Z",
+      "tb": "2026-07-01T10:15:00.000Z",
+      "etc": "2026-07-03T18:00:00.000Z",
+      "tc": null,
+      "cast_off_at": null,
+      "sailed_at": null
+    },
+    "etr_minutes": 4200,
     "allocation": {
       "jetty_name": "Jetty 1A",
-      "planned_berthing_time": "2026-07-01T10:00:00.000Z"
+      "jetty_code": "1A",
+      "planned_berthing_time": "2026-07-01T10:15:00.000Z"
     },
     "rejection_reason": null,
     "submitted_at": "2026-06-15T06:53:59.935Z",
@@ -311,8 +342,21 @@ curl -sS "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions/10"
 }
 ```
 
-- `allocation` is `null` until status is `Allocated`.
+**Schedule field mapping (v5.0):**
+
+| Field | Meaning | JPS source |
+|-------|---------|------------|
+| `ta` | Time of Arrival | Operator arrival log |
+| `etb` | Estimated Time of Berthing | Plan / allocation |
+| `tb` | Time of Berthing (actual) | Operator berthing log |
+| `etc` | Estimated Time of Completion | Operator SLA / ETC |
+| `tc` | Operations completed (sign-off) | Sign-off approval |
+| `cast_off_at` | Cast off | Clearance / depart |
+| `sailed_at` | Sailed | Depart (status `Sailed`) |
+
+- `allocation` is `null` until status is `Allocated` or `Sailed`.
 - `rejection_reason` is set only when status is `Rejected`.
+- `etr_minutes` is derived from `etc` minus now (read-only hint; not stored in JPS).
 
 #### Lookup by your reference
 
@@ -325,8 +369,9 @@ Same response shape as `GET /{id}`. HTTP `404` if not found or not yours.
 
 #### Polling guidance
 
-- Poll **at most once every 5 minutes** per instruction.
-- Stop when status is `Rejected`, or `Allocated` if that completes your workflow.
+- **Recommended:** register a webhook (§3.4) for approval and milestone updates.
+- Fallback poll **at most once every 5 minutes** per instruction.
+- Continue polling (or listen for webhooks) through **`Sailed`** if you track departure.
 
 ---
 
@@ -353,7 +398,104 @@ Identify each cargo line with **`line_order`** (0-based, same as POST order) or 
 
 ---
 
-### 3.4 Master data — terms, agents, surveyors, shippers
+### 3.4 Webhooks — register and manage (v5.0)
+
+Register an **HTTPS** URL where JPS POSTs signed events when approval status or berthing milestones change.
+
+**Register (secret shown once):**
+
+```bash
+curl -sS -X POST "$JPS_API_BASE_URL/webhooks" \
+  -H "x-api-key: $JPS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://your-system.example.com/jps/webhook",
+    "events": ["status.changed", "schedule.updated"]
+  }'
+```
+
+**Success — `201 Created`:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "url": "https://your-system.example.com/jps/webhook",
+    "events": ["status.changed", "schedule.updated"],
+    "active": true,
+    "secret_prefix": "whsec_a1b2c3d4",
+    "secret": "whsec_a1b2c3d4e5f6...",
+    "secret_note": "Store this secret securely; it is shown once and used to verify webhook signatures."
+  }
+}
+```
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/webhooks` | List endpoints + `available_events` |
+| `PATCH` | `/webhooks/{id}` | Update `url`, `events`, `active`, or `rotate_secret: true` |
+| `DELETE` | `/webhooks/{id}` | Deactivate endpoint |
+
+Limits: max **3 active** endpoints per API key. Staging may allow HTTP when JPS sets `INTEGRATION_WEBHOOK_ALLOW_HTTP=true` (dev only).
+
+---
+
+### 3.5 Webhooks — events JPS sends to you
+
+JPS **POSTs** to your URL (not your API key). Your endpoint must return **2xx** within 15 seconds.
+
+**Headers:**
+
+| Header | Description |
+|--------|-------------|
+| `X-JPS-Event` | `status.changed` or `schedule.updated` |
+| `X-JPS-Delivery-Id` | Unique id — use for deduplication |
+| `X-JPS-Timestamp` | Unix time in milliseconds |
+| `X-JPS-Signature` | `sha256=<hex>` HMAC of `{timestamp}.{rawBody}` |
+
+**Body:**
+
+```json
+{
+  "event": "status.changed",
+  "occurred_at": "2026-09-25T04:00:00.000Z",
+  "data": { }
+}
+```
+
+The `data` object matches the enriched **`GET /shipping-instructions/{id}`** shape (§3.2).
+
+| Event | When fired |
+|-------|------------|
+| `status.changed` | Plan approved, rejected, allocated, or vessel sailed |
+| `schedule.updated` | TA, ETB, TB, ETC, TC, cast off, or sailed timestamp updated |
+
+Delivery is **at-least-once** (retries with backoff). Always dedupe on `X-JPS-Delivery-Id`.
+
+---
+
+### 3.6 Webhook signature verification
+
+```javascript
+import crypto from "crypto";
+
+function verifyJpsWebhook(rawBody, headers, secret) {
+  const ts = headers["x-jps-timestamp"];
+  const sig = String(headers["x-jps-signature"] || "").replace(/^sha256=/, "");
+  const expected = crypto
+    .createHmac("sha256", secret)
+    .update(`${ts}.${rawBody}`)
+    .digest("hex");
+  return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+}
+```
+
+Reject requests when the signature does not match. Parse JSON only after verification.
+
+---
+
+### 3.7 Master data — terms, agents, surveyors, shippers
 
 **Read lists** (for mapping in your system):
 
@@ -437,10 +579,11 @@ At least one field required. Allowed while status is **`Pending`** only.
 
 | Status | Meaning | Your action |
 |--------|---------|-------------|
-| `Pending` | Received, awaiting operator review. | Keep polling. |
-| `Approved` | Operator accepted. Awaiting jetty allocation. | Keep polling if you need berth info. |
+| `Pending` | Received, awaiting operator review. | Poll or wait for `status.changed` webhook. |
+| `Approved` | Operator accepted. Awaiting jetty allocation. | Poll / webhook until `Allocated`. |
 | `Rejected` | Operator declined. See `rejection_reason`. | Fix data; submit **new** instruction with **new** `external_reference`. |
-| `Allocated` | Jetty/berth assigned. See `allocation`. | Done for scheduling workflow. |
+| `Allocated` | Jetty/berth assigned. See `allocation`. | Watch `schedule.updated` for TA/TB/ETC milestones. |
+| `Sailed` | Vessel departed. See `schedule.sailed_at`. | Terminal state for voyage tracking. |
 
 ### 4.3 Response envelope
 
@@ -827,6 +970,7 @@ When reporting issues, include:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.0 | 2026-09-25 | **Webhooks:** `POST/PATCH/GET/DELETE /webhooks`; signed outbound `status.changed` and `schedule.updated` events. **Enriched GET:** `plan_reference`, `approval`, `schedule` (TA, ETB, TB, ETC, TC, cast off, sailed), `etr_minutes`. New status **`Sailed`**. Header **`X-JPS-API-Version: 5.0`**. v4.x additive-compatible. |
 | 4.2 | 2026-09-23 | Renamed partner field **`hub_code`** → **`vessel_hub_code`** (request + response). |
 | 4.1 | 2026-09-23 | **Vessel master link:** `vessel_hub_code` primary identifier (sufficient alone); `vessel_name` fallback; 201/GET return canonical `vessel_name` + `vessel_hub_code` from master snapshot. See §3.1 vessel identification. |
 | 4.0 | 2026-09-21 | Master data GET (`/terms`, `/agents`, `/surveyors`, `/shippers`); POST/PATCH upsert for agents and shippers; POST submit extended with `trade_term`, `surveyor_name`, `po_no`, `so_no`, `shipper_name`; PATCH SI while Pending for PO/SO updates. §6 master-data tests; corrected unknown port to `400` (not `403`). |

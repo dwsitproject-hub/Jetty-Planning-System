@@ -41,7 +41,7 @@ This document describes **behaviour that is implemented in code**, including:
 - **Multi-jetty berthing:** when enabled on a port, operators may assign a **primary jetty** plus one or more **adjacent** jetties so a long vessel visually and logically spans multiple berth columns; occupancy, Gantt spanning bars, and schematic lane placeholders reflect spanned lanes per bank (**§2.28**).
 - **ATG cargo progress and quantity persistence:** liquid cargo operations record **segment start/end** on load lines; **moved quantity** is persisted when a segment closes (ATG-derived or manual), with optional **hourly rate breakdown** and **manual checkpoints** when ATG is unavailable (**§2.29**).
 - **Master vessel link on shipment plans:** new plans require a **Master vessel** pick from **`master_vessels`**; name/LOA/GT/draft are **snapshots** on the plan. Legacy plans (no link) keep free-text vessel fields and show a **Legacy** badge on the plans list (**§2.30**).
-- **System Health Dashboard:** infrastructure health cards (ATG sync, ATG data purging, Synology mount, DataHub, Partner Integration API) with optional **email alerts** when a check newly becomes unhealthy (**§2.31**).
+- **System Health Dashboard:** infrastructure health cards (ATG sync, ATG data purging, Synology mount, daily DB backup, DataHub, Partner Integration API) with optional **email alerts** when a check newly becomes unhealthy (**§2.31**).
 - **Management Dashboard — berth productivity & departure readiness:** executive KPI page (`/management-dashboard`, RBAC page key **`management-dashboard`**) with period/purpose filters, clickable widget drill-down modals, voyage table with short commodity names, and inline milestone expansion (**§2.25**).
 
 For API field names, database columns, and shared code modules, see **TECH-SPEC-Jetty-Planning-System.md** and **§6** below for arrival/estimated completion mapping. Jetty Live deployment: **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**.
@@ -466,8 +466,21 @@ External business systems can submit **Shipping Instructions** into JPS without 
 | **Security (summary)** | HTTPS + **`x-api-key`** header per partner; rate limit **120 requests/minute** per key. Keys are **not** port-scoped; each request must include a valid **`port_id`** (unknown port is rejected). |
 | **Operator monitoring** | **Admin → System Health Dashboard** (`/admin/operations`) shows a **Partner Integration API** card: active keys, last API activity, submissions in the last 7 days, and per-partner usage. Manage keys under **Admin → Partner API Keys** (`/admin/partner-api`). See **§2.31**. |
 | **Vessel resolution (master link)** | Partner payload uses **`vessel_hub_code`** (DataHub vessel code) as the **primary identifier** — sufficient alone. JPS resolves **`master_vessels`**, sets **`master_vessel_id`**, and snapshots name/LOA/GT/draft onto the new plan. Optional **`vessel_name`** cross-checks the master when both are sent. When **`vessel_hub_code`** is omitted, **`vessel_name`** must match **exactly one** active master vessel (case-insensitive). **201/GET** return canonical **`vessel_name`** and **`vessel_hub_code`**. Partner API **v4.2**. See **§2.30**. |
+| **Webhooks & milestones (v5.0)** | Partners register **`POST /webhooks`**; JPS pushes signed **`status.changed`** (approve/reject/allocate/sail) and **`schedule.updated`** (TA, ETB, TB, ETC, TC, cast off, sailed). **GET** returns enriched **`approval`** + **`schedule`** blocks. Polling remains supported. See **§2.24**. |
 
-Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.33**, **§0.35**. Migrations **084** (`integration_api_keys`, `integration_submissions`), **085** (`shipment_plans.external_reference`, `shipment_plans.requested_by`), **086** (`si_commodities.short_name`), **118** (`shipment_plans.master_vessel_id`).
+Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.33**, **§0.35**, **§0.37**. Migrations **084**–**086**, **118**, **119** (webhooks).
+
+### 2.24 Partner webhooks and berthing milestones (v5.0)
+
+| Area | Behaviour |
+|------|------------|
+| **Source of truth** | JPS operators update approval status and berthing milestones in the web app; partners **receive** updates (no inbound POST of TA/TB/etc.). |
+| **Webhook registration** | **`POST/PATCH/GET/DELETE /api/v1/integrations/webhooks`** per API key (max 3 active endpoints). |
+| **Events** | **`status.changed`**, **`schedule.updated`** — at-least-once delivery with HMAC signature verification. |
+| **Partner status `Sailed`** | When vessel is recorded as departed (**`operations.status = SAILED`**). |
+| **Fallback** | **`GET /shipping-instructions/{id}`** includes **`schedule`** and **`approval`** objects (additive vs v4.x). |
+
+Partner guide: **INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md v5.0**.
 
 **Commodity mapping for partner `cargo_type`** (send **short_name**; operators see **display name** in the app):
 
@@ -713,14 +726,15 @@ Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.35**; **`Backend/sr
 | **ATG sync** | Per-port enabled ATG sources; **degraded**/**unhealthy** when poll data is stale vs 60-minute threshold. |
 | **ATG data purging** | Last five purge batches from **`tank_gauging_purge_log`** (archive/delete row counts per batch); **unknown** if no runs yet; **degraded**/**unhealthy** when last run exceeds expected daily cadence. |
 | **Synology upload mount** | Upload directory writable; host cron heartbeat **`.jps-mount-health.json`** under NAS mount (see Synology runbook). **Unknown** until mount check cron is installed. |
+| **Daily DB backup** | Expected-date **`jps_db_rds_YYYYMMDD.dump`** on NAS **`db-backups/`** plus **`.jps-backup-last-run.json`** from nightly cron. **Unhealthy** same day if last run failed or today's dump missing (after grace window). **Disabled** on staging when auto-detect finds no RDS/dumps. See **`Docs/Guide/DB-DAILY-BACKUP-CRON.md`**. |
 | **DataHub API** | Integration enabled/disabled; credentials completeness; last sync success and age. |
 | **Partner Integration API** | Active vs revoked API keys; last API activity (**`last_used_at`** or latest submission); submission count in last 7 days; per-partner breakdown (30-day submissions). **Disabled** when no active keys. **Unknown** when keys exist but never used. **Healthy** when activity within 7 days; **Degraded** when stale > 7 days (low-volume partners — not **Unhealthy** in v1). |
 | **Email alerts** | Checkbox **Email alerts when a check becomes unhealthy**. Recipient default **`it-project@energi-up.com`**. When enabled and SMTP is configured, a **host cron job** emails IT on **new** unhealthy transitions only (not repeated while still unhealthy; first cron run seeds state without email). Works on **staging or production** — controlled by the checkbox, not by environment label. If enabled but SMTP missing, banner explains setup under **Admin → Notifications**. |
 | **Deploy / local dev** | New checks require a **rebuilt API** (`docker compose … up -d --build jps-api`). Restart-only leaves an old image without new cards (e.g. Partner Integration API). |
 
-Operational runbooks: **`Docs/Guide/ADMIN-OPS-EMAIL-ALERTS.md`**, **`Docs/Guide/SYNOLOGY-MOUNT-TROUBLESHOOTING-AND-RECOVERY.md` §10**.
+Operational runbooks: **`Docs/Guide/ADMIN-OPS-EMAIL-ALERTS.md`**, **`Docs/Guide/DB-DAILY-BACKUP-CRON.md`**, **`Docs/Guide/SYNOLOGY-MOUNT-TROUBLESHOOTING-AND-RECOVERY.md` §10**.
 
-Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.36**; **`Backend/src/lib/admin-ops-checks.js`**, **`admin-ops-partner-api-check.js`**, **`admin-ops-alert-job.js`**; **`Frontend/src/pages/AdminOperations.jsx`**, **`Admin.jsx`**; migration **`118_admin_ops_alert_settings.sql`**.
+Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.36**; **`Backend/src/lib/admin-ops-checks.js`**, **`admin-ops-backup-check.js`**, **`admin-ops-partner-api-check.js`**, **`admin-ops-alert-job.js`**; **`Frontend/src/pages/AdminOperations.jsx`**, **`Admin.jsx`**; migration **`118_admin_ops_alert_settings.sql`**.
 
 ---
 

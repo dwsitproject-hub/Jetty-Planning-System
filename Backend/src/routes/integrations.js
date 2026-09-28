@@ -36,6 +36,8 @@ import {
   sendIntegrationSuccess,
 } from '../middleware/integration-auth.js';
 import integrationMasterRoutes from './integration-master.js';
+import integrationWebhookRoutes from './integration-webhooks.js';
+import { buildPartnerInstructionPayload } from '../lib/integration-partner-payload.js';
 
 const router = express.Router();
 const PAGE_KEY = 'shipment-plan';
@@ -45,6 +47,7 @@ const VALID_UNITS = ['MT', 'KL'];
 router.use(requireIntegrationKey);
 router.use(integrationRateLimit);
 router.use(integrationMasterRoutes);
+router.use('/webhooks', integrationWebhookRoutes);
 
 /** Matches buildPlanReference in routes/shipment-plans.js (SP-YY-MM-#####). */
 function buildPlanReference(planId) {
@@ -275,33 +278,7 @@ function validatePatchBody(body) {
 const STATUS_LOOKUP_SQL = PARTNER_SUBMISSION_LOOKUP_SQL;
 
 function toStatusResponse(row) {
-  const status = deriveExternalStatus(row);
-  const payload = row.payload || {};
-  return {
-    id: Number(row.si_id),
-    external_reference: row.external_reference,
-    requested_by: payload.requested_by ?? null,
-    status,
-    vessel_name: row.vessel_name,
-    vessel_hub_code: payload.vessel_hub_code ?? null,
-    voyage_no: row.voyage_no ?? null,
-    purpose: row.purpose ?? payload.purpose ?? null,
-    eta: row.eta ? new Date(row.eta).toISOString() : payload.eta ?? null,
-    etd: payload.etd ?? null,
-    port_id: Number(row.port_id),
-    allocation:
-      status === 'Allocated'
-        ? {
-            jetty_name: row.jetty_name ?? null,
-            planned_berthing_time: row.docking_start_time
-              ? new Date(row.docking_start_time).toISOString()
-              : null,
-          }
-        : null,
-    rejection_reason: status === 'Rejected' ? row.rejection_reason ?? null : null,
-    submitted_at: new Date(row.received_at).toISOString(),
-    last_updated_at: row.last_updated_at ? new Date(row.last_updated_at).toISOString() : null,
-  };
+  return buildPartnerInstructionPayload(row);
 }
 
 router.post('/shipping-instructions', async (req, res) => {

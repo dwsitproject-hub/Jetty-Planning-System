@@ -52,6 +52,7 @@ import { requireAuth } from './middleware/auth.js';
 import { requirePortScope } from './middleware/port-scope.js';
 import { csrfProtection } from './middleware/csrf.js';
 import { startNotificationEmailWorker } from './lib/notification-email-worker.js';
+import { startIntegrationWebhookWorker } from './lib/integration-webhook-worker.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -197,6 +198,7 @@ async function start() {
     console.log(`JPS API listening on http://0.0.0.0:${PORT} (map host port in Docker)`);
   });
   startNotificationEmailWorker();
+  startIntegrationWebhookWorker();
 }
 
 start();

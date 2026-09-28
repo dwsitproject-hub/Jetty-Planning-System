@@ -262,6 +262,16 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 **Error codes (integration envelope):** **`INVALID_API_KEY`**, **`VALIDATION_ERROR`**, **`DUPLICATE_REFERENCE`**, **`INVALID_STATE`**, **`NOT_FOUND`**, **`RATE_LIMITED`**, **`INTERNAL_ERROR`**.
 
+### 0.37 Integration webhooks + enriched partner status (v5.0) (2026-09-25)
+
+**Migration `119_integration_webhooks.sql`:** **`integration_webhook_endpoints`**, **`integration_webhook_deliveries`** (outbox).
+
+**Routes (`/api/v1/integrations/webhooks`):** **`POST`** register HTTPS URL + **`events[]`**; **`PATCH`** update; **`GET`** list; **`DELETE`** deactivate. Webhook secret encrypted at rest; shown once on create.
+
+**Outbound delivery:** After operator actions (plan approve/reject/depart, **`PUT /allocation/arrival`**, operation sign-off/depart), **`triggerPartnerWebhooksDeferred`** enqueues **`status.changed`** and/or **`schedule.updated`**. Worker **`integration-webhook-worker.js`** POSTs signed payloads (**`X-JPS-Signature`**, **`X-JPS-Delivery-Id`**) with retry backoff.
+
+**Enriched GET:** **`buildPartnerInstructionPayload`** adds **`plan_reference`**, **`approval`**, **`schedule`** (TA, ETB, TB, ETC, TC, cast off, sailed), **`etr_minutes`**. Partner status **`Sailed`** when **`operations.status = SAILED`**. Response header **`X-JPS-API-Version: 5.0`**.
+
 ### 0.32 Overview tables — Commodity Qty column (`siBreakdownDisplay`) (2026-05-26)
 
 **Purpose:** Show **SI-declared cargo** (commodity name + quantity per breakdown line) in main overview tables without opening SI modals. A single **Commodity Qty** column replaces a separate **Commodity** + **Total Qty** pair because each cell already embeds the commodity name (e.g. `RPO 5.000 MT`).

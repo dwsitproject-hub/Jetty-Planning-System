@@ -149,9 +149,10 @@ export async function updateNamedMaster(db, table, id, { name, longName }) {
   return { row: toNamedResponse(r.rows[0]) };
 }
 
-/** Maps internal plan/operation state to partner Pending/Approved/Rejected/Allocated. */
+/** Maps internal plan/operation state to partner Pending/Approved/Rejected/Allocated/Sailed. */
 export function deriveExternalStatus(row) {
   if (row.approval_status === 'Rejected') return 'Rejected';
+  if (row.op_status === 'SAILED') return 'Sailed';
   const opStatus = row.op_status || null;
   if (opStatus && opStatus !== 'PENDING') return 'Allocated';
   if (row.approval_status === 'Approved') return 'Approved';
@@ -161,24 +162,118 @@ export function deriveExternalStatus(row) {
 export const PARTNER_SUBMISSION_LOOKUP_SQL = `
   SELECT s.id AS submission_id, s.external_reference, s.received_at, s.payload,
          si.id AS si_id,
-         GREATEST(si.updated_at, sp.updated_at) AS last_updated_at,
-         sp.approval_status, sp.rejection_reason,
+         GREATEST(si.updated_at, sp.updated_at, COALESCE(o.op_updated_at, sp.updated_at)) AS last_updated_at,
+         sp.approval_status, sp.rejection_reason, sp.plan_reference,
+         sp.approved_at, sp.rejected_at,
          sp.vessel_name, sp.voyage_no, sp.eta, sp.port_id,
+         sp.ta AS sp_ta, sp.etb AS sp_etb, sp.tb AS sp_tb,
+         sp.docking_start_time AS sp_docking_start_time,
+         sp.estimated_completion_time AS sp_etc,
+         sp.operations_completed_at AS sp_tc,
+         sp.cast_off_at AS sp_cast_off_at, sp.sailed_at AS sp_sailed_at,
          spp.code AS purpose,
-         o.status AS op_status, o.docking_start_time, j.name AS jetty_name
+         o.status AS op_status,
+         o.docking_start_time AS op_docking_start_time,
+         o.ta AS op_ta, o.etb AS op_etb, o.tb AS op_tb,
+         o.estimated_completion_time AS op_etc,
+         o.operations_completed_at AS op_tc,
+         o.cast_off_at AS op_cast_off_at, o.sailed_at AS op_sailed_at,
+         o.op_updated_at,
+         j.name AS jetty_name,
+         regexp_replace(COALESCE(j.name, ''), '^Jetty\\s+', '', 'i') AS jetty_short_name
   FROM integration_submissions s
   JOIN shipping_instructions si ON si.id = s.shipping_instruction_id AND si.deleted_at IS NULL
   JOIN shipment_plans sp ON sp.id = s.shipment_plan_id AND sp.deleted_at IS NULL
   LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
   LEFT JOIN LATERAL (
-    SELECT op.status, op.docking_start_time, op.jetty_id
+    SELECT op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,
+           op.ta, op.etb, op.tb, op.estimated_completion_time,
+           op.operations_completed_at, op.cast_off_at, op.sailed_at
     FROM operations op
     WHERE op.shipping_instruction_id = si.id AND op.deleted_at IS NULL
     ORDER BY op.id DESC
     LIMIT 1
   ) o ON true
-  LEFT JOIN jetties j ON j.id = o.jetty_id
+  LEFT JOIN jetties j ON j.id = COALESCE(o.jetty_id, sp.jetty_id)
   WHERE s.api_key_id = $1`;
+
+/** Load partner submission rows for webhook enqueue (by shipment plan id). */
+export const PARTNER_SUBMISSION_BY_PLAN_SQL = `
+  SELECT s.api_key_id, s.external_reference, s.received_at, s.payload,
+         si.id AS si_id,
+         GREATEST(si.updated_at, sp.updated_at, COALESCE(o.op_updated_at, sp.updated_at)) AS last_updated_at,
+         sp.approval_status, sp.rejection_reason, sp.plan_reference,
+         sp.approved_at, sp.rejected_at,
+         sp.vessel_name, sp.voyage_no, sp.eta, sp.port_id,
+         sp.ta AS sp_ta, sp.etb AS sp_etb, sp.tb AS sp_tb,
+         sp.docking_start_time AS sp_docking_start_time,
+         sp.estimated_completion_time AS sp_etc,
+         sp.operations_completed_at AS sp_tc,
+         sp.cast_off_at AS sp_cast_off_at, sp.sailed_at AS sp_sailed_at,
+         spp.code AS purpose,
+         o.status AS op_status,
+         o.docking_start_time AS op_docking_start_time,
+         o.ta AS op_ta, o.etb AS op_etb, o.tb AS op_tb,
+         o.estimated_completion_time AS op_etc,
+         o.operations_completed_at AS op_tc,
+         o.cast_off_at AS op_cast_off_at, o.sailed_at AS op_sailed_at,
+         o.op_updated_at,
+         j.name AS jetty_name,
+         regexp_replace(COALESCE(j.name, ''), '^Jetty\\s+', '', 'i') AS jetty_short_name
+  FROM integration_submissions s
+  JOIN shipping_instructions si ON si.id = s.shipping_instruction_id AND si.deleted_at IS NULL
+  JOIN shipment_plans sp ON sp.id = s.shipment_plan_id AND sp.deleted_at IS NULL
+  LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
+  LEFT JOIN LATERAL (
+    SELECT op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,
+           op.ta, op.etb, op.tb, op.estimated_completion_time,
+           op.operations_completed_at, op.cast_off_at, op.sailed_at
+    FROM operations op
+    WHERE op.shipping_instruction_id = si.id AND op.deleted_at IS NULL
+    ORDER BY op.id DESC
+    LIMIT 1
+  ) o ON true
+  LEFT JOIN jetties j ON j.id = COALESCE(o.jetty_id, sp.jetty_id)
+  WHERE sp.id = $1 AND sp.deleted_at IS NULL`;
+
+/** Load partner submission rows for webhook enqueue (by shipping instruction id). */
+export const PARTNER_SUBMISSION_BY_SI_SQL = `
+  SELECT s.api_key_id, s.external_reference, s.received_at, s.payload,
+         si.id AS si_id,
+         GREATEST(si.updated_at, sp.updated_at, COALESCE(o.op_updated_at, sp.updated_at)) AS last_updated_at,
+         sp.approval_status, sp.rejection_reason, sp.plan_reference,
+         sp.approved_at, sp.rejected_at,
+         sp.vessel_name, sp.voyage_no, sp.eta, sp.port_id,
+         sp.ta AS sp_ta, sp.etb AS sp_etb, sp.tb AS sp_tb,
+         sp.docking_start_time AS sp_docking_start_time,
+         sp.estimated_completion_time AS sp_etc,
+         sp.operations_completed_at AS sp_tc,
+         sp.cast_off_at AS sp_cast_off_at, sp.sailed_at AS sp_sailed_at,
+         spp.code AS purpose,
+         o.status AS op_status,
+         o.docking_start_time AS op_docking_start_time,
+         o.ta AS op_ta, o.etb AS op_etb, o.tb AS op_tb,
+         o.estimated_completion_time AS op_etc,
+         o.operations_completed_at AS op_tc,
+         o.cast_off_at AS op_cast_off_at, o.sailed_at AS op_sailed_at,
+         o.op_updated_at,
+         j.name AS jetty_name,
+         regexp_replace(COALESCE(j.name, ''), '^Jetty\\s+', '', 'i') AS jetty_short_name
+  FROM integration_submissions s
+  JOIN shipping_instructions si ON si.id = s.shipping_instruction_id AND si.deleted_at IS NULL
+  JOIN shipment_plans sp ON sp.id = s.shipment_plan_id AND sp.deleted_at IS NULL
+  LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
+  LEFT JOIN LATERAL (
+    SELECT op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,
+           op.ta, op.etb, op.tb, op.estimated_completion_time,
+           op.operations_completed_at, op.cast_off_at, op.sailed_at
+    FROM operations op
+    WHERE op.shipping_instruction_id = si.id AND op.deleted_at IS NULL
+    ORDER BY op.id DESC
+    LIMIT 1
+  ) o ON true
+  LEFT JOIN jetties j ON j.id = COALESCE(o.jetty_id, sp.jetty_id)
+  WHERE si.id = $1 AND sp.deleted_at IS NULL`;
 
 export async function findPartnerSubmission(db, apiKeyId, { siId, externalReference }) {
   if (siId != null) {

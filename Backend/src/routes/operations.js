@@ -17,7 +17,9 @@ import {
 import { validateBerthingTimeline, validateScheduleTimestamp } from '../lib/validate-schedule-timeline.js';
 import { userHasPageApprove, userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
+import { triggerPartnerWebhooksDeferred } from '../lib/integration-webhooks.js';
 import { enrichRowsWithCargoDisplay } from '../lib/siBreakdownDisplay.js';
+import { getSiCommodityOptions } from '../lib/si-commodity-options.js';
 import { getAtBerthCargoProgressSummaries } from '../lib/operational-progress.js';
 import { computeAtBerthFlowPattern } from '../lib/at-berth-flow-pattern.js';
 
@@ -568,7 +570,20 @@ router.get('/:id', async (req, res) => {
   if (!canAccessOperationForSelectedPort(row, req.selectedPortId)) {
     return res.status(404).json({ error: 'Operation not found' });
   }
-  res.json(toOp(row));
+  const siId = row.shipping_instruction_id != null ? Number(row.shipping_instruction_id) : null;
+  const siCommodityOptions =
+    siId != null ? await getSiCommodityOptions(pool, siId) : [];
+  res.json({
+    ...toOp(row),
+    siCommodityOptions: siCommodityOptions.map((o) => ({
+      commodityId: String(o.commodityId),
+      name: o.name,
+      shortName: o.shortName,
+      plannedQty: o.plannedQty,
+      metricCode: o.metricCode,
+      metricMixed: Boolean(o.metricMixed),
+    })),
+  });
 });
 
 router.post('/', async (req, res) => {
@@ -1178,6 +1193,10 @@ router.post('/:id/signoff', async (req, res) => {
     [id]
   );
   const signedRow = await loadOperationJoined(id);
+  triggerPartnerWebhooksDeferred({
+    shippingInstructionId: signedRow?.shipping_instruction_id ?? undefined,
+    eventTypes: ['schedule.updated'],
+  });
   writeActivityLog({
     pageKey: 'loading',
     action: 'update',
@@ -1291,6 +1310,10 @@ router.post('/:id/depart', async (req, res) => {
   }
 
   const sailRow = await loadOperationJoined(id);
+  triggerPartnerWebhooksDeferred({
+    shippingInstructionId: sailRow?.shipping_instruction_id ?? undefined,
+    eventTypes: ['schedule.updated', 'status.changed'],
+  });
   writeActivityLog({
     pageKey: 'verification',
     action: 'update',
