@@ -23,6 +23,11 @@ import {
   getHourlyProgressForLine,
   snapshotHourlyDetailForLoadLine,
 } from '../lib/atg-hourly-progress.js';
+import {
+  enrichCargoLoadLineCommodityDisplay,
+  getSiCommodityOptionsForOperation,
+  normalizeLoadLineCommodityId,
+} from '../lib/si-commodity-options.js';
 
 const router = express.Router();
 
@@ -224,6 +229,8 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
     return { ok: false, status: 404, error: 'Operation not found or has no shipping instruction' };
   }
 
+  const siCommodityOptions = await getSiCommodityOptionsForOperation(q, operationId);
+
   const parsed = [];
   for (let i = 0; i < raw.length; i++) {
     const row = raw[i] || {};
@@ -340,6 +347,12 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
       lineTankIds = tankCheck.tankIds;
     }
 
+    const commodityIdRaw = row.commodityId ?? row.commodity_id;
+    const normCommodity = normalizeLoadLineCommodityId(commodityIdRaw, siCommodityOptions, {
+      lineIndex: i,
+    });
+    if (normCommodity.error) return normCommodity.error;
+
     parsed.push({
       qty,
       manualQty,
@@ -351,6 +364,7 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
       hasEnd,
       _i: i,
       tankIds: lineTankIds,
+      commodityId: normCommodity.commodityId,
     });
   }
 
@@ -471,8 +485,9 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
     lineOrder: idx + 1,
     tankIds: p.tankIds || [],
     atgResult: p.atgResult ?? null,
+    commodityId: p.commodityId,
   }));
-  return { ok: true, lines };
+  return { ok: true, lines, siCommodityOptions };
 }
 
 function atgMassSnapshotFromResult(result) {
@@ -549,6 +564,8 @@ function mapCargoLoadLineRow(row, tanks = null) {
     atgMassComputedAt: row.atg_mass_computed_at ?? null,
     manualQty: row.manual_qty != null ? Number(row.manual_qty) : null,
     atgQtyMode: row.atg_qty_mode || 'auto',
+    commodityId:
+      row.commodity_id != null && row.commodity_id !== '' ? String(row.commodity_id) : null,
   };
   if (Array.isArray(tanks)) {
     base.tanks = tanks;
@@ -615,12 +632,12 @@ async function insertCargoLoadLines(client, operationalActivityId, lines, opts =
     const ins = await client.query(
       `INSERT INTO operation_cargo_load_lines (
          operational_activity_id, line_order, qty, manual_qty, atg_qty_mode,
-         started_at, ended_at,
+         started_at, ended_at, commodity_id,
          atg_mass_delta, atg_mass_detail, atg_mass_computed_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::numeric, $9::jsonb,
-         CASE WHEN $8::numeric IS NULL THEN NULL::timestamptz ELSE NOW() END)
-       RETURNING id, line_order, qty, manual_qty, atg_qty_mode, started_at, ended_at,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::numeric, $10::jsonb,
+         CASE WHEN $9::numeric IS NULL THEN NULL::timestamptz ELSE NOW() END)
+       RETURNING id, line_order, qty, manual_qty, atg_qty_mode, started_at, ended_at, commodity_id,
          atg_mass_delta, atg_mass_detail, atg_mass_computed_at`,
       [
         operationalActivityId,
@@ -630,6 +647,7 @@ async function insertCargoLoadLines(client, operationalActivityId, lines, opts =
         ln.atgQtyMode || 'auto',
         ln.startIso,
         ln.endIso,
+        ln.commodityId != null ? Number(ln.commodityId) : null,
         ln.atgMassDelta,
         ln.atgMassDetail ? JSON.stringify(ln.atgMassDetail) : null,
       ]
@@ -646,7 +664,40 @@ async function insertCargoLoadLines(client, operationalActivityId, lines, opts =
   });
 }
 
+async function assertCommodityImmutableOnClosedLines(client, operationalActivityId, newLines) {
+  const existing = await client.query(
+    `SELECT line_order, commodity_id, ended_at
+     FROM operation_cargo_load_lines
+     WHERE operational_activity_id = $1
+     ORDER BY line_order ASC, id ASC`,
+    [operationalActivityId]
+  );
+  const sortedNew = [...(newLines || [])].sort(
+    (a, b) => (Number(a.lineOrder) || 0) - (Number(b.lineOrder) || 0)
+  );
+  for (let i = 0; i < existing.rows.length; i++) {
+    const ex = existing.rows[i];
+    if (!ex.ended_at || ex.commodity_id == null) continue;
+    const incoming = sortedNew[i];
+    if (!incoming || incoming.commodityId == null) continue;
+    if (Number(incoming.commodityId) !== Number(ex.commodity_id)) {
+      return {
+        ok: false,
+        status: 400,
+        error: `cargoLoadLines[${i}]: commodity cannot be changed after segment is closed`,
+      };
+    }
+  }
+  return { ok: true };
+}
+
 async function replaceCargoLoadLines(client, operationalActivityId, lines, opts = {}) {
+  const imm = await assertCommodityImmutableOnClosedLines(client, operationalActivityId, lines);
+  if (!imm.ok) {
+    const err = new Error(imm.error);
+    err.statusCode = imm.status;
+    throw err;
+  }
   await client.query(`DELETE FROM operation_cargo_load_lines WHERE operational_activity_id = $1`, [
     operationalActivityId,
   ]);
@@ -764,11 +815,20 @@ async function fetchTanksForActivityIds(q, activityIds) {
   return map;
 }
 
-async function fetchCargoLoadLinesForActivityIds(q, activityIds) {
+function commodityOptionsById(options) {
+  return new Map((options || []).map((o) => [Number(o.commodityId), o]));
+}
+
+function enrichCargoLoadLinesList(lines, optionsById) {
+  if (!Array.isArray(lines)) return lines;
+  return lines.map((ln) => enrichCargoLoadLineCommodityDisplay(ln, optionsById));
+}
+
+async function fetchCargoLoadLinesForActivityIds(q, activityIds, optionsById = null) {
   if (!activityIds.length) return new Map();
   const r = await q.query(
     `SELECT id, operational_activity_id, line_order, qty, manual_qty, atg_qty_mode,
-            started_at, ended_at,
+            started_at, ended_at, commodity_id,
             atg_mass_delta, atg_mass_detail, atg_mass_computed_at
      FROM operation_cargo_load_lines
      WHERE operational_activity_id = ANY($1::bigint[])
@@ -782,7 +842,11 @@ async function fetchCargoLoadLinesForActivityIds(q, activityIds) {
     const aid = Number(row.operational_activity_id);
     if (!map.has(aid)) map.set(aid, []);
     const tanks = tankMap.get(Number(row.id)) || [];
-    map.get(aid).push(mapCargoLoadLineRow(row, tanks));
+    let mapped = mapCargoLoadLineRow(row, tanks);
+    if (optionsById) {
+      mapped = enrichCargoLoadLineCommodityDisplay(mapped, optionsById);
+    }
+    map.get(aid).push(mapped);
   }
   return map;
 }
@@ -874,8 +938,10 @@ router.get('/operations/:operationId/operational-activities', async (req, res) =
   const cargoActIds = r.rows
     .filter((x) => x.entry_type === 'activity' && x.milestone_key === 'cargo_operations')
     .map((x) => Number(x.id));
+  const siCommodityOptions = await getSiCommodityOptionsForOperation(pool, operationId);
+  const optionsById = commodityOptionsById(siCommodityOptions);
   const [lineMap, tankMap] = await Promise.all([
-    fetchCargoLoadLinesForActivityIds(pool, cargoActIds),
+    fetchCargoLoadLinesForActivityIds(pool, cargoActIds, optionsById),
     fetchTanksForActivityIds(pool, cargoActIds),
   ]);
   res.json({
@@ -1016,6 +1082,10 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
           commodityType: commodityType || 'Liquid',
           measurementBasis,
         });
+        savedLines = enrichCargoLoadLinesList(
+          savedLines,
+          commodityOptionsById(linePack.siCommodityOptions)
+        );
       }
       if (milestoneKey === 'cargo_operations') {
         await replaceCargoActivityTanks(client, row.id, []);
@@ -1226,6 +1296,10 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
           commodityType: commodityTypePut || 'Liquid',
           measurementBasis: measurementBasisPut,
         });
+        savedLinesPut = enrichCargoLoadLinesList(
+          savedLinesPut,
+          commodityOptionsById(linePack.siCommodityOptions)
+        );
       }
       if (milestoneKey === 'cargo_operations') {
         await replaceCargoActivityTanks(client, entryId, []);
@@ -1263,6 +1337,13 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
       );
     } catch (e) {
       await client.query('ROLLBACK');
+      const status =
+        Number.isInteger(e?.statusCode) && e.statusCode >= 400 && e.statusCode < 600
+          ? e.statusCode
+          : 500;
+      if (status !== 500) {
+        return res.status(status).json({ error: e.message || 'Request failed' });
+      }
       throw e;
     } finally {
       client.release();

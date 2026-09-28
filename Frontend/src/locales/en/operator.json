@@ -93,7 +93,9 @@
     "segmentsDone": "{{count}} segments done",
     "lastTanks": "Last tanks: {{list}}",
     "completed": "Completed",
-    "inProgress": "In progress"
+    "inProgress": "In progress",
+    "whichProduct": "Which product are you moving?",
+    "planQty": "Plan {{qty}}"
   },
   "segments": {
     "title": "Cargo segments",

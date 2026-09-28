@@ -45,6 +45,11 @@ function mapCargoLoadLineForApi(l, tz) {
   if (l.manualQty != null && l.manualQty !== '' && Number.isFinite(Number(l.manualQty))) {
     row.manualQty = Number(l.manualQty)
   }
+  const commodityRaw = l.commodityId ?? l.commodity_id
+  if (commodityRaw != null && commodityRaw !== '') {
+    const cid = parseInt(String(commodityRaw).trim(), 10)
+    if (Number.isFinite(cid) && cid > 0) row.commodityId = cid
+  }
   return row
 }
 

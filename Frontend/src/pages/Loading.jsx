@@ -1246,6 +1246,7 @@ function Loading() {
               cargoSiMetricCode={resolvedCargoSiMetricCode}
               cargoSiMetricName={resolvedCargoSiMetricName}
               portId={apiOp?.portId ?? null}
+              siCommodityOptions={apiOp?.siCommodityOptions ?? []}
               addActivity={addLoadingActivity}
               setOperationalMilestoneNa={setOperationalMilestoneNa}
               onOperationalSaved={bumpActivityLogRefresh}

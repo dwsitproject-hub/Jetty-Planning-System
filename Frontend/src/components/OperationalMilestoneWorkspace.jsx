@@ -16,6 +16,15 @@ import {
   fetchOperationalProgress,
 } from '../api/operations'
 import { fetchMasterTanks } from '../api/masterTanks'
+import {
+  defaultCommodityIdForNewLine,
+  findSiCommodityOption,
+  formatSiCommodityPlanHint,
+  normalizeSiCommodityOptions,
+  requiresCommodityPicker,
+  singleCommodityBannerText,
+} from '../utils/siCommodityOptions.js'
+import { buildTankCommodityMismatchWarnings } from '../utils/tankCommodityMismatch.js'
 import { fetchTankGaugingMassDelta } from '../api/tankGauging'
 import { readAtgQtyFromRef } from '../utils/atgQty.js'
 import OperationActivityTimeline from './OperationActivityTimeline'
@@ -137,7 +146,7 @@ function newCargoLineDraftKey() {
   return `cl-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
-function defaultCargoLineDraft(getEnd, activityStartLocal, tankIds = []) {
+function defaultCargoLineDraft(getEnd, activityStartLocal, tankIds = [], commodityId = null) {
   const endVal = getEnd()
   const startVal = activityStartLocal != null && activityStartLocal !== '' ? activityStartLocal : ''
   const sameMinute =
@@ -153,6 +162,7 @@ function defaultCargoLineDraft(getEnd, activityStartLocal, tankIds = []) {
     end: sameMinute ? '' : endVal,
     qtyTouched: false,
     tankIds: Array.isArray(tankIds) ? tankIds.map(String) : [],
+    commodityId: commodityId != null ? String(commodityId) : '',
   }
 }
 
@@ -197,6 +207,8 @@ export default function OperationalMilestoneWorkspace({
   cargoCommodity = null,
   /** Operation port id — filters shore tanks for liquid Cargo Operations. */
   portId = null,
+  /** Distinct SI commodities from GET /operations/:id */
+  siCommodityOptions: siCommodityOptionsProp = [],
   /** TB (time alongside) — default operation window for first Cargo Operations entry. */
   operationTbAt = null,
 }) {
@@ -210,6 +222,16 @@ export default function OperationalMilestoneWorkspace({
   const milestones = milestoneDefs.map((m) => m.label)
   const shortCodes = SHORT_CODE
   const openingHandlingLabel = commodityType === 'Solid' ? 'Conveyor' : 'Hose'
+
+  const siCommodityOptions = useMemo(
+    () => normalizeSiCommodityOptions(siCommodityOptionsProp),
+    [siCommodityOptionsProp]
+  )
+  const showCommodityPicker = requiresCommodityPicker(siCommodityOptions)
+  const singleCommodityBanner = useMemo(
+    () => singleCommodityBannerText(siCommodityOptions),
+    [siCommodityOptions]
+  )
 
   const [apiActivities, setApiActivities] = useState([])
   const [apiNaMap, setApiNaMap] = useState({})
@@ -308,6 +330,10 @@ export default function OperationalMilestoneWorkspace({
               end: endLoc,
               qtyTouched: true,
               tankIds: lineTankIds,
+              commodityId:
+                l.commodityId != null
+                  ? String(l.commodityId)
+                  : defaultCommodityIdForNewLine(siCommodityOptions, null) || '',
             }
           })
         )
@@ -373,7 +399,12 @@ export default function OperationalMilestoneWorkspace({
         const opts = (Array.isArray(list) ? list : []).map((tk) => {
           const id = String(tk.id)
           const hasAtg = tk.hasAtg === true
-          meta.set(id, { hasAtg, code: tk.code, name: tk.name })
+          meta.set(id, {
+            hasAtg,
+            code: tk.code,
+            name: tk.name,
+            productName: tk.productName ?? tk.product_name ?? null,
+          })
           const base = tk.name ? `${tk.code} — ${tk.name}` : String(tk.code || tk.id)
           return {
             value: id,
@@ -466,6 +497,10 @@ export default function OperationalMilestoneWorkspace({
                 Array.isArray(l.tankIds) && l.tankIds.length > 0
                   ? l.tankIds.map(String)
                   : fallbackTankIds,
+              commodityId:
+                l.commodityId != null
+                  ? String(l.commodityId)
+                  : defaultCommodityIdForNewLine(siCommodityOptions, null) || '',
             }))
           )
         } else if (commodityType === 'Liquid' && useApi) {
@@ -980,9 +1015,13 @@ export default function OperationalMilestoneWorkspace({
       const last = prev[prev.length - 1]
       const nextStart = last?.end || ''
       const prevTanks = Array.isArray(last?.tankIds) ? last.tankIds.map(String) : []
-      return [...prev, defaultCargoLineDraft(getNowForDateTimeLocal, nextStart, prevTanks)]
+      const commodityId = defaultCommodityIdForNewLine(siCommodityOptions, last?.commodityId)
+      return [
+        ...prev,
+        defaultCargoLineDraft(getNowForDateTimeLocal, nextStart, prevTanks, commodityId),
+      ]
     })
-  }, [getNowForDateTimeLocal])
+  }, [getNowForDateTimeLocal, siCommodityOptions])
 
   const removeCargoLineDraft = useCallback((key) => {
     setCargoLoadLinesDraft((prev) => (prev.length <= 1 ? prev : prev.filter((r) => r.key !== key)))
@@ -1102,6 +1141,13 @@ export default function OperationalMilestoneWorkspace({
           if (commodityType === 'Liquid' && (!Array.isArray(li.tankIds) || li.tankIds.length === 0)) {
             return { error: t('cargoOpsLineTanksRequired', { n: i + 1 }) }
           }
+          let lineCommodityId = li.commodityId != null ? String(li.commodityId).trim() : ''
+          if (!lineCommodityId && siCommodityOptions.length === 1) {
+            lineCommodityId = siCommodityOptions[0].commodityId
+          }
+          if (showCommodityPicker && !lineCommodityId) {
+            return { error: t('cargoOpsLineCommodityRequired', { n: i + 1 }) }
+          }
           built.push({
             qty: mq,
             manualQty: isMixed ? manualQty : null,
@@ -1113,6 +1159,7 @@ export default function OperationalMilestoneWorkspace({
             hasEnd,
             _i: i,
             tankIds: Array.isArray(li.tankIds) ? li.tankIds.map(String) : [],
+            commodityId: lineCommodityId || null,
           })
         }
         built.sort((a, b) => a._sort - b._sort || a._i - b._i)
@@ -1135,17 +1182,20 @@ export default function OperationalMilestoneWorkspace({
             return { error: t('cargoOpsLineStartStrict') }
           }
         }
-        const cargoLoadLines = built.map(({ qty, manualQty, atgQtyMode, startIso, endIso, tankIds }) => {
+        const cargoLoadLines = built.map(
+          ({ qty, manualQty, atgQtyMode, startIso, endIso, tankIds, commodityId }) => {
           const row = { startAt: startIso, atgQtyMode: atgQtyMode || 'auto' }
           if (endIso) row.endAt = endIso
           else row.endAt = null
           if (qty != null) row.qty = qty
           if (manualQty != null) row.manualQty = manualQty
+          if (commodityId) row.commodityId = commodityId
           if (commodityType === 'Liquid' && Array.isArray(tankIds) && tankIds.length > 0) {
             row.tankIds = tankIds
           }
           return row
-        })
+        }
+        )
         return {
           payload: {
             milestoneKey: mk,
@@ -1255,7 +1305,11 @@ export default function OperationalMilestoneWorkspace({
             const last = prev[prev.length - 1]
             const nextStart = last?.end || getNowForDateTimeLocal()
             const prevTanks = Array.isArray(last?.tankIds) ? last.tankIds.map(String) : []
-            return [...prev, defaultCargoLineDraft(getNowForDateTimeLocal, nextStart, prevTanks)]
+            const commodityId = defaultCommodityIdForNewLine(siCommodityOptions, last?.commodityId)
+            return [
+              ...prev,
+              defaultCargoLineDraft(getNowForDateTimeLocal, nextStart, prevTanks, commodityId),
+            ]
           })
           setFormError('')
           return
@@ -1495,7 +1549,15 @@ export default function OperationalMilestoneWorkspace({
                   <h3 className="berthing-modal__card-title operational-milestone-composer__title" id="op-milestone-active-label">
                     {activeMilestone}
                   </h3>
-                  {(cargoCommodity != null && String(cargoCommodity).trim()) || (cargoSiQty != null && cargoSiQty !== '' && Number.isFinite(Number(cargoSiQty))) ? (
+                  {singleCommodityBanner ? (
+                    <p className="cargo-ops-modal-meta text-steel">
+                      {t('cargoOpsProductBanner', {
+                        product: singleCommodityBanner,
+                        defaultValue: `Product: ${singleCommodityBanner}`,
+                      })}
+                    </p>
+                  ) : (cargoCommodity != null && String(cargoCommodity).trim()) ||
+                    (cargoSiQty != null && cargoSiQty !== '' && Number.isFinite(Number(cargoSiQty))) ? (
                     <p className="cargo-ops-modal-meta text-steel">
                       {cargoCommodity != null && String(cargoCommodity).trim() ? String(cargoCommodity).trim() : null}
                       {cargoCommodity != null && String(cargoCommodity).trim() && cargoSiQty != null && cargoSiQty !== '' && Number.isFinite(Number(cargoSiQty)) ? <span className="cargo-ops-modal-meta__sep"> · </span> : null}
@@ -1705,6 +1767,47 @@ export default function OperationalMilestoneWorkspace({
                         </div>
 
                         <div className="cargo-line-card__body">
+                          {showCommodityPicker ? (
+                            <div className="berthing-modal__field">
+                              <label className="berthing-modal__label" htmlFor={`op-cargo-commodity-${lr.key}`}>
+                                {t('cargoOpsLineProduct')}{' '}
+                                <span className="required-star">*</span>
+                              </label>
+                              <select
+                                id={`op-cargo-commodity-${lr.key}`}
+                                className="berthing-modal__input"
+                                value={row.commodityId || ''}
+                                onChange={(e) =>
+                                  updateCargoLineDraft(lr.key, { commodityId: e.target.value })
+                                }
+                                disabled={Boolean(row.end && row.start)}
+                              >
+                                <option value="">{t('cargoOpsLineProductPlaceholder')}</option>
+                                {siCommodityOptions.map((o) => (
+                                  <option key={o.commodityId} value={o.commodityId}>
+                                    {o.shortName}
+                                    {formatSiCommodityPlanHint(o)
+                                      ? ` — ${formatSiCommodityPlanHint(o)}`
+                                      : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          ) : null}
+                          {(() => {
+                            const opt = findSiCommodityOption(siCommodityOptions, row.commodityId)
+                            const warnings = buildTankCommodityMismatchWarnings(
+                              opt?.shortName,
+                              row.tankIds,
+                              tankMetaById
+                            )
+                            if (!warnings.length) return null
+                            return (
+                              <p className="cargo-ops-tank-warn text-steel" role="status">
+                                {warnings.join(' ')}
+                              </p>
+                            )
+                          })()}
                           {commodityType === 'Liquid' ? (
                             <div className="berthing-modal__field cargo-line-card__tanks-field">
                               <label className="berthing-modal__label" htmlFor={`op-cargo-tanks-${lr.key}`}>

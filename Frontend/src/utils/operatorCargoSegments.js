@@ -62,6 +62,8 @@ export function buildOperatorCargoSegments(activities, purpose, opts = {}) {
         tankCodes,
         tankIds,
         atgQtyMode,
+        commodityShortDisplay: line.commodityShortDisplay || null,
+        commodityId: line.commodityId != null ? String(line.commodityId) : null,
         showHourly: segmentShowsHourly({ tankIds, atgQtyMode, commodityType, tankOptions }),
         qtyLabel: Number.isFinite(qty) && qty > 0 ? `${formatQtyNumber(qty)} MT` : null,
       })
