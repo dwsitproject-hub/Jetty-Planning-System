@@ -136,6 +136,8 @@ export async function applyStagedVesselSyncRun(db, runId, actorUserId = null) {
       throw new Error(`Sync run is already ${runRes.rows[0].status}`);
     }
 
+    const runSource = runRes.rows[0].source === 'webhook' ? 'webhook' : 'manual_sync';
+
     const approved = await client.query(
       `SELECT * FROM datahub_vessel_sync_items
        WHERE run_id = $1 AND decision = 'approved' AND applied_at IS NULL`,
@@ -145,7 +147,10 @@ export async function applyStagedVesselSyncRun(db, runId, actorUserId = null) {
     let created = 0;
     let updated = 0;
     for (const item of approved.rows) {
-      const { action } = await applyVesselItem(client, item, actorUserId);
+      const { action } = await applyVesselItem(client, item, actorUserId, {
+        applySource: runSource,
+        applyRunId: runId,
+      });
       if (action === 'created') created += 1;
       else updated += 1;
       await client.query(

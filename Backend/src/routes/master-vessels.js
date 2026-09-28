@@ -38,6 +38,7 @@ const LAMBUNG_TYPES = new Set([
 const CHARTER_TYPES = new Set(['Voyage Charter', 'Time Charter']);
 
 const VESSEL_SELECT = `SELECT v.id, v.hub_code, v.hub_record_id, v.hub_version, v.hub_updated_at,
+            v.datahub_last_apply_source, v.datahub_last_apply_run_id,
             v.vessel_name, v.vessel_imo, v.vessel_mmsi, v.vessel_code_sap,
             v.vessel_capacity_mt, v.vessel_gross_tonnage, v.vessel_draft,
             v.vessel_length_overall, v.vessel_type, v.heater, v.type_lambung,
@@ -64,6 +65,9 @@ function toVessel(row) {
     hubRecordId: row.hub_record_id ?? null,
     hubVersion: row.hub_version != null ? Number(row.hub_version) : null,
     hubUpdatedAt: row.hub_updated_at ?? null,
+    datahubLastApplySource: row.datahub_last_apply_source ?? null,
+    datahubLastApplyRunId:
+      row.datahub_last_apply_run_id != null ? Number(row.datahub_last_apply_run_id) : null,
     vesselName: row.vessel_name,
     vesselImo: row.vessel_imo ?? null,
     vesselMmsi: row.vessel_mmsi ?? null,
@@ -477,8 +481,12 @@ router.post('/sync/runs/:id(\\d+)/apply', ...requirePageEdit('master-vessel'), a
 
     let created = 0;
     let updated = 0;
+    const runSource = runRes.rows[0].source === 'webhook' ? 'webhook' : 'manual_sync';
     for (const item of approved.rows) {
-      const { action } = await applyVesselItem(client, item, actorId);
+      const { action } = await applyVesselItem(client, item, actorId, {
+        applySource: runSource,
+        applyRunId: id,
+      });
       if (action === 'created') created += 1;
       else updated += 1;
       await client.query(

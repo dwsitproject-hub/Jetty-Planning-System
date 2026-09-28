@@ -405,15 +405,23 @@ export default function AdminDataHub() {
             Auto-apply webhook vessel changes (skip manual review)
           </label>
           <p className="text-steel" style={{ marginTop: '0.5rem', fontSize: '0.85em' }}>
-            <strong>Recommended:</strong> control review vs auto-apply here, then click{' '}
-            <strong>Save settings</strong> above. Uncheck auto-apply to return to review-first
+            Set the options above, then save. Uncheck auto-apply to return to review-first
             (Master – Vessel → Resume review). Default is review-first.
           </p>
           <p className="text-steel" style={{ marginTop: '0.25rem', fontSize: '0.85em' }}>
-            Enable inbound webhooks and paste the webhook secret here (must match DHM). Server{' '}
-            <code>DHM_*</code> env vars are optional bootstrap only; saved settings on this page
-            take precedence.
+            Webhook secret must match DHM. Saved settings here override optional server{' '}
+            <code>DHM_*</code> env bootstrap values.
           </p>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={handleSave}
+              disabled={saving || testing || loading}
+            >
+              {saving ? 'Saving…' : 'Save settings'}
+            </button>
+          </div>
         </div>
       </section>
     </div>
