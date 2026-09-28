@@ -9,7 +9,7 @@ describe('datahub-incoterm-sync', () => {
     const hub = normalizeHubIncoterm({
       id: 'uuid-1',
       version: 1,
-      data: { code: 'INC-0001', name: 'fob', description: 'Free on board' },
+      data: { code: 'INC-0001', short_name: 'fob', long_name: 'Free On Board', description: 'Free on board' },
     });
     assert.equal(hub.values.code, 'FOB');
     assert.equal(hub.values.description, 'Free on board');
@@ -19,7 +19,7 @@ describe('datahub-incoterm-sync', () => {
     const hub = normalizeHubIncoterm({
       id: 'uuid-1',
       version: 1,
-      data: { code: 'INC-0001', name: 'FOB', long_name: 'Free On Board' },
+      data: { code: 'INC-0001', short_name: 'FOB', long_name: 'Free On Board' },
     });
     assert.equal(hub.values.long_name, 'Free On Board');
   });
@@ -29,7 +29,7 @@ describe('datahub-incoterm-sync', () => {
       normalizeHubIncoterm({
         id: 'uuid-1',
         version: 2,
-        data: { code: 'INC-0001', name: 'FOB', description: 'Updated' },
+        data: { code: 'INC-0001', short_name: 'FOB', long_name: 'Free On Board', description: 'Updated' },
       }),
     ];
     const local = [{ id: 5, hub_code: 'INC-0001', code: 'FOB', description: 'Old' }];

@@ -54,7 +54,7 @@ describe('datahub-webhook', () => {
     const payload = {
       recordId: 'uuid-inc',
       version: 1,
-      data: { code: 'INC-0002', name: 'CIF' },
+      data: { code: 'INC-0002', short_name: 'CIF', long_name: 'Cost Insurance Freight' },
     };
     const hub = hubRecordFromWebhookPayload(payload, 'record.updated', 'incoterm');
     assert.equal(hub.hubCode, 'INC-0002');

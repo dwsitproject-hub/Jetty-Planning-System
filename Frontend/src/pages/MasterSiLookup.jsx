@@ -261,8 +261,16 @@ export default function MasterSiLookup({
     setError(null)
     setSyncError(null)
     try {
-      const { run } = await dataHubSyncApi.startSyncRun()
+      const resp = await dataHubSyncApi.startSyncRun()
       await loadLatestRun()
+      if (resp?.noChanges) {
+        setToast({
+          message: 'DataHub matches JPS — nothing new or changed to review.',
+          variant: 'success',
+        })
+        return
+      }
+      const run = resp?.run
       if (run?.id) await openReview(run.id)
     } catch (e) {
       setError(e?.message || 'DataHub sync failed')

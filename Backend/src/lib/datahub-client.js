@@ -177,11 +177,11 @@ function hubRecordEnvelope(record, values) {
   };
 }
 
-/** DHM incoterm → local si_trade_terms. DHM `name` is the short term code (FOB). */
+/** DHM incoterm → local si_trade_terms. DHM `short_name` is the Term code (FOB). */
 export function normalizeHubIncoterm(record) {
   const data = record?.data && typeof record.data === 'object' ? record.data : null;
   if (!data) return null;
-  const termCode = str(data.name);
+  const termCode = str(data.short_name ?? data.shortName ?? data.name);
   if (!termCode) return null;
   const values = {
     code: termCode.toUpperCase(),

@@ -44,15 +44,16 @@ async function applySiHubLinkage(table, rowId, linkage, actorId) {
 }
 
 export function localIncotermToHubPayload(row) {
-  const name = str(row.code ?? row.value);
-  if (!name) throw new Error('Incoterm short name (Term) is required to push to DataHub');
-  const payload = { name };
+  const short_name = str(row.code ?? row.value);
+  if (!short_name) throw new Error('Incoterm short name (Term) is required to push to DataHub');
+  const long_name = str(row.long_name ?? row.longName) ?? short_name;
+  const payload = {
+    short_name: short_name.toUpperCase(),
+    long_name,
+  };
   const desc = str(row.description);
   if (desc) payload.description = desc;
-  const longName = str(row.long_name ?? row.longName);
-  if (longName) payload.long_name = longName;
   const hubCode = str(row.hub_code ?? row.hubCode);
-  if (hubCode) payload.code = hubCode;
   return { payload, hubCode };
 }
 

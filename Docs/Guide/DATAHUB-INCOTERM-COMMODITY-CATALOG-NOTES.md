@@ -20,11 +20,11 @@ node scripts/probe-datahub-catalog.mjs
 | DHM | Master – Term (`si_trade_terms`) | Master – Commodity (`si_commodities`) |
 | --- | --- | --- |
 | `code` | `hub_code` | `hub_code` |
-| `name` | `code` (Incoterm, uppercased) | — (DHM uses `long_name` for full name) |
-| `long_name` | `long_name` (when in sync payload) | `name` (JPS commodity long name) |
+| `short_name` | `code` (Term, uppercased) | `short_name` |
+| `long_name` | `long_name` | `name` (JPS commodity long name) |
 | `description` | `description` | — |
 | `hs_code` | — | `hs_code` |
-| `short_name` | — | `short_name` (short commodity name) |
+| `name` (legacy hub) | fallback for `short_name` if present | — |
 | `type` | — | `commodity_type` (`Liquid` \| `Solid`) |
 | `uom` | — | `default_metric_id` via `metric.code` KL/MT |
 | — | `sort_order` local | `kl_to_mt_factor` JPS-only (not synced from DHM) |
