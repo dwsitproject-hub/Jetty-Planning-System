@@ -38,6 +38,8 @@ router.put('/', async (req, res) => {
         publicKey: body.publicKey,
         privateKey: body.privateKey,
         enabled: body.enabled,
+        webhookEnabled: body.webhookEnabled,
+        webhookSecret: body.webhookSecret,
       },
       req.userId ?? null
     );
@@ -58,8 +60,18 @@ router.put('/', async (req, res) => {
   if (before.enabled !== after.enabled) {
     changes.push({ field: 'Enabled', from: before.enabled ? 'Yes' : 'No', to: after.enabled ? 'Yes' : 'No' });
   }
+  if (before.webhookEnabled !== after.webhookEnabled) {
+    changes.push({
+      field: 'Inbound webhooks',
+      from: before.webhookEnabled ? 'Yes' : 'No',
+      to: after.webhookEnabled ? 'Yes' : 'No',
+    });
+  }
   if (body.privateKey != null && String(body.privateKey).trim()) {
     changes.push({ field: 'Private Key', from: null, to: 'updated' });
+  }
+  if (body.webhookSecret != null && String(body.webhookSecret).trim()) {
+    changes.push({ field: 'Webhook secret', from: null, to: 'updated' });
   }
   writeActivityLog({
     pageKey: ACTIVITY_PAGE_KEY,

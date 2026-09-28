@@ -19,6 +19,7 @@ import {
 import { fetchAllVessels } from '../lib/datahub-client.js';
 import { getEffectiveDataHubConfig, updateDataHubSyncHealth } from '../lib/datahub-config.js';
 import { COMPARED_COLUMNS, buildSyncPlan } from '../lib/datahub-vessel-sync.js';
+import { insertStagedVesselSyncRun } from '../lib/datahub-vessel-stage.js';
 import { applyVesselItem } from '../lib/datahub-vessel-apply.js';
 import { tryPushAfterSave } from '../lib/datahub-vessel-push.js';
 
@@ -287,6 +288,8 @@ function toRun(row) {
   return {
     id: Number(row.id),
     status: row.status,
+    source: row.source ?? 'manual',
+    webhookDeliveryId: row.webhook_delivery_id ?? null,
     hubRecordCount: Number(row.hub_record_count ?? 0),
     newCount: Number(row.new_count ?? 0),
     changedCount: Number(row.changed_count ?? 0),
@@ -355,48 +358,14 @@ router.post('/sync/runs', ...requirePageEdit('master-vessel'), async (req, res) 
   let runId;
   try {
     await client.query('BEGIN');
-    const runRes = await client.query(
-      `INSERT INTO datahub_vessel_sync_runs (
-         status, hub_record_count, new_count, changed_count, unchanged_count,
-         finished_at, created_by
-       ) VALUES ('staged', $1, $2, $3, $4, NOW(), $5)
-       RETURNING id`,
-      [
-        summary.hubRecordCount,
-        summary.newCount,
-        summary.changedCount,
-        summary.unchangedCount,
-        req.userId ?? null,
-      ]
-    );
-    runId = runRes.rows[0].id;
-
-    for (const item of items) {
-      // new/changed start approved so the review screen is pre-ticked; the user
-      // can untick any row and nothing is written until Apply is pressed.
-      const decision = item.diffKind === 'unchanged' ? 'rejected' : 'approved';
-      await client.query(
-        `INSERT INTO datahub_vessel_sync_items (
-           run_id, vessel_id, hub_code, vessel_name, diff_kind, payload, field_diff, decision
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [
-          runId,
-          item.vesselId,
-          item.hubCode,
-          item.vesselName,
-          item.diffKind,
-          JSON.stringify({
-            values: item.values,
-            hubCode: item.hubCode,
-            hubRecordId: item.hubRecordId,
-            hubVersion: item.hubVersion,
-            hubUpdatedAt: item.hubUpdatedAt,
-          }),
-          JSON.stringify(item.fieldDiff),
-          decision,
-        ]
-      );
-    }
+    runId = await insertStagedVesselSyncRun(client, {
+      items,
+      summary,
+      source: 'manual',
+      webhookDeliveryId: null,
+      createdBy: req.userId ?? null,
+      preapproveChanges: true,
+    });
     await client.query('COMMIT');
   } catch (e) {
     await client.query('ROLLBACK');

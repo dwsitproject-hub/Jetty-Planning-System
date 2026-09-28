@@ -6,14 +6,25 @@ export function fetchDataHubConfig() {
 }
 
 /** Leave privateKey empty to keep the stored one. */
-export function saveDataHubConfig({ baseUrl, publicKey, privateKey, enabled } = {}) {
+export function saveDataHubConfig({
+  baseUrl,
+  publicKey,
+  privateKey,
+  enabled,
+  webhookEnabled,
+  webhookSecret,
+} = {}) {
   const body = {
     baseUrl: baseUrl ?? null,
     publicKey: publicKey ?? null,
     enabled: enabled === true,
+    webhookEnabled: webhookEnabled === true,
   }
   if (privateKey != null && String(privateKey).trim() !== '') {
     body.privateKey = String(privateKey).trim()
+  }
+  if (webhookSecret != null && String(webhookSecret).trim() !== '') {
+    body.webhookSecret = String(webhookSecret).trim()
   }
   return apiPut('/datahub-admin', body)
 }

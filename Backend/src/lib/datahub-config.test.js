@@ -26,6 +26,10 @@ function fakeDb(initial = {}) {
     last_error: null,
     updated_at: null,
     updated_by: null,
+    webhook_secret_encrypted: null,
+    webhook_enabled: false,
+    last_webhook_at: null,
+    last_webhook_error: null,
     ...initial,
   };
   return {
@@ -33,14 +37,28 @@ function fakeDb(initial = {}) {
     async query(sql, params = []) {
       if (/^\s*SELECT/i.test(sql)) return { rows: [row] };
       if (/UPDATE datahub_config SET\s+base_url/i.test(sql)) {
-        const [baseUrl, publicKey, privateKeyEncrypted, enabled, updatedBy] = params;
+        const [
+          baseUrl,
+          publicKey,
+          privateKeyEncrypted,
+          enabled,
+          webhookEnabled,
+          webhookSecretEncrypted,
+          updatedBy,
+        ] = params;
         Object.assign(row, {
           base_url: baseUrl,
           public_key: publicKey,
           private_key_encrypted: privateKeyEncrypted,
           enabled,
+          webhook_enabled: webhookEnabled,
+          webhook_secret_encrypted: webhookSecretEncrypted,
           updated_by: updatedBy,
         });
+        return { rows: [row] };
+      }
+      if (/last_webhook_at/i.test(sql)) {
+        Object.assign(row, { last_webhook_at: new Date(), last_webhook_error: params[0] });
         return { rows: [row] };
       }
       throw new Error(`unexpected query: ${sql}`);

@@ -376,7 +376,8 @@ export default function MasterVessel() {
 
       {stagedRun && !review && (
         <p className="allocation-page__intro">
-          A DataHub sync is staged and waiting for review ({stagedRun.newCount} new,{' '}
+          A DataHub sync is staged and waiting for review
+          {stagedRun.source === 'webhook' ? ' (from webhook)' : ''} ({stagedRun.newCount} new,{' '}
           {stagedRun.changedCount} changed).{' '}
           <button type="button" className="btn btn--small btn--secondary" onClick={() => openReview(stagedRun.id)}>
             Resume review
@@ -386,7 +387,8 @@ export default function MasterVessel() {
 
       {!stagedRun && latestRun && (
         <p className="text-steel">
-          Last DataHub sync {new Date(latestRun.startedAt).toLocaleString()} — {latestRun.status}
+          Last DataHub sync {new Date(latestRun.startedAt).toLocaleString()}
+          {latestRun.source === 'webhook' ? ' (webhook)' : ''} — {latestRun.status}
           {latestRun.status === 'applied' ? ` (${latestRun.appliedCount} rows written)` : ''}
           {latestRun.error ? `: ${latestRun.error}` : ''}
         </p>

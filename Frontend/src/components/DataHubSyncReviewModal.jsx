@@ -216,6 +216,11 @@ export default function DataHubSyncReviewModal({
       >
         <h2 id="datahub-sync-title" className="modal__title">
           Review DataHub sync #{run?.id}
+          {run?.source === 'webhook' ? (
+            <span className="master-hub-badge master-hub-badge--shared" style={{ marginLeft: '0.5rem', fontSize: '0.65em' }}>
+              Webhook
+            </span>
+          ) : null}
         </h2>
         <p className="text-steel">
           {run?.hubRecordCount ?? 0} vessels read from DataHub: {run?.newCount ?? 0} new,{' '}
