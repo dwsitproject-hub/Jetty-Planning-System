@@ -33,6 +33,18 @@ function displayValue(v) {
   return String(v)
 }
 
+/** Resolve default_metric_id to metric.label (fallback code, then raw id). */
+function formatFieldValue(column, v, metricLabelsById) {
+  if (column === 'default_metric_id') {
+    if (v == null || v === '') return '—'
+    const id = Number(v)
+    if (Number.isFinite(id) && metricLabelsById && metricLabelsById[id] != null) {
+      return String(metricLabelsById[id])
+    }
+  }
+  return displayValue(v)
+}
+
 function fieldLabel(column) {
   return FIELD_LABELS[column] || column
 }
@@ -46,6 +58,7 @@ function SyncReviewGroup({
   onToggle,
   onSelectAll,
   applying,
+  metricLabelsById,
 }) {
   const {
     page,
@@ -112,12 +125,18 @@ function SyncReviewGroup({
                           <li key={column}>
                             <span className="datahub-sync__diff-field">{fieldLabel(column)}</span>
                             {groupKey === 'new' ? (
-                              <span className="datahub-sync__diff-new">{displayValue(change.to)}</span>
+                              <span className="datahub-sync__diff-new">
+                                {formatFieldValue(column, change.to, metricLabelsById)}
+                              </span>
                             ) : (
                               <>
-                                <span className="datahub-sync__diff-old">{displayValue(change.from)}</span>
+                                <span className="datahub-sync__diff-old">
+                                  {formatFieldValue(column, change.from, metricLabelsById)}
+                                </span>
                                 <span className="datahub-sync__diff-arrow" aria-hidden="true">→</span>
-                                <span className="datahub-sync__diff-new">{displayValue(change.to)}</span>
+                                <span className="datahub-sync__diff-new">
+                                  {formatFieldValue(column, change.to, metricLabelsById)}
+                                </span>
                               </>
                             )}
                           </li>
@@ -180,6 +199,7 @@ export default function DataHubSyncReviewModal({
   onClose,
   recordNoun = 'vessels',
   newHint = 'Vessels not yet in the JPS master.',
+  metricLabelsById = null,
 }) {
   const [selectedIds, setSelectedIds] = useState(() =>
     new Set((items || []).filter((i) => i.decision === 'approved' && i.diffKind !== 'unchanged').map((i) => i.id))
@@ -254,6 +274,7 @@ export default function DataHubSyncReviewModal({
             onToggle={toggle}
             onSelectAll={(on) => setGroup('changed', on)}
             applying={applying}
+            metricLabelsById={metricLabelsById}
           />
           <SyncReviewGroup
             groupKey="new"
@@ -264,6 +285,7 @@ export default function DataHubSyncReviewModal({
             onToggle={toggle}
             onSelectAll={(on) => setGroup('new', on)}
             applying={applying}
+            metricLabelsById={metricLabelsById}
           />
           {groups.unchanged.length > 0 && (
             <section className="datahub-sync__group">

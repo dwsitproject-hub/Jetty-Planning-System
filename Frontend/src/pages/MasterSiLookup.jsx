@@ -187,6 +187,16 @@ export default function MasterSiLookup({
     return cols
   }, [valueLabel, isCommodityMaster, isTermMaster, enableStandardRateFields, hasLongName, longNameLabel])
 
+  const metricLabelsById = useMemo(() => {
+    const out = {}
+    for (const m of metricOptions) {
+      if (m?.id == null) continue
+      const label = (m.label && String(m.label).trim()) || m.code
+      if (label) out[Number(m.id)] = label
+    }
+    return out
+  }, [metricOptions])
+
   const { displayRows, filters, updateFilter, sortState, handleSort } = useSortableFilterableRows(
     items,
     tableColumns,
@@ -982,6 +992,7 @@ export default function MasterSiLookup({
           onClose={() => setReview(null)}
           recordNoun={dataHubUiMeta.recordNoun}
           newHint={dataHubUiMeta.newHint}
+          metricLabelsById={isCommodityMaster ? metricLabelsById : null}
         />
       )}
     </div>
