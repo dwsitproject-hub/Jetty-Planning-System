@@ -65,6 +65,7 @@ export function mapExistingCargoLine(l, entry) {
     tankIds,
     atgQtyMode: l.atgQtyMode || 'auto',
     manualQty: l.manualQty,
+    commodityId: l.commodityId != null ? String(l.commodityId) : undefined,
   }
 }
 
@@ -76,6 +77,7 @@ export async function buildStoppedCargoLine(openLine, endIso, { portId, commodit
     tankIds,
     atgQtyMode: openLine.atgQtyMode || 'auto',
     manualQty: openLine.manualQty,
+    commodityId: openLine.commodityId != null ? String(openLine.commodityId) : undefined,
   }
   if (commodityType !== 'Liquid' || !portId || tankIds.length === 0) return line
 

@@ -18,6 +18,7 @@ import { validateBerthingTimeline, validateScheduleTimestamp } from '../lib/vali
 import { userHasPageApprove, userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
 import { enrichRowsWithCargoDisplay } from '../lib/siBreakdownDisplay.js';
+import { getSiCommodityOptions } from '../lib/si-commodity-options.js';
 import { getAtBerthCargoProgressSummaries } from '../lib/operational-progress.js';
 import { computeAtBerthFlowPattern } from '../lib/at-berth-flow-pattern.js';
 
@@ -568,7 +569,20 @@ router.get('/:id', async (req, res) => {
   if (!canAccessOperationForSelectedPort(row, req.selectedPortId)) {
     return res.status(404).json({ error: 'Operation not found' });
   }
-  res.json(toOp(row));
+  const siId = row.shipping_instruction_id != null ? Number(row.shipping_instruction_id) : null;
+  const siCommodityOptions =
+    siId != null ? await getSiCommodityOptions(pool, siId) : [];
+  res.json({
+    ...toOp(row),
+    siCommodityOptions: siCommodityOptions.map((o) => ({
+      commodityId: String(o.commodityId),
+      name: o.name,
+      shortName: o.shortName,
+      plannedQty: o.plannedQty,
+      metricCode: o.metricCode,
+      metricMixed: Boolean(o.metricMixed),
+    })),
+  });
 });
 
 router.post('/', async (req, res) => {

@@ -25,6 +25,8 @@ export default function OperatorExecutionPage() {
   const [tankPickerOpen, setTankPickerOpen] = useState(false)
   const [editModal, setEditModal] = useState(null)
 
+  const lastCargoCommodityId = exec.lastCargoCommodityId ?? null
+
   const lastCargoTankIds = useMemo(() => {
     const cargo = (exec.milestones || []).find((m) => m.key === 'cargo_operations')
     if (cargo?.openLine?.tankIds?.length) return cargo.openLine.tankIds.map(String)
@@ -203,11 +205,13 @@ export default function OperatorExecutionPage() {
         open={tankPickerOpen}
         purpose={exec.purpose}
         options={exec.tankOptions}
+        siCommodityOptions={exec.siCommodityOptions}
         initialSelected={lastCargoTankIds}
+        initialCommodityId={lastCargoCommodityId}
         busy={exec.busy}
         onCancel={() => setTankPickerOpen(false)}
-        onConfirm={async (tankIds) => {
-          const ok = await exec.startMilestone('cargo_operations', { tankIds })
+        onConfirm={async ({ tankIds, commodityId }) => {
+          const ok = await exec.startMilestone('cargo_operations', { tankIds, commodityId })
           if (ok) setTankPickerOpen(false)
         }}
       />

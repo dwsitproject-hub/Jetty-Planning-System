@@ -1,9 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import {
+  defaultCommodityIdForNewLine,
+  findSiCommodityOption,
+  formatSiCommodityPlanHint,
+  normalizeSiCommodityOptions,
+  requiresCommodityPicker,
+} from '../../utils/siCommodityOptions.js'
+import { buildTankCommodityMismatchWarnings } from '../../utils/tankCommodityMismatch.js'
 
 function matchesTankSearch(tk, term) {
   if (!term) return true
-  const haystack = [tk.label, tk.code, tk.name]
+  const haystack = [tk.label, tk.code, tk.name, tk.productName]
     .filter(Boolean)
     .join(' ')
     .toLowerCase()
@@ -14,27 +22,53 @@ export default function OperatorTankPickerSheet({
   open,
   purpose,
   options,
+  siCommodityOptions = [],
   initialSelected = [],
+  initialCommodityId = null,
   busy,
   onCancel,
   onConfirm,
 }) {
   const { t } = useTranslation('operator')
+  const commodities = useMemo(
+    () => normalizeSiCommodityOptions(siCommodityOptions),
+    [siCommodityOptions]
+  )
+  const showCommodityPicker = requiresCommodityPicker(commodities)
   const [selected, setSelected] = useState(() => new Set(initialSelected.map(String)))
   const [search, setSearch] = useState('')
+  const [commodityId, setCommodityId] = useState(() => {
+    const d = defaultCommodityIdForNewLine(commodities, initialCommodityId)
+    return d || ''
+  })
 
   useEffect(() => {
     if (open) {
       setSelected(new Set(initialSelected.map(String)))
       setSearch('')
+      const d = defaultCommodityIdForNewLine(commodities, initialCommodityId)
+      setCommodityId(d || '')
     }
-  }, [open, initialSelected])
+  }, [open, initialSelected, initialCommodityId, commodities])
 
   const filteredOptions = useMemo(() => {
     const term = search.trim().toLowerCase()
     if (!term) return options
     return options.filter((tk) => matchesTankSearch(tk, term))
   }, [options, search])
+
+  const tankMetaById = useMemo(() => {
+    const m = new Map()
+    for (const tk of options || []) {
+      m.set(String(tk.id), tk)
+    }
+    return m
+  }, [options])
+
+  const mismatchWarnings = useMemo(() => {
+    const opt = findSiCommodityOption(commodities, commodityId)
+    return buildTankCommodityMismatchWarnings(opt?.shortName, [...selected], tankMetaById)
+  }, [commodities, commodityId, selected, tankMetaById])
 
   if (!open) return null
 
@@ -50,6 +84,9 @@ export default function OperatorTankPickerSheet({
     })
   }
 
+  const canConfirm =
+    selected.size > 0 && (!showCommodityPicker || Boolean(commodityId))
+
   return (
     <>
       <div className="operator-sheet-backdrop" onClick={onCancel} aria-hidden />
@@ -58,6 +95,30 @@ export default function OperatorTankPickerSheet({
           <h2>{title}</h2>
           <p>{t('tank.requiredBeforeStart')}</p>
         </div>
+        {showCommodityPicker ? (
+          <div className="operator-sheet__commodity">
+            <p className="operator-sheet__commodity-label">{t('cargo.whichProduct')}</p>
+            <div className="operator-sheet__commodity-chips">
+              {commodities.map((o) => {
+                const on = commodityId === o.commodityId
+                const hint = formatSiCommodityPlanHint(o)
+                return (
+                  <button
+                    key={o.commodityId}
+                    type="button"
+                    className={`operator-commodity-chip${on ? ' is-selected' : ''}`}
+                    onClick={() => setCommodityId(o.commodityId)}
+                  >
+                    <span className="operator-commodity-chip__name">{o.shortName}</span>
+                    {hint ? (
+                      <span className="operator-commodity-chip__hint">{t('cargo.planQty', { qty: hint })}</span>
+                    ) : null}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ) : null}
         {options.length > 0 ? (
           <div className="operator-sheet__search">
             <input
@@ -69,7 +130,7 @@ export default function OperatorTankPickerSheet({
               aria-label={t('tank.searchPlaceholder')}
               autoComplete="off"
               inputMode="search"
-              autoFocus
+              autoFocus={!showCommodityPicker}
             />
           </div>
         ) : null}
@@ -96,6 +157,11 @@ export default function OperatorTankPickerSheet({
             })
           )}
         </div>
+        {mismatchWarnings.length > 0 ? (
+          <p className="operator-sheet__warn" role="status">
+            {mismatchWarnings.join(' ')}
+          </p>
+        ) : null}
         <div className="operator-sheet__footer">
           <button type="button" className="op-btn" onClick={onCancel} disabled={busy}>
             {t('action.cancel')}
@@ -103,8 +169,13 @@ export default function OperatorTankPickerSheet({
           <button
             type="button"
             className="op-btn op-btn--primary"
-            disabled={busy || selected.size === 0}
-            onClick={() => onConfirm([...selected])}
+            disabled={busy || !canConfirm}
+            onClick={() =>
+              onConfirm({
+                tankIds: [...selected],
+                commodityId: showCommodityPicker ? commodityId : commodities[0]?.commodityId ?? null,
+              })
+            }
           >
             {t('action.confirmStart')}
           </button>

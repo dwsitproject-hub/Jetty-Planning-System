@@ -93,7 +93,9 @@
     "segmentsDone": "{{count}} segmen selesai",
     "lastTanks": "Tangki terakhir: {{list}}",
     "completed": "Selesai",
-    "inProgress": "Berlangsung"
+    "inProgress": "Berlangsung",
+    "whichProduct": "Produk apa yang dipindahkan?",
+    "planQty": "Rencana {{qty}}"
   },
   "segments": {
     "title": "Segmen cargo",

@@ -299,6 +299,7 @@ export function useOperatorExecution(operationId) {
             code: tk.code || String(tk.id),
             name: tk.name || '',
             hasAtg: tk.hasAtg === true,
+            productName: tk.productName ?? tk.product_name ?? null,
             label: tk.hasAtg
               ? `${tk.code || tk.id}${tk.name ? ` — ${tk.name}` : ''} · ATG`
               : `${tk.code || tk.id}${tk.name ? ` — ${tk.name}` : ''}`,
@@ -457,8 +458,18 @@ export function useOperatorExecution(operationId) {
     [reload, showToast]
   )
 
+  const siCommodityOptions = operation?.siCommodityOptions ?? []
+
+  const lastCargoCommodityId = useMemo(() => {
+    for (let i = cargoSegments.length - 1; i >= 0; i--) {
+      const cid = cargoSegments[i]?.commodityId
+      if (cid) return cid
+    }
+    return null
+  }, [cargoSegments])
+
   const startMilestone = useCallback(
-    async (milestoneKey, { tankIds } = {}) => {
+    async (milestoneKey, { tankIds, commodityId } = {}) => {
       if (milestoneKey === 'cargo_operations' || milestoneKey === 'other') {
         if (!confirmSequence()) return false
       }
@@ -524,6 +535,7 @@ export function useOperatorExecution(operationId) {
                     endAt: null,
                     tankIds: normalizedTankIds,
                     atgQtyMode: 'auto',
+                    ...(commodityId ? { commodityId: String(commodityId) } : {}),
                   },
                 ],
               },
@@ -549,6 +561,7 @@ export function useOperatorExecution(operationId) {
                     endAt: null,
                     tankIds: normalizedTankIds,
                     atgQtyMode: 'auto',
+                    ...(commodityId ? { commodityId: String(commodityId) } : {}),
                   },
                 ],
               },
@@ -579,7 +592,18 @@ export function useOperatorExecution(operationId) {
         )
       }, i18n.t('operator:toast.milestoneStarted', { name: meta.subStepTitle }))
     },
-    [activities, commodityType, confirmSequence, naByLabel, operationId, purpose, runMutation, showToast, tankOptions, tz]
+    [
+      activities,
+      commodityType,
+      confirmSequence,
+      naByLabel,
+      operationId,
+      purpose,
+      runMutation,
+      showToast,
+      tankOptions,
+      tz,
+    ]
   )
 
   const stopCargo = useCallback(async () => {
@@ -602,6 +626,7 @@ export function useOperatorExecution(operationId) {
             qty: l.qty,
             tankIds: resolveLineTankIds(l),
             atgQtyMode: l.atgQtyMode || 'auto',
+            commodityId: l.commodityId != null ? String(l.commodityId) : undefined,
           }
         }
         return buildStoppedCargoLine(l, endIso, {
@@ -797,6 +822,8 @@ export function useOperatorExecution(operationId) {
     portId,
     siblings,
     tankOptions,
+    siCommodityOptions,
+    lastCargoCommodityId,
     cargoMetricLabel,
     segmentHourlyByKey,
     segmentHourlyLoading,

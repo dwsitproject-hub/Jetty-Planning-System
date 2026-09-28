@@ -35,6 +35,7 @@ function toTank(row) {
     description: row.description ?? null,
     sortOrder: Number(row.sort_order ?? 0),
     hasAtg: row.has_atg === true,
+    productName: row.product_name != null ? String(row.product_name).trim() : null,
     ...pickMasterAudit(row),
   };
 }
@@ -70,7 +71,13 @@ router.get('/', async (req, res) => {
                AND s.base_url = m.source_base_url
                AND s.enabled = TRUE
               WHERE m.tank_id = t.id
-            ) AS has_atg
+            ) AS has_atg,
+            (
+              SELECT l.product_name
+              FROM tank_gauging_latest l
+              WHERE l.tank_id = t.id
+              LIMIT 1
+            ) AS product_name
      FROM master_tanks t
      JOIN ports p ON p.id = t.port_id AND p.deleted_at IS NULL
      ${masterAuditJoinSql('t')}
