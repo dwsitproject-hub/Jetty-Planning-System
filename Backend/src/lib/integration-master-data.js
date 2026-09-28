@@ -180,7 +180,10 @@ export const PARTNER_SUBMISSION_LOOKUP_SQL = `
          o.cast_off_at AS op_cast_off_at, o.sailed_at AS op_sailed_at,
          o.op_updated_at,
          j.name AS jetty_name,
-         regexp_replace(COALESCE(j.name, ''), '^Jetty\\s+', '', 'i') AS jetty_short_name
+         regexp_replace(COALESCE(j.name, ''), '^Jetty\\s+', '', 'i') AS jetty_short_name,
+         si.partner_si_document_url,
+         si.partner_contract_document_url,
+         si.partner_bl_document_url
   FROM integration_submissions s
   JOIN shipping_instructions si ON si.id = s.shipping_instruction_id AND si.deleted_at IS NULL
   JOIN shipment_plans sp ON sp.id = s.shipment_plan_id AND sp.deleted_at IS NULL
@@ -219,7 +222,10 @@ export const PARTNER_SUBMISSION_BY_PLAN_SQL = `
          o.cast_off_at AS op_cast_off_at, o.sailed_at AS op_sailed_at,
          o.op_updated_at,
          j.name AS jetty_name,
-         regexp_replace(COALESCE(j.name, ''), '^Jetty\\s+', '', 'i') AS jetty_short_name
+         regexp_replace(COALESCE(j.name, ''), '^Jetty\\s+', '', 'i') AS jetty_short_name,
+         si.partner_si_document_url,
+         si.partner_contract_document_url,
+         si.partner_bl_document_url
   FROM integration_submissions s
   JOIN shipping_instructions si ON si.id = s.shipping_instruction_id AND si.deleted_at IS NULL
   JOIN shipment_plans sp ON sp.id = s.shipment_plan_id AND sp.deleted_at IS NULL
@@ -258,7 +264,10 @@ export const PARTNER_SUBMISSION_BY_SI_SQL = `
          o.cast_off_at AS op_cast_off_at, o.sailed_at AS op_sailed_at,
          o.op_updated_at,
          j.name AS jetty_name,
-         regexp_replace(COALESCE(j.name, ''), '^Jetty\\s+', '', 'i') AS jetty_short_name
+         regexp_replace(COALESCE(j.name, ''), '^Jetty\\s+', '', 'i') AS jetty_short_name,
+         si.partner_si_document_url,
+         si.partner_contract_document_url,
+         si.partner_bl_document_url
   FROM integration_submissions s
   JOIN shipping_instructions si ON si.id = s.shipping_instruction_id AND si.deleted_at IS NULL
   JOIN shipment_plans sp ON sp.id = s.shipment_plan_id AND sp.deleted_at IS NULL

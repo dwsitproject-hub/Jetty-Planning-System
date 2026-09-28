@@ -16,6 +16,8 @@ import {
   formatMasterLastUpdatedLine,
   MASTER_AUDIT_COLUMNS,
 } from '../utils/formatMasterAudit.js'
+import DataHubSyncReviewModal from '../components/DataHubSyncReviewModal.jsx'
+import { createSiDataHubSyncApi, DATAHUB_SI_ENTITY_META } from '../api/datahubSiMaster.js'
 
 const RATE_METRIC_OPTIONS = [
   { value: 'KLPH', label: 'KLPH' },
@@ -67,12 +69,19 @@ export default function MasterSiLookup({
   const [formKlToMtFactor, setFormKlToMtFactor] = useState('')
   const [formDefaultMetricId, setFormDefaultMetricId] = useState('')
   const [formLongName, setFormLongName] = useState('')
+  const [formDescription, setFormDescription] = useState('')
   const [metricOptions, setMetricOptions] = useState([])
 
   const isCommodityMaster = apiType === 'commodities'
-  const hasLongName = apiType === 'shippers' || apiType === 'surveyors' || apiType === 'agents'
-  const longNameLabel =
-    apiType === 'shippers'
+  const isTermMaster = apiType === 'trade-terms'
+  const isDataHubMaster = isTermMaster || isCommodityMaster
+  const dataHubSyncApi = useMemo(() => createSiDataHubSyncApi(apiType), [apiType])
+  const dataHubUiMeta = DATAHUB_SI_ENTITY_META[apiType]
+  const hasLongName =
+    apiType === 'shippers' || apiType === 'surveyors' || apiType === 'agents' || isTermMaster
+  const longNameLabel = isTermMaster
+    ? 'Long name'
+    : apiType === 'shippers'
       ? 'Shipper Long Name'
       : apiType === 'surveyors'
         ? 'Surveyor Long Name'
@@ -91,15 +100,31 @@ export default function MasterSiLookup({
     }
     cols.push({
       key: 'value',
-      label: isCommodityMaster ? 'Commodity name' : valueLabel,
+      label: isCommodityMaster ? 'Commodity name' : isTermMaster ? 'Term (short name)' : valueLabel,
       getSortValue: (it) => (it.value || '').toLowerCase(),
     })
+    if (isTermMaster) {
+      cols.push({
+        key: 'hubCode',
+        label: 'Hub Code',
+        getSortValue: (it) => (it.hubCode || '').toLowerCase(),
+        getFilterValue: (it) => it.hubCode || '',
+      })
+    }
     if (hasLongName) {
       cols.push({
         key: 'longName',
         label: longNameLabel,
         getSortValue: (it) => (it.longName || '').toLowerCase(),
         getFilterValue: (it) => it.longName || '',
+      })
+    }
+    if (isTermMaster) {
+      cols.push({
+        key: 'description',
+        label: 'Description',
+        getSortValue: (it) => (it.description || '').toLowerCase(),
+        getFilterValue: (it) => it.description || '',
       })
     }
     if (isCommodityMaster) {
@@ -160,7 +185,7 @@ export default function MasterSiLookup({
     }
     cols.push(...MASTER_AUDIT_COLUMNS)
     return cols
-  }, [valueLabel, isCommodityMaster, enableStandardRateFields, hasLongName, longNameLabel])
+  }, [valueLabel, isCommodityMaster, isTermMaster, enableStandardRateFields, hasLongName, longNameLabel])
 
   const { displayRows, filters, updateFilter, sortState, handleSort } = useSortableFilterableRows(
     items,
@@ -186,6 +211,93 @@ export default function MasterSiLookup({
     load()
   }, [load])
 
+  const [syncing, setSyncing] = useState(false)
+  const [applying, setApplying] = useState(false)
+  const [syncError, setSyncError] = useState(null)
+  const [review, setReview] = useState(null)
+  const [latestRun, setLatestRun] = useState(null)
+  const stagedRun = latestRun?.status === 'staged' ? latestRun : null
+
+  const loadLatestRun = useCallback(async () => {
+    if (!dataHubSyncApi) return
+    try {
+      const runs = await dataHubSyncApi.fetchSyncRuns({ limit: 1 })
+      setLatestRun(Array.isArray(runs) ? (runs[0] ?? null) : null)
+    } catch {
+      setLatestRun(null)
+    }
+  }, [dataHubSyncApi])
+
+  useEffect(() => {
+    if (isDataHubMaster) loadLatestRun()
+  }, [isDataHubMaster, loadLatestRun])
+
+  const openReview = useCallback(
+    async (runId) => {
+      if (!dataHubSyncApi) return
+      setSyncError(null)
+      try {
+        setReview(await dataHubSyncApi.fetchSyncRun(runId))
+      } catch (e) {
+        setError(e?.message || 'Failed to load the staged sync')
+      }
+    },
+    [dataHubSyncApi]
+  )
+
+  const handleDataHubSync = useCallback(async () => {
+    if (!dataHubSyncApi) return
+    setSyncing(true)
+    setError(null)
+    setSyncError(null)
+    try {
+      const { run } = await dataHubSyncApi.startSyncRun()
+      await loadLatestRun()
+      if (run?.id) await openReview(run.id)
+    } catch (e) {
+      setError(e?.message || 'DataHub sync failed')
+    } finally {
+      setSyncing(false)
+    }
+  }, [dataHubSyncApi, loadLatestRun, openReview])
+
+  const handleApplySync = useCallback(
+    async (itemIds) => {
+      if (!review?.run?.id || !dataHubSyncApi) return
+      setApplying(true)
+      setSyncError(null)
+      try {
+        const result = await dataHubSyncApi.applySyncRun(review.run.id, itemIds)
+        setToast({
+          message: `Applied DataHub sync: ${result.created} added, ${result.updated} updated.`,
+          variant: 'success',
+        })
+        setReview(null)
+        await Promise.all([load(), loadLatestRun()])
+      } catch (e) {
+        setSyncError(e?.message || 'Apply failed')
+      } finally {
+        setApplying(false)
+      }
+    },
+    [review, dataHubSyncApi, load, loadLatestRun]
+  )
+
+  const handleDiscardSync = useCallback(async () => {
+    if (!review?.run?.id || !dataHubSyncApi) return
+    setApplying(true)
+    try {
+      await dataHubSyncApi.discardSyncRun(review.run.id)
+      setReview(null)
+      setToast({ message: 'Staged sync discarded.', variant: 'success' })
+      await loadLatestRun()
+    } catch (e) {
+      setSyncError(e?.message || 'Discard failed')
+    } finally {
+      setApplying(false)
+    }
+  }, [review, dataHubSyncApi, loadLatestRun])
+
   useEffect(() => {
     if (!isCommodityMaster) return
     fetchSiLookups()
@@ -203,6 +315,7 @@ export default function MasterSiLookup({
     setEditingId(null)
     setFormValue('')
     setFormLongName('')
+    setFormDescription('')
     setFormShortName('')
     setFormKlToMtFactor('')
     setFormDefaultMetricId('')
@@ -222,6 +335,7 @@ export default function MasterSiLookup({
     setEditingId(item.id)
     setFormValue(item.value ?? '')
     setFormLongName(item.longName ?? '')
+    setFormDescription(item.description ?? '')
     setFormShortName(item.shortName ?? '')
     setFormKlToMtFactor(item.klToMtFactor != null ? String(item.klToMtFactor) : '')
     setFormDefaultMetricId(item.defaultMetricId != null ? String(item.defaultMetricId) : '')
@@ -247,6 +361,7 @@ export default function MasterSiLookup({
     setEditingId(null)
     setFormValue('')
     setFormLongName('')
+    setFormDescription('')
     setFormShortName('')
     setFormKlToMtFactor('')
     setFormDefaultMetricId('')
@@ -329,6 +444,9 @@ export default function MasterSiLookup({
       if (hasLongName) {
         payload.longName = (formLongName || '').trim() || null
       }
+      if (isTermMaster) {
+        payload.description = (formDescription || '').trim() || null
+      }
       if (isCommodityMaster) {
         payload.commodityType = formCommodityType
         payload.shortName = (formShortName || '').trim().toUpperCase()
@@ -401,6 +519,8 @@ export default function MasterSiLookup({
     formDefaultMetricId,
     hasLongName,
     formLongName,
+    isTermMaster,
+    formDescription,
   ])
 
   const handleDelete = useCallback(
@@ -468,7 +588,37 @@ export default function MasterSiLookup({
       <section className="card at-berth-list-section">
         <div className="card__header-row">
           <h2 className="card__title">{valueLabel}</h2>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            {isDataHubMaster && canDoEdit && (
+              <>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={load}
+                  disabled={loading || syncing}
+                >
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={handleDataHubSync}
+                  disabled={!canDoEdit || loading || syncing}
+                >
+                  {syncing ? 'Reading DataHub…' : 'Sync from DataHub'}
+                </button>
+                {stagedRun && (
+                  <button
+                    type="button"
+                    className="btn btn--secondary"
+                    onClick={() => openReview(stagedRun.id)}
+                    disabled={syncing || applying}
+                  >
+                    Resume review
+                  </button>
+                )}
+              </>
+            )}
             <button
               type="button"
               className="btn btn--primary"
@@ -507,8 +657,12 @@ export default function MasterSiLookup({
                       </td>
                     )}
                     <td>{it.value ?? '—'}</td>
+                    {isTermMaster && <td className="text-steel">{it.hubCode || '—'}</td>}
                     {hasLongName && (
                       <td className="text-steel">{it.longName || '—'}</td>
+                    )}
+                    {isTermMaster && (
+                      <td className="text-steel">{it.description || '—'}</td>
                     )}
                     {isCommodityMaster && (
                       <td>{it.commodityType === 'Solid' ? 'Solid' : 'Liquid'}</td>
@@ -618,6 +772,21 @@ export default function MasterSiLookup({
                   onChange={(e) => setFormLongName(e.target.value)}
                   maxLength={MAX_MASTER_LONG_NAME_CHARS}
                   placeholder="Full legal name"
+                  disabled={!canDoEdit}
+                />
+              </div>
+            )}
+            {isTermMaster && (
+              <div className="modal__section">
+                <label htmlFor="si-lookup-description" className="modal__label">
+                  Description <span className="text-steel">— optional</span>
+                </label>
+                <textarea
+                  id="si-lookup-description"
+                  className="modal__input"
+                  rows={2}
+                  value={formDescription}
+                  onChange={(e) => setFormDescription(e.target.value)}
                   disabled={!canDoEdit}
                 />
               </div>
@@ -801,6 +970,19 @@ export default function MasterSiLookup({
             </div>
           </div>
         </div>
+      )}
+      {review && dataHubUiMeta && (
+        <DataHubSyncReviewModal
+          run={review.run}
+          items={review.items}
+          applying={applying}
+          error={syncError}
+          onApply={handleApplySync}
+          onDiscard={handleDiscardSync}
+          onClose={() => setReview(null)}
+          recordNoun={dataHubUiMeta.recordNoun}
+          newHint={dataHubUiMeta.newHint}
+        />
       )}
     </div>
   )

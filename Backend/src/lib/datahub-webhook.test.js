@@ -50,6 +50,17 @@ describe('datahub-webhook', () => {
     assert.equal(hub.isDeleted, false);
   });
 
+  it('hubRecordFromWebhookPayload maps incoterm data', () => {
+    const payload = {
+      recordId: 'uuid-inc',
+      version: 1,
+      data: { code: 'INC-0002', name: 'CIF' },
+    };
+    const hub = hubRecordFromWebhookPayload(payload, 'record.updated', 'incoterm');
+    assert.equal(hub.hubCode, 'INC-0002');
+    assert.equal(hub.values.code, 'CIF');
+  });
+
   it('processInboundWebhook returns duplicate for same delivery_id', async () => {
     process.env.DHM_WEBHOOK_ENABLED = 'true';
     process.env.DHM_WEBHOOK_SECRET = SECRET;

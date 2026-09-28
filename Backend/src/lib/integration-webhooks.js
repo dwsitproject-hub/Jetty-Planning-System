@@ -336,6 +336,90 @@ export async function processWebhookDeliveryQueueOnce(db, limit = 20) {
   return processed;
 }
 
+/**
+ * @param {import('pg').Pool | import('pg').PoolClient} db
+ * @param {number} apiKeyId
+ * @param {number} endpointId
+ * @param {{ limit?: number, offset?: number, status?: string }} opts
+ */
+export async function listWebhookDeliveriesForEndpoint(db, apiKeyId, endpointId, opts = {}) {
+  const limit = Math.min(Math.max(Number(opts.limit) || 50, 1), 200);
+  const offset = Math.max(Number(opts.offset) || 0, 0);
+  const statusFilter =
+    opts.status && ['pending', 'sent', 'failed'].includes(String(opts.status))
+      ? String(opts.status)
+      : null;
+
+  const ep = await db.query(
+    `SELECT id FROM integration_webhook_endpoints WHERE id = $1 AND api_key_id = $2`,
+    [endpointId, apiKeyId]
+  );
+  if (ep.rows.length === 0) return { error: 'not_found', deliveries: [], total: 0 };
+
+  const countParams = statusFilter ? [endpointId, statusFilter] : [endpointId];
+  const statusSql = statusFilter ? ' AND d.status = $2' : '';
+
+  const countR = await db.query(
+    `SELECT COUNT(*)::int AS c FROM integration_webhook_deliveries d WHERE d.endpoint_id = $1${statusSql}`,
+    countParams
+  );
+  const total = countR.rows[0]?.c ?? 0;
+
+  const listParams = [...countParams, limit, offset];
+  const limitIdx = listParams.length - 1;
+  const offsetIdx = listParams.length;
+
+  const r = await db.query(
+    `SELECT d.delivery_id, d.event_type, d.external_reference, d.status, d.attempt_count,
+            d.last_error, d.created_at, d.sent_at, d.payload
+     FROM integration_webhook_deliveries d
+     WHERE d.endpoint_id = $1${statusSql}
+     ORDER BY d.id DESC
+     LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+    listParams
+  );
+
+  const deliveries = r.rows.map((row) => ({
+    delivery_id: row.delivery_id,
+    event_type: row.event_type,
+    external_reference: row.external_reference,
+    status: row.status,
+    attempt_count: Number(row.attempt_count),
+    last_error: row.last_error ?? null,
+    created_at: row.created_at,
+    sent_at: row.sent_at ?? null,
+    payload: row.payload,
+  }));
+
+  return { deliveries, total };
+}
+
+/**
+ * @param {import('pg').Pool | import('pg').PoolClient} db
+ * @param {number} apiKeyId
+ * @param {number} endpointId
+ * @param {string} deliveryId
+ */
+export async function retryFailedWebhookDelivery(db, apiKeyId, endpointId, deliveryId) {
+  const ep = await db.query(
+    `SELECT id FROM integration_webhook_endpoints WHERE id = $1 AND api_key_id = $2`,
+    [endpointId, apiKeyId]
+  );
+  if (ep.rows.length === 0) return { error: 'not_found' };
+
+  const r = await db.query(
+    `UPDATE integration_webhook_deliveries d
+     SET status = 'pending', next_attempt_at = NOW(), last_error = NULL
+     FROM integration_webhook_endpoints e
+     WHERE d.endpoint_id = e.id AND e.id = $1 AND e.api_key_id = $2
+       AND d.delivery_id = $3 AND d.status = 'failed'
+     RETURNING d.delivery_id`,
+    [endpointId, apiKeyId, deliveryId]
+  );
+  if (r.rows.length === 0) return { error: 'not_found_or_not_failed' };
+  return { ok: true, delivery_id: r.rows[0].delivery_id };
+}
+
 async function scheduleRetryOrFail(db, row, errText) {
   const attempt = Number(row.attempt_count ?? 0) + 1;
   if (attempt >= WEBHOOK_RETRY_DELAYS_MS.length) {

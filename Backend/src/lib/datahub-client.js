@@ -162,6 +162,11 @@ export function normalizeHubVessel(record) {
     else values[column] = str(raw);
   }
 
+  return hubRecordEnvelope(record, values);
+}
+
+function hubRecordEnvelope(record, values) {
+  const data = record?.data && typeof record.data === 'object' ? record.data : {};
   return {
     hubCode: str(data.code) ?? null,
     hubRecordId: str(record.id) ?? null,
@@ -172,16 +177,85 @@ export function normalizeHubVessel(record) {
   };
 }
 
+/** DHM incoterm → local si_trade_terms. DHM `name` is the short term code (FOB). */
+export function normalizeHubIncoterm(record) {
+  const data = record?.data && typeof record.data === 'object' ? record.data : null;
+  if (!data) return null;
+  const termCode = str(data.name);
+  if (!termCode) return null;
+  const values = {
+    code: termCode.toUpperCase(),
+    long_name: str(data.long_name ?? data.longName ?? data.Long_Name),
+    description: str(data.description),
+  };
+  return hubRecordEnvelope(record, values);
+}
+
+/** DHM commodity → local si_commodities columns (before JPS-only defaults). */
+export function normalizeHubCommodity(record) {
+  const data = record?.data && typeof record.data === 'object' ? record.data : null;
+  if (!data) return null;
+  const name = str(data.name);
+  if (!name) return null;
+  const uom = str(data.uom);
+  const values = {
+    name,
+    hs_code: str(data.hs_code),
+    uom,
+  };
+  return hubRecordEnvelope(record, values);
+}
+
 /**
- * Parse one page of /v1/sync/vessel. Pure, so pagination is unit-testable.
+ * @param {string} entityType vessel | incoterm | commodity
  */
-export function parseSyncPage(body) {
+export function normalizeHubRecord(entityType, record) {
+  const t = String(entityType || '').toLowerCase();
+  if (t === 'incoterm') return normalizeHubIncoterm(record);
+  if (t === 'commodity') return normalizeHubCommodity(record);
+  return normalizeHubVessel(record);
+}
+
+export function parseSyncPage(body, normalizeRecord = normalizeHubVessel) {
   const records = Array.isArray(body?.records) ? body.records : [];
+  const normalized = records.map(normalizeRecord).filter(Boolean);
   return {
-    vessels: records.map(normalizeHubVessel).filter(Boolean),
+    records: normalized,
+    vessels: normalized,
     hasMore: body?.hasMore === true,
     nextCursor: body?.nextCursor ? String(body.nextCursor) : null,
   };
+}
+
+/**
+ * Full snapshot for any /v1/sync/{slug} entity.
+ * @param {(record: object) => object|null} normalizeRecord
+ */
+export async function fetchAllSyncRecords(cfg, slug, normalizeRecord, fetchImpl = fetch) {
+  const headers = await resolveAuthHeaders(cfg, fetchImpl);
+  const out = [];
+  let url = `${cfg.baseUrl}/v1/sync/${encodeURIComponent(slug)}?limit=${SYNC_PAGE_LIMIT}`;
+  let pages = 0;
+
+  while (url && pages < MAX_PAGES) {
+    const page = parseSyncPage(await fetchJson(url, headers, fetchImpl), normalizeRecord);
+    out.push(...page.records);
+    pages += 1;
+    url =
+      page.hasMore && page.nextCursor
+        ? `${cfg.baseUrl}/v1/sync/${encodeURIComponent(slug)}?cursor=${encodeURIComponent(page.nextCursor)}`
+        : null;
+  }
+
+  return out;
+}
+
+/**
+ * Full snapshot of the hub vessel master, following nextCursor to the end.
+ * @param {{ baseUrl: string, publicKey: string, privateKey: string }} cfg
+ */
+export async function fetchAllVessels(cfg, fetchImpl = fetch) {
+  return fetchAllSyncRecords(cfg, 'vessel', normalizeHubVessel, fetchImpl);
 }
 
 /** True when a response body is a web page rather than an API payload. */
@@ -247,41 +321,27 @@ async function fetchJson(url, headers, fetchImpl = fetch, init = {}) {
  * @param {{ baseUrl: string, publicKey: string, privateKey: string }} cfg
  */
 export async function fetchVesselCatalog(cfg, fetchImpl = fetch) {
+  return fetchEntityCatalog(cfg, 'vessel', fetchImpl);
+}
+
+/**
+ * @param {{ baseUrl: string, publicKey: string, privateKey: string }} cfg
+ * @param {string} slug e.g. incoterm, commodity, vessel
+ */
+export async function fetchEntityCatalog(cfg, slug, fetchImpl = fetch) {
   const body = await fetchJson(
-    `${cfg.baseUrl}/v1/catalog/vessel`,
+    `${cfg.baseUrl}/v1/catalog/${encodeURIComponent(slug)}`,
     await resolveAuthHeaders(cfg, fetchImpl),
     fetchImpl
   );
   const fields = Array.isArray(body?.fields) ? body.fields : [];
   return {
-    slug: body?.slug ?? 'vessel',
+    slug: body?.slug ?? slug,
     name: body?.name ?? null,
     fieldCount: fields.length,
     fieldKeys: fields.map((f) => f?.key).filter(Boolean),
+    fields,
   };
-}
-
-/**
- * Full snapshot of the hub vessel master, following nextCursor to the end.
- * @param {{ baseUrl: string, publicKey: string, privateKey: string }} cfg
- */
-export async function fetchAllVessels(cfg, fetchImpl = fetch) {
-  const headers = await resolveAuthHeaders(cfg, fetchImpl);
-  const out = [];
-  let url = `${cfg.baseUrl}/v1/sync/vessel?limit=${SYNC_PAGE_LIMIT}`;
-  let pages = 0;
-
-  while (url && pages < MAX_PAGES) {
-    const page = parseSyncPage(await fetchJson(url, headers, fetchImpl));
-    out.push(...page.vessels);
-    pages += 1;
-    url =
-      page.hasMore && page.nextCursor
-        ? `${cfg.baseUrl}/v1/sync/vessel?cursor=${encodeURIComponent(page.nextCursor)}`
-        : null;
-  }
-
-  return out;
 }
 
 /**
@@ -363,6 +423,29 @@ export async function postInboundVessel(cfg, payload, fetchImpl = fetch) {
  * @returns {{ httpStatus: number, body: object|null }}
  */
 export async function putInboundVessel(cfg, hubCode, payload, fetchImpl = fetch) {
+  return putInboundEntity(cfg, 'vessel', hubCode, payload, fetchImpl);
+}
+
+/**
+ * POST /v1/inbound/{slug}
+ */
+export async function postInboundEntity(cfg, slug, payload, fetchImpl = fetch) {
+  const headers = {
+    ...(await resolveAuthHeaders(cfg, fetchImpl)),
+    'Content-Type': 'application/json',
+  };
+  return fetchInboundJson(
+    `${cfg.baseUrl}/v1/inbound/${encodeURIComponent(slug)}`,
+    headers,
+    fetchImpl,
+    { method: 'POST', body: JSON.stringify(payload) }
+  );
+}
+
+/**
+ * PUT /v1/inbound/{slug}/{code}
+ */
+export async function putInboundEntity(cfg, slug, hubCode, payload, fetchImpl = fetch) {
   const code = str(hubCode);
   if (!code) throw new Error('hub code is required for inbound PUT');
   const headers = {
@@ -370,7 +453,7 @@ export async function putInboundVessel(cfg, hubCode, payload, fetchImpl = fetch)
     'Content-Type': 'application/json',
   };
   return fetchInboundJson(
-    `${cfg.baseUrl}/v1/inbound/vessel/${encodeURIComponent(code)}`,
+    `${cfg.baseUrl}/v1/inbound/${encodeURIComponent(slug)}/${encodeURIComponent(code)}`,
     headers,
     fetchImpl,
     { method: 'PUT', body: JSON.stringify({ ...payload, code }) }

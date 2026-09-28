@@ -3,9 +3,11 @@
  * Contract: Docs/Guide/DATAHUB_CLIENT_INTEGRATION.md §10
  */
 import crypto from 'crypto';
-import { normalizeHubVessel } from './datahub-client.js';
+import { normalizeHubRecord } from './datahub-client.js';
 import { getEffectiveWebhookConfig, getEffectiveWebhookAutoApply, updateDataHubWebhookHealth } from './datahub-config.js';
-import { stageVesselsFromHub, applyStagedVesselSyncRun } from './datahub-vessel-stage.js';
+import { stageEntityFromHub, applyStagedEntitySyncRun } from './datahub-master-stage.js';
+
+const WEBHOOK_ENTITY_TYPES = new Set(['vessel', 'incoterm', 'commodity']);
 
 /**
  * @param {string} secret
@@ -59,7 +61,7 @@ function normalizeHeaders(headers) {
  * @param {object} payload parsed JSON body
  * @param {string|null} eventHeader
  */
-export function hubRecordFromWebhookPayload(payload, eventHeader) {
+export function hubRecordFromWebhookPayload(payload, eventHeader, entityType = 'vessel') {
   const event = eventHeader || payload.event || '';
   const isDeleted = event === 'record.deleted' || payload.isDeleted === true;
   const record = {
@@ -69,7 +71,7 @@ export function hubRecordFromWebhookPayload(payload, eventHeader) {
     updatedAt: payload.occurredAt ?? payload.updatedAt,
     data: payload.data,
   };
-  return normalizeHubVessel(record);
+  return normalizeHubRecord(entityType, record);
 }
 
 function strHubCode(data) {
@@ -130,11 +132,13 @@ export async function processInboundWebhook(db, rawBody, headers) {
     );
   }
 
-  if (entityType && entityType !== 'vessel') {
+  if (entityType && !WEBHOOK_ENTITY_TYPES.has(entityType)) {
     await insertReceipt('ignored', null, 'unsupported entityType');
     await updateDataHubWebhookHealth(db, { ok: true });
     return { status: 200, body: { status: 'ignored', reason: 'unsupported entityType' } };
   }
+
+  const resolvedEntity = entityType || 'vessel';
 
   if (event === 'record.created') {
     await insertReceipt('ignored', null, 'record.created not subscribed');
@@ -148,16 +152,16 @@ export async function processInboundWebhook(db, rawBody, headers) {
     return { status: 200, body: { status: 'ignored', reason: 'hub_tombstone_policy' } };
   }
 
-  const hubRecord = hubRecordFromWebhookPayload(payload, event);
+  const hubRecord = hubRecordFromWebhookPayload(payload, event, resolvedEntity);
   if (!hubRecord) {
-    await insertReceipt('failed', null, 'missing vessel payload');
-    await updateDataHubWebhookHealth(db, { ok: false, error: 'missing vessel payload' });
-    return { status: 400, body: { error: 'missing vessel payload' } };
+    await insertReceipt('failed', null, 'missing master payload');
+    await updateDataHubWebhookHealth(db, { ok: false, error: 'missing master payload' });
+    return { status: 400, body: { error: 'missing master payload' } };
   }
 
   try {
     const autoApply = await getEffectiveWebhookAutoApply(db);
-    const { runId, items } = await stageVesselsFromHub(db, [hubRecord], {
+    const { runId, items } = await stageEntityFromHub(db, resolvedEntity, [hubRecord], {
       source: 'webhook',
       webhookDeliveryId: deliveryId,
       preapproveChanges: autoApply,
@@ -171,7 +175,7 @@ export async function processInboundWebhook(db, rawBody, headers) {
 
     if (autoApply) {
       try {
-        const stats = await applyStagedVesselSyncRun(db, runId, null);
+        const stats = await applyStagedEntitySyncRun(db, runId, null);
         await insertReceipt('accepted', runId, null);
         await updateDataHubWebhookHealth(db, { ok: true });
         return {

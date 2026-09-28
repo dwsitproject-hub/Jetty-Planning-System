@@ -186,7 +186,7 @@ VITE_API_BASE_URL=/api/v1
 | --- | --- |
 | Webhook URL | `http://172.28.92.57:3000/api/v1/datahub/webhook` |
 | Events | `record.updated`, `record.deleted` |
-| Entity | `vessel` |
+| Entity | `vessel`, `incoterm`, `commodity` (register each in DHM if you use that master) |
 | HMAC secret | Same as `DHM_WEBHOOK_SECRET` or Admin → DataHub |
 
 Requires **Option D** (HTTP allowlist for staging) if not using `127.0.0.1` loopback tests.
@@ -199,12 +199,16 @@ Use **Admin → DataHub** (not `.env`) to turn inbound webhooks and **auto-apply
 
 | Auto-apply checkbox | DHM update behaviour |
 | --- | --- |
-| **Off** (default) | Staged run → **Master → Vessel** → **Resume review** → Apply |
-| **On** | Hub change writes to **Master Vessel** immediately |
+| **Off** (default) | Staged run → **Master → Vessel / Term / Commodity** → **Resume review** → Apply |
+| **On** | Hub change writes to the matching master immediately |
+
+After deploy on API **`.57`**, run migrations **123** and **124** (`entity_type` on sync runs; hub columns on SI masters).
+
+Manual pull (no webhook): **Master – Term** or **Master – Commodity** → **Sync from DataHub** → review → apply.
 
 1. Open **`http://172.28.92.56:3080`** → **Admin → DataHub**.
 2. Enable inbound webhooks, set secret, choose auto-apply, **Save settings**.
-3. Edit a vessel in DHM → **Deliveries** **2xx** → confirm grid or review flow matches the checkbox.
+3. Edit a vessel, incoterm, or commodity in DHM → **Deliveries** **2xx** → confirm grid or review flow matches the checkbox.
 
 ---
 

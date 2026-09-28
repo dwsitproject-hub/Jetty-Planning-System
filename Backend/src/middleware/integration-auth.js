@@ -10,7 +10,7 @@ export function newRequestId() {
   return `req_${crypto.randomBytes(10).toString('hex')}`;
 }
 
-export const INTEGRATION_API_VERSION = '5.0';
+export const INTEGRATION_API_VERSION = '5.1';
 
 export function sendIntegrationSuccess(res, status, data) {
   res.setHeader('X-JPS-API-Version', INTEGRATION_API_VERSION);

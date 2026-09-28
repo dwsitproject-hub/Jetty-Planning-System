@@ -17,6 +17,14 @@ const FIELD_LABELS = {
   heater: 'Heater',
   type_lambung: 'Hull Type',
   type_charter: 'Charter Type',
+  code: 'Term code',
+  description: 'Description',
+  name: 'Name',
+  short_name: 'Short name',
+  commodity_type: 'Type',
+  kl_to_mt_factor: 'KL→MT factor',
+  default_metric_id: 'Default unit',
+  hs_code: 'HS code',
 }
 
 function displayValue(v) {
@@ -134,7 +142,7 @@ function SyncReviewGroup({
   )
 }
 
-function UnchangedList({ items }) {
+function UnchangedList({ items, recordLabel = 'vesselName' }) {
   const { page, setPage, totalPages, pagedRows, range } = useMasterTablePagination(items)
 
   return (
@@ -142,7 +150,7 @@ function UnchangedList({ items }) {
       <ul className="datahub-sync__unchanged">
         {pagedRows.map((item) => (
           <li key={item.id} className="text-steel">
-            {item.vesselName}
+            {item[recordLabel] ?? item.vesselName}
           </li>
         ))}
       </ul>
@@ -170,6 +178,8 @@ export default function DataHubSyncReviewModal({
   onApply,
   onDiscard,
   onClose,
+  recordNoun = 'vessels',
+  newHint = 'Vessels not yet in the JPS master.',
 }) {
   const [selectedIds, setSelectedIds] = useState(() =>
     new Set((items || []).filter((i) => i.decision === 'approved' && i.diffKind !== 'unchanged').map((i) => i.id))
@@ -223,7 +233,7 @@ export default function DataHubSyncReviewModal({
           ) : null}
         </h2>
         <p className="text-steel">
-          {run?.hubRecordCount ?? 0} vessels read from DataHub: {run?.newCount ?? 0} new,{' '}
+          {run?.hubRecordCount ?? 0} {recordNoun} read from DataHub: {run?.newCount ?? 0} new,{' '}
           {run?.changedCount ?? 0} changed, {run?.unchangedCount ?? 0} unchanged. Nothing is written
           until you apply.
         </p>
@@ -248,7 +258,7 @@ export default function DataHubSyncReviewModal({
           <SyncReviewGroup
             groupKey="new"
             title="New"
-            hint="Vessels not yet in the JPS master."
+            hint={newHint}
             rows={groups.new}
             selectedIds={selectedIds}
             onToggle={toggle}

@@ -103,6 +103,9 @@ export function buildPartnerInstructionPayload(row) {
     etr_minutes: etrMinutes,
     allocation: buildPartnerAllocation(row, status),
     rejection_reason: status === 'Rejected' ? row.rejection_reason ?? null : null,
+    shipping_instruction_document_url: row.partner_si_document_url ?? null,
+    contract_document_url: row.partner_contract_document_url ?? null,
+    bl_document_url: row.partner_bl_document_url ?? null,
     submitted_at: timestampToIso(row.received_at),
     last_updated_at: timestampToIso(row.last_updated_at),
   };

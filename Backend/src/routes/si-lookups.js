@@ -13,9 +13,14 @@ import {
 import { syncPlanVesselCapacityForCommodity } from '../lib/syncPlanVesselCapacity.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { loadUserAssignedPorts, requirePortScope } from '../middleware/port-scope.js';
+import { registerDataHubSyncRoutes } from './datahub-sync-routes.js';
+import { tryPushIncotermAfterSave, tryPushCommodityAfterSave } from '../lib/datahub-si-master-push.js';
 
 const router = express.Router();
 router.use(optionalAuth);
+
+registerDataHubSyncRoutes(router, { entityType: 'incoterm', mountPath: '/trade-terms/datahub/sync' });
+registerDataHubSyncRoutes(router, { entityType: 'commodity', mountPath: '/commodities/datahub/sync' });
 
 /** Maps API :type segment to Activity log page_key (see Layout pathToPageKey). */
 const TYPE_META = {
@@ -82,7 +87,8 @@ async function selectCommoditiesWithRates({ portId, whereSql, params = [] }) {
   const portParam = portId == null ? null : Number(portId);
   return pool.query(
     `SELECT c.id, c.name AS value, c.short_name, c.sort_order, c.commodity_type, c.kl_to_mt_factor,
-            c.default_metric_id, dm.code AS default_metric_code,
+            c.default_metric_id, c.hub_code, c.datahub_last_apply_source, c.datahub_last_apply_run_id,
+            dm.code AS default_metric_code,
             ${masterAuditSelectSql('c')},
             srl.id AS loading_standard_rate_id, srl.rate_value AS loading_rate_value, srl.rate_metric AS loading_rate_metric,
             sru.id AS unloading_standard_rate_id, sru.rate_value AS unloading_rate_value, sru.rate_metric AS unloading_rate_metric
@@ -105,7 +111,7 @@ async function selectCommoditiesWithRates({ portId, whereSql, params = [] }) {
 }
 
 const CRUD_TYPES = {
-  'trade-terms': { table: 'si_trade_terms', valueCol: 'code', refCol: 'trade_term_id' },
+  'trade-terms': { table: 'si_trade_terms', valueCol: 'code', refCol: 'trade_term_id', hasLongName: true },
   shippers: { table: 'si_shippers', valueCol: 'name', refCol: 'shipper_id', hasLongName: true },
   'loading-ports': { table: 'si_loading_ports', valueCol: 'name', refCol: 'loading_port_id' },
   surveyors: { table: 'si_surveyors', valueCol: 'name', refCol: 'surveyor_id', hasLongName: true },
@@ -122,10 +128,19 @@ function normalizeLongName(raw) {
   return v || null;
 }
 
+function normalizeDescription(raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  const v = String(raw).trim();
+  return v || null;
+}
+
 function lookupSelectSql(type) {
   const cfg = getTypeConfig(type);
   const longCol = cfg.hasLongName ? ', t.long_name' : '';
-  return `SELECT t.id, t.${cfg.valueCol} AS value, t.sort_order${longCol},
+  const descCol = cfg.table === 'si_trade_terms' ? ', t.description' : '';
+  return `SELECT t.id, t.${cfg.valueCol} AS value, t.sort_order,
+     t.hub_code, t.datahub_last_apply_source, t.datahub_last_apply_run_id${descCol}${longCol},
      ${masterAuditSelectSql('t')}
    FROM ${cfg.table} t
    ${masterAuditJoinSql('t')}`;
@@ -154,10 +169,17 @@ function toItem(row, type) {
     id: row.id,
     value: row.value,
     sortOrder: row.sort_order ?? null,
+    hubCode: row.hub_code ?? null,
+    datahubLastApplySource: row.datahub_last_apply_source ?? null,
+    datahubLastApplyRunId:
+      row.datahub_last_apply_run_id != null ? Number(row.datahub_last_apply_run_id) : null,
     ...pickMasterAudit(row),
     ...(cfg.hasLongName ? { longName: row.long_name ?? null } : {}),
-    // keep name/code fields for convenience/debugging
-    ...(cfg.valueCol === 'code' ? { code: row.value } : { name: row.value }),
+    ...(cfg.table === 'si_trade_terms'
+      ? { code: row.value, description: row.description ?? null, longName: row.long_name ?? null }
+      : cfg.valueCol === 'code'
+        ? { code: row.value, description: row.description ?? null }
+        : { name: row.value }),
   };
 }
 
@@ -174,6 +196,10 @@ function toCommodityListItem(row) {
     klToMtFactor: row.kl_to_mt_factor != null ? Number(row.kl_to_mt_factor) : null,
     defaultMetricId: row.default_metric_id != null ? Number(row.default_metric_id) : null,
     defaultMetricCode: row.default_metric_code ?? null,
+    hubCode: row.hub_code ?? null,
+    datahubLastApplySource: row.datahub_last_apply_source ?? null,
+    datahubLastApplyRunId:
+      row.datahub_last_apply_run_id != null ? Number(row.datahub_last_apply_run_id) : null,
     sortOrder: row.sort_order ?? null,
     ...pickMasterAudit(row),
     portRates: {
@@ -618,11 +644,54 @@ router.post('/:type', async (req, res) => {
         actorUserId: req.userId ?? null,
       }).catch(() => {});
 
-      return res.status(201).json(createdItem);
+      const pushRow = await pool.query(
+        `SELECT c.*, dm.code AS default_metric_code FROM si_commodities c
+         LEFT JOIN metric dm ON dm.id = c.default_metric_id AND dm.deleted_at IS NULL
+         WHERE c.id = $1`,
+        [row.id]
+      );
+      const dataHubPush = await tryPushCommodityAfterSave(pushRow.rows[0], actorId);
+
+      return res.status(201).json({ ...createdItem, dataHubPush });
     });
   }
 
   const actorId = actorUserIdFromReq(req);
+  if (type === 'trade-terms') {
+    const longName = normalizeLongName(req.body?.longName ?? req.body?.long_name) ?? null;
+    const description = normalizeDescription(req.body?.description) ?? null;
+    const result = await pool.query(
+      `INSERT INTO si_trade_terms (code, long_name, description, sort_order, created_by, updated_by)
+       VALUES ($1, $2, $3, 0, $4, $4)
+       RETURNING id`,
+      [cleaned, longName, description, actorId]
+    );
+    const row = await fetchLookupItem(type, result.rows[0].id);
+    const tm = getTypeMeta(type);
+    writeActivityLog({
+      pageKey: tm.pageKey,
+      action: 'add',
+      entityType: tm.entityType,
+      entityId: String(row.id),
+      entityLabel: cleaned,
+      summary: `Created ${tm.noun} "${cleaned}"`,
+      meta: { siLookupType: type },
+      actorUserId: req.userId ?? null,
+    }).catch(() => {});
+    const dataHubPush = await tryPushIncotermAfterSave(
+      {
+        id: row.id,
+        code: row.value,
+        value: row.value,
+        long_name: row.long_name,
+        description: row.description,
+        hub_code: row.hub_code,
+      },
+      actorId
+    );
+    return res.status(201).json({ ...toItem(row, type), dataHubPush });
+  }
+
   const longName = LONG_NAME_TYPES.has(type)
     ? (normalizeLongName(req.body?.longName ?? req.body?.long_name) ?? null)
     : null;
@@ -652,7 +721,11 @@ router.post('/:type', async (req, res) => {
     meta: { siLookupType: type },
     actorUserId: req.userId ?? null,
   }).catch(() => {});
-  res.status(201).json(toItem(row, type));
+  let dataHubPush = null;
+  if (type === 'trade-terms') {
+    /* handled above */
+  }
+  res.status(201).json({ ...toItem(row, type), dataHubPush });
 });
 
 /** Master CRUD: PUT /si-lookups/:type/:id */
@@ -807,6 +880,24 @@ router.put('/:type/:id', async (req, res) => {
         [cleaned, shortName, id]
       );
     }
+  } else if (type === 'trade-terms') {
+    const actorId = actorUserIdFromReq(req);
+    const longName = normalizeLongName(req.body?.longName ?? req.body?.long_name) ?? null;
+    const description = normalizeDescription(req.body?.description) ?? null;
+    const prevQ = await pool.query(
+      `SELECT code AS v, long_name, description FROM si_trade_terms WHERE id = $1 AND deleted_at IS NULL`,
+      [id]
+    );
+    if (prevQ.rows.length === 0) return res.status(404).json({ error: 'Item not found' });
+    prevName = prevQ.rows[0].v;
+    prevLongName = prevQ.rows[0].long_name ?? null;
+    result = await pool.query(
+      `UPDATE si_trade_terms
+       SET code = $1, long_name = $2, description = $3, updated_by = $4, updated_at = NOW()
+       WHERE id = $5 AND deleted_at IS NULL
+       RETURNING id`,
+      [cleaned, longName, description, actorId, id]
+    );
   } else {
     const actorId = actorUserIdFromReq(req);
     const longName = cfg.hasLongName
@@ -950,7 +1041,14 @@ router.put('/:type/:id', async (req, res) => {
       meta: { siLookupType: type, portId },
       actorUserId: req.userId ?? null,
     }).catch(() => {});
-    return res.json(updatedItem);
+    const pushRow = await pool.query(
+      `SELECT c.*, dm.code AS default_metric_code FROM si_commodities c
+       LEFT JOIN metric dm ON dm.id = c.default_metric_id AND dm.deleted_at IS NULL
+       WHERE c.id = $1`,
+      [id]
+    );
+    const dataHubPush = await tryPushCommodityAfterSave(pushRow.rows[0], actorUserIdFromReq(req));
+    return res.json({ ...updatedItem, dataHubPush });
   }
 
   const updatedRow = await fetchLookupItem(type, id);
@@ -974,7 +1072,21 @@ router.put('/:type/:id', async (req, res) => {
     meta: { siLookupType: type },
     actorUserId: req.userId ?? null,
   }).catch(() => {});
-  res.json(toItem(updatedRow, type));
+  let dataHubPush = null;
+  if (type === 'trade-terms') {
+    dataHubPush = await tryPushIncotermAfterSave(
+      {
+        id: updatedRow.id,
+        code: updatedRow.value,
+        value: updatedRow.value,
+        long_name: updatedRow.long_name,
+        description: updatedRow.description,
+        hub_code: updatedRow.hub_code,
+      },
+      actorUserIdFromReq(req)
+    );
+  }
+  res.json({ ...toItem(updatedRow, type), dataHubPush });
 });
 
 /** Master CRUD: DELETE /si-lookups/:type/:id (soft delete) */

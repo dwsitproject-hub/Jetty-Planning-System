@@ -53,6 +53,9 @@ function normalizeSiDetail(row) {
     consignee: row.consigneeText || '—',
     notifyParty: row.notifyPartyText || '—',
     blIndicated: row.blIndicated || '—',
+    partnerSiDocumentUrl: row.partnerSiDocumentUrl ?? null,
+    partnerContractDocumentUrl: row.partnerContractDocumentUrl ?? null,
+    partnerBlDocumentUrl: row.partnerBlDocumentUrl ?? null,
     shipper: row.shipperNames || '—',
     loadingPort: row.loadingPortName || '—',
     surveyor: row.surveyorName || '—',
@@ -271,6 +274,36 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
               <dt>{t('dtConsignee')}</dt><dd className="si-detail-modal__pre">{emptyToDash(detail.consignee)}</dd>
               <dt>{t('dtNotifyParty')}</dt><dd className="si-detail-modal__pre">{emptyToDash(detail.notifyParty)}</dd>
               <dt>{t('dtBlIndicated')}</dt><dd className="si-detail-modal__pre">{emptyToDash(detail.blIndicated)}</dd>
+              <dt>{t('dtPartnerSiDocument')}</dt>
+              <dd>
+                {detail.partnerSiDocumentUrl ? (
+                  <a href={detail.partnerSiDocumentUrl} target="_blank" rel="noopener noreferrer">
+                    {t('partnerDocumentLinkOpen')}
+                  </a>
+                ) : (
+                  '—'
+                )}
+              </dd>
+              <dt>{t('dtPartnerContractDocument')}</dt>
+              <dd>
+                {detail.partnerContractDocumentUrl ? (
+                  <a href={detail.partnerContractDocumentUrl} target="_blank" rel="noopener noreferrer">
+                    {t('partnerDocumentLinkOpen')}
+                  </a>
+                ) : (
+                  '—'
+                )}
+              </dd>
+              <dt>{t('dtPartnerBlDocument')}</dt>
+              <dd>
+                {detail.partnerBlDocumentUrl ? (
+                  <a href={detail.partnerBlDocumentUrl} target="_blank" rel="noopener noreferrer">
+                    {t('partnerDocumentLinkOpen')}
+                  </a>
+                ) : (
+                  '—'
+                )}
+              </dd>
               <dt>{t('dtShipper')}</dt><dd>{emptyToDash(detail.shipper)}</dd>
               <dt>{t('dtLoadingPort')}</dt><dd>{emptyToDash(detail.loadingPort)}</dd>
               <dt>{t('dtSurveyor')}</dt><dd>{emptyToDash(detail.surveyor)}</dd>

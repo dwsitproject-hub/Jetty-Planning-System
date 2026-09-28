@@ -28,7 +28,7 @@
     "test:cargo-schedule-progress": "node --test src/lib/cargo-schedule-progress.test.js",
     "test:ais": "node --test src/lib/ais-bontang-geofence.test.js src/lib/ais-bontang-overview.test.js src/lib/ais-openwaters-client.test.js src/lib/ais-position-merge.test.js src/lib/ais-vesselapi-client.test.js src/lib/ais-poll-job.test.js",
     "test:integration-master-data": "node --test src/lib/integration-master-data.test.js",
-    "test:datahub": "node --test src/lib/datahub-config.test.js src/lib/datahub-vessel-sync.test.js src/lib/datahub-client.test.js src/lib/datahub-vessel-push.test.js src/lib/datahub-webhook.test.js",
+    "test:datahub": "node --test src/lib/datahub-config.test.js src/lib/datahub-vessel-sync.test.js src/lib/datahub-client.test.js src/lib/datahub-vessel-push.test.js src/lib/datahub-incoterm-sync.test.js src/lib/datahub-webhook.test.js",
     "test:security": "node scripts/test-security-rbac-uploads.mjs",
     "grant-admin-access": "node scripts/grant-admin-full-access.js",
     "seed:admin": "node scripts/seed-admin-bcrypt.js",

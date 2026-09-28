@@ -37,7 +37,9 @@ import {
 } from '../middleware/integration-auth.js';
 import integrationMasterRoutes from './integration-master.js';
 import integrationWebhookRoutes from './integration-webhooks.js';
+import integrationCatalogRoutes from './integration-catalog.js';
 import { buildPartnerInstructionPayload } from '../lib/integration-partner-payload.js';
+import { parseOptionalPartnerDocumentUrls } from '../lib/integration-partner-url.js';
 
 const router = express.Router();
 const PAGE_KEY = 'shipment-plan';
@@ -48,6 +50,7 @@ router.use(requireIntegrationKey);
 router.use(integrationRateLimit);
 router.use(integrationMasterRoutes);
 router.use('/webhooks', integrationWebhookRoutes);
+router.use('/catalog', integrationCatalogRoutes);
 
 /** Matches buildPlanReference in routes/shipment-plans.js (SP-YY-MM-#####). */
 function buildPlanReference(planId) {
@@ -189,6 +192,8 @@ function validateSubmission(body) {
     else if (surveyorName.length > 200) push('surveyor_name', 'max length 200');
   }
 
+  const docUrls = parseOptionalPartnerDocumentUrls(b, push);
+
   return {
     errors,
     value: {
@@ -207,6 +212,11 @@ function validateSubmission(body) {
       tradeTerm,
       surveyorName,
       cargo,
+      siDocumentUrl:
+        b.shipping_instruction_document_url !== undefined ? docUrls.siDocumentUrl ?? null : null,
+      contractDocumentUrl:
+        b.contract_document_url !== undefined ? docUrls.contractDocumentUrl ?? null : null,
+      blDocumentUrl: b.bl_document_url !== undefined ? docUrls.blDocumentUrl ?? null : null,
     },
   };
 }
@@ -267,12 +277,18 @@ function validatePatchBody(body) {
     }
   }
 
-  const hasHeader = tradeTerm !== undefined || surveyorName !== undefined;
+  const docUrls = parseOptionalPartnerDocumentUrls(b, push);
+  const hasDocs =
+    docUrls.siDocumentUrl !== undefined ||
+    docUrls.contractDocumentUrl !== undefined ||
+    docUrls.blDocumentUrl !== undefined;
+
+  const hasHeader = tradeTerm !== undefined || surveyorName !== undefined || hasDocs;
   if (!hasHeader && cargo.length === 0) {
     push('body', 'at least one field to update is required');
   }
 
-  return { errors, value: { tradeTerm, surveyorName, cargo } };
+  return { errors, value: { tradeTerm, surveyorName, cargo, ...docUrls } };
 }
 
 const STATUS_LOOKUP_SQL = PARTNER_SUBMISSION_LOOKUP_SQL;
@@ -517,8 +533,9 @@ router.post('/shipping-instructions', async (req, res) => {
     const siIns = await client.query(
       `INSERT INTO shipping_instructions (
          reference_number, status, eta_from, eta_to, agent_id, note, shipment_plan_id,
-         trade_term_id, surveyor_id
-       ) VALUES ($1,'Submitted',$2,$3,$4,$5,$6,$7,$8)
+         trade_term_id, surveyor_id,
+         partner_si_document_url, partner_contract_document_url, partner_bl_document_url
+       ) VALUES ($1,'Submitted',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING id, created_at`,
       [
         value.externalReference,
@@ -529,6 +546,9 @@ router.post('/shipping-instructions', async (req, res) => {
         planId,
         tradeTermId,
         surveyorId,
+        value.siDocumentUrl,
+        value.contractDocumentUrl,
+        value.blDocumentUrl,
       ]
     );
     siId = Number(siIns.rows[0].id);
@@ -690,7 +710,13 @@ async function applyPartnerPatch(req, res, { siId, externalReference }) {
   try {
     await client.query('BEGIN');
 
-    if (tradeTermId !== undefined || surveyorId !== undefined) {
+    if (
+      tradeTermId !== undefined ||
+      surveyorId !== undefined ||
+      value.siDocumentUrl !== undefined ||
+      value.contractDocumentUrl !== undefined ||
+      value.blDocumentUrl !== undefined
+    ) {
       const siSets = ['updated_at = NOW()'];
       const siParams = [];
       if (tradeTermId !== undefined) {
@@ -700,6 +726,18 @@ async function applyPartnerPatch(req, res, { siId, externalReference }) {
       if (surveyorId !== undefined) {
         siSets.push(`surveyor_id = $${siParams.length + 1}`);
         siParams.push(surveyorId);
+      }
+      if (value.siDocumentUrl !== undefined) {
+        siSets.push(`partner_si_document_url = $${siParams.length + 1}`);
+        siParams.push(value.siDocumentUrl);
+      }
+      if (value.contractDocumentUrl !== undefined) {
+        siSets.push(`partner_contract_document_url = $${siParams.length + 1}`);
+        siParams.push(value.contractDocumentUrl);
+      }
+      if (value.blDocumentUrl !== undefined) {
+        siSets.push(`partner_bl_document_url = $${siParams.length + 1}`);
+        siParams.push(value.blDocumentUrl);
       }
       siParams.push(Number(submission.si_id));
       await client.query(

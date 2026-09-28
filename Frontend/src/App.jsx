@@ -175,7 +175,7 @@ function App() {
                         apiType="trade-terms"
                         title="Master – Term"
                         valueLabel="Term"
-                        placeholder="e.g. PREPAID"
+                        placeholder="e.g. FOB"
                         pageKey="master-si-term"
                       />
                     }

@@ -1,10 +1,12 @@
 # Jetty Planning System — Shipping Instruction API Integration Guide
 
-> **Version:** 5.0 · **Audience:** External full-stack developers building an integration from your system (EOS Export/Import, KLIPS, ERP, TMS, etc.) into the Jetty Planning System (JPS).
+> **Version:** 5.1 · **Audience:** External full-stack developers building an integration from your system (EOS Export/Import, KLIPS, ERP, TMS, etc.) into the Jetty Planning System (JPS).
 >
-> **What you can do:** Sync reference master data, submit Shipping Instructions, update PO/SO while Pending, **receive approval and milestone updates via webhooks**, and poll enriched status (including TA, ETB, TB, ETC, TC, cast off, sailed). JPS operators update berthing milestones in the web app — your system receives those changes; you do not write them back via API.
+> **What you can do:** Sync reference master data, submit Shipping Instructions, update PO/SO while Pending, **send HTTPS links** to SI / contract / B/L documents, **receive approval and milestone updates via webhooks**, and poll enriched status (including TA, ETB, TB, ETC, TC, cast off, sailed). JPS operators update berthing milestones in the web app — your system receives those changes; you do not write them back via API.
 >
-> **What's new in v5.0:** Webhook registration (`POST/PATCH /webhooks`), signed outbound events (`status.changed`, `schedule.updated`), enriched `GET` response with `approval`, `schedule`, and `plan_reference`. New partner status **`Sailed`**. v4.x clients remain compatible (new JSON fields are additive). Response header **`X-JPS-API-Version: 5.0`** on all integration endpoints.
+> **What's new in v5.1:** Optional document link fields on **POST/PATCH/GET**: `shipping_instruction_document_url`, `contract_document_url`, `bl_document_url` (HTTPS URLs to documents hosted on your side; JPS stores the link only). A new **`GET /catalog`** endpoint (§3.8) so your integration can read the live field contract at runtime instead of hard-coding it from this doc. Header **`X-JPS-API-Version: 5.1`**. Additive for v5.0 clients.
+>
+> **What's new in v5.0:** Webhook registration (`POST/PATCH /webhooks`), signed outbound events (`status.changed`, `schedule.updated`), enriched `GET` response with `approval`, `schedule`, and `plan_reference`. New partner status **`Sailed`**. v4.x clients remain compatible (new JSON fields are additive).
 >
 > **This document is self-contained:** API contract, staging environment details, and step-by-step tests you can run yourself.
 
@@ -84,6 +86,7 @@ Expected: `{"status":"ok","timestamp":"..."}`
 - **Encoding:** UTF-8.
 - **Dates:** ISO 8601 UTC, e.g. `2026-07-01T08:00:00Z`.
 - **Rate limit:** 120 requests per minute per API key → HTTP `429` if exceeded.
+- **Discovery:** call `GET /catalog` (§3.8) to read the live field contract — enum values (trade terms, surveyors, cargo types) come straight from JPS master data, so it stays accurate even if this document lags behind. Prefer it over the tables in §4 when mapping fields programmatically.
 
 ---
 
@@ -190,6 +193,8 @@ result = r.json()
 | `PATCH` | `/webhooks/{id}` | Update webhook URL, events, or rotate secret |
 | `GET` | `/webhooks` | List your webhook endpoints |
 | `DELETE` | `/webhooks/{id}` | Deactivate a webhook endpoint |
+| `GET` | `/catalog` | List entities available to your API key (v5.1) |
+| `GET` | `/catalog/{entity}` | Field-level contract for one entity, e.g. `shipping-instruction`, `webhook` (v5.1) |
 
 Full staging submit URL:
 
@@ -223,6 +228,9 @@ curl -sS -X POST "http://172.28.92.56:3080/api/v1/integrations/shipping-instruct
     "trade_term": "FOB",
     "surveyor_name": "PT SGS Indonesia",
     "notes": "Submitted from EOS Export",
+    "shipping_instruction_document_url": "https://your-system.example/docs/si-2026-091.pdf",
+    "contract_document_url": "https://your-system.example/docs/contract-7788.pdf",
+    "bl_document_url": "https://your-system.example/docs/bl-draft.pdf",
     "cargo": [
       {
         "cargo_type": "CPO",
@@ -517,6 +525,63 @@ Returns **201** when created, **200** when the name already exists (case-insensi
 
 Terms and surveyors are **GET only** — JPS operators maintain them in the Master UI.
 
+### 3.8 Catalog — discover the API (v5.1)
+
+`GET /catalog` lists every entity your API key may call, with its path, HTTP methods, and field contract. `GET /catalog/{entity}` returns one entity in full detail. This is generated live from JPS validation and master data — the same source the API itself validates against — so it does not drift the way a static document can.
+
+```bash
+curl -sS "$JPS_API_BASE_URL/catalog" -H "x-api-key: $JPS_API_KEY"
+curl -sS "$JPS_API_BASE_URL/catalog/shipping-instruction" -H "x-api-key: $JPS_API_KEY"
+```
+
+**List response** (`GET /catalog`):
+
+```json
+{
+  "success": true,
+  "data": {
+    "api_version": "5.1",
+    "auth_header": "x-api-key",
+    "count": 7,
+    "entities": [
+      { "slug": "shipping-instruction", "name": "Shipping instruction", "path": "/shipping-instructions", "methods": ["POST", "GET", "PATCH"], "fieldCount": 18 },
+      { "slug": "webhook", "name": "Webhook endpoint", "path": "/webhooks", "methods": ["POST", "GET", "PATCH", "DELETE"], "fieldCount": 4 },
+      { "slug": "term", "name": "Trade term", "path": "/terms", "methods": ["GET"], "fieldCount": 1 },
+      { "slug": "agent", "name": "Shipping agent", "path": "/agents", "methods": ["POST", "GET", "PATCH"], "fieldCount": 2 },
+      { "slug": "surveyor", "name": "Surveyor", "path": "/surveyors", "methods": ["GET"], "fieldCount": 2 },
+      { "slug": "shipper", "name": "Shipper", "path": "/shippers", "methods": ["POST", "GET", "PATCH"], "fieldCount": 2 },
+      { "slug": "cargo-type", "name": "Cargo type", "path": null, "methods": [], "fieldCount": 1 }
+    ]
+  }
+}
+```
+
+**Single-entity response** (`GET /catalog/shipping-instruction`, abridged — each field also carries `patchable`, `maxLength`, `enumValues`, `description`):
+
+```json
+{
+  "success": true,
+  "data": {
+    "slug": "shipping-instruction",
+    "name": "Shipping instruction",
+    "path": "/shipping-instructions",
+    "methods": ["POST", "GET", "PATCH"],
+    "fields": [
+      { "key": "purpose", "type": "STRING", "required": true, "patchable": false, "enumValues": ["Loading", "Unloading"] },
+      { "key": "trade_term", "type": "STRING", "required": false, "patchable": true, "enumValues": ["FOB", "CIF", "CFR", "..."] },
+      { "key": "shipping_instruction_document_url", "type": "URL", "required": false, "patchable": true, "maxLength": 2048 },
+      { "key": "cargo", "type": "ARRAY", "required": true, "patchable": true, "items": [ { "key": "cargo_type", "type": "STRING", "required": true, "enumValues": ["CPO", "PKE", "..."] } ] }
+    ]
+  }
+}
+```
+
+- **Field types:** `STRING`, `NUMBER`, `BOOLEAN`, `DATETIME`, `URL`, `ARRAY`, `ARRAY<STRING>`.
+- **`enumValues`** is only present when the field is constrained to a fixed set, and reflects current master data (trade term codes, surveyor names, commodity short names, webhook event types) — the same values §5.1 and §3.7 describe manually.
+- **`patchable`** marks fields the `PATCH` endpoint accepts (§3.3, §4.1.1).
+- Unknown `{entity}` returns **404** with `error.code = "NOT_FOUND"`.
+- Cache the catalog at startup; it changes when JPS master data changes (a new commodity, surveyor, or trade term), not on every submission.
+
 ---
 
 ## 4. Request & response reference
@@ -539,6 +604,9 @@ Terms and surveyors are **GET only** — JPS operators maintain them in the Mast
 | `trade_term` | string | No | Trade term code (e.g. `FOB`, `CIF`). Must match **`GET /terms`**. |
 | `surveyor_name` | string (max 200) | No | Must match a name from **`GET /surveyors`**. |
 | `notes` | string (max 2000) | No | Free-text remarks for operators. |
+| `shipping_instruction_document_url` | string (HTTPS URL, max 2048) | No | Link to your hosted SI document (PDF/page). JPS stores the URL only. |
+| `contract_document_url` | string (HTTPS URL, max 2048) | No | Link to your hosted contract document. |
+| `bl_document_url` | string (HTTPS URL, max 2048) | No | Link to your hosted bill of lading document. |
 | `cargo` | array | Yes | At least one cargo line (see below). |
 
 **Cargo line fields** (`cargo[]`):
@@ -565,6 +633,9 @@ At least one field required. Allowed while status is **`Pending`** only.
 | `trade_term` | Update SI trade term (code from **`GET /terms`**) |
 | `surveyor_name` | Update SI surveyor (from **`GET /surveyors`**) |
 | `cargo[]` | Array of line updates — each line must include **`line_order`** or **`contract_no`** to identify the row, plus any of: `po_no`, `so_no`, `shipper_name` |
+| `shipping_instruction_document_url` | Update SI document link (HTTPS) |
+| `contract_document_url` | Update contract document link |
+| `bl_document_url` | Update B/L document link |
 
 ### 4.1.2 Master data POST/PATCH (Agent, Shipper)
 
@@ -970,6 +1041,7 @@ When reporting issues, include:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.1 | 2026-09-28 | **Document links:** optional `shipping_instruction_document_url`, `contract_document_url`, `bl_document_url` on POST/PATCH/GET/webhook `data`. **Catalog API:** `GET /catalog` and `GET /catalog/{entity}` for live, self-describing field discovery (§3.8). Header **`X-JPS-API-Version: 5.1`**. |
 | 5.0 | 2026-09-25 | **Webhooks:** `POST/PATCH/GET/DELETE /webhooks`; signed outbound `status.changed` and `schedule.updated` events. **Enriched GET:** `plan_reference`, `approval`, `schedule` (TA, ETB, TB, ETC, TC, cast off, sailed), `etr_minutes`. New status **`Sailed`**. Header **`X-JPS-API-Version: 5.0`**. v4.x additive-compatible. |
 | 4.2 | 2026-09-23 | Renamed partner field **`hub_code`** → **`vessel_hub_code`** (request + response). |
 | 4.1 | 2026-09-23 | **Vessel master link:** `vessel_hub_code` primary identifier (sufficient alone); `vessel_name` fallback; 201/GET return canonical `vessel_name` + `vessel_hub_code` from master snapshot. See §3.1 vessel identification. |

@@ -40,4 +40,23 @@ describe('integration-partner-payload', () => {
     assert.equal(payload.allocation?.jetty_code, '1A');
     assert.ok(payload.schedule);
   });
+
+  it('includes partner document URLs', () => {
+    const payload = buildPartnerInstructionPayload({
+      si_id: 1,
+      external_reference: 'R',
+      received_at: '2026-09-25T01:00:00.000Z',
+      last_updated_at: '2026-09-25T02:00:00.000Z',
+      approval_status: 'Submitted',
+      vessel_name: 'V',
+      port_id: 1,
+      payload: {},
+      partner_si_document_url: 'https://ex/si',
+      partner_contract_document_url: 'https://ex/c',
+      partner_bl_document_url: 'https://ex/bl',
+    });
+    assert.equal(payload.shipping_instruction_document_url, 'https://ex/si');
+    assert.equal(payload.contract_document_url, 'https://ex/c');
+    assert.equal(payload.bl_document_url, 'https://ex/bl');
+  });
 });

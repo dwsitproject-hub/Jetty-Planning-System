@@ -10,7 +10,7 @@ import express from 'express';
 import { pool } from '../db.js';
 import { requireAdminPageView } from '../middleware/permissions.js';
 import { writeActivityLog } from '../lib/activity-log.js';
-import { clearDataHubTokenCache, fetchVesselCatalog } from '../lib/datahub-client.js';
+import { clearDataHubTokenCache, fetchEntityCatalog, fetchVesselCatalog } from '../lib/datahub-client.js';
 import {
   getDataHubConfigForAdmin,
   getEffectiveDataHubConfig,
@@ -126,13 +126,31 @@ router.post('/test', async (req, res) => {
   }
 
   try {
-    const catalog = await fetchVesselCatalog({ baseUrl, publicKey, privateKey });
+    const vesselCatalog = await fetchVesselCatalog({ baseUrl, publicKey, privateKey });
+    let incotermFields = null;
+    let commodityFields = null;
+    try {
+      incotermFields = (await fetchEntityCatalog({ baseUrl, publicKey, privateKey }, 'incoterm'))
+        .fieldCount;
+    } catch {
+      incotermFields = null;
+    }
+    try {
+      commodityFields = (await fetchEntityCatalog({ baseUrl, publicKey, privateKey }, 'commodity'))
+        .fieldCount;
+    } catch {
+      commodityFields = null;
+    }
     res.json({
       ok: true,
       baseUrl,
-      entity: catalog.slug,
-      fieldCount: catalog.fieldCount,
-      message: `Reached DataHub and read the vessel catalog (${catalog.fieldCount} fields).`,
+      entity: vesselCatalog.slug,
+      fieldCount: vesselCatalog.fieldCount,
+      incotermFieldCount: incotermFields,
+      commodityFieldCount: commodityFields,
+      message: `Reached DataHub: vessel (${vesselCatalog.fieldCount} fields)${
+        incotermFields != null ? `, incoterm (${incotermFields})` : ''
+      }${commodityFields != null ? `, commodity (${commodityFields})` : ''}.`,
     });
   } catch (e) {
     const status = Number(e?.status);
