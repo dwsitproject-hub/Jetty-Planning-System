@@ -103,7 +103,7 @@ export default function MasterSiLookup({
       label: isCommodityMaster ? 'Commodity name' : isTermMaster ? 'Term (short name)' : valueLabel,
       getSortValue: (it) => (it.value || '').toLowerCase(),
     })
-    if (isTermMaster) {
+    if (isDataHubMaster) {
       cols.push({
         key: 'hubCode',
         label: 'Hub Code',
@@ -657,7 +657,7 @@ export default function MasterSiLookup({
                       </td>
                     )}
                     <td>{it.value ?? '—'}</td>
-                    {isTermMaster && <td className="text-steel">{it.hubCode || '—'}</td>}
+                    {isDataHubMaster && <td className="text-steel">{it.hubCode || '—'}</td>}
                     {hasLongName && (
                       <td className="text-steel">{it.longName || '—'}</td>
                     )}

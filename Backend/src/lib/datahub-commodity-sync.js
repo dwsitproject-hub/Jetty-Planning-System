@@ -14,6 +14,10 @@ function nameKey(name) {
   return String(name || '').trim().toLowerCase();
 }
 
+function shortNameKey(shortName) {
+  return String(shortName || '').trim().toUpperCase();
+}
+
 function normalizeForCompare(column, value) {
   if (value == null || value === '') return null;
   if (column === 'kl_to_mt_factor' || column === 'default_metric_id') {
@@ -49,24 +53,36 @@ export function commodityTypeFromUom(uom) {
  */
 export function expandCommodityValues(hubValues, metricIdByCode, localRow = null) {
   const uom = hubValues?.uom;
-  const metricCode = String(uom ?? '').trim().toUpperCase() === 'KL' ? 'KL' : 'MT';
-  const defaultMetricId = metricIdByCode[metricCode] ?? metricIdByCode.MT ?? null;
-  const commodityType = commodityTypeFromUom(uom);
-  const shortName =
-    localRow?.short_name != null && String(localRow.short_name).trim()
-      ? String(localRow.short_name).trim().toUpperCase()
-      : deriveShortNameFromCommodityName(hubValues?.name);
+  const uomPresent = uom != null && String(uom).trim() !== '';
+  const metricCode = uomPresent && String(uom).trim().toUpperCase() === 'KL' ? 'KL' : 'MT';
+  const defaultMetricIdFromHub = uomPresent
+    ? metricIdByCode[metricCode] ?? metricIdByCode.MT ?? null
+    : null;
+
+  const hubShort =
+    hubValues?.short_name != null && String(hubValues.short_name).trim()
+      ? String(hubValues.short_name).trim().toUpperCase()
+      : null;
+  const shortName = hubShort ?? deriveShortNameFromCommodityName(hubValues?.name);
+
+  const hubType = hubValues?.commodity_type;
+  const commodityType =
+    hubType === 'Solid' || hubType === 'Liquid' ? hubType : commodityTypeFromUom(uom);
+
+  const defaultMetricId =
+    defaultMetricIdFromHub != null
+      ? defaultMetricIdFromHub
+      : localRow?.default_metric_id != null
+        ? Number(localRow.default_metric_id)
+        : null;
 
   return {
     name: hubValues?.name ?? null,
     short_name: shortName,
-    commodity_type: localRow?.commodity_type ?? commodityType,
+    commodity_type: commodityType,
     kl_to_mt_factor:
       localRow?.kl_to_mt_factor != null ? Number(localRow.kl_to_mt_factor) : null,
-    default_metric_id:
-      localRow?.default_metric_id != null
-        ? Number(localRow.default_metric_id)
-        : defaultMetricId,
+    default_metric_id: defaultMetricId,
     hs_code: hubValues?.hs_code ?? null,
   };
 }
@@ -88,9 +104,11 @@ export function diffCommodityFields(localRow, hubValues) {
  */
 export function buildCommoditySyncPlan(hubRecords, localRows, metricIdByCode) {
   const byHubCode = new Map();
+  const byShortName = new Map();
   const byName = new Map();
   for (const row of localRows ?? []) {
     if (row?.hub_code) byHubCode.set(String(row.hub_code), row);
+    if (row?.short_name) byShortName.set(shortNameKey(row.short_name), row);
     if (row?.name) byName.set(nameKey(row.name), row);
   }
 
@@ -104,8 +122,10 @@ export function buildCommoditySyncPlan(hubRecords, localRows, metricIdByCode) {
     }
     if (!hub.values?.name) continue;
 
+    const preValues = expandCommodityValues(hub.values, metricIdByCode, null);
     const local =
       (hub.hubCode ? byHubCode.get(String(hub.hubCode)) : null) ??
+      (preValues.short_name ? byShortName.get(preValues.short_name) : null) ??
       byName.get(nameKey(hub.values.name)) ??
       null;
 

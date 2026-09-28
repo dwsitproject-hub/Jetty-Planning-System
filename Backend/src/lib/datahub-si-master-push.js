@@ -109,6 +109,10 @@ export async function tryPushCommodityAfterSave(localRow, actorId = null, fetchI
     const payload = { name: str(localRow.name ?? localRow.value) };
     if (!payload.name) throw new Error('Commodity name is required');
     if (localRow.hs_code ?? localRow.hsCode) payload.hs_code = str(localRow.hs_code ?? localRow.hsCode);
+    const shortName = str(localRow.short_name ?? localRow.shortName);
+    if (shortName) payload.short_name = shortName.toUpperCase();
+    const ct = localRow.commodity_type ?? localRow.commodityType;
+    if (ct === 'Solid' || ct === 'Liquid') payload.type = ct;
     if (metricCode) payload.uom = metricCode.toUpperCase() === 'KL' ? 'KL' : 'MT';
     const hubCode = str(localRow.hub_code ?? localRow.hubCode);
     if (hubCode) payload.code = hubCode;

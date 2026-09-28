@@ -13,6 +13,8 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
   const name = String(values.name ?? '').trim();
   if (!name) throw new Error('Commodity name is required');
 
+  const shortName = String(values.short_name ?? '').trim().toUpperCase();
+
   let targetId = item.vessel_id != null ? Number(item.vessel_id) : null;
   if (targetId != null) {
     const still = await db.query(
@@ -21,6 +23,14 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
     );
     if (still.rows.length === 0) targetId = null;
   }
+  // Same DataHub short name: update existing row, never duplicate.
+  if (targetId == null && shortName) {
+    const byShort = await db.query(
+      `SELECT id FROM si_commodities WHERE UPPER(short_name) = $1 AND deleted_at IS NULL`,
+      [shortName]
+    );
+    targetId = byShort.rows[0]?.id != null ? Number(byShort.rows[0].id) : null;
+  }
   if (targetId == null) {
     const byName = await db.query(
       `SELECT id FROM si_commodities WHERE LOWER(name) = LOWER($1) AND deleted_at IS NULL`,
@@ -28,8 +38,6 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
     );
     targetId = byName.rows[0]?.id != null ? Number(byName.rows[0].id) : null;
   }
-
-  const shortName = String(values.short_name ?? '').trim().toUpperCase();
   const commodityType = values.commodity_type === 'Solid' ? 'Solid' : 'Liquid';
   const klFactor = values.kl_to_mt_factor != null ? Number(values.kl_to_mt_factor) : null;
   const defaultMetricId =

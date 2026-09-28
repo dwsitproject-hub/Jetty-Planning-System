@@ -191,6 +191,16 @@ export function normalizeHubIncoterm(record) {
   return hubRecordEnvelope(record, values);
 }
 
+/** Map DHM commodity `type` to JPS `Liquid` | `Solid`. */
+export function normalizeHubCommodityType(raw) {
+  const v = String(raw ?? '').trim();
+  if (v === 'Solid' || v === 'Liquid') return v;
+  const lower = v.toLowerCase();
+  if (lower === 'solid') return 'Solid';
+  if (lower === 'liquid') return 'Liquid';
+  return null;
+}
+
 /** DHM commodity → local si_commodities columns (before JPS-only defaults). */
 export function normalizeHubCommodity(record) {
   const data = record?.data && typeof record.data === 'object' ? record.data : null;
@@ -202,6 +212,8 @@ export function normalizeHubCommodity(record) {
     name,
     hs_code: str(data.hs_code),
     uom,
+    short_name: str(data.short_name ?? data.shortName),
+    commodity_type: normalizeHubCommodityType(data.type ?? data.commodity_type),
   };
   return hubRecordEnvelope(record, values);
 }

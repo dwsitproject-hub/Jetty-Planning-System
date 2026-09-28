@@ -22,9 +22,14 @@ node scripts/probe-datahub-catalog.mjs
 | `code` | `hub_code` | `hub_code` |
 | `name` | `code` (Incoterm, uppercased) | `name` |
 | `description` | `description` | — |
+| `long_name` | `long_name` (when present in sync payload) | — |
 | `hs_code` | — | `hs_code` |
+| `short_name` | — | `short_name` (short commodity name) |
+| `type` | — | `commodity_type` (`Liquid` \| `Solid`) |
 | `uom` | — | `default_metric_id` via `metric.code` KL/MT |
-| — | `sort_order` local | `short_name`, `commodity_type`, `kl_to_mt_factor` JPS defaults on create |
+| — | `sort_order` local | `kl_to_mt_factor` JPS-only (not synced from DHM) |
+
+**Match / apply:** commodities link by `hub_code`, then **`UPPER(short_name)`**, then name; apply updates an existing short name instead of inserting a duplicate (same pattern as Term ↔ `code`).
 
 Run the probe against staging/production DHM and append any extra field keys returned by the allowlisted catalog below this line.
 
