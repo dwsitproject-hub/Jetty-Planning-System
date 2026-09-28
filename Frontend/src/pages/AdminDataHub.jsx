@@ -22,6 +22,7 @@ export default function AdminDataHub() {
   const [privateKey, setPrivateKey] = useState('')
   const [enabled, setEnabled] = useState(false)
   const [webhookEnabled, setWebhookEnabled] = useState(false)
+  const [webhookAutoApply, setWebhookAutoApply] = useState(false)
   const [webhookSecret, setWebhookSecret] = useState('')
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -34,6 +35,7 @@ export default function AdminDataHub() {
     setPrivateKey('')
     setEnabled(cfg?.enabled === true)
     setWebhookEnabled(cfg?.webhookEnabled === true)
+    setWebhookAutoApply(cfg?.webhookAutoApply === true)
     setWebhookSecret('')
   }, [])
 
@@ -70,6 +72,7 @@ export default function AdminDataHub() {
           privateKey,
           enabled,
           webhookEnabled,
+          webhookAutoApply,
           webhookSecret,
         })
       )
@@ -79,7 +82,7 @@ export default function AdminDataHub() {
     } finally {
       setSaving(false)
     }
-  }, [baseUrl, publicKey, privateKey, enabled, webhookEnabled, webhookSecret, applyConfig])
+  }, [baseUrl, publicKey, privateKey, enabled, webhookEnabled, webhookAutoApply, webhookSecret, applyConfig])
 
   const handleTest = useCallback(async () => {
     setTesting(true)
@@ -198,6 +201,16 @@ export default function AdminDataHub() {
                         : 'Disabled'}
                     </span>
                     {config?.webhookSecretConfigured ? ' — secret configured' : ' — no secret'}
+                  </td>
+                </tr>
+                <tr className="allocation-table__row">
+                  <th scope="row" style={{ textAlign: 'left' }}>Webhook apply policy</th>
+                  <td className="text-steel">
+                    {config?.webhookEnabled || config?.webhookEffectiveSource === 'environment'
+                      ? config?.webhookAutoApplyEffective
+                        ? 'Auto-apply (Master Vessel updates immediately)'
+                        : 'Review first (Resume review on Master – Vessel)'
+                      : '—'}
                   </td>
                 </tr>
                 <tr className="allocation-table__row">
@@ -368,14 +381,38 @@ export default function AdminDataHub() {
               id="dhm-webhook-enabled"
               type="checkbox"
               checked={webhookEnabled}
-              onChange={(e) => setWebhookEnabled(e.target.checked)}
+              onChange={(e) => {
+                const on = e.target.checked
+                setWebhookEnabled(on)
+                if (!on) setWebhookAutoApply(false)
+              }}
               disabled={saving || loading}
             />
             Enable inbound DataHub webhooks
           </label>
+          <label
+            htmlFor="dhm-webhook-auto-apply"
+            className="modal__checkbox-label"
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}
+          >
+            <input
+              id="dhm-webhook-auto-apply"
+              type="checkbox"
+              checked={webhookAutoApply}
+              onChange={(e) => setWebhookAutoApply(e.target.checked)}
+              disabled={saving || loading || !webhookEnabled}
+            />
+            Auto-apply webhook vessel changes (skip manual review)
+          </label>
+          <p className="text-steel" style={{ marginTop: '0.5rem', fontSize: '0.85em' }}>
+            <strong>Recommended:</strong> control review vs auto-apply here, then click{' '}
+            <strong>Save settings</strong> above. Uncheck auto-apply to return to review-first
+            (Master – Vessel → Resume review). Default is review-first.
+          </p>
           <p className="text-steel" style={{ marginTop: '0.25rem', fontSize: '0.85em' }}>
-            Or set <code>DHM_WEBHOOK_ENABLED=true</code> in the environment (requires{' '}
-            <code>DHM_WEBHOOK_SECRET</code>).
+            Enable inbound webhooks and paste the webhook secret here (must match DHM). Server{' '}
+            <code>DHM_*</code> env vars are optional bootstrap only; saved settings on this page
+            take precedence.
           </p>
         </div>
       </section>

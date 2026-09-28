@@ -40,6 +40,7 @@ router.put('/', async (req, res) => {
         enabled: body.enabled,
         webhookEnabled: body.webhookEnabled,
         webhookSecret: body.webhookSecret,
+        webhookAutoApply: body.webhookAutoApply,
       },
       req.userId ?? null
     );
@@ -65,6 +66,13 @@ router.put('/', async (req, res) => {
       field: 'Inbound webhooks',
       from: before.webhookEnabled ? 'Yes' : 'No',
       to: after.webhookEnabled ? 'Yes' : 'No',
+    });
+  }
+  if (before.webhookAutoApply !== after.webhookAutoApply) {
+    changes.push({
+      field: 'Webhook auto-apply',
+      from: before.webhookAutoApply ? 'Yes' : 'No',
+      to: after.webhookAutoApply ? 'Yes' : 'No',
     });
   }
   if (body.privateKey != null && String(body.privateKey).trim()) {

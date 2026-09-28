@@ -68,6 +68,7 @@ describe('datahub-webhook', () => {
                 private_key_encrypted: null,
                 enabled: false,
                 webhook_enabled: false,
+                webhook_auto_apply: false,
                 webhook_secret_encrypted: null,
                 last_webhook_at: null,
                 last_webhook_error: null,
@@ -128,5 +129,120 @@ describe('datahub-webhook', () => {
     const second = await processInboundWebhook(db, raw, headers);
     assert.equal(second.status, 200);
     assert.equal(second.body.status, 'duplicate');
+  });
+
+  it('processInboundWebhook auto-applies when DHM_WEBHOOK_AUTO_APPLY is set', async () => {
+    process.env.DHM_WEBHOOK_ENABLED = 'true';
+    process.env.DHM_WEBHOOK_SECRET = SECRET;
+    process.env.DHM_WEBHOOK_AUTO_APPLY = 'true';
+    process.env.JWT_SECRET = 'test-jwt-for-webhook-config';
+
+    let runStatus = 'staged';
+    const db = {
+      async query(sql, params = []) {
+        if (/FROM datahub_config/i.test(sql)) {
+          return {
+            rows: [
+              {
+                id: 1,
+                base_url: null,
+                public_key: null,
+                private_key_encrypted: null,
+                enabled: false,
+                webhook_enabled: false,
+                webhook_auto_apply: false,
+                webhook_secret_encrypted: null,
+                last_webhook_at: null,
+                last_webhook_error: null,
+              },
+            ],
+          };
+        }
+        if (/FROM datahub_webhook_receipts WHERE delivery_id/i.test(sql)) {
+          return { rows: [] };
+        }
+        if (/INSERT INTO datahub_webhook_receipts/i.test(sql)) {
+          return { rows: [{ id: 1 }] };
+        }
+        if (/UPDATE datahub_config SET\s+last_webhook_at/i.test(sql)) {
+          return { rows: [] };
+        }
+        if (/FROM master_vessels/i.test(sql)) {
+          return {
+            rows: [
+              {
+                id: 5,
+                hub_code: 'VSL-0002',
+                vessel_name: 'OLD NAME',
+                vessel_type: 'barge',
+              },
+            ],
+          };
+        }
+        if (/INSERT INTO datahub_vessel_sync_runs/i.test(sql)) {
+          return { rows: [{ id: 100 }] };
+        }
+        if (/INSERT INTO datahub_vessel_sync_items/i.test(sql)) {
+          return { rows: [] };
+        }
+        if (/FROM datahub_vessel_sync_runs WHERE id/i.test(sql)) {
+          return { rows: [{ id: 100, status: runStatus }] };
+        }
+        if (/FROM datahub_vessel_sync_items/i.test(sql) && /decision = 'approved'/i.test(sql)) {
+          return {
+            rows: [
+              {
+                id: 1,
+                vessel_id: 5,
+                vessel_name: 'NEW VESSEL',
+                payload: { values: { vessel_name: 'NEW VESSEL' }, hubCode: 'VSL-0002' },
+              },
+            ],
+          };
+        }
+        if (/UPDATE master_vessels SET/i.test(sql)) {
+          return { rows: [] };
+        }
+        if (/UPDATE datahub_vessel_sync_items SET applied_at/i.test(sql)) {
+          return { rows: [] };
+        }
+        if (/UPDATE datahub_vessel_sync_runs SET\s+status = 'applied'/i.test(sql)) {
+          runStatus = 'applied';
+          return { rows: [] };
+        }
+        if (/BEGIN/i.test(sql) || /COMMIT/i.test(sql) || /ROLLBACK/i.test(sql)) {
+          return { rows: [] };
+        }
+        if (/FOR UPDATE/i.test(sql)) {
+          return { rows: [{ id: 100, status: runStatus }] };
+        }
+        throw new Error(`unexpected: ${sql.slice(0, 100)}`);
+      },
+      connect: async () => ({
+        query: db.query.bind(db),
+        release: () => {},
+      }),
+    };
+
+    const payload = {
+      event: 'record.updated',
+      deliveryId: 'del-auto-apply',
+      entityType: 'vessel',
+      recordId: 'uuid-1',
+      version: 2,
+      occurredAt: '2026-09-25T00:00:00.000Z',
+      data: { code: 'VSL-0002', Vessel_Name: 'NEW VESSEL', Vessel_Type: 'barge' },
+    };
+    const raw = Buffer.from(JSON.stringify(payload), 'utf8');
+    const headers = {
+      'x-dhm-signature': signDhmWebhookBody(SECRET, raw),
+      'x-dhm-delivery-id': 'del-auto-apply',
+      'x-dhm-event': 'record.updated',
+    };
+
+    const r = await processInboundWebhook(db, raw, headers);
+    assert.equal(r.status, 200);
+    assert.equal(r.body.status, 'applied');
+    assert.equal(r.body.updated, 1);
   });
 });

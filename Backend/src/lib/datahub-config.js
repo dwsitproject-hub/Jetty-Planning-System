@@ -37,6 +37,11 @@ function envWebhookSecret() {
   return s || null;
 }
 
+function envWebhookAutoApply() {
+  const v = String(process.env.DHM_WEBHOOK_AUTO_APPLY || '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
 /** Strip a trailing slash so callers can append `/v1/...` safely. */
 export function trimBaseUrl(raw) {
   return String(raw || '').trim().replace(/\/+$/, '');
@@ -74,7 +79,8 @@ export async function loadDataHubConfigRow(db) {
   const r = await db.query(
     `SELECT id, base_url, public_key, private_key_encrypted, enabled,
             last_sync_at, last_sync_ok, last_error, updated_at, updated_by,
-            webhook_secret_encrypted, webhook_enabled, last_webhook_at, last_webhook_error
+            webhook_secret_encrypted, webhook_enabled, webhook_auto_apply,
+            last_webhook_at, last_webhook_error
      FROM datahub_config WHERE id = $1`,
     [CONFIG_ID]
   );
@@ -137,6 +143,22 @@ export async function getEffectiveWebhookConfig(db) {
 }
 
 /**
+ * When true, inbound vessel webhooks pre-approve and apply staged items immediately.
+ * @param {import('pg').Pool | import('pg').PoolClient} db
+ */
+export async function getEffectiveWebhookAutoApply(db) {
+  const row = await loadDataHubConfigRow(db);
+  // When inbound webhooks are configured via Admin (DB), UI checkbox is the source of truth.
+  if (row?.webhook_enabled) {
+    return Boolean(row.webhook_auto_apply);
+  }
+  if (envWebhookAutoApply() && envWebhookEnabled() && envWebhookSecret()) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Admin-safe view: reports whether a private key is stored, never its value.
  * @param {import('pg').Pool | import('pg').PoolClient} db
  */
@@ -162,6 +184,8 @@ export async function getDataHubConfigForAdmin(db) {
     webhookCallbackUrl: getDataHubWebhookCallbackUrl(),
     lastWebhookAt: row?.last_webhook_at ?? null,
     lastWebhookError: row?.last_webhook_error ?? null,
+    webhookAutoApply: Boolean(row?.webhook_auto_apply),
+    webhookAutoApplyEffective: await getEffectiveWebhookAutoApply(db),
   };
 }
 
@@ -199,6 +223,11 @@ export async function saveDataHubConfig(db, input, updatedBy) {
     throw new Error('webhookSecret is required to enable inbound DataHub webhooks');
   }
 
+  const webhookAutoApply =
+    input.webhookAutoApply != null
+      ? Boolean(input.webhookAutoApply)
+      : row?.webhook_auto_apply ?? false;
+
   await db.query(
     `UPDATE datahub_config SET
        base_url = $1,
@@ -207,9 +236,10 @@ export async function saveDataHubConfig(db, input, updatedBy) {
        enabled = $4,
        webhook_enabled = $5,
        webhook_secret_encrypted = $6,
+       webhook_auto_apply = $7,
        updated_at = NOW(),
-       updated_by = $7
-     WHERE id = $8`,
+       updated_by = $8
+     WHERE id = $9`,
     [
       baseUrl,
       publicKey,
@@ -217,6 +247,7 @@ export async function saveDataHubConfig(db, input, updatedBy) {
       enabled,
       webhookEnabled,
       webhookSecretEncrypted,
+      webhookAutoApply,
       updatedBy ?? null,
       CONFIG_ID,
     ]

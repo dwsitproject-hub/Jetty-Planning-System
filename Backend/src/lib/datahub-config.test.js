@@ -8,6 +8,7 @@ import { describe, it, before, after, beforeEach } from 'node:test';
 import {
   getDataHubConfigForAdmin,
   getEffectiveDataHubConfig,
+  getEffectiveWebhookAutoApply,
   normalizeBaseUrl,
   saveDataHubConfig,
   trimBaseUrl,
@@ -28,6 +29,7 @@ function fakeDb(initial = {}) {
     updated_by: null,
     webhook_secret_encrypted: null,
     webhook_enabled: false,
+    webhook_auto_apply: false,
     last_webhook_at: null,
     last_webhook_error: null,
     ...initial,
@@ -44,6 +46,7 @@ function fakeDb(initial = {}) {
           enabled,
           webhookEnabled,
           webhookSecretEncrypted,
+          webhookAutoApply,
           updatedBy,
         ] = params;
         Object.assign(row, {
@@ -53,6 +56,7 @@ function fakeDb(initial = {}) {
           enabled,
           webhook_enabled: webhookEnabled,
           webhook_secret_encrypted: webhookSecretEncrypted,
+          webhook_auto_apply: webhookAutoApply,
           updated_by: updatedBy,
         });
         return { rows: [row] };
@@ -71,6 +75,9 @@ describe('datahub-config', () => {
   const prevBase = process.env.DHM_BASE_URL;
   const prevPublic = process.env.DHM_PUBLIC_KEY;
   const prevPrivate = process.env.DHM_PRIVATE_KEY;
+  const prevWhEnabled = process.env.DHM_WEBHOOK_ENABLED;
+  const prevWhSecret = process.env.DHM_WEBHOOK_SECRET;
+  const prevWhAuto = process.env.DHM_WEBHOOK_AUTO_APPLY;
 
   before(() => {
     process.env.JWT_SECRET = 'test-jwt-secret-for-datahub-encryption';
@@ -80,11 +87,17 @@ describe('datahub-config', () => {
     process.env.DHM_BASE_URL = prevBase;
     process.env.DHM_PUBLIC_KEY = prevPublic;
     process.env.DHM_PRIVATE_KEY = prevPrivate;
+    process.env.DHM_WEBHOOK_ENABLED = prevWhEnabled;
+    process.env.DHM_WEBHOOK_SECRET = prevWhSecret;
+    process.env.DHM_WEBHOOK_AUTO_APPLY = prevWhAuto;
   });
   beforeEach(() => {
     delete process.env.DHM_BASE_URL;
     delete process.env.DHM_PUBLIC_KEY;
     delete process.env.DHM_PRIVATE_KEY;
+    delete process.env.DHM_WEBHOOK_ENABLED;
+    delete process.env.DHM_WEBHOOK_SECRET;
+    delete process.env.DHM_WEBHOOK_AUTO_APPLY;
   });
 
   it('normalizes and trims base URLs', () => {
@@ -179,5 +192,20 @@ describe('datahub-config', () => {
     const effective = await getEffectiveDataHubConfig(fakeDb());
     assert.equal(effective.source, 'none');
     assert.equal(effective.enabled, false);
+  });
+
+  it('getEffectiveWebhookAutoApply reads database flag', async () => {
+    const db = fakeDb({ webhook_enabled: true, webhook_auto_apply: true });
+    assert.equal(await getEffectiveWebhookAutoApply(db), true);
+    db.row.webhook_auto_apply = false;
+    assert.equal(await getEffectiveWebhookAutoApply(db), false);
+  });
+
+  it('getEffectiveWebhookAutoApply ignores env when webhooks enabled in database', async () => {
+    process.env.DHM_WEBHOOK_ENABLED = 'true';
+    process.env.DHM_WEBHOOK_SECRET = 'whsec_x';
+    process.env.DHM_WEBHOOK_AUTO_APPLY = 'true';
+    const db = fakeDb({ webhook_enabled: true, webhook_auto_apply: false });
+    assert.equal(await getEffectiveWebhookAutoApply(db), false);
   });
 });

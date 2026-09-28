@@ -4,8 +4,8 @@
  */
 import crypto from 'crypto';
 import { normalizeHubVessel } from './datahub-client.js';
-import { getEffectiveWebhookConfig, updateDataHubWebhookHealth } from './datahub-config.js';
-import { stageVesselsFromHub } from './datahub-vessel-stage.js';
+import { getEffectiveWebhookConfig, getEffectiveWebhookAutoApply, updateDataHubWebhookHealth } from './datahub-config.js';
+import { stageVesselsFromHub, applyStagedVesselSyncRun } from './datahub-vessel-stage.js';
 
 /**
  * @param {string} secret
@@ -156,16 +156,46 @@ export async function processInboundWebhook(db, rawBody, headers) {
   }
 
   try {
+    const autoApply = await getEffectiveWebhookAutoApply(db);
     const { runId, items } = await stageVesselsFromHub(db, [hubRecord], {
       source: 'webhook',
       webhookDeliveryId: deliveryId,
-      preapproveChanges: false,
+      preapproveChanges: autoApply,
     });
 
     if (runId == null) {
       await insertReceipt('ignored', null, 'unchanged');
       await updateDataHubWebhookHealth(db, { ok: true });
       return { status: 200, body: { status: 'ignored', reason: 'unchanged' } };
+    }
+
+    if (autoApply) {
+      try {
+        const stats = await applyStagedVesselSyncRun(db, runId, null);
+        await insertReceipt('accepted', runId, null);
+        await updateDataHubWebhookHealth(db, { ok: true });
+        return {
+          status: 200,
+          body: {
+            status: 'applied',
+            deliveryId,
+            runId,
+            stagedCount: items.length,
+            ...stats,
+          },
+        };
+      } catch (e) {
+        const errMsg = String(e?.message || 'auto-apply failed').slice(0, 2000);
+        await db
+          .query(`UPDATE datahub_vessel_sync_runs SET status = 'failed', error = $1 WHERE id = $2`, [
+            errMsg,
+            runId,
+          ])
+          .catch(() => {});
+        await insertReceipt('failed', runId, errMsg);
+        await updateDataHubWebhookHealth(db, { ok: false, error: errMsg });
+        return { status: 500, body: { error: 'Auto-apply failed', message: errMsg } };
+      }
     }
 
     await insertReceipt('accepted', runId, null);

@@ -1,5 +1,7 @@
 # DataHub inbound webhook — staging test checklist
 
+**Full deploy steps (3-server, GitHub branch `staging`):** [DATAHUB-WEBHOOK-STAGING-DEPLOY.md](./DATAHUB-WEBHOOK-STAGING-DEPLOY.md)
+
 After deploying to **`172.28.92.57`**:
 
 1. Run migration: `cd Backend && npm run migrate` (includes `120_datahub_webhook.sql`).

@@ -13,12 +13,14 @@ export function saveDataHubConfig({
   enabled,
   webhookEnabled,
   webhookSecret,
+  webhookAutoApply,
 } = {}) {
   const body = {
     baseUrl: baseUrl ?? null,
     publicKey: publicKey ?? null,
     enabled: enabled === true,
     webhookEnabled: webhookEnabled === true,
+    webhookAutoApply: webhookAutoApply === true,
   }
   if (privateKey != null && String(privateKey).trim() !== '') {
     body.privateKey = String(privateKey).trim()
