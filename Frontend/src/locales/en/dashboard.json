@@ -290,9 +290,13 @@
   "v2WeeklyAtBerthTitle": "Vessels at berth",
   "v2WeeklyAtBerthInfo": "How many vessels were alongside at the end of the week, including ships that later sailed.",
   "v2WeeklyFlowTitle": "Moving avg flow rate per product",
-  "v2WeeklyFlowInfo": "Average pumping speed (MT per hour) by product. Cargo moved ÷ cargo-work hours. Each point is a 4-week moving average. A ship with two products is counted once per product using that product’s tonnage.",
+  "v2WeeklyFlowInfo": "Average pumping speed (MT per hour) by product. Cargo moved ÷ cargo-work hours. Each point is a 4-week moving average. A ship with two products is counted once per product using that product’s tonnage. Use the product filter to choose lines; with no selection, the chart shows the top products by tonnage plus Others.",
   "v2WeeklyFlowValue": "{{rate}} MT/h",
   "v2WeeklyFlowOthers": "Others",
   "v2WeeklyFlowEmpty": "No cargo-operations rates in this week",
+  "v2WeeklyFlowProductFilter": "Products (chart)",
+  "v2WeeklyFlowProductPlaceholder": "Default: top products + Others",
+  "v2WeeklyFlowProductEmpty": "No products in this range",
+  "v2WeeklyFlowProductSearch": "Search products…",
   "v2WeeklyAxisMtH": "MT/h"
 }

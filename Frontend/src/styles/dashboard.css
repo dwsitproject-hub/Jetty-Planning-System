@@ -3476,6 +3476,21 @@
   margin-bottom: 0;
 }
 
+.v2-weekly__block-title-row--flow {
+  align-items: flex-start;
+}
+
+.v2-weekly__flow-filter {
+  flex: 0 1 260px;
+  min-width: 200px;
+  max-width: 280px;
+}
+
+.v2-weekly__block-title-row--flow .v2-weekly__legend--inline {
+  flex: 1 1 100%;
+  justify-content: flex-end;
+}
+
 /* Weekly line charts (Dashboard V2) — multi-series, rotated week labels */
 .v2-weekly-line {
   width: 100%;

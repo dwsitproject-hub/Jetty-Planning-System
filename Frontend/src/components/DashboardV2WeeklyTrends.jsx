@@ -1,7 +1,15 @@
-import { useMemo, useCallback } from 'react'
+import { useMemo, useCallback, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import InteractiveTooltip from './InteractiveTooltip'
+import DropdownMultiSelect from './DropdownMultiSelect'
 import { formatDateDisplay } from '../utils/formatDateTimeDisplay'
+import {
+  rankFlowCommodities,
+  buildFlowChartEntries,
+  flowRateForEntry,
+  flowColorIndexForEntry,
+  pruneFlowCommoditySelection,
+} from '../utils/weeklyFlowChartSeries'
 
 const CHART_W = 760
 const CHART_H = 200
@@ -63,45 +71,6 @@ function ChartBlockTitle({ children, info }) {
       </span>
     </div>
   )
-}
-
-function rankFlowCommodities(weeks) {
-  const byId = new Map()
-  for (const w of weeks || []) {
-    for (const row of w.flowRateByCommodity || []) {
-      const id = Number(row.commodityId)
-      if (!Number.isFinite(id)) continue
-      const cur = byId.get(id) || { commodityId: id, code: row.code || '—', qtyMt: 0 }
-      cur.qtyMt += Number(row.qtyMt) || 0
-      if (row.code) cur.code = row.code
-      byId.set(id, cur)
-    }
-  }
-  return [...byId.values()].sort((a, b) => b.qtyMt - a.qtyMt || String(a.code).localeCompare(String(b.code)))
-}
-
-function flowSeriesEntries(ranked, othersLabel) {
-  if (ranked.length <= 8) return ranked.map((c) => ({ ...c, others: false, restIds: [] }))
-  const top = ranked.slice(0, 7)
-  const rest = ranked.slice(7)
-  return [
-    ...top.map((c) => ({ ...c, others: false, restIds: [] })),
-    { commodityId: -1, code: othersLabel, others: true, restIds: rest.map((r) => r.commodityId) },
-  ]
-}
-
-function flowRateForEntry(week, entry) {
-  const rows = week?.flowRateByCommodity || []
-  if (entry.others) {
-    const vals = entry.restIds
-      .map((id) => rows.find((r) => Number(r.commodityId) === id)?.mtPerHourMa)
-      .filter((v) => v != null && Number.isFinite(Number(v)))
-      .map(Number)
-    if (!vals.length) return null
-    return vals.reduce((s, n) => s + n, 0) / vals.length
-  }
-  const hit = rows.find((r) => Number(r.commodityId) === entry.commodityId)
-  return hit != null && Number.isFinite(Number(hit.mtPerHourMa)) ? Number(hit.mtPerHourMa) : null
 }
 
 function formatWeekRangeLabel(startIso, endIso) {
@@ -319,6 +288,21 @@ export default function DashboardV2WeeklyTrends({
   dateRangeLabel,
 }) {
   const { t, i18n } = useTranslation('dashboard')
+  const [selectedFlowCommodityIds, setSelectedFlowCommodityIds] = useState([])
+
+  const flowRanked = useMemo(() => rankFlowCommodities(data), [data])
+
+  useEffect(() => {
+    setSelectedFlowCommodityIds((prev) => {
+      const pruned = pruneFlowCommoditySelection(prev, flowRanked)
+      return pruned.length === prev.length && pruned.every((id, i) => id === prev[i]) ? prev : pruned
+    })
+  }, [flowRanked])
+
+  const flowOptions = useMemo(
+    () => flowRanked.map((c) => ({ value: String(c.commodityId), label: c.code })),
+    [flowRanked],
+  )
 
   const weekLabels = useMemo(
     () => (data || []).map((w) => formatWeekRangeLabel(w.startDate, w.endDate)),
@@ -336,8 +320,11 @@ export default function DashboardV2WeeklyTrends({
 
   const rangeSub = dateRangeLabel || ''
   const flowEntries = useMemo(
-    () => flowSeriesEntries(rankFlowCommodities(data), t('v2WeeklyFlowOthers')),
-    [data, t],
+    () => buildFlowChartEntries(data, {
+      selectedCommodityIds: selectedFlowCommodityIds,
+      othersLabel: t('v2WeeklyFlowOthers'),
+    }),
+    [data, selectedFlowCommodityIds, t],
   )
 
   if (loading && !data) {
@@ -741,19 +728,37 @@ export default function DashboardV2WeeklyTrends({
       </div>
 
       <div className="v2-weekly__block">
-        <div className="v2-weekly__block-title-row">
+        <div className="v2-weekly__block-title-row v2-weekly__block-title-row--flow">
           <ChartBlockTitle info={t('v2WeeklyFlowInfo')}>{t('v2WeeklyFlowTitle')}</ChartBlockTitle>
+          {flowOptions.length > 0 ? (
+            <DropdownMultiSelect
+              id="v2-weekly-flow-products"
+              className="v2-filters__dropdown v2-weekly__flow-filter"
+              panelClassName="v2-filters__panel"
+              titleLabel={t('v2WeeklyFlowProductFilter')}
+              placeholder={t('v2WeeklyFlowProductPlaceholder')}
+              emptyText={t('v2WeeklyFlowProductEmpty')}
+              options={flowOptions}
+              selectedValues={selectedFlowCommodityIds}
+              onChange={setSelectedFlowCommodityIds}
+              searchable
+              searchPlaceholder={t('v2WeeklyFlowProductSearch')}
+            />
+          ) : null}
           {flowEntries.length > 0 ? (
             <div className="v2-weekly__legend v2-weekly__legend--inline">
-              {flowEntries.map((entry, idx) => (
-                <span key={entry.commodityId} className="v2-weekly__legend-item">
-                  <i
-                    className="v2-weekly__legend-marker"
-                    style={{ background: FLOW_LINE_COLORS[idx % FLOW_LINE_COLORS.length] }}
-                  />
-                  {entry.code}
-                </span>
-              ))}
+              {flowEntries.map((entry) => {
+                const colorIdx = flowColorIndexForEntry(flowRanked, entry)
+                return (
+                  <span key={entry.commodityId} className="v2-weekly__legend-item">
+                    <i
+                      className="v2-weekly__legend-marker"
+                      style={{ background: FLOW_LINE_COLORS[colorIdx % FLOW_LINE_COLORS.length] }}
+                    />
+                    {entry.code}
+                  </span>
+                )
+              })}
             </div>
           ) : null}
         </div>
@@ -783,17 +788,20 @@ export default function DashboardV2WeeklyTrends({
               return withProjectedNote(items.length ? items : [{ primary: t('v2WeeklyFlowEmpty') }], i)
             },
           }}
-          series={flowEntries.map((entry, idx) => ({
-            key: `flow-${entry.commodityId}`,
-            color: FLOW_LINE_COLORS[idx % FLOW_LINE_COLORS.length],
-            values: projectUpcomingSeries(
-              data.map((w) => flowRateForEntry(w, entry) ?? 0),
-              weekIsUpcoming,
-              lastActiveIdx,
-            ),
-            pointTitle: (i, val) =>
-              `${weekLabels[i]}: ${entry.code} ${t('v2WeeklyFlowValue', { rate: Number(val).toFixed(1) })}`,
-          }))}
+          series={flowEntries.map((entry) => {
+            const colorIdx = flowColorIndexForEntry(flowRanked, entry)
+            return {
+              key: `flow-${entry.commodityId}`,
+              color: FLOW_LINE_COLORS[colorIdx % FLOW_LINE_COLORS.length],
+              values: projectUpcomingSeries(
+                data.map((w) => flowRateForEntry(w, entry) ?? 0),
+                weekIsUpcoming,
+                lastActiveIdx,
+              ),
+              pointTitle: (i, val) =>
+                `${weekLabels[i]}: ${entry.code} ${t('v2WeeklyFlowValue', { rate: Number(val).toFixed(1) })}`,
+            }
+          })}
         />
       </div>
       </div>

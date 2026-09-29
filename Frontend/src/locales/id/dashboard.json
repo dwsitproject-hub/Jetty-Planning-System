@@ -290,9 +290,13 @@
   "v2WeeklyAtBerthTitle": "Kapal di dermaga",
   "v2WeeklyAtBerthInfo": "Berapa kapal sedang sandar di akhir minggu, termasuk yang kemudian berlayar.",
   "v2WeeklyFlowTitle": "Rata-rata bergerak laju alir per produk",
-  "v2WeeklyFlowInfo": "Kecepatan pompa rata-rata (MT per jam) per produk. Kargo dipindah ÷ jam kerja kargo. Setiap titik adalah rata-rata bergerak 4 minggu. Kapal dengan dua produk dihitung sekali per produk memakai tonase produk itu.",
+  "v2WeeklyFlowInfo": "Kecepatan pompa rata-rata (MT per jam) per produk. Kargo dipindah ÷ jam kerja kargo. Setiap titik adalah rata-rata bergerak 4 minggu. Kapal dengan dua produk dihitung sekali per produk memakai tonase produk itu. Gunakan filter produk untuk memilih garis; tanpa pilihan, grafik menampilkan produk teratas menurut tonase plus Lainnya.",
   "v2WeeklyFlowValue": "{{rate}} MT/j",
   "v2WeeklyFlowOthers": "Lainnya",
   "v2WeeklyFlowEmpty": "Tidak ada laju operasi kargo minggu ini",
+  "v2WeeklyFlowProductFilter": "Produk (grafik)",
+  "v2WeeklyFlowProductPlaceholder": "Default: produk teratas + Lainnya",
+  "v2WeeklyFlowProductEmpty": "Tidak ada produk pada rentang ini",
+  "v2WeeklyFlowProductSearch": "Cari produk…",
   "v2WeeklyAxisMtH": "MT/j"
 }
