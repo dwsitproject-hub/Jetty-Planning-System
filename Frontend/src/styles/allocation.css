@@ -246,10 +246,15 @@ html.allocation-viz-popout-open #root {
   --gantt-bar-stack-step: 78px;
 }
 
-/* Berthing Plan bars carry avg rate, balance, and ETR — need extra vertical room */
+/* Berthing Plan — compact 3-row vessel card */
 .jetty-schedule-gantt--plan {
-  --gantt-bar-height: 90px;
-  --gantt-bar-stack-step: 96px;
+  --gantt-bar-height: 72px;
+  --gantt-bar-stack-step: 76px;
+}
+
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__timeline-tracks {
+  padding: 0;
+  gap: 0;
 }
 
 .jetty-schedule-gantt--plan .jetty-schedule-gantt__bar {
@@ -917,6 +922,95 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 .gantt-dense-block--plan-compact .gantt-dense-block__avg-flow-chip {
   font-size: 10px;
   padding: 0 7px;
+}
+
+/* Berthing Plan — 3-row inline pairs (vessel | product, wait | rate, volume | balance) */
+.gantt-dense-block--plan-three-row {
+  gap: 2px;
+  padding: 5px 8px;
+  box-sizing: border-box;
+  height: 100%;
+  justify-content: center;
+}
+
+.gantt-dense-block--plan-three-row.gantt-dense-block--pinned {
+  padding: 0;
+}
+
+.gantt-dense-block--plan-three-row .gantt-dense-block__pin {
+  max-width: min(360px, 52vw);
+  padding: 5px 8px;
+  align-self: flex-start;
+}
+
+.gantt-dense-block__row--plan3 {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 0;
+  min-width: 0;
+  width: max-content;
+  max-width: 100%;
+  line-height: 1.25;
+  font-size: 12px;
+  font-weight: var(--font-weight-semibold);
+  color: #1e293b;
+}
+
+.gantt-dense-block__row--plan3:first-child {
+  font-size: 13px;
+}
+
+.gantt-dense-block__plan3-left {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: min(210px, 42vw);
+}
+
+.gantt-dense-block__row--plan3:first-child .gantt-dense-block__plan3-left {
+  max-width: min(240px, 48vw);
+}
+
+.gantt-dense-block__plan3-left .gantt-dense-block__vessel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gantt-dense-block__plan3-right {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gantt-dense-block__plan3-highlight {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.3;
+  padding: 1px 7px;
+  border-radius: 3px;
+  white-space: nowrap;
+  background: rgba(37, 99, 235, 0.12);
+  border: 1px solid rgba(37, 99, 235, 0.28);
+  color: #1d4ed8;
+}
+
+.gantt-dense-block--plan-three-row .gantt-dense-block__sep {
+  flex: 0 0 auto;
+  margin: 0 4px;
+}
+
+.gantt-dense-block--plan-three-row .gantt-dense-block__wait-chip {
+  font-size: 12px;
+  line-height: 1.3;
+  padding: 1px 7px;
 }
 
 .gantt-dense-block__etr {
