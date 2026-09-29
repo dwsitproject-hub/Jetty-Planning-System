@@ -103,11 +103,13 @@ export async function triggerNotification(db, opts) {
   let emailEnabled = true;
   if (cfg.adminConfigured) {
     const settings = await loadEventSettings(db, eventKey);
-    if (!settings?.enabled) {
+    if (settings && settings.enabled === false) {
       return { sent: 0, skipped: true, reason: 'event_disabled' };
     }
-    inAppEnabled = settings.in_app_enabled !== false;
-    emailEnabled = settings.email_enabled !== false;
+    if (settings) {
+      inAppEnabled = settings.in_app_enabled !== false;
+      emailEnabled = settings.email_enabled !== false;
+    }
   }
   if (forceInApp === false) inAppEnabled = false;
   if (forceInApp === true) inAppEnabled = true;
@@ -149,7 +151,8 @@ export async function triggerNotification(db, opts) {
   if (Array.isArray(recipientUserIds) && recipientUserIds.length > 0) {
     recipients = recipientUserIds.map(Number);
   } else if (cfg.adminConfigured) {
-    recipients = await resolveEventRecipients(db, eventKey, portId);
+    const emptyFallback = cfg.recipientEmptyFallback === 'none' ? 'none' : 'atBerth';
+    recipients = await resolveEventRecipients(db, eventKey, portId, { emptyFallback });
   } else if (cfg.approvePageKey) {
     recipients = await resolveApproverUserIds(db, cfg.approvePageKey, excludeUserId ?? null);
   } else {

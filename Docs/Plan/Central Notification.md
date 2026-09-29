@@ -67,11 +67,13 @@ For the vibe to feel right, the In-App notification needs to be **real-time**. T
 **Backend modules:**
 
 - `Backend/src/lib/notifications.js` — `renderTemplate`, `triggerNotification`, `triggerNotificationDeferred`, `getPublicAppBaseUrl`, recipient resolution via **page `can_approve`** (same model as `userHasPageApprove` in RBAC).
-- `Backend/src/lib/notification-events.js` — maps `event_key` → approve page key (`shipment-plan`, `loading`).
+- `Backend/src/lib/notification-events.js` — maps `event_key` → admin settings + recipient rules; workflow events use `notification_event_recipients` only (empty list = no send). Approval API still uses page `can_approve` (`shipment-plan`, `loading`).
 - `Backend/src/lib/notification-email-worker.js` — polls queued deliveries (interval `NOTIFICATION_EMAIL_POLL_MS`, default 20s), sends with **nodemailer** when `SMTP_HOST` is set; on success inserts optional in-app **email echo** using template `notification.email_echo`.
 - `Backend/src/routes/notifications.js` — `GET /notifications/unread-count`, `GET /notifications`, `PATCH /notifications/read` (body `{ ids }` or `{ all: true }`). Mounted with **`requireAuth` only**; port filter uses all ports from `user_ports` so the bell works even when the SPA is on an admin route without a selected port header.
 
 **Domain triggers:** `POST /shipment-plans/:id/submit` → `shipment_plan.submitted`; `POST /operations/:id/signoff-request` → `operation.signoff_requested`.
+
+**Admin configuration (migration `120_workflow_notification_event_settings.sql`):** Shipment Plan Approval and Clearance Sign Off Request appear in **Admin → Notification Settings** (below SMTP). Each event supports **Enabled**, **In-app**, **Email**, **Recipients** (user or role, optional port scope), and **editable email templates** (same Save / Reset / Send test / Preview as SLA). With no recipients configured, workflow events send nothing. SLA events unchanged (at-berth fallback when recipient list empty).
 
 **SMTP env:** `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, optional `APP_PUBLIC_URL` / `FRONTEND_APP_URL` for links in emails.
 

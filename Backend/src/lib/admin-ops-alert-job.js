@@ -9,7 +9,7 @@ import {
   isNewlyUnhealthy,
 } from './admin-ops-alert-logic.js';
 import { isValidRecipientEmail } from './notification-email-worker.js';
-import { getFromAddress, getSmtpTransport } from './smtp-config.js';
+import { finalizeSmtpTransport, getFromAddress, getSmtpTransport } from './smtp-config.js';
 
 export { computeEmailAlertsActive } from './admin-ops-alert-logic.js';
 
@@ -210,6 +210,8 @@ export async function runAdminOpsAlertJob(db, opts = {}) {
             unhealthyChecks: newlyUnhealthy,
             errorText,
           });
+        } finally {
+          await finalizeSmtpTransport(smtp);
         }
       }
     } else if (newlyUnhealthy.length > 0 && !sendGate.ok) {

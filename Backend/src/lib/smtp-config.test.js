@@ -8,6 +8,8 @@ import {
   encryptSmtpPassword,
   decryptSmtpPassword,
   buildNodemailerTransport,
+  getSmtpPostSendDelayMs,
+  getSmtpRequireTls,
   invalidateSmtpTransportCache,
 } from './smtp-config.js';
 import {
@@ -50,6 +52,27 @@ describe('smtp-config', () => {
 
   it('returns null transport when host missing', () => {
     assert.equal(buildNodemailerTransport({ enabled: true, host: '' }), null);
+  });
+
+  it('getSmtpRequireTls defaults false on 587 unless env set', () => {
+    const prev = process.env.SMTP_REQUIRE_TLS;
+    delete process.env.SMTP_REQUIRE_TLS;
+    assert.equal(getSmtpRequireTls(587, false), false);
+    process.env.SMTP_REQUIRE_TLS = 'true';
+    assert.equal(getSmtpRequireTls(587, false), true);
+    assert.equal(getSmtpRequireTls(465, true), false);
+    process.env.SMTP_REQUIRE_TLS = prev;
+  });
+
+  it('getSmtpPostSendDelayMs clamps and parses env', () => {
+    const prev = process.env.SMTP_POST_SEND_DELAY_MS;
+    delete process.env.SMTP_POST_SEND_DELAY_MS;
+    assert.equal(getSmtpPostSendDelayMs(), 0);
+    process.env.SMTP_POST_SEND_DELAY_MS = '2000';
+    assert.equal(getSmtpPostSendDelayMs(), 2000);
+    process.env.SMTP_POST_SEND_DELAY_MS = '999999';
+    assert.equal(getSmtpPostSendDelayMs(), 30_000);
+    process.env.SMTP_POST_SEND_DELAY_MS = prev;
   });
 });
 

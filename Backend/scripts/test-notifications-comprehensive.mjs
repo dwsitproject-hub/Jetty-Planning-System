@@ -20,6 +20,7 @@ import {
   triggerNotification,
   insertInAppNotificationForUser,
 } from '../src/lib/notifications.js';
+import { resolveEventRecipients } from '../src/lib/notification-recipients.js';
 
 const BASE = process.env.API_BASE || 'http://localhost:3000/api/v1';
 const SKIP_HTTP = String(process.env.SKIP_HTTP || '') === '1';
@@ -119,7 +120,9 @@ async function testTriggerSmoke() {
   const portId = Number(portRow.rows[0].id);
 
   const correlationId = `comprehensive_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const approversBefore = await resolveApproverUserIds(pool, 'shipment-plan', null);
+  const expectedRecipients = await resolveEventRecipients(pool, 'shipment_plan.submitted', portId, {
+    emptyFallback: 'none',
+  });
 
   const result = await triggerNotification(pool, {
     eventKey: 'shipment_plan.submitted',
@@ -136,7 +139,10 @@ async function testTriggerSmoke() {
 
   assert(typeof result.sent === 'number', 'trigger sent count');
   assert(typeof result.emailQueued === 'number', 'trigger emailQueued');
-  assert(result.recipients === approversBefore.length, `recipients count ${result.recipients} vs resolve ${approversBefore.length}`);
+  assert(
+    result.recipients === expectedRecipients.length,
+    `recipients count ${result.recipients} vs resolve ${expectedRecipients.length}`
+  );
 
   if (result.sent > 0) {
     const rows = await pool.query(
@@ -150,7 +156,9 @@ async function testTriggerSmoke() {
       assert(row.deliveries >= 1, 'each notification should have at least one delivery row when email template exists');
     }
   } else {
-    console.warn('[warn] trigger inserted 0 rows (no users with can_approve on shipment-plan); RBAC-only env is OK.');
+    console.warn(
+      '[warn] trigger inserted 0 rows (no admin recipients for shipment_plan.submitted); configure Admin → Notifications.'
+    );
   }
 
   await cleanupByCorrelation(correlationId);

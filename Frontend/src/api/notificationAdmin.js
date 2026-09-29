@@ -45,7 +45,7 @@ export function saveSmtpConfig(body) {
 }
 
 export function sendSmtpTestEmail() {
-  return apiPost('/notification-admin/smtp/test', {})
+  return apiPost('/notification-admin/smtp/test', {}, 60_000)
 }
 
 export function fetchEmailDeliveries(params = {}) {

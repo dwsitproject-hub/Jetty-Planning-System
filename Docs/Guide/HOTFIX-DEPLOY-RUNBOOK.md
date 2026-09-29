@@ -96,10 +96,11 @@ export DEPLOY_BRANCH=hotfix/<name>
 bash Backend/scripts/deploy-prod-api-three-server.sh deploy
 ```
 
-If the hotfix includes frontend, on the **staging App** host:
+If the hotfix includes frontend, on the **staging App** host (`172.28.92.56`). Repo root is the nested path (staging only; production App stays `/opt/jetty-planning-system`):
 
 ```bash
-cd /opt/jetty-planning-system
+export JPS_REPO_DIR=/opt/jetty-planning-system/Jetty-Planning-System
+cd "$JPS_REPO_DIR"
 export DEPLOY_BRANCH=hotfix/<name>
 bash Backend/scripts/deploy-prod-frontend-three-server.sh deploy
 ```
