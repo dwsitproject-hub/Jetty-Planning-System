@@ -36,3 +36,27 @@
   outline: 2px solid var(--color-border-focus, #c43a31);
   outline-offset: 1px;
 }
+
+.topbar .language-switch {
+  border-color: var(--color-sea-glass-border);
+  background: var(--color-sea-glass);
+  backdrop-filter: blur(8px);
+}
+
+.topbar .language-switch__btn {
+  color: var(--color-sea-ink-muted);
+}
+
+.topbar .language-switch__btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--color-sea-ink);
+}
+
+.topbar .language-switch__btn--active {
+  background: var(--color-sea-glass-hover);
+  color: var(--color-sea-ink);
+}
+
+.topbar .language-switch__btn:focus-visible {
+  outline-color: var(--color-brand-red);
+}
