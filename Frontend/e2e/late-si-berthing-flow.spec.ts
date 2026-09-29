@@ -18,6 +18,7 @@ import {
   assertBerthingEnabled,
   completeBerthing,
   logArrivalButtonInRow,
+  arrivalModal,
 } from './helpers/allocation';
 
 const BERTHING_INVALID_SI_REF_TOOLTIP =
@@ -52,6 +53,38 @@ test.describe('Normal vs Late SI berthing gate', () => {
     await assertBerthingEnabled(row);
     await completeBerthing(page, vessel, '2B');
     // Berthing success = Confirm Berthing modal closed (asserted inside completeBerthing).
+  });
+
+  test('Test Case 2b — Unapproved plan with SI: log arrival saves ETA/ETB/TA; Berthing blocked', async ({
+    page,
+  }) => {
+    const vessel = uniqueVessel('E2E-DRAFTSI');
+    const eta = futureEtaLocal(11);
+    const siRef = `SI-E2E-DRAFT-${Date.now()}`;
+
+    await createPlanWithSi(page, { vessel, eta, siRef });
+
+    await gotoAllocationPlans(page);
+    const row = queueRowForVessel(page, vessel);
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    await logArrivalButtonInRow(row).click();
+
+    const modal = arrivalModal(page);
+    await expect(modal).toBeVisible();
+
+    await modal.locator('#arrival-eta').fill(futureEtaLocal(13));
+    await modal.locator('#arrival-etb').fill(futureEtaLocal(13));
+    await modal.locator('#arrival-ta').fill(futureEtaLocal(12));
+
+    const saveResponse = page.waitForResponse(
+      (r) => r.url().includes('/allocation/arrival') && r.request().method() === 'PUT'
+    );
+    await modal.locator('.modal__footer button.btn--primary').click();
+    const resp = await saveResponse;
+    expect(resp.status()).toBe(200);
+    await expect(modal).toBeHidden({ timeout: 30_000 });
+
+    await assertBerthingDisabledWithTooltip(row, 'Shipment plan must be approved before berthing.');
   });
 
   test.describe.serial('Late SI flow (blocked → unlocked)', () => {

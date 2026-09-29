@@ -3,9 +3,10 @@ import { useTranslation } from 'react-i18next'
 import html2canvas from 'html2canvas'
 import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import {
-  toDateInputValue,
   parseDateInputStart,
   parseDateInputEndExclusive,
+  defaultPlanCentricDateRangeInputs,
+  defaultLegacyMonthDateRangeInputs,
 } from '../utils/jettyScheduleOccupancy'
 import { buildScheduleSegments, assignBankLanesByVessel } from '../utils/jettyScheduleGanttLanes'
 import { buildAdjacencyAwareRowDefs } from '../utils/jettyAdjacency'
@@ -17,20 +18,26 @@ import {
   buildPlannedBlockModel,
   buildGanttBarTooltipItems,
   ganttDenseBlockAriaLabel,
-  GANTT_BAR_STACK_STEP,
-  GANTT_BAR_HEIGHT,
+  isLongGanttBar,
+  resolveGanttBarMetrics,
+  resolveGanttWaitTooltip,
 } from '../utils/ganttBarDisplay.js'
 import {
   buildGanttDragProposal,
   buildArrivalPayloadFromProposal,
+  buildCandidateFromProposal,
   jettyIdFromRowKey,
   snapDeltaMs,
   GANTT_DRAG_THRESHOLD_PX,
 } from '../utils/ganttDragProposal.js'
+import { validateBerthPlanJettyAssignment } from '../utils/berthPlanInterval.js'
 import { saveArrivalUpdate as saveArrivalUpdateApi } from '../api/allocation'
 import { ApiError } from '../api/client'
 import { useRbac } from '../context/RbacContext'
-import { scrollGanttContainerToToday } from '../utils/jettyScheduleGanttScroll.js'
+import {
+  applyGanttLongBarPinTransforms,
+  scrollGanttContainerToToday,
+} from '../utils/jettyScheduleGanttScroll.js'
 import '../styles/dashboard.css'
 import '../styles/etc-breach.css'
 
@@ -38,11 +45,10 @@ import '../styles/etc-breach.css'
 const MAX_RANGE_MS = 548 * 24 * 60 * 60 * 1000
 const DAY_COL_MIN = 72
 
-function defaultDateRangeInputs() {
-  const today = new Date()
-  const from = new Date(today.getFullYear(), today.getMonth(), 1, 0, 0, 0, 0)
-  const to = new Date(today.getFullYear(), today.getMonth() + 1, 0, 0, 0, 0, 0)
-  return { from: toDateInputValue(from), to: toDateInputValue(to) }
+function defaultDateRangeInputsForProfile(popoutProfile) {
+  return popoutProfile === 'plan'
+    ? defaultPlanCentricDateRangeInputs()
+    : defaultLegacyMonthDateRangeInputs()
 }
 
 function buildDateColumns(windowStartMs, windowEndMs) {
@@ -121,28 +127,46 @@ function segmentPillClass(seg) {
   return `jetty-schedule-gantt__bar ${segmentColorClass(seg)}${overdueMod}`
 }
 
-function ganttBarInlineStyle(seg, posStyle, stackIndex) {
+function ganttBarInlineStyle(seg, posStyle, stackIndex, stackStep) {
   return {
     ...posStyle,
-    top: `${6 + stackIndex * GANTT_BAR_STACK_STEP}px`,
+    top: `${6 + stackIndex * stackStep}px`,
     ...(seg.etcOverdue && seg.etcOverduePct != null
       ? { '--etc-overdue-start': `${seg.etcOverduePct}%` }
       : {}),
   }
 }
 
-function ganttBarAriaLabel(seg, layer) {
+function ganttBarAriaLabel(seg, layer, blockOptions) {
   const model =
-    layer === 'planned' ? buildPlannedBlockModel(seg) : buildActualBlockModel(seg, null)
+    layer === 'planned'
+      ? buildPlannedBlockModel(seg, blockOptions)
+      : buildActualBlockModel(seg, null, blockOptions)
   return ganttDenseBlockAriaLabel(model, layer)
 }
 
-function renderDenseBarContent(seg, layer, barWidthPct, sourceRow = null) {
+function renderDenseBarContent(seg, layer, barWidthPct, sourceRow, blockOptions, ganttUiOptions) {
   const model =
     layer === 'planned'
-      ? buildPlannedBlockModel(seg)
-      : buildActualBlockModel(seg, sourceRow)
-  return { model, content: <GanttDenseBlock layer={layer} model={model} barWidthPct={barWidthPct} /> }
+      ? buildPlannedBlockModel(seg, blockOptions)
+      : buildActualBlockModel(seg, sourceRow, blockOptions)
+  const pinLabel = ganttUiOptions.pinLongLabels && isLongGanttBar(barWidthPct)
+  return {
+    model,
+    pinLabel,
+    content: (
+      <GanttDenseBlock
+        layer={layer}
+        model={model}
+        barWidthPct={barWidthPct}
+        showLateChip={ganttUiOptions.showLateChip}
+        showAvgFlow={ganttUiOptions.showAvgFlow}
+        showPlannedWait={ganttUiOptions.showPlannedWait}
+        showEtr={ganttUiOptions.showEtr}
+        pinLabel={pinLabel}
+      />
+    ),
+  }
 }
 
 function findScheduleSourceRow(listRows, seg) {
@@ -190,7 +214,8 @@ export default function JettyScheduleGantt({
   isPopout = false,
 }) {
   const { t: tAlloc } = useTranslation('allocation')
-  const def = useMemo(() => defaultDateRangeInputs(), [])
+  const isPlanProfile = popoutProfile === 'plan'
+  const def = useMemo(() => defaultDateRangeInputsForProfile(popoutProfile), [popoutProfile])
   const [dateFrom, setDateFrom] = useState(def.from)
   const [dateTo, setDateTo] = useState(def.to)
 
@@ -205,6 +230,22 @@ export default function JettyScheduleGantt({
   }, [])
 
   const nowMs = Date.now()
+  const blockOptions = useMemo(
+    () => ({ nowMs, planCentric: isPlanProfile }),
+    [nowMs, isPlanProfile, tick]
+  )
+  const ganttUiOptions = useMemo(
+    () => ({
+      showLateChip: !isPlanProfile,
+      showAvgFlow: isPlanProfile,
+      showPlannedWait: isPlanProfile,
+      showEtr: isPlanProfile,
+      pinLongLabels: isPlanProfile,
+    }),
+    [isPlanProfile]
+  )
+
+  const barMetrics = useMemo(() => resolveGanttBarMetrics(isPlanProfile), [isPlanProfile])
 
   const { windowStartMs, windowEndMs, dateColumns, baseSegments, totalMs, rangeError } = useMemo(() => {
     const plan = Array.isArray(list) ? list : []
@@ -347,7 +388,7 @@ export default function JettyScheduleGantt({
       ro.disconnect()
       window.removeEventListener('resize', scheduleMeasure)
     }
-  }, [rowDefs, segments])
+  }, [rowDefs, segments, barMetrics.height])
 
   const spanningBars = useMemo(() => {
     if (!spanLayout.rowRects.size) return []
@@ -412,7 +453,7 @@ export default function JettyScheduleGantt({
       let height
       if (extendsDown) {
         top = barRect.top + barRect.height
-        height = farthestRowRect.top + barOffsetWithinRow + GANTT_BAR_HEIGHT - top
+        height = farthestRowRect.top + barOffsetWithinRow + barMetrics.height - top
       } else {
         top = farthestRowRect.top + barOffsetWithinRow
         height = barRect.top - top
@@ -436,7 +477,7 @@ export default function JettyScheduleGantt({
       })
     }
     return out
-  }, [segments, orderedBerthIds, berthsState, spanLayout, windowStartMs, totalMs])
+  }, [segments, orderedBerthIds, berthsState, spanLayout, windowStartMs, totalMs, barMetrics.height])
 
   // Multi-jetty berthing: which edge (if any) of the REAL primary bar touches its span
   // extension, keyed the same way as `spanRef` — used to drop that edge's border/radius so the
@@ -462,7 +503,7 @@ export default function JettyScheduleGantt({
   const [scrollToTodayTick, setScrollToTodayTick] = useState(0)
 
   const handleResetRange = () => {
-    const next = defaultDateRangeInputs()
+    const next = defaultDateRangeInputsForProfile(popoutProfile)
     setDateFrom(next.from)
     setDateTo(next.to)
     setScrollToTodayTick((t) => t + 1)
@@ -488,7 +529,18 @@ export default function JettyScheduleGantt({
 
   useLayoutEffect(() => {
     tryScrollToToday()
-  }, [nCols, rangeError, showNowLine, windowStartMs, windowEndMs, nowMs, scrollToTodayTick])
+    if (isPlanProfile) applyGanttLongBarPinTransforms(scrollRef.current)
+  }, [
+    isPlanProfile,
+    nCols,
+    rangeError,
+    showNowLine,
+    windowStartMs,
+    windowEndMs,
+    nowMs,
+    scrollToTodayTick,
+    segments,
+  ])
 
   // Berthing Plan lives in a hidden tab on Allocation — retry when the panel gains size.
   useEffect(() => {
@@ -496,10 +548,25 @@ export default function JettyScheduleGantt({
     if (!el || typeof ResizeObserver === 'undefined') return undefined
     const observer = new ResizeObserver(() => {
       tryScrollToToday()
+      if (isPlanProfile) applyGanttLongBarPinTransforms(el)
     })
     observer.observe(el)
     return () => observer.disconnect()
-  }, [nCols, rangeError, showNowLine, windowStartMs, windowEndMs, nowMs, scrollToTodayTick])
+  }, [isPlanProfile, nCols, rangeError, showNowLine, windowStartMs, windowEndMs, nowMs, scrollToTodayTick, segments])
+
+  // Long-bar labels: CSS sticky fails inside absolute bars — sync translateX to scroll instead.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || !isPlanProfile) return undefined
+    const syncPins = () => applyGanttLongBarPinTransforms(el)
+    el.addEventListener('scroll', syncPins, { passive: true })
+    window.addEventListener('resize', syncPins)
+    syncPins()
+    return () => {
+      el.removeEventListener('scroll', syncPins)
+      window.removeEventListener('resize', syncPins)
+    }
+  }, [isPlanProfile, segments, nCols, dateFrom, dateTo])
 
   const exportRef = useRef(null)
   const [exporting, setExporting] = useState(false)
@@ -785,6 +852,36 @@ export default function JettyScheduleGantt({
         : proposal.canActual
           ? 'actual'
           : 'none'
+    const targetJetty =
+      proposal.jettyChange?.to ??
+      (String(row?.jetty || '').trim().split('/')[0].trim() || null)
+    if (targetJetty) {
+      const berth = (Array.isArray(berthsState) ? berthsState : []).find((b) => b.id === targetJetty)
+      const candidate = buildCandidateFromProposal(proposal, choice, row)
+      const block = validateBerthPlanJettyAssignment({
+        candidate,
+        scheduleRows: list || [],
+        jettyShortId: targetJetty,
+        jettyCapacity: berth?.capacity != null ? Number(berth.capacity) : 1,
+        excludeVesselId: row?.vesselId ?? null,
+        excludeShipmentPlanId: row?.shipmentPlanId ?? null,
+        messages: {
+          blockMissingEtc: tAlloc('berthPlanBlockMissingEtc', {
+            defaultValue:
+              'Enter estimated completion (ETC) for {{vessel}} on {{jetty}} before allocating another vessel here.',
+          }),
+          blockOverlap: tAlloc('berthPlanBlockOverlap', {
+            defaultValue:
+              '{{jetty}} is occupied by {{vessel}} until {{end}}. Choose a later ETB or another jetty.',
+          }),
+          formatEnd: (ms) => formatDateTimeDisplay(new Date(ms).toISOString()),
+        },
+      })
+      if (!block.ok) {
+        setPendingSaveError(block.message)
+        return
+      }
+    }
     setPendingSaving(true)
     setPendingSaveError(null)
     try {
@@ -820,6 +917,7 @@ export default function JettyScheduleGantt({
     const fullWidth = Math.ceil((matrix ? matrix.scrollWidth : node.scrollWidth) + 16)
     node.classList.add('jetty-schedule-gantt__export-area--capturing')
     node.style.width = `${fullWidth}px`
+    applyGanttLongBarPinTransforms(scrollRef.current, { enabled: false })
     let objectUrl = null
     try {
       void node.offsetHeight
@@ -860,6 +958,7 @@ export default function JettyScheduleGantt({
     } finally {
       node.classList.remove('jetty-schedule-gantt__export-area--capturing')
       node.style.width = ''
+      if (isPlanProfile) applyGanttLongBarPinTransforms(scrollRef.current)
       if (objectUrl) setTimeout(() => URL.revokeObjectURL(objectUrl), 10000)
       setExporting(false)
     }
@@ -883,7 +982,7 @@ export default function JettyScheduleGantt({
       }
       return level
     })
-    const laneH = Math.max(30, 8 + Math.max(1, levelEnds.length) * GANTT_BAR_STACK_STEP)
+    const laneH = Math.max(30, 8 + Math.max(1, levelEnds.length) * barMetrics.stackStep)
     return (
       <div
         className="jetty-schedule-gantt__track jetty-schedule-gantt__track--actual"
@@ -893,7 +992,7 @@ export default function JettyScheduleGantt({
           const pos = segmentTrackStyle(seg, windowStartMs, totalMs)
           if (!pos) return null
           const { rawWidthPct: _rawWidthPct, ...posStyle } = pos
-          const style = ganttBarInlineStyle(seg, posStyle, stackIndexBySeg[i])
+          const style = ganttBarInlineStyle(seg, posStyle, stackIndexBySeg[i], barMetrics.stackStep)
 
           const barLayer = seg.layer === 'planned' ? 'planned' : 'actual'
           const pillClass = segmentPillClass(seg)
@@ -904,7 +1003,7 @@ export default function JettyScheduleGantt({
           const showEndHandle =
             canDrag && !isSailed && sourceRow &&
             (sourceRow.operationId != null || sourceRow.shippingInstructionId != null)
-          const ariaLabel = ganttBarAriaLabel(seg, barLayer)
+          const ariaLabel = ganttBarAriaLabel(seg, barLayer, blockOptions)
           // Multi-jetty berthing: drop the border/radius on whichever edge connects to this
           // bar's span extension, so the two pieces read as one seamless rectangle.
           const spanEdge = spanEdgeByAnchor.get(spanAnchorKey(seg))
@@ -914,19 +1013,22 @@ export default function JettyScheduleGantt({
               : spanEdge === 'up'
                 ? ' jetty-schedule-gantt__bar--span-primary-up'
                 : ''
-          const barClassName = `${pillClass}${canClick ? ' jetty-schedule-gantt__bar--btn' : ''}${canDrag ? ' jetty-schedule-gantt__bar--draggable' : ''}${spanEdgeClass}`
-          const { model: blockModel, content: denseContent } = renderDenseBarContent(
+          const { model: blockModel, pinLabel, content: denseContent } = renderDenseBarContent(
             seg,
             barLayer,
             _rawWidthPct,
-            barLayer === 'actual' ? sourceRow : null
+            barLayer === 'actual' ? sourceRow : null,
+            blockOptions,
+            ganttUiOptions
           )
+          const barClassName = `${pillClass}${canClick ? ' jetty-schedule-gantt__bar--btn' : ''}${canDrag ? ' jetty-schedule-gantt__bar--draggable' : ''}${spanEdgeClass}${pinLabel ? ' jetty-schedule-gantt__bar--long' : ''}`
           const tooltipItems = buildGanttBarTooltipItems(blockModel, barLayer, {
             clickHint: canClick
               ? tAlloc('ganttClickVesselDetail', { defaultValue: 'Click to open vessel details.' })
               : null,
-            waitLabel: tAlloc('ganttTooltipWaitDays', {
-              defaultValue: 'Waiting days (Berth − Arrival)',
+            waitLabel: resolveGanttWaitTooltip(blockModel, tAlloc),
+            etrLabel: tAlloc('ganttTooltipEtr', {
+              defaultValue: 'ETR (balance ÷ rate)',
             }),
           })
           const handles = canDrag ? (
@@ -1014,12 +1116,29 @@ export default function JettyScheduleGantt({
         <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--planned-solid" />
         {tAlloc('ganttLegendEstimate', { defaultValue: 'Estimate (no actual yet)' })}
       </span>
-      <span className="allocation-schedule__legend-item">
-        <span className="jetty-schedule-gantt__legend-chip jetty-schedule-gantt__legend-chip--late" aria-hidden>
-          {tAlloc('ganttLateChip', { defaultValue: 'LATE' })}
+      {isPlanProfile ? (
+        <>
+          <span className="allocation-schedule__legend-item">
+            <span className="jetty-schedule-gantt__legend-chip jetty-schedule-gantt__legend-chip--avg-flow" aria-hidden>
+              {tAlloc('ganttLegendAvgFlowSample', { defaultValue: 'Avg 50 MT/h' })}
+            </span>
+            {tAlloc('ganttLegendAvgFlow', { defaultValue: 'Avg MT/h flow (logged cargo)' })}
+          </span>
+          <span className="allocation-schedule__legend-item">
+            <span className="jetty-schedule-gantt__legend-chip jetty-schedule-gantt__legend-chip--etr" aria-hidden>
+              {tAlloc('ganttLegendEtrSample', { defaultValue: 'ETR 8h 3m' })}
+            </span>
+            {tAlloc('ganttLegendEtr', { defaultValue: 'ETR (balance ÷ rate)' })}
+          </span>
+        </>
+      ) : (
+        <span className="allocation-schedule__legend-item">
+          <span className="jetty-schedule-gantt__legend-chip jetty-schedule-gantt__legend-chip--late" aria-hidden>
+            {tAlloc('ganttLateChip', { defaultValue: 'LATE' })}
+          </span>
+          {tAlloc('ganttLegendLatePastEtc', { defaultValue: 'Late (past ETC)' })}
         </span>
-        {tAlloc('ganttLegendLatePastEtc', { defaultValue: 'Late (past ETC)' })}
-      </span>
+      )}
       <span className="allocation-schedule__legend-item">
         <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--status-sailed-off" />
         {tAlloc('ganttLegendSailed', { defaultValue: 'Sailed off' })}
@@ -1044,6 +1163,41 @@ export default function JettyScheduleGantt({
       ? Math.max(1, Number(pendingTargetBerth.capacity) || 1)
       : 1
   const pendingTargetFull = Boolean(pendingTargetBerth) && pendingTargetOcc >= pendingTargetCap
+  const pendingBerthPlanBlock = useMemo(() => {
+    if (!pendingProposal || !pendingChange?.row) return null
+    const targetJetty =
+      pendingProposal.jettyChange?.to ??
+      (String(pendingChange.row?.jetty || '').trim().split('/')[0].trim() || null)
+    if (!targetJetty) return null
+    const berth = (Array.isArray(berthsState) ? berthsState : []).find((b) => b.id === targetJetty)
+    const choice = pendingProposal.needsChoice
+      ? pendingChoice
+      : pendingProposal.canEstimation
+        ? 'estimation'
+        : pendingProposal.canActual
+          ? 'actual'
+          : 'none'
+    const candidate = buildCandidateFromProposal(pendingProposal, choice, pendingChange.row)
+    return validateBerthPlanJettyAssignment({
+      candidate,
+      scheduleRows: list || [],
+      jettyShortId: targetJetty,
+      jettyCapacity: berth?.capacity != null ? Number(berth.capacity) : 1,
+      excludeVesselId: pendingChange.row?.vesselId ?? null,
+      excludeShipmentPlanId: pendingChange.row?.shipmentPlanId ?? null,
+      messages: {
+        blockMissingEtc: tAlloc('berthPlanBlockMissingEtc', {
+          defaultValue:
+            'Enter estimated completion (ETC) for {{vessel}} on {{jetty}} before allocating another vessel here.',
+        }),
+        blockOverlap: tAlloc('berthPlanBlockOverlap', {
+          defaultValue:
+            '{{jetty}} is occupied by {{vessel}} until {{end}}. Choose a later ETB or another jetty.',
+        }),
+        formatEnd: (ms) => formatDateTimeDisplay(new Date(ms).toISOString()),
+      },
+    })
+  }, [pendingProposal, pendingChange, pendingChoice, list, berthsState, tAlloc])
   const pendingDateChanges = pendingProposal
     ? pendingProposal.needsChoice
       ? pendingChoice === 'actual'
@@ -1056,7 +1210,9 @@ export default function JettyScheduleGantt({
     : []
 
   return (
-    <section className={`jetty-schedule-gantt${isPopout ? ' jetty-schedule-gantt--popout' : ' card'}`}>
+    <section
+      className={`jetty-schedule-gantt${isPlanProfile ? ' jetty-schedule-gantt--plan' : ''}${isPopout ? ' jetty-schedule-gantt--popout' : ' card'}`}
+    >
       {!isPopout ? (
         <div className="card__title-row">
           <h2 className="card__title">{tAlloc('jettySchedule', { defaultValue: 'Berthing Plan' })}</h2>
@@ -1291,7 +1447,11 @@ export default function JettyScheduleGantt({
                       'The lane (01/02) within the jetty is assigned automatically — the bar may appear on a different lane row.',
                   })}
                 </p>
-                {pendingTargetFull ? (
+                {pendingBerthPlanBlock && !pendingBerthPlanBlock.ok ? (
+                  <p className="jetty-schedule-gantt__confirm-warning" role="alert">
+                    {pendingBerthPlanBlock.message}
+                  </p>
+                ) : pendingTargetFull ? (
                   <p className="jetty-schedule-gantt__confirm-warning">
                     {tAlloc('ganttDragJettyFullWarning', {
                       defaultValue:
@@ -1400,7 +1560,9 @@ export default function JettyScheduleGantt({
                 type="button"
                 className="btn btn--primary btn--small"
                 onClick={handleConfirmPendingChange}
-                disabled={pendingSaving}
+                disabled={
+                  pendingSaving || (pendingBerthPlanBlock != null && !pendingBerthPlanBlock.ok)
+                }
               >
                 {pendingSaving
                   ? tAlloc('ganttDragSaving', { defaultValue: 'Saving…' })

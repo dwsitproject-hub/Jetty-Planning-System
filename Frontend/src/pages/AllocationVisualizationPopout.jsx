@@ -25,8 +25,20 @@ export default function AllocationVisualizationPopout() {
     }
   }, [portIdHint, setSelectedPortId])
 
-  const { loading, error, isPlanCentric, selectedPort, planViz, vesselById, berthIds, berthsState, jetties, breachNowMs, reload } =
-    useAllocationVisualizationData(profile, portIdHint)
+  const {
+    loading,
+    error,
+    isPlanCentric,
+    selectedPort,
+    planViz,
+    vesselById,
+    scheduleListLive,
+    berthIds,
+    berthsState,
+    jetties,
+    breachNowMs,
+    reload,
+  } = useAllocationVisualizationData(profile, portIdHint)
 
   useEffect(() => {
     document.documentElement.classList.add('allocation-viz-popout-open')
@@ -106,7 +118,7 @@ export default function AllocationVisualizationPopout() {
             berthIds={berthIds}
             berthsState={berthsState}
             jetties={jetties}
-            list={planViz.mergedSchedule}
+            list={scheduleListLive}
             onScheduleChanged={reload}
             popoutProfile={profile}
             hidePopoutButton

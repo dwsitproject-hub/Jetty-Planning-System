@@ -26,12 +26,10 @@ export function jettyIdFromRowKey(rowKey) {
   return i > 0 ? s.slice(0, i) : null
 }
 
-/** Row can carry Actual milestones only when an operation/SI exists (not plan-only). */
+/** Row can carry Actual milestones only when an operation exists (not pre-operation scheduling). */
 export function rowSupportsActualDates(row) {
   if (!row) return false
-  const hasOp = row.operationId != null && row.operationId !== ''
-  const hasSi = row.shippingInstructionId != null && row.shippingInstructionId !== ''
-  return hasOp || hasSi
+  return row.operationId != null && row.operationId !== ''
 }
 
 function pushShift(list, field, label, fromMs, deltaMs) {
@@ -139,15 +137,38 @@ export function buildGanttDragProposal({ kind, deltaMs, seg, row, targetJettyId 
  * @param {string} activityLogPage
  * @returns {object} payload for saveArrivalUpdate
  */
+/**
+ * Merge a drag proposal into a schedule row for berth-plan validation previews.
+ * @param {object} proposal
+ * @param {'estimation' | 'actual' | 'none'} choice
+ * @param {object} row
+ * @returns {object}
+ */
+export function buildCandidateFromProposal(proposal, choice, row) {
+  const candidate = { ...row }
+  if (proposal.jettyChange) candidate.jetty = proposal.jettyChange.to
+  const chosen =
+    proposal.needsChoice
+      ? choice === 'actual'
+        ? proposal.actual
+        : proposal.estimation
+      : [
+          ...proposal.estimation,
+          ...(proposal.canActual ? proposal.actual : []),
+          ...proposal.always,
+        ]
+  for (const c of chosen) {
+    if (c.toMs != null) candidate[c.field] = new Date(c.toMs).toISOString()
+  }
+  return candidate
+}
+
 export function buildArrivalPayloadFromProposal(proposal, choice, row, activityLogPage) {
   const hasOp = row?.operationId != null && row.operationId !== ''
-  const hasSi = row?.shippingInstructionId != null && row.shippingInstructionId !== ''
-  const planOnly = !hasOp && !hasSi
 
   const payload = { activityLogPage }
   if (hasOp) payload.operationId = row.operationId
-  if (hasSi) payload.shippingInstructionId = row.shippingInstructionId
-  if (planOnly) payload.shipmentPlanId = row.shipmentPlanId
+  else payload.shipmentPlanId = row.shipmentPlanId
 
   if (proposal.jettyChange) payload.jetty = proposal.jettyChange.to
 

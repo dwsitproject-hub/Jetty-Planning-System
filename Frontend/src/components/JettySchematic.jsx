@@ -499,11 +499,14 @@ export default function JettySchematic({
       {
         cargoSiQty: v?.cargoSiQty ?? v?.scheduleComparison?.siQty,
         cargoSiMetric: v?.cargoSiMetric ?? v?.scheduleComparison?.siMetric,
+        avgRateTph: v?.scheduleComparison?.avgRateTph,
       }
     )
     const cargoLine = progress?.cargoLine ?? null
     const balanceLine = progress?.balanceLine ?? null
     const rateLine = progress?.rateLine ?? null
+    const etrDur =
+      progress?.etrMs != null ? formatDurationShort(progress.etrMs) : null
     const hoseConveyorLine = formatHoseConveyorOnLine(
       v?.openingCargoHandlingMethodName,
       v?.openingHatchStartAt
@@ -550,12 +553,25 @@ export default function JettySchematic({
         {hoseConveyorLine ? (
           <span className="jetty-slot__line jetty-card__opening">{hoseConveyorLine}</span>
         ) : null}
-        {balanceLine || berthedDur ? (
+        {balanceLine || etrDur || berthedDur ? (
           <span className="jetty-slot__line jetty-card__balance">
             {balanceLine}
-            {berthedDur ? (
+            {etrDur ? (
               <>
                 {balanceLine ? ' -- ' : null}
+                <span
+                  className="jetty-card__etr"
+                  title={tAlloc('cardEtrTooltip', {
+                    defaultValue: 'Estimated time to finish remaining cargo (balance ÷ rate)',
+                  })}
+                >
+                  {tAlloc('cardEtr', { duration: etrDur, defaultValue: 'ETR {{duration}}' })}
+                </span>
+              </>
+            ) : null}
+            {berthedDur ? (
+              <>
+                {balanceLine || etrDur ? ' -- ' : null}
                 <span className="jetty-card__berthed">
                   {tAlloc('cardTimeSinceBerthing', { defaultValue: 'Berthed' })} {berthedDur}
                 </span>

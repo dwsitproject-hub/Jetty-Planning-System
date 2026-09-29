@@ -43,6 +43,7 @@ import TankFarm from './pages/TankFarm'
 import MasterSiLookup from './pages/MasterSiLookup'
 import MasterFreightTerms from './pages/MasterFreightTerms'
 import Admin from './pages/Admin'
+import AdminOperations from './pages/AdminOperations'
 import AdminUsers from './pages/AdminUsers'
 import AdminRoles from './pages/AdminRoles'
 import AdminPartnerApi from './pages/AdminPartnerApi'
@@ -242,6 +243,7 @@ function App() {
                   />
                   <Route path="/master/freight-terms" element={<MasterFreightTerms />} />
                   <Route path="/admin" element={<Admin />} />
+                  <Route path="/admin/operations" element={<AdminOperations />} />
                   <Route path="/admin/users" element={<AdminUsers />} />
                   <Route path="/admin/roles" element={<AdminRoles />} />
                   <Route path="/admin/partner-api" element={<AdminPartnerApi />} />

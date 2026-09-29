@@ -1,11 +1,49 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  computeGanttPinTranslateX,
   computeScrollLeftToCenterDay,
   computeTodayDayIndex,
   scrollGanttContainerToToday,
   JETTY_SCHEDULE_ID_COL_PX,
 } from './jettyScheduleGanttScroll.js'
+
+describe('computeGanttPinTranslateX', () => {
+  const idCol = JETTY_SCHEDULE_ID_COL_PX
+
+  it('does not shift when the bar already starts after the pin column', () => {
+    assert.equal(
+      computeGanttPinTranslateX({
+        barViewportLeftPx: idCol + 40,
+        barWidthPx: 800,
+        pinWidthPx: 220,
+      }),
+      0
+    )
+  })
+
+  it('shifts right when the bar start has scrolled under the jetty-id column', () => {
+    assert.equal(
+      computeGanttPinTranslateX({
+        barViewportLeftPx: 40,
+        barWidthPx: 800,
+        pinWidthPx: 220,
+      }),
+      idCol + 6 - 40
+    )
+  })
+
+  it('caps shift so the pin stays inside the bar', () => {
+    assert.equal(
+      computeGanttPinTranslateX({
+        barViewportLeftPx: -100,
+        barWidthPx: 250,
+        pinWidthPx: 220,
+      }),
+      24
+    )
+  })
+})
 
 describe('computeScrollLeftToCenterDay', () => {
   const idCol = JETTY_SCHEDULE_ID_COL_PX

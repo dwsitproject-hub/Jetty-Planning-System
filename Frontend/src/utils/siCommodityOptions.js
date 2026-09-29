@@ -1,0 +1,58 @@
+/**
+ * Normalize siCommodityOptions from GET /operations/:id for cargo entry UI.
+ */
+
+export function normalizeSiCommodityOptions(raw) {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((o) => {
+      const commodityId = o.commodityId ?? o.commodity_id
+      const id = commodityId != null ? String(commodityId) : ''
+      if (!id) return null
+      return {
+        commodityId: id,
+        name: o.name ?? o.commodityName ?? '',
+        shortName: o.shortName ?? o.short_name ?? o.commodityShortName ?? o.name ?? id,
+        plannedQty: o.plannedQty != null ? Number(o.plannedQty) : null,
+        metricCode: o.metricCode ?? o.metric_code ?? 'MT',
+        metricMixed: Boolean(o.metricMixed ?? o.metric_mixed),
+      }
+    })
+    .filter(Boolean)
+}
+
+export function requiresCommodityPicker(options) {
+  return Array.isArray(options) && options.length > 1
+}
+
+export function defaultCommodityIdForNewLine(options, previousLineCommodityId) {
+  const list = normalizeSiCommodityOptions(options)
+  if (list.length === 0) return null
+  if (list.length === 1) return list[0].commodityId
+  const prev = previousLineCommodityId != null ? String(previousLineCommodityId) : ''
+  if (prev && list.some((o) => o.commodityId === prev)) return prev
+  return list[0].commodityId
+}
+
+export function formatSiCommodityPlanHint(option) {
+  if (!option || option.plannedQty == null || !Number.isFinite(Number(option.plannedQty))) {
+    return null
+  }
+  const qty = Number(option.plannedQty).toLocaleString(undefined, { maximumFractionDigits: 3 })
+  const unit = option.metricCode || 'MT'
+  return `${qty} ${unit}`
+}
+
+export function findSiCommodityOption(options, commodityId) {
+  const id = commodityId != null ? String(commodityId) : ''
+  if (!id) return null
+  return normalizeSiCommodityOptions(options).find((o) => o.commodityId === id) ?? null
+}
+
+export function singleCommodityBannerText(options) {
+  const list = normalizeSiCommodityOptions(options)
+  if (list.length !== 1) return null
+  const o = list[0]
+  const hint = formatSiCommodityPlanHint(o)
+  return hint ? `${o.shortName} · Plan ${hint}` : o.shortName
+}

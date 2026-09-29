@@ -27,6 +27,7 @@ export default function OperatorCargoSegmentList({
             seg.tankCodes?.length > 0
               ? seg.tankCodes.join(', ')
               : null
+          const product = seg.commodityShortDisplay || null
 
           return (
             <li
@@ -37,6 +38,9 @@ export default function OperatorCargoSegmentList({
                 <span className="operator-cargo-segment__num">
                   {t('segments.segmentLabel', { num: seg.segmentNum })}
                 </span>
+                {product ? (
+                  <span className="operator-cargo-segment__product">{product}</span>
+                ) : null}
                 {tanks ? <span className="operator-cargo-segment__tanks">{tanks}</span> : null}
                 {seg.isOpen ? (
                   <span className="operator-cargo-segment__badge">{t('segments.ongoing')}</span>

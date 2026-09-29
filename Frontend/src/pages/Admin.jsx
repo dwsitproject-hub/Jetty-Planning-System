@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import '../styles/allocation.css'
 
 const ADMIN_ITEMS = [
+  { path: '/admin/operations', titleKey: 'adminHubOperationsTitle', descKey: 'adminHubOperationsDesc' },
   { path: '/admin/users', titleKey: 'adminHubUsersTitle', descKey: 'adminHubUsersDesc' },
   { path: '/admin/roles', titleKey: 'adminHubRolesTitle', descKey: 'adminHubRolesDesc' },
   { path: '/admin/partner-api', titleKey: 'adminHubPartnerApiTitle', descKey: 'adminHubPartnerApiDesc' },

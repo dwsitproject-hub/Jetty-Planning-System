@@ -80,6 +80,8 @@ describe('buildScheduleSegments planned dedup', () => {
     assert.equal(segs.filter((s) => s.layer === 'planned').length, 1)
     assert.equal(segs.filter((s) => s.layer === 'actual' && s.phase === 'transit').length, 0)
     assert.equal(segs[0].startSource, 'ETB')
+    const taMs = new Date(JUN_20).getTime()
+    assert.equal(segs[0].waitMs, JUN_24 - taMs)
   })
 
   it('does not emit a TA transit bar; actual occupancy starts at TB', () => {
@@ -96,7 +98,7 @@ describe('buildScheduleSegments planned dedup', () => {
     assert.equal(segs.filter((s) => s.layer === 'actual' && s.phase === 'transit').length, 0)
   })
 
-  it('falls back to ETA when ETB is missing and labels the start source', () => {
+  it('does not emit a planned bar when only ETA is set (Berthing Plan is ETB-only)', () => {
     const plan = [
       row({
         shipmentPlanId: 14,
@@ -106,10 +108,25 @@ describe('buildScheduleSegments planned dedup', () => {
       }),
     ]
     const segs = buildScheduleSegments(plan, WINDOW_START, WINDOW_END, JUN_24)
-    const planned = segs.filter((s) => s.layer === 'planned')
-    assert.equal(planned.length, 1)
-    assert.equal(planned[0].startSource, 'ETA')
-    assert.equal(planned[0].startMs, new Date(JUN_10).getTime())
+    assert.equal(segs.filter((s) => s.layer === 'planned').length, 0)
+  })
+
+  it('extends actual bar to at least TB+3d when ETC is missing', () => {
+    const plan = [
+      row({
+        shipmentPlanId: 14,
+        vesselId: 'op-100',
+        tbDateTime: JUN_21,
+        operationId: 100,
+      }),
+    ]
+    const nowMs = new Date('2026-06-22T08:00:00').getTime()
+    const segs = buildScheduleSegments(plan, WINDOW_START, WINDOW_END, nowMs)
+    const actual = segs.find((s) => s.layer === 'actual' && s.phase === 'ops')
+    assert.ok(actual)
+    const minEnd = new Date(JUN_21).getTime() + 3 * 24 * 60 * 60 * 1000
+    assert.ok(actual.endMs >= minEnd)
+    assert.equal(actual.missingEtc, true)
   })
 
   it('attaches waitMs (TA → TB) on actual alongside bars', () => {

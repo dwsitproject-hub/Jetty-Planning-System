@@ -9,6 +9,7 @@ import SiDocumentModal from '../components/SiDocumentModal'
 import VesselInfoModal, { VesselNameButton } from '../components/VesselInfoModal'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { atBerthExecutionOpenPath } from '../utils/atBerthOpenPath'
+import { shouldPollLiveCargoProgress } from '../utils/berthingEligibility'
 import { renderCommodityQtyCell } from '../utils/siCargoTableDisplay'
 import ColumnSelectFilter from '../components/ColumnSelectFilter'
 import ColumnDateRangeFilter from '../components/ColumnDateRangeFilter'
@@ -564,7 +565,7 @@ export default function AtBerthExecutions() {
       [
         ...new Set(
           queue
-            .filter((r) => r.operationId != null && getBerthingPlanStatus(r) === 'berthed')
+            .filter((r) => shouldPollLiveCargoProgress(r))
             .map((r) => Number(r.operationId))
             .filter((n) => Number.isFinite(n) && n > 0)
         ),

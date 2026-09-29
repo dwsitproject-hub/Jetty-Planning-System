@@ -1,10 +1,28 @@
 import { formatDateTimeDisplay } from './formatDateTimeDisplay.js'
-import { computeCargoProgress } from './cargoQtyDisplay.js'
+import {
+  computeCargoProgress,
+  formatAvgFlowRateLabel,
+  parseQtyDisplay,
+} from './cargoQtyDisplay.js'
 import { commodityLongTitle } from './commodityShortTitle.js'
+import { computeWaitToBerthMs, waitToBerthTooltipMode } from './waitToBerth.js'
 
 /** Gantt bar layout constants (keep in sync with allocation.css --gantt-bar-*). */
 export const GANTT_BAR_HEIGHT = 72
 export const GANTT_BAR_STACK_STEP = 78
+/** Taller bars for Berthing Plan (extra cargo/balance/ETR rows). */
+export const GANTT_PLAN_BAR_HEIGHT = 90
+export const GANTT_PLAN_BAR_STACK_STEP = 96
+
+/**
+ * @param {boolean} [planCentric]
+ * @returns {{ height: number, stackStep: number }}
+ */
+export function resolveGanttBarMetrics(planCentric = false) {
+  return planCentric
+    ? { height: GANTT_PLAN_BAR_HEIGHT, stackStep: GANTT_PLAN_BAR_STACK_STEP }
+    : { height: GANTT_BAR_HEIGHT, stackStep: GANTT_BAR_STACK_STEP }
+}
 
 /**
  * @param {object | null | undefined} r
@@ -36,6 +54,12 @@ export function resolveGanttBarDensity(barWidthPct) {
   if (pct < 15) return 'narrow'
   if (pct < 35) return 'medium'
   return 'full'
+}
+
+/** Long bars benefit from a pinned label panel while scrolling horizontally (~5+ days in a 28-day window). */
+export function isLongGanttBar(rawWidthPct, { minPct = 18 } = {}) {
+  const pct = Number(rawWidthPct)
+  return Number.isFinite(pct) && pct >= minPct
 }
 
 /**
@@ -118,6 +142,21 @@ export function formatMaterialQtyLine(material, cargo) {
     cl.includes(m.toLowerCase()) || (parts.length > 0 && parts.every((p) => cl.includes(p.toLowerCase())))
   if (cargoNamesMaterial) return c
   return `${m} · ${c}`
+}
+
+/**
+ * Cargo qty line for Gantt bars. On plan-centric bars the commodity is already on the row above,
+ * so only the cargo progress text is returned.
+ * @param {string | null | undefined} material
+ * @param {string | null | undefined} cargo
+ * @param {{ planCentric?: boolean }} [options]
+ * @returns {string | null}
+ */
+export function ganttCargoQtyLine(material, cargo, { planCentric = false } = {}) {
+  if (planCentric && isDisplayValue(material) && isDisplayValue(cargo)) {
+    return String(cargo).trim()
+  }
+  return formatMaterialQtyLine(material, cargo)
 }
 
 /**
@@ -213,11 +252,114 @@ export function formatGanttMilestoneEntriesCompact(entries, translate) {
 }
 
 /**
+ * @param {object | null | undefined} row
+ * @returns {string}
+ */
+/** "3d 4h" / "8h 3m" — matches Jetty schematic card duration labels. */
+export function formatGanttDurationShort(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return null
+  const mins = Math.floor(ms / 60000)
+  const days = Math.floor(mins / 1440)
+  const hours = Math.floor((mins % 1440) / 60)
+  const rem = mins % 60
+  if (days > 0) return `${days}d ${hours}h`
+  if (hours > 0) return `${hours}h ${rem}m`
+  return `${rem}m`
+}
+
+/**
+ * Estimated time remaining from balance ÷ rate (same inputs as schematic ETR).
+ * @returns {string|null} duration only, e.g. "8h 3m"
+ */
+function resolveGanttCargoProgress(row) {
+  if (!row) return null
+  return computeCargoProgress(
+    row?.totalQtyDisplay || row?.cargoDisplay || null,
+    row?.cargoMovedQty,
+    row?.cargoFirstLoggedAt,
+    row?.cargoLastLoggedAt,
+    {
+      cargoSiQty: row?.cargoSiQty ?? row?.scheduleComparison?.siQty,
+      cargoSiMetric: row?.cargoSiMetric ?? row?.scheduleComparison?.siMetric,
+      avgRateTph: row?.scheduleComparison?.avgRateTph,
+    }
+  )
+}
+
+export function resolveGanttBalanceLine(row) {
+  return resolveGanttCargoProgress(row)?.balanceLine ?? null
+}
+
+export function resolveGanttEtrDuration(row) {
+  const progress = resolveGanttCargoProgress(row)
+  if (!progress?.etrMs) return null
+  return formatGanttDurationShort(progress.etrMs)
+}
+
+/**
+ * Modal / detail display for ETR with sailed and completed overrides.
+ * @param {object | null | undefined} row
+ * @param {{ hasSailed?: boolean, hasCompleted?: boolean, t?: (key: string, opts?: object) => string }} [opts]
+ * @returns {string}
+ */
+export function resolveVesselEtrDisplay(row, { hasSailed = false, hasCompleted = false, t } = {}) {
+  if (hasSailed) {
+    return t?.('planModalSailed', { defaultValue: 'Sailed' }) ?? 'Sailed'
+  }
+  if (hasCompleted) {
+    return t?.('planModalCompleted', { defaultValue: 'Completed' }) ?? 'Completed'
+  }
+  return resolveGanttEtrDuration(row) ?? '—'
+}
+
+export function resolveGanttAvgRateLine(row) {
+  if (!row) return '—'
+  const fromApi = Number(row?.scheduleComparison?.avgRateTph)
+  const unit =
+    row?.cargoSiMetric ||
+    row?.scheduleComparison?.siMetric ||
+    parseQtyDisplay(row?.totalQtyDisplay)?.unit ||
+    'MT'
+  if (Number.isFinite(fromApi) && fromApi > 0) {
+    return formatAvgFlowRateLabel(fromApi, unit) || '—'
+  }
+  const progress = computeCargoProgress(
+    row?.totalQtyDisplay || row?.cargoDisplay || null,
+    row?.cargoMovedQty,
+    row?.cargoFirstLoggedAt,
+    row?.cargoLastLoggedAt,
+    {
+      cargoSiQty: row?.cargoSiQty,
+      cargoSiMetric: row?.scheduleComparison?.siMetric,
+    }
+  )
+  if (progress?.ratePerHour > 0) {
+    return formatAvgFlowRateLabel(progress.ratePerHour, progress.qty.unit) || '—'
+  }
+  return '—'
+}
+
+/**
  * @param {object} seg
+ * @param {{ nowMs?: number, planCentric?: boolean }} [options]
  * @returns {object}
  */
-export function buildPlannedBlockModel(seg) {
+export function buildPlannedBlockModel(seg, options = {}) {
+  const { nowMs = Date.now(), planCentric = false } = options
   const materialDisplay = seg.materialDisplay || null
+  const isWaitingPlanned =
+    planCentric &&
+    seg.taMs != null &&
+    seg.tbMs == null &&
+    seg.status !== 'Sailed off'
+  const waitMs =
+    seg.waitMs != null
+      ? seg.waitMs
+      : isWaitingPlanned
+        ? computeWaitToBerthMs({ taMs: seg.taMs, nowMs, mode: 'waiting' })
+        : null
+  const waitLine = formatWaitDaysFromMs(waitMs)
+  const waitTooltipMode = isWaitingPlanned ? 'waiting' : null
   return {
     vesselName: seg.vesselName || '—',
     purposeLabel: seg.purposeLabel || null,
@@ -225,13 +367,18 @@ export function buildPlannedBlockModel(seg) {
     status: seg.status || null,
     etaMs: seg.etaMs ?? null,
     etbMs: seg.plannedEtbMs ?? null,
+    taMs: seg.taMs ?? null,
+    tbMs: seg.tbMs ?? null,
     etcMs: seg.estCompMs ?? null,
     materialDisplay,
     commodityTitle: commodityLongTitle(materialDisplay, seg.commodityDisplay),
     cargoDisplay: seg.cargoDisplay || null,
-    materialQtyLine: formatMaterialQtyLine(materialDisplay, seg.cargoDisplay),
-    waitLine: null,
+    materialQtyLine: ganttCargoQtyLine(materialDisplay, seg.cargoDisplay, { planCentric }),
+    waitLine,
+    waitTooltipMode,
     avgRateLine: '—',
+    balanceLine: null,
+    etrDuration: null,
     arrivalLine: formatGanttMilestoneLine(
       [
         { label: 'ETA', ms: seg.etaMs },
@@ -242,6 +389,7 @@ export function buildPlannedBlockModel(seg) {
       { label: 'ETB', ms: seg.plannedEtbMs },
       { label: 'ETC', ms: seg.estCompMs },
     ]),
+    missingEtc: Boolean(seg.missingEtc),
   }
 }
 
@@ -260,7 +408,14 @@ export function buildPlannedBlockModel(seg) {
  * @param {string | null | undefined} [cargoLastLoggedAt]
  * @returns {string | null}
  */
-function applyCargoProgress(cargoText, cargoMovedQty, cargoFirstLoggedAt, cargoLastLoggedAt, row) {
+function applyCargoProgress(
+  cargoText,
+  cargoMovedQty,
+  cargoFirstLoggedAt,
+  cargoLastLoggedAt,
+  row,
+  { omitRateLine = false } = {}
+) {
   if (!cargoText || typeof cargoText !== 'string') return cargoText ?? null
   const lines = cargoText.split('\n')
   const progress = computeCargoProgress(lines[0], cargoMovedQty, cargoFirstLoggedAt, cargoLastLoggedAt, {
@@ -268,16 +423,18 @@ function applyCargoProgress(cargoText, cargoMovedQty, cargoFirstLoggedAt, cargoL
     cargoSiMetric: row?.scheduleComparison?.siMetric,
   })
   if (!progress) return cargoText
-  const newFirstLine = `${progress.cargoLine} -- ${progress.rateLine}`
+  const newFirstLine = omitRateLine ? progress.cargoLine : `${progress.cargoLine} -- ${progress.rateLine}`
   return [newFirstLine, ...lines.slice(1)].join('\n')
 }
 
 /**
  * @param {object} seg
  * @param {object | null | undefined} row
+ * @param {{ planCentric?: boolean }} [options]
  * @returns {object}
  */
-export function buildActualBlockModel(seg, row) {
+export function buildActualBlockModel(seg, row, options = {}) {
+  const { planCentric = false } = options
   const actualCompMs =
     seg.actualCompMs ??
     (row ? parseRowActualCompMs(row) : null)
@@ -288,7 +445,8 @@ export function buildActualBlockModel(seg, row) {
     row?.cargoMovedQty,
     row?.cargoFirstLoggedAt,
     row?.cargoLastLoggedAt,
-    row
+    row,
+    { omitRateLine: planCentric }
   )
   const openingSuffix = formatHoseConveyorOnLine(
     row?.openingCargoHandlingMethodName,
@@ -300,22 +458,24 @@ export function buildActualBlockModel(seg, row) {
   const waitMs =
     seg.waitMs != null
       ? seg.waitMs
-      : seg.taMs != null && seg.tbMs != null && seg.tbMs > seg.taMs
-        ? seg.tbMs - seg.taMs
-        : null
+      : computeWaitToBerthMs({
+          taMs: seg.taMs,
+          tbMs: seg.tbMs,
+          etbMs: seg.plannedEtbMs,
+          mode: 'berthed',
+        })
   const waitLine = formatWaitDaysFromMs(waitMs)
+  const waitTooltipMode = waitLine
+    ? waitToBerthTooltipMode({
+        tbMs: seg.tbMs,
+        etbMs: seg.plannedEtbMs,
+        mode: 'berthed',
+      })
+    : null
 
-  const progress = computeCargoProgress(
-    seg.cargoDisplay || row?.totalQtyDisplay || null,
-    row?.cargoMovedQty,
-    row?.cargoFirstLoggedAt,
-    row?.cargoLastLoggedAt,
-    {
-      cargoSiQty: row?.cargoSiQty,
-      cargoSiMetric: row?.scheduleComparison?.siMetric,
-    }
-  )
-  const avgRateLine = progress?.rateLine || '—'
+  const avgRateLine = resolveGanttAvgRateLine(row)
+  const etrDuration = planCentric ? resolveGanttEtrDuration(row) : null
+  const balanceLine = planCentric ? resolveGanttBalanceLine(row) : null
 
   return {
     vesselName: seg.vesselName || '—',
@@ -331,9 +491,12 @@ export function buildActualBlockModel(seg, row) {
     materialDisplay,
     commodityTitle: commodityLongTitle(materialDisplay, seg.commodityDisplay || row?.commodityDisplay),
     cargoDisplay: cargoWithOpening,
-    materialQtyLine: formatMaterialQtyLine(materialDisplay, cargoWithOpening),
+    materialQtyLine: ganttCargoQtyLine(materialDisplay, cargoWithOpening, { planCentric }),
     waitLine,
+    waitTooltipMode,
     avgRateLine,
+    balanceLine,
+    etrDuration,
     arrivalLine: formatGanttMilestoneLine(
       [
         { label: 'ETA', ms: seg.etaMs },
@@ -351,6 +514,7 @@ export function buildActualBlockModel(seg, row) {
     etcOverdue: Boolean(seg.etcOverdue),
     overMs: seg.overMs ?? null,
     estCompMs: seg.estCompMs ?? null,
+    missingEtc: Boolean(seg.missingEtc),
   }
 }
 
@@ -370,6 +534,27 @@ export function parseRowActualCompMs(row) {
 }
 
 /**
+ * Tooltip for in-bar wait duration (matches Live Ops / queue semantics).
+ * @param {object} model
+ * @param {(key: string, opts?: object) => string} t
+ * @returns {string}
+ */
+export function resolveGanttWaitTooltip(model, t) {
+  if (model.waitTooltipMode === 'waiting') {
+    return t('ganttTooltipWaitQueue', { defaultValue: 'Waiting to Berth (now − TA)' })
+  }
+  if (model.waitTooltipMode === 'berthedEtbFallback') {
+    return t('ganttTooltipWaitBerthedEtb', {
+      defaultValue: 'Waiting to Berth (ETB − TA, TB not recorded)',
+    })
+  }
+  if (model.waitTooltipMode === 'berthed') {
+    return t('ganttTooltipWaitBerthed', { defaultValue: 'Waiting to Berth (TB − TA)' })
+  }
+  return t('ganttTooltipWaitDays', { defaultValue: 'Waiting days (Berth − Arrival)' })
+}
+
+/**
  * @param {object} model
  * @param {'planned' | 'actual'} layer
  * @returns {string}
@@ -381,7 +566,9 @@ export function ganttDenseBlockAriaLabel(model, layer) {
   parts.push(model.milestoneLine)
   if (model.materialDisplay) parts.push(model.materialDisplay)
   if (model.materialQtyLine) parts.push(model.materialQtyLine)
-  if (model.waitLine) parts.push(`⌛ ${model.waitLine}`)
+  if (model.waitLine) parts.push(`Wait ${model.waitLine}`)
+  if (model.avgRateLine && model.avgRateLine !== '—') parts.push(model.avgRateLine)
+  if (model.etrDuration) parts.push(`ETR ${model.etrDuration}`)
   return parts.filter(Boolean).join(', ')
 }
 
@@ -423,6 +610,12 @@ export function buildGanttBarTooltipItems(model, layer, options = {}) {
     primary: 'Avg flow rate',
     secondary: model.avgRateLine || '—',
   })
+  if (model.etrDuration) {
+    items.push({
+      primary: options.etrLabel || 'ETR (balance ÷ rate)',
+      secondary: model.etrDuration,
+    })
+  }
   if (model.status) {
     items.push({ primary: 'Status', secondary: model.status })
   }

@@ -2,6 +2,8 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildIncomingByJettyForDate,
+  defaultLegacyMonthDateRangeInputs,
+  defaultPlanCentricDateRangeInputs,
   isAlongsideOccupiedOnDate,
   toDateInputValue,
 } from './jettyScheduleOccupancy.js'
@@ -83,5 +85,23 @@ describe('buildIncomingByJettyForDate', () => {
       etbDateTime: '2026-08-29T14:00:00.000Z',
     }
     assert.deepEqual(buildIncomingByJettyForDate([row], todayYmd, nowMs), {})
+  })
+})
+
+describe('defaultPlanCentricDateRangeInputs', () => {
+  it('spans 14 days before and after the reference day', () => {
+    const ref = new Date('2026-06-15T12:00:00Z')
+    const { from, to } = defaultPlanCentricDateRangeInputs(ref)
+    assert.equal(from, '2026-06-01')
+    assert.equal(to, '2026-06-29')
+  })
+})
+
+describe('defaultLegacyMonthDateRangeInputs', () => {
+  it('covers the reference calendar month', () => {
+    const ref = new Date('2026-06-15T12:00:00Z')
+    const { from, to } = defaultLegacyMonthDateRangeInputs(ref)
+    assert.equal(from, '2026-06-01')
+    assert.equal(to, '2026-06-30')
   })
 })

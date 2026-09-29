@@ -23,6 +23,7 @@ import {
   validatePlanSiReferencesForBerthing,
 } from '../lib/si-reference-validation.js';
 import { validateBerthingTimeline } from '../lib/validate-schedule-timeline.js';
+import { assertBerthPlanJettyAllowed } from '../lib/berth-plan-validation.js';
 
 const router = express.Router();
 const SCHEDULE_SAILED_LOOKBACK_DAYS = 90;
@@ -226,7 +227,6 @@ async function runArrivalOperationUpdate(client, paramsWithUpdatedBy, paramsWith
 }
 
 const BERTHING_ARRIVAL_BODY_KEYS = [
-  'taDateTime',
   'tbDateTime',
   'pobDateTime',
   'sobDateTime',
@@ -1143,11 +1143,27 @@ router.put('/arrival', async (req, res) => {
 
   const hasOp = operationId != null && !Number.isNaN(operationId);
   const hasSi = shippingInstructionId != null && !Number.isNaN(shippingInstructionId);
-  const hasPlanOnly =
-    shipmentPlanIdDirect != null &&
-    !Number.isNaN(shipmentPlanIdDirect) &&
+  let shipmentPlanIdResolved = shipmentPlanIdDirect;
+  if (
     !hasOp &&
-    !hasSi;
+    (shipmentPlanIdResolved == null || Number.isNaN(shipmentPlanIdResolved)) &&
+    hasSi
+  ) {
+    const siPlanRes = await pool.query(
+      `SELECT shipment_plan_id FROM shipping_instructions WHERE id = $1 AND deleted_at IS NULL`,
+      [shippingInstructionId]
+    );
+    const pid = siPlanRes.rows[0]?.shipment_plan_id;
+    if (pid != null && !Number.isNaN(Number(pid))) {
+      shipmentPlanIdResolved = Number(pid);
+    }
+  }
+  const schedulingOnly = !bodyHasBerthingArrivalFields(b);
+  const hasPlanOnly =
+    shipmentPlanIdResolved != null &&
+    !Number.isNaN(shipmentPlanIdResolved) &&
+    !hasOp &&
+    schedulingOnly;
 
   if (!hasOp && !hasSi && !hasPlanOnly) {
     return res.status(400).json({
@@ -1165,13 +1181,14 @@ router.put('/arrival', async (req, res) => {
         return res.status(400).json({ error: PLAN_BERTHING_GATE_MSG });
       }
       const planRes = await client.query(
-        `SELECT id, vessel_name, plan_reference, eta, etb, jetty_id, priority, remark, no_pkk,
+        `SELECT id, vessel_name, plan_reference, eta, ta, etb, jetty_id, priority, remark, no_pkk,
+                estimated_completion_time,
                 approval_status,
                 (SELECT COUNT(*)::int FROM shipping_instructions si
                  WHERE si.shipment_plan_id = shipment_plans.id AND si.deleted_at IS NULL) AS si_count
          FROM shipment_plans
          WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
-        [shipmentPlanIdDirect, selectedPortId]
+        [shipmentPlanIdResolved, selectedPortId]
       );
       if (planRes.rows.length === 0) {
         await client.query('ROLLBACK');
@@ -1205,6 +1222,9 @@ router.put('/arrival', async (req, res) => {
       const eta = Object.prototype.hasOwnProperty.call(b, 'etaDateTime')
         ? parseTsPlan(b.etaDateTime)
         : planBefore.eta;
+      const ta = Object.prototype.hasOwnProperty.call(b, 'taDateTime')
+        ? parseTsPlan(b.taDateTime)
+        : planBefore.ta;
       const etb = Object.prototype.hasOwnProperty.call(b, 'etbDateTime')
         ? parseTsPlan(b.etbDateTime)
         : planBefore.etb;
@@ -1220,6 +1240,31 @@ router.put('/arrival', async (req, res) => {
       if (jettyBeingAssigned && !etb) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'ETB is required when assigning a jetty.' });
+      }
+
+      if (jettyEffective) {
+        const jettyShort = b.jetty != null ? String(b.jetty).trim().split('/')[0].trim() : null;
+        const etcPlan = Object.prototype.hasOwnProperty.call(b, 'estimatedCompletionDateTime')
+          ? parseTsPlan(b.estimatedCompletionDateTime)
+          : planBefore.estimated_completion_time;
+        const berthCheck = await assertBerthPlanJettyAllowed(client, {
+          portId: selectedPortId,
+          jettyId: jettyEffective,
+          jettyShortId: jettyShort,
+          candidate: {
+            shipmentPlanId: shipmentPlanIdResolved,
+            vesselId: `plan-${shipmentPlanIdResolved}`,
+            vesselName: planBefore.vessel_name,
+            jetty: jettyShort,
+            etbDateTime: etb,
+            estimatedCompletionDateTime: etcPlan,
+          },
+          excludeShipmentPlanId: shipmentPlanIdResolved,
+        });
+        if (!berthCheck.ok) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: berthCheck.message });
+        }
       }
 
       // Multi-jetty berthing: no SI exists yet at plan-only stage, so commodity-type is not checked here.
@@ -1248,6 +1293,7 @@ router.put('/arrival', async (req, res) => {
       const noPkk = b.noPkk != null ? String(b.noPkk).trim() : planBefore.no_pkk;
       const planUpdParams = [
         eta,
+        ta,
         etb,
         jettyId,
         priority || null,
@@ -1255,22 +1301,23 @@ router.put('/arrival', async (req, res) => {
         noPkk || null,
         additionalJettiesForSql,
         req.userId ?? null,
-        shipmentPlanIdDirect,
+        shipmentPlanIdResolved,
         selectedPortId,
       ];
       try {
         await client.query(
           `UPDATE shipment_plans SET
              eta = COALESCE($1, eta),
-             etb = COALESCE($2, etb),
-             jetty_id = COALESCE($3, jetty_id),
-             priority = COALESCE($4, priority),
-             remark = COALESCE($5, remark),
-             no_pkk = COALESCE($6, no_pkk),
-             additional_jetties = COALESCE($7::bigint[], additional_jetties),
+             ta = COALESCE($2, ta),
+             etb = COALESCE($3, etb),
+             jetty_id = COALESCE($4, jetty_id),
+             priority = COALESCE($5, priority),
+             remark = COALESCE($6, remark),
+             no_pkk = COALESCE($7, no_pkk),
+             additional_jetties = COALESCE($8::bigint[], additional_jetties),
              updated_at = NOW(),
-             updated_by = $8
-           WHERE id = $9 AND port_id = $10 AND deleted_at IS NULL`,
+             updated_by = $9
+           WHERE id = $10 AND port_id = $11 AND deleted_at IS NULL`,
           planUpdParams
         );
       } catch (e) {
@@ -1278,15 +1325,16 @@ router.put('/arrival', async (req, res) => {
           await client.query(
             `UPDATE shipment_plans SET
                eta = COALESCE($1, eta),
-               etb = COALESCE($2, etb),
-               jetty_id = COALESCE($3, jetty_id),
-               priority = COALESCE($4, priority),
-               remark = COALESCE($5, remark),
-               no_pkk = COALESCE($6, no_pkk),
-               additional_jetties = COALESCE($7::bigint[], additional_jetties),
+               ta = COALESCE($2, ta),
+               etb = COALESCE($3, etb),
+               jetty_id = COALESCE($4, jetty_id),
+               priority = COALESCE($5, priority),
+               remark = COALESCE($6, remark),
+               no_pkk = COALESCE($7, no_pkk),
+               additional_jetties = COALESCE($8::bigint[], additional_jetties),
                updated_at = NOW()
-             WHERE id = $8 AND port_id = $9 AND deleted_at IS NULL`,
-            [eta, etb, jettyId, priority || null, remark || null, noPkk || null, additionalJettiesForSql, shipmentPlanIdDirect, selectedPortId]
+             WHERE id = $9 AND port_id = $10 AND deleted_at IS NULL`,
+            [eta, ta, etb, jettyId, priority || null, remark || null, noPkk || null, additionalJettiesForSql, shipmentPlanIdResolved, selectedPortId]
           );
         } else {
           throw e;
@@ -1297,20 +1345,21 @@ router.put('/arrival', async (req, res) => {
         pageKey: 'allocation-plan',
         action: 'update',
         entityType: 'ShipmentPlan',
-        entityId: String(shipmentPlanIdDirect),
-        entityLabel: planBefore.plan_reference || planBefore.vessel_name || `Plan #${shipmentPlanIdDirect}`,
+        entityId: String(shipmentPlanIdResolved),
+        entityLabel: planBefore.plan_reference || planBefore.vessel_name || `Plan #${shipmentPlanIdResolved}`,
         summary: 'Saved plan scheduling update (late SI — no operation yet)',
         changes: [
           { field: 'ETA', from: planBefore.eta, to: eta },
+          { field: 'TA', from: planBefore.ta, to: ta },
           { field: 'ETB', from: planBefore.etb, to: etb },
           { field: 'Jetty ID', from: planBefore.jetty_id, to: jettyId },
         ].filter((c) => c.from !== c.to),
-        meta: { shipmentPlanId: shipmentPlanIdDirect, planOnly: true },
+        meta: { shipmentPlanId: shipmentPlanIdResolved, planOnly: true },
         actorUserId: req.userId ?? null,
       }).catch(() => {});
       return res.json({
         ok: true,
-        shipmentPlanId: shipmentPlanIdDirect,
+        shipmentPlanId: shipmentPlanIdResolved,
         operationId: null,
       });
     }
@@ -1347,6 +1396,24 @@ router.put('/arrival', async (req, res) => {
       );
       opRow = ex.rows[0] ?? null;
       if (!opRow) {
+        if (bodyHasBerthingArrivalFields(b)) {
+          const siPlanForGate = await client.query(
+            `SELECT si.shipment_plan_id FROM shipping_instructions si WHERE si.id = $1 AND si.deleted_at IS NULL`,
+            [shippingInstructionId]
+          );
+          const planIdForGate =
+            siPlanForGate.rows[0]?.shipment_plan_id != null
+              ? Number(siPlanForGate.rows[0].shipment_plan_id)
+              : null;
+          const gateErr =
+            planIdForGate != null
+              ? await validatePlanBerthingGate(client, planIdForGate, selectedPortId)
+              : PLAN_BERTHING_GATE_MSG;
+          if (gateErr) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: gateErr });
+          }
+        }
         const insRow = await insertOperationForApprovedPlanSi(
           client,
           shippingInstructionId,
@@ -1516,6 +1583,31 @@ router.put('/arrival', async (req, res) => {
     if (jettyBeingAssigned && !etb) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'ETB is required when assigning a jetty.' });
+    }
+
+    if (jettyEffective) {
+      const jettyShort = b.jetty != null ? String(b.jetty).trim().split('/')[0].trim() : null;
+      const berthCheck = await assertBerthPlanJettyAllowed(client, {
+        portId: selectedPortId,
+        jettyId: jettyEffective,
+        jettyShortId: jettyShort,
+        candidate: {
+          shipmentPlanId,
+          operationId: opRow.id,
+          vesselId: `op-${opRow.id}`,
+          vesselName: si.vessel_name ?? planBefore?.vessel_name ?? null,
+          jetty: jettyShort,
+          etbDateTime: etb,
+          tbDateTime: tb,
+          estimatedCompletionDateTime: estimatedCompletion,
+        },
+        excludeShipmentPlanId: shipmentPlanId,
+        excludeOperationId: opRow.id,
+      });
+      if (!berthCheck.ok) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: berthCheck.message });
+      }
     }
 
     // Multi-jetty berthing: validate additional jetties against port flag, adjacency,

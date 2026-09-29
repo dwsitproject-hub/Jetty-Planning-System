@@ -2418,6 +2418,10 @@
   text-align: right;
 }
 
+.v2-board-wait {
+  white-space: nowrap;
+}
+
 .v2-board-code {
   display: block;
   font-size: 11px;

@@ -213,6 +213,7 @@ find /mnt/synology/[env]/JETTYPLANNING -type f | wc -l
 
 | Problem | Cause | Fix |
 |---|---|---|
+| Preview 404 / “Could not load preview”; old photos fail, new uploads OK | CIFS mount dropped; local dir at `UPLOAD_HOST_PATH` | [SYNOLOGY-MOUNT-TROUBLESHOOTING-AND-RECOVERY.md](./SYNOLOGY-MOUNT-TROUBLESHOOTING-AND-RECOVERY.md) |
 | Files go to Docker volume, not NAS | Compose file has hardcoded `jps_uploads` | Fix compose file volume line (Step 1) |
 | `UPLOAD_HOST_PATH` ignored by compose | Docker Compose v5 `--env-file` does not interpolate volumes | Use `set -a && source Backend/.env && set +a` before compose |
 | Password auth fails after sourcing `.env` | Password contains `<` — shell treats it as input redirection | Quote the password in `.env`: `POSTGRES_PASSWORD="val<ue"` |
@@ -231,5 +232,6 @@ find /mnt/synology/[env]/JETTYPLANNING -type f | wc -l
 | `docker-compose.backend-api-only.yml` | API-only compose (three-server); volume must use `${UPLOAD_HOST_PATH:-jps_uploads}` |
 | `docker-compose.backend.yml` | Two-server compose; same volume fix applies |
 | `Docs/Plan/SYNOLOGY-INTEGRATION.md` | Full integration guide with infra checklist |
+| `Docs/Guide/SYNOLOGY-MOUNT-TROUBLESHOOTING-AND-RECOVERY.md` | Mount dropped / local disk fallback — diagnose, recover, verify |
 | `Docs/Guide/ALICLOUD-DEPLOYMENT-GUIDE.md` | §5.2A — NAS storage, Docker Compose v5 note |
 | `Docs/Guide/PRODUCTION-THREE-SERVER-DEPLOY-AND-FULL-DATA-MIGRATION.md` | Full staging → production migration runbook |

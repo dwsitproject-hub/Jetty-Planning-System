@@ -228,6 +228,7 @@ docker run --rm -v jps_uploads:/data -v $(pwd):/backup alpine \
 
 | Symptom | What to check |
 |---------|----------------|
+| Preview fails (“Could not load preview”); filename visible; old docs 404, new uploads OK | CIFS mount dropped — host path is local disk, not NAS. Full runbook: [SYNOLOGY-MOUNT-TROUBLESHOOTING-AND-RECOVERY.md](../Guide/SYNOLOGY-MOUNT-TROUBLESHOOTING-AND-RECOVERY.md). |
 | Upload succeeds but File Station is empty | Wrong `UPLOAD_HOST_PATH`; typo in folder name (`JETTYPLANNING`). |
 | Files in `docker exec` but not on NAS | Container writing to its own disk — bind mount missing or wrong; fix compose + recreate `jps-api`. |
 | `FATAL: Upload directory not writable` | NAS mount down, permissions, or path does not exist on host. |
@@ -248,3 +249,4 @@ Server-side mount, firewall, or DSM issues are handled by IT/infra — escalate 
 | `Backend/src/paths.js` | Resolves `UPLOAD_ROOT` from `UPLOAD_DIR` |
 | [ALICLOUD-DEPLOYMENT-GUIDE §5.2A](../Guide/ALICLOUD-DEPLOYMENT-GUIDE%20-2SERVERS.md) | Deploy context and backups |
 | [MANUAL-UPLOAD-RESTORE-GUIDE.md](../Guide/MANUAL-UPLOAD-RESTORE-GUIDE.md) | Restore files when DB has metadata but disk is missing |
+| [SYNOLOGY-MOUNT-TROUBLESHOOTING-AND-RECOVERY.md](../Guide/SYNOLOGY-MOUNT-TROUBLESHOOTING-AND-RECOVERY.md) | Mount dropped / local disk fallback — production recovery runbook |

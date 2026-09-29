@@ -77,6 +77,48 @@ export function computeCargoRatePerHour(movedQty, firstLoggedAt, lastLoggedAt) {
 }
 
 /**
+ * Prefer live ATG avgRateTph when available; otherwise derive from logged cargo window.
+ * @param {{ avgRateTph?: number|null, movedQty?: number|null, firstLoggedAt?: string|null, lastLoggedAt?: string|null }} params
+ * @returns {number}
+ */
+export function resolveCargoRatePerHour({
+  avgRateTph,
+  movedQty,
+  firstLoggedAt,
+  lastLoggedAt,
+} = {}) {
+  const fromApi = Number(avgRateTph)
+  if (Number.isFinite(fromApi) && fromApi > 0) return fromApi
+  return computeCargoRatePerHour(movedQty, firstLoggedAt, lastLoggedAt)
+}
+
+/**
+ * Estimated time remaining to finish remaining cargo: balance / rate (hours → ms).
+ * @returns {number|null}
+ */
+export function computeCargoEtrMs(balance, ratePerHour) {
+  const b = Number(balance)
+  const r = Number(ratePerHour)
+  if (!Number.isFinite(b) || b <= 0 || !Number.isFinite(r) || r <= 0) return null
+  return (b / r) * 3600000
+}
+
+/**
+ * @param {number} balance
+ * @param {number} ratePerHour
+ * @param {(ms: number) => string|null|undefined} formatDurationFn
+ * @param {string} [label]
+ * @returns {string|null}
+ */
+export function formatCargoEtrLine(balance, ratePerHour, formatDurationFn, label = 'ETR') {
+  const ms = computeCargoEtrMs(balance, ratePerHour)
+  if (ms == null || typeof formatDurationFn !== 'function') return null
+  const duration = formatDurationFn(ms)
+  if (!duration) return null
+  return `${label} ${duration}`
+}
+
+/**
  * @param {number} n
  * @returns {string}
  */
@@ -103,12 +145,20 @@ export const formatAvgFlowRateLine = formatAvgFlowRateLabel
  * Compute moved/total cargo progress from a totalQtyDisplay string and an actual moved
  * quantity (sum of logged cargo load lines). Purely data-driven: no fallback to
  * completion_percent or operation status, so 0 logged lines always shows as 0 moved.
+ *
+ * Exception: when a cargo segment has opened (`cargoFirstLoggedAt` set) but has neither
+ * closed yet (`cargoLastLoggedAt` null) nor received a live ATG rate (`avgRateTph`), the
+ * static `cargoMovedQty` snapshot is structurally unable to reflect an in-progress segment
+ * (the backing DB aggregate only sums/maxes *closed* load lines — see
+ * `Backend/src/routes/allocation.js` `cargo_agg`). In that window we don't yet know the real
+ * moved qty, so we return `null` (pending) instead of asserting a confident "0 MT moved" that
+ * is very likely stale/wrong once live data catches up.
  * @param {string | null | undefined} totalQtyDisplay
  * @param {number | null | undefined} cargoMovedQty
  * @param {string | null | undefined} [cargoFirstLoggedAt] earliest logged Cargo Operations entry's started_at
  * @param {string | null | undefined} [cargoLastLoggedAt] latest logged Cargo Operations entry's ended_at
- * @param {{ cargoSiQty?: number|null, cargoSiMetric?: string|null }} [qtyOpts]
- * @returns {{ qty: { total: number, unit: string }, done: number, ratePerHour: number, cargoLine: string, balanceLine: string, rateLine: string } | null}
+ * @param {{ cargoSiQty?: number|null, cargoSiMetric?: string|null, avgRateTph?: number|null }} [qtyOpts]
+ * @returns {{ qty: { total: number, unit: string }, done: number, balance: number, ratePerHour: number, etrMs: number|null, cargoLine: string, balanceLine: string, rateLine: string } | null}
  */
 export function computeCargoProgress(
   totalQtyDisplay,
@@ -124,15 +174,26 @@ export function computeCargoProgress(
   })
   if (!qty) return null
   const moved = Number(cargoMovedQty) || 0
+  const hasLiveRate = Number(qtyOpts.avgRateTph) > 0
+  const isPending = moved <= 0 && Boolean(cargoFirstLoggedAt) && !cargoLastLoggedAt && !hasLiveRate
+  if (isPending) return null
   const done = Math.max(0, moved)
   const balance = Math.max(0, qty.total - moved)
-  const ratePerHour = computeCargoRatePerHour(moved, cargoFirstLoggedAt, cargoLastLoggedAt)
+  const ratePerHour = resolveCargoRatePerHour({
+    avgRateTph: qtyOpts.avgRateTph,
+    movedQty: moved,
+    firstLoggedAt: cargoFirstLoggedAt,
+    lastLoggedAt: cargoLastLoggedAt,
+  })
+  const etrMs = computeCargoEtrMs(balance, ratePerHour)
   return {
     qty,
     done,
+    balance,
     ratePerHour,
+    etrMs,
     cargoLine: `${formatQtyNumber(done)} ${qty.unit} / ${formatQtyNumber(qty.total)} ${qty.unit}`,
-    balanceLine: `Balance ${formatQtyNumber(balance)} ${qty.unit}`,
+    balanceLine: balance > 0 ? `Balance ${formatQtyNumber(balance)} ${qty.unit}` : `Balance 0 ${qty.unit}`,
     rateLine: `Rate ${formatRateNumber(ratePerHour)} ${qty.unit} / Hour`,
   }
 }
@@ -157,4 +218,24 @@ export function mergeLiveCargoProgressFields(row, liveSummary, nowMs = Date.now(
         : row.cargoLastLoggedAt,
     scheduleComparison: liveSummary,
   }
+}
+
+/**
+ * Apply mergeLiveCargoProgressFields across an array of rows (e.g. a Gantt's schedule list),
+ * keyed by each row's operationId. Rows without a matching live summary pass through unchanged.
+ * @param {Array<object>|null|undefined} rows
+ * @param {Record<string, object>|null|undefined} cargoProgressByOpId
+ * @param {number} [nowMs]
+ * @returns {Array<object>}
+ */
+export function mergeLiveCargoProgressIntoRows(rows, cargoProgressByOpId, nowMs = Date.now()) {
+  if (!Array.isArray(rows)) return rows ?? []
+  if (!cargoProgressByOpId || !Object.keys(cargoProgressByOpId).length) return rows
+  return rows.map((row) => {
+    const opId = row?.operationId
+    if (opId == null) return row
+    const live = cargoProgressByOpId[String(opId)]
+    if (!live) return row
+    return mergeLiveCargoProgressFields(row, live, nowMs)
+  })
 }
