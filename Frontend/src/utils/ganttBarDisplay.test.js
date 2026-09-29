@@ -16,7 +16,51 @@ import {
   buildGanttActualMilestoneEntries,
   buildGanttCombinedActualMilestoneEntries,
   parseRowActualCompMs,
+  resolveGanttBarMetrics,
+  resolveGanttTotalVolumeLine,
+  GANTT_PLAN_BAR_HEIGHT,
+  GANTT_PLAN_BAR_STACK_STEP,
 } from './ganttBarDisplay.js'
+
+describe('resolveGanttBarMetrics', () => {
+  it('returns live-ops bar geometry by default', () => {
+    assert.deepEqual(resolveGanttBarMetrics(false), { height: 72, stackStep: 78 })
+  })
+
+  it('returns Berthing Plan 3-row bar geometry when plan-centric', () => {
+    assert.deepEqual(resolveGanttBarMetrics(true), {
+      height: GANTT_PLAN_BAR_HEIGHT,
+      stackStep: GANTT_PLAN_BAR_STACK_STEP,
+    })
+    assert.equal(GANTT_PLAN_BAR_HEIGHT, 72)
+    assert.equal(GANTT_PLAN_BAR_STACK_STEP, 76)
+  })
+
+  it('single stacked lane height matches JettyScheduleGantt formula', () => {
+    const { stackStep } = resolveGanttBarMetrics(true)
+    const laneBase = 8
+    const levelCount = 1
+    assert.equal(laneBase + levelCount * stackStep, 84)
+  })
+})
+
+describe('resolveGanttTotalVolumeLine', () => {
+  it('formats SI qty total', () => {
+    assert.equal(
+      resolveGanttTotalVolumeLine({ cargoSiQty: 2500, cargoSiMetric: 'MT' }),
+      '2,500 MT'
+    )
+  })
+
+  it('parses totalQtyDisplay when SI qty missing', () => {
+    assert.equal(resolveGanttTotalVolumeLine({ totalQtyDisplay: '3,300 MT' }), '3,300 MT')
+  })
+
+  it('returns em dash when qty unknown', () => {
+    assert.equal(resolveGanttTotalVolumeLine(null), '—')
+    assert.equal(resolveGanttTotalVolumeLine({ totalQtyDisplay: '—' }), '—')
+  })
+})
 
 describe('materialDisplayFromRow', () => {
   it('joins unique shippingTable materials', () => {
@@ -227,6 +271,7 @@ describe('buildActualBlockModel', () => {
     assert.equal(model.cargoDisplay, '500 MT / 2,500 MT')
     assert.equal(model.materialQtyLine, '500 MT / 2,500 MT')
     assert.equal(model.avgRateLine, 'Avg 50 MT/h')
+    assert.equal(model.totalVolumeLine, '2,500 MT')
   })
 
   it('does not claim 0 MT moved for an open segment with no live rate yet (shows plain total, no Avg chip)', () => {
@@ -289,6 +334,7 @@ describe('buildActualBlockModel', () => {
     )
     assert.equal(model.balanceLine, 'Balance 769 MT')
     assert.equal(model.etrDuration, '8h 3m')
+    assert.equal(model.totalVolumeLine, '1,500 MT')
   })
 
   it('omits etrDuration when not plan-centric', () => {

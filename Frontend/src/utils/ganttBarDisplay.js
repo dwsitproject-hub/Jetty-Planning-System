@@ -2,7 +2,9 @@ import { formatDateTimeDisplay } from './formatDateTimeDisplay.js'
 import {
   computeCargoProgress,
   formatAvgFlowRateLabel,
+  formatQtyNumber,
   parseQtyDisplay,
+  resolveCargoQtyTotal,
 } from './cargoQtyDisplay.js'
 import { commodityLongTitle } from './commodityShortTitle.js'
 import { computeWaitToBerthMs, waitToBerthTooltipMode } from './waitToBerth.js'
@@ -10,9 +12,10 @@ import { computeWaitToBerthMs, waitToBerthTooltipMode } from './waitToBerth.js'
 /** Gantt bar layout constants (keep in sync with allocation.css --gantt-bar-*). */
 export const GANTT_BAR_HEIGHT = 72
 export const GANTT_BAR_STACK_STEP = 78
-/** Taller bars for Berthing Plan (extra cargo/balance/ETR rows). */
-export const GANTT_PLAN_BAR_HEIGHT = 90
-export const GANTT_PLAN_BAR_STACK_STEP = 96
+/** Berthing Plan 3-row vessel card (keep in sync with allocation.css .jetty-schedule-gantt--plan). */
+export const GANTT_PLAN_BAR_HEIGHT = 72
+/** barHeight + 4 — lane minHeight uses 8 + n × stackStep; bar top is 6 + index × stackStep in JettyScheduleGantt. */
+export const GANTT_PLAN_BAR_STACK_STEP = 76
 
 /**
  * @param {boolean} [planCentric]
@@ -290,6 +293,22 @@ export function resolveGanttBalanceLine(row) {
   return resolveGanttCargoProgress(row)?.balanceLine ?? null
 }
 
+/**
+ * Plan Gantt row 3 left: total cargo qty only (not moved/total progress line).
+ * @param {object | null | undefined} source
+ * @returns {string}
+ */
+export function resolveGanttTotalVolumeLine(source) {
+  if (!source) return '—'
+  const qty = resolveCargoQtyTotal({
+    cargoSiQty: source.cargoSiQty ?? source.scheduleComparison?.siQty,
+    cargoSiMetric: source.cargoSiMetric ?? source.scheduleComparison?.siMetric,
+    totalQtyDisplay: source.totalQtyDisplay || source.cargoDisplay,
+  })
+  if (!qty?.total) return '—'
+  return `${formatQtyNumber(qty.total)} ${qty.unit}`
+}
+
 export function resolveGanttEtrDuration(row) {
   const progress = resolveGanttCargoProgress(row)
   if (!progress?.etrMs) return null
@@ -379,6 +398,14 @@ export function buildPlannedBlockModel(seg, options = {}) {
     avgRateLine: '—',
     balanceLine: null,
     etrDuration: null,
+    totalVolumeLine: planCentric
+      ? resolveGanttTotalVolumeLine({
+          cargoSiQty: seg.cargoSiQty,
+          cargoSiMetric: seg.cargoSiMetric,
+          totalQtyDisplay: seg.totalQtyDisplay,
+          cargoDisplay: seg.cargoDisplay,
+        })
+      : null,
     arrivalLine: formatGanttMilestoneLine(
       [
         { label: 'ETA', ms: seg.etaMs },
@@ -497,6 +524,7 @@ export function buildActualBlockModel(seg, row, options = {}) {
     avgRateLine,
     balanceLine,
     etrDuration,
+    totalVolumeLine: planCentric ? resolveGanttTotalVolumeLine(row) : null,
     arrivalLine: formatGanttMilestoneLine(
       [
         { label: 'ETA', ms: seg.etaMs },

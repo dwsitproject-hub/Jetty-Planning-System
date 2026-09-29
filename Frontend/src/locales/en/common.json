@@ -11,6 +11,16 @@
   "portChangeTitle": "Choose a different port",
   "portLabel": "Port: {{name}}",
   "changePort": "Change…",
+  "portSwitcher": {
+    "switchPort": "Switch port",
+    "switchPortAria": "Switch port, {{name}}, port timezone {{tz}}",
+    "currentPort": "Current port: {{name}}, port timezone {{tz}}",
+    "tzHint": "Port timezone {{portTz}} — site reference for this port (not used for typed schedule entry)."
+  },
+  "deviceTz": {
+    "aria": "Your timezone {{tz}}",
+    "hint": "Your / browser timezone {{tz}} — schedule date/times you enter are saved using this zone."
+  },
   "greeting": "Hi, {{name}}",
   "logout": "Logout",
   "login": "Login",

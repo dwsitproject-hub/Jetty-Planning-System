@@ -13,7 +13,10 @@ This runbook deploys JPS to **three ECS instances** and performs a **full copy o
 - Baseline two-server deployment + security group guidance: `ALICLOUD-DEPLOYMENT-GUIDE.md`
 - Three-server practice migration: `THREE-SERVER-DB-SPLIT-GUIDE.md`
 - After-hours production cutover: `THREE-SERVER-DB-CUTOVER-RUNBOOK.md`
+- Subsequent code deploy / rollback: `HOTFIX-DEPLOY-RUNBOOK.md`
 - Upload backup/restore (API host): `MANUAL-UPLOAD-RESTORE-GUIDE.md`
+
+**Subsequent code deploys (preferred):** after first-time env / nginx / security groups are in place, use the `.sh` scripts on the host that changed. Manual compose commands are fallback only — see §10.
 
 ---
 
@@ -238,6 +241,17 @@ COOKIE_SECURE=false
 
 ### 6.2 Build + run API
 
+**Preferred** (after `Backend/.env` exists and the repo is cloned):
+
+```bash
+cd /opt/jetty-planning-system
+export DEPLOY_BRANCH=pre-production
+export RUN_MIGRATE=1
+bash Backend/scripts/deploy-prod-api-three-server.sh deploy
+```
+
+**Manual fallback:**
+
 ```bash
 docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml build --no-cache
 docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml up -d
@@ -278,6 +292,16 @@ VITE_API_BASE_URL=/api/v1
 
 ### 7.3 Build + run frontend
 
+**Preferred** (after root `.env` and nginx upstream are set):
+
+```bash
+cd /opt/jetty-planning-system
+export DEPLOY_BRANCH=pre-production
+bash Backend/scripts/deploy-prod-frontend-three-server.sh deploy
+```
+
+**Manual fallback:**
+
 ```bash
 docker compose -f docker-compose.app.yml build --no-cache
 docker compose -f docker-compose.app.yml up -d
@@ -305,6 +329,23 @@ In a browser:
 
 ## 9. Rollback options (high level)
 
-- **Fast rollback (app/API):** redeploy the previous git commit + rebuild.
+- **Fast rollback (preferred):**
+  - App: `bash Backend/scripts/deploy-prod-frontend-three-server.sh rollback`
+  - API: `bash Backend/scripts/deploy-prod-api-three-server.sh rollback` (does not reverse migrations)
 - **DB rollback:** restore the pre-cutover DB dump you took from production before overwriting it.
+
+---
+
+## 10. Subsequent production releases (code only)
+
+First-time env / nginx / security groups stay as in §1–7. Later deploys:
+
+| Change | Host | Command |
+|--------|------|---------|
+| Frontend only | App `172.28.80.50` | `DEPLOY_BRANCH=pre-production bash Backend/scripts/deploy-prod-frontend-three-server.sh deploy` |
+| API / routes | API `172.28.80.51` | `DEPLOY_BRANCH=pre-production bash Backend/scripts/deploy-prod-api-three-server.sh deploy` |
+| New SQL migrations | API | same + `export RUN_MIGRATE=1` |
+| DB engine / `pg_hba` | DB `172.28.92.59` | still manual (compose on DB host) |
+
+Scripts live in `Backend/scripts/deploy-prod-*-three-server.sh`. See [HOTFIX-DEPLOY-RUNBOOK.md](./HOTFIX-DEPLOY-RUNBOOK.md) for smoke tests and manual fallback.
 

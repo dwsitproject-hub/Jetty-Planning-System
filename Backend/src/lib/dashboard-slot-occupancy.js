@@ -69,6 +69,9 @@ async function loadServiceJetties(client, portId) {
 
 /**
  * Distinct alongside shipment plans per jetty at snapshot, with a representative vessel name.
+ * Occupancy is the time window only (alongside <= T and not yet departed at T).
+ * Do not filter on current operation status — `SAILED` is a live flag and would
+ * erase historical occupancy after vessels depart.
  * @returns {Promise<Map<number, Array<{ shipmentPlanId: number, vesselName: string }>>>}
  */
 async function berthOccupantsByJettyAt(client, portId, tIso, filters) {

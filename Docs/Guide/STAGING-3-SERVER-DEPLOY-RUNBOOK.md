@@ -10,6 +10,8 @@ Deploys JPS from the **`sit`** branch onto **three** Ubuntu servers in one priva
 
 **Deploy order is mandatory: DB → Backend (migrate + seed) → Frontend.**
 
+**Subsequent code deploys (preferred):** `Backend/scripts/deploy-prod-api-three-server.sh` on the API host and `Backend/scripts/deploy-prod-frontend-three-server.sh` on the App host (`DEPLOY_BRANCH=sit`). First-time clone / `.env` / seed stay manual (§1–4). Manual compose is fallback if a script fails (§6–7).
+
 Substitute these placeholders throughout (use your real **private** VPC IPs):
 
 | Placeholder | Meaning | Example |
@@ -118,15 +120,25 @@ APP_PUBLIC_URL=http://APP_PUBLIC:APP_PORT
 # UPLOAD_HOST_PATH=/mnt/synology/dev/JETTYPLANNING
 ENV
 
-# Start the API (remote DB)
-docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml up -d --build
+# Preferred: script (after Backend/.env exists)
+export DEPLOY_BRANCH=sit
+export RUN_MIGRATE=1
+bash Backend/scripts/deploy-prod-api-three-server.sh deploy
 
-# Run migrations (idempotent), then seed/refresh the admin login
-docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml exec -T jps-api npm run migrate
+# First-time only: seed/refresh the admin login
 docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml exec -T jps-api npm run seed:admin
 
-# Health
+# Health (script already curls this; re-check if needed)
 curl -s http://localhost:3000/api/v1/health   # {"status":"ok",...}
+```
+
+**Manual fallback** if the script fails:
+
+```bash
+docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml up -d --build
+docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml exec -T jps-api npm run migrate
+docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml exec -T jps-api npm run seed:admin
+curl -s http://localhost:3000/api/v1/health
 ```
 
 Migrations apply all 86 files cleanly (031 is now a no-op). `seed:admin` sets `admin` / `admin123` — change it after first login.
@@ -154,8 +166,13 @@ ENV
 cp rtsp-stream-viewer/.env.example rtsp-stream-viewer/.env
 # edit rtsp-stream-viewer/.env: set RTSP_URL=rtsp://USER:PASS@CAMERA_IP:554/Stream1 and RTSP_TRANSPORT=tcp
 
-docker compose -f docker-compose.app.yml up -d --build
-docker compose -f docker-compose.app.yml ps
+# Preferred: script (after root .env and nginx upstream are set)
+export DEPLOY_BRANCH=sit
+bash Backend/scripts/deploy-prod-frontend-three-server.sh deploy
+
+# Manual fallback if the script fails:
+# docker compose -f docker-compose.app.yml up -d --build
+# docker compose -f docker-compose.app.yml ps
 ```
 
 Open **`http://APP_PUBLIC:APP_PORT`** → log in with `admin` / `admin123`.
@@ -175,12 +192,29 @@ In the browser: log in → Dashboard loads → Allocation & Berthing → **Jetty
 
 ## 6. Updating staging later (subsequent releases)
 
+**Preferred: `.sh` scripts** (same as production). First-time clone / `.env` stays manual (§1–4).
+
 ```bash
 # App server (most releases are frontend-only)
+cd /opt/jetty-planning-system
+export DEPLOY_BRANCH=sit
+bash Backend/scripts/deploy-prod-frontend-three-server.sh deploy
+
+# API server (only when backend code or migrations change)
+cd /opt/jetty-planning-system
+export DEPLOY_BRANCH=sit
+export RUN_MIGRATE=1
+bash Backend/scripts/deploy-prod-api-three-server.sh deploy
+```
+
+**Manual fallback** if a script fails:
+
+```bash
+# App
 cd /opt/jetty-planning-system && git pull origin sit
 docker compose -f docker-compose.app.yml up -d --build
 
-# Backend server (only when backend code or migrations change)
+# API
 cd /opt/jetty-planning-system && git pull origin sit
 docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml up -d --build
 docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml exec -T jps-api npm run migrate
@@ -188,12 +222,25 @@ docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml ex
 
 ## 7. Rollback
 
+**Preferred:**
+
 ```bash
-# Redeploy a known-good commit on the affected server
+# App host
+bash Backend/scripts/deploy-prod-frontend-three-server.sh rollback
+
+# API host (does not reverse migrations)
+bash Backend/scripts/deploy-prod-api-three-server.sh rollback
+```
+
+**Manual fallback:**
+
+```bash
 cd /opt/jetty-planning-system
 git log --oneline -5
 git checkout <previous-good-sha>
-docker compose -f docker-compose.app.yml up -d --build            # app, or the backend compose
+docker compose -f docker-compose.app.yml up -d --build            # app
+# or API:
+# docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml up -d --build
 # DB: migrations are forward-only — restore from a dump if a migration must be undone
 # (pg_dump/pg_restore; see MANUAL-UPLOAD-RESTORE-GUIDE.md / PGADMIN-STAGING-DB-TUNNEL-WINDOWS.md)
 ```

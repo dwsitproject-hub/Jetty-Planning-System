@@ -78,21 +78,26 @@ export default function AllocationVisualizationPopout() {
   }
 
   const headerTitle = selectedPort?.name ? `${title} · ${selectedPort.name}` : title
+  const isSchedule = mode === 'schedule'
 
   return (
-    <div className="allocation-viz-popout allocation-viz-popout--maximized">
-      <header
-        className="allocation-viz-popout__header"
-        title={closeHint}
-      >
-        <h1 className="allocation-viz-popout__title">{headerTitle}</h1>
-        <span className="allocation-viz-popout__hint-inline" aria-hidden>
-          · {closeHint}
-        </span>
-        <button type="button" className="btn btn--secondary btn--small" onClick={handleManageClick}>
-          {t('vizPopoutManageInAllocation', { defaultValue: 'Manage in Allocation' })}
-        </button>
-      </header>
+    <div
+      className={`allocation-viz-popout allocation-viz-popout--maximized${isSchedule ? ' allocation-viz-popout--schedule' : ''}`}
+    >
+      {!isSchedule ? (
+        <header
+          className="allocation-viz-popout__header"
+          title={closeHint}
+        >
+          <h1 className="allocation-viz-popout__title">{headerTitle}</h1>
+          <span className="allocation-viz-popout__hint-inline" aria-hidden>
+            · {closeHint}
+          </span>
+          <button type="button" className="btn btn--secondary btn--small" onClick={handleManageClick}>
+            {t('vizPopoutManageInAllocation', { defaultValue: 'Manage in Allocation' })}
+          </button>
+        </header>
+      ) : null}
 
       <main className="allocation-viz-popout__body">
         {loading ? (
@@ -123,6 +128,9 @@ export default function AllocationVisualizationPopout() {
             popoutProfile={profile}
             hidePopoutButton
             isPopout
+            popoutTitle={headerTitle}
+            closeHint={closeHint}
+            onManage={handleManageClick}
           />
         )}
       </main>

@@ -18,6 +18,8 @@
   "ganttExportJpeg": "Export",
   "ganttExporting": "Exporting…",
   "ganttExportJpegHint": "Export the current view (date range) as a JPEG image",
+  "ganttFitAllJetties": "Fit all jetties",
+  "ganttFitAllJettiesHint": "Scale rows so every jetty is visible without vertical scrolling",
   "ganttStatusArriving": "Arriving",
   "ganttStatusAtBerth": "At berth",
   "ganttStatusSailed": "Sailed",
