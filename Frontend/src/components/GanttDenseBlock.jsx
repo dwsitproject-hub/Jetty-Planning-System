@@ -59,7 +59,8 @@ export default function GanttDenseBlock({
   const density = densityProp ?? resolveGanttBarDensity(barWidthPct)
   const isSailed = model.status === 'Sailed off'
   const statusIcon = isSailed ? <GanttCompletedIcon /> : <GanttVesselIcon />
-  const planThreeRow = showEtr && density !== 'narrow'
+  // Berthing Plan: one 3-row card for every bar width (narrow still uses ellipsis in CSS).
+  const planThreeRow = showEtr
   const compactPlan =
     !planThreeRow && showEtr && layer === 'actual' && density === 'full'
 
