@@ -38,6 +38,11 @@ import {
   applyGanttLongBarPinTransforms,
   scrollGanttContainerToToday,
 } from '../utils/jettyScheduleGanttScroll.js'
+import {
+  ganttBarFitStyle,
+  resolveGanttFitDensity,
+  resolveGanttFitRowMin,
+} from '../utils/jettyScheduleGanttFit.js'
 import '../styles/dashboard.css'
 import '../styles/etc-breach.css'
 
@@ -127,13 +132,21 @@ function segmentPillClass(seg) {
   return `jetty-schedule-gantt__bar ${segmentColorClass(seg)}${overdueMod}`
 }
 
-function ganttBarInlineStyle(seg, posStyle, stackIndex, stackStep) {
+function ganttBarOverdueVar(seg) {
+  return seg.etcOverdue && seg.etcOverduePct != null
+    ? { '--etc-overdue-start': `${seg.etcOverduePct}%` }
+    : {}
+}
+
+function ganttBarInlineStyle(seg, posStyle, stackIndex, stackStep, fitLayout) {
+  const overdue = ganttBarOverdueVar(seg)
+  if (fitLayout) {
+    return ganttBarFitStyle(posStyle, stackIndex, fitLayout.stackCount, overdue)
+  }
   return {
     ...posStyle,
     top: `${6 + stackIndex * stackStep}px`,
-    ...(seg.etcOverdue && seg.etcOverduePct != null
-      ? { '--etc-overdue-start': `${seg.etcOverduePct}%` }
-      : {}),
+    ...overdue,
   }
 }
 
@@ -212,12 +225,19 @@ export default function JettyScheduleGantt({
   popoutProfile = 'plan',
   hidePopoutButton = false,
   isPopout = false,
+  popoutTitle = '',
+  closeHint = '',
+  onManage,
 }) {
   const { t: tAlloc } = useTranslation('allocation')
   const isPlanProfile = popoutProfile === 'plan'
   const def = useMemo(() => defaultDateRangeInputsForProfile(popoutProfile), [popoutProfile])
   const [dateFrom, setDateFrom] = useState(def.from)
   const [dateTo, setDateTo] = useState(def.to)
+  const [fitAllRows, setFitAllRows] = useState(Boolean(isPopout))
+  const [fitDensity, setFitDensity] = useState('full')
+  const [exporting, setExporting] = useState(false)
+  const useFitRows = fitAllRows && !exporting
 
   const rbac = useRbac() || {}
   const canEditSchedule =
@@ -388,7 +408,7 @@ export default function JettyScheduleGantt({
       ro.disconnect()
       window.removeEventListener('resize', scheduleMeasure)
     }
-  }, [rowDefs, segments, barMetrics.height])
+  }, [rowDefs, segments, barMetrics.height, useFitRows, fitDensity])
 
   const spanningBars = useMemo(() => {
     if (!spanLayout.rowRects.size) return []
@@ -453,7 +473,7 @@ export default function JettyScheduleGantt({
       let height
       if (extendsDown) {
         top = barRect.top + barRect.height
-        height = farthestRowRect.top + barOffsetWithinRow + barMetrics.height - top
+        height = farthestRowRect.top + barOffsetWithinRow + barRect.height - top
       } else {
         top = farthestRowRect.top + barOffsetWithinRow
         height = barRect.top - top
@@ -568,8 +588,40 @@ export default function JettyScheduleGantt({
     }
   }, [isPlanProfile, segments, nCols, dateFrom, dateTo])
 
+  // Fit all jetties: make the matrix at least as tall as the visible scrollport so rows
+  // share leftover height. clientHeight already excludes the horizontal scrollbar.
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el || !useFitRows) {
+      setFitDensity('full')
+      if (el) {
+        el.style.removeProperty('--gantt-fit-viewport-h')
+        el.style.removeProperty('--gantt-fit-row-min')
+      }
+      return undefined
+    }
+    const apply = () => {
+      const h = el.clientHeight
+      el.style.setProperty('--gantt-fit-viewport-h', `${h}px`)
+      const header = el.querySelector('.jetty-schedule-gantt__header-row')
+      const headerH = header ? header.getBoundingClientRect().height : 36
+      const n = Math.max(1, rowDefs.length)
+      // 8px gutter covers the date-header/body borders + the horizontal scrollbar.
+      const available = Math.max(0, h - headerH - 8)
+      el.style.setProperty('--gantt-fit-row-min', `${resolveGanttFitRowMin({ availableHeight: available, rowCount: n })}px`)
+      setFitDensity(resolveGanttFitDensity(available / n))
+    }
+    apply()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', apply)
+      return () => window.removeEventListener('resize', apply)
+    }
+    const observer = new ResizeObserver(apply)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [useFitRows, rowDefs.length, nCols])
+
   const exportRef = useRef(null)
-  const [exporting, setExporting] = useState(false)
 
   // ---- Drag-to-reschedule state ----------------------------------------------------------
   const dragRef = useRef(null)
@@ -982,17 +1034,24 @@ export default function JettyScheduleGantt({
       }
       return level
     })
-    const laneH = Math.max(30, 8 + Math.max(1, levelEnds.length) * barMetrics.stackStep)
+    const stackCount = Math.max(1, levelEnds.length)
+    const laneH = Math.max(30, 8 + stackCount * barMetrics.stackStep)
     return (
       <div
         className="jetty-schedule-gantt__track jetty-schedule-gantt__track--actual"
-        style={{ minHeight: `${laneH}px` }}
+        style={useFitRows ? { height: '100%', minHeight: 0 } : { minHeight: `${laneH}px` }}
       >
         {segs.map((seg, i) => {
           const pos = segmentTrackStyle(seg, windowStartMs, totalMs)
           if (!pos) return null
           const { rawWidthPct: _rawWidthPct, ...posStyle } = pos
-          const style = ganttBarInlineStyle(seg, posStyle, stackIndexBySeg[i], barMetrics.stackStep)
+          const style = ganttBarInlineStyle(
+            seg,
+            posStyle,
+            stackIndexBySeg[i],
+            barMetrics.stackStep,
+            useFitRows ? { stackCount } : null
+          )
 
           const barLayer = seg.layer === 'planned' ? 'planned' : 'actual'
           const pillClass = segmentPillClass(seg)
@@ -1211,7 +1270,7 @@ export default function JettyScheduleGantt({
 
   return (
     <section
-      className={`jetty-schedule-gantt${isPlanProfile ? ' jetty-schedule-gantt--plan' : ''}${isPopout ? ' jetty-schedule-gantt--popout' : ' card'}`}
+      className={`jetty-schedule-gantt${isPlanProfile ? ' jetty-schedule-gantt--plan' : ''}${isPopout ? ' jetty-schedule-gantt--popout' : ' card'}${useFitRows ? ' jetty-schedule-gantt--fit-rows' : ''}${useFitRows && fitDensity !== 'full' ? ` jetty-schedule-gantt--fit-${fitDensity}` : ''}`}
     >
       {!isPopout ? (
         <div className="card__title-row">
@@ -1223,6 +1282,9 @@ export default function JettyScheduleGantt({
       ) : null}
 
       <div className="jetty-schedule-gantt__filters" role="search" aria-label="Schedule date range">
+        {isPopout && popoutTitle ? (
+          <h1 className="jetty-schedule-gantt__filters-title">{popoutTitle}</h1>
+        ) : null}
         <div className="jetty-schedule-gantt__filter-field">
           <label htmlFor="jetty-schedule-from">From</label>
           <input
@@ -1257,6 +1319,39 @@ export default function JettyScheduleGantt({
             ? tAlloc('exportExporting', { defaultValue: 'Exporting…' })
             : tAlloc('exportButton', { defaultValue: 'Export' })}
         </button>
+        <button
+          type="button"
+          className={`btn btn--secondary jetty-schedule-gantt__fit${fitAllRows ? ' jetty-schedule-gantt__fit--on' : ''}`}
+          aria-pressed={fitAllRows}
+          onClick={() => setFitAllRows((on) => !on)}
+          title={tAlloc('ganttFitAllJettiesHint', {
+            defaultValue: 'Scale rows so every jetty is visible without vertical scrolling',
+          })}
+        >
+          {tAlloc('ganttFitAllJetties', { defaultValue: 'Fit all jetties' })}
+        </button>
+        {isPopout ? (
+          <details className="jetty-schedule-gantt__legend-details">
+            <summary>{tAlloc('vizPopoutLegend', { defaultValue: 'Legend' })}</summary>
+            <div className="allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two">
+              {legendContent}
+            </div>
+          </details>
+        ) : null}
+        {isPopout && closeHint ? (
+          <span className="jetty-schedule-gantt__filters-hint" title={closeHint}>
+            {closeHint}
+          </span>
+        ) : null}
+        {isPopout && typeof onManage === 'function' ? (
+          <button
+            type="button"
+            className="btn btn--secondary btn--small jetty-schedule-gantt__manage"
+            onClick={onManage}
+          >
+            {tAlloc('vizPopoutManageInAllocation', { defaultValue: 'Manage in Allocation' })}
+          </button>
+        ) : null}
       </div>
 
       <p className="jetty-schedule-gantt__intro">
@@ -1274,14 +1369,7 @@ export default function JettyScheduleGantt({
             {tAlloc('jettySchedule', { defaultValue: 'Berthing Plan' })} · {dateFrom} → {dateTo}
           </div>
         ) : null}
-        {isPopout ? (
-        <details className="jetty-schedule-gantt__legend-details">
-          <summary>{tAlloc('vizPopoutLegend', { defaultValue: 'Legend' })}</summary>
-          <div className="allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two">
-            {legendContent}
-          </div>
-        </details>
-      ) : (
+        {isPopout ? null : (
         <div className="allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two">
           {legendContent}
         </div>
