@@ -1,7 +1,15 @@
-import { useMemo, useCallback } from 'react'
+import { useMemo, useCallback, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import InteractiveTooltip from './InteractiveTooltip'
+import DropdownMultiSelect from './DropdownMultiSelect'
 import { formatDateDisplay } from '../utils/formatDateTimeDisplay'
+import {
+  rankFlowCommodities,
+  buildFlowChartEntries,
+  flowRateForEntry,
+  flowColorIndexForEntry,
+  pruneFlowCommoditySelection,
+} from '../utils/weeklyFlowChartSeries'
 
 const CHART_W = 760
 const CHART_H = 200
@@ -32,6 +40,37 @@ function projectUpcomingSeries(values, upcomingFlags, lastActiveIdx) {
 
 function numericValue(v) {
   return v == null || !Number.isFinite(Number(v)) ? 0 : Number(v)
+}
+
+const FLOW_LINE_COLORS = [
+  'var(--v2-chart-atberth)',
+  'var(--v2-chart-submitted)',
+  'var(--v2-chart-planned)',
+  'var(--v2-chart-sailed)',
+  'var(--v2-chart-rejected)',
+  'var(--v2-chart-draft)',
+]
+
+function ChartInfoIcon({ text }) {
+  if (!text) return null
+  return (
+    <InteractiveTooltip items={[{ primary: text }]} maxWidth={360} placement="right">
+      <span className="v2-weekly__info-icon" aria-label={text} tabIndex={0} role="img">
+        ⓘ
+      </span>
+    </InteractiveTooltip>
+  )
+}
+
+function ChartBlockTitle({ children, info }) {
+  return (
+    <div className="v2-weekly__block-title">
+      <span className="v2-weekly__title-with-info">
+        <span>{children}</span>
+        <ChartInfoIcon text={info} />
+      </span>
+    </div>
+  )
 }
 
 function formatWeekRangeLabel(startIso, endIso) {
@@ -249,6 +288,21 @@ export default function DashboardV2WeeklyTrends({
   dateRangeLabel,
 }) {
   const { t, i18n } = useTranslation('dashboard')
+  const [selectedFlowCommodityIds, setSelectedFlowCommodityIds] = useState([])
+
+  const flowRanked = useMemo(() => rankFlowCommodities(data), [data])
+
+  useEffect(() => {
+    setSelectedFlowCommodityIds((prev) => {
+      const pruned = pruneFlowCommoditySelection(prev, flowRanked)
+      return pruned.length === prev.length && pruned.every((id, i) => id === prev[i]) ? prev : pruned
+    })
+  }, [flowRanked])
+
+  const flowOptions = useMemo(
+    () => flowRanked.map((c) => ({ value: String(c.commodityId), label: c.code })),
+    [flowRanked],
+  )
 
   const weekLabels = useMemo(
     () => (data || []).map((w) => formatWeekRangeLabel(w.startDate, w.endDate)),
@@ -265,6 +319,13 @@ export default function DashboardV2WeeklyTrends({
   }, [weekIsUpcoming, t])
 
   const rangeSub = dateRangeLabel || ''
+  const flowEntries = useMemo(
+    () => buildFlowChartEntries(data, {
+      selectedCommodityIds: selectedFlowCommodityIds,
+      othersLabel: t('v2WeeklyFlowOthers'),
+    }),
+    [data, selectedFlowCommodityIds, t],
+  )
 
   if (loading && !data) {
     return (
@@ -302,7 +363,7 @@ export default function DashboardV2WeeklyTrends({
       </p>
       <div className="v2-weekly__body">
       <div className="v2-weekly__block">
-        <div className="v2-weekly__block-title">{t('v2WeeklyOccupancy')}</div>
+        <ChartBlockTitle info={t('v2WeeklyOccInfo')}>{t('v2WeeklyOccupancy')}</ChartBlockTitle>
         <WeeklyLineChart
           weekLabels={weekLabels}
           weekIsUpcoming={weekIsUpcoming}
@@ -361,7 +422,7 @@ export default function DashboardV2WeeklyTrends({
 
       <div className="v2-weekly__block">
         <div className="v2-weekly__block-title-row">
-          <div className="v2-weekly__block-title">{t('v2WeeklyPlansTitle')}</div>
+          <ChartBlockTitle info={t('v2WeeklyPlansInfo')}>{t('v2WeeklyPlansTitle')}</ChartBlockTitle>
           <div className="v2-weekly__legend v2-weekly__legend--inline">
             <span className="v2-weekly__legend-item">
               <i className="v2-weekly__legend-marker v2-weekly__legend-marker--approved" />
@@ -434,7 +495,7 @@ export default function DashboardV2WeeklyTrends({
       </div>
 
       <div className="v2-weekly__block">
-        <div className="v2-weekly__block-title">{t('v2WeeklyQtyTitle')}</div>
+        <ChartBlockTitle info={t('v2WeeklyQtyInfo')}>{t('v2WeeklyQtyTitle')}</ChartBlockTitle>
         <WeeklyLineChart
           weekLabels={weekLabels}
           weekIsUpcoming={weekIsUpcoming}
@@ -485,7 +546,7 @@ export default function DashboardV2WeeklyTrends({
       </div>
 
       <div className="v2-weekly__block">
-        <div className="v2-weekly__block-title">{t('v2WeeklySlaTitle')}</div>
+        <ChartBlockTitle info={t('v2WeeklySlaInfo')}>{t('v2WeeklySlaTitle')}</ChartBlockTitle>
         <WeeklyLineChart
           weekLabels={weekLabels}
           weekIsUpcoming={weekIsUpcoming}
@@ -539,6 +600,209 @@ export default function DashboardV2WeeklyTrends({
           ]}
         />
         <div className="v2-weekly__subnote">{t('v2WeeklySlaSub')}</div>
+      </div>
+
+      <div className="v2-weekly__block">
+        <ChartBlockTitle info={t('v2WeeklyWaitInfo')}>{t('v2WeeklyWaitTitle')}</ChartBlockTitle>
+        <WeeklyLineChart
+          weekLabels={weekLabels}
+          weekIsUpcoming={weekIsUpcoming}
+          yTitle={t('v2WeeklyAxisHours')}
+          xAxisTitle={t('v2WeeklyAxisWeek')}
+          showXAxisTitle={false}
+          ariaLabel={`${t('v2WeeklyWaitTitle')}. ${rangeSub}`}
+          weekTooltip={{
+            subtitle: `${t('v2WeeklyWaitTitle')} · ${rangeSub}`,
+            placement: 'left',
+            itemsForWeek: (i) => {
+              const vals = projectUpcomingSeries(
+                data.map((w) => (w.waitingHoursMa != null ? Number(w.waitingHoursMa) : 0)),
+                weekIsUpcoming,
+                lastActiveIdx,
+              )
+              const v = weekIsUpcoming[i] ? vals[i] : data[i].waitingHoursMa
+              return withProjectedNote([
+                {
+                  primary: t('v2WeeklyWaitTitle'),
+                  secondary: v == null || v === '' ? '—' : t('v2WeeklyWaitValue', { h: v }),
+                },
+              ], i)
+            },
+          }}
+          series={[
+            {
+              key: 'wait',
+              color: 'var(--v2-chart-atberth)',
+              values: projectUpcomingSeries(
+                data.map((w) => (w.waitingHoursMa != null ? Number(w.waitingHoursMa) : 0)),
+                weekIsUpcoming,
+                lastActiveIdx,
+              ),
+              pointTitle: (i, val) =>
+                `${weekLabels[i]}: ${t('v2WeeklyWaitValue', { h: val })}`,
+            },
+          ]}
+        />
+      </div>
+
+      <div className="v2-weekly__block">
+        <ChartBlockTitle info={t('v2WeeklyAnchorageInfo')}>{t('v2WeeklyAnchorageTitle')}</ChartBlockTitle>
+        <WeeklyLineChart
+          weekLabels={weekLabels}
+          weekIsUpcoming={weekIsUpcoming}
+          yTitle={t('v2WeeklyAxisCount')}
+          xAxisTitle={t('v2WeeklyAxisWeek')}
+          showXAxisTitle={false}
+          ariaLabel={`${t('v2WeeklyAnchorageTitle')}. ${rangeSub}`}
+          weekTooltip={{
+            subtitle: `${t('v2WeeklyAnchorageTitle')} · ${rangeSub}`,
+            placement: 'left',
+            itemsForWeek: (i) => {
+              const vals = projectUpcomingSeries(
+                data.map((w) => Number(w.anchorageCount ?? 0)),
+                weekIsUpcoming,
+                lastActiveIdx,
+              )
+              return withProjectedNote([
+                {
+                  primary: t('v2WeeklyAnchorageTitle'),
+                  secondary: String(vals[i] ?? 0),
+                },
+              ], i)
+            },
+          }}
+          series={[
+            {
+              key: 'anchorage',
+              color: 'var(--v2-chart-atberth)',
+              values: projectUpcomingSeries(
+                data.map((w) => Number(w.anchorageCount ?? 0)),
+                weekIsUpcoming,
+                lastActiveIdx,
+              ),
+              pointTitle: (i, val) => `${weekLabels[i]}: ${val}`,
+            },
+          ]}
+        />
+      </div>
+
+      <div className="v2-weekly__block">
+        <ChartBlockTitle info={t('v2WeeklyAtBerthInfo')}>{t('v2WeeklyAtBerthTitle')}</ChartBlockTitle>
+        <WeeklyLineChart
+          weekLabels={weekLabels}
+          weekIsUpcoming={weekIsUpcoming}
+          yTitle={t('v2WeeklyAxisCount')}
+          xAxisTitle={t('v2WeeklyAxisWeek')}
+          showXAxisTitle={false}
+          ariaLabel={`${t('v2WeeklyAtBerthTitle')}. ${rangeSub}`}
+          weekTooltip={{
+            subtitle: `${t('v2WeeklyAtBerthTitle')} · ${rangeSub}`,
+            placement: 'left',
+            itemsForWeek: (i) => {
+              const vals = projectUpcomingSeries(
+                data.map((w) => Number(w.atBerthCount ?? 0)),
+                weekIsUpcoming,
+                lastActiveIdx,
+              )
+              return withProjectedNote([
+                {
+                  primary: t('v2WeeklyAtBerthTitle'),
+                  secondary: String(vals[i] ?? 0),
+                },
+              ], i)
+            },
+          }}
+          series={[
+            {
+              key: 'atberth',
+              color: 'var(--v2-chart-atberth)',
+              values: projectUpcomingSeries(
+                data.map((w) => Number(w.atBerthCount ?? 0)),
+                weekIsUpcoming,
+                lastActiveIdx,
+              ),
+              pointTitle: (i, val) => `${weekLabels[i]}: ${val}`,
+            },
+          ]}
+        />
+      </div>
+
+      <div className="v2-weekly__block">
+        <div className="v2-weekly__block-title-row v2-weekly__block-title-row--flow">
+          <ChartBlockTitle info={t('v2WeeklyFlowInfo')}>{t('v2WeeklyFlowTitle')}</ChartBlockTitle>
+          {flowOptions.length > 0 ? (
+            <DropdownMultiSelect
+              id="v2-weekly-flow-products"
+              className="v2-filters__dropdown v2-weekly__flow-filter"
+              panelClassName="v2-filters__panel"
+              titleLabel={t('v2WeeklyFlowProductFilter')}
+              placeholder={t('v2WeeklyFlowProductPlaceholder')}
+              emptyText={t('v2WeeklyFlowProductEmpty')}
+              options={flowOptions}
+              selectedValues={selectedFlowCommodityIds}
+              onChange={setSelectedFlowCommodityIds}
+              searchable
+              searchPlaceholder={t('v2WeeklyFlowProductSearch')}
+            />
+          ) : null}
+          {flowEntries.length > 0 ? (
+            <div className="v2-weekly__legend v2-weekly__legend--inline">
+              {flowEntries.map((entry) => {
+                const colorIdx = flowColorIndexForEntry(flowRanked, entry)
+                return (
+                  <span key={entry.commodityId} className="v2-weekly__legend-item">
+                    <i
+                      className="v2-weekly__legend-marker"
+                      style={{ background: FLOW_LINE_COLORS[colorIdx % FLOW_LINE_COLORS.length] }}
+                    />
+                    {entry.code}
+                  </span>
+                )
+              })}
+            </div>
+          ) : null}
+        </div>
+        <WeeklyLineChart
+          weekLabels={weekLabels}
+          weekIsUpcoming={weekIsUpcoming}
+          yTitle={t('v2WeeklyAxisMtH')}
+          xAxisTitle={t('v2WeeklyAxisWeek')}
+          showXAxisTitle
+          ariaLabel={`${t('v2WeeklyFlowTitle')}. ${rangeSub}`}
+          weekTooltip={{
+            subtitle: `${t('v2WeeklyFlowTitle')} · ${rangeSub}`,
+            placement: 'left',
+            itemsForWeek: (i) => {
+              const items = flowEntries.map((entry) => {
+                const vals = projectUpcomingSeries(
+                  data.map((w) => flowRateForEntry(w, entry) ?? 0),
+                  weekIsUpcoming,
+                  lastActiveIdx,
+                )
+                const v = weekIsUpcoming[i] ? vals[i] : flowRateForEntry(data[i], entry)
+                return {
+                  primary: entry.code,
+                  secondary: v == null ? '—' : t('v2WeeklyFlowValue', { rate: Number(v).toFixed(1) }),
+                }
+              })
+              return withProjectedNote(items.length ? items : [{ primary: t('v2WeeklyFlowEmpty') }], i)
+            },
+          }}
+          series={flowEntries.map((entry) => {
+            const colorIdx = flowColorIndexForEntry(flowRanked, entry)
+            return {
+              key: `flow-${entry.commodityId}`,
+              color: FLOW_LINE_COLORS[colorIdx % FLOW_LINE_COLORS.length],
+              values: projectUpcomingSeries(
+                data.map((w) => flowRateForEntry(w, entry) ?? 0),
+                weekIsUpcoming,
+                lastActiveIdx,
+              ),
+              pointTitle: (i, val) =>
+                `${weekLabels[i]}: ${entry.code} ${t('v2WeeklyFlowValue', { rate: Number(val).toFixed(1) })}`,
+            }
+          })}
+        />
       </div>
       </div>
     </section>

@@ -11,9 +11,19 @@ import {
   parseDashboardFilters,
 } from '../lib/dashboard-v2-filters.js';
 import { computePipelineActuals } from '../lib/dashboard-pipeline-actuals.js';
-import { computeDashboardSlotOccupancy } from '../lib/dashboard-slot-occupancy.js';
+import { computeDashboardSlotOccupancy, computeSlotOccupancyAtSnapshot } from '../lib/dashboard-slot-occupancy.js';
 import { computeDashboardSlaAtRisk, slaAtRiskAtSnapshot } from '../lib/dashboard-sla-at-risk.js';
 import { computeAtgSyncHealth } from '../lib/dashboard-atg-sync-health.js';
+import {
+  applyCommodityMovingMean,
+  countAnchorageAtSnapshot,
+  countAtBerthAtSnapshot,
+  flowRatesByCommodityInRange,
+  lookbackStartYmd,
+  meanWaitingHoursInRange,
+  movingMean,
+  round1,
+} from '../lib/dashboard-weekly-ops-metrics.js';
 
 const router = express.Router();
 
@@ -31,40 +41,6 @@ async function totalServiceSlots(client, portId) {
     [portId]
   );
   return Number(r.rows[0]?.total) || 0;
-}
-
-async function berthOccupiedPlansAt(client, portId, tIso, filters) {
-  const params = [portId, tIso];
-  const { filterSql } = appendOpPlanFilters('', params, 3, filters);
-
-  const r = await client.query(
-    `SELECT COUNT(*)::int AS c
-     FROM (
-       SELECT si.shipment_plan_id
-       FROM operations o
-       JOIN shipping_instructions si ON si.id = o.shipping_instruction_id AND si.deleted_at IS NULL
-       LEFT JOIN shipment_plans sp ON sp.id = si.shipment_plan_id AND sp.deleted_at IS NULL
-       LEFT JOIN jetties j ON j.id = COALESCE(o.jetty_id, sp.jetty_id) AND j.deleted_at IS NULL
-       LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
-       WHERE o.deleted_at IS NULL
-         AND COALESCE(o.port_id, p.id) = $1
-         AND COALESCE(o.shifting_out, sp.shifting_out, false) = false
-         AND si.shipment_plan_id IS NOT NULL
-         ${filterSql}
-       GROUP BY si.shipment_plan_id
-       HAVING BOOL_OR(
-         COALESCE(o.tb, sp.tb, o.docking_start_time, sp.docking_start_time) IS NOT NULL
-         AND COALESCE(o.tb, sp.tb, o.docking_start_time, sp.docking_start_time) <= $2::timestamptz
-         AND o.status <> 'SAILED'
-         AND (
-           COALESCE(o.cast_off_at, o.actual_completion_time, sp.cast_off_at, sp.sailed_at) IS NULL
-           OR COALESCE(o.cast_off_at, o.actual_completion_time, sp.cast_off_at, sp.sailed_at) > $2::timestamptz
-         )
-       )
-     ) x`,
-    params
-  );
-  return Number(r.rows[0]?.c) || 0;
 }
 
 async function countApprovedPlansInRange(client, portId, wsIso, weIso, filters) {
@@ -167,35 +143,61 @@ router.get('/weekly-trends', async (req, res) => {
   if (!startDate || !endDate || typeof startDate !== 'string' || typeof endDate !== 'string') {
     return res.status(400).json({ error: 'start_date and end_date are required (YYYY-MM-DD)' });
   }
-  const chunks = buildWeekChunks(startDate.trim(), endDate.trim());
-  if (chunks.length === 0) {
+  const rangeStart = startDate.trim();
+  const rangeEnd = endDate.trim();
+  const visibleChunks = buildWeekChunks(rangeStart, rangeEnd);
+  if (visibleChunks.length === 0) {
     return res.status(400).json({ error: 'Invalid or empty date range' });
   }
+  const lookbackStart = lookbackStartYmd(rangeStart) || rangeStart;
+  const allChunks = buildWeekChunks(lookbackStart, rangeEnd);
+  const visibleKeys = new Set(visibleChunks.map((ch) => `${ch.startDate}|${ch.endDate}`));
 
   const filters = parseDashboardFilters(req);
 
   const client = await pool.connect();
   try {
     const totalSlots = await totalServiceSlots(client, portId);
+    const waitingRaw = [];
+    const flowRaw = [];
+    for (const ch of allChunks) {
+      waitingRaw.push(await meanWaitingHoursInRange(
+        client, portId, ch.rangeStartIso, ch.rangeEndExclusiveIso, filters
+      ));
+      flowRaw.push(await flowRatesByCommodityInRange(
+        client, portId, ch.rangeStartIso, ch.rangeEndExclusiveIso, filters
+      ));
+    }
+    const waitingMa = movingMean(waitingRaw);
+    const flowMa = applyCommodityMovingMean(flowRaw);
+
     const weeks = [];
-    for (const ch of chunks) {
-      const occupied = await berthOccupiedPlansAt(client, portId, ch.snapshotIso, filters);
-      const pct =
-        totalSlots > 0 ? Math.min(100, Math.round((occupied / totalSlots) * 1000) / 10) : null;
+    for (let i = 0; i < allChunks.length; i++) {
+      const ch = allChunks[i];
+      if (!visibleKeys.has(`${ch.startDate}|${ch.endDate}`)) continue;
+      // Same historical snapshot as the slot-occupancy KPI. Do not use current
+      // `operations.status` — vessels that later sailed must still count at T.
+      const occ = await computeSlotOccupancyAtSnapshot(client, portId, ch.snapshotIso, filters);
       const approvedPlans = await countApprovedPlansInRange(client, portId, ch.rangeStartIso, ch.rangeEndExclusiveIso, filters);
       const sailedCount = await countSailedPlansInRange(client, portId, ch.rangeStartIso, ch.rangeEndExclusiveIso, filters);
       const sailedQtyMt = await sumSailedQtyMtInRange(client, portId, ch.rangeStartIso, ch.rangeEndExclusiveIso, filters);
       const sla = await slaAtRiskAtSnapshot(client, portId, ch.snapshotIso, filters);
+      const anchorageCount = await countAnchorageAtSnapshot(client, portId, ch.snapshotIso, filters);
+      const atBerthCount = await countAtBerthAtSnapshot(client, portId, ch.snapshotIso, filters);
       weeks.push({
         startDate: ch.startDate,
         endDate: ch.endDate,
-        slotOccupancyPct: pct,
-        berthOccupiedPlans: occupied,
+        slotOccupancyPct: occ.totalSlots > 0 ? occ.pct : null,
+        berthOccupiedPlans: occ.usedSlots,
         approvedPlans,
         sailedCount,
         sailedQtyMt: Math.round(sailedQtyMt),
         slaAtRiskCount: sla.count,
         slaOverHoursSum: Math.round(sla.overHoursSum * 10) / 10,
+        waitingHoursMa: round1(waitingMa[i]),
+        anchorageCount,
+        atBerthCount,
+        flowRateByCommodity: flowMa[i] || [],
       });
     }
     res.json({ totalSlots, weeks });
