@@ -250,7 +250,18 @@ docker compose --env-file Backend/.env -f docker-compose.backend.yml.bak up -d j
 
 ## Post-cutover deploy (Server 2)
 
-After code changes:
+After code changes, **preferred**:
+
+```bash
+cd /opt/jetty-planning-system
+export DEPLOY_BRANCH=sit
+export RUN_MIGRATE=1
+bash Backend/scripts/deploy-prod-api-three-server.sh deploy
+```
+
+App host (frontend): `DEPLOY_BRANCH=sit bash Backend/scripts/deploy-prod-frontend-three-server.sh deploy`
+
+**Manual fallback** if a script fails:
 
 ```bash
 cd /opt/jetty-planning-system

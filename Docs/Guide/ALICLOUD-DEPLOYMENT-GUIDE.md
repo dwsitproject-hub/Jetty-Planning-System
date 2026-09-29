@@ -341,19 +341,28 @@ cd /opt/jetty-planning-system
 git clone git@github.com:<YOUR\\\\\\\\\\\\\\\_ORG\\\\\\\\\\\\\\\_OR\\\\\\\\\\\\\\\_USER>/<YOUR\\\\\\\\\\\\\\\_REPO\\\\\\\\\\\\\\\_NAME>.git .
 ```
 
-### 4.4 Update code with `git pull` (app, API, and DB servers)
+### 4.4 Update code (app, API, and DB servers)
 
-After the initial clone, deploy updates **without** SCP.
+After the initial clone, deploy updates **without** SCP. **Preferred on the three-server layout:** the `.sh` scripts (they fetch, checkout, rebuild, and save a rollback SHA). Use manual `git pull` + compose only if a script is missing or fails.
 
-**Repo root on each host:** use the directory that contains `docker-compose.app.yml` or `docker-compose.backend.yml` at the top level. The standard path is:
+**Repo root on each host:** `/opt/jetty-planning-system` (contains `docker-compose.app.yml` / `docker-compose.backend-api-only.yml`).
 
 ```bash
+# API host (three-server)
 cd /opt/jetty-planning-system
+export DEPLOY_BRANCH=sit
+export RUN_MIGRATE=1
+bash Backend/scripts/deploy-prod-api-three-server.sh deploy
+
+# App host (three-server)
+cd /opt/jetty-planning-system
+export DEPLOY_BRANCH=sit
+bash Backend/scripts/deploy-prod-frontend-three-server.sh deploy
 ```
 
 If you cloned into a **nested** folder on one host only (e.g. `/opt/jetty-planning-system/Jetty-Planning-System`), use that path on **that** host — but prefer one consistent root on all servers to avoid confusion.
 
-**Deploy branch (SIT example):** checkout the branch you deploy from GitHub before `pull`:
+**Manual fallback — deploy branch (SIT example):**
 
 ```bash
 git fetch origin
@@ -385,7 +394,16 @@ docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d
 docker compose --env-file Backend/.env -f docker-compose.backend.yml exec -T jps-api npm run migrate
 ```
 
-**API server — three-server layout** (API only; Postgres on Server 3):
+**API server — three-server layout** (API only; Postgres on Server 3). **Preferred:**
+
+```bash
+cd /opt/jetty-planning-system
+export DEPLOY_BRANCH=sit
+export RUN_MIGRATE=1
+bash Backend/scripts/deploy-prod-api-three-server.sh deploy
+```
+
+**Manual fallback:**
 
 ```bash
 cd /opt/jetty-planning-system
@@ -406,10 +424,18 @@ curl -sS http://127.0.0.1:3000/health
 docker compose --env-file Backend/.env -f docker-compose.backend.yml logs --tail=50 jps-api
 ```
 
-**App server (PuTTY):**
+**App server (PuTTY).** **Preferred:**
 
 ```bash
-cd /opt/jetty-planning-system/Jetty-Planning-System
+cd /opt/jetty-planning-system
+export DEPLOY_BRANCH=sit
+bash Backend/scripts/deploy-prod-frontend-three-server.sh deploy
+```
+
+**Manual fallback:**
+
+```bash
+cd /opt/jetty-planning-system
 git fetch origin
 git checkout sit
 git pull origin sit
@@ -705,20 +731,31 @@ Use this when JPS is **already** running on staging and you are deploying **new 
 
 |Do|Don’t|
 |-|-|
-|On **backend:** `git pull` → `docker compose --env-file Backend/.env -f docker-compose.backend.yml build` → `up -d` → **`docker compose ... exec -T jps-api npm run migrate`**|**`docker compose down -v`** (destroys Postgres volume and all data).|
-|On **app:** `git pull` → rebuild and `up -d` for `docker-compose.app.yml`|Re-run **user \& role bootstrap** SQL or **dev seed** scripts (`reset-and-seed-dev.sql`, `023`/`024` seeds) on staging **unless** you intentionally reset a **non-production** database.|
+|On **API (three-server):** `DEPLOY_BRANCH=sit RUN_MIGRATE=1 bash Backend/scripts/deploy-prod-api-three-server.sh deploy`. Two-server (API+DB same host): `git pull` → `docker compose --env-file Backend/.env -f docker-compose.backend.yml build` → `up -d` → **`npm run migrate`**. Manual compose is fallback if the script fails.|**`docker compose down -v`** (destroys Postgres volume and all data).|
+|On **app (three-server):** `DEPLOY_BRANCH=sit bash Backend/scripts/deploy-prod-frontend-three-server.sh deploy`. Manual: `git pull` → rebuild `docker-compose.app.yml`.|Re-run **user \& role bootstrap** SQL or **dev seed** scripts (`reset-and-seed-dev.sql`, `023`/`024` seeds) on staging **unless** you intentionally reset a **non-production** database.|
 |On **app:** confirm **`rtsp-stream-viewer/.env`** exists (**§6.2A**); `docker compose -f docker-compose.app.yml up -d --build` (rebuilds **`jps-fe`** + **`jps-jetty-live`**)|Assume `.env.example` alone is enough — **`.env` is gitignored** and must be created on the server.|
 |Expect **`npm run migrate`** to apply **only migrations that have not yet run** (tracked in **`schema\\\\\\\\\\\\\\\_migrations`**; see `Backend/scripts/run-migrations.js`). Already-applied files — including schema for **`users`**, **`roles`**, **`permissions`**, **seed users** — are **not** executed again.|Manually re-import **`002\\\\\\\\\\\\\\\_seed\\\\\\\\\\\\\\\_first\\\\\\\\\\\\\\\_user.sql`**-style dumps if accounts already exist (risk duplicate or conflicting ids).|
 
-**Staging RBAC:** If users and roles are **already** configured on the server, a normal **`git pull` + `migrate`** is enough for new feature migrations (e.g. jetty layout, `shifting\\\\\\\\\\\\\\\_out`, `updated\\\\\\\\\\\\\\\_by`). Reserve full re-seed for **new environments only**, documented in §2 / reset scripts.
+**Staging RBAC:** If users and roles are **already** configured on the server, a normal **`.sh` deploy** (or manual `git pull` + `migrate`) is enough for new feature migrations. Reserve full re-seed for **new environments only**, documented in §2 / reset scripts.
 
-**Order for an update:** **Backend server first** (API + DB + migrate), then **App server** (rebuild SPA if `VITE\\\\\\\\\\\\\\\_API\\\\\\\\\\\\\\\_BASE\\\\\\\\\\\\\\\_URL` or frontend changed).
+**Order for an update:** **API host first** (`.sh` + migrate if needed), then **App host** (`.sh` if frontend changed). Manual compose is fallback.
 
 \---
 
 ## 8\. Operational commands
 
-**Backend**
+**Backend / API**
+
+Preferred (three-server API host):
+
+```bash
+cd /opt/jetty-planning-system
+export DEPLOY_BRANCH=sit
+export RUN_MIGRATE=1
+bash Backend/scripts/deploy-prod-api-three-server.sh deploy
+```
+
+Manual / two-server (`jps-api` + `jps-db` on the same host):
 
 ```bash
 cd /opt/jetty-planning-system
@@ -730,6 +767,16 @@ docker compose --env-file Backend/.env -f docker-compose.backend.yml up -d --bui
 **Purge all transactional data (manual only — not a migration):** see [PURGE-TRANSACTIONAL-DATA.md](../Troubleshoot/PURGE-TRANSACTIONAL-DATA.md). On the backend host: `bash Backend/scripts/run-purge-transactional-data.sh` (type `PURGE` when prompted).
 
 **App**
+
+Preferred:
+
+```bash
+cd /opt/jetty-planning-system
+export DEPLOY_BRANCH=sit
+bash Backend/scripts/deploy-prod-frontend-three-server.sh deploy
+```
+
+Manual fallback:
 
 ```bash
 cd /opt/jetty-planning-system

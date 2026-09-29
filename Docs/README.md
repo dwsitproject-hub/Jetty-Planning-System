@@ -90,8 +90,11 @@ Shipping Instruction → Allocation & Berthing → At-Berth → Loading/Unloadin
 | **Guide/APSARADB-DOCUMENTATION-INDEX.md** | **ApsaraDB RDS migration:** index of runbooks, scripts, and related three-server docs (staging `.60` → RDS). |
 | **Guide/APSARADB-STAGING-CUTOVER.md** | Staging cutover: DB ECS `172.28.92.60` → ApsaraDB RDS; preflight, dump/restore, password trap, rollback. |
 | **Guide/APSARADB-LOCAL-ACCESS.md** | Connect from PC to RDS; local API on RDS; `#` password URL encoding. |
-| **Guide/ALICLOUD-DEPLOYMENT-GUIDE.md** | Deployment on Alicloud Ubuntu: security group, Docker, optional PostgreSQL, migrations, troubleshooting. |
+| **Guide/ALICLOUD-DEPLOYMENT-GUIDE.md** | Alicloud Ubuntu: first-time setup; later three-server updates use the `.sh` scripts (manual compose as fallback). |
 | **Guide/THREE-SERVER-DB-SPLIT-GUIDE.md** | Migrate from two-server (app + API/DB) to three-server (app, API, dedicated PostgreSQL): host audit, Compose split, networking, practice migration. |
+| **Guide/STAGING-3-SERVER-DEPLOY-RUNBOOK.md** | Staging first-time 3-server setup; later updates use **`deploy-prod-api-three-server.sh`** / **`deploy-prod-frontend-three-server.sh`** (`DEPLOY_BRANCH=sit`). |
+| **Guide/PRODUCTION-THREE-SERVER-DEPLOY-AND-FULL-DATA-MIGRATION.md** | Production 3-server + staging→prod data copy; subsequent code deploys use the same `.sh` scripts. |
+| **Guide/HOTFIX-DEPLOY-RUNBOOK.md** | Three-server code deploy/rollback: **`deploy-prod-api-three-server.sh`** (API host) and **`deploy-prod-frontend-three-server.sh`** (App host); manual fallback if a script fails. |
 | **Guide/THREE-SERVER-DB-CUTOVER-RUNBOOK.md** | After-hours production cutover: prerequisites, final dump/restore, API-only compose, smoke test, rollback. |
 | **Guide/ECS-DISK-SPACE-CHECK-AND-EXPAND.md** | ECS disk full (`No space left on device`): check `df`/`lsblk`, free Docker/apt space, resize or attach disks (FFmpeg / Jetty Live). |
 | **Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md** | Jetty Live RTSP stream on the app server (`rtsp-stream-viewer`, nginx, systemd). |
