@@ -39,6 +39,51 @@ export function decryptSmtpPassword(ciphertext) {
   return Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
 }
 
+function parseEnvBoolean(raw, defaultWhenUnset) {
+  if (raw == null || String(raw).trim() === '') return defaultWhenUnset;
+  return !['0', 'false', 'no', 'off'].includes(String(raw).trim().toLowerCase());
+}
+
+/** STARTTLS required on submission port (587). DownstreamHub uses SMTP_REQUIRE_TLS=false. */
+export function getSmtpRequireTls(port, secure) {
+  if (secure || Number(port) === 465) return false;
+  return parseEnvBoolean(process.env.SMTP_REQUIRE_TLS, false);
+}
+
+/** Pause after SMTP send before closing socket (ms). Env: SMTP_POST_SEND_DELAY_MS (max 30s). */
+export function getSmtpPostSendDelayMs() {
+  const raw = process.env.SMTP_POST_SEND_DELAY_MS;
+  if (raw == null || String(raw).trim() === '') return 0;
+  const n = parseInt(String(raw).trim(), 10);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(n, 30_000);
+}
+
+function sleepMs(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+/** Wait after send so the mail server can finish spool before the client disconnects. */
+export async function smtpPostSendDelay() {
+  const ms = getSmtpPostSendDelayMs();
+  if (ms > 0) await sleepMs(ms);
+}
+
+/** Delay (if configured), close transport, clear cache — call after each sendMail. */
+export async function finalizeSmtpTransport(transport) {
+  await smtpPostSendDelay();
+  invalidateSmtpTransportCache();
+  if (transport && typeof transport.close === 'function') {
+    try {
+      await transport.close();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 function readEnvSmtp() {
   const host = process.env.SMTP_HOST;
   if (!host || !String(host).trim()) return null;
@@ -88,11 +133,13 @@ export async function getEffectiveSmtpConfig(db) {
         pass = '';
       }
     }
+    const port = Number(row.port) || 465;
+    const secure = Boolean(row.secure) || port === 465;
     return {
       source: 'database',
       host: String(row.host).trim(),
-      port: Number(row.port) || 465,
-      secure: Boolean(row.secure),
+      port,
+      secure,
       user: row.user || null,
       pass: pass || null,
       fromAddress: row.from_address || row.user || 'jetty-planning@localhost',
@@ -113,10 +160,12 @@ export async function getSmtpConfigForAdmin(db) {
   const row = await loadSmtpConfigRow(db);
   const envCfg = readEnvSmtp();
   const effective = await getEffectiveSmtpConfig(db);
+  const port = row?.port ?? envCfg?.port ?? 465;
+  const secure = Boolean(row?.secure ?? envCfg?.secure ?? true) || Number(port) === 465;
   return {
     host: row?.host || envCfg?.host || '',
-    port: row?.port ?? envCfg?.port ?? 465,
-    secure: row?.secure ?? envCfg?.secure ?? true,
+    port,
+    secure,
     user: row?.user || envCfg?.user || '',
     fromAddress: row?.from_address || envCfg?.fromAddress || row?.user || envCfg?.user || '',
     rejectUnauthorized: row?.reject_unauthorized ?? envCfg?.rejectUnauthorized ?? true,
@@ -129,7 +178,10 @@ export async function getSmtpConfigForAdmin(db) {
 
 function transportCacheKey(cfg) {
   if (!cfg?.host) return '';
-  return [cfg.host, cfg.port, cfg.secure, cfg.user, cfg.pass, cfg.rejectUnauthorized].join('|');
+  const port = Number(cfg.port) || 587;
+  const secure = Boolean(cfg.secure) || port === 465;
+  const requireTLS = getSmtpRequireTls(port, secure);
+  return [cfg.host, cfg.port, cfg.secure, requireTLS, cfg.user, cfg.pass, cfg.rejectUnauthorized].join('|');
 }
 
 export function invalidateSmtpTransportCache() {
@@ -144,12 +196,20 @@ export function buildNodemailerTransport(cfg) {
   if (!cfg?.enabled || !cfg.host) return null;
   const key = transportCacheKey(cfg);
   if (cachedTransport && cachedTransportKey === key) return cachedTransport;
+  const port = Number(cfg.port) || 587;
+  const secure = Boolean(cfg.secure) || port === 465;
+  const requireTLS = getSmtpRequireTls(port, secure);
   const transport = nodemailer.createTransport({
     host: cfg.host,
-    port: cfg.port,
-    secure: cfg.secure,
+    port,
+    secure,
+    requireTLS,
     auth: cfg.user ? { user: cfg.user, pass: cfg.pass || '' } : undefined,
     tls: { rejectUnauthorized: cfg.rejectUnauthorized !== false },
+    pool: false,
+    connectionTimeout: 20_000,
+    greetingTimeout: 15_000,
+    socketTimeout: 25_000,
   });
   cachedTransport = transport;
   cachedTransportKey = key;
@@ -181,7 +241,8 @@ export async function saveSmtpConfig(db, input, updatedBy) {
   const row = await loadSmtpConfigRow(db);
   const host = input.host != null ? String(input.host).trim() : row?.host;
   const port = input.port != null ? Number(input.port) : row?.port ?? 465;
-  const secure = input.secure != null ? Boolean(input.secure) : row?.secure ?? true;
+  let secure = input.secure != null ? Boolean(input.secure) : row?.secure ?? true;
+  if (port === 465) secure = true;
   const user = input.user != null ? String(input.user).trim() : row?.user;
   const fromAddress =
     input.fromAddress != null ? String(input.fromAddress).trim() : row?.from_address;

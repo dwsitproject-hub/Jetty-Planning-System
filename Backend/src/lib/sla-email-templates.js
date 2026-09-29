@@ -6,6 +6,17 @@ import { getPublicAppBaseUrl, renderTemplate } from './notifications.js';
 
 export const SLA_EMAIL_TEMPLATE_EVENTS = [SLA_EVENT_D1, SLA_EVENT_BREACH];
 
+export const WORKFLOW_EMAIL_TEMPLATE_EVENTS = [
+  'shipment_plan.submitted',
+  'operation.signoff_requested',
+];
+
+/** Events whose email templates are editable in Admin → Notifications. */
+export const ADMIN_EDITABLE_EMAIL_TEMPLATE_EVENTS = [
+  ...SLA_EMAIL_TEMPLATE_EVENTS,
+  ...WORKFLOW_EMAIL_TEMPLATE_EVENTS,
+];
+
 const SHARED_PLACEHOLDERS = [
   'vesselName',
   'jettyName',
@@ -19,6 +30,35 @@ const SHARED_PLACEHOLDERS = [
 export const SLA_EMAIL_PLACEHOLDERS = {
   [SLA_EVENT_D1]: [...SHARED_PLACEHOLDERS],
   [SLA_EVENT_BREACH]: [...SHARED_PLACEHOLDERS, 'overdueFormatted'],
+};
+
+export const DEFAULT_WORKFLOW_EMAIL_TEMPLATES = {
+  'shipment_plan.submitted': {
+    titleTemplate: 'Jetty Planning: shipment plan {{planReference}} needs approval',
+    bodyTemplate:
+      'A shipment plan was submitted and needs your approval.\n\n' +
+      'Plan reference: {{planReference}}\n\n' +
+      'Open the approval page:\n' +
+      '{{actionUrl}}\n',
+  },
+  'operation.signoff_requested': {
+    titleTemplate: 'Clearance: sign-off for {{vesselName}} ({{jettyOperationCode}})',
+    bodyTemplate:
+      'A sign-off was requested for vessel {{vesselName}} (operation {{jettyOperationCode}}).\n\n' +
+      'Review on Clearance:\n' +
+      '{{actionUrl}}\n',
+  },
+};
+
+export const WORKFLOW_EMAIL_PLACEHOLDERS = {
+  'shipment_plan.submitted': ['planReference', 'planId', 'actionUrl', 'primaryHref'],
+  'operation.signoff_requested': [
+    'vesselName',
+    'jettyOperationCode',
+    'operationId',
+    'actionUrl',
+    'primaryHref',
+  ],
 };
 
 export const DEFAULT_SLA_EMAIL_TEMPLATES = {
@@ -62,11 +102,36 @@ export function getSlaEmailTemplateSampleVars() {
   };
 }
 
+/** @param {string} eventKey */
+export function getAdminEmailTemplateSampleVars(eventKey) {
+  const baseUrl = getPublicAppBaseUrl();
+  if (eventKey === 'shipment_plan.submitted') {
+    const href = `${baseUrl}/shipment-plans/approval/12345`;
+    return {
+      planReference: 'SP-26-09-00147',
+      planId: '12345',
+      actionUrl: href,
+      primaryHref: href,
+    };
+  }
+  if (eventKey === 'operation.signoff_requested') {
+    const href = `${baseUrl}/verification?filter=pending`;
+    return {
+      vesselName: 'MV Example Star',
+      jettyOperationCode: 'JOP-2026-0042',
+      operationId: '9876',
+      actionUrl: href,
+      primaryHref: href,
+    };
+  }
+  return getSlaEmailTemplateSampleVars();
+}
+
 /**
  * @param {{ titleTemplate: string, bodyTemplate: string }} templates
  */
-export function renderSlaEmailTemplateStrings(templates) {
-  const vars = getSlaEmailTemplateSampleVars();
+export function renderSlaEmailTemplateStrings(templates, eventKey = SLA_EVENT_D1) {
+  const vars = getAdminEmailTemplateSampleVars(eventKey);
   const strVars = Object.fromEntries(Object.entries(vars).map(([k, v]) => [k, String(v)]));
   return {
     subject: renderTemplate(templates.titleTemplate, strVars),
@@ -83,12 +148,27 @@ const MAX_BODY_LENGTH = 8000;
  */
 export function assertEditableSlaEmailEvent(eventKey) {
   const key = String(eventKey || '').trim();
-  if (!SLA_EMAIL_TEMPLATE_EVENTS.includes(key)) {
+  if (!ADMIN_EDITABLE_EMAIL_TEMPLATE_EVENTS.includes(key)) {
     const err = new Error('Event not found or not editable');
     err.status = 404;
     throw err;
   }
   return key;
+}
+
+function templateKindForEvent(eventKey) {
+  if (eventKey === 'shipment_plan.submitted') return 'approval';
+  if (eventKey === 'operation.signoff_requested') return 'clearance';
+  return 'info';
+}
+
+function getDefaultEmailTemplate(eventKey) {
+  const key = assertEditableSlaEmailEvent(eventKey);
+  if (DEFAULT_SLA_EMAIL_TEMPLATES[key]) return DEFAULT_SLA_EMAIL_TEMPLATES[key];
+  if (DEFAULT_WORKFLOW_EMAIL_TEMPLATES[key]) return DEFAULT_WORKFLOW_EMAIL_TEMPLATES[key];
+  const err = new Error('Event not found or not editable');
+  err.status = 404;
+  throw err;
 }
 
 /**
@@ -135,8 +215,7 @@ export function validateEmailTemplate(input) {
  * @param {string} eventKey
  */
 export function getDefaultSlaEmailTemplate(eventKey) {
-  assertEditableSlaEmailEvent(eventKey);
-  return DEFAULT_SLA_EMAIL_TEMPLATES[eventKey];
+  return getDefaultEmailTemplate(eventKey);
 }
 
 /**
@@ -144,8 +223,8 @@ export function getDefaultSlaEmailTemplate(eventKey) {
  * @returns {string[]}
  */
 export function getSlaEmailPlaceholders(eventKey) {
-  assertEditableSlaEmailEvent(eventKey);
-  return SLA_EMAIL_PLACEHOLDERS[eventKey] || [];
+  const key = assertEditableSlaEmailEvent(eventKey);
+  return SLA_EMAIL_PLACEHOLDERS[key] || WORKFLOW_EMAIL_PLACEHOLDERS[key] || [];
 }
 
 /**
@@ -154,7 +233,8 @@ export function getSlaEmailPlaceholders(eventKey) {
  */
 export async function loadSlaEmailTemplate(db, eventKey) {
   const key = assertEditableSlaEmailEvent(eventKey);
-  const defaults = getDefaultSlaEmailTemplate(key);
+  const defaults = getDefaultEmailTemplate(key);
+  const samplePreviewVars = getAdminEmailTemplateSampleVars(key);
   const r = await db.query(
     `SELECT title_template, body_template, updated_at
      FROM notification_templates
@@ -172,7 +252,7 @@ export async function loadSlaEmailTemplate(db, eventKey) {
       updatedAt: null,
       placeholders: getSlaEmailPlaceholders(key),
       isDefault: true,
-      samplePreviewVars: getSlaEmailTemplateSampleVars(),
+      samplePreviewVars,
     };
   }
   return {
@@ -183,7 +263,7 @@ export async function loadSlaEmailTemplate(db, eventKey) {
     updatedAt: row.updated_at,
     placeholders: getSlaEmailPlaceholders(key),
     isDefault: false,
-    samplePreviewVars: getSlaEmailTemplateSampleVars(),
+    samplePreviewVars,
   };
 }
 
@@ -222,15 +302,15 @@ export async function saveSlaEmailTemplate(db, eventKey, templates) {
       updatedAt: row.updated_at,
       placeholders: getSlaEmailPlaceholders(key),
       isDefault: false,
-      samplePreviewVars: getSlaEmailTemplateSampleVars(),
+      samplePreviewVars: getAdminEmailTemplateSampleVars(key),
     };
   }
 
   const r = await db.query(
     `INSERT INTO notification_templates (event_key, channel, locale, title_template, body_template, kind)
-     VALUES ($1, 'email', NULL, $2, $3, 'info')
+     VALUES ($1, 'email', NULL, $2, $3, $4)
      RETURNING title_template, body_template, updated_at`,
-    [key, titleTemplate, bodyTemplate]
+    [key, titleTemplate, bodyTemplate, templateKindForEvent(key)]
   );
   const row = r.rows[0];
   return {
@@ -241,7 +321,7 @@ export async function saveSlaEmailTemplate(db, eventKey, templates) {
     updatedAt: row.updated_at,
     placeholders: getSlaEmailPlaceholders(key),
     isDefault: false,
-    samplePreviewVars: getSlaEmailTemplateSampleVars(),
+    samplePreviewVars: getAdminEmailTemplateSampleVars(key),
   };
 }
 
@@ -251,6 +331,6 @@ export async function saveSlaEmailTemplate(db, eventKey, templates) {
  */
 export async function resetSlaEmailTemplate(db, eventKey) {
   const key = assertEditableSlaEmailEvent(eventKey);
-  const defaults = getDefaultSlaEmailTemplate(key);
+  const defaults = getDefaultEmailTemplate(key);
   return saveSlaEmailTemplate(db, key, defaults);
 }

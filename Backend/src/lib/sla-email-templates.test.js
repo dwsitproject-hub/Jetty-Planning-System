@@ -14,10 +14,11 @@ import {
 } from './sla-email-templates.js';
 
 describe('sla-email-templates', () => {
-  it('allows only SLA admin email events', () => {
+  it('allows SLA and workflow admin email events', () => {
     assert.equal(assertEditableSlaEmailEvent(SLA_EVENT_D1), SLA_EVENT_D1);
     assert.equal(assertEditableSlaEmailEvent(SLA_EVENT_BREACH), SLA_EVENT_BREACH);
-    assert.throws(() => assertEditableSlaEmailEvent('shipment_plan.submitted'), (err) => err.status === 404);
+    assert.equal(assertEditableSlaEmailEvent('shipment_plan.submitted'), 'shipment_plan.submitted');
+    assert.throws(() => assertEditableSlaEmailEvent('notification.email_echo'), (err) => err.status === 404);
   });
 
   it('returns defaults and placeholders for SLA events', () => {

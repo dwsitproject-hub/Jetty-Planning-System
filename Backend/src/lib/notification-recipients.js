@@ -6,11 +6,11 @@
  * @param {import('pg').Pool | import('pg').PoolClient} db
  * @param {string} eventKey
  * @param {number | null} portId
- * @param {{ emailOnly?: boolean }} [opts]
+ * @param {{ emailOnly?: boolean, emptyFallback?: 'atBerth' | 'none' }} [opts]
  * @returns {Promise<number[]>}
  */
 export async function resolveEventRecipients(db, eventKey, portId, opts = {}) {
-  const { emailOnly = false } = opts;
+  const { emailOnly = false, emptyFallback = 'atBerth' } = opts;
   const configured = await db.query(
     `SELECT id, user_id, role_id, port_id FROM notification_event_recipients WHERE event_key = $1`,
     [eventKey]
@@ -48,6 +48,7 @@ export async function resolveEventRecipients(db, eventKey, portId, opts = {}) {
   }
 
   if (userIds.size === 0) {
+    if (emptyFallback === 'none') return [];
     return resolveFallbackPortUsers(db, portId, emailOnly);
   }
 
