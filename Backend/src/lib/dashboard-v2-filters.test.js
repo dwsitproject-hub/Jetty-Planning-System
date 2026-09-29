@@ -5,6 +5,7 @@ import {
   buildWeekChunks,
   parseDashboardFilters,
 } from './dashboard-v2-filters.js';
+import { snapshotIsoForDay } from './dashboard-slot-occupancy.js';
 
 describe('buildDateRangeWindow', () => {
   it('returns UTC midnight window through end+1 day', () => {
@@ -34,6 +35,16 @@ describe('buildWeekChunks', () => {
     assert.equal(chunks[0].endDate, '2026-06-07');
     assert.equal(chunks[1].startDate, '2026-06-08');
     assert.equal(chunks[1].endDate, '2026-06-10');
+  });
+
+  it('uses end-of-segment UTC snapshot matching the occupancy KPI day snapshot', () => {
+    const chunks = buildWeekChunks('2026-09-01', '2026-09-30');
+    assert.equal(chunks.length, 5);
+    assert.equal(chunks[1].startDate, '2026-09-08');
+    assert.equal(chunks[1].endDate, '2026-09-14');
+    const now = new Date('2026-09-29T12:00:00.000Z');
+    assert.equal(chunks[1].snapshotIso, snapshotIsoForDay('2026-09-14', now));
+    assert.equal(chunks[1].snapshotIso, '2026-09-14T23:59:59.999Z');
   });
 });
 
