@@ -36,12 +36,8 @@ export function sendEventEmailTemplateTest(eventKey, body = {}) {
   return apiPost(`/notification-admin/events/${encodeURIComponent(eventKey)}/templates/email/test`, body)
 }
 
-export function fetchSmtpConfig() {
-  return apiGet('/notification-admin/smtp')
-}
-
-export function saveSmtpConfig(body) {
-  return apiPut('/notification-admin/smtp', body)
+export function fetchSmtpStatus() {
+  return apiGet('/notification-admin/smtp/status')
 }
 
 export function sendSmtpTestEmail() {

@@ -73,9 +73,9 @@ For the vibe to feel right, the In-App notification needs to be **real-time**. T
 
 **Domain triggers:** `POST /shipment-plans/:id/submit` → `shipment_plan.submitted`; `POST /operations/:id/signoff-request` → `operation.signoff_requested`.
 
-**Admin configuration (migration `120_workflow_notification_event_settings.sql`):** Shipment Plan Approval and Clearance Sign Off Request appear in **Admin → Notification Settings** (below SMTP). Each event supports **Enabled**, **In-app**, **Email**, **Recipients** (user or role, optional port scope), and **editable email templates** (same Save / Reset / Send test / Preview as SLA). With no recipients configured, workflow events send nothing. SLA events unchanged (at-berth fallback when recipient list empty).
+**Admin configuration (migration `120_workflow_notification_event_settings.sql`):** Shipment Plan Approval and Clearance Sign Off Request appear in **Admin → Notification Settings**. Each event supports **Enabled**, **In-app**, **Email**, **Recipients** (user or role, optional port scope), and **editable email templates** (same Save / Reset / Send test / Preview as SLA). With no recipients configured, workflow events send nothing. SLA events unchanged (at-berth fallback when recipient list empty). **Send test email** in the page header verifies SMTP to the logged-in user.
 
-**SMTP env:** `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, optional `APP_PUBLIC_URL` / `FRONTEND_APP_URL` for links in emails.
+**SMTP (env only, migration `121_drop_smtp_config.sql`):** Set on the API host `Backend/.env` — `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` / `SMTP_PASSWORD`, `MAIL_FROM` / `SMTP_FROM`, optional `SMTP_POST_SEND_DELAY_MS`, `SMTP_HUB_PARITY`. Not editable in Admin UI.
 
 **Frontend:** `NotificationBell` in the top bar (`Layout.jsx`), polling unread count (~45s), dropdown list, Luxon relative times, EN/ID strings in `locales/*/notifications.json`. **Phase 1 real-time:** polling only; SSE/WebSocket deferred.
 

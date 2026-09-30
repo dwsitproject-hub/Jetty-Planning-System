@@ -14,7 +14,7 @@ async function tableExists(name) {
 
 async function main() {
   await verifyConnection();
-  for (const t of ['notification_event_settings', 'smtp_config']) {
+  for (const t of ['notification_event_settings']) {
     if (!(await tableExists(t))) {
       console.error(`Missing table ${t}. Run: npm run migrate`);
       process.exit(1);

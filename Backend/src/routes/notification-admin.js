@@ -12,10 +12,9 @@ import {
 import { isValidRecipientEmail } from '../lib/notification-email-worker.js';
 import {
   getFromAddress,
-  getSmtpConfigForAdmin,
+  getSmtpEnvStatus,
   finalizeSmtpTransport,
   getSmtpTransport,
-  saveSmtpConfig,
 } from '../lib/smtp-config.js';
 import { loadAllEventSettings } from '../lib/notification-recipients.js';
 import {
@@ -236,7 +235,7 @@ router.post('/events/:eventKey/templates/email/test', async (req, res) => {
 
     const smtp = await getSmtpTransport(pool);
     if (!smtp) {
-      return res.status(400).json({ error: 'SMTP not configured — set up in Admin → Notifications' });
+      return res.status(400).json({ error: 'SMTP not configured — set SMTP_* in Backend/.env on the API host' });
     }
 
     const from = await getFromAddress(pool);
@@ -438,38 +437,8 @@ router.delete('/recipients/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-router.get('/smtp', async (_req, res) => {
-  const cfg = await getSmtpConfigForAdmin(pool);
-  res.json(cfg);
-});
-
-router.put('/smtp', async (req, res) => {
-  const body = req.body || {};
-  await saveSmtpConfig(
-    pool,
-    {
-      host: body.host,
-      port: body.port,
-      secure: body.secure,
-      user: body.user,
-      password: body.password,
-      fromAddress: body.fromAddress,
-      rejectUnauthorized: body.rejectUnauthorized,
-      enabled: body.enabled,
-    },
-    req.userId ?? null
-  );
-  const host = body.host != null ? String(body.host).trim() : '';
-  const port = body.port != null ? Number(body.port) : 465;
-  writeActivityLog({
-    pageKey: ACTIVITY_PAGE_KEY,
-    action: 'update',
-    entityType: 'SmtpConfig',
-    entityId: '1',
-    summary: `Updated SMTP configuration (host: ${host || '—'}, port: ${port})`,
-    actorUserId: req.userId ?? null,
-  }).catch(() => {});
-  res.json(await getSmtpConfigForAdmin(pool));
+router.get('/smtp/status', async (_req, res) => {
+  res.json(getSmtpEnvStatus());
 });
 
 router.post('/smtp/test', async (req, res) => {
@@ -484,7 +453,7 @@ router.post('/smtp/test', async (req, res) => {
   }
   const smtp = await getSmtpTransport(pool);
   if (!smtp) {
-    return res.status(400).json({ error: 'SMTP not configured — set up in Admin → Notifications' });
+    return res.status(400).json({ error: 'SMTP not configured — set SMTP_* in Backend/.env on the API host' });
   }
   const from = await getFromAddress(pool);
   const subject = 'Jetty Planning System — SMTP test';

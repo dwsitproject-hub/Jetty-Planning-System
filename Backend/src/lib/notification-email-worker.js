@@ -61,7 +61,7 @@ export async function processNotificationEmailQueueOnce(limit = 15) {
         `UPDATE notification_deliveries
          SET status = 'skipped', error_text = $2, updated_at = NOW()
          WHERE id = $1`,
-        [row.delivery_id, 'SMTP not configured — set up in Admin → Notifications']
+        [row.delivery_id, 'SMTP not configured — set SMTP_* in Backend/.env on the API host']
       );
       processed += 1;
       continue;
