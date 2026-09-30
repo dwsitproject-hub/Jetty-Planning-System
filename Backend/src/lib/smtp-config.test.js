@@ -11,6 +11,8 @@ import {
   getSmtpPostSendDelayMs,
   getSmtpRequireTls,
   invalidateSmtpTransportCache,
+  isSmtpForceEnv,
+  isSmtpHubParityMode,
 } from './smtp-config.js';
 import {
   formatOverdueDuration,
@@ -62,6 +64,21 @@ describe('smtp-config', () => {
     assert.equal(getSmtpRequireTls(587, false), true);
     assert.equal(getSmtpRequireTls(465, true), false);
     process.env.SMTP_REQUIRE_TLS = prev;
+  });
+
+  it('isSmtpForceEnv and isSmtpHubParityMode parse env flags', () => {
+    const f = process.env.SMTP_FORCE_ENV;
+    const h = process.env.SMTP_HUB_PARITY;
+    delete process.env.SMTP_FORCE_ENV;
+    delete process.env.SMTP_HUB_PARITY;
+    assert.equal(isSmtpForceEnv(), false);
+    assert.equal(isSmtpHubParityMode(), false);
+    process.env.SMTP_FORCE_ENV = 'true';
+    process.env.SMTP_HUB_PARITY = '1';
+    assert.equal(isSmtpForceEnv(), true);
+    assert.equal(isSmtpHubParityMode(), true);
+    process.env.SMTP_FORCE_ENV = f;
+    process.env.SMTP_HUB_PARITY = h;
   });
 
   it('getSmtpPostSendDelayMs clamps and parses env', () => {

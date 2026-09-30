@@ -50,6 +50,16 @@ export function getSmtpRequireTls(port, secure) {
   return parseEnvBoolean(process.env.SMTP_REQUIRE_TLS, false);
 }
 
+/** When true, use env SMTP even if database smtp_config is enabled (staging parity tests). */
+export function isSmtpForceEnv() {
+  return parseEnvBoolean(process.env.SMTP_FORCE_ENV, false);
+}
+
+/** Downstream Hub–style nodemailer transport (no requireTLS/timeouts/forced close). */
+export function isSmtpHubParityMode() {
+  return parseEnvBoolean(process.env.SMTP_HUB_PARITY, false);
+}
+
 /** Pause after SMTP send before closing socket (ms). Env: SMTP_POST_SEND_DELAY_MS (max 30s). */
 export function getSmtpPostSendDelayMs() {
   const raw = process.env.SMTP_POST_SEND_DELAY_MS;
@@ -73,6 +83,10 @@ export async function smtpPostSendDelay() {
 
 /** Delay (if configured), close transport, clear cache — call after each sendMail. */
 export async function finalizeSmtpTransport(transport) {
+  if (isSmtpHubParityMode()) {
+    invalidateSmtpTransportCache();
+    return;
+  }
   await smtpPostSendDelay();
   invalidateSmtpTransportCache();
   if (transport && typeof transport.close === 'function') {
@@ -84,15 +98,27 @@ export async function finalizeSmtpTransport(transport) {
   }
 }
 
+function envFromAddress(user) {
+  return (
+    process.env.MAIL_FROM ||
+    process.env.EMAIL_FROM ||
+    process.env.SMTP_FROM ||
+    user ||
+    'jetty-planning@localhost'
+  );
+}
+
 function readEnvSmtp() {
   const host = process.env.SMTP_HOST;
   if (!host || !String(host).trim()) return null;
   const port = parseInt(process.env.SMTP_PORT || '587', 10);
-  const secure =
-    String(process.env.SMTP_SECURE || '').toLowerCase() === 'true' || port === 465;
+  const secureRaw = String(process.env.SMTP_SECURE || '').toLowerCase();
+  const secure = secureRaw === 'true' || secureRaw === '1' || port === 465;
   const user = process.env.SMTP_USER || '';
   const pass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD || '';
-  const rejectUnauthorized = String(process.env.SMTP_REJECT_UNAUTHORIZED ?? 'true').toLowerCase() !== 'false';
+  if (!user || !pass) return null;
+  const rejectUnauthorized =
+    process.env.SMTP_REJECT_UNAUTHORIZED !== 'false' && process.env.SMTP_REJECT_UNAUTHORIZED !== '0';
   return {
     source: 'environment',
     host: String(host).trim(),
@@ -100,7 +126,7 @@ function readEnvSmtp() {
     secure,
     user: user || null,
     pass: pass || null,
-    fromAddress: process.env.SMTP_FROM || user || 'jetty-planning@localhost',
+    fromAddress: envFromAddress(user),
     rejectUnauthorized,
     enabled: true,
   };
@@ -123,6 +149,10 @@ export async function loadSmtpConfigRow(db) {
  * @param {import('pg').Pool | import('pg').PoolClient} db
  */
 export async function getEffectiveSmtpConfig(db) {
+  const envFirst = readEnvSmtp();
+  if (isSmtpForceEnv() && envFirst) {
+    return envFirst;
+  }
   const row = await loadSmtpConfigRow(db);
   if (row?.enabled && row.host && String(row.host).trim()) {
     let pass = '';
@@ -148,8 +178,7 @@ export async function getEffectiveSmtpConfig(db) {
       updatedAt: row.updated_at,
     };
   }
-  const envCfg = readEnvSmtp();
-  if (envCfg) return envCfg;
+  if (envFirst) return envFirst;
   return { source: 'none', enabled: false };
 }
 
@@ -180,8 +209,9 @@ function transportCacheKey(cfg) {
   if (!cfg?.host) return '';
   const port = Number(cfg.port) || 587;
   const secure = Boolean(cfg.secure) || port === 465;
-  const requireTLS = getSmtpRequireTls(port, secure);
-  return [cfg.host, cfg.port, cfg.secure, requireTLS, cfg.user, cfg.pass, cfg.rejectUnauthorized].join('|');
+  const hub = isSmtpHubParityMode();
+  const requireTLS = hub ? false : getSmtpRequireTls(port, secure);
+  return [hub ? 'hub' : 'jps', cfg.host, cfg.port, cfg.secure, requireTLS, cfg.user, cfg.pass, cfg.rejectUnauthorized].join('|');
 }
 
 export function invalidateSmtpTransportCache() {
@@ -198,19 +228,27 @@ export function buildNodemailerTransport(cfg) {
   if (cachedTransport && cachedTransportKey === key) return cachedTransport;
   const port = Number(cfg.port) || 587;
   const secure = Boolean(cfg.secure) || port === 465;
-  const requireTLS = getSmtpRequireTls(port, secure);
-  const transport = nodemailer.createTransport({
+  const hubParity = isSmtpHubParityMode();
+  const requireTLS = hubParity ? false : getSmtpRequireTls(port, secure);
+  const base = {
     host: cfg.host,
     port,
     secure,
-    requireTLS,
     auth: cfg.user ? { user: cfg.user, pass: cfg.pass || '' } : undefined,
     tls: { rejectUnauthorized: cfg.rejectUnauthorized !== false },
-    pool: false,
-    connectionTimeout: 20_000,
-    greetingTimeout: 15_000,
-    socketTimeout: 25_000,
-  });
+  };
+  const transport = nodemailer.createTransport(
+    hubParity
+      ? base
+      : {
+          ...base,
+          requireTLS,
+          pool: false,
+          connectionTimeout: 20_000,
+          greetingTimeout: 15_000,
+          socketTimeout: 25_000,
+        }
+  );
   cachedTransport = transport;
   cachedTransportKey = key;
   return transport;

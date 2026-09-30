@@ -48,9 +48,13 @@ services:
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
       SMTP_REJECT_UNAUTHORIZED: ${SMTP_REJECT_UNAUTHORIZED:-}
       SMTP_REQUIRE_TLS: ${SMTP_REQUIRE_TLS:-}
       SMTP_POST_SEND_DELAY_MS: ${SMTP_POST_SEND_DELAY_MS:-}
+      SMTP_FORCE_ENV: ${SMTP_FORCE_ENV:-}
+      SMTP_HUB_PARITY: ${SMTP_HUB_PARITY:-}
     volumes:
       # Omit UPLOAD_HOST_PATH for local Docker (uses named volume jps_uploads).
       # Staging/production: set UPLOAD_HOST_PATH to the NAS mount on the host.
