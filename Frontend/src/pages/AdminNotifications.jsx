@@ -11,8 +11,7 @@ import {
   saveEventEmailTemplate,
   resetEventEmailTemplate,
   sendEventEmailTemplateTest,
-  fetchSmtpConfig,
-  saveSmtpConfig,
+  fetchSmtpStatus,
   sendSmtpTestEmail,
 } from '../api/notificationAdmin'
 import { fetchUsers } from '../api/usersApi'
@@ -28,7 +27,7 @@ const ADMIN_EVENT_DISPLAY_ORDER = [...WORKFLOW_EVENTS, ...SLA_EVENTS]
 const COLLAPSE_STORAGE_KEY = 'jps_admin_notifications_collapsed'
 
 function defaultCollapsedState() {
-  const out = { smtp: false }
+  const out = {}
   for (const ek of ADMIN_EVENT_DISPLAY_ORDER) {
     out[ek] = !(ek === 'shipment_plan.submitted')
   }
@@ -118,14 +117,6 @@ function renderTemplatePreview(template, vars) {
     const val = v[k]
     return val == null ? '' : String(val)
   })
-}
-
-function smtpStatusLabel(cfg, t) {
-  if (!cfg) return t('notifAdminSmtpNotConfigured')
-  if (cfg.enabled && cfg.passwordConfigured) return t('notifAdminSmtpDatabase')
-  if (cfg.source === 'environment') return t('notifAdminSmtpEnvironment')
-  if (cfg.enabled) return t('notifAdminSmtpPartial')
-  return t('notifAdminSmtpNotConfigured')
 }
 
 function EventCard({
@@ -491,18 +482,7 @@ export default function AdminNotifications() {
   const [users, setUsers] = useState([])
   const [roles, setRoles] = useState([])
   const [ports, setPorts] = useState([])
-  const [smtp, setSmtp] = useState(null)
-  const [smtpForm, setSmtpForm] = useState({
-    host: '',
-    port: 465,
-    secure: true,
-    user: '',
-    password: '',
-    fromAddress: '',
-    rejectUnauthorized: true,
-    enabled: false,
-  })
-  const [smtpSaving, setSmtpSaving] = useState(false)
+  const [smtpStatus, setSmtpStatus] = useState(null)
   const [smtpTesting, setSmtpTesting] = useState(false)
   const [toast, setToast] = useState(null)
   const [collapsed, setCollapsed] = useState(() => readCollapsedState())
@@ -519,28 +499,18 @@ export default function AdminNotifications() {
     setErr(null)
     setLoading(true)
     try {
-      const [ev, u, ro, po, sm] = await Promise.all([
+      const [ev, u, ro, po, smStatus] = await Promise.all([
         fetchNotificationEvents(),
         fetchUsers(),
         fetchRoles(),
         fetchPorts(),
-        fetchSmtpConfig(),
+        fetchSmtpStatus(),
       ])
       setEvents(orderEvents(Array.isArray(ev) ? ev : []))
       setUsers(Array.isArray(u) ? u : [])
       setRoles(Array.isArray(ro) ? ro : [])
       setPorts(Array.isArray(po) ? po : [])
-      setSmtp(sm)
-      setSmtpForm({
-        host: sm?.host || '',
-        port: sm?.port ?? 465,
-        secure: sm?.secure !== false,
-        user: sm?.user || '',
-        password: '',
-        fromAddress: sm?.fromAddress || sm?.user || '',
-        rejectUnauthorized: sm?.rejectUnauthorized !== false,
-        enabled: Boolean(sm?.enabled),
-      })
+      setSmtpStatus(smStatus)
       const [recPairs, tplPairs] = await Promise.all([
         Promise.all(
           ADMIN_EVENT_DISPLAY_ORDER.map(async (ek) => [ek, await fetchEventRecipients(ek)])
@@ -567,29 +537,6 @@ export default function AdminNotifications() {
     const timer = window.setTimeout(() => setToast(null), 4000)
     return () => window.clearTimeout(timer)
   }, [toast])
-
-  const saveSmtp = async () => {
-    setSmtpSaving(true)
-    try {
-      const saved = await saveSmtpConfig({
-        host: smtpForm.host,
-        port: Number(smtpForm.port),
-        secure: smtpForm.secure,
-        user: smtpForm.user,
-        password: smtpForm.password || undefined,
-        fromAddress: smtpForm.fromAddress || smtpForm.user,
-        rejectUnauthorized: smtpForm.rejectUnauthorized,
-        enabled: smtpForm.enabled,
-      })
-      setSmtp(saved)
-      setSmtpForm((f) => ({ ...f, password: '' }))
-      setToast({ kind: 'success', text: t('notifAdminSmtpSaved') })
-    } catch (e) {
-      setToast({ kind: 'error', text: e?.message || 'Save failed' })
-    } finally {
-      setSmtpSaving(false)
-    }
-  }
 
   const testSmtp = async () => {
     setSmtpTesting(true)
@@ -622,109 +569,35 @@ export default function AdminNotifications() {
           <h1 className="page-title">{t('adminHubNotificationsTitle')}</h1>
           <p className="allocation-page__intro">{t('adminHubNotificationsDesc')}</p>
         </div>
-        <Link to="/admin/notifications/email-log" className="btn btn--secondary">
-          {t('notifAdminViewEmailLog')}
-        </Link>
+        <div className="admin-notifications__header-actions">
+          <button
+            type="button"
+            className="btn btn--secondary btn--sm"
+            disabled={smtpTesting || !smtpStatus?.configured}
+            onClick={testSmtp}
+          >
+            {smtpTesting ? t('notifAdminTesting') : t('notifAdminSendTest')}
+          </button>
+          <Link to="/admin/notifications/email-log" className="btn btn--secondary btn--sm">
+            {t('notifAdminViewEmailLog')}
+          </Link>
+        </div>
       </div>
 
       {toast && (
         <p className={`admin-notifications__toast admin-notifications__toast--${toast.kind}`}>{toast.text}</p>
       )}
       {err && <p className="admin-notifications__err">{err}</p>}
+      {!loading && smtpStatus && !smtpStatus.configured && (
+        <p className="admin-notifications__warn">{t('notifAdminSmtpEnvMissing')}</p>
+      )}
+      {!loading && smtpStatus?.configured && (
+        <p className="admin-notifications__env-hint">{t('notifAdminSmtpEnvHint')}</p>
+      )}
       {loading ? (
         <p>{t('notifAdminLoading')}</p>
       ) : (
         <>
-          <CollapsiblePanel
-            panelId="admin-notif-smtp"
-            title={t('notifAdminSmtpTitle')}
-            summary={<span className="admin-notifications__badge">{smtpStatusLabel(smtp, t)}</span>}
-            expanded={!collapsed.smtp}
-            onToggle={() => toggleCollapsed('smtp')}
-            t={t}
-          >
-            <label className="admin-notifications__toggle">
-              <input
-                type="checkbox"
-                checked={smtpForm.enabled}
-                onChange={(e) => setSmtpForm((f) => ({ ...f, enabled: e.target.checked }))}
-              />
-              {t('notifAdminSmtpEnableDb')}
-            </label>
-            <div className="admin-notifications__grid">
-              <label className="admin-notifications__field">
-                <span>{t('notifAdminSmtpHost')}</span>
-                <input
-                  value={smtpForm.host}
-                  onChange={(e) => setSmtpForm((f) => ({ ...f, host: e.target.value }))}
-                  placeholder="mail.example.com"
-                />
-              </label>
-              <label className="admin-notifications__field">
-                <span>{t('notifAdminSmtpPort')}</span>
-                <input
-                  type="number"
-                  value={smtpForm.port}
-                  onChange={(e) => {
-                    const port = Number(e.target.value)
-                    setSmtpForm((f) => ({
-                      ...f,
-                      port: e.target.value,
-                      secure: port === 465 ? true : f.secure,
-                    }))
-                  }}
-                />
-              </label>
-              <label className="admin-notifications__field">
-                <span>{t('notifAdminSmtpUser')}</span>
-                <input
-                  value={smtpForm.user}
-                  onChange={(e) => setSmtpForm((f) => ({ ...f, user: e.target.value }))}
-                />
-              </label>
-              <label className="admin-notifications__field">
-                <span>{t('notifAdminSmtpPassword')}</span>
-                <input
-                  type="password"
-                  value={smtpForm.password}
-                  placeholder={smtp?.passwordConfigured ? t('notifAdminSmtpPasswordKeep') : ''}
-                  onChange={(e) => setSmtpForm((f) => ({ ...f, password: e.target.value }))}
-                />
-              </label>
-              <label className="admin-notifications__field">
-                <span>{t('notifAdminSmtpFrom')}</span>
-                <input
-                  value={smtpForm.fromAddress}
-                  onChange={(e) => setSmtpForm((f) => ({ ...f, fromAddress: e.target.value }))}
-                />
-              </label>
-            </div>
-            <label className="admin-notifications__toggle">
-              <input
-                type="checkbox"
-                checked={smtpForm.secure}
-                onChange={(e) => setSmtpForm((f) => ({ ...f, secure: e.target.checked }))}
-              />
-              {t('notifAdminSmtpSsl')}
-            </label>
-            <label className="admin-notifications__toggle">
-              <input
-                type="checkbox"
-                checked={smtpForm.rejectUnauthorized}
-                onChange={(e) => setSmtpForm((f) => ({ ...f, rejectUnauthorized: e.target.checked }))}
-              />
-              {t('notifAdminSmtpRejectUnauthorized')}
-            </label>
-            <div className="admin-notifications__actions">
-              <button type="button" className="btn btn--primary" disabled={smtpSaving} onClick={saveSmtp}>
-                {smtpSaving ? t('notifAdminSaving') : t('notifAdminSave')}
-              </button>
-              <button type="button" className="btn btn--secondary" disabled={smtpTesting} onClick={testSmtp}>
-                {smtpTesting ? t('notifAdminTesting') : t('notifAdminSendTest')}
-              </button>
-            </div>
-          </CollapsiblePanel>
-
           {events.map((event) => (
             <CollapsiblePanel
               key={event.eventKey}

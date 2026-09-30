@@ -11,8 +11,8 @@ import {
   getSmtpPostSendDelayMs,
   getSmtpRequireTls,
   invalidateSmtpTransportCache,
-  isSmtpForceEnv,
   isSmtpHubParityMode,
+  getSmtpEnvStatus,
 } from './smtp-config.js';
 import {
   formatOverdueDuration,
@@ -66,19 +66,20 @@ describe('smtp-config', () => {
     process.env.SMTP_REQUIRE_TLS = prev;
   });
 
-  it('isSmtpForceEnv and isSmtpHubParityMode parse env flags', () => {
-    const f = process.env.SMTP_FORCE_ENV;
+  it('isSmtpHubParityMode parses env flag', () => {
     const h = process.env.SMTP_HUB_PARITY;
-    delete process.env.SMTP_FORCE_ENV;
     delete process.env.SMTP_HUB_PARITY;
-    assert.equal(isSmtpForceEnv(), false);
     assert.equal(isSmtpHubParityMode(), false);
-    process.env.SMTP_FORCE_ENV = 'true';
     process.env.SMTP_HUB_PARITY = '1';
-    assert.equal(isSmtpForceEnv(), true);
     assert.equal(isSmtpHubParityMode(), true);
-    process.env.SMTP_FORCE_ENV = f;
     process.env.SMTP_HUB_PARITY = h;
+  });
+
+  it('getSmtpEnvStatus reports unconfigured without SMTP_HOST', () => {
+    const host = process.env.SMTP_HOST;
+    delete process.env.SMTP_HOST;
+    assert.deepEqual(getSmtpEnvStatus(), { configured: false, source: 'none' });
+    process.env.SMTP_HOST = host;
   });
 
   it('getSmtpPostSendDelayMs clamps and parses env', () => {
