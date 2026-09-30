@@ -105,6 +105,15 @@ export default function AdminEmailDeliveryLog() {
     return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString()
   }
 
+  const copyMessageId = async (id) => {
+    if (!id) return
+    try {
+      await navigator.clipboard.writeText(String(id))
+    } catch {
+      /* ignore */
+    }
+  }
+
   return (
     <div className="allocation-page admin-email-log">
       <Link to="/admin/notifications" className="admin-notifications__back">
@@ -189,6 +198,7 @@ export default function AdminEmailDeliveryLog() {
                 <th>{t('emailLogColSubject')}</th>
                 <th>{t('emailLogColVessel')}</th>
                 <th>{t('emailLogColPort')}</th>
+                <th>{t('emailLogColMessageId')}</th>
                 <th>{t('emailLogColError')}</th>
               </tr>
             </thead>
@@ -212,6 +222,23 @@ export default function AdminEmailDeliveryLog() {
                     ) : null}
                   </td>
                   <td>{row.portName || '—'}</td>
+                  <td className="admin-email-log__message-id">
+                    {row.providerMessageId ? (
+                      <>
+                        <code title={row.providerMessageId}>{row.providerMessageId}</code>
+                        <button
+                          type="button"
+                          className="btn btn--ghost btn--xs admin-email-log__copy"
+                          title={t('emailLogCopyMessageId')}
+                          onClick={() => copyMessageId(row.providerMessageId)}
+                        >
+                          {t('emailLogCopyMessageId')}
+                        </button>
+                      </>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td className="admin-email-log__error" title={row.errorText || ''}>
                     {row.errorText ? row.errorText.slice(0, 80) : '—'}
                   </td>

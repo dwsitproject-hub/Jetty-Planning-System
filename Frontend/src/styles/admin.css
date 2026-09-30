@@ -914,6 +914,24 @@
   font-size: var(--font-size-xs);
 }
 
+.admin-email-log__message-id {
+  max-width: 14rem;
+  vertical-align: top;
+}
+
+.admin-email-log__message-id code {
+  display: block;
+  font-size: 0.72rem;
+  word-break: break-all;
+  line-height: 1.35;
+  margin-bottom: 0.25rem;
+}
+
+.admin-email-log__copy {
+  padding: 0.1rem 0.35rem;
+  font-size: 0.72rem;
+}
+
 .admin-email-log__error {
   max-width: 200px;
   word-break: break-word;

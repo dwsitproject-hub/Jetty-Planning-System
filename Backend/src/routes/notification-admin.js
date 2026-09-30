@@ -587,7 +587,8 @@ router.get('/deliveries', async (req, res) => {
   if (q) {
     params.push(`%${q}%`);
     sql += ` AND (u.email ILIKE $${paramIdx} OR u.username ILIKE $${paramIdx}
-      OR n.title ILIKE $${paramIdx} OR n.payload::text ILIKE $${paramIdx})`;
+      OR n.title ILIKE $${paramIdx} OR n.payload::text ILIKE $${paramIdx}
+      OR nd.provider_message_id ILIKE $${paramIdx})`;
     paramIdx += 1;
   }
 
