@@ -54,6 +54,7 @@
   min-width: 14rem;
   max-width: min(18rem, calc(100vw - 2rem));
   background: var(--color-bg-white);
+  color: var(--color-text-charcoal);
   border: 1px solid var(--color-border-medium);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
