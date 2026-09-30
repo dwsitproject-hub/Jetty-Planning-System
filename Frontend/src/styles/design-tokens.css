@@ -25,15 +25,15 @@
   --color-destructive: var(--color-brand-red);
   --color-destructive-foreground: var(--color-text-white);
 
-  /* Sea — sampled from the login aerial photo for app chrome */
-  --color-sea-deep: #0c3d5c;
-  --color-sea-mid: #165a82;
-  --color-sea-light: #1a6a93;
+  /* Sea — lighter open-water blues for app chrome (no photo) */
+  --color-sea-deep: #2478a3;
+  --color-sea-mid: #2d86b3;
+  --color-sea-light: #3a8eb8;
   --color-sea-ink: #ffffff;
-  --color-sea-ink-muted: rgba(255, 255, 255, 0.72);
-  --color-sea-glass: rgba(255, 255, 255, 0.14);
-  --color-sea-glass-hover: rgba(255, 255, 255, 0.22);
-  --color-sea-glass-border: rgba(255, 255, 255, 0.32);
+  --color-sea-ink-muted: rgba(255, 255, 255, 0.82);
+  --color-sea-glass: rgba(255, 255, 255, 0.18);
+  --color-sea-glass-hover: rgba(255, 255, 255, 0.28);
+  --color-sea-glass-border: rgba(255, 255, 255, 0.38);
 
   /* ETC breach / SLA overdue */
   --color-etc-breach: #C43A31;
