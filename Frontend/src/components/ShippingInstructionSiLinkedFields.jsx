@@ -443,7 +443,7 @@ export default function ShippingInstructionSiLinkedFields({
               <tfoot>
                 <tr>
                   <td colSpan={3} className="shipping-instruction-total-label">
-                    {t('formTotalsByUnit')}
+                    {compact ? t('formGrandTotal') : t('formTotalsByUnit')}
                   </td>
                   <td colSpan={5} className="shipping-instruction-total-value">
                     {Object.keys(breakdownTotalsByMetric).length === 0
@@ -544,19 +544,40 @@ export default function ShippingInstructionSiLinkedFields({
         )}
 
         <div className="shipping-instruction-form__section">
-          <h3 className="shipping-instruction-form__section-title">{t('formNoteSection')}</h3>
-          <div className="input-group">
-            <label htmlFor={`${idPrefix}note`}>{t('formNoteLabel')}</label>
-            <textarea
-              id={`${idPrefix}note`}
-              className="shipping-instruction-inline-input"
-              style={{ minHeight: 96, resize: 'vertical' }}
-              value={form.note}
-              onChange={(e) => updateForm({ note: e.target.value })}
-              maxLength={MAX_SI_NOTE_CHARS}
-              disabled={!lookups}
-            />
-          </div>
+          {compact ? (
+            <details className="shipment-plan-form__note" defaultOpen={Boolean(String(form.note || '').trim())}>
+              <summary>{t('formAddNote')}</summary>
+              <div className="input-group">
+                <textarea
+                  id={`${idPrefix}note`}
+                  className="shipping-instruction-inline-input"
+                  style={{ minHeight: 96, resize: 'vertical' }}
+                  value={form.note}
+                  onChange={(e) => updateForm({ note: e.target.value })}
+                  maxLength={MAX_SI_NOTE_CHARS}
+                  disabled={!lookups}
+                  aria-label={t('formNoteLabel')}
+                  placeholder={t('formNoteLabel')}
+                />
+              </div>
+            </details>
+          ) : (
+            <>
+              <h3 className="shipping-instruction-form__section-title">{t('formNoteSection')}</h3>
+              <div className="input-group">
+                <label htmlFor={`${idPrefix}note`}>{t('formNoteLabel')}</label>
+                <textarea
+                  id={`${idPrefix}note`}
+                  className="shipping-instruction-inline-input"
+                  style={{ minHeight: 96, resize: 'vertical' }}
+                  value={form.note}
+                  onChange={(e) => updateForm({ note: e.target.value })}
+                  maxLength={MAX_SI_NOTE_CHARS}
+                  disabled={!lookups}
+                />
+              </div>
+            </>
+          )}
         </div>
       </fieldset>
     </>
