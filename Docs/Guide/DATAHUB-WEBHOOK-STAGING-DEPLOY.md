@@ -202,7 +202,7 @@ Use **Admin → DataHub** (not `.env`) to turn inbound webhooks and **auto-apply
 | **Off** (default) | Staged run → **Master → Vessel / Term / Commodity** → **Resume review** → Apply |
 | **On** | Hub change writes to the matching master immediately |
 
-After deploy on API **`.57`**, run migrations **123** and **124** (`entity_type` on sync runs; hub columns on SI masters).
+After deploy on API **`.57`**, run migrations **123**, **124**, **125**, and **126** (`entity_type` on sync runs; hub columns on SI masters; term `long_name`; drop `vessel_id` FK on sync items for Term/Commodity staging).
 
 Manual pull (no webhook): **Master – Term** or **Master – Commodity** → **Sync from DataHub** → review → apply.
 

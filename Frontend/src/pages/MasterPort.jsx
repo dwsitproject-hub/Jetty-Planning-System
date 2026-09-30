@@ -8,6 +8,7 @@ import '../styles/modal.css'
 import { MAX_MASTER_DESCRIPTION_CHARS, MAX_MASTER_PORT_NAME_CHARS } from '../constants/inputLimits'
 import { DEFAULT_SCHEDULE_TIMEZONE } from '../utils/scheduleDateTime.js'
 import { getIanaTimeZoneOptions, mergeTimezoneOptionsWithOrphan } from '../utils/ianaTimeZoneOptions.js'
+import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import SearchableSingleSelect from '../components/SearchableSingleSelect.jsx'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
@@ -214,7 +215,10 @@ export default function MasterPort() {
 
   return (
     <div className="allocation-page">
-      <h1 className="page-title">Master – Port</h1>
+      <h1 className="page-title page-title-row">
+        Master – Port
+        <MasterSourceBadge kind="local" />
+      </h1>
       <p className="allocation-page__intro">
         Add and manage master port / site data.
       </p>

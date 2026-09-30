@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { fetchTankGaugingLatest } from '../api/tankGauging'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
 import TankGaugingSourcesModal from '../components/TankGaugingSourcesModal.jsx'
+import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import MasterWorkingPortBar from '../components/MasterWorkingPortBar.jsx'
 import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext.jsx'
@@ -175,7 +176,10 @@ export default function TankFarm() {
 
   return (
     <div className="allocation-page" data-page-key={PAGE_KEY}>
-      <h1 className="page-title">{t('tankFarmTitle')}</h1>
+      <h1 className="page-title page-title-row">
+        {t('tankFarmTitle')}
+        <MasterSourceBadge kind="tankvision" />
+      </h1>
       <p className="allocation-page__intro">{t('tankFarmDesc')}</p>
       <p className="text-steel">
         <Link to="/master" className="link">← Back to Master Menu</Link>

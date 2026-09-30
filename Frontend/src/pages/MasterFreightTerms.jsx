@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import '../styles/allocation.css'
+import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 
@@ -44,7 +45,10 @@ export default function MasterFreightTerms() {
 
   return (
     <div className="allocation-page">
-      <h1 className="page-title">Master – Freight Terms</h1>
+      <h1 className="page-title page-title-row">
+        Master – Freight Terms
+        <MasterSourceBadge kind="local" />
+      </h1>
       <p className="allocation-page__intro">
         Freight terms are currently fixed in the backend (validation/check constraint).
       </p>

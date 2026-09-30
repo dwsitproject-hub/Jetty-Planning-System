@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { fetchJetties } from '../api/jetties'
 import { fetchJettyLayout, saveJettyLayout } from '../api/jettyLayout'
 import { usePortScope } from '../context/PortScopeContext'
+import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import MasterWorkingPortBar from '../components/MasterWorkingPortBar.jsx'
 import { formatMasterCreatedLine, formatMasterLastUpdatedLine } from '../utils/formatMasterAudit.js'
 import '../styles/allocation.css'
@@ -160,7 +161,10 @@ export default function MasterJettyLayout() {
           </button>
         </div>
       )}
-      <h1 className="page-title">Master – Jetty Layout</h1>
+      <h1 className="page-title page-title-row">
+        Master – Jetty Layout
+        <MasterSourceBadge kind="local" />
+      </h1>
       <p className="allocation-page__intro">
         Define how jetties are arranged in the Jetty Schematic for each port. Each column has a top slot, middle block, and bottom slot.
       </p>

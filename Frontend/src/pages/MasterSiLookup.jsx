@@ -9,6 +9,7 @@ import { fetchSiLookups } from '../api/siLookups'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import { MAX_MASTER_LONG_NAME_CHARS } from '../constants/inputLimits'
+import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 import {
@@ -17,6 +18,7 @@ import {
   MASTER_AUDIT_COLUMNS,
 } from '../utils/formatMasterAudit.js'
 import DataHubSyncReviewModal from '../components/DataHubSyncReviewModal.jsx'
+import AppToast from '../components/AppToast.jsx'
 import { createSiDataHubSyncApi, DATAHUB_SI_ENTITY_META } from '../api/datahubSiMaster.js'
 
 const RATE_METRIC_OPTIONS = [
@@ -325,7 +327,7 @@ export default function MasterSiLookup({
 
   useEffect(() => {
     if (!toast?.message) return undefined
-    const t = setTimeout(() => setToast(null), 3500)
+    const t = setTimeout(() => setToast(null), 5500)
     return () => clearTimeout(t)
   }, [toast])
 
@@ -572,7 +574,10 @@ export default function MasterSiLookup({
 
   return (
     <div className="allocation-page">
-      <h1 className="page-title">{title}</h1>
+      <h1 className="page-title page-title-row">
+        {title}
+        <MasterSourceBadge kind={isDataHubMaster ? 'datahub' : 'local'} />
+      </h1>
       {enableStandardRateFields ? (
         <p className="master-rates-chip" role="status">
           {selectedPort?.name
@@ -588,20 +593,7 @@ export default function MasterSiLookup({
           {error}
         </p>
       )}
-      {toast?.message && (
-        <div
-          className={`toast ${toast.variant === 'error' ? 'toast--warning' : 'toast--success'}`}
-          role={toast.variant === 'error' ? 'alert' : 'status'}
-          aria-live={toast.variant === 'error' ? 'assertive' : 'polite'}
-          aria-atomic="true"
-        >
-          <span className="toast__icon" aria-hidden>{toast.variant === 'error' ? '!' : '✓'}</span>
-          <p className="toast__message">{toast.message}</p>
-          <button type="button" className="toast__close" onClick={() => setToast(null)} aria-label="Dismiss notification">
-            ×
-          </button>
-        </div>
-      )}
+      {toast?.message && <AppToast toast={toast} onDismiss={() => setToast(null)} />}
 
       <section className="card at-berth-list-section">
         <div className="card__header-row">
@@ -675,7 +667,11 @@ export default function MasterSiLookup({
                       </td>
                     )}
                     <td>{it.value ?? '—'}</td>
-                    {isDataHubMaster && <td className="text-steel">{it.hubCode || '—'}</td>}
+                    {isDataHubMaster && (
+                      <td className="text-steel">
+                        {it.hubCode ? it.hubCode : <MasterSourceBadge kind="local" />}
+                      </td>
+                    )}
                     {hasLongName && (
                       <td className="text-steel">{it.longName || '—'}</td>
                     )}

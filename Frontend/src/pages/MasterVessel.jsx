@@ -12,6 +12,8 @@ import {
   discardSyncRun,
 } from '../api/masterVessels'
 import DataHubSyncReviewModal from '../components/DataHubSyncReviewModal.jsx'
+import AppToast from '../components/AppToast.jsx'
+import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import { useActivityLog } from '../context/ActivityLogContext'
 import { useRbac } from '../context/RbacContext'
 import '../styles/allocation.css'
@@ -270,9 +272,17 @@ export default function MasterVessel() {
     setError(null)
     setSyncError(null)
     try {
-      const { run } = await startSyncRun()
+      const resp = await startSyncRun()
       await loadLatestRun()
-      await openReview(run.id)
+      if (resp?.noChanges) {
+        setToast({
+          message: 'DataHub matches JPS — nothing new or changed to review.',
+          variant: 'success',
+        })
+        return
+      }
+      const run = resp?.run
+      if (run?.id) await openReview(run.id)
     } catch (e) {
       setError(e?.message || 'DataHub sync failed')
     } finally {
@@ -343,7 +353,10 @@ export default function MasterVessel() {
 
   return (
     <div className="allocation-page">
-      <h1 className="page-title">Master – Vessel</h1>
+      <h1 className="page-title page-title-row">
+        Master – Vessel
+        <MasterSourceBadge kind="datahub" />
+      </h1>
       <p className="allocation-page__intro">
         Vessel master held in JPS as a reviewed copy of the DataHub records. A sync stages the hub
         data for review; nothing changes here until you apply it.
@@ -357,22 +370,7 @@ export default function MasterVessel() {
         </p>
       )}
 
-      {toast && (
-        <p
-          className="allocation-page__intro"
-          style={{
-            color:
-              toast.variant === 'success'
-                ? 'var(--color-success, #0a7)'
-                : toast.variant === 'warning'
-                  ? 'var(--color-warning, #b8860b)'
-                  : 'var(--color-danger, #c00)',
-          }}
-          role="status"
-        >
-          {toast.message}
-        </p>
-      )}
+      {toast && <AppToast toast={toast} onDismiss={() => setToast(null)} />}
 
       {stagedRun && !review && (
         <p className="allocation-page__intro">
@@ -443,7 +441,9 @@ export default function MasterVessel() {
                 {pagedVessels.map((v) => (
                   <tr key={v.id} className="allocation-table__row">
                     <td><strong>{v.vesselName || '—'}</strong></td>
-                    <td className="text-steel">{v.hubCode || '—'}</td>
+                    <td className="text-steel">
+                      {v.hubCode ? v.hubCode : <MasterSourceBadge kind="local" />}
+                    </td>
                     <td className="text-steel">{v.vesselType || '—'}</td>
                     <td className="text-steel">{v.vesselImo || '—'}</td>
                     <td className="text-steel">{v.vesselMmsi || '—'}</td>
