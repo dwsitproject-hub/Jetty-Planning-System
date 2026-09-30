@@ -8,7 +8,7 @@ import { useRbac } from '../context/RbacContext'
 import GuestBrandedShell from '../components/GuestBrandedShell'
 import { useTranslation } from 'react-i18next'
 import { MAX_LOGIN_IDENTIFIER_CHARS, MAX_LOGIN_PASSWORD_CHARS } from '../constants/inputLimits'
-import { firstAllowedNavPath } from '../utils/firstAllowedNavPath'
+import { safeReturnPath } from '../utils/firstAllowedNavPath'
 
 export default function Login() {
   const { t } = useTranslation('auth')
@@ -61,7 +61,7 @@ export default function Login() {
       // Session cookie is set; force fetch so landing path does not wait on React `me` state.
       const pagePerms = await refreshRbac({ force: true })
       const canViewPage = (pageKey) => pagePerms[pageKey]?.canView === true
-      const landing = firstAllowedNavPath(canViewPage) || '/'
+      const landing = safeReturnPath(searchParams.get('returnTo'), canViewPage)
       let goSelectPort = false
       try {
         const portsData = await fetchMyPorts()
@@ -73,7 +73,13 @@ export default function Login() {
       } catch {
         goSelectPort = false
       }
-      navigate(goSelectPort ? '/select-port' : landing)
+      if (goSelectPort) {
+        const params = new URLSearchParams()
+        if (landing && landing !== '/') params.set('returnTo', landing)
+        navigate(params.toString() ? `/select-port?${params.toString()}` : '/select-port')
+      } else {
+        navigate(landing)
+      }
     } catch (err) {
       const msg =
         err instanceof ApiError && err.status === 401

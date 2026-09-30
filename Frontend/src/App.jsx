@@ -4,7 +4,7 @@ import { LoadingProvider } from './context/LoadingContext'
 import { ClearanceProvider } from './context/ClearanceContext'
 import { ActivityLogProvider } from './context/ActivityLogContext'
 import { RbacProvider } from './context/RbacContext'
-import { AuthProvider } from './context/AuthContext'
+import { AuthProvider, useAuth } from './context/AuthContext'
 import { PortScopeProvider } from './context/PortScopeContext'
 import { FilePreviewProvider } from './context/FilePreviewContext'
 import Login from './pages/Login'
@@ -57,6 +57,7 @@ import { isEmbedMode, isPipelineEmbedPath } from './utils/embedMode'
 
 function AppShell() {
   const location = useLocation()
+  const { me, loading: authLoading } = useAuth()
   const isSiView = /^\/shipping-instruction\/view\/[^/]+$/.test(location.pathname)
   const isVizPopout = /^\/allocation\/visualization\/[^/]+$/.test(location.pathname)
   const isOperator = location.pathname.startsWith('/operator')
@@ -64,6 +65,15 @@ function AppShell() {
   const isChromelessEmbed =
     isEmbed &&
     ((isSiView || isVizPopout || isPipelineEmbedPath(location.pathname)))
+
+  if (!authLoading && !me) {
+    const returnTo = `${location.pathname}${location.search || ''}`
+    const params = new URLSearchParams()
+    if (returnTo && returnTo !== '/') params.set('returnTo', returnTo)
+    const loginTo = params.toString() ? `/login?${params.toString()}` : '/login'
+    return <Navigate to={loginTo} replace />
+  }
+
   if (isChromelessEmbed) {
     return <Outlet />
   }

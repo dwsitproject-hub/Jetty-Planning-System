@@ -162,12 +162,6 @@ export default function Layout({ children }) {
   return (
     <div className="app">
       <header className="topbar">
-        <img
-          className="topbar__photo"
-          src="/aerial-vessel-bg.jpg"
-          alt=""
-        />
-        <div className="topbar__scrim" aria-hidden />
         <button
           type="button"
           className="topbar__nav-toggle"
@@ -195,11 +189,6 @@ export default function Layout({ children }) {
           {me && <NotificationBell />}
           <LanguageSwitch />
           {me && <UserMenu me={me} onLogout={handleLogout} />}
-          {!me && (
-            <NavLink to="/login" className="btn btn--secondary btn--small">
-              {tCommon('login')}
-            </NavLink>
-          )}
         </div>
       </header>
 
@@ -279,12 +268,8 @@ export default function Layout({ children }) {
               <p className="text-steel">{tCommon('loading')}</p>
             </div>
           ) : !me ? (
-            <div className="card" style={{ maxWidth: '40rem' }}>
-              <h2 style={{ marginTop: 0 }}>{tCommon('login')}</h2>
-              <p className="text-steel">{tCommon('sessionRequired')}</p>
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                <NavLink to="/login" className="btn btn--secondary">{tCommon('login')}</NavLink>
-              </div>
+            <div className="card">
+              <p className="text-steel">{tCommon('loading')}</p>
             </div>
           ) : me && !portScopeBypassed && portScopeLoading ? (
             <div className="card">
