@@ -208,8 +208,8 @@ export default function AdminDataHub() {
                   <td className="text-steel">
                     {config?.webhookEnabled || config?.webhookEffectiveSource === 'environment'
                       ? config?.webhookAutoApplyEffective
-                        ? 'Auto-apply (Master Vessel updates immediately)'
-                        : 'Review first (Resume review on Master – Vessel)'
+                        ? 'Auto-apply (Vessel, Term, Commodity, Port — no review step)'
+                        : 'Review first (Resume review on the matching Master page)'
                       : '—'}
                   </td>
                 </tr>
@@ -226,6 +226,40 @@ export default function AdminDataHub() {
                 </tr>
               </tbody>
             </table>
+          </div>
+        )}
+        {Array.isArray(config?.recentWebhookReceipts) && config.recentWebhookReceipts.length > 0 && (
+          <div className="table-wrap" style={{ marginTop: '1rem' }}>
+            <h3 className="card__title" style={{ fontSize: '1rem', marginBottom: '0.5rem' }}>
+              Recent inbound webhook receipts
+            </h3>
+            <table className="data-table allocation-table">
+              <thead>
+                <tr>
+                  <th>Received</th>
+                  <th>Entity</th>
+                  <th>Hub code</th>
+                  <th>Status</th>
+                  <th>Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {config.recentWebhookReceipts.map((rec) => (
+                  <tr key={rec.deliveryId} className="allocation-table__row">
+                    <td className="text-steel">{formatWhen(rec.receivedAt)}</td>
+                    <td>{rec.entityType || '—'}</td>
+                    <td className="text-steel">{rec.hubCode || '—'}</td>
+                    <td>{rec.status || '—'}</td>
+                    <td className="text-steel">{rec.error || rec.event || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="text-steel" style={{ marginTop: '0.5rem', fontSize: '0.85em' }}>
+              If commodity edits in DHM never appear here, the DHM app is not delivering{' '}
+              <code>commodity</code> webhooks to{' '}
+              <code>{config?.webhookCallbackUrl || 'the callback URL'}</code>.
+            </p>
           </div>
         )}
       </section>
@@ -402,11 +436,12 @@ export default function AdminDataHub() {
               onChange={(e) => setWebhookAutoApply(e.target.checked)}
               disabled={saving || loading || !webhookEnabled}
             />
-            Auto-apply webhook vessel changes (skip manual review)
+            Auto-apply webhook master changes (Vessel, Term, Commodity, Port)
           </label>
           <p className="text-steel" style={{ marginTop: '0.5rem', fontSize: '0.85em' }}>
-            Set the options above, then save. Uncheck auto-apply to return to review-first
-            (Master – Vessel → Resume review). Default is review-first.
+            Set the options above, then save. Uncheck auto-apply to stage changes for manual review on
+            the relevant Master page. In the DHM portal, register webhooks for each entity you use
+            (at least <code>commodity</code> and <code>record.updated</code>).
           </p>
           <p className="text-steel" style={{ marginTop: '0.25rem', fontSize: '0.85em' }}>
             Webhook secret must match DHM. Saved settings here override optional server{' '}

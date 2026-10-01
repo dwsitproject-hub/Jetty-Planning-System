@@ -4,7 +4,13 @@
  */
 import crypto from 'crypto';
 import { normalizeHubRecord } from './datahub-client.js';
-import { getEffectiveWebhookConfig, getEffectiveWebhookAutoApply, updateDataHubWebhookHealth } from './datahub-config.js';
+import {
+  getEffectiveDataHubConfig,
+  getEffectiveWebhookConfig,
+  getEffectiveWebhookAutoApply,
+  updateDataHubWebhookHealth,
+} from './datahub-config.js';
+import { fetchHubRecords } from './datahub-master-sync-config.js';
 import { stageEntityFromHub, applyStagedEntitySyncRun } from './datahub-master-stage.js';
 
 const WEBHOOK_ENTITY_TYPES = new Set(['vessel', 'incoterm', 'commodity', 'port_master']);
@@ -81,6 +87,35 @@ function strHubCode(data) {
 }
 
 /**
+ * DHM webhook bodies sometimes omit fields that full /v1/sync includes (e.g. commodity `uom`).
+ * Staging from the payload alone then looks "unchanged" vs JPS. Re-read sync snapshot by hub code.
+ */
+export async function resolveWebhookHubRecords(db, entityType, payload, eventHeader) {
+  const parsed = hubRecordFromWebhookPayload(payload, eventHeader, entityType);
+  if (!parsed) return [];
+
+  if (entityType !== 'commodity') {
+    return [parsed];
+  }
+
+  const hubCode = parsed.hubCode;
+  if (!hubCode) return [parsed];
+
+  const cfg = await getEffectiveDataHubConfig(db);
+  if (!cfg?.enabled || !cfg.publicKey || !cfg.privateKey) {
+    return [parsed];
+  }
+
+  try {
+    const snapshot = await fetchHubRecords('commodity', cfg, db);
+    const fresh = snapshot.find((r) => r?.hubCode && String(r.hubCode) === String(hubCode));
+    return [fresh ?? parsed];
+  } catch {
+    return [parsed];
+  }
+}
+
+/**
  * @param {import('pg').Pool} db
  * @param {Buffer} rawBody
  * @param {Record<string, string|undefined>} headers
@@ -152,7 +187,8 @@ export async function processInboundWebhook(db, rawBody, headers) {
     return { status: 200, body: { status: 'ignored', reason: 'hub_tombstone_policy' } };
   }
 
-  const hubRecord = hubRecordFromWebhookPayload(payload, event, resolvedEntity);
+  const hubRecords = await resolveWebhookHubRecords(db, resolvedEntity, payload, event);
+  const hubRecord = hubRecords[0] ?? null;
   if (!hubRecord) {
     await insertReceipt('failed', null, 'missing master payload');
     await updateDataHubWebhookHealth(db, { ok: false, error: 'missing master payload' });
@@ -161,7 +197,7 @@ export async function processInboundWebhook(db, rawBody, headers) {
 
   try {
     const autoApply = await getEffectiveWebhookAutoApply(db);
-    const { runId, items } = await stageEntityFromHub(db, resolvedEntity, [hubRecord], {
+    const { runId, items } = await stageEntityFromHub(db, resolvedEntity, hubRecords, {
       source: 'webhook',
       webhookDeliveryId: deliveryId,
       preapproveChanges: autoApply,

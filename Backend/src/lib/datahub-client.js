@@ -237,7 +237,7 @@ export function normalizeHubCommodity(record) {
   if (!data) return null;
   const name = str(data.long_name ?? data.longName ?? data.name);
   if (!name) return null;
-  const uom = str(data.uom);
+  const uom = str(data.uom ?? data.UOM ?? data.unit ?? data.default_uom);
   const values = {
     name,
     hs_code: str(data.hs_code),

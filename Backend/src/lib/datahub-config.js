@@ -167,6 +167,26 @@ export async function getDataHubConfigForAdmin(db) {
   const envCfg = readEnvConfig();
   const effective = await getEffectiveDataHubConfig(db);
   const webhookEffective = await getEffectiveWebhookConfig(db);
+  let recentWebhookReceipts = [];
+  try {
+    const r = await db.query(
+      `SELECT delivery_id, event, entity_type, hub_code, status, error, received_at
+       FROM datahub_webhook_receipts
+       ORDER BY received_at DESC
+       LIMIT 15`
+    );
+    recentWebhookReceipts = r.rows.map((rec) => ({
+      deliveryId: rec.delivery_id,
+      event: rec.event,
+      entityType: rec.entity_type,
+      hubCode: rec.hub_code,
+      status: rec.status,
+      error: rec.error,
+      receivedAt: rec.received_at,
+    }));
+  } catch {
+    recentWebhookReceipts = [];
+  }
   return {
     baseUrl: row?.base_url || envCfg?.baseUrl || '',
     publicKey: row?.public_key || envCfg?.publicKey || '',
@@ -186,6 +206,7 @@ export async function getDataHubConfigForAdmin(db) {
     lastWebhookError: row?.last_webhook_error ?? null,
     webhookAutoApply: Boolean(row?.webhook_auto_apply),
     webhookAutoApplyEffective: await getEffectiveWebhookAutoApply(db),
+    recentWebhookReceipts,
   };
 }
 

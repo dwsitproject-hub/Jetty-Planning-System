@@ -9,6 +9,7 @@ import {
   verifyDhmWebhookSignature,
   parseDhmWebhookPayload,
   hubRecordFromWebhookPayload,
+  resolveWebhookHubRecords,
   signDhmWebhookBody,
   processInboundWebhook,
 } from './datahub-webhook.js';
@@ -59,6 +60,18 @@ describe('datahub-webhook', () => {
     const hub = hubRecordFromWebhookPayload(payload, 'record.updated', 'incoterm');
     assert.equal(hub.hubCode, 'INC-0002');
     assert.equal(hub.values.code, 'CIF');
+  });
+
+  it('resolveWebhookHubRecords passes through non-commodity payloads', async () => {
+    const payload = {
+      recordId: 'uuid-v',
+      version: 1,
+      data: { code: 'VSL-0001', Vessel_Name: 'TEST' },
+    };
+    const db = { query: async () => ({ rows: [] }) };
+    const rows = await resolveWebhookHubRecords(db, 'vessel', payload, 'record.updated');
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].hubCode, 'VSL-0001');
   });
 
   it('hubRecordFromWebhookPayload maps port_master data', () => {
