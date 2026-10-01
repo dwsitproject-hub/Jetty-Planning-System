@@ -281,7 +281,7 @@ export async function processInboundWebhook(db, rawBody, headers) {
     if (autoApply) {
       try {
         const stats = await applyStagedEntitySyncRun(db, runId, null);
-        await insertReceipt('applied', runId, null);
+        await insertReceipt('accepted', runId, 'applied');
         await updateDataHubWebhookHealth(db, { ok: true });
         return {
           status: 200,

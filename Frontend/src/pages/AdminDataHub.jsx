@@ -250,17 +250,18 @@ export default function AdminDataHub() {
                     <td>{rec.entityType || '—'}</td>
                     <td className="text-steel">{rec.hubCode || '—'}</td>
                     <td>
-                      {rec.status === 'applied'
+                      {rec.error === 'applied'
                         ? 'applied'
                         : rec.status === 'ignored'
                           ? 'ignored'
                           : rec.status || '—'}
                     </td>
                     <td className="text-steel">
-                      {rec.error ||
-                        (rec.status === 'accepted' ? 'staged for review' : null) ||
-                        rec.event ||
-                        '—'}
+                      {rec.error && rec.error !== 'applied'
+                        ? rec.error
+                        : rec.status === 'accepted' && rec.error !== 'applied'
+                          ? 'staged for review'
+                          : rec.event || '—'}
                     </td>
                   </tr>
                 ))}
