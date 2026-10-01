@@ -249,8 +249,19 @@ export default function AdminDataHub() {
                     <td className="text-steel">{formatWhen(rec.receivedAt)}</td>
                     <td>{rec.entityType || '—'}</td>
                     <td className="text-steel">{rec.hubCode || '—'}</td>
-                    <td>{rec.status || '—'}</td>
-                    <td className="text-steel">{rec.error || rec.event || '—'}</td>
+                    <td>
+                      {rec.status === 'applied'
+                        ? 'applied'
+                        : rec.status === 'ignored'
+                          ? 'ignored'
+                          : rec.status || '—'}
+                    </td>
+                    <td className="text-steel">
+                      {rec.error ||
+                        (rec.status === 'accepted' ? 'staged for review' : null) ||
+                        rec.event ||
+                        '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>

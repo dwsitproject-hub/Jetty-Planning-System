@@ -8,6 +8,8 @@
  * Canonical hub field names are required - DHM does not translate aliases.
  */
 
+import { extractHubCommodityUom } from './datahub-commodity-sync.js';
+
 const DEFAULT_TIMEOUT_MS = 10_000;
 /** DHM caps /v1/sync at 500 per page. */
 export const SYNC_PAGE_LIMIT = 500;
@@ -237,7 +239,7 @@ export function normalizeHubCommodity(record) {
   if (!data) return null;
   const name = str(data.long_name ?? data.longName ?? data.name);
   if (!name) return null;
-  const uom = str(data.uom ?? data.UOM ?? data.unit ?? data.default_uom);
+  const uom = extractHubCommodityUom(data);
   const values = {
     name,
     hs_code: str(data.hs_code),

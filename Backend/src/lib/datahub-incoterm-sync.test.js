@@ -1,7 +1,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildIncotermSyncPlan, diffIncotermFields } from './datahub-incoterm-sync.js';
-import { buildCommoditySyncPlan, deriveShortNameFromCommodityName, expandCommodityValues } from './datahub-commodity-sync.js';
+import {
+  buildCommoditySyncPlan,
+  deriveShortNameFromCommodityName,
+  expandCommodityValues,
+  extractHubCommodityUom,
+  normalizeCommodityUomCode,
+} from './datahub-commodity-sync.js';
 import { normalizeHubIncoterm, normalizeHubCommodity } from './datahub-client.js';
 
 describe('datahub-incoterm-sync', () => {
@@ -56,6 +62,17 @@ describe('datahub-incoterm-sync', () => {
 });
 
 describe('datahub-commodity-sync', () => {
+  it('normalizeCommodityUomCode maps Kl and kilolitre to KL', () => {
+    assert.equal(normalizeCommodityUomCode('Kl'), 'KL');
+    assert.equal(normalizeCommodityUomCode('kilolitre'), 'KL');
+    assert.equal(normalizeCommodityUomCode('MT'), 'MT');
+  });
+
+  it('extractHubCommodityUom reads unit_of_measure alias', () => {
+    assert.equal(extractHubCommodityUom({ unit_of_measure: 'Kl' }), 'KL');
+    assert.equal(extractHubCommodityUom({ unitOfMeasure: 'MT' }), 'MT');
+  });
+
   it('derives short name acronym', () => {
     assert.equal(deriveShortNameFromCommodityName('CRUDE PALM OIL'), 'CPO');
   });

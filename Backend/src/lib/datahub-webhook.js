@@ -10,6 +10,7 @@ import {
   getEffectiveWebhookAutoApply,
   updateDataHubWebhookHealth,
 } from './datahub-config.js';
+import { extractHubCommodityUom } from './datahub-commodity-sync.js';
 import { fetchHubRecords } from './datahub-master-sync-config.js';
 import { stageEntityFromHub, applyStagedEntitySyncRun } from './datahub-master-stage.js';
 
@@ -87,6 +88,55 @@ function strHubCode(data) {
 }
 
 /**
+ * Resolve master entity when DHM omits entityType (do not default to vessel).
+ * @param {object} payload
+ * @param {Record<string, string|undefined>} headers
+ * @returns {string|null}
+ */
+export function inferWebhookEntityType(payload, headers = {}) {
+  const h = normalizeHeaders(headers);
+  const fromHeader = h['x-dhm-entity-type']?.trim().toLowerCase();
+  if (fromHeader && WEBHOOK_ENTITY_TYPES.has(fromHeader)) return fromHeader;
+
+  const fromBody = String(payload?.entityType ?? payload?.master_type ?? '').trim().toLowerCase();
+  if (fromBody && WEBHOOK_ENTITY_TYPES.has(fromBody)) return fromBody;
+
+  const code = strHubCode(payload?.data);
+  if (code) {
+    const prefix = code.split('-')[0]?.toUpperCase();
+    if (prefix === 'CMD') return 'commodity';
+    if (prefix === 'INC') return 'incoterm';
+    if (prefix === 'PORT') return 'port_master';
+    if (prefix === 'VSL') return 'vessel';
+  }
+
+  const d = payload?.data;
+  if (
+    d &&
+    typeof d === 'object' &&
+    (d.short_name || d.long_name || d.material_code) &&
+    (d.type === 'liquid' || d.type === 'solid')
+  ) {
+    return 'commodity';
+  }
+
+  if (d && typeof d === 'object' && (d.Vessel_Name || d.Vessel_IMO)) {
+    return 'vessel';
+  }
+
+  return null;
+}
+
+function mergeCommodityPayloadUom(hubRecord, payloadData) {
+  const uom = extractHubCommodityUom(payloadData);
+  if (!uom || !hubRecord?.values) return hubRecord;
+  return {
+    ...hubRecord,
+    values: { ...hubRecord.values, uom },
+  };
+}
+
+/**
  * DHM webhook bodies sometimes omit fields that full /v1/sync includes (e.g. commodity `uom`).
  * Staging from the payload alone then looks "unchanged" vs JPS. Re-read sync snapshot by hub code.
  */
@@ -109,9 +159,13 @@ export async function resolveWebhookHubRecords(db, entityType, payload, eventHea
   try {
     const snapshot = await fetchHubRecords('commodity', cfg, db);
     const fresh = snapshot.find((r) => r?.hubCode && String(r.hubCode) === String(hubCode));
-    return [fresh ?? parsed];
-  } catch {
-    return [parsed];
+    const base = fresh ?? parsed;
+    return [mergeCommodityPayloadUom(base, payload?.data)];
+  } catch (e) {
+    if (extractHubCommodityUom(payload?.data)) {
+      return [mergeCommodityPayloadUom(parsed, payload.data)];
+    }
+    throw e;
   }
 }
 
@@ -146,9 +200,10 @@ export async function processInboundWebhook(db, rawBody, headers) {
   }
 
   const { payload, deliveryId, event } = parsed;
-  const entityType = String(payload.entityType || '').trim().toLowerCase();
   const hubCode = strHubCode(payload.data);
   const recordId = payload.recordId != null ? String(payload.recordId) : null;
+  const resolvedEntity = inferWebhookEntityType(payload, headers);
+  const rawEntityType = String(payload.entityType || '').trim().toLowerCase();
 
   const dup = await db.query(
     `SELECT id, status FROM datahub_webhook_receipts WHERE delivery_id = $1`,
@@ -163,17 +218,21 @@ export async function processInboundWebhook(db, rawBody, headers) {
       `INSERT INTO datahub_webhook_receipts (
          delivery_id, event, entity_type, record_id, hub_code, sync_run_id, status, error
        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [deliveryId, event, entityType || null, recordId, hubCode, syncRunId, status, error]
+      [deliveryId, event, resolvedEntity || rawEntityType || null, recordId, hubCode, syncRunId, status, error]
     );
   }
 
-  if (entityType && !WEBHOOK_ENTITY_TYPES.has(entityType)) {
+  if (rawEntityType && !WEBHOOK_ENTITY_TYPES.has(rawEntityType)) {
     await insertReceipt('ignored', null, 'unsupported entityType');
     await updateDataHubWebhookHealth(db, { ok: true });
     return { status: 200, body: { status: 'ignored', reason: 'unsupported entityType' } };
   }
 
-  const resolvedEntity = entityType || 'vessel';
+  if (!resolvedEntity) {
+    await insertReceipt('ignored', null, 'unknown entityType');
+    await updateDataHubWebhookHealth(db, { ok: true });
+    return { status: 200, body: { status: 'ignored', reason: 'unknown entityType' } };
+  }
 
   if (event === 'record.created') {
     await insertReceipt('ignored', null, 'record.created not subscribed');
@@ -187,7 +246,16 @@ export async function processInboundWebhook(db, rawBody, headers) {
     return { status: 200, body: { status: 'ignored', reason: 'hub_tombstone_policy' } };
   }
 
-  const hubRecords = await resolveWebhookHubRecords(db, resolvedEntity, payload, event);
+  let hubRecords;
+  try {
+    hubRecords = await resolveWebhookHubRecords(db, resolvedEntity, payload, event);
+  } catch (e) {
+    const errMsg = String(e?.message || 'commodity sync enrich failed').slice(0, 2000);
+    await insertReceipt('failed', null, errMsg);
+    await updateDataHubWebhookHealth(db, { ok: false, error: errMsg });
+    return { status: 500, body: { error: 'Failed to enrich webhook from hub sync', message: errMsg } };
+  }
+
   const hubRecord = hubRecords[0] ?? null;
   if (!hubRecord) {
     await insertReceipt('failed', null, 'missing master payload');
@@ -204,15 +272,16 @@ export async function processInboundWebhook(db, rawBody, headers) {
     });
 
     if (runId == null) {
-      await insertReceipt('ignored', null, 'unchanged');
+      const unchangedDetail = hubCode ? `unchanged (${hubCode})` : 'unchanged';
+      await insertReceipt('ignored', null, unchangedDetail);
       await updateDataHubWebhookHealth(db, { ok: true });
-      return { status: 200, body: { status: 'ignored', reason: 'unchanged' } };
+      return { status: 200, body: { status: 'ignored', reason: 'unchanged', hubCode: hubCode || undefined } };
     }
 
     if (autoApply) {
       try {
         const stats = await applyStagedEntitySyncRun(db, runId, null);
-        await insertReceipt('accepted', runId, null);
+        await insertReceipt('applied', runId, null);
         await updateDataHubWebhookHealth(db, { ok: true });
         return {
           status: 200,
@@ -238,7 +307,7 @@ export async function processInboundWebhook(db, rawBody, headers) {
       }
     }
 
-    await insertReceipt('accepted', runId, null);
+    await insertReceipt('accepted', runId, 'staged for review');
     await updateDataHubWebhookHealth(db, { ok: true });
     return {
       status: 200,

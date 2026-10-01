@@ -41,8 +41,29 @@ export function deriveShortNameFromCommodityName(name) {
     .toUpperCase();
 }
 
+/** Map DHM / UI unit strings to JPS metric codes KL | MT. */
+export function normalizeCommodityUomCode(raw) {
+  if (raw == null || String(raw).trim() === '') return null;
+  const s = String(raw).trim().toUpperCase();
+  if (s === 'KL' || s.startsWith('KILO')) return 'KL';
+  if (s === 'MT' || s === 'TON' || s === 'TONNE' || s.includes('METRIC')) return 'MT';
+  return s.length <= 8 ? s : null;
+}
+
+export function extractHubCommodityUom(data) {
+  if (!data || typeof data !== 'object') return null;
+  const raw =
+    data.uom ??
+    data.UOM ??
+    data.unit ??
+    data.unit_of_measure ??
+    data.unitOfMeasure ??
+    data.default_uom;
+  return normalizeCommodityUomCode(raw);
+}
+
 export function commodityTypeFromUom(uom) {
-  return String(uom ?? '').trim().toUpperCase() === 'KL' ? 'Liquid' : 'Solid';
+  return normalizeCommodityUomCode(uom) === 'KL' ? 'Liquid' : 'Solid';
 }
 
 /**
@@ -52,9 +73,9 @@ export function commodityTypeFromUom(uom) {
  * @param {object|null} localRow existing row when linking
  */
 export function expandCommodityValues(hubValues, metricIdByCode, localRow = null) {
-  const uom = hubValues?.uom;
-  const uomPresent = uom != null && String(uom).trim() !== '';
-  const metricCode = uomPresent && String(uom).trim().toUpperCase() === 'KL' ? 'KL' : 'MT';
+  const uom = normalizeCommodityUomCode(hubValues?.uom);
+  const uomPresent = uom != null;
+  const metricCode = uomPresent && uom === 'KL' ? 'KL' : 'MT';
   const defaultMetricIdFromHub = uomPresent
     ? metricIdByCode[metricCode] ?? metricIdByCode.MT ?? null
     : null;

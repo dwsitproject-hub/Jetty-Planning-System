@@ -10,6 +10,7 @@ import {
   parseDhmWebhookPayload,
   hubRecordFromWebhookPayload,
   resolveWebhookHubRecords,
+  inferWebhookEntityType,
   signDhmWebhookBody,
   processInboundWebhook,
 } from './datahub-webhook.js';
@@ -60,6 +61,26 @@ describe('datahub-webhook', () => {
     const hub = hubRecordFromWebhookPayload(payload, 'record.updated', 'incoterm');
     assert.equal(hub.hubCode, 'INC-0002');
     assert.equal(hub.values.code, 'CIF');
+  });
+
+  it('inferWebhookEntityType infers commodity from CMD hub code', () => {
+    assert.equal(
+      inferWebhookEntityType({
+        data: { code: 'CMD-0006', long_name: 'CRUDE PALM OIL', short_name: 'CPO', type: 'liquid' },
+      }),
+      'commodity'
+    );
+  });
+
+  it('inferWebhookEntityType reads X-DHM-Entity-Type header', () => {
+    assert.equal(
+      inferWebhookEntityType({ data: { code: 'X' } }, { 'X-DHM-Entity-Type': 'commodity' }),
+      'commodity'
+    );
+  });
+
+  it('inferWebhookEntityType returns null when unknown', () => {
+    assert.equal(inferWebhookEntityType({ data: { foo: 'bar' } }), null);
   });
 
   it('resolveWebhookHubRecords passes through non-commodity payloads', async () => {
