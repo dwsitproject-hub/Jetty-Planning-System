@@ -40,6 +40,15 @@ import integrationWebhookRoutes from './integration-webhooks.js';
 import integrationCatalogRoutes from './integration-catalog.js';
 import { buildPartnerInstructionPayload } from '../lib/integration-partner-payload.js';
 import { parseOptionalPartnerDocumentUrls } from '../lib/integration-partner-url.js';
+import {
+  listActiveCommodityHubCodes,
+  listActivePortHubCodes,
+  normalizeCargoShortName,
+  resolveCargoCommodities,
+  resolvePortForIntegration,
+  validateIntegrationCargoLineIdentifiers,
+  validateIntegrationPortInput,
+} from '../lib/integration-hub-resolve.js';
 
 const router = express.Router();
 const PAGE_KEY = 'shipment-plan';
@@ -62,12 +71,6 @@ function buildPlanReference(planId) {
 
 function asTrimmedString(v) {
   return typeof v === 'string' ? v.trim() : '';
-}
-
-/** Same normalization as si-lookups master data (short_name is stored uppercase). */
-function normalizeCargoShortName(raw) {
-  const v = String(raw ?? '').trim().toUpperCase();
-  return v || null;
 }
 
 function parseIsoDateTime(v) {
@@ -94,8 +97,8 @@ function validateSubmission(body) {
   if (!externalReference) push('external_reference', 'required');
   else if (externalReference.length > 100) push('external_reference', 'max length 100');
 
-  const portId = Number.parseInt(b.port_id, 10);
-  if (!Number.isFinite(portId) || Number.isNaN(portId)) push('port_id', 'required integer');
+  const portInput = validateIntegrationPortInput(b.port_id, b.port_hub_code);
+  portInput.errors.forEach((e) => push(e.field, e.issue));
 
   const vesselInput = validateIntegrationVesselInput(b.vessel_hub_code, b.vessel_name);
   vesselInput.errors.forEach((e) => push(e.field, e.issue));
@@ -138,9 +141,10 @@ function validateSubmission(body) {
   } else {
     cargoRaw.forEach((line, i) => {
       const l = line && typeof line === 'object' ? line : {};
-      const cargoType = asTrimmedString(l.cargo_type);
-      if (!cargoType) push(`cargo[${i}].cargo_type`, 'required');
-      else if (cargoType.length > 100) push(`cargo[${i}].cargo_type`, 'max length 100');
+      const cargoIds = validateIntegrationCargoLineIdentifiers(l.cargo_type, l.cargo_hub_code, i);
+      cargoIds.errors.forEach((e) => push(e.field, e.issue));
+      const cargoType = cargoIds.cargoType;
+      const cargoHubCode = cargoIds.cargoHubCode;
 
       const description = asTrimmedString(l.description);
       if (description.length > 500) push(`cargo[${i}].description`, 'max length 500');
@@ -167,6 +171,7 @@ function validateSubmission(body) {
 
       cargo.push({
         cargoType,
+        cargoHubCode,
         description: description || null,
         tonnage,
         unit,
@@ -198,7 +203,8 @@ function validateSubmission(body) {
     errors,
     value: {
       externalReference,
-      portId,
+      portId: portInput.portId,
+      portHubCode: portInput.portHubCode,
       hubCode,
       vesselName: vesselName || null,
       voyageNo: voyageNo || null,
@@ -304,15 +310,19 @@ router.post('/shipping-instructions', async (req, res) => {
     return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', errors);
   }
 
-  const portOk = await pool.query(
-    `SELECT 1 FROM ports WHERE id = $1 AND deleted_at IS NULL AND is_active IS TRUE`,
-    [value.portId]
-  );
-  if (portOk.rows.length === 0) {
-    return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
-      { field: 'port_id', issue: 'unknown port' },
-    ]);
+  const portRow = await resolvePortForIntegration(pool, {
+    portId: value.portId,
+    portHubCode: value.portHubCode,
+  });
+  if (portRow?.error) {
+    const detail = { field: portRow.field ?? 'port_id', issue: portRow.error };
+    if (portRow.field === 'port_hub_code' || value.portHubCode) {
+      detail.valid_port_hub_codes = await listActivePortHubCodes(pool);
+    }
+    return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [detail]);
   }
+  value.portId = Number(portRow.id);
+  const resolvedPortHubCode = portRow.hub_code ?? null;
 
   const dup = await pool.query(
     `${STATUS_LOOKUP_SQL} AND s.external_reference = $2`,
@@ -336,37 +346,31 @@ router.post('/shipping-instructions', async (req, res) => {
   }
   const purposeId = Number(pr.rows[0].id);
 
-  // Resolve cargo_type -> si_commodities.short_name (case-insensitive; not full display name).
-  const cargoTypes = [
-    ...new Set(value.cargo.map((c) => normalizeCargoShortName(c.cargoType)).filter(Boolean)),
-  ];
-  const cm = await pool.query(
-    `SELECT c.id, c.short_name, c.commodity_type, c.default_metric_id, dm.code AS default_metric_code
-     FROM si_commodities c
-     LEFT JOIN metric dm ON dm.id = c.default_metric_id AND dm.deleted_at IS NULL
-     WHERE UPPER(c.short_name) = ANY($1) AND c.deleted_at IS NULL AND c.is_active = TRUE`,
-    [cargoTypes]
-  );
-  const commodityByShortName = new Map(cm.rows.map((r) => [r.short_name.toUpperCase(), r]));
-  const unknownTypes = [
-    ...new Set(
-      value.cargo
-        .map((c) => c.cargoType)
-        .filter((t) => !commodityByShortName.has(normalizeCargoShortName(t)))
-    ),
-  ];
-  if (unknownTypes.length > 0) {
-    const valid = await pool.query(
-      `SELECT short_name FROM si_commodities WHERE deleted_at IS NULL AND is_active = TRUE ORDER BY short_name`
-    );
-    return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
-      {
-        field: 'cargo[].cargo_type',
-        issue: `unknown cargo type(s): ${unknownTypes.join(', ')}`,
-        valid_cargo_types: valid.rows.map((r) => r.short_name),
-      },
-    ]);
+  const cargoResolved = await resolveCargoCommodities(pool, value.cargo);
+  if (cargoResolved.errors.length > 0) {
+    const details = [...cargoResolved.errors];
+    const needsHubList = details.some((d) => String(d.field).includes('cargo_hub_code'));
+    const needsShortList = details.some((d) => String(d.field).includes('cargo_type'));
+    if (needsHubList) {
+      const hubCodes = await listActiveCommodityHubCodes(pool);
+      for (const d of details) {
+        if (String(d.field).includes('cargo_hub_code')) d.valid_cargo_hub_codes = hubCodes;
+      }
+    }
+    if (needsShortList) {
+      const valid = await pool.query(
+        `SELECT short_name FROM si_commodities WHERE deleted_at IS NULL AND is_active = TRUE ORDER BY short_name`
+      );
+      for (const d of details) {
+        if (String(d.field).includes('cargo_type') && !d.valid_cargo_types) {
+          d.valid_cargo_types = valid.rows.map((r) => r.short_name);
+        }
+      }
+    }
+    return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', details);
   }
+  value.cargo = cargoResolved.cargo;
+  const commodityByShortName = cargoResolved.commodityByShortName;
   const commodityTypes = [
     ...new Set(
       value.cargo.map((c) => commodityByShortName.get(normalizeCargoShortName(c.cargoType)).commodity_type)
@@ -649,6 +653,7 @@ router.post('/shipping-instructions', async (req, res) => {
     vessel_name: resolvedVesselName,
     vessel_hub_code: resolvedHubCode,
     port_id: value.portId,
+    port_hub_code: resolvedPortHubCode,
     received_at: new Date(receivedAt).toISOString(),
   });
 });

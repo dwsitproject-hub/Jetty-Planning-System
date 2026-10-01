@@ -166,6 +166,7 @@ export const PARTNER_SUBMISSION_LOOKUP_SQL = `
          sp.approval_status, sp.rejection_reason, sp.plan_reference,
          sp.approved_at, sp.rejected_at,
          sp.vessel_name, sp.voyage_no, sp.eta, sp.port_id,
+         p.hub_code AS port_hub_code,
          sp.ta AS sp_ta, sp.etb AS sp_etb, sp.tb AS sp_tb,
          sp.docking_start_time AS sp_docking_start_time,
          sp.estimated_completion_time AS sp_etc,
@@ -187,6 +188,7 @@ export const PARTNER_SUBMISSION_LOOKUP_SQL = `
   FROM integration_submissions s
   JOIN shipping_instructions si ON si.id = s.shipping_instruction_id AND si.deleted_at IS NULL
   JOIN shipment_plans sp ON sp.id = s.shipment_plan_id AND sp.deleted_at IS NULL
+  LEFT JOIN ports p ON p.id = sp.port_id AND p.deleted_at IS NULL
   LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
   LEFT JOIN LATERAL (
     SELECT op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,
@@ -208,6 +210,7 @@ export const PARTNER_SUBMISSION_BY_PLAN_SQL = `
          sp.approval_status, sp.rejection_reason, sp.plan_reference,
          sp.approved_at, sp.rejected_at,
          sp.vessel_name, sp.voyage_no, sp.eta, sp.port_id,
+         p.hub_code AS port_hub_code,
          sp.ta AS sp_ta, sp.etb AS sp_etb, sp.tb AS sp_tb,
          sp.docking_start_time AS sp_docking_start_time,
          sp.estimated_completion_time AS sp_etc,
@@ -229,6 +232,7 @@ export const PARTNER_SUBMISSION_BY_PLAN_SQL = `
   FROM integration_submissions s
   JOIN shipping_instructions si ON si.id = s.shipping_instruction_id AND si.deleted_at IS NULL
   JOIN shipment_plans sp ON sp.id = s.shipment_plan_id AND sp.deleted_at IS NULL
+  LEFT JOIN ports p ON p.id = sp.port_id AND p.deleted_at IS NULL
   LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
   LEFT JOIN LATERAL (
     SELECT op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,
@@ -250,6 +254,7 @@ export const PARTNER_SUBMISSION_BY_SI_SQL = `
          sp.approval_status, sp.rejection_reason, sp.plan_reference,
          sp.approved_at, sp.rejected_at,
          sp.vessel_name, sp.voyage_no, sp.eta, sp.port_id,
+         p.hub_code AS port_hub_code,
          sp.ta AS sp_ta, sp.etb AS sp_etb, sp.tb AS sp_tb,
          sp.docking_start_time AS sp_docking_start_time,
          sp.estimated_completion_time AS sp_etc,
@@ -271,6 +276,7 @@ export const PARTNER_SUBMISSION_BY_SI_SQL = `
   FROM integration_submissions s
   JOIN shipping_instructions si ON si.id = s.shipping_instruction_id AND si.deleted_at IS NULL
   JOIN shipment_plans sp ON sp.id = s.shipment_plan_id AND sp.deleted_at IS NULL
+  LEFT JOIN ports p ON p.id = sp.port_id AND p.deleted_at IS NULL
   LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
   LEFT JOIN LATERAL (
     SELECT op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,

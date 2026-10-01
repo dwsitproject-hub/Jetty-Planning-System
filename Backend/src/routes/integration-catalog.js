@@ -1,5 +1,5 @@
 /**
- * Partner integration API — catalog discovery (v5.1).
+ * Partner integration API — catalog discovery (v5.2).
  * `GET /catalog` and `GET /catalog/{entity}` let partners inspect the live
  * field contract instead of hard-coding it from the handoff doc.
  */

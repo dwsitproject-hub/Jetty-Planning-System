@@ -28,6 +28,7 @@ describe('integration-partner-payload', () => {
       plan_reference: 'SP-26-09-00010',
       vessel_name: 'MV TEST',
       port_id: 1,
+      port_hub_code: 'PRT-001',
       payload: { vessel_hub_code: 'VSL-0001' },
       op_status: 'DOCKED',
       jetty_name: 'Jetty 1A',
@@ -38,6 +39,7 @@ describe('integration-partner-payload', () => {
     assert.equal(payload.plan_reference, 'SP-26-09-00010');
     assert.equal(payload.approval.status, 'Approved');
     assert.equal(payload.allocation?.jetty_code, '1A');
+    assert.equal(payload.port_hub_code, 'PRT-001');
     assert.ok(payload.schedule);
   });
 

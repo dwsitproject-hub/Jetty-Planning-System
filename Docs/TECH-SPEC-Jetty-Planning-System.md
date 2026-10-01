@@ -288,6 +288,18 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 **Routes (`/api/v1/integrations/catalog`):** **`GET /`** (list), **`GET /:entity`** (single entity, **`404 NOT_FOUND`** when unknown). Mounted alongside `/webhooks` inside `integrations.js`, inheriting the router's **`requireIntegrationKey`** + **`integrationRateLimit`** middleware — no new auth surface. See **`Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md` §3.8**.
 
+### 0.40 Partner port / commodity hub codes (v5.2) (2026-10-01)
+
+**Purpose:** Partners send DHM-style hub codes for port and commodity on **`POST /shipping-instructions`**, same pattern as **`vessel_hub_code`**.
+
+**Lib — `Backend/src/lib/integration-hub-resolve.js`:** **`validateIntegrationPortInput`**, **`resolvePortForIntegration`** (`ports.hub_code` → `port_id`); **`validateIntegrationCargoLineIdentifiers`**, **`resolveCargoCommodities`** (`si_commodities.hub_code` or **`short_name`** fallback). List helpers feed the catalog (`listPortsForCatalog`, `listCommoditiesForCatalog`, hub code enums).
+
+**API:** Optional **`port_hub_code`** / **`cargo[].cargo_hub_code`**; legacy **`port_id`** / **`cargo_type`** unchanged. Cross-check when both sent. Enriched GET/webhooks/201 include **`port_hub_code`**. Header **`X-JPS-API-Version: 5.2`**.
+
+**Catalog v5.2:** Entity **`port`** + **`referenceRows`**; **`cargo-type`** extended with **`hub_code`**; **`shipping-instruction`** documents dual identifiers.
+
+**Schema:** Uses existing **`ports.hub_code`** (migration **128**) and **`si_commodities.hub_code`** (**124**) — no new migration.
+
 ### 0.32 Overview tables — Commodity Qty column (`siBreakdownDisplay`) (2026-05-26)
 
 **Purpose:** Show **SI-declared cargo** (commodity name + quantity per breakdown line) in main overview tables without opening SI modals. A single **Commodity Qty** column replaces a separate **Commodity** + **Total Qty** pair because each cell already embeds the commodity name (e.g. `RPO 5.000 MT`).
