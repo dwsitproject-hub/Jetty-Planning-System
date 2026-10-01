@@ -9,7 +9,8 @@ import {
   isNewlyUnhealthy,
 } from './admin-ops-alert-logic.js';
 import { isValidRecipientEmail } from './notification-email-worker.js';
-import { finalizeSmtpTransport, getFromAddress, getSmtpTransport } from './smtp-config.js';
+import { getFromAddress, getEffectiveSmtpConfig, isSmtpSendingConfigured } from './smtp-config.js';
+import { sendSmtpMail } from './smtp-send.js';
 
 export { computeEmailAlertsActive } from './admin-ops-alert-logic.js';
 
@@ -158,8 +159,8 @@ export async function runAdminOpsAlertJob(db, opts = {}) {
       }
     }
 
-    const smtp = await getSmtpTransport(db);
-    const smtpConfigured = Boolean(smtp);
+    const smtpCfg = await getEffectiveSmtpConfig(db);
+    const smtpConfigured = isSmtpSendingConfigured(smtpCfg);
     const sendGate = canSendAdminOpsAlerts(settings);
     let emailResult = { sent: false, skipped: true, reason: sendGate.reason || 'no_new_unhealthy' };
 
@@ -191,7 +192,7 @@ export async function runAdminOpsAlertJob(db, opts = {}) {
         const { subject, text } = buildAdminOpsAlertEmail(newlyUnhealthy, checkedAt);
         const from = await getFromAddress(db);
         try {
-          const info = await smtp.sendMail({ from, to, subject, text });
+          const info = await sendSmtpMail(db, { from, to, subject, text });
           emailResult = { sent: true, to, subject, messageId: info?.messageId ?? null };
           await recordDelivery(db, {
             status: 'sent',
@@ -210,8 +211,6 @@ export async function runAdminOpsAlertJob(db, opts = {}) {
             unhealthyChecks: newlyUnhealthy,
             errorText,
           });
-        } finally {
-          await finalizeSmtpTransport(smtp);
         }
       }
     } else if (newlyUnhealthy.length > 0 && !sendGate.ok) {

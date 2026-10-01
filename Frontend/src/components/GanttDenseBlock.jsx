@@ -11,6 +11,7 @@ import {
   resolveGanttWaitTooltip,
 } from '../utils/ganttBarDisplay.js'
 import { formatOverdueDuration } from '../utils/etcBreach'
+import { describeNeedsUpdate } from '../utils/berthColorState.js'
 
 function GanttVesselIcon() {
   return (
@@ -54,6 +55,7 @@ export default function GanttDenseBlock({
   showPlannedWait = false,
   showEtr = false,
   pinLabel = false,
+  purposeAsColor = false,
 }) {
   const { t } = useTranslation('allocation')
   const density = densityProp ?? resolveGanttBarDensity(barWidthPct)
@@ -68,7 +70,26 @@ export default function GanttDenseBlock({
     showLateChip && layer === 'actual' && model.etcOverdue && model.overMs != null && model.overMs > 0
 
   const resolvedPurpose = resolvePurposeLabel(model.purposeLabel, model.loadDischarge)
-  const showPurpose = resolvedPurpose === 'Loading' || resolvedPurpose === 'Unloading'
+  // Berthing Plan: purpose is the bar color (blue Unload / green Load), so the pill is dropped
+  // to save space. Legacy layouts keep the pill.
+  const showPurpose =
+    !purposeAsColor && (resolvedPurpose === 'Loading' || resolvedPurpose === 'Unloading')
+
+  // Berthing Plan: one warning icon for "needs update" (empty ETC, or ETC passed with no
+  // completion). Legacy layouts keep the original missing-ETC glyph.
+  const needsUpdateText = purposeAsColor ? describeNeedsUpdate(model.needsUpdateReasons, t) : ''
+  const needsUpdateBadge =
+    purposeAsColor && model.needsUpdate ? (
+      <span
+        className="gantt-needs-update"
+        role="img"
+        title={needsUpdateText}
+        aria-label={`${t('ganttNeedsUpdate', { defaultValue: 'Needs update' })}. ${needsUpdateText}`}
+      >
+        ⚠️
+      </span>
+    ) : null
+  const legacyMissingEtcBadge = !purposeAsColor && model.missingEtc
 
   const plannedEntries = buildGanttPlannedMilestoneEntries(model)
   const estimateEntries = buildGanttEstimateMilestoneEntries(model)
@@ -154,7 +175,8 @@ export default function GanttDenseBlock({
               short="gantt"
             />
           ) : null}
-          {model.missingEtc ? (
+          {needsUpdateBadge}
+          {legacyMissingEtcBadge ? (
             <span
               className="gantt-missing-etc-warn"
               title={t('ganttMissingEtcWarn', {
@@ -217,7 +239,8 @@ export default function GanttDenseBlock({
             short="gantt"
           />
         ) : null}
-        {model.missingEtc ? (
+        {needsUpdateBadge}
+        {legacyMissingEtcBadge ? (
           <span
             className="gantt-missing-etc-warn"
             title={t('ganttMissingEtcWarn', {

@@ -8,10 +8,12 @@ import {
   encryptSmtpPassword,
   decryptSmtpPassword,
   buildNodemailerTransport,
+  buildSmtpConnectionOptions,
   getSmtpPostSendDelayMs,
   getSmtpRequireTls,
   invalidateSmtpTransportCache,
   isSmtpHubParityMode,
+  isSmtpSendingConfigured,
   getSmtpEnvStatus,
 } from './smtp-config.js';
 import {
@@ -80,6 +82,37 @@ describe('smtp-config', () => {
     delete process.env.SMTP_HOST;
     assert.deepEqual(getSmtpEnvStatus(), { configured: false, source: 'none' });
     process.env.SMTP_HOST = host;
+  });
+
+  it('buildSmtpConnectionOptions mirrors hub vs jps transport flags', () => {
+    const cfg = {
+      enabled: true,
+      host: 'mail.example.com',
+      port: 587,
+      secure: false,
+      user: 'u@example.com',
+      pass: 'p',
+      rejectUnauthorized: true,
+    };
+    const hub = process.env.SMTP_HUB_PARITY;
+    process.env.SMTP_HUB_PARITY = 'true';
+    invalidateSmtpTransportCache();
+    const hubOpts = buildSmtpConnectionOptions(cfg);
+    assert.equal(hubOpts.requireTLS, undefined);
+    assert.equal(hubOpts.connectionTimeout, undefined);
+    process.env.SMTP_HUB_PARITY = 'false';
+    const prevTls = process.env.SMTP_REQUIRE_TLS;
+    delete process.env.SMTP_REQUIRE_TLS;
+    const jpsOpts = buildSmtpConnectionOptions(cfg);
+    assert.equal(jpsOpts.requireTLS, false);
+    process.env.SMTP_REQUIRE_TLS = prevTls;
+    assert.equal(jpsOpts.connectionTimeout, 20_000);
+    process.env.SMTP_HUB_PARITY = hub;
+  });
+
+  it('isSmtpSendingConfigured requires host user and pass', () => {
+    assert.equal(isSmtpSendingConfigured({ enabled: true, host: 'h', user: 'u', pass: 'p' }), true);
+    assert.equal(isSmtpSendingConfigured({ enabled: true, host: 'h', user: 'u' }), false);
   });
 
   it('getSmtpPostSendDelayMs clamps and parses env', () => {

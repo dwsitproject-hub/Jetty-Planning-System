@@ -129,6 +129,8 @@ router.post('/test', async (req, res) => {
     const vesselCatalog = await fetchVesselCatalog({ baseUrl, publicKey, privateKey });
     let incotermFields = null;
     let commodityFields = null;
+    let portMasterFields = null;
+    let portMasterAllowed = false;
     try {
       incotermFields = (await fetchEntityCatalog({ baseUrl, publicKey, privateKey }, 'incoterm'))
         .fieldCount;
@@ -141,6 +143,14 @@ router.post('/test', async (req, res) => {
     } catch {
       commodityFields = null;
     }
+    try {
+      portMasterFields = (await fetchEntityCatalog({ baseUrl, publicKey, privateKey }, 'port_master'))
+        .fieldCount;
+      portMasterAllowed = true;
+    } catch (e) {
+      portMasterFields = null;
+      portMasterAllowed = !(Number(e?.status) === 403);
+    }
     res.json({
       ok: true,
       baseUrl,
@@ -148,9 +158,13 @@ router.post('/test', async (req, res) => {
       fieldCount: vesselCatalog.fieldCount,
       incotermFieldCount: incotermFields,
       commodityFieldCount: commodityFields,
+      portMasterFieldCount: portMasterFields,
+      portMasterAllowed,
       message: `Reached DataHub: vessel (${vesselCatalog.fieldCount} fields)${
         incotermFields != null ? `, incoterm (${incotermFields})` : ''
-      }${commodityFields != null ? `, commodity (${commodityFields})` : ''}.`,
+      }${commodityFields != null ? `, commodity (${commodityFields})` : ''}${
+        portMasterAllowed && portMasterFields != null ? `, port_master (${portMasterFields})` : ''
+      }${!portMasterAllowed ? ', port_master NOT allowlisted' : ''}.`,
     });
   } catch (e) {
     const status = Number(e?.status);

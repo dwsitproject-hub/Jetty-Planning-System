@@ -17,6 +17,7 @@ import {
   pickMasterAudit,
 } from '../lib/master-row-audit.js';
 import { tryPushAfterSave } from '../lib/datahub-vessel-push.js';
+import { COMPARED_COLUMNS } from '../lib/datahub-vessel-sync.js';
 import { registerDataHubSyncRoutes } from './datahub-sync-routes.js';
 
 const router = express.Router();
@@ -34,7 +35,7 @@ const LAMBUNG_TYPES = new Set([
 const CHARTER_TYPES = new Set(['Voyage Charter', 'Time Charter']);
 
 const VESSEL_SELECT = `SELECT v.id, v.hub_code, v.hub_record_id, v.hub_version, v.hub_updated_at,
-            v.datahub_last_apply_source, v.datahub_last_apply_run_id,
+            v.datahub_last_apply_source, v.datahub_last_apply_run_id, v.is_active,
             v.vessel_name, v.vessel_imo, v.vessel_mmsi, v.vessel_code_sap,
             v.vessel_capacity_mt, v.vessel_gross_tonnage, v.vessel_draft,
             v.vessel_length_overall, v.vessel_type, v.heater, v.type_lambung,
@@ -58,6 +59,7 @@ function toVessel(row) {
   return {
     id: row.id != null ? Number(row.id) : row.id,
     hubCode: row.hub_code ?? null,
+    isActive: row.is_active !== false,
     hubRecordId: row.hub_record_id ?? null,
     hubVersion: row.hub_version != null ? Number(row.hub_version) : null,
     hubUpdatedAt: row.hub_updated_at ?? null,
@@ -112,8 +114,23 @@ function readVesselBody(body) {
       heater: body?.heater == null ? null : Boolean(body.heater),
       type_lambung: typeLambung,
       type_charter: typeCharter,
+      hub_code: str(body?.hubCode ?? body?.hub_code),
+      is_active: body?.isActive === false || body?.is_active === false ? false : true,
     },
   };
+}
+
+async function assertHubCodeAvailable(hubCode, excludeId = null) {
+  if (!hubCode) return null;
+  const params = [hubCode];
+  let sql = `SELECT id FROM master_vessels WHERE hub_code = $1 AND deleted_at IS NULL`;
+  if (excludeId != null) {
+    params.push(excludeId);
+    sql += ` AND id <> $2`;
+  }
+  const r = await pool.query(sql, params);
+  if (r.rows.length > 0) return 'This Hub Code is already mapped to another vessel';
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +141,8 @@ router.get('/', async (req, res) => {
   const search = str(req.query.search);
   const params = [];
   let where = 'v.deleted_at IS NULL';
+  const activeOnly = ['1', 'true', 'yes'].includes(String(req.query.activeOnly || '').trim().toLowerCase());
+  if (activeOnly) where += ' AND v.is_active = TRUE';
   if (search) {
     params.push(`%${search.toLowerCase()}%`);
     where += ` AND (LOWER(v.vessel_name) LIKE $${params.length}
@@ -157,18 +176,20 @@ router.post('/', ...requirePageEdit('master-vessel'), async (req, res) => {
   if (dupe.rows.length > 0) {
     return res.status(409).json({ error: 'A vessel with this name already exists' });
   }
+  const hubClash = await assertHubCodeAvailable(v.hub_code);
+  if (hubClash) return res.status(409).json({ error: hubClash });
 
   const ins = await pool.query(
     `INSERT INTO master_vessels (
        vessel_name, vessel_imo, vessel_mmsi, vessel_code_sap, vessel_capacity_mt,
        vessel_gross_tonnage, vessel_draft, vessel_length_overall, vessel_type,
-       heater, type_lambung, type_charter, created_by, updated_by
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
+       heater, type_lambung, type_charter, hub_code, is_active, created_by, updated_by
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15)
      RETURNING id`,
     [
       v.vessel_name, v.vessel_imo, v.vessel_mmsi, v.vessel_code_sap, v.vessel_capacity_mt,
       v.vessel_gross_tonnage, v.vessel_draft, v.vessel_length_overall, v.vessel_type,
-      v.heater, v.type_lambung, v.type_charter, actorId,
+      v.heater, v.type_lambung, v.type_charter, v.hub_code, v.is_active, actorId,
     ]
   );
   const created = await pool.query(`${VESSEL_SELECT} WHERE v.id = $1`, [ins.rows[0].id]);
@@ -214,19 +235,21 @@ router.put('/:id(\\d+)', ...requirePageEdit('master-vessel'), async (req, res) =
   if (dupe.rows.length > 0) {
     return res.status(409).json({ error: 'A vessel with this name already exists' });
   }
+  const hubClash = await assertHubCodeAvailable(v.hub_code, id);
+  if (hubClash) return res.status(409).json({ error: hubClash });
 
   await pool.query(
     `UPDATE master_vessels SET
        vessel_name = $1, vessel_imo = $2, vessel_mmsi = $3, vessel_code_sap = $4,
        vessel_capacity_mt = $5, vessel_gross_tonnage = $6, vessel_draft = $7,
        vessel_length_overall = $8, vessel_type = $9, heater = $10,
-       type_lambung = $11, type_charter = $12,
-       updated_by = $13, updated_at = NOW()
-     WHERE id = $14 AND deleted_at IS NULL`,
+       type_lambung = $11, type_charter = $12, hub_code = $13, is_active = $14,
+       updated_by = $15, updated_at = NOW()
+     WHERE id = $16 AND deleted_at IS NULL`,
     [
       v.vessel_name, v.vessel_imo, v.vessel_mmsi, v.vessel_code_sap, v.vessel_capacity_mt,
       v.vessel_gross_tonnage, v.vessel_draft, v.vessel_length_overall, v.vessel_type,
-      v.heater, v.type_lambung, v.type_charter, actorUserIdFromReq(req), id,
+      v.heater, v.type_lambung, v.type_charter, v.hub_code, v.is_active, actorUserIdFromReq(req), id,
     ]
   );
 

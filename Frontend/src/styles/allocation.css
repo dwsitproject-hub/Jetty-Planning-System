@@ -7666,3 +7666,273 @@ tr.cargo-schedule-behind > td:first-child {
     text-overflow: ellipsis;
   }
 }
+
+/* =====================================================================================
+   Berthing Plan: color coding + Unallocated rail
+   One color per bar, by priority: red (New, on the rail) > warning icon (needs update)
+   > blue / green (purpose). Purpose is the bar color, so the Load/Unload pill is removed.
+   Actual = solid, Estimate = lighter fill. Sailed-off bars stay neutral gray.
+   ===================================================================================== */
+
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__bar--purpose-unload {
+  --berth-rgb: var(--berth-unload-rgb);
+  --berth-text: var(--berth-unload-text);
+}
+
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__bar--purpose-load {
+  --berth-rgb: var(--berth-load-rgb);
+  --berth-text: var(--berth-load-text);
+}
+
+/* Actual bars: solid purpose color */
+.jetty-schedule-gantt--plan
+  .jetty-schedule-gantt__bar:is(.jetty-schedule-gantt__bar--purpose-unload, .jetty-schedule-gantt__bar--purpose-load):is(.jetty-schedule-gantt__bar--actual-solid, .jetty-schedule-gantt__bar--actual-grad):not(.jetty-schedule-gantt__bar--st-sailed-off) {
+  background: rgba(var(--berth-rgb), 0.24);
+  border: 1px solid rgba(var(--berth-rgb), 0.75);
+  color: rgb(var(--berth-text));
+}
+
+/* Estimate bars (no actual yet): lighter fill, dashed edge */
+.jetty-schedule-gantt--plan
+  .jetty-schedule-gantt__bar:is(.jetty-schedule-gantt__bar--purpose-unload, .jetty-schedule-gantt__bar--purpose-load):is(.jetty-schedule-gantt__bar--planned-solid, .jetty-schedule-gantt__bar--planned-grad):not(.jetty-schedule-gantt__bar--st-sailed-off) {
+  background: rgba(var(--berth-rgb), 0.1);
+  border: 1px dashed rgba(var(--berth-rgb), 0.65);
+  color: rgb(var(--berth-text));
+}
+
+/* Existing ETC-breach red edge stays on top of the purpose color. */
+.jetty-schedule-gantt--plan
+  .jetty-schedule-gantt__bar:is(.jetty-schedule-gantt__bar--purpose-unload, .jetty-schedule-gantt__bar--purpose-load).jetty-schedule-gantt__bar--actual-etc-overdue:not(.jetty-schedule-gantt__bar--st-sailed-off) {
+  border-color: rgba(var(--gantt-late-rgb), 0.7);
+}
+
+/* Needs-update warning icon (replaces the old missing-ETC glyph on the plan) */
+.gantt-needs-update {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1;
+  cursor: help;
+}
+
+/* Legend swatches */
+.jetty-schedule-gantt__swatch--unload {
+  background: rgba(var(--berth-unload-rgb), 0.35);
+  border: 1px solid rgba(var(--berth-unload-rgb), 0.85);
+}
+
+.jetty-schedule-gantt__swatch--load {
+  background: rgba(var(--berth-load-rgb), 0.35);
+  border: 1px solid rgba(var(--berth-load-rgb), 0.85);
+}
+
+.jetty-schedule-gantt__swatch--new {
+  background: rgba(var(--berth-new-rgb), 0.3);
+  border: 1px solid rgba(var(--berth-new-rgb), 0.85);
+  border-left-width: 4px;
+}
+
+.jetty-schedule-gantt__swatch--tone-actual {
+  background: rgba(100, 116, 139, 0.35);
+  border: 1px solid rgba(100, 116, 139, 0.85);
+}
+
+.jetty-schedule-gantt__swatch--tone-estimate {
+  background: rgba(100, 116, 139, 0.1);
+  border: 1px dashed rgba(100, 116, 139, 0.85);
+}
+
+/* ---- Layout: Gantt beside the Unallocated rail ---- */
+.jetty-schedule-gantt__layout {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-3, 12px);
+}
+
+.jetty-schedule-gantt__layout > .jetty-schedule-gantt__export-area {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.unallocated-rail {
+  flex: 0 0 264px;
+  width: 264px;
+  box-sizing: border-box;
+  max-height: min(70vh, 720px);
+  overflow-y: auto;
+  padding: 10px;
+  border: 1px solid rgba(var(--berth-new-rgb), 0.35);
+  border-radius: 8px;
+  background: rgba(var(--berth-new-rgb), 0.04);
+}
+
+.unallocated-rail--collapsed {
+  flex-basis: 48px;
+  width: 48px;
+  overflow: hidden;
+}
+
+.unallocated-rail__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.unallocated-rail--collapsed .unallocated-rail__header {
+  flex-direction: column;
+}
+
+.unallocated-rail__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--font-size-sm, 14px);
+  font-weight: var(--font-weight-semibold, 600);
+  color: rgb(var(--berth-new-text));
+}
+
+.unallocated-rail--collapsed .unallocated-rail__title-text {
+  display: none;
+}
+
+.unallocated-rail__count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgb(var(--berth-new-rgb));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+
+.unallocated-rail__toggle {
+  border: 1px solid rgba(var(--berth-new-rgb), 0.4);
+  border-radius: 6px;
+  background: #fff;
+  color: rgb(var(--berth-new-text));
+  width: 24px;
+  height: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.unallocated-rail__hint,
+.unallocated-rail__empty {
+  margin: 8px 0;
+  font-size: 12px;
+  color: var(--color-text-steel, #6b6b6b);
+}
+
+.unallocated-rail__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.unallocated-rail__card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  text-align: left;
+  font: inherit;
+  color: rgb(var(--berth-new-text));
+  background: rgba(var(--berth-new-rgb), 0.12);
+  border: 1px solid rgba(var(--berth-new-rgb), 0.7);
+  border-left-width: 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.unallocated-rail__card--draggable {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.unallocated-rail__card--dragging {
+  opacity: 0.45;
+  cursor: grabbing;
+}
+
+.unallocated-rail__card:focus-visible {
+  outline: 2px solid rgb(var(--berth-new-rgb));
+  outline-offset: 2px;
+}
+
+.unallocated-rail__name {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.unallocated-rail__meta {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.unallocated-rail__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.unallocated-rail__chip {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgb(var(--berth-new-rgb));
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+/* Full view (popout): layout fills the window; the rail scrolls on its own beside the Gantt. */
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__layout {
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.jetty-schedule-gantt--popout .unallocated-rail {
+  max-height: none;
+  align-self: stretch;
+}
+
+/* Narrow screens: rail goes below the Gantt instead of beside it. */
+@media (max-width: 1100px) {
+  .jetty-schedule-gantt__layout {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .unallocated-rail,
+  .unallocated-rail--collapsed {
+    flex-basis: auto;
+    width: 100%;
+    max-height: 320px;
+  }
+
+  .jetty-schedule-gantt--popout .unallocated-rail {
+    flex: 0 0 auto;
+    max-height: 240px;
+  }
+
+  .unallocated-rail__list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  }
+
+  .unallocated-rail--collapsed .unallocated-rail__header {
+    flex-direction: row;
+  }
+}

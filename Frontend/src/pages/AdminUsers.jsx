@@ -100,7 +100,8 @@ export default function AdminUsers() {
     setPortsErr(null)
     try {
       const list = await fetchPorts()
-      setPorts(Array.isArray(list) ? list : [])
+      const active = (Array.isArray(list) ? list : []).filter((p) => p.isActive !== false)
+      setPorts(active)
     } catch (e) {
       setPortsErr(e?.message || 'Failed to load ports')
       setPorts([])

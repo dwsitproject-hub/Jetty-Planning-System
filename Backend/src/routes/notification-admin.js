@@ -10,12 +10,8 @@ import {
   getEventLabel,
 } from '../lib/notification-events.js';
 import { isValidRecipientEmail } from '../lib/notification-email-worker.js';
-import {
-  getFromAddress,
-  getSmtpEnvStatus,
-  finalizeSmtpTransport,
-  getSmtpTransport,
-} from '../lib/smtp-config.js';
+import { getFromAddress, getSmtpEnvStatus, isSmtpSendingConfigured, getEffectiveSmtpConfig } from '../lib/smtp-config.js';
+import { sendSmtpMail } from '../lib/smtp-send.js';
 import { loadAllEventSettings } from '../lib/notification-recipients.js';
 import {
   getSlaEmailTemplateSampleVars,
@@ -233,8 +229,8 @@ router.post('/events/:eventKey/templates/email/test', async (req, res) => {
       return res.status(400).json({ error: 'Your user account has no valid email address' });
     }
 
-    const smtp = await getSmtpTransport(pool);
-    if (!smtp) {
+    const smtpCfg = await getEffectiveSmtpConfig(pool);
+    if (!isSmtpSendingConfigured(smtpCfg)) {
       return res.status(400).json({ error: 'SMTP not configured — set SMTP_* in Backend/.env on the API host' });
     }
 
@@ -243,7 +239,7 @@ router.post('/events/:eventKey/templates/email/test', async (req, res) => {
     const subject = `[TEST] ${rendered.subject}`;
 
     try {
-      const info = await smtp.sendMail({ from, to, subject, text: rendered.text });
+      const info = await sendSmtpMail(pool, { from, to, subject, text: rendered.text });
       await recordTemplateTestDelivery(pool, {
         userId: req.userId,
         eventKey,
@@ -284,8 +280,6 @@ router.post('/events/:eventKey/templates/email/test', async (req, res) => {
         actorUserId: req.userId ?? null,
       }).catch(() => {});
       res.status(502).json({ error: msg });
-    } finally {
-      await finalizeSmtpTransport(smtp);
     }
   } catch (err) {
     if (err?.status === 404) return res.status(404).json({ error: err.message });
@@ -451,8 +445,8 @@ router.post('/smtp/test', async (req, res) => {
   if (!to || !isValidRecipientEmail(to)) {
     return res.status(400).json({ error: 'Your user account has no valid email address' });
   }
-  const smtp = await getSmtpTransport(pool);
-  if (!smtp) {
+  const smtpCfg = await getEffectiveSmtpConfig(pool);
+  if (!isSmtpSendingConfigured(smtpCfg)) {
     return res.status(400).json({ error: 'SMTP not configured — set SMTP_* in Backend/.env on the API host' });
   }
   const from = await getFromAddress(pool);
@@ -460,7 +454,7 @@ router.post('/smtp/test', async (req, res) => {
   const text =
     'This is a test email from Jetty Planning System notification settings.\n\nIf you received this, SMTP is configured correctly.';
   try {
-    const info = await smtp.sendMail({ from, to, subject, text });
+    const info = await sendSmtpMail(pool, { from, to, subject, text });
     const correlationId = `smtp_test:${req.userId}:${Date.now()}`;
     const ins = await pool.query(
       `INSERT INTO notifications (user_id, port_id, event_key, kind, title, body, payload, correlation_id)
@@ -502,8 +496,6 @@ router.post('/smtp/test', async (req, res) => {
       actorUserId: req.userId ?? null,
     }).catch(() => {});
     res.status(502).json({ error: msg });
-  } finally {
-    await finalizeSmtpTransport(smtp);
   }
 });
 

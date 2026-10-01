@@ -97,7 +97,7 @@ export async function resolveMasterVesselForIntegration(client, { hubCode, vesse
   if (hub) {
     const r = await client.query(
       `SELECT id, hub_code, vessel_name, vessel_gross_tonnage, vessel_draft, vessel_length_overall
-       FROM master_vessels WHERE hub_code = $1 AND deleted_at IS NULL`,
+       FROM master_vessels WHERE hub_code = $1 AND deleted_at IS NULL AND is_active = TRUE`,
       [hub]
     );
     if (r.rows.length === 0) return { error: `No master vessel found for vessel_hub_code "${hub}"` };
@@ -112,7 +112,7 @@ export async function resolveMasterVesselForIntegration(client, { hubCode, vesse
   if (!name) return { error: 'vessel_name is required when vessel_hub_code is omitted' };
   const r = await client.query(
     `SELECT id, hub_code, vessel_name, vessel_gross_tonnage, vessel_draft, vessel_length_overall
-     FROM master_vessels WHERE LOWER(vessel_name) = LOWER($1) AND deleted_at IS NULL`,
+     FROM master_vessels WHERE LOWER(vessel_name) = LOWER($1) AND deleted_at IS NULL AND is_active = TRUE`,
     [name]
   );
   if (r.rows.length === 0) return { error: `No master vessel matches vessel_name "${name}"` };

@@ -108,8 +108,8 @@ export function buildCommoditySyncPlan(hubRecords, localRows, metricIdByCode) {
   const byName = new Map();
   for (const row of localRows ?? []) {
     if (row?.hub_code) byHubCode.set(String(row.hub_code), row);
-    if (row?.short_name) byShortName.set(shortNameKey(row.short_name), row);
-    if (row?.name) byName.set(nameKey(row.name), row);
+    if (!row?.hub_code && row?.short_name) byShortName.set(shortNameKey(row.short_name), row);
+    if (!row?.hub_code && row?.name) byName.set(nameKey(row.name), row);
   }
 
   const items = [];

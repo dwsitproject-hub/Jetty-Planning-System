@@ -23,6 +23,10 @@ export function createPort({
   scheduleTimezone,
   operationalDayStart,
   allowMultiJetyBerthing,
+  unlocode,
+  country,
+  isActive,
+  hubCode,
 } = {}) {
   return apiPost('/ports', {
     name,
@@ -30,18 +34,36 @@ export function createPort({
     scheduleTimezone: bodyScheduleTimezone(scheduleTimezone),
     operationalDayStart: bodyOperationalDayStart(operationalDayStart) ?? '06:00:00',
     allowMultiJetyBerthing: allowMultiJetyBerthing === true,
+    unlocode: unlocode ?? null,
+    country: country ?? null,
+    isActive: isActive !== false,
+    hubCode: hubCode ?? null,
   })
 }
 
 export function updatePortApi(
   id,
-  { name, description, scheduleTimezone, operationalDayStart, allowMultiJetyBerthing } = {}
+  {
+    name,
+    description,
+    scheduleTimezone,
+    operationalDayStart,
+    allowMultiJetyBerthing,
+    unlocode,
+    country,
+    isActive,
+    hubCode,
+  } = {}
 ) {
   const body = {
     name,
     description: description ?? null,
     scheduleTimezone: bodyScheduleTimezone(scheduleTimezone),
     allowMultiJetyBerthing: allowMultiJetyBerthing === true,
+    unlocode: unlocode ?? null,
+    country: country ?? null,
+    isActive: isActive !== false,
+    hubCode: hubCode ?? null,
   }
   const opDay = bodyOperationalDayStart(operationalDayStart)
   if (opDay != null) body.operationalDayStart = opDay

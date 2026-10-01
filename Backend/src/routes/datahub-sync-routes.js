@@ -8,6 +8,7 @@ import {
   entityActivityLabel,
   entityPageKey,
   entitySyncErrorLabel,
+  formatDataHubSyncFailure,
   DATAHUB_ENTITY_TYPES,
 } from '../lib/datahub-master-sync-config.js';
 import { pullAndStageEntity, applyStagedEntitySyncRun } from '../lib/datahub-master-stage.js';
@@ -98,7 +99,8 @@ export function registerDataHubSyncRoutes(router, { entityType, mountPath }) {
       res.status(201).json({ run: toRun(runRow.rows[0]), summary });
     } catch (e) {
       await updateDataHubSyncHealth(pool, { ok: false, error: e?.message });
-      return res.status(502).json({ error: e?.message || entitySyncErrorLabel(entityType) });
+      const { httpStatus, error, hint } = formatDataHubSyncFailure(entityType, e);
+      return res.status(httpStatus).json({ error: error || entitySyncErrorLabel(entityType), hint });
     }
   });
 

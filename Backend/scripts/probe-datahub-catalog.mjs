@@ -10,6 +10,7 @@ import {
   fetchAllSyncRecords,
   normalizeHubIncoterm,
   normalizeHubCommodity,
+  normalizeHubPortMaster,
 } from '../src/lib/datahub-client.js';
 
 function cfgFromEnv() {
@@ -25,7 +26,7 @@ function cfgFromEnv() {
 
 async function main() {
   const cfg = cfgFromEnv();
-  for (const slug of ['incoterm', 'commodity']) {
+  for (const slug of ['incoterm', 'commodity', 'port_master']) {
     const catalog = await fetchEntityCatalog(cfg, slug);
     console.log('\n=== catalog', slug, '===');
     console.log(JSON.stringify(catalog, null, 2));
@@ -36,6 +37,9 @@ async function main() {
   const cmd = await fetchAllSyncRecords(cfg, 'commodity', normalizeHubCommodity);
   console.log('\n=== sync commodity count', cmd.length, 'sample ===');
   console.log(JSON.stringify(cmd.slice(0, 3), null, 2));
+  const ports = await fetchAllSyncRecords(cfg, 'port_master', normalizeHubPortMaster);
+  console.log('\n=== sync port_master count', ports.length, 'sample ===');
+  console.log(JSON.stringify(ports.slice(0, 3), null, 2));
 }
 
 main().catch((e) => {

@@ -206,6 +206,31 @@ export function hubCommodityTypeForPush(commodityType) {
   return commodityType === 'Solid' ? 'solid' : 'liquid';
 }
 
+function hubReferenceId(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'object') {
+    return str(raw.id ?? raw.recordId ?? raw.code);
+  }
+  return str(raw);
+}
+
+/** DHM port_master → local ports (operating site). */
+export function normalizeHubPortMaster(record) {
+  const data = record?.data && typeof record.data === 'object' ? record.data : null;
+  if (!data) return null;
+  const name = str(data.name ?? data.Name);
+  if (!name) return null;
+  const isActive = data.is_active === false || data.isActive === false ? false : true;
+  const values = {
+    name,
+    unlocode: str(data.unlocode ?? data.UNLOCODE),
+    country: str(data.country),
+    is_active: isActive,
+    hub_site_id: hubReferenceId(data.site_id ?? data.siteId),
+  };
+  return hubRecordEnvelope(record, values);
+}
+
 /** DHM commodity → local si_commodities columns (before JPS-only defaults). */
 export function normalizeHubCommodity(record) {
   const data = record?.data && typeof record.data === 'object' ? record.data : null;
@@ -224,12 +249,13 @@ export function normalizeHubCommodity(record) {
 }
 
 /**
- * @param {string} entityType vessel | incoterm | commodity
+ * @param {string} entityType vessel | incoterm | commodity | port_master
  */
 export function normalizeHubRecord(entityType, record) {
   const t = String(entityType || '').toLowerCase();
   if (t === 'incoterm') return normalizeHubIncoterm(record);
   if (t === 'commodity') return normalizeHubCommodity(record);
+  if (t === 'port_master') return normalizeHubPortMaster(record);
   return normalizeHubVessel(record);
 }
 

@@ -15,7 +15,7 @@ const VALID_UNITS = ['MT', 'KL'];
 
 async function listCommodityShortNames(db) {
   const r = await db.query(
-    `SELECT short_name FROM si_commodities WHERE deleted_at IS NULL ORDER BY short_name`
+    `SELECT short_name FROM si_commodities WHERE deleted_at IS NULL AND is_active = TRUE ORDER BY short_name`
   );
   return r.rows.map((row) => row.short_name);
 }

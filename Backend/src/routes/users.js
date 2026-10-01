@@ -188,6 +188,7 @@ router.get('/', async (req, res) => {
      LEFT JOIN ports p
        ON p.id = up.port_id
       AND p.deleted_at IS NULL
+      AND p.is_active IS TRUE
      WHERE u.deleted_at IS NULL
      GROUP BY u.id
      ORDER BY u.username ASC`
@@ -396,7 +397,7 @@ router.put('/:id/ports', async (req, res) => {
 
   if (normalized.length > 0) {
     const ports = await pool.query(
-      `SELECT id FROM ports WHERE id = ANY($1::bigint[]) AND deleted_at IS NULL`,
+      `SELECT id FROM ports WHERE id = ANY($1::bigint[]) AND deleted_at IS NULL AND is_active IS TRUE`,
       [normalized]
     );
     if (ports.rows.length !== normalized.length) {

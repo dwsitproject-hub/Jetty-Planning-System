@@ -15,7 +15,7 @@ const MASTER_SECTIONS = [
     titleKey: 'masterSectionSiteTitle',
     hintKey: 'masterSectionSiteHint',
     items: [
-      { path: '/master/port', titleKey: 'masterHubPortTitle', descKey: 'masterHubPortDesc', badgeKey: 'masterBadgeSite', badgeKind: 'site', sourceKind: 'local' },
+      { path: '/master/port', titleKey: 'masterHubPortTitle', descKey: 'masterHubPortDesc', badgeKey: 'masterBadgeSite', badgeKind: 'site', sourceKind: 'datahub' },
     ],
   },
   {

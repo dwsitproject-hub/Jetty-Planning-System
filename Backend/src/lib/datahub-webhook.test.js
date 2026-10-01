@@ -61,6 +61,25 @@ describe('datahub-webhook', () => {
     assert.equal(hub.values.code, 'CIF');
   });
 
+  it('hubRecordFromWebhookPayload maps port_master data', () => {
+    const payload = {
+      recordId: 'uuid-port',
+      version: 3,
+      data: {
+        code: 'PORT-0001',
+        name: 'Bontang',
+        unlocode: 'IDBTG',
+        country: 'Indonesia',
+        site_id: 'SITE-0001',
+        is_active: true,
+      },
+    };
+    const hub = hubRecordFromWebhookPayload(payload, 'record.updated', 'port_master');
+    assert.equal(hub.hubCode, 'PORT-0001');
+    assert.equal(hub.values.name, 'Bontang');
+    assert.equal(hub.values.hub_site_id, 'SITE-0001');
+  });
+
   it('processInboundWebhook returns duplicate for same delivery_id', async () => {
     process.env.DHM_WEBHOOK_ENABLED = 'true';
     process.env.DHM_WEBHOOK_SECRET = SECRET;

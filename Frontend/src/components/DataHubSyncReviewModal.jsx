@@ -25,6 +25,10 @@ const FIELD_LABELS = {
   kl_to_mt_factor: 'KL→MT factor',
   default_metric_id: 'Default unit',
   hs_code: 'HS code',
+  unlocode: 'UN/LOCODE',
+  country: 'Country',
+  is_active: 'Active',
+  hub_site_id: 'Hub site (stored only)',
 }
 
 function displayValue(v) {

@@ -147,6 +147,107 @@ describe('buildScheduleSegments planned dedup', () => {
   })
 })
 
+describe('buildScheduleSegments color state', () => {
+  it('tags purpose tone: Loading = load, Unloading = unload, unknown = neutral', () => {
+    const plan = [
+      row({ vesselId: 'a', shipmentPlanId: 1, purpose: 'Loading', plannedEtbDateTime: JUN_21, etbDateTime: JUN_21, jetty: '1A' }),
+      row({ vesselId: 'b', shipmentPlanId: 2, purpose: 'Unloading', plannedEtbDateTime: JUN_21, etbDateTime: JUN_21, jetty: '2A' }),
+      row({ vesselId: 'c', shipmentPlanId: 3, purpose: '', plannedEtbDateTime: JUN_21, etbDateTime: JUN_21, jetty: '3A' }),
+    ]
+    const segs = buildScheduleSegments(plan, WINDOW_START, WINDOW_END, JUN_24)
+    const tone = (jetty) => segs.find((s) => s.jettyId === jetty).purposeTone
+    assert.equal(tone('1A'), 'load')
+    assert.equal(tone('2A'), 'unload')
+    assert.equal(tone('3A'), 'neutral')
+  })
+
+  it('flags a planned bar with no ETC as needs-update (emptyEtc)', () => {
+    const plan = [
+      row({ shipmentPlanId: 14, vesselId: 'op-100', plannedEtbDateTime: JUN_21, etbDateTime: JUN_21 }),
+    ]
+    const seg = buildScheduleSegments(plan, WINDOW_START, WINDOW_END, JUN_24).find(
+      (s) => s.layer === 'planned'
+    )
+    assert.equal(seg.needsUpdate, true)
+    assert.deepEqual(seg.needsUpdateReasons, ['emptyEtc'])
+  })
+
+  it('does not flag a planned bar once ETC is entered', () => {
+    const plan = [
+      row({
+        shipmentPlanId: 14,
+        vesselId: 'op-100',
+        plannedEtbDateTime: JUN_21,
+        etbDateTime: JUN_21,
+        estimatedCompletionDateTime: new Date('2026-06-27T08:00:00').toISOString(),
+      }),
+    ]
+    const seg = buildScheduleSegments(plan, WINDOW_START, WINDOW_END, JUN_24).find(
+      (s) => s.layer === 'planned'
+    )
+    assert.equal(seg.needsUpdate, false)
+    assert.deepEqual(seg.needsUpdateReasons, [])
+  })
+
+  it('flags an actual bar whose ETC has passed with no completion (etcPassed)', () => {
+    const plan = [
+      row({
+        shipmentPlanId: 14,
+        vesselId: 'op-100',
+        operationId: 100,
+        tbDateTime: JUN_21,
+        estimatedCompletionDateTime: new Date('2026-06-22T08:00:00').toISOString(),
+      }),
+    ]
+    const seg = buildScheduleSegments(plan, WINDOW_START, WINDOW_END, JUN_24).find(
+      (s) => s.layer === 'actual'
+    )
+    assert.equal(seg.needsUpdate, true)
+    assert.deepEqual(seg.needsUpdateReasons, ['etcPassed'])
+  })
+
+  it('does not flag etcPassed once an actual completion is recorded', () => {
+    const plan = [
+      row({
+        shipmentPlanId: 14,
+        vesselId: 'op-100',
+        operationId: 100,
+        tbDateTime: JUN_21,
+        estimatedCompletionDateTime: new Date('2026-06-22T08:00:00').toISOString(),
+        actualCompletionDateTime: new Date('2026-06-23T08:00:00').toISOString(),
+      }),
+    ]
+    const seg = buildScheduleSegments(plan, WINDOW_START, WINDOW_END, JUN_24).find(
+      (s) => s.layer === 'actual'
+    )
+    assert.equal(seg.needsUpdate, false)
+  })
+
+  it('does not flag a sailed vessel', () => {
+    const plan = [
+      row({
+        shipmentPlanId: 14,
+        vesselId: 'op-100',
+        operationId: 100,
+        status: 'SAILED',
+        tbDateTime: JUN_21,
+        estimatedCompletionDateTime: new Date('2026-06-22T08:00:00').toISOString(),
+      }),
+    ]
+    const seg = buildScheduleSegments(plan, WINDOW_START, WINDOW_END, JUN_24).find(
+      (s) => s.layer === 'actual'
+    )
+    assert.equal(seg.needsUpdate, false)
+  })
+
+  it('never draws a bar for a vessel with no jetty (it belongs on the unallocated rail)', () => {
+    const plan = [
+      row({ jetty: '', shipmentPlanId: 14, vesselId: 'op-100', plannedEtbDateTime: JUN_21, etbDateTime: JUN_21 }),
+    ]
+    assert.equal(buildScheduleSegments(plan, WINDOW_START, WINDOW_END, JUN_24).length, 0)
+  })
+})
+
 describe('buildScheduleSegments actual ops dedup', () => {
   const TB_OLD = new Date('2026-06-01T08:00:00').toISOString()  // old SAILED docking_start_time
   const TB_NEW = new Date('2026-06-19T16:40:00').toISOString()  // real current TB

@@ -26,7 +26,7 @@ export function toNamedResponse(row) {
 
 export async function listTradeTerms(db) {
   const r = await db.query(
-    `SELECT id, code FROM si_trade_terms WHERE deleted_at IS NULL ORDER BY sort_order, code`
+    `SELECT id, code FROM si_trade_terms WHERE deleted_at IS NULL AND is_active = TRUE ORDER BY sort_order, code`
   );
   return r.rows.map((row) => toTermResponse({ id: row.id, code: row.code }));
 }
@@ -50,7 +50,7 @@ export async function resolveTradeTermByCode(db, code) {
   const cleaned = String(code ?? '').trim().toUpperCase();
   if (!cleaned) return null;
   const r = await db.query(
-    `SELECT id, code FROM si_trade_terms WHERE UPPER(code) = $1 AND deleted_at IS NULL LIMIT 1`,
+    `SELECT id, code FROM si_trade_terms WHERE UPPER(code) = $1 AND deleted_at IS NULL AND is_active = TRUE LIMIT 1`,
     [cleaned]
   );
   return r.rows[0] ?? null;
@@ -58,7 +58,7 @@ export async function resolveTradeTermByCode(db, code) {
 
 export async function listValidTradeTermCodes(db) {
   const r = await db.query(
-    `SELECT code FROM si_trade_terms WHERE deleted_at IS NULL ORDER BY code`
+    `SELECT code FROM si_trade_terms WHERE deleted_at IS NULL AND is_active = TRUE ORDER BY code`
   );
   return r.rows.map((row) => row.code);
 }

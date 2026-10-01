@@ -304,7 +304,10 @@ router.post('/shipping-instructions', async (req, res) => {
     return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', errors);
   }
 
-  const portOk = await pool.query(`SELECT 1 FROM ports WHERE id = $1 AND deleted_at IS NULL`, [value.portId]);
+  const portOk = await pool.query(
+    `SELECT 1 FROM ports WHERE id = $1 AND deleted_at IS NULL AND is_active IS TRUE`,
+    [value.portId]
+  );
   if (portOk.rows.length === 0) {
     return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
       { field: 'port_id', issue: 'unknown port' },
@@ -341,7 +344,7 @@ router.post('/shipping-instructions', async (req, res) => {
     `SELECT c.id, c.short_name, c.commodity_type, c.default_metric_id, dm.code AS default_metric_code
      FROM si_commodities c
      LEFT JOIN metric dm ON dm.id = c.default_metric_id AND dm.deleted_at IS NULL
-     WHERE UPPER(c.short_name) = ANY($1) AND c.deleted_at IS NULL`,
+     WHERE UPPER(c.short_name) = ANY($1) AND c.deleted_at IS NULL AND c.is_active = TRUE`,
     [cargoTypes]
   );
   const commodityByShortName = new Map(cm.rows.map((r) => [r.short_name.toUpperCase(), r]));
@@ -354,7 +357,7 @@ router.post('/shipping-instructions', async (req, res) => {
   ];
   if (unknownTypes.length > 0) {
     const valid = await pool.query(
-      `SELECT short_name FROM si_commodities WHERE deleted_at IS NULL ORDER BY short_name`
+      `SELECT short_name FROM si_commodities WHERE deleted_at IS NULL AND is_active = TRUE ORDER BY short_name`
     );
     return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
       {

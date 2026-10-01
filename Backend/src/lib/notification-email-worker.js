@@ -2,7 +2,8 @@
  * Polls notification_deliveries (email, queued), sends via SMTP when configured.
  */
 import { pool } from '../db.js';
-import { finalizeSmtpTransport, getFromAddress, getSmtpTransport } from './smtp-config.js';
+import { getFromAddress, getEffectiveSmtpConfig, isSmtpSendingConfigured } from './smtp-config.js';
+import { sendSmtpMail } from './smtp-send.js';
 import {
   isNotificationEmailEnabled,
   loadNotificationTemplate,
@@ -55,8 +56,8 @@ export async function processNotificationEmailQueueOnce(limit = 15) {
     const text = renderTemplate(emailTpl.body_template, strVars);
     const to = row.user_email;
 
-    const smtp = await getSmtpTransport(pool);
-    if (!smtp) {
+    const smtpCfg = await getEffectiveSmtpConfig(pool);
+    if (!isSmtpSendingConfigured(smtpCfg)) {
       await pool.query(
         `UPDATE notification_deliveries
          SET status = 'skipped', error_text = $2, updated_at = NOW()
@@ -87,7 +88,7 @@ export async function processNotificationEmailQueueOnce(limit = 15) {
         continue;
       }
 
-      const info = await smtp.sendMail({
+      const info = await sendSmtpMail(pool, {
         from,
         to: toAddress,
         subject,
@@ -134,8 +135,6 @@ export async function processNotificationEmailQueueOnce(limit = 15) {
         [row.delivery_id, msg.slice(0, 2000)]
       );
       processed += 1;
-    } finally {
-      await finalizeSmtpTransport(smtp);
     }
   }
 

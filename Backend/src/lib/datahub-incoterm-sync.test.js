@@ -38,6 +38,21 @@ describe('datahub-incoterm-sync', () => {
     assert.equal(items[0].diffKind, 'changed');
     assert.ok(diffIncotermFields(local[0], hub[0].values).description);
   });
+
+  it('does not rematch a term that already has a different Hub Code after a code rename', () => {
+    const hub = [
+      normalizeHubIncoterm({
+        id: 'uuid-2',
+        version: 1,
+        data: { code: 'INC-0001', short_name: 'FOB', long_name: 'Free On Board' },
+      }),
+    ];
+    const local = [{ id: 8, hub_code: 'INC-0099', code: 'FOB', long_name: 'Free On Board' }];
+    const { items, summary } = buildIncotermSyncPlan(hub, local);
+    assert.equal(summary.newCount, 1);
+    assert.equal(items[0].diffKind, 'new');
+    assert.equal(items[0].localId, null);
+  });
 });
 
 describe('datahub-commodity-sync', () => {
@@ -110,6 +125,36 @@ describe('datahub-commodity-sync', () => {
     assert.equal(items[0].values.short_name, 'CPO');
     assert.equal(items[0].values.commodity_type, 'Solid');
     assert.equal(items[0].values.default_metric_id, 2);
+  });
+
+  it('does not rematch a commodity that already has a different Hub Code', () => {
+    const hub = [
+      normalizeHubCommodity({
+        id: 'u3',
+        version: 1,
+        data: {
+          code: 'CMD-0001',
+          long_name: 'CRUDE PALM OIL',
+          short_name: 'CPO',
+          type: 'liquid',
+          uom: 'KL',
+        },
+      }),
+    ];
+    const local = [
+      {
+        id: 11,
+        hub_code: 'CMD-9999',
+        name: 'CRUDE PALM OIL',
+        short_name: 'CPO',
+        commodity_type: 'Liquid',
+        default_metric_id: 1,
+      },
+    ];
+    const { items, summary } = buildCommoditySyncPlan(hub, local, { KL: 1, MT: 2 });
+    assert.equal(summary.newCount, 1);
+    assert.equal(items[0].diffKind, 'new');
+    assert.equal(items[0].localId, null);
   });
 
   it('expandCommodityValues prefers hub type and uom over local defaults', () => {

@@ -75,7 +75,7 @@ For the vibe to feel right, the In-App notification needs to be **real-time**. T
 
 **Admin configuration (migration `120_workflow_notification_event_settings.sql`):** Shipment Plan Approval and Clearance Sign Off Request appear in **Admin → Notification Settings**. Each event supports **Enabled**, **In-app**, **Email**, **Recipients** (user or role, optional port scope), and **editable email templates** (same Save / Reset / Send test / Preview as SLA). With no recipients configured, workflow events send nothing. SLA events unchanged (at-berth fallback when recipient list empty). **Send test email** in the page header verifies SMTP to the logged-in user.
 
-**SMTP (env only, migration `121_drop_smtp_config.sql`):** Set on the API host `Backend/.env` — `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` / `SMTP_PASSWORD`, `MAIL_FROM` / `SMTP_FROM`, optional `SMTP_POST_SEND_DELAY_MS`, `SMTP_HUB_PARITY`. Not editable in Admin UI.
+**SMTP (env only, migration `121_drop_smtp_config.sql`):** Set on the API host `Backend/.env` — `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` / `SMTP_PASSWORD`, `MAIL_FROM` / `SMTP_FROM`, optional `SMTP_POST_SEND_DELAY_MS` (applied **before SMTP QUIT** in `smtp-send.js`, not after nodemailer `sendMail`), optional `SMTP_HUB_PARITY` (connection option shape only). Not editable in Admin UI.
 
 **Frontend:** `NotificationBell` in the top bar (`Layout.jsx`), polling unread count (~45s), dropdown list, Luxon relative times, EN/ID strings in `locales/*/notifications.json`. **Phase 1 real-time:** polling only; SSE/WebSocket deferred.
 

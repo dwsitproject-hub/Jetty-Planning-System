@@ -6,6 +6,10 @@ import {
   rowSupportsActualDates,
   buildGanttDragProposal,
   buildArrivalPayloadFromProposal,
+  buildCandidateFromProposal,
+  buildRailDropProposal,
+  etbFromTrackPointer,
+  snapAbsoluteMs,
   GANTT_DRAG_SNAP_MS,
 } from './ganttDragProposal.js'
 
@@ -225,5 +229,121 @@ describe('buildArrivalPayloadFromProposal', () => {
     const payload = buildArrivalPayloadFromProposal(p, 'estimation', planOnlyRow, 'allocation-plan')
     assert.equal(payload.etaDateTime, new Date(ETA + H).toISOString())
     assert.equal('etbDateTime' in payload, false)
+  })
+})
+
+describe('snapAbsoluteMs', () => {
+  it('snaps a timestamp to the nearest 30 minutes', () => {
+    const t = new Date('2026-07-01T10:14:00Z').getTime()
+    assert.equal(snapAbsoluteMs(t), new Date('2026-07-01T10:00:00Z').getTime())
+    const u = new Date('2026-07-01T10:16:00Z').getTime()
+    assert.equal(snapAbsoluteMs(u), new Date('2026-07-01T10:30:00Z').getTime())
+  })
+})
+
+describe('etbFromTrackPointer', () => {
+  const windowStartMs = new Date('2026-07-01T00:00:00Z').getTime()
+  const totalMs = 10 * 24 * H
+
+  it('maps the pointer position over the track to a snapped ETB', () => {
+    // halfway across the track = 5 days into the window
+    const ms = etbFromTrackPointer({
+      clientX: 500,
+      trackLeft: 0,
+      trackWidth: 1000,
+      windowStartMs,
+      totalMs,
+    })
+    assert.equal(ms, windowStartMs + 5 * 24 * H)
+  })
+
+  it('accounts for the track offset and clamps to the window', () => {
+    const left = etbFromTrackPointer({
+      clientX: 50,
+      trackLeft: 200,
+      trackWidth: 1000,
+      windowStartMs,
+      totalMs,
+    })
+    assert.equal(left, windowStartMs)
+    const right = etbFromTrackPointer({
+      clientX: 5000,
+      trackLeft: 200,
+      trackWidth: 1000,
+      windowStartMs,
+      totalMs,
+    })
+    assert.equal(right, windowStartMs + totalMs)
+  })
+
+  it('returns null for a track with no size', () => {
+    assert.equal(
+      etbFromTrackPointer({ clientX: 10, trackLeft: 0, trackWidth: 0, windowStartMs, totalMs }),
+      null
+    )
+  })
+})
+
+describe('buildRailDropProposal', () => {
+  const railRow = { shipmentPlanId: 14, operationId: null, vesselName: 'MV Alpha' }
+
+  it('sets jetty and ETB only, never ETC', () => {
+    const p = buildRailDropProposal({ row: railRow, jettyId: '2A', etbMs: ETB })
+    assert.deepEqual(p.jettyChange, { from: null, to: '2A' })
+    assert.deepEqual(
+      p.estimation.map((c) => [c.field, c.toMs]),
+      [['etbDateTime', ETB]]
+    )
+    assert.deepEqual(p.actual, [])
+    assert.deepEqual(p.always, [])
+    assert.equal(p.needsChoice, false)
+    assert.equal(p.canEstimation, true)
+  })
+
+  it('builds a plan-only payload with jetty and ETB and no ETC', () => {
+    const p = buildRailDropProposal({ row: railRow, jettyId: '2A', etbMs: ETB })
+    const payload = buildArrivalPayloadFromProposal(p, 'estimation', railRow, 'allocation-plan')
+    assert.equal(payload.shipmentPlanId, 14)
+    assert.equal(payload.operationId, undefined)
+    assert.equal(payload.jetty, '2A')
+    assert.equal(payload.etbDateTime, new Date(ETB).toISOString())
+    assert.equal('estimatedCompletionDateTime' in payload, false)
+    assert.equal(payload.activityLogPage, 'allocation-plan')
+  })
+
+  it('omits jetty when the vessel already has that jetty and only ETB is missing', () => {
+    const row = { ...railRow, jetty: '2A' }
+    const p = buildRailDropProposal({ row, jettyId: '2A', etbMs: ETB })
+    assert.equal(p.jettyChange, null)
+    const payload = buildArrivalPayloadFromProposal(p, 'estimation', row, 'allocation-plan')
+    assert.equal('jetty' in payload, false)
+    assert.equal(payload.etbDateTime, new Date(ETB).toISOString())
+  })
+
+  it('uses the operation when the row has one', () => {
+    const row = { ...railRow, operationId: 9 }
+    const p = buildRailDropProposal({ row, jettyId: '3B', etbMs: ETB })
+    const payload = buildArrivalPayloadFromProposal(p, 'estimation', row, 'allocation-plan')
+    assert.equal(payload.operationId, 9)
+    assert.equal(payload.shipmentPlanId, undefined)
+  })
+
+  it('carries the current ETB as the "from" value when the row has one', () => {
+    const row = { ...railRow, etbDateTime: new Date(ETB - H).toISOString() }
+    const p = buildRailDropProposal({ row, jettyId: '2A', etbMs: ETB })
+    assert.equal(p.estimation[0].fromMs, ETB - H)
+  })
+
+  it('previews the candidate row for overlap validation', () => {
+    const p = buildRailDropProposal({ row: railRow, jettyId: '2A', etbMs: ETB })
+    const candidate = buildCandidateFromProposal(p, 'estimation', railRow)
+    assert.equal(candidate.jetty, '2A')
+    assert.equal(candidate.etbDateTime, new Date(ETB).toISOString())
+  })
+
+  it('returns null for missing input', () => {
+    assert.equal(buildRailDropProposal({ row: null, jettyId: '2A', etbMs: ETB }), null)
+    assert.equal(buildRailDropProposal({ row: railRow, jettyId: '', etbMs: ETB }), null)
+    assert.equal(buildRailDropProposal({ row: railRow, jettyId: '2A', etbMs: NaN }), null)
   })
 })

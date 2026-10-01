@@ -11,7 +11,7 @@ import {
   loadAdminOpsAlertSettings,
   saveAdminOpsAlertSettings,
 } from '../lib/admin-ops-alert-job.js';
-import { getSmtpTransport } from '../lib/smtp-config.js';
+import { getEffectiveSmtpConfig, isSmtpSendingConfigured } from '../lib/smtp-config.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 
 const router = express.Router();
@@ -21,8 +21,8 @@ const ACTIVITY_PAGE_KEY = 'admin';
 
 async function buildSettingsResponse() {
   const settings = await loadAdminOpsAlertSettings(pool);
-  const smtp = await getSmtpTransport(pool);
-  const smtpConfigured = Boolean(smtp);
+  const smtpCfg = await getEffectiveSmtpConfig(pool);
+  const smtpConfigured = isSmtpSendingConfigured(smtpCfg);
   return {
     emailAlertsEnabled: settings.emailAlertsEnabled,
     alertEmail: settings.alertEmail,

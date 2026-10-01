@@ -31,7 +31,7 @@ export function buildIncotermSyncPlan(hubRecords, localRows) {
   const byCode = new Map();
   for (const row of localRows ?? []) {
     if (row?.hub_code) byHubCode.set(String(row.hub_code), row);
-    if (row?.code) byCode.set(codeKey(row.code), row);
+    if (!row?.hub_code && row?.code) byCode.set(codeKey(row.code), row);
   }
 
   const items = [];

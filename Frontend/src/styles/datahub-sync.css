@@ -66,3 +66,32 @@
   columns: 3;
   font-size: 0.9em;
 }
+
+.datahub-field-cue {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.datahub-field-cue__icon {
+  flex: 0 0 auto;
+  color: var(--color-steel, #5b6b7a);
+  opacity: 0.85;
+}
+
+.datahub-field-cue__text {
+  min-width: 0;
+}
+
+.datahub-sync .visually-hidden,
+.datahub-field-cue .visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

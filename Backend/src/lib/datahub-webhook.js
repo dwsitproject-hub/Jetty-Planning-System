@@ -7,7 +7,7 @@ import { normalizeHubRecord } from './datahub-client.js';
 import { getEffectiveWebhookConfig, getEffectiveWebhookAutoApply, updateDataHubWebhookHealth } from './datahub-config.js';
 import { stageEntityFromHub, applyStagedEntitySyncRun } from './datahub-master-stage.js';
 
-const WEBHOOK_ENTITY_TYPES = new Set(['vessel', 'incoterm', 'commodity']);
+const WEBHOOK_ENTITY_TYPES = new Set(['vessel', 'incoterm', 'commodity', 'port_master']);
 
 /**
  * @param {string} secret

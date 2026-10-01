@@ -276,6 +276,8 @@ export default function useAllocationVisualizationData(profile = 'plan', portIdH
     selectedPortId,
     selectedPort,
     planViz,
+    list,
+    scheduleList,
     vesselById,
     scheduleListLive,
     berthIds,
