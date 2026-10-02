@@ -121,9 +121,12 @@ function validateSubmission(body) {
     else if (eta && etd.getTime() <= eta.getTime()) push('etd', 'must be after eta');
   }
 
-  const agentName = asTrimmedString(b.agent_name);
-  if (!agentName) push('agent_name', 'required');
-  else if (agentName.length > 200) push('agent_name', 'max length 200');
+  let agentName = null;
+  if (b.agent_name != null && b.agent_name !== '') {
+    agentName = asTrimmedString(b.agent_name);
+    if (!agentName) push('agent_name', 'invalid');
+    else if (agentName.length > 200) push('agent_name', 'max length 200');
+  }
 
   const agentContact = asTrimmedString(b.agent_contact);
   if (agentContact.length > 200) push('agent_contact', 'max length 200');
@@ -371,11 +374,20 @@ router.post('/shipping-instructions', async (req, res) => {
   }
   value.cargo = cargoResolved.cargo;
   const commodityByShortName = cargoResolved.commodityByShortName;
-  const commodityTypes = [
-    ...new Set(
-      value.cargo.map((c) => commodityByShortName.get(normalizeCargoShortName(c.cargoType)).commodity_type)
-    ),
-  ];
+  const commodityTypeSet = new Set();
+  for (const c of value.cargo) {
+    const commodityRow = commodityByShortName.get(normalizeCargoShortName(c.cargoType));
+    if (!commodityRow) {
+      return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
+        {
+          field: 'cargo',
+          issue: `could not resolve commodity for cargo line (${c.cargoType ?? 'unknown'})`,
+        },
+      ]);
+    }
+    commodityTypeSet.add(commodityRow.commodity_type);
+  }
+  const commodityTypes = [...commodityTypeSet];
   if (commodityTypes.length > 1) {
     return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
       { field: 'cargo', issue: 'all cargo lines must be the same commodity type (Solid or Liquid)' },
@@ -457,16 +469,18 @@ router.post('/shipping-instructions', async (req, res) => {
 
   // Agent: best-effort name match against master data; unmatched agents stay visible via plan remark.
   let agentId = null;
-  const ar = await pool.query(
-    `SELECT id FROM si_agents WHERE LOWER(name) = LOWER($1) AND deleted_at IS NULL ORDER BY id LIMIT 1`,
-    [value.agentName]
-  );
-  if (ar.rows.length > 0) agentId = Number(ar.rows[0].id);
+  if (value.agentName) {
+    const ar = await pool.query(
+      `SELECT id FROM si_agents WHERE LOWER(name) = LOWER($1) AND deleted_at IS NULL ORDER BY id LIMIT 1`,
+      [value.agentName]
+    );
+    if (ar.rows.length > 0) agentId = Number(ar.rows[0].id);
+  }
 
   const effectiveRequestedBy = value.requestedBy || key.partnerName;
   const remarkParts = [`Submitted via integration API by ${key.partnerName}`];
   if (effectiveRequestedBy) remarkParts.push(`Requested by: ${effectiveRequestedBy}`);
-  if (agentId == null) {
+  if (agentId == null && value.agentName) {
     remarkParts.push(`Agent: ${value.agentName}${value.agentContact ? ` (${value.agentContact})` : ''}`);
   } else if (value.agentContact) {
     remarkParts.push(`Agent contact: ${value.agentContact}`);

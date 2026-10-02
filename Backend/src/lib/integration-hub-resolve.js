@@ -31,12 +31,14 @@ export function validateIntegrationPortInput(portIdRaw, portHubCodeRaw) {
     push('port_hub_code', `max length ${PORT_HUB_CODE_MAX_LEN}`);
   }
 
-  if (!portHubCode && portId == null) {
-    push('port_hub_code', 'required when port_id is omitted');
-    push('port_id', 'required when port_hub_code is omitted');
+  if (portId != null) {
+    push('port_id', 'legacy port_id is not accepted; use port_hub_code');
+  }
+  if (!portHubCode) {
+    push('port_hub_code', 'required');
   }
 
-  return { errors, portId, portHubCode };
+  return { errors, portId: null, portHubCode };
 }
 
 /**
@@ -106,12 +108,14 @@ export function validateIntegrationCargoLineIdentifiers(cargoTypeRaw, cargoHubCo
     push(`cargo[${index}].cargo_type`, 'max length 100');
   }
 
-  if (!cargoHubCode && !cargoType) {
-    push(`cargo[${index}].cargo_hub_code`, 'required when cargo_type is omitted');
-    push(`cargo[${index}].cargo_type`, 'required when cargo_hub_code is omitted');
+  if (cargoType) {
+    push(`cargo[${index}].cargo_type`, 'legacy cargo_type is not accepted; use cargo_hub_code');
+  }
+  if (!cargoHubCode) {
+    push(`cargo[${index}].cargo_hub_code`, 'required');
   }
 
-  return { errors, cargoType, cargoHubCode };
+  return { errors, cargoType: null, cargoHubCode };
 }
 
 export async function listCommodityShortNamesForCatalog(db) {
@@ -250,7 +254,12 @@ export async function resolveCargoCommodities(db, cargoLines) {
   const commodityByShortName = new Map();
   for (const line of resolvedCargo) {
     const key = normalizeCargoShortName(line.cargoType);
-    const row = line.cargoHubCode ? byHub.get(line.cargoHubCode) : byShort.get(key);
+    // Resolved lines may echo hub_code from master even when partner sent cargo_type only;
+    // byHub is only prefetched from submitted hub codes, so prefer byShort (canonical short_name).
+    let row = byShort.get(key);
+    if (!row && line.cargoHubCode) {
+      row = byHub.get(line.cargoHubCode) ?? null;
+    }
     if (row) commodityByShortName.set(key, row);
   }
 

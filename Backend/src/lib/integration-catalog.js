@@ -1,5 +1,5 @@
 /**
- * Partner integration API — self-describing catalog (v5.2).
+ * Partner integration API — self-describing catalog (v5.3).
  * Mirrors the DataHub `GET /v1/catalog` pattern: lets partners discover which
  * entities they may call and their field contract at runtime, instead of
  * relying only on the static handoff doc.
@@ -11,11 +11,10 @@ import {
   listActiveCommodityHubCodes,
   listActivePortHubCodes,
   listCommoditiesForCatalog,
-  listCommodityShortNamesForCatalog,
   listPortsForCatalog,
 } from './integration-hub-resolve.js';
 
-export const INTEGRATION_CATALOG_VERSION = '5.2';
+export const INTEGRATION_CATALOG_VERSION = '5.3';
 
 const VALID_PURPOSES = ['Loading', 'Unloading'];
 const VALID_UNITS = ['MT', 'KL'];
@@ -38,11 +37,10 @@ function field(key, type, opts = {}) {
  * @param {import('pg').Pool} db
  */
 export async function buildIntegrationCatalog(db) {
-  const [tradeTermCodes, surveyorNames, cargoTypes, portHubCodes, commodityHubCodes, portReferenceRows, commodityReferenceRows] =
+  const [tradeTermCodes, surveyorNames, portHubCodes, commodityHubCodes, portReferenceRows, commodityReferenceRows] =
     await Promise.all([
       listValidTradeTermCodes(db),
       listValidSurveyorNames(db),
-      listCommodityShortNamesForCatalog(db),
       listActivePortHubCodes(db),
       listActiveCommodityHubCodes(db),
       listPortsForCatalog(db),
@@ -51,16 +49,10 @@ export async function buildIntegrationCatalog(db) {
 
   const cargoLineFields = [
     field('cargo_hub_code', 'STRING', {
+      required: true,
       maxLength: 50,
       enumValues: commodityHubCodes.length > 0 ? commodityHubCodes : null,
-      description:
-        'Preferred DHM/JPS commodity hub code. Sufficient alone when mapped. Required when cargo_type is omitted.',
-    }),
-    field('cargo_type', 'STRING', {
-      maxLength: 100,
-      enumValues: cargoTypes,
-      description:
-        'JPS commodity short name (case-insensitive). Required when cargo_hub_code is omitted.',
+      description: 'Required DHM/JPS commodity hub code. See GET /catalog/cargo-type referenceRows.',
     }),
     field('description', 'STRING', { maxLength: 500 }),
     field('tonnage', 'NUMBER', { required: true, description: 'Quantity, >= 0.' }),
@@ -89,7 +81,7 @@ export async function buildIntegrationCatalog(db) {
       path: '/shipping-instructions',
       methods: ['POST', 'GET', 'PATCH'],
       description:
-        'Submit a Shipping Instruction, poll enriched status (approval, schedule, milestones), and update PO/SO/document links while status is Pending. Port and commodity accept hub code (preferred) or legacy id/short_name — same pattern as vessel_hub_code / vessel_name.',
+        'Submit a Shipping Instruction, poll enriched status (approval, schedule, milestones), and update PO/SO/document links while status is Pending. Port, vessel, and commodity lines require DHM/JPS hub codes (v5.3).',
       fields: [
         field('external_reference', 'STRING', {
           required: true,
@@ -98,27 +90,29 @@ export async function buildIntegrationCatalog(db) {
         }),
         field('requested_by', 'STRING', { maxLength: 200 }),
         field('port_hub_code', 'STRING', {
+          required: true,
           maxLength: 50,
           enumValues: portHubCodes.length > 0 ? portHubCodes : null,
-          description:
-            'Preferred DHM/JPS port hub code. Sufficient alone when mapped. Required when port_id is omitted.',
-        }),
-        field('port_id', 'NUMBER', {
-          description: 'Legacy JPS port integer id. Required when port_hub_code is omitted.',
+          description: 'Required DHM/JPS port hub code. See GET /catalog/port referenceRows.',
         }),
         field('vessel_hub_code', 'STRING', {
+          required: true,
           maxLength: 50,
-          description: 'DataHub / JPS master vessel code. Sufficient alone for vessel identification.',
+          description:
+            'Required DataHub / JPS master vessel code. Optional vessel_name may be sent as a cross-check when hub is present.',
         }),
         field('vessel_name', 'STRING', {
           maxLength: 200,
-          description: 'Required when vessel_hub_code is omitted; must resolve to exactly one active master vessel.',
+          description: 'Optional cross-check when vessel_hub_code is sent; must match master (case-insensitive).',
         }),
         field('voyage_no', 'STRING', { maxLength: 50 }),
         field('purpose', 'STRING', { required: true, enumValues: VALID_PURPOSES }),
         field('eta', 'DATETIME', { required: true, description: 'ISO 8601 UTC.' }),
         field('etd', 'DATETIME', { description: 'ISO 8601 UTC. Must be after eta when provided.' }),
-        field('agent_name', 'STRING', { required: true, maxLength: 200 }),
+        field('agent_name', 'STRING', {
+          maxLength: 200,
+          description: 'Optional. When omitted or null, no agent is linked; partner name remains in plan remark.',
+        }),
         field('agent_contact', 'STRING', { maxLength: 200 }),
         field('trade_term', 'STRING', {
           patchable: true,
@@ -142,7 +136,7 @@ export async function buildIntegrationCatalog(db) {
           required: true,
           patchable: true,
           description:
-            'At least one cargo line on POST. Each line needs cargo_hub_code or cargo_type. On PATCH, identify lines with line_order or contract_no.',
+            'At least one cargo line on POST. Each line requires cargo_hub_code. On PATCH, identify lines with line_order or contract_no.',
           items: cargoLineFields,
         }),
       ],
@@ -218,7 +212,7 @@ export async function buildIntegrationCatalog(db) {
       path: null,
       methods: [],
       description:
-        'Informational only — not a REST resource. Map DHM hub codes to JPS port ids for shipping-instruction port_hub_code / port_id.',
+        'Informational only — not a REST resource. Map DHM hub codes for required shipping-instruction port_hub_code.',
       fields: [
         field('hub_code', 'STRING', { enumValues: portHubCodes.length > 0 ? portHubCodes : null }),
         field('jps_port_id', 'NUMBER', { description: 'JPS ports.id — see referenceRows.' }),
@@ -232,10 +226,10 @@ export async function buildIntegrationCatalog(db) {
       path: null,
       methods: [],
       description:
-        'Informational only — not a REST resource. Use cargo_hub_code on submit when you have DHM codes; else cargo_type = short_name.',
+        'Informational only — not a REST resource. Use hub_code values on POST cargo[].cargo_hub_code.',
       fields: [
         field('hub_code', 'STRING', { enumValues: commodityHubCodes.length > 0 ? commodityHubCodes : null }),
-        field('short_name', 'STRING', { enumValues: cargoTypes }),
+        field('short_name', 'STRING', { description: 'JPS display short name (informational; not accepted on POST).' }),
         field('jps_commodity_id', 'NUMBER', { description: 'JPS si_commodities.id — see referenceRows.' }),
       ],
       referenceRows: commodityReferenceRows,

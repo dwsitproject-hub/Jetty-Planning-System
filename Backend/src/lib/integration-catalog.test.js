@@ -31,9 +31,9 @@ function fakeDb() {
 }
 
 describe('integration-catalog', () => {
-  it('builds entities with live enum values (v5.2 hub fields)', async () => {
+  it('builds entities with live enum values (v5.3 hub-only POST)', async () => {
     const catalog = await buildIntegrationCatalog(fakeDb());
-    assert.equal(catalog.api_version, '5.2');
+    assert.equal(catalog.api_version, '5.3');
     assert.ok(catalog.count >= 8);
 
     const si = catalog.entities.find((e) => e.slug === 'shipping-instruction');
@@ -41,9 +41,12 @@ describe('integration-catalog', () => {
     assert.ok(si.fields.find((f) => f.key === 'port_hub_code'));
     const cargo = si.fields.find((f) => f.key === 'cargo');
     const cargoHub = cargo.items.find((f) => f.key === 'cargo_hub_code');
+    assert.equal(cargoHub.required, true);
     assert.deepEqual(cargoHub.enumValues, ['CMD-001']);
-    const cargoType = cargo.items.find((f) => f.key === 'cargo_type');
-    assert.deepEqual(cargoType.enumValues, ['CPO', 'PKE']);
+    assert.equal(cargo.items.find((f) => f.key === 'cargo_type'), undefined);
+    const portHub = si.fields.find((f) => f.key === 'port_hub_code');
+    assert.equal(portHub.required, true);
+    assert.equal(si.fields.find((f) => f.key === 'port_id'), undefined);
 
     const portEntity = catalog.entities.find((e) => e.slug === 'port');
     assert.ok(portEntity.referenceRows);

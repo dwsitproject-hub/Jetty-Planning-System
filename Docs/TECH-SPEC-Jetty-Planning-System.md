@@ -300,6 +300,14 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 **Schema:** Uses existing **`ports.hub_code`** (migration **128**) and **`si_commodities.hub_code`** (**124**) — no new migration.
 
+### 0.41 Partner hub-only POST + optional agent (v5.3) (2026-10-02)
+
+**POST `/shipping-instructions`:** **`port_hub_code`**, **`vessel_hub_code`**, and each **`cargo[].cargo_hub_code`** are **required**. Legacy **`port_id`**, **`cargo[].cargo_type`**, and **`vessel_name`** without hub return **400**. Optional **`vessel_name`** remains a cross-check when **`vessel_hub_code`** is sent. **`agent_name`** may be omitted or **`null`** (no master agent link; plan remark still records integration partner).
+
+**Bugfix (v5.2):** Commodity map when resolving **`cargo_type`-only** lines — fixed in **`resolveCargoCommodities`** (prefer **`byShort`** for map keys).
+
+**Catalog / header:** **`X-JPS-API-Version: 5.3`**, catalog **`api_version` 5.3** — hub-only field contract on **`shipping-instruction`**; legacy catalog fields removed.
+
 ### 0.32 Overview tables — Commodity Qty column (`siBreakdownDisplay`) (2026-05-26)
 
 **Purpose:** Show **SI-declared cargo** (commodity name + quantity per breakdown line) in main overview tables without opening SI modals. A single **Commodity Qty** column replaces a separate **Commodity** + **Total Qty** pair because each cell already embeds the commodity name (e.g. `RPO 5.000 MT`).

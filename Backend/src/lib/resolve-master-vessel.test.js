@@ -54,16 +54,21 @@ describe('resolve-master-vessel', () => {
       assert.equal(r.vesselName, null);
     });
 
-    it('accepts vessel_name only', () => {
+    it('rejects vessel_name without vessel_hub_code', () => {
       const r = validateIntegrationVesselInput('', 'MV TEST');
-      assert.equal(r.errors.length, 0);
-      assert.equal(r.hubCode, null);
-      assert.equal(r.vesselName, 'MV TEST');
+      assert.ok(r.errors.some((e) => e.field === 'vessel_hub_code'));
     });
 
-    it('requires at least one identifier', () => {
+    it('requires vessel_hub_code', () => {
       const r = validateIntegrationVesselInput(null, '');
-      assert.ok(r.errors.length >= 2);
+      assert.ok(r.errors.some((e) => e.field === 'vessel_hub_code'));
+    });
+
+    it('allows optional vessel_name cross-check when hub present', () => {
+      const r = validateIntegrationVesselInput('VSL-0001', 'MV TEST');
+      assert.equal(r.errors.length, 0);
+      assert.equal(r.hubCode, 'VSL-0001');
+      assert.equal(r.vesselName, 'MV TEST');
     });
   });
 

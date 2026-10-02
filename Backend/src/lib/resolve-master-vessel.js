@@ -71,12 +71,14 @@ export function validateIntegrationVesselInput(vesselHubCodeRaw, vesselNameRaw) 
   if (hubCode && hubCode.length > 50) push('vessel_hub_code', 'max length 50');
   if (vesselName && vesselName.length > 200) push('vessel_name', 'max length 200');
 
-  if (!hubCode && !vesselName) {
-    push('vessel_hub_code', 'required when vessel_name is omitted');
-    push('vessel_name', 'required when vessel_hub_code is omitted');
+  if (!hubCode) {
+    push('vessel_hub_code', 'required');
+  }
+  if (vesselName && !hubCode) {
+    push('vessel_name', 'legacy vessel_name is not accepted; use vessel_hub_code');
   }
 
-  return { errors, hubCode, vesselName };
+  return { errors, hubCode, vesselName: hubCode ? vesselName : null };
 }
 
 /** Map resolve/snapshot errors to the most helpful partner field name. */

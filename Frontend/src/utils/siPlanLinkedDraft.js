@@ -3,7 +3,11 @@
  * (used by ShippingInstructionCreateForm and multi-draft ShipmentPlansList create flow).
  */
 
-import { defaultMetricIdForBreakdownRow, validateBreakdownMetricRules } from './siBreakdownMetric.js'
+import {
+  applyCommodityDefaultMetric,
+  defaultMetricIdForBreakdownRow,
+  validateBreakdownMetricRules,
+} from './siBreakdownMetric.js'
 
 export function planEtaYmd(plan) {
   if (!plan?.eta) return ''
@@ -81,16 +85,20 @@ export function siDetailToPlanLinkedDraftForm(si, lookups, linkedPlan) {
   const isUnloading = purposeCode === 'Unloading'
   const bd =
     Array.isArray(si?.breakdown) && si.breakdown.length > 0
-      ? si.breakdown.map((b) => ({
-          shipperId: b.shipperId != null ? String(b.shipperId) : '',
-          commodityId: b.commodityId != null ? String(b.commodityId) : '',
-          metricId: b.metricId != null ? String(b.metricId) : '',
-          qty: b.qty != null && b.qty !== '' ? String(b.qty) : '',
-          contractNo: b.contractNo ?? '',
-          poNo: b.poNo ?? '',
-          soNo: b.soNo ?? '',
-          remarks: b.remarks ?? '',
-        }))
+      ? si.breakdown.map((b) => {
+          const row = {
+            shipperId: b.shipperId != null ? String(b.shipperId) : '',
+            commodityId: b.commodityId != null ? String(b.commodityId) : '',
+            metricId: b.metricId != null ? String(b.metricId) : '',
+            qty: b.qty != null && b.qty !== '' ? String(b.qty) : '',
+            contractNo: b.contractNo ?? '',
+            poNo: b.poNo ?? '',
+            soNo: b.soNo ?? '',
+            remarks: b.remarks ?? '',
+          }
+          // Stored lines may predate a commodity default-unit change (e.g. partner API KL → master now MT).
+          return applyCommodityDefaultMetric(row, row.commodityId, lookups)
+        })
       : base.breakdown
   return {
     ...base,

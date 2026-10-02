@@ -1,10 +1,12 @@
 # Jetty Planning System — Shipping Instruction API Integration Guide
 
-> **Version:** 5.2 · **Audience:** External full-stack developers building an integration from your system (EOS Export/Import, KLIPS, ERP, TMS, etc.) into the Jetty Planning System (JPS).
+> **Version:** 5.3 · **Audience:** External full-stack developers building an integration from your system (EOS Export/Import, KLIPS, ERP, TMS, etc.) into the Jetty Planning System (JPS).
 >
 > **What you can do:** Sync reference master data, submit Shipping Instructions, update PO/SO while Pending, **send HTTPS links** to SI / contract / B/L documents, **receive approval and milestone updates via webhooks**, and poll enriched status (including TA, ETB, TB, ETC, TC, cast off, sailed). JPS operators update berthing milestones in the web app — your system receives those changes; you do not write them back via API.
 >
-> **What's new in v5.2:** **`port_hub_code`** and **`cargo[].cargo_hub_code`** on POST — preferred DHM/JPS hub identifiers (same pattern as `vessel_hub_code`). Legacy **`port_id`** and **`cargo_type`** (short name) still work. Catalog adds **`GET /catalog/port`** and **`referenceRows`** on port/cargo-type entities. Header **`X-JPS-API-Version: 5.2`**. Additive for v5.1 clients.
+> **What's new in v5.3:** **Hub-only POST:** **`port_hub_code`**, **`vessel_hub_code`**, and **`cargo[].cargo_hub_code`** are **required**; legacy **`port_id`**, **`cargo_type`**, and **`vessel_name`-only** submits return **400**. **`agent_name`** is optional (may be **`null`** or omitted). Header **`X-JPS-API-Version: 5.3`**. Breaking for v5.2 clients still sending short names or `port_id`.
+>
+> **What's new in v5.2:** **`port_hub_code`** and **`cargo[].cargo_hub_code`** on POST — preferred DHM/JPS hub identifiers (same pattern as `vessel_hub_code`). Catalog adds **`GET /catalog/port`** and **`referenceRows`** on port/cargo-type entities.
 >
 > **What's new in v5.1:** Optional document link fields on **POST/PATCH/GET**: `shipping_instruction_document_url`, `contract_document_url`, `bl_document_url` (HTTPS URLs to documents hosted on your side; JPS stores the link only). **`GET /catalog`** (§3.8) for live field discovery. Additive for v5.0 clients.
 >
@@ -102,7 +104,7 @@ Authentication uses a single API key in the `x-api-key` header. No OAuth, no tok
 |------|---------|-------|
 | API key | `jps_live_a73fc30d...` | **Server-side only.** Never commit to git or expose in browser code. |
 | Partner name | `EOS-EXPORT` | Identifies your system on the JPS side (not sent in requests). |
-| Port access | any | Keys are not port-scoped. Pass **`port_hub_code`** (preferred) or **`port_id`** on each request. Staging Bontang: hub code from **`GET /catalog/port`**, or legacy **`port_id: 1`**. |
+| Port access | any | Keys are not port-scoped. Pass required **`port_hub_code`** on each request (see **`GET /catalog/port`**). Staging Bontang hub: **`PORT-0048`** (maps to JPS port id 1). |
 
 **Request your staging API key** from the JPS team. They create it with:
 
@@ -270,13 +272,12 @@ curl -sS -X POST "http://172.28.92.56:3080/api/v1/integrations/shipping-instruct
 
 **Store `data.id`** — you need it for status polling. Also store `external_reference` in your system.
 
-#### Vessel identification (`vessel_hub_code` / `vessel_name`)
+#### Vessel identification (`vessel_hub_code`)
 
 | Field | Required? | Description |
 |-------|-----------|-------------|
-| `vessel_hub_code` | **Preferred** — sufficient alone | DataHub / JPS master vessel code (e.g. `VSL-0001`). JPS resolves `master_vessels` and snapshots name, LOA, GT, draft on the plan. |
-| `vessel_name` | Required **only when `vessel_hub_code` is omitted** | Case-insensitive match against **exactly one** active master vessel. If ambiguous, send `vessel_hub_code`. |
-| `vessel_name` + `vessel_hub_code` | Optional cross-check | When both sent, names must agree (case-insensitive) or **400**. |
+| `vessel_hub_code` | **Yes** | DataHub / JPS master vessel code (e.g. `VSL-0001`). JPS resolves `master_vessels` and snapshots name, LOA, GT, draft on the plan. |
+| `vessel_name` | No (optional cross-check) | When sent with `vessel_hub_code`, names must agree (case-insensitive) or **400**. **`vessel_name` alone is not accepted (v5.3+).** |
 
 Partners do **not** send `master_vessel_id`, LOA, GT, or draft — JPS copies those from master internally.
 
@@ -289,23 +290,21 @@ Partners do **not** send `master_vessel_id`, LOA, GT, or draft — JPS copies th
 | Unknown or ambiguous `vessel_name` | `vessel_name` |
 | Master missing LOA/GT/draft | `vessel_name` |
 
-#### Port identification (`port_hub_code` / `port_id`)
+#### Port identification (`port_hub_code`)
 
 | Field | Required? | Description |
 |-------|-----------|-------------|
-| `port_hub_code` | **Preferred** — sufficient alone | DHM/JPS port hub code on `ports.hub_code`. JPS resolves to internal `port_id`. |
-| `port_id` | Required **only when `port_hub_code` is omitted** | Legacy JPS integer (staging Bontang: **`1`**). |
-| Both sent | Optional cross-check | Must refer to the **same** port or **400**. |
+| `port_hub_code` | **Yes** | DHM/JPS port hub code on `ports.hub_code`. JPS resolves to internal `port_id`. |
+| `port_id` | **Not accepted (v5.3+)** | Returns **400** — use **`port_hub_code`**. |
 
 Study live mappings: **`GET /catalog/port`** (includes `referenceRows` with `hub_code` and `jps_port_id`).
 
-#### Commodity identification (`cargo[].cargo_hub_code` / `cargo[].cargo_type`)
+#### Commodity identification (`cargo[].cargo_hub_code`)
 
 | Field | Required? | Description |
 |-------|-----------|-------------|
-| `cargo_hub_code` | **Preferred** — sufficient alone | DHM/JPS commodity hub code on `si_commodities.hub_code`. |
-| `cargo_type` | Required **only when `cargo_hub_code` is omitted** on that line | JPS commodity **short name** (case-insensitive). See §5.1. |
-| Both sent | Optional cross-check | Must refer to the **same** commodity or **400**. |
+| `cargo_hub_code` | **Yes** (each line) | DHM/JPS commodity hub code on `si_commodities.hub_code`. |
+| `cargo_type` | **Not accepted (v5.3+)** | Returns **400** — use **`cargo_hub_code`**. |
 
 Study live mappings: **`GET /catalog/cargo-type`** (`referenceRows`: `hub_code`, `short_name`, `jps_commodity_id`).
 
@@ -615,15 +614,14 @@ curl -sS "$JPS_API_BASE_URL/catalog/shipping-instruction" -H "x-api-key: $JPS_AP
 |-------|------|----------|-------------|
 | `external_reference` | string (max 100) | Yes | Your unique document/order ID. Idempotency key. |
 | `requested_by` | string (max 200) | No | Person or service account in your system. Shown to JPS operators. If omitted, JPS stores the API partner name. |
-| `port_hub_code` | string (max 50) | Preferred | DHM/JPS port hub code. **Sufficient alone** when mapped. See **`GET /catalog/port`**. |
-| `port_id` | integer | Conditional | Required when **`port_hub_code` is omitted**. Staging legacy: **`1`** (BONTANG). |
-| `vessel_hub_code` | string (max 50) | Preferred | DataHub / JPS master vessel code. **Sufficient alone** for vessel identification. |
-| `vessel_name` | string (max 200) | Conditional | Required when **`vessel_hub_code` is omitted**. Optional cross-check when `vessel_hub_code` is sent. Must resolve to exactly one active master vessel. |
+| `port_hub_code` | string (max 50) | Yes | DHM/JPS port hub code. See **`GET /catalog/port`**. |
+| `vessel_hub_code` | string (max 50) | Yes | DataHub / JPS master vessel code. |
+| `vessel_name` | string (max 200) | No | Optional cross-check when `vessel_hub_code` is sent (must match master). |
 | `voyage_no` | string (max 50) | No | Voyage number. |
 | `purpose` | string | Yes | `"Loading"` or `"Unloading"`. |
 | `eta` | datetime (ISO 8601 UTC) | Yes | Estimated time of arrival. |
 | `etd` | datetime (ISO 8601 UTC) | No | Estimated departure. Must be after `eta` when provided. |
-| `agent_name` | string (max 200) | Yes | Shipping agent / sender company. |
+| `agent_name` | string (max 200) or null | No | Shipping agent / sender company. Omit or **`null`** when unknown. |
 | `agent_contact` | string (max 200) | No | Agent email or phone. |
 | `trade_term` | string | No | Trade term code (e.g. `FOB`, `CIF`). Must match **`GET /terms`**. |
 | `surveyor_name` | string (max 200) | No | Must match a name from **`GET /surveyors`**. |
@@ -637,8 +635,7 @@ curl -sS "$JPS_API_BASE_URL/catalog/shipping-instruction" -H "x-api-key: $JPS_AP
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `cargo_hub_code` | string (max 50) | Preferred | DHM/JPS commodity hub code. **Sufficient alone** when mapped. See **`GET /catalog/cargo-type`**. |
-| `cargo_type` | string (max 100) | Conditional | Required when **`cargo_hub_code` is omitted** on that line. JPS **short name** (case-insensitive). See §5.1. |
+| `cargo_hub_code` | string (max 50) | Yes | DHM/JPS commodity hub code. See **`GET /catalog/cargo-type`**. |
 | `description` | string (max 500) | No | Extra detail about the lot. |
 | `tonnage` | number ≥ 0 | Yes | Quantity. |
 | `unit` | string | Yes | `"MT"` or `"KL"` only. |
@@ -1066,6 +1063,7 @@ When reporting issues, include:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.3 | 2026-10-02 | **Hub-only POST** (required **`port_hub_code`**, **`vessel_hub_code`**, **`cargo[].cargo_hub_code`**); legacy **`port_id`**, **`cargo_type`**, vessel_name-only rejected. **`agent_name`** optional/nullable. Catalog updated. Header **`X-JPS-API-Version: 5.3`**. |
 | 5.2 | 2026-10-01 | **`port_hub_code`** and **`cargo[].cargo_hub_code`** on POST (preferred); legacy **`port_id`** / **`cargo_type`** retained. GET/201 echo **`port_hub_code`**. Catalog: entity **`port`**, extended **`cargo-type`**, **`referenceRows`**, updated **`shipping-instruction`** field contract. Header **`X-JPS-API-Version: 5.2`**. |
 | 5.1 | 2026-09-28 | **Document links:** optional `shipping_instruction_document_url`, `contract_document_url`, `bl_document_url` on POST/PATCH/GET/webhook `data`. **Catalog API:** `GET /catalog` and `GET /catalog/{entity}` for live, self-describing field discovery (§3.8). Header **`X-JPS-API-Version: 5.1`**. |
 | 5.0 | 2026-09-25 | **Webhooks:** `POST/PATCH/GET/DELETE /webhooks`; signed outbound `status.changed` and `schedule.updated` events. **Enriched GET:** `plan_reference`, `approval`, `schedule` (TA, ETB, TB, ETC, TC, cast off, sailed), `etr_minutes`. New status **`Sailed`**. Header **`X-JPS-API-Version: 5.0`**. v4.x additive-compatible. |
