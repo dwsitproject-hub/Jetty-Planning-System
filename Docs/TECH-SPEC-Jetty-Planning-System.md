@@ -278,13 +278,13 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 **Migration `123_si_partner_document_urls.sql`:** **`shipping_instructions.partner_si_document_url`**, **`partner_contract_document_url`**, **`partner_bl_document_url`**.
 
-**Integration API:** Optional **`shipping_instruction_document_url`**, **`contract_document_url`**, **`bl_document_url`** on POST and PATCH (Pending). Validated as HTTPS (or HTTP when **`INTEGRATION_WEBHOOK_ALLOW_HTTP=true`**). Echoed on enriched GET and webhook **`data`**. Internal SI API exposes camelCase **`partnerSiDocumentUrl`**, etc.; read-only in **`SiDetailModal`**. Header **`X-JPS-API-Version: 5.1`**.
+**Integration API:** Optional **`shipping_instruction_document_url`**, **`contract_document_url`**, **`bl_document_url`** on POST and PATCH (Pending). Validated as **HTTP or HTTPS** URLs (max 2048). Echoed on enriched GET and webhook **`data`**. Internal SI API exposes camelCase **`partnerSiDocumentUrl`**, etc.; read-only in **`SiDetailModal`**. Webhook registration URLs remain HTTPS-only unless **`INTEGRATION_WEBHOOK_ALLOW_HTTP=true`**. Header **`X-JPS-API-Version: 5.1`**.
 
 ### 0.39 Partner catalog API (v5.1) (2026-09-28)
 
 **Purpose:** DataHub-style self-describing discovery so partner integrations can read the live field contract instead of hard-coding it from the handoff doc. No schema changes — computed on request from existing validation constants and master data.
 
-**Lib — `Backend/src/lib/integration-catalog.js`:** **`buildIntegrationCatalog(db)`** returns **`{api_version, auth_header, entities[], count}`**; each entity has **`slug, name, path, methods[], description, fields[]`** (plus **`limits`** for `webhook`). **`getIntegrationCatalogEntity(db, slug)`** returns one entity or `null`. Field descriptor: **`{key, type, required, patchable, maxLength, enumValues, description}`** (`ARRAY` fields also carry `items[]` for cargo lines). `enumValues` for `trade_term`, `surveyor_name`, and cargo `cargo_type` are read live via **`listValidTradeTermCodes`**/**`listValidSurveyorNames`**/`si_commodities`, so they never drift from what validation actually accepts. Entities covered: `shipping-instruction`, `webhook`, `term`, `agent`, `surveyor`, `shipper`, and informational `cargo-type`.
+**Lib — `Backend/src/lib/integration-catalog.js`:** **`buildIntegrationCatalog(db)`** returns **`{api_version, auth_header, entities[], count}`**; each entity has **`slug, name, path, methods[], description, fields[]`** (plus **`limits`** for `webhook`, **`legacyFieldsRejected`** on **`shipping-instruction`**). **`getIntegrationCatalogEntity(db, slug)`** returns one entity or `null`. Field descriptor: **`{key, type, required, patchable, maxLength, enumValues, description}`** (`ARRAY` fields also carry `items[]` for cargo lines). `enumValues` for `trade_term`, `surveyor_name`, **`port_hub_code`**, and **`cargo[].cargo_hub_code`** are read live from master data. Entities covered: `shipping-instruction`, `webhook`, `term`, `agent`, `surveyor`, `shipper`, and informational `port` / `cargo-type`.
 
 **Routes (`/api/v1/integrations/catalog`):** **`GET /`** (list), **`GET /:entity`** (single entity, **`404 NOT_FOUND`** when unknown). Mounted alongside `/webhooks` inside `integrations.js`, inheriting the router's **`requireIntegrationKey`** + **`integrationRateLimit`** middleware — no new auth surface. See **`Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md` §3.8**.
 
@@ -306,7 +306,7 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 **Bugfix (v5.2):** Commodity map when resolving **`cargo_type`-only** lines — fixed in **`resolveCargoCommodities`** (prefer **`byShort`** for map keys).
 
-**Catalog / header:** **`X-JPS-API-Version: 5.3`**, catalog **`api_version` 5.3** — hub-only field contract on **`shipping-instruction`**; legacy catalog fields removed.
+**Catalog / header:** **`X-JPS-API-Version: 5.3`**, catalog **`api_version` 5.3** — hub-only field contract on **`shipping-instruction`** (`cargo_hub_code` required; **`cargo_type`** / **`port_id`** not in catalog; **`legacyFieldsRejected`** documents rejected POST fields).
 
 ### 0.32 Overview tables — Commodity Qty column (`siBreakdownDisplay`) (2026-05-26)
 

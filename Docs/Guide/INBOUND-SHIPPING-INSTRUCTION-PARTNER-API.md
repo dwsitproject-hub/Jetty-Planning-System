@@ -2,9 +2,9 @@
 
 > **Version:** 5.3 · **Audience:** External full-stack developers building an integration from your system (EOS Export/Import, KLIPS, ERP, TMS, etc.) into the Jetty Planning System (JPS).
 >
-> **What you can do:** Sync reference master data, submit Shipping Instructions, update PO/SO while Pending, **send HTTPS links** to SI / contract / B/L documents, **receive approval and milestone updates via webhooks**, and poll enriched status (including TA, ETB, TB, ETC, TC, cast off, sailed). JPS operators update berthing milestones in the web app — your system receives those changes; you do not write them back via API.
+> **What you can do:** Sync reference master data, submit Shipping Instructions, update PO/SO while Pending, **send HTTP or HTTPS links** to SI / contract / B/L documents, **receive approval and milestone updates via webhooks**, and poll enriched status (including TA, ETB, TB, ETC, TC, cast off, sailed). JPS operators update berthing milestones in the web app — your system receives those changes; you do not write them back via API.
 >
-> **What's new in v5.3:** **Hub-only POST:** **`port_hub_code`**, **`vessel_hub_code`**, and **`cargo[].cargo_hub_code`** are **required**; legacy **`port_id`**, **`cargo_type`**, and **`vessel_name`-only** submits return **400**. **`agent_name`** is optional (may be **`null`** or omitted). Header **`X-JPS-API-Version: 5.3`**. Breaking for v5.2 clients still sending short names or `port_id`.
+> **What's new in v5.3:** **Hub-only POST:** **`port_hub_code`**, **`vessel_hub_code`**, and **`cargo[].cargo_hub_code`** are **required**; legacy **`port_id`**, **`cargo_type`**, and **`vessel_name`-only** submits return **400**. **`agent_name`** is optional (may be **`null`** or omitted). Document link fields accept **`http://`** or **`https://`**. Header **`X-JPS-API-Version: 5.3`**. Breaking for v5.2 clients still sending short names or `port_id`.
 >
 > **What's new in v5.2:** **`port_hub_code`** and **`cargo[].cargo_hub_code`** on POST — preferred DHM/JPS hub identifiers (same pattern as `vessel_hub_code`). Catalog adds **`GET /catalog/port`** and **`referenceRows`** on port/cargo-type entities.
 >
@@ -221,7 +221,7 @@ curl -sS -X POST "http://172.28.92.56:3080/api/v1/integrations/shipping-instruct
   -d '{
     "external_reference": "EOS-EXPORT-2026-091",
     "requested_by": "developer@your-company.com",
-    "port_id": 1,
+    "port_hub_code": "PORT-0048",
     "vessel_hub_code": "VSL-0001",
     "voyage_no": "VY-8891",
     "purpose": "Loading",
@@ -237,7 +237,7 @@ curl -sS -X POST "http://172.28.92.56:3080/api/v1/integrations/shipping-instruct
     "bl_document_url": "https://your-system.example/docs/bl-draft.pdf",
     "cargo": [
       {
-        "cargo_type": "CPO",
+        "cargo_hub_code": "CMD-0006",
         "description": "Main lot",
         "tonnage": 25000,
         "unit": "MT",
@@ -262,6 +262,7 @@ curl -sS -X POST "http://172.28.92.56:3080/api/v1/integrations/shipping-instruct
     "status": "Pending",
     "vessel_name": "MV NUSANTARA",
     "vessel_hub_code": "VSL-0001",
+    "port_hub_code": "PORT-0048",
     "port_id": 1,
     "received_at": "2026-06-15T06:53:59.935Z"
   }
@@ -341,6 +342,7 @@ curl -sS "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions/10"
     "purpose": "Loading",
     "eta": "2026-07-01T08:00:00.000Z",
     "etd": "2026-07-03T18:00:00Z",
+    "port_hub_code": "PORT-0048",
     "port_id": 1,
     "approval": {
       "status": "Approved",
@@ -561,7 +563,7 @@ curl -sS "$JPS_API_BASE_URL/catalog/shipping-instruction" -H "x-api-key: $JPS_AP
 {
   "success": true,
   "data": {
-    "api_version": "5.2",
+    "api_version": "5.3",
     "auth_header": "x-api-key",
     "count": 7,
     "entities": [
@@ -592,14 +594,16 @@ curl -sS "$JPS_API_BASE_URL/catalog/shipping-instruction" -H "x-api-key: $JPS_AP
       { "key": "purpose", "type": "STRING", "required": true, "patchable": false, "enumValues": ["Loading", "Unloading"] },
       { "key": "trade_term", "type": "STRING", "required": false, "patchable": true, "enumValues": ["FOB", "CIF", "CFR", "..."] },
       { "key": "shipping_instruction_document_url", "type": "URL", "required": false, "patchable": true, "maxLength": 2048 },
-      { "key": "cargo", "type": "ARRAY", "required": true, "patchable": true, "items": [ { "key": "cargo_type", "type": "STRING", "required": true, "enumValues": ["CPO", "PKE", "..."] } ] }
+      { "key": "cargo", "type": "ARRAY", "required": true, "patchable": true, "items": [ { "key": "cargo_hub_code", "type": "STRING", "required": true, "enumValues": ["CMD-0006", "CMD-0010", "..."] } ] },
+      { "key": "legacyFieldsRejected", "type": "ARRAY", "description": "POST fields that return 400 in v5.3 — e.g. cargo_type → use cargo_hub_code" }
     ]
   }
 }
 ```
 
 - **Field types:** `STRING`, `NUMBER`, `BOOLEAN`, `DATETIME`, `URL`, `ARRAY`, `ARRAY<STRING>`.
-- **`enumValues`** is only present when the field is constrained to a fixed set, and reflects current master data (trade term codes, surveyor names, commodity short names, webhook event types) — the same values §5.1 and §3.7 describe manually.
+- **`enumValues`** is only present when the field is constrained to a fixed set, and reflects current master data (trade term codes, surveyor names, **commodity hub codes** on `cargo[].cargo_hub_code`, port hub codes, webhook event types). Use **`GET /catalog/cargo-type`** `referenceRows` to map hub codes to short names.
+- **`legacyFieldsRejected`** on **`shipping-instruction`** lists POST fields that v5.3 rejects (including **`cargo_type`** — send **`cargo_hub_code`** instead).
 - **`patchable`** marks fields the `PATCH` endpoint accepts (§3.3, §4.1.1).
 - Unknown `{entity}` returns **404** with `error.code = "NOT_FOUND"`.
 - Cache the catalog at startup; it changes when JPS master data changes (a new commodity, surveyor, or trade term), not on every submission.
@@ -626,9 +630,9 @@ curl -sS "$JPS_API_BASE_URL/catalog/shipping-instruction" -H "x-api-key: $JPS_AP
 | `trade_term` | string | No | Trade term code (e.g. `FOB`, `CIF`). Must match **`GET /terms`**. |
 | `surveyor_name` | string (max 200) | No | Must match a name from **`GET /surveyors`**. |
 | `notes` | string (max 2000) | No | Free-text remarks for operators. |
-| `shipping_instruction_document_url` | string (HTTPS URL, max 2048) | No | Link to your hosted SI document (PDF/page). JPS stores the URL only. |
-| `contract_document_url` | string (HTTPS URL, max 2048) | No | Link to your hosted contract document. |
-| `bl_document_url` | string (HTTPS URL, max 2048) | No | Link to your hosted bill of lading document. |
+| `shipping_instruction_document_url` | string (HTTP or HTTPS URL, max 2048) | No | Link to your hosted SI document (PDF/page). JPS stores the URL only. |
+| `contract_document_url` | string (HTTP or HTTPS URL, max 2048) | No | Link to your hosted contract document. |
+| `bl_document_url` | string (HTTP or HTTPS URL, max 2048) | No | Link to your hosted bill of lading document. |
 | `cargo` | array | Yes | At least one cargo line (see below). |
 
 **Cargo line fields** (`cargo[]`):
@@ -655,7 +659,7 @@ At least one field required. Allowed while status is **`Pending`** only.
 | `trade_term` | Update SI trade term (code from **`GET /terms`**) |
 | `surveyor_name` | Update SI surveyor (from **`GET /surveyors`**) |
 | `cargo[]` | Array of line updates — each line must include **`line_order`** or **`contract_no`** to identify the row, plus any of: `po_no`, `so_no`, `shipper_name` |
-| `shipping_instruction_document_url` | Update SI document link (HTTPS) |
+| `shipping_instruction_document_url` | Update SI document link (HTTP or HTTPS) |
 | `contract_document_url` | Update contract document link |
 | `bl_document_url` | Update B/L document link |
 
@@ -695,7 +699,8 @@ At least one field required. Allowed while status is **`Pending`** only.
     "code": "VALIDATION_ERROR",
     "message": "Payload validation failed",
     "details": [
-      { "field": "cargo[0].cargo_type", "issue": "unknown cargo type(s): FAKE_CARGO", "valid_cargo_types": ["CPO", "POME", "..."] }
+      { "field": "cargo[0].cargo_type", "issue": "legacy cargo_type is not accepted; use cargo_hub_code" },
+      { "field": "cargo[0].cargo_hub_code", "issue": "unknown cargo hub code(s): CMD-9999", "valid_cargo_hub_codes": ["CMD-0006", "CMD-0010", "..."] }
     ]
   },
   "request_id": "req_01HXYZABC123"
@@ -724,14 +729,55 @@ Always log `request_id` when reporting issues to JPS support.
 
 ## 5. Staging master data
 
-### 5.1 Valid `cargo_type` values — commodity mapping
+### 5.1 Commodity hub codes (`cargo_hub_code`)
 
-`cargo_type` must match the **short name** (`short_name`) of a commodity in JPS master data — not the full display name. Matching is case-insensitive (e.g. `cpo` and `CPO` both work).
+Each cargo line must include **`cargo_hub_code`** — the DHM/JPS hub code on `si_commodities.hub_code` (e.g. `CMD-0006` for CPO on staging). **Do not send `cargo_type`** on POST in v5.3; that field is rejected even if the value looks like a hub code or short name.
 
-**Send the value in the `JPS short_name` column** in your `cargo_type` field:
+**Authoritative list for your environment:**
 
-| JPS short_name (`cargo_type`) | JPS display name | Type |
-|-------------------------------|------------------|------|
+```bash
+curl -sS "$JPS_API_BASE_URL/catalog/cargo-type" -H "x-api-key: $JPS_API_KEY"
+```
+
+Use `data.referenceRows[]` (`hub_code`, `short_name`, `name`, `jps_commodity_id`). The catalog **`shipping-instruction`** entity also lists allowed hub codes in `cargo.items[].cargo_hub_code.enumValues`.
+
+**Reference mapping (short names are informational only — not accepted on POST):**
+
+| Example `cargo_hub_code` (staging) | JPS short_name | JPS display name | Type |
+|-----------------------------------|----------------|------------------|------|
+| *from catalog* | `CG` | CRUDE GLYCERINE | Liquid |
+| *from catalog* | `CPKO` | CRUDE PALM KERNEL OIL | Liquid |
+| `CMD-0006` (example) | `CPO` | CRUDE PALM OIL | Liquid |
+| *from catalog* | `FAME` | Fatty Acid Methyl Ester | Liquid |
+| *from catalog* | `INS POME FAD` | INS PALM OIL MILL EFFLUENT FATTY ACID DISTILLATE | Liquid |
+| *from catalog* | `INS RPOME` | INS REFINED PALM OIL MILL EFFLUENT | Liquid |
+| *from catalog* | `ISCC POMEPFAD` | ISCC PALM OIL MILL EFFLUENT FATTY ACID DISTILLATE (POMEPFAD) | Liquid |
+| *from catalog* | `ISCC RPOME` | ISCC REFINED PALM OIL MILL EFFLUENT | Liquid |
+| *from catalog* | `METHANOL` | METHANOL | Liquid |
+| *from catalog* | `PFAD` | Palm Fatty Acid Distillate | Liquid |
+| *from catalog* | `PKE` | Palm Kernel Expeller | Solid |
+| *from catalog* | `PKM` | Palm Kernel Meal | Solid |
+| *from catalog* | `PKS` | Palm Kernel Shell | Solid |
+| *from catalog* | `POME` | Palm Oil Mill Effluent | Liquid |
+| *from catalog* | `RBD PO` | RBD PO | Liquid |
+| *from catalog* | `RG` | REFINED GLYCERINE | Liquid |
+| *from catalog* | `ROL` | Refined Olein | Liquid |
+| *from catalog* | `RPOME` | REFINED PALM OIL MILL EFFLUENT | Liquid |
+| *from catalog* | `SPLIT CPKO FA` | SPLIT CRUDE PALM KERNEL OIL FATTY ACID | Liquid |
+| *from catalog* | `SPLIT RBD PKO FA` | SPLIT RBD PALM KERNEL OIL FATTY ACID | Liquid |
+
+*Hub codes differ by environment — always use **`GET /catalog/cargo-type`**, not hard-coded examples.*
+
+If you send an unknown **`cargo_hub_code`**, the API returns **`400`** with **`valid_cargo_hub_codes`** in `error.details`.
+
+**Do not send full commodity display names** (e.g. `CRUDE PALM OIL`) in any field — they are rejected.
+
+### 5.1.1 Deprecated: `cargo_type` (v5.2 and earlier)
+
+Prior API versions accepted **`cargo[].cargo_type`** with JPS **short_name** values (`CPO`, `PKE`, …). **v5.3 rejects `cargo_type` on POST.** Map your internal commodity code to **`cargo_hub_code`** using the catalog.
+
+| JPS short_name (legacy `cargo_type` only) | JPS display name | Type |
+|-------------------------------------------|------------------|------|
 | `CG` | CRUDE GLYCERINE | Liquid |
 | `CPKO` | CRUDE PALM KERNEL OIL | Liquid |
 | `CPO` | CRUDE PALM OIL | Liquid |
@@ -755,61 +801,52 @@ Always log `request_id` when reporting issues to JPS support.
 
 *List as of JPS master data export (20 commodities). JPS operators may add or update commodities over time.*
 
-If you send an unknown `cargo_type`, the API returns `400` with `valid_cargo_types` in `error.details` — that list contains the current short codes for your environment. Use it to fix your payload.
+If you send **`cargo_type`** on v5.3 POST, the API returns **`400`** with `legacy cargo_type is not accepted; use cargo_hub_code` — not `valid_cargo_types`.
 
 **Do not send full commodity names** (e.g. `CRUDE PALM OIL`) — they are rejected.
 
 ### 5.2 Staging port
 
-| `port_id` | Name |
-|-----------|------|
-| `1` | BONTANG |
+| `port_hub_code` | Name | `jps_port_id` (informational) |
+|-----------------|------|-------------------------------|
+| `PORT-0048` | BONTANG | `1` |
 
-Pass `port_id` **1** in your payload for staging tests. Keys are not port-scoped, but `port_id` must be a valid JPS port.
+Pass **`port_hub_code`** from **`GET /catalog/port`**. Do **not** send **`port_id`** on POST (v5.3). API keys are not port-scoped, but the hub code must exist in JPS master data.
 
-### 5.3 Map your system's commodity codes to JPS
+### 5.3 Map your system's commodity codes to JPS hub codes
 
-Send your commodity code in `cargo_type` when it matches the JPS short name. When your internal code differs, map it in your integration layer:
+Resolve **`cargo_hub_code`** from **`GET /catalog/cargo-type`** (`referenceRows`). Map your internal product code to the row's **`hub_code`**, not to **`short_name`**.
 
-| Your system code (example) | JPS `cargo_type` | JPS display name |
-|----------------------------|------------------|------------------|
-| `CPO` | `CPO` | CRUDE PALM OIL |
-| `PKO` | `CPKO` | CRUDE PALM KERNEL OIL |
-| `POME` | `POME` | Palm Oil Mill Effluent |
-| `PKE` | `PKE` | Palm Kernel Expeller |
-| `PKS` | `PKS` | Palm Kernel Shell |
-| `PKM` | `PKM` | Palm Kernel Meal |
-| `PFAD` | `PFAD` | Palm Fatty Acid Distillate |
-| `FAME` | `FAME` | Fatty Acid Methyl Ester |
-| `RBDPO` / `RBD PO` | `RBD PO` | RBD PO |
-| `ROL` | `ROL` | Refined Olein |
-| `METHANOL` | `METHANOL` | METHANOL |
+| Your system code (example) | Lookup by `short_name` | Send on POST (`cargo_hub_code`) |
+|----------------------------|------------------------|----------------------------------|
+| `CPO` | `CPO` | e.g. `CMD-0006` (confirm in catalog) |
+| `PKO` | `CPKO` | hub code from catalog row for CPKO |
+| `POME` | `POME` | hub code from catalog |
+| `PKE` | `PKE` | hub code from catalog |
 
-Example integration mapping:
+Example integration mapping (refresh hub codes from catalog at deploy time):
 
 ```javascript
-const JPS_COMMODITY_MAP = {
-  CPO: "CPO",
-  PKO: "CPKO",           // your PKO → JPS short_name CPKO
-  POME: "POME",
-  PKE: "PKE",
-  PKS: "PKS",
-  PFAD: "PFAD",
-  // add entries for products you ship; see §5.1 for full list
+// hub codes are environment-specific — load from GET /catalog/cargo-type referenceRows
+const JPS_COMMODITY_HUB_BY_SHORT = {
+  CPO: "CMD-0006",
+  CPKO: "CMD-????", // replace from catalog
+  POME: "CMD-????",
 };
 
-function mapCargoType(yourCode) {
-  const jpsCode = JPS_COMMODITY_MAP[yourCode.toUpperCase()];
-  if (!jpsCode) throw new Error(`No JPS mapping for commodity: ${yourCode}`);
-  return jpsCode;
+function mapCargoHubCode(yourCode) {
+  const short = YOUR_TO_JPS_SHORT[yourCode.toUpperCase()] ?? yourCode.toUpperCase();
+  const hub = JPS_COMMODITY_HUB_BY_SHORT[short];
+  if (!hub) throw new Error(`No JPS hub mapping for commodity: ${yourCode}`);
+  return hub;
 }
 
 const payload = {
-  cargo: [{ cargo_type: mapCargoType(order.commodityCode), tonnage: 25000, unit: "MT" }],
+  cargo: [{ cargo_hub_code: mapCargoHubCode(order.commodityCode), tonnage: 25000, unit: "MT" }],
 };
 ```
 
-Confirm any ambiguous mappings (e.g. which PKOFA variant maps to `SPLIT CPKO FA` vs `SPLIT RBD PKO FA`) with JPS before production go-live.
+Confirm ambiguous mappings (e.g. PKOFA variants) with JPS before production go-live.
 
 ---
 
@@ -856,8 +893,8 @@ curl -sS -X POST "$JPS_API_BASE_URL/shipping-instructions" \
   -d "{
     \"external_reference\": \"$REF\",
     \"requested_by\": \"developer@your-company.com\",
-    \"port_id\": 1,
-    \"vessel_name\": \"MV INTEGRATION TEST\",
+    \"port_hub_code\": \"PORT-0048\",
+    \"vessel_hub_code\": \"VSL-0001\",
     \"voyage_no\": \"VY-001\",
     \"purpose\": \"Loading\",
     \"eta\": \"2026-07-01T08:00:00Z\",
@@ -866,7 +903,7 @@ curl -sS -X POST "$JPS_API_BASE_URL/shipping-instructions" \
     \"agent_contact\": \"ops@test.example.com\",
     \"notes\": \"Self-service API test\",
     \"cargo\": [{
-      \"cargo_type\": \"CPO\",
+      \"cargo_hub_code\": \"CMD-0006\",
       \"tonnage\": 25000,
       \"unit\": \"MT\",
       \"contract_no\": \"CTR-001\"
@@ -920,8 +957,9 @@ curl -sS "$JPS_API_BASE_URL/shipping-instructions/$SI_ID" \
   -H "x-api-key: jps_live_invalid"
 
 # Duplicate reference → 409 (re-run Test 2 POST with same $REF)
-# Unknown port → 400 (use port_id 99)
-# Unknown cargo → 400 (use cargo_type "FAKE_CARGO")
+# Unknown port → 400 (use port_hub_code "PORT-9999")
+# Legacy cargo_type → 400 (use cargo_hub_code instead)
+# Unknown cargo hub → 400 (use cargo_hub_code "CMD-9999")
 # Unknown shipper on POST → 400 (create via POST /shippers first)
 ```
 
@@ -1013,14 +1051,13 @@ function updatePoSo(jps_id, lines):
 - [ ] `external_reference` ← your document / order / SI number (unique per submission)
 - [ ] `requested_by` ← user email or service account from your system
 - [ ] `vessel_hub_code` ← your ERP/DataHub vessel code (store in your vessel master; **primary identifier**)
-- [ ] `cargo_type` ← JPS commodity short name (§5.1)
+- [ ] `cargo_hub_code` ← DHM/JPS commodity hub code from `GET /catalog/cargo-type` (§5.1)
+- [ ] `port_hub_code` ← from `GET /catalog/port` (§5.2)
 - [ ] `trade_term` / `surveyor_name` ← codes/names from `GET /terms` and `GET /surveyors`
 - [ ] `shipper_name` ← create via `POST /shippers` before submit if not in JPS
 - [ ] `po_no` / `so_no` ← on cargo lines at submit, or via `PATCH` while Pending
 - [ ] `purpose` ← `"Loading"` or `"Unloading"` from your business logic
 - [ ] `eta` / `etd` ← ISO 8601 UTC
-- [ ] `port_id` ← `1` on staging (confirm for production)
-
 ### 7.4 What you do not need to build
 
 - Operator approval UI (JPS web app)
@@ -1042,7 +1079,7 @@ function updatePoSo(jps_id, lines):
 - [ ] Error paths tested (`401`, `400`, `409 INVALID_STATE`)
 - [ ] Commodity mapping table built from §5.1 and validated on staging
 - [ ] Full lifecycle observed (`Pending` → `Approved` → `Allocated`) with JPS operator
-- [ ] Production API key, base URL, and `port_id` received from JPS
+- [ ] Production API key, base URL, and **`port_hub_code`** / commodity hub codes from JPS catalog or handoff
 - [ ] Support contact agreed for incidents (include `request_id` from errors)
 
 ---
@@ -1063,7 +1100,7 @@ When reporting issues, include:
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.3 | 2026-10-02 | **Hub-only POST** (required **`port_hub_code`**, **`vessel_hub_code`**, **`cargo[].cargo_hub_code`**); legacy **`port_id`**, **`cargo_type`**, vessel_name-only rejected. **`agent_name`** optional/nullable. Catalog updated. Header **`X-JPS-API-Version: 5.3`**. |
+| 5.3 | 2026-10-02 | **Hub-only POST** (required **`port_hub_code`**, **`vessel_hub_code`**, **`cargo[].cargo_hub_code`**); legacy **`port_id`**, **`cargo_type`**, vessel_name-only rejected. **`agent_name`** optional/nullable. Document URLs accept **HTTP or HTTPS**. Catalog updated. Header **`X-JPS-API-Version: 5.3`**. |
 | 5.2 | 2026-10-01 | **`port_hub_code`** and **`cargo[].cargo_hub_code`** on POST (preferred); legacy **`port_id`** / **`cargo_type`** retained. GET/201 echo **`port_hub_code`**. Catalog: entity **`port`**, extended **`cargo-type`**, **`referenceRows`**, updated **`shipping-instruction`** field contract. Header **`X-JPS-API-Version: 5.2`**. |
 | 5.1 | 2026-09-28 | **Document links:** optional `shipping_instruction_document_url`, `contract_document_url`, `bl_document_url` on POST/PATCH/GET/webhook `data`. **Catalog API:** `GET /catalog` and `GET /catalog/{entity}` for live, self-describing field discovery (§3.8). Header **`X-JPS-API-Version: 5.1`**. |
 | 5.0 | 2026-09-25 | **Webhooks:** `POST/PATCH/GET/DELETE /webhooks`; signed outbound `status.changed` and `schedule.updated` events. **Enriched GET:** `plan_reference`, `approval`, `schedule` (TA, ETB, TB, ETC, TC, cast off, sailed), `etr_minutes`. New status **`Sailed`**. Header **`X-JPS-API-Version: 5.0`**. v4.x additive-compatible. |

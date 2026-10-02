@@ -82,6 +82,23 @@ export async function buildIntegrationCatalog(db) {
       methods: ['POST', 'GET', 'PATCH'],
       description:
         'Submit a Shipping Instruction, poll enriched status (approval, schedule, milestones), and update PO/SO/document links while status is Pending. Port, vessel, and commodity lines require DHM/JPS hub codes (v5.3).',
+      legacyFieldsRejected: [
+        {
+          key: 'port_id',
+          useInstead: 'port_hub_code',
+          issue: 'legacy port_id is not accepted; use port_hub_code',
+        },
+        {
+          key: 'cargo[].cargo_type',
+          useInstead: 'cargo[].cargo_hub_code',
+          issue: 'legacy cargo_type is not accepted; use cargo_hub_code',
+        },
+        {
+          key: 'cargo_type',
+          useInstead: 'cargo_hub_code',
+          issue: 'legacy cargo_type is not accepted; use cargo_hub_code (on each cargo line)',
+        },
+      ],
       fields: [
         field('external_reference', 'STRING', {
           required: true,
@@ -128,10 +145,18 @@ export async function buildIntegrationCatalog(db) {
         field('shipping_instruction_document_url', 'URL', {
           patchable: true,
           maxLength: 2048,
-          description: 'HTTPS link to your hosted SI document. JPS stores the URL only.',
+          description: 'HTTP or HTTPS link to your hosted SI document. JPS stores the URL only.',
         }),
-        field('contract_document_url', 'URL', { patchable: true, maxLength: 2048 }),
-        field('bl_document_url', 'URL', { patchable: true, maxLength: 2048 }),
+        field('contract_document_url', 'URL', {
+          patchable: true,
+          maxLength: 2048,
+          description: 'HTTP or HTTPS link to your hosted contract document.',
+        }),
+        field('bl_document_url', 'URL', {
+          patchable: true,
+          maxLength: 2048,
+          description: 'HTTP or HTTPS link to your hosted B/L document.',
+        }),
         field('cargo', 'ARRAY', {
           required: true,
           patchable: true,

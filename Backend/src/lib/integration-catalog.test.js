@@ -44,6 +44,11 @@ describe('integration-catalog', () => {
     assert.equal(cargoHub.required, true);
     assert.deepEqual(cargoHub.enumValues, ['CMD-001']);
     assert.equal(cargo.items.find((f) => f.key === 'cargo_type'), undefined);
+    assert.ok(
+      si.legacyFieldsRejected.some(
+        (r) => r.key === 'cargo[].cargo_type' && r.useInstead === 'cargo[].cargo_hub_code',
+      ),
+    );
     const portHub = si.fields.find((f) => f.key === 'port_hub_code');
     assert.equal(portHub.required, true);
     assert.equal(si.fields.find((f) => f.key === 'port_id'), undefined);
