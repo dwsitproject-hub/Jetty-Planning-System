@@ -753,11 +753,6 @@ export default function ManagementDashboard() {
               showOutgoing={showProductOutgoing}
               onRowClick={openProductDetail}
             />
-            <p className="mgmt-hint">
-              Berth → start cargo uses <b>Pre-Checking</b> hours. Ops complete → sail is{' '}
-              <b>operations complete → cast-off</b> until hose-off is recorded separately.
-              Multi-product voyages count <b>once per product</b> in Shipments; wait and berth times are shared across products on the same call.
-            </p>
           </section>
 
           <div className="mgmt-two">
