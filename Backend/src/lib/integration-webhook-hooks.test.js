@@ -116,4 +116,11 @@ describe('integration-webhook-hooks', () => {
     assert.ok(operations.includes('triggerPartnerWebhooksDeferred'));
     assert.ok(operations.includes("'schedule.updated'"));
   });
+
+  it('operational-activities route triggers partner schedule webhook for cargo_operations', () => {
+    const src = readFileSync(path.join(routesDir, 'operation-operational-activities.js'), 'utf8');
+    assert.ok(src.includes('triggerPartnerWebhooksDeferred'));
+    assert.ok(src.includes('triggerPartnerScheduleWebhookForOperation'));
+    assert.match(src, /milestoneKey === 'cargo_operations'/);
+  });
 });

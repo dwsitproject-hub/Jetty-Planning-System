@@ -308,6 +308,16 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 **Catalog / header:** **`X-JPS-API-Version: 5.3`**, catalog **`api_version` 5.3** — hub-only field contract on **`shipping-instruction`** (`cargo_hub_code` required; **`cargo_type`** / **`port_id`** not in catalog; **`legacyFieldsRejected`** documents rejected POST fields).
 
+### 0.42 Partner schedule ATS — cargo_ops_start_at (v5.4) (2026-10-05)
+
+**GET / webhooks:** **`schedule.cargo_ops_start_at`** (partner **ATS**) = **`MIN(start_at)`** on **`operation_operational_activities`** with **`milestone_key = 'cargo_operations'`** for the latest **`operations`** row on the SI (Cargo Operations **Operation Window** start — not load-segment **`operation_cargo_load_lines`** times).
+
+**SQL:** [`integration-master-data.js`](Backend/src/lib/integration-master-data.js) partner submission queries; payload in [`integration-partner-payload.js`](Backend/src/lib/integration-partner-payload.js).
+
+**Webhooks:** [`operation-operational-activities.js`](Backend/src/routes/operation-operational-activities.js) fires **`schedule.updated`** on create/delete of **`cargo_operations`** activities and on update when **`start_at`** / **`end_at`** change (load-segment-only edits do not enqueue).
+
+**Header / catalog:** **`X-JPS-API-Version: 5.4`**.
+
 ### 0.32 Overview tables — Commodity Qty column (`siBreakdownDisplay`) (2026-05-26)
 
 **Purpose:** Show **SI-declared cargo** (commodity name + quantity per breakdown line) in main overview tables without opening SI modals. A single **Commodity Qty** column replaces a separate **Commodity** + **Total Qty** pair because each cell already embeds the commodity name (e.g. `RPO 5.000 MT`).

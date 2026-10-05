@@ -14,7 +14,7 @@ import {
   listPortsForCatalog,
 } from './integration-hub-resolve.js';
 
-export const INTEGRATION_CATALOG_VERSION = '5.3';
+export const INTEGRATION_CATALOG_VERSION = '5.4';
 
 const VALID_PURPOSES = ['Loading', 'Unloading'];
 const VALID_UNITS = ['MT', 'KL'];
@@ -166,7 +166,7 @@ export async function buildIntegrationCatalog(db) {
         }),
       ],
       responseFieldsNote:
-        'GET and webhook payloads echo port_hub_code and port_id (resolved from master). Cargo is stored by internal commodity id.',
+        'GET and webhook payloads echo port_hub_code and port_id (resolved from master). schedule.cargo_ops_start_at (v5.4, partner ATS) is the Cargo Operations operation window start. Cargo is stored by internal commodity id.',
     },
     {
       slug: 'webhook',

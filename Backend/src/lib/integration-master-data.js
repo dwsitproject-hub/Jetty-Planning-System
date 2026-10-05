@@ -180,6 +180,13 @@ export const PARTNER_SUBMISSION_LOOKUP_SQL = `
          o.operations_completed_at AS op_tc,
          o.cast_off_at AS op_cast_off_at, o.sailed_at AS op_sailed_at,
          o.op_updated_at,
+         (SELECT MIN(oa.start_at)
+          FROM operation_operational_activities oa
+          WHERE oa.operation_id = o.op_id
+            AND oa.deleted_at IS NULL
+            AND oa.entry_type = 'activity'
+            AND oa.milestone_key = 'cargo_operations'
+            AND oa.start_at IS NOT NULL) AS op_cargo_ops_activity_start_at,
          j.name AS jetty_name,
          regexp_replace(COALESCE(j.name, ''), '^Jetty\\s+', '', 'i') AS jetty_short_name,
          si.partner_si_document_url,
@@ -191,7 +198,7 @@ export const PARTNER_SUBMISSION_LOOKUP_SQL = `
   LEFT JOIN ports p ON p.id = sp.port_id AND p.deleted_at IS NULL
   LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
   LEFT JOIN LATERAL (
-    SELECT op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,
+    SELECT op.id AS op_id, op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,
            op.ta, op.etb, op.tb, op.estimated_completion_time,
            op.operations_completed_at, op.cast_off_at, op.sailed_at
     FROM operations op
@@ -224,6 +231,13 @@ export const PARTNER_SUBMISSION_BY_PLAN_SQL = `
          o.operations_completed_at AS op_tc,
          o.cast_off_at AS op_cast_off_at, o.sailed_at AS op_sailed_at,
          o.op_updated_at,
+         (SELECT MIN(oa.start_at)
+          FROM operation_operational_activities oa
+          WHERE oa.operation_id = o.op_id
+            AND oa.deleted_at IS NULL
+            AND oa.entry_type = 'activity'
+            AND oa.milestone_key = 'cargo_operations'
+            AND oa.start_at IS NOT NULL) AS op_cargo_ops_activity_start_at,
          j.name AS jetty_name,
          regexp_replace(COALESCE(j.name, ''), '^Jetty\\s+', '', 'i') AS jetty_short_name,
          si.partner_si_document_url,
@@ -235,7 +249,7 @@ export const PARTNER_SUBMISSION_BY_PLAN_SQL = `
   LEFT JOIN ports p ON p.id = sp.port_id AND p.deleted_at IS NULL
   LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
   LEFT JOIN LATERAL (
-    SELECT op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,
+    SELECT op.id AS op_id, op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,
            op.ta, op.etb, op.tb, op.estimated_completion_time,
            op.operations_completed_at, op.cast_off_at, op.sailed_at
     FROM operations op
@@ -268,6 +282,13 @@ export const PARTNER_SUBMISSION_BY_SI_SQL = `
          o.operations_completed_at AS op_tc,
          o.cast_off_at AS op_cast_off_at, o.sailed_at AS op_sailed_at,
          o.op_updated_at,
+         (SELECT MIN(oa.start_at)
+          FROM operation_operational_activities oa
+          WHERE oa.operation_id = o.op_id
+            AND oa.deleted_at IS NULL
+            AND oa.entry_type = 'activity'
+            AND oa.milestone_key = 'cargo_operations'
+            AND oa.start_at IS NOT NULL) AS op_cargo_ops_activity_start_at,
          j.name AS jetty_name,
          regexp_replace(COALESCE(j.name, ''), '^Jetty\\s+', '', 'i') AS jetty_short_name,
          si.partner_si_document_url,
@@ -279,7 +300,7 @@ export const PARTNER_SUBMISSION_BY_SI_SQL = `
   LEFT JOIN ports p ON p.id = sp.port_id AND p.deleted_at IS NULL
   LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
   LEFT JOIN LATERAL (
-    SELECT op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,
+    SELECT op.id AS op_id, op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,
            op.ta, op.etb, op.tb, op.estimated_completion_time,
            op.operations_completed_at, op.cast_off_at, op.sailed_at
     FROM operations op

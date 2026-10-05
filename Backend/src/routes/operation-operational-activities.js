@@ -28,6 +28,7 @@ import {
   getSiCommodityOptionsForOperation,
   normalizeLoadLineCommodityId,
 } from '../lib/si-commodity-options.js';
+import { triggerPartnerWebhooksDeferred } from '../lib/integration-webhooks.js';
 
 const router = express.Router();
 
@@ -45,6 +46,32 @@ const START_ONLY_MILESTONE_KEYS = new Set(['opening_hatch', 'cargo_pre_condition
 /** Milestones where end_at may be NULL (Opening, Pre-conditioning, Cargo Operations). */
 function milestoneAllowsNullEnd(milestoneKey) {
   return START_ONLY_MILESTONE_KEYS.has(milestoneKey) || milestoneKey === 'cargo_operations';
+}
+
+function partnerScheduleInstantIso(v) {
+  if (v == null || v === '') return null;
+  const d = v instanceof Date ? v : new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function partnerCargoOpsWindowChanged(beforeStart, beforeEnd, afterStartIso, afterEndIso) {
+  return (
+    partnerScheduleInstantIso(beforeStart) !== partnerScheduleInstantIso(afterStartIso) ||
+    partnerScheduleInstantIso(beforeEnd) !== partnerScheduleInstantIso(afterEndIso)
+  );
+}
+
+async function triggerPartnerScheduleWebhookForOperation(operationId) {
+  const r = await pool.query(
+    `SELECT shipping_instruction_id FROM operations WHERE id = $1 AND deleted_at IS NULL`,
+    [operationId]
+  );
+  const siId = r.rows[0]?.shipping_instruction_id;
+  if (siId == null) return;
+  triggerPartnerWebhooksDeferred({
+    shippingInstructionId: Number(siId),
+    eventTypes: ['schedule.updated'],
+  });
 }
 
 function operationalActivityTitle(milestoneKey) {
@@ -1094,6 +1121,7 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
       await client.query('COMMIT');
       if (milestoneKey === 'cargo_operations') {
         await refreshOperationalProgressAfterCargoSave(pool, operationId);
+        triggerPartnerScheduleWebhookForOperation(operationId).catch(() => {});
       }
       if (row.cargo_handling_method_id) {
         const m = await pool.query(
@@ -1311,6 +1339,9 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
       await client.query('COMMIT');
       if (milestoneKey === 'cargo_operations') {
         await refreshOperationalProgressAfterCargoSave(pool, operationId);
+        if (partnerCargoOpsWindowChanged(row0.start_at, row0.end_at, startIso, tbIso)) {
+          triggerPartnerScheduleWebhookForOperation(operationId).catch(() => {});
+        }
       }
       const row = up.rows[0];
       if (row.cargo_handling_method_id) {
@@ -1404,6 +1435,9 @@ router.delete('/operations/:operationId/operational-activities/:entryId', async 
     [entryId, operationId]
   );
   if (r.rows.length === 0) return res.status(404).json({ error: 'Entry not found' });
+  if (r.rows[0].entry_type === 'activity' && r.rows[0].milestone_key === 'cargo_operations') {
+    triggerPartnerScheduleWebhookForOperation(operationId).catch(() => {});
+  }
   writeActivityLog({
     pageKey: 'loading',
     action: 'delete',
