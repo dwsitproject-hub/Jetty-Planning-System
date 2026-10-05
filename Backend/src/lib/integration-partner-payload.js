@@ -31,8 +31,8 @@ export function buildPartnerSchedule(row) {
     tc: coalesceTs(row.sp_tc, row.op_tc),
     cast_off_at: coalesceTs(row.sp_cast_off_at, row.op_cast_off_at),
     sailed_at: coalesceTs(row.sp_sailed_at, row.op_sailed_at),
-    /** ATS — Cargo Operations operation window start (partner alias). */
-    cargo_ops_start_at: timestampToIso(row.op_cargo_ops_activity_start_at),
+    /** ATS — earliest Cargo Operations Entry 1 load-segment start (partner alias). */
+    cargo_ops_start_at: timestampToIso(row.op_cargo_ops_entry1_start_at),
   };
 }
 

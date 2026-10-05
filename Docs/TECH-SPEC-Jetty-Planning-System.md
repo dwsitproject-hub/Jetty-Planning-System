@@ -310,11 +310,11 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 ### 0.42 Partner schedule ATS — cargo_ops_start_at (v5.4) (2026-10-05)
 
-**GET / webhooks:** **`schedule.cargo_ops_start_at`** (partner **ATS**) = **`MIN(start_at)`** on **`operation_operational_activities`** with **`milestone_key = 'cargo_operations'`** for the latest **`operations`** row on the SI (Cargo Operations **Operation Window** start — not load-segment **`operation_cargo_load_lines`** times).
+**GET / webhooks:** **`schedule.cargo_ops_start_at`** (partner **ATS**) = earliest **Entry 1** load-segment start: for each **`cargo_operations`** activity on the latest **`operations`** row, the **`operation_cargo_load_lines`** row with lowest **`line_order`**; then **`MIN(started_at)`** across those Entry 1 rows.
 
-**SQL:** [`integration-master-data.js`](Backend/src/lib/integration-master-data.js) partner submission queries; payload in [`integration-partner-payload.js`](Backend/src/lib/integration-partner-payload.js).
+**SQL:** [`integration-master-data.js`](Backend/src/lib/integration-master-data.js) (`PARTNER_CARGO_OPS_ENTRY1_ATS_SUBSELECT`, **`resolvePartnerCargoOpsEntry1Ats`**); payload in [`integration-partner-payload.js`](Backend/src/lib/integration-partner-payload.js).
 
-**Webhooks:** [`operation-operational-activities.js`](Backend/src/routes/operation-operational-activities.js) fires **`schedule.updated`** on create/delete of **`cargo_operations`** activities and on update when **`start_at`** / **`end_at`** change (load-segment-only edits do not enqueue).
+**Webhooks:** [`operation-operational-activities.js`](Backend/src/routes/operation-operational-activities.js) fires **`schedule.updated`** on create/delete of **`cargo_operations`** activities and on update when partner ATS changes (Entry 1 **`started_at`**); activity operation-window-only edits do not enqueue.
 
 **Header / catalog:** **`X-JPS-API-Version: 5.4`**.
 

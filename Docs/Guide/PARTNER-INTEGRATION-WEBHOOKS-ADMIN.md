@@ -14,7 +14,7 @@ Layout:
 
 1. **Partners (left)** — select a registered integration key (EOS, KLIP, etc.).
 2. **Credentials (right)** — masked key prefix, active/revoked, last used, **Revoke key**.
-3. **Webhooks** — outbound URLs JPS POSTs to when plans are approved, berthing milestones change, or the **Cargo Operations operation window** is saved (**`schedule.updated`**, v5.4 includes **`cargo_ops_start_at`** / partner ATS in the payload).
+3. **Webhooks** — outbound URLs JPS POSTs to when plans are approved, berthing milestones change, or partner **ATS** (Cargo Operations **Entry 1** start) changes (**`schedule.updated`**, v5.4 **`cargo_ops_start_at`** in the payload).
 
 Partners can register the same webhooks via **`POST /api/v1/integrations/webhooks`** with their **`x-api-key`**. Admin UI is for onboarding and support when the partner cannot call the API.
 
@@ -81,7 +81,7 @@ Partners map industry labels to fields in webhook/GET **`data.schedule`**:
 |---------------|-----------|---------------------------|
 | ATA | `ta` | Arrival / TA |
 | ATB | `tb` | Berthing |
-| ATS | **`cargo_ops_start_at`** | **Cargo Operations → Operation Window → Start** (`cargo_operations` activity) |
+| ATS | **`cargo_ops_start_at`** | **Cargo Operations → Entry 1 → Start** (`operation_cargo_load_lines.started_at`) |
 | ATC | `cast_off_at` | Cast off / sailed |
 
-**`schedule.updated`** fires when these schedule fields change from operator saves (including Cargo Operations window create/update/delete — not load-segment-only edits).
+**`schedule.updated`** fires when these schedule fields change from operator saves (including Cargo Operations create/delete and saves that change **Entry 1** start). Operation-window-only edits do not change ATS.

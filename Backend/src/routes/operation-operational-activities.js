@@ -29,6 +29,7 @@ import {
   normalizeLoadLineCommodityId,
 } from '../lib/si-commodity-options.js';
 import { triggerPartnerWebhooksDeferred } from '../lib/integration-webhooks.js';
+import { resolvePartnerCargoOpsEntry1Ats } from '../lib/integration-master-data.js';
 
 const router = express.Router();
 
@@ -54,11 +55,8 @@ function partnerScheduleInstantIso(v) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-function partnerCargoOpsWindowChanged(beforeStart, beforeEnd, afterStartIso, afterEndIso) {
-  return (
-    partnerScheduleInstantIso(beforeStart) !== partnerScheduleInstantIso(afterStartIso) ||
-    partnerScheduleInstantIso(beforeEnd) !== partnerScheduleInstantIso(afterEndIso)
-  );
+function partnerCargoOpsAtsChanged(beforeAts, afterAts) {
+  return partnerScheduleInstantIso(beforeAts) !== partnerScheduleInstantIso(afterAts);
 }
 
 async function triggerPartnerScheduleWebhookForOperation(operationId) {
@@ -1267,6 +1265,11 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
       }
     }
 
+    const beforePartnerAts =
+      milestoneKey === 'cargo_operations'
+        ? await resolvePartnerCargoOpsEntry1Ats(pool, operationId)
+        : null;
+
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -1339,7 +1342,8 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
       await client.query('COMMIT');
       if (milestoneKey === 'cargo_operations') {
         await refreshOperationalProgressAfterCargoSave(pool, operationId);
-        if (partnerCargoOpsWindowChanged(row0.start_at, row0.end_at, startIso, tbIso)) {
+        const afterPartnerAts = await resolvePartnerCargoOpsEntry1Ats(pool, operationId);
+        if (partnerCargoOpsAtsChanged(beforePartnerAts, afterPartnerAts)) {
           triggerPartnerScheduleWebhookForOperation(operationId).catch(() => {});
         }
       }

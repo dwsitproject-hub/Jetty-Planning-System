@@ -401,17 +401,17 @@ The API only submits and reads status. To see `Approved` or `Allocated`, an oper
 | Jetty assigned | `Allocated` | `allocation.jetty_name`, `allocation.planned_berthing_time` |
 | Operator rejected | `Rejected` | `rejection_reason` populated |
 | Berthing milestones saved | `Allocated` (typical) | `data.schedule` populated (`ta`, `tb`, `etc`, …); response header **`X-JPS-API-Version: 5.4`** |
-| Cargo Operations window saved | `Allocated` (typical) | `data.schedule.cargo_ops_start_at` set (partner **ATS**); **`schedule.updated`** webhook if registered |
+| Cargo Operations Entry 1 saved | `Allocated` (typical) | `data.schedule.cargo_ops_start_at` set (partner **ATS**); **`schedule.updated`** webhook if registered |
 
 Poll every few minutes in real integrations — operator review is a human process, not instant.
 
 ### Verify ATS (`cargo_ops_start_at`) after allocation
 
-1. In JPS, open the operation → **Cargo Operations** → set **Operation Window → Start** (milestone **`cargo_operations`**) and save.
-2. **`GET /shipping-instructions/{id}`** — confirm `data.schedule.cargo_ops_start_at` matches the saved start (ISO UTC).
-3. Optional: register **`schedule.updated`** on a test webhook URL and confirm delivery after the save (see partner guide §3.4).
+1. In JPS, open the operation → **Cargo Operations** → set **Entry 1 → Start** on the first load segment and save.
+2. **`GET /shipping-instructions/{id}`** — confirm `data.schedule.cargo_ops_start_at` matches Entry 1 start (ISO UTC), not necessarily the activity operation window.
+3. Optional: register **`schedule.updated`** on a test webhook URL and confirm delivery after Entry 1 start changes (see partner guide §3.4).
 
-Load-segment start/end times under the same tab do **not** populate **`cargo_ops_start_at`**.
+Changing only the **operation window** (activity `start_at`) without Entry 1 start does **not** change **`cargo_ops_start_at`** or enqueue **`schedule.updated`**.
 
 ---
 
@@ -472,7 +472,7 @@ Always note `request_id` when reporting failures — it helps trace the request 
 - [ ] Approve in UI → `GET` shows `Approved`; PATCH → `409 INVALID_STATE`
 - [ ] Allocate jetty in UI → `GET` shows `Allocated`
 - [ ] Response header includes **`X-JPS-API-Version: 5.4`** on integration routes
-- [ ] After Cargo Operations window save → `GET` shows **`schedule.cargo_ops_start_at`** (or `null` until set)
+- [ ] After Cargo Operations **Entry 1** start save → `GET` shows **`schedule.cargo_ops_start_at`** (or `null` until set)
 
 ---
 

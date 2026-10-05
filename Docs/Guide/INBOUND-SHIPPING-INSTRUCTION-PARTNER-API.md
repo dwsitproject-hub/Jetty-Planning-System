@@ -4,7 +4,7 @@
 >
 > **What you can do:** Sync reference master data, submit Shipping Instructions, update PO/SO while Pending, **send HTTP or HTTPS links** to SI / contract / B/L documents, **receive approval and milestone updates via webhooks**, and poll enriched status (including TA, ETB, TB, ETC, TC, cast off, sailed). JPS operators update berthing milestones in the web app — your system receives those changes; you do not write them back via API.
 >
-> **What's new in v5.4:** Enriched GET/webhook **`schedule.cargo_ops_start_at`** (partner **ATS** — JPS Cargo Operations **Operation Window** start). **`schedule.updated`** webhook when operators save that window. Header **`X-JPS-API-Version: 5.4`**. Additive for v5.3 clients.
+> **What's new in v5.4:** Enriched GET/webhook **`schedule.cargo_ops_start_at`** (partner **ATS** — JPS Cargo Operations **Entry 1** load-segment start). **`schedule.updated`** when that timestamp changes. Header **`X-JPS-API-Version: 5.4`**. Additive for v5.3 clients.
 >
 > **What's new in v5.3:** **Hub-only POST:** **`port_hub_code`**, **`vessel_hub_code`**, and **`cargo[].cargo_hub_code`** are **required**; legacy **`port_id`**, **`cargo_type`**, and **`vessel_name`-only** submits return **400**. **`agent_name`** is optional (may be **`null`** or omitted). Document link fields accept **`http://`** or **`https://`**. Header **`X-JPS-API-Version: 5.3`**. Breaking for v5.2 clients still sending short names or `port_id`.
 >
@@ -385,7 +385,7 @@ curl -sS "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions/10"
 | `tb` | Time of Berthing (actual) (partner **ATB**) | Operator berthing log |
 | `etc` | Estimated Time of Completion | Operator SLA / ETC |
 | `tc` | Operations completed (sign-off) | Sign-off approval |
-| `cargo_ops_start_at` | Cargo operations start (partner **ATS**) | **Cargo Operations → Operation Window → Start** (`operation_operational_activities.start_at`, `milestone_key = cargo_operations`). Not load-segment times. |
+| `cargo_ops_start_at` | Cargo operations start (partner **ATS**) | **Cargo Operations → Entry 1 → Start** (`operation_cargo_load_lines.started_at`, lowest `line_order` per `cargo_operations` activity; earliest across activities on the call). |
 | `cast_off_at` | Cast off (partner **ATC**) | Clearance / depart |
 | `sailed_at` | Sailed | Depart (status `Sailed`) |
 
@@ -1113,7 +1113,7 @@ When reporting issues, include:
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.4 | 2026-10-05 | **`schedule.cargo_ops_start_at`** (ATS) on GET/webhooks; **`schedule.updated`** when Cargo Operations operation window is saved. Header **`X-JPS-API-Version: 5.4`**. |
+| 5.4 | 2026-10-05 | **`schedule.cargo_ops_start_at`** (ATS) on GET/webhooks — **Entry 1** load-segment start; **`schedule.updated`** when ATS changes. Header **`X-JPS-API-Version: 5.4`**. *(Initial 5.4 text cited operation window; corrected to Entry 1 before partner rollout.)* |
 | 5.3 | 2026-10-02 | **Hub-only POST** (required **`port_hub_code`**, **`vessel_hub_code`**, **`cargo[].cargo_hub_code`**); legacy **`port_id`**, **`cargo_type`**, vessel_name-only rejected. **`agent_name`** optional/nullable. Document URLs accept **HTTP or HTTPS**. Catalog updated. Header **`X-JPS-API-Version: 5.3`**. |
 | 5.2 | 2026-10-01 | **`port_hub_code`** and **`cargo[].cargo_hub_code`** on POST (preferred); legacy **`port_id`** / **`cargo_type`** retained. GET/201 echo **`port_hub_code`**. Catalog: entity **`port`**, extended **`cargo-type`**, **`referenceRows`**, updated **`shipping-instruction`** field contract. Header **`X-JPS-API-Version: 5.2`**. |
 | 5.1 | 2026-09-28 | **Document links:** optional `shipping_instruction_document_url`, `contract_document_url`, `bl_document_url` on POST/PATCH/GET/webhook `data`. **Catalog API:** `GET /catalog` and `GET /catalog/{entity}` for live, self-describing field discovery (§3.8). Header **`X-JPS-API-Version: 5.1`**. |

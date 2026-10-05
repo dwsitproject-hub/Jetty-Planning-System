@@ -166,7 +166,7 @@ export async function buildIntegrationCatalog(db) {
         }),
       ],
       responseFieldsNote:
-        'GET and webhook payloads echo port_hub_code and port_id (resolved from master). schedule.cargo_ops_start_at (v5.4, partner ATS) is the Cargo Operations operation window start. Cargo is stored by internal commodity id.',
+        'GET and webhook payloads echo port_hub_code and port_id (resolved from master). schedule.cargo_ops_start_at (v5.4, partner ATS) is the earliest Cargo Operations Entry 1 load-segment start (operation_cargo_load_lines.started_at). Cargo is stored by internal commodity id.',
     },
     {
       slug: 'webhook',
