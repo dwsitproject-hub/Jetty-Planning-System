@@ -250,7 +250,7 @@ export default function JettyScheduleGantt({
   const def = useMemo(() => defaultDateRangeInputsForProfile(popoutProfile), [popoutProfile])
   const [dateFrom, setDateFrom] = useState(def.from)
   const [dateTo, setDateTo] = useState(def.to)
-  const [fitAllRows, setFitAllRows] = useState(Boolean(isPopout))
+  const [fitAllRows, setFitAllRows] = useState(Boolean(isPopout || isPlanProfile))
   const [fitDensity, setFitDensity] = useState('full')
   const [exporting, setExporting] = useState(false)
   const useFitRows = fitAllRows && !exporting
@@ -1565,7 +1565,7 @@ export default function JettyScheduleGantt({
         >
           {tAlloc('ganttFitAllJetties', { defaultValue: 'Fit all jetties' })}
         </button>
-        {isPopout ? (
+        {isPlanProfile ? (
           <details className="jetty-schedule-gantt__legend-details">
             <summary>{tAlloc('vizPopoutLegend', { defaultValue: 'Legend' })}</summary>
             <div className="allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two">
@@ -1605,11 +1605,11 @@ export default function JettyScheduleGantt({
             {tAlloc('jettySchedule', { defaultValue: 'Berthing Plan' })} · {dateFrom} → {dateTo}
           </div>
         ) : null}
-        {isPopout ? null : (
-        <div className="allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two">
-          {legendContent}
-        </div>
-      )}
+        {!isPlanProfile ? (
+          <div className="allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two">
+            {legendContent}
+          </div>
+        ) : null}
 
       <div className="jetty-schedule-gantt__scroll" ref={scrollRef}>
         <div
