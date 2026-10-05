@@ -48,16 +48,17 @@ function endpointAcceptsEvent(events, eventType) {
   return list.includes(eventType);
 }
 
-function isHttpsUrl(url) {
+/** @param {string} url */
+export function isValidWebhookEndpointUrl(url) {
   try {
-    const u = new URL(url);
-    if (u.protocol === 'https:') return true;
-    if (u.protocol === 'http:' && process.env.INTEGRATION_WEBHOOK_ALLOW_HTTP === 'true') return true;
-    return false;
+    const u = new URL(String(url).trim());
+    return u.protocol === 'https:' || u.protocol === 'http:';
   } catch {
     return false;
   }
 }
+
+const INVALID_WEBHOOK_URL = 'url must be a valid HTTP or HTTPS URL';
 
 export function toWebhookEndpointRow(row) {
   return {
@@ -78,8 +79,8 @@ export function toWebhookEndpointRow(row) {
  */
 export async function createWebhookEndpoint(db, apiKeyId, input) {
   const url = String(input.url ?? '').trim();
-  if (!url || !isHttpsUrl(url)) {
-    return { error: 'url must be a valid HTTPS URL' };
+  if (!url || !isValidWebhookEndpointUrl(url)) {
+    return { error: INVALID_WEBHOOK_URL };
   }
   const eventsRaw = input.events ?? ['*'];
   if (!Array.isArray(eventsRaw) || eventsRaw.length === 0) {
@@ -137,7 +138,7 @@ export async function updateWebhookEndpoint(db, apiKeyId, endpointId, input) {
   let url = row.url;
   if (input.url != null) {
     url = String(input.url).trim();
-    if (!url || !isHttpsUrl(url)) return { error: 'url must be a valid HTTPS URL' };
+    if (!url || !isValidWebhookEndpointUrl(url)) return { error: INVALID_WEBHOOK_URL };
   }
 
   let events = row.events ?? ['*'];

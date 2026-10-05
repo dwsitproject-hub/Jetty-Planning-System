@@ -174,10 +174,13 @@ export async function buildIntegrationCatalog(db) {
       path: '/webhooks',
       methods: ['POST', 'GET', 'PATCH', 'DELETE'],
       description:
-        'Register an HTTPS URL to receive signed push events (status.changed, schedule.updated) instead of polling.',
+        'Register an HTTP or HTTPS URL to receive signed push events (status.changed, schedule.updated) instead of polling.',
       limits: { maxActivePerApiKey: MAX_ACTIVE_WEBHOOKS_PER_KEY },
       fields: [
-        field('url', 'URL', { required: true, description: 'HTTPS endpoint that returns 2xx within 15s.' }),
+        field('url', 'URL', {
+          required: true,
+          description: 'HTTP or HTTPS endpoint that returns 2xx within 15s.',
+        }),
         field('events', 'ARRAY<STRING>', {
           patchable: true,
           enumValues: ['*', ...WEBHOOK_EVENT_TYPES],

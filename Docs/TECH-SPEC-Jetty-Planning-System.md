@@ -266,7 +266,7 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 **Migration `119_integration_webhooks.sql`:** **`integration_webhook_endpoints`**, **`integration_webhook_deliveries`** (outbox).
 
-**Routes (`/api/v1/integrations/webhooks`):** **`POST`** register HTTPS URL + **`events[]`**; **`PATCH`** update; **`GET`** list; **`DELETE`** deactivate. Webhook secret encrypted at rest; shown once on create.
+**Routes (`/api/v1/integrations/webhooks`):** **`POST`** register **HTTP or HTTPS** URL + **`events[]`**; **`PATCH`** update; **`GET`** list; **`DELETE`** deactivate. Webhook secret encrypted at rest; shown once on create.
 
 **Outbound delivery:** After operator actions (plan approve/reject/depart, **`PUT /allocation/arrival`**, operation sign-off/depart), **`triggerPartnerWebhooksDeferred`** enqueues **`status.changed`** and/or **`schedule.updated`**. Worker **`integration-webhook-worker.js`** POSTs signed payloads (**`X-JPS-Signature`**, **`X-JPS-Delivery-Id`**) with retry backoff.
 
@@ -278,7 +278,7 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 **Migration `123_si_partner_document_urls.sql`:** **`shipping_instructions.partner_si_document_url`**, **`partner_contract_document_url`**, **`partner_bl_document_url`**.
 
-**Integration API:** Optional **`shipping_instruction_document_url`**, **`contract_document_url`**, **`bl_document_url`** on POST and PATCH (Pending). Validated as **HTTP or HTTPS** URLs (max 2048). Echoed on enriched GET and webhook **`data`**. Internal SI API exposes camelCase **`partnerSiDocumentUrl`**, etc.; read-only in **`SiDetailModal`**. Webhook registration URLs remain HTTPS-only unless **`INTEGRATION_WEBHOOK_ALLOW_HTTP=true`**. Header **`X-JPS-API-Version: 5.1`**.
+**Integration API:** Optional **`shipping_instruction_document_url`**, **`contract_document_url`**, **`bl_document_url`** on POST and PATCH (Pending). Validated as **HTTP or HTTPS** URLs (max 2048). Echoed on enriched GET and webhook **`data`**. Internal SI API exposes camelCase **`partnerSiDocumentUrl`**, etc.; read-only in **`SiDetailModal`**. Webhook endpoint registration accepts **HTTP or HTTPS** URLs. Header **`X-JPS-API-Version: 5.1`**.
 
 ### 0.39 Partner catalog API (v5.1) (2026-09-28)
 

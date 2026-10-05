@@ -193,7 +193,7 @@ result = r.json()
 | `GET` | `/shippers/{id}` | Get one shipper |
 | `POST` | `/shippers` | Create or match shipper by name (upsert) |
 | `PATCH` | `/shippers/{id}` | Update shipper name / long name |
-| `POST` | `/webhooks` | Register HTTPS webhook URL (v5.0) |
+| `POST` | `/webhooks` | Register HTTP/HTTPS webhook URL (v5.0) |
 | `PATCH` | `/webhooks/{id}` | Update webhook URL, events, or rotate secret |
 | `GET` | `/webhooks` | List your webhook endpoints |
 | `DELETE` | `/webhooks/{id}` | Deactivate a webhook endpoint |
@@ -431,7 +431,7 @@ Identify each cargo line with **`line_order`** (0-based, same as POST order) or 
 
 ### 3.4 Webhooks — register and manage (v5.0)
 
-Register an **HTTPS** URL where JPS POSTs signed events when approval status or berthing milestones change.
+Register an **HTTP or HTTPS** URL where JPS POSTs signed events when approval status or berthing milestones change (internal receivers often use `http://`).
 
 **Register (secret shown once):**
 
@@ -468,7 +468,7 @@ curl -sS -X POST "$JPS_API_BASE_URL/webhooks" \
 | `PATCH` | `/webhooks/{id}` | Update `url`, `events`, `active`, or `rotate_secret: true` |
 | `DELETE` | `/webhooks/{id}` | Deactivate endpoint |
 
-Limits: max **3 active** endpoints per API key. Staging may allow HTTP when JPS sets `INTEGRATION_WEBHOOK_ALLOW_HTTP=true` (dev only).
+Limits: max **3 active** endpoints per API key. **`url`** must be **`http://`** or **`https://`** (other schemes rejected).
 
 ---
 
