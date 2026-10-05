@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatDateTimeDisplay } from '../../utils/formatDateTimeDisplay'
-import { getRailReasons, railKey } from '../../utils/berthColorState.js'
+import { formatMaterialQtyLine } from '../../utils/ganttBarDisplay.js'
+import { getBerthPurposeTone, getRailReasons, railKey } from '../../utils/berthColorState.js'
 
 function cardProduct(row) {
   return (
@@ -90,14 +91,31 @@ export default function UnallocatedRail({
                 const reasons = getRailReasons(row)
                 const schedulable = canDrag && canScheduleRow(row)
                 const product = cardProduct(row)
-                const purpose = row.planPurposeLabel || row.purpose || ''
-                const reasonText = reasons
-                  .map((r) =>
-                    r === 'noJetty'
-                      ? t('railReasonNoJetty', { defaultValue: 'No jetty' })
-                      : t('railReasonNoEtb', { defaultValue: 'No ETB' })
-                  )
-                  .join(', ')
+                const productLine = formatMaterialQtyLine(product, row.totalQtyDisplay)
+                const purposeTone = getBerthPurposeTone(row.purpose, row.loadDischarge)
+                const purposeLabel =
+                  purposeTone === 'load'
+                    ? t('ganttLegendLoad', { defaultValue: 'Load' })
+                    : purposeTone === 'unload'
+                      ? t('ganttLegendUnload', { defaultValue: 'Unload' })
+                      : ''
+                const reasonParts = reasons.map((r) =>
+                  r === 'noJetty'
+                    ? {
+                        key: r,
+                        label: t('railReasonJettyShort', { defaultValue: 'Jetty' }),
+                        spoken: t('railReasonNoJetty', { defaultValue: 'No jetty' }),
+                      }
+                    : {
+                        key: r,
+                        label: t('railReasonEtbShort', { defaultValue: 'ETB' }),
+                        spoken: t('railReasonNoEtb', { defaultValue: 'No ETB' }),
+                      }
+                )
+                const reasonText = reasonParts.map((p) => p.spoken).join(', ')
+                const etaText = row.etaDateTime
+                  ? `ETA ${formatDateTimeDisplay(row.etaDateTime)}`
+                  : t('railNoEta', { defaultValue: 'ETA not set' })
                 const dragHint = schedulable
                   ? t('railDragCard', { defaultValue: 'Drag onto a jetty row to schedule.' })
                   : canDrag
@@ -112,28 +130,28 @@ export default function UnallocatedRail({
                       className={`unallocated-rail__card${schedulable ? ' unallocated-rail__card--draggable' : ''}`}
                       data-rail-card={railKey(row)}
                       aria-label={`${row.vesselName || '—'}. ${reasonText}. ${dragHint}`.trim()}
-                      title={dragHint || undefined}
+                      title={[reasonText, dragHint].filter(Boolean).join(' ')}
                       onPointerDown={schedulable ? (e) => onCardPointerDown(e, row) : undefined}
                       onClick={() => onSelect(row)}
                     >
-                      <span className="unallocated-rail__name">{row.vesselName || '—'}</span>
-                      {product || row.totalQtyDisplay ? (
-                        <span className="unallocated-rail__meta">
-                          {[product, row.totalQtyDisplay].filter(Boolean).join(' · ')}
-                        </span>
-                      ) : null}
-                      {purpose ? <span className="unallocated-rail__meta">{purpose}</span> : null}
-                      <span className="unallocated-rail__meta">
-                        {row.etaDateTime
-                          ? `ETA ${formatDateTimeDisplay(row.etaDateTime)}`
-                          : t('railNoEta', { defaultValue: 'ETA not set' })}
+                      <span className="unallocated-rail__title-row">
+                        <span className="unallocated-rail__name">{row.vesselName || '—'}</span>
+                        {purposeLabel ? (
+                          <span
+                            className={`unallocated-rail__purpose unallocated-rail__purpose--${purposeTone}`}
+                          >
+                            {purposeLabel}
+                          </span>
+                        ) : null}
                       </span>
-                      <span className="unallocated-rail__chips">
-                        {reasons.map((r) => (
-                          <span key={r} className="unallocated-rail__chip">
-                            {r === 'noJetty'
-                              ? t('railReasonNoJetty', { defaultValue: 'No jetty' })
-                              : t('railReasonNoEtb', { defaultValue: 'No ETB' })}
+                      {productLine ? (
+                        <span className="unallocated-rail__meta">{productLine}</span>
+                      ) : null}
+                      <span className="unallocated-rail__eta-row">
+                        <span className="unallocated-rail__eta">{etaText}</span>
+                        {reasonParts.map((p) => (
+                          <span key={p.key} className="unallocated-rail__reason">
+                            {p.label}
                           </span>
                         ))}
                       </span>

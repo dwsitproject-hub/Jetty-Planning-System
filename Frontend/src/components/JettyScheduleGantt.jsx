@@ -539,6 +539,7 @@ export default function JettyScheduleGantt({
       : 'minmax(160px, 200px)'
 
   const scrollRef = useRef(null)
+  const chartShellRef = useRef(null)
   const initialScrollDoneRef = useRef(false)
   const [scrollToTodayTick, setScrollToTodayTick] = useState(0)
 
@@ -629,7 +630,8 @@ export default function JettyScheduleGantt({
       // 8px gutter covers the date-header/body borders + the horizontal scrollbar.
       const available = Math.max(0, h - headerH - 8)
       el.style.setProperty('--gantt-fit-row-min', `${resolveGanttFitRowMin({ availableHeight: available, rowCount: n })}px`)
-      setFitDensity(resolveGanttFitDensity(available / n))
+      // Berthing Plan (tab + full view) keeps the full 3-line card.
+      setFitDensity(isPlanProfile ? 'full' : resolveGanttFitDensity(available / n))
     }
     apply()
     if (typeof ResizeObserver === 'undefined') {
@@ -639,7 +641,43 @@ export default function JettyScheduleGantt({
     const observer = new ResizeObserver(apply)
     observer.observe(el)
     return () => observer.disconnect()
-  }, [useFitRows, rowDefs.length, nCols])
+  }, [useFitRows, rowDefs.length, nCols, isPlanProfile, railEnabled, isPopout])
+
+  // Keep the Unallocated rail the same height as the jetty rows (not 70vh),
+  // and start it under the date header so the card does not grow a white gap.
+  useLayoutEffect(() => {
+    const scroll = scrollRef.current
+    const shell = chartShellRef.current
+    if (!scroll || !shell || !railEnabled) {
+      scroll?.style.removeProperty('--gantt-matrix-header-h')
+      shell?.style.removeProperty('--gantt-matrix-header-h')
+      shell?.style.removeProperty('--gantt-matrix-body-h')
+      return undefined
+    }
+    const measure = () => {
+      const header = scroll.querySelector('.jetty-schedule-gantt__header-row')
+      const body = scroll.querySelector('.jetty-schedule-gantt__body')
+      const headerH = header ? header.getBoundingClientRect().height : 36
+      const bodyH = body ? body.getBoundingClientRect().height : 0
+      const visibleBelowHeader = Math.max(0, scroll.clientHeight - headerH)
+      const railH = Math.max(0, Math.round(Math.min(bodyH || visibleBelowHeader, visibleBelowHeader || bodyH)))
+      const headerPx = `${Math.ceil(headerH)}px`
+      const bodyPx = `${railH}px`
+      shell.style.setProperty('--gantt-matrix-header-h', headerPx)
+      shell.style.setProperty('--gantt-matrix-body-h', bodyPx)
+      scroll.style.setProperty('--gantt-matrix-header-h', headerPx)
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure)
+      return () => window.removeEventListener('resize', measure)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(scroll)
+    const body = scroll.querySelector('.jetty-schedule-gantt__body')
+    if (body) observer.observe(body)
+    return () => observer.disconnect()
+  }, [railEnabled, useFitRows, nCols, rowDefs.length, railRows?.length])
 
   const exportRef = useRef(null)
 
@@ -1438,10 +1476,13 @@ export default function JettyScheduleGantt({
     </>
   )
 
-  // Without a rail the original DOM is unchanged (Fragment); with a rail the Gantt and the rail
-  // sit side by side.
-  const LayoutTag = railEnabled ? 'div' : Fragment
-  const layoutProps = railEnabled ? { className: 'jetty-schedule-gantt__layout' } : {}
+  const LayoutTag = Fragment
+  const layoutProps = {}
+  // Rail stays outside horizontal scroll (always visible) and below the date header row.
+  const ChartShell = railEnabled ? 'div' : Fragment
+  const chartShellProps = railEnabled
+    ? { className: 'jetty-schedule-gantt__chart-with-rail', ref: chartShellRef }
+    : {}
 
   const pendingProposal = pendingChange?.proposal ?? null
   const pendingTargetBerth = pendingProposal?.jettyChange
@@ -1611,6 +1652,7 @@ export default function JettyScheduleGantt({
           </div>
         ) : null}
 
+      <ChartShell {...chartShellProps}>
       <div className="jetty-schedule-gantt__scroll" ref={scrollRef}>
         <div
           className="jetty-schedule-gantt__matrix"
@@ -1741,7 +1783,6 @@ export default function JettyScheduleGantt({
           )}
         </div>
       </div>
-      </div>
       {railEnabled ? (
         <UnallocatedRail
           rows={railRows}
@@ -1751,6 +1792,8 @@ export default function JettyScheduleGantt({
           onSelect={handleRailSelect}
         />
       ) : null}
+      </ChartShell>
+      </div>
       </LayoutTag>
 
       {pendingChange ? (

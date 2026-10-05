@@ -1334,6 +1334,26 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   padding: 1px 5px;
 }
 
+/*
+ * Berthing Plan (main tab + full view): readable 3-line vessel card (~72px).
+ * Do not stretch rows to fill leftover viewport (that made giant empty bars).
+ */
+.jetty-schedule-gantt--plan.jetty-schedule-gantt--fit-rows .jetty-schedule-gantt__matrix {
+  min-height: auto;
+}
+
+.jetty-schedule-gantt--plan.jetty-schedule-gantt--fit-rows .jetty-schedule-gantt__body,
+.jetty-schedule-gantt--plan.jetty-schedule-gantt--fit-rows .jetty-schedule-gantt__body-inner {
+  flex: 0 0 auto;
+}
+
+.jetty-schedule-gantt--plan.jetty-schedule-gantt--fit-rows .jetty-schedule-gantt__row {
+  flex: 0 0 auto;
+  height: var(--gantt-bar-height, 72px);
+  min-height: var(--gantt-bar-height, 72px);
+  max-height: var(--gantt-bar-height, 72px);
+}
+
 .jetty-schedule-gantt__export-title {
   font-weight: var(--font-weight-bold);
   font-size: var(--font-size-sm);
@@ -7741,52 +7761,95 @@ tr.cargo-schedule-behind > td:first-child {
   border: 1px dashed rgba(100, 116, 139, 0.85);
 }
 
-/* ---- Layout: Gantt beside the Unallocated rail ---- */
-.jetty-schedule-gantt__layout {
+/* ---- Chart + Unallocated rail: rail outside horizontal scroll, aligned with jetty rows ---- */
+.jetty-schedule-gantt__chart-with-rail {
   display: flex;
   align-items: flex-start;
   gap: var(--spacing-3, 12px);
+  min-width: 0;
+  height: max-content;
 }
 
-.jetty-schedule-gantt--plan .jetty-schedule-gantt__layout {
-  align-items: stretch;
-}
-
-.jetty-schedule-gantt__layout > .jetty-schedule-gantt__export-area {
+.jetty-schedule-gantt__chart-with-rail > .jetty-schedule-gantt__scroll {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.jetty-schedule-gantt--plan .jetty-schedule-gantt__layout > .jetty-schedule-gantt__export-area {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__chart-with-rail > .jetty-schedule-gantt__scroll {
+  height: max-content;
+  max-height: min(70vh, 720px);
 }
 
-.jetty-schedule-gantt--plan .jetty-schedule-gantt__layout .jetty-schedule-gantt__scroll {
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail > .unallocated-rail {
+  flex: 0 0 264px;
+  width: 264px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--gantt-matrix-header-h, 40px);
+  height: var(--gantt-matrix-body-h, 240px);
+  max-height: var(--gantt-matrix-body-h, 240px);
+  min-height: 0;
+  overflow: hidden;
+  padding: 8px;
+  border: 1px solid rgba(var(--berth-new-rgb), 0.35);
+  border-radius: 8px;
+  background: rgba(var(--berth-new-rgb), 0.04);
+  align-self: flex-start;
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__chart-with-rail {
+  flex: 0 0 auto;
+  min-height: 0;
+  height: max-content;
+  align-items: flex-start;
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__chart-with-rail > .jetty-schedule-gantt__scroll {
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
+  height: max-content;
+  max-height: calc(100vh - 120px);
 }
 
-.jetty-schedule-gantt--plan .jetty-schedule-gantt__layout .unallocated-rail {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  align-self: stretch;
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__chart-with-rail > .unallocated-rail {
+  margin-top: var(--gantt-matrix-header-h, 40px);
+  height: var(--gantt-matrix-body-h, 240px);
+  max-height: var(--gantt-matrix-body-h, 240px);
+}
+
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail > .unallocated-rail.unallocated-rail--collapsed {
+  flex: 0 0 44px;
+  width: 44px;
+  height: auto;
   max-height: none;
+  min-height: 0;
+  padding: 6px 4px;
   overflow: hidden;
 }
 
-.jetty-schedule-gantt--plan .jetty-schedule-gantt__layout .unallocated-rail__header,
-.jetty-schedule-gantt--plan .jetty-schedule-gantt__layout .unallocated-rail__hint,
-.jetty-schedule-gantt--plan .jetty-schedule-gantt__layout .unallocated-rail__empty {
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail .unallocated-rail__header,
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail .unallocated-rail__hint,
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail .unallocated-rail__empty {
   flex-shrink: 0;
 }
 
-.jetty-schedule-gantt--plan .jetty-schedule-gantt__layout .unallocated-rail__list {
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail .unallocated-rail__list {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  gap: 5px;
+}
+
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail .unallocated-rail__card {
+  padding: 5px 8px;
+  gap: 1px;
+}
+
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail .unallocated-rail__meta {
+  font-size: 11px;
+  line-height: 1.2;
 }
 
 .unallocated-rail {
@@ -7802,8 +7865,10 @@ tr.cargo-schedule-behind > td:first-child {
 }
 
 .unallocated-rail--collapsed {
-  flex-basis: 48px;
-  width: 48px;
+  flex: 0 0 44px;
+  width: 44px;
+  height: auto;
+  max-height: none;
   overflow: hidden;
 }
 
@@ -7905,37 +7970,78 @@ tr.cargo-schedule-behind > td:first-child {
   outline-offset: 2px;
 }
 
+.unallocated-rail__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
 .unallocated-rail__name {
+  flex: 1 1 auto;
+  min-width: 0;
   font-weight: 700;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unallocated-rail__purpose {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.unallocated-rail__purpose--unload {
+  background: rgba(var(--berth-unload-rgb), 0.16);
+  color: rgb(var(--berth-unload-text));
+  border: 1px solid rgba(var(--berth-unload-rgb), 0.55);
+}
+
+.unallocated-rail__purpose--load {
+  background: rgba(var(--berth-load-rgb), 0.16);
+  color: rgb(var(--berth-load-text));
+  border: 1px solid rgba(var(--berth-load-rgb), 0.55);
 }
 
 .unallocated-rail__meta {
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.25;
   overflow-wrap: anywhere;
 }
 
-.unallocated-rail__chips {
+.unallocated-rail__eta-row {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 4px;
-  margin-top: 4px;
+  min-width: 0;
 }
 
-.unallocated-rail__chip {
-  padding: 0 6px;
+.unallocated-rail__eta {
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.unallocated-rail__reason {
+  flex: 0 0 auto;
+  padding: 0 5px;
   border-radius: 999px;
-  background: rgb(var(--berth-new-rgb));
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 18px;
-}
-
-/* Full view (popout): layout fills the window beside the rail. */
-.jetty-schedule-gantt--popout .jetty-schedule-gantt__layout {
-  flex: 1;
-  min-height: 0;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  letter-spacing: 0.02em;
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+  background: rgba(var(--berth-new-rgb), 0.14);
+  color: rgb(var(--berth-new-text));
+  border: 1px solid rgba(var(--berth-new-rgb), 0.55);
 }
 
 /* Berthing Plan main tab: tighter filter row (full view already uses popout rules). */
@@ -7981,25 +8087,28 @@ tr.cargo-schedule-behind > td:first-child {
   min-height: 0;
 }
 
-/* Narrow screens: rail goes below the Gantt instead of beside it. */
+/* Narrow screens: rail stacks under the chart. */
 @media (max-width: 1100px) {
-  .jetty-schedule-gantt__layout {
+  .jetty-schedule-gantt__chart-with-rail {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .unallocated-rail,
-  .unallocated-rail--collapsed {
+  .jetty-schedule-gantt__chart-with-rail > .unallocated-rail {
     flex-basis: auto;
     width: 100%;
+    margin-top: 0;
     max-height: 320px;
   }
 
-  .jetty-schedule-gantt--plan .jetty-schedule-gantt__layout .unallocated-rail {
-    max-height: 320px;
+  .jetty-schedule-gantt__chart-with-rail > .unallocated-rail.unallocated-rail--collapsed {
+    width: 100%;
+    flex-basis: auto;
+    height: auto;
+    max-height: none;
   }
 
-  .jetty-schedule-gantt--popout .jetty-schedule-gantt__layout .unallocated-rail {
+  .jetty-schedule-gantt--popout .jetty-schedule-gantt__chart-with-rail > .unallocated-rail:not(.unallocated-rail--collapsed) {
     flex: 0 0 auto;
     max-height: 240px;
   }
