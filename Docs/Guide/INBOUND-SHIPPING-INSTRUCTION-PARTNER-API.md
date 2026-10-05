@@ -576,7 +576,7 @@ curl -sS "$JPS_API_BASE_URL/catalog/shipping-instruction" -H "x-api-key: $JPS_AP
 {
   "success": true,
   "data": {
-    "api_version": "5.3",
+    "api_version": "5.4",
     "auth_header": "x-api-key",
     "count": 7,
     "entities": [

@@ -3,7 +3,7 @@
 **Product:** Jetty Planning & Monitoring System (JPS)  
 **Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **multi-jetty berthing** (span a vessel across adjacent jetties when enabled per port), **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, **uploaded document preview & download**, **Jetty Live CCTV** (per-jetty RTSP links, schematic camera control, browser stream page), **self-service change password** (header user menu), **Reporting → Jetty – Vessel Report** (jetty utilization summary and vessel detail), **Live Ops Dashboard** (real-time terminal control at `/`), **Ops Analytics Dashboard** (date-range performance at `/ops-analytics`), **Management Dashboard** (berth productivity & departure readiness for executives at `/management-dashboard`), and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.72 (see document history at end).
+**Version:** 1.73 (see document history at end).
 
 ---
 
@@ -459,30 +459,32 @@ External business systems can submit **Shipping Instructions** into JPS without 
 | **Operator review** | No new approval screen: operators use **`/shipment-plans`**, notifications (**Approval request: SP-…**), and **`/shipment-plans/approval/:id`** to **approve** or **reject** as today. Approved plans follow the normal allocation path; when a jetty slot is assigned, partner status becomes **Allocated**. |
 | **Plans list columns** | On **`/shipment-plans`**, after **ETA**: **External reference** and **Requested by**. Both are **filterable** (substring match). Empty **`—`** for older manual plans created before this feature or plans without integration metadata. |
 | **What partners see** | Partners call **`POST /api/v1/integrations/shipping-instructions`** to submit and **`GET …/shipping-instructions/{id}`** (or **`?external_reference=`**) to poll **Pending** / **Approved** / **Rejected** / **Allocated**. They cannot see other partners’ submissions. |
-| **Cargo lines** | Partner **`cargo[].cargo_type`** must match **`si_commodities.short_name`** (case-insensitive). Full display names are not accepted. Validation errors include **`valid_cargo_types`** with active short codes. See commodity mapping table below and **INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md §5.1**. Optional per line: **`po_no`**, **`so_no`**, **`shipper_name`** (shipper must exist via partner **`POST /shippers`**). |
+| **Cargo lines** | **v5.3+:** each line requires **`cargo[].cargo_hub_code`** (DHM/JPS hub code on **`si_commodities.hub_code`**). **`cargo_type`** on POST is rejected. Validation errors include **`valid_cargo_hub_codes`**. Use **`GET /catalog/cargo-type`**. Optional per line: **`po_no`**, **`so_no`**, **`shipper_name`** (shipper must exist via partner **`POST /shippers`**). Legacy short-name table in **§2.24** is informational only. |
 | **Header fields (optional)** | **`trade_term`** (code from **`GET /terms`**) and **`surveyor_name`** (from **`GET /surveyors`**) on submit. |
 | **Master data sync** | Partners **`GET`** terms, agents, surveyors, shippers for mapping. **`POST`/`PATCH`** upsert **agents** and **shippers** by name. Terms and surveyors are read-only for partners (JPS Master UI). |
 | **PO/SO updates** | **`PATCH /shipping-instructions`** while partner status is **Pending** — update **`po_no`**, **`so_no`**, shipper, trade term, or surveyor on existing submissions. Not allowed after approve/reject/allocate (**409**). |
-| **Security (summary)** | HTTPS + **`x-api-key`** header per partner; rate limit **120 requests/minute** per key. Keys are **not** port-scoped; each request must include a valid **`port_id`** (unknown port is rejected). |
+| **Security (summary)** | HTTPS + **`x-api-key`** header per partner; rate limit **120 requests/minute** per key. Keys are **not** port-scoped; each request must include a valid **`port_hub_code`** (unknown hub code is rejected). |
 | **Operator monitoring** | **Admin → System Health Dashboard** (`/admin/operations`) shows a **Partner Integration API** card: active keys, last API activity, submissions in the last 7 days, and per-partner usage. Manage keys under **Admin → Partner API Keys** (`/admin/partner-api`). See **§2.31**. |
 | **Vessel resolution (master link)** | Partner payload uses **`vessel_hub_code`** (DataHub vessel code) as the **primary identifier** — sufficient alone. JPS resolves **`master_vessels`**, sets **`master_vessel_id`**, and snapshots name/LOA/GT/draft onto the new plan. Optional **`vessel_name`** cross-checks the master when both are sent. When **`vessel_hub_code`** is omitted, **`vessel_name`** must match **exactly one** active master vessel (case-insensitive). **201/GET** return canonical **`vessel_name`** and **`vessel_hub_code`**. Partner API **v4.2**. See **§2.30**. |
-| **Webhooks & milestones (v5.0)** | Partners register **`POST /webhooks`**; JPS pushes signed **`status.changed`** (approve/reject/allocate/sail) and **`schedule.updated`** (TA, ETB, TB, ETC, TC, cast off, sailed). **GET** returns enriched **`approval`** + **`schedule`** blocks. Polling remains supported. See **§2.24**. |
+| **Webhooks & milestones** | Partners register **`POST /webhooks`**; JPS pushes signed **`status.changed`** (approve/reject/allocate/sail) and **`schedule.updated`** (berthing milestones and **Cargo Operations window** — **§2.24**). **GET** returns enriched **`approval`** + **`schedule`** (including **`cargo_ops_start_at`** / partner **ATS** from v5.4). Polling remains supported. Contract **v5.4**; header **`X-JPS-API-Version: 5.4`**. |
 
-Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.33**, **§0.35**, **§0.37**. Migrations **084**–**086**, **118**, **119** (webhooks).
+Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.33**, **§0.35**, **§0.37**–**§0.42**. Migrations **084**–**086**, **118**, **119** (webhooks). Internal test guide: **INBOUND-SHIPPING-INSTRUCTION-API-TEST-GUIDE.md**; admin webhooks: **PARTNER-INTEGRATION-WEBHOOKS-ADMIN.md**.
 
-### 2.24 Partner webhooks and berthing milestones (v5.0)
+### 2.24 Partner webhooks and berthing milestones (v5.4)
 
 | Area | Behaviour |
 |------|------------|
-| **Source of truth** | JPS operators update approval status and berthing milestones in the web app; partners **receive** updates (no inbound POST of TA/TB/etc.). |
-| **Webhook registration** | **`POST/PATCH/GET/DELETE /api/v1/integrations/webhooks`** per API key (max 3 active endpoints). |
+| **Source of truth** | JPS operators update approval status and berthing milestones in the web app; partners **receive** updates (no inbound POST of TA/TB/ATS/etc.). |
+| **Webhook registration** | **`POST/PATCH/GET/DELETE /api/v1/integrations/webhooks`** per API key (max 3 active endpoints). Endpoint URLs may be **HTTP or HTTPS**. |
 | **Events** | **`status.changed`**, **`schedule.updated`** — at-least-once delivery with HMAC signature verification. |
+| **`schedule` object** | **`ta`**, **`etb`**, **`tb`**, **`etc`**, **`tc`**, **`cast_off_at`**, **`sailed_at`**, **`cargo_ops_start_at`** (v5.4 — partner **ATS** = earliest **Cargo Operations → Operation Window → Start**, not load-segment times). |
+| **`schedule.updated` triggers** | Operator saves that change berthing/allocation milestones **or** create/update/delete the **`cargo_operations`** operation window (**`operation-operational-activities`** route). Load-segment-only edits under Cargo Operations do **not** enqueue. |
 | **Partner status `Sailed`** | When vessel is recorded as departed (**`operations.status = SAILED`**). |
-| **Fallback** | **`GET /shipping-instructions/{id}`** includes **`schedule`** and **`approval`** objects (additive vs v4.x). |
+| **Fallback** | **`GET /shipping-instructions/{id}`** includes **`schedule`** and **`approval`** objects (same shape as webhook **`data`**). |
 
-Partner guide: **INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md v5.0**.
+Partner guide: **INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md v5.4**.
 
-**Commodity mapping for partner `cargo_type`** (send **short_name**; operators see **display name** in the app):
+**Commodity reference (legacy `cargo_type` short names — use `cargo_hub_code` on POST since v5.3):**
 
 | JPS short_name (`cargo_type`) | JPS display name | Type |
 |-------------------------------|------------------|------|
@@ -507,7 +509,7 @@ Partner guide: **INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md v5.0**.
 | `SPLIT CPKO FA` | SPLIT CRUDE PALM KERNEL OIL FATTY ACID | Liquid |
 | `SPLIT RBD PKO FA` | SPLIT RBD PALM KERNEL OIL FATTY ACID | Liquid |
 
-*20 commodities as of master data export. Partners should use **`valid_cargo_types`** from API errors or **§5.1** of the partner guide if the list changes.*
+*20 commodities as of master data export. Partners should use **`GET /catalog/cargo-type`** and **`valid_cargo_hub_codes`** from API errors if the list changes.*
 
 ### 2.24 Master Jetty — purpose-specific commodity capability
 
@@ -897,7 +899,7 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | **SI shipper per breakdown line** | **§2.20** — `Backend/migrations/079_si_breakdown_shipper_id.sql`, `Backend/src/routes/shipping-instructions.js`, `allocation.js`, `shipment-plans.js`, `si-lookups.js`; `Frontend/src/components/ShippingInstructionSiLinkedFields.jsx`, `Frontend/src/utils/siPlanLinkedDraft.js`, `Frontend/src/api/shippingInstructions.js`, `siViewModel.js`, `SiDetailModal.jsx`, `SiDocumentView.jsx`, `SIApproval.jsx`, `siExtractMerge.js`; TECH-SPEC **§0.31** |
 | **Commodity Qty overview columns** | **§2.21** — `Backend/src/lib/siBreakdownDisplay.js`, `Backend/src/routes/allocation.js`, `operations.js`, `shipment-plans.js`; `Frontend/src/utils/siCargoTableDisplay.jsx`, `allocationPlanPovMerge.js`, `Allocation.jsx`, `AtBerthExecutions.jsx`, `Verification.jsx`, `ShipmentPlansList.jsx`, `allocation.css`; i18n **`colCommodityQty`** / **`clearanceColCommodityQty`**. TECH-SPEC **§0.32** |
 | **Jetty – Vessel Report** | **§2.22** — `Frontend/src/pages/VesselReport.jsx`, `Frontend/src/data/jettyVesselReportFromApi.js`, `Frontend/src/data/jettyVesselReportExcel.js`; APIs **`operations`**, **`allocation/overview`**, **`shipping-instructions/:id`**, **`jetties`**; summary header tooltips via **`InteractiveTooltip`**; styles **`allocation-table__th-label`**, **`allocation-table__th-info`** in **`allocation.css`** |
-| **Inbound Shipping Instruction integration (partner API)** | **§2.23** — `Backend/src/routes/integrations.js`, `Backend/src/middleware/integration-auth.js`, `Backend/src/lib/resolve-requested-by.js`, migrations **084** / **085**; key provisioning **`Backend/scripts/create-integration-api-key.mjs`**; plans list columns **`Frontend/src/pages/ShipmentPlansList.jsx`**; partner docs **`Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md`**, **`Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-API-TEST-GUIDE.md`**. TECH-SPEC **§0.33** |
+| **Inbound Shipping Instruction integration (partner API)** | **§2.23**, **§2.24** — `Backend/src/routes/integrations.js`, `integration-partner-payload.js`, `operation-operational-activities.js` (ATS webhooks), `Backend/src/middleware/integration-auth.js`, migrations **084** / **085** / **119**; key provisioning **`Backend/scripts/create-integration-api-key.mjs`**; partner docs **`INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md`**, **`INBOUND-SHIPPING-INSTRUCTION-API-TEST-GUIDE.md`**, **`PARTNER-INTEGRATION-WEBHOOKS-ADMIN.md`**. TECH-SPEC **§0.33**, **§0.37**–**§0.42** |
 | **Management Dashboard — berth productivity & departure readiness** | **§2.25** — `Frontend/src/pages/ManagementDashboard.jsx`, `Frontend/src/styles/management-dashboard.css`, `Frontend/src/styles/modal.css`; APIs **`GET /operations`**, **`GET /operations/:id/sub-processes`**, **`GET /operations/:id/operational-activities`**; **`commodityShortDisplay`** on **`Backend/src/routes/operations.js`** **`toOp()`** via **`Backend/src/lib/siBreakdownDisplay.js`** |
 | Save estimation of completion | `Frontend/src/api/operations.js` → `PUT /operations/:id/estimated-completion`; `Backend/src/routes/operations.js` |
 | DB — operations estimated completion | Migrations defining `operations.estimated_completion_time` (e.g. `Backend/migrations/004_shipping_operations_tables.sql` and related) |
@@ -1038,6 +1040,7 @@ Cross-reference: **TECH-SPEC §0.20**, **`Backend/src/lib/schedule-instant.js`**
 
 | Version | Date | Notes |
 |---------|------|--------|
+| 1.73 | 2026-10-05 | **§2.23** / **§2.24** partner API **v5.4:** **`cargo_hub_code`** / **`port_hub_code`** on POST; **`schedule.cargo_ops_start_at`** (ATS) and **`schedule.updated`** on Cargo Operations operation window. **§7** map. TECH-SPEC **§0.42**; test guide v1.6; **PARTNER-INTEGRATION-WEBHOOKS-ADMIN.md** milestone table. |
 | 1.72 | 2026-09-24 | **§2.31 System Health Dashboard:** infrastructure health cards (ATG sync, purge, Synology mount, DataHub, Partner Integration API); optional **email alerts** on newly unhealthy checks; user-controlled toggle (staging or production). **§2.23** operator monitoring row. **§1**, **§7** map. Migration **`118_admin_ops_alert_settings.sql`**. TECH-SPEC **§0.36**; **`Docs/Guide/ADMIN-OPS-EMAIL-ALERTS.md`**. |
 | 1.71 | 2026-09-23 | **§2.30 Master vessel link on shipment plans (snapshot model):** new plans require **Master vessel** pick; linked plans re-pick master only (LOA/GT/draft read-only); legacy plans keep free-text fields and **Legacy** badge on plans list; partner API **`hub_code`** / unique **`vessel_name`** resolution; master delete guard. **§1**, **§2.13**, **§2.23**, **§7** map. Migration **118**. TECH-SPEC **§0.35**. |
 | 1.69 | 2026-08-27 | **§2.29 ATG cargo progress and quantity persistence:** documents where **start/end** and **moved qty** are stored (`operation_cargo_load_lines` vs live **`tank_gauging_samples`**), manual checkpoints and hourly/daily progress tables (migration **110**), session-first Cargo Operations flow, clock-aligned hourly rates, Flat Movement, and **non-blocking** SI qty variance. **§1**, **§7** map. Cross-ref **`Docs/ATG-Hourly-Cargo-Progress-Proposal.md`**. |

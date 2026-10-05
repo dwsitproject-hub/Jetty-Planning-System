@@ -2,7 +2,7 @@
 
 **Audience:** JPS administrators with **Admin** page permission.
 
-**Related:** Partner self-service contract — [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) (v5.1).
+**Related:** Partner self-service contract — [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) (v5.4). TECH-SPEC **§0.37**, **§0.42**.
 
 ---
 
@@ -14,7 +14,7 @@ Layout:
 
 1. **Partners (left)** — select a registered integration key (EOS, KLIP, etc.).
 2. **Credentials (right)** — masked key prefix, active/revoked, last used, **Revoke key**.
-3. **Webhooks** — outbound URLs JPS POSTs to when plans are approved or milestones change.
+3. **Webhooks** — outbound URLs JPS POSTs to when plans are approved, berthing milestones change, or the **Cargo Operations operation window** is saved (**`schedule.updated`**, v5.4 includes **`cargo_ops_start_at`** / partner ATS in the payload).
 
 Partners can register the same webhooks via **`POST /api/v1/integrations/webhooks`** with their **`x-api-key`**. Admin UI is for onboarding and support when the partner cannot call the API.
 
@@ -70,3 +70,18 @@ JPS stores URLs on the shipping instruction; operators see **Partner document li
 | Partner locked out | Key revoked — create a new key and share plaintext once |
 
 For signature verification and event shapes, point partners to **§3.4–3.6** of the partner API guide.
+
+---
+
+## Schedule milestones (internal mapping, v5.4)
+
+Partners map industry labels to fields in webhook/GET **`data.schedule`**:
+
+| Partner label | JPS field | Operator source (summary) |
+|---------------|-----------|---------------------------|
+| ATA | `ta` | Arrival / TA |
+| ATB | `tb` | Berthing |
+| ATS | **`cargo_ops_start_at`** | **Cargo Operations → Operation Window → Start** (`cargo_operations` activity) |
+| ATC | `cast_off_at` | Cast off / sailed |
+
+**`schedule.updated`** fires when these schedule fields change from operator saves (including Cargo Operations window create/update/delete — not load-segment-only edits).

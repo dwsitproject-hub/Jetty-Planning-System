@@ -270,7 +270,7 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 **Outbound delivery:** After operator actions (plan approve/reject/depart, **`PUT /allocation/arrival`**, operation sign-off/depart), **`triggerPartnerWebhooksDeferred`** enqueues **`status.changed`** and/or **`schedule.updated`**. Worker **`integration-webhook-worker.js`** POSTs signed payloads (**`X-JPS-Signature`**, **`X-JPS-Delivery-Id`**) with retry backoff.
 
-**Enriched GET:** **`buildPartnerInstructionPayload`** adds **`plan_reference`**, **`approval`**, **`schedule`** (TA, ETB, TB, ETC, TC, cast off, sailed), **`etr_minutes`**. Partner status **`Sailed`** when **`operations.status = SAILED`**. Response header **`X-JPS-API-Version: 5.0`**.
+**Enriched GET:** **`buildPartnerInstructionPayload`** adds **`plan_reference`**, **`approval`**, **`schedule`** (TA, ETB, TB, ETC, TC, cast off, sailed; **`cargo_ops_start_at`** from v5.4 — **§0.42**), **`etr_minutes`**. Partner status **`Sailed`** when **`operations.status = SAILED`**. Integration response header tracks the current contract (**`X-JPS-API-Version: 5.4`** as of **§0.42**; was 5.0 at initial webhook release).
 
 **Admin UI (2026-09-28):** **`GET/POST/PATCH /api/v1/integration-admin/:keyId/webhooks`** and delivery log **`GET .../deliveries`** for JPS operators; partners may still use **`/integrations/webhooks`**. See **`Docs/Guide/PARTNER-INTEGRATION-WEBHOOKS-ADMIN.md`**.
 

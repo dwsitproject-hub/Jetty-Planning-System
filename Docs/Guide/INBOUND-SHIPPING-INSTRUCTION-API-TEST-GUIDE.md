@@ -1,7 +1,7 @@
 # Inbound Shipping Instruction API — Test Guide
 
-> **Version:** 1.5 (API v5.3) · **Audience:** JPS developers and operators who need to test the partner integration API locally.
-> **Hand off to external developers:** Use [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) (v5.3) — hub-only POST, catalog, webhooks, enriched GET, staging walkthrough.
+> **Version:** 1.6 (API v5.4) · **Audience:** JPS developers and operators who need to test the partner integration API locally.
+> **Hand off to external developers:** Use [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) (v5.4) — hub-only POST, catalog, webhooks, enriched GET (including **`schedule.cargo_ops_start_at`** / partner ATS), staging walkthrough.
 
 ---
 
@@ -400,8 +400,18 @@ The API only submits and reads status. To see `Approved` or `Allocated`, an oper
 | Operator approved | `Approved` | `allocation: null` |
 | Jetty assigned | `Allocated` | `allocation.jetty_name`, `allocation.planned_berthing_time` |
 | Operator rejected | `Rejected` | `rejection_reason` populated |
+| Berthing milestones saved | `Allocated` (typical) | `data.schedule` populated (`ta`, `tb`, `etc`, …); response header **`X-JPS-API-Version: 5.4`** |
+| Cargo Operations window saved | `Allocated` (typical) | `data.schedule.cargo_ops_start_at` set (partner **ATS**); **`schedule.updated`** webhook if registered |
 
 Poll every few minutes in real integrations — operator review is a human process, not instant.
+
+### Verify ATS (`cargo_ops_start_at`) after allocation
+
+1. In JPS, open the operation → **Cargo Operations** → set **Operation Window → Start** (milestone **`cargo_operations`**) and save.
+2. **`GET /shipping-instructions/{id}`** — confirm `data.schedule.cargo_ops_start_at` matches the saved start (ISO UTC).
+3. Optional: register **`schedule.updated`** on a test webhook URL and confirm delivery after the save (see partner guide §3.4).
+
+Load-segment start/end times under the same tab do **not** populate **`cargo_ops_start_at`**.
 
 ---
 
@@ -461,6 +471,8 @@ Always note `request_id` when reporting failures — it helps trace the request 
 - [ ] Plan visible in JPS web app (Shipment Plans / approval)
 - [ ] Approve in UI → `GET` shows `Approved`; PATCH → `409 INVALID_STATE`
 - [ ] Allocate jetty in UI → `GET` shows `Allocated`
+- [ ] Response header includes **`X-JPS-API-Version: 5.4`** on integration routes
+- [ ] After Cargo Operations window save → `GET` shows **`schedule.cargo_ops_start_at`** (or `null` until set)
 
 ---
 
@@ -514,7 +526,8 @@ Both columns should show table names, not `null`.
 
 | File | Purpose |
 |------|---------|
-| [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) | Full API contract for external partners (v4.0) |
+| [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) | Full API contract for external partners (v5.4) |
+| [PARTNER-INTEGRATION-WEBHOOKS-ADMIN.md](./PARTNER-INTEGRATION-WEBHOOKS-ADMIN.md) | Admin webhook onboarding and delivery log |
 | [Backend/scripts/run-integration-self-test.ps1](../../Backend/scripts/run-integration-self-test.ps1) | Automated local self-test + report |
 | [Backend/scripts/create-integration-api-key.mjs](../../Backend/scripts/create-integration-api-key.mjs) | Create/list/revoke API keys |
 | [Backend/src/routes/integrations.js](../../Backend/src/routes/integrations.js) | SI submit/GET/PATCH routes |
@@ -528,6 +541,9 @@ Both columns should show table names, not `null`.
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 1.6 | 2026-10-05 | API v5.4: **`schedule.cargo_ops_start_at`** (ATS) test steps; checklist for API version header |
+| 1.5 | 2026-10-02 | API v5.3 hub-only POST (`port_hub_code`, `cargo_hub_code`); catalog references |
+| 1.4 | 2026-10-01 | API v5.2 hub codes; webhooks and enriched GET notes |
 | 1.3 | 2026-09-23 | v4.2 API: renamed **`hub_code`** → **`vessel_hub_code`** |
 | 1.2 | 2026-09-23 | v4.1 API: **vessel_hub_code** primary vessel identifier; self-test resolves master vessel from DB |
 | 1.1 | 2026-09-21 | v4.0 API: master data + PATCH tests; automated `run-integration-self-test.ps1`; fixed duplicate §4 numbering; PowerShell file-based JSON guidance; `INVALID_STATE` and shipper prerequisites |
