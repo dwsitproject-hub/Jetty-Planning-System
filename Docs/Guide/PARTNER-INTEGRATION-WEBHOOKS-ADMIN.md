@@ -2,7 +2,7 @@
 
 **Audience:** JPS administrators with **Admin** page permission.
 
-**Related:** Partner self-service contract — [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) (v5.4). TECH-SPEC **§0.37**, **§0.42**.
+**Related:** Partner self-service contract — [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) (v5.5). TECH-SPEC **§0.37**, **§0.42**.
 
 ---
 
@@ -14,7 +14,7 @@ Layout:
 
 1. **Partners (left)** — select a registered integration key (EOS, KLIP, etc.).
 2. **Credentials (right)** — masked key prefix, active/revoked, last used, **Revoke key**.
-3. **Webhooks** — outbound URLs JPS POSTs to when plans are approved, berthing milestones change, or partner **ATS** (Cargo Operations **Entry 1** start) changes (**`schedule.updated`**, v5.4 **`cargo_ops_start_at`** in the payload).
+3. **Webhooks** — outbound URLs JPS POSTs to when plans are approved, berthing milestones change, or KLIP **Hose On/Off** window changes (**`schedule.updated`**, v5.5 **`cargo_ops_start_at`** / **`cargo_ops_end_at`**).
 
 Partners can register the same webhooks via **`POST /api/v1/integrations/webhooks`** with their **`x-api-key`**. Admin UI is for onboarding and support when the partner cannot call the API.
 
@@ -73,7 +73,7 @@ For signature verification and event shapes, point partners to **§3.4–3.6** o
 
 ---
 
-## Schedule milestones (internal mapping, v5.4)
+## Schedule milestones (internal mapping, v5.5 — KLIP)
 
 Partners map industry labels to fields in webhook/GET **`data.schedule`**:
 
@@ -81,7 +81,8 @@ Partners map industry labels to fields in webhook/GET **`data.schedule`**:
 |---------------|-----------|---------------------------|
 | ATA | `ta` | Arrival / TA |
 | ATB | `tb` | Berthing |
-| ATS | **`cargo_ops_start_at`** | **Cargo Operations → Entry 1 → Start** (`operation_cargo_load_lines.started_at`) |
-| ATC | `cast_off_at` | Cast off / sailed |
+| ATS (Hose On) | **`cargo_ops_start_at`** | **Cargo Operations → Operation Window → Start** |
+| ATC (Hose Off) | **`cargo_ops_end_at`** | **Cargo Operations → Operation Window → End** |
+| Vessel sailed | `cast_off_at`, `sailed_at` | Clearance / depart — not Hose Off |
 
-**`schedule.updated`** fires when these schedule fields change from operator saves (including Cargo Operations create/delete and saves that change **Entry 1** start). Operation-window-only edits do not change ATS.
+**`schedule.updated`** fires when these schedule fields change (including Cargo Operations window start/end on create/update/delete). Load-segment-only edits do not change Hose On/Off.

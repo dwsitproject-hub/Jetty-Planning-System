@@ -33,7 +33,7 @@ function fakeDb() {
 describe('integration-catalog', () => {
   it('builds entities with live enum values (v5.3 hub-only POST)', async () => {
     const catalog = await buildIntegrationCatalog(fakeDb());
-    assert.equal(catalog.api_version, '5.4');
+    assert.equal(catalog.api_version, '5.5');
     assert.ok(catalog.count >= 8);
 
     const si = catalog.entities.find((e) => e.slug === 'shipping-instruction');

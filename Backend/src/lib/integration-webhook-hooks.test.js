@@ -121,8 +121,8 @@ describe('integration-webhook-hooks', () => {
     const src = readFileSync(path.join(routesDir, 'operation-operational-activities.js'), 'utf8');
     assert.ok(src.includes('triggerPartnerWebhooksDeferred'));
     assert.ok(src.includes('triggerPartnerScheduleWebhookForOperation'));
-    assert.ok(src.includes('resolvePartnerCargoOpsEntry1Ats'));
-    assert.ok(src.includes('partnerCargoOpsAtsChanged'));
+    assert.ok(src.includes('resolvePartnerCargoOpsWindow'));
+    assert.ok(src.includes('partnerCargoOpsWindowScheduleChanged'));
     assert.match(src, /milestoneKey === 'cargo_operations'/);
   });
 });

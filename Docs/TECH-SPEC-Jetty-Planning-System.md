@@ -270,7 +270,7 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 **Outbound delivery:** After operator actions (plan approve/reject/depart, **`PUT /allocation/arrival`**, operation sign-off/depart), **`triggerPartnerWebhooksDeferred`** enqueues **`status.changed`** and/or **`schedule.updated`**. Worker **`integration-webhook-worker.js`** POSTs signed payloads (**`X-JPS-Signature`**, **`X-JPS-Delivery-Id`**) with retry backoff.
 
-**Enriched GET:** **`buildPartnerInstructionPayload`** adds **`plan_reference`**, **`approval`**, **`schedule`** (TA, ETB, TB, ETC, TC, cast off, sailed; **`cargo_ops_start_at`** from v5.4 — **§0.42**), **`etr_minutes`**. Partner status **`Sailed`** when **`operations.status = SAILED`**. Integration response header tracks the current contract (**`X-JPS-API-Version: 5.4`** as of **§0.42**; was 5.0 at initial webhook release).
+**Enriched GET:** **`buildPartnerInstructionPayload`** adds **`plan_reference`**, **`approval`**, **`schedule`** (TA, ETB, TB, ETC, TC, cast off, sailed; **`cargo_ops_start_at`** / **`cargo_ops_end_at`** from v5.5 — **§0.42**), **`etr_minutes`**. Partner status **`Sailed`** when **`operations.status = SAILED`**. Integration response header **`X-JPS-API-Version: 5.5`** (**§0.42**).
 
 **Admin UI (2026-09-28):** **`GET/POST/PATCH /api/v1/integration-admin/:keyId/webhooks`** and delivery log **`GET .../deliveries`** for JPS operators; partners may still use **`/integrations/webhooks`**. See **`Docs/Guide/PARTNER-INTEGRATION-WEBHOOKS-ADMIN.md`**.
 
@@ -308,15 +308,15 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 **Catalog / header:** **`X-JPS-API-Version: 5.3`**, catalog **`api_version` 5.3** — hub-only field contract on **`shipping-instruction`** (`cargo_hub_code` required; **`cargo_type`** / **`port_id`** not in catalog; **`legacyFieldsRejected`** documents rejected POST fields).
 
-### 0.42 Partner schedule ATS — cargo_ops_start_at (v5.4) (2026-10-05)
+### 0.42 Partner schedule Hose On/Off — cargo_ops window (v5.5) (2026-10-05)
 
-**GET / webhooks:** **`schedule.cargo_ops_start_at`** (partner **ATS**) = earliest **Entry 1** load-segment start: for each **`cargo_operations`** activity on the latest **`operations`** row, the **`operation_cargo_load_lines`** row with lowest **`line_order`**; then **`MIN(started_at)`** across those Entry 1 rows.
+**GET / webhooks (KLIP):** **`schedule.cargo_ops_start_at`** (Hose On / **ATS**) = **`MIN(start_at)`** on **`operation_operational_activities`** with **`milestone_key = 'cargo_operations'`** on the latest **`operations`** row. **`schedule.cargo_ops_end_at`** (Hose Off / **ATC**) = **`MAX(end_at)`** on those activities. **`cast_off_at`** remains vessel clearance cast-off, not Hose Off.
 
-**SQL:** [`integration-master-data.js`](Backend/src/lib/integration-master-data.js) (`PARTNER_CARGO_OPS_ENTRY1_ATS_SUBSELECT`, **`resolvePartnerCargoOpsEntry1Ats`**); payload in [`integration-partner-payload.js`](Backend/src/lib/integration-partner-payload.js).
+**SQL:** [`integration-master-data.js`](Backend/src/lib/integration-master-data.js) (`PARTNER_CARGO_OPS_WINDOW_SUBSELECT`, **`resolvePartnerCargoOpsWindow`**); payload in [`integration-partner-payload.js`](Backend/src/lib/integration-partner-payload.js).
 
-**Webhooks:** [`operation-operational-activities.js`](Backend/src/routes/operation-operational-activities.js) fires **`schedule.updated`** on create/delete of **`cargo_operations`** activities and on update when partner ATS changes (Entry 1 **`started_at`**); activity operation-window-only edits do not enqueue.
+**Webhooks:** [`operation-operational-activities.js`](Backend/src/routes/operation-operational-activities.js) fires **`schedule.updated`** on create/delete of **`cargo_operations`** and on update when window **`start_at`** / **`end_at`** change (not load-segment-only edits).
 
-**Header / catalog:** **`X-JPS-API-Version: 5.4`**.
+**Header / catalog:** **`X-JPS-API-Version: 5.5`**.
 
 ### 0.32 Overview tables — Commodity Qty column (`siBreakdownDisplay`) (2026-05-26)
 

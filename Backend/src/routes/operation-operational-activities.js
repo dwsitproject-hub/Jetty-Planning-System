@@ -29,7 +29,7 @@ import {
   normalizeLoadLineCommodityId,
 } from '../lib/si-commodity-options.js';
 import { triggerPartnerWebhooksDeferred } from '../lib/integration-webhooks.js';
-import { resolvePartnerCargoOpsEntry1Ats } from '../lib/integration-master-data.js';
+import { resolvePartnerCargoOpsWindow } from '../lib/integration-master-data.js';
 
 const router = express.Router();
 
@@ -55,8 +55,12 @@ function partnerScheduleInstantIso(v) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-function partnerCargoOpsAtsChanged(beforeAts, afterAts) {
-  return partnerScheduleInstantIso(beforeAts) !== partnerScheduleInstantIso(afterAts);
+function partnerCargoOpsWindowScheduleChanged(before, after) {
+  if (!before || !after) return false;
+  return (
+    partnerScheduleInstantIso(before.startAt) !== partnerScheduleInstantIso(after.startAt) ||
+    partnerScheduleInstantIso(before.endAt) !== partnerScheduleInstantIso(after.endAt)
+  );
 }
 
 async function triggerPartnerScheduleWebhookForOperation(operationId) {
@@ -1265,9 +1269,9 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
       }
     }
 
-    const beforePartnerAts =
+    const beforePartnerWindow =
       milestoneKey === 'cargo_operations'
-        ? await resolvePartnerCargoOpsEntry1Ats(pool, operationId)
+        ? await resolvePartnerCargoOpsWindow(pool, operationId)
         : null;
 
     const client = await pool.connect();
@@ -1342,8 +1346,8 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
       await client.query('COMMIT');
       if (milestoneKey === 'cargo_operations') {
         await refreshOperationalProgressAfterCargoSave(pool, operationId);
-        const afterPartnerAts = await resolvePartnerCargoOpsEntry1Ats(pool, operationId);
-        if (partnerCargoOpsAtsChanged(beforePartnerAts, afterPartnerAts)) {
+        const afterPartnerWindow = await resolvePartnerCargoOpsWindow(pool, operationId);
+        if (partnerCargoOpsWindowScheduleChanged(beforePartnerWindow, afterPartnerWindow)) {
           triggerPartnerScheduleWebhookForOperation(operationId).catch(() => {});
         }
       }

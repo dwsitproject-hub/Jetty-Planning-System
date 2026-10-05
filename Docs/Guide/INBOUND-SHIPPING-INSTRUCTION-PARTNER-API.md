@@ -1,10 +1,12 @@
 # Jetty Planning System — Shipping Instruction API Integration Guide
 
-> **Version:** 5.4 · **Audience:** External full-stack developers building an integration from your system (EOS Export/Import, KLIPS, ERP, TMS, etc.) into the Jetty Planning System (JPS).
+> **Version:** 5.5 · **Audience:** External full-stack developers building an integration from your system (EOS Export/Import, KLIPS, ERP, TMS, etc.) into the Jetty Planning System (JPS).
 >
 > **What you can do:** Sync reference master data, submit Shipping Instructions, update PO/SO while Pending, **send HTTP or HTTPS links** to SI / contract / B/L documents, **receive approval and milestone updates via webhooks**, and poll enriched status (including TA, ETB, TB, ETC, TC, cast off, sailed). JPS operators update berthing milestones in the web app — your system receives those changes; you do not write them back via API.
 >
-> **What's new in v5.4:** Enriched GET/webhook **`schedule.cargo_ops_start_at`** (partner **ATS** — JPS Cargo Operations **Entry 1** load-segment start). **`schedule.updated`** when that timestamp changes. Header **`X-JPS-API-Version: 5.4`**. Additive for v5.3 clients.
+> **What's new in v5.5:** **`schedule.cargo_ops_start_at`** / **`schedule.cargo_ops_end_at`** map KLIP **Hose On** / **Hose Off** to JPS Cargo Operations **operation window** start/end (`operation_operational_activities.start_at` / `end_at` on `cargo_operations`). **`cast_off_at`** remains vessel cast-off (clearance), not Hose Off. Header **`X-JPS-API-Version: 5.5`**. KLIP integrators: use v5.5 fields for ATS/ATC.
+>
+> **What's new in v5.4:** **`schedule.cargo_ops_start_at`** on GET/webhooks (superseded for KLIP by v5.5 window semantics). Header **`X-JPS-API-Version: 5.4`**.
 >
 > **What's new in v5.3:** **Hub-only POST:** **`port_hub_code`**, **`vessel_hub_code`**, and **`cargo[].cargo_hub_code`** are **required**; legacy **`port_id`**, **`cargo_type`**, and **`vessel_name`-only** submits return **400**. **`agent_name`** is optional (may be **`null`** or omitted). Document link fields accept **`http://`** or **`https://`**. Header **`X-JPS-API-Version: 5.3`**. Breaking for v5.2 clients still sending short names or `port_id`.
 >
@@ -361,7 +363,8 @@ curl -sS "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions/10"
       "tc": null,
       "cast_off_at": null,
       "sailed_at": null,
-      "cargo_ops_start_at": "2026-09-28T07:45:00.000Z"
+      "cargo_ops_start_at": "2026-09-28T07:45:00.000Z",
+      "cargo_ops_end_at": "2026-09-28T18:00:00.000Z"
     },
     "etr_minutes": 4200,
     "allocation": {
@@ -376,7 +379,7 @@ curl -sS "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions/10"
 }
 ```
 
-**Schedule field mapping (v5.0+, extended v5.4):**
+**Schedule field mapping (v5.0+, extended v5.5):**
 
 | Field | Meaning | JPS source |
 |-------|---------|------------|
@@ -385,8 +388,9 @@ curl -sS "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions/10"
 | `tb` | Time of Berthing (actual) (partner **ATB**) | Operator berthing log |
 | `etc` | Estimated Time of Completion | Operator SLA / ETC |
 | `tc` | Operations completed (sign-off) | Sign-off approval |
-| `cargo_ops_start_at` | Cargo operations start (partner **ATS**) | **Cargo Operations → Entry 1 → Start** (`operation_cargo_load_lines.started_at`, lowest `line_order` per `cargo_operations` activity; earliest across activities on the call). |
-| `cast_off_at` | Cast off (partner **ATC**) | Clearance / depart |
+| `cargo_ops_start_at` | Hose On (partner **ATS**) | **Cargo Operations → Operation Window → Start** (`operation_operational_activities.start_at`, `milestone_key = cargo_operations`; earliest across activities on the call). |
+| `cargo_ops_end_at` | Hose Off (partner **ATC**) | **Cargo Operations → Operation Window → End** (`operation_operational_activities.end_at`, same activity; latest across activities on the call). |
+| `cast_off_at` | Vessel cast off | Clearance / depart — **not** KLIP Hose Off |
 | `sailed_at` | Sailed | Depart (status `Sailed`) |
 
 **Partner industry alias (documentation only — use JPS field names in JSON):**
@@ -395,8 +399,9 @@ curl -sS "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions/10"
 |--------------|-------------------|
 | ATA | `ta` |
 | ATB | `tb` |
-| ATS | `cargo_ops_start_at` |
-| ATC | `cast_off_at` (also see `sailed_at` and top-level `status`) |
+| ATS (Hose On) | `cargo_ops_start_at` |
+| ATC (Hose Off) | `cargo_ops_end_at` |
+| Vessel sailed | `cast_off_at`, `sailed_at`, and top-level `status` **`Sailed`** |
 
 - `allocation` is `null` until status is `Allocated` or `Sailed`.
 - `rejection_reason` is set only when status is `Rejected`.
@@ -513,7 +518,7 @@ The `data` object matches the enriched **`GET /shipping-instructions/{id}`** sha
 | Event | When fired |
 |-------|------------|
 | `status.changed` | Plan approved, rejected, allocated, or vessel sailed |
-| `schedule.updated` | Berthing/milestone timestamps updated — including **`ta`**, **`etb`**, **`tb`**, **`etc`**, **`tc`**, **`cargo_ops_start_at`** (operational / ATS start), **`cast_off_at`**, or **`sailed_at`** |
+| `schedule.updated` | Berthing/milestone timestamps updated — including **`ta`**, **`etb`**, **`tb`**, **`etc`**, **`tc`**, **`cargo_ops_start_at`** / **`cargo_ops_end_at`** (Hose On/Off window), **`cast_off_at`**, or **`sailed_at`** |
 
 Delivery is **at-least-once** (retries with backoff). Always dedupe on `X-JPS-Delivery-Id`.
 
@@ -576,7 +581,7 @@ curl -sS "$JPS_API_BASE_URL/catalog/shipping-instruction" -H "x-api-key: $JPS_AP
 {
   "success": true,
   "data": {
-    "api_version": "5.4",
+    "api_version": "5.5",
     "auth_header": "x-api-key",
     "count": 7,
     "entities": [
@@ -1113,7 +1118,8 @@ When reporting issues, include:
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.4 | 2026-10-05 | **`schedule.cargo_ops_start_at`** (ATS) on GET/webhooks — **Entry 1** load-segment start; **`schedule.updated`** when ATS changes. Header **`X-JPS-API-Version: 5.4`**. *(Initial 5.4 text cited operation window; corrected to Entry 1 before partner rollout.)* |
+| 5.5 | 2026-10-05 | KLIP **Hose On/Off:** **`cargo_ops_start_at`** / **`cargo_ops_end_at`** = Cargo Operations **operation window** start/end. **`cast_off_at`** documented as vessel cast-off only. Header **`X-JPS-API-Version: 5.5`**. |
+| 5.4 | 2026-10-05 | **`schedule.cargo_ops_start_at`** (superseded by v5.5 for KLIP). Header **`X-JPS-API-Version: 5.4`**. |
 | 5.3 | 2026-10-02 | **Hub-only POST** (required **`port_hub_code`**, **`vessel_hub_code`**, **`cargo[].cargo_hub_code`**); legacy **`port_id`**, **`cargo_type`**, vessel_name-only rejected. **`agent_name`** optional/nullable. Document URLs accept **HTTP or HTTPS**. Catalog updated. Header **`X-JPS-API-Version: 5.3`**. |
 | 5.2 | 2026-10-01 | **`port_hub_code`** and **`cargo[].cargo_hub_code`** on POST (preferred); legacy **`port_id`** / **`cargo_type`** retained. GET/201 echo **`port_hub_code`**. Catalog: entity **`port`**, extended **`cargo-type`**, **`referenceRows`**, updated **`shipping-instruction`** field contract. Header **`X-JPS-API-Version: 5.2`**. |
 | 5.1 | 2026-09-28 | **Document links:** optional `shipping_instruction_document_url`, `contract_document_url`, `bl_document_url` on POST/PATCH/GET/webhook `data`. **Catalog API:** `GET /catalog` and `GET /catalog/{entity}` for live, self-describing field discovery (§3.8). Header **`X-JPS-API-Version: 5.1`**. |

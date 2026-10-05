@@ -17,11 +17,13 @@ describe('integration-partner-payload', () => {
     assert.equal(schedule.etc, '2026-10-05T18:00:00.000Z');
   });
 
-  it('buildPartnerSchedule includes cargo_ops_start_at (ATS) from Entry 1 load segment', () => {
+  it('buildPartnerSchedule includes cargo_ops window (Hose On/Off) for partner ATS/ATC', () => {
     const schedule = buildPartnerSchedule({
-      op_cargo_ops_entry1_start_at: '2026-09-28T07:45:00.000Z',
+      op_cargo_ops_window_start_at: '2026-09-28T07:45:00.000Z',
+      op_cargo_ops_window_end_at: '2026-09-28T18:00:00.000Z',
     });
     assert.equal(schedule.cargo_ops_start_at, '2026-09-28T07:45:00.000Z');
+    assert.equal(schedule.cargo_ops_end_at, '2026-09-28T18:00:00.000Z');
   });
 
   it('buildPartnerInstructionPayload includes approval and plan_reference', () => {

@@ -14,7 +14,7 @@ import {
   listPortsForCatalog,
 } from './integration-hub-resolve.js';
 
-export const INTEGRATION_CATALOG_VERSION = '5.4';
+export const INTEGRATION_CATALOG_VERSION = '5.5';
 
 const VALID_PURPOSES = ['Loading', 'Unloading'];
 const VALID_UNITS = ['MT', 'KL'];
@@ -166,7 +166,7 @@ export async function buildIntegrationCatalog(db) {
         }),
       ],
       responseFieldsNote:
-        'GET and webhook payloads echo port_hub_code and port_id (resolved from master). schedule.cargo_ops_start_at (v5.4, partner ATS) is the earliest Cargo Operations Entry 1 load-segment start (operation_cargo_load_lines.started_at). Cargo is stored by internal commodity id.',
+        'GET and webhook payloads echo port_hub_code and port_id (resolved from master). schedule.cargo_ops_start_at / cargo_ops_end_at (v5.5, KLIP Hose On/Off) are Cargo Operations operation window start/end on cargo_operations activities. cast_off_at is vessel cast-off, not Hose Off. Cargo is stored by internal commodity id.',
     },
     {
       slug: 'webhook',

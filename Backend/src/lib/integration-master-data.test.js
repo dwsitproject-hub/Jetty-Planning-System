@@ -4,7 +4,7 @@ import {
   deriveExternalStatus,
   matchBreakdownLineIndex,
   normalizeLongName,
-  resolvePartnerCargoOpsEntry1Ats,
+  resolvePartnerCargoOpsWindow,
   PARTNER_SUBMISSION_LOOKUP_SQL,
 } from './integration-master-data.js';
 
@@ -60,22 +60,30 @@ describe('integration-master-data', () => {
     });
   });
 
-  it('PARTNER_SUBMISSION_LOOKUP_SQL uses Entry 1 load-line ATS subselect', () => {
-    assert.match(PARTNER_SUBMISSION_LOOKUP_SQL, /operation_cargo_load_lines/);
-    assert.match(PARTNER_SUBMISSION_LOOKUP_SQL, /op_cargo_ops_entry1_start_at/);
-    assert.doesNotMatch(PARTNER_SUBMISSION_LOOKUP_SQL, /op_cargo_ops_activity_start_at/);
+  it('PARTNER_SUBMISSION_LOOKUP_SQL uses cargo_operations window subselects', () => {
+    assert.match(PARTNER_SUBMISSION_LOOKUP_SQL, /milestone_key = 'cargo_operations'/);
+    assert.match(PARTNER_SUBMISSION_LOOKUP_SQL, /op_cargo_ops_window_start_at/);
+    assert.match(PARTNER_SUBMISSION_LOOKUP_SQL, /op_cargo_ops_window_end_at/);
   });
 
-  it('resolvePartnerCargoOpsEntry1Ats queries by operation id', async () => {
+  it('resolvePartnerCargoOpsWindow queries by operation id', async () => {
     const seen = [];
     const db = {
       query: async (_sql, params) => {
         seen.push(params);
-        return { rows: [{ ats: '2026-09-28T07:45:00.000Z' }] };
+        return {
+          rows: [
+            {
+              window_start_at: '2026-09-28T07:45:00.000Z',
+              window_end_at: '2026-09-28T18:00:00.000Z',
+            },
+          ],
+        };
       },
     };
-    const ats = await resolvePartnerCargoOpsEntry1Ats(db, 99);
-    assert.equal(ats, '2026-09-28T07:45:00.000Z');
+    const win = await resolvePartnerCargoOpsWindow(db, 99);
+    assert.equal(win.startAt, '2026-09-28T07:45:00.000Z');
+    assert.equal(win.endAt, '2026-09-28T18:00:00.000Z');
     assert.deepEqual(seen[0], [99]);
   });
 });

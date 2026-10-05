@@ -1,7 +1,7 @@
 # Inbound Shipping Instruction API — Test Guide
 
-> **Version:** 1.6 (API v5.4) · **Audience:** JPS developers and operators who need to test the partner integration API locally.
-> **Hand off to external developers:** Use [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) (v5.4) — hub-only POST, catalog, webhooks, enriched GET (including **`schedule.cargo_ops_start_at`** / partner ATS), staging walkthrough.
+> **Version:** 1.7 (API v5.5) · **Audience:** JPS developers and operators who need to test the partner integration API locally.
+> **Hand off to external developers:** Use [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) (v5.5) — hub-only POST, catalog, webhooks, **`cargo_ops_start_at`** / **`cargo_ops_end_at`** (KLIP Hose On/Off), staging walkthrough.
 
 ---
 
@@ -400,18 +400,16 @@ The API only submits and reads status. To see `Approved` or `Allocated`, an oper
 | Operator approved | `Approved` | `allocation: null` |
 | Jetty assigned | `Allocated` | `allocation.jetty_name`, `allocation.planned_berthing_time` |
 | Operator rejected | `Rejected` | `rejection_reason` populated |
-| Berthing milestones saved | `Allocated` (typical) | `data.schedule` populated (`ta`, `tb`, `etc`, …); response header **`X-JPS-API-Version: 5.4`** |
-| Cargo Operations Entry 1 saved | `Allocated` (typical) | `data.schedule.cargo_ops_start_at` set (partner **ATS**); **`schedule.updated`** webhook if registered |
+| Berthing milestones saved | `Allocated` (typical) | `data.schedule` populated (`ta`, `tb`, `etc`, …); response header **`X-JPS-API-Version: 5.5`** |
+| Cargo Operations window saved | `Allocated` (typical) | `data.schedule.cargo_ops_start_at` / `cargo_ops_end_at` (Hose On/Off); **`schedule.updated`** if registered |
 
 Poll every few minutes in real integrations — operator review is a human process, not instant.
 
-### Verify ATS (`cargo_ops_start_at`) after allocation
+### Verify Hose On/Off (`cargo_ops_start_at` / `cargo_ops_end_at`) after allocation
 
-1. In JPS, open the operation → **Cargo Operations** → set **Entry 1 → Start** on the first load segment and save.
-2. **`GET /shipping-instructions/{id}`** — confirm `data.schedule.cargo_ops_start_at` matches Entry 1 start (ISO UTC), not necessarily the activity operation window.
-3. Optional: register **`schedule.updated`** on a test webhook URL and confirm delivery after Entry 1 start changes (see partner guide §3.4).
-
-Changing only the **operation window** (activity `start_at`) without Entry 1 start does **not** change **`cargo_ops_start_at`** or enqueue **`schedule.updated`**.
+1. In JPS, open the operation → **Cargo Operations** → set **Operation Window → Start** and **End** and save.
+2. **`GET /shipping-instructions/{id}`** — confirm `data.schedule.cargo_ops_start_at` and `cargo_ops_end_at` match the window (ISO UTC).
+3. Optional: register **`schedule.updated`** and confirm delivery when the window changes (partner guide §3.4).
 
 ---
 
@@ -471,8 +469,8 @@ Always note `request_id` when reporting failures — it helps trace the request 
 - [ ] Plan visible in JPS web app (Shipment Plans / approval)
 - [ ] Approve in UI → `GET` shows `Approved`; PATCH → `409 INVALID_STATE`
 - [ ] Allocate jetty in UI → `GET` shows `Allocated`
-- [ ] Response header includes **`X-JPS-API-Version: 5.4`** on integration routes
-- [ ] After Cargo Operations **Entry 1** start save → `GET` shows **`schedule.cargo_ops_start_at`** (or `null` until set)
+- [ ] Response header includes **`X-JPS-API-Version: 5.5`** on integration routes
+- [ ] After Cargo Operations **operation window** save → `GET` shows **`cargo_ops_start_at`** / **`cargo_ops_end_at`** (or `null` until set)
 
 ---
 
@@ -526,7 +524,7 @@ Both columns should show table names, not `null`.
 
 | File | Purpose |
 |------|---------|
-| [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) | Full API contract for external partners (v5.4) |
+| [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) | Full API contract for external partners (v5.5) |
 | [PARTNER-INTEGRATION-WEBHOOKS-ADMIN.md](./PARTNER-INTEGRATION-WEBHOOKS-ADMIN.md) | Admin webhook onboarding and delivery log |
 | [Backend/scripts/run-integration-self-test.ps1](../../Backend/scripts/run-integration-self-test.ps1) | Automated local self-test + report |
 | [Backend/scripts/create-integration-api-key.mjs](../../Backend/scripts/create-integration-api-key.mjs) | Create/list/revoke API keys |
@@ -541,6 +539,7 @@ Both columns should show table names, not `null`.
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 1.7 | 2026-10-05 | API v5.5: Hose On/Off window test steps; **`cargo_ops_end_at`** |
 | 1.6 | 2026-10-05 | API v5.4: **`schedule.cargo_ops_start_at`** (ATS) test steps; checklist for API version header |
 | 1.5 | 2026-10-02 | API v5.3 hub-only POST (`port_hub_code`, `cargo_hub_code`); catalog references |
 | 1.4 | 2026-10-01 | API v5.2 hub codes; webhooks and enriched GET notes |

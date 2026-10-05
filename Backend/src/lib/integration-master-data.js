@@ -149,39 +149,45 @@ export async function updateNamedMaster(db, table, id, { name, longName }) {
   return { row: toNamedResponse(r.rows[0]) };
 }
 
-/** Scalar subselect: earliest Entry 1 (`line_order`) start among cargo_operations activities on latest op lateral `o`. */
-export const PARTNER_CARGO_OPS_ENTRY1_ATS_SUBSELECT = `
-         (SELECT MIN(entry1.started_at)
-          FROM (
-            SELECT DISTINCT ON (oa.id) l.started_at
-            FROM operation_operational_activities oa
-            JOIN operation_cargo_load_lines l ON l.operational_activity_id = oa.id
-            WHERE oa.operation_id = o.op_id
-              AND oa.deleted_at IS NULL
-              AND oa.entry_type = 'activity'
-              AND oa.milestone_key = 'cargo_operations'
-              AND l.started_at IS NOT NULL
-            ORDER BY oa.id, l.line_order ASC, l.id ASC
-          ) entry1) AS op_cargo_ops_entry1_start_at`;
+/** Cargo Operations operation window on latest op lateral `o` (KLIP Hose On / Hose Off). */
+export const PARTNER_CARGO_OPS_WINDOW_SUBSELECT = `
+         (SELECT MIN(oa.start_at)
+          FROM operation_operational_activities oa
+          WHERE oa.operation_id = o.op_id
+            AND oa.deleted_at IS NULL
+            AND oa.entry_type = 'activity'
+            AND oa.milestone_key = 'cargo_operations'
+            AND oa.start_at IS NOT NULL) AS op_cargo_ops_window_start_at,
+         (SELECT MAX(oa.end_at)
+          FROM operation_operational_activities oa
+          WHERE oa.operation_id = o.op_id
+            AND oa.deleted_at IS NULL
+            AND oa.entry_type = 'activity'
+            AND oa.milestone_key = 'cargo_operations'
+            AND oa.end_at IS NOT NULL) AS op_cargo_ops_window_end_at`;
 
-const PARTNER_CARGO_OPS_ENTRY1_ATS_BY_OPERATION_SQL = `
-  SELECT MIN(entry1.started_at) AS ats
-  FROM (
-    SELECT DISTINCT ON (oa.id) l.started_at
-    FROM operation_operational_activities oa
-    JOIN operation_cargo_load_lines l ON l.operational_activity_id = oa.id
-    WHERE oa.operation_id = $1
-      AND oa.deleted_at IS NULL
-      AND oa.entry_type = 'activity'
-      AND oa.milestone_key = 'cargo_operations'
-      AND l.started_at IS NOT NULL
-    ORDER BY oa.id, l.line_order ASC, l.id ASC
-  ) entry1`;
+const PARTNER_CARGO_OPS_WINDOW_BY_OPERATION_SQL = `
+  SELECT
+    (SELECT MIN(oa.start_at)
+     FROM operation_operational_activities oa
+     WHERE oa.operation_id = $1
+       AND oa.deleted_at IS NULL
+       AND oa.entry_type = 'activity'
+       AND oa.milestone_key = 'cargo_operations'
+       AND oa.start_at IS NOT NULL) AS window_start_at,
+    (SELECT MAX(oa.end_at)
+     FROM operation_operational_activities oa
+     WHERE oa.operation_id = $1
+       AND oa.deleted_at IS NULL
+       AND oa.entry_type = 'activity'
+       AND oa.milestone_key = 'cargo_operations'
+       AND oa.end_at IS NOT NULL) AS window_end_at`;
 
-/** Partner ATS instant for an operation (earliest Entry 1 segment start). */
-export async function resolvePartnerCargoOpsEntry1Ats(db, operationId) {
-  const r = await db.query(PARTNER_CARGO_OPS_ENTRY1_ATS_BY_OPERATION_SQL, [operationId]);
-  return r.rows[0]?.ats ?? null;
+/** Partner Hose On/Off window for cargo_operations on an operation. */
+export async function resolvePartnerCargoOpsWindow(db, operationId) {
+  const r = await db.query(PARTNER_CARGO_OPS_WINDOW_BY_OPERATION_SQL, [operationId]);
+  const row = r.rows[0] ?? {};
+  return { startAt: row.window_start_at ?? null, endAt: row.window_end_at ?? null };
 }
 
 /** Maps internal plan/operation state to partner Pending/Approved/Rejected/Allocated/Sailed. */
@@ -215,7 +221,7 @@ export const PARTNER_SUBMISSION_LOOKUP_SQL = `
          o.operations_completed_at AS op_tc,
          o.cast_off_at AS op_cast_off_at, o.sailed_at AS op_sailed_at,
          o.op_updated_at,
-${PARTNER_CARGO_OPS_ENTRY1_ATS_SUBSELECT},
+${PARTNER_CARGO_OPS_WINDOW_SUBSELECT},
          j.name AS jetty_name,
          regexp_replace(COALESCE(j.name, ''), '^Jetty\\s+', '', 'i') AS jetty_short_name,
          si.partner_si_document_url,
@@ -260,7 +266,7 @@ export const PARTNER_SUBMISSION_BY_PLAN_SQL = `
          o.operations_completed_at AS op_tc,
          o.cast_off_at AS op_cast_off_at, o.sailed_at AS op_sailed_at,
          o.op_updated_at,
-${PARTNER_CARGO_OPS_ENTRY1_ATS_SUBSELECT},
+${PARTNER_CARGO_OPS_WINDOW_SUBSELECT},
          j.name AS jetty_name,
          regexp_replace(COALESCE(j.name, ''), '^Jetty\\s+', '', 'i') AS jetty_short_name,
          si.partner_si_document_url,
@@ -305,7 +311,7 @@ export const PARTNER_SUBMISSION_BY_SI_SQL = `
          o.operations_completed_at AS op_tc,
          o.cast_off_at AS op_cast_off_at, o.sailed_at AS op_sailed_at,
          o.op_updated_at,
-${PARTNER_CARGO_OPS_ENTRY1_ATS_SUBSELECT},
+${PARTNER_CARGO_OPS_WINDOW_SUBSELECT},
          j.name AS jetty_name,
          regexp_replace(COALESCE(j.name, ''), '^Jetty\\s+', '', 'i') AS jetty_short_name,
          si.partner_si_document_url,
