@@ -2,7 +2,7 @@
 
 > **Version:** 5.5 · **Audience:** External full-stack developers building an integration from your system (EOS Export/Import, KLIPS, ERP, TMS, etc.) into the Jetty Planning System (JPS).
 >
-> **What you can do:** Sync reference master data, submit Shipping Instructions, update PO/SO while Pending, **send HTTP or HTTPS links** to SI / contract / B/L documents, **receive approval and milestone updates via webhooks**, and poll enriched status (including TA, ETB, TB, ETC, TC, cast off, sailed). JPS operators update berthing milestones in the web app — your system receives those changes; you do not write them back via API.
+> **What you can do:** Sync reference master data, submit Shipping Instructions, update PO/SO while Pending, **send HTTP or HTTPS links** to SI / contract / B/L documents, **receive approval and milestone updates via webhooks**, and poll enriched status (including TA, ETB, TB, ETC, TC, **Hose On/Off** (`cargo_ops_start_at` / `cargo_ops_end_at`), cast off, sailed). JPS operators update berthing milestones in the web app — your system receives those changes; you do not write them back via API.
 >
 > **What's new in v5.5:** **`schedule.cargo_ops_start_at`** / **`schedule.cargo_ops_end_at`** map KLIP **Hose On** / **Hose Off** to JPS Cargo Operations **operation window** start/end (`operation_operational_activities.start_at` / `end_at` on `cargo_operations`). **`cast_off_at`** remains vessel cast-off (clearance), not Hose Off. Header **`X-JPS-API-Version: 5.5`**. KLIP integrators: use v5.5 fields for ATS/ATC.
 >
