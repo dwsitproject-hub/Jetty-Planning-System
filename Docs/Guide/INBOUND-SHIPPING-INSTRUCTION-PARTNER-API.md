@@ -513,7 +513,7 @@ The `data` object matches the enriched **`GET /shipping-instructions/{id}`** sha
 | Event | When fired |
 |-------|------------|
 | `status.changed` | Plan approved, rejected, allocated, or vessel sailed |
-| `schedule.updated` | TA, ETB, TB, ETC, TC, cast off, or sailed timestamp updated |
+| `schedule.updated` | Berthing/milestone timestamps updated — including **`ta`**, **`etb`**, **`tb`**, **`etc`**, **`tc`**, **`cargo_ops_start_at`** (operational / ATS start), **`cast_off_at`**, or **`sailed_at`** |
 
 Delivery is **at-least-once** (retries with backoff). Always dedupe on `X-JPS-Delivery-Id`.
 
