@@ -86,6 +86,17 @@
 .mgmt-lbar--brand{background:var(--mg-brand);opacity:.85}
 .mgmt-lval{text-align:right;color:var(--color-text-steel,#5B6675);font-variant-numeric:tabular-nums}
 
+.mgmt-product-tables{display:flex;flex-direction:column;gap:14px}
+.mgmt-product-block__title{font-size:13px;font-weight:700;margin:0 0 6px;display:flex;align-items:center;flex-wrap:wrap;gap:4px}
+.mgmt-prod-row{cursor:pointer}
+.mgmt-prod-row:hover td{background:var(--color-bg-lighter,#F1F3EF)}
+.mgmt-prod-row:focus-visible{outline:2px solid var(--mg-brand);outline-offset:-2px}
+.mgmt-product-th{white-space:normal;vertical-align:bottom}
+.mgmt-product-th__inner{display:inline-flex;align-items:center;justify-content:flex-end;gap:4px;max-width:100%}
+.mgmt-product-th:first-child .mgmt-product-th__inner{justify-content:flex-start}
+.mgmt-product-info-icon{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;font-size:12px;line-height:1;color:var(--color-text-steel,#8B94A1);cursor:help;border-radius:50%;flex-shrink:0}
+.mgmt-product-info-icon:hover,.mgmt-product-info-icon:focus-visible{color:var(--mg-brand);outline:2px solid var(--mg-brand);outline-offset:1px}
+
 .mgmt-kpi--clickable{cursor:pointer;transition:box-shadow .15s,border-color .15s}
 .mgmt-kpi--clickable:hover{box-shadow:0 2px 8px rgba(0,0,0,.08);border-color:var(--mg-brand)}
 .mgmt-kpi--clickable:focus-visible{outline:2px solid var(--mg-brand);outline-offset:2px}
@@ -107,3 +118,20 @@
 .mgmt-modal-close:hover{color:inherit}
 .mgmt-modal-header{display:flex;align-items:flex-start;gap:12px;margin-bottom:8px}
 .mgmt-modal-header .modal__title{margin:0;flex:1}
+
+.mgmt-product-modal-title{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.mgmt-product-modal-title .mgmt-chip{font-size:10.5px;letter-spacing:.04em}
+.mgmt-product-modal-seg{margin:0 0 12px}
+.mgmt-product-chart-gran{margin:0 0 4px;font-size:12px}
+.mgmt-product-chart-hint{margin:0 0 8px;font-size:12px}
+.mgmt-product-weekly-wrap{margin-top:4px}
+.mgmt-product-weekly-trends.v2-weekly__body{
+  grid-template-columns:1fr;
+  max-height:min(68vh,720px);
+  overflow-y:auto;
+  padding-right:4px;
+  gap:16px;
+}
+@media(min-width:960px){
+  .mgmt-product-weekly-trends.v2-weekly__body{grid-template-columns:repeat(2,minmax(0,1fr))}
+}

@@ -8,7 +8,10 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { fetchOperations, fetchSubProcesses, fetchOperationalActivities } from '../api/operations'
 import WidgetDetailModal from '../components/WidgetDetailModal'
+import ProductDetailModal from '../components/dashboard/ProductDetailModal'
 import { computeFlow } from '../utils/managementDashboardFlow'
+import { aggregateByProduct, voyagesForProduct } from '../utils/managementDashboardProduct'
+import ManagementProductTable from '../components/dashboard/ManagementProductTable'
 import '../styles/management-dashboard.css'
 import '../styles/modal.css'
 
@@ -137,6 +140,8 @@ function toRow(o, detail) {
     id: o.id, code: o.jettyOperationCode, vessel: o.vesselName, purpose: o.purpose,
     status: o.status, jetty: o.jettyName,
     commodity: o.commodityShortDisplay || o.commodityDisplay || o.commodity,
+    totalQtyDisplay: o.totalQtyDisplay || null,
+    cargoBreakdownSummary: Array.isArray(o.cargoBreakdownSummary) ? o.cargoBreakdownSummary : [],
     qty: Number(o.cargoSiQty) || 0, pct: o.completionPercent,
     eta: o.eta, ta: o.ta, tb, etc: o.estimatedCompletionTime, opsDone: o.operationsCompletedAt,
     castOff: o.castOffAt, norA: !!o.norAcceptedAt,
@@ -172,6 +177,7 @@ export default function ManagementDashboard() {
   const [purpose, setPurpose] = useState('All')
   const [openRow, setOpenRow] = useState(null)
   const [activeModal, setActiveModal] = useState(null)
+  const [productDetail, setProductDetail] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -207,15 +213,19 @@ export default function ManagementDashboard() {
   }, [])
 
   useEffect(() => {
-    if (!activeModal) return undefined
+    if (!activeModal && !productDetail) return undefined
     const onKey = (e) => {
-      if (e.key === 'Escape') setActiveModal(null)
+      if (e.key === 'Escape') {
+        setActiveModal(null)
+        setProductDetail(null)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [activeModal])
+  }, [activeModal, productDetail])
 
   const closeModal = useCallback(() => setActiveModal(null), [])
+  const closeProductDetail = useCallback(() => setProductDetail(null), [])
 
   const rows = useMemo(() => ops.map((o) => toRow(o, details[o.id])), [ops, details])
   const filtered = useMemo(
@@ -341,6 +351,12 @@ export default function ManagementDashboard() {
     : new Date(snap.E - 1).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 
   const flowFooter = `Based on sailed voyages with cast-off in ${periodLabel}`
+  const productAgg = useMemo(
+    () => aggregateByProduct(cur.sailedRows, { purposeFilter: purpose }),
+    [cur.sailedRows, purpose]
+  )
+  const showProductIncoming = purpose !== 'Loading'
+  const showProductOutgoing = purpose !== 'Unloading'
   const snapFooter = snap.isLive
     ? 'Live pipeline snapshot as of now'
     : `Pipeline reconstructed as of ${snapLabel}`
@@ -449,6 +465,20 @@ export default function ManagementDashboard() {
         break
     }
   }, [cur, flowFooter])
+
+  const openProductDetail = useCallback(
+    (productRow) => {
+      const voyages = voyagesForProduct(cur.sailedRows, productRow.key, productRow.purpose)
+      setProductDetail({
+        productRow,
+        voyages,
+        win: { start: win.start, end: win.end, label: win.label },
+        periodLabel,
+        flowFooter,
+      })
+    },
+    [cur.sailedRows, flowFooter, win, periodLabel]
+  )
 
   const openWfDetail = useCallback((seg) => {
     const rows = wf.dd
@@ -714,6 +744,17 @@ export default function ManagementDashboard() {
             ))}
           </div>
 
+          <section className="card mgmt-sec">
+            <h2 className="card__title">By commodity</h2>
+            <ManagementProductTable
+              incoming={productAgg.incoming}
+              outgoing={productAgg.outgoing}
+              showIncoming={showProductIncoming}
+              showOutgoing={showProductOutgoing}
+              onRowClick={openProductDetail}
+            />
+          </section>
+
           <div className="mgmt-two">
             <section className="card">
               <h2 className="card__title">Where the berth hours go</h2>
@@ -854,6 +895,7 @@ export default function ManagementDashboard() {
           </div>
 
           <WidgetDetailModal modal={activeModal} onClose={closeModal} />
+          <ProductDetailModal detail={productDetail} onClose={closeProductDetail} />
         </>
       )}
     </div>
