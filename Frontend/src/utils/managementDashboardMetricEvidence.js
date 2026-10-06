@@ -151,10 +151,29 @@ export const CARGO_DONE_EXCLUDE_LABELS = {
  * @param {string} productKey
  */
 export function flowEvidenceSummary(row, productKey) {
-  const qty = Number(productQtyOnVoyage(row, productKey)) || 0
+  const pk = String(productKey ?? '')
+    .trim()
+    .toUpperCase()
+  const rateEntry = row?.productRatesByKey?.[pk]
+  const movedFromApi = rateEntry?.movedQty
+  const qty =
+    movedFromApi != null && Number.isFinite(Number(movedFromApi))
+      ? Number(movedFromApi)
+      : Number(productQtyOnVoyage(row, productKey)) || 0
+  const loggedHours = rateEntry?.loggedHours ?? null
   const opsH = row?.opsH ?? null
-  const rate = opsH != null && opsH > 0 && qty > 0 ? +(qty / opsH).toFixed(2) : null
-  return { productQtyMt: qty, cargoOpsHours: opsH, voyageRateMtH: rate }
+  const rate =
+    rateEntry?.rateMtH != null && Number.isFinite(rateEntry.rateMtH)
+      ? rateEntry.rateMtH
+      : null
+  return {
+    productQtyMt: qty,
+    loggedCargoHours: loggedHours,
+    cargoOpsHours: opsH,
+    voyageRateMtH: rate,
+    source: rateEntry?.source ?? null,
+    atgPartial: rateEntry?.atgPartial ?? false,
+  }
 }
 
 function bucketMovedQty(bucket) {

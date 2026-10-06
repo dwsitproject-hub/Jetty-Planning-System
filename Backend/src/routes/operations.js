@@ -20,6 +20,7 @@ import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notific
 import { enrichRowsWithCargoDisplay } from '../lib/siBreakdownDisplay.js';
 import { getSiCommodityOptions } from '../lib/si-commodity-options.js';
 import { getAtBerthCargoProgressSummaries } from '../lib/operational-progress.js';
+import { computeCargoRatesBulk } from '../lib/management-dashboard-cargo-rate.js';
 import { computeAtBerthFlowPattern } from '../lib/at-berth-flow-pattern.js';
 
 const router = express.Router();
@@ -206,6 +207,44 @@ async function checkPlanPeersReadyForSignoffRequest(requestedOpId, opRow, select
   return { ok: true };
 }
 
+const OPERATION_ROUTE_SLUGS = new Set([
+  'at-berth',
+  'pending-signoff-requests',
+  'management-cargo-rates',
+]);
+
+/** @param {import('express').Request} req @param {import('express').Response} res */
+async function handleManagementCargoRates(req, res) {
+  const selectedPortId = Number(req.selectedPortId);
+  const idsParam = typeof req.query.ids === 'string' ? req.query.ids.trim() : '';
+  const operationIds = idsParam
+    ? idsParam
+        .split(',')
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => !Number.isNaN(n) && n > 0)
+    : [];
+  if (!operationIds.length) {
+    return res.status(400).json({ error: 'ids query parameter is required' });
+  }
+
+  const scopedR = await pool.query(
+    `SELECT o.id
+     FROM operations o
+     JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
+     LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
+     LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
+     WHERE o.deleted_at IS NULL
+       AND COALESCE(o.port_id, p.id) = $1
+       AND o.id = ANY($2::int[])`,
+    [selectedPortId, operationIds]
+  );
+  const scopedIds = scopedR.rows.map((r) => Number(r.id)).filter((n) => n > 0);
+  const payload = await computeCargoRatesBulk(pool, scopedIds);
+  res.json(payload);
+}
+
+router.get('/management-cargo-rates', handleManagementCargoRates);
+
 router.get('/at-berth', async (req, res) => {
   const selectedPortId = Number(req.selectedPortId);
   const result = await pool.query(
@@ -231,6 +270,9 @@ router.get('/at-berth', async (req, res) => {
 });
 
 router.get('/at-berth/cargo-progress', async (req, res) => {
+  if (req.query.managementDashboardRates === '1' || req.query.dashboardRates === '1') {
+    return handleManagementCargoRates(req, res);
+  }
   const selectedPortId = Number(req.selectedPortId);
   const idsParam = typeof req.query.ids === 'string' ? req.query.ids.trim() : '';
   let operationIds = idsParam
@@ -562,7 +604,14 @@ router.get('/pending-signoff-requests', async (req, res) => {
 });
 
 router.get('/:id', async (req, res) => {
-  const id = parseInt(req.params.id, 10);
+  const slug = String(req.params.id ?? '').trim();
+  if (OPERATION_ROUTE_SLUGS.has(slug)) {
+    return res.status(503).json({
+      error:
+        'This operations API route is unavailable on the running server. Restart the API (e.g. docker restart jps-api) after pulling backend changes.',
+    });
+  }
+  const id = parseInt(slug, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const row = await loadOperationJoined(id);
   if (!row) return res.status(404).json({ error: 'Operation not found' });

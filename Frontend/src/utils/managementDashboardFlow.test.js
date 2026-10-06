@@ -26,17 +26,17 @@ describe('mean / median', () => {
 })
 
 describe('voyageFlowRate', () => {
-  it('is qty ÷ cargo-ops hours', () => {
-    assert.equal(voyageFlowRate({ qty: 500, opsH: 10 }), 50)
-    assert.equal(voyageFlowRate({ qty: 500, opsH: 0 }), null)
+  it('uses canonical voyageRateMtH from cargo load lines', () => {
+    assert.equal(voyageFlowRate({ voyageRateMtH: 50 }), 50)
+    assert.equal(voyageFlowRate({ qty: 500, opsH: 10 }), null)
   })
 })
 
 describe('computeFlow', () => {
   it('splits Loading vs Unloading and uses average wait', () => {
     const flow = computeFlow([
-      row({ vessel: 'L1', wait: 4, berth: 10, qty: 800, opsH: 8 }),
-      row({ vessel: 'L2', wait: 8, berth: 30, qty: 200, opsH: 4 }),
+      row({ vessel: 'L1', wait: 4, berth: 10, qty: 800, opsH: 8, voyageRateMtH: 100 }),
+      row({ vessel: 'L2', wait: 8, berth: 30, qty: 200, opsH: 4, voyageRateMtH: 50 }),
       row({
         vessel: 'U1',
         purpose: 'Unloading',
@@ -44,6 +44,7 @@ describe('computeFlow', () => {
         berth: 20,
         qty: 600,
         opsH: 6,
+        voyageRateMtH: 100,
         tb: '2026-06-03T00:00:00Z',
       }),
     ])

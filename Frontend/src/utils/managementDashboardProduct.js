@@ -59,9 +59,9 @@ export function productShortNamesFromVoyageRow(row) {
 }
 
 function sliceFlowRate(slice) {
-  if (!slice?.opsH || !(Number(slice.opsH) > 0)) return null
-  const qty = Number(slice.qty) || 0
-  return qty > 0 ? qty / slice.opsH : null
+  const canonical = slice?.productRateMtH
+  if (canonical != null && Number.isFinite(canonical) && canonical > 0) return canonical
+  return null
 }
 
 /**
@@ -78,7 +78,17 @@ export function expandVoyageToProductSlices(row) {
     const label = names[0]
     const key = productKeyFromCommodity(label)
     const qty = qtyMap.get(label) ?? (qtyMap.size === 0 ? voyageQty : qtyMap.get(label) ?? 0)
-    const slice = { ...row, productLabel: label, productKey: key, qty: qty || voyageQty }
+    const rateEntry = row.productRatesByKey?.[key]
+    const slice = {
+      ...row,
+      productLabel: label,
+      productKey: key,
+      qty: qty || voyageQty,
+      productRateMtH: rateEntry?.rateMtH ?? null,
+      productMovedQty: rateEntry?.movedQty ?? null,
+      productLoggedHours: rateEntry?.loggedHours ?? null,
+      productRateSource: rateEntry?.source ?? null,
+    }
     return [slice]
   }
 
@@ -91,7 +101,17 @@ export function expandVoyageToProductSlices(row) {
     if (qty == null || qty <= 0) {
       qty = equalFallback != null ? equalFallback : 0
     }
-    return { ...row, productLabel: label, productKey: key, qty }
+    const rateEntry = row.productRatesByKey?.[key]
+    return {
+      ...row,
+      productLabel: label,
+      productKey: key,
+      qty,
+      productRateMtH: rateEntry?.rateMtH ?? null,
+      productMovedQty: rateEntry?.movedQty ?? null,
+      productLoggedHours: rateEntry?.loggedHours ?? null,
+      productRateSource: rateEntry?.source ?? null,
+    }
   })
 }
 

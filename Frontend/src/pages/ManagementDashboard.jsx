@@ -11,10 +11,12 @@ import {
   fetchSubProcesses,
   fetchOperationalActivities,
   fetchActivityTimeline,
+  fetchManagementCargoRates,
 } from '../api/operations'
 import WidgetDetailModal from '../components/WidgetDetailModal'
 import ProductDetailModal from '../components/dashboard/ProductDetailModal'
-import { computeFlow, dedupSailedRows } from '../utils/managementDashboardFlow'
+import { computeFlow, dedupSailedRows, voyageFlowRate } from '../utils/managementDashboardFlow'
+import { mergeCargoRatesIntoRow } from '../utils/managementDashboardCargoRate'
 import { aggregateByProduct, voyagesForProduct } from '../utils/managementDashboardProduct'
 import { cargoDoneToSailFromTimeline } from '../utils/managementDashboardCargoDone'
 import {
@@ -209,17 +211,31 @@ export default function ManagementDashboard() {
   const [openRow, setOpenRow] = useState(null)
   const [activeModal, setActiveModal] = useState(null)
   const [productDetail, setProductDetail] = useState(null)
+  const [cargoRatesByOpId, setCargoRatesByOpId] = useState({})
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       setLoading(true)
       setError(null)
+      setCargoRatesByOpId({})
       try {
         const list = await fetchOperations()
         if (cancelled) return
         const arr = Array.isArray(list) ? list : []
         setOps(arr)
+        const sailedForRates = arr.filter((o) => o.status === 'SAILED').map((o) => o.id)
+        if (sailedForRates.length) {
+          const mergedRates = {}
+          const CHUNK = 50
+          for (let i = 0; i < sailedForRates.length; i += CHUNK) {
+            const chunk = sailedForRates.slice(i, i + CHUNK)
+            const rateRes = await fetchManagementCargoRates(chunk).catch(() => ({ rates: {} }))
+            if (cancelled) return
+            Object.assign(mergedRates, rateRes?.rates || {})
+          }
+          if (!cancelled) setCargoRatesByOpId(mergedRates)
+        }
         // fetch phase detail for sailed + live ops (bounded)
         const ids = arr.filter((o) => o.status !== 'PENDING').map((o) => o.id).slice(0, 60)
         const pairs = await Promise.all(
@@ -267,8 +283,11 @@ export default function ManagementDashboard() {
   const closeProductDetail = useCallback(() => setProductDetail(null), [])
 
   const rows = useMemo(
-    () => ops.map((o) => toRow(o, details[o.id], timelinesByOpId[o.id])),
-    [ops, details, timelinesByOpId]
+    () =>
+      ops.map((o) =>
+        mergeCargoRatesIntoRow(toRow(o, details[o.id], timelinesByOpId[o.id]), cargoRatesByOpId)
+      ),
+    [ops, details, timelinesByOpId, cargoRatesByOpId]
   )
   const filtered = useMemo(
     () => rows.filter((r) => purpose === 'All' || r.purpose === purpose),
@@ -367,19 +386,29 @@ export default function ManagementDashboard() {
     const seen = {}
     const rates = []
     cur.allSailed
-      .filter((r) => r.opsH)
+      .filter((r) => voyageFlowRate(r) != null)
       .forEach((r) => {
         const k = `${r.vessel}|${r.tb}`
-        if (seen[k]) seen[k].q += r.qty
-        else {
+        const rate = voyageFlowRate(r)
+        if (seen[k]) {
+          seen[k].q += Number(r.voyageMovedQty) || 0
+          seen[k].ops = Math.max(seen[k].ops || 0, r.voyageLoggedHours || 0)
+          seen[k].rate = rate
+        } else {
           seen[k] = {
-            _key: k, v: r.vessel, p: r.purpose, q: r.qty, ops: r.opsH,
-            jetty: r.jetty, sailedAt: r.sailedAt, tb: r.tb,
+            _key: k,
+            v: r.vessel,
+            p: r.purpose,
+            q: Number(r.voyageMovedQty) || 0,
+            ops: r.voyageLoggedHours,
+            rate,
+            jetty: r.jetty,
+            sailedAt: r.sailedAt,
+            tb: r.tb,
           }
           rates.push(seen[k])
         }
       })
-    rates.forEach((x) => (x.rate = x.ops ? x.q / x.ops : null))
     rates.sort((a, b) => (b.rate || 0) - (a.rate || 0))
     return { jetty, rates, dd }
   }, [cur])
@@ -489,13 +518,13 @@ export default function ManagementDashboard() {
       }
       case 'rate': {
         const rows = cur.sailedRows
-          .filter((r) => r.opsH && r.opsH > 0)
-          .map((r) => ({ ...r, rate: r.qty / r.opsH }))
+          .map((r) => ({ ...r, rate: voyageFlowRate(r) }))
+          .filter((r) => r.rate != null)
           .sort((a, b) => (b.rate || 0) - (a.rate || 0))
         setActiveModal({
           title: 'Average flow rate',
           subtitle: `${rows.length} voyages · average ${fmt(cur.rate, 1)} MT/h`,
-          footer: flowFooter,
+          footer: `${flowFooter} · moved qty ÷ logged cargo hours (ATG / manual / hybrid)`,
           stats: [
             { label: 'Average', value: `${fmt(cur.rate, 1)} MT/h` },
             { label: 'Loading', value: `${fmt(cur.loading.rate, 1)} MT/h` },
@@ -505,8 +534,8 @@ export default function ManagementDashboard() {
           columns: [
             { label: 'Vessel', cell: (r) => r.vessel },
             { label: 'Purpose', cell: (r) => r.purpose || '—' },
-            { label: 'Qty (MT)', cell: (r) => fmt(r.qty), align: 'right' },
-            { label: 'Ops h', cell: (r) => fmt(r.opsH, 1), align: 'right' },
+            { label: 'Moved (MT)', cell: (r) => fmt(r.voyageMovedQty, 0), align: 'right' },
+            { label: 'Logged h', cell: (r) => fmt(r.voyageLoggedHours, 1), align: 'right' },
             { label: 'Rate', cell: (r) => `${fmt(r.rate, 0)} MT/h`, align: 'right' },
             { label: 'Sailed off', cell: (r) => fmtDate(r.sailedAt) },
           ],
@@ -702,7 +731,7 @@ export default function ManagementDashboard() {
         { k: 'Loading', v: fmt(cur.loading.rate, 1), u: 'MT/h' },
         { k: 'Unloading', v: fmt(cur.unloading.rate, 1), u: 'MT/h' },
       ],
-      n: 'qty ÷ cargo-ops hours',
+      n: 'moved ÷ logged cargo hours',
       d: <Delta cur={cur.rate} prev={prev?.rate} />,
     },
   ]
@@ -931,7 +960,7 @@ export default function ManagementDashboard() {
             </section>
             <section className="card">
               <h2 className="card__title">Achieved cargo rate (MT/hour)</h2>
-              <p className="text-steel mgmt-sub">Moved qty ÷ cargo-operations window · green = Loading, blue = Unloading · click a row for details</p>
+              <p className="text-steel mgmt-sub">Moved qty ÷ logged cargo hours (Ops Live) · green = Loading, blue = Unloading · click a row for details</p>
               {leagues.rates.length ? leagues.rates.map((x) => {
                 const mx = leagues.rates[0].rate || 1
                 return (

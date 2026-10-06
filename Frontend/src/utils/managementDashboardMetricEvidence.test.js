@@ -132,10 +132,21 @@ describe('dailyFlowFromHourlyBuckets', () => {
 })
 
 describe('flowEvidenceSummary', () => {
-  it('computes voyage rate from qty and opsH', () => {
-    const s = flowEvidenceSummary({ opsH: 10, qty: 800, commodity: 'CPO' }, 'CPO')
+  it('uses per-product cargo rate from bulk API', () => {
+    const s = flowEvidenceSummary(
+      {
+        opsH: 10,
+        qty: 800,
+        commodity: 'CPO',
+        productRatesByKey: {
+          CPO: { movedQty: 800, loggedHours: 10, rateMtH: 80, source: 'atg' },
+        },
+      },
+      'CPO'
+    )
     assert.equal(s.productQtyMt, 800)
     assert.equal(s.voyageRateMtH, 80)
+    assert.equal(s.source, 'atg')
   })
 })
 
