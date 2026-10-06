@@ -51,7 +51,7 @@ function metricsFor(dd, sailed) {
  * @param {Array<object>} rows normalized operation rows
  */
 export function computeFlow(rows) {
-  const sailed = rows.filter((r) => r.status === 'SAILED' && r.castOff)
+  const sailed = rows.filter((r) => r.status === 'SAILED' && r.sailedAt)
   const dd = dedupSailedRows(sailed)
   return {
     ...metricsFor(dd, sailed),

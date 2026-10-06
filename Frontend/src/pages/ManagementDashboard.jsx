@@ -1,7 +1,7 @@
 /**
  * Management Dashboard — Berth Productivity & Departure Readiness.
  * Audience: COO & Business Unit heads. Focus: Loading/Unloading during At-Berth
- * and Ready-to-Sail. Flow KPIs bucket sailed voyages by cast-off date within the
+ * and Ready-to-Sail. Flow KPIs bucket sailed voyages by sailed-off date within the
  * selected period (with delta vs the previous equivalent period); pipeline/aging
  * cards are always a live "now" snapshot.
  */
@@ -161,7 +161,6 @@ function toRow(o, detail, timelineEvents) {
   let post = phase('Post-Checking')
   if (post != null && berth != null && post > berth) post = null
   let wait = hrs(o.ta, tb)
-  if (wait != null && berth != null && wait > berth) wait = null
   if (wait != null && wait > 8760) wait = null // cap at 1 year — defense against corrupt TA
   const opsDoneOrCo = ms(o.operationsCompletedAt || o.castOffAt)
   return {
@@ -280,16 +279,13 @@ export default function ManagementDashboard() {
     () => periodWindow(period, { month: monthPick, from: rangeFrom, to: rangeTo }),
     [period, monthPick, rangeFrom, rangeTo]
   )
-  /** Flow KPI tiles / waterfall: cast-off date in period */
-  const inWinCastOff = (r, w) =>
-    !w || w.start == null || (ms(r.castOff) >= w.start && ms(r.castOff) < w.end)
-  /** By commodity: sailed off (Clearance Sailed at), not cast-off alone */
+  /** Sailed off (Clearance Sailed at) in period — cohort for flow KPIs and By commodity */
   const inWinSailedOff = (r, w) =>
     !w || w.start == null || (ms(r.sailedAt) >= w.start && ms(r.sailedAt) < w.end)
 
-  const cur = useMemo(() => computeFlow(filtered.filter((r) => inWinCastOff(r, win))), [filtered, win])
+  const cur = useMemo(() => computeFlow(filtered.filter((r) => inWinSailedOff(r, win))), [filtered, win])
   const prev = useMemo(
-    () => (win.prev ? computeFlow(filtered.filter((r) => inWinCastOff(r, win.prev))) : null),
+    () => (win.prev ? computeFlow(filtered.filter((r) => inWinSailedOff(r, win.prev))) : null),
     [filtered, win]
   )
 
@@ -378,7 +374,7 @@ export default function ManagementDashboard() {
         else {
           seen[k] = {
             _key: k, v: r.vessel, p: r.purpose, q: r.qty, ops: r.opsH,
-            jetty: r.jetty, castOff: r.castOff, tb: r.tb,
+            jetty: r.jetty, sailedAt: r.sailedAt, tb: r.tb,
           }
           rates.push(seen[k])
         }
@@ -392,8 +388,8 @@ export default function ManagementDashboard() {
   const inScope = useMemo(() => {
     const { E } = snap
     return filtered
-      .filter((r) => (r.castOff && inWinCastOff(r, win)) || atBerthAt(r, E))
-      .map((r) => ({ ...r, sailedInPeriod: !!(r.castOff && inWinCastOff(r, win)) }))
+      .filter((r) => (r.sailedAt && inWinSailedOff(r, win)) || atBerthAt(r, E))
+      .map((r) => ({ ...r, sailedInPeriod: !!(r.sailedAt && inWinSailedOff(r, win)) }))
   }, [filtered, win, snap])
 
   const tableRows = useMemo(
@@ -406,8 +402,8 @@ export default function ManagementDashboard() {
     ? 'now'
     : new Date(snap.E - 1).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 
-  const flowFooter = `Based on sailed voyages with cast-off in ${periodLabel}`
-  const productFlowFooter = `Based on sailed voyages with sailed off in ${periodLabel}`
+  const flowFooter = `Based on sailed voyages with sailed off in ${periodLabel}`
+  const productFlowFooter = flowFooter
   const productAgg = useMemo(
     () => aggregateByProduct(productSailedRows, { purposeFilter: purpose }),
     [productSailedRows, purpose]
@@ -437,7 +433,7 @@ export default function ManagementDashboard() {
             { label: 'Jetty', cell: (r) => r.jetty || '—' },
             { label: 'Commodity', cell: (r) => r.commodity || '—' },
             { label: 'Qty (MT)', cell: (r) => fmt(r.qty), align: 'right' },
-            { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
+            { label: 'Sailed off', cell: (r) => fmtDate(r.sailedAt) },
           ],
           rows: [...cur.allSailed].sort((a, b) => b.qty - a.qty),
         })
@@ -461,7 +457,7 @@ export default function ManagementDashboard() {
             { label: 'Berth h', cell: (r) => fmt(r.berth, 1), align: 'right' },
             { label: 'Ops h', cell: (r) => fmt(r.opsH, 1), align: 'right' },
             { label: 'Effective %', cell: (r) => (effPct(r) == null ? '—' : `${fmt(effPct(r), 0)}%`), align: 'right' },
-            { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
+            { label: 'Sailed off', cell: (r) => fmtDate(r.sailedAt) },
           ],
           rows,
         })
@@ -485,7 +481,7 @@ export default function ManagementDashboard() {
             { label: 'Jetty', cell: (r) => r.jetty || '—' },
             { label: 'Wait h', cell: (r) => fmt(r.wait, 1), align: 'right' },
             { label: 'TB', cell: (r) => fmtDate(r.tb) },
-            { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
+            { label: 'Sailed off', cell: (r) => fmtDate(r.sailedAt) },
           ],
           rows,
         })
@@ -512,7 +508,7 @@ export default function ManagementDashboard() {
             { label: 'Qty (MT)', cell: (r) => fmt(r.qty), align: 'right' },
             { label: 'Ops h', cell: (r) => fmt(r.opsH, 1), align: 'right' },
             { label: 'Rate', cell: (r) => `${fmt(r.rate, 0)} MT/h`, align: 'right' },
-            { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
+            { label: 'Sailed off', cell: (r) => fmtDate(r.sailedAt) },
           ],
           rows,
         })
@@ -563,7 +559,7 @@ export default function ManagementDashboard() {
         { label: 'Phase h', cell: (r) => fmt(r.phaseH, 1), align: 'right' },
         { label: 'Berth h', cell: (r) => fmt(r.berth, 1), align: 'right' },
         { label: 'Wait h', cell: (r) => fmt(r.wait, 1), align: 'right' },
-        { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
+        { label: 'Sailed off', cell: (r) => fmtDate(r.sailedAt) },
       ],
       rows,
     })
@@ -589,9 +585,9 @@ export default function ManagementDashboard() {
       keyDateLabel = 'Ops done'
       keyDateCell = (r) => fmtDate(r.opsDone)
     } else if (stageKey === 'sailed') {
-      rows = [...cur.sailedRows].sort((a, b) => ms(b.castOff) - ms(a.castOff))
-      keyDateLabel = 'Cast-off'
-      keyDateCell = (r) => fmtDate(r.castOff)
+      rows = [...cur.sailedRows].sort((a, b) => ms(b.sailedAt) - ms(a.sailedAt))
+      keyDateLabel = 'Sailed off'
+      keyDateCell = (r) => fmtDate(r.sailedAt)
     }
     const statusCell = (r) => {
       if (stageKey === 'sailed') return 'Sailed'
@@ -632,7 +628,7 @@ export default function ManagementDashboard() {
         { label: 'Berth h', cell: (r) => fmt(r.berth, 1), align: 'right' },
         { label: 'Ops h', cell: (r) => fmt(r.opsH, 1), align: 'right' },
         { label: 'Qty (MT)', cell: (r) => fmt(r.qty), align: 'right' },
-        { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
+        { label: 'Sailed off', cell: (r) => fmtDate(r.sailedAt) },
       ],
       rows,
     })
@@ -654,7 +650,7 @@ export default function ManagementDashboard() {
         { label: 'Qty (MT)', cell: () => fmt(entry.q), align: 'right' },
         { label: 'Ops h', cell: () => fmt(entry.ops, 1), align: 'right' },
         { label: 'Rate', cell: () => `${fmt(entry.rate, 0)} MT/h`, align: 'right' },
-        { label: 'Cast-off', cell: () => fmtDate(entry.castOff) },
+        { label: 'Sailed off', cell: () => fmtDate(entry.sailedAt) },
       ],
       rows: [entry],
     })
@@ -724,7 +720,7 @@ export default function ManagementDashboard() {
         <div>
           <h1 className="page-title" style={{ marginBottom: 2 }}>Management Dashboard</h1>
           <p className="allocation-page__intro" style={{ margin: 0 }}>
-            Berth productivity &amp; departure readiness · flow KPIs bucketed by <b>cast-off date</b> ({periodLabel}) · pipeline as of <b>{snapLabel}</b>
+            Berth productivity &amp; departure readiness · flow KPIs bucketed by <b>sailed off date</b> ({periodLabel}) · pipeline as of <b>{snapLabel}</b>
           </p>
         </div>
         <div className="mgmt-filters">
@@ -997,7 +993,7 @@ function FragmentRow({ r, eff, open, onToggle }) {
       {open ? (
         <tr className="mgmt-detail"><td colSpan={11}>
           <div className="text-steel" style={{ marginBottom: 6 }}>
-            <b>Milestones</b> — ETA {dt(r.eta)} · TA {dt(r.ta)} · TB {dt(r.tb)} · Est. completion {dt(r.etc)} · Ops done {dt(r.opsDone)} · Cast-off {dt(r.castOff)}
+            <b>Milestones</b> — ETA {dt(r.eta)} · TA {dt(r.ta)} · TB {dt(r.tb)} · Est. completion {dt(r.etc)} · Ops done {dt(r.opsDone)} · Cast-off {dt(r.castOff)} · Sailed off {dt(r.sailedAt)}
             {r.norA ? '' : <b style={{ color: 'var(--color-danger,#B3261E)' }}> · NOR not accepted</b>}
             {r.cargoDoneToSailH != null ? (
               <b style={{ color: 'var(--color-danger,#B3261E)' }}>

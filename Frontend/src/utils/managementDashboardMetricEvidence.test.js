@@ -17,15 +17,15 @@ describe('waitEvidence', () => {
     assert.equal(e.excludeReason, 'missing_ta')
   })
 
-  it('flags wait exceeding berth', () => {
+  it('shows wait when TA→TB exceeds TB→cast-off stay (not an outlier)', () => {
     const e = waitEvidence({
       ta: '2026-06-01T00:00:00Z',
       tb: '2026-06-10T00:00:00Z',
-      castOff: '2026-06-11T00:00:00Z',
-      wait: null,
+      wait: 216,
       berth: 24,
     })
-    assert.equal(e.excludeReason, 'wait_exceeds_berth')
+    assert.equal(e.excludeReason, null)
+    assert.equal(e.displayedWaitHours, 216)
     assert.ok(e.rawWaitHours > e.berthHours)
   })
 
