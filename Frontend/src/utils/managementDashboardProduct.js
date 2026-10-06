@@ -145,13 +145,13 @@ export function aggregateByProduct(rows, opts = {}) {
       avgWait: meanField(voyages, (r) => r.wait),
       avgPre: meanField(voyages, (r) => r.pre),
       avgRate: meanField(voyages, (r) => sliceFlowRate(r)),
-      avgSign2Co: meanField(voyages, (r) => r.sign2co),
+      avgCargoDoneToSail: meanField(voyages, (r) => r.cargoDoneToSailH),
       coverage: {
         total: n,
         waitLogged: countLogged(voyages, (r) => r.wait),
         preLogged: countLogged(voyages, (r) => r.pre),
         rateLogged: countLogged(voyages, (r) => sliceFlowRate(r)),
-        sign2CoLogged: countLogged(voyages, (r) => r.sign2co),
+        cargoDoneToSailLogged: countLogged(voyages, (r) => r.cargoDoneToSailH),
       },
       voyages,
     }

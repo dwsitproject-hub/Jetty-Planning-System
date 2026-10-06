@@ -7,6 +7,7 @@ import {
   formatBucketTooltipTitle,
   granularityForWindow,
   enumerateBuckets,
+  voyagesInCastOffBucket,
 } from './managementDashboardProductSeries.js'
 
 describe('granularityForWindow', () => {
@@ -22,6 +23,27 @@ describe('granularityForWindow', () => {
   })
 })
 
+describe('voyagesInCastOffBucket', () => {
+  it('returns voyages whose cast-off matches the bucket key', () => {
+    const start = Date.parse('2026-06-01T00:00:00Z')
+    const end = Date.parse('2026-07-01T00:00:00Z')
+    const voyages = [
+      { castOff: '2026-06-10T12:00:00Z', vessel: 'A' },
+      { castOff: '2026-06-12T12:00:00Z', vessel: 'B' },
+      { castOff: '2026-07-05T12:00:00Z', vessel: 'C' },
+    ]
+    const series = buildProductTimeSeries(voyages, 'CPO', { start, end, granularity: 'week' })
+    const bucketTwo = series.find((b) => b.voyageCount === 2)
+    assert.ok(bucketTwo)
+    const inBucket = voyagesInCastOffBucket(voyages, bucketTwo, 'week')
+    assert.equal(inBucket.length, 2)
+    assert.deepEqual(
+      inBucket.map((v) => v.vessel).sort(),
+      ['A', 'B']
+    )
+  })
+})
+
 describe('buildProductTimeSeries', () => {
   it('aggregates voyages into weekly buckets by cast-off', () => {
     const start = Date.parse('2026-06-01T00:00:00Z')
@@ -34,7 +56,7 @@ describe('buildProductTimeSeries', () => {
           pre: 4,
           opsH: 8,
           qty: 800,
-          sign2co: 6,
+          cargoDoneToSailH: 6,
           commodity: 'CPO',
         },
         {
@@ -43,7 +65,7 @@ describe('buildProductTimeSeries', () => {
           pre: 6,
           opsH: 10,
           qty: 1000,
-          sign2co: 8,
+          cargoDoneToSailH: 8,
           commodity: 'CPO',
         },
       ],
