@@ -18,6 +18,8 @@
   "ganttExportJpeg": "Ekspor",
   "ganttExporting": "Mengekspor…",
   "ganttExportJpegHint": "Ekspor tampilan saat ini (rentang tanggal) sebagai gambar JPEG",
+  "ganttFitAllJetties": "Muat semua jetty",
+  "ganttFitAllJettiesHint": "Skalakan baris agar semua jetty terlihat tanpa gulir vertikal",
   "ganttStatusArriving": "Tiba",
   "ganttStatusAtBerth": "Sandar",
   "ganttStatusSailed": "Berlayar",

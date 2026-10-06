@@ -5,13 +5,16 @@ import express from 'express';
 import { pool } from '../db.js';
 import { requireAdminPageView } from '../middleware/permissions.js';
 import { writeActivityLog } from '../lib/activity-log.js';
-import { getEventLabel } from '../lib/notification-events.js';
+import {
+  ADMIN_CONFIGURABLE_NOTIFICATION_EVENTS,
+  getEventLabel,
+} from '../lib/notification-events.js';
 import { isValidRecipientEmail } from '../lib/notification-email-worker.js';
 import {
   getFromAddress,
-  getSmtpConfigForAdmin,
+  getSmtpEnvStatus,
+  finalizeSmtpTransport,
   getSmtpTransport,
-  saveSmtpConfig,
 } from '../lib/smtp-config.js';
 import { loadAllEventSettings } from '../lib/notification-recipients.js';
 import {
@@ -27,6 +30,14 @@ const router = express.Router();
 router.use(...requireAdminPageView);
 
 const ACTIVITY_PAGE_KEY = 'admin';
+
+function assertConfigurableEventKey(eventKey) {
+  if (!ADMIN_CONFIGURABLE_NOTIFICATION_EVENTS.includes(eventKey)) {
+    const err = new Error('Unknown or non-configurable notification event');
+    err.status = 404;
+    throw err;
+  }
+}
 
 /**
  * Record admin-initiated test send in notification_deliveries for Email Delivery Log.
@@ -59,6 +70,17 @@ async function recordTemplateTestDelivery(db, {
   return nid;
 }
 
+/** Insert default settings rows for configurable events missing from DB (e.g. before migration 120). */
+async function ensureConfigurableEventSettings(db) {
+  await db.query(
+    `INSERT INTO notification_event_settings (event_key, enabled, in_app_enabled, email_enabled, include_post_signoff_breach, daily_send_hour)
+     SELECT v.event_key, TRUE, TRUE, TRUE, FALSE, 8
+     FROM unnest($1::text[]) AS v(event_key)
+     ON CONFLICT (event_key) DO NOTHING`,
+    [ADMIN_CONFIGURABLE_NOTIFICATION_EVENTS]
+  );
+}
+
 function toEventSettings(row) {
   return {
     eventKey: row.event_key,
@@ -74,12 +96,24 @@ function toEventSettings(row) {
 }
 
 router.get('/events', async (_req, res) => {
+  await ensureConfigurableEventSettings(pool);
   const rows = await loadAllEventSettings(pool);
-  res.json(rows.map(toEventSettings));
+  const order = new Map(ADMIN_CONFIGURABLE_NOTIFICATION_EVENTS.map((k, i) => [k, i]));
+  const mapped = rows
+    .filter((row) => ADMIN_CONFIGURABLE_NOTIFICATION_EVENTS.includes(row.event_key))
+    .map(toEventSettings);
+  mapped.sort((a, b) => (order.get(a.eventKey) ?? 999) - (order.get(b.eventKey) ?? 999));
+  res.json(mapped);
 });
 
 router.put('/events/:eventKey', async (req, res) => {
   const eventKey = String(req.params.eventKey || '').trim();
+  try {
+    assertConfigurableEventKey(eventKey);
+  } catch (err) {
+    if (err.status === 404) return res.status(404).json({ error: err.message });
+    throw err;
+  }
   const body = req.body || {};
   const r = await pool.query(
     `UPDATE notification_event_settings SET
@@ -201,11 +235,11 @@ router.post('/events/:eventKey/templates/email/test', async (req, res) => {
 
     const smtp = await getSmtpTransport(pool);
     if (!smtp) {
-      return res.status(400).json({ error: 'SMTP not configured — set up in Admin → Notifications' });
+      return res.status(400).json({ error: 'SMTP not configured — set SMTP_* in Backend/.env on the API host' });
     }
 
     const from = await getFromAddress(pool);
-    const rendered = renderSlaEmailTemplateStrings(templates);
+    const rendered = renderSlaEmailTemplateStrings(templates, eventKey);
     const subject = `[TEST] ${rendered.subject}`;
 
     try {
@@ -250,6 +284,8 @@ router.post('/events/:eventKey/templates/email/test', async (req, res) => {
         actorUserId: req.userId ?? null,
       }).catch(() => {});
       res.status(502).json({ error: msg });
+    } finally {
+      await finalizeSmtpTransport(smtp);
     }
   } catch (err) {
     if (err?.status === 404) return res.status(404).json({ error: err.message });
@@ -260,6 +296,12 @@ router.post('/events/:eventKey/templates/email/test', async (req, res) => {
 
 router.get('/events/:eventKey/recipients', async (req, res) => {
   const eventKey = String(req.params.eventKey || '').trim();
+  try {
+    assertConfigurableEventKey(eventKey);
+  } catch (err) {
+    if (err.status === 404) return res.status(404).json({ error: err.message });
+    throw err;
+  }
   const r = await pool.query(
     `SELECT r.id, r.event_key, r.user_id, r.role_id, r.port_id, r.created_at,
             u.username AS user_username, u.email AS user_email,
@@ -295,6 +337,12 @@ router.get('/events/:eventKey/recipients', async (req, res) => {
 
 router.post('/events/:eventKey/recipients', async (req, res) => {
   const eventKey = String(req.params.eventKey || '').trim();
+  try {
+    assertConfigurableEventKey(eventKey);
+  } catch (err) {
+    if (err.status === 404) return res.status(404).json({ error: err.message });
+    throw err;
+  }
   const { userId, roleId, portId, portIds } = req.body || {};
   const uid = userId != null ? Number(userId) : null;
   const rid = roleId != null ? Number(roleId) : null;
@@ -389,38 +437,8 @@ router.delete('/recipients/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-router.get('/smtp', async (_req, res) => {
-  const cfg = await getSmtpConfigForAdmin(pool);
-  res.json(cfg);
-});
-
-router.put('/smtp', async (req, res) => {
-  const body = req.body || {};
-  await saveSmtpConfig(
-    pool,
-    {
-      host: body.host,
-      port: body.port,
-      secure: body.secure,
-      user: body.user,
-      password: body.password,
-      fromAddress: body.fromAddress,
-      rejectUnauthorized: body.rejectUnauthorized,
-      enabled: body.enabled,
-    },
-    req.userId ?? null
-  );
-  const host = body.host != null ? String(body.host).trim() : '';
-  const port = body.port != null ? Number(body.port) : 465;
-  writeActivityLog({
-    pageKey: ACTIVITY_PAGE_KEY,
-    action: 'update',
-    entityType: 'SmtpConfig',
-    entityId: '1',
-    summary: `Updated SMTP configuration (host: ${host || '—'}, port: ${port})`,
-    actorUserId: req.userId ?? null,
-  }).catch(() => {});
-  res.json(await getSmtpConfigForAdmin(pool));
+router.get('/smtp/status', async (_req, res) => {
+  res.json(getSmtpEnvStatus());
 });
 
 router.post('/smtp/test', async (req, res) => {
@@ -435,7 +453,7 @@ router.post('/smtp/test', async (req, res) => {
   }
   const smtp = await getSmtpTransport(pool);
   if (!smtp) {
-    return res.status(400).json({ error: 'SMTP not configured — set up in Admin → Notifications' });
+    return res.status(400).json({ error: 'SMTP not configured — set SMTP_* in Backend/.env on the API host' });
   }
   const from = await getFromAddress(pool);
   const subject = 'Jetty Planning System — SMTP test';
@@ -484,6 +502,8 @@ router.post('/smtp/test', async (req, res) => {
       actorUserId: req.userId ?? null,
     }).catch(() => {});
     res.status(502).json({ error: msg });
+  } finally {
+    await finalizeSmtpTransport(smtp);
   }
 });
 
@@ -536,7 +556,8 @@ router.get('/deliveries', async (req, res) => {
   if (q) {
     params.push(`%${q}%`);
     sql += ` AND (u.email ILIKE $${paramIdx} OR u.username ILIKE $${paramIdx}
-      OR n.title ILIKE $${paramIdx} OR n.payload::text ILIKE $${paramIdx})`;
+      OR n.title ILIKE $${paramIdx} OR n.payload::text ILIKE $${paramIdx}
+      OR nd.provider_message_id ILIKE $${paramIdx})`;
     paramIdx += 1;
   }
 

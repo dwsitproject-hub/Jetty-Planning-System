@@ -2,7 +2,7 @@
  * Polls notification_deliveries (email, queued), sends via SMTP when configured.
  */
 import { pool } from '../db.js';
-import { getFromAddress, getSmtpTransport } from './smtp-config.js';
+import { finalizeSmtpTransport, getFromAddress, getSmtpTransport } from './smtp-config.js';
 import {
   isNotificationEmailEnabled,
   loadNotificationTemplate,
@@ -35,7 +35,6 @@ export async function processNotificationEmailQueueOnce(limit = 15) {
   );
 
   let processed = 0;
-  const smtp = await getSmtpTransport(pool);
   const from = await getFromAddress(pool);
 
   for (const row of rows) {
@@ -56,37 +55,38 @@ export async function processNotificationEmailQueueOnce(limit = 15) {
     const text = renderTemplate(emailTpl.body_template, strVars);
     const to = row.user_email;
 
+    const smtp = await getSmtpTransport(pool);
     if (!smtp) {
       await pool.query(
         `UPDATE notification_deliveries
          SET status = 'skipped', error_text = $2, updated_at = NOW()
          WHERE id = $1`,
-        [row.delivery_id, 'SMTP not configured — set up in Admin → Notifications']
-      );
-      processed += 1;
-      continue;
-    }
-
-    if (!to || !String(to).trim()) {
-      await pool.query(
-        `UPDATE notification_deliveries SET status = 'skipped', error_text = $2, updated_at = NOW() WHERE id = $1`,
-        [row.delivery_id, 'User has no email address']
-      );
-      processed += 1;
-      continue;
-    }
-
-    const toAddress = String(to).trim();
-    if (!isValidRecipientEmail(toAddress)) {
-      await pool.query(
-        `UPDATE notification_deliveries SET status = 'failed', error_text = $2, updated_at = NOW() WHERE id = $1`,
-        [row.delivery_id, 'Invalid recipient email address']
+        [row.delivery_id, 'SMTP not configured — set SMTP_* in Backend/.env on the API host']
       );
       processed += 1;
       continue;
     }
 
     try {
+      if (!to || !String(to).trim()) {
+        await pool.query(
+          `UPDATE notification_deliveries SET status = 'skipped', error_text = $2, updated_at = NOW() WHERE id = $1`,
+          [row.delivery_id, 'User has no email address']
+        );
+        processed += 1;
+        continue;
+      }
+
+      const toAddress = String(to).trim();
+      if (!isValidRecipientEmail(toAddress)) {
+        await pool.query(
+          `UPDATE notification_deliveries SET status = 'failed', error_text = $2, updated_at = NOW() WHERE id = $1`,
+          [row.delivery_id, 'Invalid recipient email address']
+        );
+        processed += 1;
+        continue;
+      }
+
       const info = await smtp.sendMail({
         from,
         to: toAddress,
@@ -134,6 +134,8 @@ export async function processNotificationEmailQueueOnce(limit = 15) {
         [row.delivery_id, msg.slice(0, 2000)]
       );
       processed += 1;
+    } finally {
+      await finalizeSmtpTransport(smtp);
     }
   }
 

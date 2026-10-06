@@ -1,14 +1,27 @@
 /**
  * Management Dashboard — Berth Productivity & Departure Readiness.
  * Audience: COO & Business Unit heads. Focus: Loading/Unloading during At-Berth
- * and Ready-to-Sail. Flow KPIs bucket sailed voyages by cast-off date within the
+ * and Ready-to-Sail. Flow KPIs bucket sailed voyages by sailed-off date within the
  * selected period (with delta vs the previous equivalent period); pipeline/aging
  * cards are always a live "now" snapshot.
  */
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { fetchOperations, fetchSubProcesses, fetchOperationalActivities } from '../api/operations'
+import {
+  fetchOperations,
+  fetchSubProcesses,
+  fetchOperationalActivities,
+  fetchActivityTimeline,
+} from '../api/operations'
 import WidgetDetailModal from '../components/WidgetDetailModal'
-import { computeFlow } from '../utils/managementDashboardFlow'
+import ProductDetailModal from '../components/dashboard/ProductDetailModal'
+import { computeFlow, dedupSailedRows } from '../utils/managementDashboardFlow'
+import { aggregateByProduct, voyagesForProduct } from '../utils/managementDashboardProduct'
+import { cargoDoneToSailFromTimeline } from '../utils/managementDashboardCargoDone'
+import {
+  cargoOperationWindowStartAt,
+  computeBerthToStartCargoHours,
+} from '../utils/managementDashboardMetricEvidence.js'
+import ManagementProductTable from '../components/dashboard/ManagementProductTable'
 import '../styles/management-dashboard.css'
 import '../styles/modal.css'
 
@@ -43,7 +56,7 @@ const idleAtBerth = (r) => {
 function buildPhaseBars(r) {
   const bars = []
   if (r.wait != null) bars.push(['Anchorage wait', r.wait, 'wf-wait'])
-  if (r.pre != null) bars.push(['Pre-checking', r.pre, 'wf-pre'])
+  if (r.pre != null) bars.push(['Berth → start cargo', r.pre, 'wf-pre'])
   if (r.opsH != null) {
     bars.push([
       'Cargo operations',
@@ -105,8 +118,26 @@ function periodWindow(key, opts = {}, now = new Date()) {
   return { start: null, end: null, prev: null, label: 'All data', prevLabel: null }
 }
 
+const TIMELINE_FETCH_CONCURRENCY = 8
+
+/** @template T @template R @param {T[]} items @param {number} limit @param {(item: T) => Promise<R>} fn */
+async function mapPool(items, limit, fn) {
+  const results = new Array(items.length)
+  let next = 0
+  async function worker() {
+    while (next < items.length) {
+      const i = next++
+      results[i] = await fn(items[i])
+    }
+  }
+  if (!items.length) return []
+  const workers = Math.min(limit, items.length)
+  await Promise.all(Array.from({ length: workers }, () => worker()))
+  return results
+}
+
 /** Normalize an API operation row into the shape the dashboard computes on. */
-function toRow(o, detail) {
+function toRow(o, detail, timelineEvents) {
   const tb = o.tbAt || o.dockingStartTime
   const subs = detail?.subs || []
   const acts = detail?.acts || []
@@ -125,24 +156,28 @@ function toRow(o, detail) {
     opsH = +(((en - st) / H).toFixed(1))
   }
   const berth = hrs(tb, o.castOffAt)
-  let pre = phase('Pre-Checking')
-  if (pre != null && berth != null && pre > berth) pre = null // guard timestamp outliers
+  const cargoOpsStartAt = cargoOperationWindowStartAt({ acts })
+  let pre = computeBerthToStartCargoHours(tb, cargoOpsStartAt, berth)
   let post = phase('Post-Checking')
   if (post != null && berth != null && post > berth) post = null
   let wait = hrs(o.ta, tb)
-  if (wait != null && berth != null && wait > berth) wait = null
   if (wait != null && wait > 8760) wait = null // cap at 1 year — defense against corrupt TA
   const opsDoneOrCo = ms(o.operationsCompletedAt || o.castOffAt)
   return {
     id: o.id, code: o.jettyOperationCode, vessel: o.vesselName, purpose: o.purpose,
     status: o.status, jetty: o.jettyName,
     commodity: o.commodityShortDisplay || o.commodityDisplay || o.commodity,
+    totalQtyDisplay: o.totalQtyDisplay || null,
+    cargoBreakdownSummary: Array.isArray(o.cargoBreakdownSummary) ? o.cargoBreakdownSummary : [],
     qty: Number(o.cargoSiQty) || 0, pct: o.completionPercent,
     eta: o.eta, ta: o.ta, tb, etc: o.estimatedCompletionTime, opsDone: o.operationsCompletedAt,
-    castOff: o.castOffAt, norA: !!o.norAcceptedAt,
+    castOff: o.castOffAt, sailedAt: o.sailedAt ?? null, norA: !!o.norAcceptedAt,
     created: o.createdAt,
     wait, berth, pre, post, opsH,
-    sign2co: hrs(o.operationsCompletedAt, o.castOffAt),
+    cargoDoneToSailH:
+      o.status === 'SAILED'
+        ? cargoDoneToSailFromTimeline(timelineEvents, o.sailedAt)
+        : null,
     late: opsDoneOrCo && ms(o.estimatedCompletionTime) ? +(((opsDoneOrCo - ms(o.estimatedCompletionTime)) / H).toFixed(1)) : null,
     actsCount: acts.length,
   }
@@ -163,6 +198,7 @@ function Delta({ cur, prev, lowerIsBetter = false, unit = '' }) {
 export default function ManagementDashboard() {
   const [ops, setOps] = useState([])
   const [details, setDetails] = useState({})
+  const [timelinesByOpId, setTimelinesByOpId] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [period, setPeriod] = useState('d30')
@@ -172,6 +208,7 @@ export default function ManagementDashboard() {
   const [purpose, setPurpose] = useState('All')
   const [openRow, setOpenRow] = useState(null)
   const [activeModal, setActiveModal] = useState(null)
+  const [productDetail, setProductDetail] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -194,7 +231,15 @@ export default function ManagementDashboard() {
             return [id, { subs: subs || [], acts: (oa && oa.entries) || [] }]
           })
         )
-        if (!cancelled) setDetails(Object.fromEntries(pairs))
+        const sailedIds = arr.filter((o) => o.status === 'SAILED').map((o) => o.id)
+        const timelinePairs = await mapPool(sailedIds, TIMELINE_FETCH_CONCURRENCY, async (id) => {
+          const res = await fetchActivityTimeline(id).catch(() => ({ events: [] }))
+          return [id, (res && res.events) || []]
+        })
+        if (!cancelled) {
+          setDetails(Object.fromEntries(pairs))
+          setTimelinesByOpId(Object.fromEntries(timelinePairs))
+        }
       } catch (e) {
         if (!cancelled) setError(e?.message || 'Failed to load operations')
       } finally {
@@ -207,17 +252,24 @@ export default function ManagementDashboard() {
   }, [])
 
   useEffect(() => {
-    if (!activeModal) return undefined
+    if (!activeModal && !productDetail) return undefined
     const onKey = (e) => {
-      if (e.key === 'Escape') setActiveModal(null)
+      if (e.key === 'Escape') {
+        setActiveModal(null)
+        setProductDetail(null)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [activeModal])
+  }, [activeModal, productDetail])
 
   const closeModal = useCallback(() => setActiveModal(null), [])
+  const closeProductDetail = useCallback(() => setProductDetail(null), [])
 
-  const rows = useMemo(() => ops.map((o) => toRow(o, details[o.id])), [ops, details])
+  const rows = useMemo(
+    () => ops.map((o) => toRow(o, details[o.id], timelinesByOpId[o.id])),
+    [ops, details, timelinesByOpId]
+  )
   const filtered = useMemo(
     () => rows.filter((r) => purpose === 'All' || r.purpose === purpose),
     [rows, purpose]
@@ -227,12 +279,22 @@ export default function ManagementDashboard() {
     () => periodWindow(period, { month: monthPick, from: rangeFrom, to: rangeTo }),
     [period, monthPick, rangeFrom, rangeTo]
   )
-  const inWin = (r, w) => !w || w.start == null || (ms(r.castOff) >= w.start && ms(r.castOff) < w.end)
-  const cur = useMemo(() => computeFlow(filtered.filter((r) => inWin(r, win))), [filtered, win])
+  /** Sailed off (Clearance Sailed at) in period — cohort for flow KPIs and By commodity */
+  const inWinSailedOff = (r, w) =>
+    !w || w.start == null || (ms(r.sailedAt) >= w.start && ms(r.sailedAt) < w.end)
+
+  const cur = useMemo(() => computeFlow(filtered.filter((r) => inWinSailedOff(r, win))), [filtered, win])
   const prev = useMemo(
-    () => (win.prev ? computeFlow(filtered.filter((r) => inWin(r, win.prev))) : null),
+    () => (win.prev ? computeFlow(filtered.filter((r) => inWinSailedOff(r, win.prev))) : null),
     [filtered, win]
   )
+
+  const productSailedRows = useMemo(() => {
+    const sailed = filtered.filter(
+      (r) => r.status === 'SAILED' && r.sailedAt && inWinSailedOff(r, win)
+    )
+    return dedupSailedRows(sailed)
+  }, [filtered, win])
 
   // Snapshot instant: the end of the selected period, capped at now. Windows
   // that include the present behave as a live snapshot.
@@ -284,7 +346,7 @@ export default function ManagementDashboard() {
     const post = avg(postH)
     const segs = [
       { n: 'Anchorage wait (TA→TB)', v: wait, cls: 'wf-wait', getVal: (r) => r.wait },
-      { n: 'Pre-checking', v: pre, cls: 'wf-pre', getVal: (r) => r.pre },
+      { n: 'Berth → start cargo', v: pre, cls: 'wf-pre', getVal: (r) => r.pre },
       { n: 'Cargo operations', v: opsH, cls: purpose === 'Loading' ? 'wf-load' : purpose === 'Unloading' ? 'wf-disch' : 'wf-ops', getVal: (r) => r.opsH },
       { n: 'Idle / delays at berth', v: idle, cls: 'wf-idle', getVal: idleAtBerth },
       { n: 'Post-checking & sign-off', v: post, cls: 'wf-post', getVal: postH },
@@ -312,7 +374,7 @@ export default function ManagementDashboard() {
         else {
           seen[k] = {
             _key: k, v: r.vessel, p: r.purpose, q: r.qty, ops: r.opsH,
-            jetty: r.jetty, castOff: r.castOff, tb: r.tb,
+            jetty: r.jetty, sailedAt: r.sailedAt, tb: r.tb,
           }
           rates.push(seen[k])
         }
@@ -326,8 +388,8 @@ export default function ManagementDashboard() {
   const inScope = useMemo(() => {
     const { E } = snap
     return filtered
-      .filter((r) => (r.castOff && inWin(r, win)) || atBerthAt(r, E))
-      .map((r) => ({ ...r, sailedInPeriod: !!(r.castOff && inWin(r, win)) }))
+      .filter((r) => (r.sailedAt && inWinSailedOff(r, win)) || atBerthAt(r, E))
+      .map((r) => ({ ...r, sailedInPeriod: !!(r.sailedAt && inWinSailedOff(r, win)) }))
   }, [filtered, win, snap])
 
   const tableRows = useMemo(
@@ -340,7 +402,14 @@ export default function ManagementDashboard() {
     ? 'now'
     : new Date(snap.E - 1).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 
-  const flowFooter = `Based on sailed voyages with cast-off in ${periodLabel}`
+  const flowFooter = `Based on sailed voyages with sailed off in ${periodLabel}`
+  const productFlowFooter = flowFooter
+  const productAgg = useMemo(
+    () => aggregateByProduct(productSailedRows, { purposeFilter: purpose }),
+    [productSailedRows, purpose]
+  )
+  const showProductIncoming = purpose !== 'Loading'
+  const showProductOutgoing = purpose !== 'Unloading'
   const snapFooter = snap.isLive
     ? 'Live pipeline snapshot as of now'
     : `Pipeline reconstructed as of ${snapLabel}`
@@ -364,7 +433,7 @@ export default function ManagementDashboard() {
             { label: 'Jetty', cell: (r) => r.jetty || '—' },
             { label: 'Commodity', cell: (r) => r.commodity || '—' },
             { label: 'Qty (MT)', cell: (r) => fmt(r.qty), align: 'right' },
-            { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
+            { label: 'Sailed off', cell: (r) => fmtDate(r.sailedAt) },
           ],
           rows: [...cur.allSailed].sort((a, b) => b.qty - a.qty),
         })
@@ -388,7 +457,7 @@ export default function ManagementDashboard() {
             { label: 'Berth h', cell: (r) => fmt(r.berth, 1), align: 'right' },
             { label: 'Ops h', cell: (r) => fmt(r.opsH, 1), align: 'right' },
             { label: 'Effective %', cell: (r) => (effPct(r) == null ? '—' : `${fmt(effPct(r), 0)}%`), align: 'right' },
-            { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
+            { label: 'Sailed off', cell: (r) => fmtDate(r.sailedAt) },
           ],
           rows,
         })
@@ -412,7 +481,7 @@ export default function ManagementDashboard() {
             { label: 'Jetty', cell: (r) => r.jetty || '—' },
             { label: 'Wait h', cell: (r) => fmt(r.wait, 1), align: 'right' },
             { label: 'TB', cell: (r) => fmtDate(r.tb) },
-            { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
+            { label: 'Sailed off', cell: (r) => fmtDate(r.sailedAt) },
           ],
           rows,
         })
@@ -439,7 +508,7 @@ export default function ManagementDashboard() {
             { label: 'Qty (MT)', cell: (r) => fmt(r.qty), align: 'right' },
             { label: 'Ops h', cell: (r) => fmt(r.opsH, 1), align: 'right' },
             { label: 'Rate', cell: (r) => `${fmt(r.rate, 0)} MT/h`, align: 'right' },
-            { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
+            { label: 'Sailed off', cell: (r) => fmtDate(r.sailedAt) },
           ],
           rows,
         })
@@ -449,6 +518,25 @@ export default function ManagementDashboard() {
         break
     }
   }, [cur, flowFooter])
+
+  const openProductDetail = useCallback(
+    (productRow, context = { view: 'table' }) => {
+      const voyages = voyagesForProduct(productSailedRows, productRow.key, productRow.purpose)
+      const initialView = context.view === 'chart' ? 'chart' : 'table'
+      setProductDetail({
+        productRow,
+        voyages,
+        win: { start: win.start, end: win.end, label: win.label },
+        periodLabel,
+        flowFooter: productFlowFooter,
+        initialView,
+        focusMetricKey: context.metricKey ?? null,
+        opDetailsById: details,
+        timelinesByOpId,
+      })
+    },
+    [productSailedRows, productFlowFooter, win, periodLabel, details, timelinesByOpId]
+  )
 
   const openWfDetail = useCallback((seg) => {
     const rows = wf.dd
@@ -471,7 +559,7 @@ export default function ManagementDashboard() {
         { label: 'Phase h', cell: (r) => fmt(r.phaseH, 1), align: 'right' },
         { label: 'Berth h', cell: (r) => fmt(r.berth, 1), align: 'right' },
         { label: 'Wait h', cell: (r) => fmt(r.wait, 1), align: 'right' },
-        { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
+        { label: 'Sailed off', cell: (r) => fmtDate(r.sailedAt) },
       ],
       rows,
     })
@@ -497,9 +585,9 @@ export default function ManagementDashboard() {
       keyDateLabel = 'Ops done'
       keyDateCell = (r) => fmtDate(r.opsDone)
     } else if (stageKey === 'sailed') {
-      rows = [...cur.sailedRows].sort((a, b) => ms(b.castOff) - ms(a.castOff))
-      keyDateLabel = 'Cast-off'
-      keyDateCell = (r) => fmtDate(r.castOff)
+      rows = [...cur.sailedRows].sort((a, b) => ms(b.sailedAt) - ms(a.sailedAt))
+      keyDateLabel = 'Sailed off'
+      keyDateCell = (r) => fmtDate(r.sailedAt)
     }
     const statusCell = (r) => {
       if (stageKey === 'sailed') return 'Sailed'
@@ -540,7 +628,7 @@ export default function ManagementDashboard() {
         { label: 'Berth h', cell: (r) => fmt(r.berth, 1), align: 'right' },
         { label: 'Ops h', cell: (r) => fmt(r.opsH, 1), align: 'right' },
         { label: 'Qty (MT)', cell: (r) => fmt(r.qty), align: 'right' },
-        { label: 'Cast-off', cell: (r) => fmtDate(r.castOff) },
+        { label: 'Sailed off', cell: (r) => fmtDate(r.sailedAt) },
       ],
       rows,
     })
@@ -562,7 +650,7 @@ export default function ManagementDashboard() {
         { label: 'Qty (MT)', cell: () => fmt(entry.q), align: 'right' },
         { label: 'Ops h', cell: () => fmt(entry.ops, 1), align: 'right' },
         { label: 'Rate', cell: () => `${fmt(entry.rate, 0)} MT/h`, align: 'right' },
-        { label: 'Cast-off', cell: () => fmtDate(entry.castOff) },
+        { label: 'Sailed off', cell: () => fmtDate(entry.sailedAt) },
       ],
       rows: [entry],
     })
@@ -632,7 +720,7 @@ export default function ManagementDashboard() {
         <div>
           <h1 className="page-title" style={{ marginBottom: 2 }}>Management Dashboard</h1>
           <p className="allocation-page__intro" style={{ margin: 0 }}>
-            Berth productivity &amp; departure readiness · flow KPIs bucketed by <b>cast-off date</b> ({periodLabel}) · pipeline as of <b>{snapLabel}</b>
+            Berth productivity &amp; departure readiness · flow KPIs bucketed by <b>sailed off date</b> ({periodLabel}) · pipeline as of <b>{snapLabel}</b>
           </p>
         </div>
         <div className="mgmt-filters">
@@ -713,6 +801,17 @@ export default function ManagementDashboard() {
               </div>
             ))}
           </div>
+
+          <section className="card mgmt-sec">
+            <h2 className="card__title">By commodity</h2>
+            <ManagementProductTable
+              incoming={productAgg.incoming}
+              outgoing={productAgg.outgoing}
+              showIncoming={showProductIncoming}
+              showOutgoing={showProductOutgoing}
+              onProductOpen={openProductDetail}
+            />
+          </section>
 
           <div className="mgmt-two">
             <section className="card">
@@ -854,6 +953,7 @@ export default function ManagementDashboard() {
           </div>
 
           <WidgetDetailModal modal={activeModal} onClose={closeModal} />
+          <ProductDetailModal detail={productDetail} onClose={closeProductDetail} />
         </>
       )}
     </div>
@@ -893,9 +993,16 @@ function FragmentRow({ r, eff, open, onToggle }) {
       {open ? (
         <tr className="mgmt-detail"><td colSpan={11}>
           <div className="text-steel" style={{ marginBottom: 6 }}>
-            <b>Milestones</b> — ETA {dt(r.eta)} · TA {dt(r.ta)} · TB {dt(r.tb)} · Est. completion {dt(r.etc)} · Ops done {dt(r.opsDone)} · Cast-off {dt(r.castOff)}
+            <b>Milestones</b> — ETA {dt(r.eta)} · TA {dt(r.ta)} · TB {dt(r.tb)} · Est. completion {dt(r.etc)} · Ops done {dt(r.opsDone)} · Cast-off {dt(r.castOff)} · Sailed off {dt(r.sailedAt)}
             {r.norA ? '' : <b style={{ color: 'var(--color-danger,#B3261E)' }}> · NOR not accepted</b>}
-            {r.sign2co ? <b style={{ color: 'var(--color-danger,#B3261E)' }}> · sign-off→cast-off {fmt(r.sign2co / 24, 1)} d</b> : ''}
+            {r.cargoDoneToSailH != null ? (
+              <b style={{ color: 'var(--color-danger,#B3261E)' }}>
+                {' '}
+                · cargo done→sailed off {fmt(r.cargoDoneToSailH / 24, 1)} d
+              </b>
+            ) : (
+              ''
+            )}
           </div>
           {bars.map((b) => (
             <div key={b[0]} className="mgmt-tlrow">

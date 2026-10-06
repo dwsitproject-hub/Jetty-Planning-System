@@ -11,6 +11,16 @@
   "portChangeTitle": "Pilih pelabuhan lain",
   "portLabel": "Pelabuhan: {{name}}",
   "changePort": "Ganti…",
+  "portSwitcher": {
+    "switchPort": "Ganti pelabuhan",
+    "switchPortAria": "Ganti pelabuhan, {{name}}, zona waktu pelabuhan {{tz}}",
+    "currentPort": "Pelabuhan saat ini: {{name}}, zona waktu pelabuhan {{tz}}",
+    "tzHint": "Zona waktu pelabuhan {{portTz}} — acuan lokasi untuk pelabuhan ini (bukan untuk pengisian jadwal)."
+  },
+  "deviceTz": {
+    "aria": "Zona waktu Anda {{tz}}",
+    "hint": "Zona waktu perangkat / browser Anda {{tz}} — digunakan saat mengisi tanggal/waktu jadwal."
+  },
   "greeting": "Halo, {{name}}",
   "logout": "Keluar",
   "login": "Masuk",

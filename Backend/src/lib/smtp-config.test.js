@@ -8,7 +8,11 @@ import {
   encryptSmtpPassword,
   decryptSmtpPassword,
   buildNodemailerTransport,
+  getSmtpPostSendDelayMs,
+  getSmtpRequireTls,
   invalidateSmtpTransportCache,
+  isSmtpHubParityMode,
+  getSmtpEnvStatus,
 } from './smtp-config.js';
 import {
   formatOverdueDuration,
@@ -50,6 +54,43 @@ describe('smtp-config', () => {
 
   it('returns null transport when host missing', () => {
     assert.equal(buildNodemailerTransport({ enabled: true, host: '' }), null);
+  });
+
+  it('getSmtpRequireTls defaults false on 587 unless env set', () => {
+    const prev = process.env.SMTP_REQUIRE_TLS;
+    delete process.env.SMTP_REQUIRE_TLS;
+    assert.equal(getSmtpRequireTls(587, false), false);
+    process.env.SMTP_REQUIRE_TLS = 'true';
+    assert.equal(getSmtpRequireTls(587, false), true);
+    assert.equal(getSmtpRequireTls(465, true), false);
+    process.env.SMTP_REQUIRE_TLS = prev;
+  });
+
+  it('isSmtpHubParityMode parses env flag', () => {
+    const h = process.env.SMTP_HUB_PARITY;
+    delete process.env.SMTP_HUB_PARITY;
+    assert.equal(isSmtpHubParityMode(), false);
+    process.env.SMTP_HUB_PARITY = '1';
+    assert.equal(isSmtpHubParityMode(), true);
+    process.env.SMTP_HUB_PARITY = h;
+  });
+
+  it('getSmtpEnvStatus reports unconfigured without SMTP_HOST', () => {
+    const host = process.env.SMTP_HOST;
+    delete process.env.SMTP_HOST;
+    assert.deepEqual(getSmtpEnvStatus(), { configured: false, source: 'none' });
+    process.env.SMTP_HOST = host;
+  });
+
+  it('getSmtpPostSendDelayMs clamps and parses env', () => {
+    const prev = process.env.SMTP_POST_SEND_DELAY_MS;
+    delete process.env.SMTP_POST_SEND_DELAY_MS;
+    assert.equal(getSmtpPostSendDelayMs(), 0);
+    process.env.SMTP_POST_SEND_DELAY_MS = '2000';
+    assert.equal(getSmtpPostSendDelayMs(), 2000);
+    process.env.SMTP_POST_SEND_DELAY_MS = '999999';
+    assert.equal(getSmtpPostSendDelayMs(), 30_000);
+    process.env.SMTP_POST_SEND_DELAY_MS = prev;
   });
 });
 

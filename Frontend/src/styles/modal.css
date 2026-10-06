@@ -348,7 +348,7 @@
 
 .modal--shipment-plan-form .shipment-plan-form__plan-grid {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) minmax(200px, 2fr);
+  grid-template-columns: 1fr;
   gap: var(--spacing-2);
   align-items: start;
 }
@@ -356,7 +356,7 @@
 .modal--shipment-plan-form .shipment-plan-form__vessel-specs {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(5, minmax(88px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--spacing-2);
 }
 
@@ -384,11 +384,10 @@
 }
 
 .modal--shipment-plan-form .shipment-plan-form__jetty-hint--error {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  color: #991b1b;
-  padding: 0.35rem 0.5rem;
-  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  border: none;
+  color: var(--color-text-steel);
+  padding: 0;
 }
 
 .modal--shipment-plan-form .shipment-plan-form__si-section {
@@ -521,12 +520,15 @@
   padding: var(--spacing-3) var(--spacing-3) var(--spacing-2);
   background: var(--color-bg-white);
   border-bottom: 1px solid var(--color-border-light);
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--spacing-3);
 }
 
 .modal--shipment-plan-form .modal__title--flush {
   padding-left: var(--spacing-2);
-  border-left: 3px solid var(--color-border-dark);
+  border-left: 3px solid var(--color-brand-red);
   line-height: 1.2;
 }
 
@@ -556,9 +558,16 @@
 }
 
 .modal--shipment-plan-form .shipment-plan-form__si-draft-title {
-  padding-left: var(--spacing-2);
-  border-left: 2px solid var(--color-border-medium);
+  padding-left: 0;
+  border-left: none;
   line-height: 1.25;
+}
+
+.modal--shipment-plan-form .shipment-plan-form__si-draft .shipping-instruction-form__section-title {
+  background: transparent;
+  border-left: none;
+  padding: 0;
+  font-size: 0.95rem;
 }
 
 /* 4. Auto-computed read-only fields (Total Cargo MT, Vessel DWT) —
@@ -580,6 +589,9 @@
   padding: var(--spacing-2) var(--spacing-3) var(--spacing-3);
   background: var(--color-bg-white);
   border-top: 1px solid var(--color-border-light);
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-3);
 }
 
 /* 6. Neutral focus & hover refinement for form controls. */
@@ -595,4 +607,409 @@
   outline: none;
   border-color: var(--color-text-steel);
   box-shadow: 0 0 0 3px rgba(107, 107, 107, 0.16);
+}
+
+.shipment-plan-form__header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+}
+
+.shipment-plan-form__subtitle,
+.shipment-plan-form__pre-berth-hint {
+  margin: 4px 0 0;
+  padding-left: 11px;
+  color: var(--color-text-steel);
+  font-size: var(--font-size-sm);
+}
+
+.shipment-plan-form__plan-section,
+.shipment-plan-form__si-section {
+  scroll-margin-top: calc(var(--plan-header-h, 112px) + 12px);
+}
+
+.modal--shipment-plan-form .shipment-plan-form__plan-section > .shipping-instruction-form__section-title,
+.modal--shipment-plan-form .shipment-plan-form__si-section > .shipping-instruction-form__section-title {
+  background: transparent;
+  border-left: none;
+  padding: 0;
+}
+
+.shipment-plan-form__progress {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.shipment-plan-form__progress-item {
+  display: flex;
+  align-items: flex-start;
+}
+
+.shipment-plan-form__progress-line {
+  width: 72px;
+  height: 2px;
+  margin-top: 13px;
+  background: var(--color-border-light);
+}
+
+.shipment-plan-form__progress-line.is-complete {
+  background: var(--color-brand-red);
+}
+
+.shipment-plan-form__progress-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 88px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-steel);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.shipment-plan-form__progress-mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--color-border-medium);
+  border-radius: 50%;
+  background: var(--color-bg-white);
+  font-weight: var(--font-weight-semibold);
+}
+
+.shipment-plan-form__progress-step.is-current {
+  color: var(--color-text-charcoal);
+  font-weight: var(--font-weight-semibold);
+}
+
+.shipment-plan-form__progress-step.is-current .shipment-plan-form__progress-mark {
+  background: var(--color-brand-red);
+  border-color: var(--color-brand-red);
+  color: var(--color-text-white);
+}
+
+.shipment-plan-form__progress-step.is-done .shipment-plan-form__progress-mark {
+  border-color: var(--color-brand-red);
+  color: var(--color-brand-red);
+}
+
+.shipment-plan-form__progress-count {
+  font-size: var(--font-size-xs);
+  line-height: 1;
+}
+
+.shipment-plan-form__progress-step.is-current .shipment-plan-form__progress-count {
+  color: var(--color-brand-red);
+}
+
+.shipment-plan-form__purpose-toggle {
+  display: inline-flex;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.shipment-plan-form__purpose-toggle button {
+  margin: 0;
+  padding: 6px 16px;
+  border: 0;
+  border-right: 1px solid var(--color-border-light);
+  background: var(--color-bg-white);
+  color: var(--color-text-charcoal);
+  font: inherit;
+  cursor: pointer;
+}
+
+.shipment-plan-form__purpose-toggle button:last-child {
+  border-right: 0;
+}
+
+.shipment-plan-form__purpose-toggle button.is-selected {
+  color: var(--color-brand-red);
+  box-shadow: inset 0 0 0 1px var(--color-brand-red);
+}
+
+.shipment-plan-form__calc-strip {
+  display: flex;
+  gap: var(--spacing-4);
+  padding: 8px 12px;
+  background: var(--color-bg-light);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-charcoal);
+  font-size: var(--font-size-sm);
+}
+
+.shipment-plan-form__trip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--spacing-2);
+}
+
+.shipment-plan-form__field-error {
+  margin: 4px 0 0;
+  color: var(--color-brand-red);
+  font-size: var(--font-size-small);
+}
+
+.modal--shipment-plan-form .input-group.has-error input,
+.modal--shipment-plan-form .input-group.has-error select,
+.shipment-plan-form__purpose.has-error .shipment-plan-form__purpose-toggle {
+  border-color: var(--color-brand-red);
+}
+
+.shipment-plan-form__vessel-pin {
+  position: sticky;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+  margin: 0 0 var(--spacing-2);
+  padding: 8px 12px;
+  background: var(--color-bg-light);
+  border-radius: var(--radius-md);
+}
+
+.shipment-plan-form__vessel-pin p {
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.shipment-plan-form__pin-edit {
+  border: 0;
+  background: transparent;
+  color: var(--color-brand-red);
+  font: inherit;
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.shipment-plan-form__si-empty {
+  padding: var(--spacing-4);
+  border: 1px dashed var(--color-border-medium);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-lighter);
+  text-align: center;
+}
+
+.shipment-plan-form__si-empty p {
+  margin: 0 0 var(--spacing-2);
+}
+
+.shipment-plan-form__si-empty-hint {
+  margin-top: var(--spacing-2) !important;
+  color: var(--color-text-steel);
+  font-size: var(--font-size-small);
+}
+
+.shipment-plan-form__si-draft-toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.shipment-plan-form__si-draft-meta {
+  color: var(--color-text-steel);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-normal);
+}
+
+.shipment-plan-form__status-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-bg-light);
+  color: var(--color-text-steel);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+.shipment-plan-form__status-pill.is-attention {
+  background: rgba(196, 58, 49, 0.08);
+  color: var(--color-brand-red);
+}
+
+.shipment-plan-form__chevron {
+  margin-left: auto;
+  color: var(--color-text-steel);
+}
+
+.shipment-plan-form__si-draft.is-collapsed .shipment-plan-form__si-draft-header {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.modal--shipment-plan-form .shipping-instruction-form__grid--vessel-trip {
+  grid-template-columns: 1fr 1fr;
+}
+
+.modal--shipment-plan-form .shipping-instruction-form__grid--vessel-trip .input-group input,
+.modal--shipment-plan-form .shipping-instruction-form__grid--vessel-trip .input-group select {
+  max-width: none;
+}
+
+.shipment-plan-form__upload {
+  position: relative;
+  margin-bottom: var(--spacing-3);
+}
+
+.shipment-plan-form__dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-4);
+  border: 1px dashed var(--color-border-medium);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-lighter);
+  text-align: center;
+}
+
+.shipment-plan-form__dropzone p {
+  margin: 0;
+  color: var(--color-text-charcoal);
+}
+
+.shipment-plan-form__file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.shipment-plan-form__upload-status,
+.shipment-plan-form__upload-help p {
+  margin: var(--spacing-2) 0 0;
+  color: var(--color-text-steel);
+  font-size: var(--font-size-small);
+}
+
+.shipment-plan-form__upload-help summary {
+  margin-top: var(--spacing-2);
+  color: var(--color-text-steel);
+  font-size: var(--font-size-small);
+  cursor: pointer;
+}
+
+.shipping-instruction-docs--rows .shipping-instruction-docs__chip {
+  padding: 1px 6px;
+  border: 1px solid var(--color-brand-red);
+  border-radius: var(--radius-sm);
+  color: var(--color-brand-red);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.shipping-instruction-docs__remove {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-steel);
+  font: inherit;
+  cursor: pointer;
+}
+
+.shipment-plan-form__note {
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+}
+
+.shipment-plan-form__note summary {
+  cursor: pointer;
+  font-weight: var(--font-weight-medium);
+}
+
+.shipment-plan-form__note .input-group {
+  margin-top: var(--spacing-2);
+}
+
+.shipment-plan-form__footer-summary,
+.shipment-plan-form__footer-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.shipment-plan-form__footer-summary {
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.shipment-plan-form__footer-actions {
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+}
+
+.modal--shipment-plan-form .shipment-plan-form__footer .btn {
+  min-height: 32px;
+  padding: 4px 12px;
+  font-size: var(--font-size-sm);
+  line-height: 1.2;
+  border-radius: var(--radius-sm);
+}
+
+.shipment-plan-form__chip {
+  padding: 2px 8px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 999px;
+  color: var(--color-text-steel);
+  font-size: var(--font-size-xs);
+  background: var(--color-bg-white);
+}
+
+.shipment-plan-form__chip.is-filled {
+  color: var(--color-text-charcoal);
+}
+
+.shipment-plan-form__submit-hint {
+  color: var(--color-text-steel);
+  font-size: var(--font-size-xs);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .shipment-plan-form__trip {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .modal--shipment-plan-form .shipment-plan-form__eta,
+  .modal--shipment-plan-form .shipment-plan-form__voyage,
+  .modal--shipment-plan-form .shipment-plan-form__agent,
+  .modal--shipment-plan-form .shipment-plan-form__jetty {
+    grid-column: auto;
+  }
+
+  .modal--shipment-plan-form .shipping-instruction-form__grid--vessel-trip {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .shipment-plan-form__footer {
+    align-items: stretch;
+  }
+
+  .shipment-plan-form__progress-line {
+    width: 28px;
+  }
 }

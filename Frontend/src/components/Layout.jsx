@@ -4,13 +4,34 @@ import { useTranslation } from 'react-i18next'
 import ActivityLogPanel from './ActivityLogPanel'
 import LanguageSwitch from './LanguageSwitch'
 import NotificationBell from './NotificationBell'
+import PortSwitcher from './PortSwitcher'
 import UserMenu from './UserMenu'
 import { useRbac } from '../context/RbacContext'
 import { useAuth } from '../context/AuthContext'
 import { usePortScope } from '../context/PortScopeContext'
 import { firstAllowedNavPath, pathToPageKey, safeReturnPath } from '../utils/firstAllowedNavPath'
-
 import { getClientIanaTimeZone } from '../utils/scheduleDateTime.js'
+
+function DeviceTimezoneChip() {
+  const { t } = useTranslation('common')
+  const tz = getClientIanaTimeZone()
+  return (
+    <span
+      className="topbar__device-tz"
+      title={t('deviceTz.hint', { tz })}
+      aria-label={t('deviceTz.aria', { tz })}
+    >
+      <span className="topbar__device-tz-icon" aria-hidden>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="18" height="12" rx="1.5" />
+          <path d="M8 20h8" />
+          <path d="M12 16v4" />
+        </svg>
+      </span>
+      <span className="topbar__device-tz-name">{tz}</span>
+    </span>
+  )
+}
 
 const navStructure = [
   { path: '/', labelKey: 'liveOpsDashboard', icon: '📡' },
@@ -81,6 +102,7 @@ export default function Layout({ children }) {
     requiresSelection,
     noPortAssigned,
     noPortMessage,
+    setSelectedPortId,
   } = usePortScope()
   const navigate = useNavigate()
 
@@ -156,64 +178,17 @@ export default function Layout({ children }) {
           </div>
         </div>
         <div className="topbar__actions">
-          {me && !portScopeBypassed && assignedPorts.length > 1 && selectedPort && (
-            <button
-              type="button"
-              className="btn btn--secondary btn--small topbar__greeting"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-              onClick={() => {
-                const params = new URLSearchParams()
-                params.set('returnTo', `${currentPath}${location.search || ''}`)
-                navigate(`/select-port?${params.toString()}`)
-              }}
-              title={tCommon('portChangeTitle')}
-            >
-              <span>{tCommon('portLabel', { name: selectedPort.name })}</span>
-              <span className="admin-role-summary">{tCommon('changePort')}</span>
-            </button>
-          )}
-          {me && !portScopeBypassed && assignedPorts.length === 1 && selectedPort && (
-            <span className="topbar__greeting">{tCommon('portLabel', { name: selectedPort.name })}</span>
-          )}
           {me && !portScopeBypassed && selectedPort && (
-            <div className="topbar__tz-stack">
-              <span
-                className="topbar__greeting text-steel"
-                style={{
-                  fontSize: '0.85rem',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  maxWidth: '100%',
-                }}
-              >
-                <span
-                  className="topbar__tz-seg"
-                  title="Port Timezone — site reference for this port (not used for typed schedule entry)."
-                >
-                  ⚓ {selectedPort.scheduleTimezone ?? 'Asia/Jakarta'}
-                </span>
-                <span className="text-steel" aria-hidden>
-                  {' '}
-                  ·{' '}
-                </span>
-                <span
-                  className="topbar__tz-seg"
-                  title="Your / Browser Timezone — schedule date/times you enter are saved using this zone."
-                >
-                  💻 {getClientIanaTimeZone()}
-                </span>
-              </span>
-            </div>
+            <PortSwitcher
+              selectedPort={selectedPort}
+              assignedPorts={assignedPorts}
+              onSelect={setSelectedPortId}
+            />
           )}
+          {me && <DeviceTimezoneChip />}
           {me && <NotificationBell />}
           <LanguageSwitch />
           {me && <UserMenu me={me} onLogout={handleLogout} />}
-          {!me && (
-            <NavLink to="/login" className="btn btn--secondary btn--small">
-              {tCommon('login')}
-            </NavLink>
-          )}
         </div>
       </header>
 
@@ -293,12 +268,8 @@ export default function Layout({ children }) {
               <p className="text-steel">{tCommon('loading')}</p>
             </div>
           ) : !me ? (
-            <div className="card" style={{ maxWidth: '40rem' }}>
-              <h2 style={{ marginTop: 0 }}>{tCommon('login')}</h2>
-              <p className="text-steel">{tCommon('sessionRequired')}</p>
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                <NavLink to="/login" className="btn btn--secondary">{tCommon('login')}</NavLink>
-              </div>
+            <div className="card">
+              <p className="text-steel">{tCommon('loading')}</p>
             </div>
           ) : me && !portScopeBypassed && portScopeLoading ? (
             <div className="card">

@@ -9,7 +9,9 @@
 #
 # Rollback (App server):
 #   bash Backend/scripts/deploy-prod-frontend-three-server.sh rollback
+#   export ROLLBACK_SHA=<sha>      # optional; overrides saved SHA file
 #
+# API-only releases: Backend/scripts/deploy-prod-api-three-server.sh (API host).
 # See Docs/Guide/HOTFIX-DEPLOY-RUNBOOK.md
 
 set -euo pipefail
@@ -63,12 +65,14 @@ cmd_deploy() {
 }
 
 cmd_rollback() {
-  if [[ ! -f "$ROLLBACK_SHA_FILE" ]]; then
-    echo "Missing $ROLLBACK_SHA_FILE — set SHA manually: export ROLLBACK_SHA=<sha>" >&2
-    exit 1
+  local sha="${ROLLBACK_SHA:-}"
+  if [[ -z "$sha" ]]; then
+    if [[ ! -f "$ROLLBACK_SHA_FILE" ]]; then
+      echo "Missing $ROLLBACK_SHA_FILE — set SHA manually: export ROLLBACK_SHA=<sha>" >&2
+      exit 1
+    fi
+    sha="$(cat "$ROLLBACK_SHA_FILE")"
   fi
-  local sha
-  sha="$(cat "$ROLLBACK_SHA_FILE")"
   echo "Rolling back App to $sha"
   git fetch origin
   git checkout "$sha"

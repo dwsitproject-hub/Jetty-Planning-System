@@ -54,6 +54,7 @@
   min-width: 14rem;
   max-width: min(18rem, calc(100vw - 2rem));
   background: var(--color-bg-white);
+  color: var(--color-text-charcoal);
   border: 1px solid var(--color-border-medium);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
@@ -109,6 +110,21 @@
 
 .user-menu-panel__item--logout:hover {
   background: rgba(196, 30, 58, 0.06);
+}
+
+.topbar .user-menu-trigger {
+  color: var(--color-sea-ink);
+}
+
+.topbar .user-menu-trigger:hover,
+.topbar .user-menu-trigger--open {
+  background: var(--color-sea-glass);
+  border-color: var(--color-sea-glass-border);
+}
+
+.topbar .user-menu-trigger:focus-visible {
+  outline: 2px solid var(--color-brand-red);
+  outline-offset: 2px;
 }
 
 @media (max-width: 640px) {

@@ -19,7 +19,6 @@ import {
   validateJettyAdviceSelection,
 } from '../utils/jettyAdvice'
 import { filterJettiesForPort, jettySelectLabel } from '../utils/portScopedLookups'
-import FormLabelWithInfo from './FormLabelWithInfo'
 import ShippingInstructionSiLinkedFields from './ShippingInstructionSiLinkedFields'
 import ShippingInstructionDocumentUploadSection from './ShippingInstructionDocumentUploadSection'
 import {
@@ -57,6 +56,45 @@ function genSiDraftId() {
   return `si-draft-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
+function formatPlanSubtitle(vessel, etaLocal, language) {
+  const parts = []
+  const name = String(vessel || '').trim()
+  if (name) parts.push(name)
+  if (etaLocal) {
+    const d = new Date(etaLocal)
+    if (!Number.isNaN(d.getTime())) {
+      const date = d.toLocaleDateString(language || undefined, {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      })
+      const time = d.toLocaleTimeString(language || undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+      parts.push(`${date}, ${time}`)
+    }
+  }
+  return parts.join(' · ')
+}
+
+function siDraftCardSummary(form, lookups) {
+  const rows = Array.isArray(form?.breakdown) ? form.breakdown : []
+  const names = []
+  for (const row of rows) {
+    const commodity = (lookups?.commodities || []).find((x) => String(x.id) === String(row.commodityId))
+    const name = commodity?.name || commodity?.code || commodity?.label
+    if (name && !names.includes(name)) names.push(name)
+  }
+  const mt = sumBreakdownMtTotal([form], lookups)
+  return {
+    commodity: names.length ? names.slice(0, 2).join(', ') : '',
+    qtyLabel: `${(mt > 0 ? mt : 0).toLocaleString('en-US')} MT`,
+    missingDate: !String(form?.documentDate || '').trim(),
+  }
+}
+
 /**
  * Combined shipment plan + SI form modal (create, edit, view, pre-berth edit).
  * @param {{
@@ -80,7 +118,7 @@ export default function ShipmentPlanCombinedFormModal({
   occupancyRows = [],
   logActivity,
 }) {
-  const { t } = useTranslation('shipmentPlan')
+  const { t, i18n } = useTranslation('shipmentPlan')
   const { selectedPortId } = usePortScope()
   const [toast, setToast] = useState(null)
   const [lookups, setLookups] = useState(null)
@@ -99,7 +137,17 @@ export default function ShipmentPlanCombinedFormModal({
   const [npwpMaster, setNpwpMaster] = useState(null)
   const [editingPlanDetail, setEditingPlanDetail] = useState(null)
   const [siDraftOcrIndex, setSiDraftOcrIndex] = useState(null)
+  const [fieldErrors, setFieldErrors] = useState({})
+  const [collapsedSiIds, setCollapsedSiIds] = useState({})
+  const [siCardError, setSiCardError] = useState(null)
+  const [activeStep, setActiveStep] = useState('vessel')
+  const [vesselPinned, setVesselPinned] = useState(false)
+  const [headerHeight, setHeaderHeight] = useState(112)
   const loadGenerationRef = useRef(0)
+  const modalRef = useRef(null)
+  const headerRef = useRef(null)
+  const vesselRef = useRef(null)
+  const siSectionRef = useRef(null)
 
   const isViewMode = mode === 'view'
   const isPreBerthEdit = mode === 'preBerthEdit'
@@ -124,6 +172,11 @@ export default function ShipmentPlanCombinedFormModal({
     setNpwpMaster(null)
     setEditingPlanDetail(null)
     setSiDraftOcrIndex(null)
+    setFieldErrors({})
+    setCollapsedSiIds({})
+    setSiCardError(null)
+    setActiveStep('vessel')
+    setVesselPinned(false)
   }, [])
 
   const handleClose = useCallback(() => {
@@ -403,7 +456,8 @@ export default function ShipmentPlanCombinedFormModal({
       t,
     })
     if (!result.ok) {
-      setToast({ message: result.message, variant: 'error' })
+      setFieldErrors({ jetty: result.message })
+      focusPlanField('sp-jetty')
       return false
     }
     return true
@@ -506,15 +560,26 @@ export default function ShipmentPlanCombinedFormModal({
     })
   }, [isOpen, isViewMode, lookups, planPreviewForSi, siDocExtract.extractBusy])
 
+  const focusPlanField = (id) => {
+    setVesselPinned(false)
+    window.requestAnimationFrame(() => {
+      const el = document.getElementById(id)
+      if (!el) return
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      if (typeof el.focus === 'function') el.focus()
+    })
+  }
+
   const validateVesselDimensionFields = () => {
     const dims = [
-      [t('formVesselLoaRequired'), formVesselLoa],
-      [t('formVesselGtRequired'), formVesselGt],
-      [t('formVesselDraftRequired'), formVesselDraft],
+      ['loa', 'sp-vessel-loa', t('formVesselLoaRequired'), formVesselLoa],
+      ['gt', 'sp-vessel-gt', t('formVesselGtRequired'), formVesselGt],
+      ['draft', 'sp-vessel-draft', t('formVesselDraftRequired'), formVesselDraft],
     ]
-    for (const [label, raw] of dims) {
+    for (const [key, id, label, raw] of dims) {
       if (!isValidPositiveNumber(raw)) {
-        setToast({ message: t('formVesselNumberFieldInvalid', { field: label }), variant: 'error' })
+        setFieldErrors({ [key]: t('formVesselNumberFieldInvalid', { field: label }) })
+        focusPlanField(id)
         return false
       }
     }
@@ -522,29 +587,28 @@ export default function ShipmentPlanCombinedFormModal({
   }
 
   const validateCreatePlanFields = () => {
-    if (!formVessel.trim()) {
-      setToast({ message: t('formVesselRequired'), variant: 'error' })
-      return false
-    }
-    if (!validateVesselDimensionFields()) return false
-    if (!validateJettySelection()) return false
-    if (!formEta?.trim()) {
-      setToast({ message: t('formEtaRequired'), variant: 'error' })
-      return false
-    }
-    if (!formPurposeId) {
-      setToast({ message: t('formPurposeRequired'), variant: 'error' })
-      return false
-    }
-    const purposePid = parseInt(formPurposeId, 10)
-    if (Number.isNaN(purposePid)) {
-      setToast({ message: t('formPurposeRequired'), variant: 'error' })
-      return false
-    }
     if (!lookups) {
       setToast({ message: 'Form options not loaded yet.', variant: 'error' })
       return false
     }
+    if (!formPurposeId || Number.isNaN(parseInt(formPurposeId, 10))) {
+      setFieldErrors({ purpose: t('formPurposeRequired') })
+      focusPlanField('sp-purpose')
+      return false
+    }
+    if (!formVessel.trim()) {
+      setFieldErrors({ vessel: t('formVesselRequired') })
+      focusPlanField('sp-vessel')
+      return false
+    }
+    if (!validateVesselDimensionFields()) return false
+    if (!formEta?.trim()) {
+      setFieldErrors({ eta: t('formEtaRequired') })
+      focusPlanField('sp-eta')
+      return false
+    }
+    if (!validateJettySelection()) return false
+    setFieldErrors({})
     return true
   }
 
@@ -570,20 +634,23 @@ export default function ShipmentPlanCombinedFormModal({
     e.preventDefault()
     if (!editingPlan) return
     const v = formVessel.trim()
+    if (!formPurposeId || Number.isNaN(parseInt(formPurposeId, 10))) {
+      setFieldErrors({ purpose: t('formPurposeRequired') })
+      focusPlanField('sp-purpose')
+      return
+    }
     if (!v) {
-      setToast({ message: t('formVesselRequired'), variant: 'error' })
+      setFieldErrors({ vessel: t('formVesselRequired') })
+      focusPlanField('sp-vessel')
       return
     }
     if (!validateVesselDimensionFields()) return
-    if (!validateJettySelection()) return
     if (!formEta?.trim()) {
-      setToast({ message: t('formEtaRequired'), variant: 'error' })
+      setFieldErrors({ eta: t('formEtaRequired') })
+      focusPlanField('sp-eta')
       return
     }
-    if (!formPurposeId) {
-      setToast({ message: t('formPurposeRequired'), variant: 'error' })
-      return
-    }
+    if (!validateJettySelection()) return
     try {
       const jettyId = formJettyId ? parseInt(formJettyId, 10) : null
       const etaIso = new Date(formEta).toISOString()
@@ -624,9 +691,27 @@ export default function ShipmentPlanCombinedFormModal({
           agentId: Number.isFinite(agentPidSave) ? agentPidSave : null,
         }
         for (let i = 0; i < siDrafts.length; i += 1) {
+          if (!String(siDrafts[i].form.documentDate || '').trim()) {
+            const message = t('createSiValidationError', {
+              n: i + 1,
+              message: i18n.t('shippingInstruction:formDocumentDateRequired'),
+            })
+            setSiCardError({ id: siDrafts[i].id, message })
+            setCollapsedSiIds((prev) => ({ ...prev, [siDrafts[i].id]: false }))
+            window.requestAnimationFrame(() => {
+              document.getElementById(`sp-si-card-${siDrafts[i].id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+            })
+            onSaved?.()
+            return
+          }
           const validated = validateSiDraftForCreate(siDrafts[i].form, lookups, linked)
           if (typeof validated === 'string') {
-            setToast({ message: t('createSiValidationError', { n: i + 1, message: validated }), variant: 'error' })
+            const message = t('createSiValidationError', { n: i + 1, message: validated })
+            setSiCardError({ id: siDrafts[i].id, message })
+            setCollapsedSiIds((prev) => ({ ...prev, [siDrafts[i].id]: false }))
+            window.requestAnimationFrame(() => {
+              document.getElementById(`sp-si-card-${siDrafts[i].id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+            })
             onSaved?.()
             return
           }
@@ -719,9 +804,26 @@ export default function ShipmentPlanCombinedFormModal({
     e.preventDefault()
     if (!validateCreatePlanFields()) return
     for (let i = 0; i < siDrafts.length; i += 1) {
+      if (!String(siDrafts[i].form.documentDate || '').trim()) {
+        const message = t('createSiValidationError', {
+          n: i + 1,
+          message: i18n.t('shippingInstruction:formDocumentDateRequired'),
+        })
+        setSiCardError({ id: siDrafts[i].id, message })
+        setCollapsedSiIds((prev) => ({ ...prev, [siDrafts[i].id]: false }))
+        window.requestAnimationFrame(() => {
+          document.getElementById(`sp-si-card-${siDrafts[i].id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        })
+        return
+      }
       const err = validateSiDraftForCreate(siDrafts[i].form, lookups, planPreviewForSi, { requirePlanId: false })
       if (typeof err === 'string') {
-        setToast({ message: t('createSiValidationError', { n: i + 1, message: err }), variant: 'error' })
+        const message = t('createSiValidationError', { n: i + 1, message: err })
+        setSiCardError({ id: siDrafts[i].id, message })
+        setCollapsedSiIds((prev) => ({ ...prev, [siDrafts[i].id]: false }))
+        window.requestAnimationFrame(() => {
+          document.getElementById(`sp-si-card-${siDrafts[i].id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        })
         return
       }
     }
@@ -786,6 +888,13 @@ export default function ShipmentPlanCombinedFormModal({
 
   const addSiDraftBlock = () => {
     if (!lookups) return
+    const id = genSiDraftId()
+    setCollapsedSiIds((prev) => {
+      const next = { ...prev }
+      for (const draft of siDrafts) next[draft.id] = true
+      next[id] = false
+      return next
+    })
     setSiDrafts((prev) => {
       let form = defaultSiDraftForPlanPreview(lookups, linkedPlanForSiCards)
       if (prev.length >= 1) {
@@ -797,7 +906,10 @@ export default function ShipmentPlanCombinedFormModal({
           loadingPortId: ex.loadingPortId != null ? String(ex.loadingPortId) : '',
         }
       }
-      return [...prev, { id: genSiDraftId(), form }]
+      return [...prev, { id, form }]
+    })
+    window.requestAnimationFrame(() => {
+      document.getElementById(`sp-si-card-${id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
     })
   }
 
@@ -810,6 +922,7 @@ export default function ShipmentPlanCombinedFormModal({
   }
 
   const setSiDraftForm = (index, updater) => {
+    setSiCardError((current) => (current && siDrafts[index] && current.id === siDrafts[index].id ? null : current))
     setSiDrafts((prev) =>
       prev.map((d, i) => {
         if (i !== index) return d
@@ -885,10 +998,63 @@ export default function ShipmentPlanCombinedFormModal({
     if (editingPlan) {
       return siDrafts.length > 0 ? t('editSaveCombined', { count: siDrafts.length }) : t('save')
     }
-    return siDrafts.length > 0 ? t('createPlanAndSisSubmit', { count: siDrafts.length }) : t('createPlanOnlySubmit')
+    return t('createPlanSubmit')
   }, [isPreBerthEdit, editingPlan, siDrafts.length, t])
 
   const showSiSection = isViewMode || isEditLike || !editingPlan
+
+  const planSubtitle = formatPlanSubtitle(formVessel, formEta, i18n.language)
+  const purposeRow = (lookups?.purposes || []).find((p) => String(p.id) === String(formPurposeId)) || null
+  const selectedJetty = (portJetties || []).find((j) => String(j.id) === String(formJettyId)) || null
+  const vesselDone = Boolean(
+    formVessel.trim()
+    && formPurposeId
+    && formEta?.trim()
+    && isValidPositiveNumber(formVesselLoa)
+    && isValidPositiveNumber(formVesselGt)
+    && isValidPositiveNumber(formVesselDraft)
+  )
+  const cargoDone = totalCargoMt > 0
+  const vesselSummaryParts = [
+    t('createPlanSectionTitle'),
+    purposeRow?.label,
+    isValidPositiveNumber(formVesselLoa) ? `LOA ${formVesselLoa} m` : '',
+    isValidPositiveNumber(formVesselDraft) ? `${t('formVesselDraftRequired').replace(/\s*\*$/, '')} ${formVesselDraft}` : '',
+    selectedJetty ? jettySelectLabel(selectedJetty, t('jettyOtherPortSuffix')) : '',
+  ].filter(Boolean)
+
+  useEffect(() => {
+    if (!isOpen) return undefined
+    const modal = modalRef.current
+    const header = headerRef.current
+    if (!modal || !header) return undefined
+    const measure = () => setHeaderHeight(header.offsetHeight || 112)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(header)
+    const onScroll = () => {
+      const modalTop = modal.getBoundingClientRect().top
+      const vessel = vesselRef.current
+      const si = siSectionRef.current
+      if (vessel) {
+        const vesselTop = vessel.getBoundingClientRect().top
+        setVesselPinned((pinned) => {
+          if (!pinned && vesselTop < modalTop - 24) return true
+          if (pinned && vesselTop > modalTop + 80) return false
+          return pinned
+        })
+      }
+      if (si) {
+        const siTop = si.getBoundingClientRect().top
+        setActiveStep(siTop < modalTop + header.offsetHeight + 24 ? 'instructions' : 'vessel')
+      }
+    }
+    modal.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      observer.disconnect()
+      modal.removeEventListener('scroll', onScroll)
+    }
+  }, [isOpen, modalTitle])
 
   if (!isOpen) return null
 
@@ -922,32 +1088,91 @@ export default function ShipmentPlanCombinedFormModal({
 
       <div className="modal-overlay" onClick={handleClose} aria-hidden="true">
         <div
+          ref={modalRef}
           className="modal modal--wide modal--shipment-plan-form"
           onClick={(e) => e.stopPropagation()}
           role="dialog"
           aria-modal="true"
           aria-labelledby="shipment-plan-combined-form-title"
+          style={{ '--plan-header-h': `${headerHeight}px` }}
         >
-          <div className="modal__header">
-            <div>
-              <h2 id="shipment-plan-combined-form-title" className="modal__title modal__title--flush">
-                {modalTitle}
-              </h2>
-              {isPreBerthEdit && (
-                <p className="shipment-plan-form__pre-berth-hint text-steel" style={{ marginTop: '0.5rem' }}>
-                  {t('preBerthEditPlanHint')}
-                </p>
-              )}
+          <div className="modal__header" ref={headerRef}>
+            <div className="shipment-plan-form__header-row">
+              <div>
+                <h2 id="shipment-plan-combined-form-title" className="modal__title modal__title--flush">
+                  {modalTitle}
+                </h2>
+                {(planSubtitle || (!editingPlan && !isViewMode)) && (
+                  <p className="shipment-plan-form__subtitle">
+                    {planSubtitle || t('modalCreateSubtitleEmpty')}
+                  </p>
+                )}
+                {isPreBerthEdit && (
+                  <p className="shipment-plan-form__pre-berth-hint text-steel">
+                    {t('preBerthEditPlanHint')}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                className="modal__close"
+                onClick={handleClose}
+                aria-label={t('close')}
+              >
+                ×
+              </button>
             </div>
-            <button
-              type="button"
-              className="modal__close"
-              onClick={handleClose}
-              aria-label={t('close')}
-            >
-              ×
-            </button>
+            <nav className="shipment-plan-form__progress" aria-label={t('createPlanSectionTitle')}>
+              {[
+                { id: 'vessel', label: t('progressVessel'), state: activeStep === 'vessel' ? 'current' : vesselDone ? 'done' : 'todo' },
+                {
+                  id: 'instructions',
+                  label: t('progressInstructions'),
+                  count: siDrafts.length,
+                  state: activeStep === 'instructions' ? 'current' : siDrafts.length > 0 ? 'done' : 'todo',
+                },
+                { id: 'cargo', label: t('progressCargo'), state: cargoDone ? 'done' : 'todo' },
+              ].map((step, stepIndex, steps) => (
+                <div key={step.id} className="shipment-plan-form__progress-item">
+                  {stepIndex > 0 && (
+                    <span
+                      className={`shipment-plan-form__progress-line${
+                        steps[stepIndex - 1].state === 'done' || steps[stepIndex - 1].state === 'current' ? ' is-complete' : ''
+                      }`}
+                    />
+                  )}
+                  <button
+                    type="button"
+                    className={`shipment-plan-form__progress-step is-${step.state}`}
+                    onClick={() => {
+                      const target = step.id === 'vessel' ? vesselRef.current : siSectionRef.current
+                      target?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+                    }}
+                  >
+                    <span className="shipment-plan-form__progress-mark" aria-hidden>
+                      {step.state === 'done' ? '✓' : stepIndex + 1}
+                    </span>
+                    <span>{step.label}</span>
+                    {step.id === 'instructions' ? (
+                      <span className="shipment-plan-form__progress-count">{step.count}</span>
+                    ) : null}
+                  </button>
+                </div>
+              ))}
+            </nav>
           </div>
+          {vesselPinned && (
+            <div className="shipment-plan-form__vessel-pin" style={{ top: headerHeight }}>
+              <p>{vesselSummaryParts.join(' · ')}</p>
+              <button
+                type="button"
+                className="shipment-plan-form__pin-edit"
+                onClick={() => vesselRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })}
+              >
+                {t('vesselSummaryEdit')}
+              </button>
+            </div>
+          )}
           <form
             onSubmit={(e) => {
               if (isViewMode) {
@@ -959,40 +1184,65 @@ export default function ShipmentPlanCombinedFormModal({
               else handleCreatePlanAndSis(e)
             }}
             className="shipping-instruction-form shipping-instruction-form--plan-modal"
+            noValidate
           >
             <fieldset disabled={isViewMode || modalSiLoading} style={{ border: 0, padding: 0, margin: 0 }}>
-              <div className="shipping-instruction-form__section shipment-plan-form__plan-section">
+              <div
+                className="shipping-instruction-form__section shipment-plan-form__plan-section"
+                ref={vesselRef}
+                id="plan-vessel"
+              >
                 <h3 className="shipping-instruction-form__section-title">{t('createPlanSectionTitle')}</h3>
                 <div className="shipping-instruction-form__grid shipment-plan-form__plan-grid">
-                  <div className="input-group shipment-plan-form__purpose">
-                    <label htmlFor="sp-purpose">{t('formPlanPurposeRequired')}</label>
-                    <select
+                  <div className={`input-group shipment-plan-form__purpose${fieldErrors.purpose ? ' has-error' : ''}`}>
+                    <span id="sp-purpose-label">{t('formPlanPurposeRequired')}</span>
+                    <div
                       id="sp-purpose"
-                      value={formPurposeId}
-                      onChange={(e) => setFormPurposeId(e.target.value)}
-                      required
-                      disabled={!lookups}
+                      className="shipment-plan-form__purpose-toggle"
+                      role="radiogroup"
+                      aria-labelledby="sp-purpose-label"
+                      aria-invalid={fieldErrors.purpose ? 'true' : undefined}
+                      tabIndex={-1}
                     >
-                      <option value="">—</option>
-                      {(lookups?.purposes || []).map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.label}
-                        </option>
-                      ))}
-                    </select>
+                      {(lookups?.purposes || []).map((p) => {
+                        const selected = String(formPurposeId) === String(p.id)
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            role="radio"
+                            aria-checked={selected}
+                            className={selected ? 'is-selected' : undefined}
+                            disabled={!lookups}
+                            onClick={() => {
+                              setFormPurposeId(String(p.id))
+                              setFieldErrors((prev) => ({ ...prev, purpose: undefined }))
+                            }}
+                          >
+                            {p.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {fieldErrors.purpose ? <p className="shipment-plan-form__field-error">{fieldErrors.purpose}</p> : null}
                   </div>
-                  <div className="input-group shipment-plan-form__vessel">
+                  <div className={`input-group shipment-plan-form__vessel${fieldErrors.vessel ? ' has-error' : ''}`}>
                     <label htmlFor="sp-vessel">{t('formVesselRequired')}</label>
                     <input
                       id="sp-vessel"
                       maxLength={MAX_SI_VESSEL_NAME_CHARS}
                       value={formVessel}
-                      onChange={(e) => setFormVessel(e.target.value)}
+                      onChange={(e) => {
+                        setFormVessel(e.target.value)
+                        setFieldErrors((prev) => ({ ...prev, vessel: undefined }))
+                      }}
+                      aria-invalid={fieldErrors.vessel ? 'true' : undefined}
                       required
                     />
+                    {fieldErrors.vessel ? <p className="shipment-plan-form__field-error">{fieldErrors.vessel}</p> : null}
                   </div>
                   <div className="shipment-plan-form__vessel-specs">
-                    <div className="input-group">
+                    <div className={`input-group${fieldErrors.loa ? ' has-error' : ''}`}>
                       <label htmlFor="sp-vessel-loa">{t('formVesselLoaRequired')}</label>
                       <input
                         id="sp-vessel-loa"
@@ -1001,12 +1251,17 @@ export default function ShipmentPlanCombinedFormModal({
                         step="any"
                         inputMode="decimal"
                         value={formVesselLoa}
-                        onChange={(e) => setFormVesselLoa(e.target.value)}
+                        onChange={(e) => {
+                          setFormVesselLoa(e.target.value)
+                          setFieldErrors((prev) => ({ ...prev, loa: undefined }))
+                        }}
                         placeholder="e.g. 120"
+                        aria-invalid={fieldErrors.loa ? 'true' : undefined}
                         required
                       />
+                      {fieldErrors.loa ? <p className="shipment-plan-form__field-error">{fieldErrors.loa}</p> : null}
                     </div>
-                    <div className="input-group">
+                    <div className={`input-group${fieldErrors.gt ? ' has-error' : ''}`}>
                       <label htmlFor="sp-vessel-gt">{t('formVesselGtRequired')}</label>
                       <input
                         id="sp-vessel-gt"
@@ -1015,12 +1270,17 @@ export default function ShipmentPlanCombinedFormModal({
                         step="any"
                         inputMode="decimal"
                         value={formVesselGt}
-                        onChange={(e) => setFormVesselGt(e.target.value)}
+                        onChange={(e) => {
+                          setFormVesselGt(e.target.value)
+                          setFieldErrors((prev) => ({ ...prev, gt: undefined }))
+                        }}
                         placeholder="e.g. 3500"
+                        aria-invalid={fieldErrors.gt ? 'true' : undefined}
                         required
                       />
+                      {fieldErrors.gt ? <p className="shipment-plan-form__field-error">{fieldErrors.gt}</p> : null}
                     </div>
-                    <div className="input-group">
+                    <div className={`input-group${fieldErrors.draft ? ' has-error' : ''}`}>
                       <label htmlFor="sp-vessel-draft">{t('formVesselDraftRequired')}</label>
                       <input
                         id="sp-vessel-draft"
@@ -1029,33 +1289,20 @@ export default function ShipmentPlanCombinedFormModal({
                         step="any"
                         inputMode="decimal"
                         value={formVesselDraft}
-                        onChange={(e) => setFormVesselDraft(e.target.value)}
+                        onChange={(e) => {
+                          setFormVesselDraft(e.target.value)
+                          setFieldErrors((prev) => ({ ...prev, draft: undefined }))
+                        }}
                         placeholder="e.g. 6.5"
+                        aria-invalid={fieldErrors.draft ? 'true' : undefined}
                         required
                       />
+                      {fieldErrors.draft ? <p className="shipment-plan-form__field-error">{fieldErrors.draft}</p> : null}
                     </div>
-                    <div className="input-group">
-                      <FormLabelWithInfo htmlFor="sp-total-cargo-mt" infoTooltip={t('formTotalCargoMtInfoTooltip')}>
-                        {t('formTotalCargoMtAuto')}
-                      </FormLabelWithInfo>
-                      <input
-                        id="sp-total-cargo-mt"
-                        type="text"
-                        value={totalCargoMt > 0 ? totalCargoMt.toLocaleString('en-US') : '—'}
-                        readOnly
-                      />
-                    </div>
-                    <div className="input-group">
-                      <FormLabelWithInfo htmlFor="sp-vessel-dwt" infoTooltip={t('formVesselDwtInfoTooltip')}>
-                        {t('formVesselDwtAuto')}
-                      </FormLabelWithInfo>
-                      <input
-                        id="sp-vessel-dwt"
-                        type="text"
-                        value={vesselDwtComputed != null ? vesselDwtComputed.toLocaleString('en-US') : '—'}
-                        readOnly
-                      />
-                    </div>
+                  </div>
+                  <div className="shipment-plan-form__calc-strip" title={t('formVesselDwtInfoTooltip')}>
+                    <span>{t('footerChipCargo')} {totalCargoMt > 0 ? totalCargoMt.toLocaleString('en-US') : '—'}</span>
+                    <span>DWT {vesselDwtComputed != null ? vesselDwtComputed.toLocaleString('en-US') : '—'}</span>
                   </div>
                   {(totalCargoMt <= 0 || siDrafts.length > 1) && (
                     <p className="shipment-plan-form__inline-hint text-steel">
@@ -1066,9 +1313,21 @@ export default function ShipmentPlanCombinedFormModal({
                         : t('formTotalCargoMtMultiSiHint')}
                     </p>
                   )}
-                  <div className="input-group shipment-plan-form__eta">
+                  <div className="shipment-plan-form__trip">
+                  <div className={`input-group shipment-plan-form__eta${fieldErrors.eta ? ' has-error' : ''}`}>
                     <label htmlFor="sp-eta">{t('formEtaRequiredLabel')}</label>
-                    <input id="sp-eta" type="datetime-local" value={formEta} onChange={(e) => setFormEta(e.target.value)} required />
+                    <input
+                      id="sp-eta"
+                      type="datetime-local"
+                      value={formEta}
+                      onChange={(e) => {
+                        setFormEta(e.target.value)
+                        setFieldErrors((prev) => ({ ...prev, eta: undefined }))
+                      }}
+                      aria-invalid={fieldErrors.eta ? 'true' : undefined}
+                      required
+                    />
+                    {fieldErrors.eta ? <p className="shipment-plan-form__field-error">{fieldErrors.eta}</p> : null}
                   </div>
                   <div className="input-group shipment-plan-form__voyage">
                     <label htmlFor="sp-voyage">{t('formVoyageOptional')}</label>
@@ -1091,9 +1350,17 @@ export default function ShipmentPlanCombinedFormModal({
                       ))}
                     </select>
                   </div>
-                  <div className="input-group shipment-plan-form__jetty">
+                  <div className={`input-group shipment-plan-form__jetty${fieldErrors.jetty ? ' has-error' : ''}`}>
                     <label htmlFor="sp-jetty">{t('formJettyOptional')}</label>
-                    <select id="sp-jetty" value={formJettyId} onChange={(e) => setFormJettyId(e.target.value)}>
+                    <select
+                      id="sp-jetty"
+                      value={formJettyId}
+                      aria-invalid={fieldErrors.jetty ? 'true' : undefined}
+                      onChange={(e) => {
+                        setFormJettyId(e.target.value)
+                        setFieldErrors((prev) => ({ ...prev, jetty: undefined }))
+                      }}
+                    >
                       <option value="">—</option>
                       {(portJetties || [])
                         .filter((j) => {
@@ -1132,78 +1399,127 @@ export default function ShipmentPlanCombinedFormModal({
                           : t('jettyNoSuggestion')}
                       </p>
                     ) : null}
+                    {fieldErrors.jetty ? <p className="shipment-plan-form__field-error">{fieldErrors.jetty}</p> : null}
+                  </div>
                   </div>
                 </div>
               </div>
 
               {showSiSection && (
-                <div className="shipping-instruction-form__section shipment-plan-form__si-section">
+                <div
+                  className="shipping-instruction-form__section shipment-plan-form__si-section"
+                  ref={siSectionRef}
+                  id="plan-instructions"
+                >
                   <h3 className="shipping-instruction-form__section-title">{t('createSiSectionTitle')}</h3>
-                  {!isViewMode && !isPreBerthEdit && (
-                    <p className="shipment-plan-form__si-hint text-steel">
-                      {t('createSiSectionHint')}
-                    </p>
-                  )}
                   {(isViewMode || isEditLike) && modalSiLoading && (
                     <p className="text-steel" style={{ marginBottom: '1rem' }}>
                       {t('viewPlanSiListLoading')}
                     </p>
                   )}
-                  {(isViewMode || isEditLike) &&
-                    !modalSiLoading &&
-                    siDrafts.length === 0 &&
-                    editingPlanDetail &&
-                    !(editingPlanDetail.shippingInstructions?.length) && (
+                  {!modalSiLoading && siDrafts.length === 0 && showAddAnotherSi && (
+                    <div className="shipment-plan-form__si-empty">
+                      <p>{t('siEmptyTitle')}</p>
+                      <button type="button" className="btn btn--secondary" onClick={addSiDraftBlock} disabled={!lookups}>
+                        {t('addFirstSi')}
+                      </button>
+                      {!editingPlan && <p className="shipment-plan-form__si-empty-hint">{t('addSiLaterHint')}</p>}
+                    </div>
+                  )}
+                  {!modalSiLoading && siDrafts.length === 0 && !showAddAnotherSi && (isViewMode || isEditLike) && (
                     <p className="text-steel" style={{ marginBottom: '1rem' }}>
                       {t('editPlanSiListEmpty')}
                     </p>
                   )}
-                  {siDrafts.map((block, index) => (
-                    <div key={block.id} className="shipping-instruction-form__section shipment-plan-form__si-draft">
-                      <div className="shipment-plan-form__si-draft-header">
-                        <h4 className="shipment-plan-form__si-draft-title">{t('createSiBlockTitle', { n: index + 1 })}</h4>
-                        {showAddAnotherSi &&
-                          siDrafts.length > 1 &&
-                          !existingSiIdFromDraftKey(block.id) && (
+                  {siDrafts.map((block, index) => {
+                    const collapsed = Boolean(collapsedSiIds[block.id])
+                    const summary = siDraftCardSummary(block.form, lookups)
+                    const statusLabel = block.existingStatus && block.existingStatus !== 'Draft'
+                      ? block.existingStatus
+                      : t('siCardDraft')
+                    return (
+                      <div
+                        key={block.id}
+                        id={`sp-si-card-${block.id}`}
+                        className={`shipping-instruction-form__section shipment-plan-form__si-draft${collapsed ? ' is-collapsed' : ''}`}
+                      >
+                        <div className="shipment-plan-form__si-draft-header">
                           <button
                             type="button"
-                            className="btn btn--secondary btn--small"
-                            onClick={() => removeSiDraftBlock(index)}
+                            className="shipment-plan-form__si-draft-toggle"
+                            aria-expanded={!collapsed}
+                            onClick={() => setCollapsedSiIds((prev) => ({ ...prev, [block.id]: !collapsed }))}
                           >
-                            {t('deleteSiBlock')}
+                            <span className="shipment-plan-form__si-draft-title">
+                              {t('createSiBlockTitle', { n: index + 1 })}
+                            </span>
+                            {collapsed && summary.commodity ? (
+                              <span className="shipment-plan-form__si-draft-meta">
+                                {summary.commodity} · {summary.qtyLabel}
+                              </span>
+                            ) : null}
+                            {collapsed && !summary.commodity ? (
+                              <span className="shipment-plan-form__si-draft-meta">{summary.qtyLabel}</span>
+                            ) : null}
+                            {!collapsed && (
+                              <span className="shipment-plan-form__status-pill">{statusLabel}</span>
+                            )}
+                            {collapsed && summary.missingDate && (
+                              <span className="shipment-plan-form__status-pill is-attention">{t('siCardMissingDate')}</span>
+                            )}
+                            <span className="shipment-plan-form__chevron" aria-hidden>
+                              {collapsed ? '▾' : '▴'}
+                            </span>
                           </button>
+                          {showAddAnotherSi &&
+                            siDrafts.length > 1 &&
+                            !existingSiIdFromDraftKey(block.id) && (
+                            <button
+                              type="button"
+                              className="btn btn--secondary btn--small"
+                              onClick={() => removeSiDraftBlock(index)}
+                            >
+                              {t('deleteSiBlock')}
+                            </button>
+                          )}
+                        </div>
+                        {siCardError?.id === block.id && (
+                          <p className="shipment-plan-form__field-error" role="alert">{siCardError.message}</p>
                         )}
-                      </div>
-                      {showSiUpload && (
-                        <>
-                          <ShippingInstructionDocumentUploadSection
-                            documents={block.form.documents || []}
-                            onAddFiles={(ev) => addSiDraftDocuments(index, ev)}
-                            onRemove={(id) => removeSiDraftDocument(index, id)}
+                        <div hidden={collapsed}>
+                          {showSiUpload && (
+                            <>
+                              <ShippingInstructionDocumentUploadSection
+                                documents={block.form.documents || []}
+                                onAddFiles={(ev) => addSiDraftDocuments(index, ev)}
+                                onRemove={(id) => removeSiDraftDocument(index, id)}
+                                idPrefix={`sp-si-${index}-`}
+                                extractBusy={siDocExtract.extractBusy && siDraftOcrIndex === index}
+                                compact
+                              />
+                              <SiExtractResultPanel
+                                report={siDocExtract.getReport(block.id)}
+                                onDismiss={() => siDocExtract.clearReport(block.id)}
+                              />
+                            </>
+                          )}
+                          <ShippingInstructionSiLinkedFields
+                            lookups={lookups}
+                            linkedPlan={linkedPlanForSiCards}
+                            form={block.form}
+                            setForm={(u) => setSiDraftForm(index, u)}
+                            npwpMaster={npwpMaster}
                             idPrefix={`sp-si-${index}-`}
-                            extractBusy={siDocExtract.extractBusy && siDraftOcrIndex === index}
+                            showPlanLinkedNote={false}
+                            omitVesselAndJetty
+                            omitDocumentUpload
+                            compact
                           />
-                          <SiExtractResultPanel
-                            report={siDocExtract.getReport(block.id)}
-                            onDismiss={() => siDocExtract.clearReport(block.id)}
-                          />
-                        </>
-                      )}
-                      <ShippingInstructionSiLinkedFields
-                        lookups={lookups}
-                        linkedPlan={linkedPlanForSiCards}
-                        form={block.form}
-                        setForm={(u) => setSiDraftForm(index, u)}
-                        npwpMaster={npwpMaster}
-                        idPrefix={`sp-si-${index}-`}
-                        showPlanLinkedNote={false}
-                        omitVesselAndJetty
-                        omitDocumentUpload
-                        compact
-                      />
-                    </div>
-                  ))}
-                  {showAddAnotherSi && (
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {showAddAnotherSi && siDrafts.length > 0 && (
                     <button type="button" className="btn btn--secondary" onClick={addSiDraftBlock} disabled={!lookups}>
                       {t('addAnotherSi')}
                     </button>
@@ -1212,21 +1528,51 @@ export default function ShipmentPlanCombinedFormModal({
               )}
             </fieldset>
 
-            <div className="modal__footer">
-              {isViewMode ? (
-                <button type="button" className="btn btn--primary" onClick={handleClose}>
-                  {t('close')}
-                </button>
-              ) : (
-                <>
-                  <button type="button" className="btn btn--secondary" onClick={handleClose}>
-                    {t('cancel')}
+            <div className="modal__footer shipment-plan-form__footer">
+              <div className="shipment-plan-form__footer-summary">
+                <span className={`shipment-plan-form__chip${purposeRow ? ' is-filled' : ''}`}>
+                  {purposeRow?.label || t('footerChipPurpose')}
+                </span>
+                <span className={`shipment-plan-form__chip${formVessel.trim() ? ' is-filled' : ''}`}>
+                  {formVessel.trim() || t('footerChipVessel')}
+                </span>
+                <span className={`shipment-plan-form__chip${formEta ? ' is-filled' : ''}`}>
+                  {formEta
+                    ? new Date(formEta).toLocaleDateString(i18n.language || undefined, { day: 'numeric', month: 'short' })
+                    : t('footerChipEta')}
+                </span>
+                <span className={`shipment-plan-form__chip${cargoDone ? ' is-filled' : ''}`}>
+                  {cargoDone ? `${totalCargoMt.toLocaleString('en-US')} MT` : `${t('footerChipCargo')} —`}
+                </span>
+                <span className={`shipment-plan-form__chip${siDrafts.length > 0 ? ' is-filled' : ''}`}>
+                  {siDrafts.length === 1
+                    ? t('footerChipInstruction', { count: siDrafts.length })
+                    : t('footerChipInstructions', { count: siDrafts.length })}
+                </span>
+              </div>
+              <div className="shipment-plan-form__footer-actions">
+                {!isViewMode && !editingPlan && siDrafts.length > 0 && (
+                  <span className="shipment-plan-form__submit-hint">
+                    {siDrafts.length === 1
+                      ? t('createPlanIncludesSi', { count: siDrafts.length })
+                      : t('createPlanIncludesSiPlural', { count: siDrafts.length })}
+                  </span>
+                )}
+                {isViewMode ? (
+                  <button type="button" className="btn btn--primary" onClick={handleClose}>
+                    {t('close')}
                   </button>
-                  <button type="submit" className="btn btn--primary">
-                    {submitLabel}
-                  </button>
-                </>
-              )}
+                ) : (
+                  <>
+                    <button type="button" className="btn btn--secondary" onClick={handleClose}>
+                      {t('cancel')}
+                    </button>
+                    <button type="submit" className="btn btn--primary">
+                      {submitLabel}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </form>
         </div>

@@ -10,6 +10,8 @@ Deploys JPS from the **`sit`** branch onto **three** Ubuntu servers in one priva
 
 **Deploy order is mandatory: DB → Backend (migrate + seed) → Frontend.**
 
+**Subsequent code deploys (preferred):** `Backend/scripts/deploy-prod-api-three-server.sh` on the API host and `Backend/scripts/deploy-prod-frontend-three-server.sh` on the App host (`DEPLOY_BRANCH=sit`). First-time clone / `.env` / seed stay manual (§1–4). Manual compose is fallback if a script fails (§6–7).
+
 Substitute these placeholders throughout (use your real **private** VPC IPs):
 
 | Placeholder | Meaning | Example |
@@ -20,7 +22,17 @@ Substitute these placeholders throughout (use your real **private** VPC IPs):
 | `APP_PUBLIC` | App public IP / DNS users hit | `203.0.113.10` or `staging.example.com` |
 | `APP_PORT` | App host port | `3080` |
 
-Target directory on **every** server: `/opt/jetty-planning-system`.
+**Repo directory (staging):**
+
+| Server | Private IP | Repo root |
+|---|---|---|
+| DB | `172.28.92.60` | `/opt/jetty-planning-system` |
+| API | `172.28.92.57` | `/opt/jetty-planning-system` |
+| **App** | `172.28.92.56` | **`/opt/jetty-planning-system/Jetty-Planning-System`** |
+
+The App path is staging only. Production stays `/opt/jetty-planning-system` on every host.
+
+The frontend script `cd`s to `JPS_REPO_DIR` (default `/opt/jetty-planning-system`). On the staging App host, set `JPS_REPO_DIR` to the nested path before every `deploy-prod-frontend-three-server.sh` command, including rollback.
 
 ---
 
@@ -56,6 +68,8 @@ git clone https://github.com/dwsitproject-hub/Jetty-Planning-System.git /opt/jet
 cd /opt/jetty-planning-system
 git checkout sit && git pull origin sit
 ```
+
+On the **staging App** server (`172.28.92.56`) the live checkout is `/opt/jetty-planning-system/Jetty-Planning-System`. Use that path for every App command in §4–§7. DB and API stay at `/opt/jetty-planning-system`.
 
 ---
 
@@ -118,15 +132,25 @@ APP_PUBLIC_URL=http://APP_PUBLIC:APP_PORT
 # UPLOAD_HOST_PATH=/mnt/synology/dev/JETTYPLANNING
 ENV
 
-# Start the API (remote DB)
-docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml up -d --build
+# Preferred: script (after Backend/.env exists)
+export DEPLOY_BRANCH=sit
+export RUN_MIGRATE=1
+bash Backend/scripts/deploy-prod-api-three-server.sh deploy
 
-# Run migrations (idempotent), then seed/refresh the admin login
-docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml exec -T jps-api npm run migrate
+# First-time only: seed/refresh the admin login
 docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml exec -T jps-api npm run seed:admin
 
-# Health
+# Health (script already curls this; re-check if needed)
 curl -s http://localhost:3000/api/v1/health   # {"status":"ok",...}
+```
+
+**Manual fallback** if the script fails:
+
+```bash
+docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml up -d --build
+docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml exec -T jps-api npm run migrate
+docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml exec -T jps-api npm run seed:admin
+curl -s http://localhost:3000/api/v1/health
 ```
 
 Migrations apply all 86 files cleanly (031 is now a no-op). `seed:admin` sets `admin` / `admin123` — change it after first login.
@@ -137,8 +161,11 @@ Migrations apply all 86 files cleanly (031 is now a no-op). `seed:admin` sets `a
 
 ## 4. Frontend / App server (`APP_IP`)
 
+Staging App repo root is `/opt/jetty-planning-system/Jetty-Planning-System` (`172.28.92.56` only).
+
 ```bash
-cd /opt/jetty-planning-system
+export JPS_REPO_DIR=/opt/jetty-planning-system/Jetty-Planning-System
+cd "$JPS_REPO_DIR"
 
 # Point nginx at the backend API private IP
 sed -i 's/172.28.92.57:3000/API_IP:3000/' Frontend/nginx.alicloud-app.conf
@@ -154,8 +181,14 @@ ENV
 cp rtsp-stream-viewer/.env.example rtsp-stream-viewer/.env
 # edit rtsp-stream-viewer/.env: set RTSP_URL=rtsp://USER:PASS@CAMERA_IP:554/Stream1 and RTSP_TRANSPORT=tcp
 
-docker compose -f docker-compose.app.yml up -d --build
-docker compose -f docker-compose.app.yml ps
+# Preferred: script (after root .env and nginx upstream are set)
+# JPS_REPO_DIR must stay set — the script cds to it, not to the shell's cwd
+export DEPLOY_BRANCH=sit
+bash Backend/scripts/deploy-prod-frontend-three-server.sh deploy
+
+# Manual fallback if the script fails:
+# docker compose -f docker-compose.app.yml up -d --build
+# docker compose -f docker-compose.app.yml ps
 ```
 
 Open **`http://APP_PUBLIC:APP_PORT`** → log in with `admin` / `admin123`.
@@ -175,12 +208,31 @@ In the browser: log in → Dashboard loads → Allocation & Berthing → **Jetty
 
 ## 6. Updating staging later (subsequent releases)
 
+**Preferred: `.sh` scripts** (same as production). First-time clone / `.env` stays manual (§1–4).
+
 ```bash
-# App server (most releases are frontend-only)
-cd /opt/jetty-planning-system && git pull origin sit
+# App server (most releases are frontend-only) — nested repo, staging only
+export JPS_REPO_DIR=/opt/jetty-planning-system/Jetty-Planning-System
+cd "$JPS_REPO_DIR"
+export DEPLOY_BRANCH=sit
+bash Backend/scripts/deploy-prod-frontend-three-server.sh deploy
+
+# API server (only when backend code or migrations change)
+cd /opt/jetty-planning-system
+export DEPLOY_BRANCH=sit
+export RUN_MIGRATE=1
+bash Backend/scripts/deploy-prod-api-three-server.sh deploy
+```
+
+**Manual fallback** if a script fails:
+
+```bash
+# App (staging App host only)
+export JPS_REPO_DIR=/opt/jetty-planning-system/Jetty-Planning-System
+cd "$JPS_REPO_DIR" && git pull origin sit
 docker compose -f docker-compose.app.yml up -d --build
 
-# Backend server (only when backend code or migrations change)
+# API
 cd /opt/jetty-planning-system && git pull origin sit
 docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml up -d --build
 docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml exec -T jps-api npm run migrate
@@ -188,12 +240,34 @@ docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml ex
 
 ## 7. Rollback
 
+**Preferred:**
+
 ```bash
-# Redeploy a known-good commit on the affected server
+# App host (staging) — same nested repo as deploy
+export JPS_REPO_DIR=/opt/jetty-planning-system/Jetty-Planning-System
+cd "$JPS_REPO_DIR"
+bash Backend/scripts/deploy-prod-frontend-three-server.sh rollback
+
+# API host (does not reverse migrations)
+cd /opt/jetty-planning-system
+bash Backend/scripts/deploy-prod-api-three-server.sh rollback
+```
+
+**Manual fallback:**
+
+```bash
+# App host (staging)
+export JPS_REPO_DIR=/opt/jetty-planning-system/Jetty-Planning-System
+cd "$JPS_REPO_DIR"
+git log --oneline -5
+git checkout <previous-good-sha>
+docker compose -f docker-compose.app.yml up -d --build
+
+# API host
 cd /opt/jetty-planning-system
 git log --oneline -5
 git checkout <previous-good-sha>
-docker compose -f docker-compose.app.yml up -d --build            # app, or the backend compose
+docker compose --env-file Backend/.env -f docker-compose.backend-api-only.yml up -d --build
 # DB: migrations are forward-only — restore from a dump if a migration must be undone
 # (pg_dump/pg_restore; see MANUAL-UPLOAD-RESTORE-GUIDE.md / PGADMIN-STAGING-DB-TUNNEL-WINDOWS.md)
 ```

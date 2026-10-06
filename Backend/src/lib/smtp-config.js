@@ -1,10 +1,10 @@
 /**
- * SMTP configuration: database (encrypted) with environment fallback.
+ * SMTP configuration from environment (Backend/.env on the API host).
+ * encryptSmtpPassword / decryptSmtpPassword are reused for other encrypted secrets.
  */
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 
-const CONFIG_ID = 1;
 let cachedTransport = null;
 let cachedTransportKey = null;
 
@@ -39,15 +39,81 @@ export function decryptSmtpPassword(ciphertext) {
   return Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
 }
 
+function parseEnvBoolean(raw, defaultWhenUnset) {
+  if (raw == null || String(raw).trim() === '') return defaultWhenUnset;
+  return !['0', 'false', 'no', 'off'].includes(String(raw).trim().toLowerCase());
+}
+
+/** STARTTLS required on submission port (587). DownstreamHub uses SMTP_REQUIRE_TLS=false. */
+export function getSmtpRequireTls(port, secure) {
+  if (secure || Number(port) === 465) return false;
+  return parseEnvBoolean(process.env.SMTP_REQUIRE_TLS, false);
+}
+
+/** Downstream Hub–style nodemailer transport (no requireTLS/timeouts/forced close). */
+export function isSmtpHubParityMode() {
+  return parseEnvBoolean(process.env.SMTP_HUB_PARITY, false);
+}
+
+/** Pause after SMTP send before closing socket (ms). Env: SMTP_POST_SEND_DELAY_MS (max 30s). */
+export function getSmtpPostSendDelayMs() {
+  const raw = process.env.SMTP_POST_SEND_DELAY_MS;
+  if (raw == null || String(raw).trim() === '') return 0;
+  const n = parseInt(String(raw).trim(), 10);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(n, 30_000);
+}
+
+function sleepMs(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+/** Wait after send so the mail server can finish spool before the client disconnects. */
+export async function smtpPostSendDelay() {
+  const ms = getSmtpPostSendDelayMs();
+  if (ms > 0) await sleepMs(ms);
+}
+
+/** Delay (if configured), close transport, clear cache — call after each sendMail. */
+export async function finalizeSmtpTransport(transport) {
+  if (isSmtpHubParityMode()) {
+    invalidateSmtpTransportCache();
+    return;
+  }
+  await smtpPostSendDelay();
+  invalidateSmtpTransportCache();
+  if (transport && typeof transport.close === 'function') {
+    try {
+      await transport.close();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function envFromAddress(user) {
+  return (
+    process.env.MAIL_FROM ||
+    process.env.EMAIL_FROM ||
+    process.env.SMTP_FROM ||
+    user ||
+    'jetty-planning@localhost'
+  );
+}
+
 function readEnvSmtp() {
   const host = process.env.SMTP_HOST;
   if (!host || !String(host).trim()) return null;
   const port = parseInt(process.env.SMTP_PORT || '587', 10);
-  const secure =
-    String(process.env.SMTP_SECURE || '').toLowerCase() === 'true' || port === 465;
+  const secureRaw = String(process.env.SMTP_SECURE || '').toLowerCase();
+  const secure = secureRaw === 'true' || secureRaw === '1' || port === 465;
   const user = process.env.SMTP_USER || '';
   const pass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD || '';
-  const rejectUnauthorized = String(process.env.SMTP_REJECT_UNAUTHORIZED ?? 'true').toLowerCase() !== 'false';
+  if (!user || !pass) return null;
+  const rejectUnauthorized =
+    process.env.SMTP_REJECT_UNAUTHORIZED !== 'false' && process.env.SMTP_REJECT_UNAUTHORIZED !== '0';
   return {
     source: 'environment',
     host: String(host).trim(),
@@ -55,81 +121,45 @@ function readEnvSmtp() {
     secure,
     user: user || null,
     pass: pass || null,
-    fromAddress: process.env.SMTP_FROM || user || 'jetty-planning@localhost',
+    fromAddress: envFromAddress(user),
     rejectUnauthorized,
     enabled: true,
   };
 }
 
-/**
- * @param {import('pg').Pool | import('pg').PoolClient} db
- */
-export async function loadSmtpConfigRow(db) {
-  const r = await db.query(
-    `SELECT id, host, port, secure, "user", password_encrypted, from_address,
-            reject_unauthorized, enabled, updated_at, updated_by
-     FROM smtp_config WHERE id = $1`,
-    [CONFIG_ID]
-  );
-  return r.rows[0] ?? null;
+/** Read-only status for admin UI (no secrets). */
+export function getSmtpEnvStatus() {
+  const cfg = readEnvSmtp();
+  if (!cfg) {
+    return { configured: false, source: 'none' };
+  }
+  return {
+    configured: true,
+    source: 'environment',
+    host: cfg.host,
+    port: cfg.port,
+    secure: cfg.secure,
+    user: cfg.user,
+    fromAddress: cfg.fromAddress,
+  };
 }
 
 /**
- * @param {import('pg').Pool | import('pg').PoolClient} db
+ * @param {import('pg').Pool | import('pg').PoolClient} [_db]
  */
-export async function getEffectiveSmtpConfig(db) {
-  const row = await loadSmtpConfigRow(db);
-  if (row?.enabled && row.host && String(row.host).trim()) {
-    let pass = '';
-    if (row.password_encrypted) {
-      try {
-        pass = decryptSmtpPassword(row.password_encrypted);
-      } catch {
-        pass = '';
-      }
-    }
-    return {
-      source: 'database',
-      host: String(row.host).trim(),
-      port: Number(row.port) || 465,
-      secure: Boolean(row.secure),
-      user: row.user || null,
-      pass: pass || null,
-      fromAddress: row.from_address || row.user || 'jetty-planning@localhost',
-      rejectUnauthorized: row.reject_unauthorized !== false,
-      enabled: true,
-      updatedAt: row.updated_at,
-    };
-  }
+export async function getEffectiveSmtpConfig(_db) {
   const envCfg = readEnvSmtp();
   if (envCfg) return envCfg;
   return { source: 'none', enabled: false };
 }
 
-/**
- * @param {import('pg').Pool | import('pg').PoolClient} db
- */
-export async function getSmtpConfigForAdmin(db) {
-  const row = await loadSmtpConfigRow(db);
-  const envCfg = readEnvSmtp();
-  const effective = await getEffectiveSmtpConfig(db);
-  return {
-    host: row?.host || envCfg?.host || '',
-    port: row?.port ?? envCfg?.port ?? 465,
-    secure: row?.secure ?? envCfg?.secure ?? true,
-    user: row?.user || envCfg?.user || '',
-    fromAddress: row?.from_address || envCfg?.fromAddress || row?.user || envCfg?.user || '',
-    rejectUnauthorized: row?.reject_unauthorized ?? envCfg?.rejectUnauthorized ?? true,
-    enabled: Boolean(row?.enabled),
-    passwordConfigured: Boolean(row?.password_encrypted),
-    source: effective.source,
-    updatedAt: row?.updated_at ?? null,
-  };
-}
-
 function transportCacheKey(cfg) {
   if (!cfg?.host) return '';
-  return [cfg.host, cfg.port, cfg.secure, cfg.user, cfg.pass, cfg.rejectUnauthorized].join('|');
+  const port = Number(cfg.port) || 587;
+  const secure = Boolean(cfg.secure) || port === 465;
+  const hub = isSmtpHubParityMode();
+  const requireTLS = hub ? false : getSmtpRequireTls(port, secure);
+  return [hub ? 'hub' : 'jps', cfg.host, cfg.port, cfg.secure, requireTLS, cfg.user, cfg.pass, cfg.rejectUnauthorized].join('|');
 }
 
 export function invalidateSmtpTransportCache() {
@@ -144,13 +174,29 @@ export function buildNodemailerTransport(cfg) {
   if (!cfg?.enabled || !cfg.host) return null;
   const key = transportCacheKey(cfg);
   if (cachedTransport && cachedTransportKey === key) return cachedTransport;
-  const transport = nodemailer.createTransport({
+  const port = Number(cfg.port) || 587;
+  const secure = Boolean(cfg.secure) || port === 465;
+  const hubParity = isSmtpHubParityMode();
+  const requireTLS = hubParity ? false : getSmtpRequireTls(port, secure);
+  const base = {
     host: cfg.host,
-    port: cfg.port,
-    secure: cfg.secure,
+    port,
+    secure,
     auth: cfg.user ? { user: cfg.user, pass: cfg.pass || '' } : undefined,
     tls: { rejectUnauthorized: cfg.rejectUnauthorized !== false },
-  });
+  };
+  const transport = nodemailer.createTransport(
+    hubParity
+      ? base
+      : {
+          ...base,
+          requireTLS,
+          pool: false,
+          connectionTimeout: 20_000,
+          greetingTimeout: 15_000,
+          socketTimeout: 25_000,
+        }
+  );
   cachedTransport = transport;
   cachedTransportKey = key;
   return transport;
@@ -170,57 +216,4 @@ export async function getSmtpTransport(db) {
 export async function getFromAddress(db) {
   const cfg = await getEffectiveSmtpConfig(db);
   return cfg.fromAddress || cfg.user || 'jetty-planning@localhost';
-}
-
-/**
- * @param {import('pg').Pool | import('pg').PoolClient} db
- * @param {object} input
- * @param {number | null} updatedBy
- */
-export async function saveSmtpConfig(db, input, updatedBy) {
-  const row = await loadSmtpConfigRow(db);
-  const host = input.host != null ? String(input.host).trim() : row?.host;
-  const port = input.port != null ? Number(input.port) : row?.port ?? 465;
-  const secure = input.secure != null ? Boolean(input.secure) : row?.secure ?? true;
-  const user = input.user != null ? String(input.user).trim() : row?.user;
-  const fromAddress =
-    input.fromAddress != null ? String(input.fromAddress).trim() : row?.from_address;
-  const rejectUnauthorized =
-    input.rejectUnauthorized != null
-      ? Boolean(input.rejectUnauthorized)
-      : row?.reject_unauthorized ?? true;
-  const enabled = input.enabled != null ? Boolean(input.enabled) : row?.enabled ?? false;
-
-  let passwordEncrypted = row?.password_encrypted ?? null;
-  if (input.password != null && String(input.password).trim()) {
-    passwordEncrypted = encryptSmtpPassword(String(input.password).trim());
-  }
-
-  await db.query(
-    `UPDATE smtp_config SET
-       host = $1,
-       port = $2,
-       secure = $3,
-       "user" = $4,
-       password_encrypted = $5,
-       from_address = $6,
-       reject_unauthorized = $7,
-       enabled = $8,
-       updated_at = NOW(),
-       updated_by = $9
-     WHERE id = $10`,
-    [
-      host || null,
-      Number.isFinite(port) ? port : 465,
-      secure,
-      user || null,
-      passwordEncrypted,
-      fromAddress || null,
-      rejectUnauthorized,
-      enabled,
-      updatedBy ?? null,
-      CONFIG_ID,
-    ]
-  );
-  invalidateSmtpTransportCache();
 }

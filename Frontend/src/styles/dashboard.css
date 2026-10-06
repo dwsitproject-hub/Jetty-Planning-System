@@ -3551,6 +3551,22 @@
   outline-offset: 1px;
 }
 
+button.v2-weekly-line__hit-target {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+}
+
+.v2-weekly-line__hit-target--clickable {
+  cursor: pointer;
+}
+
+.v2-weekly-line__hit-target--clickable:hover {
+  background: rgba(196, 58, 49, 0.06);
+}
+
 .v2-weekly-line__stroke {
   fill: none;
   stroke-linecap: round;
@@ -3606,6 +3622,21 @@
 .v2-weekly-line__ytick {
   font-size: 11px;
   fill: var(--color-text-steel);
+}
+
+.v2-weekly-line__point-group {
+  pointer-events: none;
+}
+
+.v2-weekly-line__point-label {
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  paint-order: stroke fill;
+  stroke: #fff;
+  stroke-width: 3px;
+  stroke-linejoin: round;
 }
 
 .v2-weekly-line__xtext {

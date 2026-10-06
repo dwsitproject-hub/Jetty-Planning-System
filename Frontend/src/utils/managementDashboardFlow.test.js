@@ -8,6 +8,7 @@ function row(overrides) {
     tb: '2026-06-01T00:00:00Z',
     status: 'SAILED',
     castOff: '2026-06-02T00:00:00Z',
+    sailedAt: '2026-06-02T06:00:00Z',
     purpose: 'Loading',
     qty: 1000,
     wait: 10,
