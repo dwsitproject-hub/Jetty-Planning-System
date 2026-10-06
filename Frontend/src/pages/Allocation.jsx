@@ -42,6 +42,13 @@ import '../styles/modal.css'
 import { MAX_REMARK_CHARS } from '../constants/inputLimits'
 import { mergeBerthsStateForPlanPov, mergeQueueRowsForPlanPov } from '../utils/allocationPlanPovMerge'
 import {
+  captureElementToCanvas,
+  downloadCanvasAsJpeg,
+  stitchCanvasesVertically,
+} from '../utils/captureDomAsJpeg'
+import { downloadCanvasesAsPdf } from '../utils/exportCanvasPdf'
+import { isStaleLazyChunkError, reloadOnceForStaleChunks } from '../utils/staleChunkReload'
+import {
   currentPhaseLabelForVessel,
   deriveCurrentPhaseIndex,
   getPlanAlongsideEndMs,
@@ -721,9 +728,6 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   }) => {
     setPlanExporting(true)
     try {
-      const { captureElementToCanvas, stitchCanvasesVertically, downloadCanvasAsJpeg } = await import(
-        '../utils/captureDomAsJpeg'
-      )
       const canvases = []
       if (includeSchematic && schematicExportRef.current) {
         const canvas = await captureElementToCanvas(schematicExportRef.current, {
@@ -747,7 +751,6 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
           : new Date().toISOString().slice(0, 10)
 
       if (format === 'pdf') {
-        const { downloadCanvasesAsPdf } = await import('../utils/exportCanvasPdf')
         await downloadCanvasesAsPdf(canvases, `allocation-plan-${dateYmd}.pdf`, {
           orientation: orientation === 'portrait' ? 'portrait' : 'landscape',
         })
@@ -758,6 +761,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('Allocation plan export failed:', err)
+      if (isStaleLazyChunkError(err) && reloadOnceForStaleChunks()) return
       throw err
     } finally {
       setPlanExporting(false)
