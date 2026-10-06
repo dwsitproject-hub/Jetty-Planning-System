@@ -9,7 +9,7 @@ export const PRODUCT_COLUMN_TOOLTIPS = {
   berthToStart:
     'Average time from alongside (TB) until the Cargo Operations operation window start.',
   avgFlow:
-    'Average tons moved per hour for this product: product qty ÷ cargo hours.',
+    'Average tons moved per hour for this product (moved qty ÷ logged cargo hours).',
   cargoDoneToSail:
     'Average time from cargo finished until the vessel sailed',
 }

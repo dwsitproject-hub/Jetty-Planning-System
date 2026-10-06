@@ -66,8 +66,26 @@ describe('expandVoyageToProductSlices', () => {
 describe('aggregateByProduct', () => {
   it('splits Loading vs Unloading and computes means over logged voyages', () => {
     const agg = aggregateByProduct([
-      row({ vessel: 'L1', commodity: 'FAME', wait: 4, pre: 2, qty: 800, opsH: 8, cargoDoneToSailH: 6 }),
-      row({ vessel: 'L2', commodity: 'fame', wait: 8, pre: null, qty: 200, opsH: 4, cargoDoneToSailH: 10 }),
+      row({
+        vessel: 'L1',
+        commodity: 'FAME',
+        wait: 4,
+        pre: 2,
+        qty: 800,
+        opsH: 8,
+        cargoDoneToSailH: 6,
+        productRatesByKey: { FAME: { rateMtH: 100, movedQty: 800, loggedHours: 8 } },
+      }),
+      row({
+        vessel: 'L2',
+        commodity: 'fame',
+        wait: 8,
+        pre: null,
+        qty: 200,
+        opsH: 4,
+        cargoDoneToSailH: 10,
+        productRatesByKey: { FAME: { rateMtH: 50, movedQty: 200, loggedHours: 4 } },
+      }),
       row({
         vessel: 'U1',
         purpose: 'Unloading',

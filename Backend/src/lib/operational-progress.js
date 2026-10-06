@@ -425,7 +425,9 @@ export async function loadOperationProgressContext(db, operationId) {
 
   const linesR = await db.query(
     `SELECT l.id, l.qty, l.manual_qty, l.atg_qty_mode, l.started_at, l.ended_at,
-            l.atg_hourly_detail,
+            l.atg_hourly_detail, l.commodity_id,
+            sc.short_name AS commodity_short_name,
+            sc.name AS commodity_name,
             COALESCE(
               (SELECT array_agg(clt.tank_id ORDER BY clt.tank_id)
                FROM operation_cargo_load_line_tanks clt
@@ -433,6 +435,7 @@ export async function loadOperationProgressContext(db, operationId) {
               ARRAY[]::bigint[]
             ) AS tank_ids
      FROM operation_cargo_load_lines l
+     LEFT JOIN si_commodities sc ON sc.id = l.commodity_id AND sc.deleted_at IS NULL
      JOIN operation_operational_activities oa ON oa.id = l.operational_activity_id
      WHERE oa.operation_id = $1
        AND oa.deleted_at IS NULL
@@ -450,10 +453,23 @@ export async function loadOperationProgressContext(db, operationId) {
     endedAt: l.ended_at ? new Date(l.ended_at).toISOString() : null,
     atgHourlyDetail: Array.isArray(l.atg_hourly_detail) ? l.atg_hourly_detail : null,
     tankIds: (l.tank_ids || []).map(Number).filter((n) => n > 0),
+    commodityId: l.commodity_id != null ? Number(l.commodity_id) : null,
+    commodityShortName: l.commodity_short_name ? String(l.commodity_short_name).trim() : null,
+    commodityName: l.commodity_name ? String(l.commodity_name).trim() : null,
   }));
 
   const siR = await db.query(
-    `SELECT tot.s AS qty, mc.code AS metric_code
+    `SELECT tot.s AS qty, mc.code AS metric_code,
+            COALESCE(
+              (SELECT array_agg(sub.k ORDER BY sub.k)
+               FROM (
+                 SELECT DISTINCT UPPER(TRIM(COALESCE(sc.short_name, sc.name))) AS k
+                 FROM shipping_instruction_breakdown b
+                 JOIN si_commodities sc ON sc.id = b.commodity_id AND sc.deleted_at IS NULL
+                 WHERE b.shipping_instruction_id = si.id AND b.deleted_at IS NULL
+               ) sub),
+              ARRAY[]::text[]
+            ) AS si_product_keys
      FROM operations o
      JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
      LEFT JOIN LATERAL (
@@ -474,6 +490,9 @@ export async function loadOperationProgressContext(db, operationId) {
   );
   const siQty = siR.rows[0]?.qty != null ? Number(siR.rows[0].qty) : null;
   const siMetric = siR.rows[0]?.metric_code || 'MT';
+  const siProductKeys = (siR.rows[0]?.si_product_keys || [])
+    .map((k) => String(k ?? '').trim())
+    .filter(Boolean);
   const thresholdConfig = resolveFlatThresholds(siMetric);
   const measurementBasis = thresholdConfig.measurementBasis;
 
@@ -489,6 +508,7 @@ export async function loadOperationProgressContext(db, operationId) {
     lines,
     siQty,
     siMetric,
+    siProductKeys,
     openingHatchStartAt: row.opening_hatch_start_at
       ? new Date(row.opening_hatch_start_at).toISOString()
       : null,
@@ -870,11 +890,14 @@ export async function summarizeCargoProgressContext(db, ctx, opts = {}) {
     });
   if (!ctx) return null;
 
-  const hasTankLine = ctx.lines.some((l) => l.tankIds?.length > 0);
-  if (!hasTankLine) return null;
+  const isContributingLine = (line) => {
+    if (!line?.startedAt) return false;
+    if (line.tankIds?.length > 0) return true;
+    const qty = Number(line.qty) || Number(line.manualQty) || 0;
+    return Boolean(line.endedAt) && qty > 0;
+  };
 
-  const activeLines = ctx.lines.filter((l) => l.startedAt && l.tankIds?.length > 0);
-  if (activeLines.length === 0) return null;
+  if (!ctx.lines.some(isContributingLine)) return null;
 
   let movedQty = 0;
   let hasAtg = false;
@@ -884,7 +907,17 @@ export async function summarizeCargoProgressContext(db, ctx, opts = {}) {
   let atgPartial = false;
 
   for (const line of ctx.lines) {
-    if (!line.startedAt || !line.tankIds?.length) continue;
+    if (!isContributingLine(line)) continue;
+
+    if (!line.tankIds?.length) {
+      hasManual = true;
+      if (line.endedAt) {
+        movedQty += Number(line.qty) || Number(line.manualQty) || 0;
+      } else {
+        hasActiveCargo = true;
+      }
+      continue;
+    }
 
     const { atgTankIds, manualTankIds } = await partitionLineTanks(db, line.tankIds);
     const mode = resolveLineMode({
