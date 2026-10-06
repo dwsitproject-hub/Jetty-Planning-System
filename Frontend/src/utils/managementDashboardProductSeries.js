@@ -117,7 +117,7 @@ export function enumerateBuckets(startMs, endMs, granularity) {
         avgWait: null,
         avgPre: null,
         avgRate: null,
-        avgSign2Co: null,
+        avgCargoDoneToSail: null,
       })
     }
     cursor = granularity === 'week' ? cursor + 7 * MS_DAY : startOfMonth(startMsOfNextMonth(cursor))
@@ -150,6 +150,23 @@ function meanPick(rows, pick) {
  * @param {string} productKey
  * @param {{ start: number, end: number, granularity?: 'week'|'month' }} opts
  */
+/**
+ * Voyages whose cast-off falls in the same bucket as chart aggregation.
+ * @param {Array<object>} voyages
+ * @param {{ key?: string }} bucket from buildProductTimeSeries / enumerateBuckets
+ * @param {'week'|'month'} granularity
+ */
+export function voyagesInCastOffBucket(voyages, bucket, granularity) {
+  const bucketKey = bucket?.key
+  if (!bucketKey) return []
+  const g = granularity === 'week' ? 'week' : 'month'
+  return (Array.isArray(voyages) ? voyages : []).filter((v) => {
+    const co = v.castOff ? new Date(v.castOff).getTime() : NaN
+    if (!Number.isFinite(co)) return false
+    return bucketMetaForCastOff(co, g).key === bucketKey
+  })
+}
+
 export function buildProductTimeSeries(voyages, productKey, opts) {
   const start = opts.start
   const end = opts.end
@@ -173,7 +190,7 @@ export function buildProductTimeSeries(voyages, productKey, opts) {
       avgWait: meanPick(_voyages, (r) => r.wait),
       avgPre: meanPick(_voyages, (r) => r.pre),
       avgRate: meanPick(_voyages, (r) => sliceRateForProduct(r, productKey)),
-      avgSign2Co: meanPick(_voyages, (r) => r.sign2co),
+      avgCargoDoneToSail: meanPick(_voyages, (r) => r.cargoDoneToSailH),
     }
   })
 }

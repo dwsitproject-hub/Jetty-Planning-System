@@ -88,9 +88,13 @@
 
 .mgmt-product-tables{display:flex;flex-direction:column;gap:14px}
 .mgmt-product-block__title{font-size:13px;font-weight:700;margin:0 0 6px;display:flex;align-items:center;flex-wrap:wrap;gap:4px}
-.mgmt-prod-row{cursor:pointer}
-.mgmt-prod-row:hover td{background:var(--color-bg-lighter,#F1F3EF)}
-.mgmt-prod-row:focus-visible{outline:2px solid var(--mg-brand);outline-offset:-2px}
+.mgmt-product-cell--click{cursor:pointer}
+.mgmt-product-cell--click:hover{background:var(--color-bg-lighter,#F1F3EF)}
+.mgmt-product-cell--click:focus-visible{outline:2px solid var(--mg-brand);outline-offset:-2px}
+.mgmt-product-metric-seg{margin:0 0 10px;flex-wrap:wrap}
+.mgmt-product-single-chart{margin-top:4px}
+.mgmt-product-single-chart .v2-weekly-line__chart-wrap{min-height:300px}
+.mgmt-product-single-chart .v2-weekly-line__svg{width:100%;height:auto;min-height:300px}
 .mgmt-product-th{white-space:normal;vertical-align:bottom}
 .mgmt-product-th__inner{display:inline-flex;align-items:center;justify-content:flex-end;gap:4px;max-width:100%}
 .mgmt-product-th:first-child .mgmt-product-th__inner{justify-content:flex-start}
@@ -125,13 +129,55 @@
 .mgmt-product-chart-gran{margin:0 0 4px;font-size:12px}
 .mgmt-product-chart-hint{margin:0 0 8px;font-size:12px}
 .mgmt-product-weekly-wrap{margin-top:4px}
-.mgmt-product-weekly-trends.v2-weekly__body{
-  grid-template-columns:1fr;
-  max-height:min(68vh,720px);
-  overflow-y:auto;
-  padding-right:4px;
-  gap:16px;
+
+.mgmt-product-bucket-drill{
+  margin-top:20px;
+  padding-top:16px;
+  border-top:1px solid var(--color-border,#e0e0e0);
 }
-@media(min-width:960px){
-  .mgmt-product-weekly-trends.v2-weekly__body{grid-template-columns:repeat(2,minmax(0,1fr))}
+.mgmt-product-bucket-drill__head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:10px;
+  flex-wrap:wrap;
+}
+.mgmt-product-bucket-drill__title{
+  margin:0;
+  font-size:15px;
+  font-weight:600;
+}
+.mgmt-product-bucket-drill__sub{margin:4px 0 0;font-size:12px}
+.mgmt-product-bucket-drill__clear{
+  flex-shrink:0;
+  font-size:13px;
+  padding:6px 12px;
+  border:1px solid var(--color-border,#ccc);
+  border-radius:6px;
+  background:var(--color-surface,#fff);
+  cursor:pointer;
+}
+.mgmt-product-bucket-drill__clear:hover{background:var(--color-surface-muted,#f5f5f5)}
+.mgmt-product-bucket-drill__metric-pill{
+  display:inline-block;
+  font-weight:600;
+  color:var(--color-text,#1a1a1a);
+  padding:2px 8px;
+  border-radius:4px;
+  background:rgba(196,58,49,.1);
+  border:1px solid rgba(196,58,49,.22);
+}
+.mgmt-product-chart-block--drill-source{
+  box-shadow:inset 0 0 0 2px rgba(196,58,49,.35);
+  border-radius:8px;
+  padding:4px;
+}
+.mgmt-product-voyage-table .mgmt-product-voyage-col--focus{
+  background:rgba(196,58,49,.08);
+  box-shadow:inset 0 0 0 1px rgba(196,58,49,.28);
+}
+.mgmt-product-voyage-table thead .mgmt-product-voyage-col--focus{
+  background:rgba(196,58,49,.12);
+  font-weight:600;
 }

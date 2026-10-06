@@ -6,11 +6,17 @@
  * cards are always a live "now" snapshot.
  */
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { fetchOperations, fetchSubProcesses, fetchOperationalActivities } from '../api/operations'
+import {
+  fetchOperations,
+  fetchSubProcesses,
+  fetchOperationalActivities,
+  fetchActivityTimeline,
+} from '../api/operations'
 import WidgetDetailModal from '../components/WidgetDetailModal'
 import ProductDetailModal from '../components/dashboard/ProductDetailModal'
-import { computeFlow } from '../utils/managementDashboardFlow'
+import { computeFlow, dedupSailedRows } from '../utils/managementDashboardFlow'
 import { aggregateByProduct, voyagesForProduct } from '../utils/managementDashboardProduct'
+import { cargoDoneToSailFromTimeline } from '../utils/managementDashboardCargoDone'
 import ManagementProductTable from '../components/dashboard/ManagementProductTable'
 import '../styles/management-dashboard.css'
 import '../styles/modal.css'
@@ -108,8 +114,26 @@ function periodWindow(key, opts = {}, now = new Date()) {
   return { start: null, end: null, prev: null, label: 'All data', prevLabel: null }
 }
 
+const TIMELINE_FETCH_CONCURRENCY = 8
+
+/** @template T @template R @param {T[]} items @param {number} limit @param {(item: T) => Promise<R>} fn */
+async function mapPool(items, limit, fn) {
+  const results = new Array(items.length)
+  let next = 0
+  async function worker() {
+    while (next < items.length) {
+      const i = next++
+      results[i] = await fn(items[i])
+    }
+  }
+  if (!items.length) return []
+  const workers = Math.min(limit, items.length)
+  await Promise.all(Array.from({ length: workers }, () => worker()))
+  return results
+}
+
 /** Normalize an API operation row into the shape the dashboard computes on. */
-function toRow(o, detail) {
+function toRow(o, detail, timelineEvents) {
   const tb = o.tbAt || o.dockingStartTime
   const subs = detail?.subs || []
   const acts = detail?.acts || []
@@ -144,10 +168,13 @@ function toRow(o, detail) {
     cargoBreakdownSummary: Array.isArray(o.cargoBreakdownSummary) ? o.cargoBreakdownSummary : [],
     qty: Number(o.cargoSiQty) || 0, pct: o.completionPercent,
     eta: o.eta, ta: o.ta, tb, etc: o.estimatedCompletionTime, opsDone: o.operationsCompletedAt,
-    castOff: o.castOffAt, norA: !!o.norAcceptedAt,
+    castOff: o.castOffAt, sailedAt: o.sailedAt ?? null, norA: !!o.norAcceptedAt,
     created: o.createdAt,
     wait, berth, pre, post, opsH,
-    sign2co: hrs(o.operationsCompletedAt, o.castOffAt),
+    cargoDoneToSailH:
+      o.status === 'SAILED'
+        ? cargoDoneToSailFromTimeline(timelineEvents, o.sailedAt)
+        : null,
     late: opsDoneOrCo && ms(o.estimatedCompletionTime) ? +(((opsDoneOrCo - ms(o.estimatedCompletionTime)) / H).toFixed(1)) : null,
     actsCount: acts.length,
   }
@@ -168,6 +195,7 @@ function Delta({ cur, prev, lowerIsBetter = false, unit = '' }) {
 export default function ManagementDashboard() {
   const [ops, setOps] = useState([])
   const [details, setDetails] = useState({})
+  const [timelinesByOpId, setTimelinesByOpId] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [period, setPeriod] = useState('d30')
@@ -200,7 +228,15 @@ export default function ManagementDashboard() {
             return [id, { subs: subs || [], acts: (oa && oa.entries) || [] }]
           })
         )
-        if (!cancelled) setDetails(Object.fromEntries(pairs))
+        const sailedIds = arr.filter((o) => o.status === 'SAILED').map((o) => o.id)
+        const timelinePairs = await mapPool(sailedIds, TIMELINE_FETCH_CONCURRENCY, async (id) => {
+          const res = await fetchActivityTimeline(id).catch(() => ({ events: [] }))
+          return [id, (res && res.events) || []]
+        })
+        if (!cancelled) {
+          setDetails(Object.fromEntries(pairs))
+          setTimelinesByOpId(Object.fromEntries(timelinePairs))
+        }
       } catch (e) {
         if (!cancelled) setError(e?.message || 'Failed to load operations')
       } finally {
@@ -227,7 +263,10 @@ export default function ManagementDashboard() {
   const closeModal = useCallback(() => setActiveModal(null), [])
   const closeProductDetail = useCallback(() => setProductDetail(null), [])
 
-  const rows = useMemo(() => ops.map((o) => toRow(o, details[o.id])), [ops, details])
+  const rows = useMemo(
+    () => ops.map((o) => toRow(o, details[o.id], timelinesByOpId[o.id])),
+    [ops, details, timelinesByOpId]
+  )
   const filtered = useMemo(
     () => rows.filter((r) => purpose === 'All' || r.purpose === purpose),
     [rows, purpose]
@@ -237,12 +276,25 @@ export default function ManagementDashboard() {
     () => periodWindow(period, { month: monthPick, from: rangeFrom, to: rangeTo }),
     [period, monthPick, rangeFrom, rangeTo]
   )
-  const inWin = (r, w) => !w || w.start == null || (ms(r.castOff) >= w.start && ms(r.castOff) < w.end)
-  const cur = useMemo(() => computeFlow(filtered.filter((r) => inWin(r, win))), [filtered, win])
+  /** Flow KPI tiles / waterfall: cast-off date in period */
+  const inWinCastOff = (r, w) =>
+    !w || w.start == null || (ms(r.castOff) >= w.start && ms(r.castOff) < w.end)
+  /** By commodity: sailed off (Clearance Sailed at), not cast-off alone */
+  const inWinSailedOff = (r, w) =>
+    !w || w.start == null || (ms(r.sailedAt) >= w.start && ms(r.sailedAt) < w.end)
+
+  const cur = useMemo(() => computeFlow(filtered.filter((r) => inWinCastOff(r, win))), [filtered, win])
   const prev = useMemo(
-    () => (win.prev ? computeFlow(filtered.filter((r) => inWin(r, win.prev))) : null),
+    () => (win.prev ? computeFlow(filtered.filter((r) => inWinCastOff(r, win.prev))) : null),
     [filtered, win]
   )
+
+  const productSailedRows = useMemo(() => {
+    const sailed = filtered.filter(
+      (r) => r.status === 'SAILED' && r.sailedAt && inWinSailedOff(r, win)
+    )
+    return dedupSailedRows(sailed)
+  }, [filtered, win])
 
   // Snapshot instant: the end of the selected period, capped at now. Windows
   // that include the present behave as a live snapshot.
@@ -336,8 +388,8 @@ export default function ManagementDashboard() {
   const inScope = useMemo(() => {
     const { E } = snap
     return filtered
-      .filter((r) => (r.castOff && inWin(r, win)) || atBerthAt(r, E))
-      .map((r) => ({ ...r, sailedInPeriod: !!(r.castOff && inWin(r, win)) }))
+      .filter((r) => (r.castOff && inWinCastOff(r, win)) || atBerthAt(r, E))
+      .map((r) => ({ ...r, sailedInPeriod: !!(r.castOff && inWinCastOff(r, win)) }))
   }, [filtered, win, snap])
 
   const tableRows = useMemo(
@@ -351,9 +403,10 @@ export default function ManagementDashboard() {
     : new Date(snap.E - 1).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 
   const flowFooter = `Based on sailed voyages with cast-off in ${periodLabel}`
+  const productFlowFooter = `Based on sailed voyages with sailed off in ${periodLabel}`
   const productAgg = useMemo(
-    () => aggregateByProduct(cur.sailedRows, { purposeFilter: purpose }),
-    [cur.sailedRows, purpose]
+    () => aggregateByProduct(productSailedRows, { purposeFilter: purpose }),
+    [productSailedRows, purpose]
   )
   const showProductIncoming = purpose !== 'Loading'
   const showProductOutgoing = purpose !== 'Unloading'
@@ -467,17 +520,20 @@ export default function ManagementDashboard() {
   }, [cur, flowFooter])
 
   const openProductDetail = useCallback(
-    (productRow) => {
-      const voyages = voyagesForProduct(cur.sailedRows, productRow.key, productRow.purpose)
+    (productRow, context = { view: 'table' }) => {
+      const voyages = voyagesForProduct(productSailedRows, productRow.key, productRow.purpose)
+      const initialView = context.view === 'chart' ? 'chart' : 'table'
       setProductDetail({
         productRow,
         voyages,
         win: { start: win.start, end: win.end, label: win.label },
         periodLabel,
-        flowFooter,
+        flowFooter: productFlowFooter,
+        initialView,
+        focusMetricKey: context.metricKey ?? null,
       })
     },
-    [cur.sailedRows, flowFooter, win, periodLabel]
+    [productSailedRows, productFlowFooter, win, periodLabel]
   )
 
   const openWfDetail = useCallback((seg) => {
@@ -751,7 +807,7 @@ export default function ManagementDashboard() {
               outgoing={productAgg.outgoing}
               showIncoming={showProductIncoming}
               showOutgoing={showProductOutgoing}
-              onRowClick={openProductDetail}
+              onProductOpen={openProductDetail}
             />
           </section>
 
@@ -937,7 +993,14 @@ function FragmentRow({ r, eff, open, onToggle }) {
           <div className="text-steel" style={{ marginBottom: 6 }}>
             <b>Milestones</b> — ETA {dt(r.eta)} · TA {dt(r.ta)} · TB {dt(r.tb)} · Est. completion {dt(r.etc)} · Ops done {dt(r.opsDone)} · Cast-off {dt(r.castOff)}
             {r.norA ? '' : <b style={{ color: 'var(--color-danger,#B3261E)' }}> · NOR not accepted</b>}
-            {r.sign2co ? <b style={{ color: 'var(--color-danger,#B3261E)' }}> · sign-off→cast-off {fmt(r.sign2co / 24, 1)} d</b> : ''}
+            {r.cargoDoneToSailH != null ? (
+              <b style={{ color: 'var(--color-danger,#B3261E)' }}>
+                {' '}
+                · cargo done→sailed off {fmt(r.cargoDoneToSailH / 24, 1)} d
+              </b>
+            ) : (
+              ''
+            )}
           </div>
           {bars.map((b) => (
             <div key={b[0]} className="mgmt-tlrow">

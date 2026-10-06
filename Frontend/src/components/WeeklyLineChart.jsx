@@ -89,6 +89,7 @@ export default function WeeklyLineChart({
   weekIsUpcoming = [],
   nullGap = false,
   formatYTick = defaultFormatYTick,
+  onBucketClick,
 }) {
   const n = weekLabels.length
   if (n === 0) return null
@@ -258,8 +259,18 @@ export default function WeeklyLineChart({
                   placement={weekTooltip.placement ?? 'left'}
                   maxWidth={weekTooltip.maxWidth ?? 360}
                   maxHeight={weekTooltip.maxHeight ?? 260}
+                  interactiveChild={Boolean(onBucketClick)}
                 >
-                  <span className="v2-weekly-line__hit-target" />
+                  {onBucketClick ? (
+                    <button
+                      type="button"
+                      className="v2-weekly-line__hit-target v2-weekly-line__hit-target--clickable"
+                      aria-label={`Show voyages for ${lab}`}
+                      onClick={() => onBucketClick(i)}
+                    />
+                  ) : (
+                    <span className="v2-weekly-line__hit-target" />
+                  )}
                 </InteractiveTooltip>
               </div>
             ))}

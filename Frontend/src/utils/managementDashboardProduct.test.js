@@ -20,7 +20,7 @@ function row(overrides) {
     wait: 10,
     pre: 4,
     opsH: 10,
-    sign2co: 8,
+    cargoDoneToSailH: 8,
     ...overrides,
   }
 }
@@ -66,8 +66,8 @@ describe('expandVoyageToProductSlices', () => {
 describe('aggregateByProduct', () => {
   it('splits Loading vs Unloading and computes means over logged voyages', () => {
     const agg = aggregateByProduct([
-      row({ vessel: 'L1', commodity: 'FAME', wait: 4, pre: 2, qty: 800, opsH: 8, sign2co: 6 }),
-      row({ vessel: 'L2', commodity: 'fame', wait: 8, pre: null, qty: 200, opsH: 4, sign2co: 10 }),
+      row({ vessel: 'L1', commodity: 'FAME', wait: 4, pre: 2, qty: 800, opsH: 8, cargoDoneToSailH: 6 }),
+      row({ vessel: 'L2', commodity: 'fame', wait: 8, pre: null, qty: 200, opsH: 4, cargoDoneToSailH: 10 }),
       row({
         vessel: 'U1',
         purpose: 'Unloading',
@@ -76,7 +76,7 @@ describe('aggregateByProduct', () => {
         pre: 6,
         qty: 600,
         opsH: 6,
-        sign2co: 4,
+        cargoDoneToSailH: 4,
         tb: '2026-06-03T00:00:00Z',
       }),
     ])
@@ -89,7 +89,7 @@ describe('aggregateByProduct', () => {
     assert.equal(agg.outgoing[0].avgPre, 2)
     assert.equal(agg.outgoing[0].coverage.preLogged, 1)
     assert.equal(agg.outgoing[0].avgRate, 75)
-    assert.equal(agg.outgoing[0].avgSign2Co, 8)
+    assert.equal(agg.outgoing[0].avgCargoDoneToSail, 8)
 
     assert.equal(agg.incoming.length, 1)
     assert.equal(agg.incoming[0].label, 'CPO')

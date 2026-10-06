@@ -3551,6 +3551,22 @@
   outline-offset: 1px;
 }
 
+button.v2-weekly-line__hit-target {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+}
+
+.v2-weekly-line__hit-target--clickable {
+  cursor: pointer;
+}
+
+.v2-weekly-line__hit-target--clickable:hover {
+  background: rgba(196, 58, 49, 0.06);
+}
+
 .v2-weekly-line__stroke {
   fill: none;
   stroke-linecap: round;
