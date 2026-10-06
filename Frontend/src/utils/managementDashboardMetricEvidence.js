@@ -25,7 +25,7 @@ function hrs(a, b) {
   return x != null && y != null && y >= x ? +(((y - x) / H).toFixed(1)) : null
 }
 
-/** @typedef {'missing_ta'|'missing_tb'|'tb_before_ta'|'wait_exceeds_berth'|'wait_exceeds_cap'|null} WaitExcludeReason */
+/** @typedef {'missing_ta'|'missing_tb'|'tb_before_ta'|'wait_exceeds_cap'|null} WaitExcludeReason */
 
 /**
  * @param {object} row normalized voyage row from ManagementDashboard toRow
@@ -45,16 +45,14 @@ export function waitEvidence(row, opts = {}) {
   if (!ta) excludeReason = 'missing_ta'
   else if (!tb) excludeReason = 'missing_tb'
   else if (rawWait == null) excludeReason = 'tb_before_ta'
-  else if (berth != null && rawWait > berth) excludeReason = 'wait_exceeds_berth'
   else if (rawWait > WAIT_CAP_H) excludeReason = 'wait_exceeds_cap'
 
   return {
     ta,
     tb,
     etb,
-    rawWaitHours: excludeReason && excludeReason !== 'wait_exceeds_berth' && excludeReason !== 'wait_exceeds_cap'
-      ? null
-      : rawWait,
+    rawWaitHours:
+      excludeReason && excludeReason !== 'wait_exceeds_cap' ? null : rawWait,
     displayedWaitHours: displayedWait,
     excludeReason: displayedWait == null ? excludeReason : null,
     berthHours: berth,
@@ -65,7 +63,6 @@ export const WAIT_EXCLUDE_LABELS = {
   missing_ta: 'TA (time of arrival) is not recorded on this operation.',
   missing_tb: 'TB (time berthed / alongside) is not recorded.',
   tb_before_ta: 'TB is before TA — interval invalid.',
-  wait_exceeds_berth: 'TA→TB exceeds TB→cast-off (berth) — treated as outlier and hidden.',
   wait_exceeds_cap: 'TA→TB exceeds 1 year — treated as corrupt and hidden.',
 }
 
