@@ -3624,6 +3624,21 @@ button.v2-weekly-line__hit-target {
   fill: var(--color-text-steel);
 }
 
+.v2-weekly-line__point-group {
+  pointer-events: none;
+}
+
+.v2-weekly-line__point-label {
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  paint-order: stroke fill;
+  stroke: #fff;
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
 .v2-weekly-line__xtext {
   font-size: 10px;
   fill: var(--color-text-steel);
