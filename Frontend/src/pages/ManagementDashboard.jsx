@@ -17,6 +17,10 @@ import ProductDetailModal from '../components/dashboard/ProductDetailModal'
 import { computeFlow, dedupSailedRows } from '../utils/managementDashboardFlow'
 import { aggregateByProduct, voyagesForProduct } from '../utils/managementDashboardProduct'
 import { cargoDoneToSailFromTimeline } from '../utils/managementDashboardCargoDone'
+import {
+  cargoOperationWindowStartAt,
+  computeBerthToStartCargoHours,
+} from '../utils/managementDashboardMetricEvidence.js'
 import ManagementProductTable from '../components/dashboard/ManagementProductTable'
 import '../styles/management-dashboard.css'
 import '../styles/modal.css'
@@ -52,7 +56,7 @@ const idleAtBerth = (r) => {
 function buildPhaseBars(r) {
   const bars = []
   if (r.wait != null) bars.push(['Anchorage wait', r.wait, 'wf-wait'])
-  if (r.pre != null) bars.push(['Pre-checking', r.pre, 'wf-pre'])
+  if (r.pre != null) bars.push(['Berth → start cargo', r.pre, 'wf-pre'])
   if (r.opsH != null) {
     bars.push([
       'Cargo operations',
@@ -152,8 +156,8 @@ function toRow(o, detail, timelineEvents) {
     opsH = +(((en - st) / H).toFixed(1))
   }
   const berth = hrs(tb, o.castOffAt)
-  let pre = phase('Pre-Checking')
-  if (pre != null && berth != null && pre > berth) pre = null // guard timestamp outliers
+  const cargoOpsStartAt = cargoOperationWindowStartAt({ acts })
+  let pre = computeBerthToStartCargoHours(tb, cargoOpsStartAt, berth)
   let post = phase('Post-Checking')
   if (post != null && berth != null && post > berth) post = null
   let wait = hrs(o.ta, tb)
@@ -346,7 +350,7 @@ export default function ManagementDashboard() {
     const post = avg(postH)
     const segs = [
       { n: 'Anchorage wait (TA→TB)', v: wait, cls: 'wf-wait', getVal: (r) => r.wait },
-      { n: 'Pre-checking', v: pre, cls: 'wf-pre', getVal: (r) => r.pre },
+      { n: 'Berth → start cargo', v: pre, cls: 'wf-pre', getVal: (r) => r.pre },
       { n: 'Cargo operations', v: opsH, cls: purpose === 'Loading' ? 'wf-load' : purpose === 'Unloading' ? 'wf-disch' : 'wf-ops', getVal: (r) => r.opsH },
       { n: 'Idle / delays at berth', v: idle, cls: 'wf-idle', getVal: idleAtBerth },
       { n: 'Post-checking & sign-off', v: post, cls: 'wf-post', getVal: postH },
@@ -531,9 +535,11 @@ export default function ManagementDashboard() {
         flowFooter: productFlowFooter,
         initialView,
         focusMetricKey: context.metricKey ?? null,
+        opDetailsById: details,
+        timelinesByOpId,
       })
     },
-    [productSailedRows, productFlowFooter, win, periodLabel]
+    [productSailedRows, productFlowFooter, win, periodLabel, details, timelinesByOpId]
   )
 
   const openWfDetail = useCallback((seg) => {

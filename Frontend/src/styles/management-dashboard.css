@@ -181,3 +181,182 @@
   background:rgba(196,58,49,.12);
   font-weight:600;
 }
+.mgmt-product-voyage-metric-cell{
+  cursor:pointer;
+  transition:background .12s ease;
+}
+.mgmt-product-voyage-metric-cell:hover{
+  background:rgba(196,58,49,.06);
+}
+.mgmt-product-voyage-metric-cell--open{
+  background:rgba(196,58,49,.1);
+  box-shadow:inset 0 0 0 1px rgba(196,58,49,.25);
+}
+.mgmt-product-metric-evidence-row td{
+  padding:0 !important;
+  border-top:none;
+  background:var(--color-bg-lighter,#F6F7F4);
+}
+.mgmt-product-metric-evidence{
+  margin:4px 10px 12px;
+  padding:12px 14px 14px;
+  border:1px solid var(--color-border,#D8DDE3);
+  border-radius:10px;
+  background:var(--color-surface,#fff);
+  font-size:12.5px;
+  box-shadow:0 1px 2px rgba(15,23,42,.04);
+}
+.mgmt-product-metric-evidence[data-metric="wait"]{
+  border-left:3px solid var(--v2-chart-atberth,#3B6EA8);
+}
+.mgmt-product-metric-evidence[data-metric="pre"]{
+  border-left:3px solid #C43A31;
+}
+.mgmt-product-metric-evidence[data-metric="flow"]{
+  border-left:3px solid var(--v2-chart-sailed,#2E7D4F);
+}
+.mgmt-product-metric-evidence[data-metric="cargoDoneToSail"]{
+  border-left:3px solid #6B5B95;
+}
+.mgmt-product-metric-evidence__head{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:baseline;
+  gap:4px 10px;
+  margin-bottom:10px;
+  padding-bottom:8px;
+  border-bottom:1px solid var(--color-border,#E8ECF0);
+}
+.mgmt-product-metric-evidence__metric{
+  font-weight:700;
+  font-size:13px;
+  letter-spacing:.01em;
+  color:var(--color-text,#1A1D21);
+}
+.mgmt-product-metric-evidence__vessel{
+  font-size:12px;
+  font-weight:500;
+  color:var(--color-text-steel,#5B6675);
+}
+.mgmt-product-metric-evidence__tables{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+.mgmt-product-metric-evidence__section-title{
+  margin:0 0 6px;
+  font-size:10.5px;
+  font-weight:700;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--color-text-steel,#5B6675);
+}
+.mgmt-product-metric-evidence__note,
+.mgmt-product-metric-evidence__warn{
+  margin:10px 0 0;
+  padding:8px 10px;
+  font-size:12px;
+  line-height:1.45;
+  border-radius:6px;
+}
+.mgmt-product-metric-evidence__note{
+  background:var(--color-bg-lighter,#F6F7F4);
+}
+.mgmt-product-metric-evidence__warn{
+  color:var(--color-danger,#B3261E);
+  font-weight:600;
+  background:rgba(179,38,30,.06);
+}
+.mgmt-product-metric-evidence__kv{
+  width:100%;
+  max-width:32rem;
+  border-collapse:separate;
+  border-spacing:0;
+  font-size:12.5px;
+  font-variant-numeric:tabular-nums;
+  border:1px solid var(--color-border,#E2E6EA);
+  border-radius:8px;
+  overflow:hidden;
+}
+.mgmt-product-metric-evidence__kv th,
+.mgmt-product-metric-evidence__kv td{
+  padding:7px 12px;
+  vertical-align:middle;
+  border-bottom:1px solid var(--color-border,#EEF1F4);
+}
+.mgmt-product-metric-evidence__kv tr:last-child th,
+.mgmt-product-metric-evidence__kv tr:last-child td{
+  border-bottom:none;
+}
+.mgmt-product-metric-evidence__kv th[scope="row"]{
+  width:52%;
+  font-weight:500;
+  text-align:left;
+  color:var(--color-text-steel,#5B6675);
+  background:var(--color-surface-muted,#F8F9FA);
+}
+.mgmt-product-metric-evidence__kv td{
+  text-align:right;
+  font-weight:600;
+  color:var(--color-text,#1A1D21);
+}
+.mgmt-product-metric-evidence__kv tr[data-kind="muted"] th{
+  color:var(--color-text-steel,#8A939E);
+  font-weight:400;
+  font-style:italic;
+}
+.mgmt-product-metric-evidence__kv tr[data-kind="muted"] td{
+  font-weight:500;
+  color:var(--color-text-steel,#5B6675);
+}
+.mgmt-product-metric-evidence__kv tr[data-kind="computed"] th,
+.mgmt-product-metric-evidence__kv tr[data-kind="computed"] td{
+  background:#FAFBFC;
+}
+.mgmt-product-metric-evidence__kv tr[data-kind="displayed"] th{
+  background:rgba(196,58,49,.06);
+  color:#8B2E28;
+  font-weight:600;
+}
+.mgmt-product-metric-evidence__kv tr[data-kind="displayed"] td{
+  background:rgba(196,58,49,.06);
+  color:#8B2E28;
+  font-weight:700;
+}
+.mgmt-product-metric-evidence__kv--grid{
+  max-width:none;
+}
+.mgmt-product-metric-evidence__kv--grid thead th{
+  font-size:10.5px;
+  font-weight:700;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  color:var(--color-text-steel,#5B6675);
+  background:var(--color-surface-muted,#F8F9FA);
+  text-align:left;
+  border-bottom:1px solid var(--color-border,#E2E6EA);
+}
+.mgmt-product-metric-evidence__kv--grid thead th.mgmt-product-metric-evidence__num{
+  text-align:right;
+}
+.mgmt-product-metric-evidence__kv--grid tbody td{
+  font-weight:500;
+  text-align:left;
+}
+.mgmt-product-metric-evidence__kv--grid tbody td.mgmt-product-metric-evidence__num{
+  text-align:right;
+  font-weight:600;
+}
+.mgmt-product-metric-evidence__scroll{
+  max-height:12rem;
+  overflow:auto;
+  border-radius:8px;
+  border:1px solid var(--color-border,#E2E6EA);
+}
+.mgmt-product-metric-evidence__scroll .mgmt-product-metric-evidence__kv{
+  border:none;
+  border-radius:0;
+}
+.mgmt-product-metric-evidence__section--daily{
+  margin-top:4px;
+}

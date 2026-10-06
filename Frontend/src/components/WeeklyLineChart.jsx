@@ -90,6 +90,8 @@ export default function WeeklyLineChart({
   nullGap = false,
   formatYTick = defaultFormatYTick,
   onBucketClick,
+  showPointLabels = false,
+  formatPointLabel,
 }) {
   const n = weekLabels.length
   if (n === 0) return null
@@ -101,18 +103,27 @@ export default function WeeklyLineChart({
     }
   }
   const { yMax, ticks } = buildYAxis(dataMax)
+  const topMargin = showPointLabels ? 22 : M.top
   const plotW = CHART_W - M.left - M.right
-  const plotH = CHART_H - M.top - M.bottom
+  const plotH = CHART_H - topMargin - M.bottom
 
   const xAt = (i) => (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW)
   const yAt = (v) => {
     const nv = Math.min(Math.max(Number(v) || 0, 0), yMax)
     return plotH - (nv / yMax) * plotH
   }
+  const pointLabelY = (val) => {
+    const cy = yAt(val)
+    return cy < 16 ? cy + 14 : cy - 9
+  }
+  const formatLabel =
+    typeof formatPointLabel === 'function'
+      ? formatPointLabel
+      : (v) => (Number.isInteger(v) ? String(v) : Number(v).toFixed(1))
 
   const plotLeftPct = (M.left / CHART_W) * 100
   const plotWidthPct = (plotW / CHART_W) * 100
-  const plotTopPct = (M.top / CHART_H) * 100
+  const plotTopPct = (topMargin / CHART_H) * 100
   const plotHeightPct = (plotH / CHART_H) * 100
 
   return (
@@ -125,13 +136,13 @@ export default function WeeklyLineChart({
           aria-hidden={weekTooltip ? 'true' : undefined}
         >
           <text
-            transform={`translate(${M.yLabelX}, ${M.top + plotH / 2}) rotate(-90)`}
+            transform={`translate(${M.yLabelX}, ${topMargin + plotH / 2}) rotate(-90)`}
             className="v2-weekly-line__y-title"
             textAnchor="middle"
           >
             {yTitle}
           </text>
-          <g transform={`translate(${M.left},${M.top})`}>
+          <g transform={`translate(${M.left},${topMargin})`}>
             {ticks.map((tv) => {
               const y = yAt(tv)
               return (
@@ -191,25 +202,43 @@ export default function WeeklyLineChart({
                   const val = nullGap ? Number(v) : numericValue(v)
                   const projected = Boolean(weekIsUpcoming[i])
                   const title = s.pointTitle ? s.pointTitle(i, val) : `${weekLabels[i]}: ${val}`
+                  let labelText = null
+                  if (showPointLabels) {
+                    labelText =
+                      typeof formatPointLabel === 'function' ? formatPointLabel(val) : formatLabel(val)
+                    if (labelText === '' || labelText == null) labelText = null
+                  }
                   return (
-                    <circle
-                      key={`${s.key}-${i}`}
-                      cx={xAt(i)}
-                      cy={yAt(val)}
-                      r={5}
-                      fill={projected ? PROJECTED_STROKE : s.color}
-                      stroke="#fff"
-                      strokeWidth={1.5}
-                      className={projected ? 'v2-weekly-line__point--projected' : undefined}
-                    >
-                      <title>{title}</title>
-                    </circle>
+                    <g key={`${s.key}-${i}`} className="v2-weekly-line__point-group">
+                      {labelText ? (
+                        <text
+                          x={xAt(i)}
+                          y={pointLabelY(val)}
+                          className="v2-weekly-line__point-label"
+                          textAnchor="middle"
+                          fill={projected ? PROJECTED_STROKE : s.color}
+                        >
+                          {labelText}
+                        </text>
+                      ) : null}
+                      <circle
+                        cx={xAt(i)}
+                        cy={yAt(val)}
+                        r={5}
+                        fill={projected ? PROJECTED_STROKE : s.color}
+                        stroke="#fff"
+                        strokeWidth={1.5}
+                        className={projected ? 'v2-weekly-line__point--projected' : undefined}
+                      >
+                        <title>{title}</title>
+                      </circle>
+                    </g>
                   )
                 })}
               </g>
             ))}
           </g>
-          <g transform={`translate(${M.left},${M.top + plotH + 10})`}>
+          <g transform={`translate(${M.left},${topMargin + plotH + 10})`}>
             {weekLabels.map((lab, i) => {
               const x = xAt(i)
               const projected = Boolean(weekIsUpcoming[i])

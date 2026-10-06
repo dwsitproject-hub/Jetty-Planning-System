@@ -1,5 +1,6 @@
 /**
- * Time-series buckets for By product modal charts (cast-off date).
+ * Time-series buckets for By product modal charts (sailed off / sailedAt date).
+ * Bucket membership selects voyages; each metric uses that voyage's full-call values.
  */
 import { mean } from './managementDashboardFlow.js'
 import { expandVoyageToProductSlices, productKeyFromCommodity } from './managementDashboardProduct.js'
@@ -59,7 +60,7 @@ function ymdFromLocalMs(ms) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-/** Tooltip title: `DD/MMM/YYYY - DD/MMM/YYYY` (cast-off bucket range). */
+/** Tooltip title: `DD/MMM/YYYY - DD/MMM/YYYY` (calendar bucket range). */
 export function formatBucketTooltipTitle(bucket) {
   const start = formatDateDisplay(ymdFromLocalMs(bucket.startMs))
   const endMs = Math.max(bucket.startMs, bucket.endMs - MS_DAY)
@@ -67,19 +68,27 @@ export function formatBucketTooltipTitle(bucket) {
   return start === end ? start : `${start} - ${end}`
 }
 
+/** Clearance Sailed at on a normalized management-dashboard row. */
+export function sailedOffMs(voyage) {
+  if (!voyage?.sailedAt) return NaN
+  const t = new Date(voyage.sailedAt).getTime()
+  return Number.isFinite(t) ? t : NaN
+}
+
 /**
+ * Calendar week/month bucket for an instant (used for sailed-off bucketing).
  * @returns {{ key: string, startMs: number, endMs: number, label: string, shortLabel: string }}
  */
-export function bucketMetaForCastOff(castOffMs, granularity) {
+export function bucketMetaForSailedOff(sailedOffMsValue, granularity) {
   if (granularity === 'week') {
-    const startMs = startOfWeekMonday(castOffMs)
+    const startMs = startOfWeekMonday(sailedOffMsValue)
     const endMs = startMs + 7 * MS_DAY
     const d = new Date(startMs)
     const label = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     const shortLabel = formatWeekBucketAxisLabel(startMs)
     return { key: `w:${label}`, startMs, endMs, label, shortLabel }
   }
-  const startMs = startOfMonth(castOffMs)
+  const startMs = startOfMonth(sailedOffMsValue)
   const d = new Date(startMs)
   const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   return {
@@ -90,6 +99,9 @@ export function bucketMetaForCastOff(castOffMs, granularity) {
     shortLabel: formatMonthBucketAxisLabel(startMs),
   }
 }
+
+/** @deprecated Use bucketMetaForSailedOff — buckets are sailed-off dated. */
+export const bucketMetaForCastOff = bucketMetaForSailedOff
 
 /**
  * Ordered empty buckets covering [start, end).
@@ -104,7 +116,7 @@ export function enumerateBuckets(startMs, endMs, granularity) {
   let cursor =
     granularity === 'week' ? startOfWeekMonday(startMs) : startOfMonth(startMs)
   while (cursor < endMs) {
-    const meta = bucketMetaForCastOff(cursor, granularity)
+    const meta = bucketMetaForSailedOff(cursor, granularity)
     if (!seen.has(meta.key)) {
       seen.add(meta.key)
       out.push({
@@ -140,32 +152,57 @@ function sliceRateForProduct(voyage, productKey) {
   return qty > 0 ? qty / slice.opsH : null
 }
 
+function isLoggedMetric(x) {
+  return x != null && Number.isFinite(x)
+}
+
 function meanPick(rows, pick) {
-  const vals = rows.map(pick).filter((x) => x != null && Number.isFinite(x))
+  const vals = rows.map(pick).filter(isLoggedMetric)
   return vals.length ? mean(vals) : null
 }
 
+function countPick(rows, pick) {
+  return rows.filter((r) => isLoggedMetric(pick(r))).length
+}
+
+/** Chart metric key → per-voyage value (full call, not clipped to bucket dates). */
+export const CHART_METRIC_VOYAGE_PICK = {
+  avgWait: (r, _productKey) => r.wait,
+  avgPre: (r, _productKey) => r.pre,
+  avgRate: (r, productKey) => sliceRateForProduct(r, productKey),
+  avgCargoDoneToSail: (r, _productKey) => r.cargoDoneToSailH,
+}
+
+export function voyageChartMetricValue(voyage, chartMetricKey, productKey) {
+  const pick = CHART_METRIC_VOYAGE_PICK[chartMetricKey]
+  return pick ? pick(voyage, productKey) : null
+}
+
+export function countVoyagesWithChartMetric(voyages, chartMetricKey, productKey) {
+  const pick = CHART_METRIC_VOYAGE_PICK[chartMetricKey]
+  if (!pick) return 0
+  return countPick(voyages || [], (r) => pick(r, productKey))
+}
+
 /**
- * @param {Array<object>} voyages normalized rows (already product-filtered)
- * @param {string} productKey
- * @param {{ start: number, end: number, granularity?: 'week'|'month' }} opts
- */
-/**
- * Voyages whose cast-off falls in the same bucket as chart aggregation.
+ * Voyages whose sailed off falls in the same bucket as chart aggregation.
  * @param {Array<object>} voyages
  * @param {{ key?: string }} bucket from buildProductTimeSeries / enumerateBuckets
  * @param {'week'|'month'} granularity
  */
-export function voyagesInCastOffBucket(voyages, bucket, granularity) {
+export function voyagesInSailedOffBucket(voyages, bucket, granularity) {
   const bucketKey = bucket?.key
   if (!bucketKey) return []
   const g = granularity === 'week' ? 'week' : 'month'
   return (Array.isArray(voyages) ? voyages : []).filter((v) => {
-    const co = v.castOff ? new Date(v.castOff).getTime() : NaN
-    if (!Number.isFinite(co)) return false
-    return bucketMetaForCastOff(co, g).key === bucketKey
+    const so = sailedOffMs(v)
+    if (!Number.isFinite(so)) return false
+    return bucketMetaForSailedOff(so, g).key === bucketKey
   })
 }
+
+/** @deprecated Use voyagesInSailedOffBucket */
+export const voyagesInCastOffBucket = voyagesInSailedOffBucket
 
 export function buildProductTimeSeries(voyages, productKey, opts) {
   const start = opts.start
@@ -175,26 +212,47 @@ export function buildProductTimeSeries(voyages, productKey, opts) {
   const byKey = new Map(buckets.map((b) => [b.key, { ...b, _voyages: [] }]))
 
   for (const v of voyages || []) {
-    const co = v.castOff ? new Date(v.castOff).getTime() : NaN
-    if (!Number.isFinite(co) || co < start || co >= end) continue
-    const meta = bucketMetaForCastOff(co, granularity)
+    const so = sailedOffMs(v)
+    if (!Number.isFinite(so) || so < start || so >= end) continue
+    const meta = bucketMetaForSailedOff(so, granularity)
     const slot = byKey.get(meta.key)
     if (slot) slot._voyages.push(v)
   }
 
   return [...byKey.values()].map(({ _voyages, ...b }) => {
     const voyageCount = _voyages.length
+    const pickWait = (r) => r.wait
+    const pickPre = (r) => r.pre
+    const pickRate = (r) => sliceRateForProduct(r, productKey)
+    const pickCargo = (r) => r.cargoDoneToSailH
     return {
       ...b,
       voyageCount,
-      avgWait: meanPick(_voyages, (r) => r.wait),
-      avgPre: meanPick(_voyages, (r) => r.pre),
-      avgRate: meanPick(_voyages, (r) => sliceRateForProduct(r, productKey)),
-      avgCargoDoneToSail: meanPick(_voyages, (r) => r.cargoDoneToSailH),
+      avgWait: meanPick(_voyages, pickWait),
+      avgPre: meanPick(_voyages, pickPre),
+      avgRate: meanPick(_voyages, pickRate),
+      avgCargoDoneToSail: meanPick(_voyages, pickCargo),
+      waitLoggedCount: countPick(_voyages, pickWait),
+      preLoggedCount: countPick(_voyages, pickPre),
+      rateLoggedCount: countPick(_voyages, pickRate),
+      cargoDoneLoggedCount: countPick(_voyages, pickCargo),
     }
   })
 }
 
+const LOGGED_COUNT_BY_METRIC = {
+  avgWait: 'waitLoggedCount',
+  avgPre: 'preLoggedCount',
+  avgRate: 'rateLoggedCount',
+  avgCargoDoneToSail: 'cargoDoneLoggedCount',
+}
+
+export function bucketMetricLoggedCount(bucket, chartMetricKey) {
+  const field = LOGGED_COUNT_BY_METRIC[chartMetricKey]
+  if (!field || !bucket) return 0
+  return bucket[field] ?? 0
+}
+
 export function granularityLabel(granularity) {
-  return granularity === 'week' ? 'By week · cast-off' : 'By month · cast-off'
+  return granularity === 'week' ? 'By week · sailed off' : 'By month · sailed off'
 }
