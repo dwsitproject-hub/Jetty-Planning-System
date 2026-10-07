@@ -3,7 +3,7 @@
 **Product:** Jetty Planning & Monitoring System (JPS)  
 **Scope:** Features delivered for **Allocation → Jetty schedule**, **Log arrival update**, **Confirm Berthing**, **multi-jetty berthing** (span a vessel across adjacent jetties when enabled per port), **shifting out / re-dock** (priority / double-bank berth handover)**, **At-Berth Executions list**, **operation sign-off → Clearance (Ready to Sail)**, **uploaded document preview & download**, **Jetty Live CCTV** (per-jetty RTSP links, schematic camera control, browser stream page), **self-service change password** (header user menu), **Reporting → Jetty – Vessel Report** (jetty utilization summary and vessel detail), **Live Ops Dashboard** (real-time terminal control at `/`), **Ops Analytics Dashboard** (date-range performance at `/ops-analytics`), **Management Dashboard** (berth productivity & departure readiness for executives at `/management-dashboard`), and **user-visible date/time presentation** (Gantt bar logic, estimated completion, and related UI).  
 **Audience:** Product, QA, and engineering (for regression and extension).  
-**Version:** 1.72 (see document history at end).
+**Version:** 1.74 (see document history at end).
 
 ---
 
@@ -41,7 +41,7 @@ This document describes **behaviour that is implemented in code**, including:
 - **Multi-jetty berthing:** when enabled on a port, operators may assign a **primary jetty** plus one or more **adjacent** jetties so a long vessel visually and logically spans multiple berth columns; occupancy, Gantt spanning bars, and schematic lane placeholders reflect spanned lanes per bank (**§2.28**).
 - **ATG cargo progress and quantity persistence:** liquid cargo operations record **segment start/end** on load lines; **moved quantity** is persisted when a segment closes (ATG-derived or manual), with optional **hourly rate breakdown** and **manual checkpoints** when ATG is unavailable (**§2.29**).
 - **Master vessel link on shipment plans:** new plans require a **Master vessel** pick from **`master_vessels`**; name/LOA/GT/draft are **snapshots** on the plan. Legacy plans (no link) keep free-text vessel fields and show a **Legacy** badge on the plans list (**§2.30**).
-- **System Health Dashboard:** infrastructure health cards (ATG sync, ATG data purging, Synology mount, DataHub, Partner Integration API) with optional **email alerts** when a check newly becomes unhealthy (**§2.31**).
+- **System Health Dashboard:** infrastructure health cards (ATG sync, ATG data purging, Synology mount, daily DB backup, DataHub, Partner Integration API) with optional **email alerts** when a check newly becomes unhealthy (**§2.31**).
 - **Management Dashboard — berth productivity & departure readiness:** executive KPI page (`/management-dashboard`, RBAC page key **`management-dashboard`**) with period/purpose filters, clickable widget drill-down modals, voyage table with short commodity names, and inline milestone expansion (**§2.25**).
 
 For API field names, database columns, and shared code modules, see **TECH-SPEC-Jetty-Planning-System.md** and **§6** below for arrival/estimated completion mapping. Jetty Live deployment: **Docs/Guide/JETTY-LIVE-STREAM-DEPLOYMENT.md**.
@@ -459,17 +459,32 @@ External business systems can submit **Shipping Instructions** into JPS without 
 | **Operator review** | No new approval screen: operators use **`/shipment-plans`**, notifications (**Approval request: SP-…**), and **`/shipment-plans/approval/:id`** to **approve** or **reject** as today. Approved plans follow the normal allocation path; when a jetty slot is assigned, partner status becomes **Allocated**. |
 | **Plans list columns** | On **`/shipment-plans`**, after **ETA**: **External reference** and **Requested by**. Both are **filterable** (substring match). Empty **`—`** for older manual plans created before this feature or plans without integration metadata. |
 | **What partners see** | Partners call **`POST /api/v1/integrations/shipping-instructions`** to submit and **`GET …/shipping-instructions/{id}`** (or **`?external_reference=`**) to poll **Pending** / **Approved** / **Rejected** / **Allocated**. They cannot see other partners’ submissions. |
-| **Cargo lines** | Partner **`cargo[].cargo_type`** must match **`si_commodities.short_name`** (case-insensitive). Full display names are not accepted. Validation errors include **`valid_cargo_types`** with active short codes. See commodity mapping table below and **INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md §5.1**. Optional per line: **`po_no`**, **`so_no`**, **`shipper_name`** (shipper must exist via partner **`POST /shippers`**). |
+| **Cargo lines** | **v5.3+:** each line requires **`cargo[].cargo_hub_code`** (DHM/JPS hub code on **`si_commodities.hub_code`**). **`cargo_type`** on POST is rejected. Validation errors include **`valid_cargo_hub_codes`**. Use **`GET /catalog/cargo-type`**. Optional per line: **`po_no`**, **`so_no`**, **`shipper_name`** (shipper must exist via partner **`POST /shippers`**). Legacy short-name table in **§2.24** is informational only. |
 | **Header fields (optional)** | **`trade_term`** (code from **`GET /terms`**) and **`surveyor_name`** (from **`GET /surveyors`**) on submit. |
 | **Master data sync** | Partners **`GET`** terms, agents, surveyors, shippers for mapping. **`POST`/`PATCH`** upsert **agents** and **shippers** by name. Terms and surveyors are read-only for partners (JPS Master UI). |
 | **PO/SO updates** | **`PATCH /shipping-instructions`** while partner status is **Pending** — update **`po_no`**, **`so_no`**, shipper, trade term, or surveyor on existing submissions. Not allowed after approve/reject/allocate (**409**). |
-| **Security (summary)** | HTTPS + **`x-api-key`** header per partner; rate limit **120 requests/minute** per key. Keys are **not** port-scoped; each request must include a valid **`port_id`** (unknown port is rejected). |
+| **Security (summary)** | HTTPS + **`x-api-key`** header per partner; rate limit **120 requests/minute** per key. Keys are **not** port-scoped; each request must include a valid **`port_hub_code`** (unknown hub code is rejected). |
 | **Operator monitoring** | **Admin → System Health Dashboard** (`/admin/operations`) shows a **Partner Integration API** card: active keys, last API activity, submissions in the last 7 days, and per-partner usage. Manage keys under **Admin → Partner API Keys** (`/admin/partner-api`). See **§2.31**. |
 | **Vessel resolution (master link)** | Partner payload uses **`vessel_hub_code`** (DataHub vessel code) as the **primary identifier** — sufficient alone. JPS resolves **`master_vessels`**, sets **`master_vessel_id`**, and snapshots name/LOA/GT/draft onto the new plan. Optional **`vessel_name`** cross-checks the master when both are sent. When **`vessel_hub_code`** is omitted, **`vessel_name`** must match **exactly one** active master vessel (case-insensitive). **201/GET** return canonical **`vessel_name`** and **`vessel_hub_code`**. Partner API **v4.2**. See **§2.30**. |
+| **Webhooks & milestones** | Partners register **`POST /webhooks`**; JPS pushes signed **`status.changed`** and **`schedule.updated`** (berthing milestones and KLIP **Hose On/Off** window — **§2.24**). **GET** returns **`cargo_ops_start_at`** / **`cargo_ops_end_at`**. Contract **v5.5**; header **`X-JPS-API-Version: 5.5`**. |
 
-Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.33**, **§0.35**. Migrations **084** (`integration_api_keys`, `integration_submissions`), **085** (`shipment_plans.external_reference`, `shipment_plans.requested_by`), **086** (`si_commodities.short_name`), **118** (`shipment_plans.master_vessel_id`).
+Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.33**, **§0.35**, **§0.37**–**§0.42**. Migrations **084**–**086**, **118**, **119** (webhooks). Internal test guide: **INBOUND-SHIPPING-INSTRUCTION-API-TEST-GUIDE.md**; admin webhooks: **PARTNER-INTEGRATION-WEBHOOKS-ADMIN.md**.
 
-**Commodity mapping for partner `cargo_type`** (send **short_name**; operators see **display name** in the app):
+### 2.24 Partner webhooks and berthing milestones (v5.5)
+
+| Area | Behaviour |
+|------|------------|
+| **Source of truth** | JPS operators update approval status and berthing milestones in the web app; partners **receive** updates (no inbound POST of TA/TB/ATS/etc.). |
+| **Webhook registration** | **`POST/PATCH/GET/DELETE /api/v1/integrations/webhooks`** per API key (max 3 active endpoints). Endpoint URLs may be **HTTP or HTTPS**. |
+| **Events** | **`status.changed`**, **`schedule.updated`** — at-least-once delivery with HMAC signature verification. |
+| **`schedule` object** | **`ta`**, **`etb`**, **`tb`**, **`etc`**, **`tc`**, **`cast_off_at`**, **`sailed_at`**, **`cargo_ops_start_at`** (Hose On / ATS), **`cargo_ops_end_at`** (Hose Off / ATC) — Cargo Operations **operation window** on **`cargo_operations`**. |
+| **`schedule.updated` triggers** | Berthing/allocation milestones **or** Cargo Operations window **start/end** on create/update/delete (**`operation-operational-activities`**). Load-segment-only edits do **not** enqueue Hose On/Off. |
+| **Partner status `Sailed`** | When vessel is recorded as departed (**`operations.status = SAILED`**). |
+| **Fallback** | **`GET /shipping-instructions/{id}`** includes **`schedule`** and **`approval`** objects (same shape as webhook **`data`**). |
+
+Partner guide: **INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md v5.5** (KLIP: ATS = Hose On → **`cargo_ops_start_at`**, ATC = Hose Off → **`cargo_ops_end_at`**; **`cast_off_at`** is vessel cast-off only).
+
+**Commodity reference (legacy `cargo_type` short names — use `cargo_hub_code` on POST since v5.3):**
 
 | JPS short_name (`cargo_type`) | JPS display name | Type |
 |-------------------------------|------------------|------|
@@ -494,7 +509,7 @@ Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.33**, **§0.35**. M
 | `SPLIT CPKO FA` | SPLIT CRUDE PALM KERNEL OIL FATTY ACID | Liquid |
 | `SPLIT RBD PKO FA` | SPLIT RBD PALM KERNEL OIL FATTY ACID | Liquid |
 
-*20 commodities as of master data export. Partners should use **`valid_cargo_types`** from API errors or **§5.1** of the partner guide if the list changes.*
+*20 commodities as of master data export. Partners should use **`GET /catalog/cargo-type`** and **`valid_cargo_hub_codes`** from API errors if the list changes.*
 
 ### 2.24 Master Jetty — purpose-specific commodity capability
 
@@ -717,14 +732,15 @@ Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.35**; **`Backend/sr
 | **ATG sync** | Per-port enabled ATG sources; **degraded**/**unhealthy** when poll data is stale vs 60-minute threshold. |
 | **ATG data purging** | Last five purge batches from **`tank_gauging_purge_log`** (archive/delete row counts per batch); **unknown** if no runs yet; **degraded**/**unhealthy** when last run exceeds expected daily cadence. |
 | **Synology upload mount** | Upload directory writable; host cron heartbeat **`.jps-mount-health.json`** under NAS mount (see Synology runbook). **Unknown** until mount check cron is installed. |
+| **Daily DB backup** | Expected-date **`jps_db_rds_YYYYMMDD.dump`** on NAS **`db-backups/`** plus **`.jps-backup-last-run.json`** from nightly cron. **Unhealthy** same day if last run failed or today's dump missing (after grace window). **Disabled** on staging when auto-detect finds no RDS/dumps. See **`Docs/Guide/DB-DAILY-BACKUP-CRON.md`**. |
 | **DataHub API** | Integration enabled/disabled; credentials completeness; last sync success and age. |
 | **Partner Integration API** | Active vs revoked API keys; last API activity (**`last_used_at`** or latest submission); submission count in last 7 days; per-partner breakdown (30-day submissions). **Disabled** when no active keys. **Unknown** when keys exist but never used. **Healthy** when activity within 7 days; **Degraded** when stale > 7 days (low-volume partners — not **Unhealthy** in v1). |
 | **Email alerts** | Checkbox **Email alerts when a check becomes unhealthy**. Recipient default **`it-project@energi-up.com`**. When enabled and SMTP is configured, a **host cron job** emails IT on **new** unhealthy transitions only (not repeated while still unhealthy; first cron run seeds state without email). Works on **staging or production** — controlled by the checkbox, not by environment label. If enabled but SMTP missing, banner explains setup under **Admin → Notifications**. |
 | **Deploy / local dev** | New checks require a **rebuilt API** (`docker compose … up -d --build jps-api`). Restart-only leaves an old image without new cards (e.g. Partner Integration API). |
 
-Operational runbooks: **`Docs/Guide/ADMIN-OPS-EMAIL-ALERTS.md`**, **`Docs/Guide/SYNOLOGY-MOUNT-TROUBLESHOOTING-AND-RECOVERY.md` §10**.
+Operational runbooks: **`Docs/Guide/ADMIN-OPS-EMAIL-ALERTS.md`**, **`Docs/Guide/DB-DAILY-BACKUP-CRON.md`**, **`Docs/Guide/SYNOLOGY-MOUNT-TROUBLESHOOTING-AND-RECOVERY.md` §10**.
 
-Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.36**; **`Backend/src/lib/admin-ops-checks.js`**, **`admin-ops-partner-api-check.js`**, **`admin-ops-alert-job.js`**; **`Frontend/src/pages/AdminOperations.jsx`**, **`Admin.jsx`**; migration **`118_admin_ops_alert_settings.sql`**.
+Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.36**; **`Backend/src/lib/admin-ops-checks.js`**, **`admin-ops-backup-check.js`**, **`admin-ops-partner-api-check.js`**, **`admin-ops-alert-job.js`**; **`Frontend/src/pages/AdminOperations.jsx`**, **`Admin.jsx`**; migration **`118_admin_ops_alert_settings.sql`**.
 
 ---
 
@@ -887,7 +903,7 @@ Other arrival fields (ETA, TA, ETB, POB, TB, SOB, NOR times, remark, priority, j
 | **SI shipper per breakdown line** | **§2.20** — `Backend/migrations/079_si_breakdown_shipper_id.sql`, `Backend/src/routes/shipping-instructions.js`, `allocation.js`, `shipment-plans.js`, `si-lookups.js`; `Frontend/src/components/ShippingInstructionSiLinkedFields.jsx`, `Frontend/src/utils/siPlanLinkedDraft.js`, `Frontend/src/api/shippingInstructions.js`, `siViewModel.js`, `SiDetailModal.jsx`, `SiDocumentView.jsx`, `SIApproval.jsx`, `siExtractMerge.js`; TECH-SPEC **§0.31** |
 | **Commodity Qty overview columns** | **§2.21** — `Backend/src/lib/siBreakdownDisplay.js`, `Backend/src/routes/allocation.js`, `operations.js`, `shipment-plans.js`; `Frontend/src/utils/siCargoTableDisplay.jsx`, `allocationPlanPovMerge.js`, `Allocation.jsx`, `AtBerthExecutions.jsx`, `Verification.jsx`, `ShipmentPlansList.jsx`, `allocation.css`; i18n **`colCommodityQty`** / **`clearanceColCommodityQty`**. TECH-SPEC **§0.32** |
 | **Jetty – Vessel Report** | **§2.22** — `Frontend/src/pages/VesselReport.jsx`, `Frontend/src/data/jettyVesselReportFromApi.js`, `Frontend/src/data/jettyVesselReportExcel.js`; APIs **`operations`**, **`allocation/overview`**, **`shipping-instructions/:id`**, **`jetties`**; summary header tooltips via **`InteractiveTooltip`**; styles **`allocation-table__th-label`**, **`allocation-table__th-info`** in **`allocation.css`** |
-| **Inbound Shipping Instruction integration (partner API)** | **§2.23** — `Backend/src/routes/integrations.js`, `Backend/src/middleware/integration-auth.js`, `Backend/src/lib/resolve-requested-by.js`, migrations **084** / **085**; key provisioning **`Backend/scripts/create-integration-api-key.mjs`**; plans list columns **`Frontend/src/pages/ShipmentPlansList.jsx`**; partner docs **`Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md`**, **`Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-API-TEST-GUIDE.md`**. TECH-SPEC **§0.33** |
+| **Inbound Shipping Instruction integration (partner API)** | **§2.23**, **§2.24** — `integrations.js`, `integration-partner-payload.js` (**cargo_ops_start_at** / **cargo_ops_end_at** v5.5), `operation-operational-activities.js` (Hose On/Off webhooks), `integration-auth.js` (v5.5); migrations **084** / **085** / **119**; **`create-integration-api-key.mjs`**; partner docs **v5.5**. TECH-SPEC **§0.33**, **§0.37**–**§0.42** |
 | **Management Dashboard — berth productivity & departure readiness** | **§2.25** — `Frontend/src/pages/ManagementDashboard.jsx`, `Frontend/src/utils/managementDashboardCargoDone.js`, `Frontend/src/utils/managementDashboardProduct.js`, `Frontend/src/utils/managementDashboardProductSeries.js`, `Frontend/src/components/dashboard/ManagementProductTable.jsx`, `Frontend/src/components/dashboard/ProductDetailModal.jsx`, `Frontend/src/styles/management-dashboard.css`, `Frontend/src/styles/modal.css`; APIs **`GET /operations`**, **`GET /operations/:id/sub-processes`**, **`GET /operations/:id/operational-activities`**, **`GET /operations/:id/activity-timeline`**; **`commodityShortDisplay`** / **`sailedAt`** on **`Backend/src/routes/operations.js`** **`toOp()`** via **`Backend/src/lib/siBreakdownDisplay.js`** |
 | Save estimation of completion | `Frontend/src/api/operations.js` → `PUT /operations/:id/estimated-completion`; `Backend/src/routes/operations.js` |
 | DB — operations estimated completion | Migrations defining `operations.estimated_completion_time` (e.g. `Backend/migrations/004_shipping_operations_tables.sql` and related) |
@@ -1029,6 +1045,7 @@ Cross-reference: **TECH-SPEC §0.20**, **`Backend/src/lib/schedule-instant.js`**
 
 | Version | Date | Notes |
 |---------|------|--------|
+| 1.83 | 2026-10-07 | **Cargo operations (Berth Execution):** multi-product SI lines with null **`commodity_id`** show empty Product on edit (no first-SI default); closed untagged segments allow first product assignment; **one searchable tank** per cargo entry (replaces multi-select). Ops backfill list: **`Docs/Bugs/broken-multi-product-cargo-segments-detail.csv`**. |
 | 1.82 | 2026-10-06 | **§2.25 Avg flow:** aligned with Ops Live — moved qty ÷ logged cargo hours (ATG / manual / hybrid / solid); **`GET /operations/management-cargo-rates`**; fleet KPI = voyage-level mean; By commodity = per-product mean on tagged load lines. |
 | 1.81 | 2026-10-06 | **§2.25:** flow KPI cohort and drill-down dates use **sailed off** (**`sailedAt`**) throughout; remove wait&gt;berth outlier hide; wait evidence shows full TA→TB when valid. |
 | 1.80 | 2026-10-06 | **§2.25 Product modal:** click voyage metric cell for inline calculation evidence (TA/TB, pre-check/cargo starts, daily flow, cargo finished/sailed at). |
@@ -1037,6 +1054,8 @@ Cross-reference: **TECH-SPEC §0.20**, **`Backend/src/lib/schedule-instant.js`**
 | 1.77 | 2026-10-06 | **§2.25 By commodity:** column-aware modal open (commodity/shipments → **Detailed data**; metric columns → single enlarged **Chart** + metric switcher). |
 | 1.76 | 2026-10-06 | **§2.25 By commodity product modal:** click chart week/month bucket for per-voyage breakdown table (cast-off bucket). `ProductDetailModal.jsx`, `ProductVoyageDetailTable.jsx`, `WeeklyLineChart.jsx`, `managementDashboardProductSeries.js`. |
 | 1.75 | 2026-10-06 | **§2.25 Management Dashboard — By commodity Cargo done → sailed off:** metric from activity-timeline cargo/post **end** and **`sailedAt`** (replaces erroneous ops-complete→cast-off); **By commodity** tables and product modal charts; tooltip *Average time from cargo finished until the vessel sailed*. **§7** map; **§9.2** cross-ref. `managementDashboardCargoDone.js`, `ManagementDashboard.jsx`. |
+| 1.74 | 2026-10-05 | **§2.24** partner API **v5.5:** KLIP **Hose On/Off** → **`cargo_ops_start_at`** / **`cargo_ops_end_at`** (Cargo Operations operation window); **`cast_off_at`** not ATC. TECH-SPEC **§0.42**; partner guide v5.5; test guide v1.7. |
+| 1.73 | 2026-10-05 | **§2.23** / **§2.24** partner API **v5.4** (superseded for KLIP by v5.5). TECH-SPEC **§0.42**; test guide v1.6. |
 | 1.72 | 2026-09-24 | **§2.31 System Health Dashboard:** infrastructure health cards (ATG sync, purge, Synology mount, DataHub, Partner Integration API); optional **email alerts** on newly unhealthy checks; user-controlled toggle (staging or production). **§2.23** operator monitoring row. **§1**, **§7** map. Migration **`118_admin_ops_alert_settings.sql`**. TECH-SPEC **§0.36**; **`Docs/Guide/ADMIN-OPS-EMAIL-ALERTS.md`**. |
 | 1.71 | 2026-09-23 | **§2.30 Master vessel link on shipment plans (snapshot model):** new plans require **Master vessel** pick; linked plans re-pick master only (LOA/GT/draft read-only); legacy plans keep free-text fields and **Legacy** badge on plans list; partner API **`hub_code`** / unique **`vessel_name`** resolution; master delete guard. **§1**, **§2.13**, **§2.23**, **§7** map. Migration **118**. TECH-SPEC **§0.35**. |
 | 1.69 | 2026-08-27 | **§2.29 ATG cargo progress and quantity persistence:** documents where **start/end** and **moved qty** are stored (`operation_cargo_load_lines` vs live **`tank_gauging_samples`**), manual checkpoints and hourly/daily progress tables (migration **110**), session-first Cargo Operations flow, clock-aligned hourly rates, Flat Movement, and **non-blocking** SI qty variance. **§1**, **§7** map. Cross-ref **`Docs/ATG-Hourly-Cargo-Progress-Proposal.md`**. |
