@@ -579,6 +579,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   )
   const { canEdit, canView } = useRbac()
   const canEditAllocation = canEdit(rbacPageKey)
+  const canCreateShipmentPlan = isPlanCentric && canEdit('shipment-plan')
   const canViewMasterJetty = canView('master-jetty')
   const [list, setList] = useState([])
   const [scheduleList, setScheduleList] = useState([])
@@ -685,11 +686,24 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   const [siDetailId, setSiDetailId] = useState(null)
   const [siDocumentModalId, setSiDocumentModalId] = useState(null)
   const [preBerthCombinedPlanId, setPreBerthCombinedPlanId] = useState(null)
+  const [createPlanOpen, setCreatePlanOpen] = useState(false)
   const [siPreBerthMessage, setSiPreBerthMessage] = useState(null)
+
+  const openCreatePlanModal = useCallback(() => {
+    setPreBerthCombinedPlanId(null)
+    setCreatePlanOpen(true)
+  }, [])
+
+  const closeCombinedPlanModal = useCallback(() => {
+    setCreatePlanOpen(false)
+    setPreBerthCombinedPlanId(null)
+  }, [])
 
   const openPreBerthCombinedEditFromRow = useCallback((row) => {
     const pid = resolvePlanIdFromRow(row)
-    if (pid != null) setPreBerthCombinedPlanId(pid)
+    if (pid == null) return
+    setCreatePlanOpen(false)
+    setPreBerthCombinedPlanId(pid)
   }, [])
 
   const openSiDocumentModal = useCallback((id) => {
@@ -1380,6 +1394,23 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       refreshOverview().catch(() => {})
     },
     [tSp, refreshOverview]
+  )
+
+  const handleCombinedPlanSaved = useCallback(
+    (result) => {
+      if (preBerthCombinedPlanId != null) {
+        handlePreBerthCombinedSaved(result)
+        return
+      }
+      if (result?.toast?.message) {
+        setSiPreBerthMessage({
+          text: result.toast.message,
+          variant: result.toast.variant === 'warning' ? 'warning' : 'success',
+        })
+      }
+      refreshOverview().catch(() => {})
+    },
+    [preBerthCombinedPlanId, handlePreBerthCombinedSaved, refreshOverview]
   )
 
   const swapPlanBerthingSequencePair = useCallback(
@@ -2701,6 +2732,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
                 />
               ) : null
             }
+            onCreatePlan={canCreateShipmentPlan ? openCreatePlanModal : undefined}
           />
         </div>
         <div
@@ -2719,6 +2751,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
             onScheduleChanged={refreshOverview}
             popoutProfile={isPlanCentric ? 'plan' : 'legacy'}
             railRows={unallocatedRailRows}
+            onCreatePlan={canCreateShipmentPlan ? openCreatePlanModal : undefined}
           />
         </div>
       </div>
@@ -2738,12 +2771,12 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       />
 
       <ShipmentPlanCombinedFormModal
-        isOpen={preBerthCombinedPlanId != null}
-        mode="preBerthEdit"
-        planId={preBerthCombinedPlanId}
+        isOpen={createPlanOpen || preBerthCombinedPlanId != null}
+        mode={createPlanOpen ? 'create' : 'preBerthEdit'}
+        planId={createPlanOpen ? null : preBerthCombinedPlanId}
         occupancyRows={list}
-        onClose={() => setPreBerthCombinedPlanId(null)}
-        onSaved={handlePreBerthCombinedSaved}
+        onClose={closeCombinedPlanModal}
+        onSaved={handleCombinedPlanSaved}
       />
       <SiDetailModal
         isOpen={Boolean(siDetailId)}
@@ -2755,7 +2788,10 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
         isOpen={vesselInfoPlanId != null}
         onClose={() => setVesselInfoPlanId(null)}
         onSaved={() => refreshOverview().catch(() => {})}
-        onOpenPlanPreBerthEdit={(pid) => setPreBerthCombinedPlanId(pid)}
+        onOpenPlanPreBerthEdit={(pid) => {
+          setCreatePlanOpen(false)
+          setPreBerthCombinedPlanId(pid)
+        }}
       />
       <SiDocumentModal
         isOpen={Boolean(siDocumentModalId)}

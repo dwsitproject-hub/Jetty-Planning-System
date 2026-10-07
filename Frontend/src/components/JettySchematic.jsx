@@ -23,6 +23,7 @@ import CargoScheduleProgressIndicator, {
   isCargoBehindSchedule,
 } from './CargoScheduleProgressIndicator'
 import VisualizationPopoutButton from './VisualizationPopoutButton'
+import CreatePlanToolbarButton from './allocation/CreatePlanToolbarButton.jsx'
 import JettySpecModal from './JettySpecModal'
 import '../styles/jetty-schematic.css'
 
@@ -196,6 +197,8 @@ export default function JettySchematic({
   exportRootRef,
   /** Optional export menu slot (plan-centric allocation page). */
   exportMenu,
+  /** Open the existing create-shipment-plan modal. Omit to hide the toolbar button. */
+  onCreatePlan,
 }) {
   const { t } = useTranslation('pages')
   const { t: tAlloc } = useTranslation('allocation')
@@ -961,6 +964,7 @@ export default function JettySchematic({
           {tAlloc('jettySchematicResetDate', { defaultValue: 'Reset' })}
         </button>
         {exportMenu || null}
+        <CreatePlanToolbarButton onCreatePlan={onCreatePlan} />
       </div>
       <div
         id="allocation-export-schematic"

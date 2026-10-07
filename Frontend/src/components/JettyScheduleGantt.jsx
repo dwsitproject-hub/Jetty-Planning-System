@@ -35,6 +35,7 @@ import {
 import { canScheduleRailRow, describeNeedsUpdate } from '../utils/berthColorState.js'
 import { validateBerthingTimeline } from '../utils/validateScheduleTimeline'
 import UnallocatedRail from './allocation/UnallocatedRail'
+import CreatePlanToolbarButton from './allocation/CreatePlanToolbarButton.jsx'
 import { validateBerthPlanJettyAssignment } from '../utils/berthPlanInterval.js'
 import { saveArrivalUpdate as saveArrivalUpdateApi } from '../api/allocation'
 import { ApiError } from '../api/client'
@@ -244,6 +245,8 @@ export default function JettyScheduleGantt({
   closeHint = '',
   onManage,
   railRows,
+  /** Open the existing create-shipment-plan modal. Omit to hide the toolbar button. */
+  onCreatePlan,
 }) {
   const { t: tAlloc } = useTranslation('allocation')
   const isPlanProfile = popoutProfile === 'plan'
@@ -1628,6 +1631,7 @@ export default function JettyScheduleGantt({
             {tAlloc('vizPopoutManageInAllocation', { defaultValue: 'Manage in Allocation' })}
           </button>
         ) : null}
+        <CreatePlanToolbarButton onCreatePlan={onCreatePlan} />
       </div>
 
       <p className="jetty-schedule-gantt__intro">
