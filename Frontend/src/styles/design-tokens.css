@@ -60,13 +60,15 @@
   --gantt-late-rgb: 220, 38, 38;
   --gantt-late-text: #b91c1c;
 
-  /* Berthing Plan purpose / New (RGB triplets for rgba(var(--x), a)) */
-  --berth-new-rgb: 196, 58, 49;
-  --berth-new-text: #9e2c25;
-  --berth-unload-rgb: 37, 99, 235;
-  --berth-unload-text: #1e3a8a;
+  /* Berthing Plan color coding: bar color = purpose (Unload blue, Load green); red = New
+     (unallocated, shown on the rail). "Needs update" is a warning icon, not a color.
+     *-text values are rgb triples, used as rgb(var(--berth-*-text)). */
   --berth-load-rgb: 22, 163, 74;
-  --berth-load-text: #166534;
+  --berth-load-text: 20, 83, 45;
+  --berth-unload-rgb: 37, 99, 235;
+  --berth-unload-text: 30, 58, 138;
+  --berth-new-rgb: 196, 58, 49;
+  --berth-new-text: 127, 29, 29;
 
   /* Typography */
   --font-primary: 'Inter', system-ui, -apple-system, sans-serif;
