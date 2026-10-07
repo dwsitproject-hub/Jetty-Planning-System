@@ -4,6 +4,7 @@ import { Navigate, useParams, useSearchParams } from 'react-router-dom'
 import JettySchematic from '../components/JettySchematic'
 import JettyScheduleGantt from '../components/JettyScheduleGantt'
 import ActiveVesselDetailModal from '../components/allocation/ActiveVesselDetailModal'
+import ShipmentPlanCombinedFormModal from '../components/ShipmentPlanCombinedFormModal'
 import { useRbac } from '../context/RbacContext'
 import useAllocationVisualizationData from '../hooks/useAllocationVisualizationData'
 import { buildRailRows } from '../utils/berthColorState'
@@ -54,8 +55,13 @@ export default function AllocationVisualizationPopout() {
   // Vessel detail modal: same modal and same vessel resolution as the Allocation page, so a rail
   // card click behaves the same in the full view as in the normal view.
   const { canEdit } = useRbac()
+  const canCreateShipmentPlan = isPlanCentric && canEdit('shipment-plan')
   const [vesselDetailId, setVesselDetailId] = useState(null)
   const [vesselDetailPlanId, setVesselDetailPlanId] = useState(null)
+  const [createPlanOpen, setCreatePlanOpen] = useState(false)
+  const [createPlanToast, setCreatePlanToast] = useState(null)
+
+  const openCreatePlanModal = useCallback(() => setCreatePlanOpen(true), [])
 
   const closeVesselDetail = useCallback(() => {
     setVesselDetailId(null)
@@ -169,6 +175,7 @@ export default function AllocationVisualizationPopout() {
             popoutProfile={profile}
             hidePopoutButton
             isPopout
+            onCreatePlan={canCreateShipmentPlan ? openCreatePlanModal : undefined}
           />
         ) : (
           <JettyScheduleGantt
@@ -185,9 +192,48 @@ export default function AllocationVisualizationPopout() {
             popoutTitle={headerTitle}
             closeHint={closeHint}
             onManage={handleManageClick}
+            onCreatePlan={canCreateShipmentPlan ? openCreatePlanModal : undefined}
           />
         )}
       </main>
+
+      {createPlanToast ? (
+        <div
+          className={`toast toast--${createPlanToast.variant}`}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <span className="toast__icon" aria-hidden>
+            {createPlanToast.variant === 'warning' ? '!' : '✓'}
+          </span>
+          <p className="toast__message">{createPlanToast.text}</p>
+          <button
+            type="button"
+            className="toast__close"
+            onClick={() => setCreatePlanToast(null)}
+            aria-label={t('dismissNotification', { defaultValue: 'Dismiss notification' })}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
+
+      <ShipmentPlanCombinedFormModal
+        isOpen={createPlanOpen}
+        mode="create"
+        occupancyRows={list}
+        onClose={() => setCreatePlanOpen(false)}
+        onSaved={(result) => {
+          if (result?.toast?.message) {
+            setCreatePlanToast({
+              text: result.toast.message,
+              variant: result.toast.variant === 'warning' ? 'warning' : 'success',
+            })
+          }
+          reload().catch(() => {})
+        }}
+      />
 
       {isSchedule && isPlanCentric ? (
         <ActiveVesselDetailModal

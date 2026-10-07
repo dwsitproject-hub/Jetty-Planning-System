@@ -167,12 +167,17 @@ html.allocation-viz-popout-open #root {
 .jetty-schedule-gantt--popout .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__reset,
 .jetty-schedule-gantt--popout .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__export,
 .jetty-schedule-gantt--popout .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__fit,
-.jetty-schedule-gantt--popout .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__manage {
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__manage,
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__create-plan {
   min-height: 28px;
   height: 28px;
   padding: 2px 8px;
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__create-plan {
+  margin-left: 0;
 }
 
 .jetty-schedule-gantt--popout .jetty-schedule-gantt__filters-hint {
@@ -389,9 +394,16 @@ html.allocation-viz-popout-open #root {
   height: 32px;
 }
 
+.jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__create-plan {
+  margin-left: auto;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__reset,
 .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__export,
-.jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__fit {
+.jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__fit,
+.jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__create-plan {
   min-height: 32px;
   height: 32px;
   padding: 4px 12px;
@@ -8168,7 +8180,8 @@ tr.cargo-schedule-behind > td:first-child {
 
 .jetty-schedule-gantt--plan.card .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__reset,
 .jetty-schedule-gantt--plan.card .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__export,
-.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__fit {
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__fit,
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__create-plan {
   min-height: 32px;
   height: 32px;
   padding: 2px 10px;

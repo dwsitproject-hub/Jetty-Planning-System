@@ -3,6 +3,8 @@
   "jettySchedule": "Rencana sandar",
   "jettySchematicViewAsOf": "Tampilkan per",
   "jettySchematicResetDate": "Reset",
+  "createNewPlan": "Rencana pengiriman baru",
+  "createNewPlanToolbar": "Rencana baru",
   "jettySchematicHistoricalHint": "Menampilkan alokasi untuk {{date}}",
   "cardTimeSinceBerthing": "Berlabuh",
   "cardEtr": "ETR {{duration}}",
