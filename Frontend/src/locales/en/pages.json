@@ -511,7 +511,7 @@
   "cargoOpsDestinationTanks": "Destination Tank(s)",
   "cargoOpsTanksPlaceholder": "Select tank(s)…",
   "cargoOpsTanksRequired": "Select at least one tank",
-  "cargoOpsLineTanksRequired": "Entry {{n}}: select at least one tank.",
+  "cargoOpsLineTanksRequired": "Entry {{n}}: select a tank.",
   "cargoOpsLineCommodityRequired": "Entry {{n}}: select which product you are moving (from this SI).",
   "cargoOpsLineProduct": "Product",
   "cargoOpsLineProductPlaceholder": "Select product…",

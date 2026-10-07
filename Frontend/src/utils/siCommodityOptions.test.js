@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  commodityDraftFromPersistedLoadLine,
   defaultCommodityIdForNewLine,
   requiresCommodityPicker,
   singleCommodityBannerText,
@@ -19,6 +20,18 @@ describe('siCommodityOptions', () => {
 
   it('defaults to previous line commodity', () => {
     assert.equal(defaultCommodityIdForNewLine(multi, '2'), '2')
+  })
+
+  it('persisted load line without commodity stays empty', () => {
+    const d = commodityDraftFromPersistedLoadLine({ commodityId: null })
+    assert.equal(d.commodityId, '')
+    assert.equal(d.persistedCommodityId, null)
+  })
+
+  it('persisted load line with commodity preserves id', () => {
+    const d = commodityDraftFromPersistedLoadLine({ commodity_id: 42 })
+    assert.equal(d.commodityId, '42')
+    assert.equal(d.persistedCommodityId, '42')
   })
 
   it('single commodity banner', () => {

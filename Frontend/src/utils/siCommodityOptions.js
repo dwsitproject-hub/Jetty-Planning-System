@@ -25,6 +25,20 @@ export function requiresCommodityPicker(options) {
   return Array.isArray(options) && options.length > 1
 }
 
+/**
+ * Hydrate cargo line draft product fields from persisted API line (no default for null).
+ * @param {object} line
+ * @returns {{ commodityId: string, persistedCommodityId: string | null }}
+ */
+export function commodityDraftFromPersistedLoadLine(line) {
+  const raw = line?.commodityId ?? line?.commodity_id
+  if (raw == null || String(raw).trim() === '') {
+    return { commodityId: '', persistedCommodityId: null }
+  }
+  const id = String(raw).trim()
+  return { commodityId: id, persistedCommodityId: id }
+}
+
 export function defaultCommodityIdForNewLine(options, previousLineCommodityId) {
   const list = normalizeSiCommodityOptions(options)
   if (list.length === 0) return null

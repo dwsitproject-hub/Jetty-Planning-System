@@ -1045,6 +1045,7 @@ Cross-reference: **TECH-SPEC §0.20**, **`Backend/src/lib/schedule-instant.js`**
 
 | Version | Date | Notes |
 |---------|------|--------|
+| 1.83 | 2026-10-07 | **Cargo operations (Berth Execution):** multi-product SI lines with null **`commodity_id`** show empty Product on edit (no first-SI default); closed untagged segments allow first product assignment; **one searchable tank** per cargo entry (replaces multi-select). Ops backfill list: **`Docs/Bugs/broken-multi-product-cargo-segments-detail.csv`**. |
 | 1.82 | 2026-10-06 | **§2.25 Avg flow:** aligned with Ops Live — moved qty ÷ logged cargo hours (ATG / manual / hybrid / solid); **`GET /operations/management-cargo-rates`**; fleet KPI = voyage-level mean; By commodity = per-product mean on tagged load lines. |
 | 1.81 | 2026-10-06 | **§2.25:** flow KPI cohort and drill-down dates use **sailed off** (**`sailedAt`**) throughout; remove wait&gt;berth outlier hide; wait evidence shows full TA→TB when valid. |
 | 1.80 | 2026-10-06 | **§2.25 Product modal:** click voyage metric cell for inline calculation evidence (TA/TB, pre-check/cargo starts, daily flow, cargo finished/sailed at). |
