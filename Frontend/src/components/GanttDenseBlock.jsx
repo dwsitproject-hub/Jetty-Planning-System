@@ -36,6 +36,15 @@ function InlineSep() {
   return <span className="gantt-dense-block__sep" aria-hidden> · </span>
 }
 
+function NeedsUpdateMark({ text }) {
+  if (!text) return null
+  return (
+    <span className="gantt-needs-update gantt-missing-etc-warn" title={text} aria-label={text}>
+      ⚠️
+    </span>
+  )
+}
+
 /**
  * @param {object} props
  * @param {'planned' | 'actual'} props.layer
@@ -54,8 +63,8 @@ export default function GanttDenseBlock({
   showAvgFlow = false,
   showPlannedWait = false,
   showEtr = false,
-  pinLabel = false,
   purposeAsColor = false,
+  pinLabel = false,
 }) {
   const { t } = useTranslation('allocation')
   const density = densityProp ?? resolveGanttBarDensity(barWidthPct)
@@ -70,26 +79,12 @@ export default function GanttDenseBlock({
     showLateChip && layer === 'actual' && model.etcOverdue && model.overMs != null && model.overMs > 0
 
   const resolvedPurpose = resolvePurposeLabel(model.purposeLabel, model.loadDischarge)
-  // Berthing Plan: purpose is the bar color (blue Unload / green Load), so the pill is dropped
-  // to save space. Legacy layouts keep the pill.
   const showPurpose =
     !purposeAsColor && (resolvedPurpose === 'Loading' || resolvedPurpose === 'Unloading')
-
-  // Berthing Plan: one warning icon for "needs update" (empty ETC, or ETC passed with no
-  // completion). Legacy layouts keep the original missing-ETC glyph.
-  const needsUpdateText = purposeAsColor ? describeNeedsUpdate(model.needsUpdateReasons, t) : ''
-  const needsUpdateBadge =
-    purposeAsColor && model.needsUpdate ? (
-      <span
-        className="gantt-needs-update"
-        role="img"
-        title={needsUpdateText}
-        aria-label={`${t('ganttNeedsUpdate', { defaultValue: 'Needs update' })}. ${needsUpdateText}`}
-      >
-        ⚠️
-      </span>
-    ) : null
-  const legacyMissingEtcBadge = !purposeAsColor && model.missingEtc
+  const needsUpdateText = model.needsUpdate
+    ? describeNeedsUpdate(model.needsUpdateReasons, t) ||
+      t('ganttNeedsUpdate', { defaultValue: 'Needs update' })
+    : ''
 
   const plannedEntries = buildGanttPlannedMilestoneEntries(model)
   const estimateEntries = buildGanttEstimateMilestoneEntries(model)
@@ -175,22 +170,7 @@ export default function GanttDenseBlock({
               short="gantt"
             />
           ) : null}
-          {needsUpdateBadge}
-          {legacyMissingEtcBadge ? (
-            <span
-              className="gantt-missing-etc-warn"
-              title={t('ganttMissingEtcWarn', {
-                defaultValue:
-                  'Estimated completion (ETC) not set — schedule bar uses +3 days for display only.',
-              })}
-              aria-label={t('ganttMissingEtcWarn', {
-                defaultValue:
-                  'Estimated completion (ETC) not set — schedule bar uses +3 days for display only.',
-              })}
-            >
-              ⏱️❓
-            </span>
-          ) : null}
+          <NeedsUpdateMark text={needsUpdateText} />
         </span>
         <InlineSep />
         <span className="gantt-dense-block__plan3-right" title={model.commodityTitle || undefined}>
@@ -239,22 +219,7 @@ export default function GanttDenseBlock({
             short="gantt"
           />
         ) : null}
-        {needsUpdateBadge}
-        {legacyMissingEtcBadge ? (
-          <span
-            className="gantt-missing-etc-warn"
-            title={t('ganttMissingEtcWarn', {
-              defaultValue:
-                'Estimated completion (ETC) not set — schedule bar uses +3 days for display only.',
-            })}
-            aria-label={t('ganttMissingEtcWarn', {
-              defaultValue:
-                'Estimated completion (ETC) not set — schedule bar uses +3 days for display only.',
-            })}
-          >
-            ⏱️❓
-          </span>
-        ) : null}
+        <NeedsUpdateMark text={needsUpdateText} />
         {isLate ? (
           <span
             className="gantt-dense-block__late-chip"

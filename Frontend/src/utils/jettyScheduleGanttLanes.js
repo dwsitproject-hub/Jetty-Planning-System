@@ -1,8 +1,8 @@
 import { resolvePurposeLabel } from './resolvePurposeLabel.js'
 import { materialDisplayFromRow } from './ganttBarDisplay.js'
 import { DEFAULT_BERTH_TAIL_MS, isBerthPlanMissingEtc } from './berthPlanInterval.js'
-import { computeWaitToBerthMs } from './waitToBerth.js'
 import { getBerthPurposeTone, getNeedsUpdateReasons } from './berthColorState.js'
+import { computeWaitToBerthMs } from './waitToBerth.js'
 import {
   parseMs,
   resolveActualAlongsideEnd,
@@ -89,10 +89,11 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
     const loadDischarge = r.loadDischarge ?? null
     const cargoDisplay = r.totalQtyDisplay || null
     const materialDisplay = materialDisplayFromRow(r)
+    const purposeTone = getBerthPurposeTone(purposeLabel, loadDischarge)
     const rowMeta = {
       purposeLabel,
-      purposeTone: getBerthPurposeTone(purposeLabel, loadDischarge),
       loadDischarge,
+      purposeTone,
       cargoDisplay,
       materialDisplay,
       commodityDisplay: r.commodityDisplay || null,
@@ -115,7 +116,13 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
     // Berthing Plan: ETB only — no ETA fallback. Once TB is recorded the actual bar represents it.
     const plannedStart = plannedEtb
     const missingEtc = isBerthPlanMissingEtc(r)
-    const plannedNeedsUpdateReasons = getNeedsUpdateReasons({ missingEtc, isSailed })
+    const needsUpdateReasons = getNeedsUpdateReasons({
+      missingEtc,
+      etcOverdue: !isSailed && estComp != null && nowMs > estComp,
+      actualCompMs,
+      isSailed,
+    })
+    const needsUpdate = needsUpdateReasons.length > 0
     const plannedDedupKey = `${jettyId}\0${bankLaneKey}`
     if (
       plannedStart != null &&
@@ -161,8 +168,8 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
           taMs: ta,
           estCompMs: estComp,
           missingEtc,
-          needsUpdate: plannedNeedsUpdateReasons.length > 0,
-          needsUpdateReasons: plannedNeedsUpdateReasons,
+          needsUpdate,
+          needsUpdateReasons,
           startSource: 'ETB',
           waitMs:
             ta != null && tb == null && !isSailed
@@ -200,13 +207,6 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
       const spanMs = opsEnd - tb
       const etcOverduePct =
         isBreached && spanMs > 0 ? Math.min(100, Math.max(0, ((estComp - tb) / spanMs) * 100)) : null
-      const actualMissingEtc = isBerthPlanMissingEtc(r)
-      const actualNeedsUpdateReasons = getNeedsUpdateReasons({
-        missingEtc: actualMissingEtc,
-        etcOverdue: isBreached,
-        actualCompMs,
-        isSailed,
-      })
 
       pushSegment(
         out,
@@ -240,9 +240,9 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
             etbMs: plannedEtb,
             mode: 'berthed',
           }),
-          missingEtc: actualMissingEtc,
-          needsUpdate: actualNeedsUpdateReasons.length > 0,
-          needsUpdateReasons: actualNeedsUpdateReasons,
+          missingEtc: isBerthPlanMissingEtc(r),
+          needsUpdate,
+          needsUpdateReasons,
         },
         windowStartMs,
         windowEndMs

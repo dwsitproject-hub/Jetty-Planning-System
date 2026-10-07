@@ -250,7 +250,7 @@ export default function JettyScheduleGantt({
   const def = useMemo(() => defaultDateRangeInputsForProfile(popoutProfile), [popoutProfile])
   const [dateFrom, setDateFrom] = useState(def.from)
   const [dateTo, setDateTo] = useState(def.to)
-  const [fitAllRows, setFitAllRows] = useState(Boolean(isPopout || isPlanProfile))
+  const [fitAllRows, setFitAllRows] = useState(Boolean(isPopout))
   const [fitDensity, setFitDensity] = useState('full')
   const [exporting, setExporting] = useState(false)
   const useFitRows = fitAllRows && !exporting
@@ -629,9 +629,9 @@ export default function JettyScheduleGantt({
       const n = Math.max(1, rowDefs.length)
       // 8px gutter covers the date-header/body borders + the horizontal scrollbar.
       const available = Math.max(0, h - headerH - 8)
-      el.style.setProperty('--gantt-fit-row-min', `${resolveGanttFitRowMin({ availableHeight: available, rowCount: n })}px`)
-      // Berthing Plan (tab + full view) keeps the full 3-line card.
-      setFitDensity(isPlanProfile ? 'full' : resolveGanttFitDensity(available / n))
+      const rowMin = resolveGanttFitRowMin({ availableHeight: available, rowCount: n })
+      el.style.setProperty('--gantt-fit-row-min', `${rowMin}px`)
+      setFitDensity(resolveGanttFitDensity(rowMin))
     }
     apply()
     if (typeof ResizeObserver === 'undefined') {
