@@ -1,6 +1,7 @@
 /** Full-view “Fit all jetties”: share remaining viewport height across every lane row. */
 
 export const GANTT_FIT_MIN_ROW_PX = 44
+export const GANTT_FIT_MAX_ROW_PX = 72
 export const GANTT_FIT_HARD_MIN_ROW_PX = 28
 export const GANTT_FIT_BAR_INSET_PX = 3
 export const GANTT_FIT_TIGHT_BELOW_PX = 50
@@ -11,8 +12,8 @@ export const GANTT_FIT_MINI_BELOW_PX = 42
  * @returns {'full' | 'tight' | 'mini'}
  */
 /**
- * Lowest row height that still lets every lane fit in the scrollport.
- * Comfortable floor is 44px; we only go lower when that would overflow.
+ * Share the scrollport across every lane: never above 72px (giant empty bars),
+ * never below 28px. Shrinks equally when 72px would overflow.
  * @param {{ availableHeight: number, rowCount: number }} args
  */
 export function resolveGanttFitRowMin({ availableHeight, rowCount }) {
@@ -20,7 +21,7 @@ export function resolveGanttFitRowMin({ availableHeight, rowCount }) {
   const available = Number(availableHeight)
   if (!Number.isFinite(available) || available <= 0) return GANTT_FIT_HARD_MIN_ROW_PX
   const even = Math.floor(available / n)
-  return Math.max(GANTT_FIT_HARD_MIN_ROW_PX, Math.min(GANTT_FIT_MIN_ROW_PX, even))
+  return Math.max(GANTT_FIT_HARD_MIN_ROW_PX, Math.min(GANTT_FIT_MAX_ROW_PX, even))
 }
 
 export function resolveGanttFitDensity(rowHeightPx) {

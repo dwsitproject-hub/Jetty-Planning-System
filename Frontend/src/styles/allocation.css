@@ -1335,23 +1335,23 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 }
 
 /*
- * Berthing Plan (main tab + full view): readable 3-line vessel card (~72px).
- * Do not stretch rows to fill leftover viewport (that made giant empty bars).
+ * Berthing Plan (main tab + full view) with Fit all jetties:
+ * share leftover height equally, cap at 72px (no giant stretch), shrink so every jetty is visible.
  */
 .jetty-schedule-gantt--plan.jetty-schedule-gantt--fit-rows .jetty-schedule-gantt__matrix {
-  min-height: auto;
+  min-height: var(--gantt-fit-viewport-h, 100%);
 }
 
 .jetty-schedule-gantt--plan.jetty-schedule-gantt--fit-rows .jetty-schedule-gantt__body,
 .jetty-schedule-gantt--plan.jetty-schedule-gantt--fit-rows .jetty-schedule-gantt__body-inner {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
 }
 
 .jetty-schedule-gantt--plan.jetty-schedule-gantt--fit-rows .jetty-schedule-gantt__row {
-  flex: 0 0 auto;
-  height: var(--gantt-bar-height, 72px);
-  min-height: var(--gantt-bar-height, 72px);
+  flex: 1 1 0;
+  min-height: var(--gantt-fit-row-min, 44px);
   max-height: var(--gantt-bar-height, 72px);
+  height: auto;
 }
 
 .jetty-schedule-gantt__export-title {
@@ -7896,18 +7896,18 @@ tr.cargo-schedule-behind > td:first-child {
 }
 
 .jetty-schedule-gantt--popout .jetty-schedule-gantt__chart-with-rail {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   min-height: 0;
-  height: max-content;
-  align-items: flex-start;
+  height: auto;
+  align-items: stretch;
 }
 
 .jetty-schedule-gantt--popout .jetty-schedule-gantt__chart-with-rail > .jetty-schedule-gantt__scroll {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  height: max-content;
-  max-height: calc(100vh - 120px);
+  height: auto;
+  max-height: none;
 }
 
 .jetty-schedule-gantt--popout .jetty-schedule-gantt__chart-with-rail > .unallocated-rail {
@@ -8043,9 +8043,9 @@ tr.cargo-schedule-behind > td:first-child {
   text-align: left;
   font: inherit;
   color: rgb(var(--berth-new-text));
-  background: rgba(var(--berth-new-rgb), 0.12);
-  border: 1px solid rgba(var(--berth-new-rgb), 0.7);
-  border-left-width: 4px;
+  background: rgba(var(--berth-new-rgb), 0.22);
+  border: 1px solid rgba(var(--berth-new-rgb), 0.85);
+  border-left: 4px solid rgb(var(--berth-new-rgb));
   border-radius: 6px;
   cursor: pointer;
 }
@@ -8134,8 +8134,6 @@ tr.cargo-schedule-behind > td:first-child {
   font-weight: 700;
   line-height: 14px;
   letter-spacing: 0.02em;
-  text-decoration: line-through;
-  text-decoration-thickness: 1.5px;
   background: rgba(var(--berth-new-rgb), 0.14);
   color: rgb(var(--berth-new-text));
   border: 1px solid rgba(var(--berth-new-rgb), 0.55);

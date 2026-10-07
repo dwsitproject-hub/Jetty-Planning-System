@@ -60,6 +60,14 @@
   --gantt-late-rgb: 220, 38, 38;
   --gantt-late-text: #b91c1c;
 
+  /* Berthing Plan purpose / New (RGB triplets for rgba(var(--x), a)) */
+  --berth-new-rgb: 196, 58, 49;
+  --berth-new-text: #9e2c25;
+  --berth-unload-rgb: 37, 99, 235;
+  --berth-unload-text: #1e3a8a;
+  --berth-load-rgb: 22, 163, 74;
+  --berth-load-text: #166534;
+
   /* Typography */
   --font-primary: 'Inter', system-ui, -apple-system, sans-serif;
   --font-heading: 'Merriweather', Georgia, serif;
