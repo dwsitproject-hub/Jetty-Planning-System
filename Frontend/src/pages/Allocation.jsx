@@ -48,6 +48,7 @@ import {
 } from '../utils/captureDomAsJpeg'
 import { downloadCanvasesAsPdf } from '../utils/exportCanvasPdf'
 import { isStaleLazyChunkError, reloadOnceForStaleChunks } from '../utils/staleChunkReload'
+import { buildRailRows } from '../utils/berthColorState'
 import {
   currentPhaseLabelForVessel,
   deriveCurrentPhaseIndex,
@@ -1163,6 +1164,13 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   const scheduleListLive = useMemo(
     () => mergeLiveCargoProgressIntoRows(planViz.mergedSchedule, cargoProgressByOpId, breachNowMs),
     [planViz, cargoProgressByOpId, breachNowMs]
+  )
+
+  // Berthing Plan only: vessels with no jetty or no ETB have no Gantt bar, so they sit on the
+  // "Unallocated" rail and are dragged onto a jetty. `undefined` keeps the legacy page unchanged.
+  const unallocatedRailRows = useMemo(
+    () => (isPlanCentric ? buildRailRows(scheduleListLive) : undefined),
+    [isPlanCentric, scheduleListLive]
   )
 
   const vesselDetailRows = useMemo(() => {
@@ -2710,6 +2718,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
             onSelectVessel={(vesselId) => vesselId && selectVesselFromVisualization(vesselId)}
             onScheduleChanged={refreshOverview}
             popoutProfile={isPlanCentric ? 'plan' : 'legacy'}
+            railRows={unallocatedRailRows}
           />
         </div>
       </div>

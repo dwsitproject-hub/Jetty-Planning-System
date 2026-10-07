@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useLayoutEffect, useRef } from 'react'
+import { Fragment, useMemo, useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import html2canvas from 'html2canvas'
 import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
@@ -26,10 +26,15 @@ import {
   buildGanttDragProposal,
   buildArrivalPayloadFromProposal,
   buildCandidateFromProposal,
+  buildRailDropProposal,
+  etbFromTrackPointer,
   jettyIdFromRowKey,
   snapDeltaMs,
   GANTT_DRAG_THRESHOLD_PX,
 } from '../utils/ganttDragProposal.js'
+import { canScheduleRailRow, describeNeedsUpdate } from '../utils/berthColorState.js'
+import { validateBerthingTimeline } from '../utils/validateScheduleTimeline'
+import UnallocatedRail from './allocation/UnallocatedRail'
 import { validateBerthPlanJettyAssignment } from '../utils/berthPlanInterval.js'
 import { saveArrivalUpdate as saveArrivalUpdateApi } from '../api/allocation'
 import { ApiError } from '../api/client'
@@ -120,16 +125,24 @@ function spanAnchorKey(seg) {
   return `${seg.rowKey}__${seg.startMs}__${seg.vesselId ?? seg.vesselName ?? ''}`
 }
 
-function segmentColorClass(seg) {
+/**
+ * @param {object} seg
+ * @param {boolean} [purposeAsColor] Berthing Plan: bar color = purpose (blue Unload, green Load)
+ */
+function segmentColorClass(seg, purposeAsColor = false) {
   const st = (seg.status || 'arriving').toLowerCase().replace(/[^a-z0-9]+/g, '-')
   const layer = seg.layer
   const grad = seg.gradient ? 'grad' : 'solid'
-  return `jetty-schedule-gantt__bar--${layer}-${grad} jetty-schedule-gantt__bar--st-${st}`
+  const tone =
+    purposeAsColor && (seg.purposeTone === 'load' || seg.purposeTone === 'unload')
+      ? ` jetty-schedule-gantt__bar--purpose-${seg.purposeTone}`
+      : ''
+  return `jetty-schedule-gantt__bar--${layer}-${grad} jetty-schedule-gantt__bar--st-${st}${tone}`
 }
 
-function segmentPillClass(seg) {
+function segmentPillClass(seg, purposeAsColor = false) {
   const overdueMod = seg.etcOverdue ? ' jetty-schedule-gantt__bar--actual-etc-overdue' : ''
-  return `jetty-schedule-gantt__bar ${segmentColorClass(seg)}${overdueMod}`
+  return `jetty-schedule-gantt__bar ${segmentColorClass(seg, purposeAsColor)}${overdueMod}`
 }
 
 function ganttBarOverdueVar(seg) {
@@ -176,6 +189,7 @@ function renderDenseBarContent(seg, layer, barWidthPct, sourceRow, blockOptions,
         showAvgFlow={ganttUiOptions.showAvgFlow}
         showPlannedWait={ganttUiOptions.showPlannedWait}
         showEtr={ganttUiOptions.showEtr}
+        purposeAsColor={ganttUiOptions.purposeAsColor}
         pinLabel={pinLabel}
       />
     ),
@@ -221,6 +235,7 @@ export default function JettyScheduleGantt({
   jetties,
   list,
   onSelectVessel,
+  onSelectRailVessel,
   onScheduleChanged,
   popoutProfile = 'plan',
   hidePopoutButton = false,
@@ -228,13 +243,14 @@ export default function JettyScheduleGantt({
   popoutTitle = '',
   closeHint = '',
   onManage,
+  railRows,
 }) {
   const { t: tAlloc } = useTranslation('allocation')
   const isPlanProfile = popoutProfile === 'plan'
   const def = useMemo(() => defaultDateRangeInputsForProfile(popoutProfile), [popoutProfile])
   const [dateFrom, setDateFrom] = useState(def.from)
   const [dateTo, setDateTo] = useState(def.to)
-  const [fitAllRows, setFitAllRows] = useState(Boolean(isPopout))
+  const [fitAllRows, setFitAllRows] = useState(Boolean(isPopout || isPlanProfile))
   const [fitDensity, setFitDensity] = useState('full')
   const [exporting, setExporting] = useState(false)
   const useFitRows = fitAllRows && !exporting
@@ -261,9 +277,13 @@ export default function JettyScheduleGantt({
       showPlannedWait: isPlanProfile,
       showEtr: isPlanProfile,
       pinLongLabels: isPlanProfile,
+      purposeAsColor: isPlanProfile,
     }),
     [isPlanProfile]
   )
+
+  // Unallocated rail: Berthing Plan only (not the popout, not the legacy profile).
+  const railEnabled = isPlanProfile && Array.isArray(railRows)
 
   const barMetrics = useMemo(() => resolveGanttBarMetrics(isPlanProfile), [isPlanProfile])
 
@@ -519,6 +539,7 @@ export default function JettyScheduleGantt({
       : 'minmax(160px, 200px)'
 
   const scrollRef = useRef(null)
+  const chartShellRef = useRef(null)
   const initialScrollDoneRef = useRef(false)
   const [scrollToTodayTick, setScrollToTodayTick] = useState(0)
 
@@ -609,7 +630,8 @@ export default function JettyScheduleGantt({
       // 8px gutter covers the date-header/body borders + the horizontal scrollbar.
       const available = Math.max(0, h - headerH - 8)
       el.style.setProperty('--gantt-fit-row-min', `${resolveGanttFitRowMin({ availableHeight: available, rowCount: n })}px`)
-      setFitDensity(resolveGanttFitDensity(available / n))
+      // Berthing Plan (tab + full view) keeps the full 3-line card.
+      setFitDensity(isPlanProfile ? 'full' : resolveGanttFitDensity(available / n))
     }
     apply()
     if (typeof ResizeObserver === 'undefined') {
@@ -619,7 +641,43 @@ export default function JettyScheduleGantt({
     const observer = new ResizeObserver(apply)
     observer.observe(el)
     return () => observer.disconnect()
-  }, [useFitRows, rowDefs.length, nCols])
+  }, [useFitRows, rowDefs.length, nCols, isPlanProfile, railEnabled, isPopout])
+
+  // Keep the Unallocated rail the same height as the jetty rows (not 70vh),
+  // and start it under the date header so the card does not grow a white gap.
+  useLayoutEffect(() => {
+    const scroll = scrollRef.current
+    const shell = chartShellRef.current
+    if (!scroll || !shell || !railEnabled) {
+      scroll?.style.removeProperty('--gantt-matrix-header-h')
+      shell?.style.removeProperty('--gantt-matrix-header-h')
+      shell?.style.removeProperty('--gantt-matrix-body-h')
+      return undefined
+    }
+    const measure = () => {
+      const header = scroll.querySelector('.jetty-schedule-gantt__header-row')
+      const body = scroll.querySelector('.jetty-schedule-gantt__body')
+      const headerH = header ? header.getBoundingClientRect().height : 36
+      const bodyH = body ? body.getBoundingClientRect().height : 0
+      const visibleBelowHeader = Math.max(0, scroll.clientHeight - headerH)
+      const railH = Math.max(0, Math.round(Math.min(bodyH || visibleBelowHeader, visibleBelowHeader || bodyH)))
+      const headerPx = `${Math.ceil(headerH)}px`
+      const bodyPx = `${railH}px`
+      shell.style.setProperty('--gantt-matrix-header-h', headerPx)
+      shell.style.setProperty('--gantt-matrix-body-h', bodyPx)
+      scroll.style.setProperty('--gantt-matrix-header-h', headerPx)
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure)
+      return () => window.removeEventListener('resize', measure)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(scroll)
+    const body = scroll.querySelector('.jetty-schedule-gantt__body')
+    if (body) observer.observe(body)
+    return () => observer.disconnect()
+  }, [railEnabled, useFitRows, nCols, rowDefs.length, railRows?.length])
 
   const exportRef = useRef(null)
 
@@ -878,6 +936,172 @@ export default function JettyScheduleGantt({
     setPendingChange({ proposal, seg: d.seg, row: d.row })
   }
 
+  // ---- Unallocated rail: drag a card onto a jetty row to set jetty + ETB ------------------
+  const railDragRef = useRef(null)
+  const suppressRailClickRef = useRef(false)
+
+  const cleanupRailDrag = (d) => {
+    if (!d) return
+    if (d.listeners) {
+      window.removeEventListener('pointermove', d.listeners.onMove)
+      window.removeEventListener('pointerup', d.listeners.onUp)
+      window.removeEventListener('pointercancel', d.listeners.onCancel)
+    }
+    if (d.cardEl) d.cardEl.classList.remove('unallocated-rail__card--dragging')
+    if (d.badgeEl && d.badgeEl.parentNode) d.badgeEl.parentNode.removeChild(d.badgeEl)
+    if (d.lastRowEl) d.lastRowEl.classList.remove('jetty-schedule-gantt__row--drop-target')
+  }
+
+  useEffect(
+    () => () => {
+      cleanupRailDrag(railDragRef.current)
+      railDragRef.current = null
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  )
+
+  const updateRailDragBadge = (d, e) => {
+    const name = d.row.vesselName || '—'
+    if (d.targetJettyId && d.etbMs != null) {
+      d.badgeEl.textContent = `${name}   ⚓ ${d.targetJettyId}   ETB ${formatDateTimeDisplay(
+        new Date(d.etbMs).toISOString()
+      )}`
+    } else {
+      d.badgeEl.textContent = `${name}   ${tAlloc('railDragHint', {
+        defaultValue: 'Drop on a jetty row',
+      })}`
+    }
+    d.badgeEl.style.left = `${e.clientX + 14}px`
+    d.badgeEl.style.top = `${e.clientY + 16}px`
+  }
+
+  const handleRailPointerDown = (e, row) => {
+    if (!canEditSchedule || exporting || !canScheduleRailRow(row)) return
+    if (e.button != null && e.button !== 0) return
+    if (railDragRef.current) {
+      cleanupRailDrag(railDragRef.current)
+      railDragRef.current = null
+    }
+    if (typeof e.preventDefault === 'function') e.preventDefault()
+    const cardEl = e.currentTarget
+    try {
+      cardEl.setPointerCapture(e.pointerId)
+    } catch {
+      /* ignore */
+    }
+    const onMove = (ev) => handleRailPointerMove(ev)
+    const onUp = (ev) => handleRailPointerEnd(ev)
+    const onCancel = (ev) => handleRailPointerEnd(ev, true)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
+    railDragRef.current = {
+      pointerId: e.pointerId,
+      row,
+      cardEl,
+      startX: e.clientX,
+      startY: e.clientY,
+      windowStartMs,
+      totalMs,
+      started: false,
+      targetJettyId: null,
+      etbMs: null,
+      badgeEl: null,
+      lastRowEl: null,
+      listeners: { onMove, onUp, onCancel },
+    }
+  }
+
+  const handleRailPointerMove = (e) => {
+    const d = railDragRef.current
+    if (!d || e.pointerId !== d.pointerId) return
+    if (e.buttons != null && e.buttons === 0) {
+      handleRailPointerEnd(e, !d.started)
+      return
+    }
+    if (!d.started) {
+      const dx = e.clientX - d.startX
+      const dy = e.clientY - d.startY
+      if (Math.abs(dx) < GANTT_DRAG_THRESHOLD_PX && Math.abs(dy) < GANTT_DRAG_THRESHOLD_PX) return
+      d.started = true
+      const badge = document.createElement('div')
+      badge.className = 'jetty-schedule-gantt__drag-badge'
+      document.body.appendChild(badge)
+      d.badgeEl = badge
+    }
+    d.cardEl.classList.add('unallocated-rail__card--dragging')
+    const rowEl = findDropRowEl(e.clientX, e.clientY, null)
+    if (d.lastRowEl && d.lastRowEl !== rowEl) {
+      d.lastRowEl.classList.remove('jetty-schedule-gantt__row--drop-target')
+    }
+    if (rowEl && rowEl !== d.lastRowEl) {
+      rowEl.classList.add('jetty-schedule-gantt__row--drop-target')
+    }
+    d.lastRowEl = rowEl || null
+    d.targetJettyId = rowEl ? jettyIdFromRowKey(rowEl.dataset.ganttRow) : null
+    let etbMs = null
+    if (rowEl) {
+      const trackEl = rowEl.querySelector('.jetty-schedule-gantt__track')
+      if (trackEl) {
+        const r = trackEl.getBoundingClientRect()
+        etbMs = etbFromTrackPointer({
+          clientX: e.clientX,
+          trackLeft: r.left,
+          trackWidth: r.width,
+          windowStartMs: d.windowStartMs,
+          totalMs: d.totalMs,
+        })
+      }
+    }
+    d.etbMs = etbMs
+    updateRailDragBadge(d, e)
+  }
+
+  const handleRailPointerEnd = (e, cancelled = false) => {
+    const d = railDragRef.current
+    if (!d || e.pointerId !== d.pointerId) return
+    railDragRef.current = null
+    cleanupRailDrag(d)
+    if (!d.started) return
+    suppressRailClickRef.current = true
+    setTimeout(() => {
+      suppressRailClickRef.current = false
+    }, 150)
+    if (cancelled) return
+    if (!d.targetJettyId || d.etbMs == null) {
+      setNotice(
+        tAlloc('railDropNeedsJetty', {
+          defaultValue: 'Drop the vessel on a jetty row to schedule it.',
+        })
+      )
+      return
+    }
+    const proposal = buildRailDropProposal({
+      row: d.row,
+      jettyId: d.targetJettyId,
+      etbMs: d.etbMs,
+    })
+    if (!proposal) return
+    setPendingChoice('estimation')
+    setPendingSaveError(null)
+    pendingOpenedAtRef.current = Date.now()
+    setPendingChange({
+      proposal,
+      seg: { vesselName: d.row.vesselName || '—' },
+      row: d.row,
+    })
+  }
+
+  const handleRailSelect = (row) => {
+    if (suppressRailClickRef.current) return
+    const pick = typeof onSelectRailVessel === 'function' ? onSelectRailVessel : onSelectVessel
+    if (row?.vesselId != null && typeof pick === 'function') {
+      pick(row.vesselId)
+    }
+  }
+  // ----------------------------------------------------------------------------------------
+
   const closePendingChange = () => {
     if (pendingSaving) return
     setPendingChange(null)
@@ -897,6 +1121,13 @@ export default function JettyScheduleGantt({
   const handleConfirmPendingChange = async () => {
     if (!pendingChange) return
     const { proposal, row } = pendingChange
+    if (proposal.kind === 'rail-drop') {
+      const etbErr = validateBerthingTimeline({ etb: new Date(proposal.estimation[0].toMs) })
+      if (etbErr) {
+        setPendingSaveError(etbErr)
+        return
+      }
+    }
     const choice = proposal.needsChoice
       ? pendingChoice
       : proposal.canEstimation
@@ -1054,7 +1285,7 @@ export default function JettyScheduleGantt({
           )
 
           const barLayer = seg.layer === 'planned' ? 'planned' : 'actual'
-          const pillClass = segmentPillClass(seg)
+          const pillClass = segmentPillClass(seg, ganttUiOptions.purposeAsColor)
           const canClick = Boolean(seg.vesselId && typeof onSelectVessel === 'function')
           const sourceRow = findScheduleSourceRow(listRows, seg)
           const canDrag = Boolean(canEditSchedule && sourceRow)
@@ -1086,6 +1317,10 @@ export default function JettyScheduleGantt({
               ? tAlloc('ganttClickVesselDetail', { defaultValue: 'Click to open vessel details.' })
               : null,
             waitLabel: resolveGanttWaitTooltip(blockModel, tAlloc),
+            needsUpdateLabel: tAlloc('ganttNeedsUpdate', { defaultValue: 'Needs update' }),
+            needsUpdateText: ganttUiOptions.purposeAsColor
+              ? describeNeedsUpdate(blockModel.needsUpdateReasons, tAlloc)
+              : null,
             etrLabel: tAlloc('ganttTooltipEtr', {
               defaultValue: 'ETR (balance ÷ rate)',
             }),
@@ -1167,14 +1402,47 @@ export default function JettyScheduleGantt({
 
   const legendContent = (
     <>
-      <span className="allocation-schedule__legend-item">
-        <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-solid" />
-        {tAlloc('ganttLegendActual', { defaultValue: 'Actual' })}
-      </span>
-      <span className="allocation-schedule__legend-item">
-        <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--planned-solid" />
-        {tAlloc('ganttLegendEstimate', { defaultValue: 'Estimate (no actual yet)' })}
-      </span>
+      {isPlanProfile ? (
+        <>
+          <span className="allocation-schedule__legend-item">
+            <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--unload" />
+            {tAlloc('ganttLegendUnload', { defaultValue: 'Unload' })}
+          </span>
+          <span className="allocation-schedule__legend-item">
+            <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--load" />
+            {tAlloc('ganttLegendLoad', { defaultValue: 'Load' })}
+          </span>
+          <span className="allocation-schedule__legend-item">
+            <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--new" />
+            {tAlloc('ganttLegendNew', { defaultValue: 'New (unallocated)' })}
+          </span>
+          <span className="allocation-schedule__legend-item">
+            <span aria-hidden>⚠️</span>
+            {tAlloc('ganttLegendNeedsUpdate', {
+              defaultValue: 'Needs update (empty or passed ETC)',
+            })}
+          </span>
+          <span className="allocation-schedule__legend-item">
+            <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--tone-actual" />
+            {tAlloc('ganttLegendActual', { defaultValue: 'Actual' })}
+          </span>
+          <span className="allocation-schedule__legend-item">
+            <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--tone-estimate" />
+            {tAlloc('ganttLegendEstimate', { defaultValue: 'Estimate (no actual yet)' })}
+          </span>
+        </>
+      ) : (
+        <>
+          <span className="allocation-schedule__legend-item">
+            <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--actual-solid" />
+            {tAlloc('ganttLegendActual', { defaultValue: 'Actual' })}
+          </span>
+          <span className="allocation-schedule__legend-item">
+            <span className="jetty-schedule-gantt__swatch jetty-schedule-gantt__swatch--planned-solid" />
+            {tAlloc('ganttLegendEstimate', { defaultValue: 'Estimate (no actual yet)' })}
+          </span>
+        </>
+      )}
       {isPlanProfile ? (
         <>
           <span className="allocation-schedule__legend-item">
@@ -1207,6 +1475,14 @@ export default function JettyScheduleGantt({
       </span>
     </>
   )
+
+  const LayoutTag = Fragment
+  const layoutProps = {}
+  // Rail stays outside horizontal scroll (always visible) and below the date header row.
+  const ChartShell = railEnabled ? 'div' : Fragment
+  const chartShellProps = railEnabled
+    ? { className: 'jetty-schedule-gantt__chart-with-rail', ref: chartShellRef }
+    : {}
 
   const pendingProposal = pendingChange?.proposal ?? null
   const pendingTargetBerth = pendingProposal?.jettyChange
@@ -1330,7 +1606,7 @@ export default function JettyScheduleGantt({
         >
           {tAlloc('ganttFitAllJetties', { defaultValue: 'Fit all jetties' })}
         </button>
-        {isPopout ? (
+        {isPlanProfile ? (
           <details className="jetty-schedule-gantt__legend-details">
             <summary>{tAlloc('vizPopoutLegend', { defaultValue: 'Legend' })}</summary>
             <div className="allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two">
@@ -1363,18 +1639,20 @@ export default function JettyScheduleGantt({
         ) : null}
       </p>
 
+      <LayoutTag {...layoutProps}>
       <div className="jetty-schedule-gantt__export-area" ref={exportRef}>
         {exporting ? (
           <div className="jetty-schedule-gantt__export-title">
             {tAlloc('jettySchedule', { defaultValue: 'Berthing Plan' })} · {dateFrom} → {dateTo}
           </div>
         ) : null}
-        {isPopout ? null : (
-        <div className="allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two">
-          {legendContent}
-        </div>
-      )}
+        {!isPlanProfile ? (
+          <div className="allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two">
+            {legendContent}
+          </div>
+        ) : null}
 
+      <ChartShell {...chartShellProps}>
       <div className="jetty-schedule-gantt__scroll" ref={scrollRef}>
         <div
           className="jetty-schedule-gantt__matrix"
@@ -1420,7 +1698,7 @@ export default function JettyScheduleGantt({
                       <span
                         key={key}
                         ref={setExtensionRef(key)}
-                        className={`jetty-schedule-gantt__bar--span-extension${extendsDown ? ' jetty-schedule-gantt__bar--span-extension-down' : ' jetty-schedule-gantt__bar--span-extension-up'} ${segmentColorClass(seg)}${seg.etcOverdue ? ' jetty-schedule-gantt__bar--actual-etc-overdue' : ''}${extCanDrag ? ' jetty-schedule-gantt__bar--span-extension-draggable' : ''}`}
+                        className={`jetty-schedule-gantt__bar--span-extension${extendsDown ? ' jetty-schedule-gantt__bar--span-extension-down' : ' jetty-schedule-gantt__bar--span-extension-up'} ${segmentColorClass(seg, ganttUiOptions.purposeAsColor)}${seg.etcOverdue ? ' jetty-schedule-gantt__bar--actual-etc-overdue' : ''}${extCanDrag ? ' jetty-schedule-gantt__bar--span-extension-draggable' : ''}`}
                         style={style}
                         aria-hidden="true"
                         onPointerDown={
@@ -1505,7 +1783,18 @@ export default function JettyScheduleGantt({
           )}
         </div>
       </div>
+      {railEnabled ? (
+        <UnallocatedRail
+          rows={railRows}
+          canDrag={canEditSchedule && !exporting}
+          canScheduleRow={canScheduleRailRow}
+          onCardPointerDown={handleRailPointerDown}
+          onSelect={handleRailSelect}
+        />
+      ) : null}
+      </ChartShell>
       </div>
+      </LayoutTag>
 
       {pendingChange ? (
         <div className="modal-overlay" onClick={handleOverlayClick} aria-hidden="true">
@@ -1587,6 +1876,15 @@ export default function JettyScheduleGantt({
                   </span>
                 </label>
               </fieldset>
+            ) : null}
+
+            {pendingProposal?.kind === 'rail-drop' ? (
+              <p className="jetty-schedule-gantt__confirm-note">
+                {tAlloc('railDropEtcNote', {
+                  defaultValue:
+                    'Only the jetty and ETB are set. The ETC stays empty, so the vessel shows a needs-update warning until you enter an ETC.',
+                })}
+              </p>
             ) : null}
 
             {pendingProposal && pendingProposal.deltaMs !== 0 && !pendingProposal.needsChoice &&

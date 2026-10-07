@@ -417,6 +417,8 @@ export function buildPlannedBlockModel(seg, options = {}) {
       { label: 'ETC', ms: seg.estCompMs },
     ]),
     missingEtc: Boolean(seg.missingEtc),
+    needsUpdate: Boolean(seg.needsUpdate),
+    needsUpdateReasons: Array.isArray(seg.needsUpdateReasons) ? seg.needsUpdateReasons : [],
   }
 }
 
@@ -543,6 +545,8 @@ export function buildActualBlockModel(seg, row, options = {}) {
     overMs: seg.overMs ?? null,
     estCompMs: seg.estCompMs ?? null,
     missingEtc: Boolean(seg.missingEtc),
+    needsUpdate: Boolean(seg.needsUpdate),
+    needsUpdateReasons: Array.isArray(seg.needsUpdateReasons) ? seg.needsUpdateReasons : [],
   }
 }
 
@@ -597,6 +601,7 @@ export function ganttDenseBlockAriaLabel(model, layer) {
   if (model.waitLine) parts.push(`Wait ${model.waitLine}`)
   if (model.avgRateLine && model.avgRateLine !== '—') parts.push(model.avgRateLine)
   if (model.etrDuration) parts.push(`ETR ${model.etrDuration}`)
+  if (model.needsUpdate) parts.push('Needs update')
   return parts.filter(Boolean).join(', ')
 }
 
@@ -611,6 +616,12 @@ export function buildGanttBarTooltipItems(model, layer, options = {}) {
   const items = []
   if (model.purposeLabel) {
     items.push({ primary: 'Purpose', secondary: model.purposeLabel })
+  }
+  if (model.needsUpdate && options.needsUpdateText) {
+    items.push({
+      primary: options.needsUpdateLabel || 'Needs update',
+      secondary: options.needsUpdateText,
+    })
   }
   if (layer === 'actual' && model.estimateLine) {
     items.push({ primary: 'Estimate', secondary: model.estimateLine })
