@@ -191,6 +191,7 @@ function OperationSignoffBanner({
   canEditLoading,
   canApproveLoading,
   onOperationUpdated,
+  embedPath = (path) => path,
 }) {
   const [requestOpen, setRequestOpen] = useState(false)
   const [remark, setRemark] = useState('')
@@ -305,7 +306,10 @@ function OperationSignoffBanner({
               An approver with <strong>Approve operation sign-off</strong> on Loading / Unloading must sign off before the vessel appears under Ready to Sail on Clearance.
             </p>
             <div style={{ marginTop: 'var(--spacing-2)', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              <Link to="/verification" className="btn btn--ghost btn--small">
+              <Link
+                to={embedPath(`/verification?filter=pending&operationId=${operationId}`)}
+                className="btn btn--ghost btn--small"
+              >
                 Open Clearance
               </Link>
             </div>
@@ -324,7 +328,7 @@ function OperationSignoffBanner({
               <button type="button" className="btn btn--primary" onClick={() => { setErr(null); setRequestOpen(true) }}>
                 Request operation sign-off
               </button>
-              <Link to="/verification" className="btn btn--ghost btn--small">
+              <Link to={embedPath('/verification')} className="btn btn--ghost btn--small">
                 Clearance
               </Link>
             </div>
@@ -1068,6 +1072,7 @@ function Loading() {
             canEditLoading={canEditLoading}
             canApproveLoading={canApproveLoading}
             onOperationUpdated={mergeApiOpPatch}
+            embedPath={embedPath}
           />
         ) : null}
 
@@ -1085,7 +1090,7 @@ function Loading() {
 
         {canProceedToClearance && (
           <section className="card" style={{ marginTop: 'var(--spacing-4)' }}>
-            <Link to="/verification" className="btn btn--primary">Proceed to Clearance →</Link>
+            <Link to={embedPath('/verification')} className="btn btn--primary">Proceed to Clearance →</Link>
           </section>
         )}
       </div>
@@ -1180,6 +1185,7 @@ function Loading() {
           canEditLoading={canEditLoading}
           canApproveLoading={canApproveLoading}
           onOperationUpdated={mergeApiOpPatch}
+          embedPath={embedPath}
         />
       ) : null}
 
@@ -1259,7 +1265,7 @@ function Loading() {
 
         {section === 'post-checking' && canProceedToClearance && (
           <section className="card">
-            <Link to="/verification" className="btn btn--primary">Proceed to Clearance →</Link>
+            <Link to={embedPath('/verification')} className="btn btn--primary">Proceed to Clearance →</Link>
           </section>
         )}
       </div>

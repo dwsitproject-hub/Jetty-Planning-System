@@ -2179,6 +2179,16 @@ select.allocation-table__filter {
   background: var(--color-bg-lighter);
 }
 
+.allocation-table__row--focus {
+  background: rgba(196, 92, 38, 0.1);
+  box-shadow: inset 3px 0 0 #c45c26;
+}
+
+.allocation-table__row--focus:hover,
+.allocation-table__row--focus.allocation-table__row--expanded {
+  background: rgba(196, 92, 38, 0.14);
+}
+
 .allocation-table__row--plan-summary {
   cursor: default;
   background: var(--color-bg-subtle, #f4f6f8);
@@ -3238,13 +3248,32 @@ select.allocation-table__filter {
   text-decoration: underline;
 }
 
-.loading-page--embed {
-  padding-top: var(--spacing-2);
+.loading-page--embed,
+.clearance-page--embed {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-height: 100%;
+  padding: 16px 16px 24px;
+  background: var(--color-bg-light);
+  overflow-x: hidden;
+}
+
+html:has(.loading-page--embed),
+html:has(.clearance-page--embed),
+body:has(.loading-page--embed),
+body:has(.clearance-page--embed) {
+  background: var(--color-bg-light);
+  min-height: 100%;
 }
 
 .loading-page--embed .page-title {
   font-size: 1.15rem;
   margin-bottom: var(--spacing-2);
+}
+
+.loading-page--embed .loading-process-layout > *,
+.loading-page--embed .precheck-master-detail > * {
+  min-width: 0;
 }
 
 .loading-step-card--completed .berthing-modal__card-title {
@@ -6154,6 +6183,14 @@ select.allocation-table__filter {
   padding-right: 2.25rem;
 }
 
+.clearance-page--embed .at-berth-summary {
+  margin-bottom: var(--spacing-2);
+}
+
+.clearance-page--embed .table-wrap {
+  padding-right: 0;
+}
+
 .clearance-pagination {
   display: flex;
   flex-wrap: wrap;
@@ -7119,6 +7156,12 @@ select.allocation-table__filter {
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-sm);
   background: var(--color-bg-white);
+}
+
+.allocation-mobile-card--focus {
+  border-color: #c45c26;
+  background: rgba(196, 92, 38, 0.1);
+  box-shadow: inset 3px 0 0 #c45c26;
 }
 
 .allocation-mobile-card__header {

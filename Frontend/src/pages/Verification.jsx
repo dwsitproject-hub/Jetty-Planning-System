@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useSearchParams } from 'react-router-dom'
 import { fetchOperations, fetchPendingSignoffRequests, depart, uploadOperationDocuments, signoff, fetchActivityTimeline } from '../api/operations'
@@ -35,6 +35,7 @@ import {
   rowMatchesPurpose,
 } from '../utils/tableCommodityPurposeFilters.js'
 import '../styles/modal.css'
+import { isEmbedMode } from '../utils/embedMode'
 
 const CLEARANCE_PAGE_SIZE = 20
 
@@ -46,7 +47,6 @@ const CLEARANCE_COLUMN_LABEL_KEYS = {
   purpose: 'clearanceColPurpose',
   status: 'clearanceColStatus',
   castOffAt: 'clearanceCastOff',
-  sailedAt: 'clearanceColSailedAt',
   vesselPhoto: 'clearanceColVesselPhoto',
 }
 
@@ -101,17 +101,10 @@ const CLEARANCE_COLUMNS = [
   { key: 'status', label: 'Status', getValue: (r) => r.status || '—', getSortValue: (r) => (r.status || '').toLowerCase() },
   {
     key: 'castOffAt',
-    label: 'CAST Off',
+    label: 'Cast Off',
     filterType: 'dateRange',
     getValue: (r) => formatDateTimeDisplay(r.castOffAt),
     getSortValue: (r) => r.castOffAt || '',
-  },
-  {
-    key: 'sailedAt',
-    label: 'Sailed At',
-    filterType: 'dateRange',
-    getValue: (r) => formatDateTimeDisplay(r.sailedAt),
-    getSortValue: (r) => r.sailedAt || '',
   },
   {
     key: 'vesselPhoto',
@@ -200,6 +193,37 @@ function mapClearanceOperation(o, extras) {
     vesselPhotoUrl: o.vesselPhotoUrl,
     ...extras,
   }
+}
+
+function parseFocusOperationId(searchParams) {
+  const raw = String(searchParams.get('operationId') || '').trim()
+  if (!/^\d+$/.test(raw)) return null
+  const id = Number(raw)
+  return id > 0 ? id : null
+}
+
+function statusFilterFromSearch(searchParams) {
+  const filter = String(searchParams.get('filter') || '').trim().toLowerCase()
+  if (filter === 'pending') return 'PENDING'
+  if (filter === 'ready') return 'READY'
+  if (filter === 'sailed') return 'SAILED'
+  if (parseFocusOperationId(searchParams) != null) return 'PENDING'
+  return null
+}
+
+function rowMatchesFocusStatus(row, focusStatus) {
+  if (focusStatus === 'READY') return row?.apiStatus === 'SIGNOFF_APPROVED'
+  if (focusStatus === 'SAILED') return row?.apiStatus === 'SAILED'
+  if (focusStatus === 'PENDING') return row?.apiStatus === 'PENDING_SIGNOFF'
+  return true
+}
+
+function rowMatchesOperationId(row, operationId) {
+  const id = Number(operationId)
+  if (!Number.isFinite(id)) return false
+  if (Number(row?.operationId) === id) return true
+  const siblings = Array.isArray(row?.siblingOperationIds) ? row.siblingOperationIds : []
+  return siblings.some((siblingId) => Number(siblingId) === id)
 }
 
 function latestTimelineInstant(events) {
@@ -312,18 +336,74 @@ export default function Verification() {
 
   const [filters, setFilters] = useState(initialClearanceFilters)
   const [sortState, setSortState] = useState({ key: 'vesselName', dir: 'asc' })
-  const [statusFilter, setStatusFilter] = useState('ALL')
+  const initialFocusOperationId = parseFocusOperationId(searchParams)
+  const [statusFilter, setStatusFilter] = useState(() => statusFilterFromSearch(searchParams) || 'ALL')
+  const [pinnedOperationId, setPinnedOperationId] = useState(initialFocusOperationId)
   const [sailedLookbackDays, setSailedLookbackDays] = useState(null)
   const [listPage, setListPage] = useState(1)
   const [expandedRows, setExpandedRows] = useState({})
   const [expandedMobileRows, setExpandedMobileRows] = useState({})
+  const pinnedCodeRef = useRef(null)
+  const focusHydratedRef = useRef(false)
+  const appliedFocusKeyRef = useRef(null)
+  const focusRowRef = useRef(null)
+  const focusCardRef = useRef(null)
+  const didScrollToFocusRef = useRef(false)
+  const queryFocusKey = `${searchParams.get('filter') || ''}:${searchParams.get('operationId') || ''}`
+
+  const releaseOperationFocus = useCallback((opts) => {
+    const clearPinnedCode = opts?.clearPinnedCode !== false
+    setPinnedOperationId(null)
+    didScrollToFocusRef.current = false
+    if (!clearPinnedCode) {
+      pinnedCodeRef.current = null
+      return
+    }
+    const code = pinnedCodeRef.current
+    pinnedCodeRef.current = null
+    if (!code) return
+    setFilters((f) => (f.jettyOperationCode === code ? { ...f, jettyOperationCode: '' } : f))
+  }, [])
 
   useEffect(() => {
-    if (searchParams.get('filter') === 'pending') {
-      setStatusFilter('PENDING')
+    if (appliedFocusKeyRef.current === queryFocusKey) return
+    appliedFocusKeyRef.current = queryFocusKey
+    const nextId = parseFocusOperationId(searchParams)
+    const nextStatus = statusFilterFromSearch(searchParams)
+    if (nextStatus) {
+      setStatusFilter(nextStatus)
       setListPage(1)
     }
-  }, [searchParams])
+    setPinnedOperationId(nextId)
+    didScrollToFocusRef.current = false
+    if (nextId == null) {
+      pinnedCodeRef.current = null
+      return
+    }
+    focusHydratedRef.current = false
+  }, [queryFocusKey, searchParams])
+
+  useEffect(() => {
+    if (loading || focusHydratedRef.current) return
+    if (pinnedOperationId == null) {
+      if (parseFocusOperationId(searchParams) != null) return
+      focusHydratedRef.current = true
+      return
+    }
+    focusHydratedRef.current = true
+    const focusStatus = statusFilterFromSearch(searchParams) || 'PENDING'
+    const match = rows.find(
+      (r) => rowMatchesFocusStatus(r, focusStatus) && rowMatchesOperationId(r, pinnedOperationId)
+    )
+    if (!match) return
+    const code = String(match.jettyOperationCode || '').trim()
+    if (code) {
+      pinnedCodeRef.current = code
+      setFilters((f) => ({ ...f, jettyOperationCode: code }))
+    }
+    setExpandedRows((prev) => ({ ...prev, [match.operationId]: true }))
+    setExpandedMobileRows((prev) => ({ ...prev, [match.operationId]: true }))
+  }, [loading, rows, pinnedOperationId, searchParams])
 
   const readyCount = rows.filter((r) => r.apiStatus === 'SIGNOFF_APPROVED').length
   const departedCount = rows.filter((r) => r.apiStatus === 'SAILED').length
@@ -334,10 +414,12 @@ export default function Verification() {
   }
 
   const updateFilter = (key, value) => {
+    releaseOperationFocus({ clearPinnedCode: key !== 'jettyOperationCode' })
     setFilters((f) => ({ ...f, [key]: value }))
     setListPage(1)
   }
   const updateDateRangeFilter = (key, bound, value) => {
+    releaseOperationFocus()
     setFilters((f) => {
       const prev = f[key] && typeof f[key] === 'object' ? f[key] : { from: '', to: '' }
       return { ...f, [key]: { ...prev, [bound]: value } }
@@ -359,7 +441,12 @@ export default function Verification() {
     return true
   })
 
-  const filteredVessels = rowsAfterStatusFilter.filter((r) => {
+  const rowsAfterFocus =
+    pinnedOperationId == null
+      ? rowsAfterStatusFilter
+      : rowsAfterStatusFilter.filter((r) => rowMatchesOperationId(r, pinnedOperationId))
+
+  const filteredVessels = rowsAfterFocus.filter((r) => {
     return CLEARANCE_COLUMNS.every((col) => {
       if (col.filterable === false) return true
       if (col.filterType === 'dateRange') {
@@ -406,6 +493,17 @@ export default function Verification() {
     const start = (listPage - 1) * CLEARANCE_PAGE_SIZE
     return sortedVessels.slice(start, start + CLEARANCE_PAGE_SIZE)
   }, [sortedVessels, listPage])
+
+  useEffect(() => {
+    if (didScrollToFocusRef.current || pinnedOperationId == null || loading) return
+    const row = focusRowRef.current
+    const card = focusCardRef.current
+    const visible = (el) => Boolean(el && el.getClientRects().length > 0)
+    const target = visible(row) ? row : visible(card) ? card : null
+    if (!target) return
+    didScrollToFocusRef.current = true
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [pinnedOperationId, loading, pagedVessels])
 
   const listPaginationRange = useMemo(() => {
     const total = sortedVessels.length
@@ -469,9 +567,18 @@ export default function Verification() {
   }, [])
 
   const clearFilters = () => {
+    setPinnedOperationId(null)
+    pinnedCodeRef.current = null
+    didScrollToFocusRef.current = false
     setFilters(initialClearanceFilters())
     setStatusFilter('ALL')
     setSailedLookbackDays(null)
+    setListPage(1)
+  }
+
+  const selectStatus = (next) => {
+    releaseOperationFocus()
+    setStatusFilter(next)
     setListPage(1)
   }
 
@@ -557,7 +664,7 @@ export default function Verification() {
 
   const validateDepartForm = useCallback(() => {
     const cast = parseLocalTime(formCastOff)
-    if (!cast) return 'CAST Off time is required and must be valid.'
+    if (!cast) return 'Cast Off time is required and must be valid.'
     if (modalOpId) {
       const op = rows.find((r) => r.operationId === modalOpId)
       const cacheKey = op?.shipmentPlanId != null ? `sp:${op.shipmentPlanId}` : `op:${modalOpId}`
@@ -622,10 +729,11 @@ export default function Verification() {
   const modalTimelineCacheKey =
     modalRow?.shipmentPlanId != null ? `sp:${modalRow.shipmentPlanId}` : modalOpId != null ? `op:${modalOpId}` : null
   const modalTimelineMaxAt = modalTimelineCacheKey ? timelineMaxAtByKey[modalTimelineCacheKey] : null
+  const isEmbed = isEmbedMode(searchParams)
 
   return (
-    <div className="allocation-page clearance-page">
-      <h1 className="page-title">{t('clearance')}</h1>
+    <div className={`allocation-page clearance-page${isEmbed ? ' clearance-page--embed' : ''}`}>
+      {isEmbed ? null : <h1 className="page-title">{t('clearance')}</h1>}
       {toast?.message && (
         <div className={`toast ${toast.variant === 'error' ? 'toast--warning' : 'toast--success'}`} role="status" aria-live="polite" aria-atomic="true">
           <span className="toast__icon" aria-hidden>{toast.variant === 'error' ? '!' : '✓'}</span>
@@ -657,40 +765,28 @@ export default function Verification() {
             <button
               type="button"
               className={`btn btn--small ${statusFilter === 'ALL' ? 'btn--primary' : 'btn--ghost'}`}
-              onClick={() => {
-                setStatusFilter('ALL')
-                setListPage(1)
-              }}
+              onClick={() => selectStatus('ALL')}
             >
               {t('clearanceAll')} ({rows.length})
             </button>
             <button
               type="button"
               className={`btn btn--small ${statusFilter === 'READY' ? 'btn--primary' : 'btn--ghost'}`}
-              onClick={() => {
-                setStatusFilter('READY')
-                setListPage(1)
-              }}
+              onClick={() => selectStatus('READY')}
             >
               {t('clearanceReadyToSail')} ({readyCount})
             </button>
             <button
               type="button"
               className={`btn btn--small ${statusFilter === 'SAILED' ? 'btn--primary' : 'btn--ghost'}`}
-              onClick={() => {
-                setStatusFilter('SAILED')
-                setListPage(1)
-              }}
+              onClick={() => selectStatus('SAILED')}
             >
               {t('clearanceSailed')} ({departedCount})
             </button>
             <button
               type="button"
               className={`btn btn--small ${statusFilter === 'PENDING' ? 'btn--primary' : 'btn--ghost'}`}
-              onClick={() => {
-                setStatusFilter('PENDING')
-                setListPage(1)
-              }}
+              onClick={() => selectStatus('PENDING')}
             >
               {t('clearancePendingSignoff')} ({pendingSignoffCount})
             </button>
@@ -808,8 +904,13 @@ export default function Verification() {
                 ) : (
                   pagedVessels.flatMap((v) => {
                   const expanded = Boolean(expandedRows[v.operationId])
+                  const focused = pinnedOperationId != null && rowMatchesOperationId(v, pinnedOperationId)
                   const mainRow = (
-                    <tr key={v.operationId} className={`allocation-table__row ${expanded ? 'allocation-table__row--expanded' : ''}`}>
+                    <tr
+                      key={v.operationId}
+                      ref={focused ? focusRowRef : undefined}
+                      className={`allocation-table__row${expanded ? ' allocation-table__row--expanded' : ''}${focused ? ' allocation-table__row--focus' : ''}`}
+                    >
                       <td className="allocation-table__expand-col">
                         <button
                           type="button"
@@ -969,8 +1070,14 @@ export default function Verification() {
             {pagedVessels.length === 0 ? (
               <p className="text-steel">{t('clearanceNoRowsMatch')}</p>
             ) : (
-              pagedVessels.map((v) => (
-              <article key={`clearance-mobile-${v.operationId}`} className="allocation-mobile-card">
+              pagedVessels.map((v) => {
+              const focused = pinnedOperationId != null && rowMatchesOperationId(v, pinnedOperationId)
+              return (
+              <article
+                key={`clearance-mobile-${v.operationId}`}
+                ref={focused ? focusCardRef : undefined}
+                className={`allocation-mobile-card${focused ? ' allocation-mobile-card--focus' : ''}`}
+              >
                 <header className="allocation-mobile-card__header">
                   <strong>{v.vesselName || '—'}</strong>
                   <span className="text-steel">{v.status || '—'}</span>
@@ -1018,8 +1125,6 @@ export default function Verification() {
                   <dd>{v.status || '—'}</dd>
                   <dt>{t('clearanceCastOff')}</dt>
                   <dd>{formatDateTimeDisplay(v.castOffAt)}</dd>
-                  <dt>{t('clearanceColSailedAt')}</dt>
-                  <dd>{formatDateTimeDisplay(v.sailedAt)}</dd>
                   <dt>{t('clearanceColVesselPhoto')}</dt>
                   <dd>
                     <VesselPhotoLink url={v.vesselPhotoUrl}>{t('clearanceView')}</VesselPhotoLink>
@@ -1116,7 +1221,8 @@ export default function Verification() {
                       </div>
                     ) : null}
               </article>
-            ))
+              )
+              })
             )}
           </div>
           {paginationBar}
@@ -1142,7 +1248,7 @@ export default function Verification() {
             )}
 
             <div className="modal__section">
-              <label htmlFor="clearance-cast-off" className="modal__label">CAST Off</label>
+              <label htmlFor="clearance-cast-off" className="modal__label">Cast Off</label>
               {isSailed ? (
                 <input
                   id="clearance-cast-off"
@@ -1209,7 +1315,6 @@ export default function Verification() {
             {isSailed ? (
               <div className="modal__section">
                 <h3 className="modal__label">Recorded departure</h3>
-                <p className="text-steel">Sailed at: {formatDateTimeDisplay(modalRow?.sailedAt)}</p>
                 <ul className="loading-step-card__file-list">
                   <li>
                     Clearance document:{' '}

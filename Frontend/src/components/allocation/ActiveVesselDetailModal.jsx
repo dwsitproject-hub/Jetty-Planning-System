@@ -48,11 +48,24 @@ import '../../styles/modal.css'
 const UNIFIED_PHASES = ['Shipping Instruction', 'Planned berthing', 'At-Berth', 'Clearance']
 const PRIORITY_OPTIONS = ['Low', 'Moderate', 'High', 'Critical']
 
+function clearanceFocusPath(vessel, { embed = false } = {}) {
+  const params = new URLSearchParams()
+  const opId = vessel?.operationId
+  if (opId != null && String(opId).trim() !== '') params.set('operationId', String(opId))
+  const status = String(vessel?.status || '').toUpperCase()
+  if (status === 'SIGNOFF_REQUESTED') params.set('filter', 'pending')
+  else if (status === 'SIGNOFF_APPROVED') params.set('filter', 'ready')
+  else if (status === 'SAILED') params.set('filter', 'sailed')
+  if (embed) params.set('embed', '1')
+  const q = params.toString()
+  return q ? `/verification?${q}` : '/verification'
+}
+
 function getPhaseLink(label, vessel, plannedBerthingPath = '/allocation-plans', { embed = false } = {}) {
+  if (label === 'Clearance') return clearanceFocusPath(vessel, { embed })
   const phaseRoutes = {
     'Shipping Instruction': '/shipment-plans',
     'Planned berthing': plannedBerthingPath,
-    'Clearance': '/verification',
   }
   let path = null
   if (label === 'At-Berth') {
@@ -1678,7 +1691,7 @@ export default function ActiveVesselDetailModal({
             <iframe
               src={pipelineEmbed.embedUrl}
               title={`${pipelineEmbed.label} activity`}
-              style={{ border: 0, width: '100%', flex: 1, minHeight: 0 }}
+              style={{ border: 0, width: '100%', flex: 1, minHeight: 0, background: '#F4F4F4' }}
             />
           </div>
         </div>
