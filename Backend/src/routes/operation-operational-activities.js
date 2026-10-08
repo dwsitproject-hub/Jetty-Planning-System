@@ -693,40 +693,7 @@ async function insertCargoLoadLines(client, operationalActivityId, lines, opts =
   });
 }
 
-async function assertCommodityImmutableOnClosedLines(client, operationalActivityId, newLines) {
-  const existing = await client.query(
-    `SELECT line_order, commodity_id, ended_at
-     FROM operation_cargo_load_lines
-     WHERE operational_activity_id = $1
-     ORDER BY line_order ASC, id ASC`,
-    [operationalActivityId]
-  );
-  const sortedNew = [...(newLines || [])].sort(
-    (a, b) => (Number(a.lineOrder) || 0) - (Number(b.lineOrder) || 0)
-  );
-  for (let i = 0; i < existing.rows.length; i++) {
-    const ex = existing.rows[i];
-    if (!ex.ended_at || ex.commodity_id == null) continue;
-    const incoming = sortedNew[i];
-    if (!incoming || incoming.commodityId == null) continue;
-    if (Number(incoming.commodityId) !== Number(ex.commodity_id)) {
-      return {
-        ok: false,
-        status: 400,
-        error: `cargoLoadLines[${i}]: commodity cannot be changed after segment is closed`,
-      };
-    }
-  }
-  return { ok: true };
-}
-
 async function replaceCargoLoadLines(client, operationalActivityId, lines, opts = {}) {
-  const imm = await assertCommodityImmutableOnClosedLines(client, operationalActivityId, lines);
-  if (!imm.ok) {
-    const err = new Error(imm.error);
-    err.statusCode = imm.status;
-    throw err;
-  }
   await client.query(`DELETE FROM operation_cargo_load_lines WHERE operational_activity_id = $1`, [
     operationalActivityId,
   ]);
