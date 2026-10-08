@@ -47,7 +47,6 @@ import {
   sumClosedPersistedLineQty,
 } from '../utils/cargoSessionHelpers.js'
 import {
-  ensureApiStartAfterPreviousEnd,
   getScheduleEntryTimeZone,
   normalizeForApi,
   nowToNaiveLocalInScheduleZone,
@@ -1022,7 +1021,7 @@ export default function OperationalMilestoneWorkspace({
   const addCargoLineDraft = useCallback(() => {
     setCargoLoadLinesDraft((prev) => {
       const last = prev[prev.length - 1]
-      const nextStart = last?.end || ''
+      const nextStart = last?.start || last?.end || ''
       const prevTanks = Array.isArray(last?.tankIds) ? last.tankIds.map(String) : []
       const commodityId = defaultCommodityIdForNewLine(siCommodityOptions, last?.commodityId)
       return [
@@ -1184,12 +1183,6 @@ export default function OperationalMilestoneWorkspace({
           const prevEnd = built[j - 1]._end
           if (prevEnd == null) {
             return { error: t('cargoOpsLineAfterOpen') }
-          }
-          if (built[j]._sort < prevEnd) {
-            return { error: t('cargoOpsLineOverlap') }
-          }
-          if (built[j]._sort <= built[j - 1]._sort) {
-            return { error: t('cargoOpsLineStartStrict') }
           }
         }
         const cargoLoadLines = built.map(

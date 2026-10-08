@@ -451,21 +451,6 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
         error: 'Cannot add entries after an in-progress segment without endAt',
       };
     }
-    if (parsed[i].startMs < prevEndMs) {
-      return {
-        ok: false,
-        status: 400,
-        error:
-          'cargoLoadLines segments must not overlap: each entry startAt must be on or after the previous entry endAt',
-      };
-    }
-    if (parsed[i].startMs <= parsed[i - 1].startMs) {
-      return {
-        ok: false,
-        status: 400,
-        error: 'cargoLoadLines startAt values must be strictly increasing',
-      };
-    }
   }
 
   const line = await loadPrimarySiCargoLine(q, operationId);
