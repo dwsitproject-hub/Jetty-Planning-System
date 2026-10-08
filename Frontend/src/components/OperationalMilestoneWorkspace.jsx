@@ -24,6 +24,7 @@ import {
   normalizeSiCommodityOptions,
   requiresCommodityPicker,
   singleCommodityBannerText,
+  multiCommodityPlanSummaryText,
 } from '../utils/siCommodityOptions.js'
 import { buildTankCommodityMismatchWarnings } from '../utils/tankCommodityMismatch.js'
 import { fetchTankGaugingMassDelta } from '../api/tankGauging'
@@ -238,6 +239,10 @@ export default function OperationalMilestoneWorkspace({
   const showCommodityPicker = requiresCommodityPicker(siCommodityOptions)
   const singleCommodityBanner = useMemo(
     () => singleCommodityBannerText(siCommodityOptions),
+    [siCommodityOptions]
+  )
+  const multiCommodityPlanSummary = useMemo(
+    () => multiCommodityPlanSummaryText(siCommodityOptions),
     [siCommodityOptions]
   )
 
@@ -1561,6 +1566,8 @@ export default function OperationalMilestoneWorkspace({
                         defaultValue: `Product: ${singleCommodityBanner}`,
                       })}
                     </p>
+                  ) : multiCommodityPlanSummary ? (
+                    <p className="cargo-ops-modal-meta text-steel">{multiCommodityPlanSummary}</p>
                   ) : (cargoCommodity != null && String(cargoCommodity).trim()) ||
                     (cargoSiQty != null && cargoSiQty !== '' && Number.isFinite(Number(cargoSiQty))) ? (
                     <p className="cargo-ops-modal-meta text-steel">

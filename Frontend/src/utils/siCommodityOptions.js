@@ -70,3 +70,22 @@ export function singleCommodityBannerText(options) {
   const hint = formatSiCommodityPlanHint(o)
   return hint ? `${o.shortName} · Plan ${hint}` : o.shortName
 }
+
+/** One SI breakdown line: short name + planned qty (e.g. "RG 3,000 MT"). */
+export function formatSiCommodityPlanSegment(option) {
+  const o = normalizeSiCommodityOptions([option])[0]
+  if (!o) return null
+  const hint = formatSiCommodityPlanHint(o)
+  return hint ? `${o.shortName} ${hint}` : o.shortName
+}
+
+/**
+ * Multi-product SI plan summary for cargo modal header (not operation-level commodity + total).
+ * @returns {string|null}
+ */
+export function multiCommodityPlanSummaryText(options) {
+  const list = normalizeSiCommodityOptions(options)
+  if (list.length <= 1) return null
+  const parts = list.map((o) => formatSiCommodityPlanSegment(o)).filter(Boolean)
+  return parts.length ? parts.join(' · ') : null
+}
