@@ -1792,9 +1792,6 @@ export default function OperationalMilestoneWorkspace({
                                 onChange={(e) =>
                                   updateCargoLineDraft(lr.key, { commodityId: e.target.value })
                                 }
-                                disabled={Boolean(
-                                  row.end && row.start && row.persistedCommodityId
-                                )}
                               >
                                 <option value="">{t('cargoOpsLineProductPlaceholder')}</option>
                                 {siCommodityOptions.map((o) => (
