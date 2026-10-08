@@ -1045,6 +1045,7 @@ Cross-reference: **TECH-SPEC §0.20**, **`Backend/src/lib/schedule-instant.js`**
 
 | Version | Date | Notes |
 |---------|------|--------|
+| 1.87 | 2026-10-08 | **Cargo operations — load segments:** parallel entries may use **overlapping** start/end windows and **equal** start times (multi-product / multi-tank). Removed sequential non-overlap and strictly-increasing-start validation in Berth Execution, API, and operator segment add. Unchanged: one in-progress segment, in-progress must be last, per-line end after start. |
 | 1.86 | 2026-10-08 | **Cargo operations (Berth Execution):** **Product** on closed load segments is editable in the cargo edit form (including sailed operations); save still requires a valid SI breakdown commodity. Future: admin-gated corrections for sailed data. **1.83** unchanged for null **`commodity_id`** (no default first SI product on hydrate). |
 | 1.85 | 2026-10-08 | **Cargo operations (Berth Execution):** operational-activities **`commodityId`** on load lines is preserved when mapping API entries to the at-berth edit form (fixes empty Product when DB/API already tagged). |
 | 1.84 | 2026-10-07 | **Cast Off is the vessel-left clock.** KPI windows, Clearance lookback, Management Dashboard cohort / cargo-done interval, Dashboard v2 sailed counts, SLA/ETC eligibility, and Jetty vessel report use **`cast_off_at`** (fallback **`actual_completion_time`**). Never **`sailed_at`** (clerk recorded-at). Clearance UI: label **Cast Off**; hide **Sailed At**. Shared helper **`Backend/src/lib/vessel-left-at.js`**. |
