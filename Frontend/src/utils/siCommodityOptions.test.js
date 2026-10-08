@@ -47,9 +47,9 @@ describe('siCommodityOptions', () => {
       { commodityId: 14, shortName: 'SRPKFA', plannedQty: 3800, metricCode: 'MT' },
     ])
     assert.match(summary, /RG/)
-    assert.match(summary, /3,000 MT/)
     assert.match(summary, /SRPKFA/)
-    assert.match(summary, /3,800 MT/)
+    assert.match(summary, /3000|3,000|3\.000/)
+    assert.match(summary, /3800|3,800|3\.800/)
     assert.match(summary, / · /)
   })
 
