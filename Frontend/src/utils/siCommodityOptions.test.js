@@ -5,6 +5,7 @@ import {
   defaultCommodityIdForNewLine,
   requiresCommodityPicker,
   singleCommodityBannerText,
+  multiCommodityPlanSummaryText,
 } from './siCommodityOptions.js'
 
 describe('siCommodityOptions', () => {
@@ -38,5 +39,21 @@ describe('siCommodityOptions', () => {
     const t = singleCommodityBannerText([multi[0]])
     assert.match(t, /CPO/)
     assert.match(t, /Plan/)
+  })
+
+  it('multi commodity plan summary lists each product with planned qty', () => {
+    const summary = multiCommodityPlanSummaryText([
+      { commodityId: 11, shortName: 'RG', plannedQty: 3000, metricCode: 'MT' },
+      { commodityId: 14, shortName: 'SRPKFA', plannedQty: 3800, metricCode: 'MT' },
+    ])
+    assert.match(summary, /RG/)
+    assert.match(summary, /3,000 MT/)
+    assert.match(summary, /SRPKFA/)
+    assert.match(summary, /3,800 MT/)
+    assert.match(summary, / · /)
+  })
+
+  it('multi commodity summary is null for single-product SI', () => {
+    assert.equal(multiCommodityPlanSummaryText([multi[0]]), null)
   })
 })
