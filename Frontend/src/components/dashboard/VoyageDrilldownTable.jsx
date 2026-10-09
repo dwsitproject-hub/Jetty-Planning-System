@@ -56,10 +56,10 @@ function CommodityCell({ row }) {
 
 function MovedQtyCell({ row }) {
   const lines = pairLines(row)
-  if (lines.length <= 1) return lines[0]?.qty == null ? '—' : fmtNum(lines[0].qty, 0)
+  const items = lines.length ? lines : [{ label: '—', qty: null }]
   return (
     <span className="mgmt-voyage-pair mgmt-voyage-pair--moved">
-      {lines.map((l, i) => (
+      {items.map((l, i) => (
         <span key={`${l.label}-${i}`}>{l.qty == null ? '—' : fmtNum(l.qty, 0)}</span>
       ))}
     </span>
@@ -184,7 +184,7 @@ function VoyageBlock({
                     </td>
                     <td>{r.jetty || '—'}</td>
                     <td><CommodityCell row={r} /></td>
-                    <td className="mgmt-r"><MovedQtyCell row={r} /></td>
+                    <td className="mgmt-r mgmt-moved"><MovedQtyCell row={r} /></td>
                     <td {...metricProps(rk, 'wait')}>{fmtMgmtDurationDays(r.wait)}</td>
                     <td {...metricProps(rk, 'pre')}>{fmtMgmtDurationDays(r.pre)}</td>
                     <td {...metricProps(rk, 'flow')}>{rate == null ? '—' : `${fmtNum(rate, 1)} MT/h`}</td>

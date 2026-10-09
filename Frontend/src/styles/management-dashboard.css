@@ -90,7 +90,8 @@
 .mgmt-r .mgmt-modal-sort{width:100%;justify-content:flex-end}
 .mgmt-product-voyage-table .mgmt-voyage-pair{display:flex;flex-direction:column;gap:1px;line-height:1.25;white-space:nowrap}
 .mgmt-product-voyage-table .mgmt-voyage-pair--commodity{align-items:flex-start}
-.mgmt-product-voyage-table .mgmt-voyage-pair--moved{align-items:flex-end;font-variant-numeric:tabular-nums}
+.mgmt table.data-table td.mgmt-moved{text-align:right;font-variant-numeric:tabular-nums}
+.mgmt-product-voyage-table .mgmt-voyage-pair--moved{align-items:flex-end;width:100%;text-align:right;font-variant-numeric:tabular-nums}
 .mgmt-product-block__title{font-size:13px;font-weight:700;margin:0 0 6px;display:flex;align-items:center;flex-wrap:wrap;gap:4px}
 .mgmt-product-cell--click{cursor:pointer}
 .mgmt-product-cell--click:hover{background:var(--color-bg-lighter,#F1F3EF)}
