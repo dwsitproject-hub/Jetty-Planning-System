@@ -1717,11 +1717,14 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
                     'atgMassDelta', l.atg_mass_delta,
                     'atgMassDetail', l.atg_mass_detail,
                     'atgMassComputedAt', l.atg_mass_computed_at,
+                    'commodityShortName', sc.short_name,
+                    'commodityName', sc.name,
                     'tanks', COALESCE(lt.tanks_json, '[]'::jsonb)
                   )
                   ORDER BY l.line_order ASC, l.id ASC
                 ) AS lines_json
          FROM operation_cargo_load_lines l
+         LEFT JOIN si_commodities sc ON sc.id = l.commodity_id AND sc.deleted_at IS NULL
          LEFT JOIN LATERAL (
            SELECT jsonb_agg(
                     jsonb_build_object('id', t.id, 'code', t.code, 'name', t.name)
@@ -1836,6 +1839,8 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
           atgMassComputedAt: l.atgMassComputedAt ?? null,
           tanks: lineTanks,
           tankIds: lineTanks.map((t) => t.id),
+          commodityShortName: l.commodityShortName ? String(l.commodityShortName).trim() : null,
+          commodityName: l.commodityName ? String(l.commodityName).trim() : null,
         };
       });
       const unionFromLines = unionTanksFromLines(cargoLoadLines);

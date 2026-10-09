@@ -1,7 +1,9 @@
 /**
  * By-product tables on the Management Dashboard (Incoming / Outgoing).
  */
+import { useCallback, useMemo, useState } from 'react'
 import InteractiveTooltip from '../InteractiveTooltip.jsx'
+import { sortModalRows } from '../../utils/widgetDetailSort.js'
 
 export const PRODUCT_COLUMN_TOOLTIPS = {
   avgWait:
@@ -44,11 +46,20 @@ export function mgmtHoursAsDays(h) {
   return +(h / 24).toFixed(1)
 }
 
-function ColumnHeader({ label, tooltip, align }) {
+function ColumnHeader({ label, columnKey, tooltip, align, sort, onSort }) {
+  const active = sort?.key === columnKey
   return (
     <th className={align === 'right' ? 'mgmt-r mgmt-product-th' : 'mgmt-product-th'}>
       <span className="mgmt-product-th__inner">
-        <span>{label}</span>
+        <button
+          type="button"
+          className="mgmt-modal-sort"
+          onClick={() => onSort(columnKey)}
+          aria-label={`Sort by ${label}`}
+        >
+          {label}
+          <span aria-hidden="true">{active ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ' ⇅'}</span>
+        </button>
         {tooltip ? (
           <InteractiveTooltip items={[{ primary: tooltip }]} maxWidth={360} placement="top">
             <span
@@ -69,21 +80,23 @@ function ColumnHeader({ label, tooltip, align }) {
 }
 
 const PRODUCT_TABLE_COLUMNS = [
-  { key: 'product', label: 'Commodity', align: 'left' },
-  { key: 'shipments', label: 'Shipments', align: 'right' },
-  { key: 'avgWait', label: 'Avg wait', align: 'right', tooltip: PRODUCT_COLUMN_TOOLTIPS.avgWait },
+  { key: 'product', label: 'Commodity', align: 'left', sortValue: (r) => r.label || '' },
+  { key: 'shipments', label: 'Shipments', align: 'right', sortValue: (r) => r.shipments },
+  { key: 'avgWait', label: 'Avg wait', align: 'right', tooltip: PRODUCT_COLUMN_TOOLTIPS.avgWait, sortValue: (r) => r.avgWait },
   {
     key: 'berthToStart',
     label: 'Berth → start cargo',
     align: 'right',
     tooltip: PRODUCT_COLUMN_TOOLTIPS.berthToStart,
+    sortValue: (r) => r.avgPre,
   },
-  { key: 'avgFlow', label: 'Avg flow', align: 'right', tooltip: PRODUCT_COLUMN_TOOLTIPS.avgFlow },
+  { key: 'avgFlow', label: 'Avg flow', align: 'right', tooltip: PRODUCT_COLUMN_TOOLTIPS.avgFlow, sortValue: (r) => r.avgRate },
   {
     key: 'cargoDoneToSail',
     label: 'Cargo done → sailed off',
     align: 'right',
     tooltip: PRODUCT_COLUMN_TOOLTIPS.cargoDoneToSail,
+    sortValue: (r) => r.avgCargoDoneToSail,
   },
 ]
 
@@ -118,7 +131,13 @@ function ClickableCell({ colKey, align, ariaLabel, onActivate, children }) {
 }
 
 function ProductBlock({ title, chipClass, rows, onProductOpen }) {
-  if (!rows.length) {
+  const [sort, setSort] = useState(null)
+  const onSort = useCallback((key) => {
+    setSort((prev) => (prev?.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }))
+  }, [])
+  const sorted = useMemo(() => sortModalRows(rows, PRODUCT_TABLE_COLUMNS, sort), [rows, sort])
+
+  if (!sorted.length) {
     return (
       <div className="mgmt-product-block">
         <h3 className="mgmt-product-block__title">
@@ -153,15 +172,18 @@ function ProductBlock({ title, chipClass, rows, onProductOpen }) {
               {PRODUCT_TABLE_COLUMNS.map((col) => (
                 <ColumnHeader
                   key={col.key}
+                  columnKey={col.key}
                   label={col.label}
                   tooltip={col.tooltip}
                   align={col.align}
+                  sort={sort}
+                  onSort={onSort}
                 />
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
+            {sorted.map((r) => {
               const open = (context) => onProductOpen(r, context)
               return (
                 <tr key={`${r.purpose}-${r.key}`} className="mgmt-prod-row">

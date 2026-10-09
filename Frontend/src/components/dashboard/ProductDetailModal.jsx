@@ -31,7 +31,7 @@ function fmtNum(n, d = 0) {
 function chartWindow(win, voyages) {
   if (win?.start != null && win?.end != null) return { start: win.start, end: win.end }
   const times = (voyages || [])
-    .map((v) => (v.sailedAt ? new Date(v.sailedAt).getTime() : NaN))
+    .map((v) => (v.castOff ? new Date(v.castOff).getTime() : NaN))
     .filter(Number.isFinite)
   if (!times.length) {
     const end = Date.now()

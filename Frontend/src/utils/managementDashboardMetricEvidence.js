@@ -113,9 +113,9 @@ export function berthToStartEvidence(row, detail) {
  * @param {Array<object> | null | undefined} timelineEvents
  */
 export function cargoDoneEvidence(row, timelineEvents) {
-  const sailedAt = row?.sailedAt ?? null
+  const sailedAt = row?.castOff ?? null
   const cargoDoneAt = cargoDoneAtFromTimeline(timelineEvents)
-  const hours = cargoDoneToSailHours({ cargoDoneAt, sailedAt })
+  const hours = cargoDoneToSailHours({ cargoDoneAt, castOff: sailedAt })
   const displayed = row?.cargoDoneToSailH ?? null
 
   /** @type {string | null} */
@@ -154,6 +154,19 @@ export function flowEvidenceSummary(row, productKey) {
   const pk = String(productKey ?? '')
     .trim()
     .toUpperCase()
+  if (!pk) {
+    const qtyNum = Number(row?.voyageMovedQty)
+    const hoursNum = Number(row?.voyageLoggedHours)
+    const rateNum = Number(row?.voyageRateMtH)
+    return {
+      productQtyMt: Number.isFinite(qtyNum) ? qtyNum : null,
+      loggedCargoHours: Number.isFinite(hoursNum) ? hoursNum : null,
+      cargoOpsHours: row?.opsH ?? null,
+      voyageRateMtH: Number.isFinite(rateNum) && rateNum > 0 ? rateNum : null,
+      source: row?.cargoRateSource ?? null,
+      atgPartial: Boolean(row?.cargoRateAtgPartial),
+    }
+  }
   const rateEntry = row?.productRatesByKey?.[pk]
   const movedFromApi = rateEntry?.movedQty
   const qty =

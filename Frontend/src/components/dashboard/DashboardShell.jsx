@@ -650,7 +650,7 @@ export default function DashboardShell({ mode = 'live' }) {
     for (const o of filteredAllOps) {
       if (o.status !== 'SAILED') continue
       if (o.shipmentPlanId != null && rejectedPlanIds.has(o.shipmentPlanId)) continue
-      const off = parseIso(o.castOffAt) || parseIso(o.actualCompletionTime) || parseIso(o.sailedAt)
+      const off = parseIso(o.castOffAt) || parseIso(o.actualCompletionTime)
       if (!off) continue
       const tMs = off.getTime()
       if (tMs < startMs || tMs >= endMs) continue

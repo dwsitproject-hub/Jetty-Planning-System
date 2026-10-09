@@ -76,7 +76,7 @@ describe('berthToStartEvidence', () => {
 describe('cargoDoneEvidence', () => {
   it('explains missing sailed at', () => {
     const e = cargoDoneEvidence(
-      { status: 'SAILED', sailedAt: null, cargoDoneToSailH: null },
+      { status: 'SAILED', castOff: null, cargoDoneToSailH: null },
       [
         {
           milestoneKey: 'cargo_operations',
@@ -92,7 +92,7 @@ describe('cargoDoneEvidence', () => {
     const e = cargoDoneEvidence(
       {
         status: 'SAILED',
-        sailedAt: '2026-06-02T08:00:00Z',
+        castOff: '2026-06-02T08:00:00Z',
         cargoDoneToSailH: 12,
       },
       [
@@ -147,6 +147,27 @@ describe('flowEvidenceSummary', () => {
     assert.equal(s.productQtyMt, 800)
     assert.equal(s.voyageRateMtH, 80)
     assert.equal(s.source, 'atg')
+  })
+
+  it('uses the call cargo rate when there is no product key', () => {
+    const s = flowEvidenceSummary({
+      opsH: 20,
+      qty: 5000,
+      voyageMovedQty: 1200,
+      voyageLoggedHours: 12,
+      voyageRateMtH: 100,
+      cargoRateSource: 'hybrid',
+      cargoRateAtgPartial: true,
+      productRatesByKey: {
+        CPO: { movedQty: 800, loggedHours: 10, rateMtH: 80, source: 'atg' },
+      },
+    })
+    assert.equal(s.productQtyMt, 1200)
+    assert.equal(s.loggedCargoHours, 12)
+    assert.equal(s.cargoOpsHours, 20)
+    assert.equal(s.voyageRateMtH, 100)
+    assert.equal(s.source, 'hybrid')
+    assert.equal(s.atgPartial, true)
   })
 })
 

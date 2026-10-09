@@ -358,13 +358,14 @@ export default function ProductMetricEvidenceRow({
   productKey,
   opDetailsById,
   timelinesByOpId,
+  colSpan = 7,
 }) {
   const detail = row?.id != null ? opDetailsById?.[row.id] : null
   const timeline = row?.id != null ? timelinesByOpId?.[row.id] : null
 
   return (
     <tr className="mgmt-product-metric-evidence-row">
-      <td colSpan={7}>
+      <td colSpan={colSpan}>
         <div className="mgmt-product-metric-evidence" data-metric={columnKey}>
           <div className="mgmt-product-metric-evidence__head">
             <span className="mgmt-product-metric-evidence__metric">
