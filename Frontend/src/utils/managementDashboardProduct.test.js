@@ -5,6 +5,8 @@ import {
   expandVoyageToProductSlices,
   parseProductQtyMap,
   productKeyFromCommodity,
+  voyageMovedQtyLines,
+  voyageMovedQtySortValue,
   voyagesForProduct,
 } from './managementDashboardProduct.js'
 
@@ -38,6 +40,38 @@ describe('parseProductQtyMap', () => {
     const map = parseProductQtyMap('CPO 4.000 MT\nCPKO 1.000 MT')
     assert.equal(map.get('CPO'), 4000)
     assert.equal(map.get('CPKO'), 1000)
+  })
+})
+
+describe('voyageMovedQtyLines', () => {
+  it('uses one commodity’s logged movement, not the shipment-plan qty', () => {
+    const lines = voyageMovedQtyLines(row({
+      qty: 5000,
+      totalQtyDisplay: 'FAME 5.000 MT',
+      productRatesByKey: { FAME: { movedQty: 14000 } },
+    }))
+    assert.deepEqual(lines, [{ label: 'FAME', qty: 14000 }])
+  })
+
+  it('lists each commodity’s movement and does not invent a split from the plan total', () => {
+    const lines = voyageMovedQtyLines(row({
+      commodity: 'CPO · CPKO',
+      qty: 4700,
+      totalQtyDisplay: 'CPO 4.000 MT\nCPKO 700 MT',
+      productRatesByKey: { CPO: { movedQty: 4000 } },
+    }))
+    assert.deepEqual(lines, [
+      { label: 'CPO', qty: 4000 },
+      { label: 'CPKO', qty: null },
+    ])
+    assert.equal(voyageMovedQtySortValue(row({
+      commodity: 'CPO · CPKO',
+      productRatesByKey: { CPO: { movedQty: 4000 }, CPKO: { movedQty: 700 } },
+    })), 4700)
+    assert.equal(voyageMovedQtySortValue(row({
+      commodity: 'CPO · CPKO',
+      qty: 4700,
+    })), null)
   })
 })
 

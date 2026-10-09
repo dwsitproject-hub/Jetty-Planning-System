@@ -2,8 +2,10 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   cargoDoneAtFromTimeline,
+  cargoDoneToSailDisplayHours,
   cargoDoneToSailFromTimeline,
   cargoDoneToSailHours,
+  idleHoursAtBerth,
 } from './managementDashboardCargoDone.js'
 
 describe('cargoDoneAtFromTimeline', () => {
@@ -49,34 +51,57 @@ describe('cargoDoneAtFromTimeline', () => {
 })
 
 describe('cargoDoneToSailHours', () => {
-  it('returns hours when sailedAt is after cargo done', () => {
+  it('returns hours when castOff is after cargo done', () => {
     const h = cargoDoneToSailHours({
       cargoDoneAt: '2026-06-01T22:00:00Z',
-      sailedAt: '2026-06-02T04:00:00Z',
+      castOff: '2026-06-02T04:00:00Z',
     })
     assert.equal(h, 6)
   })
 
-  it('returns null when sailedAt is not after cargo done', () => {
+  it('returns null when castOff is not after cargo done', () => {
     assert.equal(
       cargoDoneToSailHours({
         cargoDoneAt: '2026-06-02T04:00:00Z',
-        sailedAt: '2026-06-01T22:00:00Z',
+        castOff: '2026-06-01T22:00:00Z',
       }),
       null
     )
     assert.equal(
       cargoDoneToSailHours({
         cargoDoneAt: '2026-06-01T22:00:00Z',
-        sailedAt: '2026-06-01T22:00:00Z',
+        castOff: '2026-06-01T22:00:00Z',
       }),
       null
     )
   })
 })
 
+describe('cargoDoneToSailDisplayHours', () => {
+  it('returns cargo-done-to-sail hours and ignores post-checking duration', () => {
+    assert.equal(cargoDoneToSailDisplayHours({ cargoDoneToSailH: 22.6, post: 4.5 }), 22.6)
+    assert.equal(cargoDoneToSailDisplayHours({ cargoDoneToSailH: null, post: 4.5 }), null)
+    assert.equal(cargoDoneToSailDisplayHours({ post: 4.5 }), null)
+  })
+})
+
+describe('idleHoursAtBerth', () => {
+  it('shrinks idle by cargo-done-to-sail, not by post', () => {
+    assert.equal(
+      idleHoursAtBerth({ berth: 100, pre: 10, opsH: 40, cargoDoneToSailH: 22, post: 4 }),
+      28
+    )
+  })
+
+  it('treats missing phases as 0 and floors at 0', () => {
+    assert.equal(idleHoursAtBerth({ berth: 10, pre: null, opsH: null, cargoDoneToSailH: null }), 10)
+    assert.equal(idleHoursAtBerth({ berth: 10, pre: 8, opsH: 8, cargoDoneToSailH: 8 }), 0)
+    assert.equal(idleHoursAtBerth({ berth: null, cargoDoneToSailH: 5 }), null)
+  })
+})
+
 describe('cargoDoneToSailFromTimeline', () => {
-  it('combines timeline max and sailedAt', () => {
+  it('combines timeline max and castOff', () => {
     const events = [
       {
         milestoneKey: 'cargo_operations',
