@@ -1032,19 +1032,29 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 }
 
 /* Berthing Plan — 3-row inline pairs (vessel | product, wait | rate, volume | balance) */
-.gantt-dense-block--plan-three-row {
+.gantt-dense-block--plan-three-row,
+.gantt-dense-block--plan-medium,
+.gantt-dense-block--plan-narrow,
+.gantt-dense-block--plan-micro {
   gap: 1px;
   padding: 2px 6px;
   box-sizing: border-box;
   height: 100%;
   justify-content: center;
+  overflow: hidden;
 }
 
-.gantt-dense-block--plan-three-row.gantt-dense-block--pinned {
+.gantt-dense-block--plan-three-row.gantt-dense-block--pinned,
+.gantt-dense-block--plan-medium.gantt-dense-block--pinned,
+.gantt-dense-block--plan-narrow.gantt-dense-block--pinned {
   padding: 0;
+  overflow: visible;
 }
 
-.gantt-dense-block--plan-three-row .gantt-dense-block__pin {
+.gantt-dense-block--plan-three-row .gantt-dense-block__pin,
+.gantt-dense-block--plan-medium .gantt-dense-block__pin,
+.gantt-dense-block--plan-narrow .gantt-dense-block__pin {
+  width: max-content;
   max-width: min(360px, 52vw);
   padding: 2px 6px;
   align-self: flex-start;
@@ -1073,12 +1083,12 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   flex-wrap: nowrap;
   align-items: center;
   gap: 4px;
+  flex: 0 1 auto;
   min-width: 0;
-  max-width: min(210px, 42vw);
 }
 
 .gantt-dense-block__row--plan3:first-child .gantt-dense-block__plan3-left {
-  max-width: min(240px, 48vw);
+  min-width: 0;
 }
 
 .gantt-dense-block__plan3-left .gantt-dense-block__vessel {
@@ -1098,6 +1108,7 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 
 .gantt-dense-block__plan3-highlight {
   flex: 0 0 auto;
+  min-width: 0;
   font-size: 11px;
   font-weight: var(--font-weight-semibold);
   line-height: 1.2;
@@ -1107,6 +1118,51 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
   background: rgba(37, 99, 235, 0.12);
   border: 1px solid rgba(37, 99, 235, 0.28);
   color: #1d4ed8;
+}
+
+.gantt-dense-block__row--plan-stack {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.15;
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  color: #1e293b;
+}
+
+.gantt-dense-block__row--plan-stack:first-child {
+  font-size: 12px;
+}
+
+.gantt-dense-block--plan-micro {
+  padding: 2px;
+  align-items: center;
+}
+
+.gantt-dense-block__micro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.gantt-dense-block__micro-vessel {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.gantt-dense-block__micro-product {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.1;
+  opacity: 0.85;
 }
 
 .gantt-dense-block--plan-three-row .gantt-dense-block__sep {
@@ -1314,27 +1370,38 @@ button.jetty-schedule-gantt__bar--btn:focus-visible {
 }
 
 .jetty-schedule-gantt--fit-tight .gantt-dense-block--plan-three-row,
-.jetty-schedule-gantt--fit-mini .gantt-dense-block--plan-three-row {
+.jetty-schedule-gantt--fit-mini .gantt-dense-block--plan-three-row,
+.jetty-schedule-gantt--fit-tight .gantt-dense-block--plan-medium,
+.jetty-schedule-gantt--fit-mini .gantt-dense-block--plan-medium,
+.jetty-schedule-gantt--fit-tight .gantt-dense-block--plan-narrow,
+.jetty-schedule-gantt--fit-mini .gantt-dense-block--plan-narrow {
   padding: 2px 6px;
   gap: 1px;
 }
 
 .jetty-schedule-gantt--fit-tight .gantt-dense-block__row--plan3,
-.jetty-schedule-gantt--fit-mini .gantt-dense-block__row--plan3 {
+.jetty-schedule-gantt--fit-mini .gantt-dense-block__row--plan3,
+.jetty-schedule-gantt--fit-tight .gantt-dense-block__row--plan-stack,
+.jetty-schedule-gantt--fit-mini .gantt-dense-block__row--plan-stack {
   font-size: 11px;
 }
 
 .jetty-schedule-gantt--fit-tight .gantt-dense-block__row--plan3:first-child,
-.jetty-schedule-gantt--fit-mini .gantt-dense-block__row--plan3:first-child {
+.jetty-schedule-gantt--fit-mini .gantt-dense-block__row--plan3:first-child,
+.jetty-schedule-gantt--fit-tight .gantt-dense-block__row--plan-stack:first-child,
+.jetty-schedule-gantt--fit-mini .gantt-dense-block__row--plan-stack:first-child {
   font-size: 12px;
 }
 
-.jetty-schedule-gantt--fit-tight .gantt-dense-block--plan-three-row .gantt-dense-block__row--plan3:nth-child(3) {
+.jetty-schedule-gantt--fit-tight .gantt-dense-block--plan-three-row .gantt-dense-block__row--plan3:nth-child(3),
+.jetty-schedule-gantt--fit-tight .gantt-dense-block--plan-medium .gantt-dense-block__row--plan-stack:nth-child(3) {
   display: none;
 }
 
 .jetty-schedule-gantt--fit-mini .gantt-dense-block--plan-three-row .gantt-dense-block__row--plan3:nth-child(2),
-.jetty-schedule-gantt--fit-mini .gantt-dense-block--plan-three-row .gantt-dense-block__row--plan3:nth-child(3) {
+.jetty-schedule-gantt--fit-mini .gantt-dense-block--plan-three-row .gantt-dense-block__row--plan3:nth-child(3),
+.jetty-schedule-gantt--fit-mini .gantt-dense-block--plan-medium .gantt-dense-block__row--plan-stack:nth-child(n + 2),
+.jetty-schedule-gantt--fit-mini .gantt-dense-block--plan-narrow .gantt-dense-block__row--plan-stack:nth-child(n + 2) {
   display: none;
 }
 

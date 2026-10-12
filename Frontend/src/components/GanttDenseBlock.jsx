@@ -8,10 +8,12 @@ import {
   buildGanttPlannedMilestoneEntries,
   formatGanttMilestoneEntriesCompact,
   resolveGanttBarDensity,
+  resolvePlanGanttBarDensity,
   resolveGanttWaitTooltip,
 } from '../utils/ganttBarDisplay.js'
 import { formatOverdueDuration } from '../utils/etcBreach'
 import { describeNeedsUpdate } from '../utils/berthColorState.js'
+import GanttPlanBarBody from './GanttPlanBarBody.jsx'
 
 function GanttVesselIcon() {
   return (
@@ -50,6 +52,7 @@ function NeedsUpdateMark({ text }) {
  * @param {'planned' | 'actual'} props.layer
  * @param {object} props.model from buildPlannedBlockModel / buildActualBlockModel
  * @param {number | null | undefined} props.barWidthPct
+ * @param {number | null | undefined} props.barWidthPx rendered width (Berthing Plan)
  * @param {'narrow' | 'medium' | 'full' | null | undefined} props.density override auto density
  * @param {boolean} [props.overlay] transparent background for segmented actual overlay
  */
@@ -57,6 +60,7 @@ export default function GanttDenseBlock({
   layer,
   model,
   barWidthPct,
+  barWidthPx,
   density: densityProp,
   overlay = false,
   showLateChip = true,
@@ -70,10 +74,10 @@ export default function GanttDenseBlock({
   const density = densityProp ?? resolveGanttBarDensity(barWidthPct)
   const isSailed = model.status === 'Sailed off'
   const statusIcon = isSailed ? <GanttCompletedIcon /> : <GanttVesselIcon />
-  // Berthing Plan: one 3-row card for every bar width (narrow still uses ellipsis in CSS).
-  const planThreeRow = showEtr
+  const planDensity = showEtr ? resolvePlanGanttBarDensity(barWidthPx) : null
+  const planThreeRow = planDensity === 'comfortable'
   const compactPlan =
-    !planThreeRow && showEtr && layer === 'actual' && density === 'full'
+    !planDensity && showEtr && layer === 'actual' && density === 'full'
 
   const isLate =
     showLateChip && layer === 'actual' && model.etcOverdue && model.overMs != null && model.overMs > 0
@@ -158,56 +162,23 @@ export default function GanttDenseBlock({
   const plan3AvgRate =
     showAvgFlow && model.avgRateLine && model.avgRateLine !== '—' ? model.avgRateLine : null
 
-  const planThreeRowBody = planThreeRow ? (
-    <>
-      <div className="gantt-dense-block__row gantt-dense-block__row--plan3">
-        <span className="gantt-dense-block__plan3-left">
-          <span className="gantt-dense-block__vessel">{model.vesselName}</span>
-          {showPurpose ? (
-            <PurposeBadge
-              purpose={model.purposeLabel}
-              loadDischarge={model.loadDischarge}
-              short="gantt"
-            />
-          ) : null}
-          <NeedsUpdateMark text={needsUpdateText} />
-        </span>
-        <InlineSep />
-        <span className="gantt-dense-block__plan3-right" title={model.commodityTitle || undefined}>
-          {showCommodity ? model.materialDisplay : '—'}
-        </span>
-      </div>
-      <div className="gantt-dense-block__row gantt-dense-block__row--plan3">
-        <span className="gantt-dense-block__plan3-left">
-          {showWait ? (
-            <span className="gantt-dense-block__wait-chip" title={waitTooltip}>
-              {waitLabel}
-            </span>
-          ) : (
-            '—'
-          )}
-        </span>
-        <InlineSep />
-        {plan3AvgRate ? (
-          <span
-            className="gantt-dense-block__plan3-highlight"
-            title={t('ganttBarAvgFlow', { rate: plan3AvgRate, defaultValue: '{{rate}}' })}
-          >
-            {plan3AvgRate}
-          </span>
-        ) : (
-          <span className="gantt-dense-block__plan3-right">—</span>
-        )}
-      </div>
-      <div className="gantt-dense-block__row gantt-dense-block__row--plan3">
-        <span className="gantt-dense-block__plan3-left">{model.totalVolumeLine || '—'}</span>
-        <InlineSep />
-        <span className="gantt-dense-block__plan3-right">{balanceLine || '—'}</span>
-      </div>
-    </>
+  const planBody = planDensity ? (
+    <GanttPlanBarBody
+      density={planDensity}
+      model={model}
+      showPurpose={showPurpose && planDensity === 'comfortable'}
+      showCommodity={showCommodity}
+      showWait={showWait}
+      waitLabel={waitLabel}
+      waitTooltip={waitTooltip}
+      needsUpdateText={needsUpdateText}
+      plan3AvgRate={plan3AvgRate}
+      balanceLine={balanceLine}
+      avgFlowTitle={t('ganttBarAvgFlow', { rate: plan3AvgRate, defaultValue: '{{rate}}' })}
+    />
   ) : null
 
-  const blockBody = planThreeRowBody ?? (
+  const blockBody = planBody ?? (
     <>
       <div className="gantt-dense-block__row gantt-dense-block__row--title">
         {statusIcon}
@@ -353,7 +324,7 @@ export default function GanttDenseBlock({
 
   return (
     <div
-      className={`gantt-dense-block gantt-dense-block--${layer} gantt-dense-block--${density}${planThreeRow ? ' gantt-dense-block--plan-three-row' : ''}${compactPlan ? ' gantt-dense-block--plan-compact' : ''}${overlay ? ' gantt-dense-block--overlay' : ''}${isLate ? ' gantt-dense-block--late' : ''}${pinLabel ? ' gantt-dense-block--pinned' : ''}`}
+      className={`gantt-dense-block gantt-dense-block--${layer} gantt-dense-block--${density}${planDensity ? ` gantt-dense-block--plan-${planDensity}` : ''}${planThreeRow ? ' gantt-dense-block--plan-three-row' : ''}${compactPlan ? ' gantt-dense-block--plan-compact' : ''}${overlay ? ' gantt-dense-block--overlay' : ''}${isLate ? ' gantt-dense-block--late' : ''}${pinLabel ? ' gantt-dense-block--pinned' : ''}`}
     >
       {pinLabel ? <div className="gantt-dense-block__pin">{blockBody}</div> : blockBody}
     </div>
