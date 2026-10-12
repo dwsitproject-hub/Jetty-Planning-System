@@ -59,6 +59,65 @@ export function resolveGanttBarDensity(barWidthPct) {
   return 'full'
 }
 
+/** Berthing Plan in-bar density — pixel thresholds (keep in sync with allocation.css). */
+export const PLAN_GANTT_COMFORTABLE_MIN_PX = 220
+export const PLAN_GANTT_MEDIUM_MIN_PX = 120
+export const PLAN_GANTT_NARROW_MIN_PX = 72
+
+/**
+ * @param {number | null | undefined} barWidthPx rendered bar width
+ * @returns {'comfortable' | 'medium' | 'narrow' | 'micro'}
+ */
+export function resolvePlanGanttBarDensity(barWidthPx) {
+  const px = Number(barWidthPx)
+  if (!Number.isFinite(px) || px <= 0) return 'comfortable'
+  if (px < PLAN_GANTT_NARROW_MIN_PX) return 'micro'
+  if (px < PLAN_GANTT_MEDIUM_MIN_PX) return 'narrow'
+  if (px < PLAN_GANTT_COMFORTABLE_MIN_PX) return 'medium'
+  return 'comfortable'
+}
+
+/**
+ * @param {number | null | undefined} rawWidthPct
+ * @param {number | null | undefined} timelineWidthPx
+ * @returns {number | null}
+ */
+export function planGanttBarWidthPx(rawWidthPct, timelineWidthPx) {
+  if (rawWidthPct == null || timelineWidthPx == null) return null
+  const pct = Number(rawWidthPct)
+  const tw = Number(timelineWidthPx)
+  if (!Number.isFinite(pct) || !Number.isFinite(tw) || tw <= 0) return null
+  return (pct / 100) * tw
+}
+
+const FLEET_PREFIX = /^(MT|MV|BG|TB)\.?\s+/i
+
+/**
+ * First letter of the vessel name after dropping MT / MV / BG / TB.
+ * @param {unknown} name
+ * @returns {string}
+ */
+export function ganttVesselInitial(name) {
+  const raw = String(name ?? '').trim()
+  if (!raw || raw === '—') return '?'
+  const stripped = raw.replace(FLEET_PREFIX, '').trim() || raw
+  const ch = stripped.charAt(0)
+  return ch ? ch.toUpperCase() : '?'
+}
+
+/**
+ * First letter of the first short product code (e.g. "CPO - FAME" → "C").
+ * @param {unknown} short
+ * @returns {string}
+ */
+export function ganttProductInitial(short) {
+  const raw = String(short ?? '').trim()
+  if (!raw || raw === '—') return '?'
+  const first = raw.split(/\s*[-·,/]\s*/).find(Boolean) || raw
+  const letter = first.replace(/[^A-Za-z0-9]/g, '').charAt(0) || first.charAt(0)
+  return letter ? letter.toUpperCase() : '?'
+}
+
 /** Long bars benefit from a pinned label panel while scrolling horizontally (~5+ days in a 28-day window). */
 export function isLongGanttBar(rawWidthPct, { minPct = 18 } = {}) {
   const pct = Number(rawWidthPct)
@@ -605,6 +664,92 @@ export function ganttDenseBlockAriaLabel(model, layer) {
   return parts.filter(Boolean).join(', ')
 }
 
+const TOOLTIP_PRODUCT_SPLIT = /\s*[-·,/]\s*/
+
+/**
+ * Short product names from a joined material label ("CPO - FAME", "ROL · RPO").
+ * @param {unknown} materialDisplay
+ * @returns {string[]}
+ */
+export function splitGanttProductNames(materialDisplay) {
+  if (!isDisplayValue(materialDisplay)) return []
+  return String(materialDisplay)
+    .split(TOOLTIP_PRODUCT_SPLIT)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+function tooltipCargoLines(model) {
+  const raw = model?.cargoDisplay || model?.materialQtyLine || ''
+  return String(raw)
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((s) => isDisplayValue(s))
+}
+
+function cargoLineMatchesProduct(line, product) {
+  const p = String(product).trim().toLowerCase()
+  const l = String(line).trim().toLowerCase()
+  if (!p || !l) return false
+  return l === p || l.startsWith(`${p} `) || l.startsWith(`${p}·`) || l.startsWith(`${p} ·`) || l.startsWith(`${p}-`)
+}
+
+function stripProductPrefixFromCargo(line, product) {
+  const escaped = String(product).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const stripped = String(line)
+    .replace(new RegExp(`^${escaped}\\s*[-·,/]?\\s*`, 'i'), '')
+    .trim()
+  return stripped || String(line).trim()
+}
+
+/**
+ * Product + cargo pairs for the Gantt tooltip (one pair per commodity).
+ * @param {object | null | undefined} model
+ * @returns {Array<{ product: string | null, cargo: string }>}
+ */
+export function ganttTooltipProductCargoPairs(model) {
+  const products = splitGanttProductNames(model?.materialDisplay)
+  const lines = tooltipCargoLines(model)
+  const fallback = isDisplayValue(model?.materialQtyLine) ? String(model.materialQtyLine).trim() : null
+
+  if (products.length === 0) {
+    if (fallback) return [{ product: null, cargo: fallback }]
+    if (lines.length === 1) return [{ product: null, cargo: lines[0] }]
+    return []
+  }
+
+  if (products.length === 1) {
+    const named = lines.find((l) => cargoLineMatchesProduct(l, products[0]))
+    const raw = named || (lines.length ? lines.join('\n') : fallback) || '—'
+    const cargo = named ? stripProductPrefixFromCargo(named, products[0]) : raw
+    return [{ product: products[0], cargo }]
+  }
+
+  const used = new Set()
+  const pairs = products.map((product) => {
+    const idx = lines.findIndex((l, i) => !used.has(i) && cargoLineMatchesProduct(l, product))
+    if (idx < 0) return { product, cargo: null }
+    used.add(idx)
+    return { product, cargo: stripProductPrefixFromCargo(lines[idx], product) }
+  })
+  const leftoverLines = lines.filter((_, i) => !used.has(i))
+  let leftoverCursor = 0
+  const allUnmatched = pairs.every((pair) => !pair.cargo)
+  return pairs.map((pair) => {
+    if (pair.cargo) return pair
+    if (leftoverCursor < leftoverLines.length) {
+      const cargo = leftoverLines[leftoverCursor]
+      leftoverCursor += 1
+      return { product: pair.product, cargo }
+    }
+    if (allUnmatched && leftoverLines.length === 0 && leftoverCursor === 0 && fallback) {
+      leftoverCursor += 1
+      return { product: pair.product, cargo: fallback }
+    }
+    return { product: pair.product, cargo: '—' }
+  })
+}
+
 /**
  * Tooltip items for schedule Gantt bars (full text when in-bar content is clipped).
  * @param {object} model from buildPlannedBlockModel / buildActualBlockModel
@@ -614,6 +759,12 @@ export function ganttDenseBlockAriaLabel(model, layer) {
  */
 export function buildGanttBarTooltipItems(model, layer, options = {}) {
   const items = []
+  for (const pair of ganttTooltipProductCargoPairs(model)) {
+    if (pair.product) items.push({ primary: 'Product', secondary: pair.product })
+    if (pair.cargo != null && String(pair.cargo).trim() !== '') {
+      items.push({ primary: 'Cargo', secondary: pair.cargo })
+    }
+  }
   if (model.purposeLabel) {
     items.push({ primary: 'Purpose', secondary: model.purposeLabel })
   }
@@ -635,9 +786,6 @@ export function buildGanttBarTooltipItems(model, layer, options = {}) {
       primary: 'Arrival',
       secondary: model.arrivalLine,
     })
-  }
-  if (model.materialQtyLine) {
-    items.push({ primary: 'Cargo', secondary: model.materialQtyLine })
   }
   if (model.waitLine) {
     items.push({
