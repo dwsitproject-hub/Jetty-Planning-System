@@ -19,6 +19,7 @@ import {
   buildGanttBarTooltipItems,
   ganttDenseBlockAriaLabel,
   isLongGanttBar,
+  planGanttBarWidthPx,
   resolveGanttBarMetrics,
   resolveGanttWaitTooltip,
 } from '../utils/ganttBarDisplay.js'
@@ -172,7 +173,7 @@ function ganttBarAriaLabel(seg, layer, blockOptions) {
   return ganttDenseBlockAriaLabel(model, layer)
 }
 
-function renderDenseBarContent(seg, layer, barWidthPct, sourceRow, blockOptions, ganttUiOptions) {
+function renderDenseBarContent(seg, layer, barWidthPct, sourceRow, blockOptions, ganttUiOptions, barWidthPx) {
   const model =
     layer === 'planned'
       ? buildPlannedBlockModel(seg, blockOptions)
@@ -186,6 +187,7 @@ function renderDenseBarContent(seg, layer, barWidthPct, sourceRow, blockOptions,
         layer={layer}
         model={model}
         barWidthPct={barWidthPct}
+        barWidthPx={ganttUiOptions.showEtr ? barWidthPx : undefined}
         showLateChip={ganttUiOptions.showLateChip}
         showAvgFlow={ganttUiOptions.showAvgFlow}
         showPlannedWait={ganttUiOptions.showPlannedWait}
@@ -370,6 +372,8 @@ export default function JettyScheduleGantt({
   // one absolutely-positioned overlay (sibling of `__now-line`) stretching from the real bar
   // through the additional jetty row(s) — the real bar itself is untouched/still interactive.
   const bodyInnerRef = useRef(null)
+  const timelineInnerRef = useRef(null)
+  const [timelineWidthPx, setTimelineWidthPx] = useState(0)
   const rowRefsMap = useRef(new Map())
   const barRefsMap = useRef(new Map())
   // Multi-jetty berthing: the span extension is a separate DOM element (sibling of the
@@ -432,6 +436,21 @@ export default function JettyScheduleGantt({
       window.removeEventListener('resize', scheduleMeasure)
     }
   }, [rowDefs, segments, barMetrics.height, useFitRows, fitDensity])
+
+  useEffect(() => {
+    if (!isPlanProfile) return undefined
+    const el = timelineInnerRef.current
+    if (!el) return undefined
+    const measure = () => {
+      const w = el.getBoundingClientRect().width
+      if (!Number.isFinite(w) || w <= 0) return
+      setTimelineWidthPx((prev) => (Math.abs(prev - w) < 0.5 ? prev : w))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [isPlanProfile, dateColumns.length, rowDefs.length])
 
   const spanningBars = useMemo(() => {
     if (!spanLayout.rowRects.size) return []
@@ -1306,13 +1325,15 @@ export default function JettyScheduleGantt({
               : spanEdge === 'up'
                 ? ' jetty-schedule-gantt__bar--span-primary-up'
                 : ''
+          const timelinePx = timelineWidthPx > 0 ? timelineWidthPx : dateColumns.length * DAY_COL_MIN
           const { model: blockModel, pinLabel, content: denseContent } = renderDenseBarContent(
             seg,
             barLayer,
             _rawWidthPct,
             barLayer === 'actual' ? sourceRow : null,
             blockOptions,
-            ganttUiOptions
+            ganttUiOptions,
+            planGanttBarWidthPx(_rawWidthPct, timelinePx)
           )
           const barClassName = `${pillClass}${canClick ? ' jetty-schedule-gantt__bar--btn' : ''}${canDrag ? ' jetty-schedule-gantt__bar--draggable' : ''}${spanEdgeClass}${pinLabel ? ' jetty-schedule-gantt__bar--long' : ''}`
           const tooltipItems = buildGanttBarTooltipItems(blockModel, barLayer, {
@@ -1763,7 +1784,7 @@ export default function JettyScheduleGantt({
                         </div>
 
                         <div className="jetty-schedule-gantt__timeline-cell" style={{ gridColumn: '2 / -1' }}>
-                          <div className="jetty-schedule-gantt__timeline-inner">
+                          <div className="jetty-schedule-gantt__timeline-inner" ref={timelineInnerRef}>
                             <div
                               className="jetty-schedule-gantt__timeline-daylines"
                               style={{ gridTemplateColumns: `repeat(${nCols}, minmax(0, 1fr))` }}
