@@ -24,7 +24,10 @@ function progressSnapshot(progress) {
   const cumLen = Array.isArray(progress.cumulativeSeries) ? progress.cumulativeSeries.length : 0
   const lastCum =
     cumLen > 0 ? progress.cumulativeSeries[cumLen - 1]?.cumulativeQty ?? '' : ''
-  return `${moved}:${source}:${buckets}:${lastBucket}:${cumLen}:${lastCum}`
+  const productMoved = Array.isArray(progress.products)
+    ? progress.products.map((p) => `${p.commodityId}:${p.movedQty}`).join(',')
+    : ''
+  return `${moved}:${source}:${buckets}:${lastBucket}:${cumLen}:${lastCum}:${productMoved}`
 }
 
 /** Returns true when events or progress meaningfully changed. */

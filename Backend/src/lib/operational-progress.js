@@ -10,6 +10,7 @@ import {
   resolveFlatThresholds,
 } from './atg-measurement.js';
 import { attachScheduleComparisonToSummary, evaluateCargoScheduleComparison } from './cargo-schedule-progress.js';
+import { buildProductCargoProgress } from './cargo-product-progress.js';
 import {
   currentOperationalDateKey,
   DEFAULT_OPERATIONAL_DAY_START,
@@ -493,6 +494,27 @@ export async function loadOperationProgressContext(db, operationId) {
   const siProductKeys = (siR.rows[0]?.si_product_keys || [])
     .map((k) => String(k ?? '').trim())
     .filter(Boolean);
+
+  const siProductsR = await db.query(
+    `SELECT b.commodity_id,
+            MAX(NULLIF(TRIM(sc.short_name), '')) AS short_name,
+            MAX(NULLIF(TRIM(sc.name), '')) AS name,
+            SUM(b.qty::numeric) AS planned_qty
+     FROM operations o
+     JOIN shipping_instructions si ON si.id = o.shipping_instruction_id AND si.deleted_at IS NULL
+     JOIN shipping_instruction_breakdown b ON b.shipping_instruction_id = si.id AND b.deleted_at IS NULL
+     JOIN si_commodities sc ON sc.id = b.commodity_id AND sc.deleted_at IS NULL
+     WHERE o.id = $1 AND o.deleted_at IS NULL
+     GROUP BY b.commodity_id
+     ORDER BY MIN(b.line_order) ASC, b.commodity_id ASC`,
+    [operationId]
+  );
+  const siProducts = siProductsR.rows.map((p) => ({
+    commodityId: Number(p.commodity_id),
+    shortName: p.short_name ? String(p.short_name).trim() : null,
+    name: p.name ? String(p.name).trim() : null,
+    plannedQty: p.planned_qty != null ? Number(p.planned_qty) : null,
+  }));
   const thresholdConfig = resolveFlatThresholds(siMetric);
   const measurementBasis = thresholdConfig.measurementBasis;
 
@@ -509,6 +531,7 @@ export async function loadOperationProgressContext(db, operationId) {
     siQty,
     siMetric,
     siProductKeys,
+    siProducts,
     openingHatchStartAt: row.opening_hatch_start_at
       ? new Date(row.opening_hatch_start_at).toISOString()
       : null,
@@ -732,6 +755,13 @@ export async function getOperationalProgress(db, operationId) {
     siQtyVariance: hourlyProgress.siQtyVariance ?? null,
     hourlyBuckets: hourlyProgress.hourlyBuckets ?? [],
     scheduleComparison,
+    products: buildProductCargoProgress({
+      siProducts: ctx.siProducts,
+      lineMoved: cargoSummary?.lineMoved ?? [],
+      canonicalMovedQty: hourlyMoved,
+      siMetric: unit,
+      nowMs: Date.now(),
+    }),
     rateSummary: {
       movedLine:
         siTotal != null
@@ -905,6 +935,18 @@ export async function summarizeCargoProgressContext(db, ctx, opts = {}) {
   let isLive = false;
   let hasActiveCargo = false;
   let atgPartial = false;
+  const lineMoved = [];
+  const pushLine = (line, qty, isOpen) => {
+    lineMoved.push({
+      commodityId: line.commodityId != null ? Number(line.commodityId) : null,
+      shortName: line.commodityShortName || null,
+      name: line.commodityName || null,
+      movedQty: Number(qty) || 0,
+      isOpen: Boolean(isOpen),
+      startedAt: line.startedAt || null,
+      endedAt: line.endedAt || null,
+    });
+  };
 
   for (const line of ctx.lines) {
     if (!isContributingLine(line)) continue;
@@ -912,9 +954,12 @@ export async function summarizeCargoProgressContext(db, ctx, opts = {}) {
     if (!line.tankIds?.length) {
       hasManual = true;
       if (line.endedAt) {
-        movedQty += Number(line.qty) || Number(line.manualQty) || 0;
+        const qty = Number(line.qty) || Number(line.manualQty) || 0;
+        movedQty += qty;
+        pushLine(line, qty, false);
       } else {
         hasActiveCargo = true;
+        pushLine(line, 0, true);
       }
       continue;
     }
@@ -931,13 +976,16 @@ export async function summarizeCargoProgressContext(db, ctx, opts = {}) {
     if (mode === 'manual' || mode === 'mixed') hasManual = true;
 
     if (line.endedAt) {
-      movedQty += Number(line.qty) || 0;
+      const qty = Number(line.qty) || 0;
+      movedQty += qty;
+      pushLine(line, qty, false);
       continue;
     }
 
     hasActiveCargo = true;
 
     if (mode === 'manual' || line.atgQtyMode === 'manual') {
+      pushLine(line, 0, true);
       continue;
     }
 
@@ -949,14 +997,21 @@ export async function summarizeCargoProgressContext(db, ctx, opts = {}) {
       });
       const atgQty = readAtgQtyFromResult(result);
       if (result.ok && atgQty != null) {
-        movedQty += Number(atgQty) || 0;
+        const qty = Number(atgQty) || 0;
+        movedQty += qty;
+        pushLine(line, qty, true);
         isLive = true;
         if (result.incomplete) atgPartial = true;
       } else if (mode === 'mixed' && line.manualQty != null) {
-        movedQty += Number(line.manualQty) || 0;
-      } else if (result.incomplete) {
-        atgPartial = true;
+        const qty = Number(line.manualQty) || 0;
+        movedQty += qty;
+        pushLine(line, qty, true);
+      } else {
+        pushLine(line, 0, true);
+        if (result.incomplete) atgPartial = true;
       }
+    } else {
+      pushLine(line, 0, true);
     }
   }
 
@@ -978,6 +1033,7 @@ export async function summarizeCargoProgressContext(db, ctx, opts = {}) {
     isLive,
     hasActiveCargo,
     atgPartial,
+    lineMoved,
   };
 }
 
@@ -1070,6 +1126,13 @@ export async function getAtBerthCargoProgressSummary(db, operationId, opts = {})
     avgRateTph,
     firstLoggedAt,
     lastLoggedAt: rateEndAt,
+    products: buildProductCargoProgress({
+      siProducts: ctx.siProducts,
+      lineMoved: totals.cargoSummary?.lineMoved ?? [],
+      canonicalMovedQty: totals.movedQty,
+      siMetric: totals.siMetric,
+      nowMs,
+    }),
   };
 
   return attachScheduleComparisonToSummary(

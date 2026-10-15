@@ -4,6 +4,7 @@ import CargoDischargeProgressChart from './CargoDischargeProgressChart'
 import HourlyCargoProgressTable from './HourlyCargoProgressTable'
 import OperationActivityTimeline from './OperationActivityTimeline'
 import CargoScheduleProgressIndicator from './CargoScheduleProgressIndicator'
+import ProductCargoProgressLines from './ProductCargoProgressLines'
 import { parseQtyDisplay } from '../utils/cargoQtyDisplay'
 import { buildClientHourlyRateSummary } from '../utils/hourlyCargoDisplay'
 import { buildLiveCargoProgressSnapshot, findOpenCargoLoadLine } from '../utils/cargoSessionHelpers'
@@ -236,6 +237,10 @@ export default function OperationalProgressSection({
             siQty={scheduleComparison?.siQty ?? cargoSiQty}
             siMetric={scheduleComparison?.siMetric ?? cargoSiMetricLabel}
             sourceLabel={progress?.source ? String(progress.source).toUpperCase() : null}
+          />
+          <ProductCargoProgressLines
+            products={progress?.products}
+            className="cargo-schedule-progress__products"
           />
 
           {(rateSummary.movedLine || rateSummary.hourlyLine || rateSummary.dailyLine) && (

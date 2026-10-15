@@ -4689,7 +4689,8 @@ body:has(.clearance-page--embed) {
   background: #fff;
 }
 
-.operation-activity-timeline__nested-table .operation-activity-timeline__tank {
+.operation-activity-timeline__nested-table .operation-activity-timeline__tank,
+.operation-activity-timeline__nested-table .operation-activity-timeline__commodity {
   white-space: nowrap;
 }
 
@@ -7839,6 +7840,19 @@ tr.cargo-schedule-behind > td:first-child {
   margin: 0.375rem 0 0;
   font-size: 0.6875rem;
   color: var(--color-text-secondary, #64748b);
+}
+
+.cargo-schedule-progress__products {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cargo-schedule-progress__products li + li {
+  margin-top: 0.15rem;
 }
 
 .jetty-card__box--schedule-behind {
