@@ -92,9 +92,18 @@ const PLAN_TIMELINE_SELECT = `
      sp.shifting_out AS plan_shifting_out,
      sp.shifting_out_at AS plan_shifting_out_at`;
 
+/** Requester username plus approver display name (display_name, else username). Approver join keeps soft-deleted users. */
+const SIGNOFF_USER_SELECT = `
+     signoff_req_user.username AS signoff_requested_by_username,
+     COALESCE(NULLIF(BTRIM(signoff_appr_user.display_name), ''), signoff_appr_user.username) AS signoff_approved_by_name`;
+
+const SIGNOFF_USER_JOINS = `
+     LEFT JOIN users signoff_req_user ON signoff_req_user.id = o.signoff_requested_by AND signoff_req_user.deleted_at IS NULL
+     LEFT JOIN users signoff_appr_user ON signoff_appr_user.id = o.signoff_approved_by`;
+
 export async function loadOperationJoined(id) {
   const r = await pool.query(
-    `SELECT ${OP_SELECT}, signoff_req_user.username AS signoff_requested_by_username,
+    `SELECT ${OP_SELECT}, ${SIGNOFF_USER_SELECT},
             ${PLAN_TIMELINE_SELECT}
      FROM operations o
      JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
@@ -102,7 +111,7 @@ export async function loadOperationJoined(id) {
      LEFT JOIN jetties jplan ON jplan.id = sp.jetty_id AND jplan.deleted_at IS NULL
      LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
      LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
-     LEFT JOIN users signoff_req_user ON signoff_req_user.id = o.signoff_requested_by AND signoff_req_user.deleted_at IS NULL
+     ${SIGNOFF_USER_JOINS}
      WHERE o.id = $1 AND o.deleted_at IS NULL`,
     [id]
   );
@@ -521,13 +530,14 @@ router.get('/', async (req, res) => {
   const { port_id, jetty_id, status, purpose } = req.query;
   const selectedPortId = Number(req.selectedPortId);
   let query = `
-    SELECT ${OP_SELECT}, ${PLAN_TIMELINE_SELECT}
+    SELECT ${OP_SELECT}, ${SIGNOFF_USER_SELECT}, ${PLAN_TIMELINE_SELECT}
     FROM operations o
     JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
     LEFT JOIN shipment_plans sp ON sp.id = si.shipment_plan_id
     LEFT JOIN jetties jplan ON jplan.id = sp.jetty_id AND jplan.deleted_at IS NULL
     LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
     LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
+    ${SIGNOFF_USER_JOINS}
     WHERE o.deleted_at IS NULL`;
   const params = [];
   let i = 1;
@@ -586,13 +596,14 @@ router.get('/pending-signoff-requests', async (req, res) => {
   }
   const selectedPortId = Number(req.selectedPortId);
   const result = await pool.query(
-    `SELECT ${OP_SELECT}, ${PLAN_TIMELINE_SELECT}
+    `SELECT ${OP_SELECT}, ${SIGNOFF_USER_SELECT}, ${PLAN_TIMELINE_SELECT}
      FROM operations o
      JOIN shipping_instructions si ON o.shipping_instruction_id = si.id AND si.deleted_at IS NULL
      LEFT JOIN shipment_plans sp ON sp.id = si.shipment_plan_id
      LEFT JOIN jetties jplan ON jplan.id = sp.jetty_id AND jplan.deleted_at IS NULL
      LEFT JOIN jetties j ON o.jetty_id = j.id AND j.deleted_at IS NULL
      LEFT JOIN ports p ON p.id = COALESCE(o.port_id, j.port_id) AND p.deleted_at IS NULL
+     ${SIGNOFF_USER_JOINS}
      WHERE o.deleted_at IS NULL
        AND COALESCE(o.port_id, p.id) = $1
        AND o.signoff_requested_at IS NOT NULL
@@ -1237,9 +1248,11 @@ router.post('/:id/signoff', async (req, res) => {
     `UPDATE operations SET
        status = 'SIGNOFF_APPROVED',
        operations_completed_at = COALESCE(operations_completed_at, NOW()),
+       signoff_approved_by = $2,
+       signoff_approved_at = NOW(),
        updated_at = NOW()
      WHERE id = $1 AND deleted_at IS NULL`,
-    [id]
+    [id, req.userId ?? null]
   );
   const signedRow = await loadOperationJoined(id);
   triggerPartnerWebhooksDeferred({
@@ -1532,6 +1545,9 @@ export function toOp(row) {
     signoffRequestedByUserId: row.signoff_requested_by ?? null,
     signoffRequestedByUsername: row.signoff_requested_by_username ?? undefined,
     signoffRequestRemark: row.signoff_request_remark ?? null,
+    signoffApprovedByUserId: row.signoff_approved_by ?? null,
+    signoffApprovedByName: row.signoff_approved_by_name ?? null,
+    signoffApprovedAt: row.signoff_approved_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     shipmentPlanId: row.shipment_plan_id != null ? Number(row.shipment_plan_id) : null,

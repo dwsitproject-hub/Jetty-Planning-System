@@ -68,8 +68,9 @@ test.describe('P1 — SAILED pipeline + cast-off validation', () => {
     if (!(await table.isVisible().catch(() => false))) {
       test.skip(true, 'No SAILED operations in local DB');
     }
-    await expect(page.getByRole('columnheader', { name: /cast off/i })).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: /sailed at/i })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /^cast off$/i })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /signed off by/i })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /sailed at/i })).toHaveCount(0);
     await expect(page.getByRole('columnheader', { name: /vessel photo/i })).toBeVisible();
     await expect(page.getByLabel(/filter commodity qty/i)).toBeVisible();
     await expect(page.getByLabel(/filter purpose/i)).toBeVisible();

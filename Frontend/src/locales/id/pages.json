@@ -465,7 +465,7 @@
   "clearanceColCommodityQty": "Commodity Qty",
   "clearanceColPurpose": "Purpose",
   "clearanceColStatus": "Status",
-  "clearanceColSailedAt": "Sailed At",
+  "clearanceColSignedOffBy": "Ditandatangani oleh",
   "clearanceColVesselPhoto": "Foto Kapal",
   "clearanceSailedLookbackAria": "Filter operasi yang sudah berlayar berdasarkan waktu",
   "clearanceSailedLookbackAll": "Semua",
