@@ -204,6 +204,46 @@ export function computeCargoProgress(
  * @param {object|null|undefined} liveSummary from GET /operations/at-berth/cargo-progress
  * @param {number} [nowMs]
  */
+/**
+ * One product line, e.g. "RG 2,000 / 2,000 MT".
+ * @param {{ shortName?: string|null, name?: string|null, movedQty?: number|null, plannedQty?: number|null, siMetric?: string|null }} product
+ */
+function productMovedPlannedQty(product) {
+  const unit = product?.siMetric || 'MT'
+  const moved = Math.round(Number(product?.movedQty) || 0).toLocaleString('en-US')
+  const planned = Number(product?.plannedQty)
+  if (Number.isFinite(planned) && planned > 0) {
+    return `${moved} / ${Math.round(planned).toLocaleString('en-US')} ${unit}`
+  }
+  return `${moved} ${unit}`
+}
+
+export function formatProductProgressLine(product) {
+  const label = String(product?.shortName || product?.name || '').trim() || '—'
+  return `${label} ${productMovedPlannedQty(product)}`
+}
+
+function formatProductRatePiece(product) {
+  const rate = Number(product?.avgRateTph)
+  if (!Number.isFinite(rate) || rate <= 0) return null
+  const unit = product?.siMetric || 'MT'
+  const text = rate.toLocaleString('en-US', { maximumFractionDigits: 2 })
+  return `Rate ${text} ${unit} / Hour`
+}
+
+/** Berth card line, e.g. "RPOME 3 / 3 MT -- Rate 0.06 MT / Hour | POME 2 / 2 MT -- Rate 0.01 MT / Hour". */
+export function formatSchematicProductCargoLine(products) {
+  if (!Array.isArray(products) || products.length < 2) return null
+  return products
+    .map((product) => {
+      const label = String(product?.shortName || product?.name || '').trim() || '—'
+      const qty = `${label} ${productMovedPlannedQty(product)}`
+      const rate = formatProductRatePiece(product)
+      return rate ? `${qty} -- ${rate}` : qty
+    })
+    .join(' | ')
+}
+
 export function mergeLiveCargoProgressFields(row, liveSummary, nowMs = Date.now()) {
   if (!row || liveSummary?.movedQty == null) return row
   const isLive = Boolean(liveSummary?.isLive || liveSummary?.hasActiveCargo)

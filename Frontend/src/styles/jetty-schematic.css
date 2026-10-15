@@ -589,6 +589,12 @@
   max-width: 100%;
 }
 
+.jetty-schematic__lane .jetty-card__cargo.jetty-slot__line--material {
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
+}
+
 /* Compact type; full text readable in ~96px-tall lane */
 .jetty-schematic__lane .jetty-schematic__slot-jetty-name {
   font-size: 0.62rem;

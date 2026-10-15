@@ -1657,11 +1657,18 @@ export default function DashboardShell({ mode = 'live' }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {berthBoard.map((r) => (
+                    {berthBoard.map((r) => {
+                      const products =
+                        Array.isArray(r.cargoProgress?.products) && r.cargoProgress.products.length > 1
+                          ? r.cargoProgress.products
+                          : [null]
+                      const span = products.length
+                      return products.map((product, index) => (
                       <tr
-                        key={r.id}
+                        key={product ? `${r.id}-${product.commodityId}` : r.id}
                         className={[
                           'v2-berth-board__row',
+                          index > 0 ? 'v2-berth-board__row--continued' : null,
                           isCargoBehindSchedule(r.cargoProgress) ? 'cargo-schedule-behind' : null,
                         ].filter(Boolean).join(' ')}
                         role="button"
@@ -1676,47 +1683,68 @@ export default function DashboardShell({ mode = 'live' }) {
                           }
                         }}
                       >
-                        <td>
-                          <b className="v2-berth-board__vessel-link">{r.vesselName}</b>
-                          {r.code ? <span className="v2-board-code">{r.code}</span> : null}
-                        </td>
-                        <td>{r.jettyName}</td>
-                        <td>
-                          <span className={`v2-board-chip v2-board-chip--${r.purpose === 'Loading' ? 'load' : 'disch'}`}>
-                            {r.purpose === 'Loading' ? t('purposeLoading') : t('purposeUnloading')}
-                          </span>
-                        </td>
-                        <td>
-                          {r.phase
-                            ? `${PHASE_EMOJI[r.phase] || ''} ${phaseShortLabel[r.phase]}`
-                            : r.readyToSail ? `✅ ${t('clearanceReady')}` : `⚠ ${t('clearancePendingSignOff')}`}
-                        </td>
-                        <td className="v2-arrivals__commodity" title={r.commodityTitle}>{r.commodity}</td>
-                        <td className="v2-board-r">
-                          <BerthBoardCargoCell cargoProgress={r.cargoProgress} />
-                        </td>
-                        <td className="v2-board-r v2-board-wait" title={t('v2BoardWaitingToBerthHintAtBerth')}>{r.waitToBerthLabel}</td>
-                        <td className="v2-board-r">{formatDurationHours(r.alongsideHours)}</td>
-                        <td className="v2-board-r">
-                          {r.etcState === 'none' ? (
-                            <span className="v2-board-chip v2-board-chip--ghost">{t('v2EtcNone')}</span>
-                          ) : r.etcState === 'done' ? (
-                            <span className="v2-board-chip v2-board-chip--ok">{t('v2EtcDone')}</span>
-                          ) : r.etcState === 'over' ? (
-                            <span className="v2-board-chip v2-board-chip--over">+{formatDurationHours(-r.etcDeltaH)}</span>
-                          ) : (
-                            <span className={`v2-board-chip ${r.etcState === 'soon' ? 'v2-board-chip--soon' : 'v2-board-chip--ok'}`}>
-                              {formatDurationHours(r.etcDeltaH)}
+                        {index === 0 ? (
+                          <td className="v2-berth-board__span" rowSpan={span}>
+                            <b className="v2-berth-board__vessel-link">{r.vesselName}</b>
+                            {r.code ? <span className="v2-board-code">{r.code}</span> : null}
+                          </td>
+                        ) : null}
+                        {index === 0 ? <td className="v2-berth-board__span" rowSpan={span}>{r.jettyName}</td> : null}
+                        {index === 0 ? (
+                          <td className="v2-berth-board__span" rowSpan={span}>
+                            <span className={`v2-board-chip v2-board-chip--${r.purpose === 'Loading' ? 'load' : 'disch'}`}>
+                              {r.purpose === 'Loading' ? t('purposeLoading') : t('purposeUnloading')}
                             </span>
-                          )}
+                          </td>
+                        ) : null}
+                        {index === 0 ? (
+                          <td className="v2-berth-board__span" rowSpan={span}>
+                            {r.phase
+                              ? `${PHASE_EMOJI[r.phase] || ''} ${phaseShortLabel[r.phase]}`
+                              : r.readyToSail ? `✅ ${t('clearanceReady')}` : `⚠ ${t('clearancePendingSignOff')}`}
+                          </td>
+                        ) : null}
+                        <td className="v2-arrivals__commodity" title={product?.name || r.commodityTitle}>
+                          {product ? (product.shortName || product.name || '—') : r.commodity}
                         </td>
-                        <td>
-                          {!r.norAccepted && <span className="v2-board-flag v2-board-flag--warn">{t('v2FlagNoNor')}</span>}
-                          {r.signoffPending && <span className="v2-board-flag v2-board-flag--warn">{t('clearancePendingSignOff')}</span>}
-                          {r.readyToSail && <span className="v2-board-flag v2-board-flag--ok">{t('clearanceReady')}</span>}
+                        <td className="v2-board-r">
+                          <BerthBoardCargoCell
+                            cargoProgress={r.cargoProgress}
+                            product={product}
+                            showSchedule={index === 0}
+                          />
                         </td>
+                        {index === 0 ? (
+                          <td className="v2-board-r v2-board-wait v2-berth-board__span" rowSpan={span} title={t('v2BoardWaitingToBerthHintAtBerth')}>{r.waitToBerthLabel}</td>
+                        ) : null}
+                        {index === 0 ? (
+                          <td className="v2-board-r v2-berth-board__span" rowSpan={span}>{formatDurationHours(r.alongsideHours)}</td>
+                        ) : null}
+                        {index === 0 ? (
+                          <td className="v2-board-r v2-berth-board__span" rowSpan={span}>
+                            {r.etcState === 'none' ? (
+                              <span className="v2-board-chip v2-board-chip--ghost">{t('v2EtcNone')}</span>
+                            ) : r.etcState === 'done' ? (
+                              <span className="v2-board-chip v2-board-chip--ok">{t('v2EtcDone')}</span>
+                            ) : r.etcState === 'over' ? (
+                              <span className="v2-board-chip v2-board-chip--over">+{formatDurationHours(-r.etcDeltaH)}</span>
+                            ) : (
+                              <span className={`v2-board-chip ${r.etcState === 'soon' ? 'v2-board-chip--soon' : 'v2-board-chip--ok'}`}>
+                                {formatDurationHours(r.etcDeltaH)}
+                              </span>
+                            )}
+                          </td>
+                        ) : null}
+                        {index === 0 ? (
+                          <td className="v2-berth-board__span" rowSpan={span}>
+                            {!r.norAccepted && <span className="v2-board-flag v2-board-flag--warn">{t('v2FlagNoNor')}</span>}
+                            {r.signoffPending && <span className="v2-board-flag v2-board-flag--warn">{t('clearancePendingSignOff')}</span>}
+                            {r.readyToSail && <span className="v2-board-flag v2-board-flag--ok">{t('clearanceReady')}</span>}
+                          </td>
+                        ) : null}
                       </tr>
-                    ))}
+                      ))
+                    })}
                   </tbody>
                 </table>
               </div>

@@ -2387,6 +2387,14 @@
   cursor: pointer;
 }
 
+.v2-berth-board__span {
+  vertical-align: middle;
+}
+
+.v2-berth-board__row--continued td {
+  border-top: 1px solid var(--color-border-light, #e5e7eb);
+}
+
 .v2-berth-board__row:hover td {
   background: color-mix(in srgb, var(--v2-atberth-color, #10B981) 8%, transparent);
 }
@@ -2487,6 +2495,20 @@
   font-size: 12px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.v2-board-qty__products {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-steel, #5b6675);
+}
+
+.v2-board-qty__products li {
   white-space: nowrap;
 }
 
