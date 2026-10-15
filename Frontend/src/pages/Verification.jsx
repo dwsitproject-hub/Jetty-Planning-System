@@ -47,6 +47,7 @@ const CLEARANCE_COLUMN_LABEL_KEYS = {
   purpose: 'clearanceColPurpose',
   status: 'clearanceColStatus',
   castOffAt: 'clearanceCastOff',
+  signedOffBy: 'clearanceColSignedOffBy',
   vesselPhoto: 'clearanceColVesselPhoto',
 }
 
@@ -107,6 +108,13 @@ const CLEARANCE_COLUMNS = [
     getSortValue: (r) => r.castOffAt || '',
   },
   {
+    key: 'signedOffBy',
+    label: 'Signed off by',
+    getFilterValue: (r) => r.signoffApprovedByName || '',
+    getValue: (r) => r.signoffApprovedByName || '—',
+    getSortValue: (r) => (r.signoffApprovedByName || '').toLowerCase(),
+  },
+  {
     key: 'vesselPhoto',
     label: 'Vessel Photo',
     filterable: false,
@@ -153,8 +161,10 @@ function collapseVerificationRowsByPlan(rows) {
         : totalQtyValues[0] || primary.totalQtyDisplay || primary.totalQty || '—'
     const shorts = [...new Set(grp.flatMap((g) => commodityShortNamesFromRow(g)))]
     const breakdown = grp.flatMap((g) => (Array.isArray(g.cargoBreakdownSummary) ? g.cargoBreakdownSummary : []))
+    const signerNames = [...new Set(grp.map((g) => (g.signoffApprovedByName || '').trim()).filter(Boolean))]
     merged.push({
       ...primary,
+      signoffApprovedByName: signerNames.join(' · ') || null,
       operationId: primary.operationId,
       siblingOperationIds: grp.map((g) => g.operationId),
       si: refs.length > 1 ? `${refs.length} SIs: ${refs.join(' · ')}` : primary.referenceNumber || primary.si || '—',
@@ -188,6 +198,7 @@ function mapClearanceOperation(o, extras) {
     jettyName: o.jettyName,
     castOffAt: o.castOffAt,
     sailedAt: o.sailedAt,
+    signoffApprovedByName: o.signoffApprovedByName || null,
     tbAt: o.tbAt,
     clearanceDocumentUrl: o.clearanceDocumentUrl,
     vesselPhotoUrl: o.vesselPhotoUrl,
@@ -1037,6 +1048,8 @@ export default function Verification() {
                             <dd>{v.jettyName || '—'}</dd>
                             <dt>Status</dt>
                             <dd>{v.status || '—'}</dd>
+                            <dt>{t('clearanceColSignedOffBy')}</dt>
+                            <dd>{v.signoffApprovedByName || '—'}</dd>
                             {v.apiStatus === 'PENDING_SIGNOFF' ? (
                               <>
                                 <dt>Sign-off requested</dt>
@@ -1125,6 +1138,8 @@ export default function Verification() {
                   <dd>{v.status || '—'}</dd>
                   <dt>{t('clearanceCastOff')}</dt>
                   <dd>{formatDateTimeDisplay(v.castOffAt)}</dd>
+                  <dt>{t('clearanceColSignedOffBy')}</dt>
+                  <dd>{v.signoffApprovedByName || '—'}</dd>
                   <dt>{t('clearanceColVesselPhoto')}</dt>
                   <dd>
                     <VesselPhotoLink url={v.vesselPhotoUrl}>{t('clearanceView')}</VesselPhotoLink>
@@ -1198,6 +1213,8 @@ export default function Verification() {
                         <dd>{v.jettyName || '—'}</dd>
                         <dt>Status</dt>
                         <dd>{v.status || '—'}</dd>
+                        <dt>{t('clearanceColSignedOffBy')}</dt>
+                        <dd>{v.signoffApprovedByName || '—'}</dd>
                         {v.apiStatus === 'PENDING_SIGNOFF' ? (
                           <>
                             <dt>Sign-off requested</dt>
