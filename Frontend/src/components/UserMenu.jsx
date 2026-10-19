@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { fetchMySsoStatus } from '../api/usersApi'
-import { hubSdkEnabled, openHubBugReport } from '../lib/hubSdk'
 import ChangePasswordModal from './ChangePasswordModal'
 import '../styles/user-menu.css'
 
@@ -99,19 +98,6 @@ export default function UserMenu({ me, onLogout }) {
                 onClick={handleChangePassword}
               >
                 {t('changePassword.menuItem')}
-              </button>
-            )}
-            {hubSdkEnabled() && (
-              <button
-                type="button"
-                className="user-menu-panel__item"
-                role="menuitem"
-                onClick={() => {
-                  setOpen(false)
-                  openHubBugReport()
-                }}
-              >
-                {t('reportBug')}
               </button>
             )}
             <button
