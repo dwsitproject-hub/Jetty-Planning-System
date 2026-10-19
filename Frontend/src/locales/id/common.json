@@ -23,6 +23,7 @@
   },
   "greeting": "Halo, {{name}}",
   "logout": "Keluar",
+  "reportBug": "Laporkan bug",
   "login": "Masuk",
   "expandSidebar": "Perluas bilah samping",
   "collapseSidebar": "Ciutkan bilah samping",

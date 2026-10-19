@@ -25,6 +25,10 @@ services:
       args:
         # Same-origin /api/v1 so nginx proxies multipart + cookies to API on the host (host.docker.internal:3000)
         VITE_API_BASE_URL: /api/v1
+        VITE_HUB_SDK_URL: ${VITE_HUB_SDK_URL:-}
+        VITE_HUB_SDK_KEY: ${VITE_HUB_SDK_KEY:-}
+        VITE_HUB_SDK_DEBUG: ${VITE_HUB_SDK_DEBUG:-}
+        VITE_GIT_SHA: ${VITE_GIT_SHA:-}
     ports:
       - "3001:80"
     container_name: jps-mockup

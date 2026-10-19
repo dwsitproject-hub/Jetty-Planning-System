@@ -23,6 +23,7 @@
   },
   "greeting": "Hi, {{name}}",
   "logout": "Logout",
+  "reportBug": "Report a bug",
   "login": "Login",
   "expandSidebar": "Expand sidebar",
   "collapseSidebar": "Collapse sidebar",
