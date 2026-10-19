@@ -54,6 +54,7 @@ import DemurrageRiskCalculator from './pages/DemurrageRiskCalculator'
 import JettyLive from './pages/JettyLive'
 import DevOcrTest from './pages/DevOcrTest'
 import { isEmbedMode, isPipelineEmbedPath } from './utils/embedMode'
+import HubSdkBridge from './components/HubSdkBridge'
 
 function AppShell() {
   const location = useLocation()
@@ -97,6 +98,7 @@ function App() {
       <ClearanceProvider>
         <ActivityLogProvider>
           <AuthProvider>
+            <HubSdkBridge />
             <PortScopeProvider>
               <FilePreviewProvider>
               <RbacProvider>
