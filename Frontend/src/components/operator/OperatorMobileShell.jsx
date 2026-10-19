@@ -2,13 +2,12 @@ import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../context/AuthContext'
 import LanguageSwitch from '../LanguageSwitch'
-import { hubSdkEnabled, openHubBugReport } from '../../lib/hubSdk'
+import ReportBugButton from '../ReportBugButton'
 
 export default function OperatorMobileShell({ children }) {
   const navigate = useNavigate()
   const { logout } = useAuth()
   const { t } = useTranslation('operator')
-  const { t: tCommon } = useTranslation('common')
 
   const handleLogout = async () => {
     await logout()
@@ -24,11 +23,7 @@ export default function OperatorMobileShell({ children }) {
           <button type="button" className="op-btn op-btn--soft" onClick={() => navigate('/')}>
             {t('shell.exit')}
           </button>
-          {hubSdkEnabled() && (
-            <button type="button" className="op-btn op-btn--soft" onClick={() => openHubBugReport()}>
-              {tCommon('reportBug')}
-            </button>
-          )}
+          <ReportBugButton />
           <button type="button" className="op-btn op-btn--soft" onClick={handleLogout}>
             {t('shell.logout')}
           </button>

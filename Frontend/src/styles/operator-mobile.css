@@ -75,6 +75,19 @@
   flex-shrink: 0;
 }
 
+.operator-mobile__shell-actions .topbar__bug-btn {
+  background: var(--color-bg-white);
+  border-color: var(--color-border-medium);
+  color: var(--color-text-charcoal);
+  backdrop-filter: none;
+}
+
+.operator-mobile__shell-actions .topbar__bug-btn:hover {
+  background: var(--color-bg-subtle, #f4f6f8);
+  border-color: var(--color-border-medium);
+  color: var(--color-text-charcoal);
+}
+
 .operator-mobile__content {
   flex: 1;
   min-height: 0;
