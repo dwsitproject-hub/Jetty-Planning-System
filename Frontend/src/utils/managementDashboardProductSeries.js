@@ -1,5 +1,5 @@
 /**
- * Time-series buckets for By product modal charts (sailed off / sailedAt date).
+ * Time-series buckets for By product modal charts (sailed-off cohort by Cast Off).
  * Bucket membership selects voyages; each metric uses that voyage's full-call values.
  */
 import { mean } from './managementDashboardFlow.js'
@@ -68,10 +68,10 @@ export function formatBucketTooltipTitle(bucket) {
   return start === end ? start : `${start} - ${end}`
 }
 
-/** Clearance Sailed at on a normalized management-dashboard row. */
+/** Cast Off on a normalized management-dashboard row (leave clock; not sailedAt). */
 export function sailedOffMs(voyage) {
-  if (!voyage?.sailedAt) return NaN
-  const t = new Date(voyage.sailedAt).getTime()
+  if (!voyage?.castOff) return NaN
+  const t = new Date(voyage.castOff).getTime()
   return Number.isFinite(t) ? t : NaN
 }
 
@@ -147,9 +147,10 @@ function startMsOfNextMonth(ms) {
 function sliceRateForProduct(voyage, productKey) {
   const pk = productKeyFromCommodity(productKey)
   const slice = expandVoyageToProductSlices(voyage).find((s) => s.productKey === pk)
-  if (!slice?.opsH || !(Number(slice.opsH) > 0)) return null
-  const qty = Number(slice.qty) || 0
-  return qty > 0 ? qty / slice.opsH : null
+  if (slice?.productRateMtH != null && Number.isFinite(slice.productRateMtH)) return slice.productRateMtH
+  const fromApi = voyage.productRatesByKey?.[pk]?.rateMtH
+  if (fromApi != null && Number.isFinite(fromApi)) return fromApi
+  return null
 }
 
 function isLoggedMetric(x) {

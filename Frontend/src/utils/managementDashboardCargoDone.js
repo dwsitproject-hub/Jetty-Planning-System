@@ -38,22 +38,48 @@ export function cargoDoneAtFromTimeline(events) {
 }
 
 /**
- * @param {{ cargoDoneAt?: string | null, sailedAt?: string | null }} opts
+ * Leave clock is Cast Off (`castOff`). Do not use sailedAt (clerk recorded-at).
+ * @param {{ cargoDoneAt?: string | null, castOff?: string | null }} opts
  * @returns {number | null} hours
  */
-export function cargoDoneToSailHours({ cargoDoneAt, sailedAt }) {
+export function cargoDoneToSailHours({ cargoDoneAt, castOff }) {
   const a = ms(cargoDoneAt)
-  const b = ms(sailedAt)
+  const b = ms(castOff)
   if (a == null || b == null || b <= a) return null
   return +(((b - a) / H).toFixed(1))
 }
 
 /**
  * @param {Array<object> | null | undefined} events
- * @param {string | null | undefined} sailedAt
+ * @param {string | null | undefined} castOff
  * @returns {number | null}
  */
-export function cargoDoneToSailFromTimeline(events, sailedAt) {
+export function cargoDoneToSailFromTimeline(events, castOff) {
   const cargoDoneAt = cargoDoneAtFromTimeline(events)
-  return cargoDoneToSailHours({ cargoDoneAt, sailedAt })
+  return cargoDoneToSailHours({ cargoDoneAt, castOff })
+}
+
+/**
+ * Hours shown for Cargo done → sailed off. Null stays out of the mean.
+ * Ignores Post-Checking subprocess duration (`post`).
+ * @param {object | null | undefined} row
+ * @returns {number | null}
+ */
+export function cargoDoneToSailDisplayHours(row) {
+  const h = row?.cargoDoneToSailH
+  return h != null && Number.isFinite(h) ? h : null
+}
+
+/**
+ * Leftover alongside time after berth→start, cargo ops, and cargo-done→sail.
+ * Missing phases count as 0 inside the residual only.
+ * @param {object | null | undefined} row
+ * @returns {number | null}
+ */
+export function idleHoursAtBerth(row) {
+  if (row?.berth == null || !Number.isFinite(row.berth)) return null
+  return Math.max(
+    row.berth - (row.pre || 0) - (row.opsH || 0) - (cargoDoneToSailDisplayHours(row) || 0),
+    0
+  )
 }

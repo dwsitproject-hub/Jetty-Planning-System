@@ -26,6 +26,62 @@ export function jettyIdFromRowKey(rowKey) {
   return i > 0 ? s.slice(0, i) : null
 }
 
+/** Snap an absolute timestamp to the nearest drag step (30 min). */
+export function snapAbsoluteMs(ms, snapMs = GANTT_DRAG_SNAP_MS) {
+  if (!Number.isFinite(ms)) return ms
+  return Math.round(ms / snapMs) * snapMs
+}
+
+/**
+ * Map a pointer x position over a jetty track to a timestamp on the Gantt window.
+ * @param {{ clientX: number, trackLeft: number, trackWidth: number, windowStartMs: number, totalMs: number }} args
+ * @returns {number | null} snapped ETB (ms), or null when the track has no size
+ */
+export function etbFromTrackPointer({ clientX, trackLeft, trackWidth, windowStartMs, totalMs }) {
+  if (!(trackWidth > 0) || !(totalMs > 0) || !Number.isFinite(clientX)) return null
+  const frac = Math.min(1, Math.max(0, (clientX - trackLeft) / trackWidth))
+  return snapAbsoluteMs(windowStartMs + frac * totalMs)
+}
+
+function parseIsoMs(value) {
+  if (value == null || value === '') return null
+  const ms = new Date(value).getTime()
+  return Number.isFinite(ms) ? ms : null
+}
+
+/**
+ * Proposal for dropping an unallocated-rail vessel onto a jetty row.
+ * Writes jetty + ETB only — ETC is never invented (an empty ETC stays "needs update").
+ *
+ * @param {object} args
+ * @param {object} args.row schedule row of the vessel on the rail
+ * @param {string} args.jettyId jetty id of the drop row
+ * @param {number} args.etbMs dropped, snapped ETB
+ * @returns {object | null} proposal shaped like buildGanttDragProposal, or null when invalid
+ */
+export function buildRailDropProposal({ row, jettyId, etbMs }) {
+  if (!row || !jettyId || !Number.isFinite(etbMs)) return null
+  const currentJetty = String(row.jetty || '').trim().split('/')[0].trim() || null
+  return {
+    kind: 'rail-drop',
+    deltaMs: 0,
+    jettyChange: jettyId !== currentJetty ? { from: currentJetty, to: jettyId } : null,
+    estimation: [
+      {
+        field: 'etbDateTime',
+        label: 'ETB',
+        fromMs: parseIsoMs(row.plannedEtbDateTime) ?? parseIsoMs(row.etbDateTime),
+        toMs: etbMs,
+      },
+    ],
+    actual: [],
+    always: [],
+    canActual: false,
+    canEstimation: true,
+    needsChoice: false,
+  }
+}
+
 /** Row can carry Actual milestones only when an operation exists (not pre-operation scheduling). */
 export function rowSupportsActualDates(row) {
   if (!row) return false

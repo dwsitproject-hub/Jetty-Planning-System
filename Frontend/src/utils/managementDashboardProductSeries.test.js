@@ -29,9 +29,9 @@ describe('voyagesInSailedOffBucket', () => {
     const start = Date.parse('2026-06-01T00:00:00Z')
     const end = Date.parse('2026-07-01T00:00:00Z')
     const voyages = [
-      { sailedAt: '2026-06-10T12:00:00Z', vessel: 'A' },
-      { sailedAt: '2026-06-12T12:00:00Z', vessel: 'B' },
-      { sailedAt: '2026-07-05T12:00:00Z', vessel: 'C' },
+      { castOff: '2026-06-10T12:00:00Z', vessel: 'A' },
+      { castOff: '2026-06-12T12:00:00Z', vessel: 'B' },
+      { castOff: '2026-07-05T12:00:00Z', vessel: 'C' },
     ]
     const series = buildProductTimeSeries(voyages, 'CPO', { start, end, granularity: 'week' })
     const bucketTwo = series.find((b) => b.voyageCount === 2)
@@ -44,36 +44,34 @@ describe('voyagesInSailedOffBucket', () => {
     )
   })
 
-  it('ignores cast-off when sailed off is in a different bucket', () => {
-    const start = Date.parse('2026-06-01T00:00:00Z')
-    const end = Date.parse('2026-07-01T00:00:00Z')
+  it('buckets by castOff and ignores sailedAt', () => {
     const voyages = [
       {
         sailedAt: '2026-06-10T12:00:00Z',
         castOff: '2026-07-02T12:00:00Z',
-        vessel: 'SailedJune',
+        vessel: 'LeftJuly',
         wait: 5,
         commodity: 'CPO',
       },
       {
         sailedAt: '2026-07-02T12:00:00Z',
         castOff: '2026-06-10T12:00:00Z',
-        vessel: 'SailedJuly',
+        vessel: 'LeftJune',
         wait: 9,
         commodity: 'CPO',
       },
     ]
-    const series = buildProductTimeSeries(voyages, 'CPO', { start, end: Date.parse('2026-08-01T00:00:00Z'), granularity: 'month' })
+    const series = buildProductTimeSeries(voyages, 'CPO', { start: Date.parse('2026-06-01T00:00:00Z'), end: Date.parse('2026-08-01T00:00:00Z'), granularity: 'month' })
     const june = series.find((b) => b.shortLabel === 'Jun 26')
     const july = series.find((b) => b.shortLabel === 'Jul 26')
     assert.ok(june && july)
     assert.deepEqual(
       voyagesInSailedOffBucket(voyages, june, 'month').map((v) => v.vessel),
-      ['SailedJune']
+      ['LeftJune']
     )
     assert.deepEqual(
       voyagesInSailedOffBucket(voyages, july, 'month').map((v) => v.vessel),
-      ['SailedJuly']
+      ['LeftJuly']
     )
   })
 })
@@ -85,22 +83,24 @@ describe('buildProductTimeSeries', () => {
     const series = buildProductTimeSeries(
       [
         {
-          sailedAt: '2026-06-10T12:00:00Z',
+          castOff: '2026-06-10T12:00:00Z',
           wait: 10,
           pre: 4,
           opsH: 8,
           qty: 800,
           cargoDoneToSailH: 6,
           commodity: 'CPO',
+          productRatesByKey: { CPO: { rateMtH: 100 } },
         },
         {
-          sailedAt: '2026-06-12T12:00:00Z',
+          castOff: '2026-06-12T12:00:00Z',
           wait: 20,
           pre: 6,
           opsH: 10,
           qty: 1000,
           cargoDoneToSailH: 8,
           commodity: 'CPO',
+          productRatesByKey: { CPO: { rateMtH: 100 } },
         },
       ],
       'CPO',
@@ -121,7 +121,7 @@ describe('buildProductTimeSeries', () => {
     const end = Date.parse('2026-07-01T00:00:00Z')
     const voyages = [
       {
-        sailedAt: '2026-06-05T00:00:00Z',
+        castOff: '2026-06-05T00:00:00Z',
         wait: 8,
         pre: null,
         opsH: 10,
@@ -130,7 +130,7 @@ describe('buildProductTimeSeries', () => {
         commodity: 'CPO',
       },
       {
-        sailedAt: '2026-06-06T00:00:00Z',
+        castOff: '2026-06-06T00:00:00Z',
         wait: null,
         pre: 6,
         opsH: 5,
@@ -139,7 +139,7 @@ describe('buildProductTimeSeries', () => {
         commodity: 'CPO',
       },
       {
-        sailedAt: '2026-06-07T00:00:00Z',
+        castOff: '2026-06-07T00:00:00Z',
         wait: 12,
         pre: 4,
         opsH: 8,
@@ -206,8 +206,8 @@ describe('period granularity spot-check', () => {
     const start = Date.parse('2026-06-01T00:00:00Z')
     const end = Date.parse('2026-07-01T00:00:00Z')
     const voyages = [
-      { sailedAt: '2026-06-05T00:00:00Z', wait: 8, commodity: 'CPO' },
-      { sailedAt: '2026-06-20T00:00:00Z', wait: 12, commodity: 'CPO' },
+      { castOff: '2026-06-05T00:00:00Z', wait: 8, commodity: 'CPO' },
+      { castOff: '2026-06-20T00:00:00Z', wait: 12, commodity: 'CPO' },
     ]
     const series = buildProductTimeSeries(voyages, 'CPO', { start, end, granularity: 'week' })
     const pooled = series.filter((b) => b.voyageCount > 0)

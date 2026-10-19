@@ -58,10 +58,37 @@ export function productShortNamesFromVoyageRow(row) {
   return [raw]
 }
 
-function sliceFlowRate(slice) {
-  if (!slice?.opsH || !(Number(slice.opsH) > 0)) return null
-  const qty = Number(slice.qty) || 0
-  return qty > 0 ? qty / slice.opsH : null
+/** Logged moved tons for one commodity. Missing or non-positive movement is null. */
+function movedQtyForProduct(row, label) {
+  const key = productKeyFromCommodity(label)
+  const n = Number(row?.productRatesByKey?.[key]?.movedQty)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+/**
+ * One line per commodity on a voyage. Quantity is logged movement, not the shipment plan.
+ * @param {object} row
+ * @returns {Array<{ label: string, qty: number | null }>}
+ */
+export function voyageMovedQtyLines(row) {
+  return productShortNamesFromVoyageRow(row).map((label) => ({
+    label,
+    qty: movedQtyForProduct(row, label),
+  }))
+}
+
+/** Sort key for the Moved column. Null when no commodity on the call has movement. */
+export function voyageMovedQtySortValue(row) {
+  const nums = voyageMovedQtyLines(row).map((l) => l.qty).filter((q) => q != null)
+  if (!nums.length) return null
+  return nums.reduce((sum, n) => sum + n, 0)
+}
+
+/** Product flow rate (MT/h). Missing or non-positive rates are excluded from averages. */
+export function productSliceFlowRate(slice) {
+  const canonical = slice?.productRateMtH
+  if (canonical != null && Number.isFinite(canonical) && canonical > 0) return canonical
+  return null
 }
 
 /**
@@ -78,7 +105,17 @@ export function expandVoyageToProductSlices(row) {
     const label = names[0]
     const key = productKeyFromCommodity(label)
     const qty = qtyMap.get(label) ?? (qtyMap.size === 0 ? voyageQty : qtyMap.get(label) ?? 0)
-    const slice = { ...row, productLabel: label, productKey: key, qty: qty || voyageQty }
+    const rateEntry = row.productRatesByKey?.[key]
+    const slice = {
+      ...row,
+      productLabel: label,
+      productKey: key,
+      qty: qty || voyageQty,
+      productRateMtH: rateEntry?.rateMtH ?? null,
+      productMovedQty: rateEntry?.movedQty ?? null,
+      productLoggedHours: rateEntry?.loggedHours ?? null,
+      productRateSource: rateEntry?.source ?? null,
+    }
     return [slice]
   }
 
@@ -91,7 +128,17 @@ export function expandVoyageToProductSlices(row) {
     if (qty == null || qty <= 0) {
       qty = equalFallback != null ? equalFallback : 0
     }
-    return { ...row, productLabel: label, productKey: key, qty }
+    const rateEntry = row.productRatesByKey?.[key]
+    return {
+      ...row,
+      productLabel: label,
+      productKey: key,
+      qty,
+      productRateMtH: rateEntry?.rateMtH ?? null,
+      productMovedQty: rateEntry?.movedQty ?? null,
+      productLoggedHours: rateEntry?.loggedHours ?? null,
+      productRateSource: rateEntry?.source ?? null,
+    }
   })
 }
 
@@ -144,13 +191,13 @@ export function aggregateByProduct(rows, opts = {}) {
       throughputMt: voyages.reduce((s, r) => s + (Number(r.qty) || 0), 0),
       avgWait: meanField(voyages, (r) => r.wait),
       avgPre: meanField(voyages, (r) => r.pre),
-      avgRate: meanField(voyages, (r) => sliceFlowRate(r)),
+      avgRate: meanField(voyages, (r) => productSliceFlowRate(r)),
       avgCargoDoneToSail: meanField(voyages, (r) => r.cargoDoneToSailH),
       coverage: {
         total: n,
         waitLogged: countLogged(voyages, (r) => r.wait),
         preLogged: countLogged(voyages, (r) => r.pre),
-        rateLogged: countLogged(voyages, (r) => sliceFlowRate(r)),
+        rateLogged: countLogged(voyages, (r) => productSliceFlowRate(r)),
         cargoDoneToSailLogged: countLogged(voyages, (r) => r.cargoDoneToSailH),
       },
       voyages,

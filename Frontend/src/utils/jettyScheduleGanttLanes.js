@@ -1,6 +1,7 @@
 import { resolvePurposeLabel } from './resolvePurposeLabel.js'
 import { materialDisplayFromRow } from './ganttBarDisplay.js'
 import { DEFAULT_BERTH_TAIL_MS, isBerthPlanMissingEtc } from './berthPlanInterval.js'
+import { getBerthPurposeTone, getNeedsUpdateReasons } from './berthColorState.js'
 import { computeWaitToBerthMs } from './waitToBerth.js'
 import {
   parseMs,
@@ -88,9 +89,11 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
     const loadDischarge = r.loadDischarge ?? null
     const cargoDisplay = r.totalQtyDisplay || null
     const materialDisplay = materialDisplayFromRow(r)
+    const purposeTone = getBerthPurposeTone(purposeLabel, loadDischarge)
     const rowMeta = {
       purposeLabel,
       loadDischarge,
+      purposeTone,
       cargoDisplay,
       materialDisplay,
       commodityDisplay: r.commodityDisplay || null,
@@ -113,6 +116,13 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
     // Berthing Plan: ETB only — no ETA fallback. Once TB is recorded the actual bar represents it.
     const plannedStart = plannedEtb
     const missingEtc = isBerthPlanMissingEtc(r)
+    const needsUpdateReasons = getNeedsUpdateReasons({
+      missingEtc,
+      etcOverdue: !isSailed && estComp != null && nowMs > estComp,
+      actualCompMs,
+      isSailed,
+    })
+    const needsUpdate = needsUpdateReasons.length > 0
     const plannedDedupKey = `${jettyId}\0${bankLaneKey}`
     if (
       plannedStart != null &&
@@ -158,6 +168,8 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
           taMs: ta,
           estCompMs: estComp,
           missingEtc,
+          needsUpdate,
+          needsUpdateReasons,
           startSource: 'ETB',
           waitMs:
             ta != null && tb == null && !isSailed
@@ -229,6 +241,8 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
             mode: 'berthed',
           }),
           missingEtc: isBerthPlanMissingEtc(r),
+          needsUpdate,
+          needsUpdateReasons,
         },
         windowStartMs,
         windowEndMs

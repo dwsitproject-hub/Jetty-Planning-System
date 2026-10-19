@@ -113,9 +113,9 @@ export function berthToStartEvidence(row, detail) {
  * @param {Array<object> | null | undefined} timelineEvents
  */
 export function cargoDoneEvidence(row, timelineEvents) {
-  const sailedAt = row?.sailedAt ?? null
+  const sailedAt = row?.castOff ?? null
   const cargoDoneAt = cargoDoneAtFromTimeline(timelineEvents)
-  const hours = cargoDoneToSailHours({ cargoDoneAt, sailedAt })
+  const hours = cargoDoneToSailHours({ cargoDoneAt, castOff: sailedAt })
   const displayed = row?.cargoDoneToSailH ?? null
 
   /** @type {string | null} */
@@ -151,10 +151,42 @@ export const CARGO_DONE_EXCLUDE_LABELS = {
  * @param {string} productKey
  */
 export function flowEvidenceSummary(row, productKey) {
-  const qty = Number(productQtyOnVoyage(row, productKey)) || 0
+  const pk = String(productKey ?? '')
+    .trim()
+    .toUpperCase()
+  if (!pk) {
+    const qtyNum = Number(row?.voyageMovedQty)
+    const hoursNum = Number(row?.voyageLoggedHours)
+    const rateNum = Number(row?.voyageRateMtH)
+    return {
+      productQtyMt: Number.isFinite(qtyNum) ? qtyNum : null,
+      loggedCargoHours: Number.isFinite(hoursNum) ? hoursNum : null,
+      cargoOpsHours: row?.opsH ?? null,
+      voyageRateMtH: Number.isFinite(rateNum) && rateNum > 0 ? rateNum : null,
+      source: row?.cargoRateSource ?? null,
+      atgPartial: Boolean(row?.cargoRateAtgPartial),
+    }
+  }
+  const rateEntry = row?.productRatesByKey?.[pk]
+  const movedFromApi = rateEntry?.movedQty
+  const qty =
+    movedFromApi != null && Number.isFinite(Number(movedFromApi))
+      ? Number(movedFromApi)
+      : Number(productQtyOnVoyage(row, productKey)) || 0
+  const loggedHours = rateEntry?.loggedHours ?? null
   const opsH = row?.opsH ?? null
-  const rate = opsH != null && opsH > 0 && qty > 0 ? +(qty / opsH).toFixed(2) : null
-  return { productQtyMt: qty, cargoOpsHours: opsH, voyageRateMtH: rate }
+  const rate =
+    rateEntry?.rateMtH != null && Number.isFinite(rateEntry.rateMtH)
+      ? rateEntry.rateMtH
+      : null
+  return {
+    productQtyMt: qty,
+    loggedCargoHours: loggedHours,
+    cargoOpsHours: opsH,
+    voyageRateMtH: rate,
+    source: rateEntry?.source ?? null,
+    atgPartial: rateEntry?.atgPartial ?? false,
+  }
 }
 
 function bucketMovedQty(bucket) {

@@ -17,18 +17,20 @@ import {
 } from '../api/operations'
 import { fetchMasterTanks } from '../api/masterTanks'
 import {
+  commodityDraftFromPersistedLoadLine,
   defaultCommodityIdForNewLine,
   findSiCommodityOption,
   formatSiCommodityPlanHint,
   normalizeSiCommodityOptions,
   requiresCommodityPicker,
   singleCommodityBannerText,
+  multiCommodityPlanSummaryText,
 } from '../utils/siCommodityOptions.js'
 import { buildTankCommodityMismatchWarnings } from '../utils/tankCommodityMismatch.js'
 import { fetchTankGaugingMassDelta } from '../api/tankGauging'
 import { readAtgQtyFromRef } from '../utils/atgQty.js'
 import OperationActivityTimeline from './OperationActivityTimeline'
-import DropdownMultiSelect from './DropdownMultiSelect'
+import DropdownSearchSelect from './DropdownSearchSelect'
 import CargoEntryHourlyPanel from './CargoEntryHourlyPanel'
 import {
   collectCargoLoadLines,
@@ -45,7 +47,6 @@ import {
   sumClosedPersistedLineQty,
 } from '../utils/cargoSessionHelpers.js'
 import {
-  ensureApiStartAfterPreviousEnd,
   getScheduleEntryTimeZone,
   normalizeForApi,
   nowToNaiveLocalInScheduleZone,
@@ -146,6 +147,12 @@ function newCargoLineDraftKey() {
   return `cl-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
+/** One tank per cargo entry; legacy lines may have stored multiple — keep first in draft. */
+function normalizeDraftTankIds(tankIds) {
+  if (!Array.isArray(tankIds) || tankIds.length === 0) return []
+  return [String(tankIds[0])]
+}
+
 function defaultCargoLineDraft(getEnd, activityStartLocal, tankIds = [], commodityId = null) {
   const endVal = getEnd()
   const startVal = activityStartLocal != null && activityStartLocal !== '' ? activityStartLocal : ''
@@ -161,8 +168,9 @@ function defaultCargoLineDraft(getEnd, activityStartLocal, tankIds = [], commodi
     start: startVal,
     end: sameMinute ? '' : endVal,
     qtyTouched: false,
-    tankIds: Array.isArray(tankIds) ? tankIds.map(String) : [],
+    tankIds: normalizeDraftTankIds(tankIds),
     commodityId: commodityId != null ? String(commodityId) : '',
+    persistedCommodityId: null,
   }
 }
 
@@ -230,6 +238,10 @@ export default function OperationalMilestoneWorkspace({
   const showCommodityPicker = requiresCommodityPicker(siCommodityOptions)
   const singleCommodityBanner = useMemo(
     () => singleCommodityBannerText(siCommodityOptions),
+    [siCommodityOptions]
+  )
+  const multiCommodityPlanSummary = useMemo(
+    () => multiCommodityPlanSummaryText(siCommodityOptions),
     [siCommodityOptions]
   )
 
@@ -315,10 +327,11 @@ export default function OperationalMilestoneWorkspace({
             } else if (!startLoc && row?.startTime) {
               startLoc = isoOrDatetimeToLocal(row.startTime)
             }
-            const lineTankIds =
+            const lineTankIds = normalizeDraftTankIds(
               Array.isArray(l.tankIds) && l.tankIds.length > 0
                 ? l.tankIds.map(String)
                 : fallbackTankIds
+            )
             return {
               key: l.id || newCargoLineDraftKey(),
               qty: Number.isFinite(Number(l.qty)) ? String(l.qty) : '',
@@ -330,10 +343,7 @@ export default function OperationalMilestoneWorkspace({
               end: endLoc,
               qtyTouched: true,
               tankIds: lineTankIds,
-              commodityId:
-                l.commodityId != null
-                  ? String(l.commodityId)
-                  : defaultCommodityIdForNewLine(siCommodityOptions, null) || '',
+              ...commodityDraftFromPersistedLoadLine(l),
             }
           })
         )
@@ -493,14 +503,12 @@ export default function OperationalMilestoneWorkspace({
               start: l.startAt ? isoOrDatetimeToLocal(l.startAt) : '',
               end: l.endAt ? isoOrDatetimeToLocal(l.endAt) : '',
               qtyTouched: true,
-              tankIds:
+              tankIds: normalizeDraftTankIds(
                 Array.isArray(l.tankIds) && l.tankIds.length > 0
                   ? l.tankIds.map(String)
-                  : fallbackTankIds,
-              commodityId:
-                l.commodityId != null
-                  ? String(l.commodityId)
-                  : defaultCommodityIdForNewLine(siCommodityOptions, null) || '',
+                  : fallbackTankIds
+              ),
+              ...commodityDraftFromPersistedLoadLine(l),
             }))
           )
         } else if (commodityType === 'Liquid' && useApi) {
@@ -1013,7 +1021,7 @@ export default function OperationalMilestoneWorkspace({
   const addCargoLineDraft = useCallback(() => {
     setCargoLoadLinesDraft((prev) => {
       const last = prev[prev.length - 1]
-      const nextStart = last?.end || ''
+      const nextStart = last?.start || last?.end || ''
       const prevTanks = Array.isArray(last?.tankIds) ? last.tankIds.map(String) : []
       const commodityId = defaultCommodityIdForNewLine(siCommodityOptions, last?.commodityId)
       return [
@@ -1138,7 +1146,8 @@ export default function OperationalMilestoneWorkspace({
           } else if (hasEnd && mq == null) {
             return { error: t('cargoOpsLineQtyRequiredWhenEnd', { n: i + 1 }) }
           }
-          if (commodityType === 'Liquid' && (!Array.isArray(li.tankIds) || li.tankIds.length === 0)) {
+          const draftTanks = normalizeDraftTankIds(li.tankIds)
+          if (commodityType === 'Liquid' && draftTanks.length === 0) {
             return { error: t('cargoOpsLineTanksRequired', { n: i + 1 }) }
           }
           let lineCommodityId = li.commodityId != null ? String(li.commodityId).trim() : ''
@@ -1158,7 +1167,7 @@ export default function OperationalMilestoneWorkspace({
             _end: tEnd,
             hasEnd,
             _i: i,
-            tankIds: Array.isArray(li.tankIds) ? li.tankIds.map(String) : [],
+            tankIds: draftTanks,
             commodityId: lineCommodityId || null,
           })
         }
@@ -1174,12 +1183,6 @@ export default function OperationalMilestoneWorkspace({
           const prevEnd = built[j - 1]._end
           if (prevEnd == null) {
             return { error: t('cargoOpsLineAfterOpen') }
-          }
-          if (built[j]._sort < prevEnd) {
-            return { error: t('cargoOpsLineOverlap') }
-          }
-          if (built[j]._sort <= built[j - 1]._sort) {
-            return { error: t('cargoOpsLineStartStrict') }
           }
         }
         const cargoLoadLines = built.map(
@@ -1556,6 +1559,8 @@ export default function OperationalMilestoneWorkspace({
                         defaultValue: `Product: ${singleCommodityBanner}`,
                       })}
                     </p>
+                  ) : multiCommodityPlanSummary ? (
+                    <p className="cargo-ops-modal-meta text-steel">{multiCommodityPlanSummary}</p>
                   ) : (cargoCommodity != null && String(cargoCommodity).trim()) ||
                     (cargoSiQty != null && cargoSiQty !== '' && Number.isFinite(Number(cargoSiQty))) ? (
                     <p className="cargo-ops-modal-meta text-steel">
@@ -1780,7 +1785,6 @@ export default function OperationalMilestoneWorkspace({
                                 onChange={(e) =>
                                   updateCargoLineDraft(lr.key, { commodityId: e.target.value })
                                 }
-                                disabled={Boolean(row.end && row.start)}
                               >
                                 <option value="">{t('cargoOpsLineProductPlaceholder')}</option>
                                 {siCommodityOptions.map((o) => (
@@ -1814,11 +1818,19 @@ export default function OperationalMilestoneWorkspace({
                                 {purpose === 'Unloading' ? t('cargoOpsSourceTanks') : t('cargoOpsDestinationTanks')}{' '}
                                 <span className="required-star">*</span>
                               </label>
-                              <DropdownMultiSelect
+                              <DropdownSearchSelect
                                 id={`op-cargo-tanks-${lr.key}`}
                                 options={masterTankOptions}
-                                selectedValues={Array.isArray(row.tankIds) ? row.tankIds : []}
-                                onChange={(ids) => updateCargoLineDraft(lr.key, { tankIds: ids })}
+                                value={
+                                  Array.isArray(row.tankIds) && row.tankIds[0]
+                                    ? String(row.tankIds[0])
+                                    : ''
+                                }
+                                onChange={(id) =>
+                                  updateCargoLineDraft(lr.key, {
+                                    tankIds: id ? [String(id)] : [],
+                                  })
+                                }
                                 placeholder={t('cargoOpsTanksPlaceholder')}
                                 emptyText={t('cargoOpsTanksEmpty')}
                                 searchable

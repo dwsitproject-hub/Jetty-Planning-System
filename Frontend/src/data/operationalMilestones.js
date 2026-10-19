@@ -37,6 +37,15 @@ export function isValidMilestoneKey(key) {
   return ALL_KEYS.has(String(key || ''))
 }
 
+function mapCargoLoadLineCommodityId(line) {
+  const raw = line?.commodityId ?? line?.commodity_id
+  if (raw == null || String(raw).trim() === '') return null
+  const id = String(raw).trim()
+  const n = parseInt(id, 10)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return id
+}
+
 /** Map API entries (camelCase) to UI model used by Operational milestone workspace + stage counts. */
 export function viewModelFromOperationalEntries(entries, purpose) {
   const activities = []
@@ -89,6 +98,17 @@ export function viewModelFromOperationalEntries(entries, purpose) {
               atgMassDetail: l.atgMassDetail ?? l.atg_mass_detail ?? null,
               atgMassComputedAt: l.atgMassComputedAt ?? l.atg_mass_computed_at ?? null,
               asOfAt: l.asOfAt ?? l.as_of_at ?? null,
+              commodityId: mapCargoLoadLineCommodityId(l),
+              commodityName: l.commodityName ?? l.commodity_name ?? null,
+              commodityShortDisplay:
+                l.commodityShortDisplay ?? l.commodity_short_display ?? null,
+              plannedQty:
+                l.plannedQty != null && l.plannedQty !== ''
+                  ? Number(l.plannedQty)
+                  : l.planned_qty != null && l.planned_qty !== ''
+                    ? Number(l.planned_qty)
+                    : null,
+              metricCode: l.metricCode ?? l.metric_code ?? null,
               tanks: lineTanks,
               tankIds: lineTankIds,
             }

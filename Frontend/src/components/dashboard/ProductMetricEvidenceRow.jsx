@@ -256,11 +256,21 @@ function FlowPanel({ row, productKey }) {
       key: 'source',
       title: 'Inputs',
       rows: [
-        { label: 'Product qty (MT)', value: fmtNum(summary.productQtyMt, 0), kind: 'source' },
+        { label: 'Moved qty (MT)', value: fmtNum(summary.productQtyMt, 0), kind: 'source' },
         {
-          label: 'Cargo ops hours',
-          value: formatEvidenceComputedHours(summary.cargoOpsHours),
+          label: 'Logged cargo hours',
+          value: formatEvidenceComputedHours(summary.loggedCargoHours),
           kind: 'source',
+        },
+        {
+          label: 'Source',
+          value: summary.source ? String(summary.source).toUpperCase() : '—',
+          kind: 'source',
+        },
+        {
+          label: 'Cargo ops window (h)',
+          value: formatEvidenceComputedHours(summary.cargoOpsHours),
+          kind: 'muted',
         },
       ],
     },
@@ -270,7 +280,10 @@ function FlowPanel({ row, productKey }) {
       rows: [
         {
           label: EVIDENCE_COMPUTED_LABEL,
-          value: formatEvidenceComputedHours(summary.cargoOpsHours),
+          value:
+            summary.voyageRateMtH == null
+              ? '—'
+              : `${fmtNum(summary.voyageRateMtH)} MT/h (moved ÷ logged hours)`,
           kind: 'computed',
         },
         {
@@ -285,6 +298,9 @@ function FlowPanel({ row, productKey }) {
   return (
     <>
       <EvidenceKvTable sections={sections} />
+      {summary.atgPartial ? (
+        <EvidenceFootnote variant="warn">ATG data was partial for this voyage; rate may include manual fallback.</EvidenceFootnote>
+      ) : null}
       {loading ? <EvidenceFootnote>Loading hourly/daily progress…</EvidenceFootnote> : null}
       {error ? <EvidenceFootnote variant="warn">{error}</EvidenceFootnote> : null}
       {!loading && !error && daily.length === 0 ? (
@@ -342,13 +358,14 @@ export default function ProductMetricEvidenceRow({
   productKey,
   opDetailsById,
   timelinesByOpId,
+  colSpan = 7,
 }) {
   const detail = row?.id != null ? opDetailsById?.[row.id] : null
   const timeline = row?.id != null ? timelinesByOpId?.[row.id] : null
 
   return (
     <tr className="mgmt-product-metric-evidence-row">
-      <td colSpan={7}>
+      <td colSpan={colSpan}>
         <div className="mgmt-product-metric-evidence" data-metric={columnKey}>
           <div className="mgmt-product-metric-evidence__head">
             <span className="mgmt-product-metric-evidence__metric">

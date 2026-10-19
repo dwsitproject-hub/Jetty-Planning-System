@@ -5,10 +5,10 @@ function normalizePurpose(purpose) {
   return 'loading'
 }
 
-export default function FlowPill({ purpose, className = '', size = 'md' }) {
+export default function FlowPill({ purpose, className = '', size = 'md', short = false }) {
   const norm = normalizePurpose(purpose)
   const isUnloading = norm === 'unloading'
-  const label = isUnloading ? 'Unloading' : 'Loading'
+  const label = isUnloading ? (short ? 'Unload' : 'Unloading') : (short ? 'Load' : 'Loading')
   const icon = isUnloading ? '↓' : '↑'
   return (
     <span
@@ -18,7 +18,7 @@ export default function FlowPill({ purpose, className = '', size = 'md' }) {
       title={`Flow: ${label}`}
     >
       <span className="flow-pill__icon" aria-hidden="true">{icon}</span>
-      <span className="flow-pill__text">{label.toUpperCase()}</span>
+      <span className="flow-pill__text">{short ? label : label.toUpperCase()}</span>
     </span>
   )
 }

@@ -5,6 +5,8 @@ import {
   expandVoyageToProductSlices,
   parseProductQtyMap,
   productKeyFromCommodity,
+  voyageMovedQtyLines,
+  voyageMovedQtySortValue,
   voyagesForProduct,
 } from './managementDashboardProduct.js'
 
@@ -41,6 +43,38 @@ describe('parseProductQtyMap', () => {
   })
 })
 
+describe('voyageMovedQtyLines', () => {
+  it('uses one commodity’s logged movement, not the shipment-plan qty', () => {
+    const lines = voyageMovedQtyLines(row({
+      qty: 5000,
+      totalQtyDisplay: 'FAME 5.000 MT',
+      productRatesByKey: { FAME: { movedQty: 14000 } },
+    }))
+    assert.deepEqual(lines, [{ label: 'FAME', qty: 14000 }])
+  })
+
+  it('lists each commodity’s movement and does not invent a split from the plan total', () => {
+    const lines = voyageMovedQtyLines(row({
+      commodity: 'CPO · CPKO',
+      qty: 4700,
+      totalQtyDisplay: 'CPO 4.000 MT\nCPKO 700 MT',
+      productRatesByKey: { CPO: { movedQty: 4000 } },
+    }))
+    assert.deepEqual(lines, [
+      { label: 'CPO', qty: 4000 },
+      { label: 'CPKO', qty: null },
+    ])
+    assert.equal(voyageMovedQtySortValue(row({
+      commodity: 'CPO · CPKO',
+      productRatesByKey: { CPO: { movedQty: 4000 }, CPKO: { movedQty: 700 } },
+    })), 4700)
+    assert.equal(voyageMovedQtySortValue(row({
+      commodity: 'CPO · CPKO',
+      qty: 4700,
+    })), null)
+  })
+})
+
 describe('expandVoyageToProductSlices', () => {
   it('splits combined commodity label into separate slices', () => {
     const slices = expandVoyageToProductSlices(
@@ -66,8 +100,26 @@ describe('expandVoyageToProductSlices', () => {
 describe('aggregateByProduct', () => {
   it('splits Loading vs Unloading and computes means over logged voyages', () => {
     const agg = aggregateByProduct([
-      row({ vessel: 'L1', commodity: 'FAME', wait: 4, pre: 2, qty: 800, opsH: 8, cargoDoneToSailH: 6 }),
-      row({ vessel: 'L2', commodity: 'fame', wait: 8, pre: null, qty: 200, opsH: 4, cargoDoneToSailH: 10 }),
+      row({
+        vessel: 'L1',
+        commodity: 'FAME',
+        wait: 4,
+        pre: 2,
+        qty: 800,
+        opsH: 8,
+        cargoDoneToSailH: 6,
+        productRatesByKey: { FAME: { rateMtH: 100, movedQty: 800, loggedHours: 8 } },
+      }),
+      row({
+        vessel: 'L2',
+        commodity: 'fame',
+        wait: 8,
+        pre: null,
+        qty: 200,
+        opsH: 4,
+        cargoDoneToSailH: 10,
+        productRatesByKey: { FAME: { rateMtH: 50, movedQty: 200, loggedHours: 4 } },
+      }),
       row({
         vessel: 'U1',
         purpose: 'Unloading',

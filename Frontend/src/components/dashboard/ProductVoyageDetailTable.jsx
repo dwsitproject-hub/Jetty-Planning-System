@@ -6,7 +6,7 @@
 
 import { Fragment, useCallback, useState } from 'react'
 
-import { productQtyOnVoyage } from '../../utils/managementDashboardProduct.js'
+import { expandVoyageToProductSlices, productQtyOnVoyage } from '../../utils/managementDashboardProduct.js'
 
 import { fmtMgmtDurationDays, fmtMgmtDurationHours } from './ManagementProductTable.jsx'
 
@@ -47,13 +47,13 @@ export function chartMetricToVoyageColumn(metricKey) {
 
 
 export function productFlowRateOnVoyage(row, productKey) {
-
-  if (!productKey || row.opsH == null || !(Number(row.opsH) > 0)) return null
-
-  const qty = Number(productQtyOnVoyage(row, productKey)) || 0
-
-  return qty > 0 ? qty / row.opsH : null
-
+  if (!productKey) return null
+  const pk = String(productKey).trim().toUpperCase()
+  const fromApi = row.productRatesByKey?.[pk]?.rateMtH
+  if (fromApi != null && Number.isFinite(fromApi) && fromApi > 0) return fromApi
+  const slice = expandVoyageToProductSlices(row).find((s) => s.productKey === pk)
+  if (slice?.productRateMtH != null && Number.isFinite(slice.productRateMtH)) return slice.productRateMtH
+  return null
 }
 
 

@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiDelete, apiPostForm } from './client.js'
+import { apiGet, apiPost, apiPut, apiDelete, apiPostForm, ApiError } from './client.js'
 import { getScheduleEntryTimeZone, normalizeForApi } from '../utils/scheduleDateTime.js'
 
 function parseTankIdForApi(id) {
@@ -444,6 +444,29 @@ export function deleteCargoManualCheckpoint(operationId, checkpointId) {
 export function fetchAtBerthCargoProgress(ids) {
   const q = Array.isArray(ids) && ids.length ? `?ids=${ids.join(',')}` : ''
   return apiGet(`/operations/at-berth/cargo-progress${q}`)
+}
+
+/** Bulk voyage + per-product avg flow for Management Dashboard (moved ÷ logged cargo hours). */
+export async function fetchManagementCargoRates(ids) {
+  const list = (Array.isArray(ids) ? ids : [])
+    .map((id) => Number(id))
+    .filter((n) => Number.isFinite(n) && n > 0)
+  if (!list.length) return { rates: {} }
+  const q = list.join(',')
+  try {
+    return await apiGet(`/operations/management-cargo-rates?ids=${q}`)
+  } catch (e) {
+    const staleRoute =
+      e instanceof ApiError &&
+      e.status === 400 &&
+      String(e.message || '')
+        .toLowerCase()
+        .includes('invalid id')
+    if (staleRoute) {
+      return apiGet(`/operations/at-berth/cargo-progress?managementDashboardRates=1&ids=${q}`)
+    }
+    throw e
+  }
 }
 
 export function fetchAtBerthFlowPattern(lookbackDays = 14) {
