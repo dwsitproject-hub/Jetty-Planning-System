@@ -432,6 +432,7 @@
   "emailLogAutoRefresh": "Segarkan otomatis (30 dtk)",
   "emailLogApply": "Terapkan filter",
   "emailLogEmpty": "Tidak ada pengiriman email yang cocok dengan filter.",
+  "tableNoFilterMatch": "Tidak ada data yang cocok dengan filter saat ini.",
   "emailLogColStatus": "Status",
   "emailLogColUpdated": "Diperbarui",
   "emailLogColRecipient": "Penerima",

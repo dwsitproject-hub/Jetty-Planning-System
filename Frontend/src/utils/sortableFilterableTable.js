@@ -10,7 +10,27 @@ function resolveFilterValue(row, col) {
 }
 
 export function emptyFilterValue(col) {
-  return col?.filterType === 'dateRange' ? { from: '', to: '' } : ''
+  if (col?.filterType === 'dateRange') return { from: '', to: '' }
+  if (col?.filterType === 'multiSelect') return []
+  return ''
+}
+
+function selectedMultiValues(filterValue) {
+  if (!Array.isArray(filterValue)) return []
+  return filterValue.map((v) => String(v ?? '').trim()).filter(Boolean)
+}
+
+function rowMultiValues(row, col) {
+  if (col.getFilterValues) {
+    const list = col.getFilterValues(row)
+    return Array.isArray(list) ? list.map((v) => String(v ?? '').trim()).filter(Boolean) : []
+  }
+  const raw = resolveFilterValue(row, col)
+  if (Array.isArray(raw)) return raw.map((v) => String(v ?? '').trim()).filter(Boolean)
+  return String(raw ?? '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
 }
 
 export function dateRangeFilterParts(value) {
@@ -46,6 +66,13 @@ export function rowMatchesColumnFilter(row, col, filterValue) {
     if (!selected) return true
     if (col.matchesFilter) return col.matchesFilter(row, selected)
     return String(resolveFilterValue(row, col) ?? '') === selected
+  }
+  if (col.filterType === 'multiSelect') {
+    const selected = selectedMultiValues(filterValue)
+    if (selected.length === 0) return true
+    if (col.matchesFilter) return col.matchesFilter(row, selected)
+    const values = new Set(rowMultiValues(row, col))
+    return selected.some((value) => values.has(value))
   }
   if (col.filterType === 'dateRange') {
     const range = dateRangeFilterParts(filterValue)

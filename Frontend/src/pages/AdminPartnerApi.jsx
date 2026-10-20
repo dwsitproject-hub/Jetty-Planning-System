@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, Fragment } from 'react'
+import { useState, useCallback, useEffect, useMemo, Fragment } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
@@ -16,6 +16,14 @@ import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/admin.css'
 import '../styles/partner-integrations.css'
+import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
+import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
+import { uniqueSortedOptions } from '../utils/sortableFilterableTable.js'
+
+function isoSortValue(iso) {
+  const n = iso ? new Date(iso).getTime() : 0
+  return Number.isNaN(n) ? 0 : n
+}
 
 function maskKey(prefix) {
   if (!prefix) return '—'
@@ -310,6 +318,88 @@ export default function AdminPartnerApi() {
     [selectedKeyId]
   )
 
+  const webhookColumns = useMemo(
+    () => [
+      {
+        key: 'url',
+        label: t('adminPartnerApiWebhookUrl'),
+        getSortValue: (ep) => (ep.url || '').toLowerCase(),
+        getFilterValue: (ep) => ep.url || '',
+      },
+      {
+        key: 'events',
+        label: t('adminPartnerApiWebhookEvents'),
+        getSortValue: (ep) => formatEvents(ep.events).toLowerCase(),
+        getFilterValue: (ep) => formatEvents(ep.events),
+      },
+      {
+        key: 'active',
+        label: t('adminPartnerApiWebhookActive'),
+        filterType: 'select',
+        selectOptions: [t('adminPartnerApiStatusActive'), t('adminPartnerApiStatusInactive')],
+        getSortValue: (ep) => (ep.active ? 1 : 0),
+        getFilterValue: (ep) =>
+          ep.active ? t('adminPartnerApiStatusActive') : t('adminPartnerApiStatusInactive'),
+      },
+    ],
+    [t]
+  )
+
+  const deliveryColumns = useMemo(
+    () => [
+      {
+        key: 'deliveryId',
+        label: t('adminPartnerApiDeliveryId'),
+        getSortValue: (d) => (d.delivery_id || '').toLowerCase(),
+        getFilterValue: (d) => d.delivery_id || '',
+      },
+      {
+        key: 'event',
+        label: t('adminPartnerApiDeliveryEvent'),
+        getSortValue: (d) => (d.event_type || '').toLowerCase(),
+        getFilterValue: (d) => d.event_type || '',
+      },
+      {
+        key: 'reference',
+        label: t('adminPartnerApiDeliveryRef'),
+        getSortValue: (d) => (d.external_reference || '').toLowerCase(),
+        getFilterValue: (d) => d.external_reference || '',
+      },
+      {
+        key: 'status',
+        label: t('adminPartnerApiColStatus'),
+        filterType: 'select',
+        selectOptions: uniqueSortedOptions(deliveries.map((d) => d.status)),
+        getSortValue: (d) => (d.status || '').toLowerCase(),
+        getFilterValue: (d) => d.status || '',
+      },
+      {
+        key: 'when',
+        label: t('adminPartnerApiDeliveryWhen'),
+        filterType: 'dateRange',
+        getDateIso: (d) => d.sent_at || d.created_at,
+        getSortValue: (d) => isoSortValue(d.sent_at || d.created_at),
+      },
+    ],
+    [t, deliveries]
+  )
+
+  const {
+    displayRows: displayWebhooks,
+    filters: webhookFilters,
+    updateFilter: updateWebhookFilter,
+    sortState: webhookSort,
+    handleSort: handleWebhookSort,
+  } = useSortableFilterableRows(webhooks, webhookColumns, { key: 'url', dir: 'asc' })
+
+  const {
+    displayRows: displayDeliveries,
+    filters: deliveryFilters,
+    updateFilter: updateDeliveryFilter,
+    sortState: deliverySort,
+    handleSort: handleDeliverySort,
+  } = useSortableFilterableRows(deliveries, deliveryColumns, { key: 'when', dir: 'desc' })
+
   const handleRetryDelivery = useCallback(
     async (deliveryId) => {
       if (selectedKeyId == null || !deliveriesEndpoint) return
@@ -430,17 +520,20 @@ export default function AdminPartnerApi() {
                   <p className="partner-integrations-empty">{t('adminPartnerApiNoWebhooks')}</p>
                 ) : (
                   <div className="table-wrap">
-                    <table className="data-table partner-webhook-table">
+                    <table className="data-table allocation-table partner-webhook-table">
                       <thead>
-                        <tr>
-                          <th>{t('adminPartnerApiWebhookUrl')}</th>
-                          <th>{t('adminPartnerApiWebhookEvents')}</th>
-                          <th>{t('adminPartnerApiWebhookActive')}</th>
-                          <th className="partner-webhook-table__actions-th">{t('adminPartnerApiWebhookActions')}</th>
-                        </tr>
+                        <SortableFilterableTableHead
+                          columns={webhookColumns}
+                          sortState={webhookSort}
+                          onSort={handleWebhookSort}
+                          filters={webhookFilters}
+                          onFilterChange={updateWebhookFilter}
+                          trailingBlankCols={1}
+                          trailingBlankLabel={t('adminPartnerApiWebhookActions')}
+                        />
                       </thead>
                       <tbody>
-                        {webhooks.map((ep) => (
+                        {displayWebhooks.map((ep) => (
                           <tr key={ep.id}>
                             <td className="partner-webhook-table__url">{ep.url}</td>
                             <td className="text-steel">{formatEvents(ep.events)}</td>
@@ -472,6 +565,11 @@ export default function AdminPartnerApi() {
                         ))}
                       </tbody>
                     </table>
+                    {displayWebhooks.length === 0 && (
+                      <p className="text-steel" style={{ marginTop: 'var(--spacing-3)' }}>
+                        {t('tableNoFilterMatch')}
+                      </p>
+                    )}
                   </div>
                 )}
               </section>
@@ -627,19 +725,20 @@ export default function AdminPartnerApi() {
                   <p className="partner-integrations-empty">{t('adminPartnerApiNoDeliveries')}</p>
                 ) : (
                   <div className="table-wrap">
-                    <table className="data-table partner-deliveries-table">
+                    <table className="data-table allocation-table partner-deliveries-table">
                       <thead>
-                        <tr>
-                          <th>{t('adminPartnerApiDeliveryId')}</th>
-                          <th>{t('adminPartnerApiDeliveryEvent')}</th>
-                          <th>{t('adminPartnerApiDeliveryRef')}</th>
-                          <th>{t('adminPartnerApiColStatus')}</th>
-                          <th>{t('adminPartnerApiDeliveryWhen')}</th>
-                          <th />
-                        </tr>
+                        <SortableFilterableTableHead
+                          columns={deliveryColumns}
+                          sortState={deliverySort}
+                          onSort={handleDeliverySort}
+                          filters={deliveryFilters}
+                          onFilterChange={updateDeliveryFilter}
+                          trailingBlankCols={1}
+                          trailingBlankLabel={t('adminPartnerApiWebhookActions')}
+                        />
                       </thead>
                       <tbody>
-                        {deliveries.map((d) => (
+                        {displayDeliveries.map((d) => (
                           <Fragment key={d.delivery_id}>
                             <tr>
                               <td><span className="partner-deliveries-id">{d.delivery_id}</span></td>
@@ -679,6 +778,11 @@ export default function AdminPartnerApi() {
                         ))}
                       </tbody>
                     </table>
+                    {displayDeliveries.length === 0 && (
+                      <p className="text-steel" style={{ marginTop: 'var(--spacing-3)' }}>
+                        {t('tableNoFilterMatch')}
+                      </p>
+                    )}
                   </div>
                 )}
               </>

@@ -1,14 +1,36 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchDataHubConfig, saveDataHubConfig, testDataHubConnection } from '../api/datahubAdmin'
+import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
+import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
+import { uniqueSortedOptions } from '../utils/sortableFilterableTable.js'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/admin.css'
+
+const EMPTY_RECEIPTS = []
 
 function formatWhen(value) {
   if (!value) return '—'
   const d = new Date(value)
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString()
+}
+
+function isoSortValue(iso) {
+  const n = iso ? new Date(iso).getTime() : 0
+  return Number.isNaN(n) ? 0 : n
+}
+
+function receiptStatusLabel(rec) {
+  if (rec.error === 'applied') return 'applied'
+  if (rec.status === 'ignored') return 'ignored'
+  return rec.status || ''
+}
+
+function receiptDetailLabel(rec) {
+  if (rec.error && rec.error !== 'applied') return rec.error
+  if (rec.status === 'accepted' && rec.error !== 'applied') return 'staged for review'
+  return rec.event || ''
 }
 
 export default function AdminDataHub() {
@@ -100,6 +122,57 @@ export default function AdminDataHub() {
       setTesting(false)
     }
   }, [baseUrl, publicKey, privateKey])
+
+  const receiptRows = Array.isArray(config?.recentWebhookReceipts)
+    ? config.recentWebhookReceipts
+    : EMPTY_RECEIPTS
+
+  const receiptColumns = useMemo(
+    () => [
+      {
+        key: 'received',
+        label: 'Received',
+        filterType: 'dateRange',
+        getDateIso: (rec) => rec.receivedAt,
+        getSortValue: (rec) => isoSortValue(rec.receivedAt),
+      },
+      {
+        key: 'entity',
+        label: 'Entity',
+        getSortValue: (rec) => (rec.entityType || '').toLowerCase(),
+        getFilterValue: (rec) => rec.entityType || '',
+      },
+      {
+        key: 'hubCode',
+        label: 'Hub code',
+        getSortValue: (rec) => (rec.hubCode || '').toLowerCase(),
+        getFilterValue: (rec) => rec.hubCode || '',
+      },
+      {
+        key: 'status',
+        label: 'Status',
+        filterType: 'select',
+        selectOptions: uniqueSortedOptions(receiptRows.map(receiptStatusLabel)),
+        getSortValue: (rec) => receiptStatusLabel(rec).toLowerCase(),
+        getFilterValue: (rec) => receiptStatusLabel(rec),
+      },
+      {
+        key: 'detail',
+        label: 'Detail',
+        getSortValue: (rec) => receiptDetailLabel(rec).toLowerCase(),
+        getFilterValue: (rec) => receiptDetailLabel(rec),
+      },
+    ],
+    [receiptRows]
+  )
+
+  const {
+    displayRows: displayReceipts,
+    filters: receiptFilters,
+    updateFilter: updateReceiptFilter,
+    sortState: receiptSort,
+    handleSort: handleReceiptSort,
+  } = useSortableFilterableRows(receiptRows, receiptColumns, { key: 'received', dir: 'desc' })
 
   return (
     <div className="allocation-page">
@@ -235,38 +308,31 @@ export default function AdminDataHub() {
             </h3>
             <table className="data-table allocation-table">
               <thead>
-                <tr>
-                  <th>Received</th>
-                  <th>Entity</th>
-                  <th>Hub code</th>
-                  <th>Status</th>
-                  <th>Detail</th>
-                </tr>
+                <SortableFilterableTableHead
+                  columns={receiptColumns}
+                  sortState={receiptSort}
+                  onSort={handleReceiptSort}
+                  filters={receiptFilters}
+                  onFilterChange={updateReceiptFilter}
+                />
               </thead>
               <tbody>
-                {config.recentWebhookReceipts.map((rec) => (
+                {displayReceipts.map((rec) => (
                   <tr key={rec.deliveryId} className="allocation-table__row">
                     <td className="text-steel">{formatWhen(rec.receivedAt)}</td>
                     <td>{rec.entityType || '—'}</td>
                     <td className="text-steel">{rec.hubCode || '—'}</td>
-                    <td>
-                      {rec.error === 'applied'
-                        ? 'applied'
-                        : rec.status === 'ignored'
-                          ? 'ignored'
-                          : rec.status || '—'}
-                    </td>
-                    <td className="text-steel">
-                      {rec.error && rec.error !== 'applied'
-                        ? rec.error
-                        : rec.status === 'accepted' && rec.error !== 'applied'
-                          ? 'staged for review'
-                          : rec.event || '—'}
-                    </td>
+                    <td>{receiptStatusLabel(rec) || '—'}</td>
+                    <td className="text-steel">{receiptDetailLabel(rec) || '—'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {displayReceipts.length === 0 && (
+              <p className="text-steel" style={{ marginTop: 'var(--spacing-3)' }}>
+                No entries match the current filters.
+              </p>
+            )}
             <p className="text-steel" style={{ marginTop: '0.5rem', fontSize: '0.85em' }}>
               If commodity edits in DHM never appear here, the DHM app is not delivering{' '}
               <code>commodity</code> webhooks to{' '}

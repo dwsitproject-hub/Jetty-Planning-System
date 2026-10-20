@@ -198,7 +198,9 @@
 }
 
 .partner-webhook-table__actions-th,
-.partner-webhook-table__actions {
+.partner-webhook-table__actions,
+.partner-webhook-table .allocation-table__action-col,
+.partner-deliveries-table .allocation-table__action-col {
   text-align: right;
   white-space: nowrap;
 }

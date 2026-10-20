@@ -1,24 +1,50 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import SortableFilterableTableHead from '../SortableFilterableTableHead.jsx'
+import { useSortableFilterableRows } from '../../hooks/useSortableFilterableRows.js'
 import { formatCount, formatRelativeTime, formatWhen, shortBatchId } from '../../utils/adminOpsDisplay'
 
-function DetailTable({ columns, rows, emptyMessage }) {
+function isoSortValue(iso) {
+  const n = iso ? new Date(iso).getTime() : 0
+  return Number.isNaN(n) ? 0 : n
+}
+
+function DetailTable({ columns, rows, emptyMessage, noMatchLabel }) {
+  const tableColumns = useMemo(
+    () =>
+      (columns || []).map((col) => ({
+        key: col.key,
+        label: col.label,
+        headerClassName: col.className,
+        filterType: col.filterType,
+        selectOptions: col.selectOptions,
+        getDateIso: col.getDateIso,
+        getSortValue: col.getSortValue || ((row) => String(row[col.key] ?? '').toLowerCase()),
+        getFilterValue: col.getFilterValue || ((row) => String(row[col.key] ?? '')),
+      })),
+    [columns]
+  )
+  const { displayRows, filters, updateFilter, sortState, handleSort } = useSortableFilterableRows(
+    rows || [],
+    tableColumns,
+    { key: tableColumns[0]?.key || '', dir: 'asc' }
+  )
   if (!rows?.length) {
     return emptyMessage ? <p className="text-steel admin-ops-detail__empty">{emptyMessage}</p> : null
   }
   return (
     <div className="admin-ops-detail-table-wrap">
-      <table className="admin-ops-detail-table">
+      <table className="admin-ops-detail-table data-table allocation-table">
         <thead>
-          <tr>
-            {columns.map((col) => (
-              <th key={col.key} className={col.className}>
-                {col.label}
-              </th>
-            ))}
-          </tr>
+          <SortableFilterableTableHead
+            columns={tableColumns}
+            sortState={sortState}
+            onSort={handleSort}
+            filters={filters}
+            onFilterChange={updateFilter}
+          />
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {displayRows.map((row) => (
             <tr key={row.key}>
               {columns.map((col) => (
                 <td key={col.key} className={col.className}>
@@ -29,6 +55,9 @@ function DetailTable({ columns, rows, emptyMessage }) {
           ))}
         </tbody>
       </table>
+      {displayRows.length === 0 && noMatchLabel ? (
+        <p className="text-steel admin-ops-detail__empty">{noMatchLabel}</p>
+      ) : null}
     </div>
   )
 }
@@ -58,6 +87,44 @@ function BatchIdCell({ batchId, t }) {
 }
 
 export function PurgeBatchTable({ batches, expectedCadence, t }) {
+  const columns = useMemo(
+    () => [
+      {
+        key: 'batchId',
+        label: t('adminOpsPurgeBatchId'),
+        getSortValue: (b) => b.batchId || '',
+        getFilterValue: (b) => b.batchId || '',
+      },
+      {
+        key: 'archived',
+        label: t('adminOpsPurgeArchive'),
+        headerClassName: 'admin-ops-purge-table__num',
+        getSortValue: (b) => Number(b.archived) || 0,
+        getFilterValue: (b) => String(b.archived ?? ''),
+      },
+      {
+        key: 'deleted',
+        label: t('adminOpsPurgeDelete'),
+        headerClassName: 'admin-ops-purge-table__num',
+        getSortValue: (b) => Number(b.deleted) || 0,
+        getFilterValue: (b) => String(b.deleted ?? ''),
+      },
+      {
+        key: 'completed',
+        label: t('adminOpsPurgeCompleted'),
+        filterType: 'dateRange',
+        getDateIso: (b) => b.lastActedAt,
+        getSortValue: (b) => isoSortValue(b.lastActedAt),
+      },
+    ],
+    [t]
+  )
+  const { displayRows, filters, updateFilter, sortState, handleSort } = useSortableFilterableRows(
+    batches || [],
+    columns,
+    { key: 'completed', dir: 'desc' }
+  )
+
   if (!batches?.length) {
     return (
       <div className="admin-ops-purge-table-wrap">
@@ -69,23 +136,26 @@ export function PurgeBatchTable({ batches, expectedCadence, t }) {
     )
   }
 
+  const latestId = batches[0]?.batchId
+
   return (
     <div className="admin-ops-purge-table-wrap">
       <h3 className="admin-ops-purge-table__title">{t('adminOpsPurgeBatchLogTitle')}</h3>
-      <table className="admin-ops-purge-table">
+      <table className="admin-ops-purge-table data-table allocation-table">
         <thead>
-          <tr>
-            <th>{t('adminOpsPurgeBatchId')}</th>
-            <th className="admin-ops-purge-table__num">{t('adminOpsPurgeArchive')}</th>
-            <th className="admin-ops-purge-table__num">{t('adminOpsPurgeDelete')}</th>
-            <th>{t('adminOpsPurgeCompleted')}</th>
-          </tr>
+          <SortableFilterableTableHead
+            columns={columns}
+            sortState={sortState}
+            onSort={handleSort}
+            filters={filters}
+            onFilterChange={updateFilter}
+          />
         </thead>
         <tbody>
-          {batches.map((batch, index) => (
+          {displayRows.map((batch) => (
             <tr
               key={batch.batchId}
-              className={index === 0 ? 'admin-ops-purge-table__row--latest' : undefined}
+              className={batch.batchId === latestId ? 'admin-ops-purge-table__row--latest' : undefined}
             >
               <td className="admin-ops-purge-table__batch">
                 <BatchIdCell batchId={batch.batchId} t={t} />
@@ -99,6 +169,9 @@ export function PurgeBatchTable({ batches, expectedCadence, t }) {
           ))}
         </tbody>
       </table>
+      {displayRows.length === 0 ? (
+        <p className="text-steel admin-ops-detail__empty">{t('tableNoFilterMatch')}</p>
+      ) : null}
     </div>
   )
 }
@@ -116,7 +189,9 @@ export function AtgSyncDetail({ details, t }) {
       key: port.portId,
       port: port.portName || `Port ${port.portId}`,
       enabled: formatCount(port.totalEnabled),
+      enabledSort: Number(port.totalEnabled) || 0,
       stale: formatCount(port.staleCount),
+      staleSort: Number(port.staleCount) || 0,
       sources: staleLabels || (port.staleCount > 0 ? t('adminOpsAtgStaleSources') : '—'),
     }
   })
@@ -125,11 +200,24 @@ export function AtgSyncDetail({ details, t }) {
     <DetailTable
       columns={[
         { key: 'port', label: t('adminOpsAtgPort') },
-        { key: 'enabled', label: t('adminOpsAtgEnabled'), className: 'admin-ops-detail-table__num' },
-        { key: 'stale', label: t('adminOpsAtgStale'), className: 'admin-ops-detail-table__num' },
+        {
+          key: 'enabled',
+          label: t('adminOpsAtgEnabled'),
+          className: 'admin-ops-detail-table__num',
+          getSortValue: (row) => row.enabledSort,
+          getFilterValue: (row) => row.enabled,
+        },
+        {
+          key: 'stale',
+          label: t('adminOpsAtgStale'),
+          className: 'admin-ops-detail-table__num',
+          getSortValue: (row) => row.staleSort,
+          getFilterValue: (row) => row.stale,
+        },
         { key: 'sources', label: t('adminOpsAtgStaleSource') },
       ]}
       rows={rows}
+      noMatchLabel={t('tableNoFilterMatch')}
     />
   )
 }
@@ -221,17 +309,31 @@ export function PartnerApiDetail({ details, t }) {
     key: p.id,
     name: p.partnerName || '—',
     activity: p.lastActivityAt ? formatRelativeTime(p.lastActivityAt) : '—',
+    activitySort: isoSortValue(p.lastActivityAt),
     subs30d: formatCount(p.submissionsLast30d),
+    subs30dSort: Number(p.submissionsLast30d) || 0,
   }))
 
   return (
     <DetailTable
       columns={[
         { key: 'name', label: t('adminOpsPartnerName') },
-        { key: 'activity', label: t('adminOpsPartnerLastActivity') },
-        { key: 'subs30d', label: t('adminOpsPartnerSubs30d'), className: 'admin-ops-detail-table__num' },
+        {
+          key: 'activity',
+          label: t('adminOpsPartnerLastActivity'),
+          getSortValue: (row) => row.activitySort,
+          getFilterValue: (row) => row.activity,
+        },
+        {
+          key: 'subs30d',
+          label: t('adminOpsPartnerSubs30d'),
+          className: 'admin-ops-detail-table__num',
+          getSortValue: (row) => row.subs30dSort,
+          getFilterValue: (row) => row.subs30d,
+        },
       ]}
       rows={rows}
+      noMatchLabel={t('tableNoFilterMatch')}
     />
   )
 }

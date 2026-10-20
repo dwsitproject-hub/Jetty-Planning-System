@@ -3,8 +3,17 @@ import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { fetchEmailDeliveries } from '../api/notificationAdmin'
 import { fetchPorts } from '../api/ports'
+import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
+import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 import '../styles/allocation.css'
 import '../styles/admin.css'
+
+const EMAIL_STATUS_OPTIONS = ['sent', 'failed', 'skipped', 'queued']
+
+function isoSortValue(iso) {
+  const n = iso ? new Date(iso).getTime() : 0
+  return Number.isNaN(n) ? 0 : n
+}
 
 function fmtLocalDate(d) {
   const y = d.getFullYear()
@@ -105,6 +114,75 @@ export default function AdminEmailDeliveryLog() {
     return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString()
   }
 
+  const logColumns = useMemo(
+    () => [
+      {
+        key: 'status',
+        label: t('emailLogColStatus'),
+        filterType: 'select',
+        selectOptions: EMAIL_STATUS_OPTIONS,
+        getSortValue: (row) => row.status || '',
+        getFilterValue: (row) => row.status || '',
+      },
+      {
+        key: 'updatedAt',
+        label: t('emailLogColUpdated'),
+        filterType: 'dateRange',
+        getDateIso: (row) => row.updatedAt,
+        getSortValue: (row) => isoSortValue(row.updatedAt),
+      },
+      {
+        key: 'recipient',
+        label: t('emailLogColRecipient'),
+        getSortValue: (row) => (row.recipientEmail || row.recipientUsername || '').toLowerCase(),
+        getFilterValue: (row) => [row.recipientEmail, row.recipientUsername].filter(Boolean).join(' '),
+      },
+      {
+        key: 'event',
+        label: t('emailLogColEvent'),
+        getSortValue: (row) => (row.eventLabel || row.eventKey || '').toLowerCase(),
+        getFilterValue: (row) => [row.eventLabel, row.eventKey].filter(Boolean).join(' '),
+      },
+      {
+        key: 'subject',
+        label: t('emailLogColSubject'),
+        getSortValue: (row) => (row.subject || '').toLowerCase(),
+        getFilterValue: (row) => row.subject || '',
+      },
+      {
+        key: 'vessel',
+        label: t('emailLogColVessel'),
+        getSortValue: (row) => (row.vesselName || '').toLowerCase(),
+        getFilterValue: (row) => [row.vesselName, row.jettyOperationCode].filter(Boolean).join(' '),
+      },
+      {
+        key: 'port',
+        label: t('emailLogColPort'),
+        getSortValue: (row) => (row.portName || '').toLowerCase(),
+        getFilterValue: (row) => row.portName || '',
+      },
+      {
+        key: 'messageId',
+        label: t('emailLogColMessageId'),
+        getSortValue: (row) => (row.providerMessageId || '').toLowerCase(),
+        getFilterValue: (row) => row.providerMessageId || '',
+      },
+      {
+        key: 'error',
+        label: t('emailLogColError'),
+        getSortValue: (row) => (row.errorText || '').toLowerCase(),
+        getFilterValue: (row) => row.errorText || '',
+      },
+    ],
+    [t]
+  )
+
+  const { displayRows, filters, updateFilter, sortState, handleSort } = useSortableFilterableRows(
+    items,
+    logColumns,
+    { key: 'updatedAt', dir: 'desc' }
+  )
+
   const copyMessageId = async (id) => {
     if (!id) return
     try {
@@ -188,22 +266,20 @@ export default function AdminEmailDeliveryLog() {
         ) : items.length === 0 ? (
           <p>{t('emailLogEmpty')}</p>
         ) : (
-          <table className="admin-email-log__table">
+          <table className="admin-email-log__table data-table allocation-table">
             <thead>
-              <tr>
-                <th>{t('emailLogColStatus')}</th>
-                <th>{t('emailLogColUpdated')}</th>
-                <th>{t('emailLogColRecipient')}</th>
-                <th>{t('emailLogColEvent')}</th>
-                <th>{t('emailLogColSubject')}</th>
-                <th>{t('emailLogColVessel')}</th>
-                <th>{t('emailLogColPort')}</th>
-                <th>{t('emailLogColMessageId')}</th>
-                <th>{t('emailLogColError')}</th>
-              </tr>
+              <SortableFilterableTableHead
+                columns={logColumns}
+                sortState={sortState}
+                onSort={handleSort}
+                filters={filters}
+                onFilterChange={updateFilter}
+                trailingBlankCols={0}
+                trailingBlankLabel=""
+              />
             </thead>
             <tbody>
-              {items.map((row) => (
+              {displayRows.map((row) => (
                 <tr key={row.id}>
                   <td>
                     <span className={`email-log__status ${statusClass(row.status)}`}>{row.status}</span>
@@ -246,6 +322,9 @@ export default function AdminEmailDeliveryLog() {
               ))}
             </tbody>
           </table>
+        )}
+        {!loading && items.length > 0 && displayRows.length === 0 && (
+          <p className="text-steel">{t('tableNoFilterMatch')}</p>
         )}
         {nextCursor && (
           <button

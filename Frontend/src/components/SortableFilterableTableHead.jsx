@@ -3,6 +3,7 @@
  */
 import ColumnSelectFilter from './ColumnSelectFilter.jsx'
 import ColumnDateRangeFilter from './ColumnDateRangeFilter.jsx'
+import DropdownMultiSelect from './DropdownMultiSelect.jsx'
 import { dateRangeFilterParts, mergeDateRangeBound } from '../utils/sortableFilterableTable.js'
 
 export default function SortableFilterableTableHead({
@@ -13,21 +14,24 @@ export default function SortableFilterableTableHead({
   onFilterChange,
   leadingBlankCols = 0,
   leadingBlankLabel,
+  leadingBlankAriaLabel,
+  leadingBlankClassName = 'allocation-table__action-col',
   trailingBlankCols = 0,
   trailingBlankLabel = 'Actions',
 }) {
-  const blankThs = (count, side, label) =>
+  const blankThs = (count, side, label, ariaLabel) =>
     Array.from({ length: count }, (_, i) => (
       <th
         key={`${side}-blank-${i}`}
         className={
           count === 1 && side === 'leading' && leadingBlankCols === 1
-            ? 'allocation-table__action-col'
+            ? leadingBlankClassName
             : count === 1 && side === 'trailing' && trailingBlankCols === 1
               ? 'allocation-table__action-col'
               : undefined
         }
-        aria-hidden={!label || undefined}
+        aria-label={count === 1 ? ariaLabel : undefined}
+        aria-hidden={!label && !ariaLabel ? true : undefined}
       >
         {count === 1 && label ? label : null}
       </th>
@@ -36,11 +40,11 @@ export default function SortableFilterableTableHead({
   return (
     <>
       <tr>
-        {blankThs(leadingBlankCols, 'leading', leadingBlankLabel)}
+        {blankThs(leadingBlankCols, 'leading', leadingBlankLabel, leadingBlankAriaLabel)}
         {columns.map((col) => {
           const columnLabel = col.labelText || (typeof col.label === 'string' ? col.label : col.key)
           return (
-          <th key={col.key} className="allocation-table__th">
+          <th key={col.key} className={['allocation-table__th', col.headerClassName].filter(Boolean).join(' ')}>
             <button
               type="button"
               className="allocation-table__sort"
@@ -62,7 +66,7 @@ export default function SortableFilterableTableHead({
         {columns.map((col) => {
           const columnLabel = col.labelText || (typeof col.label === 'string' ? col.label : col.key)
           return (
-          <th key={col.key}>
+          <th key={col.key} className={col.headerClassName || undefined}>
             {col.filterType === 'select' ? (
               <ColumnSelectFilter
                 value={filters[col.key] ?? ''}
@@ -73,6 +77,20 @@ export default function SortableFilterableTableHead({
                   col.filterAriaLabel ||
                   `Filter by ${columnLabel}`
                 }
+              />
+            ) : col.filterType === 'multiSelect' ? (
+              <DropdownMultiSelect
+                className="allocation-table__multi-filter"
+                options={(col.selectOptions || []).map((opt) =>
+                  typeof opt === 'string' ? { value: opt, label: opt } : opt
+                )}
+                selectedValues={Array.isArray(filters[col.key]) ? filters[col.key] : []}
+                onChange={(value) => onFilterChange(col.key, value)}
+                placeholder={col.filterAllLabel || 'All'}
+                ariaLabel={col.filterAriaLabel || `Filter by ${columnLabel}`}
+                emptyText={col.emptyFilterText || 'No options'}
+                portal
+                searchable={(col.selectOptions || []).length > 8}
               />
             ) : col.filterType === 'dateRange' ? (
               <ColumnDateRangeFilter

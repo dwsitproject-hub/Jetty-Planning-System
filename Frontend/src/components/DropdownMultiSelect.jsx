@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 
 /**
  * Dropdown multi-select: trigger shows selected labels (or placeholder); click opens panel with checkboxes.
@@ -16,6 +17,8 @@ import { useState, useRef, useEffect, useMemo } from 'react'
  * @param {string} [props.emptyText]
  * @param {boolean} [props.searchable] - show Search… input in the panel
  * @param {string} [props.searchPlaceholder]
+ * @param {string} [props.ariaLabel]
+ * @param {boolean} [props.portal] - render the panel on document.body so overflow clipping does not hide it
  */
 export default function DropdownMultiSelect({
   options = [],
@@ -31,11 +34,41 @@ export default function DropdownMultiSelect({
   disabled = false,
   searchable = false,
   searchPlaceholder = 'Search...',
+  ariaLabel,
+  portal = false,
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [panelStyle, setPanelStyle] = useState(null)
   const containerRef = useRef(null)
+  const triggerRef = useRef(null)
+  const panelRef = useRef(null)
   const searchRef = useRef(null)
+
+  const updatePanelPosition = useCallback(() => {
+    const el = triggerRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    setPanelStyle({
+      position: 'fixed',
+      top: rect.bottom + 2,
+      left: rect.left,
+      width: Math.max(rect.width, 180),
+      maxHeight: Math.min(220, Math.max(120, window.innerHeight - rect.bottom - 12)),
+      zIndex: 1100,
+    })
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!open || !portal) return undefined
+    updatePanelPosition()
+    window.addEventListener('scroll', updatePanelPosition, true)
+    window.addEventListener('resize', updatePanelPosition)
+    return () => {
+      window.removeEventListener('scroll', updatePanelPosition, true)
+      window.removeEventListener('resize', updatePanelPosition)
+    }
+  }, [open, portal, updatePanelPosition])
 
   useEffect(() => {
     if (disabled) setOpen(false)
@@ -53,14 +86,20 @@ export default function DropdownMultiSelect({
   }, [open, searchable])
 
   useEffect(() => {
+    if (!open) return undefined
     const handleClickOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
-        setOpen(false)
-      }
+      if (containerRef.current?.contains(e.target)) return
+      if (panelRef.current?.contains(e.target)) return
+      setOpen(false)
     }
-    if (open) {
-      document.addEventListener('click', handleClickOutside)
-      return () => document.removeEventListener('click', handleClickOutside)
+    const handleKey = (e) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('click', handleClickOutside)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('click', handleClickOutside)
+      document.removeEventListener('keydown', handleKey)
     }
   }, [open])
 
@@ -91,6 +130,53 @@ export default function DropdownMultiSelect({
     onChange(next)
   }
 
+  const panel = (
+    <div
+      ref={panelRef}
+      className={`dropdown-multi__panel${open ? ' is-open' : ''}${searchable ? ' dropdown-multi__panel--searchable' : ''}${panelClassName ? ` ${panelClassName}` : ''}`}
+      style={portal ? panelStyle || undefined : undefined}
+      role="listbox"
+      aria-multiselectable="true"
+      aria-hidden={!open}
+    >
+      {searchable ? (
+        <div className="dropdown-multi__search-wrap" onClick={(e) => e.stopPropagation()}>
+          <input
+            ref={searchRef}
+            type="search"
+            className="dropdown-multi__search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={searchPlaceholder}
+            autoComplete="off"
+            aria-label={searchPlaceholder}
+          />
+        </div>
+      ) : null}
+      {options.length === 0 ? (
+        <div className="dropdown-multi__empty">{emptyText}</div>
+      ) : filteredOptions.length === 0 ? (
+        <div className="dropdown-multi__empty">No matches</div>
+      ) : (
+        <ul className="dropdown-multi__list">
+          {filteredOptions.map((opt) => (
+            <li key={opt.value} role="option" aria-selected={selectedValues.includes(opt.value)}>
+              <label className="dropdown-multi__option">
+                <input
+                  type="checkbox"
+                  checked={selectedValues.includes(opt.value)}
+                  disabled={disabled}
+                  onChange={() => toggleOption(opt.value)}
+                />
+                <span>{opt.label}</span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+
   return (
     <div className={`dropdown-multi ${className}`} ref={containerRef}>
       {label && (
@@ -99,12 +185,14 @@ export default function DropdownMultiSelect({
         </label>
       )}
       <button
+        ref={triggerRef}
         type="button"
         className={`dropdown-multi__trigger${hasSelection ? ' is-active' : ''}`}
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-haspopup="listbox"
-        aria-labelledby={label && id ? `${id}-label` : undefined}
+        aria-label={ariaLabel}
+        aria-labelledby={!ariaLabel && label && id ? `${id}-label` : undefined}
         id={id}
         disabled={disabled}
       >
@@ -120,48 +208,7 @@ export default function DropdownMultiSelect({
         </span>
         <span className="dropdown-multi__chevron" aria-hidden>▼</span>
       </button>
-      <div
-        className={`dropdown-multi__panel${open ? ' is-open' : ''}${searchable ? ' dropdown-multi__panel--searchable' : ''}${panelClassName ? ` ${panelClassName}` : ''}`}
-        role="listbox"
-        aria-multiselectable="true"
-        aria-hidden={!open}
-      >
-        {searchable ? (
-          <div className="dropdown-multi__search-wrap" onClick={(e) => e.stopPropagation()}>
-            <input
-              ref={searchRef}
-              type="search"
-              className="dropdown-multi__search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={searchPlaceholder}
-              autoComplete="off"
-              aria-label={searchPlaceholder}
-            />
-          </div>
-        ) : null}
-        {options.length === 0 ? (
-          <div className="dropdown-multi__empty">{emptyText}</div>
-        ) : filteredOptions.length === 0 ? (
-          <div className="dropdown-multi__empty">No matches</div>
-        ) : (
-          <ul className="dropdown-multi__list">
-            {filteredOptions.map((opt) => (
-              <li key={opt.value} role="option" aria-selected={selectedValues.includes(opt.value)}>
-                <label className="dropdown-multi__option">
-                  <input
-                    type="checkbox"
-                    checked={selectedValues.includes(opt.value)}
-                    disabled={disabled}
-                    onChange={() => toggleOption(opt.value)}
-                  />
-                  <span>{opt.label}</span>
-                </label>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {portal ? open && panelStyle && createPortal(panel, document.body) : panel}
     </div>
   )
 }

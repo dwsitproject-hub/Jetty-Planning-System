@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import {
   fetchUsers,
@@ -16,6 +16,23 @@ import { assignUserRole, fetchRoles, fetchUserRoles, removeUserRole } from '../a
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/admin.css'
+import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
+import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
+import { uniqueSortedOptions } from '../utils/sortableFilterableTable.js'
+
+function userRoleNames(user, userRolesById, roles) {
+  return (userRolesById[user.id] || [])
+    .map((r) => roles.find((x) => x.id === r.id)?.name || r.name || (r.id != null ? String(r.id) : ''))
+    .filter(Boolean)
+}
+
+function userRoleLabel(user, userRolesById, roles) {
+  return userRoleNames(user, userRolesById, roles).join(', ')
+}
+
+function userPortLabel(user) {
+  return (Array.isArray(user.assignedPorts) ? user.assignedPorts : []).map((p) => p.name).filter(Boolean).join(', ')
+}
 
 /** PG bigint / JSON may yield string ids; keep one numeric type for Set/includes and API payloads. */
 function portIdNum(id) {
@@ -353,6 +370,57 @@ export default function AdminUsers() {
     setFormPortIds((prev) => uniquePortIds(prev.filter((id) => !visibleNums.has(portIdNum(id)))))
   }, [filteredPorts])
 
+  const userColumns = useMemo(
+    () => [
+      {
+        key: 'user',
+        label: 'User',
+        getSortValue: (u) => (u.displayName || u.username || '').toLowerCase(),
+        getFilterValue: (u) => [u.displayName, u.username].filter(Boolean).join(' '),
+      },
+      {
+        key: 'email',
+        label: 'Email',
+        getSortValue: (u) => (u.email || '').toLowerCase(),
+        getFilterValue: (u) => u.email || '',
+      },
+      {
+        key: 'roles',
+        label: 'Roles',
+        filterType: 'multiSelect',
+        filterAllLabel: 'All roles',
+        emptyFilterText: 'No roles',
+        selectOptions: uniqueSortedOptions([
+          ...roles.map((r) => r.name),
+          ...users.flatMap((u) => userRoleNames(u, userRolesById, roles)),
+        ]),
+        getSortValue: (u) => userRoleLabel(u, userRolesById, roles).toLowerCase(),
+        getFilterValues: (u) => userRoleNames(u, userRolesById, roles),
+      },
+      {
+        key: 'ports',
+        label: 'Ports',
+        getSortValue: (u) => userPortLabel(u).toLowerCase(),
+        getFilterValue: (u) => userPortLabel(u),
+      },
+      {
+        key: 'status',
+        label: 'Status',
+        filterType: 'select',
+        selectOptions: ['Active', 'Inactive'],
+        getSortValue: (u) => (u.isActive === false ? 0 : 1),
+        getFilterValue: (u) => (u.isActive === false ? 'Inactive' : 'Active'),
+      },
+    ],
+    [roles, userRolesById, users]
+  )
+
+  const { displayRows, filters, updateFilter, sortState, handleSort } = useSortableFilterableRows(
+    users,
+    userColumns,
+    { key: 'user', dir: 'asc' }
+  )
+
   return (
     <div className="allocation-page">
       <h1 className="page-title">User Management</h1>
@@ -386,17 +454,17 @@ export default function AdminUsers() {
           <div className="table-wrap">
             <table className="data-table allocation-table">
               <thead>
-                <tr>
-                  <th className="allocation-table__th">User</th>
-                  <th className="allocation-table__th">Email</th>
-                  <th className="allocation-table__th">Roles</th>
-                  <th className="allocation-table__th">Ports</th>
-                  <th className="allocation-table__th">Status</th>
-                  <th className="allocation-table__action-col">Actions</th>
-                </tr>
+                <SortableFilterableTableHead
+                  columns={userColumns}
+                  sortState={sortState}
+                  onSort={handleSort}
+                  filters={filters}
+                  onFilterChange={updateFilter}
+                  trailingBlankCols={1}
+                />
               </thead>
               <tbody>
-                {users.map((u) => (
+                {displayRows.map((u) => (
                   <tr key={u.id} className="allocation-table__row" style={u.isActive === false ? { opacity: 0.7 } : undefined}>
                     <td>
                       <strong>{u.displayName || u.username || '—'}</strong>
@@ -406,14 +474,10 @@ export default function AdminUsers() {
                     </td>
                     <td>{u.email || '—'}</td>
                     <td className="text-steel">
-                      {(userRolesById[u.id] || [])
-                        .map((r) => roles.find((x) => x.id === r.id)?.name || r.name || r.id)
-                        .join(', ') || '—'}
+                      {userRoleLabel(u, userRolesById, roles) || '—'}
                     </td>
                     <td className="text-steel">
-                      {(Array.isArray(u.assignedPorts) ? u.assignedPorts : [])
-                        .map((p) => p.name)
-                        .join(', ') || '—'}
+                      {userPortLabel(u) || '—'}
                     </td>
                     <td>
                       <span className={u.isActive !== false ? 'admin-status-badge admin-status-badge--active' : 'admin-status-badge admin-status-badge--inactive'}>
@@ -432,6 +496,11 @@ export default function AdminUsers() {
                 ))}
               </tbody>
             </table>
+            {displayRows.length === 0 && (
+              <p className="text-steel" style={{ marginTop: 'var(--spacing-3)' }}>
+                No entries match the current filters.
+              </p>
+            )}
           </div>
         )}
       </section>

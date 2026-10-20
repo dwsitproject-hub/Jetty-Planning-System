@@ -2233,6 +2233,18 @@ select.allocation-table__filter {
   min-width: 6.5rem;
 }
 
+.allocation-table__multi-filter {
+  display: block;
+  width: 100%;
+  min-width: 8.5rem;
+}
+
+.allocation-table__multi-filter .dropdown-multi__trigger {
+  min-height: 0;
+  padding: var(--spacing-2);
+  font-size: var(--font-size-xs);
+}
+
 .allocation-table__row {
   cursor: pointer;
   transition: background var(--duration-fast) var(--easing-default);

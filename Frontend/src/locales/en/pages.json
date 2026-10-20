@@ -432,6 +432,7 @@
   "emailLogAutoRefresh": "Auto-refresh (30s)",
   "emailLogApply": "Apply filters",
   "emailLogEmpty": "No email deliveries match your filters.",
+  "tableNoFilterMatch": "No entries match the current filters.",
   "emailLogColStatus": "Status",
   "emailLogColUpdated": "Updated",
   "emailLogColRecipient": "Recipient",

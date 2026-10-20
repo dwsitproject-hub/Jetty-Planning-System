@@ -22,6 +22,20 @@ describe('rowMatchesColumnFilter', () => {
     assert.equal(rowMatchesColumnFilter({ short: 'CPO' }, col, ''), true)
   })
 
+  it('keeps a row when it has any checked multiSelect value', () => {
+    const col = {
+      key: 'roles',
+      filterType: 'multiSelect',
+      getFilterValues: (r) => r.roles,
+    }
+    const row = { roles: ['Approver', 'Operator'] }
+    assert.equal(rowMatchesColumnFilter(row, col, []), true)
+    assert.equal(rowMatchesColumnFilter(row, col, ['Operator']), true)
+    assert.equal(rowMatchesColumnFilter(row, col, ['Business User', 'Approver']), true)
+    assert.equal(rowMatchesColumnFilter(row, col, ['Business User']), false)
+    assert.equal(rowMatchesColumnFilter({ roles: [] }, col, ['Approver']), false)
+  })
+
   it('filters dateRange on local calendar days and excludes missing timestamps', () => {
     const col = {
       key: 'eta',
@@ -46,6 +60,13 @@ describe('emptyFiltersForColumns', () => {
         { key: 'eta', filterType: 'dateRange' },
       ]),
       { vessel: '', eta: { from: '', to: '' } },
+    )
+  })
+
+  it('initializes multiSelect columns as empty arrays', () => {
+    assert.deepEqual(
+      emptyFiltersForColumns([{ key: 'roles', filterType: 'multiSelect' }]),
+      { roles: [] },
     )
   })
 })
