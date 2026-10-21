@@ -171,7 +171,7 @@ describe('datahub-commodity-sync', () => {
     assert.equal(items[0].values.default_metric_id, 1);
   });
 
-  it('matches existing local row by short name instead of creating duplicate', () => {
+  it('does not match local row by short name; hub row is new and local is listed as unchanged', () => {
     const hub = [
       normalizeHubCommodity({
         id: 'u2',
@@ -197,13 +197,15 @@ describe('datahub-commodity-sync', () => {
         hs_code: null,
       },
     ];
-    const { items } = buildCommoditySyncPlan(hub, local, { KL: 1, MT: 2 });
-    assert.equal(items.length, 1);
-    assert.equal(items[0].diffKind, 'changed');
-    assert.equal(items[0].localId, 10);
-    assert.equal(items[0].values.short_name, 'CPO');
-    assert.equal(items[0].values.commodity_type, 'Solid');
-    assert.equal(items[0].values.default_metric_id, 2);
+    const { items, summary } = buildCommoditySyncPlan(hub, local, { KL: 1, MT: 2 });
+    assert.equal(summary.newCount, 1);
+    assert.equal(summary.localUnchangedCount, 1);
+    const hubItem = items.find((i) => i.hubCode === 'CMD-0099');
+    assert.equal(hubItem.diffKind, 'new');
+    assert.equal(hubItem.localId, null);
+    const localItem = items.find((i) => i.localOnly);
+    assert.equal(localItem.localId, 10);
+    assert.equal(localItem.diffKind, 'unchanged');
   });
 
   it('does not rematch a commodity that already has a different Hub Code', () => {

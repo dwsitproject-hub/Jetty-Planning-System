@@ -45,6 +45,7 @@ function toItem(row) {
     decision: row.decision,
     fieldDiff: row.field_diff ?? {},
     values: payload.values ?? {},
+    payload,
     appliedAt: row.applied_at ?? null,
     applyError: row.apply_error ?? null,
   };

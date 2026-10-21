@@ -23,20 +23,13 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
     );
     if (still.rows.length === 0) targetId = null;
   }
-  // Same DataHub short name: update existing row, never duplicate.
-  if (targetId == null && shortName) {
-    const byShort = await db.query(
-      `SELECT id FROM si_commodities WHERE UPPER(short_name) = $1 AND deleted_at IS NULL`,
-      [shortName]
+  const hubCode = payload.hubCode != null ? String(payload.hubCode).trim() : '';
+  if (targetId == null && hubCode) {
+    const byHub = await db.query(
+      `SELECT id FROM si_commodities WHERE hub_code = $1 AND deleted_at IS NULL`,
+      [hubCode]
     );
-    targetId = byShort.rows[0]?.id != null ? Number(byShort.rows[0].id) : null;
-  }
-  if (targetId == null) {
-    const byName = await db.query(
-      `SELECT id FROM si_commodities WHERE LOWER(name) = LOWER($1) AND deleted_at IS NULL`,
-      [name]
-    );
-    targetId = byName.rows[0]?.id != null ? Number(byName.rows[0].id) : null;
+    targetId = byHub.rows[0]?.id != null ? Number(byHub.rows[0].id) : null;
   }
   const commodityType = values.commodity_type === 'Solid' ? 'Solid' : 'Liquid';
   const klFactor = values.kl_to_mt_factor != null ? Number(values.kl_to_mt_factor) : null;
@@ -58,10 +51,11 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
     const inserted = await db.query(
       `INSERT INTO si_commodities (
          name, short_name, commodity_type, kl_to_mt_factor, default_metric_id, hs_code, material_code, sort_order,
+         is_active,
          hub_code, hub_record_id, hub_version, hub_updated_at,
          datahub_last_apply_source, datahub_last_apply_run_id,
          created_by, updated_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,0,$8,$9,$10,$11,$12,$13,$14,$14)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,0,FALSE,$8,$9,$10,$11,$12,$13,$14,$14)
        RETURNING id`,
       [
         name,

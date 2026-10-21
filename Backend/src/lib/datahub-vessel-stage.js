@@ -60,6 +60,7 @@ export async function insertStagedSyncRun(
           hubRecordId: item.hubRecordId,
           hubVersion: item.hubVersion,
           hubUpdatedAt: item.hubUpdatedAt,
+          localOnly: Boolean(item.localOnly),
         }),
         JSON.stringify(item.fieldDiff),
         decision,

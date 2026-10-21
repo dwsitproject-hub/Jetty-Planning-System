@@ -11,12 +11,13 @@ export const COMMODITY_COMPARED_COLUMNS = [
   'material_code',
 ];
 
-function nameKey(name) {
-  return String(name || '').trim().toLowerCase();
+function normalizeHubCode(hubCode) {
+  const s = String(hubCode ?? '').trim();
+  return s || null;
 }
 
-function shortNameKey(shortName) {
-  return String(shortName || '').trim().toUpperCase();
+function isLocalOnlyRow(row) {
+  return !normalizeHubCode(row?.hub_code);
 }
 
 function normalizeForCompare(column, value) {
@@ -127,15 +128,13 @@ export function diffCommodityFields(localRow, hubValues) {
  */
 export function buildCommoditySyncPlan(hubRecords, localRows, metricIdByCode) {
   const byHubCode = new Map();
-  const byShortName = new Map();
-  const byName = new Map();
   for (const row of localRows ?? []) {
-    if (row?.hub_code) byHubCode.set(String(row.hub_code), row);
-    if (!row?.hub_code && row?.short_name) byShortName.set(shortNameKey(row.short_name), row);
-    if (!row?.hub_code && row?.name) byName.set(nameKey(row.name), row);
+    const code = normalizeHubCode(row?.hub_code);
+    if (code) byHubCode.set(code, row);
   }
 
   const items = [];
+  const matchedLocalIds = new Set();
   let skippedDeleted = 0;
 
   for (const hub of hubRecords ?? []) {
@@ -145,14 +144,10 @@ export function buildCommoditySyncPlan(hubRecords, localRows, metricIdByCode) {
     }
     if (!hub.values?.name) continue;
 
-    const preValues = expandCommodityValues(hub.values, metricIdByCode, null);
-    const local =
-      (hub.hubCode ? byHubCode.get(String(hub.hubCode)) : null) ??
-      (preValues.short_name ? byShortName.get(preValues.short_name) : null) ??
-      byName.get(nameKey(hub.values.name)) ??
-      null;
-
+    const hubCode = normalizeHubCode(hub.hubCode);
+    const local = hubCode ? byHubCode.get(hubCode) ?? null : null;
     const values = expandCommodityValues(hub.values, metricIdByCode, local);
+    if (local?.id != null) matchedLocalIds.add(Number(local.id));
 
     if (!local) {
       items.push({
@@ -170,8 +165,7 @@ export function buildCommoditySyncPlan(hubRecords, localRows, metricIdByCode) {
     }
 
     const fieldDiff = diffCommodityFields(local, values);
-    const linkChanged = Boolean(hub.hubCode) && String(local.hub_code ?? '') !== String(hub.hubCode);
-    const changed = Object.keys(fieldDiff).length > 0 || linkChanged;
+    const changed = Object.keys(fieldDiff).length > 0;
 
     items.push({
       localId: local.id != null ? Number(local.id) : null,
@@ -186,11 +180,34 @@ export function buildCommoditySyncPlan(hubRecords, localRows, metricIdByCode) {
     });
   }
 
+  for (const row of localRows ?? []) {
+    if (!isLocalOnlyRow(row)) continue;
+    const id = row.id != null ? Number(row.id) : null;
+    if (id == null || matchedLocalIds.has(id)) continue;
+    const label = String(row.name ?? row.short_name ?? '').trim() || `Commodity #${id}`;
+    items.push({
+      localId: id,
+      hubCode: null,
+      hubRecordId: null,
+      hubVersion: null,
+      hubUpdatedAt: null,
+      label,
+      diffKind: 'unchanged',
+      values: {},
+      fieldDiff: {},
+      localOnly: true,
+    });
+  }
+
+  const hubItems = items.filter((i) => !i.localOnly);
+  const localUnchangedItems = items.filter((i) => i.localOnly);
+
   const summary = {
     hubRecordCount: (hubRecords ?? []).length,
-    newCount: items.filter((i) => i.diffKind === 'new').length,
-    changedCount: items.filter((i) => i.diffKind === 'changed').length,
-    unchangedCount: items.filter((i) => i.diffKind === 'unchanged').length,
+    newCount: hubItems.filter((i) => i.diffKind === 'new').length,
+    changedCount: hubItems.filter((i) => i.diffKind === 'changed').length,
+    unchangedCount: hubItems.filter((i) => i.diffKind === 'unchanged').length,
+    localUnchangedCount: localUnchangedItems.length,
     skippedDeleted,
   };
 
@@ -208,6 +225,7 @@ export function toStagedItemRow(item) {
     hubRecordId: item.hubRecordId,
     hubVersion: item.hubVersion,
     hubUpdatedAt: item.hubUpdatedAt,
+    localOnly: Boolean(item.localOnly),
   };
 }
 

@@ -1109,7 +1109,9 @@ export default function MasterSiLookup({
           onDiscard={handleDiscardSync}
           onClose={() => setReview(null)}
           recordNoun={dataHubUiMeta.recordNoun}
+          recordColumnLabel={dataHubUiMeta.recordColumnLabel}
           newHint={dataHubUiMeta.newHint}
+          showLocalUnchanged={Boolean(dataHubUiMeta.showLocalUnchanged)}
           metricLabelsById={isCommodityMaster ? metricLabelsById : null}
         />
       )}

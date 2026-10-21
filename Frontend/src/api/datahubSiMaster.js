@@ -45,6 +45,9 @@ export const DATAHUB_SI_ENTITY_META = {
   commodities: {
     entityKind: 'commodity',
     recordNoun: 'commodities',
-    newHint: 'Commodities not yet in the JPS master.',
+    recordColumnLabel: 'Commodity',
+    newHint:
+      'Commodities not yet in the JPS master (no matching hub code in JPS). New rows are imported with Active = No until you enable them.',
+    showLocalUnchanged: true,
   },
 }
