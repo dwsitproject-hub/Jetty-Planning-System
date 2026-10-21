@@ -102,7 +102,7 @@ export default function MasterSiLookup({
     if (isCommodityMaster) {
       cols.push({
         key: 'shortName',
-        label: <DataHubFieldCue>Short commodity name</DataHubFieldCue>,
+        label: 'Short commodity name',
         labelText: 'Short commodity name',
         getSortValue: (it) => (it.shortName || '').toLowerCase(),
       })
@@ -471,7 +471,11 @@ export default function MasterSiLookup({
         return
       }
       const shortName = (formShortName || '').trim().toUpperCase()
-      if (!shortName) {
+      if (!shortName && formIsActive) {
+        setError('Set short commodity name before activating this commodity.')
+        return
+      }
+      if (!shortName && editingId == null) {
         setError('Short commodity name is required.')
         return
       }
@@ -537,7 +541,7 @@ export default function MasterSiLookup({
         if (formCommodityType === 'Solid' || formCommodityType === 'Liquid') {
           payload.commodityType = formCommodityType
         }
-        payload.shortName = (formShortName || '').trim().toUpperCase()
+        if (shortName) payload.shortName = shortName
         payload.klToMtFactor = formKlToMtFactor.trim() === '' ? null : Number(formKlToMtFactor)
         payload.defaultMetricId = formDefaultMetricId.trim() === '' ? null : Number(formDefaultMetricId)
         payload.materialCode = (formMaterialCode || '').trim() || null
@@ -888,7 +892,8 @@ export default function MasterSiLookup({
             {isCommodityMaster && (
               <div className="modal__section">
                 <label htmlFor="si-commodity-short-name" className="modal__label">
-                  {isDataHubMaster ? <DataHubFieldCue>Short commodity name</DataHubFieldCue> : 'Short commodity name'}
+                  Short commodity name{' '}
+                  <span className="text-steel">— JPS only (not synced from DataHub)</span>
                 </label>
                 <input
                   id="si-commodity-short-name"

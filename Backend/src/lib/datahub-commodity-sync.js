@@ -3,7 +3,6 @@
  */
 export const COMMODITY_COMPARED_COLUMNS = [
   'name',
-  'short_name',
   'hub_type',
   'kl_to_mt_factor',
   'default_metric_id',
@@ -82,12 +81,6 @@ export function expandCommodityValues(hubValues, metricIdByCode, localRow = null
     ? metricIdByCode[metricCode] ?? metricIdByCode.MT ?? null
     : null;
 
-  const hubShort =
-    hubValues?.short_name != null && String(hubValues.short_name).trim()
-      ? String(hubValues.short_name).trim().toUpperCase()
-      : null;
-  const shortName = hubShort ?? deriveShortNameFromCommodityName(hubValues?.name);
-
   const defaultMetricId =
     defaultMetricIdFromHub != null
       ? defaultMetricIdFromHub
@@ -97,7 +90,6 @@ export function expandCommodityValues(hubValues, metricIdByCode, localRow = null
 
   return {
     name: hubValues?.name ?? null,
-    short_name: shortName,
     hub_type: hubValues?.hub_type ?? null,
     kl_to_mt_factor:
       localRow?.kl_to_mt_factor != null ? Number(localRow.kl_to_mt_factor) : null,

@@ -13,8 +13,6 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
   const name = String(values.name ?? '').trim();
   if (!name) throw new Error('Commodity name is required');
 
-  const shortName = String(values.short_name ?? '').trim().toUpperCase();
-
   let targetId = item.vessel_id != null ? Number(item.vessel_id) : null;
   if (targetId != null) {
     const still = await db.query(
@@ -55,11 +53,10 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
          hub_code, hub_record_id, hub_version, hub_updated_at,
          datahub_last_apply_source, datahub_last_apply_run_id,
          created_by, updated_by)
-       VALUES ($1,$2,NULL,$3,$4,$5,$6,$7,0,FALSE,$8,$9,$10,$11,$12,$13,$14,$14)
+       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,0,FALSE,$7,$8,$9,$10,$11,$12,$13,$13)
        RETURNING id`,
       [
         name,
-        shortName,
         hubType,
         klFactor,
         defaultMetricId,
@@ -77,24 +74,22 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
   await db.query(
     `UPDATE si_commodities SET
        name = $1,
-       short_name = COALESCE(NULLIF($2, ''), short_name),
-       hub_type = $3,
-       kl_to_mt_factor = COALESCE($4, kl_to_mt_factor),
-       default_metric_id = COALESCE($5, default_metric_id),
-       hs_code = COALESCE($6, hs_code),
-       material_code = COALESCE($7, material_code),
-       hub_code = COALESCE($8, hub_code),
-       hub_record_id = COALESCE($9, hub_record_id),
-       hub_version = COALESCE($10, hub_version),
-       hub_updated_at = COALESCE($11, hub_updated_at),
-       datahub_last_apply_source = $12,
-       datahub_last_apply_run_id = $13,
-       updated_by = $14,
+       hub_type = $2,
+       kl_to_mt_factor = COALESCE($3, kl_to_mt_factor),
+       default_metric_id = COALESCE($4, default_metric_id),
+       hs_code = COALESCE($5, hs_code),
+       material_code = COALESCE($6, material_code),
+       hub_code = COALESCE($7, hub_code),
+       hub_record_id = COALESCE($8, hub_record_id),
+       hub_version = COALESCE($9, hub_version),
+       hub_updated_at = COALESCE($10, hub_updated_at),
+       datahub_last_apply_source = $11,
+       datahub_last_apply_run_id = $12,
+       updated_by = $13,
        updated_at = NOW()
-     WHERE id = $15`,
+     WHERE id = $14`,
     [
       name,
-      shortName,
       hubType,
       klFactor,
       defaultMetricId,

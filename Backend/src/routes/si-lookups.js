@@ -412,6 +412,7 @@ router.get('/', async (req, res) => {
        FROM si_commodities c
        LEFT JOIN metric dm ON dm.id = c.default_metric_id AND dm.deleted_at IS NULL
        WHERE c.deleted_at IS NULL AND c.is_active = TRUE AND c.commodity_type IS NOT NULL
+         AND c.short_name IS NOT NULL AND TRIM(c.short_name) <> ''
        ORDER BY c.sort_order, c.name`
     ),
     pool.query(
@@ -859,8 +860,14 @@ router.put('/:type/:id', async (req, res) => {
 
   let result;
   if (type === 'commodities') {
-    const shortName = normalizeShortName(req.body.shortName ?? req.body.short_name);
-    if (!shortName) return res.status(400).json({ error: 'shortName is required' });
+    const shortNameRaw = req.body.shortName ?? req.body.short_name;
+    const shortNameProvided =
+      shortNameRaw !== undefined && shortNameRaw !== null && String(shortNameRaw).trim() !== '';
+    const shortName = shortNameProvided ? normalizeShortName(shortNameRaw) : null;
+    if (shortNameProvided && !shortName) {
+      return res.status(400).json({ error: 'shortName is invalid' });
+    }
+    const shortNameSql = shortNameProvided ? shortName : null;
     const klFactorRaw = normalizeKlToMtFactor(req.body.klToMtFactor ?? req.body.kl_to_mt_factor);
     if (Number.isNaN(klFactorRaw)) {
       return res.status(400).json({ error: 'klToMtFactor must be a positive number' });
@@ -878,67 +885,67 @@ router.put('/:type/:id', async (req, res) => {
       if (klFactorRaw !== undefined && defaultMetricRaw !== undefined) {
         result = await pool.query(
           `UPDATE si_commodities
-           SET name = $1, short_name = $2, commodity_type = $3, kl_to_mt_factor = $4, default_metric_id = $5, updated_at = NOW()
+           SET name = $1, short_name = COALESCE($2, short_name), commodity_type = $3, kl_to_mt_factor = $4, default_metric_id = $5, updated_at = NOW()
            WHERE id = $6 AND deleted_at IS NULL
            RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-          [cleaned, shortName, ct, klFactorRaw, defaultMetricRaw, id]
+          [cleaned, shortNameSql, ct, klFactorRaw, defaultMetricRaw, id]
         );
       } else if (klFactorRaw !== undefined) {
         result = await pool.query(
           `UPDATE si_commodities
-           SET name = $1, short_name = $2, commodity_type = $3, kl_to_mt_factor = $4, updated_at = NOW()
+           SET name = $1, short_name = COALESCE($2, short_name), commodity_type = $3, kl_to_mt_factor = $4, updated_at = NOW()
            WHERE id = $5 AND deleted_at IS NULL
            RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-          [cleaned, shortName, ct, klFactorRaw, id]
+          [cleaned, shortNameSql, ct, klFactorRaw, id]
         );
       } else if (defaultMetricRaw !== undefined) {
         result = await pool.query(
           `UPDATE si_commodities
-           SET name = $1, short_name = $2, commodity_type = $3, default_metric_id = $4, updated_at = NOW()
+           SET name = $1, short_name = COALESCE($2, short_name), commodity_type = $3, default_metric_id = $4, updated_at = NOW()
            WHERE id = $5 AND deleted_at IS NULL
            RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-          [cleaned, shortName, ct, defaultMetricRaw, id]
+          [cleaned, shortNameSql, ct, defaultMetricRaw, id]
         );
       } else {
         result = await pool.query(
           `UPDATE si_commodities
-           SET name = $1, short_name = $2, commodity_type = $3, updated_at = NOW()
+           SET name = $1, short_name = COALESCE($2, short_name), commodity_type = $3, updated_at = NOW()
            WHERE id = $4 AND deleted_at IS NULL
            RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-          [cleaned, shortName, ct, id]
+          [cleaned, shortNameSql, ct, id]
         );
       }
     } else if (klFactorRaw !== undefined && defaultMetricRaw !== undefined) {
       result = await pool.query(
         `UPDATE si_commodities
-         SET name = $1, short_name = $2, kl_to_mt_factor = $3, default_metric_id = $4, updated_at = NOW()
+         SET name = $1, short_name = COALESCE($2, short_name), kl_to_mt_factor = $3, default_metric_id = $4, updated_at = NOW()
          WHERE id = $5 AND deleted_at IS NULL
          RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-        [cleaned, shortName, klFactorRaw, defaultMetricRaw, id]
+        [cleaned, shortNameSql, klFactorRaw, defaultMetricRaw, id]
       );
     } else if (klFactorRaw !== undefined) {
       result = await pool.query(
         `UPDATE si_commodities
-         SET name = $1, short_name = $2, kl_to_mt_factor = $3, updated_at = NOW()
+         SET name = $1, short_name = COALESCE($2, short_name), kl_to_mt_factor = $3, updated_at = NOW()
          WHERE id = $4 AND deleted_at IS NULL
          RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-        [cleaned, shortName, klFactorRaw, id]
+        [cleaned, shortNameSql, klFactorRaw, id]
       );
     } else if (defaultMetricRaw !== undefined) {
       result = await pool.query(
         `UPDATE si_commodities
-         SET name = $1, short_name = $2, default_metric_id = $3, updated_at = NOW()
+         SET name = $1, short_name = COALESCE($2, short_name), default_metric_id = $3, updated_at = NOW()
          WHERE id = $4 AND deleted_at IS NULL
          RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-        [cleaned, shortName, defaultMetricRaw, id]
+        [cleaned, shortNameSql, defaultMetricRaw, id]
       );
     } else {
       result = await pool.query(
         `UPDATE si_commodities
-         SET name = $1, short_name = $2, updated_at = NOW()
+         SET name = $1, short_name = COALESCE($2, short_name), updated_at = NOW()
          WHERE id = $3 AND deleted_at IS NULL
          RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-        [cleaned, shortName, id]
+        [cleaned, shortNameSql, id]
       );
     }
     const hubCode = normalizeHubCode(req.body?.hubCode ?? req.body?.hub_code);
@@ -955,13 +962,19 @@ router.put('/:type/:id', async (req, res) => {
     if (isActive !== undefined) {
       if (isActive) {
         const typeQ = await pool.query(
-          `SELECT commodity_type FROM si_commodities WHERE id = $1 AND deleted_at IS NULL`,
+          `SELECT commodity_type, short_name FROM si_commodities WHERE id = $1 AND deleted_at IS NULL`,
           [id]
         );
         const ct = typeQ.rows[0]?.commodity_type;
         if (ct !== 'Solid' && ct !== 'Liquid') {
           return res.status(400).json({
             error: 'Set Type to Solid or Liquid before activating this commodity.',
+          });
+        }
+        const sn = String(typeQ.rows[0]?.short_name ?? '').trim();
+        if (!sn) {
+          return res.status(400).json({
+            error: 'Set short commodity name before activating this commodity.',
           });
         }
       }

@@ -275,7 +275,7 @@ describe('datahub-commodity-sync', () => {
       kl_to_mt_factor: 0.87,
     };
     const expanded = expandCommodityValues(hubValues, { KL: 1, MT: 2 }, local);
-    assert.equal(expanded.short_name, 'CPO');
+    assert.equal(expanded.short_name, undefined);
     assert.equal(expanded.hub_type, 'Chemical');
     assert.equal(expanded.commodity_type, undefined);
     assert.equal(expanded.default_metric_id, 2);

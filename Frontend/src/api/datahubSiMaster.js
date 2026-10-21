@@ -27,7 +27,6 @@ export const DATAHUB_SI_FIELD_LABELS = {
   },
   commodities: {
     name: 'Commodity name',
-    short_name: 'Short name',
     hub_type: 'DataHub type',
     kl_to_mt_factor: 'KL→MT factor',
     default_metric_id: 'Default unit (metric id)',
@@ -47,7 +46,7 @@ export const DATAHUB_SI_ENTITY_META = {
     recordNoun: 'commodities',
     recordColumnLabel: 'Commodity',
     newHint:
-      'Commodities not yet in the JPS master (no matching hub code in JPS). New rows are imported with Active = No until you enable them.',
+      'Commodities not yet in the JPS master (no matching hub code in JPS). New rows import with Active = No; set short name and Type before activating.',
     showLocalUnchanged: true,
   },
 }

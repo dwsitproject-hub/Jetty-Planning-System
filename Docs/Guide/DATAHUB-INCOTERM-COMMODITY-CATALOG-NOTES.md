@@ -20,7 +20,7 @@ node scripts/probe-datahub-catalog.mjs
 | DHM | Master – Term (`si_trade_terms`) | Master – Commodity (`si_commodities`) |
 | --- | --- | --- |
 | `code` | `hub_code` | `hub_code` |
-| `short_name` | `code` (Term, uppercased) | `short_name` |
+| `short_name` | `code` (Term, uppercased) | — (JPS-only; user sets in Master – Commodity) |
 | `long_name` | `long_name` | `name` (JPS commodity long name) |
 | `description` | `description` | — |
 | `hs_code` | — | `hs_code` |
@@ -36,6 +36,8 @@ node scripts/probe-datahub-catalog.mjs
 **Active (JPS-only):** rows **created** by commodity sync apply start with **Active = No**; users turn them on in Master – Commodity. Hub updates do not change `is_active` on existing rows.
 
 **Type split:** `hub_type` is synced from DHM; `commodity_type` is set manually in JPS (NULL on hub import until the user chooses Solid/Liquid). Activating a commodity requires `commodity_type` to be set.
+
+**Short name:** not synced from DHM; `short_name` is JPS-only (NULL on hub import until the user sets it). Activating requires `short_name` and `commodity_type`.
 
 Incoterms still match by `hub_code`, then term `code`, then name.
 
