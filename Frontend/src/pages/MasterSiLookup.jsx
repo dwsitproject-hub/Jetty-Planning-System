@@ -480,6 +480,8 @@ export default function MasterSiLookup({
     const value = normalizeValue(apiType, formValue)
     if (!value) return
 
+    const shortName = isCommodityMaster ? (formShortName || '').trim().toUpperCase() : ''
+
     if (isCommodityMaster) {
       const hasJpsType = formCommodityType === 'Solid' || formCommodityType === 'Liquid'
       if (!hasJpsType && formIsActive) {
@@ -490,7 +492,6 @@ export default function MasterSiLookup({
         setError('Commodity type must be Solid or Liquid.')
         return
       }
-      const shortName = (formShortName || '').trim().toUpperCase()
       if (!shortName && formIsActive) {
         setError('Set short commodity name before activating this commodity.')
         return
