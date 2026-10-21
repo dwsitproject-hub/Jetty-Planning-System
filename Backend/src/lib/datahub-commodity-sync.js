@@ -99,6 +99,77 @@ export function expandCommodityValues(hubValues, metricIdByCode, localRow = null
   };
 }
 
+function commodityNameKey(name) {
+  const s = String(name ?? '').trim().toLowerCase();
+  return s || null;
+}
+
+/**
+ * Flag hub sync rows whose long name matches another local row or another row in this batch.
+ * Does not block apply — warnings only (user may still approve duplicates).
+ */
+export function annotateCommodityNameConflicts(items, localRows) {
+  const localsByName = new Map();
+  for (const row of localRows ?? []) {
+    const key = commodityNameKey(row?.name);
+    if (!key) continue;
+    const id = row.id != null ? Number(row.id) : null;
+    if (id == null) continue;
+    if (!localsByName.has(key)) localsByName.set(key, []);
+    localsByName.get(key).push({
+      id,
+      hubCode: row.hub_code ?? null,
+      name: String(row.name ?? '').trim(),
+    });
+  }
+
+  const hubItems = (items ?? []).filter((i) => !i.localOnly);
+  const batchByName = new Map();
+  for (const item of hubItems) {
+    const key = commodityNameKey(item.values?.name ?? item.label);
+    if (!key) continue;
+    if (!batchByName.has(key)) batchByName.set(key, []);
+    batchByName.get(key).push(item);
+  }
+
+  let nameConflictCount = 0;
+  for (const item of hubItems) {
+    const key = commodityNameKey(item.values?.name ?? item.label);
+    if (!key) continue;
+    const selfId = item.localId != null ? Number(item.localId) : null;
+    const selfHub = normalizeHubCode(item.hubCode);
+    const matches = [];
+
+    for (const local of localsByName.get(key) ?? []) {
+      if (selfId != null && local.id === selfId) continue;
+      matches.push({
+        kind: 'local',
+        id: local.id,
+        hubCode: local.hubCode,
+        name: local.name,
+      });
+    }
+
+    for (const other of batchByName.get(key) ?? []) {
+      if (other === item) continue;
+      const otherHub = normalizeHubCode(other.hubCode);
+      if (selfHub && otherHub && selfHub === otherHub) continue;
+      matches.push({
+        kind: 'batch',
+        id: other.localId != null ? Number(other.localId) : null,
+        hubCode: other.hubCode ?? null,
+        name: String(other.values?.name ?? other.label ?? '').trim(),
+      });
+    }
+
+    if (matches.length === 0) continue;
+    nameConflictCount += 1;
+    item.nameConflict = { matches };
+  }
+
+  return nameConflictCount;
+}
+
 export function diffCommodityFields(localRow, hubValues) {
   const diff = {};
   for (const column of COMMODITY_COMPARED_COLUMNS) {
@@ -189,6 +260,7 @@ export function buildCommoditySyncPlan(hubRecords, localRows, metricIdByCode) {
 
   const hubItems = items.filter((i) => !i.localOnly);
   const localUnchangedItems = items.filter((i) => i.localOnly);
+  const nameConflictCount = annotateCommodityNameConflicts(items, localRows);
 
   const summary = {
     hubRecordCount: (hubRecords ?? []).length,
@@ -197,6 +269,7 @@ export function buildCommoditySyncPlan(hubRecords, localRows, metricIdByCode) {
     unchangedCount: hubItems.filter((i) => i.diffKind === 'unchanged').length,
     localUnchangedCount: localUnchangedItems.length,
     skippedDeleted,
+    nameConflictCount,
   };
 
   return { items, summary };
@@ -214,6 +287,7 @@ export function toStagedItemRow(item) {
     hubVersion: item.hubVersion,
     hubUpdatedAt: item.hubUpdatedAt,
     localOnly: Boolean(item.localOnly),
+    nameConflict: item.nameConflict ?? null,
   };
 }
 

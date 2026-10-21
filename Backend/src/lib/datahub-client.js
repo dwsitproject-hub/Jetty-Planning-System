@@ -202,6 +202,40 @@ export function extractHubCommodityTypeRaw(data) {
   return s || null;
 }
 
+/** Case-insensitive; DHM catalog rows tagged "(not use)" are excluded from JPS commodity sync. */
+export function hubInboundDataContainsNotUseMarker(data) {
+  if (!data || typeof data !== 'object') return false;
+  const needle = '(not use)';
+  for (const raw of [
+    data.long_name,
+    data.longName,
+    data.name,
+    data.short_name,
+    data.shortName,
+    data.material_code,
+    data.materialCode,
+    data.code,
+  ]) {
+    if (raw != null && String(raw).toLowerCase().includes(needle)) return true;
+  }
+  return false;
+}
+
+/** @param {object|null} hubRecord normalized commodity envelope */
+export function hubNormalizedCommodityExcluded(hubRecord) {
+  if (!hubRecord?.values) return false;
+  const needle = '(not use)';
+  for (const raw of [
+    hubRecord.hubCode,
+    hubRecord.values.name,
+    hubRecord.values.short_name,
+    hubRecord.values.material_code,
+  ]) {
+    if (raw != null && String(raw).toLowerCase().includes(needle)) return true;
+  }
+  return false;
+}
+
 /** Map DHM commodity `type` to JPS `Liquid` | `Solid`. */
 export function normalizeHubCommodityType(raw) {
   const v = String(raw ?? '').trim();
@@ -246,6 +280,7 @@ export function normalizeHubPortMaster(record) {
 export function normalizeHubCommodity(record) {
   const data = record?.data && typeof record.data === 'object' ? record.data : null;
   if (!data) return null;
+  if (hubInboundDataContainsNotUseMarker(data)) return null;
   const name = str(data.long_name ?? data.longName ?? data.name);
   if (!name) return null;
   const uom = extractHubCommodityUom(data);
@@ -286,6 +321,24 @@ export function parseSyncPage(body, normalizeRecord = normalizeHubVessel) {
  * Full snapshot for any /v1/sync/{slug} entity.
  * @param {(record: object) => object|null} normalizeRecord
  */
+/**
+ * Commodity sync snapshot; excludes hub rows whose key text contains "(not use)".
+ * @returns {Promise<{ records: object[], skippedNotUse: number }>}
+ */
+export async function fetchAllCommoditySyncRecords(cfg, fetchImpl = fetch) {
+  let skippedNotUse = 0;
+  const normalize = (record) => {
+    const data = record?.data;
+    if (hubInboundDataContainsNotUseMarker(data)) {
+      skippedNotUse += 1;
+      return null;
+    }
+    return normalizeHubCommodity(record);
+  };
+  const records = await fetchAllSyncRecords(cfg, 'commodity', normalize, fetchImpl);
+  return { records, skippedNotUse };
+}
+
 export async function fetchAllSyncRecords(cfg, slug, normalizeRecord, fetchImpl = fetch) {
   const headers = await resolveAuthHeaders(cfg, fetchImpl);
   const out = [];

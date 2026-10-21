@@ -270,8 +270,14 @@ describe('datahub-webhook', () => {
         if (/UPDATE datahub_vessel_sync_items SET applied_at/i.test(sql)) {
           return { rows: [] };
         }
-        if (/UPDATE datahub_vessel_sync_runs SET\s+status = 'applied'/i.test(sql)) {
-          runStatus = 'applied';
+        if (/UPDATE datahub_vessel_sync_items SET apply_error/i.test(sql)) {
+          return { rows: [] };
+        }
+        if (/UPDATE datahub_vessel_sync_runs SET/i.test(sql) && /status/i.test(sql)) {
+          runStatus = params?.[0] === 'staged' ? 'staged' : 'applied';
+          return { rows: [] };
+        }
+        if (/SAVEPOINT/i.test(sql) || /RELEASE SAVEPOINT/i.test(sql) || /ROLLBACK TO SAVEPOINT/i.test(sql)) {
           return { rows: [] };
         }
         if (/BEGIN/i.test(sql) || /COMMIT/i.test(sql) || /ROLLBACK/i.test(sql)) {

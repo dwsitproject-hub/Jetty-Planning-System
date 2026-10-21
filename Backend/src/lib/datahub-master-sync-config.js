@@ -2,6 +2,7 @@
  * DataHub master sync entity registry (vessel, incoterm, commodity, port_master).
  */
 import {
+  fetchAllCommoditySyncRecords,
   fetchAllSyncRecords,
   fetchAllVessels,
   normalizeHubCommodity,
@@ -33,7 +34,7 @@ export async function fetchHubRecords(entityType, cfg, db) {
     return fetchAllSyncRecords(cfg, 'incoterm', normalizeHubIncoterm);
   }
   if (entityType === 'commodity') {
-    return fetchAllSyncRecords(cfg, 'commodity', normalizeHubCommodity);
+    return fetchAllCommoditySyncRecords(cfg);
   }
   if (entityType === 'port_master') {
     return fetchAllSyncRecords(cfg, 'port_master', normalizeHubPortMaster);

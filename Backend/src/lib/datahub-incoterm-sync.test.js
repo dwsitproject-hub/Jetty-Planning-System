@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildIncotermSyncPlan, diffIncotermFields } from './datahub-incoterm-sync.js';
 import {
+  annotateCommodityNameConflicts,
   buildCommoditySyncPlan,
   deriveShortNameFromCommodityName,
   expandCommodityValues,
@@ -116,6 +117,20 @@ describe('datahub-commodity-sync', () => {
     assert.equal(hub.values.hub_type, 'Fuel, Greases, & Lub');
   });
 
+  it('excludes hub commodity when long_name contains (not use)', () => {
+    const hub = normalizeHubCommodity({
+      id: 'u-retired',
+      version: 1,
+      data: {
+        code: 'CMD-9999',
+        long_name: 'LEGACY OIL (not use)',
+        short_name: 'LEG',
+        type: 'liquid',
+      },
+    });
+    assert.equal(hub, null);
+  });
+
   it('maps material_code from hub payload', () => {
     const hub = normalizeHubCommodity({
       id: 'u1',
@@ -192,6 +207,36 @@ describe('datahub-commodity-sync', () => {
     assert.equal(items[0].values.hub_type, 'liquid');
     assert.equal(items[0].values.commodity_type, undefined);
     assert.equal(items[0].values.default_metric_id, 1);
+  });
+
+  it('flags duplicate long name against local and batch peers', () => {
+    const hub = [
+      normalizeHubCommodity({
+        id: 'u-a',
+        version: 1,
+        data: { code: 'CMD-0001', long_name: 'CRUDE PALM OIL', type: 'liquid', uom: 'KL' },
+      }),
+      normalizeHubCommodity({
+        id: 'u-b',
+        version: 1,
+        data: { code: 'CMD-0002', long_name: 'CRUDE PALM OIL', type: 'solid', uom: 'MT' },
+      }),
+    ];
+    const local = [
+      {
+        id: 99,
+        hub_code: 'CMD-LEGACY',
+        name: 'CRUDE PALM OIL',
+        short_name: 'CPO',
+        commodity_type: 'Liquid',
+        default_metric_id: 1,
+      },
+    ];
+    const { items, summary } = buildCommoditySyncPlan(hub, local, { KL: 1, MT: 2 });
+    assert.equal(summary.nameConflictCount, 2);
+    const a = items.find((i) => i.hubCode === 'CMD-0001');
+    assert.equal(a.nameConflict.matches.length, 2);
+    assert.equal(annotateCommodityNameConflicts([], local), 0);
   });
 
   it('does not match local row by short name; hub row is new and local is listed as unchanged', () => {

@@ -55,6 +55,18 @@
   color: var(--color-steel, #667);
 }
 
+.datahub-sync__name-conflict {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  color: var(--color-warning, #b45309);
+}
+
+.datahub-sync__apply-error {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  color: var(--color-danger, #c00);
+}
+
 .datahub-sync__diff-new {
   color: var(--color-success, #0a7);
   font-weight: 600;

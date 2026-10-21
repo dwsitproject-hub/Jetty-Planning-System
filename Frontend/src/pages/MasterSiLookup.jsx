@@ -309,20 +309,32 @@ export default function MasterSiLookup({
       const resp = await dataHubSyncApi.startSyncRun()
       await loadLatestRun()
       if (resp?.noChanges) {
+        const skipped = resp?.summary?.skippedNotUse ?? 0
         setToast({
-          message: 'DataHub matches JPS — nothing new or changed to review.',
+          message:
+            skipped > 0
+              ? `DataHub matches JPS — nothing new or changed. ${skipped} hub ${dataHubUiMeta?.recordNoun ?? 'records'} skipped (marked “not use”).`
+              : 'DataHub matches JPS — nothing new or changed to review.',
           variant: 'success',
         })
         return
       }
       const run = resp?.run
-      if (run?.id) await openReview(run.id)
+      if (run?.id) {
+        const detail = await dataHubSyncApi.fetchSyncRun(run.id)
+        const skipped = resp?.summary?.skippedNotUse ?? 0
+        const nameConflictCount = resp?.summary?.nameConflictCount ?? 0
+        if (detail?.run && (skipped > 0 || nameConflictCount > 0)) {
+          detail.run = { ...detail.run, skippedNotUse: skipped, nameConflictCount }
+        }
+        setReview(detail)
+      }
     } catch (e) {
       setError(e?.message || 'DataHub sync failed')
     } finally {
       setSyncing(false)
     }
-  }, [dataHubSyncApi, loadLatestRun, openReview])
+  }, [dataHubSyncApi, dataHubUiMeta?.recordNoun, loadLatestRun])
 
   const handleApplySync = useCallback(
     async (itemIds) => {
@@ -331,6 +343,14 @@ export default function MasterSiLookup({
       setSyncError(null)
       try {
         const result = await dataHubSyncApi.applySyncRun(review.run.id, itemIds)
+        if (result.partial) {
+          setSyncError(
+            `${result.failed} row(s) failed; ${result.applied} applied. Fix or deselect failed rows and apply again.`,
+          )
+          setReview(await dataHubSyncApi.fetchSyncRun(review.run.id))
+          await Promise.all([load(), loadLatestRun()])
+          return
+        }
         setToast({
           message: `Applied DataHub sync: ${result.created} added, ${result.updated} updated.`,
           variant: 'success',

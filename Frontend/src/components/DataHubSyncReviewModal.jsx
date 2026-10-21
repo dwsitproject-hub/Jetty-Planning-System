@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+﻿import { useMemo, useState } from 'react'
 import MasterTablePagination from './MasterTablePagination.jsx'
 import { useMasterTablePagination } from '../hooks/useMasterTablePagination.js'
 import '../styles/modal.css'
@@ -53,6 +53,17 @@ function formatFieldValue(column, v, metricLabelsById) {
 
 function fieldLabel(column) {
   return FIELD_LABELS[column] || column
+}
+
+function formatNameConflictWarning(nameConflict) {
+  const matches = nameConflict?.matches
+  if (!Array.isArray(matches) || matches.length === 0) return null
+  const bits = matches.slice(0, 3).map((m) => {
+    const hub = m.hubCode ? `hub ${m.hubCode}` : m.id != null ? `JPS #${m.id}` : 'another row'
+    return `${hub}${m.name ? ` (“${m.name}”)` : ''}`
+  })
+  const extra = matches.length > 3 ? ` +${matches.length - 3} more` : ''
+  return `Same commodity long name as ${bits.join('; ')}${extra}. Unchecked by default — select to apply anyway.`
 }
 
 function isLocalUnchangedItem(item) {
@@ -116,6 +127,7 @@ function SyncReviewGroup({
           <tbody>
             {pagedRows.map((item) => {
               const diffEntries = Object.entries(item.fieldDiff || {})
+              const conflictHint = formatNameConflictWarning(item.nameConflict)
               return (
                 <tr key={item.id}>
                   <td>
@@ -130,6 +142,16 @@ function SyncReviewGroup({
                   <td><strong>{item.vesselName}</strong></td>
                   <td className="text-steel">{item.hubCode || '—'}</td>
                   <td>
+                    {conflictHint ? (
+                      <p className="datahub-sync__name-conflict" role="note">
+                        {conflictHint}
+                      </p>
+                    ) : null}
+                    {item.applyError ? (
+                      <p className="datahub-sync__apply-error" role="alert">
+                        Last apply failed: {item.applyError}
+                      </p>
+                    ) : null}
                     {diffEntries.length === 0 ? (
                       <span className="text-steel">No field changes</span>
                     ) : (
@@ -236,6 +258,12 @@ export default function DataHubSyncReviewModal({
     }
   }, [items])
 
+  const nameConflictCount = useMemo(() => {
+    if (run?.nameConflictCount != null) return Number(run.nameConflictCount)
+    const all = Array.isArray(items) ? items : []
+    return all.filter((i) => i.nameConflict?.matches?.length).length
+  }, [items, run?.nameConflictCount])
+
   const toggle = (id) => {
     setSelectedIds((prev) => {
       const next = new Set(prev)
@@ -276,6 +304,16 @@ export default function DataHubSyncReviewModal({
         <p className="text-steel">
           {run?.hubRecordCount ?? 0} {recordNoun} read from DataHub: {run?.newCount ?? 0} new,{' '}
           {run?.changedCount ?? 0} changed, {run?.unchangedCount ?? 0} unchanged
+          {run?.skippedNotUse > 0 ? (
+            <>
+              ; {run.skippedNotUse} hub {recordNoun} skipped (label contains &quot;(not use)&quot;)
+            </>
+          ) : null}
+          {nameConflictCount > 0 ? (
+            <>
+              ; {nameConflictCount} with duplicate long name (unchecked — you can still apply them)
+            </>
+          ) : null}
           {showLocalUnchanged && groups.localUnchanged.length > 0 ? (
             <>
               ; {groups.localUnchanged.length} local-only {recordNoun} in JPS are not linked to DataHub

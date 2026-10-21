@@ -3,7 +3,11 @@
  * Contract: Docs/Guide/DATAHUB_CLIENT_INTEGRATION.md §10
  */
 import crypto from 'crypto';
-import { normalizeHubRecord } from './datahub-client.js';
+import {
+  hubInboundDataContainsNotUseMarker,
+  hubNormalizedCommodityExcluded,
+  normalizeHubRecord,
+} from './datahub-client.js';
 import {
   getEffectiveDataHubConfig,
   getEffectiveWebhookConfig,
@@ -178,10 +182,13 @@ export async function resolveWebhookHubRecords(db, entityType, payload, eventHea
   }
 
   try {
-    const snapshot = await fetchHubRecords('commodity', cfg, db);
+    const snapshotFetch = await fetchHubRecords('commodity', cfg, db);
+    const snapshot = Array.isArray(snapshotFetch) ? snapshotFetch : snapshotFetch.records;
     const fresh = snapshot.find((r) => r?.hubCode && String(r.hubCode) === String(hubCode));
     const base = fresh ?? parsed;
-    return [mergeCommodityPayloadOverSync(base, payload?.data)];
+    const merged = mergeCommodityPayloadOverSync(base, payload?.data);
+    if (hubNormalizedCommodityExcluded(merged)) return [];
+    return [merged];
   } catch (e) {
     if (commodityPayloadHasOverlayFields(payload?.data)) {
       return [mergeCommodityPayloadOverSync(parsed, payload.data)];
@@ -279,6 +286,14 @@ export async function processInboundWebhook(db, rawBody, headers) {
 
   const hubRecord = hubRecords[0] ?? null;
   if (!hubRecord) {
+    if (
+      resolvedEntity === 'commodity' &&
+      hubInboundDataContainsNotUseMarker(payload?.data)
+    ) {
+      await insertReceipt('ignored', null, 'hub_not_use_marker');
+      await updateDataHubWebhookHealth(db, { ok: true });
+      return { status: 200, body: { status: 'ignored', reason: 'hub_not_use_marker' } };
+    }
     await insertReceipt('failed', null, 'missing master payload');
     await updateDataHubWebhookHealth(db, { ok: false, error: 'missing master payload' });
     return { status: 400, body: { error: 'missing master payload' } };

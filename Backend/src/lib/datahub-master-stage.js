@@ -25,7 +25,11 @@ export async function stageEntityFromHub(db, entityType, hubRecords, opts = {}) 
 
   const localLoad = await loadLocalRows(entityType, db);
   const localRows = entityType === 'commodity' ? localLoad.rows : localLoad;
-  const { items, summary } = await buildEntitySyncPlan(entityType, hubRecords, localLoad);
+  const { items, summary: planSummary } = await buildEntitySyncPlan(entityType, hubRecords, localLoad);
+  let summary = planSummary;
+  if (opts.skippedNotUse != null && Number(opts.skippedNotUse) > 0) {
+    summary = { ...summary, skippedNotUse: Number(opts.skippedNotUse) };
+  }
 
   const actionable = items.filter((i) => i.diffKind === 'new' || i.diffKind === 'changed');
   if (actionable.length === 0) {
@@ -58,8 +62,13 @@ export async function stageEntityFromHub(db, entityType, hubRecords, opts = {}) 
  * Pull from DHM and stage (manual sync entry point).
  */
 export async function pullAndStageEntity(db, entityType, cfg, opts = {}) {
-  const hubRecords = await fetchHubRecords(entityType, cfg, db);
-  return stageEntityFromHub(db, entityType, hubRecords, opts);
+  const hubFetch = await fetchHubRecords(entityType, cfg, db);
+  const hubRecords = Array.isArray(hubFetch) ? hubFetch : hubFetch.records;
+  const skippedNotUse =
+    hubFetch && !Array.isArray(hubFetch) && hubFetch.skippedNotUse != null
+      ? Number(hubFetch.skippedNotUse)
+      : 0;
+  return stageEntityFromHub(db, entityType, hubRecords, { ...opts, skippedNotUse });
 }
 
 export async function applyStagedEntitySyncRun(db, runId, actorUserId = null) {

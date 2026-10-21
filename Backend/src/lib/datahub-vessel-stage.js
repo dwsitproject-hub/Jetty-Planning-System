@@ -42,7 +42,9 @@ export async function insertStagedSyncRun(
   for (const item of items) {
     let decision = 'pending';
     if (preapproveChanges) {
-      decision = item.diffKind === 'unchanged' ? 'rejected' : 'approved';
+      if (item.diffKind === 'unchanged') decision = 'rejected';
+      else if (item.nameConflict) decision = 'pending';
+      else decision = 'approved';
     }
     await client.query(
       `INSERT INTO datahub_vessel_sync_items (
@@ -61,6 +63,7 @@ export async function insertStagedSyncRun(
           hubVersion: item.hubVersion,
           hubUpdatedAt: item.hubUpdatedAt,
           localOnly: Boolean(item.localOnly),
+          nameConflict: item.nameConflict ?? null,
         }),
         JSON.stringify(item.fieldDiff),
         decision,
@@ -110,27 +113,64 @@ export async function applyStagedSyncRunByEntity(db, runId, actorUserId = null) 
 
     let created = 0;
     let updated = 0;
+    let failed = 0;
+    const applyErrors = [];
     for (const item of approved.rows) {
-      const { action } = await applyEntityItem(entityType, client, item, actorUserId, {
-        applySource: runSource,
-        applyRunId: runId,
-      });
-      if (action === 'created') created += 1;
-      else updated += 1;
-      await client.query(
-        `UPDATE datahub_vessel_sync_items SET applied_at = NOW() WHERE id = $1`,
-        [item.id]
-      );
+      await client.query('SAVEPOINT datahub_apply_item');
+      try {
+        const { action } = await applyEntityItem(entityType, client, item, actorUserId, {
+          applySource: runSource,
+          applyRunId: runId,
+        });
+        if (action === 'created') created += 1;
+        else updated += 1;
+        await client.query(
+          `UPDATE datahub_vessel_sync_items SET applied_at = NOW(), apply_error = NULL WHERE id = $1`,
+          [item.id]
+        );
+        await client.query('RELEASE SAVEPOINT datahub_apply_item');
+      } catch (e) {
+        failed += 1;
+        const errMsg = String(e?.message || 'apply failed').slice(0, 2000);
+        applyErrors.push({ itemId: Number(item.id), message: errMsg });
+        await client.query('ROLLBACK TO SAVEPOINT datahub_apply_item');
+        await client.query(
+          `UPDATE datahub_vessel_sync_items SET apply_error = $1 WHERE id = $2`,
+          [errMsg, item.id]
+        );
+      }
     }
+
+    const applied = created + updated;
+    if (applied === 0 && failed > 0) {
+      await client.query(
+        `UPDATE datahub_vessel_sync_runs SET
+           status = 'failed', error = $1, applied_count = 0, applied_at = NULL, applied_by = NULL
+         WHERE id = $2`,
+        [applyErrors[0]?.message ?? 'All approved items failed to apply', runId]
+      );
+      await client.query('COMMIT');
+      throw new Error(applyErrors[0]?.message ?? 'All approved items failed to apply');
+    }
+
+    const partial = failed > 0;
+    const runError = partial
+      ? `${failed} item(s) failed; ${applied} applied. ${applyErrors[0]?.message ?? ''}`.trim()
+      : null;
+    const runStatus = partial ? 'staged' : 'applied';
 
     await client.query(
       `UPDATE datahub_vessel_sync_runs SET
-         status = 'applied', applied_count = $1, applied_at = NOW(), applied_by = $2
-       WHERE id = $3`,
-      [created + updated, actorUserId ?? null, runId]
+         status = $1,
+         applied_count = COALESCE(applied_count, 0) + $2,
+         applied_at = CASE WHEN $1 = 'applied' THEN NOW() ELSE applied_at END,
+         applied_by = CASE WHEN $1 = 'applied' THEN $3 ELSE applied_by END,
+         error = $4
+       WHERE id = $5`,
+      [runStatus, applied, actorUserId ?? null, runError, runId]
     );
     await client.query('COMMIT');
-    return { created, updated, applied: created + updated };
+    return { created, updated, applied, failed, partial, applyErrors };
   } catch (e) {
     await client.query('ROLLBACK');
     throw e;

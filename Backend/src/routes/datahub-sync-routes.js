@@ -48,6 +48,7 @@ function toItem(row) {
     payload,
     appliedAt: row.applied_at ?? null,
     applyError: row.apply_error ?? null,
+    nameConflict: payload.nameConflict ?? null,
   };
 }
 

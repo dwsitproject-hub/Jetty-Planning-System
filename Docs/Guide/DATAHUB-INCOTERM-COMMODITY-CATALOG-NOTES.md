@@ -33,11 +33,15 @@ node scripts/probe-datahub-catalog.mjs
 
 **Match / apply:** commodities link **only by `hub_code`** (same CMD on hub and JPS). Local-only rows (no hub code) are listed in sync review as unchanged and are never updated or deleted by sync. Apply creates a new JPS row when the hub CMD is not linked; it updates only the row already tied to that hub code (or the staged local id from the plan).
 
+**Long name duplicates:** `si_commodities.name` is **not** unique (migration **132**). Sync review **warns** when the hub long name matches another JPS row or another row in the same batch; those lines start **unchecked** so you can apply the rest and opt in deliberately. Apply continues on other rows if one line fails.
+
 **Active (JPS-only):** rows **created** by commodity sync apply start with **Active = No**; users turn them on in Master – Commodity. Hub updates do not change `is_active` on existing rows.
 
 **Type split:** `hub_type` is synced from DHM; `commodity_type` is set manually in JPS (NULL on hub import until the user chooses Solid/Liquid). Activating a commodity requires `commodity_type` to be set.
 
 **Short name:** not synced from DHM; `short_name` is JPS-only (NULL on hub import until the user sets it). Activating requires `short_name` and `commodity_type`.
+
+**“(not use)” catalog rows:** DHM commodities whose hub `long_name`, `short_name`, `material_code`, or `code` contains `(not use)` (case-insensitive) are **not** pulled into sync review or webhook staging. Manual sync summary reports how many were skipped.
 
 Incoterms still match by `hub_code`, then term `code`, then name.
 
