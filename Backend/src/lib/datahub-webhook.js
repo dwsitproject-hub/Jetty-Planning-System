@@ -144,11 +144,17 @@ function mergeCommodityPayloadOverSync(hubRecord, payloadData) {
   if (uom) values.uom = uom;
   const materialCode = strPayloadField(payloadData, 'material_code', 'materialCode');
   if (materialCode) values.material_code = materialCode;
+  const hubType = strPayloadField(payloadData, 'type', 'commodity_type', 'commodityType');
+  if (hubType) values.hub_type = hubType;
   return { ...hubRecord, values };
 }
 
 function commodityPayloadHasOverlayFields(payloadData) {
-  return Boolean(extractHubCommodityUom(payloadData) || strPayloadField(payloadData, 'material_code', 'materialCode'));
+  return Boolean(
+    extractHubCommodityUom(payloadData) ||
+      strPayloadField(payloadData, 'material_code', 'materialCode') ||
+      strPayloadField(payloadData, 'type', 'commodity_type', 'commodityType')
+  );
 }
 
 /**

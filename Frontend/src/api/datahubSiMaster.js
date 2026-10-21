@@ -28,7 +28,7 @@ export const DATAHUB_SI_FIELD_LABELS = {
   commodities: {
     name: 'Commodity name',
     short_name: 'Short name',
-    commodity_type: 'Type',
+    hub_type: 'DataHub type',
     kl_to_mt_factor: 'KL→MT factor',
     default_metric_id: 'Default unit (metric id)',
     hs_code: 'HS code',

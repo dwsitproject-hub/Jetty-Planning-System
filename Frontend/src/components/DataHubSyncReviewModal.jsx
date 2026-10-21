@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import MasterTablePagination from './MasterTablePagination.jsx'
 import { useMasterTablePagination } from '../hooks/useMasterTablePagination.js'
 import '../styles/modal.css'
@@ -26,6 +26,7 @@ const FIELD_LABELS = {
   default_metric_id: 'Default unit',
   hs_code: 'HS code',
   material_code: 'Material code',
+  hub_type: 'DataHub type',
   unlocode: 'UN/LOCODE',
   country: 'Country',
   is_active: 'Active',

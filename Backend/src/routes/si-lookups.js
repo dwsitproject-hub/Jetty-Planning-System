@@ -86,7 +86,7 @@ async function normalizeDefaultMetricId(raw) {
 async function selectCommoditiesWithRates({ portId, whereSql, params = [] }) {
   const portParam = portId == null ? null : Number(portId);
   return pool.query(
-    `SELECT c.id, c.name AS value, c.short_name, c.sort_order, c.commodity_type, c.kl_to_mt_factor,
+    `SELECT c.id, c.name AS value, c.short_name, c.sort_order, c.commodity_type, c.hub_type, c.kl_to_mt_factor,
             c.default_metric_id, c.hub_code, c.material_code, c.datahub_last_apply_source, c.datahub_last_apply_run_id,
             c.is_active,
             dm.code AS default_metric_code,
@@ -240,7 +240,8 @@ function toCommodityListItem(row) {
     value: row.value,
     name: row.value,
     shortName: row.short_name,
-    commodityType: row.commodity_type ?? 'Liquid',
+    commodityType: row.commodity_type ?? null,
+    hubType: row.hub_type ?? null,
     klToMtFactor: row.kl_to_mt_factor != null ? Number(row.kl_to_mt_factor) : null,
     defaultMetricId: row.default_metric_id != null ? Number(row.default_metric_id) : null,
     defaultMetricCode: row.default_metric_code ?? null,
@@ -410,7 +411,8 @@ router.get('/', async (req, res) => {
               c.default_metric_id, dm.code AS default_metric_code
        FROM si_commodities c
        LEFT JOIN metric dm ON dm.id = c.default_metric_id AND dm.deleted_at IS NULL
-       WHERE c.deleted_at IS NULL AND c.is_active = TRUE ORDER BY c.sort_order, c.name`
+       WHERE c.deleted_at IS NULL AND c.is_active = TRUE AND c.commodity_type IS NOT NULL
+       ORDER BY c.sort_order, c.name`
     ),
     pool.query(
       `SELECT id, code, sort_order FROM si_trade_terms WHERE deleted_at IS NULL AND is_active = TRUE ORDER BY sort_order, code`
@@ -453,7 +455,7 @@ router.get('/', async (req, res) => {
       id: r.id,
       name: r.name,
       shortName: r.short_name,
-      commodityType: r.commodity_type ?? 'Liquid',
+      commodityType: r.commodity_type ?? null,
       klToMtFactor: r.kl_to_mt_factor != null ? Number(r.kl_to_mt_factor) : null,
       defaultMetricId: r.default_metric_id != null ? Number(r.default_metric_id) : null,
       defaultMetricCode: r.default_metric_code ?? null,
@@ -951,6 +953,18 @@ router.put('/:type/:id', async (req, res) => {
       );
     }
     if (isActive !== undefined) {
+      if (isActive) {
+        const typeQ = await pool.query(
+          `SELECT commodity_type FROM si_commodities WHERE id = $1 AND deleted_at IS NULL`,
+          [id]
+        );
+        const ct = typeQ.rows[0]?.commodity_type;
+        if (ct !== 'Solid' && ct !== 'Liquid') {
+          return res.status(400).json({
+            error: 'Set Type to Solid or Liquid before activating this commodity.',
+          });
+        }
+      }
       await pool.query(
         `UPDATE si_commodities SET is_active = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
         [isActive, id]

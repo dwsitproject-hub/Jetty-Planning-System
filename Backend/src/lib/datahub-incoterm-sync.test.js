@@ -8,7 +8,11 @@ import {
   extractHubCommodityUom,
   normalizeCommodityUomCode,
 } from './datahub-commodity-sync.js';
-import { normalizeHubIncoterm, normalizeHubCommodity } from './datahub-client.js';
+import {
+  extractHubCommodityTypeRaw,
+  normalizeHubIncoterm,
+  normalizeHubCommodity,
+} from './datahub-client.js';
 
 describe('datahub-incoterm-sync', () => {
   it('maps hub name to local code', () => {
@@ -91,8 +95,25 @@ describe('datahub-commodity-sync', () => {
     });
     assert.equal(hub.values.name, 'CRUDE PALM OIL');
     assert.equal(hub.values.short_name, 'cpo');
-    assert.equal(hub.values.commodity_type, 'Liquid');
+    assert.equal(hub.values.hub_type, 'liquid');
+    assert.equal(hub.values.commodity_type, undefined);
     assert.equal(hub.values.uom, 'KL');
+  });
+
+  it('stores non Solid/Liquid hub type verbatim', () => {
+    assert.equal(extractHubCommodityTypeRaw({ type: 'Chemical' }), 'Chemical');
+    const hub = normalizeHubCommodity({
+      id: 'u-chem',
+      version: 1,
+      data: {
+        code: 'CMD-0100',
+        long_name: 'METHANOL',
+        short_name: 'MEOH',
+        type: 'Fuel, Greases, & Lub',
+        uom: 'MT',
+      },
+    });
+    assert.equal(hub.values.hub_type, 'Fuel, Greases, & Lub');
   });
 
   it('maps material_code from hub payload', () => {
@@ -149,6 +170,7 @@ describe('datahub-commodity-sync', () => {
         kl_to_mt_factor: null,
         hs_code: null,
         material_code: null,
+        hub_type: 'liquid',
       },
     ];
     const { items } = buildCommoditySyncPlan(hub, local, { KL: 1, MT: 2 });
@@ -157,7 +179,7 @@ describe('datahub-commodity-sync', () => {
     assert.equal(items[0].fieldDiff.material_code.to, '100001');
   });
 
-  it('defaults liquid type from KL uom when type omitted', () => {
+  it('sync plan carries hub_type and default_metric_id without JPS commodity_type', () => {
     const hub = [
       normalizeHubCommodity({
         id: 'u1',
@@ -167,7 +189,8 @@ describe('datahub-commodity-sync', () => {
     ];
     const { items } = buildCommoditySyncPlan(hub, [], { KL: 1, MT: 2 });
     assert.equal(items[0].diffKind, 'new');
-    assert.equal(items[0].values.commodity_type, 'Liquid');
+    assert.equal(items[0].values.hub_type, 'liquid');
+    assert.equal(items[0].values.commodity_type, undefined);
     assert.equal(items[0].values.default_metric_id, 1);
   });
 
@@ -238,11 +261,11 @@ describe('datahub-commodity-sync', () => {
     assert.equal(items[0].localId, null);
   });
 
-  it('expandCommodityValues prefers hub type and uom over local defaults', () => {
+  it('expandCommodityValues syncs hub_type and uom metric without touching JPS commodity_type', () => {
     const hubValues = {
       name: 'X',
       short_name: 'CPO',
-      commodity_type: 'Solid',
+      hub_type: 'Chemical',
       uom: 'MT',
     };
     const local = {
@@ -253,7 +276,8 @@ describe('datahub-commodity-sync', () => {
     };
     const expanded = expandCommodityValues(hubValues, { KL: 1, MT: 2 }, local);
     assert.equal(expanded.short_name, 'CPO');
-    assert.equal(expanded.commodity_type, 'Solid');
+    assert.equal(expanded.hub_type, 'Chemical');
+    assert.equal(expanded.commodity_type, undefined);
     assert.equal(expanded.default_metric_id, 2);
     assert.equal(expanded.kl_to_mt_factor, 0.87);
   });

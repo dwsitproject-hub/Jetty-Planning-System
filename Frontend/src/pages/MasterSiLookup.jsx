@@ -69,6 +69,7 @@ export default function MasterSiLookup({
   const [formClearUnloadingRate, setFormClearUnloadingRate] = useState(false)
   const [editingHadUnloadingRate, setEditingHadUnloadingRate] = useState(false)
   const [formCommodityType, setFormCommodityType] = useState('Liquid')
+  const [formHubType, setFormHubType] = useState('')
   const [formShortName, setFormShortName] = useState('')
   const [formKlToMtFactor, setFormKlToMtFactor] = useState('')
   const [formDefaultMetricId, setFormDefaultMetricId] = useState('')
@@ -164,9 +165,17 @@ export default function MasterSiLookup({
     if (isCommodityMaster) {
       cols.push({
         key: 'commodityType',
-        label: <DataHubFieldCue>Type</DataHubFieldCue>,
+        label: 'Type',
         labelText: 'Type',
-        getSortValue: (it) => (it.commodityType === 'Solid' ? 'Solid' : 'Liquid').toLowerCase(),
+        getSortValue: (it) =>
+          (it.commodityType === 'Solid' ? 'solid' : it.commodityType === 'Liquid' ? 'liquid' : ''),
+      })
+      cols.push({
+        key: 'hubType',
+        label: <DataHubFieldCue>DataHub Type</DataHubFieldCue>,
+        labelText: 'DataHub Type',
+        getSortValue: (it) => (it.hubType || '').toLowerCase(),
+        getFilterValue: (it) => it.hubType || '',
       })
       cols.push({
         key: 'klToMtFactor',
@@ -377,6 +386,7 @@ export default function MasterSiLookup({
     setFormKlToMtFactor('')
     setFormDefaultMetricId('')
     setFormCommodityType('Liquid')
+    setFormHubType('')
     setFormLoadingRate('')
     setFormLoadingMetric('MTPH')
     setFormClearLoadingRate(false)
@@ -399,7 +409,10 @@ export default function MasterSiLookup({
     setFormShortName(item.shortName ?? '')
     setFormKlToMtFactor(item.klToMtFactor != null ? String(item.klToMtFactor) : '')
     setFormDefaultMetricId(item.defaultMetricId != null ? String(item.defaultMetricId) : '')
-    setFormCommodityType(item.commodityType === 'Solid' ? 'Solid' : 'Liquid')
+    setFormCommodityType(
+      item.commodityType === 'Solid' ? 'Solid' : item.commodityType === 'Liquid' ? 'Liquid' : '',
+    )
+    setFormHubType(item.hubType ?? '')
     const lr = item?.portRates?.loading ?? null
     const ur = item?.portRates?.unloading ?? null
 
@@ -429,6 +442,7 @@ export default function MasterSiLookup({
     setFormKlToMtFactor('')
     setFormDefaultMetricId('')
     setFormCommodityType('Liquid')
+    setFormHubType('')
     setFormLoadingRate('')
     setFormLoadingMetric('MTPH')
     setFormClearLoadingRate(false)
@@ -447,7 +461,12 @@ export default function MasterSiLookup({
     if (!value) return
 
     if (isCommodityMaster) {
-      if (formCommodityType !== 'Solid' && formCommodityType !== 'Liquid') {
+      const hasJpsType = formCommodityType === 'Solid' || formCommodityType === 'Liquid'
+      if (!hasJpsType && formIsActive) {
+        setError('Set Type to Solid or Liquid before activating this commodity.')
+        return
+      }
+      if (!hasJpsType && editingId == null) {
         setError('Commodity type must be Solid or Liquid.')
         return
       }
@@ -515,7 +534,9 @@ export default function MasterSiLookup({
         payload.isActive = formIsActive !== false
       }
       if (isCommodityMaster) {
-        payload.commodityType = formCommodityType
+        if (formCommodityType === 'Solid' || formCommodityType === 'Liquid') {
+          payload.commodityType = formCommodityType
+        }
         payload.shortName = (formShortName || '').trim().toUpperCase()
         payload.klToMtFactor = formKlToMtFactor.trim() === '' ? null : Number(formKlToMtFactor)
         payload.defaultMetricId = formDefaultMetricId.trim() === '' ? null : Number(formDefaultMetricId)
@@ -740,7 +761,16 @@ export default function MasterSiLookup({
                       <td className="text-steel">{it.description || '—'}</td>
                     )}
                     {isCommodityMaster && (
-                      <td>{it.commodityType === 'Solid' ? 'Solid' : 'Liquid'}</td>
+                      <td>
+                        {it.commodityType === 'Solid'
+                          ? 'Solid'
+                          : it.commodityType === 'Liquid'
+                            ? 'Liquid'
+                            : '—'}
+                      </td>
+                    )}
+                    {isCommodityMaster && (
+                      <td className="text-steel">{it.hubType || '—'}</td>
                     )}
                     {isCommodityMaster && (
                       <td>{it.klToMtFactor != null ? it.klToMtFactor : '—'}</td>
@@ -922,7 +952,8 @@ export default function MasterSiLookup({
             {isCommodityMaster && (
               <div className="modal__section">
                 <label htmlFor="si-commodity-type" className="modal__label">
-                  <DataHubFieldCue>Commodity type</DataHubFieldCue>
+                  Type{' '}
+                  <span className="text-steel">— JPS Solid or Liquid (not synced from DataHub)</span>
                 </label>
                 <select
                   id="si-commodity-type"
@@ -931,9 +962,22 @@ export default function MasterSiLookup({
                   onChange={(e) => setFormCommodityType(e.target.value)}
                   disabled={!canDoEdit}
                 >
+                  {editingId != null && formCommodityType === '' ? (
+                    <option value="">— Select type —</option>
+                  ) : null}
                   <option value="Liquid">Liquid</option>
                   <option value="Solid">Solid</option>
                 </select>
+              </div>
+            )}
+            {isCommodityMaster && (formHubType || formHubCode) && (
+              <div className="modal__section">
+                <label className="modal__label">
+                  <DataHubFieldCue>DataHub Type</DataHubFieldCue>
+                </label>
+                <p className="text-steel" style={{ margin: 0 }}>
+                  {formHubType || '—'}
+                </p>
               </div>
             )}
             {isCommodityMaster && (

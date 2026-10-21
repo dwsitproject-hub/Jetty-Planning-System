@@ -4,7 +4,7 @@
 export const COMMODITY_COMPARED_COLUMNS = [
   'name',
   'short_name',
-  'commodity_type',
+  'hub_type',
   'kl_to_mt_factor',
   'default_metric_id',
   'hs_code',
@@ -88,10 +88,6 @@ export function expandCommodityValues(hubValues, metricIdByCode, localRow = null
       : null;
   const shortName = hubShort ?? deriveShortNameFromCommodityName(hubValues?.name);
 
-  const hubType = hubValues?.commodity_type;
-  const commodityType =
-    hubType === 'Solid' || hubType === 'Liquid' ? hubType : commodityTypeFromUom(uom);
-
   const defaultMetricId =
     defaultMetricIdFromHub != null
       ? defaultMetricIdFromHub
@@ -102,7 +98,7 @@ export function expandCommodityValues(hubValues, metricIdByCode, localRow = null
   return {
     name: hubValues?.name ?? null,
     short_name: shortName,
-    commodity_type: commodityType,
+    hub_type: hubValues?.hub_type ?? null,
     kl_to_mt_factor:
       localRow?.kl_to_mt_factor != null ? Number(localRow.kl_to_mt_factor) : null,
     default_metric_id: defaultMetricId,

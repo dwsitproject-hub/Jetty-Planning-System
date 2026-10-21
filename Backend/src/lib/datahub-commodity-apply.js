@@ -31,12 +31,12 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
     );
     targetId = byHub.rows[0]?.id != null ? Number(byHub.rows[0].id) : null;
   }
-  const commodityType = values.commodity_type === 'Solid' ? 'Solid' : 'Liquid';
   const klFactor = values.kl_to_mt_factor != null ? Number(values.kl_to_mt_factor) : null;
   const defaultMetricId =
     values.default_metric_id != null ? Number(values.default_metric_id) : null;
   const hsCode = values.hs_code ?? null;
   const materialCode = values.material_code ?? null;
+  const hubType = values.hub_type != null ? String(values.hub_type).trim() || null : null;
 
   const hubArgs = [
     payload.hubCode ?? null,
@@ -50,17 +50,17 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
   if (targetId == null) {
     const inserted = await db.query(
       `INSERT INTO si_commodities (
-         name, short_name, commodity_type, kl_to_mt_factor, default_metric_id, hs_code, material_code, sort_order,
+         name, short_name, commodity_type, hub_type, kl_to_mt_factor, default_metric_id, hs_code, material_code, sort_order,
          is_active,
          hub_code, hub_record_id, hub_version, hub_updated_at,
          datahub_last_apply_source, datahub_last_apply_run_id,
          created_by, updated_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,0,FALSE,$8,$9,$10,$11,$12,$13,$14,$14)
+       VALUES ($1,$2,NULL,$3,$4,$5,$6,$7,0,FALSE,$8,$9,$10,$11,$12,$13,$14,$14)
        RETURNING id`,
       [
         name,
         shortName,
-        commodityType,
+        hubType,
         klFactor,
         defaultMetricId,
         hsCode,
@@ -78,7 +78,7 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
     `UPDATE si_commodities SET
        name = $1,
        short_name = COALESCE(NULLIF($2, ''), short_name),
-       commodity_type = $3,
+       hub_type = $3,
        kl_to_mt_factor = COALESCE($4, kl_to_mt_factor),
        default_metric_id = COALESCE($5, default_metric_id),
        hs_code = COALESCE($6, hs_code),
@@ -95,7 +95,7 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
     [
       name,
       shortName,
-      commodityType,
+      hubType,
       klFactor,
       defaultMetricId,
       hsCode,
