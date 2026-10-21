@@ -8,6 +8,7 @@ export const COMMODITY_COMPARED_COLUMNS = [
   'kl_to_mt_factor',
   'default_metric_id',
   'hs_code',
+  'material_code',
 ];
 
 function nameKey(name) {
@@ -105,6 +106,7 @@ export function expandCommodityValues(hubValues, metricIdByCode, localRow = null
       localRow?.kl_to_mt_factor != null ? Number(localRow.kl_to_mt_factor) : null,
     default_metric_id: defaultMetricId,
     hs_code: hubValues?.hs_code ?? null,
+    material_code: hubValues?.material_code ?? null,
   };
 }
 

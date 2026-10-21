@@ -24,6 +24,7 @@ node scripts/probe-datahub-catalog.mjs
 | `long_name` | `long_name` | `name` (JPS commodity long name) |
 | `description` | `description` | — |
 | `hs_code` | — | `hs_code` |
+| `material_code` | — | `material_code` |
 | `name` (legacy hub) | fallback for `short_name` if present | — |
 | `type` | — | `commodity_type` (`Liquid` \| `Solid`) |
 | `uom` | — | `default_metric_id` via `metric.code` KL/MT |

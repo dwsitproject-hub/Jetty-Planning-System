@@ -43,6 +43,7 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
   const defaultMetricId =
     values.default_metric_id != null ? Number(values.default_metric_id) : null;
   const hsCode = values.hs_code ?? null;
+  const materialCode = values.material_code ?? null;
 
   const hubArgs = [
     payload.hubCode ?? null,
@@ -56,11 +57,11 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
   if (targetId == null) {
     const inserted = await db.query(
       `INSERT INTO si_commodities (
-         name, short_name, commodity_type, kl_to_mt_factor, default_metric_id, hs_code, sort_order,
+         name, short_name, commodity_type, kl_to_mt_factor, default_metric_id, hs_code, material_code, sort_order,
          hub_code, hub_record_id, hub_version, hub_updated_at,
          datahub_last_apply_source, datahub_last_apply_run_id,
          created_by, updated_by)
-       VALUES ($1,$2,$3,$4,$5,$6,0,$7,$8,$9,$10,$11,$12,$13,$13)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,0,$8,$9,$10,$11,$12,$13,$14,$14)
        RETURNING id`,
       [
         name,
@@ -69,6 +70,7 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
         klFactor,
         defaultMetricId,
         hsCode,
+        materialCode,
         ...hubArgs,
         auditSource,
         auditRunId,
@@ -86,15 +88,16 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
        kl_to_mt_factor = COALESCE($4, kl_to_mt_factor),
        default_metric_id = COALESCE($5, default_metric_id),
        hs_code = COALESCE($6, hs_code),
-       hub_code = COALESCE($7, hub_code),
-       hub_record_id = COALESCE($8, hub_record_id),
-       hub_version = COALESCE($9, hub_version),
-       hub_updated_at = COALESCE($10, hub_updated_at),
-       datahub_last_apply_source = $11,
-       datahub_last_apply_run_id = $12,
-       updated_by = $13,
+       material_code = COALESCE($7, material_code),
+       hub_code = COALESCE($8, hub_code),
+       hub_record_id = COALESCE($9, hub_record_id),
+       hub_version = COALESCE($10, hub_version),
+       hub_updated_at = COALESCE($11, hub_updated_at),
+       datahub_last_apply_source = $12,
+       datahub_last_apply_run_id = $13,
+       updated_by = $14,
        updated_at = NOW()
-     WHERE id = $14`,
+     WHERE id = $15`,
     [
       name,
       shortName,
@@ -102,6 +105,7 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
       klFactor,
       defaultMetricId,
       hsCode,
+      materialCode,
       ...hubArgs,
       auditSource,
       auditRunId,

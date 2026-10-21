@@ -75,6 +75,7 @@ export default function MasterSiLookup({
   const [formLongName, setFormLongName] = useState('')
   const [formDescription, setFormDescription] = useState('')
   const [formHubCode, setFormHubCode] = useState('')
+  const [formMaterialCode, setFormMaterialCode] = useState('')
   const [formIsActive, setFormIsActive] = useState(true)
   const [metricOptions, setMetricOptions] = useState([])
 
@@ -123,6 +124,15 @@ export default function MasterSiLookup({
         getSortValue: (it) => (it.hubCode || '').toLowerCase(),
         getFilterValue: (it) => it.hubCode || '',
       })
+      if (isCommodityMaster) {
+        cols.push({
+          key: 'materialCode',
+          label: <DataHubFieldCue>Material code</DataHubFieldCue>,
+          labelText: 'Material code',
+          getSortValue: (it) => (it.materialCode || '').toLowerCase(),
+          getFilterValue: (it) => it.materialCode || '',
+        })
+      }
       cols.push({
         key: 'isActive',
         label: 'Active',
@@ -361,6 +371,7 @@ export default function MasterSiLookup({
     setFormLongName('')
     setFormDescription('')
     setFormHubCode('')
+    setFormMaterialCode('')
     setFormIsActive(true)
     setFormShortName('')
     setFormKlToMtFactor('')
@@ -383,6 +394,7 @@ export default function MasterSiLookup({
     setFormLongName(item.longName ?? '')
     setFormDescription(item.description ?? '')
     setFormHubCode(item.hubCode ?? '')
+    setFormMaterialCode(item.materialCode ?? '')
     setFormIsActive(item.isActive !== false)
     setFormShortName(item.shortName ?? '')
     setFormKlToMtFactor(item.klToMtFactor != null ? String(item.klToMtFactor) : '')
@@ -411,6 +423,7 @@ export default function MasterSiLookup({
     setFormLongName('')
     setFormDescription('')
     setFormHubCode('')
+    setFormMaterialCode('')
     setFormIsActive(true)
     setFormShortName('')
     setFormKlToMtFactor('')
@@ -506,6 +519,7 @@ export default function MasterSiLookup({
         payload.shortName = (formShortName || '').trim().toUpperCase()
         payload.klToMtFactor = formKlToMtFactor.trim() === '' ? null : Number(formKlToMtFactor)
         payload.defaultMetricId = formDefaultMetricId.trim() === '' ? null : Number(formDefaultMetricId)
+        payload.materialCode = (formMaterialCode || '').trim() || null
       }
       if (enableStandardRateFields) {
         if (formClearLoadingRate) {
@@ -713,6 +727,9 @@ export default function MasterSiLookup({
                         )}
                       </td>
                     )}
+                    {isCommodityMaster && isDataHubMaster && (
+                      <td className="text-steel">{it.materialCode || '—'}</td>
+                    )}
                     {isDataHubMaster && (
                       <td className="text-steel">{it.isActive === false ? 'No' : 'Yes'}</td>
                     )}
@@ -820,6 +837,23 @@ export default function MasterSiLookup({
                   </label>
                 </div>
               </>
+            )}
+            {isCommodityMaster && (
+              <div className="modal__section">
+                <label htmlFor="si-commodity-material-code" className="modal__label">
+                  <DataHubFieldCue>Material code</DataHubFieldCue>{' '}
+                  <span className="text-steel">— optional</span>
+                </label>
+                <input
+                  id="si-commodity-material-code"
+                  type="text"
+                  className="modal__input"
+                  value={formMaterialCode}
+                  onChange={(e) => setFormMaterialCode(e.target.value)}
+                  placeholder="e.g. 100001"
+                  disabled={!canDoEdit}
+                />
+              </div>
             )}
             {isCommodityMaster && (
               <div className="modal__section">

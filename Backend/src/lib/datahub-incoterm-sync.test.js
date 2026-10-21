@@ -95,6 +95,68 @@ describe('datahub-commodity-sync', () => {
     assert.equal(hub.values.uom, 'KL');
   });
 
+  it('maps material_code from hub payload', () => {
+    const hub = normalizeHubCommodity({
+      id: 'u1',
+      version: 1,
+      data: {
+        code: 'CMD-0006',
+        long_name: 'CRUDE PALM OIL',
+        short_name: 'CPO',
+        type: 'liquid',
+        uom: 'KL',
+        material_code: '100001',
+      },
+    });
+    assert.equal(hub.values.material_code, '100001');
+    const hubAlias = normalizeHubCommodity({
+      id: 'u2',
+      version: 1,
+      data: {
+        code: 'CMD-0007',
+        long_name: 'TEST',
+        short_name: 'TST',
+        type: 'solid',
+        materialCode: '200002',
+      },
+    });
+    assert.equal(hubAlias.values.material_code, '200002');
+  });
+
+  it('detects material_code change on linked commodity', () => {
+    const hub = [
+      normalizeHubCommodity({
+        id: 'u1',
+        version: 2,
+        data: {
+          code: 'CMD-0006',
+          long_name: 'CRUDE PALM OIL',
+          short_name: 'CPO',
+          type: 'liquid',
+          uom: 'KL',
+          material_code: '100001',
+        },
+      }),
+    ];
+    const local = [
+      {
+        id: 6,
+        hub_code: 'CMD-0006',
+        name: 'CRUDE PALM OIL',
+        short_name: 'CPO',
+        commodity_type: 'Liquid',
+        default_metric_id: 1,
+        kl_to_mt_factor: null,
+        hs_code: null,
+        material_code: null,
+      },
+    ];
+    const { items } = buildCommoditySyncPlan(hub, local, { KL: 1, MT: 2 });
+    assert.equal(items[0].diffKind, 'changed');
+    assert.equal(items[0].values.material_code, '100001');
+    assert.equal(items[0].fieldDiff.material_code.to, '100001');
+  });
+
   it('defaults liquid type from KL uom when type omitted', () => {
     const hub = [
       normalizeHubCommodity({

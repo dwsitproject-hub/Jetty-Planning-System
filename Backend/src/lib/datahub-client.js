@@ -243,6 +243,7 @@ export function normalizeHubCommodity(record) {
   const values = {
     name,
     hs_code: str(data.hs_code),
+    material_code: str(data.material_code ?? data.materialCode),
     uom,
     short_name: str(data.short_name ?? data.shortName),
     commodity_type: normalizeHubCommodityType(data.type ?? data.commodity_type),

@@ -87,7 +87,7 @@ async function selectCommoditiesWithRates({ portId, whereSql, params = [] }) {
   const portParam = portId == null ? null : Number(portId);
   return pool.query(
     `SELECT c.id, c.name AS value, c.short_name, c.sort_order, c.commodity_type, c.kl_to_mt_factor,
-            c.default_metric_id, c.hub_code, c.datahub_last_apply_source, c.datahub_last_apply_run_id,
+            c.default_metric_id, c.hub_code, c.material_code, c.datahub_last_apply_source, c.datahub_last_apply_run_id,
             c.is_active,
             dm.code AS default_metric_code,
             ${masterAuditSelectSql('c')},
@@ -144,6 +144,13 @@ function normalizeDescription(raw) {
 }
 
 function normalizeHubCode(raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  const s = String(raw).trim();
+  return s === '' ? null : s;
+}
+
+function normalizeMaterialCode(raw) {
   if (raw === undefined) return undefined;
   if (raw === null) return null;
   const s = String(raw).trim();
@@ -238,6 +245,7 @@ function toCommodityListItem(row) {
     defaultMetricId: row.default_metric_id != null ? Number(row.default_metric_id) : null,
     defaultMetricCode: row.default_metric_code ?? null,
     hubCode: row.hub_code ?? null,
+    materialCode: row.material_code ?? null,
     isActive: row.is_active !== false,
     datahubLastApplySource: row.datahub_last_apply_source ?? null,
     datahubLastApplyRunId:
@@ -603,14 +611,15 @@ router.post('/:type', async (req, res) => {
       }
       const actorId = actorUserIdFromReq(req);
       const hubCode = normalizeHubCode(req.body?.hubCode ?? req.body?.hub_code) ?? null;
+      const materialCode = normalizeMaterialCode(req.body?.materialCode ?? req.body?.material_code) ?? null;
       const isActive = normalizeIsActive(req.body?.isActive ?? req.body?.is_active, true);
       const hubClash = await assertLookupHubCodeAvailable('si_commodities', hubCode);
       if (hubClash) return res.status(409).json({ error: hubClash });
       const ins = await pool.query(
-        `INSERT INTO si_commodities (name, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, hub_code, is_active, created_by, updated_by)
-         VALUES ($1, $2, 0, $3, $4, $5, $6, $7, $8, $8)
+        `INSERT INTO si_commodities (name, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, hub_code, material_code, is_active, created_by, updated_by)
+         VALUES ($1, $2, 0, $3, $4, $5, $6, $7, $8, $9, $9)
          RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-        [cleaned, shortName, ct, klFactorRaw ?? null, defaultMetricRaw ?? null, hubCode, isActive, actorId]
+        [cleaned, shortName, ct, klFactorRaw ?? null, defaultMetricRaw ?? null, hubCode, materialCode, isActive, actorId]
       );
       const row = ins.rows[0];
       const portId = req.selectedPortId;
@@ -945,6 +954,13 @@ router.put('/:type/:id', async (req, res) => {
       await pool.query(
         `UPDATE si_commodities SET is_active = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
         [isActive, id]
+      );
+    }
+    const materialCode = normalizeMaterialCode(req.body?.materialCode ?? req.body?.material_code);
+    if (materialCode !== undefined) {
+      await pool.query(
+        `UPDATE si_commodities SET material_code = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
+        [materialCode, id]
       );
     }
   } else if (type === 'trade-terms') {

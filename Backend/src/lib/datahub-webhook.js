@@ -127,13 +127,28 @@ export function inferWebhookEntityType(payload, headers = {}) {
   return null;
 }
 
-function mergeCommodityPayloadUom(hubRecord, payloadData) {
+function strPayloadField(data, ...keys) {
+  if (!data || typeof data !== 'object') return null;
+  for (const k of keys) {
+    if (data[k] == null) continue;
+    const s = String(data[k]).trim();
+    if (s !== '') return s;
+  }
+  return null;
+}
+
+function mergeCommodityPayloadOverSync(hubRecord, payloadData) {
+  if (!hubRecord?.values || !payloadData) return hubRecord;
+  const values = { ...hubRecord.values };
   const uom = extractHubCommodityUom(payloadData);
-  if (!uom || !hubRecord?.values) return hubRecord;
-  return {
-    ...hubRecord,
-    values: { ...hubRecord.values, uom },
-  };
+  if (uom) values.uom = uom;
+  const materialCode = strPayloadField(payloadData, 'material_code', 'materialCode');
+  if (materialCode) values.material_code = materialCode;
+  return { ...hubRecord, values };
+}
+
+function commodityPayloadHasOverlayFields(payloadData) {
+  return Boolean(extractHubCommodityUom(payloadData) || strPayloadField(payloadData, 'material_code', 'materialCode'));
 }
 
 /**
@@ -160,10 +175,10 @@ export async function resolveWebhookHubRecords(db, entityType, payload, eventHea
     const snapshot = await fetchHubRecords('commodity', cfg, db);
     const fresh = snapshot.find((r) => r?.hubCode && String(r.hubCode) === String(hubCode));
     const base = fresh ?? parsed;
-    return [mergeCommodityPayloadUom(base, payload?.data)];
+    return [mergeCommodityPayloadOverSync(base, payload?.data)];
   } catch (e) {
-    if (extractHubCommodityUom(payload?.data)) {
-      return [mergeCommodityPayloadUom(parsed, payload.data)];
+    if (commodityPayloadHasOverlayFields(payload?.data)) {
+      return [mergeCommodityPayloadOverSync(parsed, payload.data)];
     }
     throw e;
   }

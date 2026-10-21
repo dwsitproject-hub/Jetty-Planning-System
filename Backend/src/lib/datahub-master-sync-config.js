@@ -67,7 +67,7 @@ export async function loadLocalRows(entityType, db) {
       metricIdByCode[String(m.code).toUpperCase()] = Number(m.id);
     }
     const r = await db.query(
-      `SELECT id, hub_code, name, short_name, commodity_type, kl_to_mt_factor, default_metric_id, hs_code
+      `SELECT id, hub_code, name, short_name, commodity_type, kl_to_mt_factor, default_metric_id, hs_code, material_code
        FROM si_commodities WHERE deleted_at IS NULL`
     );
     return { rows: r.rows, metricIdByCode };

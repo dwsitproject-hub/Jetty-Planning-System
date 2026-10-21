@@ -32,6 +32,7 @@ export const DATAHUB_SI_FIELD_LABELS = {
     kl_to_mt_factor: 'KL→MT factor',
     default_metric_id: 'Default unit (metric id)',
     hs_code: 'HS code',
+    material_code: 'Material code',
   },
 }
 
