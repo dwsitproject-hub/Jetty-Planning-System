@@ -19,6 +19,7 @@ import {
 import { tryPushAfterSave } from '../lib/datahub-vessel-push.js';
 import { COMPARED_COLUMNS } from '../lib/datahub-vessel-sync.js';
 import { registerDataHubSyncRoutes } from './datahub-sync-routes.js';
+import { countActivePlansForMaster } from '../lib/resolve-master-vessel.js';
 
 const router = express.Router();
 router.use(...requirePageView('master-vessel'));
@@ -26,7 +27,7 @@ router.use(...requirePageView('master-vessel'));
 const PAGE_KEY = 'master-vessel';
 
 /** Enum values the hub accepts; enforced on manual edits only. */
-const VESSEL_TYPES = new Set(['barge', 'tanker', 'SPOB']);
+const VESSEL_TYPES = new Set(['barge', 'tanker', 'SPOB', 'tugboat', 'wooden boat']);
 const LAMBUNG_TYPES = new Set([
   'Double hull Double Bottom',
   'Single hull Double Bottom',
@@ -286,6 +287,10 @@ router.delete('/:id(\\d+)', ...requirePageDelete('master-vessel'), async (req, r
     [id]
   );
   if (existing.rows.length === 0) return res.status(404).json({ error: 'Vessel not found' });
+  const planCount = await countActivePlansForMaster(pool, id);
+  if (planCount > 0) {
+    return res.status(409).json({ error: 'Shipment plan(s) reference this master vessel' });
+  }
 
   await pool.query(
     `UPDATE master_vessels SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`,

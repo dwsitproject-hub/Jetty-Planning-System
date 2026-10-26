@@ -407,7 +407,7 @@ router.get('/', async (req, res) => {
     metrics,
   ] = await Promise.all([
     pool.query(
-      `SELECT c.id, c.name, c.short_name, c.sort_order, c.commodity_type, c.kl_to_mt_factor,
+      `SELECT c.id, c.name, c.short_name, c.material_code, c.sort_order, c.commodity_type, c.kl_to_mt_factor,
               c.default_metric_id, dm.code AS default_metric_code
        FROM si_commodities c
        LEFT JOIN metric dm ON dm.id = c.default_metric_id AND dm.deleted_at IS NULL
@@ -456,6 +456,8 @@ router.get('/', async (req, res) => {
       id: r.id,
       name: r.name,
       shortName: r.short_name,
+      materialCode: r.material_code ?? null,
+      isActive: true,
       commodityType: r.commodity_type ?? null,
       klToMtFactor: r.kl_to_mt_factor != null ? Number(r.kl_to_mt_factor) : null,
       defaultMetricId: r.default_metric_id != null ? Number(r.default_metric_id) : null,

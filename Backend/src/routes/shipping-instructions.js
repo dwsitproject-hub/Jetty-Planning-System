@@ -15,6 +15,7 @@ import {
 } from '../lib/si-pre-berth-edit.js';
 import { validateBreakdownMetricRules } from '../lib/si-breakdown-metric.js';
 import { validateSiReferenceForBerthing } from '../lib/si-reference-validation.js';
+import { snapshotActiveMasterVessel } from '../lib/resolve-master-vessel.js';
 import { requireAuth } from '../middleware/auth.js';
 import { userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
 
@@ -73,7 +74,7 @@ const SI_FROM = `
 `;
 
 const SI_SELECT = `
-  SELECT si.id, si.reference_number, spl.vessel_name, spl.vessel_capacity,
+  SELECT si.id, si.reference_number, spl.vessel_name, spl.master_vessel_id, spl.vessel_capacity,
     spl.vessel_loa_m, spl.vessel_gross_tonnage, spl.vessel_draft, spl.vessel_dwt,
     si.commodity, spp.code AS purpose, spl.eta,
     si.eta_from::text AS eta_from, si.eta_to::text AS eta_to, si.status,
@@ -151,7 +152,8 @@ async function loadBreakdown(siId) {
   const r = await pool.query(
     `SELECT b.id, b.shipping_instruction_id, b.commodity_id, b.metric_id, b.qty,
             b.contract_no, b.po_no, b.so_no, b.remarks, b.shipper_id, b.line_order,
-            c.name AS commodity_name, m.code AS metric_code, m.label AS metric_label,
+            c.name AS commodity_name, c.short_name AS commodity_short_name, c.material_code,
+            m.code AS metric_code, m.label AS metric_label,
             sh.name AS shipper_name
      FROM public.shipping_instruction_breakdown b
      JOIN public.si_commodities c ON c.id = b.commodity_id AND c.deleted_at IS NULL
@@ -165,6 +167,8 @@ async function loadBreakdown(siId) {
     id: row.id,
     commodityId: row.commodity_id,
     commodityName: row.commodity_name,
+    commodityShortName: row.commodity_short_name ?? null,
+    materialCode: row.material_code ?? null,
     metricId: row.metric_id,
     metricCode: row.metric_code,
     metricLabel: row.metric_label,
@@ -630,7 +634,7 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Invalid shipment_plan_id' });
     }
     const pr = await pool.query(
-      `SELECT id, approval_status, vessel_name, eta, purpose_id, voyage_no, agent_id
+      `SELECT id, approval_status, vessel_name, eta, purpose_id, voyage_no, agent_id, master_vessel_id
        FROM shipment_plans WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
       [pid, selectedPortId]
     );
@@ -651,8 +655,14 @@ router.post('/', requireAuth, async (req, res) => {
       ? bodyAgentParsed ?? planAgentForInsert
       : bodyAgentParsed;
 
+  let createdPlanSnap = null;
+  if (shipmentPlanIdFromBody == null) {
+    createdPlanSnap = await snapshotActiveMasterVessel(pool, b.master_vessel_id);
+    if (createdPlanSnap?.error) return res.status(400).json({ error: createdPlanSnap.error });
+  }
   const vesselForSi =
     (planRowForLink?.vessel_name && String(planRowForLink.vessel_name).trim()) ||
+    createdPlanSnap?.vessel_name ||
     (typeof vessel_name === 'string' && vessel_name.trim() ? vessel_name.trim() : '');
   if (!vesselForSi) {
     return res.status(400).json({ error: 'vessel_name is required' });
@@ -767,6 +777,8 @@ router.post('/', requireAuth, async (req, res) => {
       const voyageOverride =
         voyage_no != null && String(voyage_no).trim() !== '' ? trimText(voyage_no, 64) : null;
       const aid = typeof approval_id === 'string' ? approval_id.trim() || null : null;
+      const vesselNameForExistingPlan =
+        planRowForLink?.master_vessel_id != null ? '' : typeof vessel_name === 'string' ? vessel_name : '';
       await client.query(
         `UPDATE shipment_plans SET
            vessel_name = COALESCE(NULLIF(TRIM($1::text), ''), vessel_name),
@@ -776,7 +788,7 @@ router.post('/', requireAuth, async (req, res) => {
            updated_at = NOW()
          WHERE id = $5 AND port_id = $6 AND deleted_at IS NULL`,
         [
-          typeof vessel_name === 'string' ? vessel_name : '',
+          vesselNameForExistingPlan,
           voyageOverride,
           preferredJettyIdParsed,
           aid ?? '',
@@ -787,12 +799,20 @@ router.post('/', requireAuth, async (req, res) => {
     } else {
       const planIns = await client.query(
         `INSERT INTO shipment_plans (
-           port_id, vessel_name, jetty_id, eta, purpose_id, voyage_no, requested_by, created_at, updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+           port_id, master_vessel_id, vessel_name, vessel_loa_m, vessel_gross_tonnage, vessel_draft,
+           vessel_type, vessel_hull_type,
+           jetty_id, eta, purpose_id, voyage_no, requested_by, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
          RETURNING id`,
         [
           selectedPortId,
-          vessel_name.trim(),
+          createdPlanSnap.master_vessel_id,
+          createdPlanSnap.vessel_name,
+          createdPlanSnap.vessel_loa_m,
+          createdPlanSnap.vessel_gross_tonnage,
+          createdPlanSnap.vessel_draft,
+          createdPlanSnap.vessel_type,
+          createdPlanSnap.vessel_hull_type,
           preferredJettyIdParsed,
           etaInstant,
           purposeIdVal,
@@ -935,7 +955,7 @@ router.put('/:id', requireAuth, async (req, res) => {
   let planRowBound = null;
   if (beforeRow.shipment_plan_id != null) {
     const prPlan = await pool.query(
-      `SELECT vessel_name, eta, purpose_id, voyage_no, jetty_id, approval_id, approved_at, approved_by_user_id, agent_id, approval_status
+      `SELECT vessel_name, master_vessel_id, eta, purpose_id, voyage_no, jetty_id, approval_id, approved_at, approved_by_user_id, agent_id, approval_status
        FROM shipment_plans WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
       [beforeRow.shipment_plan_id, selectedPortId]
     );
@@ -1104,8 +1124,10 @@ router.put('/:id', requireAuth, async (req, res) => {
     voyage_no !== undefined && voyage_no !== null && String(voyage_no).trim() !== ''
       ? trimText(voyage_no, 64)
       : trimText(planRowBound?.voyage_no ?? beforeRow.voyage_no, 64);
-  const nextVesselName =
-    vessel_name && String(vessel_name).trim()
+  const planLinked = planRowBound?.master_vessel_id != null;
+  const nextVesselName = planLinked
+    ? String(planRowBound?.vessel_name || '').trim()
+    : vessel_name && String(vessel_name).trim()
       ? String(vessel_name).trim()
       : String(planRowBound?.vessel_name || '').trim();
 
@@ -1364,6 +1386,8 @@ function toSIList(row) {
     id: row.id,
     referenceNumber: row.reference_number ?? null,
     vesselName: row.vessel_name,
+    masterVesselId: row.master_vessel_id != null ? Number(row.master_vessel_id) : null,
+    vesselLinkStatus: row.master_vessel_id != null ? 'linked' : 'legacy',
     vesselCapacity: row.vessel_capacity != null ? Number(row.vessel_capacity) : null,
     vesselLoaM: row.vessel_loa_m != null ? Number(row.vessel_loa_m) : null,
     vesselGrossTonnage: row.vessel_gross_tonnage != null ? Number(row.vessel_gross_tonnage) : null,

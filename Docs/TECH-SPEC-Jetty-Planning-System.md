@@ -81,7 +81,7 @@
 
 | Migration | Objects |
 |-----------|---------|
-| **`118_shipment_plans_master_vessel_id.sql`** | **`shipment_plans.master_vessel_id`** (`BIGINT`, FK → **`master_vessels`**, `ON DELETE RESTRICT`); partial index **`idx_shipment_plans_master_vessel_id`**. **No backfill** at go-live — existing rows remain NULL. |
+| **`133_shipment_plans_master_vessel_id.sql`** | **`shipment_plans.master_vessel_id`** (`BIGINT`, FK → **`master_vessels`**, `ON DELETE RESTRICT`); partial index **`idx_shipment_plans_master_vessel_id`**. **No backfill** at go-live — existing rows remain NULL. Migration **118** is admin ops alerts, not this column. |
 
 **Shared lib — `Backend/src/lib/resolve-master-vessel.js`:**
 
@@ -125,7 +125,7 @@ Tests: **`Backend/src/lib/resolve-master-vessel.test.js`**.
 | **`Frontend/src/api/shipmentPlans.js`** | Create/patch payloads include **`masterVesselId`**; **`patchShipmentPlanVesselInfo`**. |
 | **`Frontend/e2e/master-vessel-wiring.spec.ts`** | E2E coverage for create, legacy edit, and re-pick flows. |
 
-**Deploy order:** Run migration **118** before or with API/frontend builds that require **`master_vessel_id`** on plan create.
+**Deploy order:** Run migration **133** before or with API/frontend builds that require **`master_vessel_id`** on plan create.
 
 **Deferred (Project B):** Bulk backfill of legacy plans and “Refresh from master” push — **`Docs/Future/MASTER-VESSEL-PUSH-TO-PLANS.md`**, QA stub **`Backend/scripts/qa-master-vessel-link-deferred.sql`**.
 

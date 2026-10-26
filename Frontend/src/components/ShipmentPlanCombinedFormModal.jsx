@@ -12,6 +12,8 @@ import {
   updateShippingInstruction,
 } from '../api/shippingInstructions'
 import { attachDraftSiDocuments, deleteSiDocument } from '../api/siDocuments'
+import MasterVesselSearchSelect from './MasterVesselSearchSelect'
+import { fieldsFromMasterVessel, vesselTypeLabel } from '../utils/masterVesselDisplay'
 import { usePortScope } from '../context/PortScopeContext'
 import { fetchSiLookups } from '../api/siLookups'
 import {
@@ -125,9 +127,13 @@ export default function ShipmentPlanCombinedFormModal({
   const [modalSiLoading, setModalSiLoading] = useState(false)
   const [editingPlan, setEditingPlan] = useState(null)
   const [formVessel, setFormVessel] = useState('')
+  const [formMasterVesselId, setFormMasterVesselId] = useState('')
+  const [vesselLinkStatus, setVesselLinkStatus] = useState('legacy')
   const [formVesselLoa, setFormVesselLoa] = useState('')
   const [formVesselGt, setFormVesselGt] = useState('')
   const [formVesselDraft, setFormVesselDraft] = useState('')
+  const [formVesselType, setFormVesselType] = useState('')
+  const [formVesselHull, setFormVesselHull] = useState('')
   const [formJettyId, setFormJettyId] = useState('')
   const [formEta, setFormEta] = useState('')
   const [formPurposeId, setFormPurposeId] = useState('')
@@ -160,9 +166,13 @@ export default function ShipmentPlanCombinedFormModal({
     setModalSiLoading(false)
     setEditingPlan(null)
     setFormVessel('')
+    setFormMasterVesselId('')
+    setVesselLinkStatus('legacy')
     setFormVesselLoa('')
     setFormVesselGt('')
     setFormVesselDraft('')
+    setFormVesselType('')
+    setFormVesselHull('')
     setFormJettyId('')
     setFormEta('')
     setFormPurposeId('')
@@ -194,12 +204,27 @@ export default function ShipmentPlanCombinedFormModal({
     [formVessel, formVoyageNo, formAgentId, formEta]
   )
 
+  const useMasterPicker = mode === 'create'
+    || (editingPlan ? vesselLinkStatus === 'linked' : planRow?.vesselLinkStatus === 'linked')
+
+  const applyMasterVessel = useCallback((vessel) => {
+    const fields = fieldsFromMasterVessel(vessel)
+    setFormMasterVesselId(fields.masterVesselId)
+    setFormVessel(fields.vesselName)
+    setFormVesselLoa(fields.vesselLoaM)
+    setFormVesselGt(fields.vesselGrossTonnage)
+    setFormVesselDraft(fields.vesselDraft)
+    setFormVesselType(fields.vesselType)
+    setFormVesselHull(fields.vesselHullType)
+    setFieldErrors((prev) => ({ ...prev, vessel: undefined, loa: undefined, gt: undefined, draft: undefined }))
+  }, [])
+
   const onApplyPlanFieldsFromExtract = useCallback((plan) => {
-    if (plan.vesselName != null) setFormVessel(plan.vesselName)
+    if (plan.vesselName != null && editingPlan && vesselLinkStatus !== 'linked') setFormVessel(plan.vesselName)
     if (plan.voyageNo != null) setFormVoyageNo(plan.voyageNo)
     if (plan.agentId != null) setFormAgentId(String(plan.agentId))
     if (plan.eta != null) setFormEta(plan.eta)
-  }, [])
+  }, [editingPlan, vesselLinkStatus])
 
   const siDocExtract = useSiDocumentExtract({
     lookups,
@@ -215,6 +240,15 @@ export default function ShipmentPlanCombinedFormModal({
   }, [toast])
 
   const applyPlanDetailToFormFields = useCallback((d, row) => {
+    const status = d.vesselLinkStatus === 'linked' || row?.vesselLinkStatus === 'linked' ? 'linked' : 'legacy'
+    setVesselLinkStatus(status)
+    setFormMasterVesselId(
+      d.masterVesselId != null
+        ? String(d.masterVesselId)
+        : row?.masterVesselId != null
+          ? String(row.masterVesselId)
+          : ''
+    )
     setFormVessel(d.vesselName || row?.vesselName || '')
     setFormVesselLoa(
       d.vesselLoaM != null ? String(d.vesselLoaM) : row?.vesselLoaM != null ? String(row.vesselLoaM) : ''
@@ -229,6 +263,8 @@ export default function ShipmentPlanCombinedFormModal({
     setFormVesselDraft(
       d.vesselDraft != null ? String(d.vesselDraft) : row?.vesselDraft != null ? String(row.vesselDraft) : ''
     )
+    setFormVesselType(d.vesselType || row?.vesselType || '')
+    setFormVesselHull(d.vesselHullType || row?.vesselHullType || '')
     setFormJettyId(d.jettyId != null ? String(d.jettyId) : '')
     setFormEta(toDateTimeLocalValue(d.eta ?? row?.eta))
     setFormPurposeId(d.purposeId != null ? String(d.purposeId) : '')
@@ -315,10 +351,14 @@ export default function ShipmentPlanCombinedFormModal({
       agentId: null,
     }
     setEditingPlan(row)
+    setVesselLinkStatus(row.vesselLinkStatus === 'linked' ? 'linked' : 'legacy')
+    setFormMasterVesselId(row.masterVesselId != null ? String(row.masterVesselId) : '')
     setFormVessel(row.vesselName || '')
     setFormVesselLoa(row.vesselLoaM != null ? String(row.vesselLoaM) : '')
     setFormVesselGt(row.vesselGrossTonnage != null ? String(row.vesselGrossTonnage) : '')
     setFormVesselDraft(row.vesselDraft != null ? String(row.vesselDraft) : '')
+    setFormVesselType(row.vesselType || '')
+    setFormVesselHull(row.vesselHullType || '')
     setFormJettyId(row.jettyId != null ? String(row.jettyId) : '')
     setFormEta(toDateTimeLocalValue(row.eta))
     setFormPurposeId(row.purposeId != null ? String(row.purposeId) : '')
@@ -596,9 +636,9 @@ export default function ShipmentPlanCombinedFormModal({
       focusPlanField('sp-purpose')
       return false
     }
-    if (!formVessel.trim()) {
-      setFieldErrors({ vessel: t('formVesselRequired') })
-      focusPlanField('sp-vessel')
+    if (!formMasterVesselId) {
+      setFieldErrors({ vessel: t('formMasterVesselSelect') })
+      focusPlanField('sp-master-vessel')
       return false
     }
     if (!validateVesselDimensionFields()) return false
@@ -617,11 +657,11 @@ export default function ShipmentPlanCombinedFormModal({
     const purposePid = parseInt(formPurposeId, 10)
     const agentPidCreate = formAgentId.trim() ? parseInt(formAgentId, 10) : NaN
     return {
-      vesselName: formVessel.trim(),
-      vesselCapacity: totalCargoMt > 0 ? totalCargoMt : null,
+      masterVesselId: formMasterVesselId,
       vesselLoaM: Number(formVesselLoa),
       vesselGrossTonnage: Number(formVesselGt),
       vesselDraft: Number(formVesselDraft),
+      vesselCapacity: totalCargoMt > 0 ? totalCargoMt : null,
       jettyId: Number.isNaN(jettyId) ? null : jettyId,
       eta: new Date(formEta).toISOString(),
       purposeId: purposePid,
@@ -639,12 +679,21 @@ export default function ShipmentPlanCombinedFormModal({
       focusPlanField('sp-purpose')
       return
     }
-    if (!v) {
-      setFieldErrors({ vessel: t('formVesselRequired') })
-      focusPlanField('sp-vessel')
-      return
+    if (useMasterPicker) {
+      if (!formMasterVesselId) {
+        setFieldErrors({ vessel: t('formMasterVesselSelect') })
+        focusPlanField('sp-master-vessel')
+        return
+      }
+      if (!validateVesselDimensionFields()) return
+    } else {
+      if (!v) {
+        setFieldErrors({ vessel: t('formVesselRequired') })
+        focusPlanField('sp-vessel')
+        return
+      }
+      if (!validateVesselDimensionFields()) return
     }
-    if (!validateVesselDimensionFields()) return
     if (!formEta?.trim()) {
       setFieldErrors({ eta: t('formEtaRequired') })
       focusPlanField('sp-eta')
@@ -661,6 +710,8 @@ export default function ShipmentPlanCombinedFormModal({
       }
       const agentPidSave = formAgentId.trim() ? parseInt(formAgentId, 10) : NaN
       await updateShipmentPlan(editingPlan.id, {
+        vesselLinkStatus: useMasterPicker ? 'linked' : 'legacy',
+        masterVesselId: useMasterPicker ? formMasterVesselId : null,
         vesselName: v,
         vesselCapacity: totalCargoMt > 0 ? totalCargoMt : null,
         vesselLoaM: Number(formVesselLoa),
@@ -1226,21 +1277,41 @@ export default function ShipmentPlanCombinedFormModal({
                     </div>
                     {fieldErrors.purpose ? <p className="shipment-plan-form__field-error">{fieldErrors.purpose}</p> : null}
                   </div>
-                  <div className={`input-group shipment-plan-form__vessel${fieldErrors.vessel ? ' has-error' : ''}`}>
-                    <label htmlFor="sp-vessel">{t('formVesselRequired')}</label>
-                    <input
-                      id="sp-vessel"
-                      maxLength={MAX_SI_VESSEL_NAME_CHARS}
-                      value={formVessel}
-                      onChange={(e) => {
-                        setFormVessel(e.target.value)
-                        setFieldErrors((prev) => ({ ...prev, vessel: undefined }))
-                      }}
-                      aria-invalid={fieldErrors.vessel ? 'true' : undefined}
-                      required
-                    />
-                    {fieldErrors.vessel ? <p className="shipment-plan-form__field-error">{fieldErrors.vessel}</p> : null}
-                  </div>
+                  {useMasterPicker ? (
+                    <div className={`input-group shipment-plan-form__vessel${fieldErrors.vessel ? ' has-error' : ''}`}>
+                      <label id="sp-master-vessel-label" htmlFor="sp-master-vessel">{t('formMasterVesselRequired')}</label>
+                      <MasterVesselSearchSelect
+                        id="sp-master-vessel"
+                        value={formMasterVesselId}
+                        initialLabel={formVessel}
+                        onChange={(id) => {
+                          setFormMasterVesselId(id)
+                          setFieldErrors((prev) => ({ ...prev, vessel: undefined }))
+                        }}
+                        onVesselSelect={applyMasterVessel}
+                      />
+                      {fieldErrors.vessel ? <p className="shipment-plan-form__field-error">{fieldErrors.vessel}</p> : null}
+                      <label htmlFor="sp-vessel" style={{ marginTop: '0.65rem' }}>{t('formVesselRequired')}</label>
+                      <input id="sp-vessel" value={formVessel} readOnly />
+                    </div>
+                  ) : (
+                    <div className={`input-group shipment-plan-form__vessel${fieldErrors.vessel ? ' has-error' : ''}`}>
+                      <p className="text-steel" style={{ margin: '0 0 0.35rem' }}>{t('vesselLinkLegacyNote')}</p>
+                      <label htmlFor="sp-vessel">{t('formVesselRequired')}</label>
+                      <input
+                        id="sp-vessel"
+                        maxLength={MAX_SI_VESSEL_NAME_CHARS}
+                        value={formVessel}
+                        onChange={(e) => {
+                          setFormVessel(e.target.value)
+                          setFieldErrors((prev) => ({ ...prev, vessel: undefined }))
+                        }}
+                        aria-invalid={fieldErrors.vessel ? 'true' : undefined}
+                        required
+                      />
+                      {fieldErrors.vessel ? <p className="shipment-plan-form__field-error">{fieldErrors.vessel}</p> : null}
+                    </div>
+                  )}
                   <div className="shipment-plan-form__vessel-specs">
                     <div className={`input-group${fieldErrors.loa ? ' has-error' : ''}`}>
                       <label htmlFor="sp-vessel-loa">{t('formVesselLoaRequired')}</label>
@@ -1300,6 +1371,21 @@ export default function ShipmentPlanCombinedFormModal({
                       {fieldErrors.draft ? <p className="shipment-plan-form__field-error">{fieldErrors.draft}</p> : null}
                     </div>
                   </div>
+                  {useMasterPicker ? (
+                    <div className="shipment-plan-form__vessel-specs">
+                      <div className="input-group">
+                        <label htmlFor="sp-vessel-type">{t('formVesselType')}</label>
+                        <input id="sp-vessel-type" value={vesselTypeLabel(formVesselType) || '—'} readOnly />
+                      </div>
+                      <div className="input-group">
+                        <label htmlFor="sp-vessel-hull">{t('formVesselHullType')}</label>
+                        <input id="sp-vessel-hull" value={formVesselHull || '—'} readOnly />
+                      </div>
+                    </div>
+                  ) : null}
+                  {useMasterPicker ? (
+                    <p className="shipment-plan-form__inline-hint text-steel">{t('formVesselFromMasterHint')}</p>
+                  ) : null}
                   <div className="shipment-plan-form__calc-strip" title={t('formVesselDwtInfoTooltip')}>
                     <span>{t('footerChipCargo')} {totalCargoMt > 0 ? totalCargoMt.toLocaleString('en-US') : '—'}</span>
                     <span>DWT {vesselDwtComputed != null ? vesselDwtComputed.toLocaleString('en-US') : '—'}</span>

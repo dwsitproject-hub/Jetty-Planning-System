@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom'
  * Dropdown multi-select: trigger shows selected labels (or placeholder); click opens panel with checkboxes.
  * Optional in-panel Search… filter (case-insensitive on option labels).
  * @param {Object} props
- * @param {Array<{ value: string, label: string }>} props.options
+ * @param {Array<{ value: string, label: string, keywords?: string }>} props.options
  * @param {string[]} props.selectedValues
  * @param {function(string[]): void} props.onChange
  * @param {string} [props.placeholder] - e.g. "Select jetty..."
@@ -107,7 +107,10 @@ export default function DropdownMultiSelect({
     if (!searchable) return options
     const term = search.trim().toLowerCase()
     if (!term) return options
-    return options.filter((opt) => String(opt.label || '').toLowerCase().includes(term))
+    return options.filter((opt) => {
+      const hay = `${opt.label || ''} ${opt.keywords || ''}`.toLowerCase()
+      return hay.includes(term)
+    })
   }, [options, search, searchable])
 
   const selectedLabels = selectedValues

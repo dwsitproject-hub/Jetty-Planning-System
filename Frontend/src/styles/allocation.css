@@ -6304,6 +6304,23 @@ body:has(.clearance-page--embed) {
   gap: 0.5rem;
 }
 
+.clearance-pagination__page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--color-text-steel);
+}
+
+.clearance-pagination__page-size select {
+  padding: 0.25rem 0.4rem;
+  font-size: 0.85rem;
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg, #fff);
+}
+
 .clearance-date-range-filter {
   display: flex;
   flex-direction: column;

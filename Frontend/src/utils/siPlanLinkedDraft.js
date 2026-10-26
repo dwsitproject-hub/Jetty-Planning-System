@@ -89,6 +89,9 @@ export function siDetailToPlanLinkedDraftForm(si, lookups, linkedPlan) {
           const row = {
             shipperId: b.shipperId != null ? String(b.shipperId) : '',
             commodityId: b.commodityId != null ? String(b.commodityId) : '',
+            commodityName: b.commodityName ?? '',
+            commodityShortName: b.commodityShortName ?? '',
+            materialCode: b.materialCode ?? '',
             metricId: b.metricId != null ? String(b.metricId) : '',
             qty: b.qty != null && b.qty !== '' ? String(b.qty) : '',
             contractNo: b.contractNo ?? '',

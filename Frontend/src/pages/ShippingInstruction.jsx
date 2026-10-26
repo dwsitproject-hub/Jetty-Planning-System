@@ -14,6 +14,8 @@ import { useActivityLog } from '../context/ActivityLogContext'
 import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
 import PurposeBadge from '../components/PurposeBadge'
+import MasterVesselSearchSelect from '../components/MasterVesselSearchSelect'
+import { fieldsFromMasterVessel } from '../utils/masterVesselDisplay'
 import { SiRowActions, canViewAsDocument } from '../components/SiTableRowActions'
 import SiDetailModal from '../components/SiDetailModal'
 import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
@@ -31,6 +33,8 @@ import {
   MAX_SI_VOYAGE_CHARS,
 } from '../constants/inputLimits'
 import { emptyBreakdownRow, nextDocId } from '../utils/siPlanLinkedDraft'
+import { commodityPickerOptions } from '../utils/commodityShortTitle.js'
+import SearchableSingleSelect from '../components/SearchableSingleSelect.jsx'
 import { filterJettiesForPort, jettySelectLabel } from '../utils/portScopedLookups'
 import {
   applyCommodityDefaultMetric,
@@ -298,6 +302,7 @@ function nextSiId(list) {
 
 export default function ShippingInstruction() {
   const { t } = useTranslation('shippingInstruction')
+  const { t: tPlan } = useTranslation('shipmentPlan')
   const navigate = useNavigate()
   const { logActivity } = useActivityLog()
   const { canApprove, canDelete } = useRbac()
@@ -327,6 +332,8 @@ export default function ShippingInstruction() {
   const defaultFormFromLookups = (lu) => {
     const base = {
       vesselName: '',
+      masterVesselId: '',
+      vesselLinkStatus: 'legacy',
       referenceNumber: '',
       voyageNo: '',
       purposeId: '',
@@ -548,10 +555,22 @@ export default function ShippingInstruction() {
       setToast({ message: metricErr, variant: 'error' })
       return
     }
+    if (!editingId && !form.masterVesselId) {
+      setToast({ message: tPlan('formMasterVesselSelect'), variant: 'error' })
+      return
+    }
+    if (!form.vesselName.trim()) {
+      setToast({
+        message: editingId ? t('formVesselNameRequired') : tPlan('formMasterVesselIncomplete'),
+        variant: 'error',
+      })
+      return
+    }
     try {
       const etaIso = form.etaFrom ? new Date(`${form.etaFrom}T12:00:00`).toISOString() : null
       const payload = {
         vesselName: form.vesselName.trim(),
+        masterVesselId: editingId ? undefined : form.masterVesselId,
         purposeId: pid,
         tradeTermId: isUnloading ? num(form.tradeTermId) : null,
         preferredJettyId: num(form.preferredJettyId),
@@ -694,6 +713,9 @@ export default function ShippingInstruction() {
           ? row.breakdown.map((b) => ({
               shipperId: b.shipperId != null ? String(b.shipperId) : '',
               commodityId: b.commodityId != null ? String(b.commodityId) : '',
+              commodityName: b.commodityName ?? '',
+              commodityShortName: b.commodityShortName ?? '',
+              materialCode: b.materialCode ?? '',
               metricId: b.metricId != null ? String(b.metricId) : '',
               qty: b.qty != null ? String(b.qty) : '',
               contractNo: b.contractNo ?? '',
@@ -704,6 +726,8 @@ export default function ShippingInstruction() {
 
       setForm({
         vesselName: row.vesselName ?? '',
+        masterVesselId: row.masterVesselId != null ? String(row.masterVesselId) : '',
+        vesselLinkStatus: row.vesselLinkStatus === 'linked' ? 'linked' : 'legacy',
         referenceNumber: row.referenceNumber ?? '',
         voyageNo: row.voyageNo ?? '',
         purposeId: row.purposeId != null ? String(row.purposeId) : '',
@@ -1130,6 +1154,30 @@ export default function ShippingInstruction() {
                 <h3 className="shipping-instruction-form__section-title">{t('formVesselTripSection')}</h3>
                 <div className="shipping-instruction-form__grid shipping-instruction-form__grid--vessel-trip">
                   <div className="input-group shipping-instruction-form__vessel">
+                    {!editingId ? (
+                      <>
+                        <label htmlFor="si-master-vessel">{tPlan('formMasterVesselRequired')}</label>
+                        <MasterVesselSearchSelect
+                          id="si-master-vessel"
+                          value={form.masterVesselId}
+                          initialLabel={form.vesselName}
+                          disabled={!lookups}
+                          onChange={(id) => updateForm({ masterVesselId: id })}
+                          onVesselSelect={(vessel) => {
+                            const fields = fieldsFromMasterVessel(vessel)
+                            updateForm({
+                              masterVesselId: fields.masterVesselId,
+                              vesselName: fields.vesselName,
+                            })
+                          }}
+                        />
+                        <p className="text-steel" style={{ margin: '0.35rem 0' }}>{tPlan('formVesselNameFromMasterHint')}</p>
+                      </>
+                    ) : form.vesselLinkStatus !== 'linked' ? (
+                      <p className="text-steel" style={{ margin: '0 0 0.35rem' }}>{tPlan('vesselLinkLegacyNote')}</p>
+                    ) : (
+                      <p className="text-steel" style={{ margin: '0 0 0.35rem' }}>{tPlan('formVesselNameFromMasterHint')}</p>
+                    )}
                     <label htmlFor="vesselName">{t('formVesselNameRequired')}</label>
                     <input
                       id="vesselName"
@@ -1139,6 +1187,7 @@ export default function ShippingInstruction() {
                       required
                       placeholder="e.g. TB. ARIA CITRA IV / BG. MULIA VII"
                       disabled={!lookups}
+                      readOnly={!editingId || form.vesselLinkStatus === 'linked'}
                     />
                   </div>
                   <div className="input-group shipping-instruction-form__ref">
@@ -1307,18 +1356,14 @@ export default function ShippingInstruction() {
                             </select>
                           </td>
                           <td>
-                            <select
-                              value={row.commodityId}
-                              onChange={(e) => updateBreakdownCommodity(i, e.target.value)}
-                              required
-                              className="shipping-instruction-inline-input"
+                            <SearchableSingleSelect
+                              value={row.commodityId != null ? String(row.commodityId) : ''}
+                              onChange={(v) => updateBreakdownCommodity(i, v)}
+                              options={commodityPickerOptions(lookups?.commodities, row)}
+                              placeholder="—"
+                              searchPlaceholder="Search material code or name"
                               disabled={!lookups}
-                            >
-                              <option value="">—</option>
-                              {(lookups?.commodities || []).map((c) => (
-                                <option key={c.id} value={c.id}>{c.name}</option>
-                              ))}
-                            </select>
+                            />
                           </td>
                           <td>
                             <input

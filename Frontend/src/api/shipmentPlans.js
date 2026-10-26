@@ -17,11 +17,11 @@ export function fetchShipmentPlan(id) {
 
 export function createShipmentPlan(body) {
   return apiPost('/shipment-plans', {
-    vessel_name: body.vesselName,
+    master_vessel_id: body.masterVesselId,
+    vessel_loa_m: body.vesselLoaM,
+    vessel_gross_tonnage: body.vesselGrossTonnage,
+    vessel_draft: body.vesselDraft,
     vessel_capacity: body.vesselCapacity ?? null,
-    vessel_loa_m: body.vesselLoaM ?? null,
-    vessel_gross_tonnage: body.vesselGrossTonnage ?? null,
-    vessel_draft: body.vesselDraft ?? null,
     jetty_id: body.jettyId ?? null,
     eta: body.eta ?? null,
     purpose_id: body.purposeId ?? null,
@@ -31,22 +31,40 @@ export function createShipmentPlan(body) {
 }
 
 export function updateShipmentPlan(id, body) {
-  return apiPatch(`/shipment-plans/${id}`, {
-    vessel_name: body.vesselName,
+  const payload = {
     vessel_capacity: body.vesselCapacity,
-    vessel_loa_m: body.vesselLoaM,
-    vessel_gross_tonnage: body.vesselGrossTonnage,
-    vessel_draft: body.vesselDraft,
     jetty_id: body.jettyId,
     eta: body.eta,
     purpose_id: body.purposeId,
     voyage_no: body.voyageNo,
     agent_id: body.agentId,
-  })
+  }
+  if (body.vesselLinkStatus === 'linked') {
+    if (body.masterVesselId != null && body.masterVesselId !== '') {
+      payload.master_vessel_id = body.masterVesselId
+    }
+    payload.vessel_loa_m = body.vesselLoaM
+    payload.vessel_gross_tonnage = body.vesselGrossTonnage
+    payload.vessel_draft = body.vesselDraft
+  } else {
+    payload.vessel_name = body.vesselName
+    payload.vessel_loa_m = body.vesselLoaM
+    payload.vessel_gross_tonnage = body.vesselGrossTonnage
+    payload.vessel_draft = body.vesselDraft
+  }
+  return apiPatch(`/shipment-plans/${id}`, payload)
 }
 
-/** Vessel information only (name/LOA/GT/draft) — allowed in any approval status. Cargo MT is synced from breakdown. */
+/** Vessel information only — allowed in any approval status. Cargo MT is synced from breakdown. */
 export function updateShipmentPlanVesselInfo(id, body) {
+  if (body.vesselLinkStatus === 'linked') {
+    return apiPatch(`/shipment-plans/${id}/vessel-info`, {
+      master_vessel_id: body.masterVesselId,
+      vessel_loa_m: body.vesselLoaM,
+      vessel_gross_tonnage: body.vesselGrossTonnage,
+      vessel_draft: body.vesselDraft,
+    })
+  }
   return apiPatch(`/shipment-plans/${id}/vessel-info`, {
     vessel_name: body.vesselName,
     vessel_loa_m: body.vesselLoaM,

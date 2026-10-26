@@ -9,6 +9,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { fetchShipmentPlan, updateShipmentPlanVesselInfo } from '../api/shipmentPlans'
 import FormLabelWithInfo from './FormLabelWithInfo'
+import MasterVesselSearchSelect from './MasterVesselSearchSelect'
+import { fieldsFromMasterVessel, vesselTypeLabel } from '../utils/masterVesselDisplay'
 import { useRbac } from '../context/RbacContext'
 import { planHubCanEditPlan } from '../utils/siPreBerthEdit'
 import '../styles/modal.css'
@@ -53,9 +55,12 @@ export default function VesselInfoModal({ planId, isOpen, onClose, onSaved, onOp
   const [error, setError] = useState(null)
   const [plan, setPlan] = useState(null)
   const [name, setName] = useState('')
+  const [masterVesselId, setMasterVesselId] = useState('')
   const [loa, setLoa] = useState('')
   const [gt, setGt] = useState('')
   const [draft, setDraft] = useState('')
+  const [vesselType, setVesselType] = useState('')
+  const [vesselHull, setVesselHull] = useState('')
 
   useEffect(() => {
     if (!isOpen || planId == null) return
@@ -67,10 +72,13 @@ export default function VesselInfoModal({ planId, isOpen, onClose, onSaved, onOp
       .then((d) => {
         if (cancelled) return
         setPlan(d)
+        setMasterVesselId(d.masterVesselId != null ? String(d.masterVesselId) : '')
         setName(d.vesselName || '')
         setLoa(d.vesselLoaM != null ? String(d.vesselLoaM) : '')
         setGt(d.vesselGrossTonnage != null ? String(d.vesselGrossTonnage) : '')
         setDraft(d.vesselDraft != null ? String(d.vesselDraft) : '')
+        setVesselType(d.vesselType || '')
+        setVesselHull(d.vesselHullType || '')
       })
       .catch((e) => {
         if (!cancelled) setError(e?.message || 'Failed to load vessel information')
@@ -94,13 +102,32 @@ export default function VesselInfoModal({ planId, isOpen, onClose, onSaved, onOp
 
   if (!isOpen) return null
 
+  const linked = plan?.vesselLinkStatus === 'linked'
+
+  const applyMasterVessel = (vessel) => {
+    const fields = fieldsFromMasterVessel(vessel)
+    setMasterVesselId(fields.masterVesselId)
+    setName(fields.vesselName)
+    setLoa(fields.vesselLoaM)
+    setGt(fields.vesselGrossTonnage)
+    setDraft(fields.vesselDraft)
+    setVesselType(fields.vesselType)
+    setVesselHull(fields.vesselHullType)
+    setError(null)
+  }
+
   const numOk = (raw) => {
     const n = Number(raw)
     return raw != null && String(raw).trim() !== '' && Number.isFinite(n) && n > 0
   }
 
   const handleSave = async () => {
-    if (!name.trim()) {
+    if (linked) {
+      if (!masterVesselId) {
+        setError(t('formMasterVesselSelect'))
+        return
+      }
+    } else if (!name.trim()) {
       setError(t('formVesselRequired'))
       return
     }
@@ -119,6 +146,8 @@ export default function VesselInfoModal({ planId, isOpen, onClose, onSaved, onOp
     setError(null)
     try {
       await updateShipmentPlanVesselInfo(planId, {
+        vesselLinkStatus: linked ? 'linked' : 'legacy',
+        masterVesselId: linked ? masterVesselId : null,
         vesselName: name.trim(),
         vesselLoaM: Number(loa),
         vesselGrossTonnage: Number(gt),
@@ -133,7 +162,7 @@ export default function VesselInfoModal({ planId, isOpen, onClose, onSaved, onOp
     }
   }
 
-  const numberField = (id, label, value, setValue) => (
+  const numberField = (id, label, value, setValue, readOnly = false) => (
     <div className="modal__section">
       <label className="modal__label" htmlFor={id}>
         {label}
@@ -148,6 +177,7 @@ export default function VesselInfoModal({ planId, isOpen, onClose, onSaved, onOp
         value={value}
         onChange={(e) => setValue(e.target.value)}
         disabled={!allowEdit || loading}
+        readOnly={readOnly}
         required
       />
     </div>
@@ -168,6 +198,24 @@ export default function VesselInfoModal({ planId, isOpen, onClose, onSaved, onOp
         ) : null}
         {!loading && plan ? (
           <>
+            {linked ? (
+              <div className="modal__section">
+                <label className="modal__label" htmlFor="vessel-info-master">{t('formMasterVesselRequired')}</label>
+                <MasterVesselSearchSelect
+                  id="vessel-info-master"
+                  value={masterVesselId}
+                  initialLabel={name}
+                  disabled={!allowEdit || loading}
+                  onChange={setMasterVesselId}
+                  onVesselSelect={applyMasterVessel}
+                />
+                <p className="text-steel" style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>
+                  {t('formVesselFromMasterHint')}
+                </p>
+              </div>
+            ) : (
+              <p className="text-steel" style={{ fontSize: '0.85rem' }}>{t('vesselLinkLegacyNote')}</p>
+            )}
             <div className="modal__section">
               <label className="modal__label" htmlFor="vessel-info-name">
                 {t('formVesselRequired')}
@@ -177,13 +225,26 @@ export default function VesselInfoModal({ planId, isOpen, onClose, onSaved, onOp
                 className="modal__input"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                disabled={!allowEdit}
+                disabled={!allowEdit || linked}
+                readOnly={linked}
                 required
               />
             </div>
             {numberField('vessel-info-loa', t('formVesselLoaRequired'), loa, setLoa)}
             {numberField('vessel-info-gt', t('formVesselGtRequired'), gt, setGt)}
             {numberField('vessel-info-draft', t('formVesselDraftRequired'), draft, setDraft)}
+            {linked ? (
+              <>
+                <div className="modal__section">
+                  <label className="modal__label" htmlFor="vessel-info-type">{t('formVesselType')}</label>
+                  <input id="vessel-info-type" className="modal__input" value={vesselTypeLabel(vesselType) || '—'} readOnly />
+                </div>
+                <div className="modal__section">
+                  <label className="modal__label" htmlFor="vessel-info-hull">{t('formVesselHullType')}</label>
+                  <input id="vessel-info-hull" className="modal__input" value={vesselHull || '—'} readOnly />
+                </div>
+              </>
+            ) : null}
             <div className="modal__section">
               <FormLabelWithInfo
                 htmlFor="vessel-info-cargo-mt"

@@ -57,6 +57,9 @@ export function createShippingInstruction(body) {
     bl_indicated: body.blIndicated ?? null,
     document_date: body.documentDate ?? null,
   }
+  if (body.masterVesselId != null && body.masterVesselId !== '') {
+    payload.master_vessel_id = body.masterVesselId
+  }
   if (body.shipmentPlanId != null && body.shipmentPlanId !== '') {
     payload.shipment_plan_id = body.shipmentPlanId
   }

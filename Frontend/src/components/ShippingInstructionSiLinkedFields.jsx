@@ -14,7 +14,8 @@ import {
   MAX_SI_VOYAGE_CHARS,
 } from '../constants/inputLimits'
 import { emptyBreakdownRow, nextDocId, planEtaYmd } from '../utils/siPlanLinkedDraft'
-import { commodityObjectTitle } from '../utils/commodityShortTitle.js'
+import { commodityPickerOptions } from '../utils/commodityShortTitle.js'
+import SearchableSingleSelect from './SearchableSingleSelect.jsx'
 import { filterJettiesForPort, jettySelectLabel } from '../utils/portScopedLookups'
 import {
   applyCommodityDefaultMetric,
@@ -345,20 +346,14 @@ export default function ShippingInstructionSiLinkedFields({
                       </select>
                     </td>
                     <td>
-                      <select
-                        value={row.commodityId}
-                        onChange={(e) => updateBreakdownCommodity(i, e.target.value)}
-                        required
-                        className="shipping-instruction-inline-input"
+                      <SearchableSingleSelect
+                        value={row.commodityId != null ? String(row.commodityId) : ''}
+                        onChange={(v) => updateBreakdownCommodity(i, v)}
+                        options={commodityPickerOptions(lookups?.commodities, row)}
+                        placeholder="—"
+                        searchPlaceholder="Search material code or name"
                         disabled={!lookups}
-                      >
-                        <option value="">—</option>
-                        {(lookups?.commodities || []).map((c) => (
-                          <option key={c.id} value={c.id} title={commodityObjectTitle(c)}>
-                            {c.shortName || c.name}
-                          </option>
-                        ))}
-                      </select>
+                      />
                     </td>
                     <td>
                       <input

@@ -6,10 +6,11 @@ import { createPortal } from 'react-dom'
  * @param {Object} props
  * @param {string} [props.id]
  * @param {string} [props.label]
- * @param {{ value: string, label: string }[]} props.options
+ * @param {{ value: string, label: string, keywords?: string }[]} props.options
  * @param {string} props.value
  * @param {(value: string) => void} props.onChange
  * @param {string} [props.placeholder]
+ * @param {string} [props.searchPlaceholder]
  * @param {boolean} [props.disabled]
  * @param {string} [props.className]
  */
@@ -20,6 +21,7 @@ export default function SearchableSingleSelect({
   value,
   onChange,
   placeholder = 'Select…',
+  searchPlaceholder = 'Search…',
   disabled = false,
   className = '',
 }) {
@@ -33,11 +35,10 @@ export default function SearchableSingleSelect({
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase()
     if (!q) return options
-    return options.filter(
-      (o) =>
-        o.value.toLowerCase().includes(q) ||
-        (o.label && o.label.toLowerCase().includes(q))
-    )
+    return options.filter((o) => {
+      const hay = `${o.value} ${o.label || ''} ${o.keywords || ''}`.toLowerCase()
+      return hay.includes(q)
+    })
   }, [options, filter])
 
   const selectedLabel = useMemo(() => {
@@ -138,8 +139,8 @@ export default function SearchableSingleSelect({
             className="searchable-select__search"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder="Search…"
-            aria-label="Filter options"
+            placeholder={searchPlaceholder}
+            aria-label={searchPlaceholder}
             onKeyDown={(e) => e.stopPropagation()}
           />
         </div>

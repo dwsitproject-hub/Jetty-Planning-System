@@ -13,7 +13,9 @@ import { MAX_MASTER_LONG_NAME_CHARS } from '../constants/inputLimits'
 import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import DataHubFieldCue from '../components/DataHubFieldCue.jsx'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
+import MasterTablePagination from '../components/MasterTablePagination.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
+import { useMasterTablePagination } from '../hooks/useMasterTablePagination.js'
 import {
   formatMasterCreatedLine,
   formatMasterLastUpdatedLine,
@@ -22,6 +24,8 @@ import {
 import DataHubSyncReviewModal from '../components/DataHubSyncReviewModal.jsx'
 import AppToast from '../components/AppToast.jsx'
 import { createSiDataHubSyncApi, DATAHUB_SI_ENTITY_META } from '../api/datahubSiMaster.js'
+
+const COMMODITY_PAGE_SIZE_OPTIONS = [10, 20, 50]
 
 const RATE_METRIC_OPTIONS = [
   { value: 'KLPH', label: 'KLPH' },
@@ -247,6 +251,22 @@ export default function MasterSiLookup({
     tableColumns,
     { key: isCommodityMaster ? 'shortName' : 'value', dir: 'asc' }
   )
+  const [commodityPageSize, setCommodityPageSize] = useState(20)
+  const commodityPaginationResetKey = useMemo(
+    () => JSON.stringify({ filters, sortKey: sortState.key, sortDir: sortState.dir, commodityPageSize }),
+    [filters, sortState.key, sortState.dir, commodityPageSize]
+  )
+  const {
+    page: commodityPage,
+    setPage: setCommodityPage,
+    totalPages: commodityTotalPages,
+    pagedRows: pagedCommodities,
+    range: commodityPaginationRange,
+  } = useMasterTablePagination(isCommodityMaster ? displayRows : [], {
+    pageSize: commodityPageSize,
+    resetKey: commodityPaginationResetKey,
+  })
+  const tableRows = isCommodityMaster ? pagedCommodities : displayRows
 
   const load = useCallback(async () => {
     setError(null)
@@ -756,7 +776,7 @@ export default function MasterSiLookup({
                 />
               </thead>
               <tbody>
-                {displayRows.map((it) => (
+                {tableRows.map((it) => (
                   <tr key={it.id} className="allocation-table__row">
                     {isCommodityMaster && (
                       <td>
@@ -845,6 +865,18 @@ export default function MasterSiLookup({
               <p className="text-steel" style={{ marginTop: 'var(--spacing-3)' }}>
                 No entries match the current filters.
               </p>
+            )}
+            {isCommodityMaster && (
+              <MasterTablePagination
+                range={commodityPaginationRange}
+                page={commodityPage}
+                totalPages={commodityTotalPages}
+                onPageChange={setCommodityPage}
+                ariaLabel="Commodity list pages"
+                pageSize={commodityPageSize}
+                pageSizeOptions={COMMODITY_PAGE_SIZE_OPTIONS}
+                onPageSizeChange={setCommodityPageSize}
+              />
             )}
           </div>
         )}

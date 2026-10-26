@@ -32,8 +32,15 @@ import {
 
 const PAGE_KEY = 'master-vessel'
 
-/** Enums mirrored from the DataHub vessel contract. */
-const VESSEL_TYPES = ['barge', 'tanker', 'SPOB']
+/** DataHub Vessel_Type enum values. Labels match the hub screen. */
+const VESSEL_TYPE_OPTIONS = [
+  { value: 'barge', label: 'Barge' },
+  { value: 'tanker', label: 'Tanker' },
+  { value: 'SPOB', label: 'SPOB' },
+  { value: 'tugboat', label: 'Tugboat' },
+  { value: 'wooden boat', label: 'Wooden boat' },
+]
+const VESSEL_TYPES = VESSEL_TYPE_OPTIONS.map((o) => o.value)
 const LAMBUNG_TYPES = [
   'Double hull Double Bottom',
   'Single hull Double Bottom',
@@ -468,7 +475,7 @@ export default function MasterVessel() {
                       )}
                     </td>
                     <td className="text-steel">{v.isActive === false ? 'No' : 'Yes'}</td>
-                    <td className="text-steel">{v.vesselType || '—'}</td>
+                    <td className="text-steel">{VESSEL_TYPE_OPTIONS.find((o) => o.value === v.vesselType)?.label || v.vesselType || '—'}</td>
                     <td className="text-steel">{v.vesselImo || '—'}</td>
                     <td className="text-steel">{v.vesselMmsi || '—'}</td>
                     <td className="text-steel">{v.vesselCodeSap || '—'}</td>
@@ -675,8 +682,8 @@ export default function MasterVessel() {
                 disabled={saving}
               >
                 <option value="">—</option>
-                {VESSEL_TYPES.map((t) => (
-                  <option key={t} value={t}>{t}</option>
+                {VESSEL_TYPE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
             </div>
