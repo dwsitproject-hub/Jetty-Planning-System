@@ -13,7 +13,7 @@ function src(name) {
 describe('shipment plan master vessel route wiring', () => {
   it('create stores the snapshot and master_vessel_id', () => {
     const plans = src('shipment-plans.js');
-    assert.match(plans, /snapshotActiveMasterVessel\(pool, b\.master_vessel_id\)/);
+    assert.match(plans, /resolveLinkedPlanVesselSnapshot\(pool, b\.master_vessel_id, b\)/);
     assert.match(plans, /master_vessel_id, vessel_name, vessel_capacity/);
     assert.match(plans, /vesselSnap\.master_vessel_id/);
   });

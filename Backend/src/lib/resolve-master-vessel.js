@@ -80,7 +80,9 @@ export async function resolveLinkedPlanVesselSnapshot(client, rawMasterId, body)
   const partial = planPartialSnapshotFromMasterRow(row);
   const merged = planDimensionsFromBody(body, partial);
   if (merged?.error) return merged;
-  return requireCompletePlanDimensions(merged);
+  const complete = requireCompletePlanDimensions(merged);
+  if (complete?.error) return complete;
+  return { ...partial, ...complete };
 }
 
 /** @param {{ id: unknown, vessel_name: string, vessel_gross_tonnage: unknown, vessel_draft: unknown, vessel_length_overall: unknown }} row */

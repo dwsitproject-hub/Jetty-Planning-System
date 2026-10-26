@@ -62,6 +62,10 @@ describe('resolve-master-vessel', () => {
       assert.equal(complete.vessel_loa_m, 95);
       assert.equal(complete.vessel_gross_tonnage, 1200);
       assert.equal(complete.vessel_draft, 4.5);
+      const snapshot = { ...partial, ...complete };
+      assert.equal(snapshot.master_vessel_id, 1);
+      assert.equal(snapshot.vessel_name, 'MV TEST');
+      assert.equal(snapshot.vessel_loa_m, 95);
     });
   });
 

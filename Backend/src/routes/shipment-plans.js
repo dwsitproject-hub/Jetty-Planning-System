@@ -395,7 +395,7 @@ router.post('/', requireAuth, async (req, res) => {
          jetty_id, eta, purpose_id, voyage_no, agent_id,
          requested_by, created_at, updated_at, updated_by
        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW(), $16)
-       RETURNING id`,
+       RETURNING id, port_id, plan_reference, approval_status`,
       [
         selectedPortId,
         vesselSnap.master_vessel_id,
@@ -420,6 +420,10 @@ router.post('/', requireAuth, async (req, res) => {
     await client.query(`UPDATE shipment_plans SET plan_reference = $1 WHERE id = $2`, [ref, planId]);
     await client.query('COMMIT');
     const row = await loadPlan(client, planId, selectedPortId);
+    if (!row) {
+      console.error('[shipment-plans] create: plan missing after commit', { planId, selectedPortId });
+      return res.status(500).json({ error: 'Plan created but failed to load' });
+    }
     writeActivityLog({
       pageKey: PAGE_KEY,
       action: 'add',
@@ -433,7 +437,7 @@ router.post('/', requireAuth, async (req, res) => {
       ],
       actorUserId: req.userId ?? null,
     }).catch(() => {});
-    res.status(201).json(toPlanListRow({ ...row, si_count: 0, jetty_name: row.jetty_name }));
+    res.status(201).json(toPlanListRow({ ...row, si_count: 0, jetty_name: row.jetty_name ?? null }));
   } catch (e) {
     await client.query('ROLLBACK');
     throw e;

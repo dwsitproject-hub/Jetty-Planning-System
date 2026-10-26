@@ -174,6 +174,13 @@ app.use((err, req, res, next) => {
     // Other CHECK constraints (e.g., status/phase) also map to 23514; return a clearer message for debugging.
     return res.status(400).json({ error: constraint ? `Invalid input (${constraint})` : 'Invalid input' });
   }
+  if (code === '42703') {
+    const hint =
+      process.env.NODE_ENV !== 'production' || process.env.DEBUG_API_ERRORS === '1'
+        ? 'Database schema out of date; run migrations'
+        : 'Service temporarily unavailable';
+    return res.status(503).json({ error: hint });
+  }
 
   console.error('Unhandled error:', err);
   return res.status(500).json({ error: 'Internal server error' });
