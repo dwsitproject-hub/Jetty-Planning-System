@@ -128,6 +128,7 @@ export default function ShipmentPlanCombinedFormModal({
   const [toast, setToast] = useState(null)
   const [lookups, setLookups] = useState(null)
   const [modalSiLoading, setModalSiLoading] = useState(false)
+  const [planLoadError, setPlanLoadError] = useState('')
   const [editingPlan, setEditingPlan] = useState(null)
   const [formVessel, setFormVessel] = useState('')
   const [formMasterVesselId, setFormMasterVesselId] = useState('')
@@ -190,6 +191,7 @@ export default function ShipmentPlanCombinedFormModal({
     setSiCardError(null)
     setActiveStep('vessel')
     setVesselPinned(false)
+    setPlanLoadError('')
   }, [])
 
   const handleClose = useCallback(() => {
@@ -330,6 +332,8 @@ export default function ShipmentPlanCombinedFormModal({
 
     const resolvedId = planRow?.id ?? planId
     if (resolvedId == null || !Number.isFinite(Number(resolvedId))) {
+      setPlanLoadError(t('planLoadFailed'))
+      setModalSiLoading(false)
       return () => {
         cancelled = true
       }
@@ -338,6 +342,7 @@ export default function ShipmentPlanCombinedFormModal({
     const generation = loadGenerationRef.current + 1
     loadGenerationRef.current = generation
     setModalSiLoading(true)
+    setPlanLoadError('')
     setSiDrafts([])
     setEditingPlanDetail(null)
 
@@ -398,10 +403,12 @@ export default function ShipmentPlanCombinedFormModal({
         if (!cancelled && loadGenerationRef.current === generation && drafts.length) {
           setSiDrafts(drafts)
         }
-      } catch {
+      } catch (err) {
         if (!cancelled && loadGenerationRef.current === generation) {
           setEditingPlanDetail(null)
-          setToast({ message: t('listLoading'), variant: 'error' })
+          const msg = err?.message || t('planLoadFailed')
+          setPlanLoadError(msg)
+          setToast({ message: msg, variant: 'error' })
         }
       } finally {
         if (!cancelled && loadGenerationRef.current === generation) {
@@ -1034,16 +1041,26 @@ export default function ShipmentPlanCombinedFormModal({
     setSiDraftForm(index, (f) => ({ ...f, documents: (f.documents || []).filter((d) => d.id !== docId) }))
   }
 
+  const planDisplayRef = useMemo(() => {
+    const ref =
+      editingPlan?.planReference
+      || editingPlanDetail?.planReference
+      || planRow?.planReference
+    if (ref) return ref
+    const id = editingPlan?.id ?? planRow?.id ?? planId
+    if (id != null && Number.isFinite(Number(id))) return `Plan #${id}`
+    return '—'
+  }, [editingPlan, editingPlanDetail, planRow, planId])
+
   const modalTitle = useMemo(() => {
     if (isPreBerthEdit) return t('preBerthEditPlanTitle')
     if (isViewMode) {
-      return t('modalViewCombinedTitle', {
-        ref: editingPlan?.planReference || editingPlanDetail?.planReference || `Plan #${editingPlan?.id}`,
-      })
+      return t('modalViewCombinedTitle', { ref: planDisplayRef })
     }
-    if (editingPlan) return t('modalEditTitle', { id: editingPlan.id })
+    if (editingPlan?.id != null) return t('modalEditTitle', { id: editingPlan.id })
+    if (planRow?.id != null) return t('modalEditTitle', { id: planRow.id })
     return t('modalCreateCombinedTitle')
-  }, [isPreBerthEdit, isViewMode, editingPlan, editingPlanDetail, t])
+  }, [isPreBerthEdit, isViewMode, editingPlan, planRow, planDisplayRef, t])
 
   const submitLabel = useMemo(() => {
     if (isPreBerthEdit) {
@@ -1215,6 +1232,11 @@ export default function ShipmentPlanCombinedFormModal({
               ))}
             </nav>
           </div>
+          {planLoadError && (isViewMode || isEditLike) ? (
+            <p className="shipment-plan-form__field-error" role="alert" style={{ margin: '0 var(--spacing-4) var(--spacing-3)' }}>
+              {planLoadError}
+            </p>
+          ) : null}
           {vesselPinned && (
             <div className="shipment-plan-form__vessel-pin" style={{ top: headerHeight }}>
               <p>{vesselSummaryParts.join(' · ')}</p>
@@ -1520,7 +1542,7 @@ export default function ShipmentPlanCombinedFormModal({
                       {!editingPlan && <p className="shipment-plan-form__si-empty-hint">{t('addSiLaterHint')}</p>}
                     </div>
                   )}
-                  {!modalSiLoading && siDrafts.length === 0 && !showAddAnotherSi && (isViewMode || isEditLike) && (
+                  {!modalSiLoading && !planLoadError && siDrafts.length === 0 && !showAddAnotherSi && (isViewMode || isEditLike) && (
                     <p className="text-steel" style={{ marginBottom: '1rem' }}>
                       {t('editPlanSiListEmpty')}
                     </p>

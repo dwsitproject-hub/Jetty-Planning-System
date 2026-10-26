@@ -21,7 +21,13 @@ export default function SiDocumentModal({ isOpen, siId, onClose, allowPreApprova
     setSi(null)
     fetchShippingInstruction(siId)
       .then((row) => {
-        if (!cancelled) setSi(mapApiToSi(row))
+        if (cancelled) return
+        if (!row) {
+          setSi(null)
+          setError('Shipping instruction not found')
+          return
+        }
+        setSi(mapApiToSi(row))
       })
       .catch((err) => {
         if (!cancelled) {

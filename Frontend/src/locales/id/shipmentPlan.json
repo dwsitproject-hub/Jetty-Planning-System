@@ -2,6 +2,7 @@
   "pageTitle": "Rencana pengiriman",
   "subtitle": "Kelola panggilan kapal (trip): satu rencana pengiriman mengelompokkan beberapa shipping instruction.",
   "listLoading": "Memuat rencana pengiriman…",
+  "planLoadFailed": "Rencana pengiriman tidak dapat dimuat. Periksa port aktif dan coba lagi.",
   "createNewPlan": "Rencana pengiriman baru",
   "modalCreateTitle": "Rencana pengiriman baru",
   "modalCreateCombinedTitle": "Rencana pengiriman baru",

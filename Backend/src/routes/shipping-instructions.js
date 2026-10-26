@@ -558,6 +558,19 @@ router.get('/company-options', async (req, res) => {
   res.json({ mode: companyChoiceMode(companies.length), companies });
 });
 
+/** Plan-linked SIs are visible when the parent plan belongs to the selected port. */
+async function siVisibleInSelectedPort(row, selectedPortId) {
+  if (row.preferred_port_id == null || Number(row.preferred_port_id) === selectedPortId) {
+    return true;
+  }
+  if (row.shipment_plan_id == null) return false;
+  const r = await pool.query(
+    `SELECT 1 FROM shipment_plans WHERE id = $1 AND port_id = $2 AND deleted_at IS NULL`,
+    [row.shipment_plan_id, selectedPortId]
+  );
+  return r.rows.length > 0;
+}
+
 router.get('/:id', async (req, res) => {
   const selectedPortId = Number(req.selectedPortId);
   const id = parseInt(req.params.id, 10);
@@ -565,7 +578,7 @@ router.get('/:id', async (req, res) => {
   const result = await pool.query(`${SI_SELECT} WHERE si.id = $1 AND si.deleted_at IS NULL`, [id]);
   if (result.rows.length === 0) return res.status(404).json({ error: 'Shipping instruction not found' });
   const row = result.rows[0];
-  if (row.preferred_port_id != null && Number(row.preferred_port_id) !== selectedPortId) {
+  if (!(await siVisibleInSelectedPort(row, selectedPortId))) {
     return res.status(404).json({ error: 'Shipping instruction not found' });
   }
   const breakdown = await loadBreakdown(id);

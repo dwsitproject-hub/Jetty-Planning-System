@@ -10,7 +10,9 @@ import {
   parseMasterVesselIdBody,
   parsePositiveNumber,
   planDimensionsFromBody,
+  planPartialSnapshotFromMasterRow,
   planSnapshotFromMasterRow,
+  requireCompletePlanDimensions,
   validateIntegrationVesselInput,
 } from './resolve-master-vessel.js';
 
@@ -27,6 +29,45 @@ describe('resolve-master-vessel', () => {
   describe('parseLoaMFromMaster', () => {
     it('parses text LOA', () => {
       assert.equal(parseLoaMFromMaster('79.5'), 79.5);
+    });
+  });
+
+  describe('planPartialSnapshotFromMasterRow', () => {
+    it('returns identity without dims when master LOA/GT/draft are empty', () => {
+      const partial = planPartialSnapshotFromMasterRow({
+        id: 99,
+        vessel_name: 'SPOB TEST',
+        vessel_length_overall: '',
+        vessel_gross_tonnage: null,
+        vessel_draft: null,
+      });
+      assert.equal(partial.master_vessel_id, 99);
+      assert.equal(partial.vessel_name, 'SPOB TEST');
+      assert.equal(partial.vessel_loa_m, undefined);
+    });
+
+    it('merges with body when master dims missing', () => {
+      const partial = planPartialSnapshotFromMasterRow({
+        id: 1,
+        vessel_name: 'MV TEST',
+        vessel_length_overall: '',
+        vessel_gross_tonnage: null,
+        vessel_draft: null,
+      });
+      const merged = planDimensionsFromBody(
+        { vessel_loa_m: 95, vessel_gross_tonnage: 1200, vessel_draft: 4.5 },
+        partial
+      );
+      const complete = requireCompletePlanDimensions(merged);
+      assert.equal(complete.vessel_loa_m, 95);
+      assert.equal(complete.vessel_gross_tonnage, 1200);
+      assert.equal(complete.vessel_draft, 4.5);
+    });
+  });
+
+  describe('requireCompletePlanDimensions', () => {
+    it('requires all three dimension keys', () => {
+      assert.match(requireCompletePlanDimensions({ vessel_loa_m: 1 }).error, /vessel_gross_tonnage/);
     });
   });
 

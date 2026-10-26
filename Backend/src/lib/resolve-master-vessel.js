@@ -25,6 +25,64 @@ export function parseLoaMFromMaster(vesselLengthOverall) {
   return n;
 }
 
+function optionalDimFromMaster(raw, parser) {
+  if (raw == null || raw === '') return undefined;
+  const parsed = parser(raw);
+  if (parsed?.error) return undefined;
+  return parsed;
+}
+
+/**
+ * Master identity for linked plans; dims included only when present on master (no error if missing).
+ * @param {{ id: unknown, vessel_name: string, vessel_gross_tonnage?: unknown, vessel_draft?: unknown, vessel_length_overall?: unknown, vessel_type?: unknown, type_lambung?: unknown }} row
+ */
+export function planPartialSnapshotFromMasterRow(row) {
+  const snap = {
+    master_vessel_id: Number(row.id),
+    vessel_name: String(row.vessel_name).trim(),
+    vessel_type: optionalSnapshotText(row.vessel_type),
+    vessel_hull_type: optionalSnapshotText(row.type_lambung),
+  };
+  const loa = optionalDimFromMaster(row.vessel_length_overall, (v) => parseLoaMFromMaster(v));
+  if (loa != null) snap.vessel_loa_m = loa;
+  const gt = optionalDimFromMaster(row.vessel_gross_tonnage, (v) =>
+    parsePositiveNumber(v, 'Master vessel gross tonnage')
+  );
+  if (gt != null) snap.vessel_gross_tonnage = gt;
+  const draft = optionalDimFromMaster(row.vessel_draft, (v) =>
+    parsePositiveNumber(v, 'Master vessel draft')
+  );
+  if (draft != null) snap.vessel_draft = draft;
+  return snap;
+}
+
+/** @param {Record<string, number>} dims */
+export function requireCompletePlanDimensions(dims) {
+  for (const key of PLAN_DIMENSION_KEYS) {
+    if (!(key in dims)) {
+      return { error: `${key} is required` };
+    }
+  }
+  return dims;
+}
+
+/**
+ * Linked plan vessel: master identity + LOA/GT/draft from master and/or request body.
+ * @param {import('pg').Pool | import('pg').PoolClient} client
+ * @param {unknown} rawMasterId
+ * @param {object | null | undefined} body
+ */
+export async function resolveLinkedPlanVesselSnapshot(client, rawMasterId, body) {
+  const parsed = parseMasterVesselIdBody(rawMasterId);
+  if (parsed?.error) return parsed;
+  const row = await loadActiveMasterVessel(client, parsed);
+  if (row?.error) return row;
+  const partial = planPartialSnapshotFromMasterRow(row);
+  const merged = planDimensionsFromBody(body, partial);
+  if (merged?.error) return merged;
+  return requireCompletePlanDimensions(merged);
+}
+
 /** @param {{ id: unknown, vessel_name: string, vessel_gross_tonnage: unknown, vessel_draft: unknown, vessel_length_overall: unknown }} row */
 export function planSnapshotFromMasterRow(row) {
   const loa = parseLoaMFromMaster(row.vessel_length_overall);

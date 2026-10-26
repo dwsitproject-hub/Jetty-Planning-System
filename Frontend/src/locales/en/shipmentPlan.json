@@ -2,6 +2,7 @@
   "pageTitle": "Shipment plans",
   "subtitle": "Manage vessel calls (trips): one shipment plan groups multiple shipping instructions.",
   "listLoading": "Loading shipment plans…",
+  "planLoadFailed": "Could not load this shipment plan. Check your port scope and try again.",
   "createNewPlan": "New shipment plan",
   "modalCreateTitle": "New shipment plan",
   "modalCreateCombinedTitle": "New shipment plan",

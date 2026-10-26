@@ -23,7 +23,7 @@ import { softDeleteOperationInTransaction } from '../lib/operation-soft-delete.j
 import {
   decideVesselMasterWrite,
   planDimensionsFromBody,
-  snapshotActiveMasterVessel,
+  resolveLinkedPlanVesselSnapshot,
 } from '../lib/resolve-master-vessel.js';
 
 const router = express.Router();
@@ -329,11 +329,9 @@ router.post('/', requireAuth, async (req, res) => {
   }
   const selectedPortId = Number(req.selectedPortId);
   const b = req.body || {};
-  const vesselSnap = await snapshotActiveMasterVessel(pool, b.master_vessel_id);
+  const vesselSnap = await resolveLinkedPlanVesselSnapshot(pool, b.master_vessel_id, b);
   if (vesselSnap?.error) return res.status(400).json({ error: vesselSnap.error });
   const vesselName = vesselSnap.vessel_name;
-  const dims = planDimensionsFromBody(b, vesselSnap);
-  if (dims.error) return res.status(400).json({ error: dims.error });
 
   let vesselCapacity = null;
   if (b.vessel_capacity != null && b.vessel_capacity !== '') {
@@ -403,9 +401,9 @@ router.post('/', requireAuth, async (req, res) => {
         vesselSnap.master_vessel_id,
         vesselName,
         vesselCapacity,
-        dims.vessel_loa_m,
-        dims.vessel_gross_tonnage,
-        dims.vessel_draft,
+        vesselSnap.vessel_loa_m,
+        vesselSnap.vessel_gross_tonnage,
+        vesselSnap.vessel_draft,
         vesselSnap.vessel_type,
         vesselSnap.vessel_hull_type,
         jettyId,
@@ -514,7 +512,7 @@ router.patch('/:id', requireAuth, async (req, res) => {
   if (vesselWrite.error) return res.status(400).json({ error: vesselWrite.error });
   let vesselSnap = null;
   if (vesselWrite.mode === 'linked-repick' && vesselWrite.masterVesselId !== Number(cur.rows[0].master_vessel_id)) {
-    vesselSnap = await snapshotActiveMasterVessel(pool, vesselWrite.masterVesselId);
+    vesselSnap = await resolveLinkedPlanVesselSnapshot(pool, vesselWrite.masterVesselId, b);
     if (vesselSnap?.error) return res.status(400).json({ error: vesselSnap.error });
   }
   const st = cur.rows[0].approval_status;
@@ -723,10 +721,10 @@ router.patch('/:id/vessel-info', requireAuth, async (req, res) => {
     const sameMaster = vesselWrite.masterVesselId === Number(beforeRow.master_vessel_id);
     let vesselSnap = null;
     if (!sameMaster) {
-      vesselSnap = await snapshotActiveMasterVessel(pool, vesselWrite.masterVesselId);
+      vesselSnap = await resolveLinkedPlanVesselSnapshot(pool, vesselWrite.masterVesselId, b);
       if (vesselSnap?.error) return res.status(400).json({ error: vesselSnap.error });
     }
-    const dims = planDimensionsFromBody(b, vesselSnap);
+    const dims = vesselSnap || planDimensionsFromBody(b, null);
     if (dims.error) return res.status(400).json({ error: dims.error });
     const sets = [];
     const params = [];
