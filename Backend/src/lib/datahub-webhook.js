@@ -18,7 +18,14 @@ import { extractHubCommodityUom } from './datahub-commodity-sync.js';
 import { fetchHubRecords } from './datahub-master-sync-config.js';
 import { stageEntityFromHub, applyStagedEntitySyncRun } from './datahub-master-stage.js';
 
-const WEBHOOK_ENTITY_TYPES = new Set(['vessel', 'incoterm', 'commodity', 'port_master']);
+const WEBHOOK_ENTITY_TYPES = new Set(['vessel', 'incoterm', 'commodity', 'port_master', 'organization']);
+
+/** Hub UI slug `company` is the same master as documented `organization`. */
+export function canonicalWebhookEntityType(raw) {
+  const t = String(raw || '').trim().toLowerCase();
+  if (t === 'company') return 'organization';
+  return t;
+}
 
 /**
  * @param {string} secret
@@ -99,10 +106,10 @@ function strHubCode(data) {
  */
 export function inferWebhookEntityType(payload, headers = {}) {
   const h = normalizeHeaders(headers);
-  const fromHeader = h['x-dhm-entity-type']?.trim().toLowerCase();
+  const fromHeader = canonicalWebhookEntityType(h['x-dhm-entity-type']);
   if (fromHeader && WEBHOOK_ENTITY_TYPES.has(fromHeader)) return fromHeader;
 
-  const fromBody = String(payload?.entityType ?? payload?.master_type ?? '').trim().toLowerCase();
+  const fromBody = canonicalWebhookEntityType(payload?.entityType ?? payload?.master_type ?? '');
   if (fromBody && WEBHOOK_ENTITY_TYPES.has(fromBody)) return fromBody;
 
   const code = strHubCode(payload?.data);
@@ -112,6 +119,7 @@ export function inferWebhookEntityType(payload, headers = {}) {
     if (prefix === 'INC') return 'incoterm';
     if (prefix === 'PORT') return 'port_master';
     if (prefix === 'VSL') return 'vessel';
+    if (prefix === 'ORG') return 'organization';
   }
 
   const d = payload?.data;
@@ -231,7 +239,7 @@ export async function processInboundWebhook(db, rawBody, headers) {
   const hubCode = strHubCode(payload.data);
   const recordId = payload.recordId != null ? String(payload.recordId) : null;
   const resolvedEntity = inferWebhookEntityType(payload, headers);
-  const rawEntityType = String(payload.entityType || '').trim().toLowerCase();
+  const rawEntityType = canonicalWebhookEntityType(payload.entityType || '');
 
   const dup = await db.query(
     `SELECT id, status FROM datahub_webhook_receipts WHERE delivery_id = $1`,

@@ -16,6 +16,12 @@ import {
 import { validateBreakdownMetricRules } from '../lib/si-breakdown-metric.js';
 import { validateSiReferenceForBerthing } from '../lib/si-reference-validation.js';
 import { snapshotActiveMasterVessel } from '../lib/resolve-master-vessel.js';
+import {
+  companyChoiceMode,
+  companyLabel,
+  loadActiveMappedCompanyIds,
+  pickCompanyId,
+} from '../lib/company-for-instruction.js';
 import { requireAuth } from '../middleware/auth.js';
 import { userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
 
@@ -70,6 +76,7 @@ const SI_FROM = `
   LEFT JOIN si_loading_ports lp ON si.loading_port_id = lp.id AND lp.deleted_at IS NULL
   LEFT JOIN si_surveyors sv ON si.surveyor_id = sv.id AND sv.deleted_at IS NULL
   LEFT JOIN si_agents ag ON si.agent_id = ag.id AND ag.deleted_at IS NULL
+  LEFT JOIN master_companies mc ON mc.id = si.company_id AND mc.deleted_at IS NULL
   LEFT JOIN users si_approver ON si_approver.id = spl.approved_by_user_id AND si_approver.deleted_at IS NULL
 `;
 
@@ -84,7 +91,7 @@ const SI_SELECT = `
     si.note,
     spl.port_id,
     si.commodity_id, si.trade_term_id, spl.purpose_id, spl.jetty_id AS preferred_jetty_id,
-    si.loading_port_id, si.surveyor_id, si.agent_id,
+    si.loading_port_id, si.surveyor_id, si.agent_id, si.company_id,
     spl.voyage_no, si.destination_text, si.freight_terms, si.bill_of_lading_clause, si.consignee_text,
     si.notify_party_text, si.bl_split_text, si.bl_indicated, si.document_date::text AS document_date,
     si.partner_si_document_url, si.partner_contract_document_url, si.partner_bl_document_url,
@@ -98,6 +105,8 @@ const SI_SELECT = `
     lp.name AS loading_port_name,
     sv.name AS surveyor_name,
     ag.name AS agent_name,
+    mc.name AS company_name,
+    mc.short_name AS company_short_name,
     si_approver.display_name AS approver_display_name,
     si_approver.username AS approver_username
   ${SI_FROM}
@@ -303,6 +312,7 @@ function diffFields(before, after) {
   add('Loading port', before.loadingPortName, after.loadingPortName);
   add('Surveyor', before.surveyorName, after.surveyorName);
   add('Agent', before.agentName, after.agentName);
+  add('Company', before.companyLabel, after.companyLabel);
   add('ETA From', before.etaFrom, after.etaFrom);
   add('ETA To', before.etaTo, after.etaTo);
   add('Note', before.note, after.note);
@@ -527,6 +537,27 @@ router.get('/npwp-master', async (req, res) => {
   res.json({ npwp: r.rows[0]?.npwp ?? null, portId });
 });
 
+router.get('/company-options', async (req, res) => {
+  const portId = Number(req.selectedPortId);
+  if (!Number.isFinite(portId)) return res.status(400).json({ error: 'Select a port' });
+  const ids = await loadActiveMappedCompanyIds(pool, portId);
+  if (ids.length === 0) return res.json({ mode: 'hidden', companies: [] });
+  const rows = await pool.query(
+    `SELECT id, name, short_name
+     FROM master_companies
+     WHERE id = ANY($1::bigint[]) AND deleted_at IS NULL AND is_active = TRUE
+     ORDER BY LOWER(COALESCE(NULLIF(short_name, ''), name)), id`,
+    [ids]
+  );
+  const companies = rows.rows.map((row) => ({
+    id: Number(row.id),
+    name: row.name,
+    shortName: row.short_name ?? null,
+    label: companyLabel(row),
+  }));
+  res.json({ mode: companyChoiceMode(companies.length), companies });
+});
+
 router.get('/:id', async (req, res) => {
   const selectedPortId = Number(req.selectedPortId);
   const id = parseInt(req.params.id, 10);
@@ -729,6 +760,11 @@ router.post('/', requireAuth, async (req, res) => {
     agent_id: insertAgentId,
   });
   if (fkErr) return res.status(400).json(fkErr);
+  const mappedCompanyIds = await loadActiveMappedCompanyIds(pool, selectedPortId);
+  const companyPick = pickCompanyId(mappedCompanyIds, b.company_id, {
+    omitted: b.company_id === undefined,
+  });
+  if (companyPick.error) return res.status(400).json({ error: companyPick.error });
   if (preferred_jetty_id != null && preferred_jetty_id !== '') {
     const preferredJettyId = parseInt(preferred_jetty_id, 10);
     const portMatch = await pool.query(
@@ -839,9 +875,9 @@ router.post('/', requireAuth, async (req, res) => {
       `INSERT INTO shipping_instructions (
          reference_number, commodity, trade_term_id, eta_from, eta_to, status,
          destination_text, freight_terms, bill_of_lading_clause, consignee_text, notify_party_text, bl_split_text, bl_indicated, document_date,
-         loading_port_id, surveyor_id, agent_id, note,
+         loading_port_id, surveyor_id, agent_id, company_id, note,
          shipment_plan_id
-       ) VALUES ($1,NULL,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+       ) VALUES ($1,NULL,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
        RETURNING id`,
       [
         reference_number?.trim() ?? null,
@@ -860,6 +896,7 @@ router.post('/', requireAuth, async (req, res) => {
         loading_port_id != null && loading_port_id !== '' ? parseInt(loading_port_id, 10) : null,
         surveyor_id != null && surveyor_id !== '' ? parseInt(surveyor_id, 10) : null,
         insertAgentId,
+        companyPick.companyId,
         typeof note === 'string' ? note.trim() || null : null,
         shipmentPlanId,
       ]
@@ -1078,6 +1115,13 @@ router.put('/:id', requireAuth, async (req, res) => {
         ? Number(planRowBound.agent_id)
         : null
       : optInt(agent_id, beforeRow.agent_id);
+  const mappedCompanyIds = await loadActiveMappedCompanyIds(pool, selectedPortId);
+  const companyPick = pickCompanyId(mappedCompanyIds, b.company_id, {
+    omitted: !('company_id' in b),
+    previousId: beforeRow.company_id,
+  });
+  if (companyPick.error) return res.status(400).json({ error: companyPick.error });
+  const nextCompanyId = companyPick.companyId;
   const nextNote = note !== undefined ? (typeof note === 'string' ? note.trim() || null : null) : beforeRow.note;
   const nextBlSplitText =
     bl_split_text !== undefined ? trimText(bl_split_text, 4000) : beforeRow.bl_split_text;
@@ -1171,6 +1215,7 @@ router.put('/:id', requireAuth, async (req, res) => {
         notifyPartyText: nextNotifyPartyText,
         blSplitText: nextBlSplitText,
         blIndicated: nextBlIndicated,
+        companyId: nextCompanyId,
       },
       breakdown
     );
@@ -1246,9 +1291,10 @@ router.put('/:id', requireAuth, async (req, res) => {
          loading_port_id = $16,
          surveyor_id = $17,
          agent_id = $18,
-         note = $19,
+         company_id = $19,
+         note = $20,
          updated_at = NOW()
-       WHERE id = $20 AND deleted_at IS NULL`,
+       WHERE id = $21 AND deleted_at IS NULL`,
       [
         nextRef,
         nextTradeTermId,
@@ -1268,6 +1314,7 @@ router.put('/:id', requireAuth, async (req, res) => {
         nextLoadingPort,
         nextSurveyor,
         nextAgent,
+        nextCompanyId,
         nextNote,
         id,
       ]
@@ -1431,6 +1478,10 @@ function toSIList(row) {
     surveyorName: row.surveyor_name ?? null,
     agentId: row.agent_id ?? null,
     agentName: row.agent_name ?? null,
+    companyId: row.company_id != null ? Number(row.company_id) : null,
+    companyName: row.company_name ?? null,
+    companyShortName: row.company_short_name ?? null,
+    companyLabel: companyLabel({ name: row.company_name, short_name: row.company_short_name }) || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     resolvedPortId: row.preferred_port_id != null ? Number(row.preferred_port_id) : null,

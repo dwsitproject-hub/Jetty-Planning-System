@@ -8,6 +8,7 @@ import {
   updateTankGaugingSource,
 } from '../api/tankGauging'
 import '../styles/modal.css'
+import StickyFormOverlay from './StickyFormOverlay.jsx'
 
 const EMPTY_FORM = {
   baseUrl: '',
@@ -196,7 +197,7 @@ export default function TankGaugingSourcesModal({ portId, portName, onClose }) {
   }
 
   return (
-    <div className="modal-overlay" role="presentation" onClick={onClose}>
+    <StickyFormOverlay>
       <div
         className="modal modal--wide modal--atg-sources"
         role="dialog"
@@ -419,6 +420,6 @@ export default function TankGaugingSourcesModal({ portId, portName, onClose }) {
           )}
         </div>
       </div>
-    </div>
+    </StickyFormOverlay>
   )
 }

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   MAX_SI_BL_INDICATED_CHARS,
@@ -13,7 +13,7 @@ import {
   MAX_SI_VESSEL_NAME_CHARS,
   MAX_SI_VOYAGE_CHARS,
 } from '../constants/inputLimits'
-import { emptyBreakdownRow, nextDocId, planEtaYmd } from '../utils/siPlanLinkedDraft'
+import { emptyBreakdownRow, formatCompanyLabel, nextDocId, planEtaYmd } from '../utils/siPlanLinkedDraft'
 import { commodityPickerOptions } from '../utils/commodityShortTitle.js'
 import SearchableSingleSelect from './SearchableSingleSelect.jsx'
 import { filterJettiesForPort, jettySelectLabel } from '../utils/portScopedLookups'
@@ -48,6 +48,7 @@ const FREIGHT_TERM_OPTIONS = [
  *   onDocumentUpload?: (e: import('react').ChangeEvent<HTMLInputElement>) => void,
  *   documentExtractBusy?: boolean,
  *   extractResultPanel?: import('react').ReactNode,
+ *   companyOptions?: { mode?: 'hidden'|'locked'|'required', companies?: Array<{ id: number, label?: string, name?: string, shortName?: string }> } | null,
  * }} props
  */
 export default function ShippingInstructionSiLinkedFields({
@@ -57,6 +58,7 @@ export default function ShippingInstructionSiLinkedFields({
   setForm,
   npwpMaster,
   idPrefix,
+  companyOptions = null,
   showPlanLinkedNote = true,
   omitVesselAndJetty = false,
   omitDocumentUpload = false,
@@ -78,6 +80,16 @@ export default function ShippingInstructionSiLinkedFields({
   )
   const purposeCode = selectedPurpose?.code || null
   const purposeChosen = Boolean(effectivePurposeId)
+  const companyMode = companyOptions == null ? 'loading' : companyOptions.mode || 'hidden'
+  const companyChoices = companyOptions?.companies || []
+
+  useEffect(() => {
+    if (companyOptions?.mode !== 'locked') return
+    const id = companyOptions.companies?.[0]?.id
+    if (id == null) return
+    const next = String(id)
+    setForm((current) => (String(current.companyId || '') === next ? current : { ...current, companyId: next }))
+  }, [companyOptions, setForm])
   const isLoadingPurpose = purposeCode === 'Loading'
   const isUnloadingPurpose = purposeCode === 'Unloading'
   const formEnabled = !!lookups && purposeChosen
@@ -146,6 +158,44 @@ export default function ShippingInstructionSiLinkedFields({
       )}
       {!lookups && <p className="text-steel">{t('loadingLookups')}</p>}
       <fieldset disabled={!formEnabled} style={{ border: 0, padding: 0, margin: 0 }}>
+        {companyMode === 'loading' && (
+          <p className="text-steel">{t('formCompany')}…</p>
+        )}
+        {companyMode !== 'hidden' && companyMode !== 'loading' && (
+          <div className="shipping-instruction-form__section">
+            <div className="shipping-instruction-form__grid">
+              <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+                <label htmlFor={`${idPrefix}company`}>
+                  {companyMode === 'required' ? t('formCompanyRequired') : t('formCompany')}
+                </label>
+                {companyMode === 'locked' ? (
+                  <>
+                    <input
+                      id={`${idPrefix}company`}
+                      value={formatCompanyLabel(companyChoices[0])}
+                      readOnly
+                    />
+                    <p className="text-steel" style={{ margin: '0.35rem 0 0' }}>{t('formCompanyLockedHint')}</p>
+                  </>
+                ) : (
+                  <select
+                    id={`${idPrefix}company`}
+                    value={form.companyId || ''}
+                    onChange={(e) => updateForm({ companyId: e.target.value })}
+                    required
+                  >
+                    <option value="">{t('formCompanySelect')}</option>
+                    {companyChoices.map((company) => (
+                      <option key={company.id} value={company.id}>
+                        {formatCompanyLabel(company)}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         <div className="shipping-instruction-form__section">
           <h3 className="shipping-instruction-form__section-title">{t('formVesselTripSection')}</h3>
           <div className="shipping-instruction-form__grid shipping-instruction-form__grid--vessel-trip">

@@ -11,9 +11,11 @@ import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
 import PurposeBadge from '../components/PurposeBadge'
 import ShipmentPlanCombinedFormModal from '../components/ShipmentPlanCombinedFormModal'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 import { planHubCanEditPlan, preBerthCombinedSaveToastMessage } from '../utils/siPreBerthEdit'
 import { MAX_SI_VESSEL_NAME_CHARS, MAX_SI_VOYAGE_CHARS } from '../constants/inputLimits'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import { formatCompanyLabel } from '../utils/siPlanLinkedDraft'
 import { filterJettiesForPort, jettySelectLabel } from '../utils/portScopedLookups'
 import '../styles/shipping-instruction.css'
 
@@ -294,6 +296,7 @@ export default function ShipmentPlanHub() {
           <thead>
             <tr>
               <th>{t('colSiRef')}</th>
+              <th>{t('colCompany')}</th>
               <th>{t('colPurpose')}</th>
               <th>{t('colSiStatus')}</th>
               <th />
@@ -303,6 +306,7 @@ export default function ShipmentPlanHub() {
             {(plan.shippingInstructions || []).map((si) => (
               <tr key={si.id}>
                 <td>{si.referenceNumber || `SI-${si.id}`}</td>
+                <td>{formatCompanyLabel(si) || '—'}</td>
                 <td><PurposeBadge purpose={si.purpose} /></td>
                 <td className="text-steel" title="Approval follows shipment plan">—</td>
                 <td>
@@ -331,7 +335,7 @@ export default function ShipmentPlanHub() {
       />
 
       {editOpen && (
-        <div className="modal-overlay" onClick={() => setEditOpen(false)} aria-hidden="true">
+        <StickyFormOverlay>
           <div className="modal modal--wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <h2 className="modal__title">{t('editPlan')}</h2>
             <form onSubmit={saveEdit} className="shipping-instruction-form">
@@ -402,7 +406,7 @@ export default function ShipmentPlanHub() {
               </div>
             </form>
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
     </div>
   )

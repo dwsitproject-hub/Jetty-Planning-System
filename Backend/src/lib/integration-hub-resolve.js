@@ -1,10 +1,13 @@
 /**
- * Partner integration API — resolve port / commodity hub codes to internal ids.
- * Contract: Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md v5.2.
+ * Partner integration API — resolve port / commodity / company hub codes to internal ids.
+ * Contract: Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md v5.6.
  */
+
+import { pickCompanyId } from './company-for-instruction.js';
 
 export const PORT_HUB_CODE_MAX_LEN = 50;
 export const CARGO_HUB_CODE_MAX_LEN = 50;
+export const COMPANY_HUB_CODE_MAX_LEN = 50;
 
 /** Same normalization as integrations.js cargo short names. */
 export function normalizeCargoShortName(raw) {
@@ -264,4 +267,134 @@ export async function resolveCargoCommodities(db, cargoLines) {
   }
 
   return { errors: [], commodityByShortName, cargo: resolvedCargo };
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {{ errors: Array<{field: string, issue: string}>, companyHubCode: string | null, omitted: boolean }}
+ */
+export function validateIntegrationCompanyHubCode(raw) {
+  if (raw == null || String(raw).trim() === '') {
+    return { errors: [], companyHubCode: null, omitted: true };
+  }
+  const companyHubCode = String(raw).trim();
+  if (companyHubCode.length > COMPANY_HUB_CODE_MAX_LEN) {
+    return {
+      errors: [{ field: 'company_hub_code', issue: `max length ${COMPANY_HUB_CODE_MAX_LEN}` }],
+      companyHubCode: null,
+      omitted: false,
+    };
+  }
+  return { errors: [], companyHubCode, omitted: false };
+}
+
+/**
+ * Active companies mapped to a port (same set as the in-app company picker).
+ * @param {import('pg').Pool | import('pg').PoolClient} db
+ * @param {number} portId
+ */
+export async function listMappedCompaniesForPort(db, portId) {
+  const r = await db.query(
+    `SELECT c.id, c.hub_code, c.name
+     FROM port_companies pc
+     JOIN master_companies c ON c.id = pc.company_id AND c.deleted_at IS NULL AND c.is_active = TRUE
+     WHERE pc.port_id = $1
+     ORDER BY LOWER(COALESCE(NULLIF(c.short_name, ''), c.name)), c.id`,
+    [portId]
+  );
+  return r.rows.map((row) => ({
+    id: Number(row.id),
+    hub_code: row.hub_code ?? null,
+    name: row.name ?? null,
+  }));
+}
+
+export function companyHubCodesFromMapped(companies) {
+  return (companies || []).map((row) => row.hub_code).filter(Boolean);
+}
+
+/**
+ * Catalog rows: active companies used by at least one active port.
+ * @param {import('pg').Pool | import('pg').PoolClient} db
+ */
+export async function listCompaniesForCatalog(db) {
+  const r = await db.query(
+    `SELECT c.id, c.hub_code, c.short_name, c.name,
+            COALESCE(
+              array_agg(DISTINCT p.hub_code) FILTER (WHERE p.hub_code IS NOT NULL),
+              '{}'
+            ) AS port_hub_codes
+     FROM master_companies c
+     JOIN port_companies pc ON pc.company_id = c.id
+     JOIN ports p ON p.id = pc.port_id AND p.deleted_at IS NULL AND p.is_active IS TRUE
+     WHERE c.deleted_at IS NULL AND c.is_active IS TRUE
+     GROUP BY c.id, c.hub_code, c.short_name, c.name
+     ORDER BY LOWER(COALESCE(NULLIF(c.short_name, ''), c.name)), c.id`
+  );
+  return r.rows.map((row) => ({
+    jps_company_id: Number(row.id),
+    hub_code: row.hub_code ?? null,
+    short_name: row.short_name ?? null,
+    name: row.name ?? null,
+    port_hub_codes: Array.isArray(row.port_hub_codes) ? row.port_hub_codes : [],
+  }));
+}
+
+/**
+ * Resolve partner company_hub_code using the same rules as the in-app picker.
+ * @param {import('pg').Pool | import('pg').PoolClient} db
+ * @param {{ portId: number, companyHubCode?: string | null, omitted?: boolean, previousCompanyId?: number | null }} opts
+ */
+export async function resolveCompanyForIntegration(db, { portId, companyHubCode = null, omitted = false, previousCompanyId = null }) {
+  const mapped = await listMappedCompaniesForPort(db, portId);
+  const validCompanyHubCodes = companyHubCodesFromMapped(mapped);
+  const ids = mapped.map((row) => row.id);
+  const sentCode = !omitted && companyHubCode ? companyHubCode : null;
+
+  let requestedId = null;
+  if (sentCode) {
+    const found = await db.query(
+      `SELECT id, hub_code, name
+       FROM master_companies
+       WHERE hub_code = $1 AND deleted_at IS NULL AND is_active = TRUE`,
+      [sentCode]
+    );
+    if (found.rows.length === 0) {
+      return {
+        error: `unknown company hub code: ${sentCode}`,
+        field: 'company_hub_code',
+        validCompanyHubCodes,
+      };
+    }
+    requestedId = Number(found.rows[0].id);
+    if (ids.length === 1 && requestedId !== ids[0]) {
+      return {
+        error: 'does not match the company mapped to this port',
+        field: 'company_hub_code',
+        validCompanyHubCodes,
+      };
+    }
+    if (!ids.includes(requestedId)) {
+      return {
+        error: 'Company is not used at this port',
+        field: 'company_hub_code',
+        validCompanyHubCodes,
+      };
+    }
+  }
+
+  const pick = pickCompanyId(ids, sentCode ? requestedId : null, {
+    omitted: !sentCode,
+    previousId: previousCompanyId,
+  });
+  if (pick.error) {
+    return { error: pick.error, field: 'company_hub_code', validCompanyHubCodes };
+  }
+
+  const chosen = pick.companyId == null ? null : mapped.find((row) => row.id === pick.companyId) ?? null;
+  return {
+    companyId: pick.companyId,
+    companyHubCode: chosen?.hub_code ?? null,
+    companyName: chosen?.name ?? null,
+  };
 }

@@ -208,6 +208,8 @@ export const PARTNER_SUBMISSION_LOOKUP_SQL = `
          sp.approved_at, sp.rejected_at,
          sp.vessel_name, sp.voyage_no, sp.eta, sp.port_id,
          p.hub_code AS port_hub_code,
+         mc.hub_code AS company_hub_code,
+         mc.name AS company_name,
          sp.ta AS sp_ta, sp.etb AS sp_etb, sp.tb AS sp_tb,
          sp.docking_start_time AS sp_docking_start_time,
          sp.estimated_completion_time AS sp_etc,
@@ -231,6 +233,7 @@ ${PARTNER_CARGO_OPS_WINDOW_SUBSELECT},
   JOIN shipping_instructions si ON si.id = s.shipping_instruction_id AND si.deleted_at IS NULL
   JOIN shipment_plans sp ON sp.id = s.shipment_plan_id AND sp.deleted_at IS NULL
   LEFT JOIN ports p ON p.id = sp.port_id AND p.deleted_at IS NULL
+  LEFT JOIN master_companies mc ON mc.id = si.company_id AND mc.deleted_at IS NULL
   LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
   LEFT JOIN LATERAL (
     SELECT op.id AS op_id, op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,
@@ -253,6 +256,8 @@ export const PARTNER_SUBMISSION_BY_PLAN_SQL = `
          sp.approved_at, sp.rejected_at,
          sp.vessel_name, sp.voyage_no, sp.eta, sp.port_id,
          p.hub_code AS port_hub_code,
+         mc.hub_code AS company_hub_code,
+         mc.name AS company_name,
          sp.ta AS sp_ta, sp.etb AS sp_etb, sp.tb AS sp_tb,
          sp.docking_start_time AS sp_docking_start_time,
          sp.estimated_completion_time AS sp_etc,
@@ -276,6 +281,7 @@ ${PARTNER_CARGO_OPS_WINDOW_SUBSELECT},
   JOIN shipping_instructions si ON si.id = s.shipping_instruction_id AND si.deleted_at IS NULL
   JOIN shipment_plans sp ON sp.id = s.shipment_plan_id AND sp.deleted_at IS NULL
   LEFT JOIN ports p ON p.id = sp.port_id AND p.deleted_at IS NULL
+  LEFT JOIN master_companies mc ON mc.id = si.company_id AND mc.deleted_at IS NULL
   LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
   LEFT JOIN LATERAL (
     SELECT op.id AS op_id, op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,
@@ -298,6 +304,8 @@ export const PARTNER_SUBMISSION_BY_SI_SQL = `
          sp.approved_at, sp.rejected_at,
          sp.vessel_name, sp.voyage_no, sp.eta, sp.port_id,
          p.hub_code AS port_hub_code,
+         mc.hub_code AS company_hub_code,
+         mc.name AS company_name,
          sp.ta AS sp_ta, sp.etb AS sp_etb, sp.tb AS sp_tb,
          sp.docking_start_time AS sp_docking_start_time,
          sp.estimated_completion_time AS sp_etc,
@@ -321,6 +329,7 @@ ${PARTNER_CARGO_OPS_WINDOW_SUBSELECT},
   JOIN shipping_instructions si ON si.id = s.shipping_instruction_id AND si.deleted_at IS NULL
   JOIN shipment_plans sp ON sp.id = s.shipment_plan_id AND sp.deleted_at IS NULL
   LEFT JOIN ports p ON p.id = sp.port_id AND p.deleted_at IS NULL
+  LEFT JOIN master_companies mc ON mc.id = si.company_id AND mc.deleted_at IS NULL
   LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
   LEFT JOIN LATERAL (
     SELECT op.id AS op_id, op.status, op.docking_start_time, op.jetty_id, op.updated_at AS op_updated_at,

@@ -14,6 +14,7 @@ import {
 } from '../utils/siPlanLinkedDraft'
 import { attachDraftSiDocuments } from '../api/siDocuments'
 import { useSiDocumentExtract } from '../hooks/useSiDocumentExtract'
+import { usePortCompanyOptions } from '../hooks/usePortCompanyOptions'
 import SiExtractConflictModal from './SiExtractConflictModal'
 import SiExtractResultPanel from './SiExtractResultPanel'
 
@@ -30,6 +31,7 @@ import SiExtractResultPanel from './SiExtractResultPanel'
 export default function ShippingInstructionCreateForm({ lookups, linkedPlan, onSuccess, onCancel, onErrorToast, logActivity }) {
   const { t } = useTranslation('shippingInstruction')
   const { t: tPlan } = useTranslation('shipmentPlan')
+  const companyOptions = usePortCompanyOptions(true)
   const [form, setForm] = useState(() => defaultSiDraftForPlanPreview(null, linkedPlan))
   const [npwpMaster, setNpwpMaster] = useState(null)
   const [draftDocKey] = useState(
@@ -103,7 +105,7 @@ export default function ShippingInstructionCreateForm({ lookups, linkedPlan, onS
         onErrorToast('Form options not loaded yet.', 'error')
         return
       }
-      const validated = validateSiDraftForCreate(form, lookups, linkedPlan)
+      const validated = validateSiDraftForCreate(form, lookups, linkedPlan, { companyOptions })
       if (typeof validated === 'string') {
         onErrorToast(validated, 'error')
         return
@@ -154,7 +156,7 @@ export default function ShippingInstructionCreateForm({ lookups, linkedPlan, onS
         onErrorToast(err?.message || 'Create failed', 'error')
       }
     },
-    [lookups, linkedPlan, form, logActivity, onSuccess, onErrorToast]
+    [lookups, linkedPlan, form, companyOptions, logActivity, onSuccess, onErrorToast]
   )
 
   const purposeChosen = Boolean(effectivePurposeId)
@@ -178,6 +180,7 @@ export default function ShippingInstructionCreateForm({ lookups, linkedPlan, onS
           setForm={setForm}
           npwpMaster={npwpMaster}
           idPrefix="sicf-"
+          companyOptions={companyOptions}
           showPlanLinkedNote
           omitVesselAndJetty
           onDocumentUpload={handleDocumentUpload}

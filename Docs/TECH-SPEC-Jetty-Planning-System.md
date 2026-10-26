@@ -270,7 +270,7 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 **Outbound delivery:** After operator actions (plan approve/reject/depart, **`PUT /allocation/arrival`**, operation sign-off/depart), **`triggerPartnerWebhooksDeferred`** enqueues **`status.changed`** and/or **`schedule.updated`**. Worker **`integration-webhook-worker.js`** POSTs signed payloads (**`X-JPS-Signature`**, **`X-JPS-Delivery-Id`**) with retry backoff.
 
-**Enriched GET:** **`buildPartnerInstructionPayload`** adds **`plan_reference`**, **`approval`**, **`schedule`** (TA, ETB, TB, ETC, TC, cast off, sailed; **`cargo_ops_start_at`** / **`cargo_ops_end_at`** from v5.5 — **§0.42**), **`etr_minutes`**. Partner status **`Sailed`** when **`operations.status = SAILED`**. Integration response header **`X-JPS-API-Version: 5.5`** (**§0.42**).
+**Enriched GET:** **`buildPartnerInstructionPayload`** adds **`plan_reference`**, **`approval`**, **`schedule`** (TA, ETB, TB, ETC, TC, cast off, sailed; **`cargo_ops_start_at`** / **`cargo_ops_end_at`** from v5.5 — **§0.42**), **`company_hub_code`** / **`company_name`** (v5.6 — **§0.43**), **`etr_minutes`**. Partner status **`Sailed`** when **`operations.status = SAILED`**. Integration response header **`X-JPS-API-Version: 5.6`** (**§0.43**).
 
 **Admin UI (2026-09-28):** **`GET/POST/PATCH /api/v1/integration-admin/:keyId/webhooks`** and delivery log **`GET .../deliveries`** for JPS operators; partners may still use **`/integrations/webhooks`**. See **`Docs/Guide/PARTNER-INTEGRATION-WEBHOOKS-ADMIN.md`**.
 
@@ -317,6 +317,18 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 **Webhooks:** [`operation-operational-activities.js`](Backend/src/routes/operation-operational-activities.js) fires **`schedule.updated`** on create/delete of **`cargo_operations`** and on update when window **`start_at`** / **`end_at`** change (not load-segment-only edits).
 
 **Header / catalog:** **`X-JPS-API-Version: 5.5`**.
+
+### 0.43 Partner operating company (v5.6) (2026-10-26)
+
+**Purpose:** Partner Shipping Instructions store the same operating company as in-app instructions (`shipping_instructions.company_id`). Partners send DataHub **`company_hub_code`** (`master_companies.hub_code`). This is not the cargo-line shipper.
+
+**Rules:** After **`port_hub_code`** resolves, [`resolveCompanyForIntegration`](Backend/src/lib/integration-hub-resolve.js) loads active companies on `port_companies` and applies [`pickCompanyId`](Backend/src/lib/company-for-instruction.js):
+
+- No mapped companies: omit → `company_id` null. A sent code is **400** `Company is not used at this port`.
+- One mapped company: omit stores that company. A sent code must be that company's hub code.
+- Several: **`company_hub_code` required**. Unknown or unmapped codes return **400** with **`valid_company_hub_codes`**.
+
+**API:** POST and Pending PATCH. **201**, enriched GET, and webhook `data` add **`company_hub_code`** and **`company_name`** (canonical master values). Lookup SQL joins **`master_companies`** on **`si.company_id`**. Catalog entity **`company`** (`referenceRows` include **`port_hub_codes`**). Header and catalog **`api_version` `5.6`**. No new migration (column from **`135_master_companies.sql`**).
 
 ### 0.32 Overview tables — Commodity Qty column (`siBreakdownDisplay`) (2026-05-26)
 

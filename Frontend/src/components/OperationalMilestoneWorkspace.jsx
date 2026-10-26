@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import StickyFormOverlay from './StickyFormOverlay.jsx'
 import { useTranslation } from 'react-i18next'
 import {
   getMilestoneListForPurpose,
@@ -1543,7 +1544,7 @@ export default function OperationalMilestoneWorkspace({
               liveCargoProgress={liveCargoProgress}
             />
             {formModalOpen ? (
-              <div className="modal-overlay" onClick={() => { setFormModalOpen(false); setEditingEntryId(null) }} aria-hidden="true">
+              <StickyFormOverlay>
                 <div className="modal modal--wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Operational form">
                   <section className="berthing-modal__card loading-tab-card operational-milestone-composer">
             {isCargoOpsModal ? (
@@ -2108,14 +2109,14 @@ export default function OperationalMilestoneWorkspace({
             ) : null}
                   </section>
                 </div>
-              </div>
+              </StickyFormOverlay>
             ) : null}
         </div>
         </div>
       </div>
 
       {naModal ? (
-        <div className="modal-overlay" onClick={closeNaModal} aria-hidden="true">
+        <StickyFormOverlay>
           <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="op-na-title">
             <h2 id="op-na-title" className="modal__title">
               Mark milestone as N/A
@@ -2146,7 +2147,7 @@ export default function OperationalMilestoneWorkspace({
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       ) : null}
     </>
   )

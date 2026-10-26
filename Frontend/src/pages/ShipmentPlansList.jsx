@@ -14,6 +14,7 @@ import PurposeBadge, { resolvePurposeLabel } from '../components/PurposeBadge'
 import SiDocumentModal from '../components/SiDocumentModal'
 import VesselInfoModal, { VesselNameButton } from '../components/VesselInfoModal'
 import ShipmentPlanCombinedFormModal from '../components/ShipmentPlanCombinedFormModal'
+import { shippingInstructionRowLabel } from '../utils/siPlanLinkedDraft'
 import { ShipmentPlanRowActions } from '../components/SiTableRowActions.jsx'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
@@ -50,7 +51,7 @@ function planRefLabel(row) {
 }
 
 function siRefsStr(row) {
-  return (row.shippingInstructions || []).map((s) => s.referenceNumber || `SI-${s.id}`).join(' ')
+  return (row.shippingInstructions || []).map((s) => shippingInstructionRowLabel(s)).join(' ')
 }
 
 function commodityQtyStr(row) {
@@ -531,9 +532,7 @@ export default function ShipmentPlansList() {
                   <td>
                     <VesselNameButton name={row.vesselName} onClick={() => setVesselInfoPlanId(row.id)} />
                     {row.vesselLinkStatus === 'legacy' ? (
-                      <span className="text-steel" style={{ marginLeft: '0.4rem', fontSize: '0.75rem' }}>
-                        {t('vesselLinkLegacyBadge')}
-                      </span>
+                      <span className="vessel-link-legacy-pill">{t('vesselLinkLegacyBadge')}</span>
                     ) : null}
                   </td>
                   <td>
@@ -557,7 +556,7 @@ export default function ShipmentPlansList() {
                               setSiDocumentModalId(si.id)
                             }}
                           >
-                            {si.referenceNumber || `SI-${si.id}`}
+                            {shippingInstructionRowLabel(si)}
                           </a>
                         ))}
                       </div>
@@ -614,7 +613,12 @@ export default function ShipmentPlansList() {
               </header>
               <dl className="allocation-mobile-card__grid">
                 <dt>{t('colVessel')}</dt>
-                <dd>{row.vesselName || '—'}</dd>
+                <dd>
+                  {row.vesselName || '—'}
+                  {row.vesselLinkStatus === 'legacy' ? (
+                    <span className="vessel-link-legacy-pill">{t('vesselLinkLegacyBadge')}</span>
+                  ) : null}
+                </dd>
                 <dt>{t('colPurpose')}</dt>
                 <dd><PurposeBadge purpose={row.purposeCode} /></dd>
                 <dt>{t('colJetty')}</dt>
@@ -636,7 +640,7 @@ export default function ShipmentPlansList() {
                             setSiDocumentModalId(si.id)
                           }}
                         >
-                          {si.referenceNumber || `SI-${si.id}`}
+                          {shippingInstructionRowLabel(si)}
                         </a>
                       ))}
                     </div>

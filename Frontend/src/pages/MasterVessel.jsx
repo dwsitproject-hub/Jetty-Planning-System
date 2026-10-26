@@ -15,6 +15,7 @@ import DataHubSyncReviewModal from '../components/DataHubSyncReviewModal.jsx'
 import AppToast from '../components/AppToast.jsx'
 import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import DataHubFieldCue from '../components/DataHubFieldCue.jsx'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 import { useActivityLog } from '../context/ActivityLogContext'
 import { useRbac } from '../context/RbacContext'
 import '../styles/allocation.css'
@@ -530,7 +531,7 @@ export default function MasterVessel() {
       </section>
 
       {modalOpen && (
-        <div className="modal-overlay" onClick={closeModal} aria-hidden="true">
+        <StickyFormOverlay>
           <div
             className="modal modal--wide"
             onClick={(e) => e.stopPropagation()}
@@ -742,7 +743,7 @@ export default function MasterVessel() {
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
 
       {review && (

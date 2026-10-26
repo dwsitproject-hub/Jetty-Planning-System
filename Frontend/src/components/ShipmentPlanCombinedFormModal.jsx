@@ -13,6 +13,7 @@ import {
 } from '../api/shippingInstructions'
 import { attachDraftSiDocuments, deleteSiDocument } from '../api/siDocuments'
 import MasterVesselSearchSelect from './MasterVesselSearchSelect'
+import StickyFormOverlay from './StickyFormOverlay.jsx'
 import { fieldsFromMasterVessel, vesselTypeLabel } from '../utils/masterVesselDisplay'
 import { usePortScope } from '../context/PortScopeContext'
 import { fetchSiLookups } from '../api/siLookups'
@@ -33,6 +34,7 @@ import {
   buildSiUpdateApiPayload,
 } from '../utils/siPlanLinkedDraft'
 import { useSiDocumentExtract } from '../hooks/useSiDocumentExtract'
+import { usePortCompanyOptions } from '../hooks/usePortCompanyOptions'
 import SiExtractConflictModal from './SiExtractConflictModal'
 import SiExtractResultPanel from './SiExtractResultPanel'
 import { MAX_SI_VESSEL_NAME_CHARS, MAX_SI_VOYAGE_CHARS } from '../constants/inputLimits'
@@ -122,6 +124,7 @@ export default function ShipmentPlanCombinedFormModal({
 }) {
   const { t, i18n } = useTranslation('shipmentPlan')
   const { selectedPortId } = usePortScope()
+  const companyOptions = usePortCompanyOptions(isOpen)
   const [toast, setToast] = useState(null)
   const [lookups, setLookups] = useState(null)
   const [modalSiLoading, setModalSiLoading] = useState(false)
@@ -755,7 +758,7 @@ export default function ShipmentPlanCombinedFormModal({
             onSaved?.()
             return
           }
-          const validated = validateSiDraftForCreate(siDrafts[i].form, lookups, linked)
+          const validated = validateSiDraftForCreate(siDrafts[i].form, lookups, linked, { companyOptions })
           if (typeof validated === 'string') {
             const message = t('createSiValidationError', { n: i + 1, message: validated })
             setSiCardError({ id: siDrafts[i].id, message })
@@ -867,7 +870,7 @@ export default function ShipmentPlanCombinedFormModal({
         })
         return
       }
-      const err = validateSiDraftForCreate(siDrafts[i].form, lookups, planPreviewForSi, { requirePlanId: false })
+      const err = validateSiDraftForCreate(siDrafts[i].form, lookups, planPreviewForSi, { requirePlanId: false, companyOptions })
       if (typeof err === 'string') {
         const message = t('createSiValidationError', { n: i + 1, message: err })
         setSiCardError({ id: siDrafts[i].id, message })
@@ -904,7 +907,7 @@ export default function ShipmentPlanCombinedFormModal({
         agentId: created.agentId != null ? Number(created.agentId) : null,
       }
       for (let i = 0; i < siDrafts.length; i += 1) {
-        const validated = validateSiDraftForCreate(siDrafts[i].form, lookups, linked)
+        const validated = validateSiDraftForCreate(siDrafts[i].form, lookups, linked, { companyOptions })
         if (typeof validated === 'string') {
           setToast({
             message: t('createPlanSavedSiFailed', { n: i + 1, message: validated, planRef: created.planReference || `#${created.id}` }),
@@ -1137,7 +1140,7 @@ export default function ShipmentPlanCombinedFormModal({
         onApply={(keys) => siDocExtract.resolveConflict(keys)}
       />
 
-      <div className="modal-overlay" onClick={handleClose} aria-hidden="true">
+      <StickyFormOverlay>
         <div
           ref={modalRef}
           className="modal modal--wide modal--shipment-plan-form"
@@ -1257,13 +1260,18 @@ export default function ShipmentPlanCombinedFormModal({
                     >
                       {(lookups?.purposes || []).map((p) => {
                         const selected = String(formPurposeId) === String(p.id)
+                        const purposeKind = p.code === 'Unloading' || p.label === 'Unloading'
+                          ? 'unloading'
+                          : p.code === 'Loading' || p.label === 'Loading'
+                            ? 'loading'
+                            : ''
                         return (
                           <button
                             key={p.id}
                             type="button"
                             role="radio"
                             aria-checked={selected}
-                            className={selected ? 'is-selected' : undefined}
+                            className={[selected ? 'is-selected' : '', purposeKind ? `is-${purposeKind}` : ''].filter(Boolean).join(' ') || undefined}
                             disabled={!lookups}
                             onClick={() => {
                               setFormPurposeId(String(p.id))
@@ -1596,6 +1604,7 @@ export default function ShipmentPlanCombinedFormModal({
                             setForm={(u) => setSiDraftForm(index, u)}
                             npwpMaster={npwpMaster}
                             idPrefix={`sp-si-${index}-`}
+                            companyOptions={companyOptions}
                             showPlanLinkedNote={false}
                             omitVesselAndJetty
                             omitDocumentUpload
@@ -1662,7 +1671,7 @@ export default function ShipmentPlanCombinedFormModal({
             </div>
           </form>
         </div>
-      </div>
+      </StickyFormOverlay>
     </>
   )
 }

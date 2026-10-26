@@ -12,6 +12,7 @@ import { fetchShipmentPlan } from '../../api/shipmentPlans'
 import { ApiError, resolveUploadUrl } from '../../api/client'
 import FilePreviewLink from '../FilePreviewLink'
 import AuthenticatedFileImage from '../AuthenticatedFileImage'
+import StickyFormOverlay from '../StickyFormOverlay.jsx'
 import { useFilePreview } from '../../context/FilePreviewContext'
 import { formatDateTimeDisplay } from '../../utils/formatDateTimeDisplay'
 import {
@@ -597,11 +598,7 @@ export default function ActiveVesselDetailModal({
 
   return (
     <>
-        <div
-          className="modal-overlay"
-          onClick={() => onClose()}
-          aria-hidden="true"
-        >
+        <StickyFormOverlay>
           <div
             className="modal modal--wide"
             onClick={(e) => e.stopPropagation()}
@@ -1632,7 +1629,7 @@ export default function ActiveVesselDetailModal({
               )
             })()}
           </div>
-        </div>
+        </StickyFormOverlay>
       <SiDetailModal
         isOpen={Boolean(siDetailId)}
         siId={siDetailId}

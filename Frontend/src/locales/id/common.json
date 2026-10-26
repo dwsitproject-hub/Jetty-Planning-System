@@ -41,6 +41,7 @@
     "enShort": "EN",
     "idShort": "ID"
   },
+  "stickyFormHint": "Formulir ini tetap terbuka. Gunakan Tutup atau Batal untuk keluar.",
   "changePassword": {
     "menuItem": "Ubah Kata Sandi",
     "title": "Ubah Kata Sandi",

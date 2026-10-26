@@ -5,6 +5,7 @@ import {
   samplingExtractChoicesAreEmpty,
 } from '../utils/samplingExtractMerge'
 import { translateExtractWarning } from '../utils/samplingExtractI18n'
+import StickyFormOverlay from './StickyFormOverlay.jsx'
 
 const SOURCE_KEYS = {
   xlsx: 'extractReview.sourceXlsx',
@@ -60,7 +61,7 @@ export default function SamplingExtractReviewModal({
       : t('extractReview.noRows')
 
   return (
-    <div className="modal-overlay modal-overlay--nested" onClick={onCancel} aria-hidden="true">
+    <StickyFormOverlay className="modal-overlay--nested">
       <div
         className="modal modal--wide sampling-extract-modal"
         onClick={(e) => e.stopPropagation()}
@@ -337,6 +338,6 @@ export default function SamplingExtractReviewModal({
           )}
         </div>
       </div>
-    </div>
+    </StickyFormOverlay>
   )
 }

@@ -48,6 +48,7 @@
     "filterLabel": "ETC breached only",
     "openWorkspaceHint": "Open workspace to progress operation"
   },
+  "stickyFormHint": "This form stays open. Use Close or Cancel to leave.",
   "changePassword": {
     "menuItem": "Change Password",
     "title": "Change Password",

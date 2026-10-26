@@ -34,6 +34,7 @@ import PurposeBadge, { resolvePurposeLabel } from '../components/PurposeBadge'
 import SiDetailModal from '../components/SiDetailModal'
 import SiDocumentModal from '../components/SiDocumentModal'
 import VesselInfoModal, { VesselNameButton } from '../components/VesselInfoModal'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 import OperationalProgressSection from '../components/OperationalProgressSection'
 import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
@@ -2224,24 +2225,6 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
   }
 
   useEffect(() => {
-    if (!arrivalUpdateForm) return
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') setArrivalUpdateForm(null)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [arrivalUpdateForm])
-
-  useEffect(() => {
-    if (!berthingConfirmRow) return
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') closeBerthingConfirm()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [berthingConfirmRow])
-
-  useEffect(() => {
     if (!berthingSuccessMessage) return
     const t = setTimeout(() => setBerthingSuccessMessage(null), 5000)
     return () => clearTimeout(t)
@@ -2802,11 +2785,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
 
       {/* Berthing confirmation modal (extended: jetty allocation, vessel photos, remarks) */}
       {berthingConfirmRow && (
-        <div
-          className="modal-overlay"
-          onClick={closeBerthingConfirm}
-          aria-hidden="true"
-        >
+        <StickyFormOverlay>
           <div
             className="modal modal--wide"
             onClick={(e) => e.stopPropagation()}
@@ -3044,11 +3023,11 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
 
       {reDockModal?.row ? (
-        <div className="modal-overlay" onClick={closeReDockModal} aria-hidden="true">
+        <StickyFormOverlay>
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
@@ -3095,16 +3074,12 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       ) : null}
 
       {/* Log arrival update modal (pre-filled from row) */}
       {arrivalUpdateForm && (
-        <div
-          className="modal-overlay"
-          onClick={() => setArrivalUpdateForm(null)}
-          aria-hidden="true"
-        >
+        <StickyFormOverlay>
           <div
             className="modal modal--wide"
             onClick={(e) => e.stopPropagation()}
@@ -3435,7 +3410,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
 
       <section className="card" id="allocation-export-queue-table" ref={queueExportRef}>

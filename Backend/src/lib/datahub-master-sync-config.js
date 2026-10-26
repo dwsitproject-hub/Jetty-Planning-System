@@ -1,8 +1,9 @@
 /**
- * DataHub master sync entity registry (vessel, incoterm, commodity, port_master).
+ * DataHub master sync entity registry (vessel, incoterm, commodity, port_master, organization).
  */
 import {
   fetchAllCommoditySyncRecords,
+  fetchAllOrganizationSyncRecords,
   fetchAllSyncRecords,
   fetchAllVessels,
   normalizeHubCommodity,
@@ -17,10 +18,12 @@ import { applyVesselItem } from './datahub-vessel-apply.js';
 import { applyIncotermItem } from './datahub-incoterm-apply.js';
 import { applyCommodityItem } from './datahub-commodity-apply.js';
 import { applyPortItem } from './datahub-port-apply.js';
+import { buildOrganizationSyncPlan, toStagedItemRow as organizationToStaged } from './datahub-organization-sync.js';
+import { applyOrganizationItem } from './datahub-organization-apply.js';
 
-/** @typedef {'vessel'|'incoterm'|'commodity'|'port_master'} DataHubEntityType */
+/** @typedef {'vessel'|'incoterm'|'commodity'|'port_master'|'organization'} DataHubEntityType */
 
-export const DATAHUB_ENTITY_TYPES = new Set(['vessel', 'incoterm', 'commodity', 'port_master']);
+export const DATAHUB_ENTITY_TYPES = new Set(['vessel', 'incoterm', 'commodity', 'port_master', 'organization']);
 
 /**
  * @param {DataHubEntityType} entityType
@@ -38,6 +41,9 @@ export async function fetchHubRecords(entityType, cfg, db) {
   }
   if (entityType === 'port_master') {
     return fetchAllSyncRecords(cfg, 'port_master', normalizeHubPortMaster);
+  }
+  if (entityType === 'organization') {
+    return fetchAllOrganizationSyncRecords(cfg);
   }
   throw new Error(`Unknown entity type: ${entityType}`);
 }
@@ -80,6 +86,13 @@ export async function loadLocalRows(entityType, db) {
     );
     return r.rows;
   }
+  if (entityType === 'organization') {
+    const r = await db.query(
+      `SELECT id, hub_code, name, short_name, company_code_sap, country, is_active
+       FROM master_companies WHERE deleted_at IS NULL`
+    );
+    return r.rows;
+  }
   throw new Error(`Unknown entity type: ${entityType}`);
 }
 
@@ -116,6 +129,10 @@ export async function buildEntitySyncPlan(entityType, hubRecords, localLoad) {
     const { items, summary } = buildPortSyncPlan(hubRecords, localLoad);
     return { items, summary };
   }
+  if (entityType === 'organization') {
+    const { items, summary } = buildOrganizationSyncPlan(hubRecords, localLoad);
+    return { items, summary };
+  }
   throw new Error(`Unknown entity type: ${entityType}`);
 }
 
@@ -135,6 +152,7 @@ export function stagedItemsForInsert(entityType, items) {
   }
   if (entityType === 'incoterm') return items.map(incotermToStaged);
   if (entityType === 'port_master') return items.map(portToStaged);
+  if (entityType === 'organization') return items.map(organizationToStaged);
   return items.map(commodityToStaged);
 }
 
@@ -146,6 +164,7 @@ export async function applyEntityItem(entityType, db, item, actorId, opts) {
   if (entityType === 'incoterm') return applyIncotermItem(db, item, actorId, opts);
   if (entityType === 'commodity') return applyCommodityItem(db, item, actorId, opts);
   if (entityType === 'port_master') return applyPortItem(db, item, actorId, opts);
+  if (entityType === 'organization') return applyOrganizationItem(db, item, actorId, opts);
   throw new Error(`Unknown entity type: ${entityType}`);
 }
 
@@ -154,6 +173,7 @@ export function entityPageKey(entityType) {
   if (entityType === 'incoterm') return 'master-si-term';
   if (entityType === 'commodity') return 'master-si-commodity';
   if (entityType === 'port_master') return 'master-port';
+  if (entityType === 'organization') return 'master-company';
   throw new Error(`Unknown entity type: ${entityType}`);
 }
 
@@ -162,6 +182,7 @@ export function entityActivityLabel(entityType) {
   if (entityType === 'incoterm') return 'Trade term';
   if (entityType === 'commodity') return 'Commodity';
   if (entityType === 'port_master') return 'Port';
+  if (entityType === 'organization') return 'Company';
   throw new Error(`Unknown entity type: ${entityType}`);
 }
 
@@ -170,6 +191,7 @@ export function entitySyncErrorLabel(entityType) {
   if (entityType === 'incoterm') return 'Failed to read the DataHub incoterm master';
   if (entityType === 'commodity') return 'Failed to read the DataHub commodity master';
   if (entityType === 'port_master') return 'Failed to read the DataHub port master';
+  if (entityType === 'organization') return 'Failed to read the DataHub company master';
   return 'Failed to read DataHub master';
 }
 
@@ -184,7 +206,9 @@ export function formatDataHubSyncFailure(entityType, err) {
         ? 'incoterm'
         : entityType === 'commodity'
           ? 'commodity'
-          : 'vessel';
+          : entityType === 'organization'
+            ? 'company or organization'
+            : 'vessel';
 
   if (status === 403 || /not permitted to call/i.test(raw)) {
     return {

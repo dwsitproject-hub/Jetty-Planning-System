@@ -1,5 +1,6 @@
 ﻿import { useMemo, useState } from 'react'
 import MasterTablePagination from './MasterTablePagination.jsx'
+import StickyFormOverlay from './StickyFormOverlay.jsx'
 import { useMasterTablePagination } from '../hooks/useMasterTablePagination.js'
 import '../styles/modal.css'
 import '../styles/datahub-sync.css'
@@ -285,7 +286,7 @@ export default function DataHubSyncReviewModal({
   }
 
   return (
-    <div className="modal-overlay" onClick={applying ? undefined : onClose} aria-hidden="true">
+    <StickyFormOverlay>
       <div
         className="modal modal--wide modal--datahub-sync"
         onClick={(e) => e.stopPropagation()}
@@ -417,6 +418,6 @@ export default function DataHubSyncReviewModal({
           </button>
         </div>
       </div>
-    </div>
+    </StickyFormOverlay>
   )
 }

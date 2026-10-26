@@ -17,6 +17,7 @@ import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/admin.css'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 import { uniqueSortedOptions } from '../utils/sortableFilterableTable.js'
 
@@ -506,7 +507,7 @@ export default function AdminUsers() {
       </section>
 
       {modalOpen && (
-        <div className="modal-overlay" onClick={closeModal} aria-hidden="true">
+        <StickyFormOverlay>
           <div className="modal modal--wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="user-modal-title" aria-modal="true">
             <h2 id="user-modal-title" className="modal__title">{editingId ? 'Edit User' : 'Add User'}</h2>
             <div className="modal__section">
@@ -669,7 +670,7 @@ export default function AdminUsers() {
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
     </div>
   )

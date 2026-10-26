@@ -1,7 +1,7 @@
 # Inbound Shipping Instruction API — Test Guide
 
-> **Version:** 1.7 (API v5.5) · **Audience:** JPS developers and operators who need to test the partner integration API locally.
-> **Hand off to external developers:** Use [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) (v5.5) — hub-only POST, catalog, webhooks, **`cargo_ops_start_at`** / **`cargo_ops_end_at`** (KLIP Hose On/Off), staging walkthrough.
+> **Version:** 1.8 (API v5.6) · **Audience:** JPS developers and operators who need to test the partner integration API locally.
+> **Hand off to external developers:** Use [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) (v5.6) — hub-only POST, **`company_hub_code`**, catalog, webhooks, **`cargo_ops_start_at`** / **`cargo_ops_end_at`** (KLIP Hose On/Off), staging walkthrough.
 
 ---
 
@@ -102,6 +102,7 @@ Your test payload must use values that exist in JPS master data:
 | `cargo[].shipper_name` | Optional; shipper must exist — create first via `POST /shippers` |
 | `cargo[].po_no` / `so_no` | Optional; stored on breakdown lines; can also be set later via `PATCH` |
 | `vessel_hub_code` | **Preferred** vessel identifier — sufficient alone; must exist in `master_vessels` |
+| `company_hub_code` | Operating company (not the cargo shipper). Required when `GET /catalog/company` shows more than one company for that port. Omit when the port has exactly one — JPS stores that company. |
 | `vessel_name` | Optional cross-check when `vessel_hub_code` is sent; **vessel_name alone is not accepted on POST (v5.3)** |
 
 Pick a test `vessel_hub_code` from your local master data (DB column is `hub_code`):
@@ -400,7 +401,7 @@ The API only submits and reads status. To see `Approved` or `Allocated`, an oper
 | Operator approved | `Approved` | `allocation: null` |
 | Jetty assigned | `Allocated` | `allocation.jetty_name`, `allocation.planned_berthing_time` |
 | Operator rejected | `Rejected` | `rejection_reason` populated |
-| Berthing milestones saved | `Allocated` (typical) | `data.schedule` populated (`ta`, `tb`, `etc`, …); response header **`X-JPS-API-Version: 5.5`** |
+| Berthing milestones saved | `Allocated` (typical) | `data.schedule` populated (`ta`, `tb`, `etc`, …); response header **`X-JPS-API-Version: 5.6`** |
 | Cargo Operations window saved | `Allocated` (typical) | `data.schedule.cargo_ops_start_at` / `cargo_ops_end_at` (Hose On/Off); **`schedule.updated`** if registered |
 
 Poll every few minutes in real integrations — operator review is a human process, not instant.
@@ -469,7 +470,8 @@ Always note `request_id` when reporting failures — it helps trace the request 
 - [ ] Plan visible in JPS web app (Shipment Plans / approval)
 - [ ] Approve in UI → `GET` shows `Approved`; PATCH → `409 INVALID_STATE`
 - [ ] Allocate jetty in UI → `GET` shows `Allocated`
-- [ ] Response header includes **`X-JPS-API-Version: 5.5`** on integration routes
+- [ ] Response header includes **`X-JPS-API-Version: 5.6`** on integration routes
+- [ ] Multi-company port: POST without `company_hub_code` returns **400** and `valid_company_hub_codes`; POST with a mapped hub code returns **201** and echoes `company_hub_code` / `company_name`
 - [ ] After Cargo Operations **operation window** save → `GET` shows **`cargo_ops_start_at`** / **`cargo_ops_end_at`** (or `null` until set)
 
 ---
@@ -524,7 +526,7 @@ Both columns should show table names, not `null`.
 
 | File | Purpose |
 |------|---------|
-| [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) | Full API contract for external partners (v5.5) |
+| [INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md](./INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md) | Full API contract for external partners (v5.6) |
 | [PARTNER-INTEGRATION-WEBHOOKS-ADMIN.md](./PARTNER-INTEGRATION-WEBHOOKS-ADMIN.md) | Admin webhook onboarding and delivery log |
 | [Backend/scripts/run-integration-self-test.ps1](../../Backend/scripts/run-integration-self-test.ps1) | Automated local self-test + report |
 | [Backend/scripts/create-integration-api-key.mjs](../../Backend/scripts/create-integration-api-key.mjs) | Create/list/revoke API keys |
@@ -539,6 +541,7 @@ Both columns should show table names, not `null`.
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 1.8 | 2026-10-26 | API v5.6: **`company_hub_code`** on POST/PATCH; catalog entity **`company`**; header **`X-JPS-API-Version: 5.6`** |
 | 1.7 | 2026-10-05 | API v5.5: Hose On/Off window test steps; **`cargo_ops_end_at`** |
 | 1.6 | 2026-10-05 | API v5.4: **`schedule.cargo_ops_start_at`** (ATS) test steps; checklist for API version header |
 | 1.5 | 2026-10-02 | API v5.3 hub-only POST (`port_hub_code`, `cargo_hub_code`); catalog references |

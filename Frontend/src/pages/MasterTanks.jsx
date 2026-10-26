@@ -13,6 +13,7 @@ import { useActivityLog } from '../context/ActivityLogContext'
 import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
 import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 import MasterWorkingPortBar from '../components/MasterWorkingPortBar.jsx'
 import '../styles/allocation.css'
 import '../styles/modal.css'
@@ -380,7 +381,7 @@ export default function MasterTanks() {
       </section>
 
       {modalOpen && (
-        <div className="modal-overlay" role="presentation" onClick={closeModal}>
+        <StickyFormOverlay>
           <div className="modal" role="dialog" aria-modal="true" aria-labelledby="master-tank-modal-title" onClick={(e) => e.stopPropagation()}>
             <h2 id="master-tank-modal-title" className="modal__title">
               {editingId != null ? 'Edit Tank' : 'Add Tank'}
@@ -432,7 +433,7 @@ export default function MasterTanks() {
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
     </div>
   )

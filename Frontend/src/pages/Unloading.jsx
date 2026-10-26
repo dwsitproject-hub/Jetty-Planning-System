@@ -11,6 +11,7 @@ import { MAX_REMARK_CHARS } from '../constants/inputLimits'
 import { usePortScope } from '../context/PortScopeContext'
 import { getScheduleEntryTimeZone, naiveLocalToUtcIso, utcIsoToNaiveLocal } from '../utils/scheduleDateTime.js'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 
 const activeBerths = Array.isArray(berths) ? berths.filter((b) => b && b.currentVesselId) : []
 
@@ -601,11 +602,7 @@ export default function Unloading() {
 
       {/* Log modal: time + comment; optional tag for Stop/Resume (shared modal classes) */}
       {logModal.open && (
-        <div
-          className="modal-overlay"
-          onClick={() => setLogModal((m) => ({ ...m, open: false }))}
-          aria-hidden="true"
-        >
+        <StickyFormOverlay>
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
@@ -673,16 +670,12 @@ export default function Unloading() {
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
 
       {/* Palka timestamp edit modal */}
       {palkaTimeEdit && (
-        <div
-          className="modal-overlay"
-          onClick={() => setPalkaTimeEdit(null)}
-          aria-hidden="true"
-        >
+        <StickyFormOverlay>
           <div
             className="modal modal--small"
             onClick={(e) => e.stopPropagation()}
@@ -714,7 +707,7 @@ export default function Unloading() {
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
     </div>
   )

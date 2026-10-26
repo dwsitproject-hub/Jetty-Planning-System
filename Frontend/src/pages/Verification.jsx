@@ -12,6 +12,7 @@ import {
 } from '../utils/scheduleDateTime.js'
 import { resolveUploadUrl } from '../api/client'
 import FilePreviewLink from '../components/FilePreviewLink'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 import SiDetailModal from '../components/SiDetailModal'
 import SiDocumentModal from '../components/SiDocumentModal'
 import VesselInfoModal, { VesselNameButton } from '../components/VesselInfoModal'
@@ -1248,7 +1249,7 @@ export default function Verification() {
       </section>
 
       {modalOpId && (
-        <div className="modal-overlay" onClick={closeModal} aria-hidden="true">
+        <StickyFormOverlay>
           <div
             className="modal modal--wide"
             onClick={(e) => e.stopPropagation()}
@@ -1378,7 +1379,7 @@ export default function Verification() {
               )}
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
       <SiDetailModal
         isOpen={Boolean(siDetailId)}

@@ -276,6 +276,48 @@ export function normalizeHubPortMaster(record) {
   return hubRecordEnvelope(record, values);
 }
 
+/**
+ * DHM company (portal `/hub/company`) or organization catalog.
+ * Documented slug is `organization`; the hub UI slug is `company`. Both use these fields.
+ */
+export function normalizeHubOrganization(record) {
+  const data = record?.data && typeof record.data === 'object' ? record.data : null;
+  if (!data) return null;
+  const name = str(data.name ?? data.Name);
+  if (!name) return null;
+  const isActive = data.is_active === false || data.isActive === false ? false : true;
+  const values = {
+    name,
+    short_name: str(data.short_name ?? data.shortName ?? data.Short_Name),
+    company_code_sap: str(
+      data.company_code_sap ??
+        data.companyCodeSap ??
+        data.Company_Code_SAP ??
+        data.sap_code ??
+        data.sapCode
+    ),
+    country: str(data.country ?? data.Country),
+    is_active: isActive,
+  };
+  return hubRecordEnvelope(record, values);
+}
+
+/** Try the live company slug, then the documented organization slug. */
+export async function fetchAllOrganizationSyncRecords(cfg, fetchImpl = fetch) {
+  const slugs = ['company', 'organization'];
+  let lastErr;
+  for (const slug of slugs) {
+    try {
+      return await fetchAllSyncRecords(cfg, slug, normalizeHubOrganization, fetchImpl);
+    } catch (e) {
+      lastErr = e;
+      if (Number(e?.status) === 404) continue;
+      throw e;
+    }
+  }
+  throw lastErr;
+}
+
 /** DHM commodity → local si_commodities columns (before JPS-only defaults). */
 export function normalizeHubCommodity(record) {
   const data = record?.data && typeof record.data === 'object' ? record.data : null;
@@ -296,13 +338,14 @@ export function normalizeHubCommodity(record) {
 }
 
 /**
- * @param {string} entityType vessel | incoterm | commodity | port_master
+ * @param {string} entityType vessel | incoterm | commodity | port_master | organization | company
  */
 export function normalizeHubRecord(entityType, record) {
   const t = String(entityType || '').toLowerCase();
   if (t === 'incoterm') return normalizeHubIncoterm(record);
   if (t === 'commodity') return normalizeHubCommodity(record);
   if (t === 'port_master') return normalizeHubPortMaster(record);
+  if (t === 'organization' || t === 'company') return normalizeHubOrganization(record);
   return normalizeHubVessel(record);
 }
 

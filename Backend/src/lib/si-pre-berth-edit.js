@@ -127,6 +127,7 @@ export function hasSiUpdateMaterialChanges(beforeRow, beforeBd, next, nextBreakd
     ['notify_party_text', beforeRow.notify_party_text, next.notifyPartyText],
     ['bl_split_text', beforeRow.bl_split_text, next.blSplitText],
     ['bl_indicated', beforeRow.bl_indicated, next.blIndicated],
+    ['company_id', beforeRow.company_id, next.companyId],
   ];
 
   for (const [, beforeVal, afterVal] of scalarFields) {

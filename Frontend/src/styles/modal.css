@@ -736,6 +736,18 @@
   box-shadow: inset 0 0 0 1px var(--color-brand-red);
 }
 
+.shipment-plan-form__purpose-toggle button.is-selected.is-loading {
+  background: rgba(45, 122, 62, 0.15);
+  color: #1a5f2a;
+  box-shadow: inset 0 0 0 1px rgba(45, 122, 62, 0.55);
+}
+
+.shipment-plan-form__purpose-toggle button.is-selected.is-unloading {
+  background: rgba(33, 115, 199, 0.15);
+  color: #1e40af;
+  box-shadow: inset 0 0 0 1px rgba(33, 115, 199, 0.55);
+}
+
 .shipment-plan-form__calc-strip {
   display: flex;
   gap: var(--spacing-4);
@@ -1011,5 +1023,47 @@
 
   .shipment-plan-form__progress-line {
     width: 28px;
+  }
+}
+
+@keyframes stickyFormNudge {
+  0%,
+  100% { transform: translateX(0); }
+  20% { transform: translateX(-8px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-5px); }
+  80% { transform: translateX(4px); }
+}
+
+.sticky-form-overlay.is-nudging > .modal,
+.sticky-form-overlay.is-nudging > .operator-modal,
+.operator-sheet.is-nudging {
+  animation: stickyFormNudge 0.45s ease;
+}
+
+.sticky-form-hint {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  z-index: 1300;
+  margin: 0;
+  max-width: min(92vw, 440px);
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-text-charcoal, #1f2933);
+  color: #fff;
+  font-size: var(--font-size-small, 14px);
+  line-height: 1.35;
+  text-align: center;
+  box-shadow: var(--shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.18));
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sticky-form-overlay.is-nudging > .modal,
+  .sticky-form-overlay.is-nudging > .operator-modal,
+  .operator-sheet.is-nudging {
+    animation: none;
   }
 }

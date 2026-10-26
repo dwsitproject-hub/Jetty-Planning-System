@@ -11,6 +11,7 @@ import {
 } from '../api/datahubPort.js'
 import { useActivityLog } from '../context/ActivityLogContext'
 import { useRbac } from '../context/RbacContext'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/datahub-sync.css'
@@ -524,7 +525,7 @@ export default function MasterPort() {
       </section>
 
       {modalOpen && (
-        <div className="modal-overlay" onClick={closeModal} aria-hidden="true">
+        <StickyFormOverlay>
           <div
             className="modal modal--wide"
             onClick={(e) => e.stopPropagation()}
@@ -676,7 +677,7 @@ export default function MasterPort() {
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
 
       {review && (

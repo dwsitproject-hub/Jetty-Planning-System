@@ -1,8 +1,10 @@
 # Jetty Planning System — Shipping Instruction API Integration Guide
 
-> **Version:** 5.5 · **Audience:** External full-stack developers building an integration from your system (EOS Export/Import, KLIPS, ERP, TMS, etc.) into the Jetty Planning System (JPS).
+> **Version:** 5.6 · **Audience:** External full-stack developers building an integration from your system (EOS Export/Import, KLIPS, ERP, TMS, etc.) into the Jetty Planning System (JPS).
 >
-> **What you can do:** Sync reference master data, submit Shipping Instructions, update PO/SO while Pending, **send HTTP or HTTPS links** to SI / contract / B/L documents, **receive approval and milestone updates via webhooks**, and poll enriched status (including TA, ETB, TB, ETC, TC, **Hose On/Off** (`cargo_ops_start_at` / `cargo_ops_end_at`), cast off, sailed). JPS operators update berthing milestones in the web app — your system receives those changes; you do not write them back via API.
+> **What you can do:** Sync reference master data, submit Shipping Instructions, update PO/SO while Pending, **name the operating company** (`company_hub_code`), **send HTTP or HTTPS links** to SI / contract / B/L documents, **receive approval and milestone updates via webhooks**, and poll enriched status (including TA, ETB, TB, ETC, TC, **Hose On/Off** (`cargo_ops_start_at` / `cargo_ops_end_at`), cast off, sailed). JPS operators update berthing milestones in the web app — your system receives those changes; you do not write them back via API.
+>
+> **What's new in v5.6:** **`company_hub_code`** on POST and PATCH (Pending) stores the operating company on the Shipping Instruction (`shipping_instructions.company_id`). This is the DataHub organization, not the cargo-line shipper. Required when the port has more than one mapped company; when the port has exactly one, omit it and JPS stores that company. **201**, GET, and webhook `data` echo **`company_hub_code`** and **`company_name`**. Catalog entity **`company`**. Header **`X-JPS-API-Version: 5.6`**.
 >
 > **What's new in v5.5:** **`schedule.cargo_ops_start_at`** / **`schedule.cargo_ops_end_at`** map KLIP **Hose On** / **Hose Off** to JPS Cargo Operations **operation window** start/end (`operation_operational_activities.start_at` / `end_at` on `cargo_operations`). **`cast_off_at`** remains vessel cast-off (clearance), not Hose Off. Header **`X-JPS-API-Version: 5.5`**. KLIP integrators: use v5.5 fields for ATS/ATC.
 >
@@ -226,6 +228,7 @@ curl -sS -X POST "http://172.28.92.56:3080/api/v1/integrations/shipping-instruct
     "external_reference": "EOS-EXPORT-2026-091",
     "requested_by": "developer@your-company.com",
     "port_hub_code": "PORT-0048",
+    "company_hub_code": "ORG-0001",
     "vessel_hub_code": "VSL-0001",
     "voyage_no": "VY-8891",
     "purpose": "Loading",
@@ -268,6 +271,8 @@ curl -sS -X POST "http://172.28.92.56:3080/api/v1/integrations/shipping-instruct
     "vessel_hub_code": "VSL-0001",
     "port_hub_code": "PORT-0048",
     "port_id": 1,
+    "company_hub_code": "ORG-0001",
+    "company_name": "PT ENERGI UNGGUL PERSADA",
     "received_at": "2026-06-15T06:53:59.935Z"
   }
 }
@@ -303,6 +308,20 @@ Partners do **not** send `master_vessel_id`, LOA, GT, or draft — JPS copies th
 | `port_id` | **Not accepted (v5.3+)** | Returns **400** — use **`port_hub_code`**. |
 
 Study live mappings: **`GET /catalog/port`** (includes `referenceRows` with `hub_code` and `jps_port_id`).
+
+#### Company identification (`company_hub_code`)
+
+The operating company for this shipping (DataHub organization). It is **not** `cargo[].shipper_name`.
+
+| Port companies | `company_hub_code` |
+|----------------|--------------------|
+| None mapped | Omit. JPS stores no company. A sent code returns **400** `Company is not used at this port`. |
+| Exactly one | Omit, and JPS stores that company. A sent code must be that company's hub code. |
+| Two or more | **Required.** Must be an active company mapped to `port_hub_code`. |
+
+Unknown or unmapped codes return **400** with `valid_company_hub_codes` for that port. Study live mappings: **`GET /catalog/company`** (`referenceRows`: `hub_code`, `short_name`, `name`, `port_hub_codes`).
+
+`PATCH` while **Pending** may send `company_hub_code` to correct it. Omitting it on PATCH leaves the stored company unchanged.
 
 #### Commodity identification (`cargo[].cargo_hub_code`)
 
@@ -348,6 +367,8 @@ curl -sS "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions/10"
     "etd": "2026-07-03T18:00:00Z",
     "port_hub_code": "PORT-0048",
     "port_id": 1,
+    "company_hub_code": "ORG-0001",
+    "company_name": "PT ENERGI UNGGUL PERSADA",
     "approval": {
       "status": "Approved",
       "approved_at": "2026-06-16T01:00:00.000Z",
@@ -428,7 +449,7 @@ Same response shape as `GET /{id}`. HTTP `404` if not found or not yours.
 
 Use this when PO or SO numbers (or shipper / trade term / surveyor) are not ready at initial submit.
 
-**Allowed only while partner status is `Pending`.** After approve/reject/allocate → **409** `INVALID_STATE`.
+**Allowed only while partner status is `Pending`.** After approve/reject/allocate → **409** `INVALID_STATE`. You may also send `company_hub_code` to correct the operating company (same port rules as POST). Omit it to leave the stored company unchanged.
 
 ```bash
 curl -sS -X PATCH "http://172.28.92.56:3080/api/v1/integrations/shipping-instructions/10" \
@@ -581,9 +602,9 @@ curl -sS "$JPS_API_BASE_URL/catalog/shipping-instruction" -H "x-api-key: $JPS_AP
 {
   "success": true,
   "data": {
-    "api_version": "5.5",
+    "api_version": "5.6",
     "auth_header": "x-api-key",
-    "count": 7,
+    "count": 9,
     "entities": [
       { "slug": "shipping-instruction", "name": "Shipping instruction", "path": "/shipping-instructions", "methods": ["POST", "GET", "PATCH"], "fieldCount": 18 },
       { "slug": "webhook", "name": "Webhook endpoint", "path": "/webhooks", "methods": ["POST", "GET", "PATCH", "DELETE"], "fieldCount": 4 },
@@ -592,7 +613,8 @@ curl -sS "$JPS_API_BASE_URL/catalog/shipping-instruction" -H "x-api-key: $JPS_AP
       { "slug": "surveyor", "name": "Surveyor", "path": "/surveyors", "methods": ["GET"], "fieldCount": 2 },
       { "slug": "shipper", "name": "Shipper", "path": "/shippers", "methods": ["POST", "GET", "PATCH"], "fieldCount": 2 },
       { "slug": "port", "name": "Port", "path": null, "methods": [], "fieldCount": 3 },
-      { "slug": "cargo-type", "name": "Cargo type", "path": null, "methods": [], "fieldCount": 3 }
+      { "slug": "cargo-type", "name": "Cargo type", "path": null, "methods": [], "fieldCount": 3 },
+      { "slug": "company", "name": "Company", "path": null, "methods": [], "fieldCount": 5 }
     ]
   }
 }
@@ -610,6 +632,7 @@ curl -sS "$JPS_API_BASE_URL/catalog/shipping-instruction" -H "x-api-key: $JPS_AP
     "methods": ["POST", "GET", "PATCH"],
     "fields": [
       { "key": "purpose", "type": "STRING", "required": true, "patchable": false, "enumValues": ["Loading", "Unloading"] },
+      { "key": "company_hub_code", "type": "STRING", "required": false, "patchable": true, "maxLength": 50, "enumValues": ["ORG-0001", "..."], "description": "Operating company. Required when the port has more than one mapped company. See GET /catalog/company." },
       { "key": "trade_term", "type": "STRING", "required": false, "patchable": true, "enumValues": ["FOB", "CIF", "CFR", "..."] },
       { "key": "shipping_instruction_document_url", "type": "URL", "required": false, "patchable": true, "maxLength": 2048 },
       { "key": "cargo", "type": "ARRAY", "required": true, "patchable": true, "items": [ { "key": "cargo_hub_code", "type": "STRING", "required": true, "enumValues": ["CMD-0006", "CMD-0010", "..."] } ] },
@@ -624,6 +647,7 @@ curl -sS "$JPS_API_BASE_URL/catalog/shipping-instruction" -H "x-api-key: $JPS_AP
 - **`legacyFieldsRejected`** on **`shipping-instruction`** lists POST fields that v5.3 rejects (including **`cargo_type`** — send **`cargo_hub_code`** instead).
 - **`patchable`** marks fields the `PATCH` endpoint accepts (§3.3, §4.1.1).
 - Unknown `{entity}` returns **404** with `error.code = "NOT_FOUND"`.
+- **`GET /catalog/company`** lists operating companies mapped to at least one port (`referenceRows.port_hub_codes`). Use those hub codes for `company_hub_code`. This is not the shipper list.
 - Cache the catalog at startup; it changes when JPS master data changes (a new commodity, surveyor, or trade term), not on every submission.
 
 ---
@@ -637,6 +661,7 @@ curl -sS "$JPS_API_BASE_URL/catalog/shipping-instruction" -H "x-api-key: $JPS_AP
 | `external_reference` | string (max 100) | Yes | Your unique document/order ID. Idempotency key. |
 | `requested_by` | string (max 200) | No | Person or service account in your system. Shown to JPS operators. If omitted, JPS stores the API partner name. |
 | `port_hub_code` | string (max 50) | Yes | DHM/JPS port hub code. See **`GET /catalog/port`**. |
+| `company_hub_code` | string (max 50) | When the port has more than one company | Operating company hub code (not the cargo shipper). See **`GET /catalog/company`** and §3.1. Omit when the port has exactly one mapped company. |
 | `vessel_hub_code` | string (max 50) | Yes | DataHub / JPS master vessel code. |
 | `vessel_name` | string (max 200) | No | Optional cross-check when `vessel_hub_code` is sent (must match master). |
 | `voyage_no` | string (max 50) | No | Voyage number. |
@@ -676,6 +701,7 @@ At least one field required. Allowed while status is **`Pending`** only.
 |-------|-------------|
 | `trade_term` | Update SI trade term (code from **`GET /terms`**) |
 | `surveyor_name` | Update SI surveyor (from **`GET /surveyors`**) |
+| `company_hub_code` | Correct the operating company (same rules as POST). Omit to leave it unchanged. |
 | `cargo[]` | Array of line updates — each line must include **`line_order`** or **`contract_no`** to identify the row, plus any of: `po_no`, `so_no`, `shipper_name` |
 | `shipping_instruction_document_url` | Update SI document link (HTTP or HTTPS) |
 | `contract_document_url` | Update contract document link |
@@ -929,7 +955,7 @@ curl -sS -X POST "$JPS_API_BASE_URL/shipping-instructions" \
   }"
 ```
 
-**Check:** `"success": true`, `"status": "Pending"`, note `data.id` (e.g. `10`).
+**Check:** `"success": true`, `"status": "Pending"`, note `data.id` (e.g. `10`). The example omits `company_hub_code`. That is valid when the port has one mapped company (JPS stores it) or none. When `GET /catalog/company` lists more than one company for that port, add `company_hub_code` or the call returns **400** with `valid_company_hub_codes`. The **201** body echoes `company_hub_code` and `company_name`.
 
 ### 6.5 Test 3 — Poll status (`200`)
 
@@ -1071,6 +1097,7 @@ function updatePoSo(jps_id, lines):
 - [ ] `vessel_hub_code` ← your ERP/DataHub vessel code (store in your vessel master; **primary identifier**)
 - [ ] `cargo_hub_code` ← DHM/JPS commodity hub code from `GET /catalog/cargo-type` (§5.1)
 - [ ] `port_hub_code` ← from `GET /catalog/port` (§5.2)
+- [ ] `company_hub_code` ← operating company from `GET /catalog/company` for that port (required when the port lists more than one; omit when it lists exactly one)
 - [ ] `trade_term` / `surveyor_name` ← codes/names from `GET /terms` and `GET /surveyors`
 - [ ] `shipper_name` ← create via `POST /shippers` before submit if not in JPS
 - [ ] `po_no` / `so_no` ← on cargo lines at submit, or via `PATCH` while Pending
@@ -1118,6 +1145,7 @@ When reporting issues, include:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.6 | 2026-10-26 | **Operating company:** `company_hub_code` on POST and Pending PATCH. Required when the port has more than one mapped company; one mapped company is stored when omitted. **201**, GET, and webhook `data` echo `company_hub_code` and `company_name`. Catalog entity `company`. Header **`X-JPS-API-Version: 5.6`**. |
 | 5.5 | 2026-10-05 | KLIP **Hose On/Off:** **`cargo_ops_start_at`** / **`cargo_ops_end_at`** = Cargo Operations **operation window** start/end. **`cast_off_at`** documented as vessel cast-off only. Header **`X-JPS-API-Version: 5.5`**. |
 | 5.4 | 2026-10-05 | **`schedule.cargo_ops_start_at`** (superseded by v5.5 for KLIP). Header **`X-JPS-API-Version: 5.4`**. |
 | 5.3 | 2026-10-02 | **Hub-only POST** (required **`port_hub_code`**, **`vessel_hub_code`**, **`cargo[].cargo_hub_code`**); legacy **`port_id`**, **`cargo_type`**, vessel_name-only rejected. **`agent_name`** optional/nullable. Document URLs accept **HTTP or HTTPS**. Catalog updated. Header **`X-JPS-API-Version: 5.3`**. |

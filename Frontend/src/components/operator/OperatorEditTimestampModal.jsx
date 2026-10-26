@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { StickyFormHint, useStickyFormDismiss } from '../StickyFormOverlay.jsx'
 
 export default function OperatorEditTimestampModal({ open, title, initialLocal, busy, onCancel, onSave }) {
   const { t } = useTranslation('operator')
+  const { overlayRef, onBackdropClick, showHint, nudgeClassName } = useStickyFormDismiss()
   const [value, setValue] = useState(initialLocal || '')
 
   useEffect(() => {
@@ -14,7 +16,13 @@ export default function OperatorEditTimestampModal({ open, title, initialLocal, 
   const dialogTitle = title || t('modal.editTimestamp')
 
   return (
-    <div className="operator-modal-backdrop" role="presentation" onClick={onCancel}>
+    <div
+      ref={overlayRef}
+      className={`operator-modal-backdrop sticky-form-overlay ${nudgeClassName}`.trim()}
+      role="presentation"
+      onClick={onBackdropClick}
+    >
+      <StickyFormHint show={showHint} />
       <div
         className="operator-modal"
         role="dialog"

@@ -7,6 +7,7 @@ import { term } from '../i18n/term'
 import SiDetailModal from '../components/SiDetailModal'
 import SiDocumentModal from '../components/SiDocumentModal'
 import VesselInfoModal, { VesselNameButton } from '../components/VesselInfoModal'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { atBerthExecutionOpenPath } from '../utils/atBerthOpenPath'
 import { shouldPollLiveCargoProgress } from '../utils/berthingEligibility'
@@ -1352,7 +1353,7 @@ export default function AtBerthExecutions() {
       </section>
 
       {shiftModal?.shiftRow ? (
-        <div className="modal-overlay" onClick={closeShiftModal} aria-hidden="true">
+        <StickyFormOverlay>
           <div
             className="modal"
             onClick={(ev) => ev.stopPropagation()}
@@ -1413,7 +1414,7 @@ export default function AtBerthExecutions() {
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       ) : null}
       <SiDetailModal
         isOpen={Boolean(siDetailId)}

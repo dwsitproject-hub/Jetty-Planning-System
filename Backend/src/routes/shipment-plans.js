@@ -11,6 +11,7 @@ import { loadOperationJoined, toOp } from './operations.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
 import { triggerPartnerWebhooksDeferred } from '../lib/integration-webhooks.js';
 import { formatSiCargoDisplay } from '../lib/siBreakdownDisplay.js';
+import { companyLabel } from '../lib/company-for-instruction.js';
 import { validateDepartDocumentUrls } from '../lib/depart-document-url.js';
 import { validateCastOffAt } from '../lib/validate-cast-off.js';
 import { resolveUserRequestedBy } from '../lib/resolve-requested-by.js';
@@ -81,6 +82,10 @@ function parseSiChildrenJson(val) {
         etaFrom: r.eta_from ?? null,
         etaTo: r.eta_to ?? null,
         loadingPortId: r.loading_port_id != null ? Number(r.loading_port_id) : null,
+        companyId: r.company_id != null ? Number(r.company_id) : null,
+        companyName: r.company_name ?? null,
+        companyShortName: r.company_short_name ?? null,
+        companyLabel: companyLabel({ name: r.company_name, short_name: r.company_short_name }) || null,
         breakdown,
         commodityQtyDisplay: totalQtyDisplay,
       };
@@ -174,6 +179,10 @@ function toSiChildRow(row) {
     etaFrom: row.eta_from ?? null,
     etaTo: row.eta_to ?? null,
     loadingPortId: row.loading_port_id != null ? Number(row.loading_port_id) : null,
+    companyId: row.company_id != null ? Number(row.company_id) : null,
+    companyName: row.company_name ?? null,
+    companyShortName: row.company_short_name ?? null,
+    companyLabel: companyLabel({ name: row.company_name, short_name: row.company_short_name }) || null,
     breakdown,
   };
 }
@@ -232,6 +241,9 @@ router.get('/', async (req, res) => {
                   'eta_from', si.eta_from,
                   'eta_to', si.eta_to,
                   'loading_port_id', si.loading_port_id,
+                  'company_id', si.company_id,
+                  'company_name', mc.name,
+                  'company_short_name', mc.short_name,
                   'breakdown', (
                     SELECT COALESCE(
                       json_agg(
@@ -260,6 +272,7 @@ router.get('/', async (req, res) => {
               '[]'::json
             )
             FROM shipping_instructions si
+            LEFT JOIN master_companies mc ON mc.id = si.company_id AND mc.deleted_at IS NULL
             WHERE si.shipment_plan_id = sp.id AND si.deleted_at IS NULL
            ) AS si_children_json
     FROM shipment_plans sp
@@ -441,7 +454,7 @@ router.get('/:id', async (req, res) => {
 
   const sis = await pool.query(
     `SELECT si.id, si.reference_number, spl.vessel_name, si.commodity, spp2.code AS purpose, si.status, spl.eta, si.eta_from, si.eta_to,
-            si.loading_port_id,
+            si.loading_port_id, si.company_id, mc.name AS company_name, mc.short_name AS company_short_name,
             (
               SELECT COALESCE(
                 json_agg(
@@ -468,6 +481,7 @@ router.get('/:id', async (req, res) => {
      FROM shipping_instructions si
      JOIN shipment_plans spl ON spl.id = si.shipment_plan_id AND spl.deleted_at IS NULL
      LEFT JOIN si_purposes spp2 ON spp2.id = spl.purpose_id AND spp2.deleted_at IS NULL
+     LEFT JOIN master_companies mc ON mc.id = si.company_id AND mc.deleted_at IS NULL
      WHERE si.shipment_plan_id = $1 AND si.deleted_at IS NULL
      ORDER BY si.id ASC`,
     [planId]

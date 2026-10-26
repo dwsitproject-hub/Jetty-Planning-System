@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import StickyFormOverlay from './StickyFormOverlay.jsx'
 
 /**
  * @param {{
@@ -44,7 +45,7 @@ export default function SiExtractConflictModal({
     .map(([k]) => k)
 
   return (
-    <div className="modal-overlay" onClick={onCancel} aria-hidden="true">
+    <StickyFormOverlay>
         <div
           className="modal modal--wide"
           role="dialog"
@@ -141,6 +142,6 @@ export default function SiExtractConflictModal({
             </button>
           </div>
         </div>
-    </div>
+    </StickyFormOverlay>
   )
 }

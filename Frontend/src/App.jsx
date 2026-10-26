@@ -39,6 +39,7 @@ import MasterJetty from './pages/MasterJetty'
 import MasterJettyLayout from './pages/MasterJettyLayout'
 import MasterTanks from './pages/MasterTanks'
 import MasterVessel from './pages/MasterVessel'
+import MasterCompany from './pages/MasterCompany'
 import TankFarm from './pages/TankFarm'
 import MasterSiLookup from './pages/MasterSiLookup'
 import MasterFreightTerms from './pages/MasterFreightTerms'
@@ -179,6 +180,7 @@ function App() {
                   <Route path="/master/jetty-layout" element={<MasterJettyLayout />} />
                   <Route path="/master/tanks" element={<MasterTanks />} />
                   <Route path="/master/vessel" element={<MasterVessel />} />
+                  <Route path="/master/company" element={<MasterCompany />} />
                   <Route path="/tank-farm" element={<TankFarm />} />
                   <Route
                     path="/master/si-term"

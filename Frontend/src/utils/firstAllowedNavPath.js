@@ -26,6 +26,7 @@ export function pathToPageKey(pathname) {
   if (pathname.startsWith('/master/jetty-layout')) return 'master-jetty-layout'
   if (pathname.startsWith('/master/tanks')) return 'master-tanks'
   if (pathname.startsWith('/master/vessel')) return 'master-vessel'
+  if (pathname.startsWith('/master/company')) return 'master-company'
   if (pathname.startsWith('/tank-farm')) return 'tank-farm'
   if (pathname.startsWith('/master/jetty')) return 'master-jetty'
   if (pathname.startsWith('/master/si-term')) return 'master-si-term'

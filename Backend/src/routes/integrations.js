@@ -45,8 +45,10 @@ import {
   listActivePortHubCodes,
   normalizeCargoShortName,
   resolveCargoCommodities,
+  resolveCompanyForIntegration,
   resolvePortForIntegration,
   validateIntegrationCargoLineIdentifiers,
+  validateIntegrationCompanyHubCode,
   validateIntegrationPortInput,
 } from '../lib/integration-hub-resolve.js';
 
@@ -71,6 +73,14 @@ function buildPlanReference(planId) {
 
 function asTrimmedString(v) {
   return typeof v === 'string' ? v.trim() : '';
+}
+
+function sendCompanyValidationError(res, result) {
+  const detail = { field: result.field || 'company_hub_code', issue: result.error };
+  if (Array.isArray(result.validCompanyHubCodes)) {
+    detail.valid_company_hub_codes = result.validCompanyHubCodes;
+  }
+  return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [detail]);
 }
 
 function parseIsoDateTime(v) {
@@ -136,6 +146,9 @@ function validateSubmission(body) {
 
   const requestedBy = asTrimmedString(b.requested_by);
   if (requestedBy.length > 200) push('requested_by', 'max length 200');
+
+  const companyInput = validateIntegrationCompanyHubCode(b.company_hub_code);
+  companyInput.errors.forEach((e) => push(e.field, e.issue));
 
   const cargoRaw = Array.isArray(b.cargo) ? b.cargo : null;
   const cargo = [];
@@ -218,6 +231,8 @@ function validateSubmission(body) {
       agentContact: agentContact || null,
       notes: notes || null,
       requestedBy: requestedBy || null,
+      companyHubCode: companyInput.companyHubCode,
+      companyOmitted: companyInput.omitted,
       tradeTerm,
       surveyorName,
       cargo,
@@ -286,18 +301,31 @@ function validatePatchBody(body) {
     }
   }
 
+  const companyInput = validateIntegrationCompanyHubCode(b.company_hub_code);
+  companyInput.errors.forEach((e) => push(e.field, e.issue));
+
   const docUrls = parseOptionalPartnerDocumentUrls(b, push);
   const hasDocs =
     docUrls.siDocumentUrl !== undefined ||
     docUrls.contractDocumentUrl !== undefined ||
     docUrls.blDocumentUrl !== undefined;
 
-  const hasHeader = tradeTerm !== undefined || surveyorName !== undefined || hasDocs;
+  const hasHeader = tradeTerm !== undefined || surveyorName !== undefined || hasDocs || !companyInput.omitted;
   if (!hasHeader && cargo.length === 0) {
     push('body', 'at least one field to update is required');
   }
 
-  return { errors, value: { tradeTerm, surveyorName, cargo, ...docUrls } };
+  return {
+    errors,
+    value: {
+      tradeTerm,
+      surveyorName,
+      cargo,
+      companyHubCode: companyInput.companyHubCode,
+      companyOmitted: companyInput.omitted,
+      ...docUrls,
+    },
+  };
 }
 
 const STATUS_LOOKUP_SQL = PARTNER_SUBMISSION_LOOKUP_SQL;
@@ -326,6 +354,13 @@ router.post('/shipping-instructions', async (req, res) => {
   }
   value.portId = Number(portRow.id);
   const resolvedPortHubCode = portRow.hub_code ?? null;
+
+  const resolvedCompany = await resolveCompanyForIntegration(pool, {
+    portId: value.portId,
+    companyHubCode: value.companyHubCode,
+    omitted: value.companyOmitted,
+  });
+  if (resolvedCompany.error) return sendCompanyValidationError(res, resolvedCompany);
 
   const dup = await pool.query(
     `${STATUS_LOOKUP_SQL} AND s.external_reference = $2`,
@@ -558,9 +593,9 @@ router.post('/shipping-instructions', async (req, res) => {
     const siIns = await client.query(
       `INSERT INTO shipping_instructions (
          reference_number, status, eta_from, eta_to, agent_id, note, shipment_plan_id,
-         trade_term_id, surveyor_id,
+         trade_term_id, surveyor_id, company_id,
          partner_si_document_url, partner_contract_document_url, partner_bl_document_url
-       ) VALUES ($1,'Submitted',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       ) VALUES ($1,'Submitted',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        RETURNING id, created_at`,
       [
         value.externalReference,
@@ -571,6 +606,7 @@ router.post('/shipping-instructions', async (req, res) => {
         planId,
         tradeTermId,
         surveyorId,
+        resolvedCompany.companyId,
         value.siDocumentUrl,
         value.contractDocumentUrl,
         value.blDocumentUrl,
@@ -639,6 +675,9 @@ router.post('/shipping-instructions', async (req, res) => {
       { field: 'External reference', from: null, to: value.externalReference },
       ...(effectiveRequestedBy ? [{ field: 'Requested by', from: null, to: effectiveRequestedBy }] : []),
       { field: 'Approval status', from: null, to: 'Submitted' },
+      ...(resolvedCompany.companyId != null
+        ? [{ field: 'Company', from: null, to: resolvedCompany.companyName || resolvedCompany.companyHubCode }]
+        : []),
     ],
     meta: {
       source: 'integration-api',
@@ -672,6 +711,8 @@ router.post('/shipping-instructions', async (req, res) => {
     vessel_hub_code: resolvedHubCode,
     port_id: value.portId,
     port_hub_code: resolvedPortHubCode,
+    company_hub_code: resolvedCompany.companyHubCode,
+    company_name: resolvedCompany.companyName,
     received_at: new Date(receivedAt).toISOString(),
   });
 });
@@ -717,6 +758,7 @@ async function applyPartnerPatch(req, res, { siId, externalReference }) {
   }
 
   let surveyorId = undefined;
+  let companyId = undefined;
   if (value.surveyorName !== undefined) {
     const sv = await resolveSurveyorByName(pool, value.surveyorName);
     if (!sv) {
@@ -732,6 +774,16 @@ async function applyPartnerPatch(req, res, { siId, externalReference }) {
     surveyorId = Number(sv.id);
   }
 
+  if (!value.companyOmitted) {
+    const resolvedCompany = await resolveCompanyForIntegration(pool, {
+      portId: Number(submission.port_id),
+      companyHubCode: value.companyHubCode,
+      omitted: false,
+    });
+    if (resolvedCompany.error) return sendCompanyValidationError(res, resolvedCompany);
+    companyId = resolvedCompany.companyId;
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -741,7 +793,8 @@ async function applyPartnerPatch(req, res, { siId, externalReference }) {
       surveyorId !== undefined ||
       value.siDocumentUrl !== undefined ||
       value.contractDocumentUrl !== undefined ||
-      value.blDocumentUrl !== undefined
+      value.blDocumentUrl !== undefined ||
+      companyId !== undefined
     ) {
       const siSets = ['updated_at = NOW()'];
       const siParams = [];
@@ -752,6 +805,10 @@ async function applyPartnerPatch(req, res, { siId, externalReference }) {
       if (surveyorId !== undefined) {
         siSets.push(`surveyor_id = $${siParams.length + 1}`);
         siParams.push(surveyorId);
+      }
+      if (companyId !== undefined) {
+        siSets.push(`company_id = $${siParams.length + 1}`);
+        siParams.push(companyId);
       }
       if (value.siDocumentUrl !== undefined) {
         siSets.push(`partner_si_document_url = $${siParams.length + 1}`);

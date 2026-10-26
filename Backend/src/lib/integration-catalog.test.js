@@ -17,6 +17,19 @@ function fakeDb() {
       if (sql.includes('si_commodities') && sql.includes('hub_code IS NOT NULL')) {
         return { rows: [{ hub_code: 'CMD-001' }] };
       }
+      if (sql.includes('master_companies')) {
+        return {
+          rows: [
+            {
+              id: 4,
+              hub_code: 'ORG-0001',
+              short_name: 'EUP',
+              name: 'PT ENERGI UNGGUL PERSADA',
+              port_hub_codes: ['PRT-001'],
+            },
+          ],
+        };
+      }
       if (sql.includes('si_commodities')) {
         return {
           rows: [
@@ -33,7 +46,7 @@ function fakeDb() {
 describe('integration-catalog', () => {
   it('builds entities with live enum values (v5.3 hub-only POST)', async () => {
     const catalog = await buildIntegrationCatalog(fakeDb());
-    assert.equal(catalog.api_version, '5.5');
+    assert.equal(catalog.api_version, '5.6');
     assert.ok(catalog.count >= 8);
 
     const si = catalog.entities.find((e) => e.slug === 'shipping-instruction');
@@ -52,6 +65,13 @@ describe('integration-catalog', () => {
     const portHub = si.fields.find((f) => f.key === 'port_hub_code');
     assert.equal(portHub.required, true);
     assert.equal(si.fields.find((f) => f.key === 'port_id'), undefined);
+    const companyField = si.fields.find((f) => f.key === 'company_hub_code');
+    assert.equal(companyField.patchable, true);
+    assert.deepEqual(companyField.enumValues, ['ORG-0001']);
+
+    const company = catalog.entities.find((e) => e.slug === 'company');
+    assert.equal(company.referenceRows[0].jps_company_id, 4);
+    assert.deepEqual(company.referenceRows[0].port_hub_codes, ['PRT-001']);
 
     const portEntity = catalog.entities.find((e) => e.slug === 'port');
     assert.ok(portEntity.referenceRows);

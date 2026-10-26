@@ -49,6 +49,8 @@ describe('integration-partner-payload', () => {
     assert.equal(payload.approval.status, 'Approved');
     assert.equal(payload.allocation?.jetty_code, '1A');
     assert.equal(payload.port_hub_code, 'PRT-001');
+    assert.equal(payload.company_hub_code, null);
+    assert.equal(payload.company_name, null);
     assert.ok(payload.schedule);
   });
 
@@ -61,6 +63,8 @@ describe('integration-partner-payload', () => {
       approval_status: 'Submitted',
       vessel_name: 'V',
       port_id: 1,
+      company_hub_code: 'ORG-0001',
+      company_name: 'PT ENERGI UNGGUL PERSADA',
       payload: {},
       partner_si_document_url: 'https://ex/si',
       partner_contract_document_url: 'https://ex/c',
@@ -69,5 +73,7 @@ describe('integration-partner-payload', () => {
     assert.equal(payload.shipping_instruction_document_url, 'https://ex/si');
     assert.equal(payload.contract_document_url, 'https://ex/c');
     assert.equal(payload.bl_document_url, 'https://ex/bl');
+    assert.equal(payload.company_hub_code, 'ORG-0001');
+    assert.equal(payload.company_name, 'PT ENERGI UNGGUL PERSADA');
   });
 });

@@ -1,6 +1,6 @@
 /**
  * Partner integration API — enriched status + schedule payload (GET + webhooks).
- * Contract: Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md v5.2
+ * Contract: Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md v5.6
  */
 import { deriveExternalStatus } from './integration-master-data.js';
 
@@ -103,6 +103,8 @@ export function buildPartnerInstructionPayload(row) {
     etd: payload.etd ?? null,
     port_id: Number(row.port_id),
     port_hub_code: row.port_hub_code ?? null,
+    company_hub_code: row.company_hub_code ?? null,
+    company_name: row.company_name ?? null,
     approval: buildPartnerApproval(row),
     schedule,
     etr_minutes: etrMinutes,

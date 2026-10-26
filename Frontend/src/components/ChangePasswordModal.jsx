@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { changeMyPasswordApi } from '../api/usersApi'
 import PasswordField from './PasswordField'
+import StickyFormOverlay from './StickyFormOverlay.jsx'
 
 function CloseIcon() {
   return (
@@ -35,15 +36,6 @@ export default function ChangePasswordModal({ open, onClose }) {
       resetForm()
     }
   }, [open])
-
-  useEffect(() => {
-    if (!open) return undefined
-    const onKey = (e) => {
-      if (e.key === 'Escape' && !submitting) onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose, submitting])
 
   const handleClose = () => {
     if (submitting) return
@@ -95,7 +87,7 @@ export default function ChangePasswordModal({ open, onClose }) {
   if (!open) return null
 
   return (
-    <div className="modal-overlay" onClick={handleClose} aria-hidden="true">
+    <StickyFormOverlay>
       <div
         className="modal modal--password"
         onClick={(e) => e.stopPropagation()}
@@ -175,6 +167,6 @@ export default function ChangePasswordModal({ open, onClose }) {
           </div>
         </form>
       </div>
-    </div>
+    </StickyFormOverlay>
   )
 }

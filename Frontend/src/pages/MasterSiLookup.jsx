@@ -12,6 +12,7 @@ import '../styles/datahub-sync.css'
 import { MAX_MASTER_LONG_NAME_CHARS } from '../constants/inputLimits'
 import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import DataHubFieldCue from '../components/DataHubFieldCue.jsx'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
 import MasterTablePagination from '../components/MasterTablePagination.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
@@ -883,7 +884,7 @@ export default function MasterSiLookup({
       </section>
 
       {modalOpen && (
-        <div className="modal-overlay" onClick={closeModal}>
+        <StickyFormOverlay>
           <div
             className="modal modal--wide"
             onClick={(e) => e.stopPropagation()}
@@ -1199,7 +1200,7 @@ export default function MasterSiLookup({
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
       {review && dataHubUiMeta && (
         <DataHubSyncReviewModal

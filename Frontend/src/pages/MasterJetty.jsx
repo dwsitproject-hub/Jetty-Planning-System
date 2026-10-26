@@ -8,6 +8,7 @@ import { useActivityLog } from '../context/ActivityLogContext'
 import { usePortScope } from '../context/PortScopeContext'
 import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import MasterWorkingPortBar from '../components/MasterWorkingPortBar.jsx'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/shipping-instruction.css'
@@ -554,7 +555,7 @@ export default function MasterJetty() {
       </section>
 
       {modalOpen && (
-        <div className="modal-overlay" onClick={closeModal} aria-hidden="true">
+        <StickyFormOverlay>
           <div className="modal modal--wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <h2 className="modal__title">{editingId != null ? 'Edit Jetty' : 'Add Jetty'}</h2>
             <div className="modal__section">
@@ -728,7 +729,7 @@ export default function MasterJetty() {
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
     </div>
   )

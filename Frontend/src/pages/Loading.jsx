@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { Link, useParams, Navigate, useLocation, useSearchParams, useNavigate } from 'react-router-dom'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 import {
   vessels,
   getAtBerthOperations,
@@ -337,7 +338,7 @@ function OperationSignoffBanner({
       </section>
 
       {requestOpen && (
-        <div className="modal-overlay" onClick={() => !busy && setRequestOpen(false)} aria-hidden="true">
+        <StickyFormOverlay>
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
@@ -375,7 +376,7 @@ function OperationSignoffBanner({
               </button>
             </div>
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
 
     </>
@@ -2517,7 +2518,7 @@ function PreCheckingSections({
             onActivityLogRefresh={onActivityLogRefresh}
           />
           {formModalOpen ? (
-            <div className="modal-overlay" onClick={cancelEdit} aria-hidden="true">
+            <StickyFormOverlay>
               <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Pre-Checking form">
       {activeSubTab === 'keyMeeting' && (
       <PreCheckSectionCard
@@ -3175,7 +3176,7 @@ function PreCheckingSections({
       </PreCheckSectionCard>
       )}
               </div>
-            </div>
+            </StickyFormOverlay>
           ) : null}
           {/* Nested overlay: the sampling form above already occupies .modal-overlay */}
           <SamplingExtractReviewModal
@@ -3799,11 +3800,11 @@ function PostCheckingSections({
             onActivityLogRefresh={onActivityLogRefresh}
           />
           {formModalOpen ? (
-            <div className="modal-overlay" onClick={cancelEdit} aria-hidden="true">
+            <StickyFormOverlay>
               <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Post-Checking form">
                 {activePostTab ? renderSectionCard(activePostTab) : null}
               </div>
-            </div>
+            </StickyFormOverlay>
           ) : null}
         </div>
       </div>

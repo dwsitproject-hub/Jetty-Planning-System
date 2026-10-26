@@ -49,6 +49,7 @@ import notificationAdminRoutes from './routes/notification-admin.js';
 import datahubAdminRoutes from './routes/datahub-admin.js';
 import adminOpsRoutes from './routes/admin-ops.js';
 import masterVesselsRoutes from './routes/master-vessels.js';
+import masterCompaniesRoutes from './routes/master-companies.js';
 import { requireAuth } from './middleware/auth.js';
 import { requirePortScope } from './middleware/port-scope.js';
 import { csrfProtection } from './middleware/csrf.js';
@@ -119,6 +120,7 @@ apiV1.use('/ports', portsRoutes);
 apiV1.use('/jetties', jettiesRoutes);
 /** Vessel master is global (not port-scoped), so it mounts above the catch-all requirePortScope routers. */
 apiV1.use('/master/vessels', masterVesselsRoutes);
+apiV1.use('/master/companies', masterCompaniesRoutes);
 apiV1.use('/sla-config', slaConfigRoutes);
 apiV1.use('/standard-rates', standardRatesRoutes);
 apiV1.use('/si-document-extract', requireAuth, requirePortScope, siDocumentExtractRoutes);

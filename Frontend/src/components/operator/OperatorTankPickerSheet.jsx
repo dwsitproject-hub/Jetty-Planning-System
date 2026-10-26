@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { StickyFormHint, useStickyFormDismiss } from '../StickyFormOverlay.jsx'
 import {
   defaultCommodityIdForNewLine,
   findSiCommodityOption,
@@ -30,6 +31,7 @@ export default function OperatorTankPickerSheet({
   onConfirm,
 }) {
   const { t } = useTranslation('operator')
+  const { overlayRef, onBackdropClick, showHint, nudgeClassName } = useStickyFormDismiss()
   const commodities = useMemo(
     () => normalizeSiCommodityOptions(siCommodityOptions),
     [siCommodityOptions]
@@ -89,8 +91,13 @@ export default function OperatorTankPickerSheet({
 
   return (
     <>
-      <div className="operator-sheet-backdrop" onClick={onCancel} aria-hidden />
-      <div className="operator-sheet" role="dialog" aria-modal="true" aria-label={title}>
+      <div
+        ref={overlayRef}
+        className={`operator-sheet-backdrop sticky-form-overlay ${nudgeClassName}`.trim()}
+        onClick={onBackdropClick}
+        aria-hidden
+      />
+      <div className={`operator-sheet ${nudgeClassName}`.trim()} role="dialog" aria-modal="true" aria-label={title}>
         <div className="operator-sheet__header">
           <h2>{title}</h2>
           <p>{t('tank.requiredBeforeStart')}</p>
@@ -181,6 +188,7 @@ export default function OperatorTankPickerSheet({
           </button>
         </div>
       </div>
+      <StickyFormHint show={showHint} />
     </>
   )
 }

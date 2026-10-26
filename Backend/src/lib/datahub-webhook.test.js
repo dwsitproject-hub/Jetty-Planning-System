@@ -79,6 +79,11 @@ describe('datahub-webhook', () => {
     );
   });
 
+  it('inferWebhookEntityType maps company and ORG codes to organization', () => {
+    assert.equal(inferWebhookEntityType({ entityType: 'company', data: { name: 'EUP' } }), 'organization');
+    assert.equal(inferWebhookEntityType({ data: { code: 'ORG-0004', name: 'EUP' } }), 'organization');
+  });
+
   it('inferWebhookEntityType returns null when unknown', () => {
     assert.equal(inferWebhookEntityType({ data: { foo: 'bar' } }), null);
   });

@@ -205,6 +205,7 @@
   "collapseSi": "Hide SIs",
   "siOnPlan": "Shipping instructions on this plan",
   "colSiRef": "SI ref",
+  "colCompany": "Company",
   "colPurpose": "Purpose",
   "colSiStatus": "SI status",
   "openSi": "Open SI",

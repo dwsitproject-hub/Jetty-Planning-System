@@ -6720,6 +6720,35 @@ body:has(.clearance-page--embed) {
   line-height: 1.4;
 }
 
+.master-company-directory__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.master-company-directory__chevron {
+  font-size: 0.85em;
+  line-height: 1;
+}
+
+.master-company-port-list {
+  list-style: none;
+  margin: 0 0 var(--spacing-3);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
 .master-rates-chip {
   display: inline-block;
   margin: 0 0 var(--spacing-3);

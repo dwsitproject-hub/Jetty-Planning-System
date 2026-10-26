@@ -1,5 +1,5 @@
 /**
- * Partner integration API — self-describing catalog (v5.3).
+ * Partner integration API — self-describing catalog (v5.6).
  * Mirrors the DataHub `GET /v1/catalog` pattern: lets partners discover which
  * entities they may call and their field contract at runtime, instead of
  * relying only on the static handoff doc.
@@ -11,10 +11,11 @@ import {
   listActiveCommodityHubCodes,
   listActivePortHubCodes,
   listCommoditiesForCatalog,
+  listCompaniesForCatalog,
   listPortsForCatalog,
 } from './integration-hub-resolve.js';
 
-export const INTEGRATION_CATALOG_VERSION = '5.5';
+export const INTEGRATION_CATALOG_VERSION = '5.6';
 
 const VALID_PURPOSES = ['Loading', 'Unloading'];
 const VALID_UNITS = ['MT', 'KL'];
@@ -37,15 +38,24 @@ function field(key, type, opts = {}) {
  * @param {import('pg').Pool} db
  */
 export async function buildIntegrationCatalog(db) {
-  const [tradeTermCodes, surveyorNames, portHubCodes, commodityHubCodes, portReferenceRows, commodityReferenceRows] =
-    await Promise.all([
-      listValidTradeTermCodes(db),
-      listValidSurveyorNames(db),
-      listActivePortHubCodes(db),
-      listActiveCommodityHubCodes(db),
-      listPortsForCatalog(db),
-      listCommoditiesForCatalog(db),
-    ]);
+  const [
+    tradeTermCodes,
+    surveyorNames,
+    portHubCodes,
+    commodityHubCodes,
+    portReferenceRows,
+    commodityReferenceRows,
+    companyReferenceRows,
+  ] = await Promise.all([
+    listValidTradeTermCodes(db),
+    listValidSurveyorNames(db),
+    listActivePortHubCodes(db),
+    listActiveCommodityHubCodes(db),
+    listPortsForCatalog(db),
+    listCommoditiesForCatalog(db),
+    listCompaniesForCatalog(db),
+  ]);
+  const companyHubCodes = companyReferenceRows.map((row) => row.hub_code).filter(Boolean);
 
   const cargoLineFields = [
     field('cargo_hub_code', 'STRING', {
@@ -81,7 +91,7 @@ export async function buildIntegrationCatalog(db) {
       path: '/shipping-instructions',
       methods: ['POST', 'GET', 'PATCH'],
       description:
-        'Submit a Shipping Instruction, poll enriched status (approval, schedule, milestones), and update PO/SO/document links while status is Pending. Port, vessel, and commodity lines require DHM/JPS hub codes (v5.3).',
+        'Submit a Shipping Instruction, poll enriched status (approval, schedule, milestones), and update PO/SO/document links while status is Pending. Port, vessel, and commodity lines require DHM/JPS hub codes (v5.3). Operating company is company_hub_code (v5.6), required when the port has more than one mapped company.',
       legacyFieldsRejected: [
         {
           key: 'port_id',
@@ -126,6 +136,13 @@ export async function buildIntegrationCatalog(db) {
         field('purpose', 'STRING', { required: true, enumValues: VALID_PURPOSES }),
         field('eta', 'DATETIME', { required: true, description: 'ISO 8601 UTC.' }),
         field('etd', 'DATETIME', { description: 'ISO 8601 UTC. Must be after eta when provided.' }),
+        field('company_hub_code', 'STRING', {
+          patchable: true,
+          maxLength: 50,
+          enumValues: companyHubCodes.length > 0 ? companyHubCodes : null,
+          description:
+            'Operating company (DataHub organization hub code), not the cargo-line shipper. Required when the port has more than one mapped company. When the port has exactly one, omit to use that company or send its hub code. Omitted when the port has no mapped companies. See GET /catalog/company.',
+        }),
         field('agent_name', 'STRING', {
           maxLength: 200,
           description: 'Optional. When omitted or null, no agent is linked; partner name remains in plan remark.',
@@ -166,7 +183,7 @@ export async function buildIntegrationCatalog(db) {
         }),
       ],
       responseFieldsNote:
-        'GET and webhook payloads echo port_hub_code and port_id (resolved from master). schedule.cargo_ops_start_at / cargo_ops_end_at (v5.5, KLIP Hose On/Off) are Cargo Operations operation window start/end on cargo_operations activities. cast_off_at is vessel cast-off, not Hose Off. Cargo is stored by internal commodity id.',
+        'GET and webhook payloads echo port_hub_code, port_id, company_hub_code, and company_name (resolved from master). schedule.cargo_ops_start_at / cargo_ops_end_at (v5.5, KLIP Hose On/Off) are Cargo Operations operation window start/end on cargo_operations activities. cast_off_at is vessel cast-off, not Hose Off. Cargo is stored by internal commodity id.',
     },
     {
       slug: 'webhook',
@@ -261,6 +278,24 @@ export async function buildIntegrationCatalog(db) {
         field('jps_commodity_id', 'NUMBER', { description: 'JPS si_commodities.id — see referenceRows.' }),
       ],
       referenceRows: commodityReferenceRows,
+    },
+    {
+      slug: 'company',
+      name: 'Company',
+      path: null,
+      methods: [],
+      description:
+        'Informational only — not a REST resource. Operating company for shipping-instruction company_hub_code. Not the cargo-line shipper. referenceRows lists companies mapped to at least one active port, with the port hub codes they are used on.',
+      fields: [
+        field('hub_code', 'STRING', { enumValues: companyHubCodes.length > 0 ? companyHubCodes : null }),
+        field('short_name', 'STRING'),
+        field('name', 'STRING'),
+        field('jps_company_id', 'NUMBER', { description: 'JPS master_companies.id — see referenceRows.' }),
+        field('port_hub_codes', 'ARRAY<STRING>', {
+          description: 'Active port hub codes this company is mapped to.',
+        }),
+      ],
+      referenceRows: companyReferenceRows,
     },
   ];
 

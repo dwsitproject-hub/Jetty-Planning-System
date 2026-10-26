@@ -15,6 +15,7 @@ import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
 import PurposeBadge from '../components/PurposeBadge'
 import MasterVesselSearchSelect from '../components/MasterVesselSearchSelect'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 import { fieldsFromMasterVessel } from '../utils/masterVesselDisplay'
 import { SiRowActions, canViewAsDocument } from '../components/SiTableRowActions'
 import SiDetailModal from '../components/SiDetailModal'
@@ -788,15 +789,6 @@ export default function ShippingInstruction() {
     setNpwpMaster(null)
   }
 
-  useEffect(() => {
-    if (!isFormOpen) return
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') handleCloseModal()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isFormOpen])
-
   const updatePanelFilter = (key, value) => setPanelFilters((f) => ({ ...f, [key]: value }))
   const resetPanelFilters = () => {
     setPanelFilters({ ...INITIAL_PANEL_FILTERS })
@@ -1109,7 +1101,7 @@ export default function ShippingInstruction() {
       )}
 
       {isFormOpen && (
-        <div className="modal-overlay" onClick={handleCloseModal} aria-hidden="true">
+        <StickyFormOverlay>
           <div
             className="modal modal--wide"
             onClick={(e) => e.stopPropagation()}
@@ -1575,7 +1567,7 @@ export default function ShippingInstruction() {
               </div>
             </form>
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
 
       <section className="card">

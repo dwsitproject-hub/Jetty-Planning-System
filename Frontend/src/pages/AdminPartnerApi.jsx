@@ -17,6 +17,7 @@ import '../styles/modal.css'
 import '../styles/admin.css'
 import '../styles/partner-integrations.css'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
+import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 import { uniqueSortedOptions } from '../utils/sortableFilterableTable.js'
 
@@ -579,7 +580,7 @@ export default function AdminPartnerApi() {
       </div>
 
       {modalOpen && (
-        <div className="modal-overlay" onClick={closeModal} aria-hidden="true">
+        <StickyFormOverlay>
           <div className="modal modal--wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="partner-modal-title" aria-modal="true">
             {createdKey ? (
               <>
@@ -635,11 +636,11 @@ export default function AdminPartnerApi() {
               </>
             )}
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
 
       {webhookModalOpen && (
-        <div className="modal-overlay" onClick={closeWebhookModal} aria-hidden="true">
+        <StickyFormOverlay>
           <div className="modal modal--wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             {createdWebhookSecret ? (
               <>
@@ -708,7 +709,7 @@ export default function AdminPartnerApi() {
               </>
             )}
           </div>
-        </div>
+        </StickyFormOverlay>
       )}
 
       {deliveriesOpen && deliveriesEndpoint && (

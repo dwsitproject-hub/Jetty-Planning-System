@@ -3,8 +3,10 @@ import { describe, it } from 'node:test';
 import {
   normalizeCargoShortName,
   resolveCargoCommodities,
+  resolveCompanyForIntegration,
   resolvePortForIntegration,
   validateIntegrationCargoLineIdentifiers,
+  validateIntegrationCompanyHubCode,
   validateIntegrationPortInput,
 } from './integration-hub-resolve.js';
 
@@ -109,5 +111,73 @@ describe('integration-hub-resolve', () => {
     ]);
     assert.equal(errors.length, 0);
     assert.ok(commodityByShortName.has('CPO'));
+  });
+
+  it('validateIntegrationCompanyHubCode treats a blank value as omitted', () => {
+    assert.equal(validateIntegrationCompanyHubCode(undefined).omitted, true);
+    assert.equal(validateIntegrationCompanyHubCode('  ').omitted, true);
+    const tooLong = validateIntegrationCompanyHubCode('X'.repeat(51));
+    assert.equal(tooLong.errors[0].field, 'company_hub_code');
+    assert.equal(validateIntegrationCompanyHubCode('ORG-0001').companyHubCode, 'ORG-0001');
+  });
+
+  it('resolveCompanyForIntegration follows the port company map', async () => {
+    const eup = { id: 7, hub_code: 'ORG-0001', name: 'PT ENERGI UNGGUL PERSADA' };
+    const kpn = { id: 8, hub_code: 'ORG-0002', name: 'PT KPN' };
+    function dbFor(mapped) {
+      return {
+        async query(sql, params) {
+          if (sql.includes('port_companies')) return { rows: mapped };
+          if (sql.includes('hub_code = $1')) {
+            const hit = [eup, kpn].find((row) => row.hub_code === params[0]);
+            return { rows: hit ? [hit] : [] };
+          }
+          return { rows: [] };
+        },
+      };
+    }
+
+    const none = await resolveCompanyForIntegration(dbFor([]), { portId: 1, omitted: true });
+    assert.equal(none.companyId, null);
+
+    const noneSent = await resolveCompanyForIntegration(dbFor([]), {
+      portId: 1,
+      companyHubCode: 'ORG-0001',
+      omitted: false,
+    });
+    assert.equal(noneSent.error, 'Company is not used at this port');
+
+    const locked = await resolveCompanyForIntegration(dbFor([eup]), { portId: 1, omitted: true });
+    assert.equal(locked.companyId, 7);
+    assert.equal(locked.companyHubCode, 'ORG-0001');
+    assert.equal(locked.companyName, 'PT ENERGI UNGGUL PERSADA');
+
+    const lockedMismatch = await resolveCompanyForIntegration(dbFor([eup]), {
+      portId: 1,
+      companyHubCode: 'ORG-0002',
+      omitted: false,
+    });
+    assert.equal(lockedMismatch.error, 'does not match the company mapped to this port');
+    assert.deepEqual(lockedMismatch.validCompanyHubCodes, ['ORG-0001']);
+
+    const required = await resolveCompanyForIntegration(dbFor([eup, kpn]), { portId: 1, omitted: true });
+    assert.equal(required.error, 'Company is required');
+    assert.deepEqual(required.validCompanyHubCodes, ['ORG-0001', 'ORG-0002']);
+
+    const chosen = await resolveCompanyForIntegration(dbFor([eup, kpn]), {
+      portId: 1,
+      companyHubCode: 'ORG-0002',
+      omitted: false,
+    });
+    assert.equal(chosen.companyId, 8);
+    assert.equal(chosen.companyName, 'PT KPN');
+
+    const unknown = await resolveCompanyForIntegration(dbFor([eup, kpn]), {
+      portId: 1,
+      companyHubCode: 'ORG-9999',
+      omitted: false,
+    });
+    assert.match(unknown.error, /unknown company hub code/);
+    assert.deepEqual(unknown.validCompanyHubCodes, ['ORG-0001', 'ORG-0002']);
   });
 });
