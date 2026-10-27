@@ -12,6 +12,7 @@ export function createSiDataHubSyncApi(apiType) {
   return {
     fetchSyncRuns: ({ limit = 10 } = {}) => apiGet(`${base}/runs?limit=${limit}`),
     startSyncRun: () => apiPost(`${base}/runs`, {}, 120000),
+    startRecordSync: (localId) => apiPost(`${base}/records`, { localId }, 120000),
     fetchSyncRun: (runId) => apiGet(`${base}/runs/${runId}`),
     applySyncRun: (runId, itemIds) =>
       apiPost(`${base}/runs/${runId}/apply`, { itemIds: Array.isArray(itemIds) ? itemIds : [] }, 120000),

@@ -11,7 +11,7 @@ import {
   formatDataHubSyncFailure,
   DATAHUB_ENTITY_TYPES,
 } from '../lib/datahub-master-sync-config.js';
-import { pullAndStageEntity, applyStagedEntitySyncRun } from '../lib/datahub-master-stage.js';
+import { pullAndStageEntity, pullAndStageLocalRecord, applyStagedEntitySyncRun } from '../lib/datahub-master-stage.js';
 import { requirePageEdit } from '../middleware/permissions.js';
 import { actorUserIdFromReq } from '../lib/master-row-audit.js';
 
@@ -100,6 +100,45 @@ export function registerDataHubSyncRoutes(router, { entityType, mountPath }) {
       const runRow = await pool.query(`SELECT * FROM datahub_vessel_sync_runs WHERE id = $1`, [runId]);
       res.status(201).json({ run: toRun(runRow.rows[0]), summary });
     } catch (e) {
+      await updateDataHubSyncHealth(pool, { ok: false, error: e?.message });
+      const { httpStatus, error, hint } = formatDataHubSyncFailure(entityType, e);
+      return res.status(httpStatus).json({ error: error || entitySyncErrorLabel(entityType), hint });
+    }
+  });
+
+  router.post(`${prefix}/records`, ...requirePageEdit(pageKey), async (req, res) => {
+    const localId = parseInt(req.body?.localId, 10);
+    if (!Number.isFinite(localId)) {
+      return res.status(400).json({ error: 'localId is required' });
+    }
+
+    const cfg = await getEffectiveDataHubConfig(pool);
+    if (!cfg.enabled || !cfg.baseUrl) {
+      return res.status(400).json({
+        error: 'DataHub integration is not configured. Set the base URL and key pair in Admin > DataHub.',
+      });
+    }
+    if (!cfg.publicKey || !cfg.privateKey) {
+      return res.status(400).json({ error: 'DataHub key pair is not configured.' });
+    }
+
+    try {
+      const { runId, summary } = await pullAndStageLocalRecord(pool, entityType, cfg, localId, {
+        createdBy: req.userId ?? null,
+        preapproveChanges: true,
+      });
+      await updateDataHubSyncHealth(pool, { ok: true });
+      if (runId == null) {
+        const run = { ...summary, status: 'staged', entityType, source: 'record' };
+        return res.status(201).json({ run, summary, noChanges: true });
+      }
+      const runRow = await pool.query(`SELECT * FROM datahub_vessel_sync_runs WHERE id = $1`, [runId]);
+      res.status(201).json({ run: toRun(runRow.rows[0]), summary });
+    } catch (e) {
+      const status = Number(e?.status);
+      if (status === 400 || status === 404) {
+        return res.status(status).json({ error: e.message });
+      }
       await updateDataHubSyncHealth(pool, { ok: false, error: e?.message });
       const { httpStatus, error, hint } = formatDataHubSyncFailure(entityType, e);
       return res.status(httpStatus).json({ error: error || entitySyncErrorLabel(entityType), hint });

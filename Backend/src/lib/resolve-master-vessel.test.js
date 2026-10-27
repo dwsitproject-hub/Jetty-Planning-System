@@ -12,6 +12,7 @@ import {
   planDimensionsFromBody,
   planPartialSnapshotFromMasterRow,
   planSnapshotFromMasterRow,
+  planSnapshotFromMasterRowForPartner,
   requireCompletePlanDimensions,
   validateIntegrationVesselInput,
 } from './resolve-master-vessel.js';
@@ -105,6 +106,30 @@ describe('resolve-master-vessel', () => {
       });
       assert.equal(snap.vessel_type, 'tugboat');
       assert.equal(snap.vessel_hull_type, 'Single hull Single Bottom');
+    });
+
+    it('partner snapshot stores null when LOA, GT, or draft is blank', () => {
+      const snap = planSnapshotFromMasterRowForPartner({
+        id: 4,
+        vessel_name: 'BG. TEST',
+        vessel_length_overall: '',
+        vessel_gross_tonnage: 1200,
+        vessel_draft: null,
+      });
+      assert.equal(snap.vessel_loa_m, null);
+      assert.equal(snap.vessel_gross_tonnage, 1200);
+      assert.equal(snap.vessel_draft, null);
+      assert.equal(snap.master_vessel_id, 4);
+    });
+
+    it('partner snapshot rejects a present non-positive dimension', () => {
+      assert.match(planSnapshotFromMasterRowForPartner({
+        id: 4,
+        vessel_name: 'BG. TEST',
+        vessel_length_overall: '0',
+        vessel_gross_tonnage: null,
+        vessel_draft: null,
+      }).error, /LOA/);
     });
 
     it('rejects a master vessel missing LOA, GT, or draft', () => {

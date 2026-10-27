@@ -8,10 +8,12 @@ import {
   fetchSyncRuns,
   fetchSyncRun,
   startSyncRun,
+  startRecordSync,
   applySyncRun,
   discardSyncRun,
 } from '../api/masterVessels'
 import DataHubSyncReviewModal from '../components/DataHubSyncReviewModal.jsx'
+import DataHubRecordSyncButton from '../components/DataHubRecordSyncButton.jsx'
 import AppToast from '../components/AppToast.jsx'
 import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import DataHubFieldCue from '../components/DataHubFieldCue.jsx'
@@ -264,6 +266,7 @@ export default function MasterVessel() {
   // --- DataHub sync ---------------------------------------------------------
 
   const [syncing, setSyncing] = useState(false)
+  const [syncingRecordId, setSyncingRecordId] = useState(null)
   const [applying, setApplying] = useState(false)
   const [syncError, setSyncError] = useState(null)
   const [review, setReview] = useState(null)
@@ -314,6 +317,27 @@ export default function MasterVessel() {
       setError(e?.message || 'DataHub sync failed')
     } finally {
       setSyncing(false)
+    }
+  }, [loadLatestRun, openReview])
+
+  const handleRecordSync = useCallback(async (row) => {
+    setSyncing(true)
+    setSyncingRecordId(row.id)
+    setError(null)
+    setSyncError(null)
+    try {
+      const resp = await startRecordSync(row.id)
+      await loadLatestRun()
+      if (resp?.noChanges) {
+        setToast({ message: 'This record already matches DataHub.', variant: 'success' })
+        return
+      }
+      if (resp?.run?.id) await openReview(resp.run.id)
+    } catch (e) {
+      setError(e?.message || 'DataHub sync failed')
+    } finally {
+      setSyncing(false)
+      setSyncingRecordId(null)
     }
   }, [loadLatestRun, openReview])
 
@@ -438,7 +462,7 @@ export default function MasterVessel() {
               disabled={!canDoEdit || syncing}
               title={!canDoEdit ? 'Edit permission required.' : ''}
             >
-              {syncing ? 'Reading DataHub…' : 'Sync from DataHub'}
+              {syncing && syncingRecordId == null ? 'Reading DataHub…' : 'Sync from DataHub'}
             </button>
             <button type="button" className="btn btn--primary" onClick={openAdd} disabled={!canDoEdit}>
               Add Vessel
@@ -490,6 +514,13 @@ export default function MasterVessel() {
                     <td className="text-steel">{formatMasterLastUpdatedLine(v)}</td>
                     <td className="allocation-table__action-col">
                       <div className="allocation-table__action-btns">
+                        <DataHubRecordSyncButton
+                          hubCode={v.hubCode}
+                          canEdit={canDoEdit}
+                          busy={syncing}
+                          syncing={syncingRecordId === v.id}
+                          onClick={() => handleRecordSync(v)}
+                        />
                         <button
                           type="button"
                           className="btn btn--small btn--secondary"

@@ -14,6 +14,7 @@ import {
   MAX_SI_VOYAGE_CHARS,
 } from '../constants/inputLimits'
 import { emptyBreakdownRow, formatCompanyLabel, nextDocId, planEtaYmd } from '../utils/siPlanLinkedDraft'
+import { isInternalSiReference } from '../utils/internalSiReference.js'
 import { commodityPickerOptions } from '../utils/commodityShortTitle.js'
 import SearchableSingleSelect from './SearchableSingleSelect.jsx'
 import { filterJettiesForPort, jettySelectLabel } from '../utils/portScopedLookups'
@@ -221,12 +222,38 @@ export default function ShippingInstructionSiLinkedFields({
                 value={form.referenceNumber}
                 onChange={(e) => updateForm({ referenceNumber: e.target.value })}
                 maxLength={MAX_SI_REFERENCE_CHARS}
-                disabled={!lookups}
+                disabled={!lookups || (form.noExternalSi === true && !isInternalSiReference(form.referenceNumber))}
+                readOnly={form.noExternalSi === true && isInternalSiReference(form.referenceNumber)}
                 aria-describedby={`${idPrefix}siRefHint`}
               />
-              <span id={`${idPrefix}siRefHint`} className="input-hint text-steel">
-                {t('formSiNoBerthingHint')}
-              </span>
+              <div className="shipment-plan-form__no-external-si">
+                <label htmlFor={`${idPrefix}noExternalSi`}>
+                  <input
+                    id={`${idPrefix}noExternalSi`}
+                    type="checkbox"
+                    checked={form.noExternalSi === true}
+                    disabled={!lookups}
+                    onChange={(e) => {
+                      const checked = e.target.checked
+                      if (checked) {
+                        const keep = isInternalSiReference(form.referenceNumber) ? form.referenceNumber : ''
+                        updateForm({ noExternalSi: true, referenceNumber: keep })
+                      } else {
+                        const nextRef = isInternalSiReference(form.referenceNumber) ? '' : form.referenceNumber
+                        updateForm({ noExternalSi: false, referenceNumber: nextRef })
+                      }
+                    }}
+                  />
+                  <span>{t('formNoExternalSi')}</span>
+                </label>
+                <span id={`${idPrefix}siRefHint`} className="shipment-plan-form__no-external-si-hint">
+                  {form.noExternalSi === true && !isInternalSiReference(form.referenceNumber)
+                    ? t('formNoExternalSiHint')
+                    : isInternalSiReference(form.referenceNumber)
+                      ? t('formInternalSiMark')
+                      : t('formSiNoBerthingHint')}
+                </span>
+              </div>
             </div>
             <div className="input-group shipping-instruction-form__docdate">
               <label htmlFor={`${idPrefix}documentDate`}>{t('formDocumentDateRequired')}</label>
@@ -373,6 +400,7 @@ export default function ShippingInstructionSiLinkedFields({
                   <th>{t('formBreakdownContractNo')}</th>
                   <th>{t('formBreakdownPoNo')}</th>
                   <th>{t('formBreakdownSoNo')}</th>
+                  <th>{t('formBreakdownStoNo')}</th>
                   <th>{t('formBreakdownRemarks')}</th>
                   <th />
                 </tr>
@@ -459,6 +487,14 @@ export default function ShippingInstructionSiLinkedFields({
                       <input
                         value={row.soNo}
                         onChange={(e) => updateBreakdownRow(i, 'soNo', e.target.value)}
+                        maxLength={MAX_SI_BREAKDOWN_SHORT_CHARS}
+                        className="shipping-instruction-inline-input"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={row.stoNo}
+                        onChange={(e) => updateBreakdownRow(i, 'stoNo', e.target.value)}
                         maxLength={MAX_SI_BREAKDOWN_SHORT_CHARS}
                         className="shipping-instruction-inline-input"
                       />

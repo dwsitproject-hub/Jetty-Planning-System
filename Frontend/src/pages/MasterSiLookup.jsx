@@ -23,6 +23,7 @@ import {
   MASTER_AUDIT_COLUMNS,
 } from '../utils/formatMasterAudit.js'
 import DataHubSyncReviewModal from '../components/DataHubSyncReviewModal.jsx'
+import DataHubRecordSyncButton from '../components/DataHubRecordSyncButton.jsx'
 import AppToast from '../components/AppToast.jsx'
 import { createSiDataHubSyncApi, DATAHUB_SI_ENTITY_META } from '../api/datahubSiMaster.js'
 
@@ -288,6 +289,7 @@ export default function MasterSiLookup({
   }, [load])
 
   const [syncing, setSyncing] = useState(false)
+  const [syncingRecordId, setSyncingRecordId] = useState(null)
   const [applying, setApplying] = useState(false)
   const [syncError, setSyncError] = useState(null)
   const [review, setReview] = useState(null)
@@ -356,6 +358,31 @@ export default function MasterSiLookup({
       setSyncing(false)
     }
   }, [dataHubSyncApi, dataHubUiMeta?.recordNoun, loadLatestRun])
+
+  const handleRecordSync = useCallback(async (row) => {
+    if (!dataHubSyncApi) return
+    setSyncing(true)
+    setSyncingRecordId(row.id)
+    setError(null)
+    setSyncError(null)
+    try {
+      const resp = await dataHubSyncApi.startRecordSync(row.id)
+      await loadLatestRun()
+      if (resp?.noChanges) {
+        setToast({ message: 'This record already matches DataHub.', variant: 'success' })
+        return
+      }
+      if (resp?.run?.id) {
+        const detail = await dataHubSyncApi.fetchSyncRun(resp.run.id)
+        setReview(detail)
+      }
+    } catch (e) {
+      setError(e?.message || 'DataHub sync failed')
+    } finally {
+      setSyncing(false)
+      setSyncingRecordId(null)
+    }
+  }, [dataHubSyncApi, loadLatestRun])
 
   const handleApplySync = useCallback(
     async (itemIds) => {
@@ -733,7 +760,7 @@ export default function MasterSiLookup({
                   onClick={handleDataHubSync}
                   disabled={!canDoEdit || loading || syncing}
                 >
-                  {syncing ? 'Reading DataHub…' : 'Sync from DataHub'}
+                  {syncing && syncingRecordId == null ? 'Reading DataHub…' : 'Sync from DataHub'}
                 </button>
                 {stagedRun && (
                   <button
@@ -836,6 +863,15 @@ export default function MasterSiLookup({
                     <td className="text-steel">{formatMasterLastUpdatedLine(it)}</td>
                     <td className="allocation-table__action-col">
                       <div style={{ display: 'inline-flex', gap: '0.5rem' }}>
+                        {isDataHubMaster && (
+                          <DataHubRecordSyncButton
+                            hubCode={it.hubCode}
+                            canEdit={canDoEdit}
+                            busy={syncing}
+                            syncing={syncingRecordId === it.id}
+                            onClick={() => handleRecordSync(it)}
+                          />
+                        )}
                         <button
                           type="button"
                           className="btn btn--small btn--secondary"

@@ -527,6 +527,8 @@ export default function ShippingInstruction() {
       qty: Number(row.qty) || 0,
       contractNo: row.contractNo?.trim() || null,
       poNo: row.poNo?.trim() || null,
+      soNo: row.soNo?.trim() || null,
+      stoNo: row.stoNo?.trim() || null,
       remarks: row.remarks?.trim() || null,
     }))
     for (let i = 0; i < breakdownPayload.length; i += 1) {
@@ -721,6 +723,8 @@ export default function ShippingInstruction() {
               qty: b.qty != null ? String(b.qty) : '',
               contractNo: b.contractNo ?? '',
               poNo: b.poNo ?? '',
+              soNo: b.soNo ?? '',
+              stoNo: b.stoNo ?? '',
               remarks: b.remarks ?? '',
             }))
           : [emptyBreakdownRow(lookups)]
@@ -1327,6 +1331,7 @@ export default function ShippingInstruction() {
                         <th>{t('formBreakdownUnitReq')}</th>
                         <th>{t('formBreakdownContractNo')}</th>
                         <th>{t('formBreakdownPoNo')}</th>
+                        <th>{t('formBreakdownStoNo')}</th>
                         <th>{t('formBreakdownRemarks')}</th>
                         <th></th>
                       </tr>
@@ -1395,6 +1400,14 @@ export default function ShippingInstruction() {
                             <input
                               value={row.poNo}
                               onChange={(e) => updateBreakdownRow(i, 'poNo', e.target.value)}
+                              maxLength={MAX_SI_BREAKDOWN_SHORT_CHARS}
+                              className="shipping-instruction-inline-input"
+                            />
+                          </td>
+                          <td>
+                            <input
+                              value={row.stoNo}
+                              onChange={(e) => updateBreakdownRow(i, 'stoNo', e.target.value)}
                               maxLength={MAX_SI_BREAKDOWN_SHORT_CHARS}
                               className="shipping-instruction-inline-input"
                             />
@@ -1725,6 +1738,7 @@ export default function ShippingInstruction() {
                                     <th>{t('breakdownUnit')}</th>
                                     <th>{t('breakdownContract')}</th>
                                     <th>{t('breakdownPo')}</th>
+                                    <th>{t('breakdownSto')}</th>
                                     <th>{t('breakdownRemarks')}</th>
                                   </tr>
                                 </thead>
@@ -1736,6 +1750,7 @@ export default function ShippingInstruction() {
                                       <td>{b.metricCode}</td>
                                       <td>{b.contractNo || '—'}</td>
                                       <td>{b.poNo || '—'}</td>
+                                      <td>{b.stoNo || '—'}</td>
                                       <td>{b.remarks || '—'}</td>
                                     </tr>
                                   ))}

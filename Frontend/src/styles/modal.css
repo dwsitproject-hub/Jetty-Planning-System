@@ -262,7 +262,7 @@
 
 /* Shipment plan modal — compact layout to reduce vertical scrolling */
 .modal--shipment-plan-form {
-  padding: var(--spacing-3);
+  padding: 0;
 }
 
 .modal--shipment-plan-form .modal__title {
@@ -282,7 +282,7 @@
 
 .modal--shipment-plan-form .shipping-instruction-form__section-title {
   font-size: 0.95rem;
-  margin-bottom: var(--spacing-2);
+  margin-bottom: var(--spacing-3);
 }
 
 .modal--shipment-plan-form .input-group {
@@ -337,7 +337,7 @@
   cursor: help;
 }
 
-.modal--shipment-plan-form .input-group input,
+.modal--shipment-plan-form .input-group input:not([type="checkbox"]),
 .modal--shipment-plan-form .input-group select,
 .modal--shipment-plan-form .input-group textarea {
   min-height: 32px;
@@ -509,15 +509,14 @@
    ============================================================ */
 
 /* 1. Sticky header band with close button.
-   Negative margins bleed the band to the modal edges; the matching
-   padding restores content alignment. margin-top + top:0 makes it
-   stick flush to the scroll container's top edge (no content peek). */
+   The modal itself has no padding, so top: 0 is the card edge and
+   scrolled fields cannot paint above the title. */
 .modal--shipment-plan-form .modal__header {
   position: sticky;
   top: 0;
   z-index: 3;
-  margin: calc(-1 * var(--spacing-3)) calc(-1 * var(--spacing-3)) var(--spacing-3);
-  padding: var(--spacing-3) var(--spacing-3) var(--spacing-2);
+  margin: 0 0 var(--spacing-3);
+  padding: var(--spacing-4) var(--spacing-4) var(--spacing-2);
   background: var(--color-bg-white);
   border-bottom: 1px solid var(--color-border-light);
   display: flex;
@@ -585,8 +584,8 @@
   position: sticky;
   bottom: 0;
   z-index: 3;
-  margin: var(--spacing-3) calc(-1 * var(--spacing-3)) calc(-1 * var(--spacing-3));
-  padding: var(--spacing-2) var(--spacing-3) var(--spacing-3);
+  margin: var(--spacing-3) 0 0;
+  padding: var(--spacing-2) var(--spacing-4) var(--spacing-4);
   background: var(--color-bg-white);
   border-top: 1px solid var(--color-border-light);
   justify-content: space-between;
@@ -595,13 +594,13 @@
 }
 
 /* 6. Neutral focus & hover refinement for form controls. */
-.modal--shipment-plan-form .input-group input:hover:not([readonly]):not(:disabled),
+.modal--shipment-plan-form .input-group input:hover:not([readonly]):not(:disabled):not([type="checkbox"]),
 .modal--shipment-plan-form .input-group select:hover:not(:disabled),
 .modal--shipment-plan-form .input-group textarea:hover:not(:disabled) {
   border-color: var(--color-border-dark);
 }
 
-.modal--shipment-plan-form .input-group input:focus:not([readonly]),
+.modal--shipment-plan-form .input-group input:focus:not([readonly]):not([type="checkbox"]),
 .modal--shipment-plan-form .input-group select:focus,
 .modal--shipment-plan-form .input-group textarea:focus {
   outline: none;
@@ -709,21 +708,38 @@
   color: var(--color-brand-red);
 }
 
+.shipment-plan-form__purpose {
+  grid-column: 1 / -1;
+}
+
+.shipment-plan-form__purpose-label {
+  display: block;
+  margin-bottom: var(--spacing-2);
+  font-size: 0.78rem;
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+  color: var(--color-text-charcoal);
+}
+
 .shipment-plan-form__purpose-toggle {
-  display: inline-flex;
-  border: 1px solid var(--color-border-light);
+  display: flex;
+  width: 100%;
+  border: 1px solid var(--color-border-medium);
   border-radius: var(--radius-sm);
   overflow: hidden;
 }
 
 .shipment-plan-form__purpose-toggle button {
+  flex: 1 1 0;
   margin: 0;
-  padding: 6px 16px;
+  min-height: 40px;
+  padding: 8px 16px;
   border: 0;
-  border-right: 1px solid var(--color-border-light);
-  background: var(--color-bg-white);
+  border-right: 1px solid var(--color-border-medium);
+  background: var(--color-bg-light);
   color: var(--color-text-charcoal);
   font: inherit;
+  font-weight: var(--font-weight-medium);
   cursor: pointer;
 }
 
@@ -764,6 +780,58 @@
   gap: var(--spacing-2);
 }
 
+.shipment-plan-form__no-external-si {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: var(--spacing-2);
+  padding: 8px 12px;
+  background: var(--color-bg-light);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+}
+
+.modal--shipment-plan-form .input-group .shipment-plan-form__no-external-si label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: var(--font-weight-medium);
+  line-height: 1.3;
+  color: var(--color-text-charcoal);
+  cursor: pointer;
+}
+
+.modal--shipment-plan-form .input-group .shipment-plan-form__no-external-si input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  max-width: 16px;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 16px;
+  border-radius: 3px;
+  accent-color: var(--color-text-charcoal);
+}
+
+.shipment-plan-form__no-external-si-hint {
+  font-size: 0.75rem;
+  line-height: 1.3;
+  color: var(--color-text-steel);
+}
+
+.modal--shipment-plan-form .btn.shipment-plan-form__add-si {
+  align-self: flex-start;
+  width: fit-content;
+  min-height: 32px;
+  margin-top: var(--spacing-2);
+  padding: 4px 12px;
+  font-size: 0.875rem;
+  line-height: 1.2;
+}
+
 .shipment-plan-form__field-error {
   margin: 4px 0 0;
   color: var(--color-brand-red);
@@ -776,6 +844,18 @@
   border-color: var(--color-brand-red);
 }
 
+.modal--shipment-plan-form fieldset {
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.modal--shipment-plan-form .shipping-instruction-form--plan-modal > fieldset {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0 var(--spacing-4);
+}
+
 .shipment-plan-form__vessel-pin {
   position: sticky;
   z-index: 2;
@@ -783,7 +863,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-3);
-  margin: 0 0 var(--spacing-2);
+  margin: 0 var(--spacing-4) var(--spacing-2);
   padding: 8px 12px;
   background: var(--color-bg-light);
   border-radius: var(--radius-md);
@@ -871,7 +951,7 @@
   grid-template-columns: 1fr 1fr;
 }
 
-.modal--shipment-plan-form .shipping-instruction-form__grid--vessel-trip .input-group input,
+.modal--shipment-plan-form .shipping-instruction-form__grid--vessel-trip .input-group input:not([type="checkbox"]),
 .modal--shipment-plan-form .shipping-instruction-form__grid--vessel-trip .input-group select {
   max-width: none;
 }
@@ -879,6 +959,7 @@
 .shipment-plan-form__upload {
   position: relative;
   margin-bottom: var(--spacing-3);
+  overflow: hidden;
 }
 
 .shipment-plan-form__dropzone {

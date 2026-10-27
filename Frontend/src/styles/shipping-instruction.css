@@ -415,7 +415,7 @@
   margin-bottom: 6px;
 }
 
-.shipping-instruction-form__grid--vessel-trip .input-group input,
+.shipping-instruction-form__grid--vessel-trip .input-group input:not([type="checkbox"]),
 .shipping-instruction-form__grid--vessel-trip .input-group select {
   /* Keep fields from becoming overly long in the wide modal (match other inputs like Destination). */
   max-width: 400px;

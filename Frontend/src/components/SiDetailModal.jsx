@@ -9,6 +9,7 @@ import {
   normalizeHubPurpose,
 } from '../utils/loadingHubProcessStagesFromApi'
 import { getScheduleEntryTimeZone } from '../utils/scheduleDateTime.js'
+import { isInternalSiReference } from '../utils/internalSiReference.js'
 import OperationActivityTimeline from './OperationActivityTimeline'
 import '../styles/modal.css'
 import '../styles/si-detail-modal.css'
@@ -23,6 +24,7 @@ function normalizeSiDetail(row) {
   if (!row) return null
   return {
     siNo: row.referenceNumber || (row.id != null ? `SI-${row.id}` : '—'),
+    internalReference: isInternalSiReference(row.referenceNumber),
     status: row.status || '—',
     source: row.source || ((row.purpose || '').toLowerCase() === 'unloading' ? 'External' : 'Internal'),
     vessel: row.vesselName || '—',
@@ -245,7 +247,11 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
         ) : detail ? (
           <div className="si-detail-modal__content">
             <dl className="si-detail-modal__grid">
-              <dt>{t('dtSiNo')}</dt><dd>{emptyToDash(detail.siNo)}</dd>
+              <dt>{t('dtSiNo')}</dt>
+              <dd>
+                {emptyToDash(detail.siNo)}
+                {detail.internalReference ? ` (${t('formInternalSiMark')})` : ''}
+              </dd>
               <dt>{t('dtStatus')}</dt><dd>{emptyToDash(detail.status)}</dd>
               <dt>{t('dtSource')}</dt><dd>{emptyToDash(detail.source)}</dd>
               <dt>{t('dtVessel')}</dt><dd>{emptyToDash(detail.vessel)}</dd>
@@ -418,6 +424,7 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
                       <th>{t('breakdownContract')}</th>
                       <th>{t('breakdownPo')}</th>
                       <th>{t('breakdownSo')}</th>
+                      <th>{t('breakdownSto')}</th>
                       <th>{t('breakdownRemarks')}</th>
                     </tr>
                   </thead>
@@ -430,6 +437,7 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
                         <td>{emptyToDash(item.contractNo)}</td>
                         <td>{emptyToDash(item.poNo)}</td>
                         <td>{emptyToDash(item.soNo)}</td>
+                        <td>{emptyToDash(item.stoNo)}</td>
                         <td>{emptyToDash(item.remarks)}</td>
                       </tr>
                     ))}

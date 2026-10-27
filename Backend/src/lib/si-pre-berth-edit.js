@@ -29,6 +29,7 @@ function normalizeBreakdownRow(row) {
     contractNo: trimOrNull(row.contract_no ?? row.contractNo),
     poNo: trimOrNull(row.po_no ?? row.poNo),
     soNo: trimOrNull(row.so_no ?? row.soNo),
+    stoNo: trimOrNull(row.sto_no ?? row.stoNo),
     remarks: trimOrNull(row.remarks),
   };
 }
@@ -46,6 +47,7 @@ function breakdownSignature(rows) {
         r.contractNo,
         r.poNo,
         r.soNo,
+        r.stoNo,
         r.remarks,
       ])
     )

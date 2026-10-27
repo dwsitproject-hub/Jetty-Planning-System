@@ -26,6 +26,10 @@ export function startCompanySyncRun() {
   return apiPost(`${BASE}/runs`, {}, 120000)
 }
 
+export function startCompanyRecordSync(localId) {
+  return apiPost(`${BASE}/records`, { localId }, 120000)
+}
+
 export function fetchCompanySyncRun(runId) {
   return apiGet(`${BASE}/runs/${runId}`)
 }

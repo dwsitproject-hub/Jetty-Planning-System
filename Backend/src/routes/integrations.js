@@ -23,7 +23,7 @@ import {
 } from '../lib/integration-master-data.js';
 import {
   integrationVesselErrorField,
-  planSnapshotFromMasterRow,
+  planSnapshotFromMasterRowForPartner,
   resolveMasterVesselForIntegration,
   validateIntegrationVesselInput,
 } from '../lib/resolve-master-vessel.js';
@@ -182,6 +182,9 @@ function validateSubmission(body) {
       const soNo = asTrimmedString(l.so_no);
       if (soNo.length > 100) push(`cargo[${i}].so_no`, 'max length 100');
 
+      const stoNo = asTrimmedString(l.sto_no);
+      if (stoNo.length > 100) push(`cargo[${i}].sto_no`, 'max length 100');
+
       const shipperName = asTrimmedString(l.shipper_name);
       if (shipperName.length > 200) push(`cargo[${i}].shipper_name`, 'max length 200');
 
@@ -194,6 +197,7 @@ function validateSubmission(body) {
         contractNo: contractNo || null,
         poNo: poNo || null,
         soNo: soNo || null,
+        stoNo: stoNo || null,
         shipperName: shipperName || null,
       });
     });
@@ -289,14 +293,17 @@ function validatePatchBody(body) {
         if (l.po_no != null) poNo = asTrimmedString(l.po_no) || null;
         let soNo = undefined;
         if (l.so_no != null) soNo = asTrimmedString(l.so_no) || null;
+        let stoNo = undefined;
+        if (l.sto_no != null) stoNo = asTrimmedString(l.sto_no) || null;
         let shipperName = undefined;
         if (l.shipper_name != null) shipperName = asTrimmedString(l.shipper_name) || null;
 
         if (poNo && poNo.length > 100) push(`cargo[${i}].po_no`, 'max length 100');
         if (soNo && soNo.length > 100) push(`cargo[${i}].so_no`, 'max length 100');
+        if (stoNo && stoNo.length > 100) push(`cargo[${i}].sto_no`, 'max length 100');
         if (shipperName && shipperName.length > 200) push(`cargo[${i}].shipper_name`, 'max length 200');
 
-        cargo.push({ lineOrder, contractNo: contractNo || null, poNo, soNo, shipperName });
+        cargo.push({ lineOrder, contractNo: contractNo || null, poNo, soNo, stoNo, shipperName });
       });
     }
   }
@@ -548,7 +555,7 @@ router.post('/shipping-instructions', async (req, res) => {
         { field, issue: masterRow.error },
       ]);
     }
-    const vesselSnap = planSnapshotFromMasterRow(masterRow);
+    const vesselSnap = planSnapshotFromMasterRowForPartner(masterRow);
     if (vesselSnap?.error) {
       await client.query('ROLLBACK');
       client.release();
@@ -619,9 +626,9 @@ router.post('/shipping-instructions', async (req, res) => {
       const commodity = commodityByShortName.get(normalizeCargoShortName(line.cargoType));
       await client.query(
         `INSERT INTO public.shipping_instruction_breakdown (
-           shipping_instruction_id, commodity_id, metric_id, qty, contract_no, po_no, so_no,
+           shipping_instruction_id, commodity_id, metric_id, qty, contract_no, po_no, so_no, sto_no,
            shipper_id, remarks, line_order
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
         [
           siId,
           Number(commodity.id),
@@ -630,6 +637,7 @@ router.post('/shipping-instructions', async (req, res) => {
           line.contractNo,
           line.poNo,
           line.soNo,
+          line.stoNo,
           shipperIdsByLine[lineOrder],
           line.description,
           lineOrder++,
@@ -882,6 +890,10 @@ async function applyPartnerPatch(req, res, { siId, externalReference }) {
         if (patchLine.soNo !== undefined) {
           sets.push(`so_no = $${params.length + 1}`);
           params.push(patchLine.soNo);
+        }
+        if (patchLine.stoNo !== undefined) {
+          sets.push(`sto_no = $${params.length + 1}`);
+          params.push(patchLine.stoNo);
         }
         if (shipperId !== undefined) {
           sets.push(`shipper_id = $${params.length + 1}`);

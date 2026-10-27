@@ -85,6 +85,39 @@ export async function resolveLinkedPlanVesselSnapshot(client, rawMasterId, body)
   return { ...partial, ...complete };
 }
 
+function isBlankMasterDim(raw) {
+  return raw == null || String(raw).trim() === '';
+}
+
+/**
+ * Partner plan snapshot. Blank LOA, GT, or draft is stored as null.
+ * A present value that is not a positive number is an error.
+ * In-app plans use planSnapshotFromMasterRow, which still requires all three.
+ * @param {{ id: unknown, vessel_name: string, vessel_gross_tonnage?: unknown, vessel_draft?: unknown, vessel_length_overall?: unknown, vessel_type?: unknown, type_lambung?: unknown }} row
+ */
+export function planSnapshotFromMasterRowForPartner(row) {
+  const loa = isBlankMasterDim(row.vessel_length_overall)
+    ? null
+    : parseLoaMFromMaster(row.vessel_length_overall);
+  if (loa?.error) return { error: loa.error };
+  const gt = isBlankMasterDim(row.vessel_gross_tonnage)
+    ? null
+    : parsePositiveNumber(row.vessel_gross_tonnage, 'Master vessel gross tonnage');
+  if (gt?.error) return { error: gt.error };
+  const draft = isBlankMasterDim(row.vessel_draft)
+    ? null
+    : parsePositiveNumber(row.vessel_draft, 'Master vessel draft');
+  if (draft?.error) return { error: draft.error };
+
+  const partial = planPartialSnapshotFromMasterRow(row);
+  return {
+    ...partial,
+    vessel_loa_m: loa,
+    vessel_gross_tonnage: gt,
+    vessel_draft: draft,
+  };
+}
+
 /** @param {{ id: unknown, vessel_name: string, vessel_gross_tonnage: unknown, vessel_draft: unknown, vessel_length_overall: unknown }} row */
 export function planSnapshotFromMasterRow(row) {
   const loa = parseLoaMFromMaster(row.vessel_length_overall);

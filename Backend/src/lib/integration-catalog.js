@@ -74,6 +74,7 @@ export async function buildIntegrationCatalog(db) {
     }),
     field('po_no', 'STRING', { maxLength: 100, patchable: true }),
     field('so_no', 'STRING', { maxLength: 100, patchable: true }),
+    field('sto_no', 'STRING', { maxLength: 100, patchable: true, description: 'Stock transfer order number.' }),
     field('shipper_name', 'STRING', {
       maxLength: 200,
       patchable: true,

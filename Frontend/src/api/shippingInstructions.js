@@ -64,6 +64,7 @@ export function createShippingInstruction(body) {
   if (body.shipmentPlanId != null && body.shipmentPlanId !== '') {
     payload.shipment_plan_id = body.shipmentPlanId
   }
+  if ('noExternalSi' in body) payload.no_external_si = body.noExternalSi === true
   return apiPost('/shipping-instructions', payload)
 }
 
@@ -72,7 +73,7 @@ export function deleteShippingInstruction(id) {
 }
 
 export function updateShippingInstruction(id, body) {
-  return apiPut(`/shipping-instructions/${id}`, {
+  const payload = {
     reference_number: body.referenceNumber,
     vessel_name: body.vesselName,
     voyage_no: body.voyageNo,
@@ -99,7 +100,9 @@ export function updateShippingInstruction(id, body) {
     notify_party_text: body.notifyPartyText,
     bl_indicated: body.blIndicated,
     document_date: body.documentDate,
-  })
+  }
+  if ('noExternalSi' in body) payload.no_external_si = body.noExternalSi === true
+  return apiPut(`/shipping-instructions/${id}`, payload)
 }
 
 /** POST multipart: field `file` — OCR / PDF text extract for SI draft autofill (large timeout for first Tesseract run). */

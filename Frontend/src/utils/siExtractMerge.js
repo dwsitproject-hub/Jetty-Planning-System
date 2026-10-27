@@ -311,6 +311,7 @@ export function proposeSiExtractMerge(form, fields, lookups, options = {}) {
           contractNo: clip(r.contractNo, MAX_SI_BREAKDOWN_SHORT_CHARS),
           poNo: clip(r.poNo, MAX_SI_BREAKDOWN_SHORT_CHARS),
           soNo: clip(r.soNo, MAX_SI_BREAKDOWN_SHORT_CHARS),
+          stoNo: clip(r.stoNo, MAX_SI_BREAKDOWN_SHORT_CHARS),
           remarks: clip(r.remarks, MAX_SI_BREAKDOWN_SHORT_CHARS),
         },
         commodityId,
@@ -501,7 +502,7 @@ function fieldHasSignal(fields, specKey) {
   return rows.some(
     (r) =>
       r &&
-      [r.contractNo, r.poNo, r.soNo, r.qty, r.commodityHint, r.metricCode, r.remarks].some(
+      [r.contractNo, r.poNo, r.soNo, r.stoNo, r.qty, r.commodityHint, r.metricCode, r.remarks].some(
         (x) => x != null && String(x).trim()
       )
   )
@@ -608,7 +609,7 @@ export function buildSiExtractReport({ proposal, fields, fileName = '', lookups 
   const breakdownSignal = rows.some(
     (r) =>
       r &&
-      [r.contractNo, r.poNo, r.soNo, r.qty, r.commodityHint, r.metricCode].some(
+      [r.contractNo, r.poNo, r.soNo, r.stoNo, r.qty, r.commodityHint, r.metricCode].some(
         (x) => x != null && String(x).trim()
       )
   )
@@ -673,7 +674,7 @@ export function countSiExtractSignals(fields) {
   for (const r of rows) {
     if (!r || typeof r !== 'object') continue
     if (
-      [r.contractNo, r.poNo, r.soNo, r.qty, r.commodityHint, r.metricCode, r.remarks].some(
+      [r.contractNo, r.poNo, r.soNo, r.stoNo, r.qty, r.commodityHint, r.metricCode, r.remarks].some(
         (x) => x != null && String(x).trim()
       )
     )

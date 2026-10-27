@@ -1262,7 +1262,7 @@ export default function ShipmentPlanCombinedFormModal({
             className="shipping-instruction-form shipping-instruction-form--plan-modal"
             noValidate
           >
-            <fieldset disabled={isViewMode || modalSiLoading} style={{ border: 0, padding: 0, margin: 0 }}>
+            <fieldset disabled={isViewMode || modalSiLoading} style={{ border: 0, margin: 0 }}>
               <div
                 className="shipping-instruction-form__section shipment-plan-form__plan-section"
                 ref={vesselRef}
@@ -1271,7 +1271,7 @@ export default function ShipmentPlanCombinedFormModal({
                 <h3 className="shipping-instruction-form__section-title">{t('createPlanSectionTitle')}</h3>
                 <div className="shipping-instruction-form__grid shipment-plan-form__plan-grid">
                   <div className={`input-group shipment-plan-form__purpose${fieldErrors.purpose ? ' has-error' : ''}`}>
-                    <span id="sp-purpose-label">{t('formPlanPurposeRequired')}</span>
+                    <span id="sp-purpose-label" className="shipment-plan-form__purpose-label">{t('formPlanPurposeRequired')}</span>
                     <div
                       id="sp-purpose"
                       className="shipment-plan-form__purpose-toggle"
@@ -1637,7 +1637,7 @@ export default function ShipmentPlanCombinedFormModal({
                     )
                   })}
                   {showAddAnotherSi && siDrafts.length > 0 && (
-                    <button type="button" className="btn btn--secondary" onClick={addSiDraftBlock} disabled={!lookups}>
+                    <button type="button" className="btn btn--secondary shipment-plan-form__add-si" onClick={addSiDraftBlock} disabled={!lookups}>
                       {t('addAnotherSi')}
                     </button>
                   )}

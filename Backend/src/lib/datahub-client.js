@@ -409,6 +409,73 @@ export async function fetchAllVessels(cfg, fetchImpl = fetch) {
   return fetchAllSyncRecords(cfg, 'vessel', normalizeHubVessel, fetchImpl);
 }
 
+/** Lookup slugs for one local entity. Company tries the live slug, then the documented one. */
+export function lookupSlugsForEntity(entityType) {
+  if (entityType === 'organization') return ['company', 'organization'];
+  if (entityType === 'vessel') return ['vessel'];
+  if (entityType === 'incoterm') return ['incoterm'];
+  if (entityType === 'commodity') return ['commodity'];
+  if (entityType === 'port_master') return ['port_master'];
+  throw new Error(`Unknown entity type: ${entityType}`);
+}
+
+/**
+ * Lookup may return a sync envelope (`data`) or the golden record itself.
+ * Normalizers only read `record.data`.
+ */
+export function asSyncEnvelope(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const record = body.record && typeof body.record === 'object' ? body.record : body;
+  if (record.data && typeof record.data === 'object') return record;
+  return {
+    id: record.id ?? null,
+    version: record.version ?? null,
+    isDeleted: record.isDeleted === true || record.is_deleted === true,
+    updatedAt: record.updatedAt ?? record.updated_at ?? null,
+    data: record,
+  };
+}
+
+/**
+ * One golden record by hub code. Does not page the catalog.
+ * @param {string} entityType
+ */
+export async function fetchHubRecordByCode(cfg, entityType, hubCode, fetchImpl = fetch) {
+  const code = str(hubCode);
+  if (!code) {
+    const err = new Error('This record is not linked to DataHub.');
+    err.status = 400;
+    throw err;
+  }
+  const slugs = lookupSlugsForEntity(entityType);
+  const headers = await resolveAuthHeaders(cfg, fetchImpl);
+  let lastErr;
+  for (let i = 0; i < slugs.length; i += 1) {
+    const slug = slugs[i];
+    const url = `${cfg.baseUrl}/v1/lookup/${encodeURIComponent(slug)}/${encodeURIComponent(code)}`;
+    try {
+      const normalized = normalizeHubRecord(entityType, asSyncEnvelope(await fetchJson(url, headers, fetchImpl)));
+      if (!normalized || normalized.isDeleted) {
+        const err = new Error(`DataHub has no active record for hub code ${code}.`);
+        err.status = 404;
+        throw err;
+      }
+      return normalized;
+    } catch (e) {
+      lastErr = e;
+      const missing = Number(e?.status) === 404;
+      if (missing && i < slugs.length - 1) continue;
+      if (missing) {
+        const err = new Error(`DataHub has no active record for hub code ${code}.`);
+        err.status = 404;
+        throw err;
+      }
+      throw e;
+    }
+  }
+  throw lastErr;
+}
+
 /** True when a response body is a web page rather than an API payload. */
 export function looksLikeHtml(res, text) {
   const contentType = String(res?.headers?.get?.('content-type') ?? '');

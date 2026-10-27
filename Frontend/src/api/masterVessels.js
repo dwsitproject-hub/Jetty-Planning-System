@@ -80,6 +80,11 @@ export function startSyncRun() {
   return apiPost('/master/vessels/sync/runs', {}, 120000)
 }
 
+/** Pull one linked vessel and stage that diff only. */
+export function startRecordSync(localId) {
+  return apiPost('/master/vessels/sync/records', { localId }, 120000)
+}
+
 export function fetchSyncRun(runId) {
   return apiGet(`/master/vessels/sync/runs/${runId}`)
 }

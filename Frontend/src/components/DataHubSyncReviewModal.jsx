@@ -301,6 +301,11 @@ export default function DataHubSyncReviewModal({
               Webhook
             </span>
           ) : null}
+          {run?.source === 'record' ? (
+            <span className="master-hub-badge master-hub-badge--shared" style={{ marginLeft: '0.5rem', fontSize: '0.65em' }}>
+              One record
+            </span>
+          ) : null}
         </h2>
         <p className="text-steel">
           {run?.hubRecordCount ?? 0} {recordNoun} read from DataHub: {run?.newCount ?? 0} new,{' '}

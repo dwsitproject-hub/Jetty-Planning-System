@@ -1,6 +1,6 @@
 /** User-facing message when SI reference fails berthing validation. */
 export const SI_REFERENCE_BERTHING_ERROR =
-  'Shipping Instructions No. is required before berthing and cannot be blank, a single quote, or the same as the vessel name.';
+  'Shipping Instructions No. is required before berthing and cannot be blank, a single quote, the same as the vessel name, or the vessel name followed by NO SI or SI.';
 
 /** Tooltip when plan has SIs but reference number is not valid for berthing. */
 export const BERTHING_INVALID_SI_REF_TOOLTIP =
@@ -13,6 +13,29 @@ export const BERTHING_INVALID_SI_REF_TOOLTIP =
 export function normalizeSiReference(ref) {
   if (ref == null) return '';
   return String(ref).trim();
+}
+
+function collapsedReference(ref) {
+  return normalizeSiReference(ref).replace(/\s+/g, ' ');
+}
+
+/**
+ * Vessel name decorated as a fake SI, such as "BG MARINA NO SI" or "BG MARINA SI".
+ * @param {unknown} referenceNumber
+ * @param {unknown} vesselName
+ * @returns {boolean}
+ */
+export function isVesselNameAliasReference(referenceNumber, vesselName) {
+  const ref = collapsedReference(referenceNumber);
+  const vessel = collapsedReference(vesselName);
+  if (!ref || !vessel) return false;
+  const lower = ref.toLowerCase();
+  const v = vessel.toLowerCase();
+  if (lower === v) return false;
+  let stripped = lower.replace(/\s+no\s+si$/i, '');
+  if (stripped === lower) stripped = lower.replace(/\s+si$/i, '');
+  stripped = stripped.trim();
+  return stripped === v;
 }
 
 /**
@@ -35,6 +58,7 @@ export function validateSiReferenceForBerthing(referenceNumber, vesselName) {
   if (ref === "'") return SI_REFERENCE_BERTHING_ERROR;
   const vessel = normalizeSiReference(vesselName);
   if (vessel && ref.toLowerCase() === vessel.toLowerCase()) return SI_REFERENCE_BERTHING_ERROR;
+  if (isVesselNameAliasReference(ref, vessel)) return SI_REFERENCE_BERTHING_ERROR;
   return null;
 }
 

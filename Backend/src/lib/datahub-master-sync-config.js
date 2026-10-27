@@ -168,6 +168,42 @@ export async function applyEntityItem(entityType, db, item, actorId, opts) {
   throw new Error(`Unknown entity type: ${entityType}`);
 }
 
+const LOCAL_HUB_CODE_SQL = {
+  vessel: `SELECT id, hub_code FROM master_vessels WHERE id = $1 AND deleted_at IS NULL`,
+  incoterm: `SELECT id, hub_code FROM si_trade_terms WHERE id = $1 AND deleted_at IS NULL`,
+  commodity: `SELECT id, hub_code FROM si_commodities WHERE id = $1 AND deleted_at IS NULL`,
+  port_master: `SELECT id, hub_code FROM ports WHERE id = $1 AND deleted_at IS NULL`,
+  organization: `SELECT id, hub_code FROM master_companies WHERE id = $1 AND deleted_at IS NULL`,
+};
+
+/**
+ * Hub code for one local master row. 404 when the row is gone, 400 when it has no hub code.
+ * @param {DataHubEntityType} entityType
+ */
+export async function loadLocalHubCode(entityType, db, localId) {
+  const id = parseInt(localId, 10);
+  if (!Number.isFinite(id)) {
+    const err = new Error('localId is required');
+    err.status = 400;
+    throw err;
+  }
+  const sql = LOCAL_HUB_CODE_SQL[entityType];
+  if (!sql) throw new Error(`Unknown entity type: ${entityType}`);
+  const r = await db.query(sql, [id]);
+  if (r.rows.length === 0) {
+    const err = new Error('Master record not found');
+    err.status = 404;
+    throw err;
+  }
+  const hubCode = String(r.rows[0].hub_code ?? '').trim();
+  if (!hubCode) {
+    const err = new Error('This record is not linked to DataHub.');
+    err.status = 400;
+    throw err;
+  }
+  return { id: Number(r.rows[0].id), hubCode };
+}
+
 export function entityPageKey(entityType) {
   if (entityType === 'vessel') return 'master-vessel';
   if (entityType === 'incoterm') return 'master-si-term';

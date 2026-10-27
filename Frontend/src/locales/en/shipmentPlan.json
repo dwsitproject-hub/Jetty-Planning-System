@@ -237,6 +237,8 @@
   "approvalTableKontrak": "Kontrak",
   "approvalTablePo": "PO",
   "approvalTableSo": "SO",
+  "approvalTableSto": "STO",
+  "approvalInternalSiMark": "Internal reference",
   "approvalTableKeterangan": "Keterangan / Note",
   "approvalTableTotal": "TOTAL",
   "approvalBack": "Back",

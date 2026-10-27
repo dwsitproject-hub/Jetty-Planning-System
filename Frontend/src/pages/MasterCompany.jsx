@@ -5,6 +5,7 @@ import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import MasterWorkingPortBar from '../components/MasterWorkingPortBar.jsx'
 import DataHubFieldCue from '../components/DataHubFieldCue.jsx'
 import DataHubSyncReviewModal from '../components/DataHubSyncReviewModal.jsx'
+import DataHubRecordSyncButton from '../components/DataHubRecordSyncButton.jsx'
 import AppToast from '../components/AppToast.jsx'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
@@ -21,6 +22,7 @@ import {
   fetchMasterCompanies,
   saveCompanyPortMap,
   startCompanySyncRun,
+  startCompanyRecordSync,
 } from '../api/masterCompanies.js'
 import {
   formatMasterCreatedLine,
@@ -96,6 +98,7 @@ export default function MasterCompany() {
   const [savingMap, setSavingMap] = useState(false)
 
   const [syncing, setSyncing] = useState(false)
+  const [syncingRecordId, setSyncingRecordId] = useState(null)
   const [applying, setApplying] = useState(false)
   const [syncError, setSyncError] = useState(null)
   const [review, setReview] = useState(null)
@@ -184,6 +187,28 @@ export default function MasterCompany() {
       setError(hint ? `${e?.message || 'DataHub sync failed'} ${hint}` : e?.message || 'DataHub sync failed')
     } finally {
       setSyncing(false)
+    }
+  }, [loadLatestRun, openReview])
+
+  const handleRecordSync = useCallback(async (row) => {
+    setSyncing(true)
+    setSyncingRecordId(row.id)
+    setError(null)
+    setSyncError(null)
+    try {
+      const resp = await startCompanyRecordSync(row.id)
+      await loadLatestRun()
+      if (resp?.noChanges) {
+        setToast({ message: 'This record already matches DataHub.', variant: 'success' })
+        return
+      }
+      if (resp?.run?.id) await openReview(resp.run.id)
+    } catch (e) {
+      const hint = e?.body?.hint
+      setError(hint ? `${e?.message || 'DataHub sync failed'} ${hint}` : e?.message || 'DataHub sync failed')
+    } finally {
+      setSyncing(false)
+      setSyncingRecordId(null)
     }
   }, [loadLatestRun, openReview])
 
@@ -308,7 +333,7 @@ export default function MasterCompany() {
               Refresh
             </button>
             <button type="button" className="btn btn--secondary" onClick={handleSync} disabled={!canDoEdit || syncing}>
-              {syncing ? 'Reading DataHub…' : 'Sync from DataHub'}
+              {syncing && syncingRecordId == null ? 'Reading DataHub…' : 'Sync from DataHub'}
             </button>
           </div>
         </div>
@@ -325,12 +350,13 @@ export default function MasterCompany() {
                   onSort={handleSort}
                   filters={filters}
                   onFilterChange={updateFilter}
+                  trailingBlankCols={1}
                 />
               </thead>
               <tbody>
                 {displayRows.length === 0 ? (
                   <tr>
-                    <td colSpan={COMPANY_COLUMNS.length} className="text-steel">No companies yet. Sync from DataHub.</td>
+                    <td colSpan={COMPANY_COLUMNS.length + 1} className="text-steel">No companies yet. Sync from DataHub.</td>
                   </tr>
                 ) : (
                   displayRows.map((row) => (
@@ -343,6 +369,15 @@ export default function MasterCompany() {
                       <td>{row.isActive === false ? 'No' : 'Yes'}</td>
                       <td>{formatMasterCreatedLine(row)}</td>
                       <td>{formatMasterLastUpdatedLine(row)}</td>
+                      <td className="allocation-table__action-col">
+                        <DataHubRecordSyncButton
+                          hubCode={row.hubCode}
+                          canEdit={canDoEdit}
+                          busy={syncing}
+                          syncing={syncingRecordId === row.id}
+                          onClick={() => handleRecordSync(row)}
+                        />
+                      </td>
                     </tr>
                   ))
                 )}

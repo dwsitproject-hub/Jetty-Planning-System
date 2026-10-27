@@ -8,6 +8,7 @@ import {
   defaultMetricIdForBreakdownRow,
   validateBreakdownMetricRules,
 } from './siBreakdownMetric.js'
+import { isInternalSiReference } from './internalSiReference.js'
 
 export function planEtaYmd(plan) {
   if (!plan?.eta) return ''
@@ -28,6 +29,7 @@ export function emptyBreakdownRow(lookups) {
     contractNo: '',
     poNo: '',
     soNo: '',
+    stoNo: '',
     remarks: '',
   }
 }
@@ -37,6 +39,7 @@ export function defaultSiDraftForPlanPreview(lookups, linkedPlan) {
   const base = {
     vesselName: linkedPlan?.vesselName || '',
     referenceNumber: '',
+    noExternalSi: false,
     voyageNo: '',
     purposeId: linkedPlan?.purposeId != null ? String(linkedPlan.purposeId) : '',
     tradeTermId: '',
@@ -98,6 +101,7 @@ export function siDetailToPlanLinkedDraftForm(si, lookups, linkedPlan) {
             contractNo: b.contractNo ?? '',
             poNo: b.poNo ?? '',
             soNo: b.soNo ?? '',
+            stoNo: b.stoNo ?? '',
             remarks: b.remarks ?? '',
           }
           // Stored lines may predate a commodity default-unit change (e.g. partner API KL → master now MT).
@@ -108,6 +112,7 @@ export function siDetailToPlanLinkedDraftForm(si, lookups, linkedPlan) {
     ...base,
     vesselName: si?.vesselName ?? base.vesselName,
     referenceNumber: si?.referenceNumber ?? '',
+    noExternalSi: si?.noExternalSi === true,
     purposeId: linkedPlan?.purposeId != null ? String(linkedPlan.purposeId) : base.purposeId,
     tradeTermId:
       si?.tradeTermId != null
@@ -206,6 +211,7 @@ export function validateSiDraftForCreate(form, lookups, linkedPlan, options = {}
     contractNo: row.contractNo?.trim() || null,
     poNo: row.poNo?.trim() || null,
     soNo: row.soNo?.trim() || null,
+    stoNo: row.stoNo?.trim() || null,
     remarks: row.remarks?.trim() || null,
   }))
   for (let i = 0; i < breakdownPayload.length; i += 1) {
@@ -259,7 +265,11 @@ export function buildSiCreateApiPayload(form, linkedPlan, validated) {
     loadingPortId: num(form.loadingPortId),
     surveyorId: num(form.surveyorId),
     agentId: linkedPlan?.agentId != null && linkedPlan.agentId !== '' ? num(String(linkedPlan.agentId)) : null,
-    referenceNumber: form.referenceNumber?.trim() || null,
+    referenceNumber:
+      form.noExternalSi && !isInternalSiReference(form.referenceNumber)
+        ? null
+        : form.referenceNumber?.trim() || null,
+    noExternalSi: form.noExternalSi === true,
     voyageNo: linkedPlan.voyageNo?.trim() || null,
     eta: etaIso,
     etaFrom: ymd,

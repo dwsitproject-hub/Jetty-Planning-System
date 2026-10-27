@@ -20,6 +20,7 @@ import {
   POST_BERTH_PLAN_EDIT_ERROR,
 } from '../lib/si-pre-berth-edit.js';
 import { softDeleteOperationInTransaction } from '../lib/operation-soft-delete.js';
+import { allocateInternalSiNumber, isInternalSiReference } from '../lib/internal-si-number.js';
 import {
   decideVesselMasterWrite,
   planDimensionsFromBody,
@@ -157,6 +158,7 @@ function parseSiBreakdownJson(val) {
       contractNo: r.contract_no ?? null,
       poNo: r.po_no ?? null,
       soNo: r.so_no ?? null,
+      stoNo: r.sto_no ?? null,
       remarks: r.remarks ?? null,
       shipperId: r.shipper_id != null ? Number(r.shipper_id) : null,
       shipperName: r.shipper_name ?? null,
@@ -171,6 +173,7 @@ function toSiChildRow(row) {
   return {
     id: Number(row.id),
     referenceNumber: row.reference_number ?? null,
+    noExternalSi: row.no_external_si === true,
     vesselName: row.vessel_name,
     commodity: row.commodity ?? null,
     purpose: row.purpose,
@@ -455,7 +458,7 @@ router.get('/:id', async (req, res) => {
   if (!plan) return res.status(404).json({ error: 'Shipment plan not found' });
 
   const sis = await pool.query(
-    `SELECT si.id, si.reference_number, spl.vessel_name, si.commodity, spp2.code AS purpose, si.status, spl.eta, si.eta_from, si.eta_to,
+    `SELECT si.id, si.reference_number, si.no_external_si, spl.vessel_name, si.commodity, spp2.code AS purpose, si.status, spl.eta, si.eta_from, si.eta_to,
             si.loading_port_id, si.company_id, mc.name AS company_name, mc.short_name AS company_short_name,
             (
               SELECT COALESCE(
@@ -467,6 +470,7 @@ router.get('/:id', async (req, res) => {
                     'contract_no', b.contract_no,
                     'po_no', b.po_no,
                     'so_no', b.so_no,
+                    'sto_no', b.sto_no,
                     'remarks', b.remarks,
                     'shipper_id', b.shipper_id,
                     'shipper_name', sh.name
@@ -883,6 +887,33 @@ router.post('/:id/submit', requireAuth, async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'At least one shipping instruction is required before submit' });
     }
+    const children = await client.query(
+      `SELECT id, reference_number, no_external_si
+       FROM shipping_instructions
+       WHERE shipment_plan_id = $1 AND deleted_at IS NULL
+       ORDER BY id
+       FOR UPDATE`,
+      [planId]
+    );
+    const assignedInternalNumbers = [];
+    for (const si of children.rows) {
+      if (si.no_external_si !== true) continue;
+      const ref = si.reference_number == null ? '' : String(si.reference_number).trim();
+      if (!ref) {
+        const number = await allocateInternalSiNumber(client, selectedPortId);
+        await client.query(
+          `UPDATE shipping_instructions SET reference_number = $1, updated_at = NOW() WHERE id = $2`,
+          [number, si.id]
+        );
+        assignedInternalNumbers.push({ id: si.id, number });
+        continue;
+      }
+      if (isInternalSiReference(ref)) continue;
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: `Shipping instruction ${si.id} is marked as having no external Shipping Instruction number but already has a different number. Clear it before submit.`,
+      });
+    }
     await client.query(
       `UPDATE shipment_plans SET
          approval_status = 'Submitted',
@@ -909,6 +940,14 @@ router.post('/:id/submit', requireAuth, async (req, res) => {
         actionUrl: `${appBase}/shipment-plans/approval/${planId}`,
       },
     });
+    const submitChanges = [{ field: 'Approval status', from: row.approval_status, to: 'Submitted' }];
+    for (const assigned of assignedInternalNumbers) {
+      submitChanges.push({
+        field: 'Internal SI number',
+        from: null,
+        to: `${assigned.id}: ${assigned.number}`,
+      });
+    }
     writeActivityLog({
       pageKey: PAGE_KEY,
       action: 'update',
@@ -916,7 +955,7 @@ router.post('/:id/submit', requireAuth, async (req, res) => {
       entityId: String(planId),
       entityLabel: row.plan_reference || `Plan #${planId}`,
       summary: 'Submitted shipment plan for approval',
-      changes: [{ field: 'Approval status', from: row.approval_status, to: 'Submitted' }],
+      changes: submitChanges,
       actorUserId: req.userId ?? null,
     }).catch(() => {});
     const plan = await loadPlan(pool, planId, selectedPortId);

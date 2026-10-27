@@ -87,7 +87,8 @@
 
 | Export | Role |
 |--------|------|
-| **`planSnapshotFromMasterRow(row)`** | Builds snapshot `{ master_vessel_id, vessel_name, vessel_loa_m, vessel_gross_tonnage, vessel_draft }` from master row; LOA from **`vessel_length_overall`**. |
+| **`planSnapshotFromMasterRow(row)`** | In-app snapshot. Requires positive LOA, GT, and draft. LOA from **`vessel_length_overall`**. |
+| **`planSnapshotFromMasterRowForPartner(row)`** | Partner submit only. Same identity snapshot; a blank LOA, GT, or draft is **null**. A present non-positive value is an error. |
 | **`loadActiveMasterVessel(client, id)`** | Loads non-deleted **`master_vessels`** row by id. |
 | **`parseMasterVesselIdBody(raw)`** | Validates required positive integer **`master_vessel_id`** on create. |
 | **`linkedPlanRejectsDirectVesselFields(body)`** | Returns error when a linked plan PATCH includes direct **`vessel_name` / `vessel_loa_m` / `vessel_gross_tonnage` / `vessel_draft`**. |
@@ -221,8 +222,8 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 | Method | Path | Behaviour |
 |--------|------|-----------|
-| **`POST`** | **`/shipping-instructions`** | Validates payload (purpose, eta, **`vessel_hub_code`** and/or **`vessel_name`** via **`validateIntegrationVesselInput`** — **`vessel_hub_code` sufficient alone**; optional **`trade_term`**, **`surveyor_name`**, cargo lines with **`cargo_type`** → **`si_commodities.short_name`**, **`unit`** → **`metric.code`**, optional **`po_no`**, **`so_no`**, **`shipper_name`**). Resolves **`master_vessels`** via **`resolveMasterVesselForIntegration`** (**§0.35**). **`port_id`** must be a valid **`ports`** row. Transaction: insert linked plan (snapshot vessel fields + **`master_vessel_id`**) + SI + breakdown, **`integration_submissions`**. Returns **201** with canonical **`vessel_name`**, **`vessel_hub_code`**, **`Pending`**. |
-| **`PATCH`** | **`/shipping-instructions/:id`** or **`?external_reference=`** | While partner status **`Pending`**: update SI header (**`trade_term`**, **`surveyor_name`**) and/or breakdown **`po_no`**, **`so_no`**, **`shipper_name`** (match lines by **`line_order`** or **`contract_no`**). No vessel change. Else **409** **`INVALID_STATE`**. Returns **200** status shape. |
+| **`POST`** | **`/shipping-instructions`** | Validates payload (purpose, eta, **`vessel_hub_code`** and/or **`vessel_name`** via **`validateIntegrationVesselInput`** — **`vessel_hub_code` sufficient alone**; optional **`trade_term`**, **`surveyor_name`**, cargo lines with **`cargo_type`** → **`si_commodities.short_name`**, **`unit`** → **`metric.code`**, optional **`po_no`**, **`so_no`**, **`sto_no`**, **`shipper_name`**). Resolves **`master_vessels`** via **`resolveMasterVesselForIntegration`** (**§0.35**). **`port_id`** must be a valid **`ports`** row. Transaction: insert linked plan (snapshot via **`planSnapshotFromMasterRowForPartner`** — blank LOA/GT/draft stored null; in-app create still uses **`planSnapshotFromMasterRow`**, which requires all three) + SI + breakdown, **`integration_submissions`**. Returns **201** with canonical **`vessel_name`**, **`vessel_hub_code`**, **`Pending`**. |
+| **`PATCH`** | **`/shipping-instructions/:id`** or **`?external_reference=`** | While partner status **`Pending`**: update SI header (**`trade_term`**, **`surveyor_name`**) and/or breakdown **`po_no`**, **`so_no`**, **`sto_no`**, **`shipper_name`** (match lines by **`line_order`** or **`contract_no`**). No vessel change. Else **409** **`INVALID_STATE`**. Returns **200** status shape. |
 | **`GET`** | **`/shipping-instructions/:id`** | Lookup by SI id scoped to caller’s **`api_key_id`**. Includes **`vessel_hub_code`** from linked **`master_vessels`**. |
 | **`GET`** | **`/shipping-instructions?external_reference=`** | Same payload shape; lookup by partner reference. |
 | **`GET`** | **`/terms`**, **`/agents`**, **`/surveyors`**, **`/shippers`** | List active master rows (`si_trade_terms`, `si_agents`, `si_surveyors`, `si_shippers`). |

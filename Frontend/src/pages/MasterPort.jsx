@@ -8,6 +8,7 @@ import {
   fetchPortSyncRun,
   fetchPortSyncRuns,
   startPortSyncRun,
+  startPortRecordSync,
 } from '../api/datahubPort.js'
 import { useActivityLog } from '../context/ActivityLogContext'
 import { useRbac } from '../context/RbacContext'
@@ -21,6 +22,7 @@ import { getIanaTimeZoneOptions, mergeTimezoneOptionsWithOrphan } from '../utils
 import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import DataHubFieldCue from '../components/DataHubFieldCue.jsx'
 import DataHubSyncReviewModal from '../components/DataHubSyncReviewModal.jsx'
+import DataHubRecordSyncButton from '../components/DataHubRecordSyncButton.jsx'
 import AppToast from '../components/AppToast.jsx'
 import SearchableSingleSelect from '../components/SearchableSingleSelect.jsx'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
@@ -145,6 +147,7 @@ export default function MasterPort() {
   const [formIsActive, setFormIsActive] = useState(true)
 
   const [syncing, setSyncing] = useState(false)
+  const [syncingRecordId, setSyncingRecordId] = useState(null)
   const [applying, setApplying] = useState(false)
   const [syncError, setSyncError] = useState(null)
   const [review, setReview] = useState(null)
@@ -196,6 +199,30 @@ export default function MasterPort() {
       )
     } finally {
       setSyncing(false)
+    }
+  }, [loadLatestRun, openReview])
+
+  const handleRecordSync = useCallback(async (row) => {
+    setSyncing(true)
+    setSyncingRecordId(row.id)
+    setError(null)
+    setSyncError(null)
+    try {
+      const resp = await startPortRecordSync(row.id)
+      await loadLatestRun()
+      if (resp?.noChanges) {
+        setToast({ message: 'This record already matches DataHub.', variant: 'success' })
+        return
+      }
+      if (resp?.run?.id) await openReview(resp.run.id)
+    } catch (e) {
+      const hint = e?.body?.hint
+      setError(
+        hint ? `${e?.message || 'DataHub sync failed'} ${hint}` : e?.message || 'DataHub sync failed'
+      )
+    } finally {
+      setSyncing(false)
+      setSyncingRecordId(null)
     }
   }, [loadLatestRun, openReview])
 
@@ -445,7 +472,7 @@ export default function MasterPort() {
               disabled={!canDoEdit || syncing}
               title={!canDoEdit ? 'Edit permission required.' : ''}
             >
-              {syncing ? 'Reading DataHub…' : 'Sync from DataHub'}
+              {syncing && syncingRecordId == null ? 'Reading DataHub…' : 'Sync from DataHub'}
             </button>
             <button type="button" className="btn btn--primary" onClick={openAdd} disabled={!canDoEdit}>
               Add Port
@@ -491,6 +518,13 @@ export default function MasterPort() {
                     <td className="text-steel">{formatMasterLastUpdatedLine(p)}</td>
                     <td className="allocation-table__action-col">
                       <div className="allocation-table__action-btns">
+                        <DataHubRecordSyncButton
+                          hubCode={p.hubCode}
+                          canEdit={canDoEdit}
+                          busy={syncing}
+                          syncing={syncingRecordId === p.id}
+                          onClick={() => handleRecordSync(p)}
+                        />
                         <button
                           type="button"
                           className="btn btn--small btn--secondary"
