@@ -321,7 +321,7 @@ router.get('/', async (req, res) => {
       params.push(d.toISOString());
     }
   }
-  sql += ` ORDER BY sp.updated_at DESC NULLS LAST, sp.id DESC`;
+  sql += ` ORDER BY sp.created_at DESC NULLS LAST, sp.id DESC`;
   const result = await pool.query(sql, params);
   res.json(result.rows.map(toPlanListRow));
 });
@@ -1311,6 +1311,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
       [planId, req.userId ?? null]
     );
     await client.query('COMMIT');
+    triggerPartnerWebhooksDeferred({ shipmentPlanId: planId, eventTypes: ['status.changed'] });
     writeActivityLog({
       pageKey: PAGE_KEY,
       action: 'delete',

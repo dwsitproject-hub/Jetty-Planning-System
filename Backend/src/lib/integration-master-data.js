@@ -190,8 +190,14 @@ export async function resolvePartnerCargoOpsWindow(db, operationId) {
   return { startAt: row.window_start_at ?? null, endAt: row.window_end_at ?? null };
 }
 
-/** Maps internal plan/operation state to partner Pending/Approved/Rejected/Allocated/Sailed. */
+/** True when the partner submission's plan or shipping instruction was soft-deleted. */
+export function isPartnerSubmissionDeleted(row) {
+  return row?.plan_deleted_at != null || row?.si_deleted_at != null;
+}
+
+/** Maps internal plan/operation state to partner Pending/Approved/Rejected/Deleted/Allocated/Sailed. */
 export function deriveExternalStatus(row) {
+  if (isPartnerSubmissionDeleted(row)) return 'Deleted';
   if (row.approval_status === 'Rejected') return 'Rejected';
   if (row.op_status === 'SAILED') return 'Sailed';
   const opStatus = row.op_status || null;
@@ -203,6 +209,8 @@ export function deriveExternalStatus(row) {
 export const PARTNER_SUBMISSION_LOOKUP_SQL = `
   SELECT s.id AS submission_id, s.external_reference, s.received_at, s.payload,
          si.id AS si_id,
+         si.deleted_at AS si_deleted_at,
+         sp.deleted_at AS plan_deleted_at,
          GREATEST(si.updated_at, sp.updated_at, COALESCE(o.op_updated_at, sp.updated_at)) AS last_updated_at,
          sp.approval_status, sp.rejection_reason, sp.plan_reference,
          sp.approved_at, sp.rejected_at,
@@ -230,8 +238,8 @@ ${PARTNER_CARGO_OPS_WINDOW_SUBSELECT},
          si.partner_contract_document_url,
          si.partner_bl_document_url
   FROM integration_submissions s
-  JOIN shipping_instructions si ON si.id = s.shipping_instruction_id AND si.deleted_at IS NULL
-  JOIN shipment_plans sp ON sp.id = s.shipment_plan_id AND sp.deleted_at IS NULL
+  JOIN shipping_instructions si ON si.id = s.shipping_instruction_id
+  JOIN shipment_plans sp ON sp.id = s.shipment_plan_id
   LEFT JOIN ports p ON p.id = sp.port_id AND p.deleted_at IS NULL
   LEFT JOIN master_companies mc ON mc.id = si.company_id AND mc.deleted_at IS NULL
   LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
@@ -251,6 +259,8 @@ ${PARTNER_CARGO_OPS_WINDOW_SUBSELECT},
 export const PARTNER_SUBMISSION_BY_PLAN_SQL = `
   SELECT s.api_key_id, s.external_reference, s.received_at, s.payload,
          si.id AS si_id,
+         si.deleted_at AS si_deleted_at,
+         sp.deleted_at AS plan_deleted_at,
          GREATEST(si.updated_at, sp.updated_at, COALESCE(o.op_updated_at, sp.updated_at)) AS last_updated_at,
          sp.approval_status, sp.rejection_reason, sp.plan_reference,
          sp.approved_at, sp.rejected_at,
@@ -278,8 +288,8 @@ ${PARTNER_CARGO_OPS_WINDOW_SUBSELECT},
          si.partner_contract_document_url,
          si.partner_bl_document_url
   FROM integration_submissions s
-  JOIN shipping_instructions si ON si.id = s.shipping_instruction_id AND si.deleted_at IS NULL
-  JOIN shipment_plans sp ON sp.id = s.shipment_plan_id AND sp.deleted_at IS NULL
+  JOIN shipping_instructions si ON si.id = s.shipping_instruction_id
+  JOIN shipment_plans sp ON sp.id = s.shipment_plan_id
   LEFT JOIN ports p ON p.id = sp.port_id AND p.deleted_at IS NULL
   LEFT JOIN master_companies mc ON mc.id = si.company_id AND mc.deleted_at IS NULL
   LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
@@ -293,12 +303,14 @@ ${PARTNER_CARGO_OPS_WINDOW_SUBSELECT},
     LIMIT 1
   ) o ON true
   LEFT JOIN jetties j ON j.id = COALESCE(o.jetty_id, sp.jetty_id)
-  WHERE sp.id = $1 AND sp.deleted_at IS NULL`;
+  WHERE sp.id = $1`;
 
 /** Load partner submission rows for webhook enqueue (by shipping instruction id). */
 export const PARTNER_SUBMISSION_BY_SI_SQL = `
   SELECT s.api_key_id, s.external_reference, s.received_at, s.payload,
          si.id AS si_id,
+         si.deleted_at AS si_deleted_at,
+         sp.deleted_at AS plan_deleted_at,
          GREATEST(si.updated_at, sp.updated_at, COALESCE(o.op_updated_at, sp.updated_at)) AS last_updated_at,
          sp.approval_status, sp.rejection_reason, sp.plan_reference,
          sp.approved_at, sp.rejected_at,
@@ -326,8 +338,8 @@ ${PARTNER_CARGO_OPS_WINDOW_SUBSELECT},
          si.partner_contract_document_url,
          si.partner_bl_document_url
   FROM integration_submissions s
-  JOIN shipping_instructions si ON si.id = s.shipping_instruction_id AND si.deleted_at IS NULL
-  JOIN shipment_plans sp ON sp.id = s.shipment_plan_id AND sp.deleted_at IS NULL
+  JOIN shipping_instructions si ON si.id = s.shipping_instruction_id
+  JOIN shipment_plans sp ON sp.id = s.shipment_plan_id
   LEFT JOIN ports p ON p.id = sp.port_id AND p.deleted_at IS NULL
   LEFT JOIN master_companies mc ON mc.id = si.company_id AND mc.deleted_at IS NULL
   LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
@@ -341,7 +353,7 @@ ${PARTNER_CARGO_OPS_WINDOW_SUBSELECT},
     LIMIT 1
   ) o ON true
   LEFT JOIN jetties j ON j.id = COALESCE(o.jetty_id, sp.jetty_id)
-  WHERE si.id = $1 AND sp.deleted_at IS NULL`;
+  WHERE si.id = $1`;
 
 export async function findPartnerSubmission(db, apiKeyId, { siId, externalReference }) {
   if (siId != null) {

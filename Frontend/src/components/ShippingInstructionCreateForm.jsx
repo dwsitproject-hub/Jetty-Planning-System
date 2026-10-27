@@ -2,9 +2,9 @@
  * Create Draft SI linked to an existing shipment plan (purpose / ETA / voyage / vessel from plan).
  * Used inside the shipment plan “new plan” combined modal.
  */
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { createShippingInstruction, fetchSiNpwpMaster } from '../api/shippingInstructions'
+import { createShippingInstruction } from '../api/shippingInstructions'
 import ShippingInstructionSiLinkedFields from './ShippingInstructionSiLinkedFields'
 import {
   defaultSiDraftForPlanPreview,
@@ -33,7 +33,6 @@ export default function ShippingInstructionCreateForm({ lookups, linkedPlan, onS
   const { t: tPlan } = useTranslation('shipmentPlan')
   const companyOptions = usePortCompanyOptions(true)
   const [form, setForm] = useState(() => defaultSiDraftForPlanPreview(null, linkedPlan))
-  const [npwpMaster, setNpwpMaster] = useState(null)
   const [draftDocKey] = useState(
     () => `si-draft-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
   )
@@ -67,36 +66,6 @@ export default function ShippingInstructionCreateForm({ lookups, linkedPlan, onS
     if (!lookups || !linkedPlan) return
     setForm(defaultSiDraftForPlanPreview(lookups, linkedPlan))
   }, [lookups, linkedPlan])
-
-  const effectivePurposeId = linkedPlan?.purposeId != null ? String(linkedPlan.purposeId) : form.purposeId
-  const selectedPurpose = useMemo(
-    () => (lookups?.purposes || []).find((p) => String(p.id) === String(effectivePurposeId)) || null,
-    [lookups?.purposes, effectivePurposeId]
-  )
-  const purposeCode = selectedPurpose?.code || null
-  const isLoadingPurpose = purposeCode === 'Loading'
-
-  useEffect(() => {
-    if (!isLoadingPurpose) {
-      setNpwpMaster(null)
-      return
-    }
-    let cancelled = false
-    fetchSiNpwpMaster()
-      .then((r) => {
-        if (!cancelled) setNpwpMaster(r?.npwp ?? null)
-      })
-      .catch((e) => {
-        if (!cancelled) {
-          setNpwpMaster(null)
-          const msg = e?.message || 'Failed to load NPWP master'
-          onErrorToast(`Failed to load NPWP master: ${msg}`, 'error')
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [isLoadingPurpose, onErrorToast])
 
   const handleSubmit = useCallback(
     async (e) => {
@@ -178,7 +147,6 @@ export default function ShippingInstructionCreateForm({ lookups, linkedPlan, onS
           linkedPlan={linkedPlan}
           form={form}
           setForm={setForm}
-          npwpMaster={npwpMaster}
           idPrefix="sicf-"
           companyOptions={companyOptions}
           showPlanLinkedNote

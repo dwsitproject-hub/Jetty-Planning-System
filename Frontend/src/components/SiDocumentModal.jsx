@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchShippingInstruction, fetchSiNpwpMaster } from '../api/shippingInstructions'
+import { fetchShippingInstruction } from '../api/shippingInstructions'
 import SiDocumentView from './SiDocumentView'
 import FlowPill from './FlowPill'
 import { mapApiToSi, canViewAsDocument } from '../utils/siViewModel'
@@ -11,7 +11,6 @@ export default function SiDocumentModal({ isOpen, siId, onClose, allowPreApprova
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [si, setSi] = useState(null)
-  const [npwpMaster, setNpwpMaster] = useState(null)
 
   useEffect(() => {
     if (!isOpen || !siId) return
@@ -42,22 +41,6 @@ export default function SiDocumentModal({ isOpen, siId, onClose, allowPreApprova
       cancelled = true
     }
   }, [isOpen, siId])
-
-  useEffect(() => {
-    if (!isOpen || !si) return
-    const portId = si?.resolvedPortId
-    let cancelled = false
-    fetchSiNpwpMaster(portId)
-      .then((r) => {
-        if (!cancelled) setNpwpMaster(r?.npwp ?? null)
-      })
-      .catch(() => {
-        if (!cancelled) setNpwpMaster(null)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [isOpen, si?.resolvedPortId, si?.id])
 
   if (!isOpen) return null
 
@@ -102,7 +85,7 @@ export default function SiDocumentModal({ isOpen, siId, onClose, allowPreApprova
               </p>
             </div>
           ) : (
-            <SiDocumentView si={si} npwpMaster={npwpMaster} />
+            <SiDocumentView si={si} />
           )}
         </div>
       </div>

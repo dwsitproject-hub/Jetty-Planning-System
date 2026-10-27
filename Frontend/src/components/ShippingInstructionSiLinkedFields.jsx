@@ -40,7 +40,6 @@ const FREIGHT_TERM_OPTIONS = [
  *   linkedPlan: { id?: number, vesselName?: string, purposeId?: number, purposeCode?: string | null, eta?: string | null, voyageNo?: string | null, jettyId?: number | null, planReference?: string | null },
  *   form: object,
  *   setForm: import('react').Dispatch<import('react').SetStateAction<object>>,
- *   npwpMaster: string | null,
  *   idPrefix: string,
  *   showPlanLinkedNote?: boolean,
  *   omitVesselAndJetty?: boolean,
@@ -57,7 +56,6 @@ export default function ShippingInstructionSiLinkedFields({
   linkedPlan,
   form,
   setForm,
-  npwpMaster,
   idPrefix,
   companyOptions = null,
   showPlanLinkedNote = true,
@@ -371,12 +369,6 @@ export default function ShippingInstructionSiLinkedFields({
                     </option>
                   ))}
                 </select>
-              </div>
-            )}
-            {isLoadingPurpose && (
-              <div className="input-group">
-                <label htmlFor={`${idPrefix}npwp`}>NPWP</label>
-                <input id={`${idPrefix}npwp`} value={npwpMaster || '—'} readOnly disabled={!lookups} />
               </div>
             )}
           </div>

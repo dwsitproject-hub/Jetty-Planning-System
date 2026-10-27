@@ -2,7 +2,7 @@
  * Partner integration API — enriched status + schedule payload (GET + webhooks).
  * Contract: Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md v5.6
  */
-import { deriveExternalStatus } from './integration-master-data.js';
+import { deriveExternalStatus, isPartnerSubmissionDeleted } from './integration-master-data.js';
 
 /** @param {Date | string | null | undefined} v */
 export function timestampToIso(v) {
@@ -40,6 +40,14 @@ export function buildPartnerSchedule(row) {
 
 /** @param {Record<string, unknown>} row */
 function buildPartnerApproval(row) {
+  if (isPartnerSubmissionDeleted(row)) {
+    return {
+      status: 'Deleted',
+      approved_at: timestampToIso(row.approved_at),
+      rejected_at: timestampToIso(row.rejected_at),
+      rejection_reason: row.rejection_reason ?? null,
+    };
+  }
   const internal =
     row.approval_status === 'Submitted'
       ? 'Submitted'

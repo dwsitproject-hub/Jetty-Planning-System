@@ -175,9 +175,7 @@ export function formatCompanyLabel(company) {
 }
 
 export function shippingInstructionRowLabel(si) {
-  const ref = si?.referenceNumber || (si?.id != null ? `SI-${si.id}` : 'SI')
-  const company = formatCompanyLabel(si)
-  return company ? `${ref} · ${company}` : ref
+  return si?.referenceNumber || (si?.id != null ? `SI-${si.id}` : 'SI')
 }
 
 /**

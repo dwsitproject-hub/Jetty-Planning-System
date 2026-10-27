@@ -19,6 +19,8 @@ export const INTEGRATION_CATALOG_VERSION = '5.6';
 
 const VALID_PURPOSES = ['Loading', 'Unloading'];
 const VALID_UNITS = ['MT', 'KL'];
+const PARTNER_STATUSES = ['Pending', 'Approved', 'Rejected', 'Deleted', 'Allocated', 'Sailed'];
+const APPROVAL_STATUSES = ['Submitted', 'Approved', 'Rejected', 'Deleted'];
 
 function field(key, type, opts = {}) {
   return {
@@ -32,6 +34,91 @@ function field(key, type, opts = {}) {
     ...(opts.systemGenerated ? { systemGenerated: true } : {}),
     ...(opts.items ? { items: opts.items } : {}),
   };
+}
+
+function readOnly(key, type, opts = {}) {
+  return field(key, type, { ...opts, systemGenerated: true });
+}
+
+/** GET, 201, and webhook fields. Not accepted on POST or PATCH. */
+function shippingInstructionResponseFields() {
+  return [
+    readOnly('id', 'NUMBER', {
+      description: 'JPS shipping instruction id. On the 201 response, GET, and webhook data.',
+    }),
+    readOnly('plan_reference', 'STRING', {
+      description: 'JPS plan reference, for example SP-26-10-00011. GET and webhook data.',
+    }),
+    readOnly('port_id', 'NUMBER', {
+      description:
+        'Resolved JPS port id on the 201 response, GET, and webhook data. Sending port_id on POST returns 400; use port_hub_code.',
+    }),
+    readOnly('company_name', 'STRING', {
+      description: 'Operating company name resolved from company_hub_code. On the 201 response, GET, and webhook data.',
+    }),
+    readOnly('received_at', 'DATETIME', {
+      description: 'When JPS accepted the submission. On the 201 response.',
+    }),
+    readOnly('submitted_at', 'DATETIME', {
+      description: 'Same instant as received_at. GET and webhook data.',
+    }),
+    readOnly('last_updated_at', 'DATETIME', {
+      description: 'Latest plan, instruction, or operation change. GET and webhook data.',
+    }),
+    readOnly('etr_minutes', 'NUMBER', {
+      description: 'Minutes from now until schedule.etc. Null when status is Sailed or etc is empty. GET and webhook data.',
+    }),
+    readOnly('rejection_reason', 'STRING', {
+      description:
+        'Set on GET and webhook data only when status is Rejected. Null when status is Deleted; a prior reason remains on approval.rejection_reason.',
+    }),
+    readOnly('status', 'STRING', {
+      enumValues: PARTNER_STATUSES,
+      description:
+        'Partner lifecycle on the 201 response, GET, and status.changed. Deleted means an operator removed the shipment plan. The same external_reference stays used (POST returns 409). Send the next revision as a new external_reference.',
+    }),
+    readOnly('approval', 'OBJECT', {
+      description:
+        'GET and webhook data. approval.status is Submitted while partner status is Pending. It does not become Allocated or Sailed.',
+      items: [
+        readOnly('status', 'STRING', {
+          enumValues: APPROVAL_STATUSES,
+          description: 'Submitted, Approved, Rejected, or Deleted.',
+        }),
+        readOnly('approved_at', 'DATETIME'),
+        readOnly('rejected_at', 'DATETIME'),
+        readOnly('rejection_reason', 'STRING', {
+          description: 'Operator reason when the plan was rejected. Still present if the plan is later deleted.',
+        }),
+      ],
+    }),
+    readOnly('schedule', 'OBJECT', {
+      description:
+        'GET and webhook data. Timestamps are ISO 8601 UTC. cargo_ops_start_at and cargo_ops_end_at are Hose On and Hose Off. cast_off_at is vessel cast-off, not Hose Off.',
+      items: [
+        readOnly('eta', 'DATETIME'),
+        readOnly('ta', 'DATETIME', { description: 'Actual time of arrival.' }),
+        readOnly('etb', 'DATETIME', { description: 'Estimated time of berthing.' }),
+        readOnly('tb', 'DATETIME', { description: 'Actual time of berthing.' }),
+        readOnly('etc', 'DATETIME', { description: 'Estimated time of completion.' }),
+        readOnly('tc', 'DATETIME', { description: 'Time of completion.' }),
+        readOnly('cast_off_at', 'DATETIME', { description: 'Vessel cast-off. Not Hose Off.' }),
+        readOnly('sailed_at', 'DATETIME'),
+        readOnly('cargo_ops_start_at', 'DATETIME', { description: 'Hose On. Cargo Operations window start.' }),
+        readOnly('cargo_ops_end_at', 'DATETIME', { description: 'Hose Off. Cargo Operations window end.' }),
+      ],
+    }),
+    readOnly('allocation', 'OBJECT', {
+      description: 'Null until status is Allocated or Sailed. GET and webhook data.',
+      items: [
+        readOnly('jetty_name', 'STRING'),
+        readOnly('jetty_code', 'STRING', {
+          description: 'Jetty name with a leading "Jetty " prefix removed.',
+        }),
+        readOnly('planned_berthing_time', 'DATETIME'),
+      ],
+    }),
+  ];
 }
 
 /**
@@ -182,9 +269,10 @@ export async function buildIntegrationCatalog(db) {
             'At least one cargo line on POST. Each line requires cargo_hub_code. On PATCH, identify lines with line_order or contract_no.',
           items: cargoLineFields,
         }),
+        ...shippingInstructionResponseFields(),
       ],
       responseFieldsNote:
-        'GET and webhook payloads echo port_hub_code, port_id, company_hub_code, and company_name (resolved from master). schedule.cargo_ops_start_at / cargo_ops_end_at (v5.5, KLIP Hose On/Off) are Cargo Operations operation window start/end on cargo_operations activities. cast_off_at is vessel cast-off, not Hose Off. Cargo is stored by internal commodity id.',
+        'Fields with systemGenerated true are returned on the 201 response, GET, and webhook data. Do not send them on POST or PATCH. POST still rejects port_id and cargo_type.',
     },
     {
       slug: 'webhook',

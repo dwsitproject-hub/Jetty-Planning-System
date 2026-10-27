@@ -64,10 +64,39 @@ describe('integration-catalog', () => {
     );
     const portHub = si.fields.find((f) => f.key === 'port_hub_code');
     assert.equal(portHub.required, true);
-    assert.equal(si.fields.find((f) => f.key === 'port_id'), undefined);
+    const echoedPortId = si.fields.find((f) => f.key === 'port_id');
+    assert.equal(echoedPortId.systemGenerated, true);
+    assert.equal(echoedPortId.patchable, false);
     const companyField = si.fields.find((f) => f.key === 'company_hub_code');
     assert.equal(companyField.patchable, true);
     assert.deepEqual(companyField.enumValues, ['ORG-0001']);
+    const statusField = si.fields.find((f) => f.key === 'status');
+    assert.equal(statusField.systemGenerated, true);
+    assert.equal(statusField.required, false);
+    assert.equal(statusField.patchable, false);
+    assert.deepEqual(statusField.enumValues, [
+      'Pending',
+      'Approved',
+      'Rejected',
+      'Deleted',
+      'Allocated',
+      'Sailed',
+    ]);
+    const approval = si.fields.find((f) => f.key === 'approval');
+    assert.equal(approval.type, 'OBJECT');
+    assert.deepEqual(
+      approval.items.find((f) => f.key === 'status').enumValues,
+      ['Submitted', 'Approved', 'Rejected', 'Deleted']
+    );
+    const schedule = si.fields.find((f) => f.key === 'schedule');
+    assert.ok(schedule.items.find((f) => f.key === 'cargo_ops_start_at'));
+    assert.ok(schedule.items.find((f) => f.key === 'cargo_ops_end_at'));
+    assert.ok(schedule.items.find((f) => f.key === 'cast_off_at'));
+    const allocation = si.fields.find((f) => f.key === 'allocation');
+    assert.ok(allocation.items.find((f) => f.key === 'jetty_code'));
+    assert.equal(si.fields.find((f) => f.key === 'company_name').systemGenerated, true);
+    assert.equal(si.fields.find((f) => f.key === 'plan_reference').systemGenerated, true);
+    assert.equal(si.fieldCount, 32);
 
     const company = catalog.entities.find((e) => e.slug === 'company');
     assert.equal(company.referenceRows[0].jps_company_id, 4);

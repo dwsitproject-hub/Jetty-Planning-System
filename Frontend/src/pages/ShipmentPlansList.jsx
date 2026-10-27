@@ -212,8 +212,20 @@ export default function ShipmentPlansList() {
         getSortValue: (r) => (r.requestedBy || '').toLowerCase(),
         getFilterValue: (r) => r.requestedBy || '',
       },
+      {
+        key: 'createdAt',
+        label: '',
+        omitFromHeader: true,
+        filterable: false,
+        getSortValue: (r) => parseDateMs(r.createdAt) ?? (Number(r.id) || 0),
+      },
     ],
     [t, list]
+  )
+
+  const visiblePlanTableColumns = useMemo(
+    () => planTableColumns.filter((col) => !col.omitFromHeader),
+    [planTableColumns]
   )
 
   const {
@@ -222,7 +234,7 @@ export default function ShipmentPlansList() {
     updateFilter,
     sortState,
     handleSort,
-  } = useSortableFilterableRows(list, planTableColumns, { key: 'eta', dir: 'asc' })
+  } = useSortableFilterableRows(list, planTableColumns, { key: 'createdAt', dir: 'desc' })
 
   useEffect(() => {
     setPlansListPage(1)
@@ -474,7 +486,7 @@ export default function ShipmentPlansList() {
           <table className="data-table shipping-instruction-table">
             <thead>
               <SortableFilterableTableHead
-                columns={planTableColumns}
+                columns={visiblePlanTableColumns}
                 sortState={sortState}
                 onSort={handleSort}
                 filters={filters}
@@ -486,7 +498,7 @@ export default function ShipmentPlansList() {
             <tbody>
               {paginatedFilteredPlans.length === 0 ? (
                 <tr>
-                  <td className="text-steel clearance-table__empty" colSpan={planTableColumns.length + 1}>
+                  <td className="text-steel clearance-table__empty" colSpan={visiblePlanTableColumns.length + 1}>
                     {t('noRowsMatch')}
                   </td>
                 </tr>

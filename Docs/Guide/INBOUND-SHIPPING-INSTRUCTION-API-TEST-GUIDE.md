@@ -402,6 +402,7 @@ The API only submits and reads status. To see `Approved` or `Allocated`, an oper
 | Operator approved | `Approved` | `allocation: null` |
 | Jetty assigned | `Allocated` | `allocation.jetty_name`, `allocation.planned_berthing_time` |
 | Operator rejected | `Rejected` | `rejection_reason` populated |
+| Operator deleted the plan | `Deleted` | `status` and `approval.status` are `Deleted`. `status.changed` is sent. Same `external_reference` still returns **409** on POST. |
 | Berthing milestones saved | `Allocated` (typical) | `data.schedule` populated (`ta`, `tb`, `etc`, …); response header **`X-JPS-API-Version: 5.6`** |
 | Cargo Operations window saved | `Allocated` (typical) | `data.schedule.cargo_ops_start_at` / `cargo_ops_end_at` (Hose On/Off); **`schedule.updated`** if registered |
 

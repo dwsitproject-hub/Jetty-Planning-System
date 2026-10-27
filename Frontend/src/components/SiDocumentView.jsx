@@ -1,106 +1,29 @@
-import { formatBlSplitFromBreakdown, getPrintedSiNumber, formatFreightForSi } from '../utils/siBlSplit'
-import { formatSiSignOffDate } from '../utils/siFormPlaceDate'
-import SiFormReferenceDates from './SiFormReferenceDates'
-import { SI_FORM_APPROVAL_SIGNATURE_NOTE, SI_FORM_COMPANY, formatEtaBontang, getShipperLines } from '../utils/siViewModel'
+import { formatEtaBontang, getShipperLines } from '../utils/siViewModel'
 import '../styles/si-view.css'
-import '../styles/si-approval.css'
 
-/**
- * SI printable / summary document (Loading letterhead vs Unloading summary + table).
- * `SiDocumentModal` normally gates on `canViewAsDocument`; callers may pass `allowPreApprovalPreview` to show this for drafts.
- */
-export default function SiDocumentView({ si, npwpMaster }) {
-  const isLoading = (si?.purpose || '').toLowerCase() === 'loading'
-  const breakdown = si?.breakdown || []
-  const totalsByUnit = breakdown.reduce((acc, r) => {
-    const code = r.metricCode || '?'
-    acc[code] = (acc[code] || 0) + (Number(r.qty) || 0)
+const SUMMARY_COLUMNS = 9
+
+function breakdownTotalsLabel(breakdown) {
+  const totalsByUnit = breakdown.reduce((acc, row) => {
+    const code = row.metricCode || '?'
+    acc[code] = (acc[code] || 0) + (Number(row.qty) || 0)
     return acc
   }, {})
-  const totalQtyLabel =
-    Object.keys(totalsByUnit).length === 0
-      ? '—'
-      : Object.entries(totalsByUnit)
-          .map(([code, sum]) => `${Number(sum).toLocaleString('id-ID')} ${code}`)
-          .join(' · ')
+  if (Object.keys(totalsByUnit).length === 0) return '—'
+  return Object.entries(totalsByUnit)
+    .map(([code, sum]) => `${Number(sum).toLocaleString('id-ID')} ${code}`)
+    .join(' · ')
+}
+
+/**
+ * Shipping instruction summary card, used for Loading and Unloading.
+ */
+export default function SiDocumentView({ si }) {
+  const breakdown = si?.breakdown || []
+  const totalQtyLabel = breakdownTotalsLabel(breakdown)
   const shipperLines = getShipperLines(si)
 
-  return isLoading ? (
-    <div className="si-view-doc si-view-doc--loading card">
-      <div className="si-form">
-        <header className="si-form__header">
-          <div className="si-form__company">{SI_FORM_COMPANY.name}</div>
-          <div className="si-form__address">{SI_FORM_COMPANY.address}</div>
-          <div className="si-form__line" />
-        </header>
-        <div className="si-form__recipient">
-          MESSRS<br />
-          {si.agent ? `PT. ${si.agent}` : 'PT. Tirta Permai Bahari (TPB Agency)'}
-        </div>
-        <h1 className="si-form__title">SHIPPING – INSTRUCTION</h1>
-        <p className="si-form__docno">No.: {getPrintedSiNumber(si)}</p>
-        <dl className="si-form__body">
-          <dt>Vessel Name</dt>
-          <dd>
-            {si.vesselName || si.vesselId || '—'}
-            {si.voyageNo ? ` ${si.voyageNo}` : ''}
-          </dd>
-          <dt>Descr. of Good</dt>
-          <dd>{si.commodity || '—'}</dd>
-          <dt>Quantity</dt>
-          <dd>
-            <strong>{totalQtyLabel}</strong>
-          </dd>
-          <dt>BL Split</dt>
-          <dd>
-            <strong>{formatBlSplitFromBreakdown(breakdown)}</strong>
-          </dd>
-          <dt>Shipment From</dt>
-          <dd>{si.loadingPort || '—'}</dd>
-          <dt>Destination</dt>
-          <dd>{si.destinationText || '—'}</dd>
-          <dt>Bill of Lading</dt>
-          <dd style={{ whiteSpace: 'pre-wrap' }}>{si.billOfLadingClause || '—'}</dd>
-          <dt>Consignee</dt>
-          <dd style={{ whiteSpace: 'pre-wrap' }}>{si.consigneeText || '—'}</dd>
-          <dt>Notify Party</dt>
-          <dd style={{ whiteSpace: 'pre-wrap' }}>{si.notifyPartyText || '—'}</dd>
-          <dt>Freight</dt>
-          <dd>{formatFreightForSi(si)}</dd>
-          <dt>Shipper</dt>
-          <dd>
-            {SI_FORM_COMPANY.name} {SI_FORM_COMPANY.address}
-          </dd>
-          <dt>NPWP</dt>
-          <dd>{npwpMaster || '—'}</dd>
-          <dt>BL Indicated</dt>
-          <dd style={{ whiteSpace: 'pre-wrap' }}>{si.blIndicated || 'CLEAN SHIPPED ON BOARD FREIGHT PREPAID'}</dd>
-        </dl>
-        <SiFormReferenceDates
-          documentDate={si.documentDate}
-          createdAt={si.receivedAt}
-          updatedAt={si.updatedAt}
-          approvedAt={si.approvedAt}
-        />
-        <div className="si-form__approval">
-          <div className="si-form__approval-place" title="Sign-off line: approval date when approved; otherwise document / created">
-            {formatSiSignOffDate(si.documentDate, si.receivedAt, si.approvedAt)}
-          </div>
-          <div className="si-form__approval-company">{SI_FORM_COMPANY.name}</div>
-          {si.approvalId && (
-            <div className="si-form__approval-remark">
-              Approved through Jetty Planning System.
-              <br />
-              Approval ID : <strong className="si-form__approval-id">{si.approvalId}</strong>
-            </div>
-          )}
-          <div className="si-form__approval-signature" />
-          <div className="si-form__approval-name">{si.approverNameSnapshot || SI_FORM_APPROVAL_SIGNATURE_NOTE}</div>
-          <div className="si-form__approval-title">{si.approverTitleSnapshot || 'OPERATION HEAD'}</div>
-        </div>
-      </div>
-    </div>
-  ) : (
+  return (
     <div className="si-view-doc card">
       <div className="si-view-summary">
         <div className="si-view-summary__row">
@@ -150,6 +73,8 @@ export default function SiDocumentView({ si, npwpMaster }) {
               <th className="si-view-table__th">Unit</th>
               <th className="si-view-table__th">Kontrak</th>
               <th className="si-view-table__th">PO</th>
+              <th className="si-view-table__th">SO</th>
+              <th className="si-view-table__th">STO</th>
               <th className="si-view-table__th">Keterangan</th>
             </tr>
           </thead>
@@ -165,22 +90,25 @@ export default function SiDocumentView({ si, npwpMaster }) {
                   <td className="si-view-table__cell">{row.metricCode || '—'}</td>
                   <td className="si-view-table__cell">{row.contractNo || '—'}</td>
                   <td className="si-view-table__cell">{row.poNo || '—'}</td>
+                  <td className="si-view-table__cell">{row.soNo || '—'}</td>
+                  <td className="si-view-table__cell">{row.stoNo || '—'}</td>
                   <td className="si-view-table__cell">{row.remarks || '—'}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td className="si-view-table__cell">—</td>
-                <td className="si-view-table__cell">—</td>
-                <td className="si-view-table__cell si-view-table__cell--num">—</td>
-                <td className="si-view-table__cell">—</td>
-                <td className="si-view-table__cell">—</td>
-                <td className="si-view-table__cell">—</td>
-                <td className="si-view-table__cell">—</td>
+                {Array.from({ length: SUMMARY_COLUMNS }, (_, i) => (
+                  <td
+                    key={i}
+                    className={`si-view-table__cell${i === 2 ? ' si-view-table__cell--num' : ''}`}
+                  >
+                    —
+                  </td>
+                ))}
               </tr>
             )}
             <tr className="si-view-table__total">
-              <td colSpan={6} className="si-view-table__cell si-view-table__cell--total-label">
+              <td colSpan={SUMMARY_COLUMNS - 1} className="si-view-table__cell si-view-table__cell--total-label">
                 TOTAL
               </td>
               <td className="si-view-table__cell si-view-table__cell--total">{totalQtyLabel}</td>

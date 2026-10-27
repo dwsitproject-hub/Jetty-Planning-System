@@ -7,7 +7,6 @@ import {
   createShippingInstruction,
   updateShippingInstruction,
   deleteShippingInstruction,
-  fetchSiNpwpMaster,
 } from '../api/shippingInstructions'
 import { fetchSiLookups } from '../api/siLookups'
 import { useActivityLog } from '../context/ActivityLogContext'
@@ -395,7 +394,6 @@ export default function ShippingInstruction() {
   const [siDetailId, setSiDetailId] = useState(null)
   const [breakdownBySi, setBreakdownBySi] = useState({})
   const [form, setForm] = useState(() => defaultFormFromLookups(null))
-  const [npwpMaster, setNpwpMaster] = useState(null)
 
   const selectedPurpose = useMemo(
     () => (lookups?.purposes || []).find((p) => String(p.id) === String(form.purposeId)) || null,
@@ -471,27 +469,6 @@ export default function ShippingInstruction() {
       cancelled = true
     }
   }, [expandedId, breakdownBySi])
-
-  useEffect(() => {
-    if (!isFormOpen) return
-    if (!isLoadingPurpose) {
-      setNpwpMaster(null)
-      return
-    }
-    let cancelled = false
-    fetchSiNpwpMaster()
-      .then((r) => {
-        if (!cancelled) setNpwpMaster(r?.npwp ?? null)
-      })
-      .catch((e) => {
-        if (!cancelled) setNpwpMaster(null)
-        const msg = e?.message || 'Failed to load NPWP master'
-        setToast({ message: `Failed to load NPWP master: ${msg}`, variant: 'error' })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [isFormOpen, isLoadingPurpose])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -700,7 +677,6 @@ export default function ShippingInstruction() {
     setForm(defaultFormFromLookups(lookups))
     setEditingId(null)
     setEditingSnapshot(null)
-    setNpwpMaster(null)
     setIsFormOpen(true)
   }
 
@@ -790,7 +766,6 @@ export default function ShippingInstruction() {
     setIsFormOpen(false)
     setEditingId(null)
     setEditingSnapshot(null)
-    setNpwpMaster(null)
   }
 
   const updatePanelFilter = (key, value) => setPanelFilters((f) => ({ ...f, [key]: value }))
@@ -1305,12 +1280,6 @@ export default function ShippingInstruction() {
                           <option key={t.id} value={t.id}>{t.code}</option>
                         ))}
                       </select>
-                    </div>
-                  )}
-                  {isLoadingPurpose && (
-                    <div className="input-group">
-                      <label htmlFor="npwpMaster">NPWP</label>
-                      <input id="npwpMaster" value={npwpMaster || '—'} readOnly disabled={!lookups} />
                     </div>
                   )}
                 </div>

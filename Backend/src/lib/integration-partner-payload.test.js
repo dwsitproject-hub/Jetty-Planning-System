@@ -54,6 +54,28 @@ describe('integration-partner-payload', () => {
     assert.ok(payload.schedule);
   });
 
+  it('reports Deleted on status and approval when the plan was soft-deleted', () => {
+    const payload = buildPartnerInstructionPayload({
+      si_id: 11,
+      external_reference: 'OP-1-R1',
+      received_at: '2026-10-27T01:00:00.000Z',
+      last_updated_at: '2026-10-27T06:00:00.000Z',
+      approval_status: 'Rejected',
+      rejection_reason: 'Wrong vessel',
+      rejected_at: '2026-10-27T04:00:00.000Z',
+      plan_deleted_at: '2026-10-27T06:00:00.000Z',
+      si_deleted_at: '2026-10-27T06:00:00.000Z',
+      plan_reference: 'SP-26-10-00011',
+      vessel_name: 'MV TEST',
+      port_id: 1,
+      payload: {},
+    });
+    assert.equal(payload.status, 'Deleted');
+    assert.equal(payload.approval.status, 'Deleted');
+    assert.equal(payload.approval.rejection_reason, 'Wrong vessel');
+    assert.equal(payload.rejection_reason, null);
+  });
+
   it('includes partner document URLs', () => {
     const payload = buildPartnerInstructionPayload({
       si_id: 1,

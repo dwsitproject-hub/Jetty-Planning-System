@@ -39,6 +39,16 @@ describe('integration-master-data', () => {
         'Sailed'
       );
     });
+    it('returns Deleted when the plan or instruction was soft-deleted, even after a reject', () => {
+      assert.equal(
+        deriveExternalStatus({ approval_status: 'Rejected', plan_deleted_at: '2026-10-27T06:00:00.000Z' }),
+        'Deleted'
+      );
+      assert.equal(
+        deriveExternalStatus({ approval_status: 'Submitted', si_deleted_at: '2026-10-27T06:00:00.000Z' }),
+        'Deleted'
+      );
+    });
   });
 
   describe('matchBreakdownLineIndex', () => {

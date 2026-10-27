@@ -8,7 +8,6 @@ import {
 import {
   createShippingInstruction,
   fetchShippingInstruction,
-  fetchSiNpwpMaster,
   updateShippingInstruction,
 } from '../api/shippingInstructions'
 import { attachDraftSiDocuments, deleteSiDocument } from '../api/siDocuments'
@@ -144,7 +143,6 @@ export default function ShipmentPlanCombinedFormModal({
   const [formVoyageNo, setFormVoyageNo] = useState('')
   const [formAgentId, setFormAgentId] = useState('')
   const [siDrafts, setSiDrafts] = useState([])
-  const [npwpMaster, setNpwpMaster] = useState(null)
   const [editingPlanDetail, setEditingPlanDetail] = useState(null)
   const [siDraftOcrIndex, setSiDraftOcrIndex] = useState(null)
   const [fieldErrors, setFieldErrors] = useState({})
@@ -183,7 +181,6 @@ export default function ShipmentPlanCombinedFormModal({
     setFormVoyageNo('')
     setFormAgentId('')
     setSiDrafts([])
-    setNpwpMaster(null)
     setEditingPlanDetail(null)
     setSiDraftOcrIndex(null)
     setFieldErrors({})
@@ -523,33 +520,6 @@ export default function ShipmentPlanCombinedFormModal({
       purposeCode: pr?.code ?? editingPlan.purposeCode ?? null,
     }
   }, [editingPlan, planPreviewForSi, formPurposeId, lookups])
-
-  const createModalPurposeIsLoading = useMemo(() => {
-    const p = (lookups?.purposes || []).find((x) => String(x.id) === String(formPurposeId))
-    return p?.code === 'Loading'
-  }, [lookups, formPurposeId])
-
-  useEffect(() => {
-    if (!isOpen || !createModalPurposeIsLoading) {
-      setNpwpMaster(null)
-      return
-    }
-    let cancelled = false
-    fetchSiNpwpMaster()
-      .then((r) => {
-        if (!cancelled) setNpwpMaster(r?.npwp ?? null)
-      })
-      .catch((e) => {
-        if (!cancelled) {
-          setNpwpMaster(null)
-          const msg = e?.message || 'Failed to load NPWP master'
-          setToast({ message: `Failed to load NPWP master: ${msg}`, variant: 'error' })
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [isOpen, createModalPurposeIsLoading])
 
   useEffect(() => {
     if (
@@ -1624,7 +1594,6 @@ export default function ShipmentPlanCombinedFormModal({
                             linkedPlan={linkedPlanForSiCards}
                             form={block.form}
                             setForm={(u) => setSiDraftForm(index, u)}
-                            npwpMaster={npwpMaster}
                             idPrefix={`sp-si-${index}-`}
                             companyOptions={companyOptions}
                             showPlanLinkedNote={false}

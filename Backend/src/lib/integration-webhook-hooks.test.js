@@ -79,6 +79,38 @@ describe('integration-webhook-hooks', () => {
     assert.equal(payload.data.status, 'Pending');
   });
 
+  it('enqueueIntegrationWebhookEvents reports Deleted after the plan is soft-deleted', async () => {
+    const captured = [];
+    const row = fakeSubmissionRow({
+      approval_status: 'Rejected',
+      rejection_reason: 'Wrong vessel',
+      plan_deleted_at: '2026-10-27T06:00:00.000Z',
+      si_deleted_at: '2026-10-27T06:00:00.000Z',
+    });
+    const db = {
+      query: async (sql, params) => {
+        if (sql.includes('FROM integration_submissions') || sql.includes('shipping_instructions si')) {
+          return { rows: [row] };
+        }
+        if (sql.includes('integration_webhook_endpoints')) {
+          return { rows: [{ id: 7, events: ['status.changed'] }] };
+        }
+        if (sql.includes('INSERT INTO integration_webhook_deliveries')) {
+          captured.push(params);
+          return { rows: [] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      },
+    };
+    const n = await enqueueIntegrationWebhookEvents(db, {
+      shipmentPlanId: 42,
+      eventTypes: ['status.changed'],
+    });
+    assert.equal(n, 1);
+    assert.equal(captured[0][5].data.status, 'Deleted');
+    assert.equal(captured[0][5].data.approval.status, 'Deleted');
+  });
+
   it('enqueueIntegrationWebhookEvents skips endpoints that do not subscribe to the event', async () => {
     const row = fakeSubmissionRow();
     const db = {
@@ -102,9 +134,12 @@ describe('integration-webhook-hooks', () => {
     assert.equal(n, 0);
   });
 
-  it('shipment-plans approve/reject/depart routes trigger partner webhooks after commit', () => {
+  it('shipment-plans approve/reject/delete/depart routes trigger partner webhooks after commit', () => {
     const src = readFileSync(path.join(routesDir, 'shipment-plans.js'), 'utf8');
-    assert.match(src, /await client\.query\('COMMIT'\);\s*\n\s*triggerPartnerWebhooksDeferred\(\{ shipmentPlanId: planId, eventTypes: \['status\.changed'\] \}\)/);
+    const statusChanged = src.match(
+      /triggerPartnerWebhooksDeferred\(\{ shipmentPlanId: planId, eventTypes: \['status\.changed'\] \}\)/g
+    );
+    assert.equal(statusChanged?.length, 3);
     assert.match(src, /triggerPartnerWebhooksDeferred\(\{\s*\n\s*shipmentPlanId: planId,\s*\n\s*eventTypes: \['schedule\.updated', 'status\.changed'\],/);
   });
 
