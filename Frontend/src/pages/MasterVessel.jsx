@@ -2,8 +2,6 @@ import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import {
   fetchMasterVessels,
-  createMasterVessel,
-  updateMasterVesselApi,
   deleteMasterVessel,
   fetchSyncRuns,
   fetchSyncRun,
@@ -17,9 +15,14 @@ import DataHubRecordSyncButton from '../components/DataHubRecordSyncButton.jsx'
 import AppToast from '../components/AppToast.jsx'
 import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import DataHubFieldCue from '../components/DataHubFieldCue.jsx'
-import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
+import MasterVesselFormModal, {
+  EMPTY_VESSEL_FORM,
+  pushSaveToast,
+  vesselFormFromRecord,
+} from '../components/MasterVesselFormModal.jsx'
 import { useActivityLog } from '../context/ActivityLogContext'
 import { useRbac } from '../context/RbacContext'
+import { CHARTER_TYPES, LAMBUNG_TYPES, VESSEL_TYPE_OPTIONS, VESSEL_TYPES } from '../utils/masterVesselOptions'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/datahub-sync.css'
@@ -34,22 +37,6 @@ import {
 } from '../utils/formatMasterAudit.js'
 
 const PAGE_KEY = 'master-vessel'
-
-/** DataHub Vessel_Type enum values. Labels match the hub screen. */
-const VESSEL_TYPE_OPTIONS = [
-  { value: 'barge', label: 'Barge' },
-  { value: 'tanker', label: 'Tanker' },
-  { value: 'SPOB', label: 'SPOB' },
-  { value: 'tugboat', label: 'Tugboat' },
-  { value: 'wooden boat', label: 'Wooden boat' },
-]
-const VESSEL_TYPES = VESSEL_TYPE_OPTIONS.map((o) => o.value)
-const LAMBUNG_TYPES = [
-  'Double hull Double Bottom',
-  'Single hull Double Bottom',
-  'Single hull Single Bottom',
-]
-const CHARTER_TYPES = ['Voyage Charter', 'Time Charter']
 
 const text = (v) => (v || '').toLowerCase()
 
@@ -110,35 +97,6 @@ const VESSEL_COLUMNS = [
   ...MASTER_AUDIT_COLUMNS,
 ]
 
-function pushSaveToast(name, push) {
-  if (!push || push.skipped) return { message: `Saved locally: ${name}.`, variant: 'success' }
-  if (push.ok) {
-    const code = push.code ? ` (${push.code})` : ''
-    return { message: `Saved and pushed to DataHub${code}.`, variant: 'success' }
-  }
-  return {
-    message: `Saved locally. DataHub push failed: ${push.error || 'unknown error'}`,
-    variant: 'warning',
-  }
-}
-
-const EMPTY_FORM = {
-  vesselName: '',
-  hubCode: '',
-  isActive: true,
-  vesselImo: '',
-  vesselMmsi: '',
-  vesselCodeSap: '',
-  vesselCapacityMt: '',
-  vesselGrossTonnage: '',
-  vesselDraft: '',
-  vesselLengthOverall: '',
-  vesselType: '',
-  heater: false,
-  typeLambung: '',
-  typeCharter: '',
-}
-
 export default function MasterVessel() {
   const { logActivity } = useActivityLog()
   const { canEdit, canDelete } = useRbac()
@@ -147,7 +105,6 @@ export default function MasterVessel() {
 
   const [vessels, setVessels] = useState([])
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState(null)
   const [toast, setToast] = useState(null)
@@ -178,67 +135,19 @@ export default function MasterVessel() {
 
   // --- add / edit -----------------------------------------------------------
 
-  const [modalOpen, setModalOpen] = useState(false)
-  const [editingId, setEditingId] = useState(null)
-  const [form, setForm] = useState(EMPTY_FORM)
-  const setField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }))
+  const [vesselModal, setVesselModal] = useState(null)
 
   const openAdd = useCallback(() => {
-    setEditingId(null)
-    setForm(EMPTY_FORM)
-    setModalOpen(true)
+    setVesselModal({ editingId: null, initialForm: { ...EMPTY_VESSEL_FORM } })
   }, [])
 
   const openEdit = useCallback((v) => {
-    setEditingId(v.id)
-    setForm({
-      vesselName: v.vesselName || '',
-      hubCode: v.hubCode || '',
-      isActive: v.isActive !== false,
-      vesselImo: v.vesselImo ?? '',
-      vesselMmsi: v.vesselMmsi ?? '',
-      vesselCodeSap: v.vesselCodeSap ?? '',
-      vesselCapacityMt: v.vesselCapacityMt ?? '',
-      vesselGrossTonnage: v.vesselGrossTonnage ?? '',
-      vesselDraft: v.vesselDraft ?? '',
-      vesselLengthOverall: v.vesselLengthOverall ?? '',
-      vesselType: v.vesselType ?? '',
-      heater: v.heater === true,
-      typeLambung: v.typeLambung ?? '',
-      typeCharter: v.typeCharter ?? '',
-    })
-    setModalOpen(true)
+    setVesselModal({ editingId: v.id, initialForm: vesselFormFromRecord(v) })
   }, [])
 
   const closeModal = useCallback(() => {
-    setModalOpen(false)
-    setEditingId(null)
-    setForm(EMPTY_FORM)
+    setVesselModal(null)
   }, [])
-
-  const handleSubmit = useCallback(async () => {
-    const name = (form.vesselName || '').trim()
-    if (!name) return
-    setSaving(true)
-    setError(null)
-    try {
-      let resp
-      if (editingId != null) {
-        resp = await updateMasterVesselApi(editingId, form)
-        logActivity({ pageKey: PAGE_KEY, action: 'update', entityType: 'Vessel', entityLabel: name })
-      } else {
-        resp = await createMasterVessel(form)
-        logActivity({ pageKey: PAGE_KEY, action: 'add', entityType: 'Vessel', entityLabel: name })
-      }
-      setToast(pushSaveToast(name, resp?.push))
-      await loadVessels()
-      closeModal()
-    } catch (e) {
-      setError(e?.message || 'Save failed')
-    } finally {
-      setSaving(false)
-    }
-  }, [editingId, form, closeModal, logActivity, loadVessels])
 
   const handleDelete = useCallback(
     async (v) => {
@@ -561,220 +470,18 @@ export default function MasterVessel() {
         )}
       </section>
 
-      {modalOpen && (
-        <StickyFormOverlay>
-          <div
-            className="modal modal--wide"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-labelledby="vessel-modal-title"
-            aria-modal="true"
-          >
-            <h2 id="vessel-modal-title" className="modal__title">
-              {editingId != null ? 'Edit Vessel' : 'Add Vessel'}
-            </h2>
-            <div className="modal__section">
-              <label htmlFor="vessel-hub-code" className="modal__label">
-                <DataHubFieldCue>Hub Code</DataHubFieldCue>
-              </label>
-              <input
-                id="vessel-hub-code"
-                type="text"
-                className="modal__input"
-                value={form.hubCode}
-                onChange={(e) => setField('hubCode', e.target.value)}
-                maxLength={50}
-                placeholder="e.g. VSL-0001"
-                disabled={saving}
-              />
-            </div>
-            <div className="modal__section">
-              <label
-                htmlFor="vessel-active"
-                className="modal__checkbox-label"
-                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-              >
-                <input
-                  id="vessel-active"
-                  type="checkbox"
-                  checked={form.isActive !== false}
-                  onChange={(e) => setField('isActive', e.target.checked)}
-                  disabled={saving}
-                />
-                Active in Jetty Planning
-              </label>
-            </div>
-            <div className="modal__section">
-              <label htmlFor="vessel-name" className="modal__label">
-                <DataHubFieldCue>Vessel Name</DataHubFieldCue>
-              </label>
-              <input
-                id="vessel-name"
-                type="text"
-                className="modal__input"
-                value={form.vesselName}
-                onChange={(e) => setField('vesselName', e.target.value)}
-                maxLength={120}
-                placeholder="e.g. MT BIO EXPRESS"
-                disabled={saving}
-              />
-            </div>
-            <div className="modal__section">
-              <label htmlFor="vessel-imo" className="modal__label"><DataHubFieldCue>IMO</DataHubFieldCue></label>
-              <input
-                id="vessel-imo"
-                type="text"
-                className="modal__input"
-                value={form.vesselImo}
-                onChange={(e) => setField('vesselImo', e.target.value)}
-                maxLength={20}
-                disabled={saving}
-              />
-            </div>
-            <div className="modal__section">
-              <label htmlFor="vessel-mmsi" className="modal__label"><DataHubFieldCue>MMSI</DataHubFieldCue></label>
-              <input
-                id="vessel-mmsi"
-                type="text"
-                className="modal__input"
-                value={form.vesselMmsi}
-                onChange={(e) => setField('vesselMmsi', e.target.value)}
-                maxLength={20}
-                disabled={saving}
-              />
-            </div>
-            <div className="modal__section">
-              <label htmlFor="vessel-sap" className="modal__label"><DataHubFieldCue>SAP Code</DataHubFieldCue></label>
-              <input
-                id="vessel-sap"
-                type="text"
-                className="modal__input"
-                value={form.vesselCodeSap}
-                onChange={(e) => setField('vesselCodeSap', e.target.value)}
-                maxLength={60}
-                disabled={saving}
-              />
-            </div>
-            <div className="modal__section">
-              <label htmlFor="vessel-capacity" className="modal__label"><DataHubFieldCue>Capacity (MT)</DataHubFieldCue></label>
-              <input
-                id="vessel-capacity"
-                type="number"
-                step="0.001"
-                className="modal__input"
-                value={form.vesselCapacityMt}
-                onChange={(e) => setField('vesselCapacityMt', e.target.value)}
-                disabled={saving}
-              />
-            </div>
-            <div className="modal__section">
-              <label htmlFor="vessel-gt" className="modal__label"><DataHubFieldCue>Gross Tonnage</DataHubFieldCue></label>
-              <input
-                id="vessel-gt"
-                type="number"
-                step="0.001"
-                className="modal__input"
-                value={form.vesselGrossTonnage}
-                onChange={(e) => setField('vesselGrossTonnage', e.target.value)}
-                disabled={saving}
-              />
-            </div>
-            <div className="modal__section">
-              <label htmlFor="vessel-draft" className="modal__label"><DataHubFieldCue>Draft (m)</DataHubFieldCue></label>
-              <input
-                id="vessel-draft"
-                type="number"
-                step="0.01"
-                className="modal__input"
-                value={form.vesselDraft}
-                onChange={(e) => setField('vesselDraft', e.target.value)}
-                disabled={saving}
-              />
-            </div>
-            <div className="modal__section">
-              <label htmlFor="vessel-loa" className="modal__label"><DataHubFieldCue>Length Overall</DataHubFieldCue></label>
-              <input
-                id="vessel-loa"
-                type="text"
-                className="modal__input"
-                value={form.vesselLengthOverall}
-                onChange={(e) => setField('vesselLengthOverall', e.target.value)}
-                maxLength={40}
-                placeholder="e.g. 79"
-                disabled={saving}
-              />
-            </div>
-            <div className="modal__section">
-              <label htmlFor="vessel-type" className="modal__label"><DataHubFieldCue>Vessel Type</DataHubFieldCue></label>
-              <select
-                id="vessel-type"
-                className="modal__input"
-                value={form.vesselType}
-                onChange={(e) => setField('vesselType', e.target.value)}
-                disabled={saving}
-              >
-                <option value="">—</option>
-                {VESSEL_TYPE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
-            <div className="modal__section">
-              <label htmlFor="vessel-lambung" className="modal__label"><DataHubFieldCue>Hull Type</DataHubFieldCue></label>
-              <select
-                id="vessel-lambung"
-                className="modal__input"
-                value={form.typeLambung}
-                onChange={(e) => setField('typeLambung', e.target.value)}
-                disabled={saving}
-              >
-                <option value="">—</option>
-                {LAMBUNG_TYPES.map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-            </div>
-            <div className="modal__section">
-              <label htmlFor="vessel-charter" className="modal__label"><DataHubFieldCue>Charter Type</DataHubFieldCue></label>
-              <select
-                id="vessel-charter"
-                className="modal__input"
-                value={form.typeCharter}
-                onChange={(e) => setField('typeCharter', e.target.value)}
-                disabled={saving}
-              >
-                <option value="">—</option>
-                {CHARTER_TYPES.map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-            </div>
-            <div className="modal__section">
-              <label
-                htmlFor="vessel-heater"
-                className="modal__checkbox-label"
-                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-              >
-                <input
-                  id="vessel-heater"
-                  type="checkbox"
-                  checked={form.heater === true}
-                  onChange={(e) => setField('heater', e.target.checked)}
-                  disabled={saving}
-                />
-                <DataHubFieldCue>Heater</DataHubFieldCue>
-              </label>
-            </div>
-            <div className="modal__footer">
-              <button type="button" className="btn btn--secondary" onClick={closeModal} disabled={saving}>
-                Cancel
-              </button>
-              <button type="button" className="btn btn--primary" onClick={handleSubmit} disabled={saving}>
-                {saving ? 'Saving…' : editingId != null ? 'Save' : 'Add'}
-              </button>
-            </div>
-          </div>
-        </StickyFormOverlay>
+      {vesselModal && (
+        <MasterVesselFormModal
+          editingId={vesselModal.editingId}
+          initialForm={vesselModal.initialForm}
+          onClose={closeModal}
+          onUseExisting={closeModal}
+          onSaved={async (resp) => {
+            const name = resp?.vesselName || vesselModal.initialForm?.vesselName || ''
+            setToast(pushSaveToast(name, resp?.push))
+            await loadVessels()
+          }}
+        />
       )}
 
       {review && (

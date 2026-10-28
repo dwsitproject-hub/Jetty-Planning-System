@@ -31,17 +31,31 @@ export function deactivatePartnerWebhook(keyId, endpointId) {
   return apiPost(`/integration-admin/${keyId}/webhooks/${endpointId}/deactivate`)
 }
 
-export function fetchWebhookDeliveries(keyId, endpointId, { limit, offset, status } = {}) {
-  const params = new URLSearchParams()
-  if (limit != null) params.set('limit', String(limit))
-  if (offset != null) params.set('offset', String(offset))
-  if (status) params.set('status', status)
-  const q = params.toString()
-  return apiGet(`/integration-admin/${keyId}/webhooks/${endpointId}/deliveries${q ? `?${q}` : ''}`)
+function toQueryString(params) {
+  const sp = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v != null && v !== '') sp.set(k, String(v))
+  })
+  const qs = sp.toString()
+  return qs ? `?${qs}` : ''
 }
 
-export function retryWebhookDelivery(keyId, endpointId, deliveryId) {
-  return apiPost(
-    `/integration-admin/${keyId}/webhooks/${endpointId}/deliveries/${encodeURIComponent(deliveryId)}/retry`
-  )
+/** Health summary per partner: API calls/errors, webhook sent/failed/pending. */
+export function fetchActivitySummary({ keyId, hours } = {}) {
+  return apiGet(`/integration-admin/activity/summary${toQueryString({ keyId, hours })}`)
+}
+
+/** Webhook deliveries across partners. Filters: keyId, endpointId, status, eventType, from, to, q, cursor, limit. */
+export function fetchWebhookActivity(params = {}) {
+  return apiGet(`/integration-admin/activity/webhook-deliveries${toQueryString(params)}`)
+}
+
+/** Inbound partner API calls. Filters: keyId, statusClass, method, route, from, to, q, cursor, limit. */
+export function fetchApiRequestActivity(params = {}) {
+  return apiGet(`/integration-admin/activity/api-requests${toQueryString(params)}`)
+}
+
+/** Re-queue a failed delivery by its public delivery id. */
+export function retryWebhookActivity(deliveryId) {
+  return apiPost(`/integration-admin/activity/webhook-deliveries/${encodeURIComponent(deliveryId)}/retry`)
 }

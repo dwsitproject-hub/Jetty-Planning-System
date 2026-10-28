@@ -19,9 +19,11 @@ import {
   updateWebhookEndpoint,
   WEBHOOK_EVENT_TYPES,
 } from '../lib/integration-webhooks.js';
+import activityRoutes from './integration-admin-activity.js';
 
 const router = express.Router();
 router.use(...requireAdminPageView);
+router.use('/activity', activityRoutes);
 
 function toKeyRow(row) {
   return {

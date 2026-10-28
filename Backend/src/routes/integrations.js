@@ -35,6 +35,7 @@ import {
   sendIntegrationError,
   sendIntegrationSuccess,
 } from '../middleware/integration-auth.js';
+import { integrationRequestLog } from '../middleware/integration-request-log.js';
 import integrationMasterRoutes from './integration-master.js';
 import integrationWebhookRoutes from './integration-webhooks.js';
 import integrationCatalogRoutes from './integration-catalog.js';
@@ -57,6 +58,7 @@ const PAGE_KEY = 'shipment-plan';
 const VALID_PURPOSES = ['Loading', 'Unloading'];
 const VALID_UNITS = ['MT', 'KL'];
 
+router.use(integrationRequestLog);
 router.use(requireIntegrationKey);
 router.use(integrationRateLimit);
 router.use(integrationMasterRoutes);

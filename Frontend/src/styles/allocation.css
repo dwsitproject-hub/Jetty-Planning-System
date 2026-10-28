@@ -7079,6 +7079,40 @@ body:has(.clearance-page--embed) {
   color: var(--color-text-steel);
 }
 
+.searchable-select__group {
+  padding: var(--spacing-2) var(--spacing-2) var(--spacing-1);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-text-steel);
+}
+
+.searchable-select__footer {
+  flex-shrink: 0;
+  padding: var(--spacing-2);
+  border-top: 1px solid var(--color-border-medium);
+}
+
+.searchable-select__add {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--spacing-2);
+  font-size: var(--font-size-small);
+  font-family: var(--font-primary);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-primary);
+  background: var(--color-bg-subtle, #f4f6f8);
+  border: 1px dashed var(--color-primary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.searchable-select__add:hover,
+.searchable-select__add:focus-visible {
+  background: #fff;
+  outline: none;
+}
+
 .daily-activities-report__field {
   display: flex;
   flex-direction: column;

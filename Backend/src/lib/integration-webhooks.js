@@ -290,7 +290,9 @@ export async function processWebhookDeliveryQueueOnce(db, limit = 20) {
       secret = decryptSecret(row.secret_encrypted);
     } catch (e) {
       await db.query(
-        `UPDATE integration_webhook_deliveries SET status = 'failed', last_error = $2, attempt_count = attempt_count + 1 WHERE id = $1`,
+        `UPDATE integration_webhook_deliveries
+         SET status = 'failed', last_error = $2, attempt_count = attempt_count + 1, last_attempt_at = NOW()
+         WHERE id = $1`,
         [row.id, `secret decrypt failed: ${e?.message || e}`.slice(0, 500)]
       );
       continue;
@@ -301,6 +303,7 @@ export async function processWebhookDeliveryQueueOnce(db, limit = 20) {
     const signature = signWebhookPayload(secret, timestampMs, body);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), WEBHOOK_DELIVERY_TIMEOUT_MS);
+    const startedAt = Date.now();
 
     try {
       const res = await fetch(row.url, {
@@ -318,20 +321,28 @@ export async function processWebhookDeliveryQueueOnce(db, limit = 20) {
       });
       clearTimeout(timer);
 
+      const durationMs = Date.now() - startedAt;
+
       if (res.ok) {
         await db.query(
-          `UPDATE integration_webhook_deliveries SET status = 'sent', sent_at = NOW(), attempt_count = attempt_count + 1, last_error = NULL WHERE id = $1`,
-          [row.id]
+          `UPDATE integration_webhook_deliveries
+           SET status = 'sent', sent_at = NOW(), attempt_count = attempt_count + 1, last_error = NULL,
+               last_http_status = $2, last_duration_ms = $3, last_attempt_at = NOW()
+           WHERE id = $1`,
+          [row.id, res.status, durationMs]
         );
         continue;
       }
 
       const errText = `HTTP ${res.status} ${(await res.text()).slice(0, 300)}`;
-      await scheduleRetryOrFail(db, row, errText);
+      await scheduleRetryOrFail(db, row, errText, { httpStatus: res.status, durationMs });
     } catch (e) {
       clearTimeout(timer);
       const msg = e?.name === 'AbortError' ? 'delivery timed out' : e?.message || String(e);
-      await scheduleRetryOrFail(db, row, msg.slice(0, 500));
+      await scheduleRetryOrFail(db, row, msg.slice(0, 500), {
+        httpStatus: null,
+        durationMs: Date.now() - startedAt,
+      });
     }
   }
   return processed;
@@ -421,20 +432,27 @@ export async function retryFailedWebhookDelivery(db, apiKeyId, endpointId, deliv
   return { ok: true, delivery_id: r.rows[0].delivery_id };
 }
 
-async function scheduleRetryOrFail(db, row, errText) {
+/** @param {{ httpStatus: number | null, durationMs: number }} attemptInfo */
+export async function scheduleRetryOrFail(db, row, errText, attemptInfo) {
   const attempt = Number(row.attempt_count ?? 0) + 1;
+  const { httpStatus, durationMs } = attemptInfo;
   if (attempt >= WEBHOOK_RETRY_DELAYS_MS.length) {
     await db.query(
-      `UPDATE integration_webhook_deliveries SET status = 'failed', attempt_count = $2, last_error = $3 WHERE id = $1`,
-      [row.id, attempt, errText]
+      `UPDATE integration_webhook_deliveries
+       SET status = 'failed', attempt_count = $2, last_error = $3,
+           last_http_status = $4, last_duration_ms = $5, last_attempt_at = NOW()
+       WHERE id = $1`,
+      [row.id, attempt, errText, httpStatus, durationMs]
     );
     return;
   }
   const delay = WEBHOOK_RETRY_DELAYS_MS[attempt - 1] ?? WEBHOOK_RETRY_DELAYS_MS.at(-1);
   await db.query(
-    `UPDATE integration_webhook_deliveries SET attempt_count = $2, last_error = $3,
-       next_attempt_at = NOW() + ($4::int * interval '1 millisecond')
+    `UPDATE integration_webhook_deliveries
+     SET attempt_count = $2, last_error = $3,
+         last_http_status = $5, last_duration_ms = $6, last_attempt_at = NOW(),
+         next_attempt_at = NOW() + ($4::int * interval '1 millisecond')
      WHERE id = $1`,
-    [row.id, attempt, errText, delay]
+    [row.id, attempt, errText, delay, httpStatus, durationMs]
   );
 }

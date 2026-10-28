@@ -55,6 +55,7 @@ import { requirePortScope } from './middleware/port-scope.js';
 import { csrfProtection } from './middleware/csrf.js';
 import { startNotificationEmailWorker } from './lib/notification-email-worker.js';
 import { startIntegrationWebhookWorker } from './lib/integration-webhook-worker.js';
+import { startIntegrationLogRetention } from './lib/integration-log-retention.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -214,6 +215,7 @@ async function start() {
   });
   startNotificationEmailWorker();
   startIntegrationWebhookWorker();
+  startIntegrationLogRetention();
 }
 
 start();

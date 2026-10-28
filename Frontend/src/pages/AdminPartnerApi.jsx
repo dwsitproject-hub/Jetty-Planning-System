@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, Fragment } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
@@ -9,8 +9,6 @@ import {
   createPartnerWebhook,
   patchPartnerWebhook,
   deactivatePartnerWebhook,
-  fetchWebhookDeliveries,
-  retryWebhookDelivery,
 } from '../api/integrationAdmin'
 import '../styles/allocation.css'
 import '../styles/modal.css'
@@ -18,35 +16,21 @@ import '../styles/admin.css'
 import '../styles/partner-integrations.css'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
 import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
+import PartnerActivityCard, { TAB_WEBHOOKS } from '../components/partner-integrations/PartnerActivityCard.jsx'
+import PartnerHealthStrip from '../components/partner-integrations/PartnerHealthStrip.jsx'
+import usePartnerSummary from '../components/partner-integrations/usePartnerSummary.js'
+import { DEFAULT_WINDOW_HOURS, formatWhen } from '../components/partner-integrations/partnerActivityFormat.js'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
-import { uniqueSortedOptions } from '../utils/sortableFilterableTable.js'
-
-function isoSortValue(iso) {
-  const n = iso ? new Date(iso).getTime() : 0
-  return Number.isNaN(n) ? 0 : n
-}
 
 function maskKey(prefix) {
   if (!prefix) return '—'
   return `${prefix}…`
 }
 
-function formatWhen(value) {
-  if (!value) return '—'
-  const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString()
-}
-
 function formatEvents(events) {
   if (!Array.isArray(events) || events.length === 0) return '—'
   if (events.includes('*')) return 'All events'
   return events.join(', ')
-}
-
-function deliveryStatusBadgeClass(status) {
-  if (status === 'sent') return 'admin-status-badge admin-status-badge--active'
-  if (status === 'failed') return 'admin-status-badge admin-status-badge--error'
-  return 'admin-status-badge admin-status-badge--warning'
 }
 
 const ALL_EVENTS = ['status.changed', 'schedule.updated']
@@ -78,12 +62,9 @@ export default function AdminPartnerApi() {
   const [createdWebhookSecret, setCreatedWebhookSecret] = useState(null)
   const [secretCopied, setSecretCopied] = useState(false)
 
-  const [deliveriesOpen, setDeliveriesOpen] = useState(false)
-  const [deliveriesEndpoint, setDeliveriesEndpoint] = useState(null)
-  const [deliveries, setDeliveries] = useState([])
-  const [deliveriesTotal, setDeliveriesTotal] = useState(0)
-  const [deliveriesLoading, setDeliveriesLoading] = useState(false)
-  const [expandedDeliveryId, setExpandedDeliveryId] = useState(null)
+  const [activityFocus, setActivityFocus] = useState(null)
+  const activityRef = useRef(null)
+  const { byKeyId: summaryByKeyId, loading: summaryLoading, error: summaryErr, reload: reloadSummary } = usePartnerSummary()
 
   const selectedKey = keys.find((k) => k.id === selectedKeyId) ?? null
 
@@ -297,27 +278,10 @@ export default function AdminPartnerApi() {
     [selectedKeyId, loadWebhooks, t]
   )
 
-  const openDeliveries = useCallback(
-    async (ep) => {
-      if (selectedKeyId == null) return
-      setDeliveriesEndpoint(ep)
-      setDeliveriesOpen(true)
-      setDeliveriesLoading(true)
-      setExpandedDeliveryId(null)
-      try {
-        const data = await fetchWebhookDeliveries(selectedKeyId, ep.id, { limit: 50 })
-        setDeliveries(Array.isArray(data?.deliveries) ? data.deliveries : [])
-        setDeliveriesTotal(data?.total ?? 0)
-      } catch (e) {
-        setDeliveries([])
-        setDeliveriesTotal(0)
-        setToast({ kind: 'error', text: e?.message || 'Failed to load deliveries' })
-      } finally {
-        setDeliveriesLoading(false)
-      }
-    },
-    [selectedKeyId]
-  )
+  const openActivity = useCallback((ep) => {
+    setActivityFocus({ keyId: selectedKeyId, tab: TAB_WEBHOOKS, endpointId: ep.id })
+    activityRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [selectedKeyId])
 
   const webhookColumns = useMemo(
     () => [
@@ -346,45 +310,6 @@ export default function AdminPartnerApi() {
     [t]
   )
 
-  const deliveryColumns = useMemo(
-    () => [
-      {
-        key: 'deliveryId',
-        label: t('adminPartnerApiDeliveryId'),
-        getSortValue: (d) => (d.delivery_id || '').toLowerCase(),
-        getFilterValue: (d) => d.delivery_id || '',
-      },
-      {
-        key: 'event',
-        label: t('adminPartnerApiDeliveryEvent'),
-        getSortValue: (d) => (d.event_type || '').toLowerCase(),
-        getFilterValue: (d) => d.event_type || '',
-      },
-      {
-        key: 'reference',
-        label: t('adminPartnerApiDeliveryRef'),
-        getSortValue: (d) => (d.external_reference || '').toLowerCase(),
-        getFilterValue: (d) => d.external_reference || '',
-      },
-      {
-        key: 'status',
-        label: t('adminPartnerApiColStatus'),
-        filterType: 'select',
-        selectOptions: uniqueSortedOptions(deliveries.map((d) => d.status)),
-        getSortValue: (d) => (d.status || '').toLowerCase(),
-        getFilterValue: (d) => d.status || '',
-      },
-      {
-        key: 'when',
-        label: t('adminPartnerApiDeliveryWhen'),
-        filterType: 'dateRange',
-        getDateIso: (d) => d.sent_at || d.created_at,
-        getSortValue: (d) => isoSortValue(d.sent_at || d.created_at),
-      },
-    ],
-    [t, deliveries]
-  )
-
   const {
     displayRows: displayWebhooks,
     filters: webhookFilters,
@@ -392,29 +317,6 @@ export default function AdminPartnerApi() {
     sortState: webhookSort,
     handleSort: handleWebhookSort,
   } = useSortableFilterableRows(webhooks, webhookColumns, { key: 'url', dir: 'asc' })
-
-  const {
-    displayRows: displayDeliveries,
-    filters: deliveryFilters,
-    updateFilter: updateDeliveryFilter,
-    sortState: deliverySort,
-    handleSort: handleDeliverySort,
-  } = useSortableFilterableRows(deliveries, deliveryColumns, { key: 'when', dir: 'desc' })
-
-  const handleRetryDelivery = useCallback(
-    async (deliveryId) => {
-      if (selectedKeyId == null || !deliveriesEndpoint) return
-      try {
-        await retryWebhookDelivery(selectedKeyId, deliveriesEndpoint.id, deliveryId)
-        const data = await fetchWebhookDeliveries(selectedKeyId, deliveriesEndpoint.id, { limit: 50 })
-        setDeliveries(Array.isArray(data?.deliveries) ? data.deliveries : [])
-        setToast({ kind: 'success', text: t('adminPartnerApiDeliveryRetryToast') })
-      } catch (e) {
-        setToast({ kind: 'error', text: e?.message || 'Retry failed' })
-      }
-    },
-    [selectedKeyId, deliveriesEndpoint, t]
-  )
 
   return (
     <div className="allocation-page partner-integrations-page">
@@ -465,6 +367,11 @@ export default function AdminPartnerApi() {
                         {t('adminPartnerApiStatusRevoked')}
                       </span>
                     )}
+                    {(summaryByKeyId.get(k.id)?.webhooksFailed ?? 0) > 0 && (
+                      <span className="admin-status-badge admin-status-badge--error partner-integrations-nav__badge">
+                        {t('partnerActFailedBadge', { count: summaryByKeyId.get(k.id).webhooksFailed })}
+                      </span>
+                    )}
                   </button>
                 </li>
               ))}
@@ -477,6 +384,15 @@ export default function AdminPartnerApi() {
             <p className="partner-integrations-content__placeholder">{t('adminPartnerApiSelectPartner')}</p>
           ) : (
             <>
+              <PartnerHealthStrip
+                summary={summaryByKeyId.get(selectedKey.id)}
+                loading={summaryLoading}
+                error={summaryErr}
+                hours={DEFAULT_WINDOW_HOURS}
+                keyActive={selectedKey.active}
+                onRefresh={reloadSummary}
+              />
+
               <section className="card">
                 <h2 className="card__title">{t('adminPartnerApiCredentials')}</h2>
                 <dl className="partner-integrations-kv">
@@ -544,7 +460,7 @@ export default function AdminPartnerApi() {
                               </span>
                             </td>
                             <td className="partner-webhook-table__actions">
-                              <button type="button" className="partner-link-action" onClick={() => openDeliveries(ep)}>
+                              <button type="button" className="partner-link-action" onClick={() => openActivity(ep)}>
                                 {t('adminPartnerApiDeliveries')}
                               </button>
                               {selectedKey.active && (
@@ -574,6 +490,18 @@ export default function AdminPartnerApi() {
                   </div>
                 )}
               </section>
+
+              <PartnerActivityCard
+                key={selectedKey.id}
+                ref={activityRef}
+                keyId={selectedKey.id}
+                endpoints={webhooks}
+                hasActiveWebhook={webhooks.some((ep) => ep.active)}
+                focus={activityFocus?.keyId === selectedKey.id ? activityFocus : null}
+                onNotify={setToast}
+                onChanged={reloadSummary}
+                onAddWebhook={selectedKey.active ? openAddWebhook : undefined}
+              />
             </>
           )}
         </div>
@@ -710,89 +638,6 @@ export default function AdminPartnerApi() {
             )}
           </div>
         </StickyFormOverlay>
-      )}
-
-      {deliveriesOpen && deliveriesEndpoint && (
-        <div className="modal-overlay" onClick={() => setDeliveriesOpen(false)} aria-hidden="true">
-          <div className="modal modal--wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-            <h2 className="modal__title">{t('adminPartnerApiDeliveriesTitle')}</h2>
-            <p className="text-steel" style={{ wordBreak: 'break-all', marginTop: -8 }}>{deliveriesEndpoint.url}</p>
-            {deliveriesLoading ? (
-              <p className="text-steel">{t('adminPartnerApiLoading')}</p>
-            ) : (
-              <>
-                <p className="partner-deliveries-summary">{t('adminPartnerApiDeliveriesCount', { count: deliveriesTotal })}</p>
-                {deliveries.length === 0 ? (
-                  <p className="partner-integrations-empty">{t('adminPartnerApiNoDeliveries')}</p>
-                ) : (
-                  <div className="table-wrap">
-                    <table className="data-table allocation-table partner-deliveries-table">
-                      <thead>
-                        <SortableFilterableTableHead
-                          columns={deliveryColumns}
-                          sortState={deliverySort}
-                          onSort={handleDeliverySort}
-                          filters={deliveryFilters}
-                          onFilterChange={updateDeliveryFilter}
-                          trailingBlankCols={1}
-                          trailingBlankLabel={t('adminPartnerApiWebhookActions')}
-                        />
-                      </thead>
-                      <tbody>
-                        {displayDeliveries.map((d) => (
-                          <Fragment key={d.delivery_id}>
-                            <tr>
-                              <td><span className="partner-deliveries-id">{d.delivery_id}</span></td>
-                              <td>{d.event_type}</td>
-                              <td>{d.external_reference}</td>
-                              <td>
-                                <span className={deliveryStatusBadgeClass(d.status)}>{d.status}</span>
-                                {d.last_error && <div className="partner-deliveries-error">{d.last_error}</div>}
-                              </td>
-                              <td>{formatWhen(d.sent_at || d.created_at)}</td>
-                              <td className="partner-webhook-table__actions">
-                                <button
-                                  type="button"
-                                  className="partner-link-action partner-link-action--muted"
-                                  onClick={() => setExpandedDeliveryId((x) => (x === d.delivery_id ? null : d.delivery_id))}
-                                >
-                                  {expandedDeliveryId === d.delivery_id ? t('adminPartnerApiHidePayload') : t('adminPartnerApiShowPayload')}
-                                </button>
-                                {d.status === 'failed' && (
-                                  <>
-                                    <span className="partner-webhook-table__sep">·</span>
-                                    <button type="button" className="partner-link-action" onClick={() => handleRetryDelivery(d.delivery_id)}>
-                                      {t('adminPartnerApiRetry')}
-                                    </button>
-                                  </>
-                                )}
-                              </td>
-                            </tr>
-                            {expandedDeliveryId === d.delivery_id && (
-                              <tr>
-                                <td colSpan={6}>
-                                  <pre className="partner-deliveries-payload">{JSON.stringify(d.payload, null, 2)}</pre>
-                                </td>
-                              </tr>
-                            )}
-                          </Fragment>
-                        ))}
-                      </tbody>
-                    </table>
-                    {displayDeliveries.length === 0 && (
-                      <p className="text-steel" style={{ marginTop: 'var(--spacing-3)' }}>
-                        {t('tableNoFilterMatch')}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-            <div className="modal__footer">
-              <button type="button" className="btn btn--primary" onClick={() => setDeliveriesOpen(false)}>{t('adminPartnerApiDone')}</button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   )

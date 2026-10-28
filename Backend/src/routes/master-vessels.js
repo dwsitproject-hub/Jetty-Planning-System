@@ -20,6 +20,7 @@ import { tryPushAfterSave } from '../lib/datahub-vessel-push.js';
 import { COMPARED_COLUMNS } from '../lib/datahub-vessel-sync.js';
 import { registerDataHubSyncRoutes } from './datahub-sync-routes.js';
 import { countActivePlansForMaster } from '../lib/resolve-master-vessel.js';
+import { rankSimilarVessels } from '../lib/vessel-name-similarity.js';
 
 const router = express.Router();
 router.use(...requirePageView('master-vessel'));
@@ -148,13 +149,47 @@ router.get('/', async (req, res) => {
     params.push(`%${search.toLowerCase()}%`);
     where += ` AND (LOWER(v.vessel_name) LIKE $${params.length}
                 OR LOWER(COALESCE(v.vessel_code_sap, '')) LIKE $${params.length}
-                OR LOWER(COALESCE(v.hub_code, '')) LIKE $${params.length})`;
+                OR LOWER(COALESCE(v.hub_code, '')) LIKE $${params.length}
+                OR LOWER(COALESCE(v.vessel_imo, '')) LIKE $${params.length}
+                OR LOWER(COALESCE(v.vessel_mmsi, '')) LIKE $${params.length})`;
   }
   const r = await pool.query(
     `${VESSEL_SELECT} WHERE ${where} ORDER BY v.vessel_name ASC`,
     params
   );
   res.json(r.rows.map(toVessel));
+});
+
+async function findSimilarVessels({ name, imo, mmsi, excludeId, activeOnly }) {
+  const r = await pool.query(
+    `SELECT id, vessel_name, vessel_type, hub_code, is_active, vessel_imo, vessel_mmsi
+     FROM master_vessels
+     WHERE deleted_at IS NULL`
+  );
+  let candidates = r.rows.map((row) => ({
+    id: Number(row.id),
+    vesselName: row.vessel_name,
+    vesselType: row.vessel_type ?? null,
+    hubCode: row.hub_code ?? null,
+    isActive: row.is_active !== false,
+    vesselImo: row.vessel_imo ?? null,
+    vesselMmsi: row.vessel_mmsi ?? null,
+  }));
+  if (activeOnly) candidates = candidates.filter((row) => row.isActive);
+  return rankSimilarVessels({ name, imo, mmsi, excludeId }, candidates);
+}
+
+router.get('/similar', async (req, res) => {
+  const activeOnly = ['1', 'true', 'yes'].includes(String(req.query.activeOnly || '').trim().toLowerCase());
+  const excludeRaw = parseInt(req.query.excludeId, 10);
+  const matches = await findSimilarVessels({
+    name: str(req.query.name) || '',
+    imo: str(req.query.imo),
+    mmsi: str(req.query.mmsi),
+    excludeId: Number.isFinite(excludeRaw) ? excludeRaw : null,
+    activeOnly,
+  });
+  res.json(matches);
 });
 
 router.get('/:id(\\d+)', async (req, res) => {
@@ -179,6 +214,20 @@ router.post('/', ...requirePageEdit('master-vessel'), async (req, res) => {
   }
   const hubClash = await assertHubCodeAvailable(v.hub_code);
   if (hubClash) return res.status(409).json({ error: hubClash });
+  if (req.body?.confirmSimilar !== true) {
+    const matches = await findSimilarVessels({
+      name: v.vessel_name,
+      imo: v.vessel_imo,
+      mmsi: v.vessel_mmsi,
+    });
+    if (matches.length > 0) {
+      return res.status(409).json({
+        error: 'A similar vessel already exists',
+        code: 'similar_vessel',
+        matches,
+      });
+    }
+  }
 
   const ins = await pool.query(
     `INSERT INTO master_vessels (
@@ -238,6 +287,21 @@ router.put('/:id(\\d+)', ...requirePageEdit('master-vessel'), async (req, res) =
   }
   const hubClash = await assertHubCodeAvailable(v.hub_code, id);
   if (hubClash) return res.status(409).json({ error: hubClash });
+  if (req.body?.confirmSimilar !== true) {
+    const matches = await findSimilarVessels({
+      name: v.vessel_name,
+      imo: v.vessel_imo,
+      mmsi: v.vessel_mmsi,
+      excludeId: id,
+    });
+    if (matches.length > 0) {
+      return res.status(409).json({
+        error: 'A similar vessel already exists',
+        code: 'similar_vessel',
+        matches,
+      });
+    }
+  }
 
   await pool.query(
     `UPDATE master_vessels SET

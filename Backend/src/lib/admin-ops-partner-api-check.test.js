@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PARTNER_API_STALE_MS,
+  WEBHOOK_PENDING_STALE_MS,
   derivePartnerApiStatus,
   buildPartnerApiSummary,
+  describeWebhookProblem,
 } from './admin-ops-partner-api-check.js';
 
 const NOW = Date.parse('2026-09-24T12:00:00.000Z');
@@ -50,5 +52,37 @@ test('buildPartnerApiSummary formats status messages', () => {
   assert.match(
     buildPartnerApiSummary('degraded', 3, twelveDaysAgo, NOW),
     /3 active keys; last activity 12d ago/
+  );
+});
+
+test('describeWebhookProblem reports failed deliveries and a backed-up queue', () => {
+  assert.equal(describeWebhookProblem(undefined, NOW), null);
+  assert.equal(describeWebhookProblem({ failedLast24h: 0, oldestPendingAt: null }, NOW), null);
+  assert.equal(describeWebhookProblem({ failedLast24h: 1 }, NOW), '1 failed webhook (24h)');
+  assert.equal(describeWebhookProblem({ failedLast24h: 3 }, NOW), '3 failed webhooks (24h)');
+
+  const stale = new Date(NOW - WEBHOOK_PENDING_STALE_MS - 1000).toISOString();
+  const fresh = new Date(NOW - 60_000).toISOString();
+  assert.equal(describeWebhookProblem({ failedLast24h: 0, oldestPendingAt: stale }, NOW), 'webhook queue is backed up');
+  assert.equal(describeWebhookProblem({ failedLast24h: 0, oldestPendingAt: fresh }, NOW), null);
+});
+
+test('derivePartnerApiStatus degrades on failing webhooks even when API activity is recent', () => {
+  const twoDaysAgo = new Date(NOW - 2 * 86400000).toISOString();
+  assert.equal(
+    derivePartnerApiStatus({ activeKeys: 1, lastActivityAt: twoDaysAgo, webhooks: { failedLast24h: 2 } }, NOW, STALE),
+    'degraded'
+  );
+  assert.equal(
+    derivePartnerApiStatus({ activeKeys: 0, lastActivityAt: null, webhooks: { failedLast24h: 2 } }, NOW, STALE),
+    'disabled'
+  );
+});
+
+test('buildPartnerApiSummary appends the webhook problem', () => {
+  const twoDaysAgo = new Date(NOW - 2 * 86400000).toISOString();
+  assert.equal(
+    buildPartnerApiSummary('degraded', 1, twoDaysAgo, NOW, '2 failed webhooks (24h)'),
+    '1 active key; last activity 2d ago; 2 failed webhooks (24h)'
   );
 });

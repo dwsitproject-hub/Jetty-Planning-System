@@ -331,6 +331,36 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 **API:** POST and Pending PATCH. **201**, enriched GET, and webhook `data` add **`company_hub_code`** and **`company_name`** (canonical master values). Lookup SQL joins **`master_companies`** on **`si.company_id`**. Catalog entity **`company`** (`referenceRows` include **`port_hub_codes`**). Header and catalog **`api_version` `5.6`**. No new migration (column from **`135_master_companies.sql`**).
 
+### 0.44 Partner integration monitoring — webhook log and API request log (2026-10-27)
+
+**Purpose:** Admin can see, per partner or across partners, what JPS pushed (webhooks) and what partners called (API), without database access. Lives on **Admin → Partner integrations** (`/admin/partner-api`).
+
+**Migration `138_integration_activity_log.sql`:**
+
+- New **`integration_api_request_logs`**: `api_key_id` (nullable; `ON DELETE SET NULL`), `key_prefix` (first 13 characters of a `jps_live_` key only), `request_id`, `method`, `route` (pattern such as `/shipping-instructions/:id`), `path` (no query string), `status_code`, `duration_ms`, `error_code`, `external_reference`, `client_ip`, `created_at`. Indexes on `created_at`, `(api_key_id, created_at)`, and a partial index on `status_code >= 400`.
+- **`integration_webhook_deliveries`** gains `last_http_status`, `last_duration_ms`, `last_attempt_at`, plus indexes on `created_at` and `(status, created_at)`.
+
+**Capture:**
+
+- [`integration-request-log.js`](Backend/src/middleware/integration-request-log.js) is mounted first on the integrations router, before `requireIntegrationKey`, so 401 and 429 are recorded. It inserts on `res.on('finish')`, fire-and-forget; an insert failure never changes the partner response. Headers (including the API key), request bodies, and response bodies are never stored. Unauthenticated rows are capped at 30 per minute per client IP.
+- `sendIntegrationError` sets `res.locals.integrationErrorCode`, stored as `error_code`.
+- [`integration-webhooks.js`](Backend/src/lib/integration-webhooks.js) (`processWebhookDeliveryQueueOnce`, `scheduleRetryOrFail`) records the HTTP status, duration, and attempt time on success and on every failed attempt (HTTP status is null for timeouts and connection errors).
+
+**Admin API** (`/api/v1/integration-admin/activity`, same `admin` page permission; query code in [`integration-activity-filters.js`](Backend/src/lib/integration-activity-filters.js) and [`integration-activity-log.js`](Backend/src/lib/integration-activity-log.js)):
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /summary?keyId=&hours=` | Per partner: API calls, 4xx/5xx, active webhook endpoints, webhooks sent/failed/pending, oldest pending, last API call, last webhook sent. `hours` default 24, max 720. |
+| `GET /webhook-deliveries` | Filters `keyId`, `endpointId`, `status`, `eventType`, `from`, `to`, `q`; cursor paging (`cursor`, `limit` up to 200). Includes the payload. |
+| `GET /api-requests` | Filters `keyId`, `statusClass` (`2xx`, `4xx`, `5xx`, `error`), `method`, `route`, `from`, `to`, `q`; cursor paging. The first page also returns `routeOptions`. |
+| `POST /webhook-deliveries/:deliveryId/retry` | Re-queues a failed delivery. The older per-endpoint list and retry routes remain. |
+
+**Retention:** [`integration-log-retention.js`](Backend/src/lib/integration-log-retention.js) deletes API log rows older than `INTEGRATION_API_LOG_RETENTION_DAYS` (default 30) in batches, once at start-up (after 30 s) and then daily. Webhook delivery rows are not purged.
+
+**System health:** the Partner Integration API check ([`admin-ops-partner-api-check.js`](Backend/src/lib/admin-ops-partner-api-check.js)) reports **degraded** when any delivery failed in the last 24 hours or the oldest pending delivery is older than 10 minutes.
+
+**UI:** components under `Frontend/src/components/partner-integrations/`: health strip (24 h numbers and a no-webhook warning), Activity card with **Webhook deliveries** and **API requests** tabs, scope switch (this partner or all partners), time presets, status chips, search, optional 30 s auto-refresh, expandable rows. The Webhooks table's **Activity** link opens the Webhook tab filtered to that endpoint. The partner list shows a failed-webhook badge.
+
 ### 0.32 Overview tables — Commodity Qty column (`siBreakdownDisplay`) (2026-05-26)
 
 **Purpose:** Show **SI-declared cargo** (commodity name + quantity per breakdown line) in main overview tables without opening SI modals. A single **Commodity Qty** column replaces a separate **Commodity** + **Total Qty** pair because each cell already embeds the commodity name (e.g. `RPO 5.000 MT`).

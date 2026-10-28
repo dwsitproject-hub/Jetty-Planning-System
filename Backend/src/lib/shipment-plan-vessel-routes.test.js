@@ -37,6 +37,23 @@ describe('shipment plan master vessel route wiring', () => {
     assert.match(integrations, /vesselSnap\.master_vessel_id/);
   });
 
+  it('master vessel search matches name, codes, IMO, and MMSI', () => {
+    const vessels = src('master-vessels.js');
+    assert.match(vessels, /LOWER\(v\.vessel_name\) LIKE/);
+    assert.match(vessels, /LOWER\(COALESCE\(v\.vessel_imo, ''\)\) LIKE/);
+    assert.match(vessels, /LOWER\(COALESCE\(v\.vessel_mmsi, ''\)\) LIKE/);
+  });
+
+  it('master vessel create guards similar names unless confirmed', () => {
+    const vessels = src('master-vessels.js');
+    assert.match(vessels, /router\.get\('\/similar'/);
+    assert.match(vessels, /confirmSimilar !== true/);
+    assert.match(vessels, /code: 'similar_vessel'/);
+    const similarAt = vessels.indexOf("router.get('/similar'");
+    const idAt = vessels.indexOf("router.get('/:id");
+    assert.ok(similarAt > -1 && idAt > similarAt);
+  });
+
   it('master vessel delete returns 409 when plans reference it', () => {
     const vessels = src('master-vessels.js');
     assert.match(vessels, /countActivePlansForMaster/);

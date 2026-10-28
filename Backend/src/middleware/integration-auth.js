@@ -19,6 +19,7 @@ export function sendIntegrationSuccess(res, status, data) {
 
 export function sendIntegrationError(res, status, code, message, details = null) {
   res.setHeader('X-JPS-API-Version', INTEGRATION_API_VERSION);
+  res.locals.integrationErrorCode = code;
   return res.status(status).json({
     success: false,
     error: { code, message, details },

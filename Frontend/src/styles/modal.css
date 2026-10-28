@@ -1148,3 +1148,87 @@
     animation: none;
   }
 }
+
+/* Above the vessel search panel (z-index 1100) when Add Vessel opens from a plan. */
+.modal-overlay.sticky-form-overlay--stacked {
+  z-index: 1200;
+}
+
+.master-vessel-form__needed {
+  margin: 0 0 var(--spacing-4);
+  padding: var(--spacing-3);
+  border: 1px solid var(--color-border-medium);
+  border-left: 4px solid var(--color-primary);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-bg-subtle, #f4f6f8);
+}
+
+.master-vessel-form__needed-title {
+  margin: 0 0 var(--spacing-1);
+  font-size: 1rem;
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-text-charcoal);
+}
+
+.master-vessel-form__needed-hint,
+.master-vessel-form__field-note {
+  margin: 0 0 var(--spacing-2);
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+.master-vessel-form__other-title {
+  margin: 0 0 var(--spacing-3);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium, 500);
+  color: var(--color-text-steel);
+}
+
+.master-vessel-form__error {
+  margin: 0 0 var(--spacing-3);
+  color: var(--color-danger, #c00);
+}
+
+.master-vessel-form__similar {
+  margin: 0 0 var(--spacing-3);
+  padding: var(--spacing-3);
+  border: 1px solid var(--color-warning-border, #fcd34d);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-warning-bg, #fffbeb);
+}
+
+.master-vessel-form__similar-title {
+  margin: 0 0 var(--spacing-2);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-warning-text, #b45309);
+}
+
+.master-vessel-form__similar-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.master-vessel-form__similar-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  margin: 0 0 var(--spacing-2);
+}
+
+.master-vessel-form__similar-name {
+  margin: 0;
+  color: var(--color-text-charcoal);
+}
+
+.master-vessel-form__similar-meta,
+.master-vessel-form__similar-note {
+  color: var(--color-text-steel);
+  font-size: var(--font-size-small);
+}
+
+.master-vessel-form__similar-note {
+  margin: 0;
+}

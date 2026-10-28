@@ -2,13 +2,34 @@
  * System Health Dashboard — Partner Integration API usage telemetry.
  */
 export const PARTNER_API_STALE_MS = 7 * 24 * 60 * 60 * 1000;
+/** A pending webhook older than this means the delivery worker is not keeping up. */
+export const WEBHOOK_PENDING_STALE_MS = 10 * 60 * 1000;
 
 /**
  * @typedef {'healthy'|'degraded'|'unhealthy'|'unknown'|'disabled'} OpsStatus
  */
 
 /**
- * @param {{ activeKeys: number, lastActivityAt: string | null | undefined }} input
+ * @param {{ failedLast24h?: number, oldestPendingAt?: string | null }} [webhooks]
+ * @param {number} [nowMs]
+ * @returns {string | null} short problem description, or null when webhooks look fine
+ */
+export function describeWebhookProblem(webhooks, nowMs = Date.now()) {
+  const failed = Number(webhooks?.failedLast24h) || 0;
+  if (failed > 0) return `${failed} failed webhook${failed === 1 ? '' : 's'} (24h)`;
+  const oldest = webhooks?.oldestPendingAt ? new Date(webhooks.oldestPendingAt).getTime() : NaN;
+  if (!Number.isNaN(oldest) && nowMs - oldest > WEBHOOK_PENDING_STALE_MS) {
+    return 'webhook queue is backed up';
+  }
+  return null;
+}
+
+/**
+ * @param {{
+ *   activeKeys: number,
+ *   lastActivityAt: string | null | undefined,
+ *   webhooks?: { failedLast24h?: number, oldestPendingAt?: string | null }
+ * }} input
  * @param {number} [nowMs]
  * @param {number} [staleMs]
  * @returns {OpsStatus}
@@ -16,6 +37,7 @@ export const PARTNER_API_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 export function derivePartnerApiStatus(input, nowMs = Date.now(), staleMs = PARTNER_API_STALE_MS) {
   const activeKeys = Number(input.activeKeys) || 0;
   if (activeKeys === 0) return 'disabled';
+  if (describeWebhookProblem(input.webhooks, nowMs)) return 'degraded';
 
   const lastActivityAt = input.lastActivityAt ?? null;
   if (!lastActivityAt) return 'unknown';
@@ -33,15 +55,17 @@ export function derivePartnerApiStatus(input, nowMs = Date.now(), staleMs = PART
  * @param {number} activeKeys
  * @param {string | null} lastActivityAt
  * @param {number} [nowMs]
+ * @param {string | null} [webhookProblem] from describeWebhookProblem
  */
-export function buildPartnerApiSummary(status, activeKeys, lastActivityAt, nowMs = Date.now()) {
+export function buildPartnerApiSummary(status, activeKeys, lastActivityAt, nowMs = Date.now(), webhookProblem = null) {
   if (status === 'disabled') return 'No active partner API keys';
 
   const n = Number(activeKeys) || 0;
   const keyLabel = `${n} active key${n === 1 ? '' : 's'}`;
+  const problemSuffix = webhookProblem ? `; ${webhookProblem}` : '';
 
   if (status === 'unknown') {
-    return `${keyLabel}; no API usage recorded yet`;
+    return `${keyLabel}; no API usage recorded yet${problemSuffix}`;
   }
 
   const t = lastActivityAt ? new Date(lastActivityAt).getTime() : NaN;
@@ -49,7 +73,7 @@ export function buildPartnerApiSummary(status, activeKeys, lastActivityAt, nowMs
     lastActivityAt && !Number.isNaN(t) ? Math.max(0, Math.round((nowMs - t) / 86400000)) : null;
   const ageText = ageDays === 0 ? 'today' : `${ageDays}d ago`;
 
-  return `${keyLabel}; last activity ${ageText}`;
+  return `${keyLabel}; last activity ${ageText}${problemSuffix}`;
 }
 
 /**
@@ -84,15 +108,32 @@ function maxIsoTimestamp(a, b) {
   return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
 }
 
+/** @param {import('pg').Pool} db */
+async function loadWebhookHealth(db) {
+  const r = await db.query(
+    `SELECT COUNT(*) FILTER (WHERE status = 'failed' AND created_at > NOW() - INTERVAL '24 hours')::int AS failed_24h,
+            COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
+            MIN(created_at) FILTER (WHERE status = 'pending') AS oldest_pending_at
+     FROM integration_webhook_deliveries`
+  );
+  const row = r.rows[0] ?? {};
+  return {
+    failedLast24h: Number(row.failed_24h) || 0,
+    pending: Number(row.pending) || 0,
+    oldestPendingAt: row.oldest_pending_at ?? null,
+  };
+}
+
 /**
  * @param {import('pg').Pool} db
  */
 export async function checkPartnerApi(db) {
   const existsR = await db.query(
     `SELECT to_regclass('public.integration_api_keys') IS NOT NULL AS keys_ok,
-            to_regclass('public.integration_submissions') IS NOT NULL AS subs_ok`
+            to_regclass('public.integration_submissions') IS NOT NULL AS subs_ok,
+            to_regclass('public.integration_webhook_deliveries') IS NOT NULL AS hooks_ok`
   );
-  const { keys_ok: keysOk, subs_ok: subsOk } = existsR.rows[0] ?? {};
+  const { keys_ok: keysOk, subs_ok: subsOk, hooks_ok: hooksOk } = existsR.rows[0] ?? {};
   if (!keysOk || !subsOk) {
     return checkResult(
       'partner_api',
@@ -142,8 +183,10 @@ export async function checkPartnerApi(db) {
   const lastActivityAt = maxIsoTimestamp(lastUsedAt, lastSubmissionAt);
   const submissionsLast7d = Number(subs.submissions_last_7d) || 0;
 
-  const status = derivePartnerApiStatus({ activeKeys, lastActivityAt });
-  const summary = buildPartnerApiSummary(status, activeKeys, lastActivityAt);
+  const webhooks = hooksOk ? await loadWebhookHealth(db) : { failedLast24h: 0, pending: 0, oldestPendingAt: null };
+  const webhookProblem = describeWebhookProblem(webhooks);
+  const status = derivePartnerApiStatus({ activeKeys, lastActivityAt, webhooks });
+  const summary = buildPartnerApiSummary(status, activeKeys, lastActivityAt, Date.now(), webhookProblem);
 
   const partners = partnersR.rows.map((row) => ({
     id: Number(row.id),
@@ -167,6 +210,7 @@ export async function checkPartnerApi(db) {
       lastSubmissionAt,
       lastActivityAt,
       submissionsLast7d,
+      webhooks,
       staleThresholdDays: PARTNER_API_STALE_MS / 86400000,
       partners,
     }
