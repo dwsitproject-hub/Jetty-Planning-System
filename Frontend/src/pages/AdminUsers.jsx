@@ -507,7 +507,7 @@ export default function AdminUsers() {
       </section>
 
       {modalOpen && (
-        <StickyFormOverlay>
+        <StickyFormOverlay onClose={closeModal}>
           <div className="modal modal--wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="user-modal-title" aria-modal="true">
             <h2 id="user-modal-title" className="modal__title">{editingId ? 'Edit User' : 'Add User'}</h2>
             <div className="modal__section">

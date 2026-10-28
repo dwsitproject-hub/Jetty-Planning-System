@@ -165,7 +165,10 @@ export default function MasterVesselFormModal({
   }
 
   return createPortal(
-    <StickyFormOverlay className={stacked ? 'sticky-form-overlay--stacked' : ''}>
+    <StickyFormOverlay
+      className={stacked ? 'sticky-form-overlay--stacked' : ''}
+      onClose={onClose}
+    >
       <div
         className="modal modal--wide"
         onClick={(e) => e.stopPropagation()}

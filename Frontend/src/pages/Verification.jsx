@@ -1249,7 +1249,7 @@ export default function Verification() {
       </section>
 
       {modalOpId && (
-        <StickyFormOverlay>
+        <StickyFormOverlay onClose={closeModal}>
           <div
             className="modal modal--wide"
             onClick={(e) => e.stopPropagation()}

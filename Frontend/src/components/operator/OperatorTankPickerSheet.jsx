@@ -99,7 +99,18 @@ export default function OperatorTankPickerSheet({
       />
       <div className={`operator-sheet ${nudgeClassName}`.trim()} role="dialog" aria-modal="true" aria-label={title}>
         <div className="operator-sheet__header">
-          <h2>{title}</h2>
+          <div className="operator-sheet__title-row">
+            <h2>{title}</h2>
+            <button
+              type="button"
+              className="modal__close"
+              onClick={onCancel}
+              aria-label={t('close', { ns: 'common' })}
+              disabled={busy}
+            >
+              ×
+            </button>
+          </div>
           <p>{t('tank.requiredBeforeStart')}</p>
         </div>
         {showCommodityPicker ? (

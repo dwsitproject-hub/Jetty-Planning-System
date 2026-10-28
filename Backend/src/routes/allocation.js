@@ -680,7 +680,7 @@ function operationsOverviewSql(includeUpdatedByJoin, includeSailedForSchedule = 
               COALESCE(o.docking_start_time, sp.eta, o.eta, si.eta_from::timestamptz) ASC NULLS LAST, o.id ASC`;
 }
 
-async function buildAllocationOverviewPayload(selectedPortId) {
+export async function buildAllocationOverviewPayload(selectedPortId) {
   const jettiesRes = await pool.query(
     `SELECT j.id, j.name, j.status, j.capacity, p.name AS port_name
      FROM jetties j

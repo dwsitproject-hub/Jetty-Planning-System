@@ -6,6 +6,7 @@ import App from './App'
 import './styles/design-tokens.css'
 import './styles/app.css'
 import './styles/operator-mobile.css'
+import './styles/qc-mobile.css'
 import { clearStaleChunkReloadFlag } from './utils/staleChunkReload'
 import { installHubSdk } from './lib/hubSdk'
 

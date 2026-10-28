@@ -2785,7 +2785,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
 
       {/* Berthing confirmation modal (extended: jetty allocation, vessel photos, remarks) */}
       {berthingConfirmRow && (
-        <StickyFormOverlay>
+        <StickyFormOverlay onClose={() => closeBerthingConfirm()}>
           <div
             className="modal modal--wide"
             onClick={(e) => e.stopPropagation()}
@@ -3027,7 +3027,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
       )}
 
       {reDockModal?.row ? (
-        <StickyFormOverlay>
+        <StickyFormOverlay onClose={closeReDockModal}>
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
@@ -3079,7 +3079,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
 
       {/* Log arrival update modal (pre-filled from row) */}
       {arrivalUpdateForm && (
-        <StickyFormOverlay>
+        <StickyFormOverlay onClose={() => setArrivalUpdateForm(null)}>
           <div
             className="modal modal--wide"
             onClick={(e) => e.stopPropagation()}

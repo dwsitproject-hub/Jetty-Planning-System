@@ -30,6 +30,7 @@
     "test:integration-master-data": "node --test src/lib/integration-master-data.test.js",
     "test:integration-activity": "node --test src/middleware/integration-request-log.test.js src/lib/integration-activity-filters.test.js src/lib/integration-activity-log.test.js src/lib/integration-log-retention.test.js src/lib/integration-webhook-metrics.test.js",
     "test:datahub": "node --test src/lib/datahub-config.test.js src/lib/datahub-vessel-sync.test.js src/lib/datahub-client.test.js src/lib/datahub-vessel-push.test.js src/lib/datahub-incoterm-sync.test.js src/lib/datahub-organization-sync.test.js src/lib/datahub-port-sync.test.js src/lib/datahub-webhook.test.js src/lib/datahub-record-sync.test.js src/lib/company-for-instruction.test.js",
+    "test:qc-sampling": "node --test src/lib/sampling-sub-process.test.js src/lib/berthed-queue.test.js src/lib/sampling-status.test.js src/lib/sampling-records.test.js src/lib/optimistic-lock.test.js",
     "test:security": "node scripts/test-security-rbac-uploads.mjs",
     "grant-admin-access": "node scripts/grant-admin-full-access.js",
     "seed:admin": "node scripts/seed-admin-bcrypt.js",

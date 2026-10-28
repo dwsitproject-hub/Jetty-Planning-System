@@ -30,6 +30,8 @@ import enFilePreview from '../locales/en/filePreview.json'
 import idFilePreview from '../locales/id/filePreview.json'
 import enOperator from '../locales/en/operator.json'
 import idOperator from '../locales/id/operator.json'
+import enQc from '../locales/en/qc.json'
+import idQc from '../locales/id/qc.json'
 
 export function getInitialLanguage() {
   try {
@@ -61,6 +63,7 @@ i18n.use(initReactI18next).init({
       notifications: enNotifications,
       filePreview: enFilePreview,
       operator: enOperator,
+      qc: enQc,
     },
     id: {
       common: idCommon,
@@ -77,12 +80,13 @@ i18n.use(initReactI18next).init({
       notifications: idNotifications,
       filePreview: idFilePreview,
       operator: idOperator,
+      qc: idQc,
     },
   },
   lng: getInitialLanguage(),
   fallbackLng: 'en',
   defaultNS: 'common',
-  ns: ['common', 'nav', 'auth', 'terms', 'pages', 'dashboard', 'shippingInstruction', 'shipmentPlan', 'allocation', 'atBerth', 'loading', 'notifications', 'filePreview', 'operator'],
+  ns: ['common', 'nav', 'auth', 'terms', 'pages', 'dashboard', 'shippingInstruction', 'shipmentPlan', 'allocation', 'atBerth', 'loading', 'notifications', 'filePreview', 'operator', 'qc'],
   interpolation: {
     escapeValue: false,
   },

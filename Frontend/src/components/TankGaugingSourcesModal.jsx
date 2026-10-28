@@ -197,7 +197,7 @@ export default function TankGaugingSourcesModal({ portId, portName, onClose }) {
   }
 
   return (
-    <StickyFormOverlay>
+    <StickyFormOverlay onClose={onClose}>
       <div
         className="modal modal--wide modal--atg-sources"
         role="dialog"

@@ -30,7 +30,18 @@ export default function OperatorEditTimestampModal({ open, title, initialLocal, 
         aria-label={dialogTitle}
         onClick={(e) => e.stopPropagation()}
       >
-        <h2>{dialogTitle}</h2>
+        <div className="operator-modal__title-row">
+          <h2>{dialogTitle}</h2>
+          <button
+            type="button"
+            className="modal__close"
+            onClick={onCancel}
+            aria-label={t('close', { ns: 'common' })}
+            disabled={busy}
+          >
+            ×
+          </button>
+        </div>
         <div>
           <label htmlFor="operator-edit-ts">{t('modal.dateTime')}</label>
           <input

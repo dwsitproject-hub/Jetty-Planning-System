@@ -1353,7 +1353,7 @@ export default function AtBerthExecutions() {
       </section>
 
       {shiftModal?.shiftRow ? (
-        <StickyFormOverlay>
+        <StickyFormOverlay onClose={closeShiftModal}>
           <div
             className="modal"
             onClick={(ev) => ev.stopPropagation()}

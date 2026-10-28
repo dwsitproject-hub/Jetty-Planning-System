@@ -508,7 +508,7 @@ export default function AdminPartnerApi() {
       </div>
 
       {modalOpen && (
-        <StickyFormOverlay>
+        <StickyFormOverlay onClose={closeModal}>
           <div className="modal modal--wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="partner-modal-title" aria-modal="true">
             {createdKey ? (
               <>
@@ -568,7 +568,7 @@ export default function AdminPartnerApi() {
       )}
 
       {webhookModalOpen && (
-        <StickyFormOverlay>
+        <StickyFormOverlay onClose={closeWebhookModal}>
           <div className="modal modal--wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             {createdWebhookSecret ? (
               <>

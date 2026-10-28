@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Children, cloneElement, isValidElement, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import '../styles/modal.css'
 
@@ -119,7 +119,39 @@ export function useStickyFormDismiss() {
   }
 }
 
-export default function StickyFormOverlay({ children, className = '' }) {
+function ModalClosePin({ onClose, disabled }) {
+  const { t } = useTranslation('common')
+  return (
+    <div className="modal__close-pin">
+      <button
+        type="button"
+        className="modal__close"
+        aria-label={t('close')}
+        onClick={onClose}
+        disabled={disabled}
+      >
+        ×
+      </button>
+    </div>
+  )
+}
+
+function withClosePin(children, onClose, closeDisabled) {
+  if (typeof onClose !== 'function') return children
+  return Children.map(children, (child) => {
+    if (!isValidElement(child)) return child
+    return cloneElement(child, {
+      children: (
+        <>
+          <ModalClosePin onClose={onClose} disabled={closeDisabled} />
+          {child.props.children}
+        </>
+      ),
+    })
+  })
+}
+
+export default function StickyFormOverlay({ children, className = '', onClose, closeDisabled = false }) {
   const { overlayRef, onBackdropClick, showHint, nudgeClassName } = useStickyFormDismiss()
   const classes = ['modal-overlay', 'sticky-form-overlay', nudgeClassName, className]
     .filter(Boolean)
@@ -128,7 +160,7 @@ export default function StickyFormOverlay({ children, className = '' }) {
   return (
     <div ref={overlayRef} className={classes} onClick={onBackdropClick} role="presentation">
       <StickyFormHint show={showHint} />
-      {children}
+      {withClosePin(children, onClose, closeDisabled)}
     </div>
   )
 }

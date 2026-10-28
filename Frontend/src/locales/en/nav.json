@@ -10,6 +10,7 @@
   "allocationPlan": "Allocation & Berthing",
   "atBerth": "At-Berth Executions",
   "operatorMode": "Operator Mode",
+  "qcSampling": "QC Sampling",
   "clearance": "Clearance",
   "demurrageCalculator": "Demurrage Risk Calculator",
   "reporting": "Reporting",

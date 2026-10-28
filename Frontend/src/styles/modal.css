@@ -153,11 +153,16 @@
 }
 
 .modal--password .modal__header {
+  position: sticky;
+  top: 0;
+  z-index: 4;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-2);
-  padding: var(--spacing-4) var(--spacing-4) 0;
+  padding: var(--spacing-4) var(--spacing-4) var(--spacing-3);
+  background: var(--color-bg-white);
+  border-bottom: 1px solid var(--color-border-light, #e5e9ef);
 }
 
 .modal--password form {
@@ -195,6 +200,39 @@
   color: var(--color-text-charcoal);
 }
 
+.modal__close:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Drop the extra top band: the X sits on the title row, in the corner. */
+.modal:has(> .modal__close-pin) {
+  padding-top: var(--spacing-2);
+}
+
+.modal__close-pin {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  height: 0;
+  margin: 0;
+  pointer-events: none;
+}
+
+.modal__close-pin .modal__close {
+  position: absolute;
+  top: 0;
+  right: calc(var(--spacing-2) - var(--spacing-4));
+  pointer-events: auto;
+  font-size: 1.5rem;
+  line-height: 1;
+  background: var(--color-bg-white);
+}
+
+.modal__close-pin + :is(h1, h2, h3, .modal__title, .modal__header) {
+  padding-right: 2rem;
+}
+
 .modal__divider {
   margin: var(--spacing-3) 0 0;
   border: none;
@@ -202,8 +240,7 @@
 }
 
 .modal--password .modal__divider {
-  margin-left: var(--spacing-4);
-  margin-right: var(--spacing-4);
+  display: none;
 }
 
 .modal__alert {

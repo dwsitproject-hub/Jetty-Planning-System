@@ -1080,7 +1080,7 @@ export default function ShippingInstruction() {
       )}
 
       {isFormOpen && (
-        <StickyFormOverlay>
+        <StickyFormOverlay onClose={handleCloseModal}>
           <div
             className="modal modal--wide"
             onClick={(e) => e.stopPropagation()}

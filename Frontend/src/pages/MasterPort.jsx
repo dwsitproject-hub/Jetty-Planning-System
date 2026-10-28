@@ -559,7 +559,7 @@ export default function MasterPort() {
       </section>
 
       {modalOpen && (
-        <StickyFormOverlay>
+        <StickyFormOverlay onClose={closeModal}>
           <div
             className="modal modal--wide"
             onClick={(e) => e.stopPropagation()}

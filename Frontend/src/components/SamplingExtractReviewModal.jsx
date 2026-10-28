@@ -61,7 +61,7 @@ export default function SamplingExtractReviewModal({
       : t('extractReview.noRows')
 
   return (
-    <StickyFormOverlay className="modal-overlay--nested">
+    <StickyFormOverlay className="modal-overlay--nested" onClose={onCancel}>
       <div
         className="modal modal--wide sampling-extract-modal"
         onClick={(e) => e.stopPropagation()}

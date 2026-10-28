@@ -1810,7 +1810,7 @@ export default function JettyScheduleGantt({
       </LayoutTag>
 
       {pendingChange ? (
-        <StickyFormOverlay>
+        <StickyFormOverlay onClose={closePendingChange} closeDisabled={pendingSaving}>
           <div
             className="modal jetty-schedule-gantt__confirm-modal"
             onClick={(e) => e.stopPropagation()}

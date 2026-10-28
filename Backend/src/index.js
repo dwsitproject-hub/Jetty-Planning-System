@@ -28,6 +28,7 @@ import samplingDocumentExtractRoutes from './routes/sampling-document-extract.js
 import siLookupsRoutes from './routes/si-lookups.js';
 import operationsRoutes from './routes/operations.js';
 import qcSurveysRoutes from './routes/qc-surveys.js';
+import qualityControlRoutes from './routes/quality-control.js';
 import quantityChecksRoutes from './routes/quantity-checks.js';
 import activityLogsRoutes from './routes/activity-logs.js';
 import allocationRoutes from './routes/allocation.js';
@@ -137,6 +138,7 @@ apiV1.use('/operation-documents', requireAuth, requirePortScope, operationDocume
 apiV1.use('/stored-files', requireAuth, requirePortScope, storedFilesRoutes);
 apiV1.use('/jetty-layout', requireAuth, requirePortScope, jettyLayoutRoutes);
 apiV1.use('/activity-logs', requireAuth, requirePortScope, activityLogsRoutes);
+apiV1.use('/qc', requireAuth, requirePortScope, qualityControlRoutes);
 apiV1.use('/notifications', requireAuth, notificationsRoutes);
 apiV1.use('/', requireAuth, requirePortScope, qcSurveysRoutes);
 apiV1.use('/', requireAuth, requirePortScope, quantityChecksRoutes);

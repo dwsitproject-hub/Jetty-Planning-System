@@ -381,7 +381,7 @@ export default function MasterTanks() {
       </section>
 
       {modalOpen && (
-        <StickyFormOverlay>
+        <StickyFormOverlay onClose={closeModal}>
           <div className="modal" role="dialog" aria-modal="true" aria-labelledby="master-tank-modal-title" onClick={(e) => e.stopPropagation()}>
             <h2 id="master-tank-modal-title" className="modal__title">
               {editingId != null ? 'Edit Tank' : 'Add Tank'}

@@ -598,7 +598,7 @@ export default function ActiveVesselDetailModal({
 
   return (
     <>
-        <StickyFormOverlay>
+        <StickyFormOverlay onClose={onClose}>
           <div
             className="modal modal--wide"
             onClick={(e) => e.stopPropagation()}

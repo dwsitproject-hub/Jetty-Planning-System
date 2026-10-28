@@ -17,14 +17,17 @@ import { assertOperationInSelectedPort } from '../lib/operation-access.js';
 import { UPLOAD_ROOT } from '../paths.js';
 import { validateMulterFileList } from '../lib/upload-mime.js';
 import { writeActivityLog } from '../lib/activity-log.js';
+import { assertNotStale } from '../lib/optimistic-lock.js';
 import { sendStoredFileAttachment, sendStoredFileInline } from '../lib/send-stored-file.js';
 import { promoteInProgressToPostOpsIfInProgress } from '../lib/operation-auto-status.js';
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
+import { runSamplingDocumentExtract } from '../lib/sampling-document-extract.js';
 import {
-  metricToString,
-  runSamplingDocumentExtract,
-  toMetricNumber,
-} from '../lib/sampling-document-extract.js';
+  QUALITY_SUMMARY_FIELDS,
+  formatQualityMetric,
+  readQualitySummary,
+  summarizeSamplingRecords,
+} from '../lib/sampling-sub-process.js';
 
 const POST_CHECK_AUTO_KEYS = new Set([
   'final_inspection',
@@ -116,69 +119,6 @@ function normalizeForChange(v) {
   return String(v);
 }
 
-/**
- * The quality figures the report prints in its own summary box. Only the Pre-Checking
- * sampling sub-process has them; the columns stay NULL for every other key.
- *
- * Ceilings are per field: FFA, moisture and DOBI are the extract's 0-100 metric range,
- * while iodine value needs more headroom — CPO sits near 52 but other oils run higher.
- */
-const QUALITY_SUMMARY_FIELDS = [
-  { body: 'ffaAverage', column: 'ffa_average', label: 'FFA Average', max: 100 },
-  { body: 'moistureAverage', column: 'moisture_average', label: 'Moisture Average', max: 100 },
-  { body: 'dobi', column: 'dobi', label: 'DOBI', max: 100 },
-  { body: 'iodineValue', column: 'iodine_value', label: 'Iodine Value', max: 200 },
-];
-
-/**
- * Read the quality figures out of a request body.
- *
- * `provided` drives the same omit-keeps-existing merge the other Pre-Checking columns use,
- * so a save that leaves a field out never clears it. An explicit empty string does clear it.
- *
- * @returns {Record<string, { provided: boolean, value: number|null }>}
- */
-function readQualitySummary(key, body = {}) {
-  const out = {};
-  for (const field of QUALITY_SUMMARY_FIELDS) {
-    const raw = key === 'sampling' ? body[field.body] : undefined;
-    if (raw === undefined) {
-      out[field.body] = { provided: false, value: null };
-      continue;
-    }
-    if (raw === null || String(raw).trim() === '') {
-      out[field.body] = { provided: true, value: null };
-      continue;
-    }
-    const n = toMetricNumber(raw);
-    if (n == null || n < 0 || n > field.max) {
-      throw Object.assign(new Error(`Invalid ${field.label}`), { statusCode: 400 });
-    }
-    out[field.body] = { provided: true, value: n };
-  }
-  return out;
-}
-
-/** Postgres returns numeric as a string ("7.620"); the form and the log want "7.62". */
-function formatQualityMetric(raw) {
-  if (raw == null) return null;
-  const n = toMetricNumber(raw);
-  return n == null ? null : metricToString(n);
-}
-
-function summarizeSamplingRecords(payload) {
-  const records = Array.isArray(payload?.records) ? payload.records : [];
-  if (records.length === 0) return null;
-  return records
-    .map((r) => {
-      const palka = r?.noPalka ?? '-';
-      const ffa = r?.ffa ?? '-';
-      const moisture = r?.moisture ?? '-';
-      return `${palka} (FFA:${ffa}, Moisture:${moisture})`;
-    })
-    .join('; ');
-}
-
 function safeBaseName(name) {
   const base = String(name || '').split(/[\\/]/).pop() || 'file';
   return base.replace(/[^\w.\-()+ ]/g, '_').slice(0, 120);
@@ -226,7 +166,7 @@ async function loadSubProcess(operationId, phase, key) {
   return r.rows[0] ?? null;
 }
 
-async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
+async function upsertSubProcess(operationId, phase, subProcessKey, body = {}, actorUserId = null) {
   const key = cleanKey(subProcessKey);
   const scheduleTz = await loadOperationScheduleTimezone(pool, operationId);
   const occurredAt = parseTs(body.occurredAt, scheduleTz);
@@ -255,14 +195,16 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
   try {
     await client.query('BEGIN');
     const ex = await client.query(
-      `SELECT id
+      `SELECT id, updated_at
        FROM operation_sub_processes
        WHERE operation_id = $1 AND phase = $2 AND sub_process_key = $3 AND deleted_at IS NULL
-       LIMIT 1`,
+       LIMIT 1
+       FOR UPDATE`,
       [operationId, phase, key]
     );
     let id;
     if (ex.rows.length > 0) {
+      assertNotStale(ex.rows[0].updated_at, body.expectedUpdatedAt);
       id = ex.rows[0].id;
       if (isPostChecking) {
         assertEffectiveTimeRange(pcStart, pcEnd);
@@ -275,7 +217,8 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
              skip_reason = CASE WHEN $5::boolean THEN NULLIF($6, '') ELSE skip_reason END,
              remark = CASE WHEN $7::boolean THEN COALESCE($8, '') ELSE remark END,
              payload_json = CASE WHEN $9::boolean THEN $10::jsonb ELSE payload_json END,
-             updated_at = NOW()
+             updated_at = NOW(),
+             updated_by = COALESCE($12::bigint, updated_by)
            WHERE id = $11`,
           [
             status !== undefined ? status : null,
@@ -289,6 +232,7 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
             payload !== undefined,
             payload !== undefined ? JSON.stringify(payload) : null,
             id,
+            actorUserId,
           ]
         );
       } else {
@@ -313,7 +257,8 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
              moisture_average = CASE WHEN $16::boolean THEN $17::numeric ELSE moisture_average END,
              dobi = CASE WHEN $18::boolean THEN $19::numeric ELSE dobi END,
              iodine_value = CASE WHEN $20::boolean THEN $21::numeric ELSE iodine_value END,
-             updated_at = NOW()
+             updated_at = NOW(),
+             updated_by = COALESCE($23::bigint, updated_by)
            WHERE id = $22`,
           [
             status !== undefined ? status : null,
@@ -338,6 +283,7 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
             quality.iodineValue.provided,
             quality.iodineValue.value,
             id,
+            actorUserId,
           ]
         );
       }
@@ -350,8 +296,8 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
       const ins = await client.query(
         `INSERT INTO operation_sub_processes
          (operation_id, phase, sub_process_key, status, occurred_at, start_at, end_at, skip_reason, remark, payload_json,
-          ffa_average, moisture_average, dobi, iodine_value)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+          ffa_average, moisture_average, dobi, iodine_value, created_by, updated_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15)
          RETURNING id`,
         [
           operationId,
@@ -368,6 +314,7 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}) {
           quality.moistureAverage.value,
           quality.dobi.value,
           quality.iodineValue.value,
+          actorUserId,
         ]
       );
       id = ins.rows[0].id;
@@ -512,7 +459,7 @@ router.put('/operations/:operationId/sub-processes/:subProcessKey', async (req, 
   }
 
   const before = await loadSubProcess(operationId, phase, key);
-  const id = await upsertSubProcess(operationId, phase, key, req.body || {});
+  const id = await upsertSubProcess(operationId, phase, key, req.body || {}, req.userId ?? null);
   const out = await pool.query(
     `SELECT id, operation_id, phase, sub_process_key, status, occurred_at, start_at, end_at, skip_reason, remark, payload_json,
             ffa_average, moisture_average, dobi, iodine_value, created_at, updated_at
@@ -555,7 +502,12 @@ router.put('/operations/:operationId/sub-processes/:subProcessKey', async (req, 
     entityLabel: key.replace(/_/g, ' '),
     summary: `${before ? 'Updated' : 'Created'} pre-checking step (${phase})`,
     changes,
-    meta: { operationId, subProcessKey: key, phase },
+    meta: {
+      operationId,
+      subProcessKey: key,
+      phase,
+      ...(req.body?.source === 'qc' ? { source: 'qc' } : {}),
+    },
     actorUserId: req.userId ?? null,
   }).catch(() => {});
   res.json(toSubProcessRow(out.rows[0]));

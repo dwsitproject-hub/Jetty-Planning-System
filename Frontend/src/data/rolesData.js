@@ -11,6 +11,7 @@ export const PAGE_OPTIONS = [
   { id: 'allocation-plan', label: 'Allocation & Berthing (by Shipment Plan)' },
   { id: 'at-berth', label: 'At-Berth Executions' },
   { id: 'operator-at-berth', label: 'Operator Mode' },
+  { id: 'quality-control', label: 'QC Sampling' },
   { id: 'loading', label: 'Loading / Unloading' },
   { id: 'quality', label: 'Quality' },
   { id: 'verification', label: 'Clearance' },

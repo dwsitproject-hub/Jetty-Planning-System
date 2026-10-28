@@ -338,7 +338,7 @@ function OperationSignoffBanner({
       </section>
 
       {requestOpen && (
-        <StickyFormOverlay>
+        <StickyFormOverlay onClose={() => setRequestOpen(false)} closeDisabled={busy}>
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
@@ -2010,6 +2010,8 @@ function PreCheckingSections({
         dobi: sectionDraft?.dobi ?? '',
         iodineValue: sectionDraft?.iodineValue ?? '',
         payload: { records: sectionDraft?.records || [] },
+        // Stops this save from overwriting samples QC added from the QC Sampling menu meanwhile.
+        expectedUpdatedAt: sectionDraft?.lastSavedAt || undefined,
       }
     }
     if (sectionKey === 'initialCargoChecking') {
@@ -2518,7 +2520,7 @@ function PreCheckingSections({
             onActivityLogRefresh={onActivityLogRefresh}
           />
           {formModalOpen ? (
-            <StickyFormOverlay>
+            <StickyFormOverlay onClose={cancelEdit}>
               <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Pre-Checking form">
       {activeSubTab === 'keyMeeting' && (
       <PreCheckSectionCard
@@ -3800,7 +3802,7 @@ function PostCheckingSections({
             onActivityLogRefresh={onActivityLogRefresh}
           />
           {formModalOpen ? (
-            <StickyFormOverlay>
+            <StickyFormOverlay onClose={cancelEdit}>
               <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Post-Checking form">
                 {activePostTab ? renderSectionCard(activePostTab) : null}
               </div>

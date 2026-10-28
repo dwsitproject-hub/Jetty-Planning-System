@@ -1,4 +1,5 @@
 import { Routes, Route, Outlet, useLocation, Navigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import Layout from './components/Layout'
 import { LoadingProvider } from './context/LoadingContext'
 import { ClearanceProvider } from './context/ClearanceContext'
@@ -27,6 +28,8 @@ import AtBerthExecutions from './pages/AtBerthExecutions'
 import OperatorMobileShell from './components/operator/OperatorMobileShell'
 import OperatorAtBerthQueue from './pages/operator/OperatorAtBerthQueue'
 import OperatorExecutionPage from './pages/operator/OperatorExecutionPage'
+import QcSamplingQueue from './pages/qc/QcSamplingQueue'
+import QcSamplingEntry from './pages/qc/QcSamplingEntry'
 import Quality from './pages/Quality'
 import Verification from './pages/Verification'
 import Reporting from './pages/Reporting'
@@ -62,7 +65,9 @@ function AppShell() {
   const { me, loading: authLoading } = useAuth()
   const isSiView = /^\/shipping-instruction\/view\/[^/]+$/.test(location.pathname)
   const isVizPopout = /^\/allocation\/visualization\/[^/]+$/.test(location.pathname)
+  const { t: tQc } = useTranslation('qc')
   const isOperator = location.pathname.startsWith('/operator')
+  const isQc = location.pathname.startsWith('/qc')
   const isEmbed = isEmbedMode(location.search)
   const isChromelessEmbed =
     isEmbed &&
@@ -79,9 +84,9 @@ function AppShell() {
   if (isChromelessEmbed) {
     return <Outlet />
   }
-  if (isOperator) {
+  if (isOperator || isQc) {
     return (
-      <OperatorMobileShell>
+      <OperatorMobileShell brand={isQc ? tQc('shell.brand') : undefined}>
         <Outlet />
       </OperatorMobileShell>
     )
@@ -160,6 +165,9 @@ function App() {
                   <Route path="/at-berth" element={<AtBerthExecutions />} />
                   <Route path="/operator/at-berth" element={<OperatorAtBerthQueue />} />
                   <Route path="/operator/execution/:operationId" element={<OperatorExecutionPage />} />
+                  <Route path="/qc" element={<Navigate to="/qc/sampling" replace />} />
+                  <Route path="/qc/sampling" element={<QcSamplingQueue />} />
+                  <Route path="/qc/sampling/:operationId" element={<QcSamplingEntry />} />
                   <Route path="/loading/operation/:operationId" element={<LoadingOperation />} />
                   <Route path="/loading" element={<Loading />} />
                   <Route path="/loading/:vesselId" element={<Loading />} />

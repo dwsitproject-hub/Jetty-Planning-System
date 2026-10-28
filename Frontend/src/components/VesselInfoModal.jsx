@@ -185,7 +185,7 @@ export default function VesselInfoModal({ planId, isOpen, onClose, onSaved, onOp
   )
 
   return (
-    <StickyFormOverlay>
+    <StickyFormOverlay onClose={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="vessel-info-title">
         <h2 className="modal__title" id="vessel-info-title">
           {t('vesselInfoTitle')}

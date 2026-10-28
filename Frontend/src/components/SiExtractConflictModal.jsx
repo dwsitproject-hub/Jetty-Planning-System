@@ -45,7 +45,7 @@ export default function SiExtractConflictModal({
     .map(([k]) => k)
 
   return (
-    <StickyFormOverlay>
+    <StickyFormOverlay onClose={onCancel}>
         <div
           className="modal modal--wide"
           role="dialog"

@@ -1544,7 +1544,7 @@ export default function OperationalMilestoneWorkspace({
               liveCargoProgress={liveCargoProgress}
             />
             {formModalOpen ? (
-              <StickyFormOverlay>
+              <StickyFormOverlay onClose={() => { setFormModalOpen(false); setEditingEntryId(null) }}>
                 <div className="modal modal--wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Operational form">
                   <section className="berthing-modal__card loading-tab-card operational-milestone-composer">
             {isCargoOpsModal ? (
@@ -2116,7 +2116,7 @@ export default function OperationalMilestoneWorkspace({
       </div>
 
       {naModal ? (
-        <StickyFormOverlay>
+        <StickyFormOverlay onClose={closeNaModal}>
           <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="op-na-title">
             <h2 id="op-na-title" className="modal__title">
               Mark milestone as N/A

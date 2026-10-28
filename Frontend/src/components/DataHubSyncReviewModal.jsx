@@ -286,7 +286,7 @@ export default function DataHubSyncReviewModal({
   }
 
   return (
-    <StickyFormOverlay>
+    <StickyFormOverlay onClose={onClose} closeDisabled={applying}>
       <div
         className="modal modal--wide modal--datahub-sync"
         onClick={(e) => e.stopPropagation()}

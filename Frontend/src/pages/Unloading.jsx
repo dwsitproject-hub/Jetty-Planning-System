@@ -602,7 +602,7 @@ export default function Unloading() {
 
       {/* Log modal: time + comment; optional tag for Stop/Resume (shared modal classes) */}
       {logModal.open && (
-        <StickyFormOverlay>
+        <StickyFormOverlay onClose={() => setLogModal((m) => ({ ...m, open: false }))}>
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
@@ -675,7 +675,7 @@ export default function Unloading() {
 
       {/* Palka timestamp edit modal */}
       {palkaTimeEdit && (
-        <StickyFormOverlay>
+        <StickyFormOverlay onClose={() => setPalkaTimeEdit(null)}>
           <div
             className="modal modal--small"
             onClick={(e) => e.stopPropagation()}

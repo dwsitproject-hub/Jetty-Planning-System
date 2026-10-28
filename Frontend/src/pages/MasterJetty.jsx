@@ -555,7 +555,7 @@ export default function MasterJetty() {
       </section>
 
       {modalOpen && (
-        <StickyFormOverlay>
+        <StickyFormOverlay onClose={closeModal}>
           <div className="modal modal--wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <h2 className="modal__title">{editingId != null ? 'Edit Jetty' : 'Add Jetty'}</h2>
             <div className="modal__section">

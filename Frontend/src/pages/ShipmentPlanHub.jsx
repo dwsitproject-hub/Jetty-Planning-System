@@ -335,7 +335,7 @@ export default function ShipmentPlanHub() {
       />
 
       {editOpen && (
-        <StickyFormOverlay>
+        <StickyFormOverlay onClose={() => setEditOpen(false)}>
           <div className="modal modal--wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <h2 className="modal__title">{t('editPlan')}</h2>
             <form onSubmit={saveEdit} className="shipping-instruction-form">
