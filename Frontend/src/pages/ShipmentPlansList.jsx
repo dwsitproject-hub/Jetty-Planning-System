@@ -12,6 +12,7 @@ import { useRbac } from '../context/RbacContext'
 import { useActivityLog } from '../context/ActivityLogContext'
 import PurposeBadge, { resolvePurposeLabel } from '../components/PurposeBadge'
 import SiDocumentModal from '../components/SiDocumentModal'
+import PartnerDocumentsCue from '../components/PartnerDocumentsCue'
 import VesselInfoModal, { VesselNameButton } from '../components/VesselInfoModal'
 import ShipmentPlanCombinedFormModal from '../components/ShipmentPlanCombinedFormModal'
 import { shippingInstructionRowLabel } from '../utils/siPlanLinkedDraft'
@@ -558,18 +559,20 @@ export default function ShipmentPlansList() {
                         }}
                       >
                         {(row.shippingInstructions || []).map((si) => (
-                          <a
-                            key={si.id}
-                            href="#"
-                            className="link"
-                            onClick={(e) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              setSiDocumentModalId(si.id)
-                            }}
-                          >
-                            {shippingInstructionRowLabel(si)}
-                          </a>
+                          <span key={si.id} className="si-ref-with-cue">
+                            <a
+                              href="#"
+                              className="link"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setSiDocumentModalId(si.id)
+                              }}
+                            >
+                              {shippingInstructionRowLabel(si)}
+                            </a>
+                            <PartnerDocumentsCue si={si} />
+                          </span>
                         ))}
                       </div>
                     ) : (
@@ -642,18 +645,20 @@ export default function ShipmentPlansList() {
                   {(row.shippingInstructions || []).length ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                       {(row.shippingInstructions || []).map((si) => (
-                        <a
-                          key={si.id}
-                          href="#"
-                          className="link"
-                          onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            setSiDocumentModalId(si.id)
-                          }}
-                        >
-                          {shippingInstructionRowLabel(si)}
-                        </a>
+                        <span key={si.id} className="si-ref-with-cue">
+                          <a
+                            href="#"
+                            className="link"
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              setSiDocumentModalId(si.id)
+                            }}
+                          >
+                            {shippingInstructionRowLabel(si)}
+                          </a>
+                          <PartnerDocumentsCue si={si} />
+                        </span>
                       ))}
                     </div>
                   ) : '—'}

@@ -12,6 +12,7 @@ import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notific
 import { triggerPartnerWebhooksDeferred } from '../lib/integration-webhooks.js';
 import { formatSiCargoDisplay } from '../lib/siBreakdownDisplay.js';
 import { companyLabel } from '../lib/company-for-instruction.js';
+import { SI_PARTNER_SOURCE_JOIN, mapSiPartnerFields } from '../lib/si-partner-source.js';
 import { validateDepartDocumentUrls } from '../lib/depart-document-url.js';
 import { validateCastOffAt } from '../lib/validate-cast-off.js';
 import { resolveUserRequestedBy } from '../lib/resolve-requested-by.js';
@@ -87,6 +88,7 @@ function parseSiChildrenJson(val) {
         companyName: r.company_name ?? null,
         companyShortName: r.company_short_name ?? null,
         companyLabel: companyLabel({ name: r.company_name, short_name: r.company_short_name }) || null,
+        ...mapSiPartnerFields(r),
         breakdown,
         commodityQtyDisplay: totalQtyDisplay,
       };
@@ -247,6 +249,10 @@ router.get('/', async (req, res) => {
                   'company_id', si.company_id,
                   'company_name', mc.name,
                   'company_short_name', mc.short_name,
+                  'partner_name', si_partner.partner_name,
+                  'partner_si_document_url', si.partner_si_document_url,
+                  'partner_contract_document_url', si.partner_contract_document_url,
+                  'partner_bl_document_url', si.partner_bl_document_url,
                   'breakdown', (
                     SELECT COALESCE(
                       json_agg(
@@ -276,6 +282,7 @@ router.get('/', async (req, res) => {
             )
             FROM shipping_instructions si
             LEFT JOIN master_companies mc ON mc.id = si.company_id AND mc.deleted_at IS NULL
+            ${SI_PARTNER_SOURCE_JOIN}
             WHERE si.shipment_plan_id = sp.id AND si.deleted_at IS NULL
            ) AS si_children_json
     FROM shipment_plans sp

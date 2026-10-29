@@ -23,6 +23,7 @@ import {
   loadActiveMappedCompanyIds,
   pickCompanyId,
 } from '../lib/company-for-instruction.js';
+import { SI_PARTNER_SOURCE_JOIN, mapSiPartnerFields } from '../lib/si-partner-source.js';
 import { requireAuth } from '../middleware/auth.js';
 import { userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
 
@@ -79,6 +80,7 @@ const SI_FROM = `
   LEFT JOIN si_agents ag ON si.agent_id = ag.id AND ag.deleted_at IS NULL
   LEFT JOIN master_companies mc ON mc.id = si.company_id AND mc.deleted_at IS NULL
   LEFT JOIN users si_approver ON si_approver.id = spl.approved_by_user_id AND si_approver.deleted_at IS NULL
+  ${SI_PARTNER_SOURCE_JOIN}
 `;
 
 const SI_SELECT = `
@@ -109,7 +111,8 @@ const SI_SELECT = `
     mc.name AS company_name,
     mc.short_name AS company_short_name,
     si_approver.display_name AS approver_display_name,
-    si_approver.username AS approver_username
+    si_approver.username AS approver_username,
+    si_partner.partner_name
   ${SI_FROM}
 `;
 
@@ -1515,9 +1518,7 @@ function toSIList(row) {
     consigneeText: row.consignee_text ?? null,
     notifyPartyText: row.notify_party_text ?? null,
     blIndicated: row.bl_indicated ?? null,
-    partnerSiDocumentUrl: row.partner_si_document_url ?? null,
-    partnerContractDocumentUrl: row.partner_contract_document_url ?? null,
-    partnerBlDocumentUrl: row.partner_bl_document_url ?? null,
+    ...mapSiPartnerFields(row),
     documentDate: row.document_date ?? null,
     approvedByUserId: row.approved_by_user_id ?? null,
     approvedAt: row.approved_at ?? null,

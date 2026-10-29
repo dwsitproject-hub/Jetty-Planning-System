@@ -10,7 +10,10 @@ import {
 } from '../utils/loadingHubProcessStagesFromApi'
 import { getScheduleEntryTimeZone } from '../utils/scheduleDateTime.js'
 import { isInternalSiReference } from '../utils/internalSiReference.js'
+import { partnerDocumentLinks } from '../utils/partnerDocumentLinks'
+import { usePartnerDocsTitle } from '../hooks/usePartnerDocsTitle'
 import OperationActivityTimeline from './OperationActivityTimeline'
+import PartnerDocumentLinks from './PartnerDocumentLinks'
 import '../styles/modal.css'
 import '../styles/si-detail-modal.css'
 
@@ -55,6 +58,7 @@ function normalizeSiDetail(row) {
     consignee: row.consigneeText || '—',
     notifyParty: row.notifyPartyText || '—',
     blIndicated: row.blIndicated || '—',
+    partnerName: row.partnerName ?? null,
     partnerSiDocumentUrl: row.partnerSiDocumentUrl ?? null,
     partnerContractDocumentUrl: row.partnerContractDocumentUrl ?? null,
     partnerBlDocumentUrl: row.partnerBlDocumentUrl ?? null,
@@ -218,6 +222,9 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
     return t('operationSummaryComplete', { done, total })
   }
 
+  const partnerLinks = useMemo(() => partnerDocumentLinks(detail), [detail])
+  const partnerDocsTitle = usePartnerDocsTitle(detail?.partnerName)
+
   const hubBasePath = useMemo(() => {
     const p = normalizeHubPurpose(row?.purposeRaw ?? apiOpSnapshot?.purpose ?? '')
     return p === 'Unloading' ? '/unloading' : '/loading'
@@ -246,6 +253,12 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
           <p style={{ color: '#c00' }}>{error}</p>
         ) : detail ? (
           <div className="si-detail-modal__content">
+            {partnerLinks.length > 0 ? (
+              <section className="partner-docs partner-docs--card" aria-label={partnerDocsTitle}>
+                <h4 className="partner-docs__title">{partnerDocsTitle}</h4>
+                <PartnerDocumentLinks links={partnerLinks} />
+              </section>
+            ) : null}
             <dl className="si-detail-modal__grid">
               <dt>{t('dtSiNo')}</dt>
               <dd>
@@ -280,36 +293,6 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
               <dt>{t('dtConsignee')}</dt><dd className="si-detail-modal__pre">{emptyToDash(detail.consignee)}</dd>
               <dt>{t('dtNotifyParty')}</dt><dd className="si-detail-modal__pre">{emptyToDash(detail.notifyParty)}</dd>
               <dt>{t('dtBlIndicated')}</dt><dd className="si-detail-modal__pre">{emptyToDash(detail.blIndicated)}</dd>
-              <dt>{t('dtPartnerSiDocument')}</dt>
-              <dd>
-                {detail.partnerSiDocumentUrl ? (
-                  <a href={detail.partnerSiDocumentUrl} target="_blank" rel="noopener noreferrer">
-                    {t('partnerDocumentLinkOpen')}
-                  </a>
-                ) : (
-                  '—'
-                )}
-              </dd>
-              <dt>{t('dtPartnerContractDocument')}</dt>
-              <dd>
-                {detail.partnerContractDocumentUrl ? (
-                  <a href={detail.partnerContractDocumentUrl} target="_blank" rel="noopener noreferrer">
-                    {t('partnerDocumentLinkOpen')}
-                  </a>
-                ) : (
-                  '—'
-                )}
-              </dd>
-              <dt>{t('dtPartnerBlDocument')}</dt>
-              <dd>
-                {detail.partnerBlDocumentUrl ? (
-                  <a href={detail.partnerBlDocumentUrl} target="_blank" rel="noopener noreferrer">
-                    {t('partnerDocumentLinkOpen')}
-                  </a>
-                ) : (
-                  '—'
-                )}
-              </dd>
               <dt>{t('dtShipper')}</dt><dd>{emptyToDash(detail.shipper)}</dd>
               <dt>{t('dtLoadingPort')}</dt><dd>{emptyToDash(detail.loadingPort)}</dd>
               <dt>{t('dtSurveyor')}</dt><dd>{emptyToDash(detail.surveyor)}</dd>
