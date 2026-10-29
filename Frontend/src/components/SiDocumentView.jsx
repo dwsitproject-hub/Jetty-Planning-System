@@ -3,16 +3,15 @@ import '../styles/si-view.css'
 
 const SUMMARY_COLUMNS = 9
 
-function breakdownTotalsLabel(breakdown) {
+const formatQty = (n) => Number(n).toLocaleString('id-ID')
+
+function breakdownTotals(breakdown) {
   const totalsByUnit = breakdown.reduce((acc, row) => {
     const code = row.metricCode || '?'
     acc[code] = (acc[code] || 0) + (Number(row.qty) || 0)
     return acc
   }, {})
-  if (Object.keys(totalsByUnit).length === 0) return '—'
-  return Object.entries(totalsByUnit)
-    .map(([code, sum]) => `${Number(sum).toLocaleString('id-ID')} ${code}`)
-    .join(' · ')
+  return Object.entries(totalsByUnit).map(([code, sum]) => ({ code, sum }))
 }
 
 /**
@@ -20,7 +19,8 @@ function breakdownTotalsLabel(breakdown) {
  */
 export default function SiDocumentView({ si }) {
   const breakdown = si?.breakdown || []
-  const totalQtyLabel = breakdownTotalsLabel(breakdown)
+  const totals = breakdownTotals(breakdown)
+  const totalQtyLabel = totals.map(({ code, sum }) => `${formatQty(sum)} ${code}`).join(' · ') || '—'
   const shipperLines = getShipperLines(si)
 
   return (
@@ -85,7 +85,7 @@ export default function SiDocumentView({ si }) {
                   <td className="si-view-table__cell">{row.shipperName || '—'}</td>
                   <td className="si-view-table__cell">{row.commodityName || '—'}</td>
                   <td className="si-view-table__cell si-view-table__cell--num">
-                    {row.qty != null ? Number(row.qty).toLocaleString('id-ID') : '—'}
+                    {row.qty != null ? formatQty(row.qty) : '—'}
                   </td>
                   <td className="si-view-table__cell">{row.metricCode || '—'}</td>
                   <td className="si-view-table__cell">{row.contractNo || '—'}</td>
@@ -107,12 +107,16 @@ export default function SiDocumentView({ si }) {
                 ))}
               </tr>
             )}
-            <tr className="si-view-table__total">
-              <td colSpan={SUMMARY_COLUMNS - 1} className="si-view-table__cell si-view-table__cell--total-label">
-                TOTAL
-              </td>
-              <td className="si-view-table__cell si-view-table__cell--total">{totalQtyLabel}</td>
-            </tr>
+            {totals.map(({ code, sum }, i) => (
+              <tr key={code} className="si-view-table__total">
+                <td colSpan={2} className="si-view-table__cell si-view-table__cell--total-label">
+                  {i === 0 ? 'TOTAL' : ''}
+                </td>
+                <td className="si-view-table__cell si-view-table__cell--num">{formatQty(sum)}</td>
+                <td className="si-view-table__cell">{code}</td>
+                <td colSpan={SUMMARY_COLUMNS - 4} className="si-view-table__cell" />
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
