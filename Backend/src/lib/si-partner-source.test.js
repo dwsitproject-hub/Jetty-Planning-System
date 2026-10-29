@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { SI_PARTNER_SOURCE_JOIN, mapSiPartnerFields } from './si-partner-source.js';
+import { PLAN_PARTNER_SOURCE_JOIN, SI_PARTNER_SOURCE_JOIN, mapSiPartnerFields } from './si-partner-source.js';
 
 describe('si-partner-source', () => {
   it('maps the partner name and document URLs for a partner SI', () => {
@@ -32,5 +32,12 @@ describe('si-partner-source', () => {
     assert.match(SI_PARTNER_SOURCE_JOIN, /LEFT JOIN LATERAL/);
     assert.match(SI_PARTNER_SOURCE_JOIN, /ORDER BY isub\.id DESC\s+LIMIT 1/);
     assert.match(SI_PARTNER_SOURCE_JOIN, /isub\.shipping_instruction_id = si\.id/);
+  });
+
+  it('joins one submission per plan, keyed on shipment_plan_id, exposing sp_partner', () => {
+    assert.match(PLAN_PARTNER_SOURCE_JOIN, /LEFT JOIN LATERAL/);
+    assert.match(PLAN_PARTNER_SOURCE_JOIN, /isub\.shipment_plan_id = sp\.id/);
+    assert.match(PLAN_PARTNER_SOURCE_JOIN, /ORDER BY isub\.id DESC\s+LIMIT 1/);
+    assert.match(PLAN_PARTNER_SOURCE_JOIN, /\) sp_partner ON true/);
   });
 });

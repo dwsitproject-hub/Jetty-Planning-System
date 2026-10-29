@@ -12,7 +12,7 @@ import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notific
 import { triggerPartnerWebhooksDeferred } from '../lib/integration-webhooks.js';
 import { formatSiCargoDisplay } from '../lib/siBreakdownDisplay.js';
 import { companyLabel } from '../lib/company-for-instruction.js';
-import { SI_PARTNER_SOURCE_JOIN, mapSiPartnerFields } from '../lib/si-partner-source.js';
+import { PLAN_PARTNER_SOURCE_JOIN, SI_PARTNER_SOURCE_JOIN, mapSiPartnerFields } from '../lib/si-partner-source.js';
 import { validateDepartDocumentUrls } from '../lib/depart-document-url.js';
 import { validateCastOffAt } from '../lib/validate-cast-off.js';
 import { resolveUserRequestedBy } from '../lib/resolve-requested-by.js';
@@ -136,6 +136,7 @@ function toPlanListRow(row) {
     agentName: row.agent_name ?? null,
     externalReference: row.external_reference ?? null,
     requestedBy: row.requested_by ?? null,
+    partnerName: row.plan_partner_name ?? null,
     approvalStatus: row.approval_status,
     siCount,
     shippingInstructions,
@@ -233,6 +234,7 @@ router.get('/', async (req, res) => {
   let sql = `
     SELECT sp.*, j.name AS jetty_name, spp.code AS purpose_code,
            agp.name AS agent_name,
+           sp_partner.partner_name AS plan_partner_name,
            (SELECT COUNT(*)::int FROM shipping_instructions si
             WHERE si.shipment_plan_id = sp.id AND si.deleted_at IS NULL) AS si_count,
            (SELECT COALESCE(
@@ -289,6 +291,7 @@ router.get('/', async (req, res) => {
     LEFT JOIN jetties j ON j.id = sp.jetty_id AND j.deleted_at IS NULL
     LEFT JOIN si_purposes spp ON spp.id = sp.purpose_id AND spp.deleted_at IS NULL
     LEFT JOIN si_agents agp ON agp.id = sp.agent_id AND agp.deleted_at IS NULL
+    ${PLAN_PARTNER_SOURCE_JOIN}
     WHERE sp.port_id = $1 AND sp.deleted_at IS NULL`;
   const params = [selectedPortId];
   let i = 2;

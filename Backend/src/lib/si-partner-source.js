@@ -18,6 +18,20 @@ export const SI_PARTNER_SOURCE_JOIN = `
   ) si_partner ON true`;
 
 /**
+ * LATERAL join exposing `sp_partner.partner_name` for the `sp` shipment plan alias.
+ * Limited to one row (newest submission) so a plan is never duplicated by the join.
+ */
+export const PLAN_PARTNER_SOURCE_JOIN = `
+  LEFT JOIN LATERAL (
+    SELECT k.partner_name
+    FROM integration_submissions isub
+    JOIN integration_api_keys k ON k.id = isub.api_key_id
+    WHERE isub.shipment_plan_id = sp.id
+    ORDER BY isub.id DESC
+    LIMIT 1
+  ) sp_partner ON true`;
+
+/**
  * @param {Record<string, unknown>} row Row with partner_name and partner_*_document_url columns.
  * @returns {{
  *   partnerName: string | null,

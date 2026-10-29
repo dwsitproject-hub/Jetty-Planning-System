@@ -67,7 +67,7 @@ export default function SortableFilterableTableHead({
           const columnLabel = col.labelText || (typeof col.label === 'string' ? col.label : col.key)
           return (
           <th key={col.key} className={col.headerClassName || undefined}>
-            {col.filterType === 'select' ? (
+            {col.filterable === false ? null : col.filterType === 'select' ? (
               <ColumnSelectFilter
                 value={filters[col.key] ?? ''}
                 onChange={(value) => onFilterChange(col.key, value)}

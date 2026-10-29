@@ -13,6 +13,9 @@ import { useActivityLog } from '../context/ActivityLogContext'
 import PurposeBadge, { resolvePurposeLabel } from '../components/PurposeBadge'
 import SiDocumentModal from '../components/SiDocumentModal'
 import PartnerDocumentsCue from '../components/PartnerDocumentsCue'
+import PlansFilterBar from '../components/PlansFilterBar'
+import PlanSourcePill from '../components/PlanSourcePill'
+import { SOURCE_ALL, buildSourceChips, filterRowsBySource, planSourceSortValue } from '../utils/planSource'
 import VesselInfoModal, { VesselNameButton } from '../components/VesselInfoModal'
 import ShipmentPlanCombinedFormModal from '../components/ShipmentPlanCombinedFormModal'
 import { shippingInstructionRowLabel } from '../utils/siPlanLinkedDraft'
@@ -73,6 +76,7 @@ export default function ShipmentPlansList() {
   const [lookups, setLookups] = useState(null)
   const [approvalFilter, setApprovalFilter] = useState('')
   const [purposeFilter, setPurposeFilter] = useState('')
+  const [sourceFilter, setSourceFilter] = useState(SOURCE_ALL)
   const [vesselQ, setVesselQ] = useState('')
   const [debouncedVesselQ, setDebouncedVesselQ] = useState('')
   const [expandedId, setExpandedId] = useState(null)
@@ -80,7 +84,6 @@ export default function ShipmentPlansList() {
   const [expandLoading, setExpandLoading] = useState(false)
 
   const [combinedModal, setCombinedModal] = useState(null)
-  const [filtersOpen, setFiltersOpen] = useState(false)
   const [plansListPage, setPlansListPage] = useState(1)
   const [siDocumentModalId, setSiDocumentModalId] = useState(null)
   const [vesselInfoPlanId, setVesselInfoPlanId] = useState(null)
@@ -125,13 +128,18 @@ export default function ShipmentPlansList() {
     loadList()
   }, [loadList, canView])
 
+  const sourceChips = useMemo(() => buildSourceChips(list, sourceFilter), [list, sourceFilter])
+  const sourceFilteredList = useMemo(() => filterRowsBySource(list, sourceFilter), [list, sourceFilter])
+
   const summary = useMemo(() => {
-    const total = list.length
-    const pending = list.filter((r) => r.approvalStatus === 'Submitted').length
-    const approved = list.filter((r) => r.approvalStatus === 'Approved').length
-    const draft = list.filter((r) => r.approvalStatus === 'Draft' || r.approvalStatus === 'Rejected').length
+    const total = sourceFilteredList.length
+    const pending = sourceFilteredList.filter((r) => r.approvalStatus === 'Submitted').length
+    const approved = sourceFilteredList.filter((r) => r.approvalStatus === 'Approved').length
+    const draft = sourceFilteredList.filter(
+      (r) => r.approvalStatus === 'Draft' || r.approvalStatus === 'Rejected'
+    ).length
     return { total, pending, approved, draft }
-  }, [list])
+  }, [sourceFilteredList])
 
   const planTableColumns = useMemo(
     () => [
@@ -140,6 +148,12 @@ export default function ShipmentPlansList() {
         label: t('colPlanRef'),
         getSortValue: (r) => planRefLabel(r).toLowerCase(),
         getFilterValue: (r) => planRefLabel(r),
+      },
+      {
+        key: 'source',
+        label: t('colSource'),
+        filterable: false,
+        getSortValue: planSourceSortValue,
       },
       {
         key: 'vessel',
@@ -235,11 +249,11 @@ export default function ShipmentPlansList() {
     updateFilter,
     sortState,
     handleSort,
-  } = useSortableFilterableRows(list, planTableColumns, { key: 'createdAt', dir: 'desc' })
+  } = useSortableFilterableRows(sourceFilteredList, planTableColumns, { key: 'createdAt', dir: 'desc' })
 
   useEffect(() => {
     setPlansListPage(1)
-  }, [filters, sortState.key, sortState.dir, approvalFilter, purposeFilter, debouncedVesselQ])
+  }, [filters, sortState.key, sortState.dir, approvalFilter, purposeFilter, debouncedVesselQ, sourceFilter])
 
   const plansListTotalPages = useMemo(
     () => Math.max(1, Math.ceil(filteredAndSortedPlans.length / PLANS_LIST_PAGE_SIZE)),
@@ -411,75 +425,23 @@ export default function ShipmentPlansList() {
         </div>
       </div>
 
-      <div className="si-toolbar si-toolbar--actions-only">
-        <div className="si-toolbar__actions">
-          <button
-            type="button"
-            className={`btn btn--secondary si-toolbar__btn ${filtersOpen ? 'si-toolbar__btn--active' : ''}`}
-            onClick={() => setFiltersOpen((o) => !o)}
-          >
-            🔽 {t('filters')}
-          </button>
-        </div>
-      </div>
-
-      {filtersOpen && (
-        <div className="si-filters-panel">
-          <div className="si-filters-panel__row">
-            <label className="si-filters-panel__label">{t('filterApproval')}</label>
-            <select
-              className="si-filters-panel__select"
-              value={approvalFilter}
-              onChange={(e) => setApprovalFilter(e.target.value)}
-            >
-              <option value="">{t('filterAll')}</option>
-              <option value="Draft">Draft</option>
-              <option value="Submitted">Submitted</option>
-              <option value="Approved">Approved</option>
-              <option value="Rejected">Rejected</option>
-            </select>
-          </div>
-          <div className="si-filters-panel__row">
-            <label className="si-filters-panel__label">{t('filterVessel')}</label>
-            <input
-              type="search"
-              className="si-filters-panel__select"
-              value={vesselQ}
-              onChange={(e) => setVesselQ(e.target.value)}
-              placeholder={t('filterVessel')}
-            />
-          </div>
-          <div className="si-filters-panel__row">
-            <label className="si-filters-panel__label">{t('filterPanelPurpose')}</label>
-            <select
-              className="si-filters-panel__select"
-              value={purposeFilter}
-              onChange={(e) => setPurposeFilter(e.target.value)}
-              disabled={!lookups?.purposes?.length}
-            >
-              <option value="">{t('filterAll')}</option>
-              {(lookups?.purposes || []).map((p) => (
-                <option key={p.id} value={String(p.id)}>
-                  {p.label || p.code || `Purpose ${p.id}`}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="si-filters-panel__row si-filters-panel__row--reset">
-            <button
-              type="button"
-              className="btn btn--secondary"
-              onClick={() => {
-                setApprovalFilter('')
-                setPurposeFilter('')
-                setVesselQ('')
-              }}
-            >
-              {t('reset')}
-            </button>
-          </div>
-        </div>
-      )}
+      <PlansFilterBar
+        sourceChips={sourceChips}
+        sourceFilter={sourceFilter}
+        onSourceChange={setSourceFilter}
+        approval={approvalFilter}
+        onApprovalChange={setApprovalFilter}
+        vesselQ={vesselQ}
+        onVesselChange={setVesselQ}
+        purpose={purposeFilter}
+        onPurposeChange={setPurposeFilter}
+        purposes={lookups?.purposes}
+        onClear={() => {
+          setApprovalFilter('')
+          setPurposeFilter('')
+          setVesselQ('')
+        }}
+      />
 
       <section className="card" style={{ marginTop: 'var(--spacing-3)' }}>
         <h2 className="card__title">{t('tableSectionTitle')}</h2>
@@ -505,7 +467,11 @@ export default function ShipmentPlansList() {
                 </tr>
               ) : (
                 paginatedFilteredPlans.map((row) => (
-                <tr key={row.id} className="shipping-instruction-table__row">
+                <tr
+                  key={row.id}
+                  className="shipping-instruction-table__row"
+                  data-source={row.partnerName ? 'partner' : undefined}
+                >
                   <td className="si-table__col-actions" onClick={(e) => e.stopPropagation()}>
                     <ShipmentPlanRowActions
                       plan={row}
@@ -542,6 +508,9 @@ export default function ShipmentPlansList() {
                     />
                   </td>
                   <td>{row.planReference || `Plan #${row.id}`}</td>
+                  <td>
+                    <PlanSourcePill row={row} />
+                  </td>
                   <td>
                     <VesselNameButton name={row.vesselName} onClick={() => setVesselInfoPlanId(row.id)} />
                     {row.vesselLinkStatus === 'legacy' ? (
@@ -621,12 +590,18 @@ export default function ShipmentPlansList() {
             <p className="text-steel">{t('noRowsMatch')}</p>
           ) : (
             paginatedFilteredPlans.map((row) => (
-            <article key={`plan-mobile-${row.id}`} className="allocation-mobile-card">
+            <article
+              key={`plan-mobile-${row.id}`}
+              className="allocation-mobile-card"
+              data-source={row.partnerName ? 'partner' : undefined}
+            >
               <header className="allocation-mobile-card__header">
                 <strong>{row.planReference || `Plan #${row.id}`}</strong>
                 <span className={approvalBadgeClass(row.approvalStatus)}>{row.approvalStatus}</span>
               </header>
               <dl className="allocation-mobile-card__grid">
+                <dt>{t('colSource')}</dt>
+                <dd><PlanSourcePill row={row} /></dd>
                 <dt>{t('colVessel')}</dt>
                 <dd>
                   {row.vesselName || '—'}
