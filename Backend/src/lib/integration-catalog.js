@@ -1,12 +1,16 @@
 /**
- * Partner integration API — self-describing catalog (v5.6).
+ * Partner integration API — self-describing catalog (v5.7).
  * Mirrors the DataHub `GET /v1/catalog` pattern: lets partners discover which
  * entities they may call and their field contract at runtime, instead of
  * relying only on the static handoff doc.
  * Contract: Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md.
  */
 import { WEBHOOK_EVENT_TYPES, MAX_ACTIVE_WEBHOOKS_PER_KEY } from './integration-webhooks.js';
-import { listValidSurveyorNames, listValidTradeTermCodes } from './integration-master-data.js';
+import {
+  PARTNER_STATUSES,
+  listValidSurveyorNames,
+  listValidTradeTermCodes,
+} from './integration-master-data.js';
 import {
   listActiveCommodityHubCodes,
   listActivePortHubCodes,
@@ -15,11 +19,10 @@ import {
   listPortsForCatalog,
 } from './integration-hub-resolve.js';
 
-export const INTEGRATION_CATALOG_VERSION = '5.6';
+export const INTEGRATION_CATALOG_VERSION = '5.7';
 
 const VALID_PURPOSES = ['Loading', 'Unloading'];
 const VALID_UNITS = ['MT', 'KL'];
-const PARTNER_STATUSES = ['Pending', 'Approved', 'Rejected', 'Deleted', 'Allocated', 'Sailed'];
 const APPROVAL_STATUSES = ['Submitted', 'Approved', 'Rejected', 'Deleted'];
 
 function field(key, type, opts = {}) {
@@ -66,7 +69,7 @@ function shippingInstructionResponseFields() {
       description: 'Latest plan, instruction, or operation change. GET and webhook data.',
     }),
     readOnly('etr_minutes', 'NUMBER', {
-      description: 'Minutes from now until schedule.etc. Null when status is Sailed or etc is empty. GET and webhook data.',
+      description: 'Minutes from now until schedule.etc. Null when status is Sailed Off or etc is empty. GET and webhook data.',
     }),
     readOnly('rejection_reason', 'STRING', {
       description:
@@ -75,11 +78,11 @@ function shippingInstructionResponseFields() {
     readOnly('status', 'STRING', {
       enumValues: PARTNER_STATUSES,
       description:
-        'Partner lifecycle on the 201 response, GET, and status.changed. Deleted means an operator removed the shipment plan. The same external_reference stays used (POST returns 409). Send the next revision as a new external_reference.',
+        'Partner lifecycle on the 201 response, GET, and status.changed. After approval the stages are Allocated (jetty assigned), Berthed (schedule.tb set), Start Cargo (schedule.cargo_ops_start_at set), Cargo Done (schedule.cargo_done_at set), and Sailed Off (vessel cast off). A stage can move back if an operator clears the time that set it. Deleted means an operator removed the shipment plan. The same external_reference stays used (POST returns 409). Send the next revision as a new external_reference.',
     }),
     readOnly('approval', 'OBJECT', {
       description:
-        'GET and webhook data. approval.status is Submitted while partner status is Pending. It does not become Allocated or Sailed.',
+        'GET and webhook data. approval.status is Submitted while partner status is Pending. It does not follow the later partner stages (Allocated through Sailed Off).',
       items: [
         readOnly('status', 'STRING', {
           enumValues: APPROVAL_STATUSES,
@@ -106,10 +109,14 @@ function shippingInstructionResponseFields() {
         readOnly('sailed_at', 'DATETIME'),
         readOnly('cargo_ops_start_at', 'DATETIME', { description: 'Hose On. Cargo Operations window start.' }),
         readOnly('cargo_ops_end_at', 'DATETIME', { description: 'Hose Off. Cargo Operations window end.' }),
+        readOnly('cargo_done_at', 'DATETIME', {
+          description:
+            'Cargo Done. Latest end among cargo operations, final inspection, and final sounding (same as the JPS management dashboard). Null while a cargo operations segment is still open.',
+        }),
       ],
     }),
     readOnly('allocation', 'OBJECT', {
-      description: 'Null until status is Allocated or Sailed. GET and webhook data.',
+      description: 'Null until status is Allocated (also set for Berthed, Start Cargo, Cargo Done, and Sailed Off). GET and webhook data.',
       items: [
         readOnly('jetty_name', 'STRING'),
         readOnly('jetty_code', 'STRING', {

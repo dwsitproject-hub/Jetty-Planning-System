@@ -361,6 +361,21 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 **UI:** components under `Frontend/src/components/partner-integrations/`: health strip (24 h numbers and a no-webhook warning), Activity card with **Webhook deliveries** and **API requests** tabs, scope switch (this partner or all partners), time presets, status chips, search, optional 30 s auto-refresh, expandable rows. The Webhooks table's **Activity** link opens the Webhook tab filtered to that endpoint. The partner list shows a failed-webhook badge.
 
+### 0.45 Partner status stages (v5.7) (2026-10-29)
+
+**Purpose:** Partners see where the vessel is, using the same stages as the Management Dashboard. Replaces `Allocated` / `Sailed` with `Allocated`, `Berthed`, `Start Cargo`, `Cargo Done`, `Sailed Off`. Header and catalog **`5.7`**. Breaking for clients that match on `Sailed`.
+
+**Rules** ([`deriveExternalStatus`](Backend/src/lib/integration-master-data.js)): Deleted, Rejected, then **`Sailed Off`** when `operations.status = 'SAILED'`. For an operation that is not `PENDING`: **`Cargo Done`** when `op_cargo_done_at` is set; **`Start Cargo`** when the cargo window start is set; **`Berthed`** when TB (or docking start) is set; otherwise **`Allocated`**. `IN_PROGRESS` and `POST_OPS` are not used: any operational activity sets the first, and the first final-check save sets the second. Stages move back when the time that set them is cleared. `PARTNER_STATUSES` is the single list (catalog imports it).
+
+**Cargo Done:** `PARTNER_CARGO_DONE_SUBSELECT` returns the latest of `operation_operational_activities.end_at` (`cargo_operations`) and `COALESCE(end_at, start_at, occurred_at)` of `operation_sub_processes` with keys `final_inspection`, `final_tank_inspection`, `final_hold_inspection`, `final_sounding`. It matches `cargoDoneAtFromTimeline` in `Frontend/src/utils/managementDashboardCargoDone.js` (a test compares the key sets). It returns NULL while any `cargo_operations` activity has no `end_at`. Exposed as `schedule.cargo_done_at`. `allocation` is returned for every stage from Allocated onward, and `etr_minutes` stops at Sailed Off.
+
+**Webhooks** ([`integration-webhooks.js`](Backend/src/lib/integration-webhooks.js)):
+- A `schedule.updated` request also evaluates `status.changed` (`expandWebhookEventTypes`), so arrival save, cargo window changes, allocate, sign-off and depart need no route edits.
+- `status.changed` is skipped for an endpoint when its latest `status.changed` delivery for that instruction already carries the same `data.status`. The first one always sends. Migration **`140_integration_webhook_status_lookup_index.sql`** indexes `(endpoint_id, si_id, id DESC)` for that lookup.
+- Final inspection and final sounding save, delete and N/A in [`operation-sub-processes.js`](Backend/src/routes/operation-sub-processes.js) call `triggerPartnerScheduleIfCargoDoneChanged`, which pushes only when `cargo_done_at` moved. Cargo window edits in `operation-operational-activities.js` also push when `cargo_done_at` moves (`resolvePartnerCargoOpsWindow` returns `doneAt`).
+
+**Rollout:** KLIP must accept the new values before this ships. After deploy, the first `status.changed` for an instruction past Allocated fires because the last delivery carries the old status.
+
 ### 0.32 Overview tables — Commodity Qty column (`siBreakdownDisplay`) (2026-05-26)
 
 **Purpose:** Show **SI-declared cargo** (commodity name + quantity per breakdown line) in main overview tables without opening SI modals. A single **Commodity Qty** column replaces a separate **Commodity** + **Total Qty** pair because each cell already embeds the commodity name (e.g. `RPO 5.000 MT`).

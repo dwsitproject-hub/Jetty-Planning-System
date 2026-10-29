@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
-import { enqueueIntegrationWebhookEvents } from './integration-webhooks.js';
+import { enqueueIntegrationWebhookEvents, expandWebhookEventTypes } from './integration-webhooks.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const routesDir = path.resolve(__dirname, '../routes');
@@ -56,6 +56,9 @@ describe('integration-webhook-hooks', () => {
         if (sql.includes('integration_webhook_endpoints')) {
           return { rows: [{ id: 7, events: ['status.changed'] }] };
         }
+        if (sql.includes('FROM integration_webhook_deliveries')) {
+          return { rows: [] };
+        }
         if (sql.includes('INSERT INTO integration_webhook_deliveries')) {
           inserts.push({ sql, params });
           return { rows: [] };
@@ -94,6 +97,9 @@ describe('integration-webhook-hooks', () => {
         }
         if (sql.includes('integration_webhook_endpoints')) {
           return { rows: [{ id: 7, events: ['status.changed'] }] };
+        }
+        if (sql.includes('FROM integration_webhook_deliveries')) {
+          return { rows: [] };
         }
         if (sql.includes('INSERT INTO integration_webhook_deliveries')) {
           captured.push(params);
@@ -154,10 +160,76 @@ describe('integration-webhook-hooks', () => {
 
   it('operational-activities route triggers partner schedule webhook for cargo_operations', () => {
     const src = readFileSync(path.join(routesDir, 'operation-operational-activities.js'), 'utf8');
-    assert.ok(src.includes('triggerPartnerWebhooksDeferred'));
     assert.ok(src.includes('triggerPartnerScheduleWebhookForOperation'));
     assert.ok(src.includes('resolvePartnerCargoOpsWindow'));
     assert.ok(src.includes('partnerCargoOpsWindowScheduleChanged'));
+    assert.match(src, /before\.doneAt/);
     assert.match(src, /milestoneKey === 'cargo_operations'/);
+  });
+
+  it('sub-process route pushes a schedule webhook only when a final check moves Cargo Done', () => {
+    const src = readFileSync(path.join(routesDir, 'operation-sub-processes.js'), 'utf8');
+    assert.match(src, /triggerPartnerScheduleIfCargoDoneChanged\(operationId, cargoDoneBefore\)/);
+    assert.equal(src.match(/triggerPartnerScheduleIfCargoDoneChanged\(operationId, cargoDoneBefore\)/g).length, 2);
+    assert.match(src, /POST_CHECK_AUTO_KEYS\.has\(key\) \? await resolvePartnerCargoOpsWindow/);
+  });
+
+  describe('status.changed dedupe', () => {
+    /** @param {Array<string | null>} lastStatuses statuses carried by the last status.changed delivery */
+    function dedupeDb(row, lastStatus) {
+      const inserts = [];
+      return {
+        inserts,
+        db: {
+          query: async (sql, params) => {
+            if (sql.includes('FROM integration_submissions') || sql.includes('shipping_instructions si')) {
+              return { rows: [row] };
+            }
+            if (sql.includes('integration_webhook_endpoints')) {
+              return { rows: [{ id: 7, events: ['*'] }] };
+            }
+            if (sql.includes('FROM integration_webhook_deliveries')) {
+              return { rows: lastStatus ? [{ status: lastStatus }] : [] };
+            }
+            if (sql.includes('INSERT INTO integration_webhook_deliveries')) {
+              inserts.push(params[2]);
+              return { rows: [] };
+            }
+            throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+          },
+        },
+      };
+    }
+
+    it('expandWebhookEventTypes adds status.changed to a schedule change', () => {
+      assert.deepEqual(expandWebhookEventTypes(['schedule.updated']), ['schedule.updated', 'status.changed']);
+      assert.deepEqual(expandWebhookEventTypes(['status.changed']), ['status.changed']);
+      assert.deepEqual(expandWebhookEventTypes(['bogus']), []);
+      assert.deepEqual(expandWebhookEventTypes(undefined), []);
+    });
+
+    it('sends status.changed with schedule.updated when the stage changed', async () => {
+      const row = fakeSubmissionRow({ approval_status: 'Approved', op_status: 'DOCKED', op_tb: '2026-10-02T10:00:00.000Z' });
+      const { db, inserts } = dedupeDb(row, 'Allocated');
+      const n = await enqueueIntegrationWebhookEvents(db, { shippingInstructionId: 42, eventTypes: ['schedule.updated'] });
+      assert.equal(n, 2);
+      assert.deepEqual(inserts, ['schedule.updated', 'status.changed']);
+    });
+
+    it('skips status.changed when the last one already carried this status, but still sends schedule.updated', async () => {
+      const row = fakeSubmissionRow({ approval_status: 'Approved', op_status: 'DOCKED', op_tb: '2026-10-02T10:00:00.000Z' });
+      const { db, inserts } = dedupeDb(row, 'Berthed');
+      const n = await enqueueIntegrationWebhookEvents(db, { shippingInstructionId: 42, eventTypes: ['schedule.updated'] });
+      assert.equal(n, 1);
+      assert.deepEqual(inserts, ['schedule.updated']);
+    });
+
+    it('always sends the first status.changed for an instruction', async () => {
+      const row = fakeSubmissionRow({ approval_status: 'Approved' });
+      const { db, inserts } = dedupeDb(row, null);
+      const n = await enqueueIntegrationWebhookEvents(db, { shipmentPlanId: 42, eventTypes: ['status.changed'] });
+      assert.equal(n, 1);
+      assert.deepEqual(inserts, ['status.changed']);
+    });
   });
 });

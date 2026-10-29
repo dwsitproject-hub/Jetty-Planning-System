@@ -124,3 +124,17 @@ Partners map industry labels to fields in webhook/GET **`data.schedule`**:
 | Vessel sailed | `cast_off_at`, `sailed_at` | Clearance / depart — not Hose Off |
 
 **`schedule.updated`** fires when these schedule fields change (including Cargo Operations window start/end on create/update/delete). Load-segment-only edits do not change Hose On/Off.
+
+## Partner status stages (v5.7)
+
+The partner `status` follows the vessel, derived from the same times as the Management Dashboard:
+
+| Status | Set when |
+|--------|----------|
+| `Allocated` | Jetty assigned, TB not set |
+| `Berthed` | TB set |
+| `Start Cargo` | Cargo Operations window start saved (`cargo_ops_start_at`) |
+| `Cargo Done` | Latest end among Cargo Operations, final inspection and final sounding (`cargo_done_at`). Stays empty while any cargo segment is open. |
+| `Sailed Off` | Depart recorded |
+
+Each change sends **`status.changed`**, once per status. In **Activity**, a `status.changed` row whose expanded payload shows the next stage is the proof that the partner was told. Hose Off (`cargo_ops_end_at`) comes before Cargo Done when final checks follow the hoses. Clearing a time (for example TB) moves the stage back and sends a new `status.changed`.

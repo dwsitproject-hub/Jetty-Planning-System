@@ -26,6 +26,53 @@ describe('integration-partner-payload', () => {
     assert.equal(schedule.cargo_ops_end_at, '2026-09-28T18:00:00.000Z');
   });
 
+  it('buildPartnerSchedule includes cargo_done_at', () => {
+    const schedule = buildPartnerSchedule({ op_cargo_done_at: '2026-09-28T20:30:00.000Z' });
+    assert.equal(schedule.cargo_done_at, '2026-09-28T20:30:00.000Z');
+    assert.equal(buildPartnerSchedule({}).cargo_done_at, null);
+  });
+
+  it('keeps the allocation block for every stage from Allocated to Sailed Off and stops etr at Sailed Off', () => {
+    const base = {
+      si_id: 5,
+      external_reference: 'R5',
+      received_at: '2026-09-25T01:00:00.000Z',
+      last_updated_at: '2026-09-25T02:00:00.000Z',
+      approval_status: 'Approved',
+      vessel_name: 'V',
+      port_id: 1,
+      payload: {},
+      jetty_name: 'Jetty 2B',
+      jetty_short_name: '2B',
+      sp_etc: '2099-01-01T00:00:00.000Z',
+    };
+    const cases = [
+      ['Allocated', { op_status: 'ALLOCATED' }],
+      ['Berthed', { op_status: 'DOCKED', op_tb: '2026-10-02T10:00:00.000Z' }],
+      [
+        'Start Cargo',
+        { op_status: 'IN_PROGRESS', op_tb: '2026-10-02T10:00:00.000Z', op_cargo_ops_window_start_at: '2026-10-02T12:00:00.000Z' },
+      ],
+      [
+        'Cargo Done',
+        {
+          op_status: 'POST_OPS',
+          op_tb: '2026-10-02T10:00:00.000Z',
+          op_cargo_ops_window_start_at: '2026-10-02T12:00:00.000Z',
+          op_cargo_done_at: '2026-10-03T06:00:00.000Z',
+        },
+      ],
+      ['Sailed Off', { op_status: 'SAILED' }],
+    ];
+    for (const [status, extra] of cases) {
+      const payload = buildPartnerInstructionPayload({ ...base, ...extra });
+      assert.equal(payload.status, status);
+      assert.equal(payload.allocation?.jetty_code, '2B', status);
+      if (status === 'Sailed Off') assert.equal(payload.etr_minutes, null);
+      else assert.ok(payload.etr_minutes > 0, status);
+    }
+  });
+
   it('buildPartnerInstructionPayload includes approval and plan_reference', () => {
     const payload = buildPartnerInstructionPayload({
       si_id: 10,
@@ -44,7 +91,7 @@ describe('integration-partner-payload', () => {
       jetty_short_name: '1A',
       op_docking_start_time: '2026-10-02T10:00:00.000Z',
     });
-    assert.equal(payload.status, 'Allocated');
+    assert.equal(payload.status, 'Berthed');
     assert.equal(payload.plan_reference, 'SP-26-09-00010');
     assert.equal(payload.approval.status, 'Approved');
     assert.equal(payload.allocation?.jetty_code, '1A');

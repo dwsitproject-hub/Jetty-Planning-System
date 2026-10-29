@@ -1,6 +1,6 @@
 /**
  * Partner integration API — enriched status + schedule payload (GET + webhooks).
- * Contract: Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md v5.6
+ * Contract: Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md v5.7
  */
 import { deriveExternalStatus, isPartnerSubmissionDeleted } from './integration-master-data.js';
 
@@ -35,6 +35,8 @@ export function buildPartnerSchedule(row) {
     cargo_ops_start_at: timestampToIso(row.op_cargo_ops_window_start_at),
     /** ATC / Hose Off — Cargo Operations operation window end (partner alias). */
     cargo_ops_end_at: timestampToIso(row.op_cargo_ops_window_end_at),
+    /** Cargo Done — latest end of cargo operations and final checks (management dashboard rule). */
+    cargo_done_at: timestampToIso(row.op_cargo_done_at),
   };
 }
 
@@ -64,9 +66,12 @@ function buildPartnerApproval(row) {
   };
 }
 
+/** Stages from jetty assignment onward carry the allocation block. */
+const ALLOCATED_STAGES = new Set(['Allocated', 'Berthed', 'Start Cargo', 'Cargo Done', 'Sailed Off']);
+
 /** @param {Record<string, unknown>} row @param {string} status */
 function buildPartnerAllocation(row, status) {
-  if (status !== 'Allocated' && status !== 'Sailed') return null;
+  if (!ALLOCATED_STAGES.has(status)) return null;
   const berthing = coalesceTs(
     row.op_docking_start_time,
     row.sp_docking_start_time,
@@ -91,7 +96,7 @@ export function buildPartnerInstructionPayload(row) {
   const status = deriveExternalStatus(row);
   const schedule = buildPartnerSchedule(row);
   let etrMinutes = null;
-  if (schedule.etc && status !== 'Sailed') {
+  if (schedule.etc && status !== 'Sailed Off') {
     const etcMs = new Date(schedule.etc).getTime();
     const diff = Math.ceil((etcMs - Date.now()) / 60_000);
     if (Number.isFinite(diff)) etrMinutes = Math.max(0, diff);

@@ -46,7 +46,7 @@ function fakeDb() {
 describe('integration-catalog', () => {
   it('builds entities with live enum values (v5.3 hub-only POST)', async () => {
     const catalog = await buildIntegrationCatalog(fakeDb());
-    assert.equal(catalog.api_version, '5.6');
+    assert.equal(catalog.api_version, '5.7');
     assert.ok(catalog.count >= 8);
 
     const si = catalog.entities.find((e) => e.slug === 'shipping-instruction');
@@ -80,7 +80,10 @@ describe('integration-catalog', () => {
       'Rejected',
       'Deleted',
       'Allocated',
-      'Sailed',
+      'Berthed',
+      'Start Cargo',
+      'Cargo Done',
+      'Sailed Off',
     ]);
     const approval = si.fields.find((f) => f.key === 'approval');
     assert.equal(approval.type, 'OBJECT');
@@ -91,6 +94,7 @@ describe('integration-catalog', () => {
     const schedule = si.fields.find((f) => f.key === 'schedule');
     assert.ok(schedule.items.find((f) => f.key === 'cargo_ops_start_at'));
     assert.ok(schedule.items.find((f) => f.key === 'cargo_ops_end_at'));
+    assert.ok(schedule.items.find((f) => f.key === 'cargo_done_at'));
     assert.ok(schedule.items.find((f) => f.key === 'cast_off_at'));
     const allocation = si.fields.find((f) => f.key === 'allocation');
     assert.ok(allocation.items.find((f) => f.key === 'jetty_code'));

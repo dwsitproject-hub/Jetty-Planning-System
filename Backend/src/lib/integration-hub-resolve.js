@@ -1,6 +1,6 @@
 /**
  * Partner integration API — resolve port / commodity / company hub codes to internal ids.
- * Contract: Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md v5.6.
+ * Contract: Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md v5.7.
  */
 
 import { pickCompanyId } from './company-for-instruction.js';

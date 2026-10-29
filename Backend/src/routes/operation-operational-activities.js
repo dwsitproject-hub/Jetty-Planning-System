@@ -28,7 +28,7 @@ import {
   getSiCommodityOptionsForOperation,
   normalizeLoadLineCommodityId,
 } from '../lib/si-commodity-options.js';
-import { triggerPartnerWebhooksDeferred } from '../lib/integration-webhooks.js';
+import { triggerPartnerScheduleWebhookForOperation } from '../lib/integration-webhooks.js';
 import { resolvePartnerCargoOpsWindow } from '../lib/integration-master-data.js';
 
 const router = express.Router();
@@ -59,21 +59,9 @@ function partnerCargoOpsWindowScheduleChanged(before, after) {
   if (!before || !after) return false;
   return (
     partnerScheduleInstantIso(before.startAt) !== partnerScheduleInstantIso(after.startAt) ||
-    partnerScheduleInstantIso(before.endAt) !== partnerScheduleInstantIso(after.endAt)
+    partnerScheduleInstantIso(before.endAt) !== partnerScheduleInstantIso(after.endAt) ||
+    partnerScheduleInstantIso(before.doneAt) !== partnerScheduleInstantIso(after.doneAt)
   );
-}
-
-async function triggerPartnerScheduleWebhookForOperation(operationId) {
-  const r = await pool.query(
-    `SELECT shipping_instruction_id FROM operations WHERE id = $1 AND deleted_at IS NULL`,
-    [operationId]
-  );
-  const siId = r.rows[0]?.shipping_instruction_id;
-  if (siId == null) return;
-  triggerPartnerWebhooksDeferred({
-    shippingInstructionId: Number(siId),
-    eventTypes: ['schedule.updated'],
-  });
 }
 
 function operationalActivityTitle(milestoneKey) {

@@ -8,6 +8,7 @@ import { buildPartnerInstructionPayload } from './integration-partner-payload.js
 import {
   PARTNER_SUBMISSION_BY_PLAN_SQL,
   PARTNER_SUBMISSION_BY_SI_SQL,
+  resolvePartnerCargoOpsWindow,
 } from './integration-master-data.js';
 import { decryptSmtpPassword, encryptSmtpPassword } from './smtp-config.js';
 
@@ -209,12 +210,39 @@ async function loadSubmissionRows(db, { shipmentPlanId, shippingInstructionId })
 }
 
 /**
+ * Valid event types for an enqueue request. A schedule change also evaluates `status.changed`,
+ * because partner stages (Berthed, Start Cargo, Cargo Done, ...) follow schedule timestamps.
+ * @param {string[] | undefined} requested
+ */
+export function expandWebhookEventTypes(requested) {
+  const types = (requested ?? []).filter((e) => WEBHOOK_EVENT_TYPES.includes(e));
+  if (types.includes('schedule.updated') && !types.includes('status.changed')) {
+    types.push('status.changed');
+  }
+  return types;
+}
+
+/** Partner status carried by the latest status.changed delivery for this endpoint and instruction. */
+async function lastQueuedStatus(db, endpointId, siId) {
+  const r = await db.query(
+    `SELECT payload->'data'->>'status' AS status
+     FROM integration_webhook_deliveries
+     WHERE endpoint_id = $1 AND si_id = $2 AND event_type = 'status.changed'
+     ORDER BY id DESC
+     LIMIT 1`,
+    [endpointId, siId]
+  );
+  return r.rows[0]?.status ?? null;
+}
+
+/**
  * Enqueue webhook deliveries for integration submissions tied to a plan or SI.
+ * `status.changed` is skipped for an endpoint when its last one already carried the same status.
  * @param {import('pg').Pool} db
  * @param {{ shipmentPlanId?: number, shippingInstructionId?: number, eventTypes: string[] }} opts
  */
 export async function enqueueIntegrationWebhookEvents(db, opts) {
-  const eventTypes = (opts.eventTypes ?? []).filter((e) => WEBHOOK_EVENT_TYPES.includes(e));
+  const eventTypes = expandWebhookEventTypes(opts.eventTypes);
   if (eventTypes.length === 0) return 0;
 
   const rows = await loadSubmissionRows(db, opts);
@@ -240,6 +268,12 @@ export async function enqueueIntegrationWebhookEvents(db, opts) {
       };
       for (const ep of endpoints.rows) {
         if (!endpointAcceptsEvent(ep.events, eventType)) continue;
+        if (
+          eventType === 'status.changed' &&
+          (await lastQueuedStatus(db, ep.id, Number(row.si_id))) === data.status
+        ) {
+          continue;
+        }
         await db.query(
           `INSERT INTO integration_webhook_deliveries (
              endpoint_id, delivery_id, event_type, si_id, external_reference, payload, status, next_attempt_at
@@ -267,6 +301,40 @@ export function triggerPartnerWebhooksDeferred(opts) {
       console.error('[integration-webhooks] enqueue failed:', err?.message || err);
     });
   });
+}
+
+/**
+ * Push `schedule.updated` (and the derived status change) for the instruction behind an operation.
+ * @param {number} operationId
+ */
+export async function triggerPartnerScheduleWebhookForOperation(operationId) {
+  const r = await pool.query(
+    `SELECT shipping_instruction_id FROM operations WHERE id = $1 AND deleted_at IS NULL`,
+    [operationId]
+  );
+  const siId = r.rows[0]?.shipping_instruction_id;
+  if (siId == null) return;
+  triggerPartnerWebhooksDeferred({
+    shippingInstructionId: Number(siId),
+    eventTypes: ['schedule.updated'],
+  });
+}
+
+function instantMs(v) {
+  if (v == null || v === '') return null;
+  const t = new Date(v).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+/**
+ * After a final check changes, push only when the partner Cargo Done instant actually moved.
+ * @param {number} operationId
+ * @param {{ doneAt?: Date | string | null } | null} before result of resolvePartnerCargoOpsWindow before the change
+ */
+export async function triggerPartnerScheduleIfCargoDoneChanged(operationId, before) {
+  const after = await resolvePartnerCargoOpsWindow(pool, operationId);
+  if (instantMs(before?.doneAt) === instantMs(after.doneAt)) return;
+  await triggerPartnerScheduleWebhookForOperation(operationId);
 }
 
 /** @param {import('pg').Pool} db @param {number} limit */
