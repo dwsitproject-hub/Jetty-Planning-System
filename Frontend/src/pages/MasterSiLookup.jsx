@@ -9,7 +9,7 @@ import { fetchSiLookups } from '../api/siLookups'
 import '../styles/allocation.css'
 import '../styles/modal.css'
 import '../styles/datahub-sync.css'
-import { MAX_MASTER_LONG_NAME_CHARS } from '../constants/inputLimits'
+import { MAX_COMMODITY_GROUP_CHARS, MAX_MASTER_LONG_NAME_CHARS } from '../constants/inputLimits'
 import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import DataHubFieldCue from '../components/DataHubFieldCue.jsx'
 import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
@@ -77,6 +77,7 @@ export default function MasterSiLookup({
   const [formCommodityType, setFormCommodityType] = useState('Liquid')
   const [formHubType, setFormHubType] = useState('')
   const [formShortName, setFormShortName] = useState('')
+  const [formCommodityGroup, setFormCommodityGroup] = useState('')
   const [formKlToMtFactor, setFormKlToMtFactor] = useState('')
   const [formDefaultMetricId, setFormDefaultMetricId] = useState('')
   const [formLongName, setFormLongName] = useState('')
@@ -111,6 +112,13 @@ export default function MasterSiLookup({
         label: 'Short commodity name',
         labelText: 'Short commodity name',
         getSortValue: (it) => (it.shortName || '').toLowerCase(),
+      })
+      cols.push({
+        key: 'commodityGroup',
+        label: 'Commodity group',
+        labelText: 'Commodity group',
+        getSortValue: (it) => (it.commodityGroup || '').toLowerCase(),
+        getFilterValue: (it) => it.commodityGroup || '',
       })
     }
     cols.push({
@@ -451,6 +459,7 @@ export default function MasterSiLookup({
     setFormMaterialCode('')
     setFormIsActive(true)
     setFormShortName('')
+    setFormCommodityGroup('')
     setFormKlToMtFactor('')
     setFormDefaultMetricId('')
     setFormCommodityType('Liquid')
@@ -475,6 +484,7 @@ export default function MasterSiLookup({
     setFormMaterialCode(item.materialCode ?? '')
     setFormIsActive(item.isActive !== false)
     setFormShortName(item.shortName ?? '')
+    setFormCommodityGroup(item.commodityGroup ?? '')
     setFormKlToMtFactor(item.klToMtFactor != null ? String(item.klToMtFactor) : '')
     setFormDefaultMetricId(item.defaultMetricId != null ? String(item.defaultMetricId) : '')
     setFormCommodityType(
@@ -507,6 +517,7 @@ export default function MasterSiLookup({
     setFormMaterialCode('')
     setFormIsActive(true)
     setFormShortName('')
+    setFormCommodityGroup('')
     setFormKlToMtFactor('')
     setFormDefaultMetricId('')
     setFormCommodityType('Liquid')
@@ -529,6 +540,7 @@ export default function MasterSiLookup({
     if (!value) return
 
     const shortName = isCommodityMaster ? (formShortName || '').trim().toUpperCase() : ''
+    const commodityGroup = isCommodityMaster ? (formCommodityGroup || '').trim() : ''
 
     if (isCommodityMaster) {
       const hasJpsType = formCommodityType === 'Solid' || formCommodityType === 'Liquid'
@@ -546,6 +558,10 @@ export default function MasterSiLookup({
       }
       if (!shortName && editingId == null) {
         setError('Short commodity name is required.')
+        return
+      }
+      if (commodityGroup.length > MAX_COMMODITY_GROUP_CHARS) {
+        setError(`Commodity group must be at most ${MAX_COMMODITY_GROUP_CHARS} characters.`)
         return
       }
       if (formKlToMtFactor.trim() !== '') {
@@ -611,6 +627,7 @@ export default function MasterSiLookup({
           payload.commodityType = formCommodityType
         }
         if (shortName) payload.shortName = shortName
+        payload.commodityGroup = commodityGroup || null
         payload.klToMtFactor = formKlToMtFactor.trim() === '' ? null : Number(formKlToMtFactor)
         payload.defaultMetricId = formDefaultMetricId.trim() === '' ? null : Number(formDefaultMetricId)
         payload.materialCode = (formMaterialCode || '').trim() || null
@@ -677,6 +694,7 @@ export default function MasterSiLookup({
     isCommodityMaster,
     formCommodityType,
     formShortName,
+    formCommodityGroup,
     formKlToMtFactor,
     formDefaultMetricId,
     hasLongName,
@@ -810,6 +828,9 @@ export default function MasterSiLookup({
                       <td>
                         <strong>{it.shortName ?? '—'}</strong>
                       </td>
+                    )}
+                    {isCommodityMaster && (
+                      <td>{it.commodityGroup || '—'}</td>
                     )}
                     <td>{it.value ?? '—'}</td>
                     {isDataHubMaster && (
@@ -992,6 +1013,24 @@ export default function MasterSiLookup({
                   value={formShortName}
                   onChange={(e) => setFormShortName(e.target.value)}
                   placeholder="e.g. CPO"
+                  disabled={!canDoEdit}
+                />
+              </div>
+            )}
+            {isCommodityMaster && (
+              <div className="modal__section">
+                <label htmlFor="si-commodity-group" className="modal__label">
+                  Commodity group{' '}
+                  <span className="text-steel">— JPS only (not synced from DataHub)</span>
+                </label>
+                <input
+                  id="si-commodity-group"
+                  type="text"
+                  className="modal__input"
+                  value={formCommodityGroup}
+                  onChange={(e) => setFormCommodityGroup(e.target.value)}
+                  placeholder="e.g. CPO"
+                  maxLength={MAX_COMMODITY_GROUP_CHARS}
                   disabled={!canDoEdit}
                 />
               </div>

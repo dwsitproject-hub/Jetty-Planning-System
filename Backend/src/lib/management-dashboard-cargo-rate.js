@@ -16,8 +16,10 @@ export function productKeyFromCommodityLabel(commodity) {
   return s.toUpperCase();
 }
 
-/** @param {object} line */
+/** Group when set, otherwise short name then long name. Matches the dashboard slice key. */
 export function lineProductKey(line) {
+  const group = String(line?.commodityGroup ?? '').trim();
+  if (group) return productKeyFromCommodityLabel(group);
   const label = line?.commodityShortName || line?.commodityName || '';
   return productKeyFromCommodityLabel(label);
 }

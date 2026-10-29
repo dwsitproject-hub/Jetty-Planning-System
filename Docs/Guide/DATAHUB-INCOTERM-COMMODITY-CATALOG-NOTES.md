@@ -30,6 +30,7 @@ node scripts/probe-datahub-catalog.mjs
 | `uom` | — | `default_metric_id` via `metric.code` KL/MT |
 | — | `sort_order` local | `commodity_type` JPS-only (`Solid` \| `Liquid`; not synced from DHM) |
 | — | — | `kl_to_mt_factor` JPS-only (not synced from DHM) |
+| — | — | `commodity_group` JPS-only free text (not synced from DHM) |
 
 **Match / apply:** commodities link **only by `hub_code`** (same CMD on hub and JPS). Local-only rows (no hub code) are listed in sync review as unchanged and are never updated or deleted by sync. Apply creates a new JPS row when the hub CMD is not linked; it updates only the row already tied to that hub code (or the staged local id from the plan).
 
@@ -40,6 +41,8 @@ node scripts/probe-datahub-catalog.mjs
 **Type split:** `hub_type` is synced from DHM; `commodity_type` is set manually in JPS (NULL on hub import until the user chooses Solid/Liquid). Activating a commodity requires `commodity_type` to be set.
 
 **Short name:** not synced from DHM; `short_name` is JPS-only (NULL on hub import until the user sets it). Activating requires `short_name` and `commodity_type`.
+
+**Commodity group:** not synced from DHM. `commodity_group` is optional JPS-only free text. Hub create and update leave it NULL or unchanged.
 
 **“(not use)” catalog rows:** DHM commodities whose hub `long_name`, `short_name`, `material_code`, or `code` contains `(not use)` (case-insensitive) are **not** pulled into sync review or webhook staging. Manual sync summary reports how many were skipped.
 

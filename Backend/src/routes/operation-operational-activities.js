@@ -1749,6 +1749,7 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
                     'atgMassComputedAt', l.atg_mass_computed_at,
                     'commodityShortName', sc.short_name,
                     'commodityName', sc.name,
+                    'commodityGroup', sc.commodity_group,
                     'tanks', COALESCE(lt.tanks_json, '[]'::jsonb)
                   )
                   ORDER BY l.line_order ASC, l.id ASC
@@ -1871,6 +1872,7 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
           tankIds: lineTanks.map((t) => t.id),
           commodityShortName: l.commodityShortName ? String(l.commodityShortName).trim() : null,
           commodityName: l.commodityName ? String(l.commodityName).trim() : null,
+          commodityGroup: l.commodityGroup ? String(l.commodityGroup).trim() : null,
         };
       });
       const unionFromLines = unionTanksFromLines(cargoLoadLines);

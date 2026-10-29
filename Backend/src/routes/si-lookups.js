@@ -65,6 +65,25 @@ function normalizeShortName(raw) {
   return v || null;
 }
 
+const COMMODITY_GROUP_MAX_LEN = 100;
+
+/** @returns {string|null|undefined} undefined when omitted; null when cleared; NaN when too long */
+function normalizeCommodityGroup(raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  const v = String(raw).trim();
+  if (!v) return null;
+  if (v.length > COMMODITY_GROUP_MAX_LEN) return NaN;
+  return v;
+}
+
+function commodityGroupFromBody(body) {
+  if (!body || typeof body !== 'object') return undefined;
+  if (Object.prototype.hasOwnProperty.call(body, 'commodityGroup')) return body.commodityGroup;
+  if (Object.prototype.hasOwnProperty.call(body, 'commodity_group')) return body.commodity_group;
+  return undefined;
+}
+
 function normalizeKlToMtFactor(raw) {
   if (raw === undefined) return undefined;
   if (raw === null || raw === '') return null;
@@ -86,7 +105,7 @@ async function normalizeDefaultMetricId(raw) {
 async function selectCommoditiesWithRates({ portId, whereSql, params = [] }) {
   const portParam = portId == null ? null : Number(portId);
   return pool.query(
-    `SELECT c.id, c.name AS value, c.short_name, c.sort_order, c.commodity_type, c.hub_type, c.kl_to_mt_factor,
+    `SELECT c.id, c.name AS value, c.short_name, c.commodity_group, c.sort_order, c.commodity_type, c.hub_type, c.kl_to_mt_factor,
             c.default_metric_id, c.hub_code, c.material_code, c.datahub_last_apply_source, c.datahub_last_apply_run_id,
             c.is_active,
             dm.code AS default_metric_code,
@@ -240,6 +259,7 @@ function toCommodityListItem(row) {
     value: row.value,
     name: row.value,
     shortName: row.short_name,
+    commodityGroup: row.commodity_group ?? null,
     commodityType: row.commodity_type ?? null,
     hubType: row.hub_type ?? null,
     klToMtFactor: row.kl_to_mt_factor != null ? Number(row.kl_to_mt_factor) : null,
@@ -618,13 +638,17 @@ router.post('/:type', async (req, res) => {
       const hubCode = normalizeHubCode(req.body?.hubCode ?? req.body?.hub_code) ?? null;
       const materialCode = normalizeMaterialCode(req.body?.materialCode ?? req.body?.material_code) ?? null;
       const isActive = normalizeIsActive(req.body?.isActive ?? req.body?.is_active, true);
+      const commodityGroup = normalizeCommodityGroup(commodityGroupFromBody(req.body));
+      if (Number.isNaN(commodityGroup)) {
+        return res.status(400).json({ error: 'commodityGroup must be at most 100 characters' });
+      }
       const hubClash = await assertLookupHubCodeAvailable('si_commodities', hubCode);
       if (hubClash) return res.status(409).json({ error: hubClash });
       const ins = await pool.query(
-        `INSERT INTO si_commodities (name, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, hub_code, material_code, is_active, created_by, updated_by)
-         VALUES ($1, $2, 0, $3, $4, $5, $6, $7, $8, $9, $9)
-         RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-        [cleaned, shortName, ct, klFactorRaw ?? null, defaultMetricRaw ?? null, hubCode, materialCode, isActive, actorId]
+        `INSERT INTO si_commodities (name, short_name, commodity_group, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, hub_code, material_code, is_active, created_by, updated_by)
+         VALUES ($1, $2, $3, 0, $4, $5, $6, $7, $8, $9, $10, $10)
+         RETURNING id, name AS value, short_name, commodity_group, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
+        [cleaned, shortName, commodityGroup ?? null, ct, klFactorRaw ?? null, defaultMetricRaw ?? null, hubCode, materialCode, isActive, actorId]
       );
       const row = ins.rows[0];
       const portId = req.selectedPortId;
@@ -990,6 +1014,16 @@ router.put('/:type/:id', async (req, res) => {
       await pool.query(
         `UPDATE si_commodities SET material_code = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
         [materialCode, id]
+      );
+    }
+    const commodityGroup = normalizeCommodityGroup(commodityGroupFromBody(req.body));
+    if (Number.isNaN(commodityGroup)) {
+      return res.status(400).json({ error: 'commodityGroup must be at most 100 characters' });
+    }
+    if (commodityGroup !== undefined) {
+      await pool.query(
+        `UPDATE si_commodities SET commodity_group = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
+        [commodityGroup, id]
       );
     }
   } else if (type === 'trade-terms') {

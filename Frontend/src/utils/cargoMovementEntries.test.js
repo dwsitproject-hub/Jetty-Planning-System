@@ -66,6 +66,31 @@ describe('cargoMovementEntriesForSlice', () => {
     assert.equal(entries[2].entry, 3)
   })
 
+  it('matches load lines by commodity group on a single-group call', () => {
+    const groupedEvents = [
+      {
+        milestoneKey: 'cargo_operations',
+        cargoLoadLines: [
+          { id: 'low', commodityShortName: 'CPO-LOW', commodityGroup: 'CPO', qty: 10, startedAt: '2026-06-02T00:00:00Z', endedAt: '2026-06-02T01:00:00Z' },
+          { id: 'high', commodityShortName: 'CPO-HIGH', commodityGroup: 'CPO', qty: 20, startedAt: '2026-06-02T02:00:00Z', endedAt: '2026-06-02T04:00:00Z' },
+          { id: 'other', commodityShortName: 'PKO', commodityGroup: 'PKO', qty: 5, startedAt: '2026-06-02T01:00:00Z', endedAt: '2026-06-02T02:00:00Z' },
+          { id: 'untagged', qty: 9, startedAt: '2026-06-02T03:00:00Z', endedAt: '2026-06-02T04:00:00Z' },
+        ],
+      },
+    ]
+    const entries = cargoMovementEntriesForSlice(groupedEvents, {
+      productKey: 'CPO',
+      commodity: 'CPO-LOW · CPO-HIGH',
+      cargoBreakdownSummary: [{
+        products: [
+          { shortName: 'CPO-LOW', commodityGroup: 'CPO', qty: 10 },
+          { shortName: 'CPO-HIGH', commodityGroup: 'CPO', qty: 20 },
+        ],
+      }],
+    })
+    assert.deepEqual(entries.map((e) => e.key), ['low', 'high', 'untagged'])
+  })
+
   it('includes an untagged line when the call has one commodity', () => {
     const entries = cargoMovementEntriesForSlice(events, {
       productKey: 'FAME',

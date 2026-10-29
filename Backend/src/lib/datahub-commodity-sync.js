@@ -1,5 +1,7 @@
 /**
  * Diff DataHub commodity records against si_commodities.
+ * JPS-only columns (short_name, commodity_type, is_active, commodity_group) are omitted
+ * so sync review and apply do not overwrite them.
  */
 export const COMMODITY_COMPARED_COLUMNS = [
   'name',

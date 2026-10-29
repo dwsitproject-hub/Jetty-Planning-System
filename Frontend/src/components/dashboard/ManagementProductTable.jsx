@@ -11,7 +11,7 @@ export const PRODUCT_COLUMN_TOOLTIPS = {
   berthToStart:
     'Average time from alongside (TB) until the Cargo Operations operation window start.',
   avgFlow:
-    'Average tons moved per hour for this product (moved qty ÷ logged cargo hours).',
+    'Average tons moved per hour for this commodity group (moved qty ÷ logged cargo hours).',
   cargoDoneToSail:
     'Average time from cargo finished until the vessel sailed',
 }
@@ -80,7 +80,7 @@ function ColumnHeader({ label, columnKey, tooltip, align, sort, onSort }) {
 }
 
 const PRODUCT_TABLE_COLUMNS = [
-  { key: 'product', label: 'Commodity', align: 'left', sortValue: (r) => r.label || '' },
+  { key: 'product', label: 'Commodity group', align: 'left', sortValue: (r) => r.label || '' },
   { key: 'shipments', label: 'Shipments', align: 'right', sortValue: (r) => r.shipments },
   { key: 'avgWait', label: 'Avg wait', align: 'right', tooltip: PRODUCT_COLUMN_TOOLTIPS.avgWait, sortValue: (r) => r.avgWait },
   {

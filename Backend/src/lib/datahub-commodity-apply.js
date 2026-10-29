@@ -71,6 +71,7 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
     return { action: 'created', id: Number(inserted.rows[0].id) };
   }
 
+  // short_name, commodity_type, is_active, and commodity_group are JPS-only and stay unchanged.
   await db.query(
     `UPDATE si_commodities SET
        name = $1,

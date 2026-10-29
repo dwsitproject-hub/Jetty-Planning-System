@@ -76,6 +76,49 @@ describe('voyageMovedQtyLines', () => {
 })
 
 describe('expandVoyageToProductSlices', () => {
+  it('rolls grades that share a commodity group into one slice', () => {
+    const slices = expandVoyageToProductSlices(
+      row({
+        commodity: 'CPO-LOW · CPO-HIGH',
+        qty: 3000,
+        cargoBreakdownSummary: [{
+          products: [
+            { shortName: 'CPO-LOW', name: 'CPO FFA < 3.5', commodityGroup: 'CPO', qty: 1000 },
+            { shortName: 'CPO-HIGH', name: 'CPO FFA > 5', commodityGroup: 'cpo', qty: 2000 },
+          ],
+        }],
+        productRatesByKey: { CPO: { rateMtH: 80, movedQty: 3000, loggedHours: 10 } },
+      })
+    )
+    assert.equal(slices.length, 1)
+    assert.equal(slices[0].productLabel, 'CPO')
+    assert.equal(slices[0].productKey, 'CPO')
+    assert.equal(slices[0].qty, 3000)
+    assert.equal(slices[0].productRateMtH, 80)
+  })
+
+  it('keeps a blank group as its own row and separates another group', () => {
+    const slices = expandVoyageToProductSlices(
+      row({
+        cargoBreakdownSummary: [{
+          products: [
+            { shortName: 'PKO', commodityGroup: '', qty: 400 },
+            { shortName: 'CPO-MB', name: 'CPO RSPO MB', commodityGroup: 'CPO', qty: 500 },
+            { shortName: 'FAME', commodityGroup: null, qty: 100 },
+          ],
+        }],
+      })
+    )
+    assert.deepEqual(
+      slices.map((s) => [s.productLabel, s.productKey, s.qty]),
+      [
+        ['PKO', 'PKO', 400],
+        ['CPO', 'CPO', 500],
+        ['FAME', 'FAME', 100],
+      ]
+    )
+  })
+
   it('splits combined commodity label into separate slices', () => {
     const slices = expandVoyageToProductSlices(
       row({
@@ -147,6 +190,38 @@ describe('aggregateByProduct', () => {
     assert.equal(agg.incoming[0].label, 'CPO')
     assert.equal(agg.incoming[0].shipments, 1)
     assert.equal(agg.incoming[0].avgWait, 12)
+  })
+
+  it('counts one shipment per commodity group', () => {
+    const agg = aggregateByProduct([
+      row({
+        vessel: 'A',
+        cargoBreakdownSummary: [{
+          products: [
+            { shortName: 'CPO-LOW', commodityGroup: 'CPO', qty: 1000 },
+            { shortName: 'CPO-HIGH', commodityGroup: 'CPO', qty: 500 },
+          ],
+        }],
+      }),
+      row({
+        vessel: 'B',
+        cargoBreakdownSummary: [{
+          products: [{ shortName: 'CPO-MB', commodityGroup: 'CPO', qty: 200 }],
+        }],
+      }),
+      row({
+        vessel: 'C',
+        cargoBreakdownSummary: [{
+          products: [{ shortName: 'PKO', commodityGroup: null, qty: 50 }],
+        }],
+      }),
+    ])
+    assert.equal(agg.outgoing.length, 2)
+    assert.equal(agg.outgoing[0].label, 'CPO')
+    assert.equal(agg.outgoing[0].shipments, 2)
+    assert.equal(agg.outgoing[0].throughputMt, 1700)
+    assert.equal(agg.outgoing[1].label, 'PKO')
+    assert.equal(agg.outgoing[1].shipments, 1)
   })
 
   it('puts multi-commodity voyage into separate product rows', () => {
