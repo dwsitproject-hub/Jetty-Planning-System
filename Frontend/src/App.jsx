@@ -59,6 +59,16 @@ import JettyLive from './pages/JettyLive'
 import DevOcrTest from './pages/DevOcrTest'
 import { isEmbedMode, isPipelineEmbedPath } from './utils/embedMode'
 import HubSdkBridge from './components/HubSdkBridge'
+import ErrorBoundary from './components/ErrorBoundary'
+
+function RoutedOutlet() {
+  const { pathname } = useLocation()
+  return (
+    <ErrorBoundary key={pathname}>
+      <Outlet />
+    </ErrorBoundary>
+  )
+}
 
 function AppShell() {
   const location = useLocation()
@@ -82,18 +92,18 @@ function AppShell() {
   }
 
   if (isChromelessEmbed) {
-    return <Outlet />
+    return <RoutedOutlet />
   }
   if (isOperator || isQc) {
     return (
       <OperatorMobileShell brand={isQc ? tQc('shell.brand') : undefined}>
-        <Outlet />
+        <RoutedOutlet />
       </OperatorMobileShell>
     )
   }
   return (
     <Layout>
-      <Outlet />
+      <RoutedOutlet />
     </Layout>
   )
 }
