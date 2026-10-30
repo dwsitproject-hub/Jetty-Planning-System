@@ -12,6 +12,7 @@ import fs from 'fs';
 import http from 'http';
 import { verifyConnection } from './db.js';
 import { UPLOAD_ROOT } from './paths.js';
+import { castOffAllowsFuture } from './lib/validate-cast-off.js';
 import authRoutes from './routes/auth.js';
 import hubSsoRoutes from './routes/hub-sso.js';
 import oidcSsoRoutes from './routes/oidc-sso.js';
@@ -100,7 +101,11 @@ app.get('/health', (req, res) => {
 const apiV1 = express.Router();
 
 apiV1.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    castOffAllowFuture: castOffAllowsFuture(),
+  });
 });
 
 apiV1.get('/ping', (req, res) => {

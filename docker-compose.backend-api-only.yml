@@ -58,6 +58,7 @@ services:
       SMTP_REQUIRE_TLS: ${SMTP_REQUIRE_TLS:-}
       SMTP_POST_SEND_DELAY_MS: ${SMTP_POST_SEND_DELAY_MS:-}
       SMTP_HUB_PARITY: ${SMTP_HUB_PARITY:-}
+      CAST_OFF_ALLOW_FUTURE: ${CAST_OFF_ALLOW_FUTURE:-}
     volumes:
       # Omit UPLOAD_HOST_PATH for local Docker (uses named volume jps_uploads).
       # Staging/production: set UPLOAD_HOST_PATH to the NAS mount on the host.

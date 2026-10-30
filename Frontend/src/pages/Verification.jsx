@@ -10,7 +10,7 @@ import {
   nowToNaiveLocalInScheduleZone,
   utcIsoToNaiveLocal,
 } from '../utils/scheduleDateTime.js'
-import { resolveUploadUrl } from '../api/client'
+import { apiGet, resolveUploadUrl } from '../api/client'
 import FilePreviewLink from '../components/FilePreviewLink'
 import StickyFormOverlay from '../components/StickyFormOverlay.jsx'
 import SiDetailModal from '../components/SiDetailModal'
@@ -288,6 +288,7 @@ export default function Verification() {
   const [toast, setToast] = useState(null)
   const [signoffBusyId, setSignoffBusyId] = useState(null)
   const [timelineMaxAtByKey, setTimelineMaxAtByKey] = useState({})
+  const [castOffAllowFuture, setCastOffAllowFuture] = useState(false)
   const [siDetailId, setSiDetailId] = useState(null)
   const [vesselInfoPlanId, setVesselInfoPlanId] = useState(null)
   const [siDocumentModalId, setSiDocumentModalId] = useState(null)
@@ -674,6 +675,21 @@ export default function Verification() {
     }
   }, [modalOpId, rows, timelineMaxAtByKey])
 
+  useEffect(() => {
+    if (!modalOpId) return undefined
+    let cancelled = false
+    apiGet('/health')
+      .then((data) => {
+        if (!cancelled) setCastOffAllowFuture(data?.castOffAllowFuture === true)
+      })
+      .catch(() => {
+        if (!cancelled) setCastOffAllowFuture(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [modalOpId])
+
   const validateDepartForm = useCallback(() => {
     const cast = parseLocalTime(formCastOff)
     if (!cast) return 'Cast Off time is required and must be valid.'
@@ -684,10 +700,11 @@ export default function Verification() {
       return validateCastOffDepart(cast, {
         tbAt: op?.tbAt ?? null,
         latestExecutionAt: latestIso ?? null,
+        allowFuture: castOffAllowFuture,
       })
     }
-    return validateCastOffDepart(cast, {})
-  }, [formCastOff, modalOpId, rows, timelineMaxAtByKey, parseLocalTime])
+    return validateCastOffDepart(cast, { allowFuture: castOffAllowFuture })
+  }, [formCastOff, modalOpId, rows, timelineMaxAtByKey, parseLocalTime, castOffAllowFuture])
 
   const handleSubmit = async () => {
     if (!modalOpId) return
@@ -1286,6 +1303,11 @@ export default function Verification() {
                   onChange={(e) => setFormCastOff(e.target.value)}
                 />
               )}
+              {!isSailed && castOffAllowFuture ? (
+                <p className="text-steel" style={{ marginTop: 6, fontSize: 'var(--font-size-small)' }}>
+                  This server allows a future Cast Off. The voyage is marked Sailed immediately. The jetty schematic keeps the vessel alongside until that time, and reports count the call in that period.
+                </p>
+              ) : null}
               {modalTimelineMaxAt ? (
                 <p className="text-steel" style={{ marginTop: 6, fontSize: 'var(--font-size-small)' }}>
                   Must be on/after latest execution log time: <strong>{formatDateTimeDisplay(modalTimelineMaxAt)}</strong>
