@@ -62,7 +62,8 @@ export function buildSyncPlan(hubVessels, localRows) {
   const byName = new Map();
   for (const row of localRows ?? []) {
     if (row?.hub_code) byHubCode.set(String(row.hub_code), row);
-    if (row?.vessel_name) byName.set(nameKey(row.vessel_name), row);
+    // Name fallback only for rows the user has not mapped yet.
+    if (!row?.hub_code && row?.vessel_name) byName.set(nameKey(row.vessel_name), row);
   }
 
   const items = [];

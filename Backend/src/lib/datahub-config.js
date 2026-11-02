@@ -10,12 +10,36 @@ import { decryptSmtpPassword, encryptSmtpPassword } from './smtp-config.js';
 
 const CONFIG_ID = 1;
 
+const DEFAULT_WEBHOOK_CALLBACK_URL =
+  'http://172.28.92.57:3000/api/v1/datahub/webhook';
+
 function encryptSecret(plaintext) {
   return encryptSmtpPassword(plaintext);
 }
 
 function decryptSecret(ciphertext) {
   return decryptSmtpPassword(ciphertext);
+}
+
+/** Display-only URL registered in the DHM portal (must match exactly). */
+export function getDataHubWebhookCallbackUrl() {
+  const raw = String(process.env.JPS_DATAHUB_WEBHOOK_CALLBACK_URL || '').trim();
+  return raw || DEFAULT_WEBHOOK_CALLBACK_URL;
+}
+
+function envWebhookEnabled() {
+  const v = String(process.env.DHM_WEBHOOK_ENABLED || '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
+function envWebhookSecret() {
+  const s = String(process.env.DHM_WEBHOOK_SECRET || '').trim();
+  return s || null;
+}
+
+function envWebhookAutoApply() {
+  const v = String(process.env.DHM_WEBHOOK_AUTO_APPLY || '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
 }
 
 /** Strip a trailing slash so callers can append `/v1/...` safely. */
@@ -54,7 +78,9 @@ function readEnvConfig() {
 export async function loadDataHubConfigRow(db) {
   const r = await db.query(
     `SELECT id, base_url, public_key, private_key_encrypted, enabled,
-            last_sync_at, last_sync_ok, last_error, updated_at, updated_by
+            last_sync_at, last_sync_ok, last_error, updated_at, updated_by,
+            webhook_secret_encrypted, webhook_enabled, webhook_auto_apply,
+            last_webhook_at, last_webhook_error
      FROM datahub_config WHERE id = $1`,
     [CONFIG_ID]
   );
@@ -91,6 +117,48 @@ export async function getEffectiveDataHubConfig(db) {
 }
 
 /**
+ * Inbound DHM webhook verification config.
+ * @param {import('pg').Pool | import('pg').PoolClient} db
+ * @returns {Promise<{ enabled: boolean, secret: string | null, source: 'database' | 'environment' | 'none' }>}
+ */
+export async function getEffectiveWebhookConfig(db) {
+  const row = await loadDataHubConfigRow(db);
+  if (row?.webhook_enabled) {
+    let secret = null;
+    if (row.webhook_secret_encrypted) {
+      try {
+        secret = decryptSecret(row.webhook_secret_encrypted);
+      } catch {
+        secret = null;
+      }
+    }
+    if (secret) {
+      return { enabled: true, secret, source: 'database' };
+    }
+  }
+  if (envWebhookEnabled() && envWebhookSecret()) {
+    return { enabled: true, secret: envWebhookSecret(), source: 'environment' };
+  }
+  return { enabled: false, secret: null, source: 'none' };
+}
+
+/**
+ * When true, inbound vessel webhooks pre-approve and apply staged items immediately.
+ * @param {import('pg').Pool | import('pg').PoolClient} db
+ */
+export async function getEffectiveWebhookAutoApply(db) {
+  const row = await loadDataHubConfigRow(db);
+  // When inbound webhooks are configured via Admin (DB), UI checkbox is the source of truth.
+  if (row?.webhook_enabled) {
+    return Boolean(row.webhook_auto_apply);
+  }
+  if (envWebhookAutoApply() && envWebhookEnabled() && envWebhookSecret()) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Admin-safe view: reports whether a private key is stored, never its value.
  * @param {import('pg').Pool | import('pg').PoolClient} db
  */
@@ -98,6 +166,27 @@ export async function getDataHubConfigForAdmin(db) {
   const row = await loadDataHubConfigRow(db);
   const envCfg = readEnvConfig();
   const effective = await getEffectiveDataHubConfig(db);
+  const webhookEffective = await getEffectiveWebhookConfig(db);
+  let recentWebhookReceipts = [];
+  try {
+    const r = await db.query(
+      `SELECT delivery_id, event, entity_type, hub_code, status, error, received_at
+       FROM datahub_webhook_receipts
+       ORDER BY received_at DESC
+       LIMIT 15`
+    );
+    recentWebhookReceipts = r.rows.map((rec) => ({
+      deliveryId: rec.delivery_id,
+      event: rec.event,
+      entityType: rec.entity_type,
+      hubCode: rec.hub_code,
+      status: rec.status,
+      error: rec.error,
+      receivedAt: rec.received_at,
+    }));
+  } catch {
+    recentWebhookReceipts = [];
+  }
   return {
     baseUrl: row?.base_url || envCfg?.baseUrl || '',
     publicKey: row?.public_key || envCfg?.publicKey || '',
@@ -108,6 +197,16 @@ export async function getDataHubConfigForAdmin(db) {
     lastSyncOk: row?.last_sync_ok ?? null,
     lastError: row?.last_error ?? null,
     updatedAt: row?.updated_at ?? null,
+    webhookEnabled: Boolean(row?.webhook_enabled) || envWebhookEnabled(),
+    webhookSecretConfigured:
+      Boolean(row?.webhook_secret_encrypted) || Boolean(envWebhookSecret()),
+    webhookEffectiveSource: webhookEffective.source,
+    webhookCallbackUrl: getDataHubWebhookCallbackUrl(),
+    lastWebhookAt: row?.last_webhook_at ?? null,
+    lastWebhookError: row?.last_webhook_error ?? null,
+    webhookAutoApply: Boolean(row?.webhook_auto_apply),
+    webhookAutoApplyEffective: await getEffectiveWebhookAutoApply(db),
+    recentWebhookReceipts,
   };
 }
 
@@ -129,9 +228,26 @@ export async function saveDataHubConfig(db, input, updatedBy) {
     privateKeyEncrypted = encryptSecret(String(input.privateKey).trim());
   }
 
+  const webhookEnabled =
+    input.webhookEnabled != null ? Boolean(input.webhookEnabled) : row?.webhook_enabled ?? false;
+
+  let webhookSecretEncrypted = row?.webhook_secret_encrypted ?? null;
+  if (input.webhookSecret != null && String(input.webhookSecret).trim()) {
+    webhookSecretEncrypted = encryptSecret(String(input.webhookSecret).trim());
+  }
+
   if (enabled && (!baseUrl || !publicKey || !privateKeyEncrypted)) {
     throw new Error('baseUrl, publicKey and privateKey are required to enable the DataHub integration');
   }
+
+  if (webhookEnabled && !webhookSecretEncrypted && !envWebhookSecret()) {
+    throw new Error('webhookSecret is required to enable inbound DataHub webhooks');
+  }
+
+  const webhookAutoApply =
+    input.webhookAutoApply != null
+      ? Boolean(input.webhookAutoApply)
+      : row?.webhook_auto_apply ?? false;
 
   await db.query(
     `UPDATE datahub_config SET
@@ -139,10 +255,23 @@ export async function saveDataHubConfig(db, input, updatedBy) {
        public_key = $2,
        private_key_encrypted = $3,
        enabled = $4,
+       webhook_enabled = $5,
+       webhook_secret_encrypted = $6,
+       webhook_auto_apply = $7,
        updated_at = NOW(),
-       updated_by = $5
-     WHERE id = $6`,
-    [baseUrl, publicKey, privateKeyEncrypted, enabled, updatedBy ?? null, CONFIG_ID]
+       updated_by = $8
+     WHERE id = $9`,
+    [
+      baseUrl,
+      publicKey,
+      privateKeyEncrypted,
+      enabled,
+      webhookEnabled,
+      webhookSecretEncrypted,
+      webhookAutoApply,
+      updatedBy ?? null,
+      CONFIG_ID,
+    ]
   );
 }
 
@@ -159,5 +288,20 @@ export async function updateDataHubSyncHealth(db, result) {
        updated_at = NOW()
      WHERE id = $3`,
     [Boolean(result.ok), result.ok ? null : String(result.error || 'sync failed').slice(0, 2000), CONFIG_ID]
+  );
+}
+
+/**
+ * @param {import('pg').Pool | import('pg').PoolClient} db
+ * @param {{ ok: boolean, error?: string|null }} result
+ */
+export async function updateDataHubWebhookHealth(db, result) {
+  await db.query(
+    `UPDATE datahub_config SET
+       last_webhook_at = NOW(),
+       last_webhook_error = $1,
+       updated_at = NOW()
+     WHERE id = $2`,
+    [result.ok ? null : String(result.error || 'webhook failed').slice(0, 2000), CONFIG_ID]
   );
 }

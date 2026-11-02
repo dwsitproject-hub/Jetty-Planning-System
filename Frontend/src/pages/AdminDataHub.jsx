@@ -21,6 +21,9 @@ export default function AdminDataHub() {
   const [publicKey, setPublicKey] = useState('')
   const [privateKey, setPrivateKey] = useState('')
   const [enabled, setEnabled] = useState(false)
+  const [webhookEnabled, setWebhookEnabled] = useState(false)
+  const [webhookAutoApply, setWebhookAutoApply] = useState(false)
+  const [webhookSecret, setWebhookSecret] = useState('')
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState(null)
@@ -31,6 +34,9 @@ export default function AdminDataHub() {
     setPublicKey(cfg?.publicKey || '')
     setPrivateKey('')
     setEnabled(cfg?.enabled === true)
+    setWebhookEnabled(cfg?.webhookEnabled === true)
+    setWebhookAutoApply(cfg?.webhookAutoApply === true)
+    setWebhookSecret('')
   }, [])
 
   const load = useCallback(async () => {
@@ -59,14 +65,24 @@ export default function AdminDataHub() {
     setSaving(true)
     setTestResult(null)
     try {
-      applyConfig(await saveDataHubConfig({ baseUrl, publicKey, privateKey, enabled }))
+      applyConfig(
+        await saveDataHubConfig({
+          baseUrl,
+          publicKey,
+          privateKey,
+          enabled,
+          webhookEnabled,
+          webhookAutoApply,
+          webhookSecret,
+        })
+      )
       setToast({ kind: 'success', text: 'DataHub settings saved.' })
     } catch (e) {
       setToast({ kind: 'error', text: e?.message || 'Save failed' })
     } finally {
       setSaving(false)
     }
-  }, [baseUrl, publicKey, privateKey, enabled, applyConfig])
+  }, [baseUrl, publicKey, privateKey, enabled, webhookEnabled, webhookAutoApply, webhookSecret, applyConfig])
 
   const handleTest = useCallback(async () => {
     setTesting(true)
@@ -171,11 +187,91 @@ export default function AdminDataHub() {
                   </tr>
                 )}
                 <tr className="allocation-table__row">
+                  <th scope="row" style={{ textAlign: 'left' }}>Inbound webhooks</th>
+                  <td>
+                    <span
+                      className={
+                        config?.webhookEnabled || config?.webhookEffectiveSource === 'environment'
+                          ? 'admin-status-badge admin-status-badge--active'
+                          : 'admin-status-badge admin-status-badge--inactive'
+                      }
+                    >
+                      {config?.webhookEnabled || config?.webhookEffectiveSource === 'environment'
+                        ? 'Enabled'
+                        : 'Disabled'}
+                    </span>
+                    {config?.webhookSecretConfigured ? ' — secret configured' : ' — no secret'}
+                  </td>
+                </tr>
+                <tr className="allocation-table__row">
+                  <th scope="row" style={{ textAlign: 'left' }}>Webhook apply policy</th>
+                  <td className="text-steel">
+                    {config?.webhookEnabled || config?.webhookEffectiveSource === 'environment'
+                      ? config?.webhookAutoApplyEffective
+                        ? 'Auto-apply (Vessel, Term, Commodity, Port — no review step)'
+                        : 'Review first (Resume review on the matching Master page)'
+                      : '—'}
+                  </td>
+                </tr>
+                <tr className="allocation-table__row">
+                  <th scope="row" style={{ textAlign: 'left' }}>Last webhook</th>
+                  <td className="text-steel">
+                    {formatWhen(config?.lastWebhookAt)}
+                    {config?.lastWebhookError ? ` — ${config.lastWebhookError}` : ''}
+                  </td>
+                </tr>
+                <tr className="allocation-table__row">
                   <th scope="row" style={{ textAlign: 'left' }}>Settings updated</th>
                   <td className="text-steel">{formatWhen(config?.updatedAt)}</td>
                 </tr>
               </tbody>
             </table>
+          </div>
+        )}
+        {Array.isArray(config?.recentWebhookReceipts) && config.recentWebhookReceipts.length > 0 && (
+          <div className="table-wrap" style={{ marginTop: '1rem' }}>
+            <h3 className="card__title" style={{ fontSize: '1rem', marginBottom: '0.5rem' }}>
+              Recent inbound webhook receipts
+            </h3>
+            <table className="data-table allocation-table">
+              <thead>
+                <tr>
+                  <th>Received</th>
+                  <th>Entity</th>
+                  <th>Hub code</th>
+                  <th>Status</th>
+                  <th>Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {config.recentWebhookReceipts.map((rec) => (
+                  <tr key={rec.deliveryId} className="allocation-table__row">
+                    <td className="text-steel">{formatWhen(rec.receivedAt)}</td>
+                    <td>{rec.entityType || '—'}</td>
+                    <td className="text-steel">{rec.hubCode || '—'}</td>
+                    <td>
+                      {rec.error === 'applied'
+                        ? 'applied'
+                        : rec.status === 'ignored'
+                          ? 'ignored'
+                          : rec.status || '—'}
+                    </td>
+                    <td className="text-steel">
+                      {rec.error && rec.error !== 'applied'
+                        ? rec.error
+                        : rec.status === 'accepted' && rec.error !== 'applied'
+                          ? 'staged for review'
+                          : rec.event || '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="text-steel" style={{ marginTop: '0.5rem', fontSize: '0.85em' }}>
+              If commodity edits in DHM never appear here, the DHM app is not delivering{' '}
+              <code>commodity</code> webhooks to{' '}
+              <code>{config?.webhookCallbackUrl || 'the callback URL'}</code>.
+            </p>
           </div>
         )}
       </section>
@@ -282,6 +378,97 @@ export default function AdminDataHub() {
             Test connection uses whatever is in the form, falling back to the stored values, so you
             can verify a key pair before saving it.
           </p>
+        </div>
+      </section>
+
+      <section className="card at-berth-list-section">
+        <div className="card__header-row">
+          <h2 className="card__title">Inbound webhooks (DHM → JPS)</h2>
+        </div>
+        <div className="modal__section" style={{ maxWidth: '46rem' }}>
+          <label className="modal__label">Callback URL (register in DHM portal)</label>
+          <input
+            type="text"
+            className="modal__input"
+            readOnly
+            value={config?.webhookCallbackUrl || ''}
+          />
+          <p className="text-steel" style={{ marginTop: '0.25rem', fontSize: '0.85em' }}>
+            Staging: <code>http://172.28.92.57:3000/api/v1/datahub/webhook</code>. Override display via{' '}
+            <code>JPS_DATAHUB_WEBHOOK_CALLBACK_URL</code> on the server.
+          </p>
+
+          <label htmlFor="dhm-webhook-secret" className="modal__label" style={{ marginTop: '0.75rem' }}>
+            Webhook HMAC secret
+          </label>
+          <input
+            id="dhm-webhook-secret"
+            type="password"
+            className="modal__input"
+            value={webhookSecret}
+            onChange={(e) => setWebhookSecret(e.target.value)}
+            placeholder={
+              config?.webhookSecretConfigured ? 'Stored — leave blank to keep' : 'whsec_…'
+            }
+            disabled={saving || loading}
+            autoComplete="new-password"
+          />
+          <p className="text-steel" style={{ marginTop: '0.25rem', fontSize: '0.85em' }}>
+            Must match the secret from the DHM integrations page. You can also set{' '}
+            <code>DHM_WEBHOOK_SECRET</code> in Backend/.env on the API host.
+          </p>
+
+          <label
+            htmlFor="dhm-webhook-enabled"
+            className="modal__checkbox-label"
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.75rem' }}
+          >
+            <input
+              id="dhm-webhook-enabled"
+              type="checkbox"
+              checked={webhookEnabled}
+              onChange={(e) => {
+                const on = e.target.checked
+                setWebhookEnabled(on)
+                if (!on) setWebhookAutoApply(false)
+              }}
+              disabled={saving || loading}
+            />
+            Enable inbound DataHub webhooks
+          </label>
+          <label
+            htmlFor="dhm-webhook-auto-apply"
+            className="modal__checkbox-label"
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}
+          >
+            <input
+              id="dhm-webhook-auto-apply"
+              type="checkbox"
+              checked={webhookAutoApply}
+              onChange={(e) => setWebhookAutoApply(e.target.checked)}
+              disabled={saving || loading || !webhookEnabled}
+            />
+            Auto-apply webhook master changes (Vessel, Term, Commodity, Port)
+          </label>
+          <p className="text-steel" style={{ marginTop: '0.5rem', fontSize: '0.85em' }}>
+            Set the options above, then save. Uncheck auto-apply to stage changes for manual review on
+            the relevant Master page. In the DHM portal, register webhooks for each entity you use
+            (at least <code>commodity</code> and <code>record.updated</code>).
+          </p>
+          <p className="text-steel" style={{ marginTop: '0.25rem', fontSize: '0.85em' }}>
+            Webhook secret must match DHM. Saved settings here override optional server{' '}
+            <code>DHM_*</code> env bootstrap values.
+          </p>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={handleSave}
+              disabled={saving || testing || loading}
+            >
+              {saving ? 'Saving…' : 'Save settings'}
+            </button>
+          </div>
         </div>
       </section>
     </div>

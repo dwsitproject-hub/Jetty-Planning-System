@@ -9,6 +9,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { userHasPageApprove, userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
 import { loadOperationJoined, toOp } from './operations.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
+import { triggerPartnerWebhooksDeferred } from '../lib/integration-webhooks.js';
 import { formatSiCargoDisplay } from '../lib/siBreakdownDisplay.js';
 import { validateDepartDocumentUrls } from '../lib/depart-document-url.js';
 import { validateCastOffAt } from '../lib/validate-cast-off.js';
@@ -877,6 +878,7 @@ router.post('/:id/approve', requireAuth, async (req, res) => {
       [planId]
     );
     await client.query('COMMIT');
+    triggerPartnerWebhooksDeferred({ shipmentPlanId: planId, eventTypes: ['status.changed'] });
     writeActivityLog({
       pageKey: PAGE_KEY,
       action: 'update',
@@ -952,6 +954,7 @@ router.post('/:id/reject', requireAuth, async (req, res) => {
       [planId]
     );
     await client.query('COMMIT');
+    triggerPartnerWebhooksDeferred({ shipmentPlanId: planId, eventTypes: ['status.changed'] });
     writeActivityLog({
       pageKey: PAGE_KEY,
       action: 'update',
@@ -1054,6 +1057,10 @@ router.post('/:id/depart', requireAuth, async (req, res) => {
     }
     primaryOperationId = dep.primaryOperationId;
     await client.query('COMMIT');
+    triggerPartnerWebhooksDeferred({
+      shipmentPlanId: planId,
+      eventTypes: ['schedule.updated', 'status.changed'],
+    });
   } catch (e) {
     await client.query('ROLLBACK');
     throw e;

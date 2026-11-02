@@ -10,9 +10,11 @@ import { COMPARED_COLUMNS } from './datahub-vessel-sync.js';
  * @param {import('pg').PoolClient} db a client already inside a transaction
  * @param {{ vessel_id: number|null, vessel_name: string, payload: object }} item
  * @param {number | null} actorId
+ * @param {{ applySource?: 'webhook' | 'manual_sync' | null, applyRunId?: number | null }} [opts]
  * @returns {Promise<{ action: 'created' | 'updated', vesselId: number }>}
  */
-export async function applyVesselItem(db, item, actorId) {
+export async function applyVesselItem(db, item, actorId, opts = {}) {
+  const { applySource = null, applyRunId = null } = opts;
   const payload = item.payload || {};
   const values = payload.values || {};
   const cols = COMPARED_COLUMNS;
@@ -42,15 +44,19 @@ export async function applyVesselItem(db, item, actorId) {
     payload.hubUpdatedAt ?? null,
   ];
   const n = cols.length;
+  const auditSource = applySource || null;
+  const auditRunId = applyRunId != null ? Number(applyRunId) : null;
 
   if (targetId == null) {
     const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
     const inserted = await db.query(
       `INSERT INTO master_vessels (${cols.join(', ')},
-         hub_code, hub_record_id, hub_version, hub_updated_at, created_by, updated_by)
-       VALUES (${placeholders}, $${n + 1}, $${n + 2}, $${n + 3}, $${n + 4}, $${n + 5}, $${n + 5})
+         hub_code, hub_record_id, hub_version, hub_updated_at,
+         datahub_last_apply_source, datahub_last_apply_run_id,
+         created_by, updated_by)
+       VALUES (${placeholders}, $${n + 1}, $${n + 2}, $${n + 3}, $${n + 4}, $${n + 5}, $${n + 6}, $${n + 7}, $${n + 7})
        RETURNING id`,
-      [...vals, ...hubArgs, actorId ?? null]
+      [...vals, ...hubArgs, auditSource, auditRunId, actorId ?? null]
     );
     return { action: 'created', vesselId: Number(inserted.rows[0].id) };
   }
@@ -62,10 +68,12 @@ export async function applyVesselItem(db, item, actorId) {
        hub_record_id = COALESCE($${n + 2}, hub_record_id),
        hub_version = COALESCE($${n + 3}, hub_version),
        hub_updated_at = COALESCE($${n + 4}, hub_updated_at),
-       updated_by = $${n + 5},
+       datahub_last_apply_source = $${n + 5},
+       datahub_last_apply_run_id = $${n + 6},
+       updated_by = $${n + 7},
        updated_at = NOW()
-     WHERE id = $${n + 6}`,
-    [...vals, ...hubArgs, actorId ?? null, targetId]
+     WHERE id = $${n + 8}`,
+    [...vals, ...hubArgs, auditSource, auditRunId, actorId ?? null, targetId]
   );
   return { action: 'updated', vesselId: targetId };
 }

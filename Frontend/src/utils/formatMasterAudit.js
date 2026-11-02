@@ -20,6 +20,21 @@ export function formatMasterLastUpdatedLine(row) {
   const iso = row?.updatedAt ?? row?.updated_at
   if (!iso) return '—'
   const by = displayName(row, false)
+  const hub = row?.hubCode ?? row?.hub_code
+  const runId = row?.datahubLastApplyRunId ?? row?.datahub_last_apply_run_id
+  const source = row?.datahubLastApplySource ?? row?.datahub_last_apply_source
+
+  if (source === 'webhook') {
+    const hubPart = hub ? ` · ${hub}` : ''
+    const runPart = runId != null ? ` · sync #${runId}` : ''
+    const approver = by ? ` · approved by ${by}` : ''
+    return `Last updated on ${formatDateTimeDisplay(iso)} via DataHub webhook${hubPart}${runPart}${approver}`
+  }
+  if (source === 'manual_sync') {
+    const hubPart = hub ? ` · ${hub}` : ''
+    return `Last updated on ${formatDateTimeDisplay(iso)}${by ? ` by ${by}` : ''} via DataHub sync${hubPart}`
+  }
+
   return `Last updated on ${formatDateTimeDisplay(iso)}${by ? ` by ${by}` : ''}`
 }
 

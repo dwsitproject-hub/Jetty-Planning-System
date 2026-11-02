@@ -1,9 +1,16 @@
 import { apiGet, apiPost, apiPut, apiPatch, apiDelete } from './client.js'
 
 /** Vessel master replica held in JPS (synced from DataHub). */
-export function fetchMasterVessels({ search } = {}) {
-  const q = search && String(search).trim() ? `?search=${encodeURIComponent(String(search).trim())}` : ''
+export function fetchMasterVessels({ search, activeOnly } = {}) {
+  const params = new URLSearchParams()
+  if (search && String(search).trim()) params.set('search', String(search).trim())
+  if (activeOnly) params.set('activeOnly', '1')
+  const q = params.toString() ? `?${params.toString()}` : ''
   return apiGet(`/master/vessels${q}`)
+}
+
+export function fetchMasterVesselById(id) {
+  return apiGet(`/master/vessels/${id}`)
 }
 
 function vesselBody({
@@ -19,6 +26,8 @@ function vesselBody({
   heater,
   typeLambung,
   typeCharter,
+  hubCode,
+  isActive,
 } = {}) {
   const trimmed = (v) => {
     if (v == null) return null
@@ -43,6 +52,8 @@ function vesselBody({
     heater: heater == null ? null : heater === true,
     typeLambung: trimmed(typeLambung),
     typeCharter: trimmed(typeCharter),
+    hubCode: trimmed(hubCode),
+    isActive: isActive !== false,
   }
 }
 

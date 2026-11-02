@@ -1,0 +1,17 @@
+# Local dev overlay — live API code on Docker (Option A). Use with docker-compose.backend.yml:
+#   docker compose --env-file Backend/.env -f docker-compose.backend.yml -f docker-compose.local.yml up -d --build
+#
+# Keeps existing jps-db (Postgres on localhost:5436). Do not run Backend/npm run dev on the host while jps-api is up.
+
+services:
+  jps-api:
+    env_file:
+      - Backend/.env
+    environment:
+      NODE_ENV: development
+    command: ["npm", "run", "dev"]
+    volumes:
+      - ./Backend/src:/app/src
+      - ./Backend/scripts:/app/scripts
+      - ./Backend/migrations:/app/migrations
+      - ./Backend/package.json:/app/package.json

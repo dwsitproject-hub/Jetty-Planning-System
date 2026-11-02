@@ -41,6 +41,7 @@ import '../styles/allocation.css'
 import '../styles/modal.css'
 import { MAX_REMARK_CHARS } from '../constants/inputLimits'
 import { mergeBerthsStateForPlanPov, mergeQueueRowsForPlanPov } from '../utils/allocationPlanPovMerge'
+import { buildRailRows } from '../utils/berthColorState'
 import {
   captureElementToCanvas,
   downloadCanvasAsJpeg,
@@ -2751,7 +2752,6 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
             onScheduleChanged={refreshOverview}
             popoutProfile={isPlanCentric ? 'plan' : 'legacy'}
             railRows={unallocatedRailRows}
-            onCreatePlan={canCreateShipmentPlan ? openCreatePlanModal : undefined}
           />
         </div>
       </div>

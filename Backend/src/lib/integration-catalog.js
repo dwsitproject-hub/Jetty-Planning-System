@@ -1,0 +1,261 @@
+/**
+ * Partner integration API — self-describing catalog (v5.2).
+ * Mirrors the DataHub `GET /v1/catalog` pattern: lets partners discover which
+ * entities they may call and their field contract at runtime, instead of
+ * relying only on the static handoff doc.
+ * Contract: Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md.
+ */
+import { WEBHOOK_EVENT_TYPES, MAX_ACTIVE_WEBHOOKS_PER_KEY } from './integration-webhooks.js';
+import { listValidSurveyorNames, listValidTradeTermCodes } from './integration-master-data.js';
+import {
+  listActiveCommodityHubCodes,
+  listActivePortHubCodes,
+  listCommoditiesForCatalog,
+  listCommodityShortNamesForCatalog,
+  listPortsForCatalog,
+} from './integration-hub-resolve.js';
+
+export const INTEGRATION_CATALOG_VERSION = '5.2';
+
+const VALID_PURPOSES = ['Loading', 'Unloading'];
+const VALID_UNITS = ['MT', 'KL'];
+
+function field(key, type, opts = {}) {
+  return {
+    key,
+    type,
+    required: opts.required ?? false,
+    patchable: opts.patchable ?? false,
+    maxLength: opts.maxLength ?? null,
+    enumValues: opts.enumValues ?? null,
+    description: opts.description ?? null,
+    ...(opts.systemGenerated ? { systemGenerated: true } : {}),
+    ...(opts.items ? { items: opts.items } : {}),
+  };
+}
+
+/**
+ * @param {import('pg').Pool} db
+ */
+export async function buildIntegrationCatalog(db) {
+  const [tradeTermCodes, surveyorNames, cargoTypes, portHubCodes, commodityHubCodes, portReferenceRows, commodityReferenceRows] =
+    await Promise.all([
+      listValidTradeTermCodes(db),
+      listValidSurveyorNames(db),
+      listCommodityShortNamesForCatalog(db),
+      listActivePortHubCodes(db),
+      listActiveCommodityHubCodes(db),
+      listPortsForCatalog(db),
+      listCommoditiesForCatalog(db),
+    ]);
+
+  const cargoLineFields = [
+    field('cargo_hub_code', 'STRING', {
+      maxLength: 50,
+      enumValues: commodityHubCodes.length > 0 ? commodityHubCodes : null,
+      description:
+        'Preferred DHM/JPS commodity hub code. Sufficient alone when mapped. Required when cargo_type is omitted.',
+    }),
+    field('cargo_type', 'STRING', {
+      maxLength: 100,
+      enumValues: cargoTypes,
+      description:
+        'JPS commodity short name (case-insensitive). Required when cargo_hub_code is omitted.',
+    }),
+    field('description', 'STRING', { maxLength: 500 }),
+    field('tonnage', 'NUMBER', { required: true, description: 'Quantity, >= 0.' }),
+    field('unit', 'STRING', { required: true, enumValues: VALID_UNITS }),
+    field('contract_no', 'STRING', {
+      maxLength: 100,
+      patchable: true,
+      description: 'Your contract reference. Also usable to identify the line on PATCH (with line_order).',
+    }),
+    field('po_no', 'STRING', { maxLength: 100, patchable: true }),
+    field('so_no', 'STRING', { maxLength: 100, patchable: true }),
+    field('shipper_name', 'STRING', {
+      maxLength: 200,
+      patchable: true,
+      description: 'Must exist in JPS — create first via POST /shippers.',
+    }),
+    field('line_order', 'NUMBER', {
+      description: 'Zero-based line index (POST order). Identifies the line on PATCH as an alternative to contract_no.',
+    }),
+  ];
+
+  const entities = [
+    {
+      slug: 'shipping-instruction',
+      name: 'Shipping instruction',
+      path: '/shipping-instructions',
+      methods: ['POST', 'GET', 'PATCH'],
+      description:
+        'Submit a Shipping Instruction, poll enriched status (approval, schedule, milestones), and update PO/SO/document links while status is Pending. Port and commodity accept hub code (preferred) or legacy id/short_name — same pattern as vessel_hub_code / vessel_name.',
+      fields: [
+        field('external_reference', 'STRING', {
+          required: true,
+          maxLength: 100,
+          description: 'Your unique document/order ID. Used as the idempotency key.',
+        }),
+        field('requested_by', 'STRING', { maxLength: 200 }),
+        field('port_hub_code', 'STRING', {
+          maxLength: 50,
+          enumValues: portHubCodes.length > 0 ? portHubCodes : null,
+          description:
+            'Preferred DHM/JPS port hub code. Sufficient alone when mapped. Required when port_id is omitted.',
+        }),
+        field('port_id', 'NUMBER', {
+          description: 'Legacy JPS port integer id. Required when port_hub_code is omitted.',
+        }),
+        field('vessel_hub_code', 'STRING', {
+          maxLength: 50,
+          description: 'DataHub / JPS master vessel code. Sufficient alone for vessel identification.',
+        }),
+        field('vessel_name', 'STRING', {
+          maxLength: 200,
+          description: 'Required when vessel_hub_code is omitted; must resolve to exactly one active master vessel.',
+        }),
+        field('voyage_no', 'STRING', { maxLength: 50 }),
+        field('purpose', 'STRING', { required: true, enumValues: VALID_PURPOSES }),
+        field('eta', 'DATETIME', { required: true, description: 'ISO 8601 UTC.' }),
+        field('etd', 'DATETIME', { description: 'ISO 8601 UTC. Must be after eta when provided.' }),
+        field('agent_name', 'STRING', { required: true, maxLength: 200 }),
+        field('agent_contact', 'STRING', { maxLength: 200 }),
+        field('trade_term', 'STRING', {
+          patchable: true,
+          enumValues: tradeTermCodes,
+          description: 'Trade term code. Also available live via GET /terms.',
+        }),
+        field('surveyor_name', 'STRING', {
+          patchable: true,
+          enumValues: surveyorNames,
+          description: 'Also available live via GET /surveyors.',
+        }),
+        field('notes', 'STRING', { maxLength: 2000 }),
+        field('shipping_instruction_document_url', 'URL', {
+          patchable: true,
+          maxLength: 2048,
+          description: 'HTTPS link to your hosted SI document. JPS stores the URL only.',
+        }),
+        field('contract_document_url', 'URL', { patchable: true, maxLength: 2048 }),
+        field('bl_document_url', 'URL', { patchable: true, maxLength: 2048 }),
+        field('cargo', 'ARRAY', {
+          required: true,
+          patchable: true,
+          description:
+            'At least one cargo line on POST. Each line needs cargo_hub_code or cargo_type. On PATCH, identify lines with line_order or contract_no.',
+          items: cargoLineFields,
+        }),
+      ],
+      responseFieldsNote:
+        'GET and webhook payloads echo port_hub_code and port_id (resolved from master). Cargo is stored by internal commodity id.',
+    },
+    {
+      slug: 'webhook',
+      name: 'Webhook endpoint',
+      path: '/webhooks',
+      methods: ['POST', 'GET', 'PATCH', 'DELETE'],
+      description:
+        'Register an HTTPS URL to receive signed push events (status.changed, schedule.updated) instead of polling.',
+      limits: { maxActivePerApiKey: MAX_ACTIVE_WEBHOOKS_PER_KEY },
+      fields: [
+        field('url', 'URL', { required: true, description: 'HTTPS endpoint that returns 2xx within 15s.' }),
+        field('events', 'ARRAY<STRING>', {
+          patchable: true,
+          enumValues: ['*', ...WEBHOOK_EVENT_TYPES],
+          description: "Defaults to ['*'] (all events) when omitted.",
+        }),
+        field('secret', 'STRING', {
+          patchable: true,
+          description: 'Optional on create (auto-generated when omitted). Use rotate_secret: true on PATCH to reissue.',
+        }),
+        field('active', 'BOOLEAN', { patchable: true }),
+      ],
+    },
+    {
+      slug: 'term',
+      name: 'Trade term',
+      path: '/terms',
+      methods: ['GET'],
+      description: 'Read-only reference list for the shipping-instruction trade_term field.',
+      fields: [field('code', 'STRING', { enumValues: tradeTermCodes })],
+    },
+    {
+      slug: 'agent',
+      name: 'Shipping agent',
+      path: '/agents',
+      methods: ['POST', 'GET', 'PATCH'],
+      description: 'Upsert-by-name master data used as agent_name on shipping-instruction.',
+      fields: [
+        field('name', 'STRING', { required: true, maxLength: 200 }),
+        field('long_name', 'STRING'),
+      ],
+    },
+    {
+      slug: 'surveyor',
+      name: 'Surveyor',
+      path: '/surveyors',
+      methods: ['GET'],
+      description: 'Read-only reference list for the shipping-instruction surveyor_name field.',
+      fields: [
+        field('name', 'STRING', { enumValues: surveyorNames }),
+        field('long_name', 'STRING'),
+      ],
+    },
+    {
+      slug: 'shipper',
+      name: 'Shipper',
+      path: '/shippers',
+      methods: ['POST', 'GET', 'PATCH'],
+      description: 'Upsert-by-name master data used as cargo[].shipper_name on shipping-instruction.',
+      fields: [
+        field('name', 'STRING', { required: true, maxLength: 200 }),
+        field('long_name', 'STRING'),
+      ],
+    },
+    {
+      slug: 'port',
+      name: 'Port',
+      path: null,
+      methods: [],
+      description:
+        'Informational only — not a REST resource. Map DHM hub codes to JPS port ids for shipping-instruction port_hub_code / port_id.',
+      fields: [
+        field('hub_code', 'STRING', { enumValues: portHubCodes.length > 0 ? portHubCodes : null }),
+        field('jps_port_id', 'NUMBER', { description: 'JPS ports.id — see referenceRows.' }),
+        field('name', 'STRING'),
+      ],
+      referenceRows: portReferenceRows,
+    },
+    {
+      slug: 'cargo-type',
+      name: 'Cargo type',
+      path: null,
+      methods: [],
+      description:
+        'Informational only — not a REST resource. Use cargo_hub_code on submit when you have DHM codes; else cargo_type = short_name.',
+      fields: [
+        field('hub_code', 'STRING', { enumValues: commodityHubCodes.length > 0 ? commodityHubCodes : null }),
+        field('short_name', 'STRING', { enumValues: cargoTypes }),
+        field('jps_commodity_id', 'NUMBER', { description: 'JPS si_commodities.id — see referenceRows.' }),
+      ],
+      referenceRows: commodityReferenceRows,
+    },
+  ];
+
+  return {
+    api_version: INTEGRATION_CATALOG_VERSION,
+    auth_header: 'x-api-key',
+    entities: entities.map((e) => ({ ...e, fieldCount: e.fields.length })),
+    count: entities.length,
+  };
+}
+
+/**
+ * @param {import('pg').Pool} db
+ * @param {string} slug
+ */
+export async function getIntegrationCatalogEntity(db, slug) {
+  const catalog = await buildIntegrationCatalog(db);
+  const clean = String(slug ?? '').trim().toLowerCase();
+  return catalog.entities.find((e) => e.slug === clean) ?? null;
+}

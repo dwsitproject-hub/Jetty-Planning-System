@@ -36,6 +36,8 @@ run('docker', [
   'Backend/.env',
   '-f',
   'docker-compose.backend.yml',
+  '-f',
+  'docker-compose.local.yml',
   'up',
   '-d',
   '--build',

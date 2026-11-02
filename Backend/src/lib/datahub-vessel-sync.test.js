@@ -107,6 +107,24 @@ describe('datahub-vessel-sync', () => {
     assert.equal(items[0].vesselId, 1);
   });
 
+  it('does not rematch a renamed vessel that already has a different Hub Code', () => {
+    const local = [{ id: 2, hub_code: 'VSL-0002', vessel_name: 'MT SHARED NAME' }];
+    const { items, summary } = buildSyncPlan(
+      [hubVessel('MT SHARED NAME', { hubCode: 'VSL-0001' })],
+      local
+    );
+    assert.equal(summary.newCount, 1);
+    assert.equal(items[0].diffKind, 'new');
+    assert.equal(items[0].vesselId, null);
+  });
+
+  it('still matches an unmapped local row by name', () => {
+    const local = [{ id: 3, hub_code: null, vessel_name: 'MT SHARED NAME' }];
+    const { items } = buildSyncPlan([hubVessel('MT SHARED NAME', { hubCode: 'VSL-0001' })], local);
+    assert.equal(items[0].vesselId, 3);
+    assert.equal(items[0].diffKind, 'changed');
+  });
+
   it('skips hub tombstones rather than deleting local rows', () => {
     const local = [{ id: 5, hub_code: 'VSL-0001', vessel_name: 'MT A' }];
     const { items, summary } = buildSyncPlan([hubVessel('MT A', { isDeleted: true })], local);

@@ -8,7 +8,10 @@ import { createSiLookupItem, deleteSiLookupItem, fetchSiLookupList, updateSiLook
 import { fetchSiLookups } from '../api/siLookups'
 import '../styles/allocation.css'
 import '../styles/modal.css'
+import '../styles/datahub-sync.css'
 import { MAX_MASTER_LONG_NAME_CHARS } from '../constants/inputLimits'
+import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
+import DataHubFieldCue from '../components/DataHubFieldCue.jsx'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 import {
@@ -16,6 +19,9 @@ import {
   formatMasterLastUpdatedLine,
   MASTER_AUDIT_COLUMNS,
 } from '../utils/formatMasterAudit.js'
+import DataHubSyncReviewModal from '../components/DataHubSyncReviewModal.jsx'
+import AppToast from '../components/AppToast.jsx'
+import { createSiDataHubSyncApi, DATAHUB_SI_ENTITY_META } from '../api/datahubSiMaster.js'
 
 const RATE_METRIC_OPTIONS = [
   { value: 'KLPH', label: 'KLPH' },
@@ -67,12 +73,21 @@ export default function MasterSiLookup({
   const [formKlToMtFactor, setFormKlToMtFactor] = useState('')
   const [formDefaultMetricId, setFormDefaultMetricId] = useState('')
   const [formLongName, setFormLongName] = useState('')
+  const [formDescription, setFormDescription] = useState('')
+  const [formHubCode, setFormHubCode] = useState('')
+  const [formIsActive, setFormIsActive] = useState(true)
   const [metricOptions, setMetricOptions] = useState([])
 
   const isCommodityMaster = apiType === 'commodities'
-  const hasLongName = apiType === 'shippers' || apiType === 'surveyors' || apiType === 'agents'
-  const longNameLabel =
-    apiType === 'shippers'
+  const isTermMaster = apiType === 'trade-terms'
+  const isDataHubMaster = isTermMaster || isCommodityMaster
+  const dataHubSyncApi = useMemo(() => createSiDataHubSyncApi(apiType), [apiType])
+  const dataHubUiMeta = DATAHUB_SI_ENTITY_META[apiType]
+  const hasLongName =
+    apiType === 'shippers' || apiType === 'surveyors' || apiType === 'agents' || isTermMaster
+  const longNameLabel = isTermMaster
+    ? 'Long name'
+    : apiType === 'shippers'
       ? 'Shipper Long Name'
       : apiType === 'surveyors'
         ? 'Surveyor Long Name'
@@ -85,27 +100,62 @@ export default function MasterSiLookup({
     if (isCommodityMaster) {
       cols.push({
         key: 'shortName',
-        label: 'Short commodity name',
+        label: <DataHubFieldCue>Short commodity name</DataHubFieldCue>,
+        labelText: 'Short commodity name',
         getSortValue: (it) => (it.shortName || '').toLowerCase(),
       })
     }
     cols.push({
       key: 'value',
-      label: isCommodityMaster ? 'Commodity name' : valueLabel,
+      label: isDataHubMaster ? (
+        <DataHubFieldCue>
+          {isCommodityMaster ? 'Commodity name' : isTermMaster ? 'Term (short name)' : valueLabel}
+        </DataHubFieldCue>
+      ) : (isCommodityMaster ? 'Commodity name' : isTermMaster ? 'Term (short name)' : valueLabel),
+      labelText: isCommodityMaster ? 'Commodity name' : isTermMaster ? 'Term (short name)' : valueLabel,
       getSortValue: (it) => (it.value || '').toLowerCase(),
     })
+    if (isDataHubMaster) {
+      cols.push({
+        key: 'hubCode',
+        label: <DataHubFieldCue>Hub Code</DataHubFieldCue>,
+        labelText: 'Hub Code',
+        getSortValue: (it) => (it.hubCode || '').toLowerCase(),
+        getFilterValue: (it) => it.hubCode || '',
+      })
+      cols.push({
+        key: 'isActive',
+        label: 'Active',
+        labelText: 'Active',
+        filterType: 'select',
+        selectOptions: ['Yes', 'No'],
+        getSortValue: (it) => (it.isActive === false ? 0 : 1),
+        getFilterValue: (it) => (it.isActive === false ? 'No' : 'Yes'),
+      })
+    }
     if (hasLongName) {
       cols.push({
         key: 'longName',
-        label: longNameLabel,
+        label: isTermMaster ? <DataHubFieldCue>{longNameLabel}</DataHubFieldCue> : longNameLabel,
+        labelText: longNameLabel,
         getSortValue: (it) => (it.longName || '').toLowerCase(),
         getFilterValue: (it) => it.longName || '',
+      })
+    }
+    if (isTermMaster) {
+      cols.push({
+        key: 'description',
+        label: <DataHubFieldCue>Description</DataHubFieldCue>,
+        labelText: 'Description',
+        getSortValue: (it) => (it.description || '').toLowerCase(),
+        getFilterValue: (it) => it.description || '',
       })
     }
     if (isCommodityMaster) {
       cols.push({
         key: 'commodityType',
-        label: 'Type',
+        label: <DataHubFieldCue>Type</DataHubFieldCue>,
+        labelText: 'Type',
         getSortValue: (it) => (it.commodityType === 'Solid' ? 'Solid' : 'Liquid').toLowerCase(),
       })
       cols.push({
@@ -116,7 +166,8 @@ export default function MasterSiLookup({
       })
       cols.push({
         key: 'defaultMetricCode',
-        label: 'Default unit',
+        label: <DataHubFieldCue>Default unit</DataHubFieldCue>,
+        labelText: 'Default unit',
         getSortValue: (it) => (it.defaultMetricCode || '').toLowerCase(),
         getFilterValue: (it) => it.defaultMetricCode || '',
       })
@@ -160,7 +211,17 @@ export default function MasterSiLookup({
     }
     cols.push(...MASTER_AUDIT_COLUMNS)
     return cols
-  }, [valueLabel, isCommodityMaster, enableStandardRateFields, hasLongName, longNameLabel])
+  }, [valueLabel, isCommodityMaster, isTermMaster, isDataHubMaster, enableStandardRateFields, hasLongName, longNameLabel])
+
+  const metricLabelsById = useMemo(() => {
+    const out = {}
+    for (const m of metricOptions) {
+      if (m?.id == null) continue
+      const label = (m.label && String(m.label).trim()) || m.code
+      if (label) out[Number(m.id)] = label
+    }
+    return out
+  }, [metricOptions])
 
   const { displayRows, filters, updateFilter, sortState, handleSort } = useSortableFilterableRows(
     items,
@@ -186,6 +247,101 @@ export default function MasterSiLookup({
     load()
   }, [load])
 
+  const [syncing, setSyncing] = useState(false)
+  const [applying, setApplying] = useState(false)
+  const [syncError, setSyncError] = useState(null)
+  const [review, setReview] = useState(null)
+  const [latestRun, setLatestRun] = useState(null)
+  const stagedRun = latestRun?.status === 'staged' ? latestRun : null
+
+  const loadLatestRun = useCallback(async () => {
+    if (!dataHubSyncApi) return
+    try {
+      const runs = await dataHubSyncApi.fetchSyncRuns({ limit: 1 })
+      setLatestRun(Array.isArray(runs) ? (runs[0] ?? null) : null)
+    } catch {
+      setLatestRun(null)
+    }
+  }, [dataHubSyncApi])
+
+  useEffect(() => {
+    if (isDataHubMaster) loadLatestRun()
+  }, [isDataHubMaster, loadLatestRun])
+
+  const openReview = useCallback(
+    async (runId) => {
+      if (!dataHubSyncApi) return
+      setSyncError(null)
+      try {
+        setReview(await dataHubSyncApi.fetchSyncRun(runId))
+      } catch (e) {
+        setError(e?.message || 'Failed to load the staged sync')
+      }
+    },
+    [dataHubSyncApi]
+  )
+
+  const handleDataHubSync = useCallback(async () => {
+    if (!dataHubSyncApi) return
+    setSyncing(true)
+    setError(null)
+    setSyncError(null)
+    try {
+      const resp = await dataHubSyncApi.startSyncRun()
+      await loadLatestRun()
+      if (resp?.noChanges) {
+        setToast({
+          message: 'DataHub matches JPS — nothing new or changed to review.',
+          variant: 'success',
+        })
+        return
+      }
+      const run = resp?.run
+      if (run?.id) await openReview(run.id)
+    } catch (e) {
+      setError(e?.message || 'DataHub sync failed')
+    } finally {
+      setSyncing(false)
+    }
+  }, [dataHubSyncApi, loadLatestRun, openReview])
+
+  const handleApplySync = useCallback(
+    async (itemIds) => {
+      if (!review?.run?.id || !dataHubSyncApi) return
+      setApplying(true)
+      setSyncError(null)
+      try {
+        const result = await dataHubSyncApi.applySyncRun(review.run.id, itemIds)
+        setToast({
+          message: `Applied DataHub sync: ${result.created} added, ${result.updated} updated.`,
+          variant: 'success',
+        })
+        setReview(null)
+        await Promise.all([load(), loadLatestRun()])
+      } catch (e) {
+        setSyncError(e?.message || 'Apply failed')
+      } finally {
+        setApplying(false)
+      }
+    },
+    [review, dataHubSyncApi, load, loadLatestRun]
+  )
+
+  const handleDiscardSync = useCallback(async () => {
+    if (!review?.run?.id || !dataHubSyncApi) return
+    setApplying(true)
+    try {
+      await dataHubSyncApi.discardSyncRun(review.run.id)
+      setReview(null)
+      setToast({ message: 'Staged sync discarded.', variant: 'success' })
+      await loadLatestRun()
+    } catch (e) {
+      setSyncError(e?.message || 'Discard failed')
+    } finally {
+      setApplying(false)
+    }
+  }, [review, dataHubSyncApi, loadLatestRun])
+
   useEffect(() => {
     if (!isCommodityMaster) return
     fetchSiLookups()
@@ -195,7 +351,7 @@ export default function MasterSiLookup({
 
   useEffect(() => {
     if (!toast?.message) return undefined
-    const t = setTimeout(() => setToast(null), 3500)
+    const t = setTimeout(() => setToast(null), 5500)
     return () => clearTimeout(t)
   }, [toast])
 
@@ -203,6 +359,9 @@ export default function MasterSiLookup({
     setEditingId(null)
     setFormValue('')
     setFormLongName('')
+    setFormDescription('')
+    setFormHubCode('')
+    setFormIsActive(true)
     setFormShortName('')
     setFormKlToMtFactor('')
     setFormDefaultMetricId('')
@@ -222,6 +381,9 @@ export default function MasterSiLookup({
     setEditingId(item.id)
     setFormValue(item.value ?? '')
     setFormLongName(item.longName ?? '')
+    setFormDescription(item.description ?? '')
+    setFormHubCode(item.hubCode ?? '')
+    setFormIsActive(item.isActive !== false)
     setFormShortName(item.shortName ?? '')
     setFormKlToMtFactor(item.klToMtFactor != null ? String(item.klToMtFactor) : '')
     setFormDefaultMetricId(item.defaultMetricId != null ? String(item.defaultMetricId) : '')
@@ -247,6 +409,9 @@ export default function MasterSiLookup({
     setEditingId(null)
     setFormValue('')
     setFormLongName('')
+    setFormDescription('')
+    setFormHubCode('')
+    setFormIsActive(true)
     setFormShortName('')
     setFormKlToMtFactor('')
     setFormDefaultMetricId('')
@@ -329,6 +494,13 @@ export default function MasterSiLookup({
       if (hasLongName) {
         payload.longName = (formLongName || '').trim() || null
       }
+      if (isTermMaster) {
+        payload.description = (formDescription || '').trim() || null
+      }
+      if (isDataHubMaster) {
+        payload.hubCode = (formHubCode || '').trim() || null
+        payload.isActive = formIsActive !== false
+      }
       if (isCommodityMaster) {
         payload.commodityType = formCommodityType
         payload.shortName = (formShortName || '').trim().toUpperCase()
@@ -401,6 +573,11 @@ export default function MasterSiLookup({
     formDefaultMetricId,
     hasLongName,
     formLongName,
+    isTermMaster,
+    formDescription,
+    isDataHubMaster,
+    formHubCode,
+    formIsActive,
   ])
 
   const handleDelete = useCallback(
@@ -434,7 +611,10 @@ export default function MasterSiLookup({
 
   return (
     <div className="allocation-page">
-      <h1 className="page-title">{title}</h1>
+      <h1 className="page-title page-title-row">
+        {title}
+        <MasterSourceBadge kind={isDataHubMaster ? 'datahub' : 'local'} />
+      </h1>
       {enableStandardRateFields ? (
         <p className="master-rates-chip" role="status">
           {selectedPort?.name
@@ -450,25 +630,42 @@ export default function MasterSiLookup({
           {error}
         </p>
       )}
-      {toast?.message && (
-        <div
-          className={`toast ${toast.variant === 'error' ? 'toast--warning' : 'toast--success'}`}
-          role={toast.variant === 'error' ? 'alert' : 'status'}
-          aria-live={toast.variant === 'error' ? 'assertive' : 'polite'}
-          aria-atomic="true"
-        >
-          <span className="toast__icon" aria-hidden>{toast.variant === 'error' ? '!' : '✓'}</span>
-          <p className="toast__message">{toast.message}</p>
-          <button type="button" className="toast__close" onClick={() => setToast(null)} aria-label="Dismiss notification">
-            ×
-          </button>
-        </div>
-      )}
+      {toast?.message && <AppToast toast={toast} onDismiss={() => setToast(null)} />}
 
       <section className="card at-berth-list-section">
         <div className="card__header-row">
           <h2 className="card__title">{valueLabel}</h2>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            {isDataHubMaster && canDoEdit && (
+              <>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={load}
+                  disabled={loading || syncing}
+                >
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={handleDataHubSync}
+                  disabled={!canDoEdit || loading || syncing}
+                >
+                  {syncing ? 'Reading DataHub…' : 'Sync from DataHub'}
+                </button>
+                {stagedRun && (
+                  <button
+                    type="button"
+                    className="btn btn--secondary"
+                    onClick={() => openReview(stagedRun.id)}
+                    disabled={syncing || applying}
+                  >
+                    Resume review
+                  </button>
+                )}
+              </>
+            )}
             <button
               type="button"
               className="btn btn--primary"
@@ -507,8 +704,23 @@ export default function MasterSiLookup({
                       </td>
                     )}
                     <td>{it.value ?? '—'}</td>
+                    {isDataHubMaster && (
+                      <td className="text-steel">
+                        {it.hubCode ? (
+                          it.hubCode
+                        ) : (
+                          <MasterSourceBadge kind="local" />
+                        )}
+                      </td>
+                    )}
+                    {isDataHubMaster && (
+                      <td className="text-steel">{it.isActive === false ? 'No' : 'Yes'}</td>
+                    )}
                     {hasLongName && (
                       <td className="text-steel">{it.longName || '—'}</td>
+                    )}
+                    {isTermMaster && (
+                      <td className="text-steel">{it.description || '—'}</td>
                     )}
                     {isCommodityMaster && (
                       <td>{it.commodityType === 'Solid' ? 'Solid' : 'Liquid'}</td>
@@ -575,10 +787,44 @@ export default function MasterSiLookup({
             aria-modal="true"
           >
             <h2 className="modal__title">{editingId != null ? `Edit ${valueLabel}` : `Add ${valueLabel}`}</h2>
+            {isDataHubMaster && (
+              <>
+                <div className="modal__section">
+                  <label htmlFor="si-lookup-hub-code" className="modal__label">
+                    <DataHubFieldCue>Hub Code</DataHubFieldCue>
+                  </label>
+                  <input
+                    id="si-lookup-hub-code"
+                    type="text"
+                    className="modal__input"
+                    value={formHubCode}
+                    onChange={(e) => setFormHubCode(e.target.value)}
+                    placeholder={isTermMaster ? 'e.g. INC-0002' : 'e.g. CMD-0001'}
+                    disabled={!canDoEdit}
+                  />
+                </div>
+                <div className="modal__section">
+                  <label
+                    htmlFor="si-lookup-active"
+                    className="modal__checkbox-label"
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                  >
+                    <input
+                      id="si-lookup-active"
+                      type="checkbox"
+                      checked={formIsActive !== false}
+                      onChange={(e) => setFormIsActive(e.target.checked)}
+                      disabled={!canDoEdit}
+                    />
+                    Active in Jetty Planning
+                  </label>
+                </div>
+              </>
+            )}
             {isCommodityMaster && (
               <div className="modal__section">
                 <label htmlFor="si-commodity-short-name" className="modal__label">
-                  Short commodity name
+                  {isDataHubMaster ? <DataHubFieldCue>Short commodity name</DataHubFieldCue> : 'Short commodity name'}
                 </label>
                 <input
                   id="si-commodity-short-name"
@@ -593,7 +839,7 @@ export default function MasterSiLookup({
             )}
             <div className="modal__section">
               <label htmlFor="si-lookup-value" className="modal__label">
-                {valueLabel}
+                {isDataHubMaster ? <DataHubFieldCue>{valueLabel}</DataHubFieldCue> : valueLabel}
               </label>
               <input
                 id="si-lookup-value"
@@ -608,7 +854,8 @@ export default function MasterSiLookup({
             {hasLongName && (
               <div className="modal__section">
                 <label htmlFor="si-lookup-long-name" className="modal__label">
-                  {longNameLabel} <span className="text-steel">— optional</span>
+                  {isTermMaster ? <DataHubFieldCue>{longNameLabel}</DataHubFieldCue> : longNameLabel}{' '}
+                  <span className="text-steel">— optional</span>
                 </label>
                 <input
                   id="si-lookup-long-name"
@@ -622,10 +869,26 @@ export default function MasterSiLookup({
                 />
               </div>
             )}
+            {isTermMaster && (
+              <div className="modal__section">
+                <label htmlFor="si-lookup-description" className="modal__label">
+                  <DataHubFieldCue>Description</DataHubFieldCue>{' '}
+                  <span className="text-steel">— optional</span>
+                </label>
+                <textarea
+                  id="si-lookup-description"
+                  className="modal__input"
+                  rows={2}
+                  value={formDescription}
+                  onChange={(e) => setFormDescription(e.target.value)}
+                  disabled={!canDoEdit}
+                />
+              </div>
+            )}
             {isCommodityMaster && (
               <div className="modal__section">
                 <label htmlFor="si-commodity-type" className="modal__label">
-                  Commodity type
+                  <DataHubFieldCue>Commodity type</DataHubFieldCue>
                 </label>
                 <select
                   id="si-commodity-type"
@@ -660,7 +923,7 @@ export default function MasterSiLookup({
             {isCommodityMaster && (
               <div className="modal__section">
                 <label htmlFor="si-commodity-default-metric" className="modal__label">
-                  Default unit{' '}
+                  <DataHubFieldCue>Default unit</DataHubFieldCue>{' '}
                   <span className="text-steel">
                     — optional; when set, SI breakdown must use this unit for this commodity
                   </span>
@@ -801,6 +1064,20 @@ export default function MasterSiLookup({
             </div>
           </div>
         </div>
+      )}
+      {review && dataHubUiMeta && (
+        <DataHubSyncReviewModal
+          run={review.run}
+          items={review.items}
+          applying={applying}
+          error={syncError}
+          onApply={handleApplySync}
+          onDiscard={handleDiscardSync}
+          onClose={() => setReview(null)}
+          recordNoun={dataHubUiMeta.recordNoun}
+          newHint={dataHubUiMeta.newHint}
+          metricLabelsById={isCommodityMaster ? metricLabelsById : null}
+        />
       )}
     </div>
   )

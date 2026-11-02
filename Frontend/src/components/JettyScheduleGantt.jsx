@@ -36,7 +36,6 @@ import {
 import { canScheduleRailRow, describeNeedsUpdate } from '../utils/berthColorState.js'
 import { validateBerthingTimeline } from '../utils/validateScheduleTimeline'
 import UnallocatedRail from './allocation/UnallocatedRail'
-import CreatePlanToolbarButton from './allocation/CreatePlanToolbarButton.jsx'
 import { validateBerthPlanJettyAssignment } from '../utils/berthPlanInterval.js'
 import { saveArrivalUpdate as saveArrivalUpdateApi } from '../api/allocation'
 import { ApiError } from '../api/client'
@@ -247,8 +246,6 @@ export default function JettyScheduleGantt({
   closeHint = '',
   onManage,
   railRows,
-  /** Open the existing create-shipment-plan modal. Omit to hide the toolbar button. */
-  onCreatePlan,
 }) {
   const { t: tAlloc } = useTranslation('allocation')
   const isPlanProfile = popoutProfile === 'plan'
@@ -1500,13 +1497,10 @@ export default function JettyScheduleGantt({
     </>
   )
 
-  const LayoutTag = Fragment
-  const layoutProps = {}
-  // Rail stays outside horizontal scroll (always visible) and below the date header row.
-  const ChartShell = railEnabled ? 'div' : Fragment
-  const chartShellProps = railEnabled
-    ? { className: 'jetty-schedule-gantt__chart-with-rail', ref: chartShellRef }
-    : {}
+  // Without a rail the original DOM is unchanged (Fragment); with a rail the Gantt and the rail
+  // sit side by side.
+  const LayoutTag = railEnabled ? 'div' : Fragment
+  const layoutProps = railEnabled ? { className: 'jetty-schedule-gantt__layout' } : {}
 
   const pendingProposal = pendingChange?.proposal ?? null
   const pendingTargetBerth = pendingProposal?.jettyChange
@@ -1819,6 +1813,15 @@ export default function JettyScheduleGantt({
       ) : null}
       </ChartShell>
       </div>
+      {railEnabled ? (
+        <UnallocatedRail
+          rows={railRows}
+          canDrag={canEditSchedule && !exporting}
+          canScheduleRow={canScheduleRailRow}
+          onCardPointerDown={handleRailPointerDown}
+          onSelect={handleRailSelect}
+        />
+      ) : null}
       </LayoutTag>
 
       {pendingChange ? (

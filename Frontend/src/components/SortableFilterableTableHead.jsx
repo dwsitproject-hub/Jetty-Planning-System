@@ -37,13 +37,15 @@ export default function SortableFilterableTableHead({
     <>
       <tr>
         {blankThs(leadingBlankCols, 'leading', leadingBlankLabel)}
-        {columns.map((col) => (
+        {columns.map((col) => {
+          const columnLabel = col.labelText || (typeof col.label === 'string' ? col.label : col.key)
+          return (
           <th key={col.key} className="allocation-table__th">
             <button
               type="button"
               className="allocation-table__sort"
               onClick={() => onSort(col.key)}
-              title={`Sort by ${col.label}`}
+              title={`Sort by ${columnLabel}`}
             >
               {col.label}
               <span className="allocation-table__sort-icon">
@@ -51,12 +53,15 @@ export default function SortableFilterableTableHead({
               </span>
             </button>
           </th>
-        ))}
+          )
+        })}
         {blankThs(trailingBlankCols, 'trailing', trailingBlankLabel)}
       </tr>
       <tr className="allocation-table__filter-row">
         {blankThs(leadingBlankCols, 'leading')}
-        {columns.map((col) => (
+        {columns.map((col) => {
+          const columnLabel = col.labelText || (typeof col.label === 'string' ? col.label : col.key)
+          return (
           <th key={col.key}>
             {col.filterType === 'select' ? (
               <ColumnSelectFilter
@@ -64,7 +69,10 @@ export default function SortableFilterableTableHead({
                 onChange={(value) => onFilterChange(col.key, value)}
                 options={col.selectOptions || []}
                 allLabel={col.filterAllLabel || 'All'}
-                ariaLabel={col.filterAriaLabel || `Filter by ${col.label}`}
+                ariaLabel={
+                  col.filterAriaLabel ||
+                  `Filter by ${columnLabel}`
+                }
               />
             ) : col.filterType === 'dateRange' ? (
               <ColumnDateRangeFilter
@@ -73,22 +81,23 @@ export default function SortableFilterableTableHead({
                 onChange={(bound, value) =>
                   onFilterChange(col.key, mergeDateRangeBound(filters[col.key], bound, value))
                 }
-                fromAria={col.dateRangeFromAria || `${col.label} from`}
-                toAria={col.dateRangeToAria || `${col.label} to`}
+                fromAria={col.dateRangeFromAria || `${columnLabel} from`}
+                toAria={col.dateRangeToAria || `${columnLabel} to`}
               />
             ) : (
               <input
                 type="text"
                 className="allocation-table__filter"
-                placeholder={`Filter ${col.label}`}
+                placeholder={`Filter ${columnLabel}`}
                 value={filters[col.key] ?? ''}
                 onChange={(e) => onFilterChange(col.key, e.target.value)}
                 onClick={(e) => e.stopPropagation()}
-                aria-label={`Filter by ${col.label}`}
+                aria-label={`Filter by ${columnLabel}`}
               />
             )}
           </th>
-        ))}
+          )
+        })}
         {blankThs(trailingBlankCols, 'trailing')}
       </tr>
     </>

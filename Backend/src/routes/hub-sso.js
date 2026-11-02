@@ -68,13 +68,15 @@ async function insertJitUser(email, payload) {
     await client.query(`INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2)`, [userId, roleId]);
 
     if (JIT_PORTS === 'all') {
-      const ports = await client.query(`SELECT id FROM ports WHERE deleted_at IS NULL ORDER BY id ASC`);
+      const ports = await client.query(
+        `SELECT id FROM ports WHERE deleted_at IS NULL AND is_active IS TRUE ORDER BY id ASC`
+      );
       for (const p of ports.rows) {
         await client.query(`INSERT INTO user_ports (user_id, port_id) VALUES ($1, $2)`, [userId, p.id]);
       }
     } else {
       const one = await client.query(
-        `SELECT id FROM ports WHERE deleted_at IS NULL ORDER BY id ASC LIMIT 1`
+        `SELECT id FROM ports WHERE deleted_at IS NULL AND is_active IS TRUE ORDER BY id ASC LIMIT 1`
       );
       if (one.rows.length > 0) {
         await client.query(`INSERT INTO user_ports (user_id, port_id) VALUES ($1, $2)`, [

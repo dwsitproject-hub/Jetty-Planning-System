@@ -6,6 +6,7 @@ import { fetchJetties, createJetty, updateJettyApi, updateJettyStatus } from '..
 import { ApiError } from '../api/client'
 import { useActivityLog } from '../context/ActivityLogContext'
 import { usePortScope } from '../context/PortScopeContext'
+import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import MasterWorkingPortBar from '../components/MasterWorkingPortBar.jsx'
 import '../styles/allocation.css'
 import '../styles/modal.css'
@@ -494,7 +495,10 @@ export default function MasterJetty() {
           </button>
         </div>
       )}
-      <h1 className="page-title">{t('masterJetty')}</h1>
+      <h1 className="page-title page-title-row">
+        {t('masterJetty')}
+        <MasterSourceBadge kind="local" />
+      </h1>
       <p className="allocation-page__intro">{t('masterJettyIntro')}</p>
       <p className="text-steel">
         <Link to="/master" className="link">← Back to Master Menu</Link>

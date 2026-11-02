@@ -16,11 +16,9 @@ import {
   masterAuditSelectSql,
   pickMasterAudit,
 } from '../lib/master-row-audit.js';
-import { fetchAllVessels } from '../lib/datahub-client.js';
-import { getEffectiveDataHubConfig, updateDataHubSyncHealth } from '../lib/datahub-config.js';
-import { COMPARED_COLUMNS, buildSyncPlan } from '../lib/datahub-vessel-sync.js';
-import { applyVesselItem } from '../lib/datahub-vessel-apply.js';
 import { tryPushAfterSave } from '../lib/datahub-vessel-push.js';
+import { COMPARED_COLUMNS } from '../lib/datahub-vessel-sync.js';
+import { registerDataHubSyncRoutes } from './datahub-sync-routes.js';
 
 const router = express.Router();
 router.use(...requirePageView('master-vessel'));
@@ -37,6 +35,7 @@ const LAMBUNG_TYPES = new Set([
 const CHARTER_TYPES = new Set(['Voyage Charter', 'Time Charter']);
 
 const VESSEL_SELECT = `SELECT v.id, v.hub_code, v.hub_record_id, v.hub_version, v.hub_updated_at,
+            v.datahub_last_apply_source, v.datahub_last_apply_run_id, v.is_active,
             v.vessel_name, v.vessel_imo, v.vessel_mmsi, v.vessel_code_sap,
             v.vessel_capacity_mt, v.vessel_gross_tonnage, v.vessel_draft,
             v.vessel_length_overall, v.vessel_type, v.heater, v.type_lambung,
@@ -60,9 +59,13 @@ function toVessel(row) {
   return {
     id: row.id != null ? Number(row.id) : row.id,
     hubCode: row.hub_code ?? null,
+    isActive: row.is_active !== false,
     hubRecordId: row.hub_record_id ?? null,
     hubVersion: row.hub_version != null ? Number(row.hub_version) : null,
     hubUpdatedAt: row.hub_updated_at ?? null,
+    datahubLastApplySource: row.datahub_last_apply_source ?? null,
+    datahubLastApplyRunId:
+      row.datahub_last_apply_run_id != null ? Number(row.datahub_last_apply_run_id) : null,
     vesselName: row.vessel_name,
     vesselImo: row.vessel_imo ?? null,
     vesselMmsi: row.vessel_mmsi ?? null,
@@ -111,8 +114,23 @@ function readVesselBody(body) {
       heater: body?.heater == null ? null : Boolean(body.heater),
       type_lambung: typeLambung,
       type_charter: typeCharter,
+      hub_code: str(body?.hubCode ?? body?.hub_code),
+      is_active: body?.isActive === false || body?.is_active === false ? false : true,
     },
   };
+}
+
+async function assertHubCodeAvailable(hubCode, excludeId = null) {
+  if (!hubCode) return null;
+  const params = [hubCode];
+  let sql = `SELECT id FROM master_vessels WHERE hub_code = $1 AND deleted_at IS NULL`;
+  if (excludeId != null) {
+    params.push(excludeId);
+    sql += ` AND id <> $2`;
+  }
+  const r = await pool.query(sql, params);
+  if (r.rows.length > 0) return 'This Hub Code is already mapped to another vessel';
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +141,8 @@ router.get('/', async (req, res) => {
   const search = str(req.query.search);
   const params = [];
   let where = 'v.deleted_at IS NULL';
+  const activeOnly = ['1', 'true', 'yes'].includes(String(req.query.activeOnly || '').trim().toLowerCase());
+  if (activeOnly) where += ' AND v.is_active = TRUE';
   if (search) {
     params.push(`%${search.toLowerCase()}%`);
     where += ` AND (LOWER(v.vessel_name) LIKE $${params.length}
@@ -156,18 +176,20 @@ router.post('/', ...requirePageEdit('master-vessel'), async (req, res) => {
   if (dupe.rows.length > 0) {
     return res.status(409).json({ error: 'A vessel with this name already exists' });
   }
+  const hubClash = await assertHubCodeAvailable(v.hub_code);
+  if (hubClash) return res.status(409).json({ error: hubClash });
 
   const ins = await pool.query(
     `INSERT INTO master_vessels (
        vessel_name, vessel_imo, vessel_mmsi, vessel_code_sap, vessel_capacity_mt,
        vessel_gross_tonnage, vessel_draft, vessel_length_overall, vessel_type,
-       heater, type_lambung, type_charter, created_by, updated_by
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
+       heater, type_lambung, type_charter, hub_code, is_active, created_by, updated_by
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15)
      RETURNING id`,
     [
       v.vessel_name, v.vessel_imo, v.vessel_mmsi, v.vessel_code_sap, v.vessel_capacity_mt,
       v.vessel_gross_tonnage, v.vessel_draft, v.vessel_length_overall, v.vessel_type,
-      v.heater, v.type_lambung, v.type_charter, actorId,
+      v.heater, v.type_lambung, v.type_charter, v.hub_code, v.is_active, actorId,
     ]
   );
   const created = await pool.query(`${VESSEL_SELECT} WHERE v.id = $1`, [ins.rows[0].id]);
@@ -213,19 +235,21 @@ router.put('/:id(\\d+)', ...requirePageEdit('master-vessel'), async (req, res) =
   if (dupe.rows.length > 0) {
     return res.status(409).json({ error: 'A vessel with this name already exists' });
   }
+  const hubClash = await assertHubCodeAvailable(v.hub_code, id);
+  if (hubClash) return res.status(409).json({ error: hubClash });
 
   await pool.query(
     `UPDATE master_vessels SET
        vessel_name = $1, vessel_imo = $2, vessel_mmsi = $3, vessel_code_sap = $4,
        vessel_capacity_mt = $5, vessel_gross_tonnage = $6, vessel_draft = $7,
        vessel_length_overall = $8, vessel_type = $9, heater = $10,
-       type_lambung = $11, type_charter = $12,
-       updated_by = $13, updated_at = NOW()
-     WHERE id = $14 AND deleted_at IS NULL`,
+       type_lambung = $11, type_charter = $12, hub_code = $13, is_active = $14,
+       updated_by = $15, updated_at = NOW()
+     WHERE id = $16 AND deleted_at IS NULL`,
     [
       v.vessel_name, v.vessel_imo, v.vessel_mmsi, v.vessel_code_sap, v.vessel_capacity_mt,
       v.vessel_gross_tonnage, v.vessel_draft, v.vessel_length_overall, v.vessel_type,
-      v.heater, v.type_lambung, v.type_charter, actorUserIdFromReq(req), id,
+      v.heater, v.type_lambung, v.type_charter, v.hub_code, v.is_active, actorUserIdFromReq(req), id,
     ]
   );
 
@@ -279,290 +303,6 @@ router.delete('/:id(\\d+)', ...requirePageDelete('master-vessel'), async (req, r
   res.status(204).send();
 });
 
-// ---------------------------------------------------------------------------
-// DataHub sync: stage -> review -> apply
-// ---------------------------------------------------------------------------
-
-function toRun(row) {
-  return {
-    id: Number(row.id),
-    status: row.status,
-    hubRecordCount: Number(row.hub_record_count ?? 0),
-    newCount: Number(row.new_count ?? 0),
-    changedCount: Number(row.changed_count ?? 0),
-    unchangedCount: Number(row.unchanged_count ?? 0),
-    appliedCount: Number(row.applied_count ?? 0),
-    error: row.error ?? null,
-    startedAt: row.started_at ?? null,
-    finishedAt: row.finished_at ?? null,
-    appliedAt: row.applied_at ?? null,
-  };
-}
-
-function toItem(row) {
-  const payload = row.payload || {};
-  return {
-    id: Number(row.id),
-    vesselId: row.vessel_id != null ? Number(row.vessel_id) : null,
-    hubCode: row.hub_code ?? null,
-    vesselName: row.vessel_name,
-    diffKind: row.diff_kind,
-    decision: row.decision,
-    fieldDiff: row.field_diff ?? {},
-    values: payload.values ?? {},
-    appliedAt: row.applied_at ?? null,
-    applyError: row.apply_error ?? null,
-  };
-}
-
-router.get('/sync/runs', async (req, res) => {
-  const limitRaw = parseInt(req.query.limit, 10);
-  const limit = Number.isNaN(limitRaw) ? 10 : Math.max(1, Math.min(limitRaw, 50));
-  const r = await pool.query(
-    `SELECT * FROM datahub_vessel_sync_runs ORDER BY started_at DESC LIMIT $1`,
-    [limit]
-  );
-  res.json(r.rows.map(toRun));
-});
-
-/** Pull the hub, diff it, and stage the result. Writes nothing to master_vessels. */
-router.post('/sync/runs', ...requirePageEdit('master-vessel'), async (req, res) => {
-  const cfg = await getEffectiveDataHubConfig(pool);
-  if (!cfg.enabled || !cfg.baseUrl) {
-    return res.status(400).json({
-      error: 'DataHub integration is not configured. Set the base URL and key pair in Admin > DataHub.',
-    });
-  }
-  if (!cfg.publicKey || !cfg.privateKey) {
-    return res.status(400).json({ error: 'DataHub key pair is not configured.' });
-  }
-
-  let hubVessels;
-  try {
-    hubVessels = await fetchAllVessels(cfg);
-  } catch (e) {
-    await updateDataHubSyncHealth(pool, { ok: false, error: e?.message });
-    return res.status(502).json({ error: e?.message || 'Failed to read the DataHub vessel master' });
-  }
-
-  const localRows = await pool.query(
-    `SELECT id, hub_code, ${COMPARED_COLUMNS.join(', ')}
-     FROM master_vessels WHERE deleted_at IS NULL`
-  );
-  const { items, summary } = buildSyncPlan(hubVessels, localRows.rows);
-
-  const client = await pool.connect();
-  let runId;
-  try {
-    await client.query('BEGIN');
-    const runRes = await client.query(
-      `INSERT INTO datahub_vessel_sync_runs (
-         status, hub_record_count, new_count, changed_count, unchanged_count,
-         finished_at, created_by
-       ) VALUES ('staged', $1, $2, $3, $4, NOW(), $5)
-       RETURNING id`,
-      [
-        summary.hubRecordCount,
-        summary.newCount,
-        summary.changedCount,
-        summary.unchangedCount,
-        req.userId ?? null,
-      ]
-    );
-    runId = runRes.rows[0].id;
-
-    for (const item of items) {
-      // new/changed start approved so the review screen is pre-ticked; the user
-      // can untick any row and nothing is written until Apply is pressed.
-      const decision = item.diffKind === 'unchanged' ? 'rejected' : 'approved';
-      await client.query(
-        `INSERT INTO datahub_vessel_sync_items (
-           run_id, vessel_id, hub_code, vessel_name, diff_kind, payload, field_diff, decision
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [
-          runId,
-          item.vesselId,
-          item.hubCode,
-          item.vesselName,
-          item.diffKind,
-          JSON.stringify({
-            values: item.values,
-            hubCode: item.hubCode,
-            hubRecordId: item.hubRecordId,
-            hubVersion: item.hubVersion,
-            hubUpdatedAt: item.hubUpdatedAt,
-          }),
-          JSON.stringify(item.fieldDiff),
-          decision,
-        ]
-      );
-    }
-    await client.query('COMMIT');
-  } catch (e) {
-    await client.query('ROLLBACK');
-    throw e;
-  } finally {
-    client.release();
-  }
-
-  await updateDataHubSyncHealth(pool, { ok: true });
-  const run = await pool.query(`SELECT * FROM datahub_vessel_sync_runs WHERE id = $1`, [runId]);
-  res.status(201).json({ run: toRun(run.rows[0]), summary });
-});
-
-router.get('/sync/runs/:id(\\d+)', async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const run = await pool.query(`SELECT * FROM datahub_vessel_sync_runs WHERE id = $1`, [id]);
-  if (run.rows.length === 0) return res.status(404).json({ error: 'Sync run not found' });
-  const items = await pool.query(
-    `SELECT * FROM datahub_vessel_sync_items
-     WHERE run_id = $1
-     ORDER BY CASE diff_kind WHEN 'changed' THEN 0 WHEN 'new' THEN 1 ELSE 2 END,
-              vessel_name ASC`,
-    [id]
-  );
-  res.json({ run: toRun(run.rows[0]), items: items.rows.map(toItem) });
-});
-
-/** Record approve/reject decisions without applying them. */
-router.patch('/sync/runs/:id(\\d+)/items', ...requirePageEdit('master-vessel'), async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const decisions = Array.isArray(req.body?.decisions) ? req.body.decisions : null;
-  if (!decisions) return res.status(400).json({ error: 'decisions must be an array' });
-
-  const run = await pool.query(`SELECT status FROM datahub_vessel_sync_runs WHERE id = $1`, [id]);
-  if (run.rows.length === 0) return res.status(404).json({ error: 'Sync run not found' });
-  if (run.rows[0].status !== 'staged') {
-    return res.status(409).json({ error: `Sync run is already ${run.rows[0].status}` });
-  }
-
-  const approved = [];
-  const rejected = [];
-  for (const d of decisions) {
-    const itemId = parseInt(d?.itemId, 10);
-    if (!Number.isFinite(itemId)) continue;
-    if (d?.decision === 'approved') approved.push(itemId);
-    else if (d?.decision === 'rejected') rejected.push(itemId);
-  }
-
-  if (approved.length) {
-    await pool.query(
-      `UPDATE datahub_vessel_sync_items SET decision = 'approved'
-       WHERE run_id = $1 AND id = ANY($2::bigint[])`,
-      [id, approved]
-    );
-  }
-  if (rejected.length) {
-    await pool.query(
-      `UPDATE datahub_vessel_sync_items SET decision = 'rejected'
-       WHERE run_id = $1 AND id = ANY($2::bigint[])`,
-      [id, rejected]
-    );
-  }
-  res.json({ ok: true, approved: approved.length, rejected: rejected.length });
-});
-
-/**
- * Apply a staged run. `itemIds` (optional) replaces the stored decisions, so the
- * review screen can send its final selection in one call.
- */
-router.post('/sync/runs/:id(\\d+)/apply', ...requirePageEdit('master-vessel'), async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const itemIds = Array.isArray(req.body?.itemIds)
-    ? req.body.itemIds.map((n) => parseInt(n, 10)).filter(Number.isFinite)
-    : null;
-  const actorId = actorUserIdFromReq(req);
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const runRes = await client.query(
-      `SELECT * FROM datahub_vessel_sync_runs WHERE id = $1 FOR UPDATE`,
-      [id]
-    );
-    if (runRes.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Sync run not found' });
-    }
-    if (runRes.rows[0].status !== 'staged') {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: `Sync run is already ${runRes.rows[0].status}` });
-    }
-
-    if (itemIds) {
-      await client.query(`UPDATE datahub_vessel_sync_items SET decision = 'rejected' WHERE run_id = $1`, [id]);
-      if (itemIds.length) {
-        await client.query(
-          `UPDATE datahub_vessel_sync_items SET decision = 'approved'
-           WHERE run_id = $1 AND id = ANY($2::bigint[])`,
-          [id, itemIds]
-        );
-      }
-    }
-
-    const approved = await client.query(
-      `SELECT * FROM datahub_vessel_sync_items
-       WHERE run_id = $1 AND decision = 'approved' AND applied_at IS NULL`,
-      [id]
-    );
-
-    let created = 0;
-    let updated = 0;
-    for (const item of approved.rows) {
-      const { action } = await applyVesselItem(client, item, actorId);
-      if (action === 'created') created += 1;
-      else updated += 1;
-      await client.query(
-        `UPDATE datahub_vessel_sync_items SET applied_at = NOW() WHERE id = $1`,
-        [item.id]
-      );
-    }
-
-    await client.query(
-      `UPDATE datahub_vessel_sync_runs SET
-         status = 'applied', applied_count = $1, applied_at = NOW(), applied_by = $2
-       WHERE id = $3`,
-      [created + updated, req.userId ?? null, id]
-    );
-    await client.query('COMMIT');
-
-    writeActivityLog({
-      pageKey: PAGE_KEY,
-      action: 'import',
-      entityType: 'Vessel',
-      entityId: `sync-${id}`,
-      entityLabel: `DataHub sync #${id}`,
-      summary: `Applied DataHub vessel sync: ${created} created, ${updated} updated`,
-      meta: { runId: id, created, updated },
-      actorUserId: req.userId ?? null,
-    }).catch(() => {});
-
-    res.json({ ok: true, runId: id, created, updated, applied: created + updated });
-  } catch (e) {
-    await client.query('ROLLBACK');
-    await pool
-      .query(`UPDATE datahub_vessel_sync_runs SET status = 'failed', error = $1 WHERE id = $2`, [
-        String(e?.message || 'apply failed').slice(0, 2000),
-        id,
-      ])
-      .catch(() => {});
-    throw e;
-  } finally {
-    client.release();
-  }
-});
-
-router.post('/sync/runs/:id(\\d+)/discard', ...requirePageEdit('master-vessel'), async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const r = await pool.query(
-    `UPDATE datahub_vessel_sync_runs SET status = 'discarded', finished_at = NOW()
-     WHERE id = $1 AND status = 'staged' RETURNING id`,
-    [id]
-  );
-  if (r.rows.length === 0) {
-    return res.status(409).json({ error: 'Sync run is not staged' });
-  }
-  res.json({ ok: true, runId: id });
-});
+registerDataHubSyncRoutes(router, { entityType: 'vessel', mountPath: '/sync' });
 
 export default router;

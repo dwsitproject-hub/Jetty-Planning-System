@@ -12,14 +12,47 @@ import {
   pickMasterAudit,
 } from '../lib/master-row-audit.js';
 import { parseOperationalDayStart } from '../lib/operational-day.js';
+import { registerDataHubSyncRoutes } from './datahub-sync-routes.js';
 
 const router = express.Router();
 router.use(...requirePageView('master-port'));
 
+registerDataHubSyncRoutes(router, { entityType: 'port_master', mountPath: '/datahub/sync' });
+
 const PORT_SELECT = `SELECT p.id, p.name, p.description, p.schedule_timezone, p.operational_day_start,
-            p.allow_multi_jetty_berthing, ${masterAuditSelectSql('p')}
+            p.allow_multi_jetty_berthing,
+            p.unlocode, p.country, p.is_active,
+            p.hub_code, p.datahub_last_apply_source, p.datahub_last_apply_run_id,
+            ${masterAuditSelectSql('p')}
      FROM ports p
      ${masterAuditJoinSql('p')}`;
+
+function optionalText(raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  const s = String(raw).trim();
+  return s === '' ? null : s;
+}
+
+function normalizeHubCode(raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  const s = String(raw).trim();
+  return s === '' ? null : s;
+}
+
+async function assertPortHubCodeAvailable(hubCode, excludeId = null) {
+  if (!hubCode) return null;
+  const params = [hubCode];
+  let sql = `SELECT id FROM ports WHERE hub_code = $1 AND deleted_at IS NULL`;
+  if (excludeId != null) {
+    params.push(excludeId);
+    sql += ` AND id <> $2`;
+  }
+  const r = await pool.query(sql, params);
+  if (r.rows.length > 0) return 'This Hub Code is already mapped to another port';
+  return null;
+}
 
 router.get('/', async (req, res) => {
   const result = await pool.query(
@@ -44,7 +77,18 @@ router.get('/:id', async (req, res) => {
 const SCHEDULE_TZ_RE = /^[A-Za-z_/+-]+$/;
 
 router.post('/', ...requirePageEdit('master-port'), async (req, res) => {
-  const { name, description, scheduleTimezone, operationalDayStart, allowMultiJetyBerthing } = req.body || {};
+  const {
+    name,
+    description,
+    scheduleTimezone,
+    operationalDayStart,
+    allowMultiJetyBerthing,
+    unlocode,
+    country,
+    isActive,
+    hubCode,
+    hub_code: hubCodeSnake,
+  } = req.body || {};
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'name is required' });
   }
@@ -56,11 +100,18 @@ router.post('/', ...requirePageEdit('master-port'), async (req, res) => {
   const allowMultiJetty = allowMultiJetyBerthing === true;
   const opDayStart = parseOperationalDayStart(operationalDayStart).formatted;
   const actorId = actorUserIdFromReq(req);
+  const unlocodeVal = optionalText(unlocode) ?? null;
+  const countryVal = optionalText(country) ?? null;
+  const isActiveVal = isActive === false ? false : true;
+  const hubCodeVal = normalizeHubCode(hubCode ?? hubCodeSnake) ?? null;
+  const hubClash = await assertPortHubCodeAvailable(hubCodeVal);
+  if (hubClash) return res.status(409).json({ error: hubClash });
   const result = await pool.query(
-    `INSERT INTO ports (name, description, schedule_timezone, operational_day_start, allow_multi_jetty_berthing, created_by, updated_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $6)
+    `INSERT INTO ports (name, description, schedule_timezone, operational_day_start, allow_multi_jetty_berthing,
+       unlocode, country, is_active, hub_code, created_by, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
      RETURNING id`,
-    [name.trim(), description?.trim() ?? null, tz, opDayStart, allowMultiJetty, actorId]
+    [name.trim(), description?.trim() ?? null, tz, opDayStart, allowMultiJetty, unlocodeVal, countryVal, isActiveVal, hubCodeVal, actorId]
   );
   const created = await pool.query(`${PORT_SELECT} WHERE p.id = $1 AND p.deleted_at IS NULL`, [result.rows[0].id]);
   const row = created.rows[0];
@@ -83,7 +134,18 @@ router.post('/', ...requirePageEdit('master-port'), async (req, res) => {
 router.put('/:id', ...requirePageEdit('master-port'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
-  const { name, description, scheduleTimezone, operationalDayStart, allowMultiJetyBerthing } = req.body || {};
+  const {
+    name,
+    description,
+    scheduleTimezone,
+    operationalDayStart,
+    allowMultiJetyBerthing,
+    unlocode,
+    country,
+    isActive,
+    hubCode,
+    hub_code: hubCodeSnake,
+  } = req.body || {};
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'name is required' });
   }
@@ -92,7 +154,8 @@ router.put('/:id', ...requirePageEdit('master-port'), async (req, res) => {
     return res.status(400).json({ error: 'Invalid scheduleTimezone (use IANA, e.g. Asia/Jakarta)' });
   }
   const before = await pool.query(
-    `SELECT allow_multi_jetty_berthing, operational_day_start FROM ports WHERE id = $1 AND deleted_at IS NULL`,
+    `SELECT allow_multi_jetty_berthing, operational_day_start, unlocode, country, is_active, hub_code
+     FROM ports WHERE id = $1 AND deleted_at IS NULL`,
     [id]
   );
   if (before.rows.length === 0) return res.status(404).json({ error: 'Port not found' });
@@ -104,17 +167,50 @@ router.put('/:id', ...requirePageEdit('master-port'), async (req, res) => {
   const opDayStart = opDayStartProvided
     ? parseOperationalDayStart(operationalDayStart).formatted
     : before.rows[0].operational_day_start;
+  const unlocodeProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'unlocode');
+  const countryProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'country');
+  const isActiveProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'isActive');
+  const unlocodeVal = unlocodeProvided ? optionalText(unlocode) : before.rows[0].unlocode;
+  const countryVal = countryProvided ? optionalText(country) : before.rows[0].country;
+  const isActiveVal = isActiveProvided ? isActive !== false : before.rows[0].is_active !== false;
+  const hubCodeProvided =
+    Object.prototype.hasOwnProperty.call(req.body || {}, 'hubCode') ||
+    Object.prototype.hasOwnProperty.call(req.body || {}, 'hub_code');
+  const hubCodeVal = hubCodeProvided
+    ? normalizeHubCode(hubCode ?? hubCodeSnake) ?? null
+    : before.rows[0].hub_code;
+  if (hubCodeProvided) {
+    const hubClash = await assertPortHubCodeAvailable(hubCodeVal, id);
+    if (hubClash) return res.status(409).json({ error: hubClash });
+  }
+
   const actorId = actorUserIdFromReq(req);
   const result = await pool.query(
     `UPDATE ports SET name = $1, description = $2,
        schedule_timezone = CASE WHEN $3::text IS NOT NULL AND $3::text <> '' THEN $3::text ELSE schedule_timezone END,
        operational_day_start = $4,
        allow_multi_jetty_berthing = $5,
-       updated_by = $6,
+       unlocode = $6,
+       country = $7,
+       is_active = $8,
+       hub_code = $9,
+       updated_by = $10,
        updated_at = NOW()
-     WHERE id = $7 AND deleted_at IS NULL
+     WHERE id = $11 AND deleted_at IS NULL
      RETURNING id`,
-    [name.trim(), description?.trim() ?? null, tzRaw || null, opDayStart, allowMultiJetty, actorId, id]
+    [
+      name.trim(),
+      description?.trim() ?? null,
+      tzRaw || null,
+      opDayStart,
+      allowMultiJetty,
+      unlocodeVal,
+      countryVal,
+      isActiveVal,
+      hubCodeVal,
+      actorId,
+      id,
+    ]
   );
   if (result.rows.length === 0) return res.status(404).json({ error: 'Port not found' });
   const updated = await pool.query(`${PORT_SELECT} WHERE p.id = $1 AND p.deleted_at IS NULL`, [id]);
@@ -125,6 +221,13 @@ router.put('/:id', ...requirePageEdit('master-port'), async (req, res) => {
       field: 'Allow Multi-Jetty Berthing',
       from: before.rows[0].allow_multi_jetty_berthing ? 'Yes' : 'No',
       to: allowMultiJetty ? 'Yes' : 'No',
+    });
+  }
+  if (hubCodeProvided && String(before.rows[0].hub_code ?? '') !== String(hubCodeVal ?? '')) {
+    changes.push({
+      field: 'Hub Code',
+      from: before.rows[0].hub_code ?? null,
+      to: hubCodeVal,
     });
   }
   writeActivityLog({
@@ -293,6 +396,13 @@ function toPort(row) {
     scheduleTimezone: row.schedule_timezone ?? 'Asia/Jakarta',
     operationalDayStart: parseOperationalDayStart(row.operational_day_start).formatted,
     allowMultiJetyBerthing: row.allow_multi_jetty_berthing === true,
+    unlocode: row.unlocode ?? null,
+    country: row.country ?? null,
+    isActive: row.is_active !== false,
+    hubCode: row.hub_code ?? null,
+    datahubLastApplySource: row.datahub_last_apply_source ?? null,
+    datahubLastApplyRunId:
+      row.datahub_last_apply_run_id != null ? Number(row.datahub_last_apply_run_id) : null,
     ...pickMasterAudit(row),
   };
 }
