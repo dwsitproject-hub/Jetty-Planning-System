@@ -66,7 +66,6 @@ export default function GanttDenseBlock({
   showAvgFlow = false,
   showPlannedWait = false,
   showEtr = false,
-  purposeAsColor = false,
   pinLabel = false,
   purposeAsColor = false,
 }) {
