@@ -3,7 +3,6 @@ import { materialDisplayFromRow } from './ganttBarDisplay.js'
 import { DEFAULT_BERTH_TAIL_MS, isBerthPlanMissingEtc } from './berthPlanInterval.js'
 import { getBerthPurposeTone, getNeedsUpdateReasons } from './berthColorState.js'
 import { computeWaitToBerthMs } from './waitToBerth.js'
-import { getBerthPurposeTone, getNeedsUpdateReasons } from './berthColorState.js'
 import {
   parseMs,
   resolveActualAlongsideEnd,

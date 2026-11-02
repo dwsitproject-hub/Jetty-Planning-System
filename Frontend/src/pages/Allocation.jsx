@@ -49,7 +49,6 @@ import {
 } from '../utils/captureDomAsJpeg'
 import { downloadCanvasesAsPdf } from '../utils/exportCanvasPdf'
 import { isStaleLazyChunkError, reloadOnceForStaleChunks } from '../utils/staleChunkReload'
-import { buildRailRows } from '../utils/berthColorState'
 import {
   currentPhaseLabelForVessel,
   deriveCurrentPhaseIndex,
