@@ -13,6 +13,7 @@ import {
 } from '../utils/ganttBarDisplay.js'
 import { formatOverdueDuration } from '../utils/etcBreach'
 import { describeNeedsUpdate } from '../utils/berthColorState.js'
+import GanttPlanBarBody from './GanttPlanBarBody.jsx'
 
 function GanttVesselIcon() {
   return (
@@ -237,6 +238,22 @@ export default function GanttDenseBlock({
         <span className="gantt-dense-block__plan3-right">{balanceLine || '—'}</span>
       </div>
     </>
+  ) : null
+
+  const planBody = planDensity ? (
+    <GanttPlanBarBody
+      density={planDensity}
+      model={model}
+      showPurpose={showPurpose && planDensity === 'comfortable'}
+      showCommodity={showCommodity}
+      showWait={showWait}
+      waitLabel={waitLabel}
+      waitTooltip={waitTooltip}
+      needsUpdateText={needsUpdateText}
+      plan3AvgRate={plan3AvgRate}
+      balanceLine={balanceLine}
+      avgFlowTitle={t('ganttBarAvgFlow', { rate: plan3AvgRate, defaultValue: '{{rate}}' })}
+    />
   ) : null
 
   const blockBody = planBody ?? (
