@@ -1503,6 +1503,10 @@ export default function JettyScheduleGantt({
   // sit side by side.
   const LayoutTag = railEnabled ? 'div' : Fragment
   const layoutProps = railEnabled ? { className: 'jetty-schedule-gantt__layout' } : {}
+  const ChartShell = railEnabled ? 'div' : Fragment
+  const chartShellProps = railEnabled
+    ? { className: 'jetty-schedule-gantt__chart-with-rail', ref: chartShellRef }
+    : {}
 
   const pendingProposal = pendingChange?.proposal ?? null
   const pendingTargetBerth = pendingProposal?.jettyChange
