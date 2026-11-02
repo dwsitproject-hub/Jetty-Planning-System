@@ -53,7 +53,7 @@ router.get('/me', requireAuth, async (req, res) => {
   const id = req.userId;
 
   const result = await pool.query(
-    `SELECT id, username, display_name, email, is_active, created_at, updated_at
+    `SELECT id, username, display_name, email, oidc_sub, is_active, created_at, updated_at
      FROM users WHERE id = $1 AND deleted_at IS NULL`,
     [id]
   );
@@ -65,7 +65,8 @@ router.get('/me', requireAuth, async (req, res) => {
     return res.status(403).json({ error: 'User is inactive' });
   }
 
-  res.json(toUser(row));
+  const oidcSub = typeof row.oidc_sub === 'string' ? row.oidc_sub.trim() : '';
+  res.json({ ...toUser(row), oidcSub: oidcSub || null });
 });
 
 router.get('/me/sso-status', requireAuth, async (req, res) => {
