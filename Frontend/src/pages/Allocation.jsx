@@ -2751,6 +2751,7 @@ export default function Allocation({ pageProfile = 'legacy' } = {}) {
             onScheduleChanged={refreshOverview}
             popoutProfile={isPlanCentric ? 'plan' : 'legacy'}
             railRows={unallocatedRailRows}
+            onCreatePlan={canCreateShipmentPlan ? openCreatePlanModal : undefined}
           />
         </div>
       </div>

@@ -247,6 +247,7 @@ export default function JettyScheduleGantt({
   closeHint = '',
   onManage,
   railRows,
+  onCreatePlan,
 }) {
   const { t: tAlloc } = useTranslation('allocation')
   const isPlanProfile = popoutProfile === 'plan'
