@@ -23,7 +23,7 @@
     "run:tank-gauging-poll": "node scripts/run-tank-gauging-poll.js",
     "run:purge-tank-gauging-samples": "node scripts/purge-tank-gauging-samples.js",
     "run:aggregate-daily-cargo-progress": "node scripts/aggregate-daily-cargo-progress.js",
-    "test:operational-progress": "node --test src/lib/operational-progress.test.js src/lib/at-berth-flow-pattern.test.js",
+    "test:operational-progress": "node --test src/lib/operational-progress.test.js src/lib/cargo-product-progress.test.js src/lib/at-berth-flow-pattern.test.js",
     "test:atg-hourly-progress": "node --test src/lib/atg-hourly-progress.test.js",
     "test:cargo-schedule-progress": "node --test src/lib/cargo-schedule-progress.test.js",
     "test:ais": "node --test src/lib/ais-bontang-geofence.test.js src/lib/ais-bontang-overview.test.js src/lib/ais-openwaters-client.test.js src/lib/ais-position-merge.test.js src/lib/ais-vesselapi-client.test.js src/lib/ais-poll-job.test.js",

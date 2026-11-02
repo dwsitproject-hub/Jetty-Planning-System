@@ -45,20 +45,6 @@ export function ensureApiEndAfterStart(startAt, endAt, scheduleIana) {
   return endIso
 }
 
-/** New cargo segment start must be strictly after the previous segment end. */
-export function ensureApiStartAfterPreviousEnd(previousEndAt, startAt, scheduleIana) {
-  const prevEndIso = normalizeForApi(previousEndAt, scheduleIana)
-  let startIso = normalizeForApi(startAt, scheduleIana)
-  const prevEndMs = new Date(prevEndIso).getTime()
-  let startMs = new Date(startIso).getTime()
-  if (!Number.isFinite(prevEndMs)) return startIso
-  if (!Number.isFinite(startMs) || startMs <= prevEndMs) {
-    startMs = prevEndMs + 1000
-    startIso = new Date(startMs).toISOString()
-  }
-  return startIso
-}
-
 /** API ISO / timestamptz → `YYYY-MM-DDTHH:mm` in schedule zone for datetime-local */
 export function utcIsoToNaiveLocal(iso, scheduleIana) {
   if (!iso) return ''

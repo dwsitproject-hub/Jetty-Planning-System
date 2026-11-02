@@ -16,7 +16,6 @@ import {
 } from '../../data/operationalMilestones'
 import {
   ensureApiEndAfterStart,
-  ensureApiStartAfterPreviousEnd,
   getScheduleEntryTimeZone,
   normalizeForApi,
   nowToNaiveLocalInScheduleZone,
@@ -515,10 +514,6 @@ export function useOperatorExecution(operationId) {
               }
               throw new Error(i18n.t('operator:toast.selectTank'))
             }
-            const lastEnd = prevLines[prevLines.length - 1]?.endAt
-            const lineStartIso = lastEnd
-              ? ensureApiStartAfterPreviousEnd(lastEnd, nowIso, tz)
-              : nowIso
             await updateOperationalEntry(
               operationId,
               existingCargo.id,
@@ -531,7 +526,7 @@ export function useOperatorExecution(operationId) {
                 cargoLoadLines: [
                   ...prevLines,
                   {
-                    startAt: lineStartIso,
+                    startAt: nowIso,
                     endAt: null,
                     tankIds: normalizedTankIds,
                     atgQtyMode: 'auto',

@@ -451,21 +451,6 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
         error: 'Cannot add entries after an in-progress segment without endAt',
       };
     }
-    if (parsed[i].startMs < prevEndMs) {
-      return {
-        ok: false,
-        status: 400,
-        error:
-          'cargoLoadLines segments must not overlap: each entry startAt must be on or after the previous entry endAt',
-      };
-    }
-    if (parsed[i].startMs <= parsed[i - 1].startMs) {
-      return {
-        ok: false,
-        status: 400,
-        error: 'cargoLoadLines startAt values must be strictly increasing',
-      };
-    }
   }
 
   const line = await loadPrimarySiCargoLine(q, operationId);
@@ -664,40 +649,7 @@ async function insertCargoLoadLines(client, operationalActivityId, lines, opts =
   });
 }
 
-async function assertCommodityImmutableOnClosedLines(client, operationalActivityId, newLines) {
-  const existing = await client.query(
-    `SELECT line_order, commodity_id, ended_at
-     FROM operation_cargo_load_lines
-     WHERE operational_activity_id = $1
-     ORDER BY line_order ASC, id ASC`,
-    [operationalActivityId]
-  );
-  const sortedNew = [...(newLines || [])].sort(
-    (a, b) => (Number(a.lineOrder) || 0) - (Number(b.lineOrder) || 0)
-  );
-  for (let i = 0; i < existing.rows.length; i++) {
-    const ex = existing.rows[i];
-    if (!ex.ended_at || ex.commodity_id == null) continue;
-    const incoming = sortedNew[i];
-    if (!incoming || incoming.commodityId == null) continue;
-    if (Number(incoming.commodityId) !== Number(ex.commodity_id)) {
-      return {
-        ok: false,
-        status: 400,
-        error: `cargoLoadLines[${i}]: commodity cannot be changed after segment is closed`,
-      };
-    }
-  }
-  return { ok: true };
-}
-
 async function replaceCargoLoadLines(client, operationalActivityId, lines, opts = {}) {
-  const imm = await assertCommodityImmutableOnClosedLines(client, operationalActivityId, lines);
-  if (!imm.ok) {
-    const err = new Error(imm.error);
-    err.statusCode = imm.status;
-    throw err;
-  }
   await client.query(`DELETE FROM operation_cargo_load_lines WHERE operational_activity_id = $1`, [
     operationalActivityId,
   ]);
@@ -1765,11 +1717,14 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
                     'atgMassDelta', l.atg_mass_delta,
                     'atgMassDetail', l.atg_mass_detail,
                     'atgMassComputedAt', l.atg_mass_computed_at,
+                    'commodityShortName', sc.short_name,
+                    'commodityName', sc.name,
                     'tanks', COALESCE(lt.tanks_json, '[]'::jsonb)
                   )
                   ORDER BY l.line_order ASC, l.id ASC
                 ) AS lines_json
          FROM operation_cargo_load_lines l
+         LEFT JOIN si_commodities sc ON sc.id = l.commodity_id AND sc.deleted_at IS NULL
          LEFT JOIN LATERAL (
            SELECT jsonb_agg(
                     jsonb_build_object('id', t.id, 'code', t.code, 'name', t.name)
@@ -1884,6 +1839,8 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
           atgMassComputedAt: l.atgMassComputedAt ?? null,
           tanks: lineTanks,
           tankIds: lineTanks.map((t) => t.id),
+          commodityShortName: l.commodityShortName ? String(l.commodityShortName).trim() : null,
+          commodityName: l.commodityName ? String(l.commodityName).trim() : null,
         };
       });
       const unionFromLines = unionTanksFromLines(cargoLoadLines);

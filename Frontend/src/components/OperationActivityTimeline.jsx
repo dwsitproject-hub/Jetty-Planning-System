@@ -18,6 +18,13 @@ import {
 } from '../utils/atBerthActivityLogNav'
 import { operationalActivityEventStatusForTimeline } from '../utils/operationalActivityEventStatus.js'
 
+function cargoLineCommodityLabel(line) {
+  const short = String(line?.commodityShortName || '').trim()
+  if (short) return short
+  const name = String(line?.commodityName || '').trim()
+  return name || '—'
+}
+
 function formatTimelineDuration(startIso, endIso) {
   if (!startIso || !endIso) return '—'
   const a = new Date(startIso).getTime()
@@ -876,6 +883,7 @@ export default function OperationActivityTimeline({
                                     <tr>
                                       <th>Entry</th>
                                       <th className="operation-activity-timeline__tank">{t('cargoHourlyColTank')}</th>
+                                      <th className="operation-activity-timeline__commodity">{t('cargoOpsCommodity')}</th>
                                       <th className="operation-activity-timeline__time">{t('cargoOpsLineStart')}</th>
                                       <th className="operation-activity-timeline__time">{t('cargoOpsLineEnd')}</th>
                                       <th className="operation-activity-timeline__time">{t('cargoOpsQtyMovement')}</th>
@@ -917,6 +925,9 @@ export default function OperationActivityTimeline({
                                           <tr key={rowKey}>
                                             <td>Entry {entryNum}</td>
                                             <td className="operation-activity-timeline__tank">{formatCargoLineTanksLabel(line, ev.tanks)}</td>
+                                            <td className="operation-activity-timeline__commodity" title={line.commodityName || undefined}>
+                                              {cargoLineCommodityLabel(line)}
+                                            </td>
                                             <td className="operation-activity-timeline__time">{lineStart ? formatDateTimeDisplay(lineStart) : '—'}</td>
                                             <td className="operation-activity-timeline__time">
                                               {(line.endedAt || line.endAt) ? formatDateTimeDisplay(line.endedAt || line.endAt) : t('cargoOpsLineInProgress')}

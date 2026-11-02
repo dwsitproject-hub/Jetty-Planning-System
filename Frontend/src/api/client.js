@@ -5,7 +5,7 @@
  * - Production (nginx proxies /api/): /api/v1 — same host whatever users type (private IP or public EIP)
  * Sessions: HttpOnly cookie (H-1); XSRF double-submit header on mutating requests.
  */
-const BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1').replace(
+const BASE = (import.meta.env?.VITE_API_BASE_URL || 'http://localhost:3000/api/v1').replace(
   /\/$/,
   ''
 )
@@ -57,6 +57,36 @@ export class ApiError extends Error {
   }
 }
 
+/** @type {null | (() => void)} */
+let unauthorizedHandler = null
+
+/** AuthProvider registers this so a mid-session 401 clears `me` and AppShell redirects to login. */
+export function setUnauthorizedHandler(handler) {
+  unauthorizedHandler = typeof handler === 'function' ? handler : null
+}
+
+function normalizeApiPath(path) {
+  const raw = String(path ?? '').split(/[?#]/)[0].trim()
+  if (!raw) return ''
+  const withSlash = raw.startsWith('/') ? raw : `/${raw}`
+  return withSlash.length > 1 && withSlash.endsWith('/') ? withSlash.slice(0, -1) : withSlash
+}
+
+function isAuthLoginPost(path, method) {
+  return String(method || 'GET').toUpperCase() === 'POST' && normalizeApiPath(path) === '/auth/login'
+}
+
+function notifySessionExpired(path, method) {
+  if (isAuthLoginPost(path, method)) return
+  const handler = unauthorizedHandler
+  if (typeof handler !== 'function') return
+  try {
+    handler()
+  } catch {
+    /* listener must not replace the ApiError */
+  }
+}
+
 function authHeaders(extra = {}) {
   const headers = { Accept: 'application/json', ...extra }
   const xsrf = readXsrfCookie()
@@ -83,7 +113,7 @@ export function setSelectedPortId(portId) {
   sessionStorage.setItem(SELECTED_PORT_SESSION_KEY, String(portId))
 }
 
-async function parseResponse(res) {
+async function parseResponse(res, meta = {}) {
   const text = await res.text()
   let data = null
   if (text) {
@@ -94,6 +124,7 @@ async function parseResponse(res) {
     }
   }
   if (!res.ok) {
+    if (res.status === 401) notifySessionExpired(meta.path, meta.method)
     const msg =
       (data && typeof data === 'object' && (data.error || data.message)) || res.statusText
     throw new ApiError(res.status, msg, data)
@@ -152,7 +183,7 @@ export async function getHealth() {
     headers: { Accept: 'application/json' },
     credentials: 'include',
   })
-  return parseResponse(res)
+  return parseResponse(res, { path: '/health', method: 'GET' })
 }
 
 /** GET /api/v1/ping — verifies API prefix + CORS from the SPA */
@@ -163,7 +194,7 @@ export async function ping() {
 export async function apiGet(path) {
   const url = `${BASE}${path.startsWith('/') ? path : `/${path}`}`
   const res = await fetchWithTimeout(url, { headers: authHeaders() })
-  return parseResponse(res)
+  return parseResponse(res, { path, method: 'GET' })
 }
 
 export async function apiPost(path, body, timeoutMs = DEFAULT_TIMEOUT_MS) {
@@ -177,7 +208,7 @@ export async function apiPost(path, body, timeoutMs = DEFAULT_TIMEOUT_MS) {
     },
     timeoutMs
   )
-  return parseResponse(res)
+  return parseResponse(res, { path, method: 'POST' })
 }
 
 export async function apiPostForm(path, formData, timeoutMs = 45000) {
@@ -191,7 +222,7 @@ export async function apiPostForm(path, formData, timeoutMs = 45000) {
     },
     timeoutMs
   )
-  return parseResponse(res)
+  return parseResponse(res, { path, method: 'POST' })
 }
 
 export async function apiPut(path, body) {
@@ -201,7 +232,7 @@ export async function apiPut(path, body) {
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(body ?? {}),
   })
-  return parseResponse(res)
+  return parseResponse(res, { path, method: 'PUT' })
 }
 
 export async function apiPatch(path, body) {
@@ -211,7 +242,7 @@ export async function apiPatch(path, body) {
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(body ?? {}),
   })
-  return parseResponse(res)
+  return parseResponse(res, { path, method: 'PATCH' })
 }
 
 export async function apiDelete(path) {
@@ -221,7 +252,7 @@ export async function apiDelete(path) {
     headers: authHeaders(),
   })
   if (res.status === 204) return null
-  return parseResponse(res)
+  return parseResponse(res, { path, method: 'DELETE' })
 }
 
 /**
@@ -236,6 +267,7 @@ export async function fetchAuthenticatedBlobUrl(absoluteUrl, timeoutMs = 60000) 
     timeoutMs
   )
   if (!res.ok) {
+    if (res.status === 401) notifySessionExpired(absoluteUrl, 'GET')
     let msg = res.statusText
     try {
       const data = await res.json()

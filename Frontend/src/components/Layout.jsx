@@ -6,6 +6,7 @@ import LanguageSwitch from './LanguageSwitch'
 import NotificationBell from './NotificationBell'
 import PortSwitcher from './PortSwitcher'
 import UserMenu from './UserMenu'
+import ReportBugButton from './ReportBugButton'
 import { useRbac } from '../context/RbacContext'
 import { useAuth } from '../context/AuthContext'
 import { usePortScope } from '../context/PortScopeContext'
@@ -188,6 +189,7 @@ export default function Layout({ children }) {
           {me && <DeviceTimezoneChip />}
           {me && <NotificationBell />}
           <LanguageSwitch />
+          {me && <ReportBugButton />}
           {me && <UserMenu me={me} onLogout={handleLogout} />}
         </div>
       </header>

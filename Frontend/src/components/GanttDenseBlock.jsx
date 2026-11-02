@@ -8,6 +8,7 @@ import {
   buildGanttPlannedMilestoneEntries,
   formatGanttMilestoneEntriesCompact,
   resolveGanttBarDensity,
+  resolvePlanGanttBarDensity,
   resolveGanttWaitTooltip,
 } from '../utils/ganttBarDisplay.js'
 import { formatOverdueDuration } from '../utils/etcBreach'
@@ -36,11 +37,21 @@ function InlineSep() {
   return <span className="gantt-dense-block__sep" aria-hidden> · </span>
 }
 
+function NeedsUpdateMark({ text }) {
+  if (!text) return null
+  return (
+    <span className="gantt-needs-update gantt-missing-etc-warn" title={text} aria-label={text}>
+      ⚠️
+    </span>
+  )
+}
+
 /**
  * @param {object} props
  * @param {'planned' | 'actual'} props.layer
  * @param {object} props.model from buildPlannedBlockModel / buildActualBlockModel
  * @param {number | null | undefined} props.barWidthPct
+ * @param {number | null | undefined} props.barWidthPx rendered width (Berthing Plan)
  * @param {'narrow' | 'medium' | 'full' | null | undefined} props.density override auto density
  * @param {boolean} [props.overlay] transparent background for segmented actual overlay
  */
@@ -48,12 +59,14 @@ export default function GanttDenseBlock({
   layer,
   model,
   barWidthPct,
+  barWidthPx,
   density: densityProp,
   overlay = false,
   showLateChip = true,
   showAvgFlow = false,
   showPlannedWait = false,
   showEtr = false,
+  purposeAsColor = false,
   pinLabel = false,
   purposeAsColor = false,
 }) {
@@ -61,10 +74,10 @@ export default function GanttDenseBlock({
   const density = densityProp ?? resolveGanttBarDensity(barWidthPct)
   const isSailed = model.status === 'Sailed off'
   const statusIcon = isSailed ? <GanttCompletedIcon /> : <GanttVesselIcon />
-  // Berthing Plan: one 3-row card for every bar width (narrow still uses ellipsis in CSS).
-  const planThreeRow = showEtr
+  const planDensity = showEtr ? resolvePlanGanttBarDensity(barWidthPx) : null
+  const planThreeRow = planDensity === 'comfortable'
   const compactPlan =
-    !planThreeRow && showEtr && layer === 'actual' && density === 'full'
+    !planDensity && showEtr && layer === 'actual' && density === 'full'
 
   const isLate =
     showLateChip && layer === 'actual' && model.etcOverdue && model.overMs != null && model.overMs > 0
@@ -227,7 +240,7 @@ export default function GanttDenseBlock({
     </>
   ) : null
 
-  const blockBody = planThreeRowBody ?? (
+  const blockBody = planBody ?? (
     <>
       <div className="gantt-dense-block__row gantt-dense-block__row--title">
         {statusIcon}
@@ -388,7 +401,7 @@ export default function GanttDenseBlock({
 
   return (
     <div
-      className={`gantt-dense-block gantt-dense-block--${layer} gantt-dense-block--${density}${planThreeRow ? ' gantt-dense-block--plan-three-row' : ''}${compactPlan ? ' gantt-dense-block--plan-compact' : ''}${overlay ? ' gantt-dense-block--overlay' : ''}${isLate ? ' gantt-dense-block--late' : ''}${pinLabel ? ' gantt-dense-block--pinned' : ''}`}
+      className={`gantt-dense-block gantt-dense-block--${layer} gantt-dense-block--${density}${planDensity ? ` gantt-dense-block--plan-${planDensity}` : ''}${planThreeRow ? ' gantt-dense-block--plan-three-row' : ''}${compactPlan ? ' gantt-dense-block--plan-compact' : ''}${overlay ? ' gantt-dense-block--overlay' : ''}${isLate ? ' gantt-dense-block--late' : ''}${pinLabel ? ' gantt-dense-block--pinned' : ''}`}
     >
       {pinLabel ? <div className="gantt-dense-block__pin">{blockBody}</div> : blockBody}
     </div>

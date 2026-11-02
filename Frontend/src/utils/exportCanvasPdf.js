@@ -1,3 +1,5 @@
+import { jsPDF } from 'jspdf'
+
 /**
  * Export one or more canvases to a multi-page A4 PDF.
  * Scales each canvas to fit page width (no horizontal crop); packs sections
@@ -17,7 +19,6 @@ export async function downloadCanvasesAsPdf(canvases, filename, options = {}) {
   /** Prefer a new page if less than this remains and we already used the page. */
   const minUsefulMm = 24
 
-  const { jsPDF } = await import('jspdf')
   const pdf = new jsPDF({ orientation, unit: 'mm', format: 'a4', compress: true })
 
   const pageW = pdf.internal.pageSize.getWidth()

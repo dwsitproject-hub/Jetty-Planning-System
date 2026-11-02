@@ -280,6 +280,8 @@ router.post('/events/:eventKey/templates/email/test', async (req, res) => {
         actorUserId: req.userId ?? null,
       }).catch(() => {});
       res.status(502).json({ error: msg });
+    } finally {
+      await finalizeSmtpTransport(smtp);
     }
   } catch (err) {
     if (err?.status === 404) return res.status(404).json({ error: err.message });
@@ -496,6 +498,8 @@ router.post('/smtp/test', async (req, res) => {
       actorUserId: req.userId ?? null,
     }).catch(() => {});
     res.status(502).json({ error: msg });
+  } finally {
+    await finalizeSmtpTransport(smtp);
   }
 });
 

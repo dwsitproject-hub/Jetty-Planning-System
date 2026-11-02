@@ -16,13 +16,14 @@ import {
   computeScheduleKpis,
 } from '../utils/jettyScheduleOccupancy'
 import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
-import { computeCargoProgress } from '../utils/cargoQtyDisplay'
+import { computeCargoProgress, formatSchematicProductCargoLine } from '../utils/cargoQtyDisplay'
 import { formatGanttMilestoneShort, formatHoseConveyorOnLine } from '../utils/ganttBarDisplay'
 import { commodityLongTitle } from '../utils/commodityShortTitle.js'
 import CargoScheduleProgressIndicator, {
   isCargoBehindSchedule,
 } from './CargoScheduleProgressIndicator'
 import VisualizationPopoutButton from './VisualizationPopoutButton'
+import CreatePlanToolbarButton from './allocation/CreatePlanToolbarButton.jsx'
 import JettySpecModal from './JettySpecModal'
 import '../styles/jetty-schematic.css'
 
@@ -196,6 +197,8 @@ export default function JettySchematic({
   exportRootRef,
   /** Optional export menu slot (plan-centric allocation page). */
   exportMenu,
+  /** Open the existing create-shipment-plan modal. Omit to hide the toolbar button. */
+  onCreatePlan,
 }) {
   const { t } = useTranslation('pages')
   const { t: tAlloc } = useTranslation('allocation')
@@ -502,7 +505,8 @@ export default function JettySchematic({
         avgRateTph: v?.scheduleComparison?.avgRateTph,
       }
     )
-    const cargoLine = progress?.cargoLine ?? null
+    const productCargoLine = formatSchematicProductCargoLine(v?.scheduleComparison?.products)
+    const cargoLine = productCargoLine || progress?.cargoLine || null
     const balanceLine = progress?.balanceLine ?? null
     const rateLine = progress?.rateLine ?? null
     const etrDur =
@@ -546,9 +550,15 @@ export default function JettySchematic({
           className="jetty-slot__line jetty-card__cargo jetty-slot__line--material"
           title={commodityLongTitle(materialDisplay, v?.commodityDisplay)}
         >
-          {materialDisplay}
-          {cargoLine ? `  ${cargoLine}` : ''}
-          {rateLine ? ` -- ${rateLine}` : ''}
+          {productCargoLine ? (
+            productCargoLine
+          ) : (
+            <>
+              {materialDisplay}
+              {cargoLine ? `  ${cargoLine}` : ''}
+              {rateLine ? ` -- ${rateLine}` : ''}
+            </>
+          )}
         </span>
         {hoseConveyorLine ? (
           <span className="jetty-slot__line jetty-card__opening">{hoseConveyorLine}</span>
@@ -961,6 +971,7 @@ export default function JettySchematic({
           {tAlloc('jettySchematicResetDate', { defaultValue: 'Reset' })}
         </button>
         {exportMenu || null}
+        <CreatePlanToolbarButton onCreatePlan={onCreatePlan} />
       </div>
       <div
         id="allocation-export-schematic"

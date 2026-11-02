@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { fetchMe } from '../api/usersApi'
 import { clearLegacyToken, logout as apiLogout } from '../api/auth'
+import { setUnauthorizedHandler } from '../api/client'
+import { resetHubUser } from '../lib/hubSdk'
 
 const AuthContext = createContext({
   loading: true,
@@ -19,6 +21,14 @@ export function AuthProvider({ children }) {
     clearLegacyToken()
   }, [])
 
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setMe(null)
+      setLoading(false)
+    })
+    return () => setUnauthorizedHandler(null)
+  }, [])
+
   const refreshMe = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -34,6 +44,7 @@ export function AuthProvider({ children }) {
   }, [])
 
   const logout = useCallback(async () => {
+    resetHubUser()
     await apiLogout()
     setMe(null)
     setError(null)

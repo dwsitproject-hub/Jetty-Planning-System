@@ -1,14 +1,51 @@
 /**
- * Shared "widget detail" modal — click-through drill-down for dashboard
- * KPI/widget cards. Shows an optional stats summary plus a data table.
- * Originally introduced in the Management Dashboard; reused across dashboards
- * so widgets share one modal look/behavior instead of hover tooltips.
+ * Shared widget drill-down. Optional column sort when modal.sortable is set.
  */
+import { Fragment, useEffect, useMemo, useState } from 'react'
+import { sortModalRows } from '../utils/widgetDetailSort.js'
 import '../styles/modal.css'
 import '../styles/management-dashboard.css'
 
+function rowKey(row, i) {
+  if (row?.id != null && row.productKey) return `${row.id}|${row.productKey}`
+  return row?.id ?? row?._key ?? i
+}
+
 export default function WidgetDetailModal({ modal, onClose }) {
+  const [sort, setSort] = useState(null)
+  const [expandedKey, setExpandedKey] = useState(null)
+  const sortIdentity = modal
+    ? `${modal.title}|${modal.defaultSort?.key ?? ''}|${modal.defaultSort?.dir ?? ''}`
+    : ''
+  const expandable = typeof modal?.renderDetail === 'function'
+  const expandColumn = modal?.expandColumn || 'vessel'
+
+  useEffect(() => {
+    if (!modal?.sortable) {
+      setSort(null)
+      return
+    }
+    setSort(modal.defaultSort ?? null)
+  }, [sortIdentity, modal])
+
+  useEffect(() => {
+    setExpandedKey(null)
+  }, [sortIdentity])
+
+  const rows = useMemo(
+    () => (modal?.sortable ? sortModalRows(modal.rows, modal.columns, sort) : (modal?.rows ?? [])),
+    [modal, sort],
+  )
+
   if (!modal) return null
+
+  const toggleSort = (key) => {
+    setSort((prev) => {
+      if (prev?.key === key) return { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+      return { key, dir: 'asc' }
+    })
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose} aria-hidden="true">
       <div
@@ -37,19 +74,60 @@ export default function WidgetDetailModal({ modal, onClose }) {
           <table className="data-table">
             <thead>
               <tr>
-                {modal.columns.map((c) => (
-                  <th key={c.label} className={c.align === 'right' ? 'mgmt-r' : ''}>{c.label}</th>
-                ))}
+                {modal.columns.map((c) => {
+                  const colKey = c.key || c.label
+                  const active = modal.sortable && sort?.key === colKey
+                  return (
+                    <th key={colKey} className={c.align === 'right' ? 'mgmt-r' : ''}>
+                      {modal.sortable && c.sortValue ? (
+                        <button
+                          type="button"
+                          className="mgmt-modal-sort"
+                          onClick={() => toggleSort(colKey)}
+                          aria-label={`Sort by ${c.label}`}
+                        >
+                          {c.label}
+                          <span aria-hidden="true">{active ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ' ⇅'}</span>
+                        </button>
+                      ) : c.label}
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
             <tbody>
-              {modal.rows.length ? modal.rows.map((row, i) => (
-                <tr key={row.id ?? row._key ?? i}>
-                  {modal.columns.map((c) => (
-                    <td key={c.label} className={c.align === 'right' ? 'mgmt-r' : ''}>{c.cell(row)}</td>
-                  ))}
-                </tr>
-              )) : (
+              {rows.length ? rows.map((row, i) => {
+                const key = rowKey(row, i)
+                const open = expandable && expandedKey === key
+                return (
+                  <Fragment key={key}>
+                    <tr>
+                      {modal.columns.map((c) => {
+                        const colKey = c.key || c.label
+                        return (
+                          <td key={colKey} className={c.align === 'right' ? 'mgmt-r' : ''}>
+                            {expandable && colKey === expandColumn ? (
+                              <button
+                                type="button"
+                                className="mgmt-modal-vessel"
+                                aria-expanded={open}
+                                onClick={() => setExpandedKey(open ? null : key)}
+                              >
+                                {c.cell(row)}
+                              </button>
+                            ) : c.cell(row)}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                    {open ? (
+                      <tr className="mgmt-detail">
+                        <td colSpan={modal.columns.length}>{modal.renderDetail(row)}</td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                )
+              }) : (
                 <tr><td colSpan={modal.columns.length} className="text-steel">{modal.emptyText || 'No voyages in this view.'}</td></tr>
               )}
             </tbody>

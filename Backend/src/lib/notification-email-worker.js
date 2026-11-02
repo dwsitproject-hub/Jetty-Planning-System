@@ -135,6 +135,8 @@ export async function processNotificationEmailQueueOnce(limit = 15) {
         [row.delivery_id, msg.slice(0, 2000)]
       );
       processed += 1;
+    } finally {
+      await finalizeSmtpTransport(smtp);
     }
   }
 

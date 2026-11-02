@@ -1,6 +1,7 @@
 import { resolvePurposeLabel } from './resolvePurposeLabel.js'
 import { materialDisplayFromRow } from './ganttBarDisplay.js'
 import { DEFAULT_BERTH_TAIL_MS, isBerthPlanMissingEtc } from './berthPlanInterval.js'
+import { getBerthPurposeTone, getNeedsUpdateReasons } from './berthColorState.js'
 import { computeWaitToBerthMs } from './waitToBerth.js'
 import { getBerthPurposeTone, getNeedsUpdateReasons } from './berthColorState.js'
 import {
@@ -89,10 +90,12 @@ export function buildScheduleSegments(plan, windowStartMs, windowEndMs, nowMs) {
     const loadDischarge = r.loadDischarge ?? null
     const cargoDisplay = r.totalQtyDisplay || null
     const materialDisplay = materialDisplayFromRow(r)
+    const purposeTone = getBerthPurposeTone(purposeLabel, loadDischarge)
     const rowMeta = {
       purposeLabel,
       purposeTone: getBerthPurposeTone(purposeLabel, loadDischarge),
       loadDischarge,
+      purposeTone,
       cargoDisplay,
       materialDisplay,
       commodityDisplay: r.commodityDisplay || null,

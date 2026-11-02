@@ -6,6 +6,16 @@ import App from './App'
 import './styles/design-tokens.css'
 import './styles/app.css'
 import './styles/operator-mobile.css'
+import { clearStaleChunkReloadFlag } from './utils/staleChunkReload'
+import { installHubSdk } from './lib/hubSdk'
+
+clearStaleChunkReloadFlag()
+installHubSdk()
+
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault()
+  window.location.reload()
+})
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

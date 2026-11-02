@@ -1,7 +1,7 @@
 /**
  * Pure flow KPIs for the Management Dashboard.
  * Wait-to-berth is a mean (TA → TB). Berth time stays a median (TB → cast-off).
- * Average flow rate is mean of per-voyage qty ÷ cargo-ops hours.
+ * Average flow rate is mean of per-voyage moved qty ÷ logged cargo hours (Ops Live parity).
  */
 
 export function median(a) {
@@ -28,9 +28,10 @@ export function dedupSailedRows(rs) {
 }
 
 export function voyageFlowRate(r) {
-  if (!r || r.opsH == null || !(Number(r.opsH) > 0)) return null
-  const qty = Number(r.qty) || 0
-  return qty / r.opsH
+  if (!r) return null
+  const canonical = r.voyageRateMtH
+  if (canonical != null && Number.isFinite(canonical) && canonical > 0) return canonical
+  return null
 }
 
 function byPurpose(rows, purpose) {

@@ -10,6 +10,8 @@ import {
   formatAvgFlowRateLabel,
   formatAvgFlowRateLine,
   formatCargoEtrLine,
+  formatProductProgressLine,
+  formatSchematicProductCargoLine,
 } from './cargoQtyDisplay.js'
 
 function formatDurationShort(ms) {
@@ -140,6 +142,51 @@ describe('computeCargoProgress', () => {
     })
     assert.equal(progress.cargoLine, '0 MT / 2,000 MT')
     assert.equal(progress.ratePerHour, 42)
+  })
+})
+
+describe('formatProductProgressLine', () => {
+  it('shows moved against that product’s planned quantity', () => {
+    assert.equal(
+      formatProductProgressLine({
+        shortName: 'RG',
+        movedQty: 2000,
+        plannedQty: 2000,
+        siMetric: 'MT',
+      }),
+      'RG 2,000 / 2,000 MT'
+    )
+  })
+
+  it('rounds the live quantity', () => {
+    assert.equal(
+      formatProductProgressLine({
+        shortName: 'CG',
+        movedQty: 3375.844,
+        plannedQty: 5000,
+        siMetric: 'MT',
+      }),
+      'CG 3,376 / 5,000 MT'
+    )
+  })
+})
+
+describe('formatSchematicProductCargoLine', () => {
+  it('joins each product quantity on one line', () => {
+    assert.equal(
+      formatSchematicProductCargoLine([
+        { shortName: 'RPOME', movedQty: 3, plannedQty: 3, siMetric: 'MT', avgRateTph: 0.06 },
+        { shortName: 'POME', movedQty: 2, plannedQty: 2, siMetric: 'MT', avgRateTph: 0.01 },
+      ]),
+      'RPOME 3 / 3 MT -- Rate 0.06 MT / Hour | POME 2 / 2 MT -- Rate 0.01 MT / Hour'
+    )
+  })
+
+  it('returns null for a single product', () => {
+    assert.equal(
+      formatSchematicProductCargoLine([{ shortName: 'CPO', movedQty: 5, plannedQty: 5, siMetric: 'MT' }]),
+      null
+    )
   })
 })
 

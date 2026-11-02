@@ -169,6 +169,7 @@ export default function AllocationVisualizationPopout() {
             popoutProfile={profile}
             hidePopoutButton
             isPopout
+            onCreatePlan={canCreateShipmentPlan ? openCreatePlanModal : undefined}
           />
         ) : (
           <JettyScheduleGantt
@@ -185,6 +186,7 @@ export default function AllocationVisualizationPopout() {
             popoutTitle={headerTitle}
             closeHint={closeHint}
             onManage={handleManageClick}
+            onCreatePlan={canCreateShipmentPlan ? openCreatePlanModal : undefined}
           />
         )}
       </main>

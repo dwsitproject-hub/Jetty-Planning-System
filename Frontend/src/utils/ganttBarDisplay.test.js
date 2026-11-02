@@ -3,6 +3,13 @@ import assert from 'node:assert/strict'
 import {
   materialDisplayFromRow,
   resolveGanttBarDensity,
+  resolvePlanGanttBarDensity,
+  planGanttBarWidthPx,
+  ganttVesselInitial,
+  ganttProductInitial,
+  PLAN_GANTT_COMFORTABLE_MIN_PX,
+  PLAN_GANTT_MEDIUM_MIN_PX,
+  PLAN_GANTT_NARROW_MIN_PX,
   isLongGanttBar,
   formatGanttMilestoneLine,
   formatMaterialQtyLine,
@@ -10,6 +17,7 @@ import {
   buildPlannedBlockModel,
   buildActualBlockModel,
   buildGanttBarTooltipItems,
+  ganttTooltipProductCargoPairs,
   resolveGanttEtrDuration,
   buildGanttPlannedMilestoneEntries,
   buildGanttEstimateMilestoneEntries,
@@ -89,6 +97,64 @@ describe('resolveGanttBarDensity', () => {
     assert.equal(resolveGanttBarDensity(10), 'narrow')
     assert.equal(resolveGanttBarDensity(20), 'medium')
     assert.equal(resolveGanttBarDensity(40), 'full')
+  })
+})
+
+describe('resolvePlanGanttBarDensity', () => {
+  it('defaults to comfortable when width is missing', () => {
+    assert.equal(resolvePlanGanttBarDensity(null), 'comfortable')
+    assert.equal(resolvePlanGanttBarDensity(undefined), 'comfortable')
+    assert.equal(resolvePlanGanttBarDensity(0), 'comfortable')
+  })
+
+  it('uses pixel thresholds', () => {
+    assert.equal(resolvePlanGanttBarDensity(PLAN_GANTT_NARROW_MIN_PX - 1), 'micro')
+    assert.equal(resolvePlanGanttBarDensity(PLAN_GANTT_NARROW_MIN_PX), 'narrow')
+    assert.equal(resolvePlanGanttBarDensity(PLAN_GANTT_MEDIUM_MIN_PX - 1), 'narrow')
+    assert.equal(resolvePlanGanttBarDensity(PLAN_GANTT_MEDIUM_MIN_PX), 'medium')
+    assert.equal(resolvePlanGanttBarDensity(PLAN_GANTT_COMFORTABLE_MIN_PX - 1), 'medium')
+    assert.equal(resolvePlanGanttBarDensity(PLAN_GANTT_COMFORTABLE_MIN_PX), 'comfortable')
+  })
+})
+
+describe('planGanttBarWidthPx', () => {
+  it('scales percent by timeline width', () => {
+    assert.equal(planGanttBarWidthPx(10, 1000), 100)
+  })
+
+  it('returns null without a measured timeline', () => {
+    assert.equal(planGanttBarWidthPx(10, 0), null)
+    assert.equal(planGanttBarWidthPx(null, 800), null)
+  })
+})
+
+describe('ganttVesselInitial', () => {
+  it('drops fleet prefixes then takes the first letter', () => {
+    assert.equal(ganttVesselInitial('MT METRO MAJU 18'), 'M')
+    assert.equal(ganttVesselInitial('BG PRIMA SAM'), 'P')
+    assert.equal(ganttVesselInitial('MV Pelangi'), 'P')
+    assert.equal(ganttVesselInitial('TB. Example'), 'E')
+    assert.equal(ganttVesselInitial('ALINYA'), 'A')
+  })
+
+  it('returns ? when the name is empty', () => {
+    assert.equal(ganttVesselInitial(''), '?')
+    assert.equal(ganttVesselInitial('—'), '?')
+    assert.equal(ganttVesselInitial(null), '?')
+  })
+})
+
+describe('ganttProductInitial', () => {
+  it('uses the first short product code', () => {
+    assert.equal(ganttProductInitial('FAME'), 'F')
+    assert.equal(ganttProductInitial('CPO - FAME'), 'C')
+    assert.equal(ganttProductInitial('POME'), 'P')
+  })
+
+  it('returns ? when the product is empty', () => {
+    assert.equal(ganttProductInitial(''), '?')
+    assert.equal(ganttProductInitial('—'), '?')
+    assert.equal(ganttProductInitial(null), '?')
   })
 })
 
@@ -487,8 +553,32 @@ describe('resolveGanttEtrDuration', () => {
   })
 })
 
+describe('ganttTooltipProductCargoPairs', () => {
+  it('pairs named cargo lines to each product in order', () => {
+    const pairs = ganttTooltipProductCargoPairs({
+      materialDisplay: 'CPO - FAME',
+      cargoDisplay: 'CPO 4.000 MT\nFAME 500 MT',
+    })
+    assert.deepEqual(pairs, [
+      { product: 'CPO', cargo: '4.000 MT' },
+      { product: 'FAME', cargo: '500 MT' },
+    ])
+  })
+
+  it('zips qty-only cargo lines onto multi-product bars', () => {
+    const pairs = ganttTooltipProductCargoPairs({
+      materialDisplay: 'ROL · RPO',
+      cargoDisplay: '9,500 MT\n2,550 MT',
+    })
+    assert.deepEqual(pairs, [
+      { product: 'ROL', cargo: '9,500 MT' },
+      { product: 'RPO', cargo: '2,550 MT' },
+    ])
+  })
+})
+
 describe('buildGanttBarTooltipItems', () => {
-  it('includes milestones, cargo, and click hint for planned bars', () => {
+  it('lists Product then Cargo before Purpose and milestones', () => {
     const model = buildPlannedBlockModel({
       vesselName: 'MV TEST',
       purposeLabel: 'Loading',
@@ -500,9 +590,55 @@ describe('buildGanttBarTooltipItems', () => {
       status: 'Arriving',
     })
     const items = buildGanttBarTooltipItems(model, 'planned', { clickHint: 'Click me' })
+    assert.equal(items[0].primary, 'Product')
+    assert.equal(items[0].secondary, 'CPO')
+    assert.equal(items[1].primary, 'Cargo')
+    assert.equal(items[1].secondary, '5,000 MT')
+    assert.equal(items[2].primary, 'Purpose')
     assert.ok(items.some((i) => i.primary === 'Planned milestones'))
-    assert.ok(items.some((i) => i.primary === 'Cargo' && i.secondary?.includes('CPO')))
     assert.ok(items.some((i) => i.primary === 'Click me'))
+    assert.equal(items.filter((i) => i.primary === 'Cargo').length, 1)
+  })
+
+  it('emits one Product/Cargo pair per commodity for multi-product stays', () => {
+    const model = buildPlannedBlockModel({
+      vesselName: 'MT ALINYA',
+      purposeLabel: 'Loading',
+      materialDisplay: 'CPO - FAME',
+      cargoDisplay: 'CPO 4.000 MT\nFAME 500 MT',
+    })
+    const items = buildGanttBarTooltipItems(model, 'planned')
+    assert.deepEqual(
+      items.filter((i) => i.primary === 'Product' || i.primary === 'Cargo'),
+      [
+        { primary: 'Product', secondary: 'CPO' },
+        { primary: 'Cargo', secondary: '4.000 MT' },
+        { primary: 'Product', secondary: 'FAME' },
+        { primary: 'Cargo', secondary: '500 MT' },
+      ]
+    )
+    assert.equal(items[4].primary, 'Purpose')
+  })
+
+  it('keeps hose suffix on a single progress cargo line', () => {
+    const model = buildActualBlockModel(
+      { vesselName: 'MV FAME', materialDisplay: 'FAME', cargoDisplay: '8,306 MT' },
+      {
+        cargoMovedQty: 8297,
+        cargoSiQty: 8306,
+        cargoSiMetric: 'MT',
+        openingCargoHandlingMethodName: 'Hose',
+        openingHatchStartAt: '2026-09-26T01:00:00Z',
+      },
+      { planCentric: true }
+    )
+    const items = buildGanttBarTooltipItems(model, 'actual')
+    assert.equal(items[0].primary, 'Product')
+    assert.equal(items[0].secondary, 'FAME')
+    assert.equal(items[1].primary, 'Cargo')
+    assert.match(items[1].secondary, /8,297 MT \/ 8,306 MT/)
+    assert.match(items[1].secondary, /Hose on/)
+    assert.equal(items.filter((i) => i.primary === 'Cargo').length, 1)
   })
 
   it('includes estimate line, wait, and avg rate for actual bars', () => {

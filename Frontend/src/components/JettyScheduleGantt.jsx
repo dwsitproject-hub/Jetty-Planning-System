@@ -19,6 +19,7 @@ import {
   buildGanttBarTooltipItems,
   ganttDenseBlockAriaLabel,
   isLongGanttBar,
+  planGanttBarWidthPx,
   resolveGanttBarMetrics,
   resolveGanttWaitTooltip,
 } from '../utils/ganttBarDisplay.js'
@@ -171,7 +172,7 @@ function ganttBarAriaLabel(seg, layer, blockOptions) {
   return ganttDenseBlockAriaLabel(model, layer)
 }
 
-function renderDenseBarContent(seg, layer, barWidthPct, sourceRow, blockOptions, ganttUiOptions) {
+function renderDenseBarContent(seg, layer, barWidthPct, sourceRow, blockOptions, ganttUiOptions, barWidthPx) {
   const model =
     layer === 'planned'
       ? buildPlannedBlockModel(seg, blockOptions)
@@ -185,6 +186,7 @@ function renderDenseBarContent(seg, layer, barWidthPct, sourceRow, blockOptions,
         layer={layer}
         model={model}
         barWidthPct={barWidthPct}
+        barWidthPx={ganttUiOptions.showEtr ? barWidthPx : undefined}
         showLateChip={ganttUiOptions.showLateChip}
         showAvgFlow={ganttUiOptions.showAvgFlow}
         showPlannedWait={ganttUiOptions.showPlannedWait}
@@ -367,6 +369,8 @@ export default function JettyScheduleGantt({
   // one absolutely-positioned overlay (sibling of `__now-line`) stretching from the real bar
   // through the additional jetty row(s) — the real bar itself is untouched/still interactive.
   const bodyInnerRef = useRef(null)
+  const timelineInnerRef = useRef(null)
+  const [timelineWidthPx, setTimelineWidthPx] = useState(0)
   const rowRefsMap = useRef(new Map())
   const barRefsMap = useRef(new Map())
   // Multi-jetty berthing: the span extension is a separate DOM element (sibling of the
@@ -429,6 +433,21 @@ export default function JettyScheduleGantt({
       window.removeEventListener('resize', scheduleMeasure)
     }
   }, [rowDefs, segments, barMetrics.height, useFitRows, fitDensity])
+
+  useEffect(() => {
+    if (!isPlanProfile) return undefined
+    const el = timelineInnerRef.current
+    if (!el) return undefined
+    const measure = () => {
+      const w = el.getBoundingClientRect().width
+      if (!Number.isFinite(w) || w <= 0) return
+      setTimelineWidthPx((prev) => (Math.abs(prev - w) < 0.5 ? prev : w))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [isPlanProfile, dateColumns.length, rowDefs.length])
 
   const spanningBars = useMemo(() => {
     if (!spanLayout.rowRects.size) return []
@@ -539,6 +558,7 @@ export default function JettyScheduleGantt({
       : 'minmax(160px, 200px)'
 
   const scrollRef = useRef(null)
+  const chartShellRef = useRef(null)
   const initialScrollDoneRef = useRef(false)
   const [scrollToTodayTick, setScrollToTodayTick] = useState(0)
 
@@ -628,8 +648,9 @@ export default function JettyScheduleGantt({
       const n = Math.max(1, rowDefs.length)
       // 8px gutter covers the date-header/body borders + the horizontal scrollbar.
       const available = Math.max(0, h - headerH - 8)
-      el.style.setProperty('--gantt-fit-row-min', `${resolveGanttFitRowMin({ availableHeight: available, rowCount: n })}px`)
-      setFitDensity(resolveGanttFitDensity(available / n))
+      const rowMin = resolveGanttFitRowMin({ availableHeight: available, rowCount: n })
+      el.style.setProperty('--gantt-fit-row-min', `${rowMin}px`)
+      setFitDensity(resolveGanttFitDensity(rowMin))
     }
     apply()
     if (typeof ResizeObserver === 'undefined') {
@@ -639,7 +660,43 @@ export default function JettyScheduleGantt({
     const observer = new ResizeObserver(apply)
     observer.observe(el)
     return () => observer.disconnect()
-  }, [useFitRows, rowDefs.length, nCols])
+  }, [useFitRows, rowDefs.length, nCols, isPlanProfile, railEnabled, isPopout])
+
+  // Keep the Unallocated rail the same height as the jetty rows (not 70vh),
+  // and start it under the date header so the card does not grow a white gap.
+  useLayoutEffect(() => {
+    const scroll = scrollRef.current
+    const shell = chartShellRef.current
+    if (!scroll || !shell || !railEnabled) {
+      scroll?.style.removeProperty('--gantt-matrix-header-h')
+      shell?.style.removeProperty('--gantt-matrix-header-h')
+      shell?.style.removeProperty('--gantt-matrix-body-h')
+      return undefined
+    }
+    const measure = () => {
+      const header = scroll.querySelector('.jetty-schedule-gantt__header-row')
+      const body = scroll.querySelector('.jetty-schedule-gantt__body')
+      const headerH = header ? header.getBoundingClientRect().height : 36
+      const bodyH = body ? body.getBoundingClientRect().height : 0
+      const visibleBelowHeader = Math.max(0, scroll.clientHeight - headerH)
+      const railH = Math.max(0, Math.round(Math.min(bodyH || visibleBelowHeader, visibleBelowHeader || bodyH)))
+      const headerPx = `${Math.ceil(headerH)}px`
+      const bodyPx = `${railH}px`
+      shell.style.setProperty('--gantt-matrix-header-h', headerPx)
+      shell.style.setProperty('--gantt-matrix-body-h', bodyPx)
+      scroll.style.setProperty('--gantt-matrix-header-h', headerPx)
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure)
+      return () => window.removeEventListener('resize', measure)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(scroll)
+    const body = scroll.querySelector('.jetty-schedule-gantt__body')
+    if (body) observer.observe(body)
+    return () => observer.disconnect()
+  }, [railEnabled, useFitRows, nCols, rowDefs.length, railRows?.length])
 
   const exportRef = useRef(null)
 
@@ -1265,13 +1322,15 @@ export default function JettyScheduleGantt({
               : spanEdge === 'up'
                 ? ' jetty-schedule-gantt__bar--span-primary-up'
                 : ''
+          const timelinePx = timelineWidthPx > 0 ? timelineWidthPx : dateColumns.length * DAY_COL_MIN
           const { model: blockModel, pinLabel, content: denseContent } = renderDenseBarContent(
             seg,
             barLayer,
             _rawWidthPct,
             barLayer === 'actual' ? sourceRow : null,
             blockOptions,
-            ganttUiOptions
+            ganttUiOptions,
+            planGanttBarWidthPx(_rawWidthPct, timelinePx)
           )
           const barClassName = `${pillClass}${canClick ? ' jetty-schedule-gantt__bar--btn' : ''}${canDrag ? ' jetty-schedule-gantt__bar--draggable' : ''}${spanEdgeClass}${pinLabel ? ' jetty-schedule-gantt__bar--long' : ''}`
           const tooltipItems = buildGanttBarTooltipItems(blockModel, barLayer, {
@@ -1565,7 +1624,7 @@ export default function JettyScheduleGantt({
         >
           {tAlloc('ganttFitAllJetties', { defaultValue: 'Fit all jetties' })}
         </button>
-        {isPopout ? (
+        {isPlanProfile ? (
           <details className="jetty-schedule-gantt__legend-details">
             <summary>{tAlloc('vizPopoutLegend', { defaultValue: 'Legend' })}</summary>
             <div className="allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two">
@@ -1587,6 +1646,7 @@ export default function JettyScheduleGantt({
             {tAlloc('vizPopoutManageInAllocation', { defaultValue: 'Manage in Allocation' })}
           </button>
         ) : null}
+        <CreatePlanToolbarButton onCreatePlan={onCreatePlan} />
       </div>
 
       <p className="jetty-schedule-gantt__intro">
@@ -1605,12 +1665,13 @@ export default function JettyScheduleGantt({
             {tAlloc('jettySchedule', { defaultValue: 'Berthing Plan' })} · {dateFrom} → {dateTo}
           </div>
         ) : null}
-        {isPopout ? null : (
-        <div className="allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two">
-          {legendContent}
-        </div>
-      )}
+        {!isPlanProfile ? (
+          <div className="allocation-schedule__legend jetty-schedule-gantt__legend jetty-schedule-gantt__legend--two">
+            {legendContent}
+          </div>
+        ) : null}
 
+      <ChartShell {...chartShellProps}>
       <div className="jetty-schedule-gantt__scroll" ref={scrollRef}>
         <div
           className="jetty-schedule-gantt__matrix"
@@ -1717,7 +1778,7 @@ export default function JettyScheduleGantt({
                         </div>
 
                         <div className="jetty-schedule-gantt__timeline-cell" style={{ gridColumn: '2 / -1' }}>
-                          <div className="jetty-schedule-gantt__timeline-inner">
+                          <div className="jetty-schedule-gantt__timeline-inner" ref={timelineInnerRef}>
                             <div
                               className="jetty-schedule-gantt__timeline-daylines"
                               style={{ gridTemplateColumns: `repeat(${nCols}, minmax(0, 1fr))` }}
@@ -1741,6 +1802,16 @@ export default function JettyScheduleGantt({
           )}
         </div>
       </div>
+      {railEnabled ? (
+        <UnallocatedRail
+          rows={railRows}
+          canDrag={canEditSchedule && !exporting}
+          canScheduleRow={canScheduleRailRow}
+          onCardPointerDown={handleRailPointerDown}
+          onSelect={handleRailSelect}
+        />
+      ) : null}
+      </ChartShell>
       </div>
       {railEnabled ? (
         <UnallocatedRail

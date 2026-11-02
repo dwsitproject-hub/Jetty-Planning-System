@@ -127,6 +127,64 @@ describe('buildScheduleSegments planned dedup', () => {
     const minEnd = new Date(JUN_21).getTime() + 3 * 24 * 60 * 60 * 1000
     assert.ok(actual.endMs >= minEnd)
     assert.equal(actual.missingEtc, true)
+    assert.equal(actual.needsUpdate, true)
+    assert.deepEqual(actual.needsUpdateReasons, ['emptyEtc'])
+  })
+
+  it('sets purposeTone and flags empty ETC as needs update on planned bars', () => {
+    const plan = [
+      row({
+        shipmentPlanId: 14,
+        vesselId: 'op-100',
+        plannedEtbDateTime: JUN_21,
+        etbDateTime: JUN_21,
+        purpose: 'Loading',
+        operationId: 100,
+      }),
+    ]
+    const segs = buildScheduleSegments(plan, WINDOW_START, WINDOW_END, JUN_24)
+    assert.equal(segs.length, 1)
+    assert.equal(segs[0].purposeTone, 'load')
+    assert.equal(segs[0].needsUpdate, true)
+    assert.deepEqual(segs[0].needsUpdateReasons, ['emptyEtc'])
+  })
+
+  it('flags passed ETC on actual bars as needs update and keeps unload purpose', () => {
+    const plan = [
+      row({
+        shipmentPlanId: 14,
+        vesselId: 'op-100',
+        purpose: 'Unloading',
+        tbDateTime: JUN_21,
+        estimatedCompletionDateTime: JUN_21,
+        operationId: 100,
+      }),
+    ]
+    const segs = buildScheduleSegments(plan, WINDOW_START, WINDOW_END, JUN_24)
+    const actual = segs.find((s) => s.layer === 'actual' && s.phase === 'ops')
+    assert.ok(actual)
+    assert.equal(actual.purposeTone, 'unload')
+    assert.equal(actual.needsUpdate, true)
+    assert.deepEqual(actual.needsUpdateReasons, ['etcPassed'])
+  })
+
+  it('does not flag sailed bars as needs update', () => {
+    const plan = [
+      row({
+        shipmentPlanId: 14,
+        vesselId: 'op-100',
+        purpose: 'Loading',
+        status: 'SAILED',
+        tbDateTime: JUN_21,
+        estimatedCompletionDateTime: JUN_21,
+        operationId: 100,
+      }),
+    ]
+    const segs = buildScheduleSegments(plan, WINDOW_START, WINDOW_END, JUN_24)
+    const actual = segs.find((s) => s.layer === 'actual' && s.phase === 'ops')
+    assert.ok(actual)
+    assert.equal(actual.needsUpdate, false)
+    assert.deepEqual(actual.needsUpdateReasons, [])
   })
 
   it('attaches waitMs (TA → TB) on actual alongside bars', () => {

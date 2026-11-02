@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   GANTT_FIT_BAR_INSET_PX,
   GANTT_FIT_HARD_MIN_ROW_PX,
+  GANTT_FIT_MAX_ROW_PX,
   GANTT_FIT_MIN_ROW_PX,
   ganttBarFitStyle,
   resolveGanttFitDensity,
@@ -10,8 +11,12 @@ import {
 } from './jettyScheduleGanttFit.js'
 
 describe('resolveGanttFitRowMin', () => {
-  it('keeps the comfortable 44px floor when every row still fits', () => {
-    assert.equal(resolveGanttFitRowMin({ availableHeight: 700, rowCount: 11 }), GANTT_FIT_MIN_ROW_PX)
+  it('shares leftover height equally up to the 72px cap', () => {
+    assert.equal(resolveGanttFitRowMin({ availableHeight: 700, rowCount: 11 }), 63)
+  })
+
+  it('caps at 72px so few jetties do not stretch into giant bars', () => {
+    assert.equal(resolveGanttFitRowMin({ availableHeight: 900, rowCount: 5 }), GANTT_FIT_MAX_ROW_PX)
   })
 
   it('lowers the floor just enough so all rows share the viewport', () => {

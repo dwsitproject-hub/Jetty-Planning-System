@@ -211,6 +211,8 @@ export async function runAdminOpsAlertJob(db, opts = {}) {
             unhealthyChecks: newlyUnhealthy,
             errorText,
           });
+        } finally {
+          await finalizeSmtpTransport(smtp);
         }
       }
     } else if (newlyUnhealthy.length > 0 && !sendGate.ok) {

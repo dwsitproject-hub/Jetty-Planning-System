@@ -3,6 +3,8 @@
   "jettySchedule": "Berthing Plan",
   "jettySchematicViewAsOf": "View as of",
   "jettySchematicResetDate": "Reset",
+  "createNewPlan": "New shipment plan",
+  "createNewPlanToolbar": "New plan",
   "jettySchematicHistoricalHint": "Showing allocation for {{date}}",
   "cardTimeSinceBerthing": "Berthed",
   "cardEtr": "ETR {{duration}}",
