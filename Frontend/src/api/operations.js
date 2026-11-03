@@ -280,6 +280,10 @@ export function upsertSubProcess(operationId, subProcessKey, body, opts = {}) {
     dobi: body.dobi,
     iodineValue: body.iodineValue,
     payload: body.payload,
+    // Lets the API tag the activity log entry (e.g. 'qc' for the QC Sampling menu).
+    source: body.source,
+    // Optimistic lock: the API answers 409 when the row changed since this timestamp.
+    expectedUpdatedAt: body.expectedUpdatedAt,
   }
 
   // Post-Checking: always send all three keys (null or ISO). Omitting a key made JSON drop `endAt`,

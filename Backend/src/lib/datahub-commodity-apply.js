@@ -13,8 +13,6 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
   const name = String(values.name ?? '').trim();
   if (!name) throw new Error('Commodity name is required');
 
-  const shortName = String(values.short_name ?? '').trim().toUpperCase();
-
   let targetId = item.vessel_id != null ? Number(item.vessel_id) : null;
   if (targetId != null) {
     const still = await db.query(
@@ -23,26 +21,20 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
     );
     if (still.rows.length === 0) targetId = null;
   }
-  // Same DataHub short name: update existing row, never duplicate.
-  if (targetId == null && shortName) {
-    const byShort = await db.query(
-      `SELECT id FROM si_commodities WHERE UPPER(short_name) = $1 AND deleted_at IS NULL`,
-      [shortName]
+  const hubCode = payload.hubCode != null ? String(payload.hubCode).trim() : '';
+  if (targetId == null && hubCode) {
+    const byHub = await db.query(
+      `SELECT id FROM si_commodities WHERE hub_code = $1 AND deleted_at IS NULL`,
+      [hubCode]
     );
-    targetId = byShort.rows[0]?.id != null ? Number(byShort.rows[0].id) : null;
+    targetId = byHub.rows[0]?.id != null ? Number(byHub.rows[0].id) : null;
   }
-  if (targetId == null) {
-    const byName = await db.query(
-      `SELECT id FROM si_commodities WHERE LOWER(name) = LOWER($1) AND deleted_at IS NULL`,
-      [name]
-    );
-    targetId = byName.rows[0]?.id != null ? Number(byName.rows[0].id) : null;
-  }
-  const commodityType = values.commodity_type === 'Solid' ? 'Solid' : 'Liquid';
   const klFactor = values.kl_to_mt_factor != null ? Number(values.kl_to_mt_factor) : null;
   const defaultMetricId =
     values.default_metric_id != null ? Number(values.default_metric_id) : null;
   const hsCode = values.hs_code ?? null;
+  const materialCode = values.material_code ?? null;
+  const hubType = values.hub_type != null ? String(values.hub_type).trim() || null : null;
 
   const hubArgs = [
     payload.hubCode ?? null,
@@ -56,19 +48,20 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
   if (targetId == null) {
     const inserted = await db.query(
       `INSERT INTO si_commodities (
-         name, short_name, commodity_type, kl_to_mt_factor, default_metric_id, hs_code, sort_order,
+         name, short_name, commodity_type, hub_type, kl_to_mt_factor, default_metric_id, hs_code, material_code, sort_order,
+         is_active,
          hub_code, hub_record_id, hub_version, hub_updated_at,
          datahub_last_apply_source, datahub_last_apply_run_id,
          created_by, updated_by)
-       VALUES ($1,$2,$3,$4,$5,$6,0,$7,$8,$9,$10,$11,$12,$13,$13)
+       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,0,FALSE,$7,$8,$9,$10,$11,$12,$13,$13)
        RETURNING id`,
       [
         name,
-        shortName,
-        commodityType,
+        hubType,
         klFactor,
         defaultMetricId,
         hsCode,
+        materialCode,
         ...hubArgs,
         auditSource,
         auditRunId,
@@ -78,14 +71,15 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
     return { action: 'created', id: Number(inserted.rows[0].id) };
   }
 
+  // short_name, commodity_type, is_active, and commodity_group are JPS-only and stay unchanged.
   await db.query(
     `UPDATE si_commodities SET
        name = $1,
-       short_name = COALESCE(NULLIF($2, ''), short_name),
-       commodity_type = $3,
-       kl_to_mt_factor = COALESCE($4, kl_to_mt_factor),
-       default_metric_id = COALESCE($5, default_metric_id),
-       hs_code = COALESCE($6, hs_code),
+       hub_type = $2,
+       kl_to_mt_factor = COALESCE($3, kl_to_mt_factor),
+       default_metric_id = COALESCE($4, default_metric_id),
+       hs_code = COALESCE($5, hs_code),
+       material_code = COALESCE($6, material_code),
        hub_code = COALESCE($7, hub_code),
        hub_record_id = COALESCE($8, hub_record_id),
        hub_version = COALESCE($9, hub_version),
@@ -97,11 +91,11 @@ export async function applyCommodityItem(db, item, actorId, opts = {}) {
      WHERE id = $14`,
     [
       name,
-      shortName,
-      commodityType,
+      hubType,
       klFactor,
       defaultMetricId,
       hsCode,
+      materialCode,
       ...hubArgs,
       auditSource,
       auditRunId,

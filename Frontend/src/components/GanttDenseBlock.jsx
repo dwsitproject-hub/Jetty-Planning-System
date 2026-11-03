@@ -67,8 +67,8 @@ export default function GanttDenseBlock({
   showAvgFlow = false,
   showPlannedWait = false,
   showEtr = false,
-  pinLabel = false,
   purposeAsColor = false,
+  pinLabel = false,
 }) {
   const { t } = useTranslation('allocation')
   const density = densityProp ?? resolveGanttBarDensity(barWidthPct)
@@ -83,26 +83,12 @@ export default function GanttDenseBlock({
     showLateChip && layer === 'actual' && model.etcOverdue && model.overMs != null && model.overMs > 0
 
   const resolvedPurpose = resolvePurposeLabel(model.purposeLabel, model.loadDischarge)
-  // Berthing Plan: purpose is the bar color (blue Unload / green Load), so the pill is dropped
-  // to save space. Legacy layouts keep the pill.
   const showPurpose =
     !purposeAsColor && (resolvedPurpose === 'Loading' || resolvedPurpose === 'Unloading')
-
-  // Berthing Plan: one warning icon for "needs update" (empty ETC, or ETC passed with no
-  // completion). Legacy layouts keep the original missing-ETC glyph.
-  const needsUpdateText = purposeAsColor ? describeNeedsUpdate(model.needsUpdateReasons, t) : ''
-  const needsUpdateBadge =
-    purposeAsColor && model.needsUpdate ? (
-      <span
-        className="gantt-needs-update"
-        role="img"
-        title={needsUpdateText}
-        aria-label={`${t('ganttNeedsUpdate', { defaultValue: 'Needs update' })}. ${needsUpdateText}`}
-      >
-        ⚠️
-      </span>
-    ) : null
-  const legacyMissingEtcBadge = !purposeAsColor && model.missingEtc
+  const needsUpdateText = model.needsUpdate
+    ? describeNeedsUpdate(model.needsUpdateReasons, t) ||
+      t('ganttNeedsUpdate', { defaultValue: 'Needs update' })
+    : ''
 
   const plannedEntries = buildGanttPlannedMilestoneEntries(model)
   const estimateEntries = buildGanttEstimateMilestoneEntries(model)
@@ -176,70 +162,6 @@ export default function GanttDenseBlock({
   const plan3AvgRate =
     showAvgFlow && model.avgRateLine && model.avgRateLine !== '—' ? model.avgRateLine : null
 
-  const planThreeRowBody = planThreeRow ? (
-    <>
-      <div className="gantt-dense-block__row gantt-dense-block__row--plan3">
-        <span className="gantt-dense-block__plan3-left">
-          <span className="gantt-dense-block__vessel">{model.vesselName}</span>
-          {showPurpose ? (
-            <PurposeBadge
-              purpose={model.purposeLabel}
-              loadDischarge={model.loadDischarge}
-              short="gantt"
-            />
-          ) : null}
-          {needsUpdateBadge}
-          {legacyMissingEtcBadge ? (
-            <span
-              className="gantt-missing-etc-warn"
-              title={t('ganttMissingEtcWarn', {
-                defaultValue:
-                  'Estimated completion (ETC) not set — schedule bar uses +3 days for display only.',
-              })}
-              aria-label={t('ganttMissingEtcWarn', {
-                defaultValue:
-                  'Estimated completion (ETC) not set — schedule bar uses +3 days for display only.',
-              })}
-            >
-              ⏱️❓
-            </span>
-          ) : null}
-        </span>
-        <InlineSep />
-        <span className="gantt-dense-block__plan3-right" title={model.commodityTitle || undefined}>
-          {showCommodity ? model.materialDisplay : '—'}
-        </span>
-      </div>
-      <div className="gantt-dense-block__row gantt-dense-block__row--plan3">
-        <span className="gantt-dense-block__plan3-left">
-          {showWait ? (
-            <span className="gantt-dense-block__wait-chip" title={waitTooltip}>
-              {waitLabel}
-            </span>
-          ) : (
-            '—'
-          )}
-        </span>
-        <InlineSep />
-        {plan3AvgRate ? (
-          <span
-            className="gantt-dense-block__plan3-highlight"
-            title={t('ganttBarAvgFlow', { rate: plan3AvgRate, defaultValue: '{{rate}}' })}
-          >
-            {plan3AvgRate}
-          </span>
-        ) : (
-          <span className="gantt-dense-block__plan3-right">—</span>
-        )}
-      </div>
-      <div className="gantt-dense-block__row gantt-dense-block__row--plan3">
-        <span className="gantt-dense-block__plan3-left">{model.totalVolumeLine || '—'}</span>
-        <InlineSep />
-        <span className="gantt-dense-block__plan3-right">{balanceLine || '—'}</span>
-      </div>
-    </>
-  ) : null
-
   const planBody = planDensity ? (
     <GanttPlanBarBody
       density={planDensity}
@@ -268,22 +190,7 @@ export default function GanttDenseBlock({
             short="gantt"
           />
         ) : null}
-        {needsUpdateBadge}
-        {legacyMissingEtcBadge ? (
-          <span
-            className="gantt-missing-etc-warn"
-            title={t('ganttMissingEtcWarn', {
-              defaultValue:
-                'Estimated completion (ETC) not set — schedule bar uses +3 days for display only.',
-            })}
-            aria-label={t('ganttMissingEtcWarn', {
-              defaultValue:
-                'Estimated completion (ETC) not set — schedule bar uses +3 days for display only.',
-            })}
-          >
-            ⏱️❓
-          </span>
-        ) : null}
+        <NeedsUpdateMark text={needsUpdateText} />
         {isLate ? (
           <span
             className="gantt-dense-block__late-chip"

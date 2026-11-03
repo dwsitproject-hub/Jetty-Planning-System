@@ -23,6 +23,15 @@ const MASTER_SECTIONS = [
     titleKey: 'masterSectionThisPortTitle',
     hintKey: 'masterSectionThisPortHint',
     items: [
+      {
+        path: '/master/company',
+        titleKey: 'masterHubCompanyTitle',
+        descKey: 'masterHubCompanyDesc',
+        noteKey: 'masterHubCompanyNote',
+        badgeKey: 'masterBadgePerPort',
+        badgeKind: 'per-port',
+        sourceKind: 'datahub',
+      },
       { path: '/master/jetty', titleKey: 'masterHubJettyTitle', descKey: 'masterHubJettyDesc', badgeKey: 'masterBadgePerPort', badgeKind: 'per-port', sourceKind: 'local' },
       { path: '/master/jetty-layout', titleKey: 'masterHubJettyLayoutTitle', descKey: 'masterHubJettyLayoutDesc', badgeKey: 'masterBadgePerPort', badgeKind: 'per-port', sourceKind: 'local' },
       { path: '/master/tanks', titleKey: 'masterHubTanksTitle', descKey: 'masterHubTanksDesc', badgeKey: 'masterBadgePerPort', badgeKind: 'per-port', sourceKind: 'local' },

@@ -12,6 +12,7 @@ import fs from 'fs';
 import http from 'http';
 import { verifyConnection } from './db.js';
 import { UPLOAD_ROOT } from './paths.js';
+import { castOffAllowsFuture } from './lib/validate-cast-off.js';
 import authRoutes from './routes/auth.js';
 import hubSsoRoutes from './routes/hub-sso.js';
 import oidcSsoRoutes from './routes/oidc-sso.js';
@@ -28,6 +29,7 @@ import samplingDocumentExtractRoutes from './routes/sampling-document-extract.js
 import siLookupsRoutes from './routes/si-lookups.js';
 import operationsRoutes from './routes/operations.js';
 import qcSurveysRoutes from './routes/qc-surveys.js';
+import qualityControlRoutes from './routes/quality-control.js';
 import quantityChecksRoutes from './routes/quantity-checks.js';
 import activityLogsRoutes from './routes/activity-logs.js';
 import allocationRoutes from './routes/allocation.js';
@@ -49,11 +51,13 @@ import notificationAdminRoutes from './routes/notification-admin.js';
 import datahubAdminRoutes from './routes/datahub-admin.js';
 import adminOpsRoutes from './routes/admin-ops.js';
 import masterVesselsRoutes from './routes/master-vessels.js';
+import masterCompaniesRoutes from './routes/master-companies.js';
 import { requireAuth } from './middleware/auth.js';
 import { requirePortScope } from './middleware/port-scope.js';
 import { csrfProtection } from './middleware/csrf.js';
 import { startNotificationEmailWorker } from './lib/notification-email-worker.js';
 import { startIntegrationWebhookWorker } from './lib/integration-webhook-worker.js';
+import { startIntegrationLogRetention } from './lib/integration-log-retention.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -97,7 +101,11 @@ app.get('/health', (req, res) => {
 const apiV1 = express.Router();
 
 apiV1.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    castOffAllowFuture: castOffAllowsFuture(),
+  });
 });
 
 apiV1.get('/ping', (req, res) => {
@@ -119,6 +127,7 @@ apiV1.use('/ports', portsRoutes);
 apiV1.use('/jetties', jettiesRoutes);
 /** Vessel master is global (not port-scoped), so it mounts above the catch-all requirePortScope routers. */
 apiV1.use('/master/vessels', masterVesselsRoutes);
+apiV1.use('/master/companies', masterCompaniesRoutes);
 apiV1.use('/sla-config', slaConfigRoutes);
 apiV1.use('/standard-rates', standardRatesRoutes);
 apiV1.use('/si-document-extract', requireAuth, requirePortScope, siDocumentExtractRoutes);
@@ -134,6 +143,7 @@ apiV1.use('/operation-documents', requireAuth, requirePortScope, operationDocume
 apiV1.use('/stored-files', requireAuth, requirePortScope, storedFilesRoutes);
 apiV1.use('/jetty-layout', requireAuth, requirePortScope, jettyLayoutRoutes);
 apiV1.use('/activity-logs', requireAuth, requirePortScope, activityLogsRoutes);
+apiV1.use('/qc', requireAuth, requirePortScope, qualityControlRoutes);
 apiV1.use('/notifications', requireAuth, notificationsRoutes);
 apiV1.use('/', requireAuth, requirePortScope, qcSurveysRoutes);
 apiV1.use('/', requireAuth, requirePortScope, quantityChecksRoutes);
@@ -172,6 +182,13 @@ app.use((err, req, res, next) => {
     // Other CHECK constraints (e.g., status/phase) also map to 23514; return a clearer message for debugging.
     return res.status(400).json({ error: constraint ? `Invalid input (${constraint})` : 'Invalid input' });
   }
+  if (code === '42703') {
+    const hint =
+      process.env.NODE_ENV !== 'production' || process.env.DEBUG_API_ERRORS === '1'
+        ? 'Database schema out of date; run migrations'
+        : 'Service temporarily unavailable';
+    return res.status(503).json({ error: hint });
+  }
 
   console.error('Unhandled error:', err);
   return res.status(500).json({ error: 'Internal server error' });
@@ -205,6 +222,7 @@ async function start() {
   });
   startNotificationEmailWorker();
   startIntegrationWebhookWorker();
+  startIntegrationLogRetention();
 }
 
 start();

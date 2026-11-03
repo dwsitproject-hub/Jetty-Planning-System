@@ -1,5 +1,6 @@
 ﻿import { useMemo, useState } from 'react'
 import MasterTablePagination from './MasterTablePagination.jsx'
+import StickyFormOverlay from './StickyFormOverlay.jsx'
 import { useMasterTablePagination } from '../hooks/useMasterTablePagination.js'
 import '../styles/modal.css'
 import '../styles/datahub-sync.css'
@@ -25,6 +26,8 @@ const FIELD_LABELS = {
   kl_to_mt_factor: 'KL→MT factor',
   default_metric_id: 'Default unit',
   hs_code: 'HS code',
+  material_code: 'Material code',
+  hub_type: 'DataHub type',
   unlocode: 'UN/LOCODE',
   country: 'Country',
   is_active: 'Active',
@@ -53,6 +56,23 @@ function fieldLabel(column) {
   return FIELD_LABELS[column] || column
 }
 
+function formatNameConflictWarning(nameConflict) {
+  const matches = nameConflict?.matches
+  if (!Array.isArray(matches) || matches.length === 0) return null
+  const bits = matches.slice(0, 3).map((m) => {
+    const hub = m.hubCode ? `hub ${m.hubCode}` : m.id != null ? `JPS #${m.id}` : 'another row'
+    return `${hub}${m.name ? ` (“${m.name}”)` : ''}`
+  })
+  const extra = matches.length > 3 ? ` +${matches.length - 3} more` : ''
+  return `Same commodity long name as ${bits.join('; ')}${extra}. Unchecked by default — select to apply anyway.`
+}
+
+function isLocalUnchangedItem(item) {
+  if (item?.diffKind !== 'unchanged') return false
+  if (item?.hubCode) return false
+  return item?.vesselId != null || item?.payload?.localOnly === true
+}
+
 function SyncReviewGroup({
   groupKey,
   title,
@@ -63,6 +83,7 @@ function SyncReviewGroup({
   onSelectAll,
   applying,
   metricLabelsById,
+  recordColumnLabel = 'Vessel',
 }) {
   const {
     page,
@@ -99,7 +120,7 @@ function SyncReviewGroup({
           <thead>
             <tr>
               <th style={{ width: '2.5rem' }} aria-label="Apply" />
-              <th>Vessel</th>
+              <th>{recordColumnLabel}</th>
               <th>Hub Code</th>
               <th>{groupKey === 'new' ? 'Incoming values' : 'Changes'}</th>
             </tr>
@@ -107,6 +128,7 @@ function SyncReviewGroup({
           <tbody>
             {pagedRows.map((item) => {
               const diffEntries = Object.entries(item.fieldDiff || {})
+              const conflictHint = formatNameConflictWarning(item.nameConflict)
               return (
                 <tr key={item.id}>
                   <td>
@@ -121,6 +143,16 @@ function SyncReviewGroup({
                   <td><strong>{item.vesselName}</strong></td>
                   <td className="text-steel">{item.hubCode || '—'}</td>
                   <td>
+                    {conflictHint ? (
+                      <p className="datahub-sync__name-conflict" role="note">
+                        {conflictHint}
+                      </p>
+                    ) : null}
+                    {item.applyError ? (
+                      <p className="datahub-sync__apply-error" role="alert">
+                        Last apply failed: {item.applyError}
+                      </p>
+                    ) : null}
                     {diffEntries.length === 0 ? (
                       <span className="text-steel">No field changes</span>
                     ) : (
@@ -165,7 +197,7 @@ function SyncReviewGroup({
   )
 }
 
-function UnchangedList({ items, recordLabel = 'vesselName' }) {
+function UnchangedList({ items, ariaLabel = 'Unchanged pages' }) {
   const { page, setPage, totalPages, pagedRows, range } = useMasterTablePagination(items)
 
   return (
@@ -173,7 +205,10 @@ function UnchangedList({ items, recordLabel = 'vesselName' }) {
       <ul className="datahub-sync__unchanged">
         {pagedRows.map((item) => (
           <li key={item.id} className="text-steel">
-            {item[recordLabel] ?? item.vesselName}
+            {item.vesselName}
+            {item.hubCode ? (
+              <span className="text-steel"> ({item.hubCode})</span>
+            ) : null}
           </li>
         ))}
       </ul>
@@ -182,7 +217,7 @@ function UnchangedList({ items, recordLabel = 'vesselName' }) {
         page={page}
         totalPages={totalPages}
         onPageChange={setPage}
-        ariaLabel="Unchanged vessel pages"
+        ariaLabel={ariaLabel}
       />
     </>
   )
@@ -202,22 +237,33 @@ export default function DataHubSyncReviewModal({
   onDiscard,
   onClose,
   recordNoun = 'vessels',
+  recordColumnLabel = 'Vessel',
   newHint = 'Vessels not yet in the JPS master.',
   metricLabelsById = null,
+  showLocalUnchanged = false,
 }) {
   const [selectedIds, setSelectedIds] = useState(() =>
     new Set((items || []).filter((i) => i.decision === 'approved' && i.diffKind !== 'unchanged').map((i) => i.id))
   )
   const [showUnchanged, setShowUnchanged] = useState(false)
+  const [showLocalUnchangedList, setShowLocalUnchangedList] = useState(false)
 
   const groups = useMemo(() => {
     const all = Array.isArray(items) ? items : []
+    const unchanged = all.filter((i) => i.diffKind === 'unchanged')
     return {
       changed: all.filter((i) => i.diffKind === 'changed'),
       new: all.filter((i) => i.diffKind === 'new'),
-      unchanged: all.filter((i) => i.diffKind === 'unchanged'),
+      unchanged: unchanged.filter((i) => !isLocalUnchangedItem(i)),
+      localUnchanged: unchanged.filter((i) => isLocalUnchangedItem(i)),
     }
   }, [items])
+
+  const nameConflictCount = useMemo(() => {
+    if (run?.nameConflictCount != null) return Number(run.nameConflictCount)
+    const all = Array.isArray(items) ? items : []
+    return all.filter((i) => i.nameConflict?.matches?.length).length
+  }, [items, run?.nameConflictCount])
 
   const toggle = (id) => {
     setSelectedIds((prev) => {
@@ -240,7 +286,7 @@ export default function DataHubSyncReviewModal({
   }
 
   return (
-    <div className="modal-overlay" onClick={applying ? undefined : onClose} aria-hidden="true">
+    <StickyFormOverlay onClose={onClose} closeDisabled={applying}>
       <div
         className="modal modal--wide modal--datahub-sync"
         onClick={(e) => e.stopPropagation()}
@@ -255,11 +301,32 @@ export default function DataHubSyncReviewModal({
               Webhook
             </span>
           ) : null}
+          {run?.source === 'record' ? (
+            <span className="master-hub-badge master-hub-badge--shared" style={{ marginLeft: '0.5rem', fontSize: '0.65em' }}>
+              One record
+            </span>
+          ) : null}
         </h2>
         <p className="text-steel">
           {run?.hubRecordCount ?? 0} {recordNoun} read from DataHub: {run?.newCount ?? 0} new,{' '}
-          {run?.changedCount ?? 0} changed, {run?.unchangedCount ?? 0} unchanged. Nothing is written
-          until you apply.
+          {run?.changedCount ?? 0} changed, {run?.unchangedCount ?? 0} unchanged
+          {run?.skippedNotUse > 0 ? (
+            <>
+              ; {run.skippedNotUse} hub {recordNoun} skipped (label contains &quot;(not use)&quot;)
+            </>
+          ) : null}
+          {nameConflictCount > 0 ? (
+            <>
+              ; {nameConflictCount} with duplicate long name (unchecked — you can still apply them)
+            </>
+          ) : null}
+          {showLocalUnchanged && groups.localUnchanged.length > 0 ? (
+            <>
+              ; {groups.localUnchanged.length} local-only {recordNoun} in JPS are not linked to DataHub
+              and will not be changed
+            </>
+          ) : null}
+          . Nothing is written until you apply.
         </p>
 
         {error && (
@@ -279,6 +346,7 @@ export default function DataHubSyncReviewModal({
             onSelectAll={(on) => setGroup('changed', on)}
             applying={applying}
             metricLabelsById={metricLabelsById}
+            recordColumnLabel={recordColumnLabel}
           />
           <SyncReviewGroup
             groupKey="new"
@@ -290,7 +358,28 @@ export default function DataHubSyncReviewModal({
             onSelectAll={(on) => setGroup('new', on)}
             applying={applying}
             metricLabelsById={metricLabelsById}
+            recordColumnLabel={recordColumnLabel}
           />
+          {showLocalUnchanged && groups.localUnchanged.length > 0 && (
+            <section className="datahub-sync__group">
+              <button
+                type="button"
+                className="btn btn--small btn--secondary"
+                onClick={() => setShowLocalUnchangedList((v) => !v)}
+              >
+                {showLocalUnchangedList ? 'Hide' : 'Show'} local-only ({groups.localUnchanged.length})
+              </button>
+              <p className="text-steel datahub-sync__group-hint">
+                These master rows have no hub code. Sync does not update or delete them.
+              </p>
+              {showLocalUnchangedList && (
+                <UnchangedList
+                  items={groups.localUnchanged}
+                  ariaLabel="Local-only commodity pages"
+                />
+              )}
+            </section>
+          )}
           {groups.unchanged.length > 0 && (
             <section className="datahub-sync__group">
               <button
@@ -298,9 +387,11 @@ export default function DataHubSyncReviewModal({
                 className="btn btn--small btn--secondary"
                 onClick={() => setShowUnchanged((v) => !v)}
               >
-                {showUnchanged ? 'Hide' : 'Show'} unchanged ({groups.unchanged.length})
+                {showUnchanged ? 'Hide' : 'Show'} unchanged hub-linked ({groups.unchanged.length})
               </button>
-              {showUnchanged && <UnchangedList items={groups.unchanged} />}
+              {showUnchanged && (
+                <UnchangedList items={groups.unchanged} ariaLabel="Unchanged hub-linked pages" />
+              )}
             </section>
           )}
           {groups.changed.length === 0 && groups.new.length === 0 && (
@@ -332,6 +423,6 @@ export default function DataHubSyncReviewModal({
           </button>
         </div>
       </div>
-    </div>
+    </StickyFormOverlay>
   )
 }

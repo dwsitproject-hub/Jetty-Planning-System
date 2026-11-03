@@ -15,6 +15,8 @@ describe('siReferenceValidation', () => {
     assert.equal(validateSiReferenceForBerthing("'", 'TANKER ONE'), SI_REFERENCE_BERTHING_ERROR)
     assert.equal(validateSiReferenceForBerthing('TANKER ONE', 'tanker one'), SI_REFERENCE_BERTHING_ERROR)
     assert.equal(validateSiReferenceForBerthing('SI/EUP/2026/1', 'TANKER ONE'), null)
+    assert.equal(validateSiReferenceForBerthing('TANKER ONE NO SI', 'Tanker One'), SI_REFERENCE_BERTHING_ERROR)
+    assert.equal(validateSiReferenceForBerthing('TANKER ONE SI', 'TANKER ONE'), SI_REFERENCE_BERTHING_ERROR)
   })
 
   it('detects synthetic SI labels', () => {

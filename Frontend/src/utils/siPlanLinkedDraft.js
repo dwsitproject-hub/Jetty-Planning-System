@@ -3,7 +3,12 @@
  * (used by ShippingInstructionCreateForm and multi-draft ShipmentPlansList create flow).
  */
 
-import { defaultMetricIdForBreakdownRow, validateBreakdownMetricRules } from './siBreakdownMetric.js'
+import {
+  applyCommodityDefaultMetric,
+  defaultMetricIdForBreakdownRow,
+  validateBreakdownMetricRules,
+} from './siBreakdownMetric.js'
+import { isInternalSiReference } from './internalSiReference.js'
 
 export function planEtaYmd(plan) {
   if (!plan?.eta) return ''
@@ -24,6 +29,7 @@ export function emptyBreakdownRow(lookups) {
     contractNo: '',
     poNo: '',
     soNo: '',
+    stoNo: '',
     remarks: '',
   }
 }
@@ -33,6 +39,7 @@ export function defaultSiDraftForPlanPreview(lookups, linkedPlan) {
   const base = {
     vesselName: linkedPlan?.vesselName || '',
     referenceNumber: '',
+    noExternalSi: false,
     voyageNo: '',
     purposeId: linkedPlan?.purposeId != null ? String(linkedPlan.purposeId) : '',
     tradeTermId: '',
@@ -51,6 +58,7 @@ export function defaultSiDraftForPlanPreview(lookups, linkedPlan) {
     blIndicated: '',
     breakdown: lookups ? [emptyBreakdownRow(lookups)] : [],
     note: '',
+    companyId: '',
     documents: [],
   }
   if (!lookups) return base
@@ -81,21 +89,30 @@ export function siDetailToPlanLinkedDraftForm(si, lookups, linkedPlan) {
   const isUnloading = purposeCode === 'Unloading'
   const bd =
     Array.isArray(si?.breakdown) && si.breakdown.length > 0
-      ? si.breakdown.map((b) => ({
-          shipperId: b.shipperId != null ? String(b.shipperId) : '',
-          commodityId: b.commodityId != null ? String(b.commodityId) : '',
-          metricId: b.metricId != null ? String(b.metricId) : '',
-          qty: b.qty != null && b.qty !== '' ? String(b.qty) : '',
-          contractNo: b.contractNo ?? '',
-          poNo: b.poNo ?? '',
-          soNo: b.soNo ?? '',
-          remarks: b.remarks ?? '',
-        }))
+      ? si.breakdown.map((b) => {
+          const row = {
+            shipperId: b.shipperId != null ? String(b.shipperId) : '',
+            commodityId: b.commodityId != null ? String(b.commodityId) : '',
+            commodityName: b.commodityName ?? '',
+            commodityShortName: b.commodityShortName ?? '',
+            materialCode: b.materialCode ?? '',
+            metricId: b.metricId != null ? String(b.metricId) : '',
+            qty: b.qty != null && b.qty !== '' ? String(b.qty) : '',
+            contractNo: b.contractNo ?? '',
+            poNo: b.poNo ?? '',
+            soNo: b.soNo ?? '',
+            stoNo: b.stoNo ?? '',
+            remarks: b.remarks ?? '',
+          }
+          // Stored lines may predate a commodity default-unit change (e.g. partner API KL → master now MT).
+          return applyCommodityDefaultMetric(row, row.commodityId, lookups)
+        })
       : base.breakdown
   return {
     ...base,
     vesselName: si?.vesselName ?? base.vesselName,
     referenceNumber: si?.referenceNumber ?? '',
+    noExternalSi: si?.noExternalSi === true,
     purposeId: linkedPlan?.purposeId != null ? String(linkedPlan.purposeId) : base.purposeId,
     tradeTermId:
       si?.tradeTermId != null
@@ -119,8 +136,46 @@ export function siDetailToPlanLinkedDraftForm(si, lookups, linkedPlan) {
     blIndicated: si?.blIndicated ?? '',
     breakdown: bd,
     note: si?.note ?? '',
+    companyId: si?.companyId != null ? String(si.companyId) : '',
     documents: [],
   }
+}
+
+function resolvedCompanyId(form, companyOptions) {
+  const mode = companyOptions?.mode || 'hidden'
+  if (mode === 'locked') {
+    const id = companyOptions.companies?.[0]?.id
+    return id != null ? Number(id) : null
+  }
+  if (mode === 'required') {
+    const n = parseInt(form?.companyId, 10)
+    return Number.isFinite(n) ? n : null
+  }
+  return null
+}
+
+function companySelectionError(form, companyOptions) {
+  if (!companyOptions) return 'Company options are still loading.'
+  const mode = companyOptions.mode || 'hidden'
+  if (mode === 'hidden' || mode === 'locked') return null
+  const id = resolvedCompanyId(form, companyOptions)
+  if (id == null) return 'Select a company for this shipping instruction.'
+  const ok = (companyOptions.companies || []).some((c) => Number(c.id) === id)
+  if (!ok) return 'Select a company used at this port.'
+  return null
+}
+
+export function formatCompanyLabel(company) {
+  const short = String(
+    company?.shortName ?? company?.short_name ?? company?.companyShortName ?? ''
+  ).trim()
+  const name = String(company?.name ?? company?.companyName ?? '').trim()
+  if (short && name && short.toLowerCase() !== name.toLowerCase()) return `${short} - ${name}`
+  return short || name || String(company?.companyLabel ?? company?.label ?? '').trim()
+}
+
+export function shippingInstructionRowLabel(si) {
+  return si?.referenceNumber || (si?.id != null ? `SI-${si.id}` : 'SI')
 }
 
 /**
@@ -154,6 +209,7 @@ export function validateSiDraftForCreate(form, lookups, linkedPlan, options = {}
     contractNo: row.contractNo?.trim() || null,
     poNo: row.poNo?.trim() || null,
     soNo: row.soNo?.trim() || null,
+    stoNo: row.stoNo?.trim() || null,
     remarks: row.remarks?.trim() || null,
   }))
   for (let i = 0; i < breakdownPayload.length; i += 1) {
@@ -173,7 +229,18 @@ export function validateSiDraftForCreate(form, lookups, linkedPlan, options = {}
   const metricErr = validateBreakdownMetricRules(form.breakdown, lookups)
   if (metricErr) return metricErr
   if (!form.vesselName?.trim()) return 'Vessel name is required.'
-  return { pid, isLoading, isUnloading, ymd, documentDateVal: documentDateVal.trim(), breakdownPayload, num }
+  const companyErr = companySelectionError(form, options.companyOptions)
+  if (companyErr) return companyErr
+  return {
+    pid,
+    isLoading,
+    isUnloading,
+    ymd,
+    documentDateVal: documentDateVal.trim(),
+    breakdownPayload,
+    num,
+    companyId: resolvedCompanyId(form, options.companyOptions),
+  }
 }
 
 /** Draft block id from plan modal when editing an existing SI (`si-existing-<id>`). */
@@ -196,7 +263,11 @@ export function buildSiCreateApiPayload(form, linkedPlan, validated) {
     loadingPortId: num(form.loadingPortId),
     surveyorId: num(form.surveyorId),
     agentId: linkedPlan?.agentId != null && linkedPlan.agentId !== '' ? num(String(linkedPlan.agentId)) : null,
-    referenceNumber: form.referenceNumber?.trim() || null,
+    referenceNumber:
+      form.noExternalSi && !isInternalSiReference(form.referenceNumber)
+        ? null
+        : form.referenceNumber?.trim() || null,
+    noExternalSi: form.noExternalSi === true,
     voyageNo: linkedPlan.voyageNo?.trim() || null,
     eta: etaIso,
     etaFrom: ymd,
@@ -212,6 +283,7 @@ export function buildSiCreateApiPayload(form, linkedPlan, validated) {
     status: 'Draft',
     breakdown: breakdownPayload,
     note: form.note?.trim() || null,
+    companyId: validated.companyId ?? null,
     shipmentPlanId: linkedPlan.id,
   }
 }

@@ -16,6 +16,65 @@ export function productKeyFromCommodity(commodity) {
   return s.toUpperCase()
 }
 
+/** Commodity group when set; otherwise short name, then long name. */
+export function reportingProductLabel(parts) {
+  const group = String(parts?.commodityGroup ?? parts?.commodity_group ?? '').trim()
+  if (group) return group
+  const shortName = String(
+    parts?.shortName ?? parts?.commodityShortName ?? parts?.commodity_short_name ?? ''
+  ).trim()
+  const name = String(parts?.name ?? parts?.commodityName ?? parts?.commodity_name ?? '').trim()
+  return shortName || name || 'Unknown'
+}
+
+/** Structured SI products attached by the operations API. */
+export function cargoProductsFromRow(row) {
+  const summaries = row?.cargoBreakdownSummary
+  if (!Array.isArray(summaries)) return []
+  const products = []
+  for (const summary of summaries) {
+    if (!Array.isArray(summary?.products)) continue
+    for (const product of summary.products) products.push(product)
+  }
+  return products
+}
+
+function groupedProducts(products) {
+  const groups = new Map()
+  for (const product of products) {
+    const label = reportingProductLabel(product)
+    const key = productKeyFromCommodity(label)
+    let group = groups.get(key)
+    if (!group) {
+      group = { label, key, qty: 0 }
+      groups.set(key, group)
+    }
+    group.qty += Number(product.qty) || 0
+  }
+  return [...groups.values()]
+}
+
+function sliceFromGroup(row, group, groups) {
+  const voyageQty = Number(row.qty) || 0
+  const qtySum = groups.reduce((sum, item) => sum + item.qty, 0)
+  let qty = group.qty
+  if (!(qty > 0)) {
+    if (groups.length === 1) qty = voyageQty
+    else if (qtySum <= 0 && voyageQty > 0) qty = voyageQty / groups.length
+  }
+  const rateEntry = row.productRatesByKey?.[group.key]
+  return {
+    ...row,
+    productLabel: group.label,
+    productKey: group.key,
+    qty: qty || (groups.length === 1 ? voyageQty : qty),
+    productRateMtH: rateEntry?.rateMtH ?? null,
+    productMovedQty: rateEntry?.movedQty ?? null,
+    productLoggedHours: rateEntry?.loggedHours ?? null,
+    productRateSource: rateEntry?.source ?? null,
+  }
+}
+
 /**
  * @param {string} totalQtyDisplay
  * @returns {Map<string, number>}
@@ -71,6 +130,13 @@ function movedQtyForProduct(row, label) {
  * @returns {Array<{ label: string, qty: number | null }>}
  */
 export function voyageMovedQtyLines(row) {
+  const products = cargoProductsFromRow(row)
+  if (products.length) {
+    return groupedProducts(products).map((group) => ({
+      label: group.label,
+      qty: movedQtyForProduct(row, group.key),
+    }))
+  }
   return productShortNamesFromVoyageRow(row).map((label) => ({
     label,
     qty: movedQtyForProduct(row, label),
@@ -97,6 +163,12 @@ export function productSliceFlowRate(slice) {
  * @returns {object[]}
  */
 export function expandVoyageToProductSlices(row) {
+  const products = cargoProductsFromRow(row)
+  if (products.length) {
+    const groups = groupedProducts(products)
+    return groups.map((group) => sliceFromGroup(row, group, groups))
+  }
+
   const names = productShortNamesFromVoyageRow(row)
   const qtyMap = parseProductQtyMap(row.totalQtyDisplay)
   const voyageQty = Number(row.qty) || 0

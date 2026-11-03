@@ -8,6 +8,7 @@ import { buildPartnerInstructionPayload } from './integration-partner-payload.js
 import {
   PARTNER_SUBMISSION_BY_PLAN_SQL,
   PARTNER_SUBMISSION_BY_SI_SQL,
+  resolvePartnerCargoOpsWindow,
 } from './integration-master-data.js';
 import { decryptSmtpPassword, encryptSmtpPassword } from './smtp-config.js';
 
@@ -48,16 +49,17 @@ function endpointAcceptsEvent(events, eventType) {
   return list.includes(eventType);
 }
 
-function isHttpsUrl(url) {
+/** @param {string} url */
+export function isValidWebhookEndpointUrl(url) {
   try {
-    const u = new URL(url);
-    if (u.protocol === 'https:') return true;
-    if (u.protocol === 'http:' && process.env.INTEGRATION_WEBHOOK_ALLOW_HTTP === 'true') return true;
-    return false;
+    const u = new URL(String(url).trim());
+    return u.protocol === 'https:' || u.protocol === 'http:';
   } catch {
     return false;
   }
 }
+
+const INVALID_WEBHOOK_URL = 'url must be a valid HTTP or HTTPS URL';
 
 export function toWebhookEndpointRow(row) {
   return {
@@ -78,8 +80,8 @@ export function toWebhookEndpointRow(row) {
  */
 export async function createWebhookEndpoint(db, apiKeyId, input) {
   const url = String(input.url ?? '').trim();
-  if (!url || !isHttpsUrl(url)) {
-    return { error: 'url must be a valid HTTPS URL' };
+  if (!url || !isValidWebhookEndpointUrl(url)) {
+    return { error: INVALID_WEBHOOK_URL };
   }
   const eventsRaw = input.events ?? ['*'];
   if (!Array.isArray(eventsRaw) || eventsRaw.length === 0) {
@@ -137,7 +139,7 @@ export async function updateWebhookEndpoint(db, apiKeyId, endpointId, input) {
   let url = row.url;
   if (input.url != null) {
     url = String(input.url).trim();
-    if (!url || !isHttpsUrl(url)) return { error: 'url must be a valid HTTPS URL' };
+    if (!url || !isValidWebhookEndpointUrl(url)) return { error: INVALID_WEBHOOK_URL };
   }
 
   let events = row.events ?? ['*'];
@@ -208,12 +210,39 @@ async function loadSubmissionRows(db, { shipmentPlanId, shippingInstructionId })
 }
 
 /**
+ * Valid event types for an enqueue request. A schedule change also evaluates `status.changed`,
+ * because partner stages (Berthed, Start Cargo, Cargo Done, ...) follow schedule timestamps.
+ * @param {string[] | undefined} requested
+ */
+export function expandWebhookEventTypes(requested) {
+  const types = (requested ?? []).filter((e) => WEBHOOK_EVENT_TYPES.includes(e));
+  if (types.includes('schedule.updated') && !types.includes('status.changed')) {
+    types.push('status.changed');
+  }
+  return types;
+}
+
+/** Partner status carried by the latest status.changed delivery for this endpoint and instruction. */
+async function lastQueuedStatus(db, endpointId, siId) {
+  const r = await db.query(
+    `SELECT payload->'data'->>'status' AS status
+     FROM integration_webhook_deliveries
+     WHERE endpoint_id = $1 AND si_id = $2 AND event_type = 'status.changed'
+     ORDER BY id DESC
+     LIMIT 1`,
+    [endpointId, siId]
+  );
+  return r.rows[0]?.status ?? null;
+}
+
+/**
  * Enqueue webhook deliveries for integration submissions tied to a plan or SI.
+ * `status.changed` is skipped for an endpoint when its last one already carried the same status.
  * @param {import('pg').Pool} db
  * @param {{ shipmentPlanId?: number, shippingInstructionId?: number, eventTypes: string[] }} opts
  */
 export async function enqueueIntegrationWebhookEvents(db, opts) {
-  const eventTypes = (opts.eventTypes ?? []).filter((e) => WEBHOOK_EVENT_TYPES.includes(e));
+  const eventTypes = expandWebhookEventTypes(opts.eventTypes);
   if (eventTypes.length === 0) return 0;
 
   const rows = await loadSubmissionRows(db, opts);
@@ -239,6 +268,12 @@ export async function enqueueIntegrationWebhookEvents(db, opts) {
       };
       for (const ep of endpoints.rows) {
         if (!endpointAcceptsEvent(ep.events, eventType)) continue;
+        if (
+          eventType === 'status.changed' &&
+          (await lastQueuedStatus(db, ep.id, Number(row.si_id))) === data.status
+        ) {
+          continue;
+        }
         await db.query(
           `INSERT INTO integration_webhook_deliveries (
              endpoint_id, delivery_id, event_type, si_id, external_reference, payload, status, next_attempt_at
@@ -268,6 +303,40 @@ export function triggerPartnerWebhooksDeferred(opts) {
   });
 }
 
+/**
+ * Push `schedule.updated` (and the derived status change) for the instruction behind an operation.
+ * @param {number} operationId
+ */
+export async function triggerPartnerScheduleWebhookForOperation(operationId) {
+  const r = await pool.query(
+    `SELECT shipping_instruction_id FROM operations WHERE id = $1 AND deleted_at IS NULL`,
+    [operationId]
+  );
+  const siId = r.rows[0]?.shipping_instruction_id;
+  if (siId == null) return;
+  triggerPartnerWebhooksDeferred({
+    shippingInstructionId: Number(siId),
+    eventTypes: ['schedule.updated'],
+  });
+}
+
+function instantMs(v) {
+  if (v == null || v === '') return null;
+  const t = new Date(v).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+/**
+ * After a final check changes, push only when the partner Cargo Done instant actually moved.
+ * @param {number} operationId
+ * @param {{ doneAt?: Date | string | null } | null} before result of resolvePartnerCargoOpsWindow before the change
+ */
+export async function triggerPartnerScheduleIfCargoDoneChanged(operationId, before) {
+  const after = await resolvePartnerCargoOpsWindow(pool, operationId);
+  if (instantMs(before?.doneAt) === instantMs(after.doneAt)) return;
+  await triggerPartnerScheduleWebhookForOperation(operationId);
+}
+
 /** @param {import('pg').Pool} db @param {number} limit */
 export async function processWebhookDeliveryQueueOnce(db, limit = 20) {
   const batch = await db.query(
@@ -289,7 +358,9 @@ export async function processWebhookDeliveryQueueOnce(db, limit = 20) {
       secret = decryptSecret(row.secret_encrypted);
     } catch (e) {
       await db.query(
-        `UPDATE integration_webhook_deliveries SET status = 'failed', last_error = $2, attempt_count = attempt_count + 1 WHERE id = $1`,
+        `UPDATE integration_webhook_deliveries
+         SET status = 'failed', last_error = $2, attempt_count = attempt_count + 1, last_attempt_at = NOW()
+         WHERE id = $1`,
         [row.id, `secret decrypt failed: ${e?.message || e}`.slice(0, 500)]
       );
       continue;
@@ -300,6 +371,7 @@ export async function processWebhookDeliveryQueueOnce(db, limit = 20) {
     const signature = signWebhookPayload(secret, timestampMs, body);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), WEBHOOK_DELIVERY_TIMEOUT_MS);
+    const startedAt = Date.now();
 
     try {
       const res = await fetch(row.url, {
@@ -317,20 +389,28 @@ export async function processWebhookDeliveryQueueOnce(db, limit = 20) {
       });
       clearTimeout(timer);
 
+      const durationMs = Date.now() - startedAt;
+
       if (res.ok) {
         await db.query(
-          `UPDATE integration_webhook_deliveries SET status = 'sent', sent_at = NOW(), attempt_count = attempt_count + 1, last_error = NULL WHERE id = $1`,
-          [row.id]
+          `UPDATE integration_webhook_deliveries
+           SET status = 'sent', sent_at = NOW(), attempt_count = attempt_count + 1, last_error = NULL,
+               last_http_status = $2, last_duration_ms = $3, last_attempt_at = NOW()
+           WHERE id = $1`,
+          [row.id, res.status, durationMs]
         );
         continue;
       }
 
       const errText = `HTTP ${res.status} ${(await res.text()).slice(0, 300)}`;
-      await scheduleRetryOrFail(db, row, errText);
+      await scheduleRetryOrFail(db, row, errText, { httpStatus: res.status, durationMs });
     } catch (e) {
       clearTimeout(timer);
       const msg = e?.name === 'AbortError' ? 'delivery timed out' : e?.message || String(e);
-      await scheduleRetryOrFail(db, row, msg.slice(0, 500));
+      await scheduleRetryOrFail(db, row, msg.slice(0, 500), {
+        httpStatus: null,
+        durationMs: Date.now() - startedAt,
+      });
     }
   }
   return processed;
@@ -420,20 +500,27 @@ export async function retryFailedWebhookDelivery(db, apiKeyId, endpointId, deliv
   return { ok: true, delivery_id: r.rows[0].delivery_id };
 }
 
-async function scheduleRetryOrFail(db, row, errText) {
+/** @param {{ httpStatus: number | null, durationMs: number }} attemptInfo */
+export async function scheduleRetryOrFail(db, row, errText, attemptInfo) {
   const attempt = Number(row.attempt_count ?? 0) + 1;
+  const { httpStatus, durationMs } = attemptInfo;
   if (attempt >= WEBHOOK_RETRY_DELAYS_MS.length) {
     await db.query(
-      `UPDATE integration_webhook_deliveries SET status = 'failed', attempt_count = $2, last_error = $3 WHERE id = $1`,
-      [row.id, attempt, errText]
+      `UPDATE integration_webhook_deliveries
+       SET status = 'failed', attempt_count = $2, last_error = $3,
+           last_http_status = $4, last_duration_ms = $5, last_attempt_at = NOW()
+       WHERE id = $1`,
+      [row.id, attempt, errText, httpStatus, durationMs]
     );
     return;
   }
   const delay = WEBHOOK_RETRY_DELAYS_MS[attempt - 1] ?? WEBHOOK_RETRY_DELAYS_MS.at(-1);
   await db.query(
-    `UPDATE integration_webhook_deliveries SET attempt_count = $2, last_error = $3,
-       next_attempt_at = NOW() + ($4::int * interval '1 millisecond')
+    `UPDATE integration_webhook_deliveries
+     SET attempt_count = $2, last_error = $3,
+         last_http_status = $5, last_duration_ms = $6, last_attempt_at = NOW(),
+         next_attempt_at = NOW() + ($4::int * interval '1 millisecond')
      WHERE id = $1`,
-    [row.id, attempt, errText, delay]
+    [row.id, attempt, errText, delay, httpStatus, durationMs]
   );
 }

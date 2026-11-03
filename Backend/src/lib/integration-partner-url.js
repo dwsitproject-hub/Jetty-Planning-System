@@ -1,11 +1,10 @@
 /**
- * Validate partner-supplied HTTPS document URLs (integration API v5.1).
+ * Validate partner-supplied document URLs (integration API v5.1+).
+ * HTTP and HTTPS are accepted (internal document hosts often lack TLS).
  */
 export const PARTNER_DOCUMENT_URL_MAX_LEN = 2048;
 
-function allowHttpUrls() {
-  return process.env.INTEGRATION_WEBHOOK_ALLOW_HTTP === 'true';
-}
+const INVALID_DOCUMENT_URL_ISSUE = 'must be a valid HTTP or HTTPS URL';
 
 /**
  * @param {unknown} raw
@@ -20,11 +19,10 @@ export function parsePartnerDocumentUrl(raw) {
   }
   try {
     const u = new URL(s);
-    if (u.protocol === 'https:') return { ok: true, value: s };
-    if (u.protocol === 'http:' && allowHttpUrls()) return { ok: true, value: s };
-    return { ok: false, issue: 'must be a valid HTTPS URL' };
+    if (u.protocol === 'https:' || u.protocol === 'http:') return { ok: true, value: s };
+    return { ok: false, issue: INVALID_DOCUMENT_URL_ISSUE };
   } catch {
-    return { ok: false, issue: 'must be a valid HTTPS URL' };
+    return { ok: false, issue: INVALID_DOCUMENT_URL_ISSUE };
   }
 }
 

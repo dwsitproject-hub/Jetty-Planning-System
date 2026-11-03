@@ -1,4 +1,6 @@
 import { useEffect, useState, useCallback, Fragment } from 'react'
+import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
+import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
 import { Link } from 'react-router-dom'
 import { PAGE_OPTIONS } from '../data/rolesData'
 import {
@@ -178,6 +180,7 @@ function getGroupForPageKey(k) {
     k === 'master-jetty-layout' ||
     k === 'master-tanks' ||
     k === 'master-vessel' ||
+    k === 'master-company' ||
     k === 'tank-farm'
   ) {
     return 'master-port-jetty'
@@ -185,6 +188,21 @@ function getGroupForPageKey(k) {
   if (k.startsWith('master-si-')) return 'master-si'
   return 'core'
 }
+
+const ROLE_COLUMNS = [
+  {
+    key: 'name',
+    label: 'Name',
+    getSortValue: (r) => (r.name || '').toLowerCase(),
+    getFilterValue: (r) => r.name || '',
+  },
+  {
+    key: 'description',
+    label: 'Description',
+    getSortValue: (r) => (r.description || '').toLowerCase(),
+    getFilterValue: (r) => r.description || '',
+  },
+]
 
 const GROUPS = [
   { id: 'core', title: 'Core modules', description: 'Main app pages (operations & reporting).' },
@@ -237,6 +255,9 @@ export default function AdminRoles() {
   }))
   /** @type {[Record<string, { loading?: boolean, error?: string, items?: unknown[] }>, function]} */
   const [rolePageDetailById, setRolePageDetailById] = useState({})
+
+  const { displayRows: displayRoles, filters: roleFilters, updateFilter: updateRoleFilter, sortState: roleSort, handleSort: handleRoleSort } =
+    useSortableFilterableRows(roles, ROLE_COLUMNS, { key: 'name', dir: 'asc' })
 
   useEffect(() => {
     if (!toast?.message) return
@@ -764,15 +785,20 @@ export default function AdminRoles() {
           <div className="table-wrap">
             <table className="data-table allocation-table admin-roles-table">
               <thead>
-                <tr>
-                  <th className="allocation-table__expand-col" aria-label="Expand row" />
-                  <th className="allocation-table__th">Name</th>
-                  <th className="allocation-table__th">Description</th>
-                  <th className="allocation-table__action-col">Actions</th>
-                </tr>
+                <SortableFilterableTableHead
+                  columns={ROLE_COLUMNS}
+                  sortState={roleSort}
+                  onSort={handleRoleSort}
+                  filters={roleFilters}
+                  onFilterChange={updateRoleFilter}
+                  leadingBlankCols={1}
+                  leadingBlankAriaLabel="Expand row"
+                  leadingBlankClassName="allocation-table__expand-col"
+                  trailingBlankCols={1}
+                />
               </thead>
               <tbody>
-                {roles.map((r) => (
+                {displayRoles.map((r) => (
                   <Fragment key={r.id}>
                     <tr
                       className={`allocation-table__row ${expandedRoleId === r.id ? 'allocation-table__row--expanded' : ''}`}
@@ -944,6 +970,11 @@ export default function AdminRoles() {
                 ))}
               </tbody>
             </table>
+            {displayRoles.length === 0 && (
+              <p className="text-steel" style={{ marginTop: 'var(--spacing-3)' }}>
+                No entries match the current filters.
+              </p>
+            )}
           </div>
         )}
       </section>

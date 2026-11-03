@@ -1,11 +1,13 @@
 /**
  * Cargo movement lines for one commodity shipment on the throughput modal.
- * Untagged lines count only when the call carries a single commodity.
+ * Untagged lines count only when the call rolls up to a single commodity group.
  */
 import { formatCargoLineTanksLabel } from './cargoProgressResolvers.js'
-import { productKeyFromCommodity, productShortNamesFromVoyageRow } from './managementDashboardProduct.js'
+import { expandVoyageToProductSlices, productKeyFromCommodity } from './managementDashboardProduct.js'
 
 function lineProductKey(line) {
+  const group = String(line?.commodityGroup ?? '').trim()
+  if (group) return productKeyFromCommodity(group)
   const label = String(line?.commodityShortName || line?.commodityName || '').trim()
   if (!label) return ''
   return productKeyFromCommodity(label)
@@ -25,7 +27,7 @@ function lineEnd(line) {
  */
 export function cargoMovementEntriesForSlice(events, row) {
   const want = productKeyFromCommodity(row?.productKey || row?.productLabel || '')
-  const single = productShortNamesFromVoyageRow(row).length <= 1
+  const single = expandVoyageToProductSlices(row).length <= 1
   const lines = []
   for (const ev of Array.isArray(events) ? events : []) {
     if (ev?.milestoneKey !== 'cargo_operations') continue

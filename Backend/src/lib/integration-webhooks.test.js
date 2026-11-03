@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { signWebhookPayload, generateWebhookSecret, webhookSecretPrefix } from './integration-webhooks.js';
+import {
+  signWebhookPayload,
+  generateWebhookSecret,
+  webhookSecretPrefix,
+  isValidWebhookEndpointUrl,
+} from './integration-webhooks.js';
 
 describe('integration-webhooks', () => {
   it('signWebhookPayload is deterministic HMAC sha256', () => {
@@ -11,6 +16,12 @@ describe('integration-webhooks', () => {
     const sig2 = signWebhookPayload(secret, ts, body);
     assert.equal(sig1, sig2);
     assert.match(sig1, /^[a-f0-9]{64}$/);
+  });
+
+  it('isValidWebhookEndpointUrl accepts http and https', () => {
+    assert.equal(isValidWebhookEndpointUrl('https://partner.example/jps/webhook'), true);
+    assert.equal(isValidWebhookEndpointUrl('http://172.28.1.10/jps/webhook'), true);
+    assert.equal(isValidWebhookEndpointUrl('ftp://x/y'), false);
   });
 
   it('generateWebhookSecret uses whsec_ prefix', () => {

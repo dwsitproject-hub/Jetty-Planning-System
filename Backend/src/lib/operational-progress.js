@@ -429,6 +429,7 @@ export async function loadOperationProgressContext(db, operationId) {
             l.atg_hourly_detail, l.commodity_id,
             sc.short_name AS commodity_short_name,
             sc.name AS commodity_name,
+            sc.commodity_group AS commodity_group,
             COALESCE(
               (SELECT array_agg(clt.tank_id ORDER BY clt.tank_id)
                FROM operation_cargo_load_line_tanks clt
@@ -457,6 +458,7 @@ export async function loadOperationProgressContext(db, operationId) {
     commodityId: l.commodity_id != null ? Number(l.commodity_id) : null,
     commodityShortName: l.commodity_short_name ? String(l.commodity_short_name).trim() : null,
     commodityName: l.commodity_name ? String(l.commodity_name).trim() : null,
+    commodityGroup: l.commodity_group ? String(l.commodity_group).trim() : null,
   }));
 
   const siR = await db.query(
@@ -464,7 +466,11 @@ export async function loadOperationProgressContext(db, operationId) {
             COALESCE(
               (SELECT array_agg(sub.k ORDER BY sub.k)
                FROM (
-                 SELECT DISTINCT UPPER(TRIM(COALESCE(sc.short_name, sc.name))) AS k
+                 SELECT DISTINCT UPPER(TRIM(COALESCE(
+                   NULLIF(TRIM(sc.commodity_group), ''),
+                   NULLIF(TRIM(sc.short_name), ''),
+                   sc.name
+                 ))) AS k
                  FROM shipping_instruction_breakdown b
                  JOIN si_commodities sc ON sc.id = b.commodity_id AND sc.deleted_at IS NULL
                  WHERE b.shipping_instruction_id = si.id AND b.deleted_at IS NULL

@@ -1,0 +1,137 @@
+{
+  "shell": {
+    "brand": "Sampling QC"
+  },
+  "status": {
+    "not_started": "Belum mulai",
+    "draft": "Draf",
+    "done": "Selesai"
+  },
+  "queue": {
+    "title": "Kapal untuk di-sampling",
+    "sub": "Kapal yang sudah sandar. Pilih instruksi pengiriman untuk mencatat hasil sampling.",
+    "searchPlaceholder": "Cari kapal, jetty, atau SI",
+    "searchLabel": "Cari kapal",
+    "filterNeeds": "Perlu sampling",
+    "filterDone": "Selesai",
+    "filterAll": "Semua",
+    "sortBy": "Urutkan menurut",
+    "sortTb": "Sandar terlama",
+    "sortVesselName": "Nama kapal",
+    "sortJetty": "Jetty",
+    "refresh": "Muat ulang",
+    "loading": "Memuat kapal…",
+    "loadingPermissions": "Memuat izin…",
+    "noAccess": "Anda tidak memiliki akses ke Sampling QC.",
+    "noVessels": "Tidak ada kapal sandar saat ini.",
+    "noMatches": "Tidak ada kapal yang cocok dengan filter ini.",
+    "errorLoad": "Gagal memuat antrian sampling",
+    "retry": "Coba lagi",
+    "chooseSi": "Pilih SI",
+    "hideSi": "Sembunyikan instruksi pengiriman",
+    "open": "BUKA ›",
+    "tbPrefix": "TB",
+    "jettyPrefix": "Jetty",
+    "sampledOf": "{{done}} dari {{total}} sudah di-sampling",
+    "samplesLine": "{{count}} palka",
+    "avgFfa": "FFA {{value}}",
+    "avgMoisture": "Air {{value}}",
+    "updatedBy": "Diperbarui {{when}} oleh {{who}}",
+    "updatedAt": "Diperbarui {{when}}"
+  },
+  "entry": {
+    "back": "Kembali ke daftar kapal",
+    "loading": "Memuat sampling…",
+    "notFound": "Operasi tidak ditemukan atau belum sandar.",
+    "loadFailed": "Gagal memuat data sampling",
+    "noAccess": "Anda tidak memiliki akses ke Sampling QC.",
+    "restoredDraft": "Perubahan yang belum disimpan dipulihkan dari perangkat ini.",
+    "discardDraft": "Buang",
+    "sectionAdd": "Tambah sampel palka",
+    "sectionRecorded": "Sampel tercatat ({{count}})",
+    "sectionReport": "Ringkasan laporan",
+    "sectionTime": "Waktu sampling",
+    "sectionDocuments": "Dokumen laporan",
+    "noRecords": "Belum ada sampel tercatat.",
+    "remark": "Catatan",
+    "startTime": "Waktu mulai",
+    "endTime": "Waktu selesai"
+  },
+  "summary": {
+    "count": "Sampel",
+    "avgFfa": "Rata-rata FFA",
+    "avgMoisture": "Rata-rata Kadar Air",
+    "none": "—"
+  },
+  "quickAdd": {
+    "noPalka": "No. Palka",
+    "ffa": "FFA (%)",
+    "moisture": "Kadar air (%)",
+    "placeholderPalka": "mis. 1P",
+    "placeholderFfa": "mis. 4,91",
+    "placeholderMoisture": "mis. 0,25",
+    "add": "Tambah, lanjut",
+    "duplicate": "Palka {{palka}} sudah tercatat. Anda tetap bisa menambahkannya.",
+    "error": {
+      "palkaRequired": "Isi nomor palka.",
+      "metricRequired": "Isi FFA atau Kadar air.",
+      "invalid": "Masukkan angka.",
+      "range": "Harus antara 0 dan 100."
+    }
+  },
+  "sample": {
+    "edit": "Ubah sampel",
+    "save": "Simpan perubahan",
+    "cancel": "Batal",
+    "delete": "Hapus sampel",
+    "confirmDelete": "Hapus palka {{palka}}?",
+    "palka": "Palka {{palka}}",
+    "ffa": "FFA {{value}}",
+    "moisture": "Kadar air {{value}}"
+  },
+  "report": {
+    "ffaAverage": "Rata-rata FFA",
+    "moistureAverage": "Rata-rata kadar air",
+    "dobi": "DOBI",
+    "iodineValue": "Iodine value (IV)",
+    "useComputed": "Pakai rata-rata hitungan",
+    "computedHint": "Mengisi rata-rata FFA dan Kadar air dari sampel di atas.",
+    "error": {
+      "invalid": "Masukkan angka.",
+      "range": "Nilai melebihi batas maksimum."
+    }
+  },
+  "documents": {
+    "takePhoto": "Ambil foto",
+    "chooseFile": "Pilih file",
+    "hint": "Foto, PDF, atau Excel laporan kualitas.",
+    "filesPending": "{{count}} file akan diunggah saat disimpan",
+    "extract": "Ekstrak data",
+    "extracting": "Membaca…",
+    "open": "Buka",
+    "remove": "Hapus",
+    "confirmRemove": "Hapus dokumen ini dari operasi?",
+    "empty": "Belum ada dokumen terlampir.",
+    "extractError": "Tidak dapat mengekstrak data dari dokumen ini.",
+    "removeError": "Tidak dapat menghapus dokumen."
+  },
+  "conflict": {
+    "message": "Orang lain memperbarui data sampling ini sejak Anda membukanya. Muat ulang untuk melihat perubahannya, atau timpa dengan data Anda.",
+    "reload": "Muat ulang terbaru",
+    "overwrite": "Timpa dengan milik saya"
+  },
+  "save": {
+    "recordError": "Sampel tidak tersimpan: {{message}}",
+    "draft": "Simpan draf",
+    "final": "Simpan final",
+    "saving": "Menyimpan…",
+    "savedAt": "Tersimpan {{time}}",
+    "localAt": "Belum tersimpan · disimpan di perangkat ini {{time}}",
+    "unsaved": "Ada perubahan belum disimpan",
+    "success": "Sampling tersimpan.",
+    "successDraft": "Draf tersimpan.",
+    "error": "Gagal menyimpan sampling.",
+    "fixErrors": "Perbaiki kolom yang ditandai sebelum menyimpan.",
+    "pendingSample": "Selesaikan atau kosongkan sampel yang sedang diketik sebelum menyimpan."
+  }
+}

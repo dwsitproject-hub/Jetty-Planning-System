@@ -4,7 +4,8 @@ import { useAuth } from '../../context/AuthContext'
 import LanguageSwitch from '../LanguageSwitch'
 import ReportBugButton from '../ReportBugButton'
 
-export default function OperatorMobileShell({ children }) {
+/** Mobile field shell shared by Operator Mode and QC Sampling; `brand` overrides the title. */
+export default function OperatorMobileShell({ children, brand }) {
   const navigate = useNavigate()
   const { logout } = useAuth()
   const { t } = useTranslation('operator')
@@ -17,7 +18,7 @@ export default function OperatorMobileShell({ children }) {
   return (
     <div className="operator-mobile">
       <header className="operator-mobile__shell-bar">
-        <div className="operator-mobile__brand">{t('shell.brand')}</div>
+        <div className="operator-mobile__brand">{brand || t('shell.brand')}</div>
         <div className="operator-mobile__shell-actions">
           <LanguageSwitch compact />
           <button type="button" className="op-btn op-btn--soft" onClick={() => navigate('/')}>

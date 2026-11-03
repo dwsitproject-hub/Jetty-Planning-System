@@ -79,7 +79,7 @@ export function useSamplingDocumentExtract() {
       const message = summarizeSamplingExtractApply(summary, pending.fileName)
       setReviewOpen(false)
       setPending(null)
-      return { nextSampling, message }
+      return { nextSampling, summary, message }
     },
     [pending]
   )

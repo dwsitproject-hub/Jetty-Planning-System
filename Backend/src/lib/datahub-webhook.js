@@ -3,7 +3,11 @@
  * Contract: Docs/Guide/DATAHUB_CLIENT_INTEGRATION.md §10
  */
 import crypto from 'crypto';
-import { normalizeHubRecord } from './datahub-client.js';
+import {
+  hubInboundDataContainsNotUseMarker,
+  hubNormalizedCommodityExcluded,
+  normalizeHubRecord,
+} from './datahub-client.js';
 import {
   getEffectiveDataHubConfig,
   getEffectiveWebhookConfig,
@@ -14,7 +18,14 @@ import { extractHubCommodityUom } from './datahub-commodity-sync.js';
 import { fetchHubRecords } from './datahub-master-sync-config.js';
 import { stageEntityFromHub, applyStagedEntitySyncRun } from './datahub-master-stage.js';
 
-const WEBHOOK_ENTITY_TYPES = new Set(['vessel', 'incoterm', 'commodity', 'port_master']);
+const WEBHOOK_ENTITY_TYPES = new Set(['vessel', 'incoterm', 'commodity', 'port_master', 'organization']);
+
+/** Hub UI slug `company` is the same master as documented `organization`. */
+export function canonicalWebhookEntityType(raw) {
+  const t = String(raw || '').trim().toLowerCase();
+  if (t === 'company') return 'organization';
+  return t;
+}
 
 /**
  * @param {string} secret
@@ -95,10 +106,10 @@ function strHubCode(data) {
  */
 export function inferWebhookEntityType(payload, headers = {}) {
   const h = normalizeHeaders(headers);
-  const fromHeader = h['x-dhm-entity-type']?.trim().toLowerCase();
+  const fromHeader = canonicalWebhookEntityType(h['x-dhm-entity-type']);
   if (fromHeader && WEBHOOK_ENTITY_TYPES.has(fromHeader)) return fromHeader;
 
-  const fromBody = String(payload?.entityType ?? payload?.master_type ?? '').trim().toLowerCase();
+  const fromBody = canonicalWebhookEntityType(payload?.entityType ?? payload?.master_type ?? '');
   if (fromBody && WEBHOOK_ENTITY_TYPES.has(fromBody)) return fromBody;
 
   const code = strHubCode(payload?.data);
@@ -108,6 +119,7 @@ export function inferWebhookEntityType(payload, headers = {}) {
     if (prefix === 'INC') return 'incoterm';
     if (prefix === 'PORT') return 'port_master';
     if (prefix === 'VSL') return 'vessel';
+    if (prefix === 'ORG') return 'organization';
   }
 
   const d = payload?.data;
@@ -127,13 +139,34 @@ export function inferWebhookEntityType(payload, headers = {}) {
   return null;
 }
 
-function mergeCommodityPayloadUom(hubRecord, payloadData) {
+function strPayloadField(data, ...keys) {
+  if (!data || typeof data !== 'object') return null;
+  for (const k of keys) {
+    if (data[k] == null) continue;
+    const s = String(data[k]).trim();
+    if (s !== '') return s;
+  }
+  return null;
+}
+
+function mergeCommodityPayloadOverSync(hubRecord, payloadData) {
+  if (!hubRecord?.values || !payloadData) return hubRecord;
+  const values = { ...hubRecord.values };
   const uom = extractHubCommodityUom(payloadData);
-  if (!uom || !hubRecord?.values) return hubRecord;
-  return {
-    ...hubRecord,
-    values: { ...hubRecord.values, uom },
-  };
+  if (uom) values.uom = uom;
+  const materialCode = strPayloadField(payloadData, 'material_code', 'materialCode');
+  if (materialCode) values.material_code = materialCode;
+  const hubType = strPayloadField(payloadData, 'type', 'commodity_type', 'commodityType');
+  if (hubType) values.hub_type = hubType;
+  return { ...hubRecord, values };
+}
+
+function commodityPayloadHasOverlayFields(payloadData) {
+  return Boolean(
+    extractHubCommodityUom(payloadData) ||
+      strPayloadField(payloadData, 'material_code', 'materialCode') ||
+      strPayloadField(payloadData, 'type', 'commodity_type', 'commodityType')
+  );
 }
 
 /**
@@ -157,13 +190,16 @@ export async function resolveWebhookHubRecords(db, entityType, payload, eventHea
   }
 
   try {
-    const snapshot = await fetchHubRecords('commodity', cfg, db);
+    const snapshotFetch = await fetchHubRecords('commodity', cfg, db);
+    const snapshot = Array.isArray(snapshotFetch) ? snapshotFetch : snapshotFetch.records;
     const fresh = snapshot.find((r) => r?.hubCode && String(r.hubCode) === String(hubCode));
     const base = fresh ?? parsed;
-    return [mergeCommodityPayloadUom(base, payload?.data)];
+    const merged = mergeCommodityPayloadOverSync(base, payload?.data);
+    if (hubNormalizedCommodityExcluded(merged)) return [];
+    return [merged];
   } catch (e) {
-    if (extractHubCommodityUom(payload?.data)) {
-      return [mergeCommodityPayloadUom(parsed, payload.data)];
+    if (commodityPayloadHasOverlayFields(payload?.data)) {
+      return [mergeCommodityPayloadOverSync(parsed, payload.data)];
     }
     throw e;
   }
@@ -203,7 +239,7 @@ export async function processInboundWebhook(db, rawBody, headers) {
   const hubCode = strHubCode(payload.data);
   const recordId = payload.recordId != null ? String(payload.recordId) : null;
   const resolvedEntity = inferWebhookEntityType(payload, headers);
-  const rawEntityType = String(payload.entityType || '').trim().toLowerCase();
+  const rawEntityType = canonicalWebhookEntityType(payload.entityType || '');
 
   const dup = await db.query(
     `SELECT id, status FROM datahub_webhook_receipts WHERE delivery_id = $1`,
@@ -258,6 +294,14 @@ export async function processInboundWebhook(db, rawBody, headers) {
 
   const hubRecord = hubRecords[0] ?? null;
   if (!hubRecord) {
+    if (
+      resolvedEntity === 'commodity' &&
+      hubInboundDataContainsNotUseMarker(payload?.data)
+    ) {
+      await insertReceipt('ignored', null, 'hub_not_use_marker');
+      await updateDataHubWebhookHealth(db, { ok: true });
+      return { status: 200, body: { status: 'ignored', reason: 'hub_not_use_marker' } };
+    }
     await insertReceipt('failed', null, 'missing master payload');
     await updateDataHubWebhookHealth(db, { ok: false, error: 'missing master payload' });
     return { status: 400, body: { error: 'missing master payload' } };

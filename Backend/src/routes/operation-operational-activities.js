@@ -28,6 +28,8 @@ import {
   getSiCommodityOptionsForOperation,
   normalizeLoadLineCommodityId,
 } from '../lib/si-commodity-options.js';
+import { triggerPartnerScheduleWebhookForOperation } from '../lib/integration-webhooks.js';
+import { resolvePartnerCargoOpsWindow } from '../lib/integration-master-data.js';
 
 const router = express.Router();
 
@@ -45,6 +47,21 @@ const START_ONLY_MILESTONE_KEYS = new Set(['opening_hatch', 'cargo_pre_condition
 /** Milestones where end_at may be NULL (Opening, Pre-conditioning, Cargo Operations). */
 function milestoneAllowsNullEnd(milestoneKey) {
   return START_ONLY_MILESTONE_KEYS.has(milestoneKey) || milestoneKey === 'cargo_operations';
+}
+
+function partnerScheduleInstantIso(v) {
+  if (v == null || v === '') return null;
+  const d = v instanceof Date ? v : new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function partnerCargoOpsWindowScheduleChanged(before, after) {
+  if (!before || !after) return false;
+  return (
+    partnerScheduleInstantIso(before.startAt) !== partnerScheduleInstantIso(after.startAt) ||
+    partnerScheduleInstantIso(before.endAt) !== partnerScheduleInstantIso(after.endAt) ||
+    partnerScheduleInstantIso(before.doneAt) !== partnerScheduleInstantIso(after.doneAt)
+  );
 }
 
 function operationalActivityTitle(milestoneKey) {
@@ -1046,6 +1063,7 @@ router.post('/operations/:operationId/operational-activities', async (req, res) 
       await client.query('COMMIT');
       if (milestoneKey === 'cargo_operations') {
         await refreshOperationalProgressAfterCargoSave(pool, operationId);
+        triggerPartnerScheduleWebhookForOperation(operationId).catch(() => {});
       }
       if (row.cargo_handling_method_id) {
         const m = await pool.query(
@@ -1191,6 +1209,11 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
       }
     }
 
+    const beforePartnerWindow =
+      milestoneKey === 'cargo_operations'
+        ? await resolvePartnerCargoOpsWindow(pool, operationId)
+        : null;
+
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -1263,6 +1286,10 @@ router.put('/operations/:operationId/operational-activities/:entryId', async (re
       await client.query('COMMIT');
       if (milestoneKey === 'cargo_operations') {
         await refreshOperationalProgressAfterCargoSave(pool, operationId);
+        const afterPartnerWindow = await resolvePartnerCargoOpsWindow(pool, operationId);
+        if (partnerCargoOpsWindowScheduleChanged(beforePartnerWindow, afterPartnerWindow)) {
+          triggerPartnerScheduleWebhookForOperation(operationId).catch(() => {});
+        }
       }
       const row = up.rows[0];
       if (row.cargo_handling_method_id) {
@@ -1356,6 +1383,9 @@ router.delete('/operations/:operationId/operational-activities/:entryId', async 
     [entryId, operationId]
   );
   if (r.rows.length === 0) return res.status(404).json({ error: 'Entry not found' });
+  if (r.rows[0].entry_type === 'activity' && r.rows[0].milestone_key === 'cargo_operations') {
+    triggerPartnerScheduleWebhookForOperation(operationId).catch(() => {});
+  }
   writeActivityLog({
     pageKey: 'loading',
     action: 'delete',
@@ -1719,6 +1749,7 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
                     'atgMassComputedAt', l.atg_mass_computed_at,
                     'commodityShortName', sc.short_name,
                     'commodityName', sc.name,
+                    'commodityGroup', sc.commodity_group,
                     'tanks', COALESCE(lt.tanks_json, '[]'::jsonb)
                   )
                   ORDER BY l.line_order ASC, l.id ASC
@@ -1841,6 +1872,7 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
           tankIds: lineTanks.map((t) => t.id),
           commodityShortName: l.commodityShortName ? String(l.commodityShortName).trim() : null,
           commodityName: l.commodityName ? String(l.commodityName).trim() : null,
+          commodityGroup: l.commodityGroup ? String(l.commodityGroup).trim() : null,
         };
       });
       const unionFromLines = unionTanksFromLines(cargoLoadLines);

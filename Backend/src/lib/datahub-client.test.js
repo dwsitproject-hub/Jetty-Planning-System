@@ -12,6 +12,7 @@ import {
   clearDataHubTokenCache,
   fetchAllVessels,
   fetchAppToken,
+  fetchHubRecordByCode,
   fetchVesselCatalog,
   looksLikeHtml,
   postInboundVessel,
@@ -368,6 +369,60 @@ describe('datahub-client', () => {
     await putInboundVessel(CFG, 'VSL-0001', { Vessel_Name: 'MT A', Vessel_Type: 'tanker' }, fetchImpl);
     assert.equal(calls[1].method, 'PUT');
     assert.equal(JSON.parse(calls[1].body).code, 'VSL-0001');
+  });
+
+  it('looks up one vessel by hub code', async () => {
+    const { fetchImpl, calls } = stubFetch([
+      TOKEN_OK,
+      { body: hubRecord('MT A', 'VSL-0001') },
+    ]);
+    const row = await fetchHubRecordByCode(CFG, 'vessel', 'VSL-0001', fetchImpl);
+    assert.equal(calls[1].url, 'https://hub.example.com/v1/lookup/vessel/VSL-0001');
+    assert.equal(row.values.vessel_name, 'MT A');
+    assert.equal(row.hubCode, 'VSL-0001');
+  });
+
+  it('wraps a bare golden record from lookup', async () => {
+    const { fetchImpl } = stubFetch([
+      TOKEN_OK,
+      { body: { code: 'VSL-0009', Vessel_Name: 'BARE', Vessel_Type: 'barge' } },
+    ]);
+    const row = await fetchHubRecordByCode(CFG, 'vessel', 'VSL-0009', fetchImpl);
+    assert.equal(row.values.vessel_name, 'BARE');
+    assert.equal(row.hubCode, 'VSL-0009');
+  });
+
+  it('falls back from the company slug to organization on 404', async () => {
+    const { fetchImpl, calls } = stubFetch([
+      TOKEN_OK,
+      { status: 404, body: { error: 'data not found' } },
+      {
+        body: {
+          id: 'abc',
+          version: 1,
+          data: { code: 'ORG-0001', name: 'Acme', is_active: true },
+        },
+      },
+    ]);
+    const row = await fetchHubRecordByCode(CFG, 'organization', 'ORG-0001', fetchImpl);
+    assert.equal(calls[1].url, 'https://hub.example.com/v1/lookup/company/ORG-0001');
+    assert.equal(calls[2].url, 'https://hub.example.com/v1/lookup/organization/ORG-0001');
+    assert.equal(row.values.name, 'Acme');
+  });
+
+  it('reports 404 when the hub code is missing', async () => {
+    const { fetchImpl } = stubFetch([
+      TOKEN_OK,
+      { status: 404, body: { error: 'data not found' } },
+    ]);
+    await assert.rejects(
+      () => fetchHubRecordByCode(CFG, 'vessel', 'VSL-404', fetchImpl),
+      (e) => {
+        assert.equal(e.status, 404);
+        assert.match(e.message, /VSL-404/);
+        return true;
+      }
+    );
   });
 
   it('flags an HTML login redirect served with a 200', async () => {

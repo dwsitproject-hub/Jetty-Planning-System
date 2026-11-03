@@ -1,4 +1,5 @@
 import { Routes, Route, Outlet, useLocation, Navigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import Layout from './components/Layout'
 import { LoadingProvider } from './context/LoadingContext'
 import { ClearanceProvider } from './context/ClearanceContext'
@@ -27,6 +28,8 @@ import AtBerthExecutions from './pages/AtBerthExecutions'
 import OperatorMobileShell from './components/operator/OperatorMobileShell'
 import OperatorAtBerthQueue from './pages/operator/OperatorAtBerthQueue'
 import OperatorExecutionPage from './pages/operator/OperatorExecutionPage'
+import QcSamplingQueue from './pages/qc/QcSamplingQueue'
+import QcSamplingEntry from './pages/qc/QcSamplingEntry'
 import Quality from './pages/Quality'
 import Verification from './pages/Verification'
 import Reporting from './pages/Reporting'
@@ -39,6 +42,7 @@ import MasterJetty from './pages/MasterJetty'
 import MasterJettyLayout from './pages/MasterJettyLayout'
 import MasterTanks from './pages/MasterTanks'
 import MasterVessel from './pages/MasterVessel'
+import MasterCompany from './pages/MasterCompany'
 import TankFarm from './pages/TankFarm'
 import MasterSiLookup from './pages/MasterSiLookup'
 import MasterFreightTerms from './pages/MasterFreightTerms'
@@ -55,13 +59,25 @@ import JettyLive from './pages/JettyLive'
 import DevOcrTest from './pages/DevOcrTest'
 import { isEmbedMode, isPipelineEmbedPath } from './utils/embedMode'
 import HubSdkBridge from './components/HubSdkBridge'
+import ErrorBoundary from './components/ErrorBoundary'
+
+function RoutedOutlet() {
+  const { pathname } = useLocation()
+  return (
+    <ErrorBoundary key={pathname}>
+      <Outlet />
+    </ErrorBoundary>
+  )
+}
 
 function AppShell() {
   const location = useLocation()
   const { me, loading: authLoading } = useAuth()
   const isSiView = /^\/shipping-instruction\/view\/[^/]+$/.test(location.pathname)
   const isVizPopout = /^\/allocation\/visualization\/[^/]+$/.test(location.pathname)
+  const { t: tQc } = useTranslation('qc')
   const isOperator = location.pathname.startsWith('/operator')
+  const isQc = location.pathname.startsWith('/qc')
   const isEmbed = isEmbedMode(location.search)
   const isChromelessEmbed =
     isEmbed &&
@@ -76,18 +92,18 @@ function AppShell() {
   }
 
   if (isChromelessEmbed) {
-    return <Outlet />
+    return <RoutedOutlet />
   }
-  if (isOperator) {
+  if (isOperator || isQc) {
     return (
-      <OperatorMobileShell>
-        <Outlet />
+      <OperatorMobileShell brand={isQc ? tQc('shell.brand') : undefined}>
+        <RoutedOutlet />
       </OperatorMobileShell>
     )
   }
   return (
     <Layout>
-      <Outlet />
+      <RoutedOutlet />
     </Layout>
   )
 }
@@ -159,6 +175,9 @@ function App() {
                   <Route path="/at-berth" element={<AtBerthExecutions />} />
                   <Route path="/operator/at-berth" element={<OperatorAtBerthQueue />} />
                   <Route path="/operator/execution/:operationId" element={<OperatorExecutionPage />} />
+                  <Route path="/qc" element={<Navigate to="/qc/sampling" replace />} />
+                  <Route path="/qc/sampling" element={<QcSamplingQueue />} />
+                  <Route path="/qc/sampling/:operationId" element={<QcSamplingEntry />} />
                   <Route path="/loading/operation/:operationId" element={<LoadingOperation />} />
                   <Route path="/loading" element={<Loading />} />
                   <Route path="/loading/:vesselId" element={<Loading />} />
@@ -179,6 +198,7 @@ function App() {
                   <Route path="/master/jetty-layout" element={<MasterJettyLayout />} />
                   <Route path="/master/tanks" element={<MasterTanks />} />
                   <Route path="/master/vessel" element={<MasterVessel />} />
+                  <Route path="/master/company" element={<MasterCompany />} />
                   <Route path="/tank-farm" element={<TankFarm />} />
                   <Route
                     path="/master/si-term"

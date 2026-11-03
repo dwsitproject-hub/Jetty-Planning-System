@@ -1,0 +1,137 @@
+{
+  "shell": {
+    "brand": "QC Sampling"
+  },
+  "status": {
+    "not_started": "Not started",
+    "draft": "Draft",
+    "done": "Done"
+  },
+  "queue": {
+    "title": "Vessels to sample",
+    "sub": "Berthed vessels. Pick a shipping instruction to record sampling results.",
+    "searchPlaceholder": "Search vessel, jetty or SI",
+    "searchLabel": "Search vessels",
+    "filterNeeds": "Needs sampling",
+    "filterDone": "Done",
+    "filterAll": "All",
+    "sortBy": "Sort by",
+    "sortTb": "Berthed first",
+    "sortVesselName": "Vessel name",
+    "sortJetty": "Jetty",
+    "refresh": "Refresh",
+    "loading": "Loading vessels…",
+    "loadingPermissions": "Loading permissions…",
+    "noAccess": "You do not have access to QC Sampling.",
+    "noVessels": "No berthed vessels right now.",
+    "noMatches": "No vessels match this filter.",
+    "errorLoad": "Failed to load the sampling queue",
+    "retry": "Try again",
+    "chooseSi": "Choose SI",
+    "hideSi": "Hide shipping instructions",
+    "open": "OPEN ›",
+    "tbPrefix": "TB",
+    "jettyPrefix": "Jetty",
+    "sampledOf": "{{done}} of {{total}} sampled",
+    "samplesLine": "{{count}} palka",
+    "avgFfa": "FFA {{value}}",
+    "avgMoisture": "Moist {{value}}",
+    "updatedBy": "Updated {{when}} by {{who}}",
+    "updatedAt": "Updated {{when}}"
+  },
+  "entry": {
+    "back": "Back to vessels",
+    "loading": "Loading sampling…",
+    "notFound": "Operation not found or not berthed.",
+    "loadFailed": "Failed to load sampling data",
+    "noAccess": "You do not have access to QC Sampling.",
+    "restoredDraft": "Restored unsaved changes from this device.",
+    "discardDraft": "Discard",
+    "sectionAdd": "Add palka sample",
+    "sectionRecorded": "Recorded samples ({{count}})",
+    "sectionReport": "Report summary",
+    "sectionTime": "Sampling time",
+    "sectionDocuments": "Report documents",
+    "noRecords": "No samples recorded yet.",
+    "remark": "Remark",
+    "startTime": "Start time",
+    "endTime": "End time"
+  },
+  "summary": {
+    "count": "Samples",
+    "avgFfa": "Avg FFA",
+    "avgMoisture": "Avg Moisture",
+    "none": "—"
+  },
+  "quickAdd": {
+    "noPalka": "No. Palka",
+    "ffa": "FFA (%)",
+    "moisture": "Moisture (%)",
+    "placeholderPalka": "e.g. 1P",
+    "placeholderFfa": "e.g. 4.91",
+    "placeholderMoisture": "e.g. 0.25",
+    "add": "Add and next",
+    "duplicate": "Palka {{palka}} is already recorded. You can still add it.",
+    "error": {
+      "palkaRequired": "Enter the palka number.",
+      "metricRequired": "Enter FFA or Moisture.",
+      "invalid": "Enter a number.",
+      "range": "Must be between 0 and 100."
+    }
+  },
+  "sample": {
+    "edit": "Edit sample",
+    "save": "Save changes",
+    "cancel": "Cancel",
+    "delete": "Delete sample",
+    "confirmDelete": "Delete palka {{palka}}?",
+    "palka": "Palka {{palka}}",
+    "ffa": "FFA {{value}}",
+    "moisture": "Moisture {{value}}"
+  },
+  "report": {
+    "ffaAverage": "FFA average",
+    "moistureAverage": "Moisture average",
+    "dobi": "DOBI",
+    "iodineValue": "Iodine value (IV)",
+    "useComputed": "Use computed averages",
+    "computedHint": "Fills FFA and Moisture averages from the samples above.",
+    "error": {
+      "invalid": "Enter a number.",
+      "range": "Value is above the allowed maximum."
+    }
+  },
+  "documents": {
+    "takePhoto": "Take photo",
+    "chooseFile": "Choose file",
+    "hint": "Photo, PDF or Excel of the quality report.",
+    "filesPending": "{{count}} file(s) will upload on save",
+    "extract": "Extract data",
+    "extracting": "Reading…",
+    "open": "Open",
+    "remove": "Remove",
+    "confirmRemove": "Remove this document from the operation?",
+    "empty": "No documents attached.",
+    "extractError": "Could not extract data from this document.",
+    "removeError": "Could not remove the document."
+  },
+  "conflict": {
+    "message": "Someone else updated this sampling record since you opened it. Reload to see their changes, or overwrite with yours.",
+    "reload": "Reload latest",
+    "overwrite": "Overwrite with mine"
+  },
+  "save": {
+    "recordError": "Sample not saved: {{message}}",
+    "draft": "Save draft",
+    "final": "Save final",
+    "saving": "Saving…",
+    "savedAt": "Saved {{time}}",
+    "localAt": "Not saved yet · kept on this device {{time}}",
+    "unsaved": "Unsaved changes",
+    "success": "Sampling saved.",
+    "successDraft": "Draft saved.",
+    "error": "Failed to save sampling.",
+    "fixErrors": "Fix the highlighted fields before saving.",
+    "pendingSample": "Finish or clear the sample you are typing before saving."
+  }
+}

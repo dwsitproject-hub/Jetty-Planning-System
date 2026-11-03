@@ -23,6 +23,9 @@ export const MAX_LOGIN_USERNAME_CHARS = 50
 export const MAX_LOGIN_IDENTIFIER_CHARS = 254
 export const MAX_LOGIN_PASSWORD_CHARS = 50
 
+/** Optional JPS-only rollup label on Master Commodity */
+export const MAX_COMMODITY_GROUP_CHARS = 100
+
 export const MAX_MASTER_JETTY_NAME_CHARS = 100
 export const MAX_MASTER_DESCRIPTION_CHARS = 100
 export const MAX_RTSP_LINK_CHARS = 512

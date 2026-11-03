@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   MAX_SI_BL_INDICATED_CHARS,
@@ -13,8 +13,10 @@ import {
   MAX_SI_VESSEL_NAME_CHARS,
   MAX_SI_VOYAGE_CHARS,
 } from '../constants/inputLimits'
-import { emptyBreakdownRow, nextDocId, planEtaYmd } from '../utils/siPlanLinkedDraft'
-import { commodityObjectTitle } from '../utils/commodityShortTitle.js'
+import { emptyBreakdownRow, formatCompanyLabel, nextDocId, planEtaYmd } from '../utils/siPlanLinkedDraft'
+import { isInternalSiReference } from '../utils/internalSiReference.js'
+import { commodityPickerOptions } from '../utils/commodityShortTitle.js'
+import SearchableSingleSelect from './SearchableSingleSelect.jsx'
 import { filterJettiesForPort, jettySelectLabel } from '../utils/portScopedLookups'
 import {
   applyCommodityDefaultMetric,
@@ -38,7 +40,6 @@ const FREIGHT_TERM_OPTIONS = [
  *   linkedPlan: { id?: number, vesselName?: string, purposeId?: number, purposeCode?: string | null, eta?: string | null, voyageNo?: string | null, jettyId?: number | null, planReference?: string | null },
  *   form: object,
  *   setForm: import('react').Dispatch<import('react').SetStateAction<object>>,
- *   npwpMaster: string | null,
  *   idPrefix: string,
  *   showPlanLinkedNote?: boolean,
  *   omitVesselAndJetty?: boolean,
@@ -47,6 +48,7 @@ const FREIGHT_TERM_OPTIONS = [
  *   onDocumentUpload?: (e: import('react').ChangeEvent<HTMLInputElement>) => void,
  *   documentExtractBusy?: boolean,
  *   extractResultPanel?: import('react').ReactNode,
+ *   companyOptions?: { mode?: 'hidden'|'locked'|'required', companies?: Array<{ id: number, label?: string, name?: string, shortName?: string }> } | null,
  * }} props
  */
 export default function ShippingInstructionSiLinkedFields({
@@ -54,8 +56,8 @@ export default function ShippingInstructionSiLinkedFields({
   linkedPlan,
   form,
   setForm,
-  npwpMaster,
   idPrefix,
+  companyOptions = null,
   showPlanLinkedNote = true,
   omitVesselAndJetty = false,
   omitDocumentUpload = false,
@@ -77,6 +79,16 @@ export default function ShippingInstructionSiLinkedFields({
   )
   const purposeCode = selectedPurpose?.code || null
   const purposeChosen = Boolean(effectivePurposeId)
+  const companyMode = companyOptions == null ? 'loading' : companyOptions.mode || 'hidden'
+  const companyChoices = companyOptions?.companies || []
+
+  useEffect(() => {
+    if (companyOptions?.mode !== 'locked') return
+    const id = companyOptions.companies?.[0]?.id
+    if (id == null) return
+    const next = String(id)
+    setForm((current) => (String(current.companyId || '') === next ? current : { ...current, companyId: next }))
+  }, [companyOptions, setForm])
   const isLoadingPurpose = purposeCode === 'Loading'
   const isUnloadingPurpose = purposeCode === 'Unloading'
   const formEnabled = !!lookups && purposeChosen
@@ -145,6 +157,44 @@ export default function ShippingInstructionSiLinkedFields({
       )}
       {!lookups && <p className="text-steel">{t('loadingLookups')}</p>}
       <fieldset disabled={!formEnabled} style={{ border: 0, padding: 0, margin: 0 }}>
+        {companyMode === 'loading' && (
+          <p className="text-steel">{t('formCompany')}…</p>
+        )}
+        {companyMode !== 'hidden' && companyMode !== 'loading' && (
+          <div className="shipping-instruction-form__section">
+            <div className="shipping-instruction-form__grid">
+              <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+                <label htmlFor={`${idPrefix}company`}>
+                  {companyMode === 'required' ? t('formCompanyRequired') : t('formCompany')}
+                </label>
+                {companyMode === 'locked' ? (
+                  <>
+                    <input
+                      id={`${idPrefix}company`}
+                      value={formatCompanyLabel(companyChoices[0])}
+                      readOnly
+                    />
+                    <p className="text-steel" style={{ margin: '0.35rem 0 0' }}>{t('formCompanyLockedHint')}</p>
+                  </>
+                ) : (
+                  <select
+                    id={`${idPrefix}company`}
+                    value={form.companyId || ''}
+                    onChange={(e) => updateForm({ companyId: e.target.value })}
+                    required
+                  >
+                    <option value="">{t('formCompanySelect')}</option>
+                    {companyChoices.map((company) => (
+                      <option key={company.id} value={company.id}>
+                        {formatCompanyLabel(company)}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         <div className="shipping-instruction-form__section">
           <h3 className="shipping-instruction-form__section-title">{t('formVesselTripSection')}</h3>
           <div className="shipping-instruction-form__grid shipping-instruction-form__grid--vessel-trip">
@@ -170,12 +220,38 @@ export default function ShippingInstructionSiLinkedFields({
                 value={form.referenceNumber}
                 onChange={(e) => updateForm({ referenceNumber: e.target.value })}
                 maxLength={MAX_SI_REFERENCE_CHARS}
-                disabled={!lookups}
+                disabled={!lookups || (form.noExternalSi === true && !isInternalSiReference(form.referenceNumber))}
+                readOnly={form.noExternalSi === true && isInternalSiReference(form.referenceNumber)}
                 aria-describedby={`${idPrefix}siRefHint`}
               />
-              <span id={`${idPrefix}siRefHint`} className="input-hint text-steel">
-                {t('formSiNoBerthingHint')}
-              </span>
+              <div className="shipment-plan-form__no-external-si">
+                <label htmlFor={`${idPrefix}noExternalSi`}>
+                  <input
+                    id={`${idPrefix}noExternalSi`}
+                    type="checkbox"
+                    checked={form.noExternalSi === true}
+                    disabled={!lookups}
+                    onChange={(e) => {
+                      const checked = e.target.checked
+                      if (checked) {
+                        const keep = isInternalSiReference(form.referenceNumber) ? form.referenceNumber : ''
+                        updateForm({ noExternalSi: true, referenceNumber: keep })
+                      } else {
+                        const nextRef = isInternalSiReference(form.referenceNumber) ? '' : form.referenceNumber
+                        updateForm({ noExternalSi: false, referenceNumber: nextRef })
+                      }
+                    }}
+                  />
+                  <span>{t('formNoExternalSi')}</span>
+                </label>
+                <span id={`${idPrefix}siRefHint`} className="shipment-plan-form__no-external-si-hint">
+                  {form.noExternalSi === true && !isInternalSiReference(form.referenceNumber)
+                    ? t('formNoExternalSiHint')
+                    : isInternalSiReference(form.referenceNumber)
+                      ? t('formInternalSiMark')
+                      : t('formSiNoBerthingHint')}
+                </span>
+              </div>
             </div>
             <div className="input-group shipping-instruction-form__docdate">
               <label htmlFor={`${idPrefix}documentDate`}>{t('formDocumentDateRequired')}</label>
@@ -295,12 +371,6 @@ export default function ShippingInstructionSiLinkedFields({
                 </select>
               </div>
             )}
-            {isLoadingPurpose && (
-              <div className="input-group">
-                <label htmlFor={`${idPrefix}npwp`}>NPWP</label>
-                <input id={`${idPrefix}npwp`} value={npwpMaster || '—'} readOnly disabled={!lookups} />
-              </div>
-            )}
           </div>
         </div>
 
@@ -322,6 +392,7 @@ export default function ShippingInstructionSiLinkedFields({
                   <th>{t('formBreakdownContractNo')}</th>
                   <th>{t('formBreakdownPoNo')}</th>
                   <th>{t('formBreakdownSoNo')}</th>
+                  <th>{t('formBreakdownStoNo')}</th>
                   <th>{t('formBreakdownRemarks')}</th>
                   <th />
                 </tr>
@@ -345,20 +416,14 @@ export default function ShippingInstructionSiLinkedFields({
                       </select>
                     </td>
                     <td>
-                      <select
-                        value={row.commodityId}
-                        onChange={(e) => updateBreakdownCommodity(i, e.target.value)}
-                        required
-                        className="shipping-instruction-inline-input"
+                      <SearchableSingleSelect
+                        value={row.commodityId != null ? String(row.commodityId) : ''}
+                        onChange={(v) => updateBreakdownCommodity(i, v)}
+                        options={commodityPickerOptions(lookups?.commodities, row)}
+                        placeholder="—"
+                        searchPlaceholder="Search material code or name"
                         disabled={!lookups}
-                      >
-                        <option value="">—</option>
-                        {(lookups?.commodities || []).map((c) => (
-                          <option key={c.id} value={c.id} title={commodityObjectTitle(c)}>
-                            {c.shortName || c.name}
-                          </option>
-                        ))}
-                      </select>
+                      />
                     </td>
                     <td>
                       <input
@@ -414,6 +479,14 @@ export default function ShippingInstructionSiLinkedFields({
                       <input
                         value={row.soNo}
                         onChange={(e) => updateBreakdownRow(i, 'soNo', e.target.value)}
+                        maxLength={MAX_SI_BREAKDOWN_SHORT_CHARS}
+                        className="shipping-instruction-inline-input"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={row.stoNo}
+                        onChange={(e) => updateBreakdownRow(i, 'stoNo', e.target.value)}
                         maxLength={MAX_SI_BREAKDOWN_SHORT_CHARS}
                         className="shipping-instruction-inline-input"
                       />

@@ -55,6 +55,14 @@ describe('lineMatchesProductKey', () => {
       false
     );
   });
+
+  it('matches the commodity group instead of the detailed short name', () => {
+    const low = { commodityId: 1, commodityShortName: 'CPO-LOW', commodityGroup: 'CPO' };
+    const high = { commodityId: 2, commodityShortName: 'CPO-HIGH', commodityGroup: 'cpo' };
+    assert.equal(lineMatchesProductKey(low, 'CPO'), true);
+    assert.equal(lineMatchesProductKey(high, 'CPO'), true);
+    assert.equal(lineMatchesProductKey(low, 'CPO-LOW'), false);
+  });
 });
 
 describe('buildCargoRateResult', () => {
@@ -200,6 +208,44 @@ describe('computeCargoRateFromContext', () => {
     const r = await computeCargoRateFromContext(db, cpkoOnly);
     assert.equal(r.movedQty, 300);
     assert.notEqual(r.rateMtH, null);
+  });
+
+  it('rolls same-group grades together and keeps untagged lines on that single group', () => {
+    const ctx = {
+      siProductKeys: ['CPO'],
+      lines: [
+        {
+          id: 1,
+          qty: 100,
+          startedAt: '2026-08-04T08:00:00+07:00',
+          endedAt: '2026-08-04T10:00:00+07:00',
+          tankIds: [1],
+          commodityId: 1,
+          commodityShortName: 'CPO-LOW',
+          commodityGroup: 'CPO',
+        },
+        {
+          id: 2,
+          qty: 200,
+          startedAt: '2026-08-04T08:00:00+07:00',
+          endedAt: '2026-08-04T11:00:00+07:00',
+          tankIds: [2],
+          commodityId: 2,
+          commodityShortName: 'CPO-HIGH',
+          commodityGroup: 'CPO',
+        },
+        {
+          id: 3,
+          qty: 50,
+          startedAt: '2026-08-04T08:00:00+07:00',
+          endedAt: '2026-08-04T09:00:00+07:00',
+          tankIds: [3],
+          commodityId: null,
+        },
+      ],
+    };
+    const lines = linesForProductRate(ctx, 'CPO');
+    assert.deepEqual(lines.map((l) => l.id), [1, 2, 3]);
   });
 
   it('untagged line counts for single-product SI only', async () => {

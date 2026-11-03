@@ -219,7 +219,7 @@ Notes:
 - Assigned types currently grant **read, create, and update together**. If an app should only look up, do not allowlist types it must not create.
 - `identityKey` is **`code`** for every entity, including vessel. Vessel `displayNameKey` is `Vessel_Name`.
 - `code` is **assigned by DHM** as `{codePrefix}-NNNN` (organization `ORG-0001`, site `SITE-0001`, vessel `VSL-0001`, …). Omit it on create. `systemGenerated: true` on the catalog field.
-- `referenceSlug` and `enumValues` appear only when set (for example vessel `Vessel_Type`: `barge`, `tanker`, `SPOB`).
+- `referenceSlug` and `enumValues` appear only when set (for example vessel `Vessel_Type`: `barge`, `tanker`, `SPOB`, `tugboat`, `wooden boat`).
 - Cache the catalog at startup; it changes when the Integrator edits the allowlist, not on every record write.
 
 Call only slugs returned by this API. Unique lookup key for every entity, including vessel, is **`code`** (DHM-assigned). Snapshot of the coded hub (all types; your app may see a subset):
@@ -624,7 +624,7 @@ Prefer **`GET /v1/catalog`** (or `GET /v1/catalog/{slug}`) over this appendix wh
 | `Vessel_Gross_Tonnage` | NUMBER | | |
 | `Vessel_Draft` | NUMBER | | |
 | `Vessel_Length_Overral` | STRING | | |
-| `Vessel_Type` | ENUM `barge` \| `tanker` \| `SPOB` | | |
+| `Vessel_Type` | ENUM `barge` \| `tanker` \| `SPOB` \| `tugboat` \| `wooden boat` | | |
 | `Heater` | BOOLEAN | | |
 | `Type_lambung` | ENUM `Double hull Double Bottom` \| `Single hull Double Bottom` \| `Single hull Single Bottom` | | |
 | `Type_Charter` | ENUM `Voyage Charter` \| `Time Charter` | | |

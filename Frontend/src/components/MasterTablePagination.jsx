@@ -8,8 +8,12 @@ export default function MasterTablePagination({
   totalPages,
   onPageChange,
   ariaLabel = 'Table pages',
+  pageSize,
+  pageSizeOptions,
+  onPageSizeChange,
 }) {
   if (!range?.total) return null
+  const showPageSize = Array.isArray(pageSizeOptions) && pageSizeOptions.length > 0 && onPageSizeChange
 
   return (
     <div className="clearance-pagination" role="navigation" aria-label={ariaLabel}>
@@ -17,6 +21,22 @@ export default function MasterTablePagination({
         Showing {range.from}–{range.to} of {range.total}
       </p>
       <div className="clearance-pagination__controls">
+        {showPageSize ? (
+          <label className="clearance-pagination__page-size">
+            Rows
+            <select
+              value={pageSize}
+              onChange={(e) => onPageSizeChange(Number(e.target.value))}
+              aria-label="Rows per page"
+            >
+              {pageSizeOptions.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <button
           type="button"
           className="btn btn--secondary btn--small"

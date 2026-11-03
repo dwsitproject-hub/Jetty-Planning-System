@@ -1,21 +1,24 @@
 /**
  * Diff DataHub commodity records against si_commodities.
+ * JPS-only columns (short_name, commodity_type, is_active, commodity_group) are omitted
+ * so sync review and apply do not overwrite them.
  */
 export const COMMODITY_COMPARED_COLUMNS = [
   'name',
-  'short_name',
-  'commodity_type',
+  'hub_type',
   'kl_to_mt_factor',
   'default_metric_id',
   'hs_code',
+  'material_code',
 ];
 
-function nameKey(name) {
-  return String(name || '').trim().toLowerCase();
+function normalizeHubCode(hubCode) {
+  const s = String(hubCode ?? '').trim();
+  return s || null;
 }
 
-function shortNameKey(shortName) {
-  return String(shortName || '').trim().toUpperCase();
+function isLocalOnlyRow(row) {
+  return !normalizeHubCode(row?.hub_code);
 }
 
 function normalizeForCompare(column, value) {
@@ -80,16 +83,6 @@ export function expandCommodityValues(hubValues, metricIdByCode, localRow = null
     ? metricIdByCode[metricCode] ?? metricIdByCode.MT ?? null
     : null;
 
-  const hubShort =
-    hubValues?.short_name != null && String(hubValues.short_name).trim()
-      ? String(hubValues.short_name).trim().toUpperCase()
-      : null;
-  const shortName = hubShort ?? deriveShortNameFromCommodityName(hubValues?.name);
-
-  const hubType = hubValues?.commodity_type;
-  const commodityType =
-    hubType === 'Solid' || hubType === 'Liquid' ? hubType : commodityTypeFromUom(uom);
-
   const defaultMetricId =
     defaultMetricIdFromHub != null
       ? defaultMetricIdFromHub
@@ -99,13 +92,84 @@ export function expandCommodityValues(hubValues, metricIdByCode, localRow = null
 
   return {
     name: hubValues?.name ?? null,
-    short_name: shortName,
-    commodity_type: commodityType,
+    hub_type: hubValues?.hub_type ?? null,
     kl_to_mt_factor:
       localRow?.kl_to_mt_factor != null ? Number(localRow.kl_to_mt_factor) : null,
     default_metric_id: defaultMetricId,
     hs_code: hubValues?.hs_code ?? null,
+    material_code: hubValues?.material_code ?? null,
   };
+}
+
+function commodityNameKey(name) {
+  const s = String(name ?? '').trim().toLowerCase();
+  return s || null;
+}
+
+/**
+ * Flag hub sync rows whose long name matches another local row or another row in this batch.
+ * Does not block apply — warnings only (user may still approve duplicates).
+ */
+export function annotateCommodityNameConflicts(items, localRows) {
+  const localsByName = new Map();
+  for (const row of localRows ?? []) {
+    const key = commodityNameKey(row?.name);
+    if (!key) continue;
+    const id = row.id != null ? Number(row.id) : null;
+    if (id == null) continue;
+    if (!localsByName.has(key)) localsByName.set(key, []);
+    localsByName.get(key).push({
+      id,
+      hubCode: row.hub_code ?? null,
+      name: String(row.name ?? '').trim(),
+    });
+  }
+
+  const hubItems = (items ?? []).filter((i) => !i.localOnly);
+  const batchByName = new Map();
+  for (const item of hubItems) {
+    const key = commodityNameKey(item.values?.name ?? item.label);
+    if (!key) continue;
+    if (!batchByName.has(key)) batchByName.set(key, []);
+    batchByName.get(key).push(item);
+  }
+
+  let nameConflictCount = 0;
+  for (const item of hubItems) {
+    const key = commodityNameKey(item.values?.name ?? item.label);
+    if (!key) continue;
+    const selfId = item.localId != null ? Number(item.localId) : null;
+    const selfHub = normalizeHubCode(item.hubCode);
+    const matches = [];
+
+    for (const local of localsByName.get(key) ?? []) {
+      if (selfId != null && local.id === selfId) continue;
+      matches.push({
+        kind: 'local',
+        id: local.id,
+        hubCode: local.hubCode,
+        name: local.name,
+      });
+    }
+
+    for (const other of batchByName.get(key) ?? []) {
+      if (other === item) continue;
+      const otherHub = normalizeHubCode(other.hubCode);
+      if (selfHub && otherHub && selfHub === otherHub) continue;
+      matches.push({
+        kind: 'batch',
+        id: other.localId != null ? Number(other.localId) : null,
+        hubCode: other.hubCode ?? null,
+        name: String(other.values?.name ?? other.label ?? '').trim(),
+      });
+    }
+
+    if (matches.length === 0) continue;
+    nameConflictCount += 1;
+    item.nameConflict = { matches };
+  }
+
+  return nameConflictCount;
 }
 
 export function diffCommodityFields(localRow, hubValues) {
@@ -125,15 +189,13 @@ export function diffCommodityFields(localRow, hubValues) {
  */
 export function buildCommoditySyncPlan(hubRecords, localRows, metricIdByCode) {
   const byHubCode = new Map();
-  const byShortName = new Map();
-  const byName = new Map();
   for (const row of localRows ?? []) {
-    if (row?.hub_code) byHubCode.set(String(row.hub_code), row);
-    if (!row?.hub_code && row?.short_name) byShortName.set(shortNameKey(row.short_name), row);
-    if (!row?.hub_code && row?.name) byName.set(nameKey(row.name), row);
+    const code = normalizeHubCode(row?.hub_code);
+    if (code) byHubCode.set(code, row);
   }
 
   const items = [];
+  const matchedLocalIds = new Set();
   let skippedDeleted = 0;
 
   for (const hub of hubRecords ?? []) {
@@ -143,14 +205,10 @@ export function buildCommoditySyncPlan(hubRecords, localRows, metricIdByCode) {
     }
     if (!hub.values?.name) continue;
 
-    const preValues = expandCommodityValues(hub.values, metricIdByCode, null);
-    const local =
-      (hub.hubCode ? byHubCode.get(String(hub.hubCode)) : null) ??
-      (preValues.short_name ? byShortName.get(preValues.short_name) : null) ??
-      byName.get(nameKey(hub.values.name)) ??
-      null;
-
+    const hubCode = normalizeHubCode(hub.hubCode);
+    const local = hubCode ? byHubCode.get(hubCode) ?? null : null;
     const values = expandCommodityValues(hub.values, metricIdByCode, local);
+    if (local?.id != null) matchedLocalIds.add(Number(local.id));
 
     if (!local) {
       items.push({
@@ -168,8 +226,7 @@ export function buildCommoditySyncPlan(hubRecords, localRows, metricIdByCode) {
     }
 
     const fieldDiff = diffCommodityFields(local, values);
-    const linkChanged = Boolean(hub.hubCode) && String(local.hub_code ?? '') !== String(hub.hubCode);
-    const changed = Object.keys(fieldDiff).length > 0 || linkChanged;
+    const changed = Object.keys(fieldDiff).length > 0;
 
     items.push({
       localId: local.id != null ? Number(local.id) : null,
@@ -184,12 +241,37 @@ export function buildCommoditySyncPlan(hubRecords, localRows, metricIdByCode) {
     });
   }
 
+  for (const row of localRows ?? []) {
+    if (!isLocalOnlyRow(row)) continue;
+    const id = row.id != null ? Number(row.id) : null;
+    if (id == null || matchedLocalIds.has(id)) continue;
+    const label = String(row.name ?? row.short_name ?? '').trim() || `Commodity #${id}`;
+    items.push({
+      localId: id,
+      hubCode: null,
+      hubRecordId: null,
+      hubVersion: null,
+      hubUpdatedAt: null,
+      label,
+      diffKind: 'unchanged',
+      values: {},
+      fieldDiff: {},
+      localOnly: true,
+    });
+  }
+
+  const hubItems = items.filter((i) => !i.localOnly);
+  const localUnchangedItems = items.filter((i) => i.localOnly);
+  const nameConflictCount = annotateCommodityNameConflicts(items, localRows);
+
   const summary = {
     hubRecordCount: (hubRecords ?? []).length,
-    newCount: items.filter((i) => i.diffKind === 'new').length,
-    changedCount: items.filter((i) => i.diffKind === 'changed').length,
-    unchangedCount: items.filter((i) => i.diffKind === 'unchanged').length,
+    newCount: hubItems.filter((i) => i.diffKind === 'new').length,
+    changedCount: hubItems.filter((i) => i.diffKind === 'changed').length,
+    unchangedCount: hubItems.filter((i) => i.diffKind === 'unchanged').length,
+    localUnchangedCount: localUnchangedItems.length,
     skippedDeleted,
+    nameConflictCount,
   };
 
   return { items, summary };
@@ -206,6 +288,8 @@ export function toStagedItemRow(item) {
     hubRecordId: item.hubRecordId,
     hubVersion: item.hubVersion,
     hubUpdatedAt: item.hubUpdatedAt,
+    localOnly: Boolean(item.localOnly),
+    nameConflict: item.nameConflict ?? null,
   };
 }
 

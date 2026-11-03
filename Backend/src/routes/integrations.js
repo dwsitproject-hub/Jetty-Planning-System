@@ -23,7 +23,7 @@ import {
 } from '../lib/integration-master-data.js';
 import {
   integrationVesselErrorField,
-  planSnapshotFromMasterRow,
+  planSnapshotFromMasterRowForPartner,
   resolveMasterVesselForIntegration,
   validateIntegrationVesselInput,
 } from '../lib/resolve-master-vessel.js';
@@ -35,6 +35,7 @@ import {
   sendIntegrationError,
   sendIntegrationSuccess,
 } from '../middleware/integration-auth.js';
+import { integrationRequestLog } from '../middleware/integration-request-log.js';
 import integrationMasterRoutes from './integration-master.js';
 import integrationWebhookRoutes from './integration-webhooks.js';
 import integrationCatalogRoutes from './integration-catalog.js';
@@ -45,8 +46,10 @@ import {
   listActivePortHubCodes,
   normalizeCargoShortName,
   resolveCargoCommodities,
+  resolveCompanyForIntegration,
   resolvePortForIntegration,
   validateIntegrationCargoLineIdentifiers,
+  validateIntegrationCompanyHubCode,
   validateIntegrationPortInput,
 } from '../lib/integration-hub-resolve.js';
 
@@ -55,6 +58,7 @@ const PAGE_KEY = 'shipment-plan';
 const VALID_PURPOSES = ['Loading', 'Unloading'];
 const VALID_UNITS = ['MT', 'KL'];
 
+router.use(integrationRequestLog);
 router.use(requireIntegrationKey);
 router.use(integrationRateLimit);
 router.use(integrationMasterRoutes);
@@ -71,6 +75,14 @@ function buildPlanReference(planId) {
 
 function asTrimmedString(v) {
   return typeof v === 'string' ? v.trim() : '';
+}
+
+function sendCompanyValidationError(res, result) {
+  const detail = { field: result.field || 'company_hub_code', issue: result.error };
+  if (Array.isArray(result.validCompanyHubCodes)) {
+    detail.valid_company_hub_codes = result.validCompanyHubCodes;
+  }
+  return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [detail]);
 }
 
 function parseIsoDateTime(v) {
@@ -121,9 +133,12 @@ function validateSubmission(body) {
     else if (eta && etd.getTime() <= eta.getTime()) push('etd', 'must be after eta');
   }
 
-  const agentName = asTrimmedString(b.agent_name);
-  if (!agentName) push('agent_name', 'required');
-  else if (agentName.length > 200) push('agent_name', 'max length 200');
+  let agentName = null;
+  if (b.agent_name != null && b.agent_name !== '') {
+    agentName = asTrimmedString(b.agent_name);
+    if (!agentName) push('agent_name', 'invalid');
+    else if (agentName.length > 200) push('agent_name', 'max length 200');
+  }
 
   const agentContact = asTrimmedString(b.agent_contact);
   if (agentContact.length > 200) push('agent_contact', 'max length 200');
@@ -133,6 +148,9 @@ function validateSubmission(body) {
 
   const requestedBy = asTrimmedString(b.requested_by);
   if (requestedBy.length > 200) push('requested_by', 'max length 200');
+
+  const companyInput = validateIntegrationCompanyHubCode(b.company_hub_code);
+  companyInput.errors.forEach((e) => push(e.field, e.issue));
 
   const cargoRaw = Array.isArray(b.cargo) ? b.cargo : null;
   const cargo = [];
@@ -166,6 +184,9 @@ function validateSubmission(body) {
       const soNo = asTrimmedString(l.so_no);
       if (soNo.length > 100) push(`cargo[${i}].so_no`, 'max length 100');
 
+      const stoNo = asTrimmedString(l.sto_no);
+      if (stoNo.length > 100) push(`cargo[${i}].sto_no`, 'max length 100');
+
       const shipperName = asTrimmedString(l.shipper_name);
       if (shipperName.length > 200) push(`cargo[${i}].shipper_name`, 'max length 200');
 
@@ -178,6 +199,7 @@ function validateSubmission(body) {
         contractNo: contractNo || null,
         poNo: poNo || null,
         soNo: soNo || null,
+        stoNo: stoNo || null,
         shipperName: shipperName || null,
       });
     });
@@ -215,6 +237,8 @@ function validateSubmission(body) {
       agentContact: agentContact || null,
       notes: notes || null,
       requestedBy: requestedBy || null,
+      companyHubCode: companyInput.companyHubCode,
+      companyOmitted: companyInput.omitted,
       tradeTerm,
       surveyorName,
       cargo,
@@ -271,17 +295,23 @@ function validatePatchBody(body) {
         if (l.po_no != null) poNo = asTrimmedString(l.po_no) || null;
         let soNo = undefined;
         if (l.so_no != null) soNo = asTrimmedString(l.so_no) || null;
+        let stoNo = undefined;
+        if (l.sto_no != null) stoNo = asTrimmedString(l.sto_no) || null;
         let shipperName = undefined;
         if (l.shipper_name != null) shipperName = asTrimmedString(l.shipper_name) || null;
 
         if (poNo && poNo.length > 100) push(`cargo[${i}].po_no`, 'max length 100');
         if (soNo && soNo.length > 100) push(`cargo[${i}].so_no`, 'max length 100');
+        if (stoNo && stoNo.length > 100) push(`cargo[${i}].sto_no`, 'max length 100');
         if (shipperName && shipperName.length > 200) push(`cargo[${i}].shipper_name`, 'max length 200');
 
-        cargo.push({ lineOrder, contractNo: contractNo || null, poNo, soNo, shipperName });
+        cargo.push({ lineOrder, contractNo: contractNo || null, poNo, soNo, stoNo, shipperName });
       });
     }
   }
+
+  const companyInput = validateIntegrationCompanyHubCode(b.company_hub_code);
+  companyInput.errors.forEach((e) => push(e.field, e.issue));
 
   const docUrls = parseOptionalPartnerDocumentUrls(b, push);
   const hasDocs =
@@ -289,12 +319,22 @@ function validatePatchBody(body) {
     docUrls.contractDocumentUrl !== undefined ||
     docUrls.blDocumentUrl !== undefined;
 
-  const hasHeader = tradeTerm !== undefined || surveyorName !== undefined || hasDocs;
+  const hasHeader = tradeTerm !== undefined || surveyorName !== undefined || hasDocs || !companyInput.omitted;
   if (!hasHeader && cargo.length === 0) {
     push('body', 'at least one field to update is required');
   }
 
-  return { errors, value: { tradeTerm, surveyorName, cargo, ...docUrls } };
+  return {
+    errors,
+    value: {
+      tradeTerm,
+      surveyorName,
+      cargo,
+      companyHubCode: companyInput.companyHubCode,
+      companyOmitted: companyInput.omitted,
+      ...docUrls,
+    },
+  };
 }
 
 const STATUS_LOOKUP_SQL = PARTNER_SUBMISSION_LOOKUP_SQL;
@@ -323,6 +363,13 @@ router.post('/shipping-instructions', async (req, res) => {
   }
   value.portId = Number(portRow.id);
   const resolvedPortHubCode = portRow.hub_code ?? null;
+
+  const resolvedCompany = await resolveCompanyForIntegration(pool, {
+    portId: value.portId,
+    companyHubCode: value.companyHubCode,
+    omitted: value.companyOmitted,
+  });
+  if (resolvedCompany.error) return sendCompanyValidationError(res, resolvedCompany);
 
   const dup = await pool.query(
     `${STATUS_LOOKUP_SQL} AND s.external_reference = $2`,
@@ -371,11 +418,20 @@ router.post('/shipping-instructions', async (req, res) => {
   }
   value.cargo = cargoResolved.cargo;
   const commodityByShortName = cargoResolved.commodityByShortName;
-  const commodityTypes = [
-    ...new Set(
-      value.cargo.map((c) => commodityByShortName.get(normalizeCargoShortName(c.cargoType)).commodity_type)
-    ),
-  ];
+  const commodityTypeSet = new Set();
+  for (const c of value.cargo) {
+    const commodityRow = commodityByShortName.get(normalizeCargoShortName(c.cargoType));
+    if (!commodityRow) {
+      return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
+        {
+          field: 'cargo',
+          issue: `could not resolve commodity for cargo line (${c.cargoType ?? 'unknown'})`,
+        },
+      ]);
+    }
+    commodityTypeSet.add(commodityRow.commodity_type);
+  }
+  const commodityTypes = [...commodityTypeSet];
   if (commodityTypes.length > 1) {
     return sendIntegrationError(res, 400, 'VALIDATION_ERROR', 'Payload validation failed', [
       { field: 'cargo', issue: 'all cargo lines must be the same commodity type (Solid or Liquid)' },
@@ -457,16 +513,18 @@ router.post('/shipping-instructions', async (req, res) => {
 
   // Agent: best-effort name match against master data; unmatched agents stay visible via plan remark.
   let agentId = null;
-  const ar = await pool.query(
-    `SELECT id FROM si_agents WHERE LOWER(name) = LOWER($1) AND deleted_at IS NULL ORDER BY id LIMIT 1`,
-    [value.agentName]
-  );
-  if (ar.rows.length > 0) agentId = Number(ar.rows[0].id);
+  if (value.agentName) {
+    const ar = await pool.query(
+      `SELECT id FROM si_agents WHERE LOWER(name) = LOWER($1) AND deleted_at IS NULL ORDER BY id LIMIT 1`,
+      [value.agentName]
+    );
+    if (ar.rows.length > 0) agentId = Number(ar.rows[0].id);
+  }
 
   const effectiveRequestedBy = value.requestedBy || key.partnerName;
   const remarkParts = [`Submitted via integration API by ${key.partnerName}`];
   if (effectiveRequestedBy) remarkParts.push(`Requested by: ${effectiveRequestedBy}`);
-  if (agentId == null) {
+  if (agentId == null && value.agentName) {
     remarkParts.push(`Agent: ${value.agentName}${value.agentContact ? ` (${value.agentContact})` : ''}`);
   } else if (value.agentContact) {
     remarkParts.push(`Agent contact: ${value.agentContact}`);
@@ -499,7 +557,7 @@ router.post('/shipping-instructions', async (req, res) => {
         { field, issue: masterRow.error },
       ]);
     }
-    const vesselSnap = planSnapshotFromMasterRow(masterRow);
+    const vesselSnap = planSnapshotFromMasterRowForPartner(masterRow);
     if (vesselSnap?.error) {
       await client.query('ROLLBACK');
       client.release();
@@ -512,18 +570,22 @@ router.post('/shipping-instructions', async (req, res) => {
 
     const planIns = await client.query(
       `INSERT INTO shipment_plans (
-         port_id, vessel_name, vessel_loa_m, vessel_gross_tonnage, vessel_draft,
+         port_id, master_vessel_id, vessel_name, vessel_loa_m, vessel_gross_tonnage, vessel_draft,
+         vessel_type, vessel_hull_type,
          eta, purpose_id, voyage_no, agent_id, remark,
          external_reference, requested_by,
          approval_status, submitted_at, created_at, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'Submitted',NOW(),NOW(),NOW())
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'Submitted',NOW(),NOW(),NOW())
        RETURNING id`,
       [
         value.portId,
+        vesselSnap.master_vessel_id,
         vesselSnap.vessel_name,
         vesselSnap.vessel_loa_m,
         vesselSnap.vessel_gross_tonnage,
         vesselSnap.vessel_draft,
+        vesselSnap.vessel_type,
+        vesselSnap.vessel_hull_type,
         value.eta,
         purposeId,
         value.voyageNo,
@@ -540,9 +602,9 @@ router.post('/shipping-instructions', async (req, res) => {
     const siIns = await client.query(
       `INSERT INTO shipping_instructions (
          reference_number, status, eta_from, eta_to, agent_id, note, shipment_plan_id,
-         trade_term_id, surveyor_id,
+         trade_term_id, surveyor_id, company_id,
          partner_si_document_url, partner_contract_document_url, partner_bl_document_url
-       ) VALUES ($1,'Submitted',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       ) VALUES ($1,'Submitted',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        RETURNING id, created_at`,
       [
         value.externalReference,
@@ -553,6 +615,7 @@ router.post('/shipping-instructions', async (req, res) => {
         planId,
         tradeTermId,
         surveyorId,
+        resolvedCompany.companyId,
         value.siDocumentUrl,
         value.contractDocumentUrl,
         value.blDocumentUrl,
@@ -565,9 +628,9 @@ router.post('/shipping-instructions', async (req, res) => {
       const commodity = commodityByShortName.get(normalizeCargoShortName(line.cargoType));
       await client.query(
         `INSERT INTO public.shipping_instruction_breakdown (
-           shipping_instruction_id, commodity_id, metric_id, qty, contract_no, po_no, so_no,
+           shipping_instruction_id, commodity_id, metric_id, qty, contract_no, po_no, so_no, sto_no,
            shipper_id, remarks, line_order
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
         [
           siId,
           Number(commodity.id),
@@ -576,6 +639,7 @@ router.post('/shipping-instructions', async (req, res) => {
           line.contractNo,
           line.poNo,
           line.soNo,
+          line.stoNo,
           shipperIdsByLine[lineOrder],
           line.description,
           lineOrder++,
@@ -621,6 +685,9 @@ router.post('/shipping-instructions', async (req, res) => {
       { field: 'External reference', from: null, to: value.externalReference },
       ...(effectiveRequestedBy ? [{ field: 'Requested by', from: null, to: effectiveRequestedBy }] : []),
       { field: 'Approval status', from: null, to: 'Submitted' },
+      ...(resolvedCompany.companyId != null
+        ? [{ field: 'Company', from: null, to: resolvedCompany.companyName || resolvedCompany.companyHubCode }]
+        : []),
     ],
     meta: {
       source: 'integration-api',
@@ -654,6 +721,8 @@ router.post('/shipping-instructions', async (req, res) => {
     vessel_hub_code: resolvedHubCode,
     port_id: value.portId,
     port_hub_code: resolvedPortHubCode,
+    company_hub_code: resolvedCompany.companyHubCode,
+    company_name: resolvedCompany.companyName,
     received_at: new Date(receivedAt).toISOString(),
   });
 });
@@ -699,6 +768,7 @@ async function applyPartnerPatch(req, res, { siId, externalReference }) {
   }
 
   let surveyorId = undefined;
+  let companyId = undefined;
   if (value.surveyorName !== undefined) {
     const sv = await resolveSurveyorByName(pool, value.surveyorName);
     if (!sv) {
@@ -714,6 +784,16 @@ async function applyPartnerPatch(req, res, { siId, externalReference }) {
     surveyorId = Number(sv.id);
   }
 
+  if (!value.companyOmitted) {
+    const resolvedCompany = await resolveCompanyForIntegration(pool, {
+      portId: Number(submission.port_id),
+      companyHubCode: value.companyHubCode,
+      omitted: false,
+    });
+    if (resolvedCompany.error) return sendCompanyValidationError(res, resolvedCompany);
+    companyId = resolvedCompany.companyId;
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -723,7 +803,8 @@ async function applyPartnerPatch(req, res, { siId, externalReference }) {
       surveyorId !== undefined ||
       value.siDocumentUrl !== undefined ||
       value.contractDocumentUrl !== undefined ||
-      value.blDocumentUrl !== undefined
+      value.blDocumentUrl !== undefined ||
+      companyId !== undefined
     ) {
       const siSets = ['updated_at = NOW()'];
       const siParams = [];
@@ -734,6 +815,10 @@ async function applyPartnerPatch(req, res, { siId, externalReference }) {
       if (surveyorId !== undefined) {
         siSets.push(`surveyor_id = $${siParams.length + 1}`);
         siParams.push(surveyorId);
+      }
+      if (companyId !== undefined) {
+        siSets.push(`company_id = $${siParams.length + 1}`);
+        siParams.push(companyId);
       }
       if (value.siDocumentUrl !== undefined) {
         siSets.push(`partner_si_document_url = $${siParams.length + 1}`);
@@ -807,6 +892,10 @@ async function applyPartnerPatch(req, res, { siId, externalReference }) {
         if (patchLine.soNo !== undefined) {
           sets.push(`so_no = $${params.length + 1}`);
           params.push(patchLine.soNo);
+        }
+        if (patchLine.stoNo !== undefined) {
+          sets.push(`sto_no = $${params.length + 1}`);
+          params.push(patchLine.stoNo);
         }
         if (shipperId !== undefined) {
           sets.push(`shipper_id = $${params.length + 1}`);

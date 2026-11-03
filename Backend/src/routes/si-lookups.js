@@ -65,6 +65,25 @@ function normalizeShortName(raw) {
   return v || null;
 }
 
+const COMMODITY_GROUP_MAX_LEN = 100;
+
+/** @returns {string|null|undefined} undefined when omitted; null when cleared; NaN when too long */
+function normalizeCommodityGroup(raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  const v = String(raw).trim();
+  if (!v) return null;
+  if (v.length > COMMODITY_GROUP_MAX_LEN) return NaN;
+  return v;
+}
+
+function commodityGroupFromBody(body) {
+  if (!body || typeof body !== 'object') return undefined;
+  if (Object.prototype.hasOwnProperty.call(body, 'commodityGroup')) return body.commodityGroup;
+  if (Object.prototype.hasOwnProperty.call(body, 'commodity_group')) return body.commodity_group;
+  return undefined;
+}
+
 function normalizeKlToMtFactor(raw) {
   if (raw === undefined) return undefined;
   if (raw === null || raw === '') return null;
@@ -86,8 +105,8 @@ async function normalizeDefaultMetricId(raw) {
 async function selectCommoditiesWithRates({ portId, whereSql, params = [] }) {
   const portParam = portId == null ? null : Number(portId);
   return pool.query(
-    `SELECT c.id, c.name AS value, c.short_name, c.sort_order, c.commodity_type, c.kl_to_mt_factor,
-            c.default_metric_id, c.hub_code, c.datahub_last_apply_source, c.datahub_last_apply_run_id,
+    `SELECT c.id, c.name AS value, c.short_name, c.commodity_group, c.sort_order, c.commodity_type, c.hub_type, c.kl_to_mt_factor,
+            c.default_metric_id, c.hub_code, c.material_code, c.datahub_last_apply_source, c.datahub_last_apply_run_id,
             c.is_active,
             dm.code AS default_metric_code,
             ${masterAuditSelectSql('c')},
@@ -144,6 +163,13 @@ function normalizeDescription(raw) {
 }
 
 function normalizeHubCode(raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  const s = String(raw).trim();
+  return s === '' ? null : s;
+}
+
+function normalizeMaterialCode(raw) {
   if (raw === undefined) return undefined;
   if (raw === null) return null;
   const s = String(raw).trim();
@@ -233,11 +259,14 @@ function toCommodityListItem(row) {
     value: row.value,
     name: row.value,
     shortName: row.short_name,
-    commodityType: row.commodity_type ?? 'Liquid',
+    commodityGroup: row.commodity_group ?? null,
+    commodityType: row.commodity_type ?? null,
+    hubType: row.hub_type ?? null,
     klToMtFactor: row.kl_to_mt_factor != null ? Number(row.kl_to_mt_factor) : null,
     defaultMetricId: row.default_metric_id != null ? Number(row.default_metric_id) : null,
     defaultMetricCode: row.default_metric_code ?? null,
     hubCode: row.hub_code ?? null,
+    materialCode: row.material_code ?? null,
     isActive: row.is_active !== false,
     datahubLastApplySource: row.datahub_last_apply_source ?? null,
     datahubLastApplyRunId:
@@ -398,11 +427,13 @@ router.get('/', async (req, res) => {
     metrics,
   ] = await Promise.all([
     pool.query(
-      `SELECT c.id, c.name, c.short_name, c.sort_order, c.commodity_type, c.kl_to_mt_factor,
+      `SELECT c.id, c.name, c.short_name, c.material_code, c.sort_order, c.commodity_type, c.kl_to_mt_factor,
               c.default_metric_id, dm.code AS default_metric_code
        FROM si_commodities c
        LEFT JOIN metric dm ON dm.id = c.default_metric_id AND dm.deleted_at IS NULL
-       WHERE c.deleted_at IS NULL AND c.is_active = TRUE ORDER BY c.sort_order, c.name`
+       WHERE c.deleted_at IS NULL AND c.is_active = TRUE AND c.commodity_type IS NOT NULL
+         AND c.short_name IS NOT NULL AND TRIM(c.short_name) <> ''
+       ORDER BY c.sort_order, c.name`
     ),
     pool.query(
       `SELECT id, code, sort_order FROM si_trade_terms WHERE deleted_at IS NULL AND is_active = TRUE ORDER BY sort_order, code`
@@ -445,7 +476,9 @@ router.get('/', async (req, res) => {
       id: r.id,
       name: r.name,
       shortName: r.short_name,
-      commodityType: r.commodity_type ?? 'Liquid',
+      materialCode: r.material_code ?? null,
+      isActive: true,
+      commodityType: r.commodity_type ?? null,
       klToMtFactor: r.kl_to_mt_factor != null ? Number(r.kl_to_mt_factor) : null,
       defaultMetricId: r.default_metric_id != null ? Number(r.default_metric_id) : null,
       defaultMetricCode: r.default_metric_code ?? null,
@@ -603,14 +636,19 @@ router.post('/:type', async (req, res) => {
       }
       const actorId = actorUserIdFromReq(req);
       const hubCode = normalizeHubCode(req.body?.hubCode ?? req.body?.hub_code) ?? null;
+      const materialCode = normalizeMaterialCode(req.body?.materialCode ?? req.body?.material_code) ?? null;
       const isActive = normalizeIsActive(req.body?.isActive ?? req.body?.is_active, true);
+      const commodityGroup = normalizeCommodityGroup(commodityGroupFromBody(req.body));
+      if (Number.isNaN(commodityGroup)) {
+        return res.status(400).json({ error: 'commodityGroup must be at most 100 characters' });
+      }
       const hubClash = await assertLookupHubCodeAvailable('si_commodities', hubCode);
       if (hubClash) return res.status(409).json({ error: hubClash });
       const ins = await pool.query(
-        `INSERT INTO si_commodities (name, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, hub_code, is_active, created_by, updated_by)
-         VALUES ($1, $2, 0, $3, $4, $5, $6, $7, $8, $8)
-         RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-        [cleaned, shortName, ct, klFactorRaw ?? null, defaultMetricRaw ?? null, hubCode, isActive, actorId]
+        `INSERT INTO si_commodities (name, short_name, commodity_group, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, hub_code, material_code, is_active, created_by, updated_by)
+         VALUES ($1, $2, $3, 0, $4, $5, $6, $7, $8, $9, $10, $10)
+         RETURNING id, name AS value, short_name, commodity_group, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
+        [cleaned, shortName, commodityGroup ?? null, ct, klFactorRaw ?? null, defaultMetricRaw ?? null, hubCode, materialCode, isActive, actorId]
       );
       const row = ins.rows[0];
       const portId = req.selectedPortId;
@@ -848,8 +886,14 @@ router.put('/:type/:id', async (req, res) => {
 
   let result;
   if (type === 'commodities') {
-    const shortName = normalizeShortName(req.body.shortName ?? req.body.short_name);
-    if (!shortName) return res.status(400).json({ error: 'shortName is required' });
+    const shortNameRaw = req.body.shortName ?? req.body.short_name;
+    const shortNameProvided =
+      shortNameRaw !== undefined && shortNameRaw !== null && String(shortNameRaw).trim() !== '';
+    const shortName = shortNameProvided ? normalizeShortName(shortNameRaw) : null;
+    if (shortNameProvided && !shortName) {
+      return res.status(400).json({ error: 'shortName is invalid' });
+    }
+    const shortNameSql = shortNameProvided ? shortName : null;
     const klFactorRaw = normalizeKlToMtFactor(req.body.klToMtFactor ?? req.body.kl_to_mt_factor);
     if (Number.isNaN(klFactorRaw)) {
       return res.status(400).json({ error: 'klToMtFactor must be a positive number' });
@@ -867,67 +911,67 @@ router.put('/:type/:id', async (req, res) => {
       if (klFactorRaw !== undefined && defaultMetricRaw !== undefined) {
         result = await pool.query(
           `UPDATE si_commodities
-           SET name = $1, short_name = $2, commodity_type = $3, kl_to_mt_factor = $4, default_metric_id = $5, updated_at = NOW()
+           SET name = $1, short_name = COALESCE($2, short_name), commodity_type = $3, kl_to_mt_factor = $4, default_metric_id = $5, updated_at = NOW()
            WHERE id = $6 AND deleted_at IS NULL
            RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-          [cleaned, shortName, ct, klFactorRaw, defaultMetricRaw, id]
+          [cleaned, shortNameSql, ct, klFactorRaw, defaultMetricRaw, id]
         );
       } else if (klFactorRaw !== undefined) {
         result = await pool.query(
           `UPDATE si_commodities
-           SET name = $1, short_name = $2, commodity_type = $3, kl_to_mt_factor = $4, updated_at = NOW()
+           SET name = $1, short_name = COALESCE($2, short_name), commodity_type = $3, kl_to_mt_factor = $4, updated_at = NOW()
            WHERE id = $5 AND deleted_at IS NULL
            RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-          [cleaned, shortName, ct, klFactorRaw, id]
+          [cleaned, shortNameSql, ct, klFactorRaw, id]
         );
       } else if (defaultMetricRaw !== undefined) {
         result = await pool.query(
           `UPDATE si_commodities
-           SET name = $1, short_name = $2, commodity_type = $3, default_metric_id = $4, updated_at = NOW()
+           SET name = $1, short_name = COALESCE($2, short_name), commodity_type = $3, default_metric_id = $4, updated_at = NOW()
            WHERE id = $5 AND deleted_at IS NULL
            RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-          [cleaned, shortName, ct, defaultMetricRaw, id]
+          [cleaned, shortNameSql, ct, defaultMetricRaw, id]
         );
       } else {
         result = await pool.query(
           `UPDATE si_commodities
-           SET name = $1, short_name = $2, commodity_type = $3, updated_at = NOW()
+           SET name = $1, short_name = COALESCE($2, short_name), commodity_type = $3, updated_at = NOW()
            WHERE id = $4 AND deleted_at IS NULL
            RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-          [cleaned, shortName, ct, id]
+          [cleaned, shortNameSql, ct, id]
         );
       }
     } else if (klFactorRaw !== undefined && defaultMetricRaw !== undefined) {
       result = await pool.query(
         `UPDATE si_commodities
-         SET name = $1, short_name = $2, kl_to_mt_factor = $3, default_metric_id = $4, updated_at = NOW()
+         SET name = $1, short_name = COALESCE($2, short_name), kl_to_mt_factor = $3, default_metric_id = $4, updated_at = NOW()
          WHERE id = $5 AND deleted_at IS NULL
          RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-        [cleaned, shortName, klFactorRaw, defaultMetricRaw, id]
+        [cleaned, shortNameSql, klFactorRaw, defaultMetricRaw, id]
       );
     } else if (klFactorRaw !== undefined) {
       result = await pool.query(
         `UPDATE si_commodities
-         SET name = $1, short_name = $2, kl_to_mt_factor = $3, updated_at = NOW()
+         SET name = $1, short_name = COALESCE($2, short_name), kl_to_mt_factor = $3, updated_at = NOW()
          WHERE id = $4 AND deleted_at IS NULL
          RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-        [cleaned, shortName, klFactorRaw, id]
+        [cleaned, shortNameSql, klFactorRaw, id]
       );
     } else if (defaultMetricRaw !== undefined) {
       result = await pool.query(
         `UPDATE si_commodities
-         SET name = $1, short_name = $2, default_metric_id = $3, updated_at = NOW()
+         SET name = $1, short_name = COALESCE($2, short_name), default_metric_id = $3, updated_at = NOW()
          WHERE id = $4 AND deleted_at IS NULL
          RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-        [cleaned, shortName, defaultMetricRaw, id]
+        [cleaned, shortNameSql, defaultMetricRaw, id]
       );
     } else {
       result = await pool.query(
         `UPDATE si_commodities
-         SET name = $1, short_name = $2, updated_at = NOW()
+         SET name = $1, short_name = COALESCE($2, short_name), updated_at = NOW()
          WHERE id = $3 AND deleted_at IS NULL
          RETURNING id, name AS value, short_name, sort_order, commodity_type, kl_to_mt_factor, default_metric_id, created_at, updated_at`,
-        [cleaned, shortName, id]
+        [cleaned, shortNameSql, id]
       );
     }
     const hubCode = normalizeHubCode(req.body?.hubCode ?? req.body?.hub_code);
@@ -942,9 +986,44 @@ router.put('/:type/:id', async (req, res) => {
       );
     }
     if (isActive !== undefined) {
+      if (isActive) {
+        const typeQ = await pool.query(
+          `SELECT commodity_type, short_name FROM si_commodities WHERE id = $1 AND deleted_at IS NULL`,
+          [id]
+        );
+        const ct = typeQ.rows[0]?.commodity_type;
+        if (ct !== 'Solid' && ct !== 'Liquid') {
+          return res.status(400).json({
+            error: 'Set Type to Solid or Liquid before activating this commodity.',
+          });
+        }
+        const sn = String(typeQ.rows[0]?.short_name ?? '').trim();
+        if (!sn) {
+          return res.status(400).json({
+            error: 'Set short commodity name before activating this commodity.',
+          });
+        }
+      }
       await pool.query(
         `UPDATE si_commodities SET is_active = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
         [isActive, id]
+      );
+    }
+    const materialCode = normalizeMaterialCode(req.body?.materialCode ?? req.body?.material_code);
+    if (materialCode !== undefined) {
+      await pool.query(
+        `UPDATE si_commodities SET material_code = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
+        [materialCode, id]
+      );
+    }
+    const commodityGroup = normalizeCommodityGroup(commodityGroupFromBody(req.body));
+    if (Number.isNaN(commodityGroup)) {
+      return res.status(400).json({ error: 'commodityGroup must be at most 100 characters' });
+    }
+    if (commodityGroup !== undefined) {
+      await pool.query(
+        `UPDATE si_commodities SET commodity_group = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
+        [commodityGroup, id]
       );
     }
   } else if (type === 'trade-terms') {

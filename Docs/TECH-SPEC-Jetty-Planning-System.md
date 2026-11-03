@@ -81,13 +81,14 @@
 
 | Migration | Objects |
 |-----------|---------|
-| **`118_shipment_plans_master_vessel_id.sql`** | **`shipment_plans.master_vessel_id`** (`BIGINT`, FK → **`master_vessels`**, `ON DELETE RESTRICT`); partial index **`idx_shipment_plans_master_vessel_id`**. **No backfill** at go-live — existing rows remain NULL. |
+| **`133_shipment_plans_master_vessel_id.sql`** | **`shipment_plans.master_vessel_id`** (`BIGINT`, FK → **`master_vessels`**, `ON DELETE RESTRICT`); partial index **`idx_shipment_plans_master_vessel_id`**. **No backfill** at go-live — existing rows remain NULL. Migration **118** is admin ops alerts, not this column. |
 
 **Shared lib — `Backend/src/lib/resolve-master-vessel.js`:**
 
 | Export | Role |
 |--------|------|
-| **`planSnapshotFromMasterRow(row)`** | Builds snapshot `{ master_vessel_id, vessel_name, vessel_loa_m, vessel_gross_tonnage, vessel_draft }` from master row; LOA from **`vessel_length_overall`**. |
+| **`planSnapshotFromMasterRow(row)`** | In-app snapshot. Requires positive LOA, GT, and draft. LOA from **`vessel_length_overall`**. |
+| **`planSnapshotFromMasterRowForPartner(row)`** | Partner submit only. Same identity snapshot; a blank LOA, GT, or draft is **null**. A present non-positive value is an error. |
 | **`loadActiveMasterVessel(client, id)`** | Loads non-deleted **`master_vessels`** row by id. |
 | **`parseMasterVesselIdBody(raw)`** | Validates required positive integer **`master_vessel_id`** on create. |
 | **`linkedPlanRejectsDirectVesselFields(body)`** | Returns error when a linked plan PATCH includes direct **`vessel_name` / `vessel_loa_m` / `vessel_gross_tonnage` / `vessel_draft`**. |
@@ -125,7 +126,7 @@ Tests: **`Backend/src/lib/resolve-master-vessel.test.js`**.
 | **`Frontend/src/api/shipmentPlans.js`** | Create/patch payloads include **`masterVesselId`**; **`patchShipmentPlanVesselInfo`**. |
 | **`Frontend/e2e/master-vessel-wiring.spec.ts`** | E2E coverage for create, legacy edit, and re-pick flows. |
 
-**Deploy order:** Run migration **118** before or with API/frontend builds that require **`master_vessel_id`** on plan create.
+**Deploy order:** Run migration **133** before or with API/frontend builds that require **`master_vessel_id`** on plan create.
 
 **Deferred (Project B):** Bulk backfill of legacy plans and “Refresh from master” push — **`Docs/Future/MASTER-VESSEL-PUSH-TO-PLANS.md`**, QA stub **`Backend/scripts/qa-master-vessel-link-deferred.sql`**.
 
@@ -221,8 +222,8 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 | Method | Path | Behaviour |
 |--------|------|-----------|
-| **`POST`** | **`/shipping-instructions`** | Validates payload (purpose, eta, **`vessel_hub_code`** and/or **`vessel_name`** via **`validateIntegrationVesselInput`** — **`vessel_hub_code` sufficient alone**; optional **`trade_term`**, **`surveyor_name`**, cargo lines with **`cargo_type`** → **`si_commodities.short_name`**, **`unit`** → **`metric.code`**, optional **`po_no`**, **`so_no`**, **`shipper_name`**). Resolves **`master_vessels`** via **`resolveMasterVesselForIntegration`** (**§0.35**). **`port_id`** must be a valid **`ports`** row. Transaction: insert linked plan (snapshot vessel fields + **`master_vessel_id`**) + SI + breakdown, **`integration_submissions`**. Returns **201** with canonical **`vessel_name`**, **`vessel_hub_code`**, **`Pending`**. |
-| **`PATCH`** | **`/shipping-instructions/:id`** or **`?external_reference=`** | While partner status **`Pending`**: update SI header (**`trade_term`**, **`surveyor_name`**) and/or breakdown **`po_no`**, **`so_no`**, **`shipper_name`** (match lines by **`line_order`** or **`contract_no`**). No vessel change. Else **409** **`INVALID_STATE`**. Returns **200** status shape. |
+| **`POST`** | **`/shipping-instructions`** | Validates payload (purpose, eta, **`vessel_hub_code`** and/or **`vessel_name`** via **`validateIntegrationVesselInput`** — **`vessel_hub_code` sufficient alone**; optional **`trade_term`**, **`surveyor_name`**, cargo lines with **`cargo_type`** → **`si_commodities.short_name`**, **`unit`** → **`metric.code`**, optional **`po_no`**, **`so_no`**, **`sto_no`**, **`shipper_name`**). Resolves **`master_vessels`** via **`resolveMasterVesselForIntegration`** (**§0.35**). **`port_id`** must be a valid **`ports`** row. Transaction: insert linked plan (snapshot via **`planSnapshotFromMasterRowForPartner`** — blank LOA/GT/draft stored null; in-app create still uses **`planSnapshotFromMasterRow`**, which requires all three) + SI + breakdown, **`integration_submissions`**. Returns **201** with canonical **`vessel_name`**, **`vessel_hub_code`**, **`Pending`**. |
+| **`PATCH`** | **`/shipping-instructions/:id`** or **`?external_reference=`** | While partner status **`Pending`**: update SI header (**`trade_term`**, **`surveyor_name`**) and/or breakdown **`po_no`**, **`so_no`**, **`sto_no`**, **`shipper_name`** (match lines by **`line_order`** or **`contract_no`**). No vessel change. Else **409** **`INVALID_STATE`**. Returns **200** status shape. |
 | **`GET`** | **`/shipping-instructions/:id`** | Lookup by SI id scoped to caller’s **`api_key_id`**. Includes **`vessel_hub_code`** from linked **`master_vessels`**. |
 | **`GET`** | **`/shipping-instructions?external_reference=`** | Same payload shape; lookup by partner reference. |
 | **`GET`** | **`/terms`**, **`/agents`**, **`/surveyors`**, **`/shippers`** | List active master rows (`si_trade_terms`, `si_agents`, `si_surveyors`, `si_shippers`). |
@@ -266,11 +267,11 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 **Migration `119_integration_webhooks.sql`:** **`integration_webhook_endpoints`**, **`integration_webhook_deliveries`** (outbox).
 
-**Routes (`/api/v1/integrations/webhooks`):** **`POST`** register HTTPS URL + **`events[]`**; **`PATCH`** update; **`GET`** list; **`DELETE`** deactivate. Webhook secret encrypted at rest; shown once on create.
+**Routes (`/api/v1/integrations/webhooks`):** **`POST`** register **HTTP or HTTPS** URL + **`events[]`**; **`PATCH`** update; **`GET`** list; **`DELETE`** deactivate. Webhook secret encrypted at rest; shown once on create.
 
 **Outbound delivery:** After operator actions (plan approve/reject/depart, **`PUT /allocation/arrival`**, operation sign-off/depart), **`triggerPartnerWebhooksDeferred`** enqueues **`status.changed`** and/or **`schedule.updated`**. Worker **`integration-webhook-worker.js`** POSTs signed payloads (**`X-JPS-Signature`**, **`X-JPS-Delivery-Id`**) with retry backoff.
 
-**Enriched GET:** **`buildPartnerInstructionPayload`** adds **`plan_reference`**, **`approval`**, **`schedule`** (TA, ETB, TB, ETC, TC, cast off, sailed), **`etr_minutes`**. Partner status **`Sailed`** when **`operations.status = SAILED`**. Response header **`X-JPS-API-Version: 5.0`**.
+**Enriched GET:** **`buildPartnerInstructionPayload`** adds **`plan_reference`**, **`approval`**, **`schedule`** (TA, ETB, TB, ETC, TC, cast off, sailed; **`cargo_ops_start_at`** / **`cargo_ops_end_at`** from v5.5 — **§0.42**), **`company_hub_code`** / **`company_name`** (v5.6 — **§0.43**), **`etr_minutes`**. Partner status **`Sailed`** when **`operations.status = SAILED`**. Integration response header **`X-JPS-API-Version: 5.6`** (**§0.43**).
 
 **Admin UI (2026-09-28):** **`GET/POST/PATCH /api/v1/integration-admin/:keyId/webhooks`** and delivery log **`GET .../deliveries`** for JPS operators; partners may still use **`/integrations/webhooks`**. See **`Docs/Guide/PARTNER-INTEGRATION-WEBHOOKS-ADMIN.md`**.
 
@@ -278,13 +279,13 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 **Migration `123_si_partner_document_urls.sql`:** **`shipping_instructions.partner_si_document_url`**, **`partner_contract_document_url`**, **`partner_bl_document_url`**.
 
-**Integration API:** Optional **`shipping_instruction_document_url`**, **`contract_document_url`**, **`bl_document_url`** on POST and PATCH (Pending). Validated as HTTPS (or HTTP when **`INTEGRATION_WEBHOOK_ALLOW_HTTP=true`**). Echoed on enriched GET and webhook **`data`**. Internal SI API exposes camelCase **`partnerSiDocumentUrl`**, etc.; read-only in **`SiDetailModal`**. Header **`X-JPS-API-Version: 5.1`**.
+**Integration API:** Optional **`shipping_instruction_document_url`**, **`contract_document_url`**, **`bl_document_url`** on POST and PATCH (Pending). Validated as **HTTP or HTTPS** URLs (max 2048). Echoed on enriched GET and webhook **`data`**. Internal SI API exposes camelCase **`partnerSiDocumentUrl`**, etc.; read-only in **`SiDetailModal`**. Webhook endpoint registration accepts **HTTP or HTTPS** URLs. Header **`X-JPS-API-Version: 5.1`**.
 
 ### 0.39 Partner catalog API (v5.1) (2026-09-28)
 
 **Purpose:** DataHub-style self-describing discovery so partner integrations can read the live field contract instead of hard-coding it from the handoff doc. No schema changes — computed on request from existing validation constants and master data.
 
-**Lib — `Backend/src/lib/integration-catalog.js`:** **`buildIntegrationCatalog(db)`** returns **`{api_version, auth_header, entities[], count}`**; each entity has **`slug, name, path, methods[], description, fields[]`** (plus **`limits`** for `webhook`). **`getIntegrationCatalogEntity(db, slug)`** returns one entity or `null`. Field descriptor: **`{key, type, required, patchable, maxLength, enumValues, description}`** (`ARRAY` fields also carry `items[]` for cargo lines). `enumValues` for `trade_term`, `surveyor_name`, and cargo `cargo_type` are read live via **`listValidTradeTermCodes`**/**`listValidSurveyorNames`**/`si_commodities`, so they never drift from what validation actually accepts. Entities covered: `shipping-instruction`, `webhook`, `term`, `agent`, `surveyor`, `shipper`, and informational `cargo-type`.
+**Lib — `Backend/src/lib/integration-catalog.js`:** **`buildIntegrationCatalog(db)`** returns **`{api_version, auth_header, entities[], count}`**; each entity has **`slug, name, path, methods[], description, fields[]`** (plus **`limits`** for `webhook`, **`legacyFieldsRejected`** on **`shipping-instruction`**). **`getIntegrationCatalogEntity(db, slug)`** returns one entity or `null`. Field descriptor: **`{key, type, required, patchable, maxLength, enumValues, description}`** (`ARRAY` fields also carry `items[]` for cargo lines). `enumValues` for `trade_term`, `surveyor_name`, **`port_hub_code`**, and **`cargo[].cargo_hub_code`** are read live from master data. Entities covered: `shipping-instruction`, `webhook`, `term`, `agent`, `surveyor`, `shipper`, and informational `port` / `cargo-type`.
 
 **Routes (`/api/v1/integrations/catalog`):** **`GET /`** (list), **`GET /:entity`** (single entity, **`404 NOT_FOUND`** when unknown). Mounted alongside `/webhooks` inside `integrations.js`, inheriting the router's **`requireIntegrationKey`** + **`integrationRateLimit`** middleware — no new auth surface. See **`Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md` §3.8**.
 
@@ -299,6 +300,81 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 **Catalog v5.2:** Entity **`port`** + **`referenceRows`**; **`cargo-type`** extended with **`hub_code`**; **`shipping-instruction`** documents dual identifiers.
 
 **Schema:** Uses existing **`ports.hub_code`** (migration **128**) and **`si_commodities.hub_code`** (**124**) — no new migration.
+
+### 0.41 Partner hub-only POST + optional agent (v5.3) (2026-10-02)
+
+**POST `/shipping-instructions`:** **`port_hub_code`**, **`vessel_hub_code`**, and each **`cargo[].cargo_hub_code`** are **required**. Legacy **`port_id`**, **`cargo[].cargo_type`**, and **`vessel_name`** without hub return **400**. Optional **`vessel_name`** remains a cross-check when **`vessel_hub_code`** is sent. **`agent_name`** may be omitted or **`null`** (no master agent link; plan remark still records integration partner).
+
+**Bugfix (v5.2):** Commodity map when resolving **`cargo_type`-only** lines — fixed in **`resolveCargoCommodities`** (prefer **`byShort`** for map keys).
+
+**Catalog / header:** **`X-JPS-API-Version: 5.3`**, catalog **`api_version` 5.3** — hub-only field contract on **`shipping-instruction`** (`cargo_hub_code` required; **`cargo_type`** / **`port_id`** not in catalog; **`legacyFieldsRejected`** documents rejected POST fields).
+
+### 0.42 Partner schedule Hose On/Off — cargo_ops window (v5.5) (2026-10-05)
+
+**GET / webhooks (KLIP):** **`schedule.cargo_ops_start_at`** (Hose On / **ATS**) = **`MIN(start_at)`** on **`operation_operational_activities`** with **`milestone_key = 'cargo_operations'`** on the latest **`operations`** row. **`schedule.cargo_ops_end_at`** (Hose Off / **ATC**) = **`MAX(end_at)`** on those activities. **`cast_off_at`** remains vessel clearance cast-off, not Hose Off.
+
+**SQL:** [`integration-master-data.js`](Backend/src/lib/integration-master-data.js) (`PARTNER_CARGO_OPS_WINDOW_SUBSELECT`, **`resolvePartnerCargoOpsWindow`**); payload in [`integration-partner-payload.js`](Backend/src/lib/integration-partner-payload.js).
+
+**Webhooks:** [`operation-operational-activities.js`](Backend/src/routes/operation-operational-activities.js) fires **`schedule.updated`** on create/delete of **`cargo_operations`** and on update when window **`start_at`** / **`end_at`** change (not load-segment-only edits).
+
+**Header / catalog:** **`X-JPS-API-Version: 5.5`**.
+
+### 0.43 Partner operating company (v5.6) (2026-10-26)
+
+**Purpose:** Partner Shipping Instructions store the same operating company as in-app instructions (`shipping_instructions.company_id`). Partners send DataHub **`company_hub_code`** (`master_companies.hub_code`). This is not the cargo-line shipper.
+
+**Rules:** After **`port_hub_code`** resolves, [`resolveCompanyForIntegration`](Backend/src/lib/integration-hub-resolve.js) loads active companies on `port_companies` and applies [`pickCompanyId`](Backend/src/lib/company-for-instruction.js):
+
+- No mapped companies: omit → `company_id` null. A sent code is **400** `Company is not used at this port`.
+- One mapped company: omit stores that company. A sent code must be that company's hub code.
+- Several: **`company_hub_code` required**. Unknown or unmapped codes return **400** with **`valid_company_hub_codes`**.
+
+**API:** POST and Pending PATCH. **201**, enriched GET, and webhook `data` add **`company_hub_code`** and **`company_name`** (canonical master values). Lookup SQL joins **`master_companies`** on **`si.company_id`**. Catalog entity **`company`** (`referenceRows` include **`port_hub_codes`**). Header and catalog **`api_version` `5.6`**. No new migration (column from **`135_master_companies.sql`**).
+
+### 0.44 Partner integration monitoring — webhook log and API request log (2026-10-27)
+
+**Purpose:** Admin can see, per partner or across partners, what JPS pushed (webhooks) and what partners called (API), without database access. Lives on **Admin → Partner integrations** (`/admin/partner-api`).
+
+**Migration `138_integration_activity_log.sql`:**
+
+- New **`integration_api_request_logs`**: `api_key_id` (nullable; `ON DELETE SET NULL`), `key_prefix` (first 13 characters of a `jps_live_` key only), `request_id`, `method`, `route` (pattern such as `/shipping-instructions/:id`), `path` (no query string), `status_code`, `duration_ms`, `error_code`, `external_reference`, `client_ip`, `created_at`. Indexes on `created_at`, `(api_key_id, created_at)`, and a partial index on `status_code >= 400`.
+- **`integration_webhook_deliveries`** gains `last_http_status`, `last_duration_ms`, `last_attempt_at`, plus indexes on `created_at` and `(status, created_at)`.
+
+**Capture:**
+
+- [`integration-request-log.js`](Backend/src/middleware/integration-request-log.js) is mounted first on the integrations router, before `requireIntegrationKey`, so 401 and 429 are recorded. It inserts on `res.on('finish')`, fire-and-forget; an insert failure never changes the partner response. Headers (including the API key), request bodies, and response bodies are never stored. Unauthenticated rows are capped at 30 per minute per client IP.
+- `sendIntegrationError` sets `res.locals.integrationErrorCode`, stored as `error_code`.
+- [`integration-webhooks.js`](Backend/src/lib/integration-webhooks.js) (`processWebhookDeliveryQueueOnce`, `scheduleRetryOrFail`) records the HTTP status, duration, and attempt time on success and on every failed attempt (HTTP status is null for timeouts and connection errors).
+
+**Admin API** (`/api/v1/integration-admin/activity`, same `admin` page permission; query code in [`integration-activity-filters.js`](Backend/src/lib/integration-activity-filters.js) and [`integration-activity-log.js`](Backend/src/lib/integration-activity-log.js)):
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /summary?keyId=&hours=` | Per partner: API calls, 4xx/5xx, active webhook endpoints, webhooks sent/failed/pending, oldest pending, last API call, last webhook sent. `hours` default 24, max 720. |
+| `GET /webhook-deliveries` | Filters `keyId`, `endpointId`, `status`, `eventType`, `from`, `to`, `q`; cursor paging (`cursor`, `limit` up to 200). Includes the payload. |
+| `GET /api-requests` | Filters `keyId`, `statusClass` (`2xx`, `4xx`, `5xx`, `error`), `method`, `route`, `from`, `to`, `q`; cursor paging. The first page also returns `routeOptions`. |
+| `POST /webhook-deliveries/:deliveryId/retry` | Re-queues a failed delivery. The older per-endpoint list and retry routes remain. |
+
+**Retention:** [`integration-log-retention.js`](Backend/src/lib/integration-log-retention.js) deletes API log rows older than `INTEGRATION_API_LOG_RETENTION_DAYS` (default 30) in batches, once at start-up (after 30 s) and then daily. Webhook delivery rows are not purged.
+
+**System health:** the Partner Integration API check ([`admin-ops-partner-api-check.js`](Backend/src/lib/admin-ops-partner-api-check.js)) reports **degraded** when any delivery failed in the last 24 hours or the oldest pending delivery is older than 10 minutes.
+
+**UI:** components under `Frontend/src/components/partner-integrations/`: health strip (24 h numbers and a no-webhook warning), Activity card with **Webhook deliveries** and **API requests** tabs, scope switch (this partner or all partners), time presets, status chips, search, optional 30 s auto-refresh, expandable rows. The Webhooks table's **Activity** link opens the Webhook tab filtered to that endpoint. The partner list shows a failed-webhook badge.
+
+### 0.45 Partner status stages (v5.7) (2026-10-29)
+
+**Purpose:** Partners see where the vessel is, using the same stages as the Management Dashboard. Replaces `Allocated` / `Sailed` with `Allocated`, `Berthed`, `Start Cargo`, `Cargo Done`, `Sailed Off`. Header and catalog **`5.7`**. Breaking for clients that match on `Sailed`.
+
+**Rules** ([`deriveExternalStatus`](Backend/src/lib/integration-master-data.js)): Deleted, Rejected, then **`Sailed Off`** when `operations.status = 'SAILED'`. For an operation that is not `PENDING`: **`Cargo Done`** when `op_cargo_done_at` is set; **`Start Cargo`** when the cargo window start is set; **`Berthed`** when TB (or docking start) is set; otherwise **`Allocated`**. `IN_PROGRESS` and `POST_OPS` are not used: any operational activity sets the first, and the first final-check save sets the second. Stages move back when the time that set them is cleared. `PARTNER_STATUSES` is the single list (catalog imports it).
+
+**Cargo Done:** `PARTNER_CARGO_DONE_SUBSELECT` returns the latest of `operation_operational_activities.end_at` (`cargo_operations`) and `COALESCE(end_at, start_at, occurred_at)` of `operation_sub_processes` with keys `final_inspection`, `final_tank_inspection`, `final_hold_inspection`, `final_sounding`. It matches `cargoDoneAtFromTimeline` in `Frontend/src/utils/managementDashboardCargoDone.js` (a test compares the key sets). It returns NULL while any `cargo_operations` activity has no `end_at`. Exposed as `schedule.cargo_done_at`. `allocation` is returned for every stage from Allocated onward, and `etr_minutes` stops at Sailed Off.
+
+**Webhooks** ([`integration-webhooks.js`](Backend/src/lib/integration-webhooks.js)):
+- A `schedule.updated` request also evaluates `status.changed` (`expandWebhookEventTypes`), so arrival save, cargo window changes, allocate, sign-off and depart need no route edits.
+- `status.changed` is skipped for an endpoint when its latest `status.changed` delivery for that instruction already carries the same `data.status`. The first one always sends. Migration **`140_integration_webhook_status_lookup_index.sql`** indexes `(endpoint_id, si_id, id DESC)` for that lookup.
+- Final inspection and final sounding save, delete and N/A in [`operation-sub-processes.js`](Backend/src/routes/operation-sub-processes.js) call `triggerPartnerScheduleIfCargoDoneChanged`, which pushes only when `cargo_done_at` moved. Cargo window edits in `operation-operational-activities.js` also push when `cargo_done_at` moves (`resolvePartnerCargoOpsWindow` returns `doneAt`).
+
+**Rollout:** KLIP must accept the new values before this ships. After deploy, the first `status.changed` for an instruction past Allocated fires because the last delivery carries the old status.
 
 ### 0.32 Overview tables — Commodity Qty column (`siBreakdownDisplay`) (2026-05-26)
 

@@ -77,6 +77,37 @@ export function formatSiCargoDisplay(breakdownRows) {
   return { commodityDisplay, commodityShortDisplay, totalQtyDisplay };
 }
 
+function trimOrNull(value) {
+  const s = String(value ?? '').trim();
+  return s || null;
+}
+
+/** Planned qty per commodity, including the JPS-only commodity group used by the dashboard. */
+export function productsFromBreakdownRows(breakdownRows) {
+  if (!Array.isArray(breakdownRows) || breakdownRows.length === 0) return [];
+  const byCommodity = new Map();
+  const order = [];
+  for (const row of breakdownRows) {
+    const cid = row.commodityId ?? row.commodity_id;
+    const name = (row.commodityName ?? row.commodity_name ?? '').trim();
+    const shortName = (row.commodityShortName ?? row.commodity_short_name ?? '').trim();
+    const key = cid != null ? String(cid) : `name:${name}`;
+    if (!byCommodity.has(key)) {
+      const idNum = cid != null ? Number(cid) : null;
+      byCommodity.set(key, {
+        commodityId: idNum != null && Number.isFinite(idNum) ? idNum : null,
+        shortName: shortName || null,
+        name: name || null,
+        commodityGroup: trimOrNull(row.commodityGroup ?? row.commodity_group),
+        qty: 0,
+      });
+      order.push(key);
+    }
+    byCommodity.get(key).qty += Number(row.qty) || 0;
+  }
+  return order.map((key) => byCommodity.get(key));
+}
+
 export function buildCargoBreakdownSummary(shippingInstructionId, referenceNumber, breakdownRows) {
   const { commodityDisplay, commodityShortDisplay, totalQtyDisplay } = formatSiCargoDisplay(breakdownRows);
   return {
@@ -87,6 +118,7 @@ export function buildCargoBreakdownSummary(shippingInstructionId, referenceNumbe
     commodityDisplay,
     commodityShortDisplay,
     totalQtyDisplay,
+    products: productsFromBreakdownRows(breakdownRows),
   };
 }
 
@@ -105,6 +137,7 @@ export async function loadBreakdownBySiIds(pool, siIds) {
             b.commodity_id,
             sc.name AS commodity_name,
             sc.short_name AS commodity_short_name,
+            sc.commodity_group AS commodity_group,
             b.metric_id,
             m.code AS metric_code,
             b.qty,
@@ -125,6 +158,7 @@ export async function loadBreakdownBySiIds(pool, siIds) {
       commodityId: row.commodity_id,
       commodityName: row.commodity_name,
       commodityShortName: row.commodity_short_name,
+      commodityGroup: row.commodity_group ? String(row.commodity_group).trim() : null,
       metricId: row.metric_id,
       metricCode: row.metric_code,
       qty: row.qty != null ? Number(row.qty) : 0,

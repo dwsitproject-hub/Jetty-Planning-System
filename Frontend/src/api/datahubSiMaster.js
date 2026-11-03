@@ -12,6 +12,7 @@ export function createSiDataHubSyncApi(apiType) {
   return {
     fetchSyncRuns: ({ limit = 10 } = {}) => apiGet(`${base}/runs?limit=${limit}`),
     startSyncRun: () => apiPost(`${base}/runs`, {}, 120000),
+    startRecordSync: (localId) => apiPost(`${base}/records`, { localId }, 120000),
     fetchSyncRun: (runId) => apiGet(`${base}/runs/${runId}`),
     applySyncRun: (runId, itemIds) =>
       apiPost(`${base}/runs/${runId}/apply`, { itemIds: Array.isArray(itemIds) ? itemIds : [] }, 120000),
@@ -27,11 +28,11 @@ export const DATAHUB_SI_FIELD_LABELS = {
   },
   commodities: {
     name: 'Commodity name',
-    short_name: 'Short name',
-    commodity_type: 'Type',
+    hub_type: 'DataHub type',
     kl_to_mt_factor: 'KL→MT factor',
     default_metric_id: 'Default unit (metric id)',
     hs_code: 'HS code',
+    material_code: 'Material code',
   },
 }
 
@@ -44,6 +45,9 @@ export const DATAHUB_SI_ENTITY_META = {
   commodities: {
     entityKind: 'commodity',
     recordNoun: 'commodities',
-    newHint: 'Commodities not yet in the JPS master.',
+    recordColumnLabel: 'Commodity',
+    newHint:
+      'Commodities not yet in the JPS master (no matching hub code in JPS). New rows import with Active = No; set short name and Type before activating.',
+    showLocalUnchanged: true,
   },
 }

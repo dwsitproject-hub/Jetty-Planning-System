@@ -2233,6 +2233,18 @@ select.allocation-table__filter {
   min-width: 6.5rem;
 }
 
+.allocation-table__multi-filter {
+  display: block;
+  width: 100%;
+  min-width: 8.5rem;
+}
+
+.allocation-table__multi-filter .dropdown-multi__trigger {
+  min-height: 0;
+  padding: var(--spacing-2);
+  font-size: var(--font-size-xs);
+}
+
 .allocation-table__row {
   cursor: pointer;
   transition: background var(--duration-fast) var(--easing-default);
@@ -6292,6 +6304,23 @@ body:has(.clearance-page--embed) {
   gap: 0.5rem;
 }
 
+.clearance-pagination__page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--color-text-steel);
+}
+
+.clearance-pagination__page-size select {
+  padding: 0.25rem 0.4rem;
+  font-size: 0.85rem;
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg, #fff);
+}
+
 .clearance-date-range-filter {
   display: flex;
   flex-direction: column;
@@ -6691,6 +6720,35 @@ body:has(.clearance-page--embed) {
   line-height: 1.4;
 }
 
+.master-company-directory__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.master-company-directory__chevron {
+  font-size: 0.85em;
+  line-height: 1;
+}
+
+.master-company-port-list {
+  list-style: none;
+  margin: 0 0 var(--spacing-3);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
 .master-rates-chip {
   display: inline-block;
   margin: 0 0 var(--spacing-3);
@@ -7019,6 +7077,40 @@ body:has(.clearance-page--embed) {
   padding: var(--spacing-3);
   font-size: var(--font-size-small);
   color: var(--color-text-steel);
+}
+
+.searchable-select__group {
+  padding: var(--spacing-2) var(--spacing-2) var(--spacing-1);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-text-steel);
+}
+
+.searchable-select__footer {
+  flex-shrink: 0;
+  padding: var(--spacing-2);
+  border-top: 1px solid var(--color-border-medium);
+}
+
+.searchable-select__add {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--spacing-2);
+  font-size: var(--font-size-small);
+  font-family: var(--font-primary);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-primary);
+  background: var(--color-bg-subtle, #f4f6f8);
+  border: 1px dashed var(--color-primary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.searchable-select__add:hover,
+.searchable-select__add:focus-visible {
+  background: #fff;
+  outline: none;
 }
 
 .daily-activities-report__field {
@@ -7951,16 +8043,95 @@ tr.cargo-schedule-behind > td:first-child {
   border: 1px dashed rgba(100, 116, 139, 0.85);
 }
 
-/* ---- Layout: Gantt beside the Unallocated rail ---- */
-.jetty-schedule-gantt__layout {
+/* ---- Chart + Unallocated rail: rail outside horizontal scroll, aligned with jetty rows ---- */
+.jetty-schedule-gantt__chart-with-rail {
   display: flex;
   align-items: flex-start;
   gap: var(--spacing-3, 12px);
+  min-width: 0;
+  height: max-content;
 }
 
-.jetty-schedule-gantt__layout > .jetty-schedule-gantt__export-area {
+.jetty-schedule-gantt__chart-with-rail > .jetty-schedule-gantt__scroll {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__chart-with-rail > .jetty-schedule-gantt__scroll {
+  height: max-content;
+  max-height: min(70vh, 720px);
+}
+
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail > .unallocated-rail {
+  flex: 0 0 264px;
+  width: 264px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--gantt-matrix-header-h, 40px);
+  height: var(--gantt-matrix-body-h, 240px);
+  max-height: var(--gantt-matrix-body-h, 240px);
+  min-height: 0;
+  overflow: hidden;
+  padding: 8px;
+  border: 1px solid rgba(var(--berth-new-rgb), 0.35);
+  border-radius: 8px;
+  background: rgba(var(--berth-new-rgb), 0.04);
+  align-self: flex-start;
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__chart-with-rail {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  align-items: stretch;
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__chart-with-rail > .jetty-schedule-gantt__scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  max-height: none;
+}
+
+.jetty-schedule-gantt--popout .jetty-schedule-gantt__chart-with-rail > .unallocated-rail {
+  margin-top: var(--gantt-matrix-header-h, 40px);
+  height: var(--gantt-matrix-body-h, 240px);
+  max-height: var(--gantt-matrix-body-h, 240px);
+}
+
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail > .unallocated-rail.unallocated-rail--collapsed {
+  flex: 0 0 44px;
+  width: 44px;
+  height: auto;
+  max-height: none;
+  min-height: 0;
+  padding: 6px 4px;
+  overflow: hidden;
+}
+
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail .unallocated-rail__header,
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail .unallocated-rail__hint,
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail .unallocated-rail__empty {
+  flex-shrink: 0;
+}
+
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail .unallocated-rail__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  gap: 5px;
+}
+
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail .unallocated-rail__card {
+  padding: 5px 8px;
+  gap: 1px;
+}
+
+.jetty-schedule-gantt--plan .jetty-schedule-gantt__chart-with-rail .unallocated-rail__meta {
+  font-size: 11px;
+  line-height: 1.2;
 }
 
 .unallocated-rail {
@@ -7976,8 +8147,10 @@ tr.cargo-schedule-behind > td:first-child {
 }
 
 .unallocated-rail--collapsed {
-  flex-basis: 48px;
-  width: 48px;
+  flex: 0 0 44px;
+  width: 44px;
+  height: auto;
+  max-height: none;
   overflow: hidden;
 }
 
@@ -8055,9 +8228,9 @@ tr.cargo-schedule-behind > td:first-child {
   text-align: left;
   font: inherit;
   color: rgb(var(--berth-new-text));
-  background: rgba(var(--berth-new-rgb), 0.12);
-  border: 1px solid rgba(var(--berth-new-rgb), 0.7);
-  border-left-width: 4px;
+  background: rgba(var(--berth-new-rgb), 0.22);
+  border: 1px solid rgba(var(--berth-new-rgb), 0.85);
+  border-left: 4px solid rgb(var(--berth-new-rgb));
   border-radius: 6px;
   cursor: pointer;
 }
@@ -8079,60 +8252,144 @@ tr.cargo-schedule-behind > td:first-child {
   outline-offset: 2px;
 }
 
+.unallocated-rail__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
 .unallocated-rail__name {
+  flex: 1 1 auto;
+  min-width: 0;
   font-weight: 700;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unallocated-rail__purpose {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.unallocated-rail__purpose--unload {
+  background: rgba(var(--berth-unload-rgb), 0.16);
+  color: rgb(var(--berth-unload-text));
+  border: 1px solid rgba(var(--berth-unload-rgb), 0.55);
+}
+
+.unallocated-rail__purpose--load {
+  background: rgba(var(--berth-load-rgb), 0.16);
+  color: rgb(var(--berth-load-text));
+  border: 1px solid rgba(var(--berth-load-rgb), 0.55);
 }
 
 .unallocated-rail__meta {
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.25;
   overflow-wrap: anywhere;
 }
 
-.unallocated-rail__chips {
+.unallocated-rail__eta-row {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 4px;
-  margin-top: 4px;
+  min-width: 0;
 }
 
-.unallocated-rail__chip {
-  padding: 0 6px;
+.unallocated-rail__eta {
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.unallocated-rail__reason {
+  flex: 0 0 auto;
+  padding: 0 5px;
   border-radius: 999px;
-  background: rgb(var(--berth-new-rgb));
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 18px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  letter-spacing: 0.02em;
+  background: rgba(var(--berth-new-rgb), 0.14);
+  color: rgb(var(--berth-new-text));
+  border: 1px solid rgba(var(--berth-new-rgb), 0.55);
 }
 
-/* Full view (popout): layout fills the window; the rail scrolls on its own beside the Gantt. */
-.jetty-schedule-gantt--popout .jetty-schedule-gantt__layout {
-  flex: 1;
+/* Berthing Plan main tab: tighter filter row (full view already uses popout rules). */
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__filters {
+  flex-shrink: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: var(--spacing-2, 8px);
+  padding: var(--spacing-2, 8px) var(--spacing-3, 12px);
+  gap: var(--spacing-2, 8px);
+}
+
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__filter-field {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
+
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__filter-field label {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__date-input {
+  width: 8.75rem;
+  height: 32px;
+  padding: 2px 8px;
+}
+
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__reset,
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__export,
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__fit,
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__filters .btn.jetty-schedule-gantt__create-plan {
+  min-height: 32px;
+  height: 32px;
+  padding: 2px 10px;
+}
+
+.jetty-schedule-gantt--plan.card .jetty-schedule-gantt__intro:not(:has(.jetty-schedule-gantt__error)):not(
+    :has(.jetty-schedule-gantt__notice)
+  ) {
+  display: none;
+  margin: 0;
   min-height: 0;
-  align-items: stretch;
 }
 
-.jetty-schedule-gantt--popout .unallocated-rail {
-  max-height: none;
-  align-self: stretch;
-}
-
-/* Narrow screens: rail goes below the Gantt instead of beside it. */
+/* Narrow screens: rail stacks under the chart. */
 @media (max-width: 1100px) {
-  .jetty-schedule-gantt__layout {
+  .jetty-schedule-gantt__chart-with-rail {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .unallocated-rail,
-  .unallocated-rail--collapsed {
+  .jetty-schedule-gantt__chart-with-rail > .unallocated-rail {
     flex-basis: auto;
     width: 100%;
+    margin-top: 0;
     max-height: 320px;
   }
 
-  .jetty-schedule-gantt--popout .unallocated-rail {
+  .jetty-schedule-gantt__chart-with-rail > .unallocated-rail.unallocated-rail--collapsed {
+    width: 100%;
+    flex-basis: auto;
+    height: auto;
+    max-height: none;
+  }
+
+  .jetty-schedule-gantt--popout .jetty-schedule-gantt__chart-with-rail > .unallocated-rail:not(.unallocated-rail--collapsed) {
     flex: 0 0 auto;
     max-height: 240px;
   }

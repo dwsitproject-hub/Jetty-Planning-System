@@ -112,6 +112,9 @@ export function localCommodityToHubPayload(localRow) {
     type: hubCommodityTypeForPush(ct === 'Solid' ? 'Solid' : 'Liquid'),
   };
   if (localRow.hs_code ?? localRow.hsCode) payload.hs_code = str(localRow.hs_code ?? localRow.hsCode);
+  if (localRow.material_code ?? localRow.materialCode) {
+    payload.material_code = str(localRow.material_code ?? localRow.materialCode);
+  }
   const metricCode = str(localRow.default_metric_code ?? localRow.defaultMetricCode);
   if (metricCode) payload.uom = metricCode.toUpperCase() === 'KL' ? 'KL' : 'MT';
   const hubCode = str(localRow.hub_code ?? localRow.hubCode);

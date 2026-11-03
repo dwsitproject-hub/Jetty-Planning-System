@@ -1,16 +1,44 @@
 /**
  * Shared DataHub staging + apply for vessel, incoterm, and commodity.
  */
+import { fetchHubRecordByCode } from './datahub-client.js';
 import { insertStagedSyncRun, applyStagedSyncRunByEntity } from './datahub-vessel-stage.js';
 import {
   buildEntitySyncPlan,
   fetchHubRecords,
+  loadLocalHubCode,
   loadLocalRows,
   stagedItemsForInsert,
   DATAHUB_ENTITY_TYPES,
 } from './datahub-master-sync-config.js';
 
 export { DATAHUB_ENTITY_TYPES };
+
+function sameHubCode(left, right) {
+  const a = String(left ?? '').trim().toUpperCase();
+  const b = String(right ?? '').trim().toUpperCase();
+  return a !== '' && a === b;
+}
+
+/**
+ * Keep the one hub row the user asked for. Drops the commodity local-only sweep
+ * and any other catalog rows that a full plan would include.
+ */
+export function scopePlanToHubCode(items, summary, hubCode) {
+  const kept = (items ?? []).filter((item) => !item.localOnly && sameHubCode(item.hubCode, hubCode));
+  return {
+    items: kept,
+    summary: {
+      ...summary,
+      hubRecordCount: kept.length,
+      newCount: kept.filter((item) => item.diffKind === 'new').length,
+      changedCount: kept.filter((item) => item.diffKind === 'changed').length,
+      unchangedCount: kept.filter((item) => item.diffKind === 'unchanged').length,
+      localUnchangedCount: 0,
+      nameConflictCount: kept.filter((item) => item.nameConflict?.matches?.length).length,
+    },
+  };
+}
 
 /**
  * @param {import('pg').Pool | import('pg').PoolClient} db
@@ -24,8 +52,17 @@ export async function stageEntityFromHub(db, entityType, hubRecords, opts = {}) 
   }
 
   const localLoad = await loadLocalRows(entityType, db);
-  const localRows = entityType === 'commodity' ? localLoad.rows : localLoad;
-  const { items, summary } = await buildEntitySyncPlan(entityType, hubRecords, localLoad);
+  const plan = await buildEntitySyncPlan(entityType, hubRecords, localLoad);
+  let items = plan.items;
+  let summary = plan.summary;
+  if (opts.skippedNotUse != null && Number(opts.skippedNotUse) > 0) {
+    summary = { ...summary, skippedNotUse: Number(opts.skippedNotUse) };
+  }
+  if (opts.onlyHubCode) {
+    const scoped = scopePlanToHubCode(items, summary, opts.onlyHubCode);
+    items = scoped.items;
+    summary = scoped.summary;
+  }
 
   const actionable = items.filter((i) => i.diffKind === 'new' || i.diffKind === 'changed');
   if (actionable.length === 0) {
@@ -58,8 +95,31 @@ export async function stageEntityFromHub(db, entityType, hubRecords, opts = {}) 
  * Pull from DHM and stage (manual sync entry point).
  */
 export async function pullAndStageEntity(db, entityType, cfg, opts = {}) {
-  const hubRecords = await fetchHubRecords(entityType, cfg, db);
-  return stageEntityFromHub(db, entityType, hubRecords, opts);
+  const hubFetch = await fetchHubRecords(entityType, cfg, db);
+  const hubRecords = Array.isArray(hubFetch) ? hubFetch : hubFetch.records;
+  const skippedNotUse =
+    hubFetch && !Array.isArray(hubFetch) && hubFetch.skippedNotUse != null
+      ? Number(hubFetch.skippedNotUse)
+      : 0;
+  return stageEntityFromHub(db, entityType, hubRecords, { ...opts, skippedNotUse });
+}
+
+/**
+ * Pull one linked master row by its hub code and stage that diff only.
+ */
+export async function pullAndStageLocalRecord(db, entityType, cfg, localId, opts = {}) {
+  const { hubCode } = await loadLocalHubCode(entityType, db, localId);
+  const hub = await fetchHubRecordByCode(cfg, entityType, hubCode);
+  if (hub.isDeleted) {
+    const err = new Error(`DataHub has no active record for hub code ${hubCode}.`);
+    err.status = 404;
+    throw err;
+  }
+  return stageEntityFromHub(db, entityType, [hub], {
+    ...opts,
+    source: 'record',
+    onlyHubCode: hubCode,
+  });
 }
 
 export async function applyStagedEntitySyncRun(db, runId, actorUserId = null) {
