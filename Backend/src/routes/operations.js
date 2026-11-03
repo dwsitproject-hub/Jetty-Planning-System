@@ -17,6 +17,7 @@ import {
 import { validateBerthingTimeline, validateScheduleTimestamp } from '../lib/validate-schedule-timeline.js';
 import { userHasPageApprove, userHasPageDelete, userHasPageEdit } from '../middleware/permissions.js';
 import { getPublicAppBaseUrl, triggerNotificationDeferred } from '../lib/notifications.js';
+import { triggerPartnerWebhooksDeferred } from '../lib/integration-webhooks.js';
 import { enrichRowsWithCargoDisplay } from '../lib/siBreakdownDisplay.js';
 import { getSiCommodityOptions } from '../lib/si-commodity-options.js';
 import { getAtBerthCargoProgressSummaries } from '../lib/operational-progress.js';
@@ -1254,6 +1255,10 @@ router.post('/:id/signoff', async (req, res) => {
     [id, req.userId ?? null]
   );
   const signedRow = await loadOperationJoined(id);
+  triggerPartnerWebhooksDeferred({
+    shippingInstructionId: signedRow?.shipping_instruction_id ?? undefined,
+    eventTypes: ['schedule.updated'],
+  });
   writeActivityLog({
     pageKey: 'loading',
     action: 'update',
@@ -1367,6 +1372,10 @@ router.post('/:id/depart', async (req, res) => {
   }
 
   const sailRow = await loadOperationJoined(id);
+  triggerPartnerWebhooksDeferred({
+    shippingInstructionId: sailRow?.shipping_instruction_id ?? undefined,
+    eventTypes: ['schedule.updated', 'status.changed'],
+  });
   writeActivityLog({
     pageKey: 'verification',
     action: 'update',

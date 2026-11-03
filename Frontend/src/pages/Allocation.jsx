@@ -41,6 +41,7 @@ import '../styles/allocation.css'
 import '../styles/modal.css'
 import { MAX_REMARK_CHARS } from '../constants/inputLimits'
 import { mergeBerthsStateForPlanPov, mergeQueueRowsForPlanPov } from '../utils/allocationPlanPovMerge'
+import { buildRailRows } from '../utils/berthColorState'
 import {
   captureElementToCanvas,
   downloadCanvasAsJpeg,
@@ -48,7 +49,6 @@ import {
 } from '../utils/captureDomAsJpeg'
 import { downloadCanvasesAsPdf } from '../utils/exportCanvasPdf'
 import { isStaleLazyChunkError, reloadOnceForStaleChunks } from '../utils/staleChunkReload'
-import { buildRailRows } from '../utils/berthColorState'
 import {
   currentPhaseLabelForVessel,
   deriveCurrentPhaseIndex,

@@ -12,6 +12,7 @@ import {
 import { useActivityLog } from '../context/ActivityLogContext'
 import { usePortScope } from '../context/PortScopeContext'
 import { useRbac } from '../context/RbacContext'
+import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import MasterWorkingPortBar from '../components/MasterWorkingPortBar.jsx'
 import '../styles/allocation.css'
 import '../styles/modal.css'
@@ -228,7 +229,10 @@ export default function MasterTanks() {
 
   return (
     <div className="allocation-page">
-      <h1 className="page-title">{t('masterHubTanksTitle')}</h1>
+      <h1 className="page-title page-title-row">
+        {t('masterHubTanksTitle')}
+        <MasterSourceBadge kind="local" />
+      </h1>
       <p className="allocation-page__intro">{t('masterHubTanksDesc')}</p>
       <p className="text-steel">
         <Link to="/master" className="link">← Back to Master Menu</Link>

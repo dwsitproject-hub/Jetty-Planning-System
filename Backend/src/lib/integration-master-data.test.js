@@ -31,6 +31,12 @@ describe('integration-master-data', () => {
     it('returns Pending when submitted', () => {
       assert.equal(deriveExternalStatus({ approval_status: 'Submitted' }), 'Pending');
     });
+    it('returns Sailed when operation has SAILED status', () => {
+      assert.equal(
+        deriveExternalStatus({ approval_status: 'Approved', op_status: 'SAILED' }),
+        'Sailed'
+      );
+    });
   });
 
   describe('matchBreakdownLineIndex', () => {

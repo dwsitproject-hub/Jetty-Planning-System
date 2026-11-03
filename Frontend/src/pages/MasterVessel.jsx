@@ -12,10 +12,14 @@ import {
   discardSyncRun,
 } from '../api/masterVessels'
 import DataHubSyncReviewModal from '../components/DataHubSyncReviewModal.jsx'
+import AppToast from '../components/AppToast.jsx'
+import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
+import DataHubFieldCue from '../components/DataHubFieldCue.jsx'
 import { useActivityLog } from '../context/ActivityLogContext'
 import { useRbac } from '../context/RbacContext'
 import '../styles/allocation.css'
 import '../styles/modal.css'
+import '../styles/datahub-sync.css'
 import SortableFilterableTableHead from '../components/SortableFilterableTableHead.jsx'
 import MasterTablePagination from '../components/MasterTablePagination.jsx'
 import { useSortableFilterableRows } from '../hooks/useSortableFilterableRows.js'
@@ -40,25 +44,36 @@ const CHARTER_TYPES = ['Voyage Charter', 'Time Charter']
 const text = (v) => (v || '').toLowerCase()
 
 const VESSEL_COLUMNS = [
-  { key: 'vesselName', label: 'Vessel Name', getSortValue: (v) => text(v.vesselName) },
-  { key: 'hubCode', label: 'Hub Code', getSortValue: (v) => text(v.hubCode), getFilterValue: (v) => v.hubCode || '' },
+  { key: 'vesselName', label: <DataHubFieldCue>Vessel Name</DataHubFieldCue>, labelText: 'Vessel Name', getSortValue: (v) => text(v.vesselName) },
+  { key: 'hubCode', label: <DataHubFieldCue>Hub Code</DataHubFieldCue>, labelText: 'Hub Code', getSortValue: (v) => text(v.hubCode), getFilterValue: (v) => v.hubCode || '' },
+  {
+    key: 'isActive',
+    label: 'Active',
+    labelText: 'Active',
+    filterType: 'select',
+    selectOptions: ['Yes', 'No'],
+    getSortValue: (v) => (v.isActive === false ? 0 : 1),
+    getFilterValue: (v) => (v.isActive === false ? 'No' : 'Yes'),
+  },
   {
     key: 'vesselType',
-    label: 'Type',
+    label: <DataHubFieldCue>Type</DataHubFieldCue>,
+    labelText: 'Type',
     filterType: 'select',
     selectOptions: VESSEL_TYPES,
     getSortValue: (v) => text(v.vesselType),
     getFilterValue: (v) => v.vesselType || '',
   },
-  { key: 'vesselImo', label: 'IMO', getSortValue: (v) => text(v.vesselImo), getFilterValue: (v) => v.vesselImo || '' },
-  { key: 'vesselMmsi', label: 'MMSI', getSortValue: (v) => text(v.vesselMmsi), getFilterValue: (v) => v.vesselMmsi || '' },
-  { key: 'vesselCodeSap', label: 'SAP Code', getSortValue: (v) => text(v.vesselCodeSap), getFilterValue: (v) => v.vesselCodeSap || '' },
-  { key: 'vesselGrossTonnage', label: 'GT', getSortValue: (v) => (v.vesselGrossTonnage ?? -1) },
-  { key: 'vesselDraft', label: 'Draft (m)', getSortValue: (v) => (v.vesselDraft ?? -1) },
-  { key: 'vesselLengthOverall', label: 'LOA', getSortValue: (v) => text(v.vesselLengthOverall) },
+  { key: 'vesselImo', label: <DataHubFieldCue>IMO</DataHubFieldCue>, labelText: 'IMO', getSortValue: (v) => text(v.vesselImo), getFilterValue: (v) => v.vesselImo || '' },
+  { key: 'vesselMmsi', label: <DataHubFieldCue>MMSI</DataHubFieldCue>, labelText: 'MMSI', getSortValue: (v) => text(v.vesselMmsi), getFilterValue: (v) => v.vesselMmsi || '' },
+  { key: 'vesselCodeSap', label: <DataHubFieldCue>SAP Code</DataHubFieldCue>, labelText: 'SAP Code', getSortValue: (v) => text(v.vesselCodeSap), getFilterValue: (v) => v.vesselCodeSap || '' },
+  { key: 'vesselGrossTonnage', label: <DataHubFieldCue>GT</DataHubFieldCue>, labelText: 'GT', getSortValue: (v) => (v.vesselGrossTonnage ?? -1) },
+  { key: 'vesselDraft', label: <DataHubFieldCue>Draft (m)</DataHubFieldCue>, labelText: 'Draft (m)', getSortValue: (v) => (v.vesselDraft ?? -1) },
+  { key: 'vesselLengthOverall', label: <DataHubFieldCue>LOA</DataHubFieldCue>, labelText: 'LOA', getSortValue: (v) => text(v.vesselLengthOverall) },
   {
     key: 'heater',
-    label: 'Heater',
+    label: <DataHubFieldCue>Heater</DataHubFieldCue>,
+    labelText: 'Heater',
     filterType: 'select',
     selectOptions: ['Yes', 'No'],
     getSortValue: (v) => (v.heater ? 1 : 0),
@@ -66,7 +81,8 @@ const VESSEL_COLUMNS = [
   },
   {
     key: 'typeLambung',
-    label: 'Hull Type',
+    label: <DataHubFieldCue>Hull Type</DataHubFieldCue>,
+    labelText: 'Hull Type',
     filterType: 'select',
     selectOptions: LAMBUNG_TYPES,
     getSortValue: (v) => text(v.typeLambung),
@@ -74,7 +90,8 @@ const VESSEL_COLUMNS = [
   },
   {
     key: 'typeCharter',
-    label: 'Charter Type',
+    label: <DataHubFieldCue>Charter Type</DataHubFieldCue>,
+    labelText: 'Charter Type',
     filterType: 'select',
     selectOptions: CHARTER_TYPES,
     getSortValue: (v) => text(v.typeCharter),
@@ -97,6 +114,8 @@ function pushSaveToast(name, push) {
 
 const EMPTY_FORM = {
   vesselName: '',
+  hubCode: '',
+  isActive: true,
   vesselImo: '',
   vesselMmsi: '',
   vesselCodeSap: '',
@@ -164,6 +183,8 @@ export default function MasterVessel() {
     setEditingId(v.id)
     setForm({
       vesselName: v.vesselName || '',
+      hubCode: v.hubCode || '',
+      isActive: v.isActive !== false,
       vesselImo: v.vesselImo ?? '',
       vesselMmsi: v.vesselMmsi ?? '',
       vesselCodeSap: v.vesselCodeSap ?? '',
@@ -270,9 +291,17 @@ export default function MasterVessel() {
     setError(null)
     setSyncError(null)
     try {
-      const { run } = await startSyncRun()
+      const resp = await startSyncRun()
       await loadLatestRun()
-      await openReview(run.id)
+      if (resp?.noChanges) {
+        setToast({
+          message: 'DataHub matches JPS — nothing new or changed to review.',
+          variant: 'success',
+        })
+        return
+      }
+      const run = resp?.run
+      if (run?.id) await openReview(run.id)
     } catch (e) {
       setError(e?.message || 'DataHub sync failed')
     } finally {
@@ -343,7 +372,10 @@ export default function MasterVessel() {
 
   return (
     <div className="allocation-page">
-      <h1 className="page-title">Master – Vessel</h1>
+      <h1 className="page-title page-title-row">
+        Master – Vessel
+        <MasterSourceBadge kind="datahub" />
+      </h1>
       <p className="allocation-page__intro">
         Vessel master held in JPS as a reviewed copy of the DataHub records. A sync stages the hub
         data for review; nothing changes here until you apply it.
@@ -357,26 +389,12 @@ export default function MasterVessel() {
         </p>
       )}
 
-      {toast && (
-        <p
-          className="allocation-page__intro"
-          style={{
-            color:
-              toast.variant === 'success'
-                ? 'var(--color-success, #0a7)'
-                : toast.variant === 'warning'
-                  ? 'var(--color-warning, #b8860b)'
-                  : 'var(--color-danger, #c00)',
-          }}
-          role="status"
-        >
-          {toast.message}
-        </p>
-      )}
+      {toast && <AppToast toast={toast} onDismiss={() => setToast(null)} />}
 
       {stagedRun && !review && (
         <p className="allocation-page__intro">
-          A DataHub sync is staged and waiting for review ({stagedRun.newCount} new,{' '}
+          A DataHub sync is staged and waiting for review
+          {stagedRun.source === 'webhook' ? ' (from webhook)' : ''} ({stagedRun.newCount} new,{' '}
           {stagedRun.changedCount} changed).{' '}
           <button type="button" className="btn btn--small btn--secondary" onClick={() => openReview(stagedRun.id)}>
             Resume review
@@ -386,7 +404,8 @@ export default function MasterVessel() {
 
       {!stagedRun && latestRun && (
         <p className="text-steel">
-          Last DataHub sync {new Date(latestRun.startedAt).toLocaleString()} — {latestRun.status}
+          Last DataHub sync {new Date(latestRun.startedAt).toLocaleString()}
+          {latestRun.source === 'webhook' ? ' (webhook)' : ''} — {latestRun.status}
           {latestRun.status === 'applied' ? ` (${latestRun.appliedCount} rows written)` : ''}
           {latestRun.error ? `: ${latestRun.error}` : ''}
         </p>
@@ -441,7 +460,14 @@ export default function MasterVessel() {
                 {pagedVessels.map((v) => (
                   <tr key={v.id} className="allocation-table__row">
                     <td><strong>{v.vesselName || '—'}</strong></td>
-                    <td className="text-steel">{v.hubCode || '—'}</td>
+                    <td className="text-steel">
+                      {v.hubCode ? (
+                        v.hubCode
+                      ) : (
+                        <MasterSourceBadge kind="local" />
+                      )}
+                    </td>
+                    <td className="text-steel">{v.isActive === false ? 'No' : 'Yes'}</td>
                     <td className="text-steel">{v.vesselType || '—'}</td>
                     <td className="text-steel">{v.vesselImo || '—'}</td>
                     <td className="text-steel">{v.vesselMmsi || '—'}</td>
@@ -509,7 +535,40 @@ export default function MasterVessel() {
               {editingId != null ? 'Edit Vessel' : 'Add Vessel'}
             </h2>
             <div className="modal__section">
-              <label htmlFor="vessel-name" className="modal__label">Vessel Name</label>
+              <label htmlFor="vessel-hub-code" className="modal__label">
+                <DataHubFieldCue>Hub Code</DataHubFieldCue>
+              </label>
+              <input
+                id="vessel-hub-code"
+                type="text"
+                className="modal__input"
+                value={form.hubCode}
+                onChange={(e) => setField('hubCode', e.target.value)}
+                maxLength={50}
+                placeholder="e.g. VSL-0001"
+                disabled={saving}
+              />
+            </div>
+            <div className="modal__section">
+              <label
+                htmlFor="vessel-active"
+                className="modal__checkbox-label"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+              >
+                <input
+                  id="vessel-active"
+                  type="checkbox"
+                  checked={form.isActive !== false}
+                  onChange={(e) => setField('isActive', e.target.checked)}
+                  disabled={saving}
+                />
+                Active in Jetty Planning
+              </label>
+            </div>
+            <div className="modal__section">
+              <label htmlFor="vessel-name" className="modal__label">
+                <DataHubFieldCue>Vessel Name</DataHubFieldCue>
+              </label>
               <input
                 id="vessel-name"
                 type="text"
@@ -522,7 +581,7 @@ export default function MasterVessel() {
               />
             </div>
             <div className="modal__section">
-              <label htmlFor="vessel-imo" className="modal__label">IMO</label>
+              <label htmlFor="vessel-imo" className="modal__label"><DataHubFieldCue>IMO</DataHubFieldCue></label>
               <input
                 id="vessel-imo"
                 type="text"
@@ -534,7 +593,7 @@ export default function MasterVessel() {
               />
             </div>
             <div className="modal__section">
-              <label htmlFor="vessel-mmsi" className="modal__label">MMSI</label>
+              <label htmlFor="vessel-mmsi" className="modal__label"><DataHubFieldCue>MMSI</DataHubFieldCue></label>
               <input
                 id="vessel-mmsi"
                 type="text"
@@ -546,7 +605,7 @@ export default function MasterVessel() {
               />
             </div>
             <div className="modal__section">
-              <label htmlFor="vessel-sap" className="modal__label">SAP Code</label>
+              <label htmlFor="vessel-sap" className="modal__label"><DataHubFieldCue>SAP Code</DataHubFieldCue></label>
               <input
                 id="vessel-sap"
                 type="text"
@@ -558,7 +617,7 @@ export default function MasterVessel() {
               />
             </div>
             <div className="modal__section">
-              <label htmlFor="vessel-capacity" className="modal__label">Capacity (MT)</label>
+              <label htmlFor="vessel-capacity" className="modal__label"><DataHubFieldCue>Capacity (MT)</DataHubFieldCue></label>
               <input
                 id="vessel-capacity"
                 type="number"
@@ -570,7 +629,7 @@ export default function MasterVessel() {
               />
             </div>
             <div className="modal__section">
-              <label htmlFor="vessel-gt" className="modal__label">Gross Tonnage</label>
+              <label htmlFor="vessel-gt" className="modal__label"><DataHubFieldCue>Gross Tonnage</DataHubFieldCue></label>
               <input
                 id="vessel-gt"
                 type="number"
@@ -582,7 +641,7 @@ export default function MasterVessel() {
               />
             </div>
             <div className="modal__section">
-              <label htmlFor="vessel-draft" className="modal__label">Draft (m)</label>
+              <label htmlFor="vessel-draft" className="modal__label"><DataHubFieldCue>Draft (m)</DataHubFieldCue></label>
               <input
                 id="vessel-draft"
                 type="number"
@@ -594,7 +653,7 @@ export default function MasterVessel() {
               />
             </div>
             <div className="modal__section">
-              <label htmlFor="vessel-loa" className="modal__label">Length Overall</label>
+              <label htmlFor="vessel-loa" className="modal__label"><DataHubFieldCue>Length Overall</DataHubFieldCue></label>
               <input
                 id="vessel-loa"
                 type="text"
@@ -607,7 +666,7 @@ export default function MasterVessel() {
               />
             </div>
             <div className="modal__section">
-              <label htmlFor="vessel-type" className="modal__label">Vessel Type</label>
+              <label htmlFor="vessel-type" className="modal__label"><DataHubFieldCue>Vessel Type</DataHubFieldCue></label>
               <select
                 id="vessel-type"
                 className="modal__input"
@@ -622,7 +681,7 @@ export default function MasterVessel() {
               </select>
             </div>
             <div className="modal__section">
-              <label htmlFor="vessel-lambung" className="modal__label">Hull Type</label>
+              <label htmlFor="vessel-lambung" className="modal__label"><DataHubFieldCue>Hull Type</DataHubFieldCue></label>
               <select
                 id="vessel-lambung"
                 className="modal__input"
@@ -637,7 +696,7 @@ export default function MasterVessel() {
               </select>
             </div>
             <div className="modal__section">
-              <label htmlFor="vessel-charter" className="modal__label">Charter Type</label>
+              <label htmlFor="vessel-charter" className="modal__label"><DataHubFieldCue>Charter Type</DataHubFieldCue></label>
               <select
                 id="vessel-charter"
                 className="modal__input"
@@ -664,7 +723,7 @@ export default function MasterVessel() {
                   onChange={(e) => setField('heater', e.target.checked)}
                   disabled={saving}
                 />
-                Heater
+                <DataHubFieldCue>Heater</DataHubFieldCue>
               </label>
             </div>
             <div className="modal__footer">

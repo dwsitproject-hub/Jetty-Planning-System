@@ -17,12 +17,36 @@ const FIELD_LABELS = {
   heater: 'Heater',
   type_lambung: 'Hull Type',
   type_charter: 'Charter Type',
+  code: 'Term code',
+  description: 'Description',
+  name: 'Name',
+  short_name: 'Short name',
+  commodity_type: 'Type',
+  kl_to_mt_factor: 'KL→MT factor',
+  default_metric_id: 'Default unit',
+  hs_code: 'HS code',
+  unlocode: 'UN/LOCODE',
+  country: 'Country',
+  is_active: 'Active',
+  hub_site_id: 'Hub site (stored only)',
 }
 
 function displayValue(v) {
   if (v == null || v === '') return '—'
   if (typeof v === 'boolean') return v ? 'Yes' : 'No'
   return String(v)
+}
+
+/** Resolve default_metric_id to metric.label (fallback code, then raw id). */
+function formatFieldValue(column, v, metricLabelsById) {
+  if (column === 'default_metric_id') {
+    if (v == null || v === '') return '—'
+    const id = Number(v)
+    if (Number.isFinite(id) && metricLabelsById && metricLabelsById[id] != null) {
+      return String(metricLabelsById[id])
+    }
+  }
+  return displayValue(v)
 }
 
 function fieldLabel(column) {
@@ -38,6 +62,7 @@ function SyncReviewGroup({
   onToggle,
   onSelectAll,
   applying,
+  metricLabelsById,
 }) {
   const {
     page,
@@ -104,12 +129,18 @@ function SyncReviewGroup({
                           <li key={column}>
                             <span className="datahub-sync__diff-field">{fieldLabel(column)}</span>
                             {groupKey === 'new' ? (
-                              <span className="datahub-sync__diff-new">{displayValue(change.to)}</span>
+                              <span className="datahub-sync__diff-new">
+                                {formatFieldValue(column, change.to, metricLabelsById)}
+                              </span>
                             ) : (
                               <>
-                                <span className="datahub-sync__diff-old">{displayValue(change.from)}</span>
+                                <span className="datahub-sync__diff-old">
+                                  {formatFieldValue(column, change.from, metricLabelsById)}
+                                </span>
                                 <span className="datahub-sync__diff-arrow" aria-hidden="true">→</span>
-                                <span className="datahub-sync__diff-new">{displayValue(change.to)}</span>
+                                <span className="datahub-sync__diff-new">
+                                  {formatFieldValue(column, change.to, metricLabelsById)}
+                                </span>
                               </>
                             )}
                           </li>
@@ -134,7 +165,7 @@ function SyncReviewGroup({
   )
 }
 
-function UnchangedList({ items }) {
+function UnchangedList({ items, recordLabel = 'vesselName' }) {
   const { page, setPage, totalPages, pagedRows, range } = useMasterTablePagination(items)
 
   return (
@@ -142,7 +173,7 @@ function UnchangedList({ items }) {
       <ul className="datahub-sync__unchanged">
         {pagedRows.map((item) => (
           <li key={item.id} className="text-steel">
-            {item.vesselName}
+            {item[recordLabel] ?? item.vesselName}
           </li>
         ))}
       </ul>
@@ -170,6 +201,9 @@ export default function DataHubSyncReviewModal({
   onApply,
   onDiscard,
   onClose,
+  recordNoun = 'vessels',
+  newHint = 'Vessels not yet in the JPS master.',
+  metricLabelsById = null,
 }) {
   const [selectedIds, setSelectedIds] = useState(() =>
     new Set((items || []).filter((i) => i.decision === 'approved' && i.diffKind !== 'unchanged').map((i) => i.id))
@@ -216,9 +250,14 @@ export default function DataHubSyncReviewModal({
       >
         <h2 id="datahub-sync-title" className="modal__title">
           Review DataHub sync #{run?.id}
+          {run?.source === 'webhook' ? (
+            <span className="master-hub-badge master-hub-badge--shared" style={{ marginLeft: '0.5rem', fontSize: '0.65em' }}>
+              Webhook
+            </span>
+          ) : null}
         </h2>
         <p className="text-steel">
-          {run?.hubRecordCount ?? 0} vessels read from DataHub: {run?.newCount ?? 0} new,{' '}
+          {run?.hubRecordCount ?? 0} {recordNoun} read from DataHub: {run?.newCount ?? 0} new,{' '}
           {run?.changedCount ?? 0} changed, {run?.unchangedCount ?? 0} unchanged. Nothing is written
           until you apply.
         </p>
@@ -239,16 +278,18 @@ export default function DataHubSyncReviewModal({
             onToggle={toggle}
             onSelectAll={(on) => setGroup('changed', on)}
             applying={applying}
+            metricLabelsById={metricLabelsById}
           />
           <SyncReviewGroup
             groupKey="new"
             title="New"
-            hint="Vessels not yet in the JPS master."
+            hint={newHint}
             rows={groups.new}
             selectedIds={selectedIds}
             onToggle={toggle}
             onSelectAll={(on) => setGroup('new', on)}
             applying={applying}
+            metricLabelsById={metricLabelsById}
           />
           {groups.unchanged.length > 0 && (
             <section className="datahub-sync__group">

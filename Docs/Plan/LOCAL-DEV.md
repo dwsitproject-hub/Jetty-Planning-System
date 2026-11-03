@@ -2,28 +2,32 @@
 
 ## Option A — API in Docker (recommended)
 
-No need to run `npm install` in **Backend** on your PC; dependencies install inside the container.
+No need to run `npm run dev` in **Backend** on your PC while testing; the API runs in **`jps-api`** with live-mounted `./Backend/src`.
 
-1. **Terminal 1 — Backend folder**
+**Do not** run host `npm run dev` in Backend at the same time — both use port **3000** and the Vite proxy will hit the wrong process.
+
+1. **Terminal 1 — repo root (canonical stack: `jps-db` + `jps-api`)**
 
    ```powershell
-   cd "d:\Cursor\Jetty Planning System\Backend"
-   docker compose up -d --build
-   docker compose logs -f
+   cd "d:\Cursor\Jetty Planning System"
+   docker compose --env-file Backend/.env -f docker-compose.backend.yml -f docker-compose.local.yml up -d --build
+   docker compose --env-file Backend/.env -f docker-compose.backend.yml -f docker-compose.local.yml logs -f jps-api
    ```
 
-   Use **`-d` (detached)**. On many Windows setups, **`docker compose up` without `-d`** stops after *Attaching to jps-api, jps-db* and **never starts** the containers — then `docker ps -a` shows **Created** (not **Up**) and **logs are empty**.
+   Use **`-d` (detached)**. On Windows, foreground `docker compose up` without `-d` can hang at *Attaching to…* with containers stuck **Created** — use detached mode, then `docker ps`.
 
    - API: **http://localhost:3000**
-   - Postgres: **localhost:5433**
+   - Postgres (host tools): **localhost:5436** (`127.0.0.1` only)
 
-   If containers are stuck **Created**, run: `docker compose up -d` then `docker ps` — both should be **Up**.
+   Migrations (inside the API container):
 
-2. **CORS** — In `Backend\.env` (used by Docker if you pass `env_file` or set vars), ensure the frontend origin is allowed, e.g.:
+   ```powershell
+   docker compose --env-file Backend/.env -f docker-compose.backend.yml -f docker-compose.local.yml exec jps-api npm run migrate
+   ```
 
-   `CORS_ORIGIN=http://localhost:5173`
+   **Alternate (Backend-only compose, fresh DB on :5433):** only if you do **not** already have a `jps-db` container from the root stack — see `Backend/docker-compose.yml`.
 
-   (Match the compose file / Dockerfile if they load `.env`.)
+2. **CORS** — In `Backend\.env`, ensure the frontend origin is allowed, e.g. `CORS_ORIGIN=http://localhost:5173,http://127.0.0.1:5173` (loaded via `docker-compose.local.yml` `env_file`).
 
 3. **Terminal 2 — Frontend folder (preferred)**
 

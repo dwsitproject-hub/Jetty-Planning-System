@@ -466,9 +466,21 @@ External business systems can submit **Shipping Instructions** into JPS without 
 | **Security (summary)** | HTTPS + **`x-api-key`** header per partner; rate limit **120 requests/minute** per key. Keys are **not** port-scoped; each request must include a valid **`port_hub_code`** (unknown hub code is rejected). |
 | **Operator monitoring** | **Admin → System Health Dashboard** (`/admin/operations`) shows a **Partner Integration API** card: active keys, last API activity, submissions in the last 7 days, and per-partner usage. Manage keys under **Admin → Partner API Keys** (`/admin/partner-api`). See **§2.31**. |
 | **Vessel resolution (master link)** | Partner payload uses **`vessel_hub_code`** (DataHub vessel code) as the **primary identifier** — sufficient alone. JPS resolves **`master_vessels`**, sets **`master_vessel_id`**, and snapshots name/LOA/GT/draft onto the new plan. Optional **`vessel_name`** cross-checks the master when both are sent. When **`vessel_hub_code`** is omitted, **`vessel_name`** must match **exactly one** active master vessel (case-insensitive). **201/GET** return canonical **`vessel_name`** and **`vessel_hub_code`**. Partner API **v4.2**. See **§2.30**. |
-| **Webhooks & milestones** | Partners register **`POST /webhooks`**; JPS pushes signed **`status.changed`** and **`schedule.updated`** (berthing milestones and KLIP **Hose On/Off** window — **§2.24**). **GET** returns **`cargo_ops_start_at`** / **`cargo_ops_end_at`**. Contract **v5.5**; header **`X-JPS-API-Version: 5.5`**. |
+| **Webhooks & milestones (v5.0)** | Partners register **`POST /webhooks`**; JPS pushes signed **`status.changed`** (approve/reject/allocate/sail) and **`schedule.updated`** (TA, ETB, TB, ETC, TC, cast off, sailed). **GET** returns enriched **`approval`** + **`schedule`** blocks. Polling remains supported. See **§2.24**. |
 
-Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.33**, **§0.35**, **§0.37**–**§0.42**. Migrations **084**–**086**, **118**, **119** (webhooks). Internal test guide: **INBOUND-SHIPPING-INSTRUCTION-API-TEST-GUIDE.md**; admin webhooks: **PARTNER-INTEGRATION-WEBHOOKS-ADMIN.md**.
+Technical contract: **TECH-SPEC-Jetty-Planning-System.md §0.33**, **§0.35**, **§0.37**. Migrations **084**–**086**, **118**, **119** (webhooks).
+
+### 2.24 Partner webhooks and berthing milestones (v5.0)
+
+| Area | Behaviour |
+|------|------------|
+| **Source of truth** | JPS operators update approval status and berthing milestones in the web app; partners **receive** updates (no inbound POST of TA/TB/etc.). |
+| **Webhook registration** | **`POST/PATCH/GET/DELETE /api/v1/integrations/webhooks`** per API key (max 3 active endpoints). |
+| **Events** | **`status.changed`**, **`schedule.updated`** — at-least-once delivery with HMAC signature verification. |
+| **Partner status `Sailed`** | When vessel is recorded as departed (**`operations.status = SAILED`**). |
+| **Fallback** | **`GET /shipping-instructions/{id}`** includes **`schedule`** and **`approval`** objects (additive vs v4.x). |
+
+Partner guide: **INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md v5.0**.
 
 ### 2.24 Partner webhooks and berthing milestones (v5.5)
 

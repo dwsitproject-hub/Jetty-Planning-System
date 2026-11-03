@@ -1,6 +1,9 @@
 # Jetty Planning System - Backend development (Docker-only)
 # Run from Backend folder.
 #
+# If you already have jps-db from the repo-root stack (docker-compose.backend.yml, Postgres :5436),
+# use that instead — see Docs/Plan/LOCAL-DEV.md Option A (docker-compose.local.yml overlay).
+#
 # IMPORTANT (Windows / Docker Desktop): Foreground `docker compose up` often hangs after
 # "Attaching to jps-api, jps-db" and NEVER starts containers — `docker ps -a` shows STATUS "Created".
 # Always use detached mode, then follow logs:
@@ -34,6 +37,8 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: jps-api
+    env_file:
+      - .env
     ports:
       - "${PORT:-3000}:3000"
     environment:

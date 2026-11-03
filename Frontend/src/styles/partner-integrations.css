@@ -1,0 +1,292 @@
+/**
+ * Admin → Partner integrations (API keys, webhooks, deliveries).
+ * Clean master–detail layout: quiet sidebar list + card-based detail panels.
+ */
+
+.partner-integrations-page__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+  flex-wrap: wrap;
+}
+
+.partner-integrations-page__header-text {
+  flex: 1 1 420px;
+  min-width: 0;
+}
+
+.partner-integrations-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: var(--spacing-4);
+  align-items: flex-start;
+  margin-top: var(--spacing-3);
+}
+
+@media (max-width: 860px) {
+  .partner-integrations-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Sidebar --------------------------------------------------------------- */
+
+.partner-integrations-sidebar {
+  padding: var(--spacing-3) 0;
+  position: sticky;
+  top: var(--spacing-3);
+}
+
+.partner-integrations-sidebar__title {
+  margin: 0 var(--spacing-3) var(--spacing-2);
+  font-family: var(--font-primary);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-steel);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.partner-integrations-nav {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.partner-integrations-nav__item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 10px var(--spacing-3);
+  border: none;
+  border-left: 3px solid transparent;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font-primary);
+  color: var(--color-text-charcoal);
+}
+
+.partner-integrations-nav__item:hover {
+  background: var(--color-bg-lighter);
+}
+
+.partner-integrations-nav__item.is-active {
+  background: rgba(196, 58, 49, 0.07);
+  border-left-color: var(--color-primary);
+}
+
+.partner-integrations-nav__name {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+}
+
+.partner-integrations-nav__item.is-active .partner-integrations-nav__name {
+  color: var(--color-primary);
+}
+
+.partner-integrations-nav__slug {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-steel);
+}
+
+.partner-integrations-nav__badge {
+  margin-top: 2px;
+}
+
+.partner-integrations-sidebar__empty {
+  margin: 0 var(--spacing-3);
+  color: var(--color-text-steel);
+  font-size: var(--font-size-small);
+}
+
+/* Content ----------------------------------------------------------------- */
+
+.partner-integrations-content {
+  min-width: 0;
+}
+
+.partner-integrations-content__placeholder {
+  padding: var(--spacing-4);
+  text-align: center;
+  color: var(--color-text-steel);
+}
+
+/* Key/value credential list */
+
+.partner-integrations-kv {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  row-gap: 10px;
+  column-gap: var(--spacing-3);
+}
+
+.partner-integrations-kv dt {
+  margin: 0;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-steel);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding-top: 2px;
+}
+
+.partner-integrations-kv dd {
+  margin: 0;
+  font-size: var(--font-size-base);
+}
+
+.partner-integrations-card__footer {
+  margin-top: var(--spacing-3);
+  padding-top: var(--spacing-2);
+  border-top: 1px solid var(--color-border-light);
+}
+
+/* Text-link actions (mirrors DataHub's inline Deliveries / Remove links) */
+
+.partner-link-action {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--font-primary);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-primary);
+  cursor: pointer;
+}
+
+.partner-link-action:hover {
+  text-decoration: underline;
+}
+
+.partner-link-action--muted {
+  color: var(--color-text-steel);
+}
+
+.partner-link-action--danger {
+  color: var(--color-brand-red-deep);
+}
+
+.partner-webhook-table__sep {
+  margin: 0 6px;
+  color: var(--color-border-medium);
+}
+
+/* Webhooks table ------------------------------------------------------- */
+
+.partner-webhook-table th,
+.partner-webhook-table td {
+  padding: 10px var(--spacing-3);
+  vertical-align: middle;
+}
+
+.partner-webhook-table thead th {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-steel);
+  background: var(--color-bg-lighter);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.partner-webhook-table__url {
+  word-break: break-all;
+  font-size: var(--font-size-small);
+}
+
+.partner-webhook-table__actions-th,
+.partner-webhook-table__actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.partner-integrations-empty {
+  margin: 0;
+  padding: var(--spacing-4);
+  text-align: center;
+  color: var(--color-text-steel);
+  font-size: var(--font-size-small);
+  background: var(--color-bg-lighter);
+  border: 1px dashed var(--color-border-light);
+  border-radius: var(--radius-sm);
+}
+
+/* Add-webhook modal event checklist */
+
+.partner-integrations-events {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: var(--spacing-2);
+}
+
+.partner-integrations-events label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-normal);
+  cursor: pointer;
+}
+
+.partner-integrations-events input {
+  margin: 0;
+}
+
+/* Deliveries drawer ------------------------------------------------------ */
+
+.partner-deliveries-table th,
+.partner-deliveries-table td {
+  padding: 8px var(--spacing-2);
+  vertical-align: top;
+  font-size: var(--font-size-small);
+}
+
+.partner-deliveries-table thead th {
+  color: var(--color-text-steel);
+  font-weight: var(--font-weight-medium);
+  background: var(--color-bg-lighter);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.partner-deliveries-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--font-size-xs);
+}
+
+.partner-deliveries-error {
+  margin-top: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--color-brand-red-deep);
+}
+
+.partner-deliveries-payload {
+  margin: 0;
+  padding: var(--spacing-2);
+  max-height: 220px;
+  overflow: auto;
+  font-size: 11px;
+  background: var(--color-bg-lighter);
+  border-radius: var(--radius-sm);
+}
+
+.partner-deliveries-summary {
+  margin: 0 0 var(--spacing-2);
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+/* One-time secret reveal card (key create / webhook create) */
+
+.partner-secret-reveal {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.partner-secret-reveal input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}

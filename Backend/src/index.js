@@ -7,6 +7,7 @@ import 'express-async-errors';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
+import { datahubWebhookHandler } from './routes/datahub-webhook.js';
 import fs from 'fs';
 import http from 'http';
 import { verifyConnection } from './db.js';
@@ -52,6 +53,7 @@ import { requireAuth } from './middleware/auth.js';
 import { requirePortScope } from './middleware/port-scope.js';
 import { csrfProtection } from './middleware/csrf.js';
 import { startNotificationEmailWorker } from './lib/notification-email-worker.js';
+import { startIntegrationWebhookWorker } from './lib/integration-webhook-worker.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -74,6 +76,11 @@ app.use(
   }),
 );
 app.use(cookieParser());
+app.post(
+  '/api/v1/datahub/webhook',
+  express.raw({ type: 'application/json', limit: '1mb' }),
+  datahubWebhookHandler
+);
 app.use(express.json());
 /** Downstream Hub bridge: POST /auth/hub (urlencoded body); separate from /api/v1/auth/login */
 app.use('/auth', hubSsoRoutes);
@@ -197,6 +204,7 @@ async function start() {
     console.log(`JPS API listening on http://0.0.0.0:${PORT} (map host port in Docker)`);
   });
   startNotificationEmailWorker();
+  startIntegrationWebhookWorker();
 }
 
 start();

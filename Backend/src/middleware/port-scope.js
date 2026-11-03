@@ -1,4 +1,5 @@
 import { pool } from '../db.js';
+import { portJoinVisible } from '../lib/port-active-filter.js';
 
 const NO_PORT_MESSAGE = 'No port assigned, please contact Jetty Planning System Admin';
 
@@ -6,7 +7,7 @@ export async function loadUserAssignedPorts(userId) {
   const result = await pool.query(
     `SELECT p.id, p.name, p.schedule_timezone, p.allow_multi_jetty_berthing
      FROM user_ports up
-     JOIN ports p ON p.id = up.port_id AND p.deleted_at IS NULL
+     JOIN ports p ON p.id = up.port_id AND ${portJoinVisible('p')}
      WHERE up.user_id = $1 AND up.deleted_at IS NULL
      ORDER BY p.name ASC, p.id ASC`,
     [userId]

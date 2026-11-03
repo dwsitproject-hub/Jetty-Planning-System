@@ -63,7 +63,7 @@ function ageMs(iso) {
  */
 export async function checkAtgSync(db) {
   const portsR = await db.query(
-    `SELECT id, name FROM ports WHERE deleted_at IS NULL ORDER BY LOWER(name), id`
+    `SELECT id, name FROM ports WHERE deleted_at IS NULL AND is_active IS TRUE ORDER BY LOWER(name), id`
   );
   const ports = [];
   let totalEnabled = 0;

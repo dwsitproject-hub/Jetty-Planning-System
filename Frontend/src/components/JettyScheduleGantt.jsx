@@ -247,7 +247,6 @@ export default function JettyScheduleGantt({
   closeHint = '',
   onManage,
   railRows,
-  /** Open the existing create-shipment-plan modal. Omit to hide the toolbar button. */
   onCreatePlan,
 }) {
   const { t: tAlloc } = useTranslation('allocation')
@@ -1500,9 +1499,10 @@ export default function JettyScheduleGantt({
     </>
   )
 
-  const LayoutTag = Fragment
-  const layoutProps = {}
-  // Rail stays outside horizontal scroll (always visible) and below the date header row.
+  // Without a rail the original DOM is unchanged (Fragment); with a rail the Gantt and the rail
+  // sit side by side.
+  const LayoutTag = railEnabled ? 'div' : Fragment
+  const layoutProps = railEnabled ? { className: 'jetty-schedule-gantt__layout' } : {}
   const ChartShell = railEnabled ? 'div' : Fragment
   const chartShellProps = railEnabled
     ? { className: 'jetty-schedule-gantt__chart-with-rail', ref: chartShellRef }
@@ -1819,6 +1819,15 @@ export default function JettyScheduleGantt({
       ) : null}
       </ChartShell>
       </div>
+      {railEnabled ? (
+        <UnallocatedRail
+          rows={railRows}
+          canDrag={canEditSchedule && !exporting}
+          canScheduleRow={canScheduleRailRow}
+          onCardPointerDown={handleRailPointerDown}
+          onSelect={handleRailSelect}
+        />
+      ) : null}
       </LayoutTag>
 
       {pendingChange ? (

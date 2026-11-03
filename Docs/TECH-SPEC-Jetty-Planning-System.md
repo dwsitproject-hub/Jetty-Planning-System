@@ -262,6 +262,44 @@ Tests: **`npm run test:admin-ops-checks`**, **`npm run test:admin-ops-alerts`**.
 
 **Error codes (integration envelope):** **`INVALID_API_KEY`**, **`VALIDATION_ERROR`**, **`DUPLICATE_REFERENCE`**, **`INVALID_STATE`**, **`NOT_FOUND`**, **`RATE_LIMITED`**, **`INTERNAL_ERROR`**.
 
+### 0.37 Integration webhooks + enriched partner status (v5.0) (2026-09-25)
+
+**Migration `119_integration_webhooks.sql`:** **`integration_webhook_endpoints`**, **`integration_webhook_deliveries`** (outbox).
+
+**Routes (`/api/v1/integrations/webhooks`):** **`POST`** register HTTPS URL + **`events[]`**; **`PATCH`** update; **`GET`** list; **`DELETE`** deactivate. Webhook secret encrypted at rest; shown once on create.
+
+**Outbound delivery:** After operator actions (plan approve/reject/depart, **`PUT /allocation/arrival`**, operation sign-off/depart), **`triggerPartnerWebhooksDeferred`** enqueues **`status.changed`** and/or **`schedule.updated`**. Worker **`integration-webhook-worker.js`** POSTs signed payloads (**`X-JPS-Signature`**, **`X-JPS-Delivery-Id`**) with retry backoff.
+
+**Enriched GET:** **`buildPartnerInstructionPayload`** adds **`plan_reference`**, **`approval`**, **`schedule`** (TA, ETB, TB, ETC, TC, cast off, sailed), **`etr_minutes`**. Partner status **`Sailed`** when **`operations.status = SAILED`**. Response header **`X-JPS-API-Version: 5.0`**.
+
+**Admin UI (2026-09-28):** **`GET/POST/PATCH /api/v1/integration-admin/:keyId/webhooks`** and delivery log **`GET .../deliveries`** for JPS operators; partners may still use **`/integrations/webhooks`**. See **`Docs/Guide/PARTNER-INTEGRATION-WEBHOOKS-ADMIN.md`**.
+
+### 0.38 Partner document links (v5.1) (2026-09-28)
+
+**Migration `123_si_partner_document_urls.sql`:** **`shipping_instructions.partner_si_document_url`**, **`partner_contract_document_url`**, **`partner_bl_document_url`**.
+
+**Integration API:** Optional **`shipping_instruction_document_url`**, **`contract_document_url`**, **`bl_document_url`** on POST and PATCH (Pending). Validated as HTTPS (or HTTP when **`INTEGRATION_WEBHOOK_ALLOW_HTTP=true`**). Echoed on enriched GET and webhook **`data`**. Internal SI API exposes camelCase **`partnerSiDocumentUrl`**, etc.; read-only in **`SiDetailModal`**. Header **`X-JPS-API-Version: 5.1`**.
+
+### 0.39 Partner catalog API (v5.1) (2026-09-28)
+
+**Purpose:** DataHub-style self-describing discovery so partner integrations can read the live field contract instead of hard-coding it from the handoff doc. No schema changes — computed on request from existing validation constants and master data.
+
+**Lib — `Backend/src/lib/integration-catalog.js`:** **`buildIntegrationCatalog(db)`** returns **`{api_version, auth_header, entities[], count}`**; each entity has **`slug, name, path, methods[], description, fields[]`** (plus **`limits`** for `webhook`). **`getIntegrationCatalogEntity(db, slug)`** returns one entity or `null`. Field descriptor: **`{key, type, required, patchable, maxLength, enumValues, description}`** (`ARRAY` fields also carry `items[]` for cargo lines). `enumValues` for `trade_term`, `surveyor_name`, and cargo `cargo_type` are read live via **`listValidTradeTermCodes`**/**`listValidSurveyorNames`**/`si_commodities`, so they never drift from what validation actually accepts. Entities covered: `shipping-instruction`, `webhook`, `term`, `agent`, `surveyor`, `shipper`, and informational `cargo-type`.
+
+**Routes (`/api/v1/integrations/catalog`):** **`GET /`** (list), **`GET /:entity`** (single entity, **`404 NOT_FOUND`** when unknown). Mounted alongside `/webhooks` inside `integrations.js`, inheriting the router's **`requireIntegrationKey`** + **`integrationRateLimit`** middleware — no new auth surface. See **`Docs/Guide/INBOUND-SHIPPING-INSTRUCTION-PARTNER-API.md` §3.8**.
+
+### 0.40 Partner port / commodity hub codes (v5.2) (2026-10-01)
+
+**Purpose:** Partners send DHM-style hub codes for port and commodity on **`POST /shipping-instructions`**, same pattern as **`vessel_hub_code`**.
+
+**Lib — `Backend/src/lib/integration-hub-resolve.js`:** **`validateIntegrationPortInput`**, **`resolvePortForIntegration`** (`ports.hub_code` → `port_id`); **`validateIntegrationCargoLineIdentifiers`**, **`resolveCargoCommodities`** (`si_commodities.hub_code` or **`short_name`** fallback). List helpers feed the catalog (`listPortsForCatalog`, `listCommoditiesForCatalog`, hub code enums).
+
+**API:** Optional **`port_hub_code`** / **`cargo[].cargo_hub_code`**; legacy **`port_id`** / **`cargo_type`** unchanged. Cross-check when both sent. Enriched GET/webhooks/201 include **`port_hub_code`**. Header **`X-JPS-API-Version: 5.2`**.
+
+**Catalog v5.2:** Entity **`port`** + **`referenceRows`**; **`cargo-type`** extended with **`hub_code`**; **`shipping-instruction`** documents dual identifiers.
+
+**Schema:** Uses existing **`ports.hub_code`** (migration **128**) and **`si_commodities.hub_code`** (**124**) — no new migration.
+
 ### 0.32 Overview tables — Commodity Qty column (`siBreakdownDisplay`) (2026-05-26)
 
 **Purpose:** Show **SI-declared cargo** (commodity name + quantity per breakdown line) in main overview tables without opening SI modals. A single **Commodity Qty** column replaces a separate **Commodity** + **Total Qty** pair because each cell already embeds the commodity name (e.g. `RPO 5.000 MT`).

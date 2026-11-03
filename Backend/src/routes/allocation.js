@@ -23,6 +23,7 @@ import {
   validatePlanSiReferencesForBerthing,
 } from '../lib/si-reference-validation.js';
 import { validateBerthingTimeline } from '../lib/validate-schedule-timeline.js';
+import { triggerPartnerWebhooksDeferred } from '../lib/integration-webhooks.js';
 import { assertBerthPlanJettyAllowed } from '../lib/berth-plan-validation.js';
 
 const router = express.Router();
@@ -1341,6 +1342,10 @@ router.put('/arrival', async (req, res) => {
         }
       }
       await client.query('COMMIT');
+      triggerPartnerWebhooksDeferred({
+        shipmentPlanId: shipmentPlanIdResolved,
+        eventTypes: ['schedule.updated'],
+      });
       writeActivityLog({
         pageKey: 'allocation-plan',
         action: 'update',
@@ -1778,6 +1783,11 @@ router.put('/arrival', async (req, res) => {
     }
 
     await client.query('COMMIT');
+    triggerPartnerWebhooksDeferred({
+      shipmentPlanId: shipmentPlanId ?? undefined,
+      shippingInstructionId: opRow.shipping_instruction_id ?? undefined,
+      eventTypes: ['schedule.updated', 'status.changed'],
+    });
     let stamp = { recordLastUpdatedAt: null, recordLastUpdatedByDisplayName: null };
     try {
       stamp = await selectOperationRecordStamp(opRow.id);

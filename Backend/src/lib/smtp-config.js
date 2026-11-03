@@ -76,21 +76,45 @@ export async function smtpPostSendDelay() {
   if (ms > 0) await sleepMs(ms);
 }
 
-/** Delay (if configured), close transport, clear cache — call after each sendMail. */
-export async function finalizeSmtpTransport(transport) {
-  if (isSmtpHubParityMode()) {
-    invalidateSmtpTransportCache();
-    return;
-  }
-  await smtpPostSendDelay();
+/**
+ * @deprecated Send path uses sendSmtpMail (pre-QUIT delay). Kept for compatibility; clears transport cache only.
+ */
+export async function finalizeSmtpTransport(_transport) {
   invalidateSmtpTransportCache();
-  if (transport && typeof transport.close === 'function') {
-    try {
-      await transport.close();
-    } catch {
-      /* ignore */
-    }
+}
+
+/** True when env SMTP is complete enough to send. */
+export function isSmtpSendingConfigured(cfg) {
+  return Boolean(cfg?.enabled && cfg?.host && cfg?.user && cfg?.pass);
+}
+
+/**
+ * Options for nodemailer SMTPConnection (graceful send path).
+ * @param {Awaited<ReturnType<typeof getEffectiveSmtpConfig>>} cfg
+ */
+export function buildSmtpConnectionOptions(cfg) {
+  if (!cfg?.enabled || !cfg.host) return null;
+  const port = Number(cfg.port) || 587;
+  const secure = Boolean(cfg.secure) || port === 465;
+  const hubParity = isSmtpHubParityMode();
+  const requireTLS = hubParity ? false : getSmtpRequireTls(port, secure);
+  const base = {
+    host: cfg.host,
+    port,
+    secure,
+    auth: cfg.user ? { user: cfg.user, pass: cfg.pass || '' } : undefined,
+    tls: { rejectUnauthorized: cfg.rejectUnauthorized !== false },
+  };
+  if (hubParity) {
+    return base;
   }
+  return {
+    ...base,
+    requireTLS,
+    connectionTimeout: 20_000,
+    greetingTimeout: 15_000,
+    socketTimeout: 25_000,
+  };
 }
 
 function envFromAddress(user) {
