@@ -277,6 +277,8 @@ export function mergePreCheckSubRowsToPreData(subRows, scheduleIana = getSchedul
         merged.moistureAverage = row.moistureAverage ?? ''
         merged.dobi = row.dobi ?? ''
         merged.iodineValue = row.iodineValue ?? ''
+        merged.commodities = Array.isArray(row.commodities) ? row.commodities : []
+        merged.legacyUnassigned = row.legacyUnassigned || null
       }
       if (section === 'norAccepted') {
         const p = row.payload && typeof row.payload === 'object' ? row.payload : {}

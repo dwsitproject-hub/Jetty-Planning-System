@@ -669,6 +669,86 @@ table.data-table th {
 }
 table.data-table tr:hover td { background: var(--color-bg-lighter); }
 
+/* Master lists: freeze Actions and the row name on the left, and keep row buttons compact. */
+.table-wrap--pin-actions {
+  --master-pin-actions: 12.5rem;
+}
+.table-wrap--pin-actions--pair {
+  --master-pin-actions: 8.5rem;
+}
+.table-wrap--pin-actions--single {
+  --master-pin-actions: 5.75rem;
+}
+.table-wrap--pin-actions table.data-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.table-wrap--pin-actions:not(.table-wrap--pin-identity) .allocation-table__action-col {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  width: var(--master-pin-actions);
+  min-width: var(--master-pin-actions);
+  max-width: var(--master-pin-actions);
+  box-sizing: border-box;
+  background: var(--color-bg-white, #fff);
+}
+.table-wrap--pin-actions:not(.table-wrap--pin-identity) thead .allocation-table__action-col,
+.table-wrap--pin-actions:not(.table-wrap--pin-identity) tr > th.allocation-table__action-col {
+  z-index: 4;
+  background: var(--color-bg-lighter);
+}
+.table-wrap--pin-actions:not(.table-wrap--pin-identity) tbody td:nth-child(2),
+.table-wrap--pin-actions:not(.table-wrap--pin-identity) thead th:nth-child(2),
+.table-wrap--pin-actions:not(.table-wrap--pin-identity) tr > th:nth-child(2) {
+  position: sticky;
+  left: var(--master-pin-actions);
+  z-index: 2;
+  background: var(--color-bg-white, #fff);
+  box-shadow: 4px 0 8px -4px rgba(0, 0, 0, 0.18);
+}
+.table-wrap--pin-actions:not(.table-wrap--pin-identity) thead th:nth-child(2),
+.table-wrap--pin-actions:not(.table-wrap--pin-identity) tr > th:nth-child(2) {
+  z-index: 3;
+  background: var(--color-bg-lighter);
+}
+.table-wrap--pin-identity :is(th, td):first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--color-bg-white, #fff);
+  box-shadow: 4px 0 8px -4px rgba(0, 0, 0, 0.18);
+}
+.table-wrap--pin-identity th:first-child {
+  z-index: 3;
+  background: var(--color-bg-lighter);
+}
+.table-wrap--pin-actions .allocation-table__action-btns {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  max-width: none;
+  gap: 0.35rem;
+}
+.table-wrap--pin-actions .allocation-table__action-col .btn,
+.table-wrap--pin-actions .allocation-table__action-col .btn--small {
+  min-height: 28px;
+  height: auto;
+  padding: 2px 8px;
+  font-size: var(--font-size-xs);
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.table-wrap--pin-actions table.data-table tbody tr:hover td {
+  background: color-mix(in srgb, var(--color-brand-red) 10%, white);
+}
+.table-wrap--pin-actions:not(.table-wrap--pin-identity) table.data-table tbody tr:hover td.allocation-table__action-col {
+  box-shadow: inset 3px 0 0 var(--color-brand-red);
+}
+.table-wrap--pin-identity table.data-table tbody tr:hover td:first-child {
+  box-shadow: inset 3px 0 0 var(--color-brand-red), 4px 0 8px -4px rgba(0, 0, 0, 0.18);
+}
+
 /* Page title */
 .page-title {
   font-family: var(--font-heading);

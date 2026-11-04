@@ -6,6 +6,8 @@
   "createNewPlan": "Rencana pengiriman baru",
   "createNewPlanToolbar": "Rencana baru",
   "jettySchematicHistoricalHint": "Menampilkan alokasi untuk {{date}}",
+  "vacantMore": "+{{count}} lagi",
+  "vacantShowLess": "Sembunyikan",
   "cardTimeSinceBerthing": "Berlabuh",
   "cardEtr": "ETR {{duration}}",
   "cardEtrTooltip": "Perkiraan waktu menyelesaikan sisa muatan (saldo ÷ laju)",

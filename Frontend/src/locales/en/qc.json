@@ -115,6 +115,10 @@
     "extractError": "Could not extract data from this document.",
     "removeError": "Could not remove the document."
   },
+  "workspace": {
+    "selectTitle": "Select a vessel to start sampling",
+    "selectHint": "Pick a vessel or shipping instruction from the list on the left."
+  },
   "conflict": {
     "message": "Someone else updated this sampling record since you opened it. Reload to see their changes, or overwrite with yours.",
     "reload": "Reload latest",
@@ -133,5 +137,20 @@
     "error": "Failed to save sampling.",
     "fixErrors": "Fix the highlighted fields before saving.",
     "pendingSample": "Finish or clear the sample you are typing before saving."
+  },
+  "decision": {
+    "approve": "Approve",
+    "hold": "Hold",
+    "reject": "Reject",
+    "out": "Out Spec",
+    "approve_in": "Approve (In Spec)",
+    "approve_out": "Approve (Out Spec)",
+    "reject_in": "Reject (In Spec)",
+    "reject_out": "Reject (Out Spec)",
+    "groupLabel": "QC decision",
+    "popupTitle": "Choose the lab result specification",
+    "remarkPlaceholder": "Remark (optional)",
+    "legacyTitle": "Earlier samples",
+    "legacyHint": "These samples were saved before each commodity had its own card. New results go on the cards below."
   }
 }

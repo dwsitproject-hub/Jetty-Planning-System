@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { fetchOperation } from '../api/operations'
 import {
   EMPTY_SAMPLING,
   deleteQcSamplingDocument,
@@ -7,6 +8,7 @@ import {
   saveQcSamplingSection,
 } from '../api/qc'
 import { recordsDiffer, validateSummaryFields } from '../utils/qcSampling'
+import { carryVisitOntoSingleCard, seedCommodityCards } from '../utils/samplingCommodity'
 import { useQcSamplingDraft } from './useQcSamplingDraft'
 import { useQcSamplingRecords } from './useQcSamplingRecords'
 
@@ -42,20 +44,45 @@ export function useQcSamplingEntry(operationId) {
     setState({ loading: true, error: '', header: null })
     setConflict(null)
     try {
-      const [header, server] = await Promise.all([
+      const [header, server, operation] = await Promise.all([
         fetchQcSamplingOperation(operationId),
         loadQcSamplingSection(operationId),
+        fetchOperation(operationId).catch(() => null),
       ])
       const local = draftRef.current.read()
       const serverMs = server.lastSavedAt ? new Date(server.lastSavedAt).getTime() : 0
+      const products = (header.commodities || []).length
+        ? header.commodities
+        : operation?.siCommodityOptions || []
+      const applyCards = (visit, existing) => {
+        const commodities = carryVisitOntoSingleCard(seedCommodityCards(existing, products), visit)
+        const moved =
+          commodities.length === 1 &&
+          commodities[0].documents === visit.documents &&
+          (visit.documents || []).length > 0
+        return { commodities, documents: moved ? [] : visit.documents }
+      }
       if (local && local.savedAt > serverMs) {
-        setSampling({ ...server, ...local.sampling, documents: server.documents })
+        const visit = { ...server, ...local.sampling, documents: server.documents }
+        const localCards = seedCommodityCards(local.sampling?.commodities, products)
+        const localHasFigures = localCards.some(
+          (card) =>
+            card.ffaAverage ||
+            card.moistureAverage ||
+            card.dobi ||
+            card.iodineValue ||
+            (card.records || []).length
+        )
+        setSampling({
+          ...visit,
+          ...applyCards(localHasFigures ? visit : server, localHasFigures ? local.sampling?.commodities : server.commodities),
+        })
         setUnsynced(recordsDiffer(local.sampling.records, server.records))
         setDirty(true)
         setRestored(true)
         setLocalSavedAt(local.savedAt)
       } else {
-        setSampling(server)
+        setSampling({ ...server, ...applyCards(server, server.commodities) })
         setUnsynced(false)
         setDirty(false)
         setRestored(false)
@@ -89,22 +116,65 @@ export function useQcSamplingEntry(operationId) {
   )
 
   const addFiles = useCallback(
-    (files) => {
-      const added = Array.from(files || []).map((f) => ({ name: f.name, url: URL.createObjectURL(f), file: f }))
-      if (added.length) edit((p) => ({ ...p, documents: [...p.documents, ...added] }))
+    (files, commodityId = null) => {
+      const added = Array.from(files || []).map((f) => ({
+        name: f.name,
+        url: URL.createObjectURL(f),
+        file: f,
+        commodityId,
+      }))
+      if (!added.length) return
+      if (commodityId == null) edit((p) => ({ ...p, documents: [...p.documents, ...added] }))
+      else {
+        edit((p) => ({
+          ...p,
+          commodities: (p.commodities || []).map((card) =>
+            Number(card.commodityId) === Number(commodityId)
+              ? { ...card, documents: [...(card.documents || []), ...added] }
+              : card
+          ),
+        }))
+      }
     },
     [edit]
   )
 
-  /** Local files drop instantly; saved ones are deleted on the server first. */
   const removeDocument = useCallback(
-    async (index) => {
-      const doc = sampling.documents[index]
+    async (index, commodityId = null) => {
+      if (commodityId == null) {
+        const doc = sampling.documents[index]
+        if (!doc) return
+        if (!doc.file && doc.id != null) await deleteQcSamplingDocument(operationId, doc.id)
+        setSampling((p) => ({ ...p, documents: p.documents.filter((_, i) => i !== index) }))
+        return
+      }
+      const card = (sampling.commodities || []).find((c) => Number(c.commodityId) === Number(commodityId))
+      const doc = card?.documents?.[index]
       if (!doc) return
       if (!doc.file && doc.id != null) await deleteQcSamplingDocument(operationId, doc.id)
-      setSampling((p) => ({ ...p, documents: p.documents.filter((_, i) => i !== index) }))
+      setSampling((p) => ({
+        ...p,
+        commodities: (p.commodities || []).map((c) =>
+          Number(c.commodityId) === Number(commodityId)
+            ? { ...c, documents: (c.documents || []).filter((_, i) => i !== index) }
+            : c
+        ),
+      }))
     },
-    [operationId, sampling.documents]
+    [operationId, sampling.documents, sampling.commodities]
+  )
+
+  const patchCommodity = useCallback(
+    (commodityId, patch) => {
+      if (patch.records) setUnsynced(true)
+      edit((p) => ({
+        ...p,
+        commodities: (p.commodities || []).map((card) =>
+          Number(card.commodityId) === Number(commodityId) ? { ...card, ...patch } : card
+        ),
+      }))
+    },
+    [edit, setUnsynced]
   )
 
   const discardLocalDraft = useCallback(async () => {
@@ -132,6 +202,8 @@ export function useQcSamplingEntry(operationId) {
         setSampling((p) => ({
           ...p,
           documents: out.documents,
+          commodities: out.commodities?.length ? out.commodities : p.commodities,
+          legacyUnassigned: out.legacyUnassigned ?? p.legacyUnassigned,
           lastSavedAt: out.lastSavedAt ?? p.lastSavedAt,
           status: mode === 'draft' ? 'In Progress' : 'Done',
         }))
@@ -169,6 +241,7 @@ export function useQcSamplingEntry(operationId) {
     replaceSampling,
     addFiles,
     removeDocument,
+    patchCommodity,
     discardLocalDraft,
     save,
     reload: load,

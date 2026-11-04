@@ -321,7 +321,7 @@ export default function MasterTanks() {
         ) : tanks.length === 0 ? (
           <p className="text-steel">No tanks for this port. Click Add Tank or Import CSV.</p>
         ) : (
-          <div className="table-wrap">
+          <div className="table-wrap table-wrap--pin-actions table-wrap--pin-actions--pair">
             <table className="data-table allocation-table">
               <thead>
                 <SortableFilterableTableHead
@@ -330,23 +330,13 @@ export default function MasterTanks() {
                   onSort={handleSort}
                   filters={filters}
                   onFilterChange={updateFilter}
-                  trailingBlankCols={1}
+                  leadingBlankCols={1}
+                  leadingBlankLabel="Actions"
                 />
               </thead>
               <tbody>
                 {displayRows.map((tank) => (
                   <tr key={tank.id} className="allocation-table__row">
-                    <td><strong>{tank.code || '—'}</strong></td>
-                    <td>{tank.name || '—'}</td>
-                    <td>
-                      {tank.description
-                        ? tank.description.length > 60
-                          ? `${tank.description.slice(0, 60)}…`
-                          : tank.description
-                        : '—'}
-                    </td>
-                    <td className="text-steel">{formatMasterCreatedLine(tank)}</td>
-                    <td className="text-steel">{formatMasterLastUpdatedLine(tank)}</td>
                     <td className="allocation-table__action-col">
                       <div className="allocation-table__action-btns">
                         <button
@@ -367,6 +357,17 @@ export default function MasterTanks() {
                         </button>
                       </div>
                     </td>
+                    <td><strong>{tank.code || '—'}</strong></td>
+                    <td>{tank.name || '—'}</td>
+                    <td>
+                      {tank.description
+                        ? tank.description.length > 60
+                          ? `${tank.description.slice(0, 60)}…`
+                          : tank.description
+                        : '—'}
+                    </td>
+                    <td className="text-steel">{formatMasterCreatedLine(tank)}</td>
+                    <td className="text-steel">{formatMasterLastUpdatedLine(tank)}</td>
                   </tr>
                 ))}
               </tbody>

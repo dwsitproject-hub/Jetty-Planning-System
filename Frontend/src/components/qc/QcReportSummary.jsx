@@ -4,17 +4,18 @@ import { MAX_SAMPLING_METRIC_CHARS } from '../../constants/inputLimits'
 const METRIC_FIELDS = ['ffaAverage', 'moistureAverage', 'dobi', 'iodineValue']
 
 /** Report summary figures plus the sampling time window and remark. */
-export default function QcReportSummary({ sampling, errors = {}, computed, onChange }) {
+export default function QcReportSummary({ sampling, errors = {}, computed, onChange, timesOnly = false }) {
   const { t } = useTranslation('qc')
-  const canUseComputed = computed.avgFfa != null || computed.avgMoisture != null
+  const canUseComputed = computed?.avgFfa != null || computed?.avgMoisture != null
 
   const useComputed = () => {
-    if (computed.avgFfa != null) onChange('ffaAverage', computed.avgFfa)
-    if (computed.avgMoisture != null) onChange('moistureAverage', computed.avgMoisture)
+    if (computed?.avgFfa != null) onChange('ffaAverage', computed.avgFfa)
+    if (computed?.avgMoisture != null) onChange('moistureAverage', computed.avgMoisture)
   }
 
   return (
     <>
+      {timesOnly ? null : (
       <section className="qc-card-block" aria-labelledby="qc-report-title">
         <h2 id="qc-report-title" className="qc-card-block__title">
           {t('entry.sectionReport')}
@@ -48,6 +49,7 @@ export default function QcReportSummary({ sampling, errors = {}, computed, onCha
         </button>
         <p className="qc-muted">{t('report.computedHint')}</p>
       </section>
+      )}
 
       <section className="qc-card-block" aria-labelledby="qc-time-title">
         <h2 id="qc-time-title" className="qc-card-block__title">

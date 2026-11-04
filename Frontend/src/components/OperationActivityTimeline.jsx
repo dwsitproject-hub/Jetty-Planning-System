@@ -17,6 +17,7 @@ import {
   activityLogRowCanDelete,
 } from '../utils/atBerthActivityLogNav'
 import { operationalActivityEventStatusForTimeline } from '../utils/operationalActivityEventStatus.js'
+import { QcDecisionPillRow } from './qc/QcDecisionPill'
 
 function cargoLineCommodityLabel(line) {
   const short = String(line?.commodityShortName || '').trim()
@@ -72,6 +73,16 @@ function timelineRowSchedule(ev) {
 function parseOperationalEntryId(ev) {
   const m = /^op-(\d+)$/.exec(String(ev.id || ''))
   return m ? parseInt(m[1], 10) : null
+}
+
+function TimelineQcDecisions({ decisions }) {
+  const list = Array.isArray(decisions) ? decisions.filter((card) => card?.decision) : []
+  if (list.length === 0) return null
+  return (
+    <div className="operation-activity-timeline__qc">
+      <QcDecisionPillRow commodities={list} />
+    </div>
+  )
 }
 
 function timelineStatusDisplay(ev) {
@@ -579,7 +590,10 @@ export default function OperationActivityTimeline({
       >
         {showPhaseColumn ? <td>{ev.phase || '—'}</td> : null}
         <td>{ev.title || '—'}</td>
-        <td className="operation-activity-timeline__status">{timelineStatusDisplay(ev)}</td>
+        <td className="operation-activity-timeline__status">
+          <div className="operation-activity-timeline__status-label">{timelineStatusDisplay(ev)}</div>
+          <TimelineQcDecisions decisions={ev.qcDecisions} />
+        </td>
         <td className="operation-activity-timeline__remark">
           <TimelineRemarkCell ev={ev} t={t} onViewRemark={openRemarkViewer} />
         </td>
@@ -677,7 +691,10 @@ export default function OperationActivityTimeline({
             </>
           ) : null}
           <dt>Status</dt>
-          <dd>{timelineStatusDisplay(ev)}</dd>
+          <dd>
+            {timelineStatusDisplay(ev)}
+            <TimelineQcDecisions decisions={ev.qcDecisions} />
+          </dd>
           <dt>Remark</dt>
           <dd className="operation-activity-timeline__remark">
             <TimelineRemarkCell ev={ev} t={t} onViewRemark={openRemarkViewer} />

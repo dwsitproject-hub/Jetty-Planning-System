@@ -78,5 +78,10 @@
   "flowPatternStdLoading": "Standar · Loading",
   "flowPatternStdUnloading": "Standar · Unloading",
   "flowPatternVesselTitle": "MT/jam per jam untuk panggilan ini",
-  "flowPatternVesselEmpty": "Belum ada laju kargo per jam untuk kapal ini."
+  "flowPatternVesselEmpty": "Belum ada laju kargo per jam untuk kapal ini.",
+  "flowPatternChartAria": "Rata-rata MT per jam menurut jam",
+  "flowPatternOvernight": "00:00–06:00",
+  "flowPatternTooltipHour": "{{hour}}:00",
+  "flowPatternTooltipSamples_other": "{{count}} sampel",
+  "qcDecision": "Keputusan QC"
 }

@@ -14,8 +14,10 @@ import {
   buildBerthsForSchematicDate,
   buildIncomingByJettyForDate,
   computeScheduleKpis,
+  splitVacantArrivalQueue,
 } from '../utils/jettyScheduleOccupancy'
-import { formatDateDisplay, formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
+import JettyVacantArrivals from './JettyVacantArrivals'
+import { formatDateDisplay } from '../utils/formatDateTimeDisplay'
 import { computeCargoProgress, formatSchematicProductCargoLine } from '../utils/cargoQtyDisplay'
 import { formatGanttMilestoneShort, formatHoseConveyorOnLine } from '../utils/ganttBarDisplay'
 import { commodityLongTitle } from '../utils/commodityShortTitle.js'
@@ -316,16 +318,6 @@ export default function JettySchematic({
     [scheduleList, selectedDate]
   )
 
-  /** Incoming vessel details (ETA/ETB/commodity/qty) looked up by name from schedule rows. */
-  const incomingRowByName = useMemo(() => {
-    const map = {}
-    for (const r of Array.isArray(scheduleList) ? scheduleList : []) {
-      const name = r?.vesselName
-      if (name && !map[name]) map[name] = r
-    }
-    return map
-  }, [scheduleList])
-
   const berths = displayBerths
   const interactive = typeof onSelectBerth === 'function'
   const canSelectVessel = typeof onSelectVessel === 'function'
@@ -465,15 +457,9 @@ export default function JettySchematic({
     return [...new Set([...names, ...spannedNames])]
   }
 
-  function formatIncomingList(val) {
-    if (Array.isArray(val)) return val.filter(Boolean)
-    if (typeof val === 'string' && val.trim()) return [val.trim()]
-    return []
-  }
-
   function jettyTooltip(berthId, cap, occupiedCount, occNames, incomingLabel) {
     const occLabel = occNames.length ? occNames.join(', ') : '—'
-    return `Jetty ${berthId}\nOccupied: ${occupiedCount}/${cap}\nCurrent : ${occLabel}\nIncoming : ${incomingLabel}`
+    return `Jetty ${berthId}\nOccupied: ${occupiedCount}/${cap}\nCurrent : ${occLabel}\nArrivals : ${incomingLabel}`
   }
 
   function formatMaterialDisplay(v) {
@@ -653,8 +639,11 @@ export default function JettySchematic({
     const occIds = berthOccupantIds(berth)
     const occNames = berthCurrentNames(berth, occIds)
     const occupiedCount = berthOccupiedCount(berth)
-    const incomingNames = formatIncomingList(displayIncoming[berthId])
-    const incomingLabel = incomingNames.length ? incomingNames.join(', ') : '—'
+    const arrivals = Array.isArray(displayIncoming[berthId]) ? displayIncoming[berthId] : []
+    const arrivalOverflow = splitVacantArrivalQueue(arrivals).rest.length > 0
+    const incomingLabel = arrivals.length
+      ? arrivals.map((e) => e.name).join(', ')
+      : '—'
     const isOos = (berth?.status || '') === 'Out of Service'
     const specLine = spec?.lengthM
       ? `\nJetty spec: ${spec.lengthM} m · draft ${spec.draft ?? '—'} · DWT ${spec.dwt != null ? spec.dwt.toLocaleString('en-US') : '—'}`
@@ -712,7 +701,7 @@ export default function JettySchematic({
             : computeSpanWidthPx(colIndex, stackPlacement, slot.occupant?.additionalBerthIds)
           if (spanWidthPx != null) slotClassName += ' jetty-schematic__lane--spanned-source'
 
-          const showIncomingThisVacant = isVacant && incomingNames.length > 0 && !firstVacantIncomingShown
+          const showIncomingThisVacant = isVacant && arrivals.length > 0 && !firstVacantIncomingShown
           if (showIncomingThisVacant) firstVacantIncomingShown = true
 
           // Vessel-vs-jetty fit (LOA / draft / DWT) for tooltip + proportional ship length
@@ -758,28 +747,7 @@ export default function JettySchematic({
               {renderLaneSuffix(laneLabel, laneSuffix)}
               <span className="jetty-slot__inner">
                 <span className="jetty-slot__line">Vacant</span>
-                {showIncomingThisVacant &&
-                  incomingNames.slice(0, 2).map((nm) => {
-                    const ir = incomingRowByName[nm]
-                    const eta = ir ? formatDateTimeDisplay(ir.etaDateTime || ir.eta) : null
-                    const etb = ir ? formatDateTimeDisplay(ir.etbDateTime || ir.etb) : null
-                    const cargo = ir
-                      ? [ir.commodityDisplay || ir.commodity, ir.totalQtyDisplay].filter(Boolean).join(' ')
-                      : null
-                    return (
-                      <span key={nm} className="jetty-slot__line jetty-slot__line--incoming jetty-incoming__block">
-                        <strong>Incoming: {nm}</strong>
-                        {eta ? <span className="jetty-incoming__meta">ETA {eta}</span> : null}
-                        {etb ? <span className="jetty-incoming__meta">ETB {etb}</span> : null}
-                        {cargo ? <span className="jetty-incoming__meta">{cargo}</span> : null}
-                      </span>
-                    )
-                  })}
-                {showIncomingThisVacant && incomingNames.length > 2 && (
-                  <span className="jetty-slot__line jetty-slot__line--incoming">
-                    +{incomingNames.length - 2} more
-                  </span>
-                )}
+                {showIncomingThisVacant ? <JettyVacantArrivals entries={arrivals} /> : null}
               </span>
             </>
           ) : (
@@ -804,9 +772,33 @@ export default function JettySchematic({
             const onLaneClick = isVacant
               ? () => onSelectBerth(berthId)
               : () => canSelectVessel && onSelectVessel(slot.vesselId)
+            const laneKey = `${berthId}-${slot.laneIndex}`
+            if (showIncomingThisVacant && arrivalOverflow) {
+              return (
+                <div
+                  key={laneKey}
+                  className={`jetty-schematic__lane jetty-schematic__lane--queue ${slotClassName}`}
+                  aria-label={tooltip}
+                  tabIndex={0}
+                  onClick={(e) => {
+                    if (e.target.closest('button')) return
+                    onLaneClick()
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.target !== e.currentTarget) return
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      onLaneClick()
+                    }
+                  }}
+                >
+                  {inner}
+                </div>
+              )
+            }
             return (
               <button
-                key={`${berthId}-${slot.laneIndex}`}
+                key={laneKey}
                 type="button"
                 className={`jetty-schematic__lane ${slotClassName}`}
                 onClick={onLaneClick}

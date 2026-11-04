@@ -259,7 +259,8 @@ export default function MasterSiLookup({
   const { displayRows, filters, updateFilter, sortState, handleSort } = useSortableFilterableRows(
     items,
     tableColumns,
-    { key: isCommodityMaster ? 'shortName' : 'value', dir: 'asc' }
+    { key: isCommodityMaster ? 'shortName' : 'value', dir: 'asc' },
+    isCommodityMaster ? { isActive: 'Yes' } : undefined
   )
   const [commodityPageSize, setCommodityPageSize] = useState(20)
   const commodityPaginationResetKey = useMemo(
@@ -809,7 +810,7 @@ export default function MasterSiLookup({
         ) : items.length === 0 ? (
           <p className="text-steel">No entries. Click Add {valueLabel} to add one.</p>
         ) : (
-          <div className="table-wrap">
+          <div className={`table-wrap table-wrap--pin-actions${isDataHubMaster ? '' : ' table-wrap--pin-actions--pair'}`}>
             <table className="data-table allocation-table">
               <thead>
                 <SortableFilterableTableHead
@@ -818,12 +819,46 @@ export default function MasterSiLookup({
                   onSort={handleSort}
                   filters={filters}
                   onFilterChange={updateFilter}
-                  trailingBlankCols={1}
+                  leadingBlankCols={1}
+                  leadingBlankLabel="Actions"
                 />
               </thead>
               <tbody>
                 {tableRows.map((it) => (
                   <tr key={it.id} className="allocation-table__row">
+                    <td className="allocation-table__action-col">
+                      <div className="allocation-table__action-btns">
+                        {isDataHubMaster && (
+                          <DataHubRecordSyncButton
+                            hubCode={it.hubCode}
+                            canEdit={canDoEdit}
+                            busy={syncing}
+                            syncing={syncingRecordId === it.id}
+                            onClick={() => handleRecordSync(it)}
+                          />
+                        )}
+                        <button
+                          type="button"
+                          className="btn btn--small btn--secondary"
+                          onClick={() => openEdit(it)}
+                          disabled={!canDoEdit}
+                          title={!canDoEdit ? 'Edit permission required.' : ''}
+                        >
+                          Edit
+                        </button>
+                        {showDelete && (
+                          <button
+                            type="button"
+                            className="btn btn--small btn--secondary"
+                            onClick={() => handleDelete(it)}
+                            disabled={!canDoDelete || deleting}
+                            title={!canDoDelete ? 'Delete permission required.' : ''}
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    </td>
                     {isCommodityMaster && (
                       <td>
                         <strong>{it.shortName ?? '—'}</strong>
@@ -882,39 +917,6 @@ export default function MasterSiLookup({
                     )}
                     <td className="text-steel">{formatMasterCreatedLine(it)}</td>
                     <td className="text-steel">{formatMasterLastUpdatedLine(it)}</td>
-                    <td className="allocation-table__action-col">
-                      <div style={{ display: 'inline-flex', gap: '0.5rem' }}>
-                        {isDataHubMaster && (
-                          <DataHubRecordSyncButton
-                            hubCode={it.hubCode}
-                            canEdit={canDoEdit}
-                            busy={syncing}
-                            syncing={syncingRecordId === it.id}
-                            onClick={() => handleRecordSync(it)}
-                          />
-                        )}
-                        <button
-                          type="button"
-                          className="btn btn--small btn--secondary"
-                          onClick={() => openEdit(it)}
-                          disabled={!canDoEdit}
-                          title={!canDoEdit ? 'Edit permission required.' : ''}
-                        >
-                          Edit
-                        </button>
-                        {showDelete && (
-                          <button
-                            type="button"
-                            className="btn btn--small btn--secondary"
-                            onClick={() => handleDelete(it)}
-                            disabled={!canDoDelete || deleting}
-                            title={!canDoDelete ? 'Delete permission required.' : ''}
-                          >
-                            Delete
-                          </button>
-                        )}
-                      </div>
-                    </td>
                   </tr>
                 ))}
               </tbody>

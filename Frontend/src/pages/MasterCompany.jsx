@@ -341,7 +341,7 @@ export default function MasterCompany() {
           <p id="company-directory-panel" className="text-steel">Loading companies…</p>
         ) : null}
         {directoryOpen && !loading ? (
-          <div id="company-directory-panel" className="table-wrap">
+          <div id="company-directory-panel" className="table-wrap table-wrap--pin-actions table-wrap--pin-actions--single">
             <table className="data-table allocation-table">
               <thead>
                 <SortableFilterableTableHead
@@ -350,7 +350,8 @@ export default function MasterCompany() {
                   onSort={handleSort}
                   filters={filters}
                   onFilterChange={updateFilter}
-                  trailingBlankCols={1}
+                  leadingBlankCols={1}
+                  leadingBlankLabel="Actions"
                 />
               </thead>
               <tbody>
@@ -361,6 +362,17 @@ export default function MasterCompany() {
                 ) : (
                   displayRows.map((row) => (
                     <tr key={row.id}>
+                      <td className="allocation-table__action-col">
+                        <div className="allocation-table__action-btns">
+                          <DataHubRecordSyncButton
+                            hubCode={row.hubCode}
+                            canEdit={canDoEdit}
+                            busy={syncing}
+                            syncing={syncingRecordId === row.id}
+                            onClick={() => handleRecordSync(row)}
+                          />
+                        </div>
+                      </td>
                       <td>{row.name}</td>
                       <td>{row.shortName || '—'}</td>
                       <td>{row.companyCodeSap || '—'}</td>
@@ -369,15 +381,6 @@ export default function MasterCompany() {
                       <td>{row.isActive === false ? 'No' : 'Yes'}</td>
                       <td>{formatMasterCreatedLine(row)}</td>
                       <td>{formatMasterLastUpdatedLine(row)}</td>
-                      <td className="allocation-table__action-col">
-                        <DataHubRecordSyncButton
-                          hubCode={row.hubCode}
-                          canEdit={canDoEdit}
-                          busy={syncing}
-                          syncing={syncingRecordId === row.id}
-                          onClick={() => handleRecordSync(row)}
-                        />
-                      </td>
                     </tr>
                   ))
                 )}

@@ -22,6 +22,8 @@ export const EMPTY_SAMPLING = Object.freeze({
   iodineValue: '',
   records: [],
   documents: [],
+  commodities: [],
+  legacyUnassigned: null,
   status: null,
   lastSavedAt: null,
 })
@@ -43,30 +45,44 @@ export function fetchQcSamplingOperation(operationId) {
 export async function loadQcSamplingSection(operationId) {
   const rows = await fetchSubProcesses(operationId, PHASE)
   const merged = mergePreCheckSubRowsToPreData(rows).sampling || {}
-  const docs = await fetchSubProcessDocuments(operationId, SUB_KEY, PHASE).catch(() => [])
+  const rawDocs = await fetchSubProcessDocuments(operationId, SUB_KEY, PHASE).catch(() => [])
+  const docs = (Array.isArray(rawDocs) ? rawDocs : []).map((d) => ({
+    id: d.id,
+    name: d.name,
+    url: d.url,
+    mimeType: d.mimeType ?? null,
+    commodityId: d.commodityId ?? null,
+  }))
+  const commodities = (merged.commodities || []).map((card) => ({
+    ...card,
+    documents: docs.filter((d) => Number(d.commodityId) === Number(card.commodityId)),
+  }))
   return {
     ...EMPTY_SAMPLING,
     ...merged,
+    commodities,
     records: (merged.records || []).map((r) => ({ ...r, id: r.id ?? newRecordId() })),
-    documents: (Array.isArray(docs) ? docs : []).map((d) => ({
-      id: d.id,
-      name: d.name,
-      url: d.url,
-      mimeType: d.mimeType ?? null,
-    })),
+    documents: docs.filter((d) => d.commodityId == null),
   }
 }
 
 const recordsPath = (operationId) => `/qc/sampling/operations/${operationId}/records`
-const pickRecordFields = ({ noPalka, ffa, moisture }) => ({ noPalka, ffa, moisture })
+const pickRecordFields = ({ noPalka, ffa, moisture, commodityId }) => ({
+  noPalka,
+  ffa,
+  moisture,
+  ...(commodityId != null ? { commodityId } : {}),
+})
 
 /** Single-sample writes; each resolves `{ record, records, updatedAt }` with the full, current list. */
 export const addQcSamplingRecord = (operationId, record) =>
   apiPost(recordsPath(operationId), pickRecordFields(record))
 export const updateQcSamplingRecord = (operationId, recordId, patch) =>
   apiPatch(`${recordsPath(operationId)}/${encodeURIComponent(recordId)}`, pickRecordFields({ ...patch }))
-export const removeQcSamplingRecord = (operationId, recordId) =>
-  apiDelete(`${recordsPath(operationId)}/${encodeURIComponent(recordId)}`)
+export const removeQcSamplingRecord = (operationId, recordId, commodityId) => {
+  const q = commodityId != null ? `?commodityId=${encodeURIComponent(commodityId)}` : ''
+  return apiDelete(`${recordsPath(operationId)}/${encodeURIComponent(recordId)}${q}`)
+}
 
 /**
  * Save the sampling section ('draft' = In Progress, 'final' = Done), then upload any files
@@ -76,21 +92,50 @@ export const removeQcSamplingRecord = (operationId, recordId) =>
  */
 export async function saveQcSamplingSection(operationId, sampling, mode, options = {}) {
   const sent = await upsertSubProcess(operationId, SUB_KEY, buildSamplingPayload(sampling, mode, options))
-  const pending = (sampling.documents || []).filter((d) => d?.file)
-  let documents = sampling.documents || []
-  if (pending.length > 0) {
+  const pending = [
+    ...(sampling.documents || []).filter((d) => d?.file),
+    ...(sampling.commodities || []).flatMap((card) =>
+      (card.documents || []).filter((d) => d?.file).map((d) => ({ ...d, commodityId: card.commodityId }))
+    ),
+  ]
+  const saved = []
+  const groups = new Map()
+  for (const doc of pending) {
+    const key = doc.commodityId != null ? String(doc.commodityId) : ''
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(doc)
+  }
+  for (const [key, docs] of groups) {
     const upload = await uploadSubProcessDocuments(
       operationId,
       SUB_KEY,
       PHASE,
-      pending.map((d) => d.file)
+      docs.map((d) => d.file),
+      key || null
     )
-    const saved = Array.isArray(upload?.items)
-      ? upload.items.map((x) => ({ id: x.id, name: x.name, url: x.url }))
-      : []
-    documents = [...documents.filter((d) => !d?.file), ...saved]
+    for (const item of Array.isArray(upload?.items) ? upload.items : []) {
+      saved.push({
+        id: item.id,
+        name: item.name,
+        url: item.url,
+        commodityId: item.commodityId ?? (key ? Number(key) : null),
+      })
+    }
   }
-  return { lastSavedAt: sent?.updatedAt ?? null, documents }
+  const kept = (docs) => (docs || []).filter((d) => !d?.file)
+  const commodities = (sampling.commodities || []).map((card) => ({
+    ...card,
+    documents: [
+      ...kept(card.documents),
+      ...saved.filter((d) => Number(d.commodityId) === Number(card.commodityId)),
+    ],
+  }))
+  return {
+    lastSavedAt: sent?.updatedAt ?? null,
+    documents: [...kept(sampling.documents), ...saved.filter((d) => d.commodityId == null)],
+    commodities,
+    legacyUnassigned: sent?.legacyUnassigned ?? sampling.legacyUnassigned ?? null,
+  }
 }
 
 export function deleteQcSamplingDocument(operationId, documentId) {

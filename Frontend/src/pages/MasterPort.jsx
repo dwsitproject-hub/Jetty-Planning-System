@@ -484,7 +484,7 @@ export default function MasterPort() {
         ) : ports.length === 0 ? (
           <p className="text-steel">No ports. Click Add Port to add one.</p>
         ) : (
-          <div className="table-wrap">
+          <div className="table-wrap table-wrap--pin-actions">
             <table className="data-table allocation-table">
               <thead>
                 <SortableFilterableTableHead
@@ -493,29 +493,13 @@ export default function MasterPort() {
                   onSort={handleSort}
                   filters={filters}
                   onFilterChange={updateFilter}
-                  trailingBlankCols={1}
+                  leadingBlankCols={1}
+                  leadingBlankLabel="Actions"
                 />
               </thead>
               <tbody>
                 {displayRows.map((p) => (
                   <tr key={p.id} className="allocation-table__row">
-                    <td><strong>{p.name || '—'}</strong></td>
-                    <td className="text-steel">{p.hubCode || '—'}</td>
-                    <td className="text-steel">{p.unlocode || '—'}</td>
-                    <td className="text-steel">{p.country || '—'}</td>
-                    <td className="text-steel">{p.isActive === false ? 'No' : 'Yes'}</td>
-                    <td className="text-steel">{p.scheduleTimezone || DEFAULT_SCHEDULE_TIMEZONE}</td>
-                    <td className="text-steel">{p.operationalDayStart || DEFAULT_OPERATIONAL_DAY_START}</td>
-                    <td>
-                      {p.description
-                        ? p.description.length > 60
-                          ? `${p.description.slice(0, 60)}…`
-                          : p.description
-                        : '—'}
-                    </td>
-                    <td className="text-steel">{p.allowMultiJetyBerthing ? 'Yes' : 'No'}</td>
-                    <td className="text-steel">{formatMasterCreatedLine(p)}</td>
-                    <td className="text-steel">{formatMasterLastUpdatedLine(p)}</td>
                     <td className="allocation-table__action-col">
                       <div className="allocation-table__action-btns">
                         <DataHubRecordSyncButton
@@ -545,6 +529,23 @@ export default function MasterPort() {
                         </button>
                       </div>
                     </td>
+                    <td><strong>{p.name || '—'}</strong></td>
+                    <td className="text-steel">{p.hubCode || '—'}</td>
+                    <td className="text-steel">{p.unlocode || '—'}</td>
+                    <td className="text-steel">{p.country || '—'}</td>
+                    <td className="text-steel">{p.isActive === false ? 'No' : 'Yes'}</td>
+                    <td className="text-steel">{p.scheduleTimezone || DEFAULT_SCHEDULE_TIMEZONE}</td>
+                    <td className="text-steel">{p.operationalDayStart || DEFAULT_OPERATIONAL_DAY_START}</td>
+                    <td>
+                      {p.description
+                        ? p.description.length > 60
+                          ? `${p.description.slice(0, 60)}…`
+                          : p.description
+                        : '—'}
+                    </td>
+                    <td className="text-steel">{p.allowMultiJetyBerthing ? 'Yes' : 'No'}</td>
+                    <td className="text-steel">{formatMasterCreatedLine(p)}</td>
+                    <td className="text-steel">{formatMasterLastUpdatedLine(p)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -5,6 +5,9 @@ import {
   defaultLegacyMonthDateRangeInputs,
   defaultPlanCentricDateRangeInputs,
   isAlongsideOccupiedOnDate,
+  parseDateInputEndExclusive,
+  parseDateInputStart,
+  splitVacantArrivalQueue,
   toDateInputValue,
 } from './jettyScheduleOccupancy.js'
 
@@ -85,6 +88,68 @@ describe('buildIncomingByJettyForDate', () => {
       etbDateTime: '2026-08-29T14:00:00.000Z',
     }
     assert.deepEqual(buildIncomingByJettyForDate([row], todayYmd, nowMs), {})
+  })
+
+  it('keeps a later ETA as upcoming and a same-day ETA as incoming', () => {
+    const dateYmd = '2026-11-04'
+    const asOfMs = parseDateInputStart(dateYmd) + 8 * 60 * 60 * 1000
+    const etaToday = new Date(parseDateInputStart(dateYmd) + 6 * 60 * 60 * 1000).toISOString()
+    const etaLater = new Date(parseDateInputEndExclusive(dateYmd) + 14 * 60 * 60 * 1000).toISOString()
+    const byJetty = buildIncomingByJettyForDate(
+      [
+        { vesselName: 'MT. SC GARNET', vesselId: 'g', jetty: 'A', etaDateTime: etaLater, shipmentPlanId: 2 },
+        { vesselName: 'MV SEN TREASURE', vesselId: 's', jetty: 'B', etaDateTime: etaToday, shipmentPlanId: 1 },
+        { vesselName: 'MV. MP2', vesselId: 'm', jetty: 'A', etaDateTime: new Date(parseDateInputEndExclusive(dateYmd) + 30 * 60 * 60 * 1000).toISOString(), shipmentPlanId: 3 },
+      ],
+      dateYmd,
+      asOfMs
+    )
+    assert.equal(byJetty.B.length, 1)
+    assert.equal(byJetty.B[0].name, 'MV SEN TREASURE')
+    assert.equal(byJetty.B[0].kind, 'incoming')
+    assert.deepEqual(
+      byJetty.A.map((e) => e.name),
+      ['MT. SC GARNET', 'MV. MP2']
+    )
+    assert.deepEqual(
+      byJetty.A.map((e) => e.kind),
+      ['upcoming', 'upcoming']
+    )
+  })
+})
+
+describe('splitVacantArrivalQueue', () => {
+  const entry = (key, kind) => ({ key, kind, name: key })
+
+  it('shows the next upcoming vessel when nobody is due that day', () => {
+    const { visible, rest } = splitVacantArrivalQueue([
+      entry('g', 'upcoming'),
+      entry('m', 'upcoming'),
+      entry('l', 'upcoming'),
+    ])
+    assert.deepEqual(visible.map((e) => e.key), ['g'])
+    assert.deepEqual(rest.map((e) => e.key), ['m', 'l'])
+  })
+
+  it('shows two due arrivals before any later one', () => {
+    const { visible, rest } = splitVacantArrivalQueue([
+      entry('a', 'incoming'),
+      entry('b', 'incoming'),
+      entry('c', 'incoming'),
+      entry('d', 'upcoming'),
+    ])
+    assert.deepEqual(visible.map((e) => e.key), ['a', 'b'])
+    assert.deepEqual(rest.map((e) => e.key), ['c', 'd'])
+  })
+
+  it('fills a free slot with the next upcoming vessel', () => {
+    const { visible, rest } = splitVacantArrivalQueue([
+      entry('a', 'incoming'),
+      entry('d', 'upcoming'),
+      entry('e', 'upcoming'),
+    ])
+    assert.deepEqual(visible.map((e) => e.key), ['a', 'd'])
+    assert.deepEqual(rest.map((e) => e.key), ['e'])
   })
 })
 

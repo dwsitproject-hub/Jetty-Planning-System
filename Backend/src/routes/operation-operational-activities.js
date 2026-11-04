@@ -30,6 +30,7 @@ import {
 } from '../lib/si-commodity-options.js';
 import { triggerPartnerScheduleWebhookForOperation } from '../lib/integration-webhooks.js';
 import { resolvePartnerCargoOpsWindow } from '../lib/integration-master-data.js';
+import { loadSamplingDecisionPills } from '../lib/sampling-commodity-qc.js';
 
 const router = express.Router();
 
@@ -1686,7 +1687,7 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
   if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
   await assertOperationAccess(operationId, req);
 
-  const [sp, opAct] = await Promise.all([
+  const [sp, opAct, qcDecisions] = await Promise.all([
     pool.query(
       `SELECT sp.id, sp.operation_id, sp.phase, sp.sub_process_key, sp.status, sp.occurred_at, sp.start_at, sp.end_at,
               sp.skip_reason, sp.remark, sp.updated_at, sp.created_at,
@@ -1783,6 +1784,7 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
        WHERE oa.operation_id = $1 AND oa.deleted_at IS NULL`,
       [operationId]
     ),
+    loadSamplingDecisionPills(pool, operationId),
   ]);
 
   const events = [];
@@ -1816,6 +1818,7 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
       endAt: r.end_at ?? null,
       sortAt: sortTs ? new Date(sortTs).toISOString() : new Date(r.created_at).toISOString(),
       documents,
+      ...(key === 'sampling' && phase === 'Pre-Checking' ? { qcDecisions } : {}),
     });
   }
 

@@ -48,7 +48,8 @@ async function applyRecordChange(req, res, { action, summary, mutate }) {
   if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
   await assertOperationInSelectedPort(operationId, req.selectedPortId);
 
-  const result = await mutateSamplingRecords(operationId, req.userId ?? null, mutate);
+  const commodityId = req.body?.commodityId ?? req.query?.commodityId ?? null;
+  const result = await mutateSamplingRecords(operationId, req.userId ?? null, mutate, { commodityId });
   writeActivityLog({
     pageKey: 'loading',
     action,
@@ -56,7 +57,13 @@ async function applyRecordChange(req, res, { action, summary, mutate }) {
     entityId: String(operationId),
     entityLabel: 'sampling',
     summary: `${summary} (palka ${result.record.noPalka})`,
-    meta: { operationId, subProcessKey: 'sampling', phase: 'Pre-Checking', source: 'qc' },
+    meta: {
+      operationId,
+      subProcessKey: 'sampling',
+      phase: 'Pre-Checking',
+      source: 'qc',
+      commodityId: commodityId != null ? Number(commodityId) : null,
+    },
     actorUserId: req.userId ?? null,
   }).catch(() => {});
   res.status(action === 'add' ? 201 : 200).json(result);

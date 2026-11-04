@@ -5,6 +5,17 @@ function newRecordId() {
   return `sampling-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
+function patchLocalRecords(sampling, commodityId, change) {
+  if (commodityId == null) return { ...sampling, records: change(sampling.records || []) }
+  const target = Number(commodityId)
+  return {
+    ...sampling,
+    commodities: (sampling.commodities || []).map((card) =>
+      Number(card.commodityId) === target ? { ...card, records: change(card.records || []) } : card
+    ),
+  }
+}
+
 /**
  * Per-sample writes for the QC entry screen. Each add/edit/remove goes straight to the server
  * (row-locked there), and the server's full list replaces the local one, so samples another
@@ -27,7 +38,7 @@ export function useQcSamplingRecords(operationId, { setSampling, edit }) {
   }, [])
 
   const run = useCallback(
-    async (request, applyLocal) => {
+    async (request, applyLocal, commodityId = null) => {
       if (unsyncedRef.current) return edit(applyLocal)
       setRecordError('')
       try {
@@ -36,9 +47,19 @@ export function useQcSamplingRecords(operationId, { setSampling, edit }) {
         // Responses can arrive out of order; the newest write carries the most complete list.
         if (at < appliedAtRef.current) return undefined
         appliedAtRef.current = at
-        setSampling((p) => ({ ...p, records: out.records, lastSavedAt: out.updatedAt }))
+        setSampling((p) => {
+          if (commodityId == null) return { ...p, records: out.records, lastSavedAt: out.updatedAt }
+          const target = Number(commodityId)
+          return {
+            ...p,
+            lastSavedAt: out.updatedAt,
+            records: (p.commodities || []).length === 1 ? out.records : p.records,
+            commodities: (p.commodities || []).map((card) =>
+              Number(card.commodityId) === target ? { ...card, records: out.records } : card
+            ),
+          }
+        })
       } catch (e) {
-        // The server answered (validation, permission, ...): surface it. No answer: keep the work locally.
         if (e?.status > 0) setRecordError(e.message)
         else {
           setUnsynced(true)
@@ -51,28 +72,31 @@ export function useQcSamplingRecords(operationId, { setSampling, edit }) {
   )
 
   const addRecord = useCallback(
-    (record) =>
+    (record, commodityId = null) =>
       run(
-        () => addQcSamplingRecord(operationId, record),
-        (p) => ({ ...p, records: [...p.records, { ...record, id: record.id ?? newRecordId() }] })
+        () => addQcSamplingRecord(operationId, { ...record, commodityId }),
+        (p) => patchLocalRecords(p, commodityId, (rows) => [...rows, { ...record, id: record.id ?? newRecordId() }]),
+        commodityId
       ),
     [operationId, run]
   )
 
   const updateRecord = useCallback(
-    (id, patch) =>
+    (id, patch, commodityId = null) =>
       run(
-        () => updateQcSamplingRecord(operationId, id, patch),
-        (p) => ({ ...p, records: p.records.map((r) => (r.id === id ? { ...r, ...patch } : r)) })
+        () => updateQcSamplingRecord(operationId, id, { ...patch, commodityId }),
+        (p) => patchLocalRecords(p, commodityId, (rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r))),
+        commodityId
       ),
     [operationId, run]
   )
 
   const removeRecord = useCallback(
-    (id) =>
+    (id, commodityId = null) =>
       run(
-        () => removeQcSamplingRecord(operationId, id),
-        (p) => ({ ...p, records: p.records.filter((r) => r.id !== id) })
+        () => removeQcSamplingRecord(operationId, id, commodityId),
+        (p) => patchLocalRecords(p, commodityId, (rows) => rows.filter((r) => r.id !== id)),
+        commodityId
       ),
     [operationId, run]
   )

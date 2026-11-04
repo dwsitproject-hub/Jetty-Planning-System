@@ -4,6 +4,7 @@ import {
   buildClockHourBuckets,
   classifyHourMovement,
   classifyHourDisplayStatus,
+  normalizeMovementStatusForPersist,
   computeCompletionFromMovedQty,
   computeDirectionalTankDelta,
   computeHourlyBucketsFromManualCheckpoints,
@@ -95,6 +96,21 @@ describe('computeDirectionalTankDelta', () => {
     const r = computeDirectionalTankDelta(5000, 4500, 'Loading');
     assert.equal(r.qtyMoved, 500);
     assert.equal(r.directionMismatch, false);
+  });
+});
+
+describe('normalizeMovementStatusForPersist', () => {
+  it('passes through known persisted statuses', () => {
+    assert.equal(normalizeMovementStatusForPersist('active'), 'active');
+    assert.equal(normalizeMovementStatusForPersist('flat_movement'), 'flat_movement');
+    assert.equal(normalizeMovementStatusForPersist('incomplete'), 'incomplete');
+    assert.equal(normalizeMovementStatusForPersist('direction_mismatch'), 'direction_mismatch');
+  });
+
+  it('maps unknown or empty status to incomplete', () => {
+    assert.equal(normalizeMovementStatusForPersist(''), 'incomplete');
+    assert.equal(normalizeMovementStatusForPersist(null), 'incomplete');
+    assert.equal(normalizeMovementStatusForPersist('future_status'), 'incomplete');
   });
 });
 
