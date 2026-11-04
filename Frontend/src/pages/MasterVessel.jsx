@@ -385,7 +385,7 @@ export default function MasterVessel() {
             No vessels yet. Run Sync from DataHub to pull the hub master, or add one manually.
           </p>
         ) : (
-          <div className="table-wrap">
+          <div className="table-wrap table-wrap--pin-actions">
             <table className="data-table allocation-table">
               <thead>
                 <SortableFilterableTableHead
@@ -394,33 +394,13 @@ export default function MasterVessel() {
                   onSort={handleSort}
                   filters={filters}
                   onFilterChange={updateFilter}
-                  trailingBlankCols={1}
+                  leadingBlankCols={1}
+                  leadingBlankLabel="Actions"
                 />
               </thead>
               <tbody>
                 {pagedVessels.map((v) => (
                   <tr key={v.id} className="allocation-table__row">
-                    <td><strong>{v.vesselName || '—'}</strong></td>
-                    <td className="text-steel">
-                      {v.hubCode ? (
-                        v.hubCode
-                      ) : (
-                        <MasterSourceBadge kind="local" />
-                      )}
-                    </td>
-                    <td className="text-steel">{v.isActive === false ? 'No' : 'Yes'}</td>
-                    <td className="text-steel">{VESSEL_TYPE_OPTIONS.find((o) => o.value === v.vesselType)?.label || v.vesselType || '—'}</td>
-                    <td className="text-steel">{v.vesselImo || '—'}</td>
-                    <td className="text-steel">{v.vesselMmsi || '—'}</td>
-                    <td className="text-steel">{v.vesselCodeSap || '—'}</td>
-                    <td className="text-steel">{v.vesselGrossTonnage ?? '—'}</td>
-                    <td className="text-steel">{v.vesselDraft ?? '—'}</td>
-                    <td className="text-steel">{v.vesselLengthOverall || '—'}</td>
-                    <td className="text-steel">{v.heater == null ? '—' : v.heater ? 'Yes' : 'No'}</td>
-                    <td className="text-steel">{v.typeLambung || '—'}</td>
-                    <td className="text-steel">{v.typeCharter || '—'}</td>
-                    <td className="text-steel">{formatMasterCreatedLine(v)}</td>
-                    <td className="text-steel">{formatMasterLastUpdatedLine(v)}</td>
                     <td className="allocation-table__action-col">
                       <div className="allocation-table__action-btns">
                         <DataHubRecordSyncButton
@@ -450,6 +430,27 @@ export default function MasterVessel() {
                         </button>
                       </div>
                     </td>
+                    <td><strong>{v.vesselName || '—'}</strong></td>
+                    <td className="text-steel">
+                      {v.hubCode ? (
+                        v.hubCode
+                      ) : (
+                        <MasterSourceBadge kind="local" />
+                      )}
+                    </td>
+                    <td className="text-steel">{v.isActive === false ? 'No' : 'Yes'}</td>
+                    <td className="text-steel">{VESSEL_TYPE_OPTIONS.find((o) => o.value === v.vesselType)?.label || v.vesselType || '—'}</td>
+                    <td className="text-steel">{v.vesselImo || '—'}</td>
+                    <td className="text-steel">{v.vesselMmsi || '—'}</td>
+                    <td className="text-steel">{v.vesselCodeSap || '—'}</td>
+                    <td className="text-steel">{v.vesselGrossTonnage ?? '—'}</td>
+                    <td className="text-steel">{v.vesselDraft ?? '—'}</td>
+                    <td className="text-steel">{v.vesselLengthOverall || '—'}</td>
+                    <td className="text-steel">{v.heater == null ? '—' : v.heater ? 'Yes' : 'No'}</td>
+                    <td className="text-steel">{v.typeLambung || '—'}</td>
+                    <td className="text-steel">{v.typeCharter || '—'}</td>
+                    <td className="text-steel">{formatMasterCreatedLine(v)}</td>
+                    <td className="text-steel">{formatMasterLastUpdatedLine(v)}</td>
                   </tr>
                 ))}
               </tbody>

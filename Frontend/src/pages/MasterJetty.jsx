@@ -508,7 +508,7 @@ export default function MasterJetty() {
         ) : jetties.length === 0 ? (
           <p className="text-steel">No jetties. Click Add Jetty.</p>
         ) : (
-          <div className="table-wrap">
+          <div className="table-wrap table-wrap--pin-actions table-wrap--pin-actions--single">
             <table className="data-table allocation-table">
               <thead>
                 <SortableFilterableTableHead
@@ -517,12 +517,20 @@ export default function MasterJetty() {
                   onSort={handleSort}
                   filters={filters}
                   onFilterChange={updateFilter}
-                  trailingBlankCols={1}
+                  leadingBlankCols={1}
+                  leadingBlankLabel="Actions"
                 />
               </thead>
               <tbody>
                 {displayRows.map((j) => (
                   <tr key={j.id}>
+                    <td className="allocation-table__action-col">
+                      <div className="allocation-table__action-btns">
+                        <button type="button" className="btn btn--small btn--secondary" onClick={() => openEdit(j)}>
+                          Edit
+                        </button>
+                      </div>
+                    </td>
                     <td>{j.orderNo ?? '—'}</td>
                     <td><strong>{j.name || '—'}</strong></td>
                     <td>{j.capacity ?? 1}</td>
@@ -536,11 +544,6 @@ export default function MasterJetty() {
                     <td>{j.description ? (j.description.length > 40 ? `${j.description.slice(0, 40)}…` : j.description) : '—'}</td>
                     <td className="text-steel">{formatMasterCreatedLine(j)}</td>
                     <td className="text-steel">{formatMasterLastUpdatedLine(j)}</td>
-                    <td>
-                      <button type="button" className="btn btn--small btn--secondary" onClick={() => openEdit(j)}>
-                        Edit
-                      </button>
-                    </td>
                   </tr>
                 ))}
               </tbody>

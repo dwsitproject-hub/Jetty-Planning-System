@@ -233,7 +233,7 @@ export default function TankFarm() {
         ) : displayRows.length === 0 ? (
           <p className="text-steel">{t('tankFarmEmpty')}</p>
         ) : (
-          <div className="table-wrap">
+          <div className="table-wrap table-wrap--pin-actions table-wrap--pin-identity">
             <table className="data-table">
               <SortableFilterableTableHead
                 columns={COLUMNS}
