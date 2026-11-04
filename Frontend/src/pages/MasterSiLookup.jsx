@@ -259,7 +259,8 @@ export default function MasterSiLookup({
   const { displayRows, filters, updateFilter, sortState, handleSort } = useSortableFilterableRows(
     items,
     tableColumns,
-    { key: isCommodityMaster ? 'shortName' : 'value', dir: 'asc' }
+    { key: isCommodityMaster ? 'shortName' : 'value', dir: 'asc' },
+    isCommodityMaster ? { isActive: 'Yes' } : undefined
   )
   const [commodityPageSize, setCommodityPageSize] = useState(20)
   const commodityPaginationResetKey = useMemo(
