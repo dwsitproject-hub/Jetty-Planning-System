@@ -220,6 +220,24 @@ export function computeScheduleKpis(scheduleRows, dateYmd) {
   return kpis
 }
 
+function toArrivalEntry(row, kind, seq) {
+  const name = row.vesselName || row.vesselId || '—'
+  const base = bankLaneKeyFromRow(row) || name
+  return {
+    key: `${base}:${seq}`,
+    name,
+    kind,
+    etaDateTime: row.etaDateTime || row.eta || null,
+    etbDateTime: row.etbDateTime || row.etb || null,
+    commodity: row.commodityDisplay || row.commodity || null,
+    qty: row.totalQtyDisplay || null,
+  }
+}
+
+/**
+ * Assigned vessels that are not alongside on the selected day, earliest arrival first.
+ * `incoming` = arrival before the end of that day. `upcoming` = a later ETA/ETB/TA.
+ */
 export function buildIncomingByJettyForDate(scheduleRows, dateYmd, asOfMs) {
   const dayStart = parseDateInputStart(dateYmd)
   const dayEnd = parseDateInputEndExclusive(dateYmd)
@@ -234,7 +252,7 @@ export function buildIncomingByJettyForDate(scheduleRows, dateYmd, asOfMs) {
       if (isAlongsideOccupiedOnDate(r, dateYmd, asOfMs)) return false
       if (voyageCompletedBeforeAsOf(r, asOfMs)) return false
       const arrivalMs = getArrivalMsForScheduleRow(r)
-      if (arrivalMs == null || arrivalMs >= dayEnd) return false
+      if (arrivalMs == null) return false
       return true
     })
     .sort((a, b) => {
@@ -244,13 +262,32 @@ export function buildIncomingByJettyForDate(scheduleRows, dateYmd, asOfMs) {
     })
 
   const byJetty = {}
+  const seqByJetty = {}
   for (const r of sorted) {
     const jettyId = jettyIdFromScheduleRow(r)
-    const name = r.vesselName || r.vesselId || '—'
+    const arrivalMs = getArrivalMsForScheduleRow(r)
+    const kind = arrivalMs < dayEnd ? 'incoming' : 'upcoming'
+    const seq = seqByJetty[jettyId] || 0
+    seqByJetty[jettyId] = seq + 1
     if (!byJetty[jettyId]) byJetty[jettyId] = []
-    byJetty[jettyId].push(name)
+    byJetty[jettyId].push(toArrivalEntry(r, kind, seq))
   }
   return byJetty
+}
+
+/**
+ * Vacant-lane budget: up to two due arrivals, then a single later arrival if a slot remains.
+ * Everything else stays behind “more”.
+ */
+export function splitVacantArrivalQueue(entries) {
+  const list = Array.isArray(entries) ? entries : []
+  const incoming = list.filter((e) => e && e.kind !== 'upcoming')
+  const upcoming = list.filter((e) => e && e.kind === 'upcoming')
+  const visible = incoming.slice(0, 2)
+  if (visible.length < 2 && upcoming.length) visible.push(upcoming[0])
+  const visibleKeys = new Set(visible.map((e) => e.key))
+  const rest = list.filter((e) => e && !visibleKeys.has(e.key))
+  return { visible, rest }
 }
 
 /**

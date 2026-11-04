@@ -152,6 +152,24 @@ export function classifyHourDisplayStatus(
   return 'active';
 }
 
+const PERSISTED_MOVEMENT_STATUSES = new Set([
+  'active',
+  'flat_movement',
+  'incomplete',
+  'direction_mismatch',
+]);
+
+/**
+ * Map display movement status to values allowed in operation_hourly_cargo_progress.
+ * @param {string|null|undefined} status
+ * @returns {'active'|'flat_movement'|'incomplete'|'direction_mismatch'}
+ */
+export function normalizeMovementStatusForPersist(status) {
+  const key = String(status || '').trim();
+  if (PERSISTED_MOVEMENT_STATUSES.has(key)) return key;
+  return 'incomplete';
+}
+
 /**
  * Resolve display fields from bucket (including legacy persisted rows without displayQtyMoved).
  * @param {object} bucket
@@ -1094,7 +1112,7 @@ async function upsertHourlyProgressRow(db, row) {
       row.hourEnd,
       row.qtyMoved,
       row.rateTph,
-      row.movementStatus,
+      normalizeMovementStatusForPersist(row.movementStatus),
       row.source,
       row.tankDetail ? JSON.stringify(row.tankDetail) : null,
     ]

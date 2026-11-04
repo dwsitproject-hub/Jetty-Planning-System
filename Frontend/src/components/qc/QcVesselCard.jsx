@@ -6,11 +6,11 @@ import QcStatusChip from './QcStatusChip'
 import QcDecisionPill, { QcDecisionPillRow } from './QcDecisionPill'
 import { collapsedAttention } from '../../utils/samplingCommodity'
 
-function siLabel(row) {
+export function siLabel(row) {
   return row.shippingInstruction || row.jettyOperationCode || `Operation ${row.operationId}`
 }
 
-function purposeNode(purposes) {
+export function purposeNode(purposes) {
   if (purposes.length === 0) return '—'
   return purposes.map((p) => <PurposeBadge key={p} purpose={p} abbrev={purposes.length > 1} />)
 }

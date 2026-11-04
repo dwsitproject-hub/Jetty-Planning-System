@@ -115,6 +115,10 @@
     "extractError": "Tidak dapat mengekstrak data dari dokumen ini.",
     "removeError": "Tidak dapat menghapus dokumen."
   },
+  "workspace": {
+    "selectTitle": "Pilih kapal untuk mulai sampling",
+    "selectHint": "Pilih kapal atau shipping instruction dari daftar di sebelah kiri."
+  },
   "conflict": {
     "message": "Orang lain memperbarui data sampling ini sejak Anda membukanya. Muat ulang untuk melihat perubahannya, atau timpa dengan data Anda.",
     "reload": "Muat ulang terbaru",

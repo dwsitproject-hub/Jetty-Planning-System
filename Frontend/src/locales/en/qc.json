@@ -115,6 +115,10 @@
     "extractError": "Could not extract data from this document.",
     "removeError": "Could not remove the document."
   },
+  "workspace": {
+    "selectTitle": "Select a vessel to start sampling",
+    "selectHint": "Pick a vessel or shipping instruction from the list on the left."
+  },
   "conflict": {
     "message": "Someone else updated this sampling record since you opened it. Reload to see their changes, or overwrite with yours.",
     "reload": "Reload latest",

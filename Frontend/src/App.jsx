@@ -28,8 +28,8 @@ import AtBerthExecutions from './pages/AtBerthExecutions'
 import OperatorMobileShell from './components/operator/OperatorMobileShell'
 import OperatorAtBerthQueue from './pages/operator/OperatorAtBerthQueue'
 import OperatorExecutionPage from './pages/operator/OperatorExecutionPage'
-import QcSamplingQueue from './pages/qc/QcSamplingQueue'
-import QcSamplingEntry from './pages/qc/QcSamplingEntry'
+import QcSamplingRoute from './pages/qc/QcSamplingRoute'
+import { DESKTOP_QUERY, useMediaQuery } from './hooks/useMediaQuery'
 import Quality from './pages/Quality'
 import Verification from './pages/Verification'
 import Reporting from './pages/Reporting'
@@ -78,6 +78,7 @@ function AppShell() {
   const { t: tQc } = useTranslation('qc')
   const isOperator = location.pathname.startsWith('/operator')
   const isQc = location.pathname.startsWith('/qc')
+  const isDesktop = useMediaQuery(DESKTOP_QUERY)
   const isEmbed = isEmbedMode(location.search)
   const isChromelessEmbed =
     isEmbed &&
@@ -94,7 +95,8 @@ function AppShell() {
   if (isChromelessEmbed) {
     return <RoutedOutlet />
   }
-  if (isOperator || isQc) {
+  // QC Sampling uses the standard layout with side menu on desktop and the phone frame below 1024px.
+  if (isOperator || (isQc && !isDesktop)) {
     return (
       <OperatorMobileShell brand={isQc ? tQc('shell.brand') : undefined}>
         <RoutedOutlet />
@@ -176,8 +178,7 @@ function App() {
                   <Route path="/operator/at-berth" element={<OperatorAtBerthQueue />} />
                   <Route path="/operator/execution/:operationId" element={<OperatorExecutionPage />} />
                   <Route path="/qc" element={<Navigate to="/qc/sampling" replace />} />
-                  <Route path="/qc/sampling" element={<QcSamplingQueue />} />
-                  <Route path="/qc/sampling/:operationId" element={<QcSamplingEntry />} />
+                  <Route path="/qc/sampling/:operationId?" element={<QcSamplingRoute />} />
                   <Route path="/loading/operation/:operationId" element={<LoadingOperation />} />
                   <Route path="/loading" element={<Loading />} />
                   <Route path="/loading/:vesselId" element={<Loading />} />

@@ -6,6 +6,8 @@
   "createNewPlan": "New shipment plan",
   "createNewPlanToolbar": "New plan",
   "jettySchematicHistoricalHint": "Showing allocation for {{date}}",
+  "vacantMore": "+{{count}} more",
+  "vacantShowLess": "Show less",
   "cardTimeSinceBerthing": "Berthed",
   "cardEtr": "ETR {{duration}}",
   "cardEtrTooltip": "Estimated time to finish remaining cargo (balance ÷ rate)",

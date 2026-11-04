@@ -111,20 +111,104 @@
 .jetty-schematic__kpi-chip--etb strong { color: #1d4ed8; }
 .jetty-schematic__kpi-chip--etc strong { color: #b91c1c; }
 
-/* Incoming vessel details on vacant lanes */
+/* Vacant-lane arrival queue: one hero, then compact lines */
+.jetty-incoming-queue {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  width: 100%;
+  margin-top: 2px;
+  text-align: left;
+}
+
 .jetty-incoming__block {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  align-items: center;
-  margin-top: 3px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.jetty-incoming__name {
+  font-size: 10px;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .jetty-incoming__meta {
   font-size: 8.5px;
   color: #475569;
   line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+.jetty-incoming__line {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+  padding-left: 6px;
+  border-left: 2px solid #cbd5e1;
+  font-size: 9px;
+  line-height: 1.25;
+  color: #334155;
+}
+
+.jetty-incoming__line-name {
+  font-weight: var(--font-weight-semibold);
+  max-width: 100%;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.jetty-incoming__line-when {
+  color: #64748b;
+}
+
+.jetty-incoming__more {
+  align-self: flex-start;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1d4ed8;
+  font-size: 9px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.3;
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: underline;
+}
+
+.jetty-incoming__more:hover {
+  color: #1e3a8a;
+}
+
+.jetty-schematic__lane.jetty-schematic__slot--vacant {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.jetty-schematic__lane--queue {
+  cursor: pointer;
+}
+
+.jetty-schematic__lane--queue:hover {
+  border-color: var(--color-border-dark);
+}
+
 
 /* Time since berthing on the vessel card */
 .jetty-card__berthed {
