@@ -80,5 +80,10 @@
   "flowPatternStdLoading": "Standard · Loading",
   "flowPatternStdUnloading": "Standard · Unloading",
   "flowPatternVesselTitle": "Hourly MT/h this call",
-  "flowPatternVesselEmpty": "No hourly cargo rate logged yet for this vessel."
+  "flowPatternVesselEmpty": "No hourly cargo rate logged yet for this vessel.",
+  "flowPatternChartAria": "Average MT per hour by clock hour",
+  "flowPatternOvernight": "00:00–06:00",
+  "flowPatternTooltipHour": "{{hour}}:00",
+  "flowPatternTooltipSamples_one": "{{count}} sample",
+  "flowPatternTooltipSamples_other": "{{count}} samples"
 }
