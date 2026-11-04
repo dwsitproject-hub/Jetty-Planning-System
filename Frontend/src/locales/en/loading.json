@@ -47,7 +47,8 @@
     "chipAvgFfa": "Avg FFA (from recorded sample): {{value}}",
     "chipAvgMoisture": "Avg Moisture (from recorded sample): {{value}}",
     "extractReviewThenSave": "Review the values, then Save.",
-    "extractError": "Could not extract data from this document."
+    "extractError": "Could not extract data from this document.",
+    "legacyTitle": "Earlier samples"
   },
   "qualityField": {
     "ffaAverage": "(%), FFA Average",

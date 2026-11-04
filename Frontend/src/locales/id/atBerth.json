@@ -82,5 +82,6 @@
   "flowPatternChartAria": "Rata-rata MT per jam menurut jam",
   "flowPatternOvernight": "00:00–06:00",
   "flowPatternTooltipHour": "{{hour}}:00",
-  "flowPatternTooltipSamples_other": "{{count}} sampel"
+  "flowPatternTooltipSamples_other": "{{count}} sampel",
+  "qcDecision": "Keputusan QC"
 }

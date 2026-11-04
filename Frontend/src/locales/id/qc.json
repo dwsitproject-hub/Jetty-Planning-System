@@ -133,5 +133,20 @@
     "error": "Gagal menyimpan sampling.",
     "fixErrors": "Perbaiki kolom yang ditandai sebelum menyimpan.",
     "pendingSample": "Selesaikan atau kosongkan sampel yang sedang diketik sebelum menyimpan."
+  },
+  "decision": {
+    "approve": "Setujui",
+    "hold": "Tahan",
+    "reject": "Tolak",
+    "out": "Di luar spesifikasi",
+    "approve_in": "Setujui (Sesuai spesifikasi)",
+    "approve_out": "Setujui (Di luar spesifikasi)",
+    "reject_in": "Tolak (Sesuai spesifikasi)",
+    "reject_out": "Tolak (Di luar spesifikasi)",
+    "groupLabel": "Keputusan QC",
+    "popupTitle": "Pilih status spesifikasi hasil lab",
+    "remarkPlaceholder": "Catatan (opsional)",
+    "legacyTitle": "Sampel sebelumnya",
+    "legacyHint": "Sampel ini disimpan sebelum tiap komoditas punya kartunya sendiri. Hasil baru diisi di kartu di bawah."
   }
 }

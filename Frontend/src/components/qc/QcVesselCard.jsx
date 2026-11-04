@@ -3,6 +3,8 @@ import PurposeBadge from '../PurposeBadge'
 import { formatDateTimeDisplay } from '../../utils/formatDateTimeDisplay'
 import QcSampleLine from './QcSampleLine'
 import QcStatusChip from './QcStatusChip'
+import QcDecisionPill, { QcDecisionPillRow } from './QcDecisionPill'
+import { collapsedAttention } from '../../utils/samplingCommodity'
 
 function siLabel(row) {
   return row.shippingInstruction || row.jettyOperationCode || `Operation ${row.operationId}`
@@ -18,6 +20,7 @@ export default function QcVesselCard({ group, expanded, onToggle, onOpen }) {
   const { t } = useTranslation('qc')
   const multi = group.siCount > 1
   const head = group.children[0]
+  const attention = collapsedAttention(group.children.flatMap((child) => child.commodities || []))
   const tb = group.tbMs != null ? formatDateTimeDisplay(new Date(group.tbMs).toISOString()) : null
   const activate = () => (multi ? onToggle(group.key) : onOpen(head))
 
@@ -51,14 +54,18 @@ export default function QcVesselCard({ group, expanded, onToggle, onOpen }) {
           ) : null}
         </div>
         {multi ? (
-          <div className="operator-vessel-card__row">
-            {t('queue.sampledOf', { done: group.sampledCount, total: group.siCount })}
-          </div>
+          <>
+            <div className="operator-vessel-card__row">
+              {t('queue.sampledOf', { done: group.sampledCount, total: group.siCount })}
+            </div>
+            {!expanded && attention ? <QcDecisionPill decision={attention} /> : null}
+          </>
         ) : (
           <>
             <div className="qc-card__commodity">
               {head.commodityShortDisplay || head.commodityDisplay || head.commodity || '—'}
             </div>
+            <QcDecisionPillRow commodities={head.commodities} />
             <QcSampleLine sampling={head.sampling} />
           </>
         )}
@@ -86,6 +93,7 @@ export default function QcVesselCard({ group, expanded, onToggle, onOpen }) {
                     <span className="qc-card__commodity">
                       {child.commodityShortDisplay || child.commodityDisplay || child.commodity || '—'}
                     </span>
+                    <QcDecisionPillRow commodities={child.commodities} />
                     <QcSampleLine sampling={child.sampling} />
                   </span>
                   <span className="qc-si-row__side">

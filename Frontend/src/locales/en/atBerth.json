@@ -85,5 +85,6 @@
   "flowPatternOvernight": "00:00–06:00",
   "flowPatternTooltipHour": "{{hour}}:00",
   "flowPatternTooltipSamples_one": "{{count}} sample",
-  "flowPatternTooltipSamples_other": "{{count}} samples"
+  "flowPatternTooltipSamples_other": "{{count}} samples",
+  "qcDecision": "QC decision"
 }

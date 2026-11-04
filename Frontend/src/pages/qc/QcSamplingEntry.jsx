@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import QcReportSummary from '../../components/qc/QcReportSummary'
@@ -7,12 +7,14 @@ import QcSaveBar from '../../components/qc/QcSaveBar'
 import QcStatusChip from '../../components/qc/QcStatusChip'
 import SampleList from '../../components/qc/SampleList'
 import SampleQuickAdd from '../../components/qc/SampleQuickAdd'
+import SamplingCommodityCards from '../../components/sampling/SamplingCommodityCards'
 import SamplingExtractReviewModal from '../../components/SamplingExtractReviewModal'
 import SamplingSummaryStrip from '../../components/qc/SamplingSummaryStrip'
 import { useRbac } from '../../context/RbacContext'
 import { useQcSamplingEntry } from '../../hooks/useQcSamplingEntry'
 import { useSamplingDocumentExtract } from '../../hooks/useSamplingDocumentExtract'
 import { computeAverages } from '../../utils/qcSampling'
+import { applyCardExtract, samplingViewFromCard } from '../../utils/samplingCommodity'
 import { formatSamplingExtractApplyMessage } from '../../utils/samplingExtractI18n'
 
 function statusOf(sampling) {
@@ -30,12 +32,20 @@ export default function QcSamplingEntry() {
   const { loading: rbacLoading, canView } = useRbac()
   const entry = useQcSamplingEntry(operationId)
   const extract = useSamplingDocumentExtract()
+  const extractCommodityRef = useRef(null)
   const [message, setMessage] = useState(null)
   const [summaryErrors, setSummaryErrors] = useState({})
   const [pendingTyped, setPendingTyped] = useState(false)
 
   const { sampling } = entry
-  const averages = useMemo(() => computeAverages(sampling.records), [sampling.records])
+  const sampleRecords = useMemo(
+    () =>
+      (sampling.commodities || []).length > 0
+        ? sampling.commodities.flatMap((card) => card.records || [])
+        : sampling.records,
+    [sampling.commodities, sampling.records]
+  )
+  const averages = useMemo(() => computeAverages(sampleRecords), [sampleRecords])
   const backToQueue = () => navigate('/qc/sampling')
   const fail = (text) => setMessage({ type: 'error', text })
 
@@ -79,24 +89,42 @@ export default function QcSamplingEntry() {
     return undefined
   }
 
-  const requestExtract = (doc, index) =>
-    extract.requestExtract({
+  const requestExtract = (doc, index, commodityId = null) => {
+    extractCommodityRef.current = commodityId
+    const card =
+      commodityId == null
+        ? null
+        : (sampling.commodities || []).find((c) => Number(c.commodityId) === Number(commodityId))
+    return extract.requestExtract({
       doc,
-      docKey: `sampling-${index}`,
-      sampling,
+      docKey: commodityId == null ? `sampling-${index}` : `sampling-${commodityId}-${index}`,
+      sampling: card ? samplingViewFromCard(sampling, card) : sampling,
       context: { vesselName: header.vesselName },
       onError: (text) => fail(text || t('documents.extractError')),
     })
+  }
 
   const applyExtract = (choices) => {
-    const result = extract.applyReview(choices, sampling)
+    const commodityId = extractCommodityRef.current
+    const card =
+      commodityId == null
+        ? null
+        : (sampling.commodities || []).find((c) => Number(c.commodityId) === Number(commodityId))
+    const result = extract.applyReview(choices, card ? samplingViewFromCard(sampling, card) : sampling)
     if (!result) return
-    entry.replaceSampling(result.nextSampling)
+    if (commodityId == null) entry.replaceSampling(result.nextSampling)
+    else {
+      entry.setField('startTime', result.nextSampling.startTime ?? sampling.startTime)
+      entry.setField('endTime', result.nextSampling.endTime ?? sampling.endTime)
+      entry.patchCommodity(commodityId, applyCardExtract(card, result.nextSampling))
+    }
     setMessage({
       type: 'success',
       text: formatSamplingExtractApplyMessage(tLoading, result.summary, extract.fileName),
     })
   }
+
+  const hasCards = (sampling.commodities || []).length > 0
 
   return (
     <div className="qc-entry">
@@ -116,7 +144,7 @@ export default function QcSamplingEntry() {
           </p>
         </header>
 
-        <SamplingSummaryStrip count={sampling.records.length} avgFfa={averages.avgFfa} avgMoisture={averages.avgMoisture} />
+        <SamplingSummaryStrip count={hasCards ? sampling.commodities.reduce((n, c) => n + (c.records || []).length, 0) : sampling.records.length} avgFfa={averages.avgFfa} avgMoisture={averages.avgMoisture} />
 
         {entry.restored ? (
           <div className="qc-banner" role="status">
@@ -154,6 +182,32 @@ export default function QcSamplingEntry() {
           </p>
         ) : null}
 
+        {hasCards ? (
+          <>
+            <QcReportSummary sampling={sampling} onChange={entry.setField} timesOnly />
+            <SamplingCommodityCards
+              commodities={sampling.commodities}
+              legacyUnassigned={sampling.legacyUnassigned}
+              variant="qc"
+              errors={summaryErrors}
+              onPatch={entry.patchCommodity}
+              onAddRecord={(commodityId, record) => entry.addRecord(record, commodityId)}
+              onUpdateRecord={(commodityId, id, patch) => entry.updateRecord(id, patch, commodityId)}
+              onDeleteRecord={(commodityId, id) => entry.removeRecord(id, commodityId)}
+              renderDocuments={(card) => (
+                <QcSamplingDocuments
+                  documents={card.documents || []}
+                  extractingKey={extract.extractingKey}
+                  onAddFiles={(files) => entry.addFiles(files, card.commodityId)}
+                  onRemove={(index) => entry.removeDocument(index, card.commodityId)}
+                  keyPrefix={`sampling-${card.commodityId}`}
+                  onExtract={(doc, index) => requestExtract(doc, index, card.commodityId)}
+                />
+              )}
+            />
+          </>
+        ) : (
+          <>
         <SampleQuickAdd records={sampling.records} onAdd={entry.addRecord} onPendingChange={setPendingTyped} />
         <SampleList records={sampling.records} onUpdate={entry.updateRecord} onRemove={entry.removeRecord} />
         <QcReportSummary sampling={sampling} errors={summaryErrors} computed={averages} onChange={entry.setField} />
@@ -164,6 +218,8 @@ export default function QcSamplingEntry() {
           onRemove={entry.removeDocument}
           onExtract={requestExtract}
         />
+          </>
+        )}
       </div>
 
       <QcSaveBar

@@ -47,7 +47,8 @@
     "chipAvgFfa": "Rata-rata FFA (dari sampel tercatat): {{value}}",
     "chipAvgMoisture": "Rata-rata Moisture (dari sampel tercatat): {{value}}",
     "extractReviewThenSave": "Tinjau nilainya, lalu Simpan.",
-    "extractError": "Tidak dapat mengekstrak data dari dokumen ini."
+    "extractError": "Tidak dapat mengekstrak data dari dokumen ini.",
+    "legacyTitle": "Sampel sebelumnya"
   },
   "qualityField": {
     "ffaAverage": "(%), Rata-rata FFA",

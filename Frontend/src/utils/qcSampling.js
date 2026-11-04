@@ -1,4 +1,5 @@
 import { samplingPalkaKey } from './samplingExtractMerge.js'
+import { cardsToSaveBody } from './samplingCommodity.js'
 import { MAX_SAMPLING_PALKA_FIELD_CHARS } from '../constants/inputLimits.js'
 
 const METRIC_MAX = 100
@@ -93,6 +94,8 @@ export function recordsDiffer(a, b) {
 export function buildSamplingPayload(sampling, mode, { includeRecords = true, expectedUpdatedAt } = {}) {
   const startTime = sampling?.startTime || null
   const endTime = sampling?.endTime || null
+  const commodities = cardsToSaveBody(sampling?.commodities)
+  const hasCards = Array.isArray(commodities) && commodities.length > 0
   return {
     phase: 'Pre-Checking',
     status: mode === 'draft' ? 'In Progress' : 'Done',
@@ -100,12 +103,15 @@ export function buildSamplingPayload(sampling, mode, { includeRecords = true, ex
     startAt: startTime,
     endAt: endTime,
     remark: sampling?.remark || '',
-    // Typed columns on the sub-process row, so top-level rather than inside payload.
-    ffaAverage: normalizeMetric(sampling?.ffaAverage),
-    moistureAverage: normalizeMetric(sampling?.moistureAverage),
-    dobi: normalizeMetric(sampling?.dobi),
-    iodineValue: normalizeMetric(sampling?.iodineValue),
-    ...(includeRecords ? { payload: { records: sampling?.records || [] } } : {}),
+    ...(hasCards
+      ? { commodities }
+      : {
+          ffaAverage: normalizeMetric(sampling?.ffaAverage),
+          moistureAverage: normalizeMetric(sampling?.moistureAverage),
+          dobi: normalizeMetric(sampling?.dobi),
+          iodineValue: normalizeMetric(sampling?.iodineValue),
+        }),
+    ...(includeRecords && !hasCards ? { payload: { records: sampling?.records || [] } } : {}),
     source: 'qc',
     ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
   }
@@ -114,12 +120,16 @@ export function buildSamplingPayload(sampling, mode, { includeRecords = true, ex
 /** Metric fields in the report summary that must stay inside their caps before saving. */
 export function validateSummaryFields(sampling) {
   const errors = {}
-  for (const [field, max] of [['ffaAverage', 100], ['moistureAverage', 100], ['dobi', 100], ['iodineValue', 200]]) {
-    const raw = sampling?.[field]
-    if (String(raw ?? '').trim() === '') continue
-    const n = parseMetric(raw)
-    if (n == null) errors[field] = 'invalid'
-    else if (n > max) errors[field] = 'range'
+  const cards = Array.isArray(sampling?.commodities) && sampling.commodities.length ? sampling.commodities : [sampling]
+  for (const card of cards) {
+    const prefix = card?.commodityId != null ? `${card.commodityId}.` : ''
+    for (const [field, max] of [['ffaAverage', 100], ['moistureAverage', 100], ['dobi', 100], ['iodineValue', 200]]) {
+      const raw = card?.[field]
+      if (String(raw ?? '').trim() === '') continue
+      const n = parseMetric(raw)
+      if (n == null) errors[`${prefix}${field}`] = 'invalid'
+      else if (n > max) errors[`${prefix}${field}`] = 'range'
+    }
   }
   return errors
 }

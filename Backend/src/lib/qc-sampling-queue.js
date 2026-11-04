@@ -24,6 +24,29 @@ async function loadSamplingRows(operationIds) {
   return new Map(r.rows.map((row) => [Number(row.operation_id), row]));
 }
 
+function queueCommodities(row) {
+  const products = [];
+  const seen = new Set();
+  for (const summary of row.cargoBreakdownSummary || []) {
+    for (const product of summary.products || []) {
+      if (product.commodityId == null || seen.has(product.commodityId)) continue;
+      seen.add(product.commodityId);
+      products.push(product);
+    }
+  }
+  const decisions = new Map((row.qcDecisions || []).map((d) => [d.commodityId, d]));
+  return products.map((product) => {
+    const decision = decisions.get(product.commodityId);
+    return {
+      commodityId: product.commodityId,
+      shortName: product.shortName,
+      name: product.name,
+      decision: decision?.decision ?? null,
+      remark: decision?.remark ?? '',
+    };
+  });
+}
+
 function toQueueRow(row, samplingRow) {
   return {
     operationId: row.operationId,
@@ -40,6 +63,7 @@ function toQueueRow(row, samplingRow) {
     tbDateTime: row.tbDateTime,
     status: row.status,
     sampling: toSamplingSummary(samplingRow),
+    commodities: queueCommodities(row),
   };
 }
 

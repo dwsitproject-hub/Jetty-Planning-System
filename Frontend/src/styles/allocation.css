@@ -3846,6 +3846,25 @@ body:has(.clearance-page--embed) {
   border-color: rgba(148, 163, 184, 0.5);
 }
 
+.precheck-status-dot--qc-reject {
+  background: #a33b3b;
+  border-color: #a33b3b;
+}
+
+.precheck-status-dot--qc-out {
+  background: #9a6700;
+  border-color: #9a6700;
+}
+
+.precheck-checklist__qc {
+  display: flex;
+  max-width: 100%;
+}
+
+.precheck-checklist__qc .qc-decision-row {
+  width: 100%;
+}
+
 /* Pre-checking checklist rows */
 .precheck-checklist {
   display: grid;
@@ -4780,7 +4799,15 @@ body:has(.clearance-page--embed) {
 }
 
 .operation-activity-timeline__status {
+  white-space: normal;
+}
+
+.operation-activity-timeline__status-label {
   white-space: nowrap;
+}
+
+.operation-activity-timeline__qc {
+  margin-top: var(--spacing-1);
 }
 
 .operation-activity-timeline__remark {

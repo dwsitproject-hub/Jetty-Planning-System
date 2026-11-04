@@ -30,6 +30,12 @@ import {
   readQualitySummary,
   summarizeSamplingRecords,
 } from '../lib/sampling-sub-process.js';
+import {
+  loadDecisionSummary,
+  loadSamplingCommodityView,
+  saveSamplingCommodities,
+} from '../lib/sampling-commodity-qc.js';
+import { getSiCommodityOptionsForOperation } from '../lib/si-commodity-options.js';
 
 /** Final checks: promote to POST_OPS and move the partner Cargo Done stage. */
 const POST_CHECK_AUTO_KEYS = new Set([
@@ -108,6 +114,7 @@ function assertEffectiveTimeRange(effStart, effEnd) {
 }
 
 function sanitizePayload(v) {
+  if (v === undefined) return undefined;
   if (v == null) return null;
   return v;
 }
@@ -179,7 +186,8 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}, ac
   const skipReason = body.skipReason != null ? String(body.skipReason).trim() : undefined;
   const remark = body.remark != null ? String(body.remark) : undefined;
   const payload = sanitizePayload(body.payload);
-  const quality = readQualitySummary(key, body);
+  const savingCommodities = key === 'sampling' && Array.isArray(body.commodities) && body.commodities.length > 0;
+  const quality = readQualitySummary(key, savingCommodities ? {} : body);
   if (status === 'Skipped' && !(skipReason && skipReason.trim())) {
     throw Object.assign(new Error('skipReason is required when status is Skipped'), { statusCode: 400 });
   }
@@ -326,6 +334,14 @@ async function upsertSubProcess(operationId, phase, subProcessKey, body = {}, ac
     if (phase === 'Post-Checking' && POST_CHECK_AUTO_KEYS.has(key)) {
       await promoteInProgressToPostOpsIfInProgress(client, operationId);
     }
+    if (savingCommodities) {
+      await saveSamplingCommodities(client, {
+        subProcessId: id,
+        operationId,
+        rawCards: body.commodities,
+        actorUserId,
+      });
+    }
     await client.query('COMMIT');
     if (cargoDoneBefore) triggerPartnerScheduleIfCargoDoneChanged(operationId, cargoDoneBefore).catch(() => {});
     return id;
@@ -406,7 +422,15 @@ router.get('/operations/:operationId/sub-processes', async (req, res) => {
     [operationId, phase]
   );
 
-  res.json(r.rows.map(toSubProcessRow));
+  const rows = await Promise.all(
+    r.rows.map(async (row) => {
+      const base = toSubProcessRow(row);
+      if (row.sub_process_key !== 'sampling' || row.phase !== 'Pre-Checking') return base;
+      const view = await loadSamplingCommodityView(pool, operationId, row);
+      return { ...base, commodities: view.commodities, legacyUnassigned: view.legacyUnassigned };
+    })
+  );
+  res.json(rows);
 });
 
 router.put('/operations/:operationId/sub-processes/:subProcessKey', async (req, res) => {
@@ -464,6 +488,7 @@ router.put('/operations/:operationId/sub-processes/:subProcessKey', async (req, 
   }
 
   const before = await loadSubProcess(operationId, phase, key);
+  const beforeDecisions = key === 'sampling' ? await loadDecisionSummary(pool, before?.id) : null;
   const id = await upsertSubProcess(operationId, phase, key, req.body || {}, req.userId ?? null);
   const out = await pool.query(
     `SELECT id, operation_id, phase, sub_process_key, status, occurred_at, start_at, end_at, skip_reason, remark, payload_json,
@@ -495,6 +520,11 @@ router.put('/operations/:operationId/sub-processes/:subProcessKey', async (req, 
             from: normalizeForChange(formatQualityMetric(before?.[field.column])),
             to: normalizeForChange(formatQualityMetric(after?.[field.column])),
           })),
+          {
+            field: 'QC decisions',
+            from: normalizeForChange(beforeDecisions),
+            to: normalizeForChange(await loadDecisionSummary(pool, after?.id)),
+          },
         ]
       : []),
   ].filter((c) => c.from !== c.to);
@@ -515,7 +545,13 @@ router.put('/operations/:operationId/sub-processes/:subProcessKey', async (req, 
     },
     actorUserId: req.userId ?? null,
   }).catch(() => {});
-  res.json(toSubProcessRow(out.rows[0]));
+  const body = toSubProcessRow(out.rows[0]);
+  if (key === 'sampling') {
+    const view = await loadSamplingCommodityView(pool, operationId, out.rows[0]);
+    body.commodities = view.commodities;
+    body.legacyUnassigned = view.legacyUnassigned;
+  }
+  res.json(body);
 });
 
 /** Soft-delete one sub-process row and its documents (activity log entry). */
@@ -584,7 +620,7 @@ router.get('/operations/:operationId/sub-processes/:subProcessKey/documents', as
   if (!row) return res.json([]);
 
   const d = await pool.query(
-    `SELECT id, sub_process_id, original_name, stored_name, stored_path, mime_type, size_bytes, created_at
+    `SELECT id, sub_process_id, original_name, stored_name, stored_path, mime_type, size_bytes, commodity_id, created_at
      FROM operation_sub_process_documents
      WHERE sub_process_id = $1 AND deleted_at IS NULL
      ORDER BY created_at DESC, id DESC`,
@@ -597,6 +633,7 @@ router.get('/operations/:operationId/sub-processes/:subProcessKey/documents', as
       name: x.original_name,
       url: toSubProcessDocumentDownloadUrl(x.id),
       mimeType: x.mime_type ?? null,
+      commodityId: x.commodity_id != null ? Number(x.commodity_id) : null,
       sizeBytes: x.size_bytes != null ? Number(x.size_bytes) : null,
       createdAt: x.created_at,
     }))
@@ -623,22 +660,33 @@ router.post('/operations/:operationId/sub-processes/:subProcessKey/documents', u
   }
 
   const subProcessId = await upsertSubProcess(operationId, phase, key, { phase });
+  let commodityId = null;
+  if (key === 'sampling' && req.body?.commodityId != null && String(req.body.commodityId).trim() !== '') {
+    commodityId = Number(req.body.commodityId);
+    const products = await getSiCommodityOptionsForOperation(pool, operationId);
+    if (!products.some((p) => p.commodityId === commodityId)) {
+      return res.status(400).json({ error: 'Commodity is not on this shipping instruction' });
+    }
+  }
   const inserted = [];
   for (const f of files) {
     const original = safeBaseName(f.originalname);
     const rel = path.relative(UPLOAD_ROOT, f.path);
     const ins = await pool.query(
       `INSERT INTO operation_sub_process_documents
-       (sub_process_id, original_name, stored_name, stored_path, mime_type, size_bytes)
-       VALUES ($1,$2,$3,$4,$5,$6)
+       (sub_process_id, original_name, stored_name, stored_path, mime_type, size_bytes, commodity_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
        RETURNING id, created_at`,
-      [subProcessId, original, f.filename, rel, f.mimetype ?? null, f.size ?? null]
+      [subProcessId, original, f.filename, rel, f.mimetype ?? null, f.size ?? null, commodityId]
     );
     inserted.push({
       id: ins.rows[0].id,
       subProcessId,
       name: original,
       url: toSubProcessDocumentDownloadUrl(ins.rows[0].id),
+      mimeType: f.mimetype ?? null,
+      commodityId,
+      sizeBytes: f.size ?? null,
       createdAt: ins.rows[0].created_at,
     });
   }
