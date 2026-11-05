@@ -31,6 +31,21 @@ describe('parseCardMetrics', () => {
     assert.throws(() => parseCardMetrics({ metrics: { dirt: '1' } }), { statusCode: 400 });
   });
 
+  it('ignores legacy echoes that the template does not list', () => {
+    const cpo = {
+      parameters: [
+        { code: 'ffa', labelEn: 'FFA', kind: 'number', maxValue: 100 },
+        { code: 'mi', labelEn: 'M&I', kind: 'number', maxValue: 100 },
+        { code: 'dobi', labelEn: 'DOBI', kind: 'number', maxValue: 100 },
+      ],
+    };
+    const out = parseCardMetrics(
+      { metrics: { ffa: '4.50', mi: '0.20', moisture: '', dobi: '', iodine: '' } },
+      cpo
+    );
+    assert.deepEqual(out.metricsJson, { ffa: '4.50', mi: '0.20' });
+  });
+
   it('accepts extra codes when the spec lists them', () => {
     const spec = { parameters: [{ code: 'dirt', labelEn: 'Dirt', kind: 'number', maxValue: 100, scope: 'both' }] };
     const out = parseCardMetrics({ metrics: { dirt: '1,4' } }, spec);
@@ -45,6 +60,8 @@ describe('cardMetricFields', () => {
     assert.equal(out.ffaAverage, '4.10');
     assert.equal(out.moistureAverage, '0.20');
     assert.equal(out.dobi, '2.50');
+    assert.equal(out.metrics.mi, undefined);
+    assert.equal(out.metrics.iodine, undefined);
     assert.equal(typedColumnsFromMetrics({ ffa: '4.1' }).ffa_average, 4.1);
   });
 });

@@ -50,6 +50,18 @@ test('one commodity keeps the visit quality until its own card is saved', () => 
   assert.equal(two[0].records.length, 0)
 })
 
+test('a card save keeps only the template metric codes', () => {
+  const body = cardsToSaveBody([
+    {
+      commodityId: 4,
+      spec: { parameters: [{ code: 'ffa' }, { code: 'mi' }, { code: 'dobi' }] },
+      metrics: { ffa: '4.50', mi: '0.20', moisture: '', iodine: '52' },
+      records: [],
+    },
+  ])
+  assert.deepEqual(body[0].metrics, { ffa: '4.50', mi: '0.20' })
+})
+
 test('cards keep an empty remark and do not invent a spec for Hold', () => {
   const body = cardsToSaveBody([{ commodityId: 4, decision: 'hold', remark: '', records: [] }])
   assert.equal(body[0].decision, 'hold')

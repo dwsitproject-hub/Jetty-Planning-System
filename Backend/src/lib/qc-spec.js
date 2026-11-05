@@ -79,8 +79,12 @@ export function parseMetricValue(raw, label, max) {
   return n;
 }
 
+/** Codes the card loader always echoes from the typed columns, even when the template uses only one of them. */
+const LEGACY_METRIC_CODES = new Set(['ffa', 'moisture', 'mi', 'dobi', 'iodine']);
+
 /**
  * Read stated report values for a spec. Unknown codes are rejected.
+ * Legacy echoes (moisture beside M&I, and so on) are ignored when the template does not list them.
  * @returns {{ metricsJson: Record<string, string>, typed: Record<string, number|null> }}
  */
 export function parseCardMetrics(item, spec = fallbackSpec()) {
@@ -88,7 +92,7 @@ export function parseCardMetrics(item, spec = fallbackSpec()) {
   const allowed = new Set(params.flatMap(valueCodesOf));
   if (item?.metrics && typeof item.metrics === 'object') {
     for (const key of Object.keys(item.metrics)) {
-      if (!allowed.has(key)) throw badRequest(`Unknown quality field ${key}`);
+      if (!allowed.has(key) && !LEGACY_METRIC_CODES.has(key)) throw badRequest(`Unknown quality field ${key}`);
     }
   }
   const metricsJson = {};
@@ -113,18 +117,26 @@ export function typedColumnsFromMetrics(metricsJson = {}) {
   return typed;
 }
 
-/** Card DTO extras: metrics map plus the four legacy aliases. */
+/** Card DTO extras: template codes only, plus the four legacy aliases. */
 export function cardMetricFields(metricsJson = {}, spec = fallbackSpec()) {
   const formatted = {};
   for (const [code, raw] of Object.entries(metricsJson || {})) {
     const n = toMetricNumber(raw);
     formatted[code] = n == null ? '' : metricToString(n);
   }
+  const allowed = new Set((spec?.parameters || []).flatMap(valueCodesOf));
+  const metrics = {};
+  for (const code of allowed) {
+    const own = formatted[code];
+    const alias = code === 'mi' ? formatted.moisture : code === 'moisture' ? formatted.mi : undefined;
+    const value = own != null && own !== '' ? own : alias;
+    if (value != null && value !== '') metrics[code] = value;
+  }
   const aliases = {
-    ffaAverage: formatted.ffa ?? '',
-    moistureAverage: formatted.mi ?? formatted.moisture ?? '',
-    dobi: formatted.dobi ?? '',
-    iodineValue: formatted.iodine ?? '',
+    ffaAverage: metrics.ffa ?? formatted.ffa ?? '',
+    moistureAverage: metrics.mi ?? metrics.moisture ?? formatted.mi ?? formatted.moisture ?? '',
+    dobi: metrics.dobi ?? formatted.dobi ?? '',
+    iodineValue: metrics.iodine ?? formatted.iodine ?? '',
   };
-  return { spec, metrics: formatted, ...aliases };
+  return { spec, metrics, ...aliases };
 }
