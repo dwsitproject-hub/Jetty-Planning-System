@@ -34,6 +34,8 @@ test('validateSample requires palka and one metric, and checks ranges', () => {
   assert.equal(validateSample({ noPalka: '1', ffa: '101', moisture: '' }, []).errors.ffa, 'range')
   assert.equal(validateSample({ noPalka: '1', ffa: 'x', moisture: '' }, []).errors.ffa, 'invalid')
   assert.equal(validateSample({ noPalka: '1', ffa: '4,9', moisture: '' }, []).ok, true)
+  assert.equal(validateSample({ noPalka: '', tankId: '', ffa: '4' }, [], null, { kind: 'tank' }).errors.noPalka, 'tankRequired')
+  assert.equal(validateSample({ noPalka: 'TK-01', tankId: '5', ffa: '4' }, [], null, { kind: 'tank' }).ok, true)
 })
 
 test('validateSample flags duplicate palka as a warning and ignores the record being edited', () => {
@@ -49,6 +51,13 @@ test('buildSampleRecord trims and normalizes', () => {
     id: 'id1',
     noPalka: '3',
     ffa: '4.5',
+    moisture: '',
+  })
+  assert.deepEqual(buildSampleRecord({ noPalka: 'TK-01', tankId: '5', ffa: '4', moisture: '' }, 'id2'), {
+    id: 'id2',
+    noPalka: 'TK-01',
+    tankId: 5,
+    ffa: '4',
     moisture: '',
   })
 })
@@ -99,7 +108,7 @@ test('recordsDiffer compares readings and ignores ids', () => {
 
 test('validateSummaryFields enforces per-field ceilings', () => {
   assert.deepEqual(validateSummaryFields({ ffaAverage: '101', iodineValue: '150', dobi: 'x' }), {
-    ffaAverage: 'range',
+    ffa: 'range',
     dobi: 'invalid',
   })
 })

@@ -5,7 +5,7 @@ import SampleEditSheet from './SampleEditSheet'
 const dash = (v) => (v == null || v === '' ? '—' : v)
 
 /** Recorded samples as tappable cards; a tap opens the edit bottom sheet. */
-export default function SampleList({ records, onUpdate, onRemove }) {
+export default function SampleList({ records, onUpdate, onRemove, sampleRefKind = 'palka', tanks = [] }) {
   const { t } = useTranslation('qc')
   const [editingId, setEditingId] = useState(null)
   const editing = records.find((r) => r.id === editingId) || null
@@ -20,7 +20,9 @@ export default function SampleList({ records, onUpdate, onRemove }) {
         {records.map((rec) => (
           <li key={rec.id}>
             <button type="button" className="qc-sample" onClick={() => setEditingId(rec.id)}>
-              <span className="qc-sample__palka">{t('sample.palka', { palka: rec.noPalka })}</span>
+              <span className="qc-sample__palka">
+                {t(sampleRefKind === 'tank' ? 'sample.tank' : 'sample.palka', { palka: rec.noPalka })}
+              </span>
               <span className="qc-sample__metric">{t('sample.ffa', { value: dash(rec.ffa) })}</span>
               <span className="qc-sample__metric">{t('sample.moisture', { value: dash(rec.moisture) })}</span>
             </button>
@@ -32,6 +34,8 @@ export default function SampleList({ records, onUpdate, onRemove }) {
           key={editing.id}
           record={editing}
           records={records}
+          sampleRefKind={sampleRefKind}
+          tanks={tanks}
           onClose={() => setEditingId(null)}
           onSave={(id, patch) => {
             onUpdate(id, patch)

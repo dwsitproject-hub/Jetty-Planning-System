@@ -15,7 +15,18 @@ import { buildAllocationOverviewPayload } from './allocation.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 import { assertOperationInSelectedPort } from '../lib/operation-access.js';
 import { buildQcSamplingQueue } from '../lib/qc-sampling-queue.js';
-import { addRecord, parseRecordInput, removeRecord, updateRecord } from '../lib/sampling-records.js';
+import { fallbackSpec, sampleCodes } from '../lib/qc-spec.js';
+import { loadSpecsByCommodityIds, specForCommodity } from '../lib/qc-spec-store.js';
+import {
+  addRecord,
+  isLoadingSampleRef,
+  loadOperationSampleRef,
+  parseRecordInput,
+  removeRecord,
+  resolvePortTank,
+  updateRecord,
+} from '../lib/sampling-records.js';
+import { pool } from '../db.js';
 import { mutateSamplingRecords } from '../lib/sampling-records-store.js';
 import { requirePageEdit, requirePageView } from '../middleware/permissions.js';
 
@@ -69,8 +80,33 @@ async function applyRecordChange(req, res, { action, summary, mutate }) {
   res.status(action === 'add' ? 201 : 200).json(result);
 }
 
+async function recordParseOptions(req) {
+  const commodityId = req.body?.commodityId ?? req.query?.commodityId ?? null;
+  if (commodityId == null || commodityId === '') return {};
+  const specs = await loadSpecsByCommodityIds(pool, [Number(commodityId)]);
+  return { sampleCodes: sampleCodes(specForCommodity(specs, Number(commodityId)) || fallbackSpec()) };
+}
+
+async function recordSampleRefOptions(req, operationId, { partial = false } = {}) {
+  const { purpose, portId } = await loadOperationSampleRef(pool, operationId);
+  const port = portId ?? Number(req.selectedPortId);
+  const loading = isLoadingSampleRef(purpose);
+  const tankTouched = !partial || req.body?.tankId !== undefined;
+  const tank = loading && tankTouched
+    ? await resolvePortTank(pool, req.body?.tankId, port, { includeDeleted: partial })
+    : null;
+  return {
+    ...(await recordParseOptions(req)),
+    purpose,
+    tank,
+    requireTank: loading && !partial,
+  };
+}
+
 router.post('/sampling/operations/:operationId/records', ...requirePageEdit(PAGE_KEY), async (req, res) => {
-  const input = parseRecordInput(req.body);
+  const operationId = parseOperationId(req.params.operationId);
+  if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
+  const input = parseRecordInput(req.body, await recordSampleRefOptions(req, operationId));
   await applyRecordChange(req, res, {
     action: 'add',
     summary: 'Added sampling record',
@@ -79,7 +115,9 @@ router.post('/sampling/operations/:operationId/records', ...requirePageEdit(PAGE
 });
 
 router.patch('/sampling/operations/:operationId/records/:recordId', ...requirePageEdit(PAGE_KEY), async (req, res) => {
-  const patch = parseRecordInput(req.body, { partial: true });
+  const operationId = parseOperationId(req.params.operationId);
+  if (operationId == null) return res.status(400).json({ error: 'Invalid operationId' });
+  const patch = parseRecordInput(req.body, { partial: true, ...(await recordSampleRefOptions(req, operationId, { partial: true })) });
   await applyRecordChange(req, res, {
     action: 'update',
     summary: 'Updated sampling record',

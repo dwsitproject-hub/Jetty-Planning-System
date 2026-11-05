@@ -3,10 +3,11 @@
  * The visit (start, end, status) stays on the sampling sub-process row.
  */
 import { randomUUID } from 'node:crypto';
+import { loadSpecsByCommodityIds, specForCommodity } from './qc-spec-store.js';
 import { getSiCommodityOptionsForOperation } from './si-commodity-options.js';
-import { parseRecordInput } from './sampling-records.js';
-import { formatQualityMetric, QUALITY_SUMMARY_FIELDS } from './sampling-sub-process.js';
-import { toMetricNumber } from './sampling-document-extract.js';
+import { isLoadingSampleRef, loadOperationSampleRef, parseRecordInput, resolvePortTanks } from './sampling-records.js';
+import { formatQualityMetric } from './sampling-sub-process.js';
+import { cardMetricFields, fallbackSpec, parseCardMetrics, sampleCodes } from './qc-spec.js';
 
 export const QC_DECISIONS = Object.freeze([
   'approve_in',
@@ -43,20 +44,14 @@ export function recordWritePlan(commodityId, productCount) {
   };
 }
 
-function readMetric(raw, label, max) {
-  if (raw == null || String(raw).trim() === '') return null;
-  const n = toMetricNumber(raw);
-  if (n == null || n < 0 || n > max) throw badRequest(`Invalid ${label}`);
-  return n;
-}
-
 /**
  * Validate one save of the commodity cards.
  * Omitted `commodities` keeps stored rows. An explicit array replaces those commodities.
  * @param {unknown} raw
  * @param {Set<number>} allowedIds
+ * @param {Map<number, object>} [specsByCommodity]
  */
-export function parseCommodityCards(raw, allowedIds) {
+export function parseCommodityCards(raw, allowedIds, specsByCommodity = new Map(), { purpose, tanksById } = {}) {
   if (raw === undefined) return { provided: false, cards: [] };
   if (!Array.isArray(raw)) throw badRequest('commodities must be an array');
   const cards = raw.map((item) => {
@@ -72,17 +67,31 @@ export function parseCommodityCards(raw, allowedIds) {
     }
     const remark = String(item?.remark ?? '').trim();
     if (remark.length > REMARK_MAX) throw badRequest(`Remark must be at most ${REMARK_MAX} characters`);
-    const metrics = {};
-    for (const field of QUALITY_SUMMARY_FIELDS) {
-      metrics[field.column] = readMetric(item?.[field.body], field.label, field.max);
-    }
+    const spec = specsByCommodity.get(commodityId) || fallbackSpec();
+    const parsedMetrics = parseCardMetrics(item, spec);
     const records = Array.isArray(item?.records)
       ? item.records.map((record) => {
-          const parsed = parseRecordInput(record);
+          const tankId = record?.tankId != null && String(record.tankId).trim() !== '' ? Number(record.tankId) : null;
+          const tank = tankId != null && tanksById ? tanksById.get(tankId) || null : null;
+          if (isLoadingSampleRef(purpose) && tankId != null && !tank) {
+            throw badRequest('Tank is not on this port');
+          }
+          const parsed = parseRecordInput(record, {
+            sampleCodes: sampleCodes(spec),
+            purpose,
+            tank,
+          });
           return { id: record?.id ? String(record.id) : null, ...parsed };
         })
       : [];
-    return { commodityId, decision, remark, metrics, records };
+    return {
+      commodityId,
+      decision,
+      remark,
+      metrics: parsedMetrics.typed,
+      metricsJson: parsedMetrics.metricsJson,
+      records,
+    };
   });
   return { provided: true, cards };
 }
@@ -101,7 +110,7 @@ function docOf(row) {
  * One card for a commodity. A single-commodity visit that has no card yet keeps the
  * figures, palka rows, and untagged documents already saved on the sampling visit.
  */
-export function samplingCardForProduct(product, storedRow, subProcessRow, documents, productCount) {
+export function samplingCardForProduct(product, storedRow, subProcessRow, documents, productCount, spec = fallbackSpec()) {
   const fromParent = productCount === 1 && !storedRow;
   const parentRecords = Array.isArray(subProcessRow?.payload_json?.records) ? subProcessRow.payload_json.records : [];
   const records = fromParent
@@ -116,6 +125,15 @@ export function samplingCardForProduct(product, storedRow, subProcessRow, docume
     if (fromParent) return id == null || id === product.commodityId;
     return id === product.commodityId;
   });
+  const metricsJson = storedRow?.metrics_json && typeof storedRow.metrics_json === 'object' ? storedRow.metrics_json : {};
+  const fromTyped = {
+    ffa: metric('ffa_average', 'ffa_average'),
+    moisture: metric('moisture_average', 'moisture_average'),
+    mi: metric('moisture_average', 'moisture_average'),
+    dobi: metric('dobi', 'dobi'),
+    iodine: metric('iodine_value', 'iodine_value'),
+  };
+  const merged = { ...fromTyped, ...metricsJson };
   return {
     commodityId: product.commodityId,
     name: product.name,
@@ -124,10 +142,7 @@ export function samplingCardForProduct(product, storedRow, subProcessRow, docume
     metricCode: product.metricCode,
     decision: storedRow?.decision ?? null,
     remark: storedRow?.remark ?? '',
-    ffaAverage: metric('ffa_average', 'ffa_average'),
-    moistureAverage: metric('moisture_average', 'moisture_average'),
-    dobi: metric('dobi', 'dobi'),
-    iodineValue: metric('iodine_value', 'iodine_value'),
+    ...cardMetricFields(merged, spec),
     records,
     documents: docs.map(docOf),
   };
@@ -139,11 +154,27 @@ export function samplingCardForProduct(product, storedRow, subProcessRow, docume
  */
 export async function loadSamplingCommodityView(db, operationId, subProcessRow) {
   const products = await getSiCommodityOptionsForOperation(db, operationId);
-  if (!subProcessRow || products.length === 0) {
-    return { commodities: [], legacyUnassigned: null, productCount: products.length };
+  if (products.length === 0) {
+    return { commodities: [], legacyUnassigned: null, productCount: 0 };
+  }
+  const specs = products.every((p) => p.spec)
+    ? new Map()
+    : await loadSpecsByCommodityIds(
+        db,
+        products.map((p) => p.commodityId)
+      );
+  const specOf = (product) => product.spec || specForCommodity(specs, product.commodityId);
+  if (!subProcessRow) {
+    return {
+      commodities: products.map((product) =>
+        samplingCardForProduct(product, null, null, [], products.length, specOf(product))
+      ),
+      legacyUnassigned: null,
+      productCount: products.length,
+    };
   }
   const stored = await db.query(
-    `SELECT commodity_id, decision, remark, ffa_average, moisture_average, dobi, iodine_value, records_json
+    `SELECT commodity_id, decision, remark, ffa_average, moisture_average, dobi, iodine_value, records_json, metrics_json
      FROM sampling_commodity_qc
      WHERE sub_process_id = $1 AND deleted_at IS NULL`,
     [subProcessRow.id]
@@ -157,7 +188,14 @@ export async function loadSamplingCommodityView(db, operationId, subProcessRow) 
   );
   const byCommodity = new Map(stored.rows.map((row) => [Number(row.commodity_id), row]));
   const commodities = products.map((product) =>
-    samplingCardForProduct(product, byCommodity.get(product.commodityId), subProcessRow, docs.rows, products.length)
+    samplingCardForProduct(
+      product,
+      byCommodity.get(product.commodityId),
+      subProcessRow,
+      docs.rows,
+      products.length,
+      specOf(product)
+    )
   );
   const childHasRecords = commodities.some((c) => c.records.length > 0);
   const parentRecords = Array.isArray(subProcessRow.payload_json?.records) ? subProcessRow.payload_json.records : [];
@@ -191,16 +229,25 @@ export function summarizeCommodityDecisions(commodities) {
 export async function saveSamplingCommodities(client, { subProcessId, operationId, rawCards, actorUserId }) {
   const products = await getSiCommodityOptionsForOperation(client, operationId);
   const allowed = new Set(products.map((p) => p.commodityId));
-  const parsed = parseCommodityCards(rawCards, allowed);
+  const specs = await loadSpecsByCommodityIds(
+    client,
+    products.map((p) => p.commodityId)
+  );
+  const { purpose, portId } = await loadOperationSampleRef(client, operationId);
+  const tankIds = (Array.isArray(rawCards) ? rawCards : []).flatMap((item) =>
+    (Array.isArray(item?.records) ? item.records : []).map((record) => record?.tankId)
+  );
+  const tanksById = await resolvePortTanks(client, tankIds, portId, { includeDeleted: true });
+  const parsed = parseCommodityCards(rawCards, allowed, specs, { purpose, tanksById });
   if (!parsed.provided) return null;
   for (const card of parsed.cards) {
     const records = card.records.map((r) => ({ ...r, id: r.id || randomUUID() }));
     await client.query(
       `INSERT INTO sampling_commodity_qc (
          sub_process_id, commodity_id, decision, remark,
-         ffa_average, moisture_average, dobi, iodine_value, records_json, updated_at
+         ffa_average, moisture_average, dobi, iodine_value, records_json, metrics_json, updated_at
        )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb, clock_timestamp())
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb, clock_timestamp())
        ON CONFLICT (sub_process_id, commodity_id) WHERE deleted_at IS NULL
        DO UPDATE SET
          decision = EXCLUDED.decision,
@@ -210,6 +257,7 @@ export async function saveSamplingCommodities(client, { subProcessId, operationI
          dobi = EXCLUDED.dobi,
          iodine_value = EXCLUDED.iodine_value,
          records_json = EXCLUDED.records_json,
+         metrics_json = EXCLUDED.metrics_json,
          updated_at = clock_timestamp()`,
       [
         subProcessId,
@@ -221,6 +269,7 @@ export async function saveSamplingCommodities(client, { subProcessId, operationI
         card.metrics.dobi,
         card.metrics.iodine_value,
         JSON.stringify(records),
+        JSON.stringify(card.metricsJson || {}),
       ]
     );
     card.records = records;

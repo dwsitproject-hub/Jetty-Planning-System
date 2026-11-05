@@ -37,6 +37,7 @@ export function pathToPageKey(pathname) {
   if (pathname.startsWith('/master/si-agent')) return 'master-si-agent'
   if (pathname.startsWith('/master/si-commodity')) return 'master-si-commodity'
   if (pathname.startsWith('/master/freight-terms')) return 'master-si-freight-terms'
+  if (pathname.startsWith('/master/qc-specs')) return 'master-qc-spec'
   if (pathname.startsWith('/master')) return 'master'
   if (pathname.startsWith('/shipping-instruction')) return 'shipment-plan'
   if (pathname.startsWith('/shipment-plans')) return 'shipment-plan'

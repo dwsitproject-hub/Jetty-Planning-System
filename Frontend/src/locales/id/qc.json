@@ -36,6 +36,7 @@
     "samplesLine": "{{count}} palka",
     "avgFfa": "FFA {{value}}",
     "avgMoisture": "Air {{value}}",
+    "metric": "{{label}} {{value}}",
     "updatedBy": "Diperbarui {{when}} oleh {{who}}",
     "updatedAt": "Diperbarui {{when}}"
   },
@@ -48,6 +49,7 @@
     "restoredDraft": "Perubahan yang belum disimpan dipulihkan dari perangkat ini.",
     "discardDraft": "Buang",
     "sectionAdd": "Tambah sampel palka",
+    "sectionAddTank": "Tambah sampel tank",
     "sectionRecorded": "Sampel tercatat ({{count}})",
     "sectionReport": "Ringkasan laporan",
     "sectionTime": "Waktu sampling",
@@ -65,15 +67,20 @@
   },
   "quickAdd": {
     "noPalka": "No. Palka",
+    "tank": "Tank",
     "ffa": "FFA (%)",
     "moisture": "Kadar air (%)",
     "placeholderPalka": "mis. 1P",
+    "placeholderTank": "Pilih tank",
+    "searchTank": "Cari tank…",
     "placeholderFfa": "mis. 4,91",
     "placeholderMoisture": "mis. 0,25",
     "add": "Tambah, lanjut",
     "duplicate": "Palka {{palka}} sudah tercatat. Anda tetap bisa menambahkannya.",
+    "duplicateTank": "Tank {{palka}} sudah tercatat. Anda tetap bisa menambahkannya.",
     "error": {
       "palkaRequired": "Isi nomor palka.",
+      "tankRequired": "Pilih tank.",
       "metricRequired": "Isi FFA atau Kadar air.",
       "invalid": "Masukkan angka.",
       "range": "Harus antara 0 dan 100."
@@ -85,7 +92,9 @@
     "cancel": "Batal",
     "delete": "Hapus sampel",
     "confirmDelete": "Hapus palka {{palka}}?",
+    "confirmDeleteTank": "Hapus tank {{palka}}?",
     "palka": "Palka {{palka}}",
+    "tank": "Tank {{palka}}",
     "ffa": "FFA {{value}}",
     "moisture": "Kadar air {{value}}"
   },

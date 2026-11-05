@@ -36,6 +36,7 @@
     "samplesLine": "{{count}} palka",
     "avgFfa": "FFA {{value}}",
     "avgMoisture": "Moist {{value}}",
+    "metric": "{{label}} {{value}}",
     "updatedBy": "Updated {{when}} by {{who}}",
     "updatedAt": "Updated {{when}}"
   },
@@ -48,6 +49,7 @@
     "restoredDraft": "Restored unsaved changes from this device.",
     "discardDraft": "Discard",
     "sectionAdd": "Add palka sample",
+    "sectionAddTank": "Add tank sample",
     "sectionRecorded": "Recorded samples ({{count}})",
     "sectionReport": "Report summary",
     "sectionTime": "Sampling time",
@@ -65,15 +67,20 @@
   },
   "quickAdd": {
     "noPalka": "No. Palka",
+    "tank": "Tank",
     "ffa": "FFA (%)",
     "moisture": "Moisture (%)",
     "placeholderPalka": "e.g. 1P",
+    "placeholderTank": "Select tank",
+    "searchTank": "Search tank…",
     "placeholderFfa": "e.g. 4.91",
     "placeholderMoisture": "e.g. 0.25",
     "add": "Add and next",
     "duplicate": "Palka {{palka}} is already recorded. You can still add it.",
+    "duplicateTank": "Tank {{palka}} is already recorded. You can still add it.",
     "error": {
       "palkaRequired": "Enter the palka number.",
+      "tankRequired": "Select a tank.",
       "metricRequired": "Enter FFA or Moisture.",
       "invalid": "Enter a number.",
       "range": "Must be between 0 and 100."
@@ -85,7 +92,9 @@
     "cancel": "Cancel",
     "delete": "Delete sample",
     "confirmDelete": "Delete palka {{palka}}?",
+    "confirmDeleteTank": "Delete tank {{palka}}?",
     "palka": "Palka {{palka}}",
+    "tank": "Tank {{palka}}",
     "ffa": "FFA {{value}}",
     "moisture": "Moisture {{value}}"
   },

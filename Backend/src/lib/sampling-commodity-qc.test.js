@@ -52,10 +52,61 @@ test('leaving commodities out of the body keeps stored cards', () => {
   assert.deepEqual(parseCommodityCards(undefined, allowed), { provided: false, cards: [] })
 })
 
+test('Loading snapshots the tank code and Unloading strips tankId', () => {
+  const tanksById = new Map([[5, { id: 5, code: 'TK-01' }]])
+  const loading = parseCommodityCards(
+    [{ commodityId: 10, records: [{ tankId: 5, noPalka: 'typed', ffa: '1.2', moisture: '' }] }],
+    allowed,
+    new Map(),
+    { purpose: 'Loading', tanksById }
+  )
+  assert.deepEqual(loading.cards[0].records[0], { id: null, tankId: 5, noPalka: 'TK-01', ffa: '1.20', moisture: '' })
+  assert.throws(
+    () =>
+      parseCommodityCards(
+        [{ commodityId: 10, records: [{ tankId: 99, noPalka: 'TK-99', ffa: '1', moisture: '' }] }],
+        allowed,
+        new Map(),
+        { purpose: 'Loading', tanksById }
+      ),
+    (err) => err.statusCode === 400
+  )
+  const unloading = parseCommodityCards(
+    [{ commodityId: 10, records: [{ tankId: 5, noPalka: '2P', ffa: '1.2', moisture: '' }] }],
+    allowed,
+    new Map(),
+    { purpose: 'Unloading', tanksById }
+  )
+  assert.equal(unloading.cards[0].records[0].noPalka, '2P')
+  assert.equal(unloading.cards[0].records[0].tankId, undefined)
+})
+
 test('a palka edit targets one commodity and mirrors the parent only for a single product', () => {
   assert.deepEqual(recordWritePlan(10, 2), { scope: 'commodity', mirrorParent: false })
   assert.deepEqual(recordWritePlan(10, 1), { scope: 'commodity', mirrorParent: true })
   assert.deepEqual(recordWritePlan(null, 2), { scope: 'shared', mirrorParent: true })
+})
+
+test('a supplied spec drives the card fields instead of the CPO fallback', () => {
+  const spec = {
+    templateId: 4,
+    name: 'Cangkang',
+    parameters: [
+      { code: 'moisture', labelEn: 'Moisture', kind: 'number', maxValue: 100, scope: 'both' },
+      { code: 'dirt', labelEn: 'Dirt', kind: 'number', maxValue: 100, scope: 'both' },
+    ],
+  }
+  const card = samplingCardForProduct(
+    { commodityId: 8, shortName: 'PKS' },
+    { metrics_json: { moisture: '12', dirt: '1.4' } },
+    null,
+    [],
+    1,
+    spec
+  )
+  assert.equal(card.spec.name, 'Cangkang')
+  assert.equal(card.metrics.dirt, '1.40')
+  assert.equal(card.iodineValue, '')
 })
 
 test('a single commodity with no card yet keeps the visit quality and untagged documents', () => {

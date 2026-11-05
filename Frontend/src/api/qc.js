@@ -67,12 +67,21 @@ export async function loadQcSamplingSection(operationId) {
 }
 
 const recordsPath = (operationId) => `/qc/sampling/operations/${operationId}/records`
-const pickRecordFields = ({ noPalka, ffa, moisture, commodityId }) => ({
-  noPalka,
-  ffa,
-  moisture,
-  ...(commodityId != null ? { commodityId } : {}),
-})
+const RECORD_META = new Set(['id', 'commodityId', 'noPalka', 'ffa', 'moisture'])
+const pickRecordFields = (record = {}) => {
+  const out = {
+    noPalka: record.noPalka,
+    ffa: record.ffa,
+    moisture: record.moisture,
+  }
+  if (record.commodityId != null) out.commodityId = record.commodityId
+  if (record.tankId != null && String(record.tankId).trim() !== '') out.tankId = record.tankId
+  for (const [key, value] of Object.entries(record)) {
+    if (RECORD_META.has(key) || value == null || value === '') continue
+    out[key] = value
+  }
+  return out
+}
 
 /** Single-sample writes; each resolves `{ record, records, updatedAt }` with the full, current list. */
 export const addQcSamplingRecord = (operationId, record) =>

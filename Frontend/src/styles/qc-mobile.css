@@ -501,12 +501,13 @@
 
 .qc-palka-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1.3fr) repeat(auto-fit, minmax(72px, 1fr)) auto;
   gap: var(--spacing-2);
   align-items: center;
 }
 
-.qc-palka-row .qc-input {
+.qc-palka-row .qc-input,
+.qc-palka-row .sample-ref-select {
   width: 100%;
   min-width: 0;
 }

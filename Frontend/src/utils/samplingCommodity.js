@@ -13,6 +13,8 @@ export function emptyCommodityCard(product) {
     moistureAverage: product?.moistureAverage ?? '',
     dobi: product?.dobi ?? '',
     iodineValue: product?.iodineValue ?? '',
+    metrics: product?.metrics && typeof product.metrics === 'object' ? product.metrics : {},
+    spec: product?.spec || null,
     records: Array.isArray(product?.records) ? product.records : [],
     documents: Array.isArray(product?.documents) ? product.documents : [],
   }
@@ -69,6 +71,7 @@ export function cardsToSaveBody(commodities) {
     moistureAverage: card.moistureAverage ?? '',
     dobi: card.dobi ?? '',
     iodineValue: card.iodineValue ?? '',
+    metrics: card.metrics || {},
     records: card.records || [],
   }))
 }

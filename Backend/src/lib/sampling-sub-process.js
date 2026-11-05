@@ -103,14 +103,53 @@ export function deriveSamplingStatus(row) {
   return SAMPLING_STATUS.DRAFT;
 }
 
+const PREVIEW_LABEL = Object.freeze({
+  ffa: 'FFA',
+  mi: 'M&I',
+  moisture: 'Moist',
+  dobi: 'DOBI',
+  iodine: 'IV',
+  dirt: 'Dirt',
+});
+
+/** First filled report values from per-commodity cards, for queue lines without FFA/Moist. */
+export function previewMetricsFromCards(cards = []) {
+  const out = [];
+  const seen = new Set();
+  const push = (code, value) => {
+    if (value == null || String(value).trim() === '') return;
+    const key = code === 'mi' ? 'moisture' : code;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({
+      code: key,
+      label: PREVIEW_LABEL[code] || PREVIEW_LABEL[key] || code,
+      value: formatQualityMetric(value) ?? String(value),
+    });
+  };
+  for (const card of cards) {
+    push('ffa', card.ffa_average);
+    push('moisture', card.moisture_average);
+    const metrics =
+      card.metrics_json && typeof card.metrics_json === 'object' && !Array.isArray(card.metrics_json)
+        ? card.metrics_json
+        : {};
+    for (const [code, value] of Object.entries(metrics)) push(code, value);
+    push('dobi', card.dobi);
+    push('iodine', card.iodine_value);
+  }
+  return out;
+}
+
 /** Queue-card summary of one `sampling` sub-process row (undefined row = not started). */
-export function toSamplingSummary(row) {
+export function toSamplingSummary(row, extras = {}) {
   const stats = computeSamplingStats(row?.payload_json);
   return {
     status: deriveSamplingStatus(row),
-    recordCount: stats.count,
+    recordCount: stats.count || Number(extras.recordCount) || 0,
     avgFfa: formatQualityMetric(row?.ffa_average) ?? stats.avgFfa,
     avgMoisture: formatQualityMetric(row?.moisture_average) ?? stats.avgMoisture,
+    previewMetrics: extras.previewMetrics || [],
     documentCount: Number(row?.document_count) || 0,
     updatedAt: row?.updated_at ?? null,
     updatedByName: row?.updated_by_name ?? null,

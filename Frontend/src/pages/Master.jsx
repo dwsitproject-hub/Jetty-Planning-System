@@ -58,6 +58,7 @@ const MASTER_SECTIONS = [
         badgeKind: 'shared',
         sourceKind: 'datahub',
       },
+      { path: '/master/qc-specs', titleKey: 'qcSpec.pageTitle', descKey: 'qcSpec.intro', badgeKey: 'masterBadgeShared', badgeKind: 'shared', sourceKind: 'local' },
       { path: '/master/freight-terms', titleKey: 'masterHubFreightTermsTitle', descKey: 'masterHubFreightTermsDesc', badgeKey: 'masterBadgeShared', badgeKind: 'shared', sourceKind: 'local' },
     ],
   },
