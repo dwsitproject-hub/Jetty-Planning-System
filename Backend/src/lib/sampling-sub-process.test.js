@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   computeSamplingStats,
   formatQualityMetric,
+  previewMetricsFromCards,
   readQualitySummary,
   summarizeSamplingRecords,
 } from './sampling-sub-process.js';
@@ -58,5 +59,18 @@ describe('computeSamplingStats', () => {
 
   it('returns nulls when there are no records', () => {
     assert.deepEqual(computeSamplingStats(null), { count: 0, avgFfa: null, avgMoisture: null });
+  });
+});
+
+describe('previewMetricsFromCards', () => {
+  it('prefers typed averages then extra metrics_json keys', () => {
+    const out = previewMetricsFromCards([
+      { ffa_average: null, moisture_average: '12.0', metrics_json: { dirt: '1.40', moisture: '12' } },
+    ]);
+    assert.deepEqual(
+      out.map((m) => m.code),
+      ['moisture', 'dirt']
+    );
+    assert.equal(out[1].label, 'Dirt');
   });
 });

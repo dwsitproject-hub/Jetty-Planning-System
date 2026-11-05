@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom'
  * Dropdown multi-select: trigger shows selected labels (or placeholder); click opens panel with checkboxes.
  * Optional in-panel Search… filter (case-insensitive on option labels).
  * @param {Object} props
- * @param {Array<{ value: string, label: string, keywords?: string }>} props.options
+ * @param {Array<{ value: string, label: string, keywords?: string, disabled?: boolean }>} props.options
  * @param {string[]} props.selectedValues
  * @param {function(string[]): void} props.onChange
  * @param {string} [props.placeholder] - e.g. "Select jetty..."
@@ -127,6 +127,7 @@ export default function DropdownMultiSelect({
 
   const toggleOption = (value) => {
     if (disabled) return
+    if (options.find((opt) => opt.value === value)?.disabled) return
     const next = selectedValues.includes(value)
       ? selectedValues.filter((x) => x !== value)
       : [...selectedValues, value]
@@ -164,11 +165,11 @@ export default function DropdownMultiSelect({
         <ul className="dropdown-multi__list">
           {filteredOptions.map((opt) => (
             <li key={opt.value} role="option" aria-selected={selectedValues.includes(opt.value)}>
-              <label className="dropdown-multi__option">
+              <label className={`dropdown-multi__option${opt.disabled ? ' is-disabled' : ''}`}>
                 <input
                   type="checkbox"
                   checked={selectedValues.includes(opt.value)}
-                  disabled={disabled}
+                  disabled={disabled || opt.disabled}
                   onChange={() => toggleOption(opt.value)}
                 />
                 <span>{opt.label}</span>

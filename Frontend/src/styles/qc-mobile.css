@@ -160,6 +160,30 @@
   color: var(--color-text-steel);
 }
 
+.qc-field__value {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.qc-field__value .qc-input,
+.qc-field__value .berthing-modal__input {
+  flex: 1;
+  min-width: 0;
+}
+
+.qc-field__unit,
+.sampling-col-unit {
+  color: var(--color-text-steel);
+  font-size: var(--font-size-small);
+  white-space: nowrap;
+}
+
+.sampling-col-name,
+.sampling-col-unit {
+  display: block;
+}
+
 .operator-mobile .qc-field--error .qc-input {
   border-color: var(--color-etc-breach);
 }
@@ -228,6 +252,20 @@
   justify-content: space-between;
   gap: var(--spacing-2);
   width: 100%;
+}
+
+.operator-mobile .qc-entry__identity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+  min-width: 0;
+  flex: 1;
+}
+
+.operator-mobile .qc-entry__identity .loading-list__badge--purpose {
+  font-size: var(--font-size-small);
+  padding: 0.2em 0.55em;
 }
 
 .operator-mobile .qc-entry__vessel {
@@ -366,6 +404,13 @@
   font-size: var(--font-size-small);
 }
 
+.operator-mobile .qc-sample__remark {
+  grid-column: 1 / -1;
+  color: var(--color-text-steel);
+  font-size: var(--font-size-small);
+  overflow-wrap: anywhere;
+}
+
 /* ---- Documents ---- */
 .operator-mobile .qc-doc-actions {
   display: grid;
@@ -499,16 +544,132 @@
   background: transparent;
 }
 
+.qc-sample-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.qc-sample-entry__title,
+.qc-report-summary__title {
+  margin: 0;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-charcoal);
+}
+
+.qc-report-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  margin-top: var(--spacing-2);
+  padding: var(--spacing-3);
+  border: 1px solid var(--color-border-medium);
+  border-left: 3px solid #3d5a80;
+  border-radius: var(--radius-md);
+  background: #f4f7fb;
+}
+
+.qc-report-summary__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.qc-report-summary__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--spacing-3);
+  border-radius: 999px;
+  border: 1px solid #3d5a80;
+  background: #e8eef6;
+  color: #3d5a80;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.qc-report-summary__hint {
+  margin: 0;
+  color: var(--color-text-steel);
+  font-size: var(--font-size-small);
+}
+
+.qc-report-summary .qc-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-3);
+}
+
+.qc-auto-calc__toggle {
+  align-self: flex-start;
+  margin: 0;
+  padding: 2px 10px;
+  border: 1px solid #3d5a80;
+  border-radius: 999px;
+  background: #fff;
+  color: #3d5a80;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.qc-auto-calc__toggle[aria-expanded='true'] {
+  background: #e8eef6;
+}
+
+.qc-auto-calc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-white);
+}
+
+.qc-auto-calc__choice {
+  margin: 0;
+  padding: 4px 12px;
+  border: 1px solid var(--color-border-medium);
+  border-radius: 999px;
+  background: var(--color-bg-white);
+  color: var(--color-text-charcoal);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.qc-auto-calc__empty {
+  margin: 0;
+  color: var(--color-text-steel);
+  font-size: var(--font-size-small);
+}
+
 .qc-palka-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1.3fr) repeat(auto-fit, minmax(72px, 1fr)) minmax(8rem, 1.4fr) auto;
   gap: var(--spacing-2);
   align-items: center;
 }
 
-.qc-palka-row .qc-input {
+.qc-palka-row .qc-input,
+.qc-palka-row .sample-ref-select {
   width: 100%;
   min-width: 0;
+}
+
+.qc-sample-remark,
+.sampling-record-remark {
+  min-width: 0;
+}
+
+.sampling-record-remark {
+  max-width: 16rem;
+  overflow-wrap: anywhere;
 }
 
 .qc-commodity-card__head,

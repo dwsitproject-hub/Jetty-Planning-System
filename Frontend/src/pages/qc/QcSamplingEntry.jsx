@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import PurposeBadge from '../../components/PurposeBadge'
 import QcEntryBanners from '../../components/qc/QcEntryBanners'
 import QcReportSummary from '../../components/qc/QcReportSummary'
 import QcSamplingDocuments from '../../components/qc/QcSamplingDocuments'
@@ -10,10 +11,13 @@ import SampleQuickAdd from '../../components/qc/SampleQuickAdd'
 import SamplingCommodityCards from '../../components/sampling/SamplingCommodityCards'
 import SamplingExtractReviewModal from '../../components/SamplingExtractReviewModal'
 import SamplingSummaryStrip from '../../components/qc/SamplingSummaryStrip'
+import { usePortScope } from '../../context/PortScopeContext'
 import { useRbac } from '../../context/RbacContext'
+import { usePortTanks } from '../../hooks/usePortTanks'
 import { useQcSamplingEntry } from '../../hooks/useQcSamplingEntry'
 import { useQcSamplingExtractFlow } from '../../hooks/useQcSamplingExtractFlow'
 import { computeAverages } from '../../utils/qcSampling'
+import { sampleRefKindFromPurpose } from '../../utils/samplingSampleRef'
 
 function statusOf(sampling) {
   if (sampling.status === 'Done') return 'done'
@@ -34,6 +38,7 @@ function statusOf(sampling) {
 export default function QcSamplingEntry({ operationId, onBack, onSaved, onFinalSaved, embedded = false }) {
   const { t } = useTranslation('qc')
   const { loading: rbacLoading, canView } = useRbac()
+  const { selectedPortId } = usePortScope()
   const entry = useQcSamplingEntry(operationId)
   const [message, setMessage] = useState(null)
   const [summaryErrors, setSummaryErrors] = useState({})
@@ -53,6 +58,8 @@ export default function QcSamplingEntry({ operationId, onBack, onSaved, onFinalS
     [sampling.commodities, sampling.records]
   )
   const averages = useMemo(() => computeAverages(sampleRecords), [sampleRecords])
+  const sampleRefKind = sampleRefKindFromPurpose(header?.purpose, header?.loadDischarge)
+  const tanks = usePortTanks(selectedPortId, sampleRefKind === 'tank')
   const fail = (text) => setMessage({ type: 'error', text })
 
   if (rbacLoading || entry.loading) return <div className="operator-queue__status">{t('entry.loading')}</div>
@@ -106,7 +113,10 @@ export default function QcSamplingEntry({ operationId, onBack, onSaved, onFinalS
             </button>
           )}
           <div className="qc-entry__title-row">
-            <h1 className="qc-entry__vessel">{header.vesselName}</h1>
+            <div className="qc-entry__identity">
+              <h1 className="qc-entry__vessel">{header.vesselName}</h1>
+              <PurposeBadge purpose={header.purpose} loadDischarge={header.loadDischarge} />
+            </div>
             <QcStatusChip status={statusOf(sampling)} />
           </div>
           <p className="qc-entry__meta">
@@ -131,6 +141,8 @@ export default function QcSamplingEntry({ operationId, onBack, onSaved, onFinalS
               commodities={sampling.commodities}
               legacyUnassigned={sampling.legacyUnassigned}
               variant="qc"
+              sampleRefKind={sampleRefKind}
+              tanks={tanks}
               errors={summaryErrors}
               onPatch={entry.patchCommodity}
               onAddRecord={(commodityId, record) => entry.addRecord(record, commodityId)}
@@ -151,8 +163,20 @@ export default function QcSamplingEntry({ operationId, onBack, onSaved, onFinalS
         ) : (
           <div className="qc-entry__body">
             <div className="qc-entry__col qc-entry__col--main">
-              <SampleQuickAdd records={sampling.records} onAdd={entry.addRecord} onPendingChange={setPendingTyped} />
-              <SampleList records={sampling.records} onUpdate={entry.updateRecord} onRemove={entry.removeRecord} />
+              <SampleQuickAdd
+                records={sampling.records}
+                onAdd={entry.addRecord}
+                onPendingChange={setPendingTyped}
+                sampleRefKind={sampleRefKind}
+                tanks={tanks}
+              />
+              <SampleList
+                records={sampling.records}
+                onUpdate={entry.updateRecord}
+                onRemove={entry.removeRecord}
+                sampleRefKind={sampleRefKind}
+                tanks={tanks}
+              />
             </div>
             <div className="qc-entry__col qc-entry__col--side">
               <QcReportSummary sampling={sampling} errors={summaryErrors} computed={averages} onChange={entry.setField} />

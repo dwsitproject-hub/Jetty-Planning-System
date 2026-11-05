@@ -5,10 +5,15 @@ import {
   berthToStartEvidence,
   computeBerthToStartCargoHours,
   cargoDoneEvidence,
+  cargoEntryOverlapsLocalDate,
+  cargoPersistedLoadLinesFromTimeline,
+  castOffSortTimestamp,
   dailyFlowFromHourlyBuckets,
   flowEvidenceSummary,
+  fmtMgmtCastOffDate,
   formatEvidenceComputedHours,
   formatEvidenceDisplayedDays,
+  hourlyBucketsOnLocalDate,
 } from './managementDashboardMetricEvidence.js'
 
 describe('waitEvidence', () => {
@@ -168,6 +173,73 @@ describe('flowEvidenceSummary', () => {
     assert.equal(s.voyageRateMtH, 100)
     assert.equal(s.source, 'hybrid')
     assert.equal(s.atgPartial, true)
+  })
+})
+
+describe('fmtMgmtCastOffDate', () => {
+  it('shows Asia/Jakarta calendar date for cast-off instant', () => {
+    assert.equal(fmtMgmtCastOffDate('2026-07-22T17:30:00.000Z'), '23 Jul 2026')
+    assert.equal(fmtMgmtCastOffDate(null), '—')
+  })
+
+  it('castOffSortTimestamp returns epoch ms', () => {
+    const t = castOffSortTimestamp('2026-07-22T17:30:00.000Z')
+    assert.ok(typeof t === 'number' && t > 0)
+    assert.equal(castOffSortTimestamp(null), null)
+  })
+})
+
+describe('hourlyBucketsOnLocalDate', () => {
+  it('keeps buckets on the requested local date only', () => {
+    const buckets = [
+      { hourStart: '2026-07-22T17:00:00.000Z' },
+      { hourStart: '2026-07-23T02:00:00.000Z' },
+    ]
+    const on23 = hourlyBucketsOnLocalDate(buckets, '2026-07-23', 'Asia/Jakarta')
+    assert.equal(on23.length, 2)
+    const on22 = hourlyBucketsOnLocalDate(buckets, '2026-07-22', 'Asia/Jakarta')
+    assert.equal(on22.length, 0)
+  })
+})
+
+describe('cargoPersistedLoadLinesFromTimeline', () => {
+  it('reads cargo_operations load lines and filters by product key', () => {
+    const events = [
+      {
+        milestoneKey: 'cargo_operations',
+        cargoLoadLines: [
+          {
+            id: '10',
+            startAt: '2026-06-01T08:00:00Z',
+            endAt: '2026-06-01T20:00:00Z',
+            commodityShortName: 'CPO',
+            tankIds: ['1'],
+          },
+          {
+            id: '11',
+            startAt: '2026-06-02T08:00:00Z',
+            endAt: '2026-06-02T20:00:00Z',
+            commodityShortName: 'FAME',
+            tankIds: ['2'],
+          },
+        ],
+      },
+    ]
+    const all = cargoPersistedLoadLinesFromTimeline(events)
+    assert.equal(all.length, 2)
+    const cpo = cargoPersistedLoadLinesFromTimeline(events, 'CPO')
+    assert.equal(cpo.length, 1)
+    assert.equal(String(cpo[0].id), '10')
+  })
+
+  it('cargoEntryOverlapsLocalDate respects entry window in Jakarta', () => {
+    const line = {
+      startAt: '2026-06-01T08:00:00Z',
+      endAt: '2026-06-02T20:00:00Z',
+    }
+    assert.equal(cargoEntryOverlapsLocalDate(line, '2026-06-01', 'Asia/Jakarta'), true)
+    assert.equal(cargoEntryOverlapsLocalDate(line, '2026-06-02', 'Asia/Jakarta'), true)
+    assert.equal(cargoEntryOverlapsLocalDate(line, '2026-06-04', 'Asia/Jakarta'), false)
   })
 })
 

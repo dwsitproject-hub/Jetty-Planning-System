@@ -5,23 +5,25 @@ import QcSheet from './QcSheet'
 import SampleFields from './SampleFields'
 
 /** Edit or delete one recorded palka. Delete is a two-step inline confirm (no browser dialog). */
-export default function SampleEditSheet({ record, records, onSave, onDelete, onClose }) {
+export default function SampleEditSheet({ record, records, onSave, onDelete, onClose, sampleRefKind = 'palka', tanks = [] }) {
   const { t } = useTranslation('qc')
   const [form, setForm] = useState({
     noPalka: record.noPalka || '',
+    tankId: record.tankId != null ? String(record.tankId) : '',
     ffa: record.ffa || '',
     moisture: record.moisture || '',
+    remark: record.remark || '',
   })
   const [submitted, setSubmitted] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
-  const result = validateSample(form, records, record.id)
+  const result = validateSample(form, records, record.id, { kind: sampleRefKind })
 
   const save = () => {
     setSubmitted(true)
     if (!result.ok) return
-    const { noPalka, ffa, moisture } = buildSampleRecord(form)
-    onSave(record.id, { noPalka, ffa, moisture })
+    const { noPalka, tankId, ffa, moisture, remark } = buildSampleRecord(form)
+    onSave(record.id, { noPalka, ...(tankId != null ? { tankId } : {}), ffa, moisture, remark })
   }
 
   return (
@@ -32,10 +34,12 @@ export default function SampleEditSheet({ record, records, onSave, onDelete, onC
         onChange={setForm}
         onEnter={save}
         idPrefix="qc-edit"
+        sampleRefKind={sampleRefKind}
+        tanks={tanks}
       />
       {result.duplicate ? (
         <p className="qc-warning" role="status">
-          {t('quickAdd.duplicate', { palka: form.noPalka.trim() })}
+          {t(sampleRefKind === 'tank' ? 'quickAdd.duplicateTank' : 'quickAdd.duplicate', { palka: form.noPalka.trim() })}
         </p>
       ) : null}
       <div className="qc-sheet__actions">
@@ -48,7 +52,7 @@ export default function SampleEditSheet({ record, records, onSave, onDelete, onC
       </div>
       {confirmDelete ? (
         <div className="qc-sheet__confirm" role="alert">
-          <span>{t('sample.confirmDelete', { palka: record.noPalka })}</span>
+          <span>{t(sampleRefKind === 'tank' ? 'sample.confirmDeleteTank' : 'sample.confirmDelete', { palka: record.noPalka })}</span>
           <button type="button" className="op-btn op-btn--danger" onClick={() => onDelete(record.id)}>
             {t('sample.delete')}
           </button>

@@ -3,7 +3,7 @@ import { MAX_SAMPLING_METRIC_CHARS } from '../../constants/inputLimits'
 
 const METRIC_FIELDS = ['ffaAverage', 'moistureAverage', 'dobi', 'iodineValue']
 
-/** Report summary figures plus the sampling time window and remark. */
+/** Report summary figures plus the sampling time window. */
 export default function QcReportSummary({ sampling, errors = {}, computed, onChange, timesOnly = false }) {
   const { t } = useTranslation('qc')
   const canUseComputed = computed?.avgFfa != null || computed?.avgMoisture != null
@@ -80,18 +80,6 @@ export default function QcReportSummary({ sampling, errors = {}, computed, onCha
               onChange={(e) => onChange('endTime', e.target.value)}
             />
           </div>
-        </div>
-        <div className="qc-field">
-          <label className="qc-field__label" htmlFor="qc-remark">
-            {t('entry.remark')}
-          </label>
-          <textarea
-            id="qc-remark"
-            className="qc-input qc-input--area"
-            rows={3}
-            value={sampling.remark || ''}
-            onChange={(e) => onChange('remark', e.target.value)}
-          />
         </div>
       </section>
     </>

@@ -47,8 +47,11 @@ import OperationalMilestoneWorkspace from '../components/OperationalMilestoneWor
 import OperationActivityTimeline from '../components/OperationActivityTimeline'
 import FormLabelWithTooltip from '../components/FormLabelWithTooltip'
 import { QcDecisionPillRow } from '../components/qc/QcDecisionPill'
+import SampleRefField from '../components/sampling/SampleRefField'
 import SamplingCommodityCards from '../components/sampling/SamplingCommodityCards'
 import SamplingExtractReviewModal from '../components/SamplingExtractReviewModal'
+import { usePortTanks } from '../hooks/usePortTanks'
+import { matchTankId, tankCodeOf } from '../utils/samplingSampleRef'
 import { applyCardExtract, cardsToSaveBody, carryVisitOntoSingleCard, collapsedAttention, decisionSummaryText, samplingViewFromCard, seedCommodityCards } from '../utils/samplingCommodity'
 import {
   useSamplingDocumentExtract,
@@ -1716,6 +1719,9 @@ function PreCheckingSections({
 }) {
   const { t: tLoading } = useTranslation('loading')
   const { t: tQc } = useTranslation('qc')
+  const { selectedPort } = usePortScope()
+  const sampleRefKind = purpose === 'Loading' ? 'tank' : 'palka'
+  const tanks = usePortTanks(selectedPort?.id, sampleRefKind === 'tank')
   const preCheckTabs = useMemo(() => getPreCheckSubTabs(purpose), [purpose])
   const [searchParams, setSearchParams] = useSearchParams()
   const [activeSubTab, setActiveSubTab] = useState('keyMeeting')
@@ -1725,7 +1731,8 @@ function PreCheckingSections({
   const [formModalOpen, setFormModalOpen] = useState(false)
   const [draft, setDraft] = useState(() => defaultPreCheckingSection())
   const [editingSamplingRecordId, setEditingSamplingRecordId] = useState(null)
-  const [samplingForm, setSamplingForm] = useState({ noPalka: '', ffa: '', moisture: '' })
+  const emptySamplingForm = { noPalka: '', tankId: '', ffa: '', moisture: '' }
+  const [samplingForm, setSamplingForm] = useState(emptySamplingForm)
   const [loadingPersisted, setLoadingPersisted] = useState(false)
   const [persistError, setPersistError] = useState(null)
   const [savingSection, setSavingSection] = useState(null)
@@ -1995,7 +2002,7 @@ function PreCheckingSections({
         commodities,
         documents: moved ? [] : sampling.documents,
       }
-      setSamplingForm({ noPalka: '', ffa: '', moisture: '' })
+      setSamplingForm(emptySamplingForm)
       setEditingSamplingRecordId(null)
     }
     setDraft(merged)
@@ -2380,7 +2387,7 @@ function PreCheckingSections({
   const cancelEdit = () => {
     setEditingSection(null)
     setEditingSamplingRecordId(null)
-    setSamplingForm({ noPalka: '', ffa: '', moisture: '' })
+    setSamplingForm(emptySamplingForm)
     setFormModalOpen(false)
   }
 
@@ -2504,41 +2511,68 @@ function PreCheckingSections({
   }
 
   const addSamplingRecord = () => {
-    const { noPalka, ffa, moisture } = samplingForm
-    if (!noPalka.trim()) return
+    const { noPalka, tankId, ffa, moisture } = samplingForm
+    const label = sampleRefKind === 'tank' ? tankCodeOf(tanks, tankId) || noPalka.trim() : noPalka.trim()
+    if (sampleRefKind === 'tank' ? !String(tankId || '').trim() : !label) return
     const id = `sampling-${Date.now()}-${Math.random().toString(36).slice(2)}`
     setDraft((prev) => ({
       ...prev,
       sampling: {
         ...prev.sampling,
-        records: [...(prev.sampling?.records || []), { id, noPalka: noPalka.trim(), ffa: (ffa || '').trim(), moisture: (moisture || '').trim() }],
+        records: [
+          ...(prev.sampling?.records || []),
+          {
+            id,
+            noPalka: label,
+            ...(sampleRefKind === 'tank' ? { tankId: Number(tankId) || tankId } : {}),
+            ffa: (ffa || '').trim(),
+            moisture: (moisture || '').trim(),
+          },
+        ],
       },
     }))
-    setSamplingForm({ noPalka: '', ffa: '', moisture: '' })
+    setSamplingForm(emptySamplingForm)
   }
 
   const startEditSamplingRecord = (record) => {
     setEditingSamplingRecordId(record.id)
-    setSamplingForm({ noPalka: record.noPalka || '', ffa: record.ffa || '', moisture: record.moisture || '' })
+    setSamplingForm({
+      noPalka: record.noPalka || '',
+      tankId: matchTankId(record, tanks),
+      ffa: record.ffa || '',
+      moisture: record.moisture || '',
+    })
   }
 
   const updateSamplingRecord = () => {
     if (!editingSamplingRecordId) return
+    const label =
+      sampleRefKind === 'tank'
+        ? tankCodeOf(tanks, samplingForm.tankId) || samplingForm.noPalka.trim()
+        : samplingForm.noPalka.trim()
     setDraft((prev) => ({
       ...prev,
       sampling: {
         ...prev.sampling,
         records: (prev.sampling?.records || []).map((r) =>
-          r.id === editingSamplingRecordId ? { ...r, noPalka: samplingForm.noPalka.trim(), ffa: samplingForm.ffa.trim(), moisture: samplingForm.moisture.trim() } : r
+          r.id === editingSamplingRecordId
+            ? {
+                ...r,
+                noPalka: label,
+                ...(sampleRefKind === 'tank' ? { tankId: Number(samplingForm.tankId) || samplingForm.tankId } : {}),
+                ffa: samplingForm.ffa.trim(),
+                moisture: samplingForm.moisture.trim(),
+              }
+            : r
         ),
       },
     }))
-    setSamplingForm({ noPalka: '', ffa: '', moisture: '' })
+    setSamplingForm(emptySamplingForm)
     setEditingSamplingRecordId(null)
   }
 
   const cancelEditSamplingRecord = () => {
-    setSamplingForm({ noPalka: '', ffa: '', moisture: '' })
+    setSamplingForm(emptySamplingForm)
     setEditingSamplingRecordId(null)
   }
 
@@ -2549,7 +2583,7 @@ function PreCheckingSections({
       sampling: { ...prev.sampling, records: (prev.sampling?.records || []).filter((r) => r.id !== id) },
     }))
     if (editingSamplingRecordId === id) {
-      setSamplingForm({ noPalka: '', ffa: '', moisture: '' })
+      setSamplingForm(emptySamplingForm)
       setEditingSamplingRecordId(null)
     }
   }
@@ -2982,21 +3016,12 @@ function PreCheckingSections({
             </div>
             {editSamplingCards.length > 0 ? (
               <>
-              <div className="berthing-modal__field">
-                <label className="berthing-modal__label">{tLoading('sampling.remark')}</label>
-                <textarea
-                  className="berthing-modal__input berthing-modal__textarea"
-                  value={draft.sampling?.remark || ''}
-                  onChange={(e) => updateDraft('sampling', 'remark', e.target.value)}
-                  maxLength={MAX_REMARK_CHARS}
-                  rows={4}
-                  placeholder={tLoading('sampling.remarkPlaceholder')}
-                />
-              </div>
               <SamplingCommodityCards
                 commodities={editSamplingCards}
                 legacyUnassigned={draft.sampling.legacyUnassigned}
                 variant="hub"
+                sampleRefKind={sampleRefKind}
+                tanks={tanks}
                 onPatch={(commodityId, patch) => updateSamplingCommodity(commodityId, (card) => ({ ...card, ...patch }))}
                 onAddRecord={(commodityId, record) =>
                   updateSamplingCommodity(commodityId, (card) => ({ ...card, records: [...(card.records || []), record] }))
@@ -3069,16 +3094,21 @@ function PreCheckingSections({
             />
             <section className="sampling-entry-block">
               <h4 className="sampling-entry-block__title">{tLoading('sampling.entriesTitle')}</h4>
-              <div className="sampling-entry-block__grid sampling-entry-block__grid--palka">
+              <div className={`sampling-entry-block__grid sampling-entry-block__grid--palka${sampleRefKind === 'tank' ? ' sampling-entry-block__grid--tank' : ''}`}>
                 <div className="berthing-modal__field">
-                  <label className="berthing-modal__label">{tLoading('sampling.noPalka')}</label>
-                  <input
-                    type="text"
-                    className="berthing-modal__input"
-                    value={samplingForm.noPalka}
-                    onChange={(e) => setSamplingForm((f) => ({ ...f, noPalka: e.target.value }))}
+                  <label className="berthing-modal__label">
+                    {tLoading(sampleRefKind === 'tank' ? 'sampling.tank' : 'sampling.noPalka')}
+                  </label>
+                  <SampleRefField
+                    kind={sampleRefKind}
+                    tanks={tanks}
+                    tankId={samplingForm.tankId}
+                    noPalka={samplingForm.noPalka}
+                    inputClass="berthing-modal__input"
                     maxLength={MAX_SAMPLING_PALKA_FIELD_CHARS}
-                    placeholder={tLoading('sampling.placeholderPalka')}
+                    placeholder={tLoading(sampleRefKind === 'tank' ? 'sampling.placeholderTank' : 'sampling.placeholderPalka')}
+                    searchPlaceholder={tLoading('sampling.searchTank')}
+                    onChange={(next) => setSamplingForm((f) => ({ ...f, ...next }))}
                   />
                 </div>
                 <div className="berthing-modal__field">
@@ -3132,7 +3162,7 @@ function PreCheckingSections({
               <table className="loading-detail-activity-table sampling-recorded-table">
                 <thead>
                   <tr>
-                    <th>{tLoading('sampling.noPalka')}</th>
+                    <th>{tLoading(sampleRefKind === 'tank' ? 'sampling.tank' : 'sampling.noPalka')}</th>
                     <th>{tLoading('sampling.ffa')}</th>
                     <th>{tLoading('sampling.moisture')}</th>
                     <th>{tLoading('sampling.actions')}</th>
@@ -3220,17 +3250,6 @@ function PreCheckingSections({
                 </div>
               </div>
             </section>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">{tLoading('sampling.remark')}</label>
-              <textarea
-                className="berthing-modal__input berthing-modal__textarea"
-                value={draft.sampling?.remark || ''}
-                onChange={(e) => updateDraft('sampling', 'remark', e.target.value)}
-                maxLength={MAX_REMARK_CHARS}
-                rows={4}
-                placeholder={tLoading('sampling.remarkPlaceholder')}
-              />
-            </div>
             <div className="sampling-summary-chips" role="status" aria-live="polite">
               <span className="sampling-summary-chip">{tLoading('sampling.chipTotal', { count: samplingSummary.count })}</span>
               <span className="sampling-summary-chip">
@@ -3265,15 +3284,13 @@ function PreCheckingSections({
             </div>
             {savedSamplingCards.length > 0 ? (
               <>
-              <div className="precheck-section__row precheck-section__row--block">
-                <span className="precheck-section__label">{tLoading('sampling.remark')}</span>
-                <span className="precheck-section__value">{data.sampling?.remark || '—'}</span>
-              </div>
               <SamplingCommodityCards
                 commodities={savedSamplingCards}
                 legacyUnassigned={data.sampling.legacyUnassigned}
                 readOnly
                 variant="hub"
+                sampleRefKind={sampleRefKind}
+                tanks={tanks}
                 renderDocuments={(card) => (
                   <PrecheckDocumentsRead documents={card.documents} documentsLabel={tLoading('sampling.documents')} />
                 )}
@@ -3292,10 +3309,6 @@ function PreCheckingSections({
                   iodine: data.sampling?.iodineValue || '—',
                 })}
               </span>
-            </div>
-            <div className="precheck-section__row precheck-section__row--block">
-              <span className="precheck-section__label">{tLoading('sampling.remark')}</span>
-              <span className="precheck-section__value">{data.sampling?.remark || '—'}</span>
             </div>
             <div className="sampling-summary-chips" role="status" aria-live="polite">
               <span className="sampling-summary-chip">{tLoading('sampling.chipTotal', { count: samplingSummary.count })}</span>
@@ -3318,7 +3331,7 @@ function PreCheckingSections({
                 <table className="loading-detail-activity-table">
                   <thead>
                     <tr>
-                      <th>{tLoading('sampling.noPalka')}</th>
+                      <th>{tLoading(sampleRefKind === 'tank' ? 'sampling.tank' : 'sampling.noPalka')}</th>
                       <th>{tLoading('sampling.ffa')}</th>
                       <th>{tLoading('sampling.moisture')}</th>
                     </tr>

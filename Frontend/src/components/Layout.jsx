@@ -63,6 +63,7 @@ function isPortScopeBypassed(pathname) {
   if (pathname.startsWith('/master/vessel')) return true
   if (pathname.startsWith('/master/si-')) return true
   if (pathname.startsWith('/master/freight-terms')) return true
+  if (pathname.startsWith('/master/qc-specs')) return true
   return false
 }
 

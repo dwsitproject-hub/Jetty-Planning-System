@@ -46,6 +46,7 @@ import MasterCompany from './pages/MasterCompany'
 import TankFarm from './pages/TankFarm'
 import MasterSiLookup from './pages/MasterSiLookup'
 import MasterFreightTerms from './pages/MasterFreightTerms'
+import MasterQcSpecs from './pages/MasterQcSpecs'
 import Admin from './pages/Admin'
 import AdminOperations from './pages/AdminOperations'
 import AdminUsers from './pages/AdminUsers'
@@ -275,6 +276,7 @@ function App() {
                     }
                   />
                   <Route path="/master/freight-terms" element={<MasterFreightTerms />} />
+                  <Route path="/master/qc-specs" element={<MasterQcSpecs />} />
                   <Route path="/admin" element={<Admin />} />
                   <Route path="/admin/operations" element={<AdminOperations />} />
                   <Route path="/admin/users" element={<AdminUsers />} />

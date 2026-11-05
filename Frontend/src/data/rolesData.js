@@ -32,6 +32,7 @@ export const PAGE_OPTIONS = [
   { id: 'master-si-agent', label: 'Master – Agent' },
   { id: 'master-si-commodity', label: 'Master – Commodity' },
   { id: 'master-si-freight-terms', label: 'Master – Freight Terms' },
+  { id: 'master-qc-spec', label: 'Master – QC Specs' },
   { id: 'activity-log', label: 'Activity Log' },
   { id: 'admin', label: 'Admin' },
 ]

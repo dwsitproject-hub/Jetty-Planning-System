@@ -15,6 +15,8 @@ export const MAX_MILESTONE_SUBSTEP_TITLE_CHARS = 100
 
 export const MAX_POSTCHECK_RESULT_CHARS = 500
 export const MAX_SAMPLING_PALKA_FIELD_CHARS = 20
+/** Per-sample remark on a palka / tank row (CoA line note). */
+export const MAX_SAMPLING_RECORD_REMARK_CHARS = 200
 /** Sampling quality summary values (FFA/Moisture average, DOBI, Iodine Value) */
 export const MAX_SAMPLING_METRIC_CHARS = 10
 

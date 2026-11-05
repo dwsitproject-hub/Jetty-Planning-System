@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { formatDateTimeDisplay } from '../../utils/formatDateTimeDisplay'
+import { queuePreviewMetrics } from '../../utils/qcSpec'
 
 /** "6 palka · FFA 4.9 · Moist 0.25" plus who last touched the record (Loading hub or QC). */
 export default function QcSampleLine({ sampling }) {
@@ -8,6 +9,9 @@ export default function QcSampleLine({ sampling }) {
   const parts = [t('queue.samplesLine', { count: sampling.recordCount })]
   if (sampling.avgFfa) parts.push(t('queue.avgFfa', { value: sampling.avgFfa }))
   if (sampling.avgMoisture) parts.push(t('queue.avgMoisture', { value: sampling.avgMoisture }))
+  for (const metric of queuePreviewMetrics(sampling)) {
+    parts.push(t('queue.metric', { label: metric.label, value: metric.value }))
+  }
   const when = sampling.updatedAt ? formatDateTimeDisplay(sampling.updatedAt) : null
   let updated = null
   if (when) {

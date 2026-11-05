@@ -1,4 +1,17 @@
 /** Shared shaping for per-commodity sampling cards. */
+import { valueCodesOf } from './qcSpec.js'
+
+function metricsForSave(card) {
+  const params = card?.spec?.parameters
+  const metrics = card?.metrics && typeof card.metrics === 'object' ? card.metrics : {}
+  if (!Array.isArray(params) || params.length === 0) return metrics
+  const allowed = new Set(params.flatMap(valueCodesOf))
+  const next = {}
+  for (const [key, value] of Object.entries(metrics)) {
+    if (allowed.has(key)) next[key] = value
+  }
+  return next
+}
 
 /** A blank card for a commodity that has no saved sampling row yet. */
 export function emptyCommodityCard(product) {
@@ -13,6 +26,8 @@ export function emptyCommodityCard(product) {
     moistureAverage: product?.moistureAverage ?? '',
     dobi: product?.dobi ?? '',
     iodineValue: product?.iodineValue ?? '',
+    metrics: product?.metrics && typeof product.metrics === 'object' ? product.metrics : {},
+    spec: product?.spec || null,
     records: Array.isArray(product?.records) ? product.records : [],
     documents: Array.isArray(product?.documents) ? product.documents : [],
   }
@@ -69,6 +84,7 @@ export function cardsToSaveBody(commodities) {
     moistureAverage: card.moistureAverage ?? '',
     dobi: card.dobi ?? '',
     iodineValue: card.iodineValue ?? '',
+    metrics: metricsForSave(card),
     records: card.records || [],
   }))
 }
