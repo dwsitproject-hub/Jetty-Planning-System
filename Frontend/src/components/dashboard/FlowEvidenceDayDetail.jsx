@@ -6,7 +6,7 @@ import { fetchActivityTimeline, fetchCargoSegmentHourly } from '../../api/operat
 import { formatDailyRateDateLabel } from '../../utils/cargoDailyRates.js'
 import { mapCargoSegmentHourlyResponse } from '../../utils/cargoSegmentHourlyHelpers.js'
 import { formatDateTimeDisplay } from '../../utils/formatDateTimeDisplay.js'
-import { formatHourlyRangeDisplay } from '../../utils/hourlyCargoDisplay.js'
+import { formatCompactHourlyRange } from '../../utils/hourlyCargoDisplay.js'
 import {
   MGMT_DASHBOARD_TIMEZONE,
   buildPersistedCargoSegmentHourlyRequests,
@@ -35,6 +35,24 @@ function bucketRateTph(bucket) {
   return Number.isFinite(rate) ? rate : null
 }
 
+function entryDayStats(hours) {
+  const list = hours || []
+  if (!list.length) return null
+  let qty = 0
+  let rateSum = 0
+  let rateCount = 0
+  for (const b of list) {
+    qty += bucketQtyMoved(b)
+    const r = bucketRateTph(b)
+    if (r != null && r > 0) {
+      rateSum += r
+      rateCount += 1
+    }
+  }
+  const avg = rateCount > 0 ? +(rateSum / rateCount).toFixed(1) : null
+  return { hours: list.length, qty, avg }
+}
+
 function lineWindowLabel(line) {
   const start = line?.startedAt || line?.startAt
   const end = line?.endedAt || line?.endAt
@@ -42,6 +60,15 @@ function lineWindowLabel(line) {
   const a = formatDateTimeDisplay(start)
   const b = end ? formatDateTimeDisplay(end) : 'In progress'
   return `${a} → ${b}`
+}
+
+function parseEntryLabel(label) {
+  const raw = String(label ?? '').trim()
+  const parts = raw.split(' · ')
+  if (parts.length >= 2) {
+    return { title: parts[0], tanks: parts.slice(1).join(' · ') }
+  }
+  return { title: raw || '—', tanks: null }
 }
 
 export default function FlowEvidenceDayDetail({
@@ -126,55 +153,76 @@ export default function FlowEvidenceDayDetail({
   }
 
   return (
-    <div className="mgmt-product-metric-evidence__day-detail">
-      <p className="mgmt-product-metric-evidence__section-title">
-        Cargo entries · {dateLabel || dateKey}
-      </p>
-      {entries.map((entry) => (
-        <div key={entry.key} className="mgmt-product-metric-evidence__entry-block">
-          <p className="mgmt-product-metric-evidence__entry-head">
-            <strong>{entry.label}</strong>
-            <span className="text-steel"> · {entry.window}</span>
-          </p>
-          {entry.fetchError ? (
-            <p className="mgmt-product-metric-evidence__warn">{entry.fetchError}</p>
-          ) : null}
-          {entry.hours.length === 0 ? (
-            <p className="text-steel mgmt-product-metric-evidence__note">No logged hours on this date.</p>
-          ) : (
-            <table className="mgmt-product-metric-evidence__kv mgmt-product-metric-evidence__kv--grid">
-              <thead>
-                <tr>
-                  <th scope="col">Hour</th>
-                  <th scope="col" className="mgmt-product-metric-evidence__num">
-                    MT moved
-                  </th>
-                  <th scope="col" className="mgmt-product-metric-evidence__num">
-                    MT/h
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {entry.hours.map((b) => {
-                  const hourStart = b.hourStart || b.hour_start
-                  const hourEnd = b.hourEnd || b.hour_end
-                  const range = formatHourlyRangeDisplay(hourStart, hourEnd, {
-                    timeZone: MGMT_DASHBOARD_TIMEZONE,
-                    locale: 'en-GB',
-                  })
-                  return (
-                    <tr key={hourStart}>
-                      <td>{range}</td>
-                      <td className="mgmt-product-metric-evidence__num">{fmtNum(bucketQtyMoved(b), 0)}</td>
-                      <td className="mgmt-product-metric-evidence__num">{fmtNum(bucketRateTph(b))}</td>
+    <div className="mgmt-flow-evidence__entries">
+      {entries.map((entry) => {
+        const { title, tanks } = parseEntryLabel(entry.label)
+        const stats = entryDayStats(entry.hours)
+        return (
+          <article key={entry.key} className="mgmt-flow-evidence__entry-card">
+            <header className="mgmt-flow-evidence__entry-head">
+              <div className="mgmt-flow-evidence__entry-title">
+                <strong>{title}</strong>
+                {tanks ? <span className="mgmt-flow-evidence__entry-tanks">{tanks}</span> : null}
+              </div>
+              <p className="mgmt-flow-evidence__entry-window text-steel">{entry.window}</p>
+            </header>
+            {entry.fetchError ? (
+              <p className="mgmt-product-metric-evidence__warn">{entry.fetchError}</p>
+            ) : null}
+            {entry.hours.length === 0 ? (
+              <p className="text-steel mgmt-product-metric-evidence__note">No logged hours on this date.</p>
+            ) : (
+              <>
+                <table className="mgmt-flow-hourly-table">
+                  <colgroup>
+                    <col className="mgmt-flow-hourly-table__col-time" />
+                    <col className="mgmt-flow-hourly-table__col-moved" />
+                    <col className="mgmt-flow-hourly-table__col-rate" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th scope="col">Time</th>
+                      <th scope="col" className="mgmt-flow-hourly-table__num">
+                        Moved (MT)
+                      </th>
+                      <th scope="col" className="mgmt-flow-hourly-table__num">
+                        Rate (MT/h)
+                      </th>
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      ))}
+                  </thead>
+                  <tbody>
+                    {entry.hours.map((b) => {
+                      const hourStart = b.hourStart || b.hour_start
+                      const hourEnd = b.hourEnd || b.hour_end
+                      const range = formatCompactHourlyRange(hourStart, hourEnd, {
+                        timeZone: MGMT_DASHBOARD_TIMEZONE,
+                        locale: 'en-GB',
+                      })
+                      return (
+                        <tr key={hourStart}>
+                          <td className="mgmt-flow-hourly-table__time">{range}</td>
+                          <td className="mgmt-flow-hourly-table__num">
+                            {fmtNum(bucketQtyMoved(b), 0)}
+                          </td>
+                          <td className="mgmt-flow-hourly-table__num mgmt-flow-hourly-table__rate">
+                            {fmtNum(bucketRateTph(b))}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+                {stats ? (
+                  <p className="mgmt-flow-evidence__entry-foot text-steel">
+                    {stats.hours} hour{stats.hours === 1 ? '' : 's'} · {fmtNum(stats.qty, 0)} MT moved
+                    {stats.avg != null ? ` · avg ${fmtNum(stats.avg)} MT/h` : ''}
+                  </p>
+                ) : null}
+              </>
+            )}
+          </article>
+        )
+      })}
     </div>
   )
 }

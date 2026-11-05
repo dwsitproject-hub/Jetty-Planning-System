@@ -28,6 +28,22 @@ export function formatHourlyRangeDisplay(hourStart, hourEnd, opts = {}) {
 }
 
 /**
+ * Compact clock range for narrow panels: `16:35–17:00` or `14 Oct 16:35–17:00` if dates differ.
+ */
+export function formatCompactHourlyRange(hourStart, hourEnd, opts = {}) {
+  if (hourStart == null || hourEnd == null) return '—'
+  const timeZone = opts.timeZone || getClientIanaTimeZone()
+  const locale = opts.locale || getAppLocaleTag()
+  const start = DateTime.fromISO(String(hourStart), { zone: 'utc' }).setZone(timeZone).setLocale(locale)
+  const end = DateTime.fromISO(String(hourEnd), { zone: 'utc' }).setZone(timeZone).setLocale(locale)
+  if (!start.isValid || !end.isValid) return '—'
+  if (start.toFormat('yyyy-MM-dd') === end.toFormat('yyyy-MM-dd')) {
+    return `${start.toFormat('HH:mm')}–${end.toFormat('HH:mm')}`
+  }
+  return `${start.toFormat('dd MMM HH:mm')}–${end.toFormat('HH:mm')}`
+}
+
+/**
  * Build current/last-active summary lines from hourly buckets (browser timezone).
  * @param {Array<object>} hourlyBuckets
  * @param {string} [unit]

@@ -20,6 +20,7 @@ import ProductVoyageDetailTable, {
   chartMetricToVoyageColumn,
   sortVoyageRowsByProductQty,
 } from './ProductVoyageDetailTable.jsx'
+import MgmtFlowEvidenceDrawer from './MgmtFlowEvidenceDrawer.jsx'
 import '../../styles/modal.css'
 import '../../styles/management-dashboard.css'
 import '../../styles/dashboard.css'
@@ -95,6 +96,7 @@ export default function ProductDetailModal({ detail, onClose }) {
   const [view, setView] = useState('chart')
   const [activeMetricKey, setActiveMetricKey] = useState(DEFAULT_METRIC_KEY)
   const [bucketDrill, setBucketDrill] = useState(null)
+  const [flowDrawerRow, setFlowDrawerRow] = useState(null)
 
   const productRow = detail?.productRow
   const voyages = detail?.voyages || []
@@ -107,6 +109,7 @@ export default function ProductDetailModal({ detail, onClose }) {
     setView(detail?.initialView === 'table' ? 'table' : 'chart')
     setActiveMetricKey(detail?.focusMetricKey || DEFAULT_METRIC_KEY)
     setBucketDrill(null)
+    setFlowDrawerRow(null)
   }, [
     detail?.productRow?.key,
     detail?.productRow?.purpose,
@@ -117,6 +120,12 @@ export default function ProductDetailModal({ detail, onClose }) {
   useEffect(() => {
     if (view === 'table') setBucketDrill(null)
   }, [view])
+
+  const onFlowDetailOpen = useCallback((row) => {
+    setFlowDrawerRow((prev) => (prev?.id != null && row?.id != null && prev.id === row.id ? null : row))
+  }, [])
+
+  const closeFlowDrawer = useCallback(() => setFlowDrawerRow(null), [])
 
   const makeBucketClickHandler = useCallback(
     (metricKey) => (i) => {
@@ -249,7 +258,7 @@ export default function ProductDetailModal({ detail, onClose }) {
   return (
     <div className="modal-overlay" onClick={onClose} aria-hidden="true">
       <div
-        className="modal modal--wide"
+        className={`modal modal--wide${flowDrawerRow ? ' modal--flow-drawer-open' : ''}`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-labelledby="product-detail-modal-title"
@@ -391,6 +400,8 @@ export default function ProductDetailModal({ detail, onClose }) {
                   emptyMessage="No voyages in this bucket."
                   opDetailsById={opDetailsById}
                   timelinesByOpId={timelinesByOpId}
+                  onFlowDetailOpen={onFlowDetailOpen}
+                  flowDrawerRowId={flowDrawerRow?.id ?? null}
                 />
               </div>
             ) : null}
@@ -401,10 +412,21 @@ export default function ProductDetailModal({ detail, onClose }) {
             productKey={productRow.key}
             opDetailsById={opDetailsById}
             timelinesByOpId={timelinesByOpId}
+            onFlowDetailOpen={onFlowDetailOpen}
+            flowDrawerRowId={flowDrawerRow?.id ?? null}
           />
         )}
 
         {flowFooter ? <div className="mgmt-modal-foot">{flowFooter}</div> : null}
+
+        <MgmtFlowEvidenceDrawer
+          row={flowDrawerRow}
+          productKey={productRow?.key}
+          timelineEvents={
+            flowDrawerRow?.id != null ? timelinesByOpId?.[flowDrawerRow.id] : null
+          }
+          onClose={closeFlowDrawer}
+        />
       </div>
     </div>
   )

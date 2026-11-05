@@ -88,18 +88,55 @@ const VOYAGE_COLUMNS = [
   { key: 'status', label: 'Status', sortValue: statusLabel },
 ]
 
+/** Tail-column layout: spacing + separators so durations/dates do not run together. */
+const VOYAGE_COLUMN_UI = {
+  flow: { thClass: 'mgmt-voyage-th--flow', tdClass: 'mgmt-voyage-col--flow' },
+  cargoDoneToSail: {
+    thClass: 'mgmt-voyage-th--cargo-done',
+    tdClass: 'mgmt-voyage-col--cargo-done',
+    headerLines: ['Cargo done →', 'sailed off'],
+  },
+  dateCompleted: {
+    thClass: 'mgmt-voyage-th--date-completed',
+    tdClass: 'mgmt-voyage-col--date-completed',
+    headerLines: ['Date', 'completed'],
+  },
+}
+
+function voyageThClass(column) {
+  const ui = VOYAGE_COLUMN_UI[column.key]
+  return [column.align === 'right' ? 'mgmt-r' : '', 'mgmt-voyage-th', ui?.thClass].filter(Boolean).join(' ')
+}
+
+function voyageTdClass(columnKey, extra = '') {
+  const col = VOYAGE_COLUMNS.find((c) => c.key === columnKey)
+  const ui = VOYAGE_COLUMN_UI[columnKey]
+  return [col?.align === 'right' ? 'mgmt-r' : '', ui?.tdClass, extra].filter(Boolean).join(' ')
+}
+
 function SortHeader({ column, sort, onSort }) {
   const active = sort?.key === column.key
+  const ui = VOYAGE_COLUMN_UI[column.key]
   return (
-    <th className={column.align === 'right' ? 'mgmt-r' : ''}>
+    <th className={voyageThClass(column)}>
       <button
         type="button"
-        className="mgmt-modal-sort"
+        className="mgmt-modal-sort mgmt-voyage-th__sort"
         onClick={() => onSort(column.key)}
         aria-label={`Sort by ${column.label}`}
       >
-        {column.label}
-        <span aria-hidden="true">{active ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ' ⇅'}</span>
+        {ui?.headerLines ? (
+          <span className="mgmt-voyage-th__label">
+            {ui.headerLines[0]}
+            <br />
+            {ui.headerLines[1]}
+          </span>
+        ) : (
+          column.label
+        )}
+        <span className="mgmt-voyage-th__sort-icon" aria-hidden="true">
+          {active ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ' ⇅'}
+        </span>
       </button>
     </th>
   )
@@ -148,8 +185,7 @@ function VoyageBlock({
       role: 'button',
       tabIndex: 0,
       className: [
-        'mgmt-r',
-        'mgmt-product-voyage-metric-cell',
+        voyageTdClass(columnKey, 'mgmt-product-voyage-metric-cell'),
         open ? 'mgmt-product-voyage-metric-cell--open' : '',
       ].filter(Boolean).join(' '),
       title: 'Show calculation details',
@@ -199,7 +235,7 @@ function VoyageBlock({
                     <td {...metricProps(rk, 'pre')}>{fmtMgmtDurationDays(r.pre)}</td>
                     <td {...metricProps(rk, 'flow')}>{rate == null ? '—' : `${fmtNum(rate, 1)} MT/h`}</td>
                     <td {...metricProps(rk, 'cargoDoneToSail')}>{fmtMgmtDurationHours(r.cargoDoneToSailH)}</td>
-                    <td className="mgmt-r">{fmtMgmtCastOffDate(r.castOff)}</td>
+                    <td className={voyageTdClass('dateCompleted')}>{fmtMgmtCastOffDate(r.castOff)}</td>
                     <td>{statusChip(r)}</td>
                   </tr>
                   {show ? (

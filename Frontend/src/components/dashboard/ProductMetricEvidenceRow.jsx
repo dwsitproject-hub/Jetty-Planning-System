@@ -1,24 +1,21 @@
 /**
  * Inline metric calculation evidence (product modal voyage table).
  */
-import { Fragment, useEffect, useMemo, useState } from 'react'
-import { fetchOperationalProgress, fetchOperationalActivities } from '../../api/operations.js'
+import { useEffect, useState } from 'react'
+import { fetchOperationalActivities } from '../../api/operations.js'
 import { formatDateTimeDisplay } from '../../utils/formatDateTimeDisplay.js'
-import { formatDailyRateDateLabel } from '../../utils/cargoDailyRates.js'
 import {
   WAIT_EXCLUDE_LABELS,
   CARGO_DONE_EXCLUDE_LABELS,
   waitEvidence,
   berthToStartEvidence,
   cargoDoneEvidence,
-  flowEvidenceSummary,
-  dailyFlowFromHourlyBuckets,
   formatEvidenceComputedHours,
   formatEvidenceDisplayedDays,
   EVIDENCE_COMPUTED_LABEL,
   EVIDENCE_DISPLAYED_DAYS_LABEL,
 } from '../../utils/managementDashboardMetricEvidence.js'
-import FlowEvidenceDayDetail from './FlowEvidenceDayDetail.jsx'
+import FlowEvidencePanel from './FlowEvidencePanel.jsx'
 
 function fmtTs(v) {
   return v ? formatDateTimeDisplay(v) : '—'
@@ -222,168 +219,6 @@ function CargoDonePanel({ row, timelineEvents }) {
   )
 }
 
-function FlowPanel({ row, productKey, timelineEvents }) {
-  const summary = useMemo(() => flowEvidenceSummary(row, productKey), [row, productKey])
-  const [progress, setProgress] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-  const [openDay, setOpenDay] = useState(null)
-  const [timelineCache, setTimelineCache] = useState(timelineEvents)
-
-  useEffect(() => {
-    if (!row?.id) return undefined
-    let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      setError(null)
-      try {
-        const res = await fetchOperationalProgress(row.id)
-        if (!cancelled) setProgress(res)
-      } catch (err) {
-        if (!cancelled) setError(err?.message || 'Failed to load operational progress')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [row?.id])
-
-  useEffect(() => {
-    setTimelineCache(timelineEvents)
-  }, [timelineEvents])
-
-  useEffect(() => {
-    setOpenDay(null)
-  }, [row?.id, productKey])
-
-  const daily = useMemo(
-    () => dailyFlowFromHourlyBuckets(progress?.hourlyBuckets || []),
-    [progress]
-  )
-
-  const sections = [
-    {
-      key: 'source',
-      title: 'Inputs',
-      rows: [
-        { label: 'Moved qty (MT)', value: fmtNum(summary.productQtyMt, 0), kind: 'source' },
-        {
-          label: 'Logged cargo hours',
-          value: formatEvidenceComputedHours(summary.loggedCargoHours),
-          kind: 'source',
-        },
-        {
-          label: 'Source',
-          value: summary.source ? String(summary.source).toUpperCase() : '—',
-          kind: 'source',
-        },
-        {
-          label: 'Cargo ops window (h)',
-          value: formatEvidenceComputedHours(summary.cargoOpsHours),
-          kind: 'muted',
-        },
-      ],
-    },
-    {
-      key: 'result',
-      title: 'Column value',
-      rows: [
-        {
-          label: EVIDENCE_COMPUTED_LABEL,
-          value:
-            summary.voyageRateMtH == null
-              ? '—'
-              : `${fmtNum(summary.voyageRateMtH)} MT/h (moved ÷ logged hours)`,
-          kind: 'computed',
-        },
-        {
-          label: 'Displayed (MT/h)',
-          value: summary.voyageRateMtH == null ? '—' : `${fmtNum(summary.voyageRateMtH)} MT/h`,
-          kind: 'displayed',
-        },
-      ],
-    },
-  ]
-
-  return (
-    <>
-      <EvidenceKvTable sections={sections} />
-      {summary.atgPartial ? (
-        <EvidenceFootnote variant="warn">ATG data was partial for this voyage; rate may include manual fallback.</EvidenceFootnote>
-      ) : null}
-      {loading ? <EvidenceFootnote>Loading hourly/daily progress…</EvidenceFootnote> : null}
-      {error ? <EvidenceFootnote variant="warn">{error}</EvidenceFootnote> : null}
-      {!loading && !error && daily.length === 0 ? (
-        <EvidenceFootnote>No hourly/daily progress logged — voyage-level rate only.</EvidenceFootnote>
-      ) : null}
-      {daily.length > 0 ? (
-        <div className="mgmt-product-metric-evidence__section mgmt-product-metric-evidence__section--daily">
-          <p className="mgmt-product-metric-evidence__section-title">Daily breakdown</p>
-          <div className="mgmt-product-metric-evidence__scroll">
-            <table className="mgmt-product-metric-evidence__kv mgmt-product-metric-evidence__kv--grid">
-              <thead>
-                <tr>
-                  <th scope="col">Date</th>
-                  <th scope="col" className="mgmt-product-metric-evidence__num">
-                    MT moved
-                  </th>
-                  <th scope="col" className="mgmt-product-metric-evidence__num">
-                    Active h
-                  </th>
-                  <th scope="col" className="mgmt-product-metric-evidence__num">
-                    Avg MT/h
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {daily.map((d) => {
-                  const dayOpen = openDay === d.date
-                  return (
-                    <Fragment key={d.date}>
-                      <tr className={dayOpen ? 'mgmt-product-metric-evidence__day-row--open' : ''}>
-                        <td>
-                          <button
-                            type="button"
-                            className="mgmt-product-metric-evidence__day-btn"
-                            aria-expanded={dayOpen}
-                            onClick={() => setOpenDay((prev) => (prev === d.date ? null : d.date))}
-                          >
-                            {formatDailyRateDateLabel(d.date)}
-                          </button>
-                        </td>
-                        <td className="mgmt-product-metric-evidence__num">{fmtNum(d.qtyMoved, 0)}</td>
-                        <td className="mgmt-product-metric-evidence__num">{d.hoursActive}</td>
-                        <td className="mgmt-product-metric-evidence__num">
-                          {d.avgMtH == null ? '—' : fmtNum(d.avgMtH)}
-                        </td>
-                      </tr>
-                      {dayOpen ? (
-                        <tr className="mgmt-product-metric-evidence__day-detail-row">
-                          <td colSpan={4}>
-                            <FlowEvidenceDayDetail
-                              operationId={row?.id}
-                              dateKey={d.date}
-                              productKey={productKey}
-                              timelineEvents={timelineCache}
-                              onTimelineLoaded={setTimelineCache}
-                            />
-                          </td>
-                        </tr>
-                      ) : null}
-                    </Fragment>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : null}
-    </>
-  )
-}
-
 const PANEL_TITLES = {
   wait: 'Wait',
   pre: 'Berth → start cargo',
@@ -417,7 +252,7 @@ export default function ProductMetricEvidenceRow({
             <BerthToStartPanel row={row} prefetchedDetail={detail} />
           ) : null}
           {columnKey === 'flow' ? (
-            <FlowPanel row={row} productKey={productKey} timelineEvents={timeline} />
+            <FlowEvidencePanel row={row} productKey={productKey} timelineEvents={timeline} />
           ) : null}
           {columnKey === 'cargoDoneToSail' ? (
             <CargoDonePanel row={row} timelineEvents={timeline} />
