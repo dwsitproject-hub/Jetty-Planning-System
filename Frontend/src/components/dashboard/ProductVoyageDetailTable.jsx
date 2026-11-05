@@ -8,9 +8,12 @@ import { Fragment, useCallback, useState } from 'react'
 
 import { expandVoyageToProductSlices, productQtyOnVoyage } from '../../utils/managementDashboardProduct.js'
 
+import { fmtMgmtCastOffDate } from '../../utils/managementDashboardMetricEvidence.js'
 import { fmtMgmtDurationDays, fmtMgmtDurationHours } from './ManagementProductTable.jsx'
 
 import ProductMetricEvidenceRow from './ProductMetricEvidenceRow.jsx'
+
+const EVIDENCE_COL_SPAN = 8
 
 
 
@@ -182,6 +185,8 @@ export default function ProductVoyageDetailTable({
 
             </th>
 
+            <th className="mgmt-r">Date completed</th>
+
           </tr>
 
         </thead>
@@ -290,6 +295,8 @@ export default function ProductVoyageDetailTable({
 
                     </td>
 
+                    <td className="mgmt-r">{fmtMgmtCastOffDate(r.castOff)}</td>
+
                   </tr>
 
                   {showEvidence ? (
@@ -306,6 +313,8 @@ export default function ProductVoyageDetailTable({
 
                       timelinesByOpId={timelinesByOpId}
 
+                      colSpan={EVIDENCE_COL_SPAN}
+
                     />
 
                   ) : null}
@@ -320,7 +329,7 @@ export default function ProductVoyageDetailTable({
 
             <tr>
 
-              <td colSpan={7} className="text-steel">
+              <td colSpan={EVIDENCE_COL_SPAN} className="text-steel">
 
                 {emptyMessage}
 

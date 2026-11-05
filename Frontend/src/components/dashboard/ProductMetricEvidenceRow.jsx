@@ -1,9 +1,10 @@
 /**
  * Inline metric calculation evidence (product modal voyage table).
  */
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { fetchOperationalProgress, fetchOperationalActivities } from '../../api/operations.js'
 import { formatDateTimeDisplay } from '../../utils/formatDateTimeDisplay.js'
+import { formatDailyRateDateLabel } from '../../utils/cargoDailyRates.js'
 import {
   WAIT_EXCLUDE_LABELS,
   CARGO_DONE_EXCLUDE_LABELS,
@@ -17,6 +18,7 @@ import {
   EVIDENCE_COMPUTED_LABEL,
   EVIDENCE_DISPLAYED_DAYS_LABEL,
 } from '../../utils/managementDashboardMetricEvidence.js'
+import FlowEvidenceDayDetail from './FlowEvidenceDayDetail.jsx'
 
 function fmtTs(v) {
   return v ? formatDateTimeDisplay(v) : '—'
@@ -220,11 +222,13 @@ function CargoDonePanel({ row, timelineEvents }) {
   )
 }
 
-function FlowPanel({ row, productKey }) {
+function FlowPanel({ row, productKey, timelineEvents }) {
   const summary = useMemo(() => flowEvidenceSummary(row, productKey), [row, productKey])
   const [progress, setProgress] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [openDay, setOpenDay] = useState(null)
+  const [timelineCache, setTimelineCache] = useState(timelineEvents)
 
   useEffect(() => {
     if (!row?.id) return undefined
@@ -245,6 +249,14 @@ function FlowPanel({ row, productKey }) {
       cancelled = true
     }
   }, [row?.id])
+
+  useEffect(() => {
+    setTimelineCache(timelineEvents)
+  }, [timelineEvents])
+
+  useEffect(() => {
+    setOpenDay(null)
+  }, [row?.id, productKey])
 
   const daily = useMemo(
     () => dailyFlowFromHourlyBuckets(progress?.hourlyBuckets || []),
@@ -326,16 +338,43 @@ function FlowPanel({ row, productKey }) {
                 </tr>
               </thead>
               <tbody>
-                {daily.map((d) => (
-                  <tr key={d.date}>
-                    <td>{d.date}</td>
-                    <td className="mgmt-product-metric-evidence__num">{fmtNum(d.qtyMoved, 0)}</td>
-                    <td className="mgmt-product-metric-evidence__num">{d.hoursActive}</td>
-                    <td className="mgmt-product-metric-evidence__num">
-                      {d.avgMtH == null ? '—' : fmtNum(d.avgMtH)}
-                    </td>
-                  </tr>
-                ))}
+                {daily.map((d) => {
+                  const dayOpen = openDay === d.date
+                  return (
+                    <Fragment key={d.date}>
+                      <tr className={dayOpen ? 'mgmt-product-metric-evidence__day-row--open' : ''}>
+                        <td>
+                          <button
+                            type="button"
+                            className="mgmt-product-metric-evidence__day-btn"
+                            aria-expanded={dayOpen}
+                            onClick={() => setOpenDay((prev) => (prev === d.date ? null : d.date))}
+                          >
+                            {formatDailyRateDateLabel(d.date)}
+                          </button>
+                        </td>
+                        <td className="mgmt-product-metric-evidence__num">{fmtNum(d.qtyMoved, 0)}</td>
+                        <td className="mgmt-product-metric-evidence__num">{d.hoursActive}</td>
+                        <td className="mgmt-product-metric-evidence__num">
+                          {d.avgMtH == null ? '—' : fmtNum(d.avgMtH)}
+                        </td>
+                      </tr>
+                      {dayOpen ? (
+                        <tr className="mgmt-product-metric-evidence__day-detail-row">
+                          <td colSpan={4}>
+                            <FlowEvidenceDayDetail
+                              operationId={row?.id}
+                              dateKey={d.date}
+                              productKey={productKey}
+                              timelineEvents={timelineCache}
+                              onTimelineLoaded={setTimelineCache}
+                            />
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -377,7 +416,9 @@ export default function ProductMetricEvidenceRow({
           {columnKey === 'pre' ? (
             <BerthToStartPanel row={row} prefetchedDetail={detail} />
           ) : null}
-          {columnKey === 'flow' ? <FlowPanel row={row} productKey={productKey} /> : null}
+          {columnKey === 'flow' ? (
+            <FlowPanel row={row} productKey={productKey} timelineEvents={timeline} />
+          ) : null}
           {columnKey === 'cargoDoneToSail' ? (
             <CargoDonePanel row={row} timelineEvents={timeline} />
           ) : null}

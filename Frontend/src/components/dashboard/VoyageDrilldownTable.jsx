@@ -5,11 +5,15 @@ import { Fragment, useCallback, useMemo, useState } from 'react'
 import { voyageFlowRate } from '../../utils/managementDashboardFlow.js'
 import { voyageMovedQtyLines, voyageMovedQtySortValue } from '../../utils/managementDashboardProduct.js'
 import { sortModalRows } from '../../utils/widgetDetailSort.js'
+import {
+  castOffSortTimestamp,
+  fmtMgmtCastOffDate,
+} from '../../utils/managementDashboardMetricEvidence.js'
 import { fmtMgmtDurationDays, fmtMgmtDurationHours } from './ManagementProductTable.jsx'
 import ProductMetricEvidenceRow from './ProductMetricEvidenceRow.jsx'
 
 const METRIC_COLUMNS = ['wait', 'pre', 'flow', 'cargoDoneToSail']
-const COL_SPAN = 9
+const COL_SPAN = 10
 
 function fmtNum(n, d = 1) {
   return n == null ? '—' : n.toLocaleString('en-US', { maximumFractionDigits: d })
@@ -75,6 +79,12 @@ const VOYAGE_COLUMNS = [
   { key: 'pre', label: 'Berth → start cargo', align: 'right', sortValue: (r) => r.pre },
   { key: 'flow', label: 'Avg flow', align: 'right', sortValue: (r) => voyageFlowRate(r) },
   { key: 'cargoDoneToSail', label: 'Cargo done → sailed off', align: 'right', sortValue: (r) => r.cargoDoneToSailH },
+  {
+    key: 'dateCompleted',
+    label: 'Date completed',
+    align: 'right',
+    sortValue: (r) => castOffSortTimestamp(r.castOff),
+  },
   { key: 'status', label: 'Status', sortValue: statusLabel },
 ]
 
@@ -189,6 +199,7 @@ function VoyageBlock({
                     <td {...metricProps(rk, 'pre')}>{fmtMgmtDurationDays(r.pre)}</td>
                     <td {...metricProps(rk, 'flow')}>{rate == null ? '—' : `${fmtNum(rate, 1)} MT/h`}</td>
                     <td {...metricProps(rk, 'cargoDoneToSail')}>{fmtMgmtDurationHours(r.cargoDoneToSailH)}</td>
+                    <td className="mgmt-r">{fmtMgmtCastOffDate(r.castOff)}</td>
                     <td>{statusChip(r)}</td>
                   </tr>
                   {show ? (

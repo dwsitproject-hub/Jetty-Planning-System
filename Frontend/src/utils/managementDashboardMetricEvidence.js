@@ -1,7 +1,10 @@
 /**
  * Per-voyage metric evidence for Management Dashboard product modal (QA / validation).
  */
+import { DateTime } from 'luxon'
 import { localDateKeyFromIso } from './cargoDailyRates.js'
+import { formatCargoLineTanksLabel } from './cargoProgressResolvers.js'
+import { productKeyFromCommodity } from './managementDashboardProduct.js'
 import {
   cargoDoneAtFromTimeline,
   cargoDoneToSailHours,
@@ -206,6 +209,115 @@ function bucketMovedQty(bucket) {
  * @param {string} [timezone]
  * @returns {Array<{ date: string, qtyMoved: number, hoursActive: number, avgMtH: number | null }>}
  */
+export const MGMT_DASHBOARD_TIMEZONE = 'Asia/Jakarta'
+
+/** Cast-off calendar date in port timezone (e.g. 05 Nov 2026). */
+export function fmtMgmtCastOffDate(iso, timezone = MGMT_DASHBOARD_TIMEZONE) {
+  if (!iso) return '—'
+  const dt = DateTime.fromISO(String(iso), { setZone: true }).setZone(timezone || MGMT_DASHBOARD_TIMEZONE)
+  if (!dt.isValid) return '—'
+  return dt.setLocale('en-GB').toFormat('dd LLL yyyy')
+}
+
+/** Sort key for Date completed column. */
+export function castOffSortTimestamp(iso) {
+  if (!iso) return null
+  const t = new Date(iso).getTime()
+  return Number.isFinite(t) ? t : null
+}
+
+/** Hourly buckets whose clock hour falls on the given local date (YYYY-MM-DD). */
+export function hourlyBucketsOnLocalDate(hourlyBuckets, dateKey, timezone = MGMT_DASHBOARD_TIMEZONE) {
+  if (!dateKey) return []
+  return (hourlyBuckets || []).filter((b) => {
+    const start = b.hourStart || b.hour_start
+    return localDateKeyFromIso(start, timezone) === dateKey
+  })
+}
+
+function loadLineStart(line) {
+  return line?.startedAt || line?.startAt || null
+}
+
+function loadLineEnd(line) {
+  return line?.endedAt || line?.endAt || null
+}
+
+function loadLineProductKey(line) {
+  const group = String(line?.commodityGroup ?? '').trim()
+  if (group) return productKeyFromCommodity(group)
+  const label = String(line?.commodityShortName || line?.commodityName || '').trim()
+  if (!label) return ''
+  return productKeyFromCommodity(label)
+}
+
+/**
+ * Saved cargo load lines from activity timeline (Operations entries).
+ * @param {Array<object> | null | undefined} events
+ * @param {string | null | undefined} productKey when set, only that commodity’s lines
+ */
+export function cargoPersistedLoadLinesFromTimeline(events, productKey = null) {
+  const want = productKey ? String(productKey).trim().toUpperCase() : null
+  const lines = []
+  for (const ev of Array.isArray(events) ? events : []) {
+    if (ev?.milestoneKey !== 'cargo_operations') continue
+    for (const line of ev.cargoLoadLines || []) {
+      const pk = loadLineProductKey(line)
+      if (want) {
+        if (pk && pk !== want) continue
+        if (!pk) continue
+      }
+      if (!loadLineStart(line)) continue
+      lines.push(line)
+    }
+  }
+  lines.sort((a, b) => String(loadLineStart(a)).localeCompare(String(loadLineStart(b))))
+  return lines
+}
+
+/** Whether a saved load line’s start–end window overlaps a local calendar date. */
+export function cargoEntryOverlapsLocalDate(line, dateKey, timezone = MGMT_DASHBOARD_TIMEZONE) {
+  if (!dateKey || !line) return false
+  const startKey = localDateKeyFromIso(loadLineStart(line), timezone)
+  if (!startKey) return false
+  const endKey = localDateKeyFromIso(loadLineEnd(line), timezone) || startKey
+  const lo = startKey <= endKey ? startKey : endKey
+  const hi = startKey <= endKey ? endKey : startKey
+  return dateKey >= lo && dateKey <= hi
+}
+
+/** POST /cargo-segment-hourly payloads for persisted operator load lines. */
+export function buildPersistedCargoSegmentHourlyRequests(loadLines) {
+  const segments = []
+  for (const line of loadLines || []) {
+    const clientKey = line?.id != null ? String(line.id) : ''
+    const startAt = loadLineStart(line)
+    if (!clientKey || !startAt) continue
+    const tankIds = (line.tankIds?.length ? line.tankIds : line.tanks?.map((t) => t.id) || [])
+      .map((id) => Number(id))
+      .filter((n) => Number.isFinite(n) && n > 0)
+      .map(String)
+    const loadLineId = Number(line.id)
+    segments.push({
+      clientKey,
+      ...(Number.isFinite(loadLineId) && loadLineId > 0 ? { loadLineId: String(loadLineId) } : {}),
+      startAt,
+      endAt: loadLineEnd(line) || null,
+      tankIds,
+      atgQtyMode: line.atgQtyMode === 'manual' ? 'manual' : 'auto',
+    })
+  }
+  return segments
+}
+
+/** Label for a persisted cargo entry in flow evidence. */
+export function cargoEntryEvidenceLabel(line) {
+  const commodity =
+    line?.commodityShortName || line?.commodityName || line?.commodityGroup || '—'
+  const tanks = formatCargoLineTanksLabel(line)
+  return `${commodity} · ${tanks}`
+}
+
 export function dailyFlowFromHourlyBuckets(hourlyBuckets, timezone = 'Asia/Jakarta') {
   const byDate = new Map()
   for (const b of hourlyBuckets || []) {
