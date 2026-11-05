@@ -12,6 +12,7 @@ export default function SampleEditSheet({ record, records, onSave, onDelete, onC
     tankId: record.tankId != null ? String(record.tankId) : '',
     ffa: record.ffa || '',
     moisture: record.moisture || '',
+    remark: record.remark || '',
   })
   const [submitted, setSubmitted] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -21,8 +22,8 @@ export default function SampleEditSheet({ record, records, onSave, onDelete, onC
   const save = () => {
     setSubmitted(true)
     if (!result.ok) return
-    const { noPalka, tankId, ffa, moisture } = buildSampleRecord(form)
-    onSave(record.id, { noPalka, ...(tankId != null ? { tankId } : {}), ffa, moisture })
+    const { noPalka, tankId, ffa, moisture, remark } = buildSampleRecord(form)
+    onSave(record.id, { noPalka, ...(tankId != null ? { tankId } : {}), ffa, moisture, remark })
   }
 
   return (

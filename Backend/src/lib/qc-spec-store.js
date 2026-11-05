@@ -1,12 +1,13 @@
 import { fallbackSpec } from './qc-spec.js';
 
-function toParam(row) {
+export function toParam(row) {
   return {
     id: Number(row.parameter_id ?? row.id),
     code: row.code,
     labelEn: row.label_en,
     labelId: row.label_id,
-    unit: row.unit,
+    unit: row.unit ?? null,
+    method: row.method ?? null,
     kind: row.kind,
     maxValue: Number(row.max_value),
     scope: row.scope || 'report',
@@ -26,7 +27,7 @@ function toTemplate(row, items, commodities) {
 
 export async function listParameters(db) {
   const r = await db.query(
-    `SELECT id, code, label_en, label_id, unit, kind, max_value, sort_order
+    `SELECT id, code, label_en, label_id, unit, method, kind, max_value, sort_order
      FROM qc_parameters WHERE deleted_at IS NULL
      ORDER BY sort_order, code`
   );
@@ -40,7 +41,7 @@ export async function listTemplates(db) {
   if (templates.rows.length === 0) return [];
   const ids = templates.rows.map((r) => r.id);
   const items = await db.query(
-    `SELECT i.template_id, i.scope, i.sort_order, p.id, p.code, p.label_en, p.label_id, p.unit, p.kind, p.max_value
+    `SELECT i.template_id, i.scope, i.sort_order, p.id, p.code, p.label_en, p.label_id, p.unit, p.method, p.kind, p.max_value
      FROM qc_spec_template_items i
      JOIN qc_parameters p ON p.id = i.parameter_id AND p.deleted_at IS NULL
      WHERE i.template_id = ANY($1::bigint[])
@@ -97,7 +98,7 @@ export async function loadSpecsByCommodityIds(db, commodityIds) {
   if (ids.length === 0) return map;
   const r = await db.query(
     `SELECT a.commodity_id, t.id AS template_id, t.name,
-            i.scope, i.sort_order, p.id AS parameter_id, p.code, p.label_en, p.label_id, p.unit, p.kind, p.max_value
+            i.scope, i.sort_order, p.id AS parameter_id, p.code, p.label_en, p.label_id, p.unit, p.method, p.kind, p.max_value
      FROM qc_spec_assignments a
      JOIN qc_spec_templates t ON t.id = a.template_id AND t.deleted_at IS NULL
      JOIN qc_spec_template_items i ON i.template_id = t.id

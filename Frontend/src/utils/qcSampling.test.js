@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  aggregateSampleMetric,
   buildSamplingPayload,
   buildSampleRecord,
   computeAverages,
@@ -47,11 +48,12 @@ test('validateSample flags duplicate palka as a warning and ignores the record b
 })
 
 test('buildSampleRecord trims and normalizes', () => {
-  assert.deepEqual(buildSampleRecord({ noPalka: ' 3 ', ffa: '4,5', moisture: '' }, 'id1'), {
+  assert.deepEqual(buildSampleRecord({ noPalka: ' 3 ', ffa: '4,5', moisture: '', remark: '  off spec ' }, 'id1'), {
     id: 'id1',
     noPalka: '3',
     ffa: '4.5',
     moisture: '',
+    remark: 'off spec',
   })
   assert.deepEqual(buildSampleRecord({ noPalka: 'TK-01', tankId: '5', ffa: '4', moisture: '' }, 'id2'), {
     id: 'id2',
@@ -59,6 +61,7 @@ test('buildSampleRecord trims and normalizes', () => {
     tankId: 5,
     ffa: '4',
     moisture: '',
+    remark: '',
   })
 })
 
@@ -67,6 +70,20 @@ test('suggestNextPalka increments the last numeric palka label', () => {
   assert.equal(suggestNextPalka([{ noPalka: '3' }]), '4')
   assert.equal(suggestNextPalka([{ noPalka: '1' }, { noPalka: '2P' }]), '3P')
   assert.equal(suggestNextPalka([{ noPalka: 'Forward' }]), '')
+})
+
+test('aggregateSampleMetric averages or sums one code and skips blanks', () => {
+  const records = [
+    { ffa: '4.00', moisture: '0.20' },
+    { ffa: '5,00', moisture: '' },
+    { metrics: { ffa: 'abc', moisture: '0.10' } },
+  ]
+  assert.equal(aggregateSampleMetric(records, 'ffa', 'average'), '4.50')
+  assert.equal(aggregateSampleMetric(records, 'ffa', 'sum'), '9.00')
+  assert.equal(aggregateSampleMetric(records, 'moisture', 'average'), '0.15')
+  assert.equal(aggregateSampleMetric(records, 'moisture', 'sum'), '0.30')
+  assert.equal(aggregateSampleMetric([], 'ffa', 'average'), null)
+  assert.equal(aggregateSampleMetric(records, 'dobi', 'sum'), null)
 })
 
 test('computeAverages averages numeric cells per metric', () => {

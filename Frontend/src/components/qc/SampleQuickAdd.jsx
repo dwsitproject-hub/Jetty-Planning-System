@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { buildSampleRecord, suggestNextPalka, validateSample } from '../../utils/qcSampling'
 import SampleFields from './SampleFields'
 
-const EMPTY = { noPalka: '', tankId: '', ffa: '', moisture: '' }
+const EMPTY = { noPalka: '', tankId: '', ffa: '', moisture: '', remark: '' }
 
 /**
  * Primary action of the entry screen: type one palka or pick a tank, "Add and next" saves it,
@@ -16,7 +16,7 @@ export default function SampleQuickAdd({ records, onAdd, onPendingChange, sample
     noPalka: sampleRefKind === 'tank' ? '' : suggestNextPalka(records),
   }))
   const [submitted, setSubmitted] = useState(false)
-  const refs = { noPalka: useRef(null), ffa: useRef(null), moisture: useRef(null) }
+  const refs = { noPalka: useRef(null), ffa: useRef(null), moisture: useRef(null), remark: useRef(null) }
 
   const result = validateSample(form, records, null, { kind: sampleRefKind })
   const visibleErrors = submitted ? result.errors : {}
@@ -41,6 +41,7 @@ export default function SampleQuickAdd({ records, onAdd, onPendingChange, sample
   const onEnter = (name) => {
     if (name === 'noPalka') refs.ffa.current?.focus()
     else if (name === 'ffa') refs.moisture.current?.focus()
+    else if (name === 'moisture') refs.remark.current?.focus()
     else submit()
   }
 

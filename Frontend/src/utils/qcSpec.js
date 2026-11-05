@@ -4,10 +4,10 @@ export const FALLBACK_SPEC = {
   templateId: null,
   name: null,
   parameters: [
-    { code: 'ffa', labelEn: 'FFA', labelId: 'FFA', unit: '%', kind: 'number', maxValue: 100, scope: 'both' },
-    { code: 'moisture', labelEn: 'Moisture', labelId: 'Moisture', unit: '%', kind: 'number', maxValue: 100, scope: 'both' },
-    { code: 'dobi', labelEn: 'DOBI', labelId: 'DOBI', unit: null, kind: 'number', maxValue: 100, scope: 'report' },
-    { code: 'iodine', labelEn: 'IV', labelId: 'IV', unit: 'gI2/100g', kind: 'number', maxValue: 200, scope: 'report' },
+    { code: 'ffa', labelEn: 'FFA', labelId: 'FFA', unit: '%', method: 'AOCS Ca 5a-40', kind: 'number', maxValue: 100, scope: 'both' },
+    { code: 'moisture', labelEn: 'Moisture', labelId: 'Moisture', unit: '%', method: 'AOCS Ca 2c-25', kind: 'number', maxValue: 100, scope: 'both' },
+    { code: 'dobi', labelEn: 'DOBI', labelId: 'DOBI', unit: null, method: null, kind: 'number', maxValue: 100, scope: 'report' },
+    { code: 'iodine', labelEn: 'IV', labelId: 'IV', unit: 'gI2/100g', method: 'AOCS Cd 1-25', kind: 'number', maxValue: 200, scope: 'report' },
   ],
 }
 
@@ -43,10 +43,9 @@ export function metricValue(card, code) {
   return alias ? card?.[alias] ?? '' : ''
 }
 
-/** Patch one metric and keep the four legacy aliases in sync. */
+/** Metric-only patch. Omits the rest of the card so a report edit does not look like a sample-list change. */
 export function patchCardMetric(card, code, value) {
-  const metrics = { ...(card.metrics || {}), [code]: value }
-  const next = { ...card, metrics }
+  const next = { metrics: { ...(card.metrics || {}), [code]: value } }
   const alias = ALIAS_BY_CODE[code]
   if (alias) next[alias] = value
   return next
@@ -54,8 +53,21 @@ export function patchCardMetric(card, code, value) {
 
 export function paramLabel(param, language) {
   if (!param) return ''
-  const label = language === 'id' ? param.labelId || param.labelEn : param.labelEn || param.labelId
-  return param.unit ? `${label} (${param.unit})` : label
+  return language === 'id' ? param.labelId || param.labelEn || '' : param.labelEn || param.labelId || ''
+}
+
+export function paramUnit(param) {
+  return param?.unit != null && String(param.unit).trim() !== '' ? String(param.unit).trim() : ''
+}
+
+export function paramMethod(param) {
+  return param?.method != null && String(param.method).trim() !== '' ? String(param.method).trim() : ''
+}
+
+export function paramFieldLabel(param, code, language) {
+  const name = paramLabel(param, language)
+  if (param?.kind === 'color_pair') return `${name} ${code === 'color_red' ? 'R' : 'Y'}`
+  return name
 }
 
 /** Queue line extras when FFA / moisture are absent: first two filled report metrics. */

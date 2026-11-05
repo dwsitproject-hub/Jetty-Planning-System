@@ -32,10 +32,10 @@ export const BODY_BY_COLUMN = Object.freeze({
 });
 
 const FALLBACK_PARAMS = [
-  { code: 'ffa', labelEn: 'FFA', labelId: 'FFA', unit: '%', kind: 'number', maxValue: 100, scope: 'both', sortOrder: 10 },
-  { code: 'moisture', labelEn: 'Moisture', labelId: 'Moisture', unit: '%', kind: 'number', maxValue: 100, scope: 'both', sortOrder: 20 },
-  { code: 'dobi', labelEn: 'DOBI', labelId: 'DOBI', unit: null, kind: 'number', maxValue: 100, scope: 'report', sortOrder: 30 },
-  { code: 'iodine', labelEn: 'IV', labelId: 'IV', unit: 'gI2/100g', kind: 'number', maxValue: 200, scope: 'report', sortOrder: 40 },
+  { code: 'ffa', labelEn: 'FFA', labelId: 'FFA', unit: '%', method: 'AOCS Ca 5a-40', kind: 'number', maxValue: 100, scope: 'both', sortOrder: 10 },
+  { code: 'moisture', labelEn: 'Moisture', labelId: 'Moisture', unit: '%', method: 'AOCS Ca 2c-25', kind: 'number', maxValue: 100, scope: 'both', sortOrder: 20 },
+  { code: 'dobi', labelEn: 'DOBI', labelId: 'DOBI', unit: null, method: null, kind: 'number', maxValue: 100, scope: 'report', sortOrder: 30 },
+  { code: 'iodine', labelEn: 'IV', labelId: 'IV', unit: 'gI2/100g', method: 'AOCS Cd 1-25', kind: 'number', maxValue: 200, scope: 'report', sortOrder: 40 },
 ];
 
 export function fallbackSpec() {

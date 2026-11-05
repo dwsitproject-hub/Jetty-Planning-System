@@ -3,7 +3,10 @@ import assert from 'node:assert/strict'
 import {
   FALLBACK_SPEC,
   metricValue,
+  paramFieldLabel,
   paramLabel,
+  paramMethod,
+  paramUnit,
   patchCardMetric,
   queuePreviewMetrics,
   reportParams,
@@ -30,8 +33,12 @@ test('patchCardMetric writes metrics and the CPO aliases', () => {
   assert.equal(metricValue({ ffa: '4.50', moisture: '' }, 'ffa'), '4.50')
 })
 
-test('paramLabel includes the unit', () => {
-  assert.equal(paramLabel({ labelEn: 'FFA', labelId: 'FFA', unit: '%' }, 'en'), 'FFA (%)')
+test('paramLabel stays the name; unit and method are separate', () => {
+  const param = { labelEn: 'FFA', labelId: 'FFA', unit: '%', method: 'AOCS Ca 5a-40' }
+  assert.equal(paramLabel(param, 'en'), 'FFA')
+  assert.equal(paramUnit(param), '%')
+  assert.equal(paramMethod(param), 'AOCS Ca 5a-40')
+  assert.equal(paramFieldLabel({ ...param, kind: 'color_pair', labelEn: 'Color' }, 'color_red', 'en'), 'Color R')
 })
 
 test('report-only templates hide sample columns', () => {

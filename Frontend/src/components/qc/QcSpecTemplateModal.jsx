@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import DropdownMultiSelect from '../DropdownMultiSelect.jsx'
 import StickyFormOverlay from '../StickyFormOverlay.jsx'
-import { paramLabel } from '../../utils/qcSpec'
+import { paramLabel, paramMethod, paramUnit } from '../../utils/qcSpec'
 
 const SCOPES = [
   { id: 'report', labelKey: 'qcSpec.scopeReport' },
@@ -30,7 +30,7 @@ export default function QcSpecTemplateModal({
   const [selectedIds, setSelectedIds] = useState(() => (template?.commodities || []).map((c) => String(c.commodityId)))
   const [items, setItems] = useState(() => (template?.parameters || []).map((p) => ({ ...p, parameterId: p.id })))
   const [addCode, setAddCode] = useState('')
-  const [custom, setCustom] = useState({ code: '', labelEn: '', unit: '' })
+  const [custom, setCustom] = useState({ code: '', labelEn: '', unit: '', method: '' })
   const templateId = template?.id ?? null
 
   const commodityOptions = useMemo(
@@ -120,41 +120,60 @@ export default function QcSpecTemplateModal({
                 </option>
               ))}
           </select>
-          <ul className="qc-spec-param-list">
-            {items.map((p, index) => (
-              <li key={p.parameterId || p.id}>
-                <span>{paramLabel(p, i18n.language)}</span>
-                <select
-                  className="modal__input"
-                  value={p.scope || 'report'}
-                  onChange={(e) => setItems((prev) => prev.map((row, i) => (i === index ? { ...row, scope: e.target.value } : row)))}
-                >
-                  {SCOPES.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {t(s.labelKey)}
-                    </option>
-                  ))}
-                </select>
-                <div className="qc-spec-param-actions">
-                  <button type="button" className="btn btn--small btn--secondary" disabled={index === 0} onClick={() => moveItem(index, -1)}>
-                    {t('qcSpec.moveUp')}
-                  </button>
-                  <button type="button" className="btn btn--small btn--secondary" disabled={index === items.length - 1} onClick={() => moveItem(index, 1)}>
-                    {t('qcSpec.moveDown')}
-                  </button>
-                  <button type="button" className="btn btn--small btn--secondary" onClick={() => setItems((prev) => prev.filter((_, i) => i !== index))}>
-                    {t('qcSpec.remove')}
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div className="table-wrap">
+            <table className="data-table qc-spec-param-table">
+              <thead>
+                <tr>
+                  <th>{t('qcSpec.colParam')}</th>
+                  <th>{t('qcSpec.colUnit')}</th>
+                  <th>{t('qcSpec.colMethod')}</th>
+                  <th>{t('qcSpec.colScope')}</th>
+                  <th>{t('qcSpec.colActions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((p, index) => (
+                  <tr key={p.parameterId || p.id}>
+                    <td>{paramLabel(p, i18n.language)}</td>
+                    <td>{paramUnit(p) || '—'}</td>
+                    <td>{paramMethod(p) || '—'}</td>
+                    <td>
+                      <select
+                        className="modal__input"
+                        value={p.scope || 'report'}
+                        onChange={(e) => setItems((prev) => prev.map((row, i) => (i === index ? { ...row, scope: e.target.value } : row)))}
+                      >
+                        {SCOPES.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {t(s.labelKey)}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <div className="qc-spec-param-actions">
+                        <button type="button" className="btn btn--small btn--secondary" disabled={index === 0} onClick={() => moveItem(index, -1)}>
+                          {t('qcSpec.moveUp')}
+                        </button>
+                        <button type="button" className="btn btn--small btn--secondary" disabled={index === items.length - 1} onClick={() => moveItem(index, 1)}>
+                          {t('qcSpec.moveDown')}
+                        </button>
+                        <button type="button" className="btn btn--small btn--secondary" onClick={() => setItems((prev) => prev.filter((_, i) => i !== index))}>
+                          {t('qcSpec.remove')}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <div className="qc-spec-add-row">
             <select className="modal__input" value={addCode} onChange={(e) => setAddCode(e.target.value)}>
               <option value="">{t('qcSpec.addFromLibrary')}</option>
               {unusedParams.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {paramLabel(p, i18n.language)}
+                  {[paramLabel(p, i18n.language), paramUnit(p), paramMethod(p)].filter(Boolean).join(' · ')}
                 </option>
               ))}
             </select>
@@ -176,15 +195,21 @@ export default function QcSpecTemplateModal({
             <input className="modal__input" placeholder={t('qcSpec.customCode')} value={custom.code} onChange={(e) => setCustom((c) => ({ ...c, code: e.target.value }))} />
             <input className="modal__input" placeholder={t('qcSpec.customLabel')} value={custom.labelEn} onChange={(e) => setCustom((c) => ({ ...c, labelEn: e.target.value }))} />
             <input className="modal__input" placeholder={t('qcSpec.customUnit')} value={custom.unit} onChange={(e) => setCustom((c) => ({ ...c, unit: e.target.value }))} />
+            <input className="modal__input" placeholder={t('qcSpec.customMethod')} value={custom.method} onChange={(e) => setCustom((c) => ({ ...c, method: e.target.value }))} />
             <button
               type="button"
               className="btn btn--small btn--secondary"
               disabled={!custom.code.trim()}
               onClick={async () => {
-                const created = await onCreateParameter({ code: custom.code, labelEn: custom.labelEn, unit: custom.unit })
+                const created = await onCreateParameter({
+                  code: custom.code,
+                  labelEn: custom.labelEn,
+                  unit: custom.unit,
+                  method: custom.method,
+                })
                 if (!created) return
                 setItems((prev) => [...prev, { ...created, parameterId: created.id, scope: 'report' }])
-                setCustom({ code: '', labelEn: '', unit: '' })
+                setCustom({ code: '', labelEn: '', unit: '', method: '' })
               }}
             >
               {t('qcSpec.addCustom')}

@@ -60,7 +60,7 @@ test('Loading snapshots the tank code and Unloading strips tankId', () => {
     new Map(),
     { purpose: 'Loading', tanksById }
   )
-  assert.deepEqual(loading.cards[0].records[0], { id: null, tankId: 5, noPalka: 'TK-01', ffa: '1.20', moisture: '' })
+  assert.deepEqual(loading.cards[0].records[0], { id: null, tankId: 5, noPalka: 'TK-01', ffa: '1.20', moisture: '', remark: '' })
   assert.throws(
     () =>
       parseCommodityCards(

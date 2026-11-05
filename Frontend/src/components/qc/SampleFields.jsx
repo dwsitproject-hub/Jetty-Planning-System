@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { MAX_SAMPLING_METRIC_CHARS, MAX_SAMPLING_PALKA_FIELD_CHARS } from '../../constants/inputLimits'
+import { MAX_SAMPLING_METRIC_CHARS, MAX_SAMPLING_PALKA_FIELD_CHARS, MAX_SAMPLING_RECORD_REMARK_CHARS } from '../../constants/inputLimits'
 import SampleRefField from '../sampling/SampleRefField'
 
 /**
@@ -27,22 +27,25 @@ export default function SampleFields({
         <label className="qc-field__label" htmlFor={`${idPrefix}-${name}`}>
           {t(labelKey)}
         </label>
-        <input
-          id={`${idPrefix}-${name}`}
-          ref={refs[name]}
-          className="qc-input"
-          value={form[name]}
-          placeholder={t(placeholderKey)}
-          aria-invalid={code ? 'true' : undefined}
-          onChange={(e) => onChange({ ...form, [name]: e.target.value })}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              onEnter?.(name)
-            }
-          }}
-          {...extra}
-        />
+        <div className="qc-field__value">
+          <input
+            id={`${idPrefix}-${name}`}
+            ref={refs[name]}
+            className="qc-input"
+            value={form[name]}
+            placeholder={t(placeholderKey)}
+            aria-invalid={code ? 'true' : undefined}
+            onChange={(e) => onChange({ ...form, [name]: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                onEnter?.(name)
+              }
+            }}
+            {...extra}
+          />
+          <span className="qc-field__unit">{t('quickAdd.unitPercent')}</span>
+        </div>
         {code ? <span className="qc-field__error">{errorText(code)}</span> : null}
       </div>
     )
@@ -81,8 +84,29 @@ export default function SampleFields({
         {field('moisture', 'quickAdd.moisture', 'quickAdd.placeholderMoisture', {
           inputMode: 'decimal',
           maxLength: MAX_SAMPLING_METRIC_CHARS,
-          enterKeyHint: 'done',
+          enterKeyHint: 'next',
         })}
+      </div>
+      <div className="qc-field">
+        <label className="qc-field__label" htmlFor={`${idPrefix}-remark`}>
+          {t('quickAdd.remark')}
+        </label>
+        <input
+          id={`${idPrefix}-remark`}
+          ref={refs.remark}
+          className="qc-input"
+          value={form.remark || ''}
+          placeholder={t('quickAdd.placeholderRemark')}
+          maxLength={MAX_SAMPLING_RECORD_REMARK_CHARS}
+          enterKeyHint="done"
+          onChange={(e) => onChange({ ...form, remark: e.target.value })}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              onEnter?.('remark')
+            }
+          }}
+        />
       </div>
       {errors.metrics ? <span className="qc-field__error">{errorText(errors.metrics)}</span> : null}
     </>

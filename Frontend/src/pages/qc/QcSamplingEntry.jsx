@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import PurposeBadge from '../../components/PurposeBadge'
 import QcEntryBanners from '../../components/qc/QcEntryBanners'
 import QcReportSummary from '../../components/qc/QcReportSummary'
 import QcSamplingDocuments from '../../components/qc/QcSamplingDocuments'
@@ -112,7 +113,10 @@ export default function QcSamplingEntry({ operationId, onBack, onSaved, onFinalS
             </button>
           )}
           <div className="qc-entry__title-row">
-            <h1 className="qc-entry__vessel">{header.vesselName}</h1>
+            <div className="qc-entry__identity">
+              <h1 className="qc-entry__vessel">{header.vesselName}</h1>
+              <PurposeBadge purpose={header.purpose} loadDischarge={header.loadDischarge} />
+            </div>
             <QcStatusChip status={statusOf(sampling)} />
           </div>
           <p className="qc-entry__meta">

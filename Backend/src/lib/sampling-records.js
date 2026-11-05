@@ -6,6 +6,7 @@
 import { metricToString, toMetricNumber } from './sampling-document-extract.js';
 
 const MAX_PALKA_CHARS = 20;
+const MAX_RECORD_REMARK_CHARS = 200;
 const METRIC_MAX = 100;
 
 function badRequest(message) {
@@ -87,6 +88,14 @@ function cleanMetric(raw, label) {
   return metricToString(n);
 }
 
+function parseRemark(raw) {
+  const remark = String(raw ?? '').trim();
+  if (remark.length > MAX_RECORD_REMARK_CHARS) {
+    throw badRequest(`Remark must be at most ${MAX_RECORD_REMARK_CHARS} characters`);
+  }
+  return remark;
+}
+
 /**
  * Validate a record body. `partial` (PATCH) only checks fields that were sent.
  * `sampleCodes` comes from the commodity template; defaults to FFA + Moisture.
@@ -114,6 +123,7 @@ export function parseRecordInput(body = {}, { partial = false, sampleCodes, purp
   for (const code of codes) {
     if (!partial || body[code] !== undefined) out[code] = cleanMetric(body[code], code);
   }
+  if (!partial || body.remark !== undefined) out.remark = parseRemark(body.remark);
   if (!partial && codes.every((code) => !out[code])) throw badRequest('Enter a sample value');
   return out;
 }

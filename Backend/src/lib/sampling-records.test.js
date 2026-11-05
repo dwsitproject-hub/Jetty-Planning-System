@@ -14,6 +14,13 @@ describe('parseRecordInput', () => {
       noPalka: '1P',
       ffa: '4.91',
       moisture: '',
+      remark: '',
+    });
+    assert.deepEqual(parseRecordInput({ noPalka: '1', ffa: '4', remark: '  off spec  ' }), {
+      noPalka: '1',
+      ffa: '4.00',
+      moisture: '',
+      remark: 'off spec',
     });
     assert.throws(() => parseRecordInput({ noPalka: '1', ffa: '101' }), { statusCode: 400 });
     assert.throws(() => parseRecordInput({ noPalka: '1', ffa: 'abc' }), { statusCode: 400 });
@@ -31,7 +38,7 @@ describe('parseRecordInput', () => {
     );
     assert.deepEqual(
       parseRecordInput({ tankId: 9, noPalka: 'typed', ffa: '4' }, { purpose: 'Loading', tank: { id: 9, code: ' TK-01 ' } }),
-      { tankId: 9, noPalka: 'TK-01', ffa: '4.00', moisture: '' }
+      { tankId: 9, noPalka: 'TK-01', ffa: '4.00', moisture: '', remark: '' }
     );
   });
 
@@ -40,6 +47,7 @@ describe('parseRecordInput', () => {
       noPalka: '2P',
       ffa: '4.00',
       moisture: '',
+      remark: '',
     });
   });
 

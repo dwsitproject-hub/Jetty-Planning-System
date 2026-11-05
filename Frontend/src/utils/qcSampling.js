@@ -1,7 +1,7 @@
 import { samplingPalkaKey } from './samplingExtractMerge.js'
 import { cardsToSaveBody } from './samplingCommodity.js'
 import { metricValue, reportParams, specOf, valueCodesOf } from './qcSpec.js'
-import { MAX_SAMPLING_PALKA_FIELD_CHARS } from '../constants/inputLimits.js'
+import { MAX_SAMPLING_PALKA_FIELD_CHARS, MAX_SAMPLING_RECORD_REMARK_CHARS } from '../constants/inputLimits.js'
 
 const METRIC_MAX = 100
 
@@ -61,6 +61,7 @@ export function buildSampleRecord(form, id) {
     noPalka: String(form.noPalka || '').trim().slice(0, MAX_SAMPLING_PALKA_FIELD_CHARS),
     ffa: normalizeMetric(form.ffa),
     moisture: normalizeMetric(form.moisture),
+    remark: String(form.remark || '').trim().slice(0, MAX_SAMPLING_RECORD_REMARK_CHARS),
   }
   if (form.tankId != null && String(form.tankId).trim() !== '') {
     const tankId = Number(form.tankId)
@@ -89,9 +90,17 @@ export function computeAverages(records) {
   return { avgFfa: mean(records, 'ffa'), avgMoisture: mean(records, 'moisture') }
 }
 
+/** Average or sum of one sample metric. Blank and non-numeric cells are skipped. Null when none. */
+export function aggregateSampleMetric(records, code, mode) {
+  const values = (records || []).map((r) => parseMetric(metricValue(r, code))).filter((n) => n != null)
+  if (values.length === 0) return null
+  const total = values.reduce((a, b) => a + b, 0)
+  return (mode === 'sum' ? total : total / values.length).toFixed(2)
+}
+
 /** True when two sample lists differ in palka or readings (ids are ignored: local ones are temporary). */
 export function recordsDiffer(a, b) {
-  const sig = (list) => (list || []).map((r) => [r.tankId || '', r.noPalka, r.ffa, r.moisture].join('|')).join(';')
+  const sig = (list) => (list || []).map((r) => [r.tankId || '', r.noPalka, r.ffa, r.moisture, r.remark || ''].join('|')).join(';')
   return sig(a) !== sig(b)
 }
 

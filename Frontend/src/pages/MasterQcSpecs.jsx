@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import QcSpecParameterLibrary from '../components/qc/QcSpecParameterLibrary'
 import QcSpecTemplateModal from '../components/qc/QcSpecTemplateModal'
 import MasterSourceBadge from '../components/MasterSourceBadge.jsx'
 import { useActivityLog } from '../context/ActivityLogContext'
@@ -8,6 +9,7 @@ import { useRbac } from '../context/RbacContext'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import {
   createQcSpecParameter,
+  updateQcSpecParameter,
   createQcSpecTemplate,
   deleteQcSpecTemplate,
   fetchQcSpecCommodities,
@@ -159,6 +161,28 @@ export default function MasterQcSpecs() {
           {!loading && templates.length === 0 ? <p className="text-steel">{t('qcSpec.empty')}</p> : null}
         </div>
       </section>
+
+      <QcSpecParameterLibrary
+        parameters={parameters}
+        canEdit={canEdit(PAGE_KEY)}
+        onCreate={async (body) => {
+          const out = await createQcSpecParameter(body)
+          setParameters((prev) => [...prev, out.parameter])
+          return out.parameter
+        }}
+        onUpdate={async (id, body) => {
+          const out = await updateQcSpecParameter(id, body)
+          const param = out.parameter
+          setParameters((prev) => prev.map((p) => (p.id === param.id ? { ...p, ...param } : p)))
+          setTemplates((prev) =>
+            prev.map((tpl) => ({
+              ...tpl,
+              parameters: (tpl.parameters || []).map((p) => (p.id === param.id ? { ...p, ...param } : p)),
+            }))
+          )
+          return param
+        }}
+      />
 
       {editing ? (
         <QcSpecTemplateModal

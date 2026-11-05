@@ -5,7 +5,7 @@
 import express from 'express';
 import { pool } from '../db.js';
 import { writeActivityLog } from '../lib/activity-log.js';
-import { listAssignableCommodities, listParameters, listTemplates } from '../lib/qc-spec-store.js';
+import { listAssignableCommodities, listParameters, listTemplates, toParam } from '../lib/qc-spec-store.js';
 import {
   assertAssignable,
   insertParameter,
@@ -13,6 +13,7 @@ import {
   parseParameterInput,
   parseTemplateInput,
   replaceTemplateContents,
+  updateParameter,
 } from '../lib/qc-spec-write.js';
 import { requirePageEdit, requirePageView } from '../middleware/permissions.js';
 
@@ -106,23 +107,34 @@ router.post('/parameters', ...requirePageEdit(PAGE_KEY), async (req, res) => {
   const input = parseParameterInput(req.body);
   try {
     const row = await insertParameter(pool, input);
-    res.status(201).json({
-      parameter: {
-        id: Number(row.id),
-        code: row.code,
-        labelEn: row.label_en,
-        labelId: row.label_id,
-        unit: row.unit,
-        kind: row.kind,
-        maxValue: Number(row.max_value),
-        sortOrder: Number(row.sort_order),
-        scope: 'report',
-      },
-    });
+    res.status(201).json({ parameter: toParam(row) });
   } catch (err) {
     if (err?.code === '23505') return res.status(409).json({ error: 'Parameter code already exists' });
     throw err;
   }
+});
+
+router.patch('/parameters/:id', ...requirePageEdit(PAGE_KEY), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  const existing = await pool.query(
+    `SELECT id, code FROM qc_parameters WHERE id = $1 AND deleted_at IS NULL`,
+    [id]
+  );
+  if (existing.rows.length === 0) return res.status(404).json({ error: 'Parameter not found' });
+  const input = parseParameterInput({ ...req.body, code: existing.rows[0].code });
+  const row = await updateParameter(pool, id, input);
+  if (!row) return res.status(404).json({ error: 'Parameter not found' });
+  writeActivityLog({
+    pageKey: PAGE_KEY,
+    action: 'update',
+    entityType: 'QcParameter',
+    entityId: String(id),
+    entityLabel: row.code,
+    summary: `Updated QC parameter ${row.code}`,
+    actorUserId: req.userId ?? null,
+  }).catch(() => {});
+  res.json({ parameter: toParam(row) });
 });
 
 export default router;

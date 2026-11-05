@@ -67,12 +67,13 @@ export async function loadQcSamplingSection(operationId) {
 }
 
 const recordsPath = (operationId) => `/qc/sampling/operations/${operationId}/records`
-const RECORD_META = new Set(['id', 'commodityId', 'noPalka', 'ffa', 'moisture'])
+const RECORD_META = new Set(['id', 'commodityId', 'noPalka', 'ffa', 'moisture', 'remark'])
 const pickRecordFields = (record = {}) => {
   const out = {
     noPalka: record.noPalka,
     ffa: record.ffa,
     moisture: record.moisture,
+    remark: record.remark ?? '',
   }
   if (record.commodityId != null) out.commodityId = record.commodityId
   if (record.tankId != null && String(record.tankId).trim() !== '') out.tankId = record.tankId

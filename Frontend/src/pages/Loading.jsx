@@ -3016,17 +3016,6 @@ function PreCheckingSections({
             </div>
             {editSamplingCards.length > 0 ? (
               <>
-              <div className="berthing-modal__field">
-                <label className="berthing-modal__label">{tLoading('sampling.remark')}</label>
-                <textarea
-                  className="berthing-modal__input berthing-modal__textarea"
-                  value={draft.sampling?.remark || ''}
-                  onChange={(e) => updateDraft('sampling', 'remark', e.target.value)}
-                  maxLength={MAX_REMARK_CHARS}
-                  rows={4}
-                  placeholder={tLoading('sampling.remarkPlaceholder')}
-                />
-              </div>
               <SamplingCommodityCards
                 commodities={editSamplingCards}
                 legacyUnassigned={draft.sampling.legacyUnassigned}
@@ -3261,17 +3250,6 @@ function PreCheckingSections({
                 </div>
               </div>
             </section>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">{tLoading('sampling.remark')}</label>
-              <textarea
-                className="berthing-modal__input berthing-modal__textarea"
-                value={draft.sampling?.remark || ''}
-                onChange={(e) => updateDraft('sampling', 'remark', e.target.value)}
-                maxLength={MAX_REMARK_CHARS}
-                rows={4}
-                placeholder={tLoading('sampling.remarkPlaceholder')}
-              />
-            </div>
             <div className="sampling-summary-chips" role="status" aria-live="polite">
               <span className="sampling-summary-chip">{tLoading('sampling.chipTotal', { count: samplingSummary.count })}</span>
               <span className="sampling-summary-chip">
@@ -3306,10 +3284,6 @@ function PreCheckingSections({
             </div>
             {savedSamplingCards.length > 0 ? (
               <>
-              <div className="precheck-section__row precheck-section__row--block">
-                <span className="precheck-section__label">{tLoading('sampling.remark')}</span>
-                <span className="precheck-section__value">{data.sampling?.remark || '—'}</span>
-              </div>
               <SamplingCommodityCards
                 commodities={savedSamplingCards}
                 legacyUnassigned={data.sampling.legacyUnassigned}
@@ -3335,10 +3309,6 @@ function PreCheckingSections({
                   iodine: data.sampling?.iodineValue || '—',
                 })}
               </span>
-            </div>
-            <div className="precheck-section__row precheck-section__row--block">
-              <span className="precheck-section__label">{tLoading('sampling.remark')}</span>
-              <span className="precheck-section__value">{data.sampling?.remark || '—'}</span>
             </div>
             <div className="sampling-summary-chips" role="status" aria-live="polite">
               <span className="sampling-summary-chip">{tLoading('sampling.chipTotal', { count: samplingSummary.count })}</span>

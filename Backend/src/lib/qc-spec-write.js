@@ -36,6 +36,12 @@ export function parseTemplateInput(body = {}) {
   return { name, commodityIds, items };
 }
 
+function optionalText(raw, max) {
+  if (raw == null) return null;
+  const text = String(raw).trim();
+  return text ? text.slice(0, max) : null;
+}
+
 export function parseParameterInput(body = {}) {
   const kind = String(body.kind || 'number');
   if (kind !== 'number' && kind !== 'color_pair') throw badRequest('Invalid parameter kind');
@@ -45,7 +51,8 @@ export function parseParameterInput(body = {}) {
     code: cleanCode(body.code),
     labelEn: String(body.labelEn || body.code).trim().slice(0, 80) || body.code,
     labelId: String(body.labelId || body.labelEn || body.code).trim().slice(0, 80),
-    unit: body.unit != null && String(body.unit).trim() !== '' ? String(body.unit).trim().slice(0, 20) : null,
+    unit: optionalText(body.unit, 20),
+    method: optionalText(body.method, 80),
     kind,
     maxValue,
   };
@@ -110,12 +117,26 @@ export async function insertTemplate(client, { name, items, commodityIds, actorU
   return id;
 }
 
+const PARAMETER_RETURNING =
+  'id, code, label_en, label_id, unit, method, kind, max_value, sort_order';
+
 export async function insertParameter(client, input) {
   const r = await client.query(
-    `INSERT INTO qc_parameters (code, label_en, label_id, unit, kind, max_value, sort_order)
-     VALUES ($1,$2,$3,$4,$5,$6, COALESCE((SELECT MAX(sort_order)+10 FROM qc_parameters WHERE deleted_at IS NULL), 200))
-     RETURNING id, code, label_en, label_id, unit, kind, max_value, sort_order`,
-    [input.code, input.labelEn, input.labelId, input.unit, input.kind, input.maxValue]
+    `INSERT INTO qc_parameters (code, label_en, label_id, unit, method, kind, max_value, sort_order)
+     VALUES ($1,$2,$3,$4,$5,$6,$7, COALESCE((SELECT MAX(sort_order)+10 FROM qc_parameters WHERE deleted_at IS NULL), 200))
+     RETURNING ${PARAMETER_RETURNING}`,
+    [input.code, input.labelEn, input.labelId, input.unit, input.method, input.kind, input.maxValue]
   );
   return r.rows[0];
+}
+
+export async function updateParameter(client, id, input) {
+  const r = await client.query(
+    `UPDATE qc_parameters
+        SET label_en = $2, label_id = $3, unit = $4, method = $5, kind = $6, max_value = $7, updated_at = NOW()
+      WHERE id = $1 AND deleted_at IS NULL
+      RETURNING ${PARAMETER_RETURNING}`,
+    [id, input.labelEn, input.labelId, input.unit, input.method, input.kind, input.maxValue]
+  );
+  return r.rows[0] || null;
 }

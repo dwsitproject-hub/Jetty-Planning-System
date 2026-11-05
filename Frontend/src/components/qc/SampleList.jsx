@@ -25,6 +25,7 @@ export default function SampleList({ records, onUpdate, onRemove, sampleRefKind 
               </span>
               <span className="qc-sample__metric">{t('sample.ffa', { value: dash(rec.ffa) })}</span>
               <span className="qc-sample__metric">{t('sample.moisture', { value: dash(rec.moisture) })}</span>
+              {rec.remark ? <span className="qc-sample__remark">{rec.remark}</span> : null}
             </button>
           </li>
         ))}
