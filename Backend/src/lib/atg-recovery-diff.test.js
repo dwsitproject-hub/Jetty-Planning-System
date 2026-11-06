@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import {
   diffDailyRows,
   diffHourlyRows,
-  splitGapOutcome,
+  classifyTargetGaps,
   summarizeQuantityByCommodity,
 } from './atg-recovery-diff.js';
 
@@ -50,10 +50,31 @@ describe('atg-recovery-diff', () => {
     assert.equal(s.total.hoursTotal, 2);
   });
 
-  it('splits closed and still-missing gaps', () => {
-    const r = splitGapOutcome(['a', 'b', 'c'], [{ gapKey: 'b' }]);
-    assert.deepEqual(r.closedGapKeys, ['a', 'c']);
-    assert.deepEqual(r.stillMissingKeys, ['b']);
+  it('counts a gap that only shrank as partial, not closed', () => {
+    const target = [
+      { gapKey: 'a', loadLineId: 1, startAt: '2026-01-01T10:00:00.000Z', endAt: '2026-01-01T15:00:00.000Z' },
+      { gapKey: 'b', loadLineId: 1, startAt: '2026-01-02T10:00:00.000Z', endAt: '2026-01-02T12:00:00.000Z' },
+      { gapKey: 'c', loadLineId: 1, startAt: '2026-01-03T10:00:00.000Z', endAt: '2026-01-03T12:00:00.000Z' },
+    ];
+    const after = [
+      { gapKey: 'new-a', loadLineId: 1, startAt: '2026-01-01T10:00:00.000Z', endAt: '2026-01-01T12:00:00.000Z' },
+      { gapKey: 'c', loadLineId: 1, startAt: '2026-01-03T10:00:00.000Z', endAt: '2026-01-03T12:00:00.000Z' },
+    ];
+    const r = classifyTargetGaps(target, after);
+    assert.deepEqual(r.outcomes.map((o) => o.status), ['partial', 'closed', 'open']);
+    assert.equal(r.outcomes[0].remainingMinutes, 120);
+    assert.equal(r.closedCount, 1);
+    assert.equal(r.partialCount, 1);
+    assert.deepEqual(r.stillMissing.map((g) => g.gapKey), ['new-a', 'c']);
+  });
+
+  it('ignores remaining gaps on other load lines', () => {
+    const r = classifyTargetGaps(
+      [{ gapKey: 'a', loadLineId: 1, startAt: '2026-01-01T10:00:00.000Z', endAt: '2026-01-01T12:00:00.000Z' }],
+      [{ gapKey: 'x', loadLineId: 2, startAt: '2026-01-01T10:00:00.000Z', endAt: '2026-01-01T12:00:00.000Z' }]
+    );
+    assert.equal(r.closedCount, 1);
+    assert.equal(r.stillMissing.length, 0);
   });
 
   it('counts changed daily rows and the net delta', () => {

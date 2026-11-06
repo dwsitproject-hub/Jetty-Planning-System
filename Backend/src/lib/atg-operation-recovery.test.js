@@ -66,4 +66,18 @@ describe('atg-operation-recovery', () => {
     );
     assert.equal(n, 1);
   });
+
+  it('deriveResyncOutcome is partial when a selected gap only shrank', () => {
+    assert.equal(
+      deriveResyncOutcome({ targetTotal: 4, targetClosed: 3, targetPartial: 1, samplesInserted: 119, archiveErrors: [] }),
+      'partial'
+    );
+  });
+
+  it('deriveResyncOutcome is success when every selected gap closed, even if others remain', () => {
+    assert.equal(
+      deriveResyncOutcome({ targetTotal: 4, targetClosed: 4, targetPartial: 0, samplesInserted: 119, archiveErrors: [] }),
+      'success'
+    );
+  });
 });

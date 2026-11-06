@@ -3,10 +3,11 @@ import { previewAtgCargoGapResync, runAtgCargoGapResync, simulateAtgCargoGapResy
 import { formatWhen } from '../../utils/adminOpsDisplay'
 import {
   formatGapDuration,
-  remainingTargetGapKeys,
+  remainingGaps,
   resyncOutcomeVariant,
   summarizePreviewByGap,
 } from '../../utils/atgGapDisplay'
+import AtgGapProgress from './AtgGapProgress.jsx'
 import AtgGapResyncResult from './AtgGapResyncResult.jsx'
 import AtgGapSimulationResult from './AtgGapSimulationResult.jsx'
 import '../../styles/modal.css'
@@ -116,7 +117,7 @@ export default function AtgGapResyncDialog({ operation, gaps, onClose, onAcknowl
     onClose(step === 'result')
   }
 
-  const remaining = result ? remainingTargetGapKeys(result) : []
+  const remaining = result ? remainingGaps(result) : []
 
   return (
     <div className="modal-overlay" role="presentation" onClick={close}>
@@ -145,7 +146,7 @@ export default function AtgGapResyncDialog({ operation, gaps, onClose, onAcknowl
               <li className={step === 'confirm' || step === 'running' ? 'is-active' : ''}>{t('atgGapStepConfirm')}</li>
             </ol>
             {step === 'previewing' ? (
-              <p className="text-steel">{t('atgGapPreviewLoading')}</p>
+              <AtgGapProgress message={t('atgGapPreviewLoading', { count: gaps.length })} t={t} />
             ) : (
               <>
                 <PreviewTable gaps={gaps} previewByGap={previewByGap} t={t} />
@@ -161,11 +162,10 @@ export default function AtgGapResyncDialog({ operation, gaps, onClose, onAcknowl
                 <button type="button" className="btn btn--secondary" disabled={busy} onClick={simulate}>
                   {simulating ? t('atgGapSimulatingShort') : sim ? t('atgGapSimulateAgain') : t('atgGapSimulate')}
                 </button>
-                <span className="text-steel atg-gap-dialog__sub">
-                  {simulating ? t('atgGapSimulating') : t('atgGapSimulateHint')}
-                </span>
+                {simulating ? null : <span className="text-steel atg-gap-dialog__sub">{t('atgGapSimulateHint')}</span>}
               </div>
             ) : null}
+            {simulating ? <AtgGapProgress message={t('atgGapSimulating')} t={t} /> : null}
             {simError ? <p className="admin-ops-error">{simError}</p> : null}
             {sim ? <AtgGapSimulationResult sim={sim} t={t} /> : null}
             <ul className="atg-gap-dialog__notes text-steel">
@@ -173,7 +173,7 @@ export default function AtgGapResyncDialog({ operation, gaps, onClose, onAcknowl
               <li>{t('atgGapNoteQty')}</li>
               <li>{t('atgGapNoteAudit')}</li>
             </ul>
-            {step === 'running' ? <p className="text-steel">{t('atgGapRunning')}</p> : null}
+            {step === 'running' ? <AtgGapProgress message={t('atgGapRunning')} t={t} /> : null}
             {error ? <p className="admin-ops-error">{error}</p> : null}
             <label className="atg-gap-dialog__confirm">
               <input
@@ -189,7 +189,7 @@ export default function AtgGapResyncDialog({ operation, gaps, onClose, onAcknowl
 
         <div className="modal__footer atg-gap-dialog__footer">
           {step === 'result' && remaining.length && result?.outcome !== 'failed' ? (
-            <button type="button" className="btn btn--secondary" onClick={() => onAcknowledgeRemaining(remaining)}>
+            <button type="button" className="btn btn--secondary" onClick={() => onAcknowledgeRemaining(remaining.map((g) => g.gapKey))}>
               {t('atgGapAckRemaining', { count: remaining.length })}
             </button>
           ) : null}

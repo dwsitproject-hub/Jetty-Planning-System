@@ -1,5 +1,5 @@
 import { formatWhen } from '../../utils/adminOpsDisplay'
-import { formatGapDuration, remainingTargetGapKeys } from '../../utils/atgGapDisplay'
+import { formatGapDuration, remainingGaps } from '../../utils/atgGapDisplay'
 
 function Stat({ label, value }) {
   return (
@@ -13,9 +13,10 @@ function Stat({ label, value }) {
 /** Persistent outcome of a resync run: what changed and what is still missing. */
 export default function AtgGapResyncResult({ result, variant, t }) {
   const outcome = result?.outcome ?? 'failed'
-  const remainingKeys = new Set(remainingTargetGapKeys(result))
-  const remainingGaps = (result?.gapsAfter ?? []).filter((g) => remainingKeys.has(g.gapKey))
-  const targeted = result?.targetGapKeys?.length ?? 0
+  const stillMissing = remainingGaps(result)
+  const targeted = result?.targetTotal ?? result?.targetGapKeys?.length ?? 0
+  const closed = result?.targetClosed ?? 0
+  const partial = result?.targetPartial ?? 0
 
   return (
     <div className="atg-gap-result">
@@ -30,17 +31,18 @@ export default function AtgGapResyncResult({ result, variant, t }) {
           <Stat label={t('atgGapStatSamples')} value={result.samplesInserted ?? 0} />
           <Stat label={t('atgGapStatHourly')} value={result.hourlyUpserted ?? 0} />
           <Stat label={t('atgGapStatDaily')} value={result.dailyUpserted ?? 0} />
-          <Stat label={t('atgGapStatClosed')} value={`${targeted - remainingKeys.size} / ${targeted}`} />
+          <Stat label={t('atgGapStatClosed')} value={`${closed} / ${targeted}`} />
+          {partial ? <Stat label={t('atgGapStatPartial')} value={partial} /> : null}
         </div>
       ) : (
         <p className="admin-ops-error">{result?.error}</p>
       )}
 
-      {remainingGaps.length ? (
+      {stillMissing.length ? (
         <>
           <h3 className="atg-gap-result__heading">{t('atgGapStillMissing')}</h3>
           <ul className="atg-gap-result__list">
-            {remainingGaps.map((g) => (
+            {stillMissing.map((g) => (
               <li key={g.gapKey}>
                 {formatWhen(g.startAt)} → {formatWhen(g.endAt)} ({formatGapDuration(g.durationMinutes)})
               </li>
