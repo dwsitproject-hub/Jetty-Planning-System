@@ -60,7 +60,7 @@ function StatusHero({ data, statusLabel, t }) {
   )
 }
 
-function CheckCard({ check, statusLabel, t, canResyncAtg, onAtgResyncComplete }) {
+function CheckCard({ check, statusLabel, t, canResyncAtg, onAtgGapsChanged }) {
   const [techOpen, setTechOpen] = useState(false)
   const guidanceKey = `adminOpsGuidance_${check.id}`
   const guidance =
@@ -70,8 +70,12 @@ function CheckCard({ check, statusLabel, t, canResyncAtg, onAtgResyncComplete })
       ? t(guidanceKey, { defaultValue: '' })
       : ''
 
+  const isAtgCargoGaps = check.id === 'atg_cargo_gaps'
+
   return (
-    <article className={`card admin-ops-card ${cardStatusClass(check.status)}`}>
+    <article
+      className={`card admin-ops-card ${cardStatusClass(check.status)}${isAtgCargoGaps ? ' admin-ops-card--full-width' : ''}`}
+    >
       <div className="card__header-row">
         <div>
           <h2 className="card__title">{check.title}</h2>
@@ -87,7 +91,7 @@ function CheckCard({ check, statusLabel, t, canResyncAtg, onAtgResyncComplete })
             check={check}
             t={t}
             canResyncAtg={canResyncAtg}
-            onAtgResyncComplete={onAtgResyncComplete}
+            onAtgGapsChanged={onAtgGapsChanged}
           />
         </div>
       ) : null}
@@ -110,7 +114,7 @@ function CheckCard({ check, statusLabel, t, canResyncAtg, onAtgResyncComplete })
   )
 }
 
-function CheckSection({ title, checks, statusLabel, t, canResyncAtg, onAtgResyncComplete }) {
+function CheckSection({ title, checks, statusLabel, t, canResyncAtg, onAtgGapsChanged }) {
   if (!checks.length) return null
   return (
     <section className="admin-ops-section">
@@ -123,7 +127,7 @@ function CheckSection({ title, checks, statusLabel, t, canResyncAtg, onAtgResync
             statusLabel={statusLabel}
             t={t}
             canResyncAtg={canResyncAtg}
-            onAtgResyncComplete={onAtgResyncComplete}
+            onAtgGapsChanged={onAtgGapsChanged}
           />
         ))}
       </div>
@@ -192,11 +196,10 @@ export default function AdminOperations() {
   const [error, setError] = useState(null)
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settingsError, setSettingsError] = useState(null)
-  const [toast, setToast] = useState(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ silent = false } = {}) => {
     setError(null)
-    setLoading(true)
+    if (!silent) setLoading(true)
     try {
       setData(await fetchAdminOpsStatus())
     } catch (e) {
@@ -217,35 +220,7 @@ export default function AdminOperations() {
     load()
   }, [load])
 
-  useEffect(() => {
-    if (!toast) return
-    const id = setTimeout(() => setToast(null), 8000)
-    return () => clearTimeout(id)
-  }, [toast])
-
-  const handleAtgResyncComplete = useCallback(
-    (result) => {
-      const label = result?.operationLabel || t('adminOpsAtgResyncDefaultVessel')
-      const inserted = result?.samplesInserted ?? 0
-      const hourly = result?.hourlyUpserted ?? 0
-      const after = (result?.gapsAfter || []).length
-      const before = (result?.gapsBefore || []).length
-      const errors = (result?.archiveErrors || []).length
-
-      let variant = 'success'
-      let message = t('adminOpsAtgResyncToastSuccess', { label, inserted, hourly, before, after })
-      if (errors > 0 || (after > 0 && before > 0)) {
-        variant = 'warning'
-        message = t('adminOpsAtgResyncToastPartial', { label, inserted, errors, after })
-      } else if (inserted === 0 && before > 0) {
-        variant = 'warning'
-        message = t('adminOpsAtgResyncToastNoSamples', { label })
-      }
-      setToast({ variant, message })
-      load()
-    },
-    [load, t]
-  )
+  const handleAtgGapsChanged = useCallback(() => load({ silent: true }), [load])
 
   const statusLabel = useCallback(
     (status) => t(`adminOpsStatus_${status}`, status),
@@ -302,23 +277,10 @@ export default function AdminOperations() {
           </p>
           <p className="text-steel admin-ops-page-header__intro">{t('adminOpsIntro')}</p>
         </div>
-        <button type="button" className="btn btn--secondary admin-ops-refresh-btn" onClick={load} disabled={loading}>
+        <button type="button" className="btn btn--secondary admin-ops-refresh-btn" onClick={() => load()} disabled={loading}>
           {loading ? t('adminOpsRefreshing') : t('adminOpsRefresh')}
         </button>
       </div>
-
-      {toast ? (
-        <div
-          className={`si-toast si-toast--${toast.variant === 'warning' ? 'warning' : toast.variant === 'error' ? 'error' : 'success'}`}
-          role="status"
-          style={{ marginBottom: 12 }}
-        >
-          <p className="si-toast__message">{toast.message}</p>
-          <p className="text-steel" style={{ fontSize: '0.85rem', margin: '4px 0 0' }}>
-            {t('adminOpsAtgResyncActivityLogHint')}
-          </p>
-        </div>
-      ) : null}
 
       {error ? <p className="admin-ops-error">{error}</p> : null}
       {loading && !data ? <p className="text-steel">{t('adminOpsLoading')}</p> : null}
@@ -333,7 +295,7 @@ export default function AdminOperations() {
             statusLabel={statusLabel}
             t={t}
             canResyncAtg={canResyncAtg}
-            onAtgResyncComplete={handleAtgResyncComplete}
+            onAtgGapsChanged={handleAtgGapsChanged}
           />
 
           <CheckSection
@@ -342,7 +304,7 @@ export default function AdminOperations() {
             statusLabel={statusLabel}
             t={t}
             canResyncAtg={canResyncAtg}
-            onAtgResyncComplete={handleAtgResyncComplete}
+            onAtgGapsChanged={handleAtgGapsChanged}
           />
 
           <EmailAlertsPanel

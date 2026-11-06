@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import {
-  mergeArchiveParamRows,
-  buildResyncAuditSummary,
-  deriveResyncOutcome,
-} from './atg-operation-recovery.js';
+import { buildResyncAuditSummary, deriveResyncOutcome } from './atg-operation-recovery.js';
+import { countNewArchivePoints, mergeArchiveParamRows } from './tankvision-archive.js';
 
 describe('atg-operation-recovery', () => {
   it('merges archive param rows by timestamp', () => {
@@ -53,5 +50,20 @@ describe('atg-operation-recovery', () => {
 
   it('deriveResyncOutcome dry_run', () => {
     assert.equal(deriveResyncOutcome({ dryRun: true }), 'dry_run');
+  });
+
+  it('deriveResyncOutcome no_samples when archive is empty', () => {
+    assert.equal(
+      deriveResyncOutcome({ gapsBefore: [{}], gapsAfter: [{}], samplesInserted: 0, archiveErrors: [] }),
+      'no_samples'
+    );
+  });
+
+  it('countNewArchivePoints ignores stored and duplicate timestamps', () => {
+    const n = countNewArchivePoints(
+      ['2026-01-01T10:00:00.000Z', '2026-01-01T10:05:00.000Z', '2026-01-01T10:05:00.000Z'],
+      ['2026-01-01T10:00:00.000Z']
+    );
+    assert.equal(n, 1);
   });
 });

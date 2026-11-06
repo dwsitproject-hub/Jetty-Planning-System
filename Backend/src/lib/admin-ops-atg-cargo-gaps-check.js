@@ -2,23 +2,23 @@
  * System Health Dashboard — ATG cargo coverage gaps during logged cargo segments.
  */
 import { scanAtgCargoGaps } from './atg-cargo-gap-scan.js';
-/**
- * @param {string} id
- * @param {string} title
- * @param {string} status
- * @param {string} summary
- * @param {object} details
- */
-function checkResult(id, title, status, summary, details = {}) {
-  return {
-    id,
-    title,
-    status,
-    summary,
-    details,
-    actionHref: null,
-    actionLabel: null,
-  };
+import { loadLastResyncByOperation } from './atg-cargo-gap-store.js';
+
+const CHECK_ID = 'atg_cargo_gaps';
+const CHECK_TITLE = 'ATG cargo coverage';
+
+function checkResult(status, summary, details = {}) {
+  return { id: CHECK_ID, title: CHECK_TITLE, status, summary, details, actionHref: null, actionLabel: null };
+}
+
+function buildSummary(scan, openOps) {
+  const { liveWithRecentGap } = scan.severity;
+  if (scan.totalWithGaps === 0) return `No ATG coverage gaps in the last ${scan.lookbackDays} days`;
+  if (openOps === 0) return `All ATG gaps in the last ${scan.lookbackDays} days are resolved or acknowledged`;
+  if (liveWithRecentGap > 0) {
+    return `${liveWithRecentGap} vessel(s) at berth lost ATG in the last ${scan.recentWindowMinutes / 60} h · ${openOps} operation(s) need review`;
+  }
+  return `${openOps} operation(s) with open ATG gaps (last ${scan.lookbackDays} days)`;
 }
 
 /**
@@ -27,25 +27,22 @@ function checkResult(id, title, status, summary, details = {}) {
 export async function checkAtgCargoGaps(db) {
   try {
     const scan = await scanAtgCargoGaps(db);
-    const { status, liveWithRecentGap, completedWithGaps } = scan.severity;
-    const total = scan.totalWithGaps ?? scan.operations.length;
+    const lastResync = await loadLastResyncByOperation(
+      db,
+      scan.operations.map((op) => op.operationId)
+    );
+    const openOps = scan.operations.filter((op) => op.openGapCount > 0).length;
 
-    let summary;
-    if (total === 0) {
-      summary = `No ATG coverage gaps in the last ${scan.lookbackDays} days`;
-    } else if (liveWithRecentGap > 0) {
-      summary = `${liveWithRecentGap} vessel(s) at berth with recent ATG gaps · ${total} total in ${scan.lookbackDays}d window`;
-    } else {
-      summary = `${total} operation(s) with ATG gaps (last ${scan.lookbackDays} days)`;
-    }
-
-    return checkResult('atg_cargo_gaps', 'ATG cargo coverage', status, summary, {
+    return checkResult(scan.severity.status, buildSummary(scan, openOps), {
       lookbackDays: scan.lookbackDays,
       minGapMinutes: scan.minGapMinutes,
-      totalWithGaps: total,
+      recentWindowMinutes: scan.recentWindowMinutes,
+      totalWithGaps: scan.totalWithGaps,
+      openOperations: openOps,
       truncated: scan.truncated,
-      liveWithRecentGap,
-      completedWithGaps,
+      liveWithRecentGap: scan.severity.liveWithRecentGap,
+      liveWithOlderGap: scan.severity.liveWithOlderGap,
+      completedWithGaps: scan.severity.completedWithGaps,
       operations: scan.operations.map((op) => ({
         operationId: op.operationId,
         portId: op.portId,
@@ -56,18 +53,13 @@ export async function checkAtgCargoGaps(db) {
         atBerth: op.atBerth,
         longestGapMinutes: op.longestGapMinutes,
         totalGapMinutes: op.totalGapMinutes,
-        segmentCountWithGaps: op.segmentCountWithGaps,
+        openGapCount: op.openGapCount,
+        acknowledgedGapCount: op.acknowledgedGapCount,
+        lastResync: lastResync.get(op.operationId) ?? null,
         gaps: op.gaps,
-        unionGaps: op.unionGaps,
       })),
     });
   } catch (err) {
-    return checkResult(
-      'atg_cargo_gaps',
-      'ATG cargo coverage',
-      'unknown',
-      err?.message || 'Gap scan failed',
-      { error: err?.message || String(err) }
-    );
+    return checkResult('unknown', err?.message || 'Gap scan failed', { error: err?.message || String(err) });
   }
 }

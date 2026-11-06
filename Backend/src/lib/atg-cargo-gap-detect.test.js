@@ -7,7 +7,6 @@ import {
   mergeAdjacentIntervals,
   rollupLineGaps,
   rollupOperationGaps,
-  deriveGapCheckStatus,
 } from './atg-cargo-gap-detect.js';
 
 describe('atg-cargo-gap-detect', () => {
@@ -70,18 +69,4 @@ describe('atg-cargo-gap-detect', () => {
     assert.equal(line.length, 1);
   });
 
-  it('deriveGapCheckStatus unhealthy when live recent gap', () => {
-    const now = new Date('2026-01-01T17:30:00.000Z').getTime();
-    const s = deriveGapCheckStatus(
-      [
-        {
-          atBerth: true,
-          unionGaps: [{ startAt: '2026-01-01T15:00:00.000Z', endAt: '2026-01-01T17:00:00.000Z' }],
-        },
-      ],
-      DEFAULT_MIN_GAP_MS,
-      now
-    );
-    assert.equal(s.status, 'unhealthy');
-  });
 });

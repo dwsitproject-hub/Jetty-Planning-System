@@ -6,13 +6,14 @@ import {
   DEFAULT_MIN_GAP_MS,
   MAX_LIST_OPERATIONS,
   buildGapKey,
-  deriveGapCheckStatus,
   gapsFromIncompleteHourlyBuckets,
   gapsFromSampleTimeline,
   rollupLineGaps,
   rollupOperationGaps,
 } from './atg-cargo-gap-detect.js';
 import { partitionLineTanks } from './operational-progress.js';
+import { DEFAULT_RECENT_GAP_MS, annotateAcknowledgedGaps, deriveGapCheckStatus } from './atg-cargo-gap-status.js';
+import { loadAcknowledgements } from './atg-cargo-gap-store.js';
 
 const CANDIDATE_OPS_SQL = `
   SELECT DISTINCT
@@ -82,6 +83,12 @@ const TANK_CODES_SQL = `
   FROM master_tanks t
   WHERE t.id = ANY($1::bigint[]) AND t.deleted_at IS NULL`;
 
+/** ATG_GAP_LOOKBACK_DAYS overrides the default 30-day window. */
+function resolveLookbackDays() {
+  const n = Number(process.env.ATG_GAP_LOOKBACK_DAYS);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_LOOKBACK_DAYS;
+}
+
 /**
  * @param {object} row
  */
@@ -128,12 +135,14 @@ function gapsFromLineFastPath(loadLineId, hourlyByLine, atgHourlyDetail) {
  * @param {object} [opts]
  * @param {number} [opts.lookbackDays]
  * @param {number} [opts.minGapMs]
+ * @param {number} [opts.recentWindowMs] at-berth gaps that ended within this window are unhealthy
  * @param {number} [opts.nowMs]
  * @param {number} [opts.operationId] single-op scan for resync
  */
 export async function scanAtgCargoGaps(db, opts = {}) {
-  const lookbackDays = Number.isFinite(opts.lookbackDays) ? opts.lookbackDays : DEFAULT_LOOKBACK_DAYS;
+  const lookbackDays = Number.isFinite(opts.lookbackDays) ? opts.lookbackDays : resolveLookbackDays();
   const minGapMs = Number.isFinite(opts.minGapMs) ? opts.minGapMs : DEFAULT_MIN_GAP_MS;
+  const recentWindowMs = Number.isFinite(opts.recentWindowMs) ? opts.recentWindowMs : DEFAULT_RECENT_GAP_MS;
   const nowMs = Number.isFinite(opts.nowMs) ? opts.nowMs : Date.now();
   const nowIso = new Date(nowMs).toISOString();
 
@@ -167,9 +176,11 @@ export async function scanAtgCargoGaps(db, opts = {}) {
     return {
       lookbackDays,
       minGapMinutes: minGapMs / 60000,
+      recentWindowMinutes: recentWindowMs / 60000,
       operations: [],
+      totalWithGaps: 0,
       truncated: false,
-      severity: deriveGapCheckStatus([], minGapMs, nowMs),
+      severity: deriveGapCheckStatus([], recentWindowMs, nowMs),
     };
   }
 
@@ -294,15 +305,19 @@ export async function scanAtgCargoGaps(db, opts = {}) {
     return (b.longestGapMinutes || 0) - (a.longestGapMinutes || 0);
   });
 
-  const truncated = operationResults.length > MAX_LIST_OPERATIONS;
-  const listed = truncated ? operationResults.slice(0, MAX_LIST_OPERATIONS) : operationResults;
-  const severity = deriveGapCheckStatus(listed, minGapMs, nowMs);
+  const ackByGapKey = await loadAcknowledgements(db, operationResults.map((o) => o.operationId));
+  const annotated = operationResults.map((o) => annotateAcknowledgedGaps(o, ackByGapKey));
+  annotated.sort((x, y) => Number(y.openGapCount > 0) - Number(x.openGapCount > 0));
+  const truncated = annotated.length > MAX_LIST_OPERATIONS;
+  const listed = truncated ? annotated.slice(0, MAX_LIST_OPERATIONS) : annotated;
+  const severity = deriveGapCheckStatus(annotated, recentWindowMs, nowMs);
 
   return {
     lookbackDays,
     minGapMinutes: minGapMs / 60000,
+    recentWindowMinutes: recentWindowMs / 60000,
     operations: listed,
-    totalWithGaps: operationResults.length,
+    totalWithGaps: annotated.length,
     truncated,
     severity,
   };
