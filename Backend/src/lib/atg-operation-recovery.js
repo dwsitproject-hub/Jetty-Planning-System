@@ -1,114 +1,23 @@
 /**
  * ATG cargo gap recovery: Tankvision archive import + progress re-aggregation.
  */
-import { buildAuthHeaders, trimBaseUrl } from './tankvision-client.js';
+import { trimBaseUrl } from './tankvision-client.js';
+import {
+  ARCHIVE_PARAM_IDS,
+  ARCHIVE_PREVIEW_PARAM_ID,
+  archivePointsFromResponse,
+  countNewArchivePoints,
+  fetchArchiveTankData,
+  mergeArchiveParamRows,
+} from './tankvision-archive.js';
 import { resolveEnabledSources } from './tank-gauging-source-config.js';
 import { scanOperationGapsForRecovery } from './atg-cargo-gap-scan.js';
 import { aggregateAtgDailyProgressForOperation } from './operational-progress.js';
 import { aggregateHourlyProgressForOperation } from './atg-hourly-progress.js';
 
-export const ARCHIVE_PARAM_IDS = [622, 625, 628, 717, 730];
 export const MAX_GAP_SPAN_MS = 7 * 24 * 60 * 60 * 1000;
 export const GAP_PAD_MS = 5 * 60 * 1000;
 
-const PARAM_COLUMNS = {
-  622: 'level_mm',
-  625: 'temperature_c',
-  628: 'observed_density_kg_m3',
-  717: 'total_observed_volume',
-  730: 'total_mass',
-};
-
-const STATUS_RANK = {
-  NODATA: 100,
-  FAIL: 90,
-  INVALIDDATA: 80,
-  INIT: 70,
-  MANUAL: 60,
-  LASTVALIDVALUE: 50,
-  OK: 10,
-};
-
-function pickWorstStatus(statuses) {
-  let worst = null;
-  let worstRank = -1;
-  for (const raw of statuses) {
-    if (!raw) continue;
-    const key = String(raw).trim().toUpperCase().replace(/\s+/g, '');
-    const rank = STATUS_RANK[key] ?? 40;
-    if (rank > worstRank) {
-      worstRank = rank;
-      worst = String(raw).trim();
-    }
-  }
-  return worst;
-}
-
-/**
- * @param {string} baseUrl
- * @param {object} auth
- * @param {number} externalTankId
- * @param {number} paramId
- * @param {number} startUnix
- * @param {number} endUnix
- */
-export async function fetchArchiveTankData(baseUrl, auth, externalTankId, paramId, startUnix, endUnix) {
-  const base = trimBaseUrl(baseUrl);
-  const url = new URL(`${base}/GWTHandler.esp`);
-  url.searchParams.set('DATATYPE', '18');
-  url.searchParams.set('ID', String(externalTankId));
-  url.searchParams.set('STARTTIME', String(startUnix));
-  url.searchParams.set('ENDTIME', String(endUnix));
-  url.searchParams.set('PARAMID', String(paramId));
-
-  await fetch(`${base}/index.esp`, {
-    headers: buildAuthHeaders(base, auth),
-    signal: AbortSignal.timeout(8000),
-  }).catch(() => {});
-
-  const res = await fetch(url, {
-    headers: buildAuthHeaders(base, auth),
-    signal: AbortSignal.timeout(120000),
-  });
-  const text = await res.text();
-  if (!res.ok || !text.trim()) throw new Error(`HTTP ${res.status}`);
-  return JSON.parse(text);
-}
-
-/**
- * @param {Array<{ sourceBaseUrl: string, externalTankId: number, paramId: number, sampledAt: string, value: unknown, status: string }>} rows
- */
-export function mergeArchiveParamRows(rows) {
-  const byKey = new Map();
-  for (const row of rows || []) {
-    if (!row.sampledAt) continue;
-    const key = `${row.sourceBaseUrl}|${row.externalTankId}|${row.sampledAt}`;
-    let s = byKey.get(key);
-    if (!s) {
-      s = {
-        sourceBaseUrl: row.sourceBaseUrl,
-        externalTankId: row.externalTankId,
-        sampledAt: row.sampledAt,
-        statuses: [],
-        values: {},
-      };
-      byKey.set(key, s);
-    }
-    if (row.status) s.statuses.push(row.status);
-    const col = PARAM_COLUMNS[row.paramId];
-    if (col) s.values[col] = row.value;
-  }
-  return [...byKey.values()].map((s) => ({
-    ...s,
-    statusText: pickWorstStatus(s.statuses),
-  }));
-}
-
-/**
- * @param {import('pg').Pool|import('pg').PoolClient} db
- * @param {number} portId
- * @param {Array<number>} tankIds
- */
 async function loadTankMaps(db, portId, tankIds) {
   if (!tankIds.length) return [];
   const r = await db.query(
@@ -121,11 +30,16 @@ async function loadTankMaps(db, portId, tankIds) {
   return r.rows;
 }
 
-/**
- * @param {import('pg').Pool|import('pg').PoolClient} db
- * @param {object} sample merged sample row with values
- * @param {number} tankId
- */
+async function loadStoredSampleTimes(db, tankId, sourceBaseUrl, startIso, endIso) {
+  const r = await db.query(
+    `SELECT sampled_at FROM tank_gauging_samples
+     WHERE tank_id = $1 AND source_base_url = $2
+       AND sampled_at >= $3::timestamptz AND sampled_at <= $4::timestamptz`,
+    [tankId, sourceBaseUrl, startIso, endIso]
+  );
+  return r.rows.map((row) => new Date(row.sampled_at).toISOString());
+}
+
 async function insertSampleIfMissing(db, sample, tankId) {
   const v = sample.values || {};
   const rawPayload = JSON.stringify({
@@ -207,8 +121,7 @@ export function deriveResyncOutcome(result) {
   const before = (result.gapsBefore || []).length;
   if (inserted === 0 && before > 0 && errors === 0) return 'no_samples';
   if (errors > 0 || (after > 0 && before > after)) return 'partial';
-  if (after === 0 && before > 0) return 'success';
-  if (after === 0 && before === 0) return 'success';
+  if (after === 0) return 'success';
   return inserted > 0 ? 'partial' : 'no_samples';
 }
 
@@ -222,12 +135,89 @@ function collectTankIdsForGaps(op, targetGaps) {
   return [...tankIds].filter((n) => n > 0);
 }
 
+function tankMapsForGap(op, gap, tankMaps) {
+  const line = (op.lines || []).find((l) => Number(l.loadLineId) === Number(gap.loadLineId));
+  if (!line) return tankMaps;
+  const ids = new Set((line.atgTankIds || []).map(Number));
+  return tankMaps.filter((m) => ids.has(Number(m.tank_id)));
+}
+
+async function previewGapTank(db, gap, map, auth, window) {
+  const baseUrl = trimBaseUrl(map.source_base_url);
+  const entry = {
+    gapKey: gap.gapKey,
+    tankCode: map.code,
+    windowStart: window.startIso,
+    windowEnd: window.endIso,
+    archivePoints: 0,
+    newPoints: 0,
+    error: null,
+  };
+  try {
+    const data = await fetchArchiveTankData(
+      baseUrl,
+      auth,
+      Number(map.external_tank_id),
+      ARCHIVE_PREVIEW_PARAM_ID,
+      window.startUnix,
+      window.endUnix
+    );
+    const archiveTimes = archivePointsFromResponse(data).map((p) => p.sampledAt);
+    const stored = await loadStoredSampleTimes(db, Number(map.tank_id), baseUrl, window.startIso, window.endIso);
+    entry.archivePoints = archiveTimes.length;
+    entry.newPoints = countNewArchivePoints(archiveTimes, stored);
+  } catch (e) {
+    entry.error = e?.message || String(e);
+  }
+  return entry;
+}
+
+async function fetchGapTankRows(gap, map, auth, window, archiveErrors) {
+  const baseUrl = trimBaseUrl(map.source_base_url);
+  const rows = [];
+  for (const paramId of ARCHIVE_PARAM_IDS) {
+    try {
+      const data = await fetchArchiveTankData(
+        baseUrl,
+        auth,
+        Number(map.external_tank_id),
+        paramId,
+        window.startUnix,
+        window.endUnix
+      );
+      for (const pt of archivePointsFromResponse(data)) {
+        rows.push({ ...pt, sourceBaseUrl: baseUrl, externalTankId: Number(map.external_tank_id), paramId });
+      }
+    } catch (e) {
+      archiveErrors.push({ gapKey: gap.gapKey, tankCode: map.code, message: e?.message || String(e) });
+    }
+  }
+  return rows;
+}
+
+async function reaggregate(db, operationId) {
+  let dailyUpserted = 0;
+  let hourlyUpserted = 0;
+  try {
+    const daily = await aggregateAtgDailyProgressForOperation(db, operationId, { includeToday: true });
+    dailyUpserted = daily.upserted || 0;
+  } catch (e) {
+    console.error('ATG resync daily aggregation failed:', e?.message || e);
+  }
+  try {
+    const hourly = await aggregateHourlyProgressForOperation(db, operationId, { onlyClosedHours: false });
+    hourlyUpserted = hourly.upserted || 0;
+  } catch (e) {
+    console.error('ATG resync hourly aggregation failed:', e?.message || e);
+  }
+  return { dailyUpserted, hourlyUpserted };
+}
+
 /**
+ * Dry run queries the archive (one parameter) to report how many new points each gap would get.
  * @param {import('pg').Pool} db
  * @param {number} operationId
- * @param {object} [opts]
- * @param {boolean} [opts.dryRun]
- * @param {string[]} [opts.gapKeys]
+ * @param {{ dryRun?: boolean, gapKeys?: string[], scanOpts?: object }} [opts]
  */
 export async function runAtgOperationRecovery(db, operationId, opts = {}) {
   const started = Date.now();
@@ -235,148 +225,83 @@ export async function runAtgOperationRecovery(db, operationId, opts = {}) {
 
   const scanBefore = await scanOperationGapsForRecovery(db, operationId, opts.scanOpts || {});
   const op = scanBefore.operations[0];
+  const base = {
+    ok: true,
+    operationId,
+    operationLabel: op?.operationLabel ?? null,
+    portId: op?.portId ?? null,
+    dryRun,
+    samplesInserted: 0,
+    hourlyUpserted: 0,
+    dailyUpserted: 0,
+    archiveErrors: [],
+    preview: [],
+  };
   if (!op) {
-    return {
-      ok: true,
-      operationId,
-      operationLabel: null,
-      dryRun,
-      gapsBefore: [],
-      gapsAfter: [],
-      samplesInserted: 0,
-      hourlyUpserted: 0,
-      dailyUpserted: 0,
-      archiveErrors: [],
-      durationMs: Date.now() - started,
-      outcome: dryRun ? 'dry_run' : 'success',
-      preview: [],
-    };
+    return { ...base, gapsBefore: [], gapsAfter: [], targetGapKeys: [], durationMs: Date.now() - started, outcome: dryRun ? 'dry_run' : 'success' };
   }
 
   const gapsBefore = [...(op.gaps || [])];
   let targetGaps = filterGapsByKeys(gapsBefore, opts.gapKeys);
-  if (!targetGaps.length && gapsBefore.length) targetGaps = gapsBefore;
+  if (!targetGaps.length) targetGaps = gapsBefore;
+  const targetGapKeys = targetGaps.map((g) => g.gapKey);
 
-  const uniqueTankIds = collectTankIdsForGaps(op, targetGaps);
-  const tankMaps = await loadTankMaps(db, op.portId, uniqueTankIds);
+  const tankMaps = await loadTankMaps(db, op.portId, collectTankIdsForGaps(op, targetGaps));
   const sources = await resolveEnabledSources(db, { portId: op.portId });
   const authByUrl = new Map(sources.map((s) => [trimBaseUrl(s.baseUrl), s.auth]));
-
-  const preview = [];
-  const archiveErrors = [];
-  const paramRows = [];
-
-  for (const gap of targetGaps) {
-    const { startUnix, endUnix, startIso, endIso } = padGapWindow(gap.startAt, gap.endAt);
-    for (const map of tankMaps) {
-      preview.push({
-        gapKey: gap.gapKey,
-        tankCode: map.code,
-        sourceBaseUrl: map.source_base_url,
-        windowStart: startIso,
-        windowEnd: endIso,
-      });
-      if (dryRun) continue;
-
-      const baseUrl = trimBaseUrl(map.source_base_url);
-      const auth = authByUrl.get(baseUrl) || { type: 'none' };
-      for (const paramId of ARCHIVE_PARAM_IDS) {
-        try {
-          const data = await fetchArchiveTankData(
-            baseUrl,
-            auth,
-            Number(map.external_tank_id),
-            paramId,
-            startUnix,
-            endUnix
-          );
-          const list = data?.parameterlist || [];
-          for (const pt of list) {
-            const ts = Number(pt.timestamp || pt.localtimestamp || 0);
-            if (ts <= 0) continue;
-            paramRows.push({
-              sourceBaseUrl: baseUrl,
-              externalTankId: Number(map.external_tank_id),
-              paramId,
-              sampledAt: new Date(ts * 1000).toISOString(),
-              value: pt.value ?? pt.valueString ?? null,
-              status: pt.statusString ?? '',
-            });
-          }
-        } catch (e) {
-          archiveErrors.push({
-            sourceBaseUrl: baseUrl,
-            tankCode: map.code,
-            message: e?.message || String(e),
-          });
-        }
-      }
-    }
-  }
+  const authFor = (map) => authByUrl.get(trimBaseUrl(map.source_base_url)) || { type: 'none' };
 
   if (dryRun) {
+    const preview = [];
+    for (const gap of targetGaps) {
+      const window = padGapWindow(gap.startAt, gap.endAt);
+      for (const map of tankMapsForGap(op, gap, tankMaps)) {
+        preview.push(await previewGapTank(db, gap, map, authFor(map), window));
+      }
+    }
     return {
-      ok: true,
-      operationId,
-      operationLabel: op.operationLabel,
-      portId: op.portId,
-      dryRun: true,
+      ...base,
       gapsBefore,
       gapsAfter: gapsBefore,
-      samplesInserted: 0,
-      hourlyUpserted: 0,
-      dailyUpserted: 0,
-      archiveErrors: [],
+      targetGapKeys,
       preview,
       durationMs: Date.now() - started,
       outcome: 'dry_run',
     };
   }
 
-  const merged = mergeArchiveParamRows(paramRows);
+  const archiveErrors = [];
+  const paramRows = [];
+  for (const gap of targetGaps) {
+    const window = padGapWindow(gap.startAt, gap.endAt);
+    for (const map of tankMapsForGap(op, gap, tankMaps)) {
+      paramRows.push(...(await fetchGapTankRows(gap, map, authFor(map), window, archiveErrors)));
+    }
+  }
+
   const tankIdByExternal = new Map(
     tankMaps.map((m) => [`${trimBaseUrl(m.source_base_url)}|${m.external_tank_id}`, Number(m.tank_id)])
   );
-
   let samplesInserted = 0;
-  for (const sample of merged) {
+  for (const sample of mergeArchiveParamRows(paramRows)) {
     const tankId = tankIdByExternal.get(`${trimBaseUrl(sample.sourceBaseUrl)}|${sample.externalTankId}`);
-    if (!tankId) continue;
-    samplesInserted += await insertSampleIfMissing(db, sample, tankId);
+    if (tankId) samplesInserted += await insertSampleIfMissing(db, sample, tankId);
   }
 
-  let dailyUpserted = 0;
-  let hourlyUpserted = 0;
-  try {
-    const daily = await aggregateAtgDailyProgressForOperation(db, operationId, { includeToday: true });
-    dailyUpserted = daily.upserted || 0;
-  } catch {
-    /* non-fatal */
-  }
-  try {
-    const hourly = await aggregateHourlyProgressForOperation(db, operationId, { onlyClosedHours: false });
-    hourlyUpserted = hourly.upserted || 0;
-  } catch {
-    /* non-fatal */
-  }
-
+  const { dailyUpserted, hourlyUpserted } = await reaggregate(db, operationId);
   const scanAfter = await scanOperationGapsForRecovery(db, operationId, opts.scanOpts || {});
-  const opAfter = scanAfter.operations[0];
-  const gapsAfter = opAfter ? [...(opAfter.gaps || [])] : [];
+  const gapsAfter = [...(scanAfter.operations[0]?.gaps || [])];
 
   const result = {
+    ...base,
     ok: archiveErrors.length === 0 || samplesInserted > 0,
-    operationId,
-    operationLabel: op.operationLabel,
-    portId: op.portId,
-    dryRun: false,
     gapsBefore,
     gapsAfter,
+    targetGapKeys,
     samplesInserted,
     hourlyUpserted,
     dailyUpserted,
     archiveErrors,
-    preview,
     durationMs: Date.now() - started,
   };
   result.outcome = deriveResyncOutcome(result);

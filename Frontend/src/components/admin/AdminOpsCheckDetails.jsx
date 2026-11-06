@@ -339,7 +339,7 @@ export function PartnerApiDetail({ details, t }) {
   )
 }
 
-export function StructuredCheckDetail({ check, t, canResyncAtg, onAtgResyncComplete }) {
+export function StructuredCheckDetail({ check, t, canResyncAtg, onAtgGapsChanged }) {
   const details = check.details ?? {}
   switch (check.id) {
     case 'atg_sync':
@@ -350,7 +350,7 @@ export function StructuredCheckDetail({ check, t, canResyncAtg, onAtgResyncCompl
           details={details}
           t={t}
           canResync={canResyncAtg}
-          onResyncComplete={onAtgResyncComplete}
+          onGapsChanged={onAtgGapsChanged}
         />
       )
     case 'purge_job':

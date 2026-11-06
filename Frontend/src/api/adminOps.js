@@ -17,7 +17,25 @@ export function updateAdminOpsSettings(body) {
   return apiPut('/admin-ops/settings', body)
 }
 
-/** @param {number|string} operationId @param {{ confirm?: boolean, dryRun?: boolean, gapKeys?: string[], acknowledgedAt?: string }} body */
-export function postAtgCargoGapResync(operationId, body) {
-  return apiPost(`/admin-ops/atg-cargo-gaps/${operationId}/resync`, body, RESYNC_TIMEOUT_MS)
+const gapsPath = (operationId) => `/admin-ops/atg-cargo-gaps/${operationId}`
+
+/** Queries the Tankvision archive for the selected gaps without writing anything. */
+export function previewAtgCargoGapResync(operationId, gapKeys) {
+  return apiPost(`${gapsPath(operationId)}/resync`, { dryRun: true, gapKeys }, RESYNC_TIMEOUT_MS)
+}
+
+export function runAtgCargoGapResync(operationId, gapKeys) {
+  return apiPost(`${gapsPath(operationId)}/resync`, { confirm: true, gapKeys }, RESYNC_TIMEOUT_MS)
+}
+
+export function acknowledgeAtgCargoGaps(operationId, gapKeys, reason) {
+  return apiPost(`${gapsPath(operationId)}/acknowledge`, { gapKeys, reason })
+}
+
+export function reopenAtgCargoGaps(operationId, gapKeys) {
+  return apiPost(`${gapsPath(operationId)}/reopen`, { gapKeys })
+}
+
+export function fetchAtgCargoGapHistory(operationId) {
+  return apiGet(`${gapsPath(operationId)}/history`)
 }
