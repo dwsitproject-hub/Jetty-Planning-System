@@ -90,6 +90,10 @@ export default function QcSamplingEntry({ operationId, onBack, onSaved, onFinalS
     if (pendingTyped) return fail(t('save.pendingSample'))
     const out = await entry.save(mode, options)
     if (out.conflict) return undefined
+    if (out.incomplete) {
+      const names = out.incomplete.filter(Boolean).join(', ')
+      return fail(names ? t('save.incompleteCommodities', { names }) : t('save.incomplete'))
+    }
     if (out.errors) {
       setSummaryErrors(out.errors)
       return fail(t('save.fixErrors'))

@@ -155,7 +155,9 @@
     "successDraft": "Draft saved.",
     "error": "Failed to save sampling.",
     "fixErrors": "Fix the highlighted fields before saving.",
-    "pendingSample": "Finish or clear the sample you are typing before saving."
+    "pendingSample": "Finish or clear the sample you are typing before saving.",
+    "incomplete": "Add at least one sample, report value or document before saving final.",
+    "incompleteCommodities": "No QC data for {{names}}. Add at least one sample, report value or document before saving final."
   },
   "decision": {
     "approve": "Approve",
