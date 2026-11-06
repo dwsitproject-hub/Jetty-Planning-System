@@ -214,73 +214,56 @@ async function reaggregate(db, operationId) {
 }
 
 /**
- * Dry run queries the archive (one parameter) to report how many new points each gap would get.
- * @param {import('pg').Pool} db
+ * Resolve the operation, its selected gaps and the Tankvision tanks/auth to query.
+ * @param {import('pg').Pool|import('pg').PoolClient} db
  * @param {number} operationId
- * @param {{ dryRun?: boolean, gapKeys?: string[], scanOpts?: object }} [opts]
+ * @param {{ gapKeys?: string[], scanOpts?: object }} [opts]
  */
-export async function runAtgOperationRecovery(db, operationId, opts = {}) {
-  const started = Date.now();
-  const dryRun = Boolean(opts.dryRun);
-
+export async function prepareRecovery(db, operationId, opts = {}) {
   const scanBefore = await scanOperationGapsForRecovery(db, operationId, opts.scanOpts || {});
   const op = scanBefore.operations[0];
-  const base = {
-    ok: true,
-    operationId,
-    operationLabel: op?.operationLabel ?? null,
-    portId: op?.portId ?? null,
-    dryRun,
-    samplesInserted: 0,
-    hourlyUpserted: 0,
-    dailyUpserted: 0,
-    archiveErrors: [],
-    preview: [],
-  };
-  if (!op) {
-    return { ...base, gapsBefore: [], gapsAfter: [], targetGapKeys: [], durationMs: Date.now() - started, outcome: dryRun ? 'dry_run' : 'success' };
-  }
+  if (!op) return null;
 
   const gapsBefore = [...(op.gaps || [])];
   let targetGaps = filterGapsByKeys(gapsBefore, opts.gapKeys);
   if (!targetGaps.length) targetGaps = gapsBefore;
-  const targetGapKeys = targetGaps.map((g) => g.gapKey);
 
   const tankMaps = await loadTankMaps(db, op.portId, collectTankIdsForGaps(op, targetGaps));
   const sources = await resolveEnabledSources(db, { portId: op.portId });
   const authByUrl = new Map(sources.map((s) => [trimBaseUrl(s.baseUrl), s.auth]));
-  const authFor = (map) => authByUrl.get(trimBaseUrl(map.source_base_url)) || { type: 'none' };
 
-  if (dryRun) {
-    const preview = [];
-    for (const gap of targetGaps) {
-      const window = padGapWindow(gap.startAt, gap.endAt);
-      for (const map of tankMapsForGap(op, gap, tankMaps)) {
-        preview.push(await previewGapTank(db, gap, map, authFor(map), window));
-      }
-    }
-    return {
-      ...base,
-      gapsBefore,
-      gapsAfter: gapsBefore,
-      targetGapKeys,
-      preview,
-      durationMs: Date.now() - started,
-      outcome: 'dry_run',
-    };
-  }
+  return {
+    operationId,
+    op,
+    gapsBefore,
+    targetGaps,
+    targetGapKeys: targetGaps.map((g) => g.gapKey),
+    tankMaps,
+    authFor: (map) => authByUrl.get(trimBaseUrl(map.source_base_url)) || { type: 'none' },
+    scanOpts: opts.scanOpts || {},
+  };
+}
 
+/** Download archive points for the selected gaps. Reads Tankvision only; writes nothing. */
+export async function fetchRecoveryRows(prep) {
   const archiveErrors = [];
   const paramRows = [];
-  for (const gap of targetGaps) {
+  for (const gap of prep.targetGaps) {
     const window = padGapWindow(gap.startAt, gap.endAt);
-    for (const map of tankMapsForGap(op, gap, tankMaps)) {
-      paramRows.push(...(await fetchGapTankRows(gap, map, authFor(map), window, archiveErrors)));
+    for (const map of tankMapsForGap(prep.op, gap, prep.tankMaps)) {
+      paramRows.push(...(await fetchGapTankRows(gap, map, prep.authFor(map), window, archiveErrors)));
     }
   }
+  return { paramRows, archiveErrors };
+}
 
+/**
+ * Insert missing samples, recompute hourly/daily progress and re-scan gaps.
+ * Pass a transaction client to make the whole thing undoable.
+ */
+export async function applyRecoveryRows(db, prep, paramRows) {
   const tankIdByExternal = new Map(
-    tankMaps.map((m) => [`${trimBaseUrl(m.source_base_url)}|${m.external_tank_id}`, Number(m.tank_id)])
+    prep.tankMaps.map((m) => [`${trimBaseUrl(m.source_base_url)}|${m.external_tank_id}`, Number(m.tank_id)])
   );
   let samplesInserted = 0;
   for (const sample of mergeArchiveParamRows(paramRows)) {
@@ -288,19 +271,74 @@ export async function runAtgOperationRecovery(db, operationId, opts = {}) {
     if (tankId) samplesInserted += await insertSampleIfMissing(db, sample, tankId);
   }
 
-  const { dailyUpserted, hourlyUpserted } = await reaggregate(db, operationId);
-  const scanAfter = await scanOperationGapsForRecovery(db, operationId, opts.scanOpts || {});
-  const gapsAfter = [...(scanAfter.operations[0]?.gaps || [])];
+  const { dailyUpserted, hourlyUpserted } = await reaggregate(db, prep.operationId);
+  const scanAfter = await scanOperationGapsForRecovery(db, prep.operationId, prep.scanOpts);
+  return {
+    samplesInserted,
+    dailyUpserted,
+    hourlyUpserted,
+    opAfter: scanAfter.operations[0] ?? null,
+    gapsAfter: [...(scanAfter.operations[0]?.gaps || [])],
+  };
+}
+
+/**
+ * Dry run queries the archive (one parameter) to report how many new points each gap would get.
+ * @param {import('pg').Pool|import('pg').PoolClient} db
+ * @param {number} operationId
+ * @param {{ dryRun?: boolean, gapKeys?: string[], scanOpts?: object }} [opts]
+ */
+export async function runAtgOperationRecovery(db, operationId, opts = {}) {
+  const started = Date.now();
+  const dryRun = Boolean(opts.dryRun);
+  const prep = await prepareRecovery(db, operationId, opts);
+  const base = {
+    ok: true,
+    operationId,
+    operationLabel: prep?.op.operationLabel ?? null,
+    portId: prep?.op.portId ?? null,
+    dryRun,
+    samplesInserted: 0,
+    hourlyUpserted: 0,
+    dailyUpserted: 0,
+    archiveErrors: [],
+    preview: [],
+  };
+  if (!prep) {
+    return { ...base, gapsBefore: [], gapsAfter: [], targetGapKeys: [], durationMs: Date.now() - started, outcome: dryRun ? 'dry_run' : 'success' };
+  }
+
+  if (dryRun) {
+    const preview = [];
+    for (const gap of prep.targetGaps) {
+      const window = padGapWindow(gap.startAt, gap.endAt);
+      for (const map of tankMapsForGap(prep.op, gap, prep.tankMaps)) {
+        preview.push(await previewGapTank(db, gap, map, prep.authFor(map), window));
+      }
+    }
+    return {
+      ...base,
+      gapsBefore: prep.gapsBefore,
+      gapsAfter: prep.gapsBefore,
+      targetGapKeys: prep.targetGapKeys,
+      preview,
+      durationMs: Date.now() - started,
+      outcome: 'dry_run',
+    };
+  }
+
+  const { paramRows, archiveErrors } = await fetchRecoveryRows(prep);
+  const applied = await applyRecoveryRows(db, prep, paramRows);
 
   const result = {
     ...base,
-    ok: archiveErrors.length === 0 || samplesInserted > 0,
-    gapsBefore,
-    gapsAfter,
-    targetGapKeys,
-    samplesInserted,
-    hourlyUpserted,
-    dailyUpserted,
+    ok: archiveErrors.length === 0 || applied.samplesInserted > 0,
+    gapsBefore: prep.gapsBefore,
+    gapsAfter: applied.gapsAfter,
+    targetGapKeys: prep.targetGapKeys,
+    samplesInserted: applied.samplesInserted,
+    hourlyUpserted: applied.hourlyUpserted,
+    dailyUpserted: applied.dailyUpserted,
     archiveErrors,
     durationMs: Date.now() - started,
   };

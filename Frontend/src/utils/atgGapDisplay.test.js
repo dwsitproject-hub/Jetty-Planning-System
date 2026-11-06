@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   formatGapDuration,
+  formatQty,
+  formatQtyDelta,
+  isSimulationStale,
+  visibleHourlyRows,
   remainingTargetGapKeys,
   resyncOutcomeVariant,
   summarizePreviewByGap,
@@ -39,5 +43,28 @@ describe('atgGapDisplay', () => {
       gapsAfter: [{ gapKey: 'b' }, { gapKey: 'c' }],
     })
     assert.deepEqual(keys, ['b'])
+  })
+
+  it('formats quantity and signed change', () => {
+    assert.equal(formatQty(1234.56), (1234.6).toLocaleString(undefined, { minimumFractionDigits: 1 }))
+    assert.equal(formatQtyDelta(0.01), formatQty(0))
+    assert.ok(formatQtyDelta(157.46).startsWith('+'))
+    assert.match(formatQtyDelta(-12), /^−/)
+  })
+
+  it('shows only changed hours unless asked', () => {
+    const hourly = [
+      { commodity: 'CPO', changed: true },
+      { commodity: 'CPO', changed: false },
+      { commodity: 'RBDPO', changed: true },
+    ]
+    assert.equal(visibleHourlyRows(hourly, 'CPO', false).length, 1)
+    assert.equal(visibleHourlyRows(hourly, 'CPO', true).length, 2)
+  })
+
+  it('flags a simulation older than 10 minutes as stale', () => {
+    const now = Date.parse('2026-01-01T12:00:00Z')
+    assert.equal(isSimulationStale('2026-01-01T11:55:00Z', now), false)
+    assert.equal(isSimulationStale('2026-01-01T11:45:00Z', now), true)
   })
 })

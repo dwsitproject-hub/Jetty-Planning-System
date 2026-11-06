@@ -12,6 +12,11 @@ import {
 } from '../lib/atg-operation-recovery.js';
 import { scanOperationGapsForRecovery } from '../lib/atg-cargo-gap-scan.js';
 import {
+  buildSimulationAuditSummary,
+  simulateAtgOperationRecovery,
+  withOperationLock,
+} from '../lib/atg-recovery-simulate.js';
+import {
   ACK_ENTITY_TYPE,
   RESYNC_ENTITY_TYPE,
   acknowledgeGaps,
@@ -100,10 +105,15 @@ router.post('/:operationId/resync', ...requirePageEdit('admin'), async (req, res
   if (!opExists.rows.length) return res.status(404).json({ error: 'Operation not found' });
 
   try {
-    const result = await runAtgOperationRecovery(pool, operationId, { dryRun, gapKeys });
+    const result = dryRun
+      ? await runAtgOperationRecovery(pool, operationId, { dryRun, gapKeys })
+      : await withOperationLock(pool, operationId, (client) =>
+          runAtgOperationRecovery(client, operationId, { dryRun, gapKeys })
+        );
     if (!dryRun) logResync(req, result, { confirm: true, gapKeys });
     res.json(result);
   } catch (err) {
+    if (err.statusCode === 409) return res.status(409).json({ error: err.message });
     console.error('admin-ops/atg-cargo-gaps resync failed:', err);
     const failed = {
       ok: false,
@@ -120,6 +130,51 @@ router.post('/:operationId/resync', ...requirePageEdit('admin'), async (req, res
     };
     logResync(req, failed, { confirm: body.confirm === true, gapKeys, error: err?.message || String(err) });
     res.status(err.statusCode === 422 ? 422 : 500).json({ error: err?.message || 'Resync failed', ...failed });
+  }
+});
+
+function logSimulation(req, result, gapKeys) {
+  writeActivityLog({
+    pageKey: ACTIVITY_PAGE_KEY,
+    action: 'update',
+    entityType: RESYNC_ENTITY_TYPE,
+    entityId: String(result.operationId),
+    entityLabel: result.operationLabel || `Operation #${result.operationId}`,
+    summary: buildSimulationAuditSummary(result),
+    meta: {
+      kind: 'atg_cargo_simulation',
+      operationId: result.operationId,
+      dryRun: true,
+      simulated: true,
+      gapKeys: result.targetGapKeys ?? gapKeys,
+      closedGapKeys: result.closedGapKeys ?? [],
+      samplesWouldInsert: result.samplesWouldInsert ?? 0,
+      quantityDelta: result.quantity?.total?.qtyDelta ?? 0,
+      statusBefore: result.status?.before ?? null,
+      statusAfter: result.status?.after ?? null,
+      durationMs: result.durationMs ?? null,
+      outcome: 'simulation',
+    },
+    actorUserId: req.userId ?? null,
+  }).catch((e) => console.error('ATG simulation activity log failed:', e?.message || e));
+}
+
+router.post('/:operationId/simulate', ...requirePageEdit('admin'), async (req, res) => {
+  const operationId = parseOperationId(req, res);
+  if (operationId == null) return;
+  const gapKeys = parseGapKeys(req.body);
+
+  const opExists = await pool.query(`SELECT id FROM operations WHERE id = $1 AND deleted_at IS NULL`, [operationId]);
+  if (!opExists.rows.length) return res.status(404).json({ error: 'Operation not found' });
+
+  try {
+    const result = await simulateAtgOperationRecovery(pool, operationId, { gapKeys });
+    logSimulation(req, result, gapKeys);
+    res.json(result);
+  } catch (err) {
+    if (err.statusCode === 409) return res.status(409).json({ error: err.message });
+    console.error('admin-ops/atg-cargo-gaps simulate failed:', err);
+    res.status(err.statusCode === 422 ? 422 : 500).json({ error: err?.message || 'Simulation failed' });
   }
 });
 

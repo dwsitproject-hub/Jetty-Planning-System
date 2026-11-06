@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { previewAtgCargoGapResync, runAtgCargoGapResync } from '../../api/adminOps'
+import { previewAtgCargoGapResync, runAtgCargoGapResync, simulateAtgCargoGapResync } from '../../api/adminOps'
 import { formatWhen } from '../../utils/adminOpsDisplay'
 import {
   formatGapDuration,
@@ -8,6 +8,7 @@ import {
   summarizePreviewByGap,
 } from '../../utils/atgGapDisplay'
 import AtgGapResyncResult from './AtgGapResyncResult.jsx'
+import AtgGapSimulationResult from './AtgGapSimulationResult.jsx'
 import '../../styles/modal.css'
 
 function PreviewTable({ gaps, previewByGap, t }) {
@@ -55,6 +56,9 @@ export default function AtgGapResyncDialog({ operation, gaps, onClose, onAcknowl
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
   const [confirmed, setConfirmed] = useState(false)
+  const [sim, setSim] = useState(null)
+  const [simulating, setSimulating] = useState(false)
+  const [simError, setSimError] = useState(null)
   const gapKeys = useMemo(() => gaps.map((g) => g.gapKey), [gaps])
 
   useEffect(() => {
@@ -80,7 +84,21 @@ export default function AtgGapResyncDialog({ operation, gaps, onClose, onAcknowl
     () => [...previewByGap.values()].reduce((n, r) => n + r.newPoints, 0),
     [previewByGap]
   )
-  const busy = step === 'previewing' || step === 'running'
+  const busy = step === 'previewing' || step === 'running' || simulating
+
+  const errorText = (e, fallbackKey) => (e?.message === 'another_resync_running' ? t('atgGapBusy') : e?.message || t(fallbackKey))
+
+  async function simulate() {
+    setSimError(null)
+    setSimulating(true)
+    try {
+      setSim(await simulateAtgCargoGapResync(operation.operationId, gapKeys))
+    } catch (e) {
+      setSimError(errorText(e, 'atgGapSimFailed'))
+    } finally {
+      setSimulating(false)
+    }
+  }
 
   async function run() {
     setError(null)
@@ -88,7 +106,7 @@ export default function AtgGapResyncDialog({ operation, gaps, onClose, onAcknowl
     try {
       setResult(await runAtgCargoGapResync(operation.operationId, gapKeys))
     } catch (e) {
-      setResult({ outcome: 'failed', error: e?.message || t('atgGapResyncFailed'), targetGapKeys: gapKeys })
+      setResult({ outcome: 'failed', error: errorText(e, 'atgGapResyncFailed'), targetGapKeys: gapKeys })
     }
     setStep('result')
   }
@@ -123,6 +141,7 @@ export default function AtgGapResyncDialog({ operation, gaps, onClose, onAcknowl
             <ol className="atg-gap-dialog__steps">
               <li className="is-done">{t('atgGapStepSelect', { count: gaps.length })}</li>
               <li className={step === 'previewing' ? 'is-active' : 'is-done'}>{t('atgGapStepPreview')}</li>
+              <li className={simulating ? 'is-active' : sim ? 'is-done' : ''}>{t('atgGapStepSimulate')}</li>
               <li className={step === 'confirm' || step === 'running' ? 'is-active' : ''}>{t('atgGapStepConfirm')}</li>
             </ol>
             {step === 'previewing' ? (
@@ -137,6 +156,18 @@ export default function AtgGapResyncDialog({ operation, gaps, onClose, onAcknowl
                 ) : null}
               </>
             )}
+            {step === 'confirm' ? (
+              <div className="atg-gap-sim__actions">
+                <button type="button" className="btn btn--secondary" disabled={busy} onClick={simulate}>
+                  {simulating ? t('atgGapSimulatingShort') : sim ? t('atgGapSimulateAgain') : t('atgGapSimulate')}
+                </button>
+                <span className="text-steel atg-gap-dialog__sub">
+                  {simulating ? t('atgGapSimulating') : t('atgGapSimulateHint')}
+                </span>
+              </div>
+            ) : null}
+            {simError ? <p className="admin-ops-error">{simError}</p> : null}
+            {sim ? <AtgGapSimulationResult sim={sim} t={t} /> : null}
             <ul className="atg-gap-dialog__notes text-steel">
               <li>{t('atgGapNoteNoOverwrite')}</li>
               <li>{t('atgGapNoteQty')}</li>

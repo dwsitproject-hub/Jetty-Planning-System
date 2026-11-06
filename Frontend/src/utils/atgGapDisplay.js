@@ -52,3 +52,40 @@ export function remainingTargetGapKeys(result) {
 export function isGapOpen(gap) {
   return !gap?.acknowledgement
 }
+
+/** Quantity with one decimal, e.g. 1,234.5 */
+export function formatQty(value) {
+  const n = Number(value) || 0
+  return n.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+}
+
+/** Signed quantity change, e.g. +157.5 / −12.0 / 0.0 */
+export function formatQtyDelta(value) {
+  const n = Number(value) || 0
+  if (Math.abs(n) < 0.05) return formatQty(0)
+  return `${n > 0 ? '+' : '−'}${formatQty(Math.abs(n))}`
+}
+
+/** "Nov 5, 03:00 – 04:00" in the viewer's local time. */
+export function formatHourRange(startIso, endIso) {
+  const day = { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }
+  const time = { hour: '2-digit', minute: '2-digit' }
+  return `${new Date(startIso).toLocaleString([], day)} – ${new Date(endIso).toLocaleTimeString([], time)}`
+}
+
+/** Hours of a commodity, changed ones first; unchanged hours only when asked for. */
+export function visibleHourlyRows(hourly, commodity, showUnchanged) {
+  return (hourly ?? []).filter((h) => h.commodity === commodity && (showUnchanged || h.changed))
+}
+
+const SIMULATION_STALE_MS = 10 * 60 * 1000
+
+export function simulationAgeMinutes(simulatedAt, nowMs = Date.now()) {
+  const t = new Date(simulatedAt).getTime()
+  return Number.isFinite(t) ? Math.max(0, Math.floor((nowMs - t) / 60000)) : 0
+}
+
+export function isSimulationStale(simulatedAt, nowMs = Date.now()) {
+  const t = new Date(simulatedAt).getTime()
+  return Number.isFinite(t) && nowMs - t > SIMULATION_STALE_MS
+}
