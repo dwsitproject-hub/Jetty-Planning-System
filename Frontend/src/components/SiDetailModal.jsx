@@ -10,10 +10,8 @@ import {
 } from '../utils/loadingHubProcessStagesFromApi'
 import { getScheduleEntryTimeZone } from '../utils/scheduleDateTime.js'
 import { isInternalSiReference } from '../utils/internalSiReference.js'
-import { partnerDocumentLinks } from '../utils/partnerDocumentLinks'
-import { usePartnerDocsTitle } from '../hooks/usePartnerDocsTitle'
 import OperationActivityTimeline from './OperationActivityTimeline'
-import PartnerDocumentLinks from './PartnerDocumentLinks'
+import SiPartnerDocsSection from './SiPartnerDocsSection'
 import '../styles/modal.css'
 import '../styles/si-detail-modal.css'
 
@@ -222,9 +220,6 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
     return t('operationSummaryComplete', { done, total })
   }
 
-  const partnerLinks = useMemo(() => partnerDocumentLinks(detail), [detail])
-  const partnerDocsTitle = usePartnerDocsTitle(detail?.partnerName)
-
   const hubBasePath = useMemo(() => {
     const p = normalizeHubPurpose(row?.purposeRaw ?? apiOpSnapshot?.purpose ?? '')
     return p === 'Unloading' ? '/unloading' : '/loading'
@@ -253,12 +248,7 @@ export default function SiDetailModal({ isOpen, siId, onClose }) {
           <p style={{ color: '#c00' }}>{error}</p>
         ) : detail ? (
           <div className="si-detail-modal__content">
-            {partnerLinks.length > 0 ? (
-              <section className="partner-docs partner-docs--card" aria-label={partnerDocsTitle}>
-                <h4 className="partner-docs__title">{partnerDocsTitle}</h4>
-                <PartnerDocumentLinks links={partnerLinks} />
-              </section>
-            ) : null}
+            <SiPartnerDocsSection si={detail} />
             <dl className="si-detail-modal__grid">
               <dt>{t('dtSiNo')}</dt>
               <dd>
