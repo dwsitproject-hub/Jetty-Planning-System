@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import SortableFilterableTableHead from '../SortableFilterableTableHead.jsx'
 import { useSortableFilterableRows } from '../../hooks/useSortableFilterableRows.js'
 import { formatCount, formatRelativeTime, formatWhen, shortBatchId } from '../../utils/adminOpsDisplay'
+import { AtgCargoGapsDetail } from './AdminOpsAtgCargoGaps.jsx'
 
 function isoSortValue(iso) {
   const n = iso ? new Date(iso).getTime() : 0
@@ -338,11 +339,20 @@ export function PartnerApiDetail({ details, t }) {
   )
 }
 
-export function StructuredCheckDetail({ check, t }) {
+export function StructuredCheckDetail({ check, t, canResyncAtg, onAtgResyncComplete }) {
   const details = check.details ?? {}
   switch (check.id) {
     case 'atg_sync':
       return <AtgSyncDetail details={details} t={t} />
+    case 'atg_cargo_gaps':
+      return (
+        <AtgCargoGapsDetail
+          details={details}
+          t={t}
+          canResync={canResyncAtg}
+          onResyncComplete={onAtgResyncComplete}
+        />
+      )
     case 'purge_job':
       return (
         <PurgeBatchTable

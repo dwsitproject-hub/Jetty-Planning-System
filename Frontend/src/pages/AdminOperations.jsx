@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { fetchAdminOpsStatus, updateAdminOpsSettings } from '../api/adminOps'
+import { useRbac } from '../context/RbacContext.jsx'
 import {
   StructuredCheckDetail,
   TechnicalJsonDetails,
@@ -59,11 +60,13 @@ function StatusHero({ data, statusLabel, t }) {
   )
 }
 
-function CheckCard({ check, statusLabel, t }) {
+function CheckCard({ check, statusLabel, t, canResyncAtg, onAtgResyncComplete }) {
   const [techOpen, setTechOpen] = useState(false)
   const guidanceKey = `adminOpsGuidance_${check.id}`
   const guidance =
-    check.status === 'unknown' || check.status === 'unhealthy'
+    check.status === 'unknown' ||
+    check.status === 'unhealthy' ||
+    (check.id === 'atg_cargo_gaps' && check.status === 'degraded')
       ? t(guidanceKey, { defaultValue: '' })
       : ''
 
@@ -80,7 +83,12 @@ function CheckCard({ check, statusLabel, t }) {
 
       {check.details ? (
         <div className="admin-ops-card__structured">
-          <StructuredCheckDetail check={check} t={t} />
+          <StructuredCheckDetail
+            check={check}
+            t={t}
+            canResyncAtg={canResyncAtg}
+            onAtgResyncComplete={onAtgResyncComplete}
+          />
         </div>
       ) : null}
 
@@ -102,14 +110,21 @@ function CheckCard({ check, statusLabel, t }) {
   )
 }
 
-function CheckSection({ title, checks, statusLabel, t }) {
+function CheckSection({ title, checks, statusLabel, t, canResyncAtg, onAtgResyncComplete }) {
   if (!checks.length) return null
   return (
     <section className="admin-ops-section">
       <h2 className="admin-ops-section__title">{title}</h2>
       <div className="admin-ops-grid">
         {checks.map((check) => (
-          <CheckCard key={check.id} check={check} statusLabel={statusLabel} t={t} />
+          <CheckCard
+            key={check.id}
+            check={check}
+            statusLabel={statusLabel}
+            t={t}
+            canResyncAtg={canResyncAtg}
+            onAtgResyncComplete={onAtgResyncComplete}
+          />
         ))}
       </div>
     </section>
@@ -170,11 +185,14 @@ function EmailAlertsPanel({ data, loading, settingsSaving, settingsError, onTogg
 
 export default function AdminOperations() {
   const { t } = useTranslation('pages')
+  const { canEdit } = useRbac()
+  const canResyncAtg = canEdit('admin')
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settingsError, setSettingsError] = useState(null)
+  const [toast, setToast] = useState(null)
 
   const load = useCallback(async () => {
     setError(null)
@@ -198,6 +216,36 @@ export default function AdminOperations() {
   useEffect(() => {
     load()
   }, [load])
+
+  useEffect(() => {
+    if (!toast) return
+    const id = setTimeout(() => setToast(null), 8000)
+    return () => clearTimeout(id)
+  }, [toast])
+
+  const handleAtgResyncComplete = useCallback(
+    (result) => {
+      const label = result?.operationLabel || t('adminOpsAtgResyncDefaultVessel')
+      const inserted = result?.samplesInserted ?? 0
+      const hourly = result?.hourlyUpserted ?? 0
+      const after = (result?.gapsAfter || []).length
+      const before = (result?.gapsBefore || []).length
+      const errors = (result?.archiveErrors || []).length
+
+      let variant = 'success'
+      let message = t('adminOpsAtgResyncToastSuccess', { label, inserted, hourly, before, after })
+      if (errors > 0 || (after > 0 && before > 0)) {
+        variant = 'warning'
+        message = t('adminOpsAtgResyncToastPartial', { label, inserted, errors, after })
+      } else if (inserted === 0 && before > 0) {
+        variant = 'warning'
+        message = t('adminOpsAtgResyncToastNoSamples', { label })
+      }
+      setToast({ variant, message })
+      load()
+    },
+    [load, t]
+  )
 
   const statusLabel = useCallback(
     (status) => t(`adminOpsStatus_${status}`, status),
@@ -259,6 +307,19 @@ export default function AdminOperations() {
         </button>
       </div>
 
+      {toast ? (
+        <div
+          className={`si-toast si-toast--${toast.variant === 'warning' ? 'warning' : toast.variant === 'error' ? 'error' : 'success'}`}
+          role="status"
+          style={{ marginBottom: 12 }}
+        >
+          <p className="si-toast__message">{toast.message}</p>
+          <p className="text-steel" style={{ fontSize: '0.85rem', margin: '4px 0 0' }}>
+            {t('adminOpsAtgResyncActivityLogHint')}
+          </p>
+        </div>
+      ) : null}
+
       {error ? <p className="admin-ops-error">{error}</p> : null}
       {loading && !data ? <p className="text-steel">{t('adminOpsLoading')}</p> : null}
 
@@ -271,6 +332,8 @@ export default function AdminOperations() {
             checks={attentionChecks}
             statusLabel={statusLabel}
             t={t}
+            canResyncAtg={canResyncAtg}
+            onAtgResyncComplete={handleAtgResyncComplete}
           />
 
           <CheckSection
@@ -278,6 +341,8 @@ export default function AdminOperations() {
             checks={okChecks}
             statusLabel={statusLabel}
             t={t}
+            canResyncAtg={canResyncAtg}
+            onAtgResyncComplete={handleAtgResyncComplete}
           />
 
           <EmailAlertsPanel
