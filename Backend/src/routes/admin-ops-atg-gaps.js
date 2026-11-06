@@ -23,6 +23,7 @@ import {
   loadGapHistory,
   reopenGaps,
 } from '../lib/atg-cargo-gap-store.js';
+import { getJob, startJob } from '../lib/atg-gap-jobs.js';
 import { writeActivityLog } from '../lib/activity-log.js';
 
 const router = express.Router();
@@ -42,7 +43,7 @@ function parseGapKeys(body) {
   return Array.isArray(body?.gapKeys) ? body.gapKeys.map(String).filter(Boolean) : [];
 }
 
-function logResync(req, result, extra = {}) {
+function logResync(userId, result, extra = {}) {
   writeActivityLog({
     pageKey: ACTIVITY_PAGE_KEY,
     action: 'update',
@@ -70,11 +71,11 @@ function logResync(req, result, extra = {}) {
       outcome: result.outcome || deriveResyncOutcome(result),
       error: extra.error ?? null,
     },
-    actorUserId: req.userId ?? null,
+    actorUserId: userId ?? null,
   }).catch((e) => console.error('ATG resync activity log failed:', e?.message || e));
 }
 
-function logAck(req, { operationId, operationLabel, kind, gapKeys, reason }) {
+function logAck(userId, { operationId, operationLabel, kind, gapKeys, reason }) {
   const verb = kind === 'atg_cargo_gap_ack' ? 'acknowledged as unrecoverable' : 'reopened';
   writeActivityLog({
     pageKey: ACTIVITY_PAGE_KEY,
@@ -84,7 +85,7 @@ function logAck(req, { operationId, operationLabel, kind, gapKeys, reason }) {
     entityLabel: operationLabel || `Operation #${operationId}`,
     summary: `ATG cargo gaps: ${gapKeys.length} gap(s) ${verb} on ${operationLabel || `Operation #${operationId}`}${reason ? ` — ${reason}` : ''}.`,
     meta: { kind, operationId, gapKeys, reason: reason ?? null },
-    actorUserId: req.userId ?? null,
+    actorUserId: userId ?? null,
   }).catch((e) => console.error('ATG gap ack activity log failed:', e?.message || e));
 }
 
@@ -93,50 +94,76 @@ async function loadOperationGaps(operationId) {
   return scan.operations[0] ?? null;
 }
 
-router.post('/:operationId/resync', ...requirePageEdit('admin'), async (req, res) => {
+async function operationExists(operationId) {
+  const r = await pool.query(`SELECT id FROM operations WHERE id = $1 AND deleted_at IS NULL`, [operationId]);
+  return r.rows.length > 0;
+}
+
+/** Start a background job and answer at once; the page polls GET /jobs/:jobId. */
+async function startGapJob(req, res, { kind, work, onFailure }) {
   const operationId = parseOperationId(req, res);
   if (operationId == null) return;
+  if (!(await operationExists(operationId))) return res.status(404).json({ error: 'Operation not found' });
 
-  const body = req.body || {};
-  const dryRun = Boolean(body.dryRun);
-  if (!dryRun && body.confirm !== true) {
-    return res.status(400).json({ error: 'confirmation_required' });
-  }
-  const gapKeys = parseGapKeys(body);
-
-  const opExists = await pool.query(`SELECT id FROM operations WHERE id = $1 AND deleted_at IS NULL`, [operationId]);
-  if (!opExists.rows.length) return res.status(404).json({ error: 'Operation not found' });
-
+  const gapKeys = parseGapKeys(req.body);
   try {
-    const result = dryRun
-      ? await runAtgOperationRecovery(pool, operationId, { dryRun, gapKeys })
-      : await withOperationLock(pool, operationId, (client) =>
-          runAtgOperationRecovery(client, operationId, { dryRun, gapKeys })
-        );
-    if (!dryRun) logResync(req, result, { confirm: true, gapKeys });
-    res.json(result);
+    const jobId = await startJob(pool, { operationId, kind, gapKeys, userId: req.userId }, (onProgress) =>
+      work({ operationId, gapKeys, onProgress })
+    , { onFailure: (err) => onFailure?.({ operationId, gapKeys, err }) });
+    res.status(202).json({ jobId, kind, operationId });
   } catch (err) {
     if (err.statusCode === 409) return res.status(409).json({ error: err.message });
-    console.error('admin-ops/atg-cargo-gaps resync failed:', err);
-    const failed = {
-      ok: false,
-      failed: true,
-      operationId,
-      dryRun,
-      samplesInserted: 0,
-      hourlyUpserted: 0,
-      dailyUpserted: 0,
-      gapsBefore: [],
-      gapsAfter: [],
-      archiveErrors: [],
-      outcome: 'failed',
-    };
-    logResync(req, failed, { confirm: body.confirm === true, gapKeys, error: err?.message || String(err) });
-    res.status(err.statusCode === 422 ? 422 : 500).json({ error: err?.message || 'Resync failed', ...failed });
+    throw err;
   }
+}
+
+router.post('/:operationId/resync', ...requirePageEdit('admin'), async (req, res) => {
+  const body = req.body || {};
+  const dryRun = Boolean(body.dryRun);
+  if (!dryRun && body.confirm !== true) return res.status(400).json({ error: 'confirmation_required' });
+  const userId = req.userId ?? null;
+
+  if (dryRun) {
+    return startGapJob(req, res, {
+      kind: 'preview',
+      work: ({ operationId, gapKeys, onProgress }) =>
+        runAtgOperationRecovery(pool, operationId, { dryRun: true, gapKeys, onProgress }),
+    });
+  }
+
+  return startGapJob(req, res, {
+    kind: 'resync',
+    work: async ({ operationId, gapKeys, onProgress }) => {
+      const result = await withOperationLock(pool, operationId, (client) =>
+        runAtgOperationRecovery(client, operationId, { dryRun: false, gapKeys, onProgress })
+      );
+      logResync(userId, result, { confirm: true, gapKeys });
+      return result;
+    },
+    onFailure: ({ operationId, gapKeys, err }) => {
+      if (err.statusCode === 409) return;
+      logResync(
+        userId,
+        {
+          ok: false,
+          failed: true,
+          operationId,
+          dryRun: false,
+          samplesInserted: 0,
+          hourlyUpserted: 0,
+          dailyUpserted: 0,
+          gapsBefore: [],
+          gapsAfter: [],
+          archiveErrors: [],
+          outcome: 'failed',
+        },
+        { confirm: true, gapKeys, error: err?.message || String(err) }
+      );
+    },
+  });
 });
 
-function logSimulation(req, result, gapKeys) {
+function logSimulation(userId, result, gapKeys) {
   writeActivityLog({
     pageKey: ACTIVITY_PAGE_KEY,
     action: 'update',
@@ -159,27 +186,28 @@ function logSimulation(req, result, gapKeys) {
       durationMs: result.durationMs ?? null,
       outcome: 'simulation',
     },
-    actorUserId: req.userId ?? null,
+    actorUserId: userId ?? null,
   }).catch((e) => console.error('ATG simulation activity log failed:', e?.message || e));
 }
 
 router.post('/:operationId/simulate', ...requirePageEdit('admin'), async (req, res) => {
-  const operationId = parseOperationId(req, res);
-  if (operationId == null) return;
-  const gapKeys = parseGapKeys(req.body);
+  const userId = req.userId ?? null;
+  return startGapJob(req, res, {
+    kind: 'simulate',
+    work: async ({ operationId, gapKeys, onProgress }) => {
+      const result = await simulateAtgOperationRecovery(pool, operationId, { gapKeys, onProgress });
+      logSimulation(userId, result, gapKeys);
+      return result;
+    },
+  });
+});
 
-  const opExists = await pool.query(`SELECT id FROM operations WHERE id = $1 AND deleted_at IS NULL`, [operationId]);
-  if (!opExists.rows.length) return res.status(404).json({ error: 'Operation not found' });
-
-  try {
-    const result = await simulateAtgOperationRecovery(pool, operationId, { gapKeys });
-    logSimulation(req, result, gapKeys);
-    res.json(result);
-  } catch (err) {
-    if (err.statusCode === 409) return res.status(409).json({ error: err.message });
-    console.error('admin-ops/atg-cargo-gaps simulate failed:', err);
-    res.status(err.statusCode === 422 ? 422 : 500).json({ error: err?.message || 'Simulation failed' });
-  }
+router.get('/jobs/:jobId', async (req, res) => {
+  const jobId = parseInt(String(req.params.jobId ?? ''), 10);
+  if (!Number.isFinite(jobId) || jobId <= 0) return res.status(400).json({ error: 'Invalid jobId' });
+  const job = await getJob(pool, jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  res.json(job);
 });
 
 router.post('/:operationId/acknowledge', ...requirePageEdit('admin'), async (req, res) => {
@@ -198,7 +226,7 @@ router.post('/:operationId/acknowledge', ...requirePageEdit('admin'), async (req
 
   const acknowledged = await acknowledgeGaps(pool, { operationId, gapKeys: valid, reason, userId: req.userId ?? null });
   if (acknowledged.length) {
-    logAck(req, { operationId, operationLabel: op.operationLabel, kind: 'atg_cargo_gap_ack', gapKeys: acknowledged, reason });
+    logAck(req.userId, { operationId, operationLabel: op.operationLabel, kind: 'atg_cargo_gap_ack', gapKeys: acknowledged, reason });
   }
   res.json({ operationId, acknowledged });
 });
@@ -212,7 +240,7 @@ router.post('/:operationId/reopen', ...requirePageEdit('admin'), async (req, res
   const reopened = await reopenGaps(pool, { operationId, gapKeys });
   if (reopened.length) {
     const op = await loadOperationGaps(operationId);
-    logAck(req, { operationId, operationLabel: op?.operationLabel, kind: 'atg_cargo_gap_reopen', gapKeys: reopened });
+    logAck(req.userId, { operationId, operationLabel: op?.operationLabel, kind: 'atg_cargo_gap_reopen', gapKeys: reopened });
   }
   res.json({ operationId, reopened });
 });

@@ -125,7 +125,7 @@ function emptySimulation(operationId, started) {
 /**
  * @param {import('pg').Pool} pool
  * @param {number} operationId
- * @param {{ gapKeys?: string[], scanOpts?: object }} [opts]
+ * @param {{ gapKeys?: string[], scanOpts?: object, onProgress?: (p: object) => void }} [opts]
  */
 export async function simulateAtgOperationRecovery(pool, operationId, opts = {}) {
   const started = Date.now();
@@ -134,7 +134,7 @@ export async function simulateAtgOperationRecovery(pool, operationId, opts = {})
     const prep = await prepareRecovery(client, operationId, opts);
     if (!prep) return emptySimulation(operationId, started);
 
-    const { paramRows, archiveErrors } = await fetchRecoveryRows(prep);
+    const { paramRows, archiveErrors } = await fetchRecoveryRows(prep, { onProgress: opts.onProgress });
     const lineIds = [...new Set(prep.targetGaps.map((g) => Number(g.loadLineId)))];
     const windows = prep.targetGaps.map((g) => ({ startAt: g.startAt, endAt: g.endAt }));
 
@@ -144,7 +144,8 @@ export async function simulateAtgOperationRecovery(pool, operationId, opts = {})
 
       const hourlyBefore = await loadHourlySnapshot(client, operationId, lineIds);
       const dailyBefore = await loadDailySnapshot(client, operationId);
-      const applied = await applyRecoveryRows(client, prep, paramRows);
+      const applied = await applyRecoveryRows(client, prep, paramRows, { onProgress: opts.onProgress });
+      opts.onProgress?.({ step: 'compare' });
       const hourlyAfter = await loadHourlySnapshot(client, operationId, lineIds);
       const dailyAfter = await loadDailySnapshot(client, operationId);
       const commodityByLine = await loadCommodityByLine(client, lineIds);

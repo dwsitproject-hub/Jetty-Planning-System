@@ -60,6 +60,13 @@ export function AtgCargoGapsDetail({ details, t, canResync, onGapsChanged }) {
     }
   }
 
+  /** Reopen the dialog on a job that is still running on the server. */
+  function viewJob(op) {
+    const job = op.activeJob
+    const chosen = op.gaps.filter((g) => job.gapKeys?.includes(g.gapKey))
+    setDialog({ type: 'resync', op, gaps: chosen.length ? chosen : op.gaps.filter((g) => !g.acknowledgement), resumeJob: job })
+  }
+
   async function reopen(op, gapKeys) {
     if (!window.confirm(t('atgGapReopenConfirm', { count: gapKeys.length }))) return
     setActionError(null)
@@ -127,6 +134,7 @@ export function AtgCargoGapsDetail({ details, t, canResync, onGapsChanged }) {
             onResync={(o, gaps) => setDialog({ type: 'resync', op: o, gaps })}
             onAcknowledge={(o, gapKeys) => setDialog({ type: 'ack', op: o, gapKeys })}
             onReopen={reopen}
+            onViewJob={viewJob}
             t={t}
           />
         ))}
@@ -137,6 +145,7 @@ export function AtgCargoGapsDetail({ details, t, canResync, onGapsChanged }) {
         <AtgGapResyncDialog
           operation={dialog.op}
           gaps={dialog.gaps}
+          resumeJob={dialog.resumeJob ?? null}
           onClose={finishDialog}
           onAcknowledgeRemaining={(gapKeys) => {
             changedRef.current = true
