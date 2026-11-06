@@ -39,3 +39,8 @@ export function reopenAtgCargoGaps(operationId, gapKeys) {
 export function fetchAtgCargoGapHistory(operationId) {
   return apiGet(`${gapsPath(operationId)}/history`)
 }
+
+/** Runs the real resync in a rolled-back transaction and returns what it would change. Saves nothing. */
+export function simulateAtgCargoGapResync(operationId, gapKeys) {
+  return apiPost(`${gapsPath(operationId)}/simulate`, { gapKeys }, RESYNC_TIMEOUT_MS)
+}

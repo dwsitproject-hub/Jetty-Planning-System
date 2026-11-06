@@ -25,7 +25,7 @@
     "run:aggregate-daily-cargo-progress": "node scripts/aggregate-daily-cargo-progress.js",
     "test:operational-progress": "node --test src/lib/operational-progress.test.js src/lib/cargo-product-progress.test.js src/lib/at-berth-flow-pattern.test.js",
     "test:atg-hourly-progress": "node --test src/lib/atg-hourly-progress.test.js",
-    "test:atg-cargo-gaps": "node --test src/lib/atg-cargo-gap-detect.test.js src/lib/atg-cargo-gap-status.test.js src/lib/atg-operation-recovery.test.js",
+    "test:atg-cargo-gaps": "node --test src/lib/atg-cargo-gap-detect.test.js src/lib/atg-cargo-gap-status.test.js src/lib/atg-operation-recovery.test.js src/lib/atg-recovery-diff.test.js",
     "test:cargo-schedule-progress": "node --test src/lib/cargo-schedule-progress.test.js",
     "test:ais": "node --test src/lib/ais-bontang-geofence.test.js src/lib/ais-bontang-overview.test.js src/lib/ais-openwaters-client.test.js src/lib/ais-position-merge.test.js src/lib/ais-vesselapi-client.test.js src/lib/ais-poll-job.test.js",
     "test:integration-master-data": "node --test src/lib/integration-master-data.test.js",
