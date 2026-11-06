@@ -17,7 +17,9 @@ import {
 import '../styles/allocation.css'
 import '../styles/admin.css'
 
-function StatusHero({ data, statusLabel, t }) {
+const HERO_STATUSES = ['unhealthy', 'degraded', 'unknown', 'healthy', 'disabled']
+
+function StatusHero({ data, statusLabel, statusFilter, onFilter, t }) {
   if (!data?.overall) return null
   const counts = countChecksByStatus(data.checks)
 
@@ -34,15 +36,27 @@ function StatusHero({ data, statusLabel, t }) {
             {statusLabel(data.overall)}
           </span>
         </p>
-        <p className="admin-ops-hero__counts">
-          {t('adminOpsHeroCounts', {
-            unhealthy: counts.unhealthy,
-            degraded: counts.degraded,
-            unknown: counts.unknown,
-            healthy: counts.healthy,
-            disabled: counts.disabled,
-          })}
-        </p>
+        <div className="admin-ops-hero__chips" role="group" aria-label={t('adminOpsHeroFilter')}>
+          <button
+            type="button"
+            className={`admin-ops-hero__chip${statusFilter ? '' : ' is-active'}`}
+            aria-pressed={!statusFilter}
+            onClick={() => onFilter(null)}
+          >
+            {t('adminOpsHeroAll')} <strong>{data.checks.length}</strong>
+          </button>
+          {HERO_STATUSES.filter((s) => counts[s] > 0).map((s) => (
+            <button
+              key={s}
+              type="button"
+              className={`admin-ops-hero__chip admin-ops-hero__chip--${s}${statusFilter === s ? ' is-active' : ''}`}
+              aria-pressed={statusFilter === s}
+              onClick={() => onFilter(statusFilter === s ? null : s)}
+            >
+              {statusLabel(s)} <strong>{counts[s]}</strong>
+            </button>
+          ))}
+        </div>
         {data.checkedAt ? (
           <p className="admin-ops-hero__checked">
             {t('adminOpsLastChecked')}: {formatRelativeTime(data.checkedAt)}
@@ -119,6 +133,7 @@ export default function AdminOperations() {
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settingsError, setSettingsError] = useState(null)
   const [popupCheckId, setPopupCheckId] = useState(null)
+  const [statusFilter, setStatusFilter] = useState(null)
 
   const load = useCallback(async ({ silent = false } = {}) => {
     setError(null)
@@ -160,8 +175,9 @@ export default function AdminOperations() {
   const popupCheck = popupCheckId ? (data?.checks ?? []).find((c) => c.id === popupCheckId) : null
 
   const sortedChecks = useMemo(
-    () => sortChecksBySeverity(data?.checks ?? []),
-    [data?.checks]
+    () =>
+      sortChecksBySeverity(data?.checks ?? []).filter((c) => !statusFilter || c.status === statusFilter),
+    [data?.checks, statusFilter]
   )
 
   const attentionChecks = useMemo(
@@ -219,7 +235,13 @@ export default function AdminOperations() {
 
       {data ? (
         <>
-          <StatusHero data={data} statusLabel={statusLabel} t={t} />
+          <StatusHero
+            data={data}
+            statusLabel={statusLabel}
+            statusFilter={statusFilter}
+            onFilter={setStatusFilter}
+            t={t}
+          />
 
           <CheckSection
             title={t('adminOpsSectionAttention')}
