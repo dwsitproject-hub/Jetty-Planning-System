@@ -80,15 +80,49 @@ export function summarizeQuantityByCommodity(hourly, commodityByLine) {
   return { byCommodity: list, total };
 }
 
+const MS_PER_MIN = 60000;
+
+function overlapMs(aStart, aEnd, bStart, bEnd) {
+  return Math.max(0, Math.min(aEnd, bEnd) - Math.max(aStart, bStart));
+}
+
 /**
- * @param {string[]} targetGapKeys
- * @param {Array<{ gapKey: string }>} gapsAfter
+ * Judge each selected gap by time overlap, not by gap key: a gap that shrinks gets a new key
+ * (the key contains its start and end) but part of it is still missing.
+ * @param {Array<{ gapKey: string, loadLineId: number|string, startAt: string, endAt: string, durationMinutes?: number }>} targetGaps
+ * @param {Array<{ gapKey: string, loadLineId: number|string, startAt: string, endAt: string }>} gapsAfter
  */
-export function splitGapOutcome(targetGapKeys, gapsAfter) {
-  const remaining = new Set((gapsAfter || []).map((g) => g.gapKey));
+export function classifyTargetGaps(targetGaps, gapsAfter) {
+  const after = (gapsAfter || []).map((g) => ({
+    g,
+    line: String(g.loadLineId),
+    start: new Date(g.startAt).getTime(),
+    end: new Date(g.endAt).getTime(),
+  }));
+
+  const outcomes = (targetGaps || []).map((t) => {
+    const start = new Date(t.startAt).getTime();
+    const end = new Date(t.endAt).getTime();
+    const durationMinutes = Math.round((end - start) / MS_PER_MIN);
+    const remainingMs = after
+      .filter((a) => a.line === String(t.loadLineId))
+      .reduce((sum, a) => sum + overlapMs(start, end, a.start, a.end), 0);
+    const remainingMinutes = Math.min(durationMinutes, Math.round(remainingMs / MS_PER_MIN));
+    const status = remainingMinutes <= 0 ? 'closed' : remainingMinutes >= durationMinutes ? 'open' : 'partial';
+    return { gapKey: t.gapKey, startAt: t.startAt, endAt: t.endAt, durationMinutes, remainingMinutes, status };
+  });
+
+  const stillMissing = after
+    .filter((a) => (targetGaps || []).some((t) => String(t.loadLineId) === a.line
+      && overlapMs(new Date(t.startAt).getTime(), new Date(t.endAt).getTime(), a.start, a.end) > 0))
+    .map((a) => a.g);
+
   return {
-    closedGapKeys: (targetGapKeys || []).filter((k) => !remaining.has(k)),
-    stillMissingKeys: (targetGapKeys || []).filter((k) => remaining.has(k)),
+    outcomes,
+    closedCount: outcomes.filter((o) => o.status === 'closed').length,
+    partialCount: outcomes.filter((o) => o.status === 'partial').length,
+    openCount: outcomes.filter((o) => o.status === 'open').length,
+    stillMissing,
   };
 }
 

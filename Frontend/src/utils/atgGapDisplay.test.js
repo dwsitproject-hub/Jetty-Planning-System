@@ -6,7 +6,7 @@ import {
   formatQtyDelta,
   isSimulationStale,
   visibleHourlyRows,
-  remainingTargetGapKeys,
+  remainingGaps,
   resyncOutcomeVariant,
   summarizePreviewByGap,
 } from './atgGapDisplay.js'
@@ -37,12 +37,9 @@ describe('atgGapDisplay', () => {
     assert.equal(byGap.get('b').newPoints, 0)
   })
 
-  it('lists targeted gaps that are still open after resync', () => {
-    const keys = remainingTargetGapKeys({
-      targetGapKeys: ['a', 'b'],
-      gapsAfter: [{ gapKey: 'b' }, { gapKey: 'c' }],
-    })
-    assert.deepEqual(keys, ['b'])
+  it('lists the gaps still missing after resync', () => {
+    assert.deepEqual(remainingGaps({ stillMissing: [{ gapKey: 'new-a' }] }), [{ gapKey: 'new-a' }])
+    assert.deepEqual(remainingGaps({}), [])
   })
 
   it('formats quantity and signed change', () => {

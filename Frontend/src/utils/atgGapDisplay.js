@@ -43,10 +43,9 @@ export function summarizePreviewByGap(preview) {
   return byGap
 }
 
-/** Gap keys still present after a resync, among the ones that were targeted. */
-export function remainingTargetGapKeys(result) {
-  const after = new Set((result?.gapsAfter ?? []).map((g) => g.gapKey))
-  return (result?.targetGapKeys ?? []).filter((k) => after.has(k))
+/** Current gaps (with their new keys) that still overlap the selected ones after a resync. */
+export function remainingGaps(result) {
+  return result?.stillMissing ?? []
 }
 
 export function isGapOpen(gap) {

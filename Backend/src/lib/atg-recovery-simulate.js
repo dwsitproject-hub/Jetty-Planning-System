@@ -6,7 +6,7 @@ import { DEFAULT_RECENT_GAP_MS, deriveGapCheckStatus } from './atg-cargo-gap-sta
 import {
   diffDailyRows,
   diffHourlyRows,
-  splitGapOutcome,
+  classifyTargetGaps,
   summarizeQuantityByCommodity,
 } from './atg-recovery-diff.js';
 
@@ -109,7 +109,9 @@ function emptySimulation(operationId, started) {
     simulatedAt: new Date().toISOString(),
     durationMs: Date.now() - started,
     targetGapKeys: [],
-    closedGapKeys: [],
+    gapOutcomes: [],
+    targetClosed: 0,
+    targetPartial: 0,
     stillMissing: [],
     samplesWouldInsert: 0,
     archiveErrors: [],
@@ -153,8 +155,7 @@ export async function simulateAtgOperationRecovery(pool, operationId, opts = {})
         inGap: overlapsAnyWindow(h, windows),
       }));
       const hourly = allHours.filter((h) => h.changed || h.inGap);
-      const { closedGapKeys, stillMissingKeys } = splitGapOutcome(prep.targetGapKeys, applied.gapsAfter);
-      const stillMissingSet = new Set(stillMissingKeys);
+      const gapSummary = classifyTargetGaps(prep.targetGaps, applied.gapsAfter);
 
       return {
         ok: true,
@@ -166,8 +167,10 @@ export async function simulateAtgOperationRecovery(pool, operationId, opts = {})
         simulatedAt: new Date().toISOString(),
         durationMs: Date.now() - started,
         targetGapKeys: prep.targetGapKeys,
-        closedGapKeys,
-        stillMissing: applied.gapsAfter.filter((g) => stillMissingSet.has(g.gapKey)),
+        gapOutcomes: gapSummary.outcomes,
+        targetClosed: gapSummary.closedCount,
+        targetPartial: gapSummary.partialCount,
+        stillMissing: gapSummary.stillMissing,
         samplesWouldInsert: applied.samplesInserted,
         archiveErrors,
         quantity: summarizeQuantityByCommodity(allHours, commodityByLine),
@@ -184,8 +187,8 @@ export async function simulateAtgOperationRecovery(pool, operationId, opts = {})
 /** @param {object} result simulation result */
 export function buildSimulationAuditSummary(result) {
   const label = result.operationLabel || `Operation #${result.operationId}`;
-  const closed = result.closedGapKeys?.length ?? 0;
+  const closed = result.targetClosed ?? 0;
   const total = result.targetGapKeys?.length ?? 0;
   const delta = Number(result.quantity?.total?.qtyDelta || 0).toFixed(1);
-  return `ATG cargo resync simulation: ${label}: would import ${result.samplesWouldInsert ?? 0} samples, close ${closed}/${total} gaps, quantity ${delta >= 0 ? '+' : ''}${delta} MT. No data changed.`;
+  return `ATG cargo resync simulation: ${label}: would import ${result.samplesWouldInsert ?? 0} samples, fully close ${closed}/${total} gaps${result.targetPartial ? ` (${result.targetPartial} partly)` : ''}, quantity ${delta >= 0 ? '+' : ''}${delta} MT. No data changed.`;
 }

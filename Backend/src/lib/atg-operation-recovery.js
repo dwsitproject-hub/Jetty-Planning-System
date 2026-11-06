@@ -12,6 +12,7 @@ import {
 } from './tankvision-archive.js';
 import { resolveEnabledSources } from './tank-gauging-source-config.js';
 import { scanOperationGapsForRecovery } from './atg-cargo-gap-scan.js';
+import { classifyTargetGaps } from './atg-recovery-diff.js';
 import { aggregateAtgDailyProgressForOperation } from './operational-progress.js';
 import { aggregateHourlyProgressForOperation } from './atg-hourly-progress.js';
 
@@ -117,6 +118,11 @@ export function deriveResyncOutcome(result) {
   if (result.failed) return 'failed';
   const inserted = Number(result.samplesInserted) || 0;
   const errors = (result.archiveErrors || []).length;
+  if (result.targetTotal != null) {
+    if (result.targetClosed === result.targetTotal && errors === 0) return 'success';
+    if (result.targetClosed === 0 && result.targetPartial === 0 && inserted === 0 && errors === 0) return 'no_samples';
+    return 'partial';
+  }
   const after = (result.gapsAfter || []).length;
   const before = (result.gapsBefore || []).length;
   if (inserted === 0 && before > 0 && errors === 0) return 'no_samples';
@@ -273,12 +279,14 @@ export async function applyRecoveryRows(db, prep, paramRows) {
 
   const { dailyUpserted, hourlyUpserted } = await reaggregate(db, prep.operationId);
   const scanAfter = await scanOperationGapsForRecovery(db, prep.operationId, prep.scanOpts);
+  const gapsAfter = [...(scanAfter.operations[0]?.gaps || [])];
   return {
     samplesInserted,
     dailyUpserted,
     hourlyUpserted,
     opAfter: scanAfter.operations[0] ?? null,
-    gapsAfter: [...(scanAfter.operations[0]?.gaps || [])],
+    gapsAfter,
+    gapSummary: classifyTargetGaps(prep.targetGaps, gapsAfter),
   };
 }
 
@@ -340,6 +348,11 @@ export async function runAtgOperationRecovery(db, operationId, opts = {}) {
     hourlyUpserted: applied.hourlyUpserted,
     dailyUpserted: applied.dailyUpserted,
     archiveErrors,
+    gapOutcomes: applied.gapSummary.outcomes,
+    stillMissing: applied.gapSummary.stillMissing,
+    targetTotal: prep.targetGaps.length,
+    targetClosed: applied.gapSummary.closedCount,
+    targetPartial: applied.gapSummary.partialCount,
     durationMs: Date.now() - started,
   };
   result.outcome = deriveResyncOutcome(result);

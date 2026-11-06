@@ -104,7 +104,8 @@ export default function AtgGapSimulationResult({ sim, t }) {
   const now = useNowEvery(30000)
   const stale = isSimulationStale(sim.simulatedAt, now)
   const { byCommodity, total } = sim.quantity
-  const closed = sim.closedGapKeys.length
+  const closed = sim.targetClosed
+  const partial = sim.targetPartial
   const targeted = sim.targetGapKeys.length
 
   return (
@@ -119,7 +120,10 @@ export default function AtgGapSimulationResult({ sim, t }) {
       <div className="atg-gap-stats">
         <div className="atg-gap-stat">
           <span className="atg-gap-stat__value">{closed} / {targeted}</span>
-          <span className="atg-gap-stat__label">{t('atgGapSimGapsClosed')}</span>
+          <span className="atg-gap-stat__label">
+            {t('atgGapSimGapsClosed')}
+            {partial ? ` · ${t('atgGapSimPartly', { count: partial })}` : ''}
+          </span>
         </div>
         <div className="atg-gap-stat">
           <span className="atg-gap-stat__value">{t(`adminOpsStatus_${sim.status.before}`)} → {t(`adminOpsStatus_${sim.status.after}`)}</span>
