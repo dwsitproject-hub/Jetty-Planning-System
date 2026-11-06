@@ -106,10 +106,35 @@
   padding: 4px 12px;
 }
 
-.admin-ops-hero__counts {
-  margin: 0;
-  font-size: var(--font-size-small);
-  color: var(--color-text-charcoal);
+.admin-ops-hero__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: var(--spacing-2) 0 0;
+}
+
+.admin-ops-hero__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.85rem;
+  border: 1px solid var(--color-border-medium);
+  border-radius: 999px;
+  background: var(--color-bg-white);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.admin-ops-hero__chip--unhealthy { border-color: #ef9a9a; color: #b71c1c; }
+.admin-ops-hero__chip--degraded { border-color: #ffcc80; color: #e65100; }
+.admin-ops-hero__chip--unknown { border-color: #ffe082; color: #8a6d00; }
+.admin-ops-hero__chip--healthy { border-color: #a5d6a7; color: #1b5e20; }
+
+.admin-ops-hero__chip.is-active {
+  background: var(--color-text-charcoal);
+  border-color: var(--color-text-charcoal);
+  color: var(--color-text-white);
 }
 
 .admin-ops-hero__checked {
@@ -162,7 +187,56 @@
 }
 
 .admin-ops-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
   border-left: 4px solid var(--color-border-light);
+}
+
+.admin-ops-card .card__header-row {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  margin-bottom: 0;
+}
+
+.admin-ops-card .card__header-row > span {
+  flex-shrink: 0;
+}
+
+.admin-ops-card .card__title {
+  font-size: 1rem;
+}
+
+.admin-ops-card .admin-ops-card__summary {
+  font-size: 0.85rem;
+}
+
+.admin-ops-card__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2) var(--spacing-4);
+  margin: 0;
+}
+
+.admin-ops-card__key dt {
+  font-size: var(--font-size-small);
+  color: var(--color-text-steel);
+}
+
+.admin-ops-card__key dd {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-ops-card__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-3);
+  margin-top: auto;
+  padding-top: var(--spacing-2);
 }
 
 .admin-ops-card--healthy {
@@ -188,7 +262,7 @@
 
 .admin-ops-card__guidance {
   margin: 0.35rem 0 0;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-small);
   color: var(--color-text-steel);
   font-style: italic;
 }
@@ -271,25 +345,10 @@
 .admin-ops-grid {
   display: grid;
   gap: var(--spacing-3);
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
-}
-
-.admin-ops-card--full-width {
-  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
 }
 
 /* Pop Up view for one System Health check */
-.admin-ops-card__header-side {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.4rem;
-  flex-shrink: 0;
-}
-
-.admin-ops-popup-btn {
-  white-space: nowrap;
-}
 
 .modal.admin-ops-popup {
   display: flex;

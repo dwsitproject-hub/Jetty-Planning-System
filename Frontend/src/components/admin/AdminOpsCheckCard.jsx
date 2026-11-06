@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { StructuredCheckDetail, TechnicalJsonDetails } from './AdminOpsCheckDetails'
 import { cardStatusClass, statusBadgeClass } from '../../utils/adminOpsDisplay'
+import { checkHighlights } from '../../utils/adminOpsCheckHighlights'
 
 /** Title, summary and guidance shared by the card and the pop-up header. */
 export function CheckHeaderText({ check, t, as: Heading = 'h2' }) {
@@ -51,27 +52,47 @@ export function CheckBody({ check, ctx }) {
   )
 }
 
+function CheckHighlights({ check, t }) {
+  const items = checkHighlights(check)
+  if (!items.length) return null
+  return (
+    <dl className="admin-ops-card__keys">
+      {items.map((item) => (
+        <div key={item.labelKey} className="admin-ops-card__key">
+          <dt>{t(item.labelKey)}</dt>
+          <dd>{item.translateValue ? t(`adminOpsKeyValue_${item.value}`) : item.value}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+/** Summary-only card; full details, tables and JSON open in the pop-up. */
 function CheckCard({ check, ctx }) {
   const { t } = ctx
-  const fullWidth = check.id === 'atg_cargo_gaps' ? ' admin-ops-card--full-width' : ''
 
   return (
-    <article className={`card admin-ops-card ${cardStatusClass(check.status)}${fullWidth}`}>
+    <article className={`card admin-ops-card ${cardStatusClass(check.status)}`}>
       <div className="card__header-row">
         <CheckHeaderText check={check} t={t} />
-        <div className="admin-ops-card__header-side">
-          <span className={statusBadgeClass(check.status)}>{ctx.statusLabel(check.status)}</span>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm admin-ops-popup-btn"
-            onClick={() => ctx.onPopUp(check.id)}
-            aria-label={t('adminOpsPopUpAria', { title: check.title })}
-          >
-            <span aria-hidden="true">⤢</span> {t('adminOpsPopUp')}
-          </button>
-        </div>
+        <span className={statusBadgeClass(check.status)}>{ctx.statusLabel(check.status)}</span>
       </div>
-      <CheckBody check={check} ctx={ctx} />
+      <CheckHighlights check={check} t={t} />
+      <div className="admin-ops-card__footer">
+        <button
+          type="button"
+          className="btn btn--primary btn--sm"
+          onClick={() => ctx.onPopUp(check.id)}
+          aria-label={t('adminOpsOpenDetailsAria', { title: check.title })}
+        >
+          {t('adminOpsOpenDetails')}
+        </button>
+        {check.actionHref ? (
+          <Link to={check.actionHref} className="link">
+            {check.actionLabel || t('adminOpsOpen')}
+          </Link>
+        ) : null}
+      </div>
     </article>
   )
 }
