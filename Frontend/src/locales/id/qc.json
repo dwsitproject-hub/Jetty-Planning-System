@@ -155,7 +155,9 @@
     "successDraft": "Draf tersimpan.",
     "error": "Gagal menyimpan sampling.",
     "fixErrors": "Perbaiki kolom yang ditandai sebelum menyimpan.",
-    "pendingSample": "Selesaikan atau kosongkan sampel yang sedang diketik sebelum menyimpan."
+    "pendingSample": "Selesaikan atau kosongkan sampel yang sedang diketik sebelum menyimpan.",
+    "incomplete": "Tambahkan minimal satu sampel, nilai laporan, atau dokumen sebelum simpan final.",
+    "incompleteCommodities": "Belum ada data QC untuk {{names}}. Tambahkan minimal satu sampel, nilai laporan, atau dokumen sebelum simpan final."
   },
   "decision": {
     "approve": "Setujui",

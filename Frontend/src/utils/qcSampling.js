@@ -136,6 +136,30 @@ export function buildSamplingPayload(sampling, mode, { includeRecords = true, ex
   }
 }
 
+const REPORT_FIELDS = ['ffaAverage', 'moistureAverage', 'dobi', 'iodineValue']
+
+function hasText(value) {
+  return value != null && String(value).trim() !== ''
+}
+
+/** True when a card (or the single-card visit) holds a sample, a report figure or a document. */
+function hasQcEvidence(card) {
+  if ((card?.records || []).length > 0 || (card?.documents || []).length > 0) return true
+  if (REPORT_FIELDS.some((field) => hasText(card?.[field]))) return true
+  const metrics = card?.metrics && typeof card.metrics === 'object' ? card.metrics : {}
+  return Object.values(metrics).some(hasText)
+}
+
+/**
+ * Commodities that would be saved final with no QC evidence at all.
+ * Returns their short names ('' for the visit without commodity cards); empty when complete.
+ */
+export function findEmptySamplingCards(sampling) {
+  const cards = Array.isArray(sampling?.commodities) && sampling.commodities.length ? sampling.commodities : null
+  if (!cards) return hasQcEvidence(sampling) ? [] : ['']
+  return cards.filter((card) => !hasQcEvidence(card)).map((card) => card.shortName || card.name || '')
+}
+
 /** Metric fields in the report summary that must stay inside their caps before saving. */
 export function validateSummaryFields(sampling) {
   const errors = {}

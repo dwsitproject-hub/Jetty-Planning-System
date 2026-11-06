@@ -5,6 +5,7 @@ import {
   buildSamplingPayload,
   buildSampleRecord,
   computeAverages,
+  findEmptySamplingCards,
   normalizeMetric,
   parseMetric,
   recordsDiffer,
@@ -128,4 +129,22 @@ test('validateSummaryFields enforces per-field ceilings', () => {
     ffa: 'range',
     dobi: 'invalid',
   })
+})
+
+test('findEmptySamplingCards names commodities saved final with no QC evidence', () => {
+  const empty = { commodityId: 17, shortName: 'INS POMEFAD', records: [], documents: [], metrics: {}, ffaAverage: '' }
+  assert.deepEqual(findEmptySamplingCards({ commodities: [empty] }), ['INS POMEFAD'])
+  assert.deepEqual(findEmptySamplingCards({ commodities: [{ ...empty, records: [{ id: 'a' }] }] }), [])
+  assert.deepEqual(findEmptySamplingCards({ commodities: [{ ...empty, documents: [{ name: 'r.pdf' }] }] }), [])
+  assert.deepEqual(findEmptySamplingCards({ commodities: [{ ...empty, metrics: { dobi: '2.1' } }] }), [])
+  assert.deepEqual(findEmptySamplingCards({ commodities: [{ ...empty, iodineValue: '52' }] }), [])
+  assert.deepEqual(
+    findEmptySamplingCards({ commodities: [{ ...empty, records: [{ id: 'a' }] }, { ...empty, shortName: 'RBD PO' }] }),
+    ['RBD PO']
+  )
+})
+
+test('findEmptySamplingCards checks the visit itself when there are no commodity cards', () => {
+  assert.deepEqual(findEmptySamplingCards({ commodities: [], records: [], documents: [] }), [''])
+  assert.deepEqual(findEmptySamplingCards({ records: [], documents: [], ffaAverage: '3.1' }), [])
 })
