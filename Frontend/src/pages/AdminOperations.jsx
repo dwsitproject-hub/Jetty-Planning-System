@@ -3,12 +3,9 @@ import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { fetchAdminOpsStatus, updateAdminOpsSettings } from '../api/adminOps'
 import { useRbac } from '../context/RbacContext.jsx'
+import { CheckSection } from '../components/admin/AdminOpsCheckCard.jsx'
+import AdminOpsCheckPopup from '../components/admin/AdminOpsCheckPopup.jsx'
 import {
-  StructuredCheckDetail,
-  TechnicalJsonDetails,
-} from '../components/admin/AdminOpsCheckDetails'
-import {
-  cardStatusClass,
   countChecksByStatus,
   formatRelativeTime,
   formatWhen,
@@ -55,81 +52,6 @@ function StatusHero({ data, statusLabel, t }) {
             </span>
           </p>
         ) : null}
-      </div>
-    </section>
-  )
-}
-
-function CheckCard({ check, statusLabel, t, canResyncAtg, onAtgGapsChanged }) {
-  const [techOpen, setTechOpen] = useState(false)
-  const guidanceKey = `adminOpsGuidance_${check.id}`
-  const guidance =
-    check.status === 'unknown' ||
-    check.status === 'unhealthy' ||
-    (check.id === 'atg_cargo_gaps' && check.status === 'degraded')
-      ? t(guidanceKey, { defaultValue: '' })
-      : ''
-
-  const isAtgCargoGaps = check.id === 'atg_cargo_gaps'
-
-  return (
-    <article
-      className={`card admin-ops-card ${cardStatusClass(check.status)}${isAtgCargoGaps ? ' admin-ops-card--full-width' : ''}`}
-    >
-      <div className="card__header-row">
-        <div>
-          <h2 className="card__title">{check.title}</h2>
-          <p className="text-steel admin-ops-card__summary">{check.summary}</p>
-          {guidance ? <p className="admin-ops-card__guidance">{guidance}</p> : null}
-        </div>
-        <span className={statusBadgeClass(check.status)}>{statusLabel(check.status)}</span>
-      </div>
-
-      {check.details ? (
-        <div className="admin-ops-card__structured">
-          <StructuredCheckDetail
-            check={check}
-            t={t}
-            canResyncAtg={canResyncAtg}
-            onAtgGapsChanged={onAtgGapsChanged}
-          />
-        </div>
-      ) : null}
-
-      {check.actionHref ? (
-        <p className="admin-ops-card__actions">
-          <Link to={check.actionHref} className="link">
-            {check.actionLabel || t('adminOpsOpen')}
-          </Link>
-        </p>
-      ) : null}
-
-      <TechnicalJsonDetails
-        details={check.details}
-        open={techOpen}
-        onToggle={() => setTechOpen((v) => !v)}
-        t={t}
-      />
-    </article>
-  )
-}
-
-function CheckSection({ title, checks, statusLabel, t, canResyncAtg, onAtgGapsChanged }) {
-  if (!checks.length) return null
-  return (
-    <section className="admin-ops-section">
-      <h2 className="admin-ops-section__title">{title}</h2>
-      <div className="admin-ops-grid">
-        {checks.map((check) => (
-          <CheckCard
-            key={check.id}
-            check={check}
-            statusLabel={statusLabel}
-            t={t}
-            canResyncAtg={canResyncAtg}
-            onAtgGapsChanged={onAtgGapsChanged}
-          />
-        ))}
       </div>
     </section>
   )
@@ -196,6 +118,7 @@ export default function AdminOperations() {
   const [error, setError] = useState(null)
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settingsError, setSettingsError] = useState(null)
+  const [popupCheckId, setPopupCheckId] = useState(null)
 
   const load = useCallback(async ({ silent = false } = {}) => {
     setError(null)
@@ -226,6 +149,15 @@ export default function AdminOperations() {
     (status) => t(`adminOpsStatus_${status}`, status),
     [t]
   )
+
+  const closePopup = useCallback(() => setPopupCheckId(null), [])
+
+  const checkCtx = useMemo(
+    () => ({ t, statusLabel, canResyncAtg, onAtgGapsChanged: handleAtgGapsChanged, onPopUp: setPopupCheckId }),
+    [t, statusLabel, canResyncAtg, handleAtgGapsChanged]
+  )
+
+  const popupCheck = popupCheckId ? (data?.checks ?? []).find((c) => c.id === popupCheckId) : null
 
   const sortedChecks = useMemo(
     () => sortChecksBySeverity(data?.checks ?? []),
@@ -292,19 +224,13 @@ export default function AdminOperations() {
           <CheckSection
             title={t('adminOpsSectionAttention')}
             checks={attentionChecks}
-            statusLabel={statusLabel}
-            t={t}
-            canResyncAtg={canResyncAtg}
-            onAtgGapsChanged={handleAtgGapsChanged}
+            ctx={checkCtx}
           />
 
           <CheckSection
             title={t('adminOpsSectionOk')}
             checks={okChecks}
-            statusLabel={statusLabel}
-            t={t}
-            canResyncAtg={canResyncAtg}
-            onAtgGapsChanged={handleAtgGapsChanged}
+            ctx={checkCtx}
           />
 
           <EmailAlertsPanel
@@ -315,6 +241,17 @@ export default function AdminOperations() {
             onToggle={handleEmailAlertsToggle}
             t={t}
           />
+
+          {popupCheck ? (
+            <AdminOpsCheckPopup
+              check={popupCheck}
+              checkedAt={data.checkedAt}
+              loading={loading}
+              onRefresh={() => load()}
+              onClose={closePopup}
+              ctx={checkCtx}
+            />
+          ) : null}
         </>
       ) : null}
     </div>

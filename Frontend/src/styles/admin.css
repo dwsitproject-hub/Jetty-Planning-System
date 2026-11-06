@@ -278,6 +278,88 @@
   grid-column: 1 / -1;
 }
 
+/* Pop Up view for one System Health check */
+.admin-ops-card__header-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.admin-ops-popup-btn {
+  white-space: nowrap;
+}
+
+.modal.admin-ops-popup {
+  display: flex;
+  flex-direction: column;
+  width: 95vw;
+  max-width: 1400px;
+  height: 90vh;
+  max-height: 90vh;
+  padding: 0;
+  overflow: hidden;
+}
+
+.admin-ops-popup__header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--spacing-2) var(--spacing-4);
+  padding: var(--spacing-4);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.admin-ops-popup__header > div:first-child {
+  flex: 1 1 24rem;
+}
+
+.admin-ops-popup__header-side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.admin-ops-popup__checked {
+  font-size: var(--font-size-small);
+}
+
+.admin-ops-popup__close {
+  border: 0;
+  background: none;
+  font-size: 1.6rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--color-text-steel);
+  padding: 0 0.25rem;
+}
+
+.admin-ops-popup__close:hover {
+  color: var(--color-text-charcoal);
+}
+
+.admin-ops-popup__body {
+  flex: 1;
+  overflow: auto;
+  padding: var(--spacing-4);
+}
+
+@media (max-width: 640px) {
+  .modal-overlay.admin-ops-popup-overlay {
+    padding: 0;
+  }
+
+  .modal.admin-ops-popup {
+    width: 100vw;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+}
+
 /* ATG cargo gap workspace */
 .atg-gap-workspace {
   display: flex;
