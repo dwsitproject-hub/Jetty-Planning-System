@@ -7,7 +7,7 @@ function formatElapsed(totalSeconds) {
 }
 
 /** Indeterminate progress bar with a running timer, so a long server call never looks stuck. */
-export default function AtgGapProgress({ message, t }) {
+export default function AtgGapProgress({ message, progress = null, t }) {
   const [seconds, setSeconds] = useState(0)
 
   useEffect(() => {
@@ -21,7 +21,7 @@ export default function AtgGapProgress({ message, t }) {
         <span />
       </div>
       <p className="atg-gap-progress__text">
-        <strong>{message}</strong>
+        <strong>{progress?.step ? t(`atgGapJobStep_${progress.step}`, { done: progress.done ?? 0, total: progress.total ?? 0, defaultValue: message }) : message}</strong>
         <span className="text-steel"> · {t('atgGapElapsed', { time: formatElapsed(seconds) })}</span>
       </p>
       <p className="text-steel atg-gap-dialog__sub">{t('atgGapKeepOpen')}</p>

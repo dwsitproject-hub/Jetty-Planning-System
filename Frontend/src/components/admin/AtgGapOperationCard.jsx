@@ -35,7 +35,7 @@ function GapStatus({ gap, t }) {
   )
 }
 
-export default function AtgGapOperationCard({ op, canEdit, defaultOpen, historyRefreshKey, onResync, onAcknowledge, onReopen, t }) {
+export default function AtgGapOperationCard({ op, canEdit, defaultOpen, historyRefreshKey, onResync, onAcknowledge, onReopen, onViewJob, t }) {
   const [open, setOpen] = useState(defaultOpen)
   const [showHistory, setShowHistory] = useState(false)
   const openGapKeys = useMemo(() => op.gaps.filter(isGapOpen).map((g) => g.gapKey), [op.gaps])
@@ -69,6 +69,11 @@ export default function AtgGapOperationCard({ op, canEdit, defaultOpen, historyR
           <span className={`atg-gap-pill atg-gap-pill--${op.atBerth ? 'info' : 'neutral'}`}>
             {op.atBerth ? t('atgGapAtBerth') : t('atgGapCompleted')}
           </span>
+          {op.activeJob ? (
+            <span className="atg-gap-pill atg-gap-pill--info">
+              {t('atgGapJobRunning', { kind: t(`atgGapJobKind_${op.activeJob.kind}`) })}
+            </span>
+          ) : null}
           {op.openGapCount ? (
             <span className="atg-gap-pill atg-gap-pill--error">{t('atgGapOpenCount', { count: op.openGapCount })}</span>
           ) : null}
@@ -121,7 +126,12 @@ export default function AtgGapOperationCard({ op, canEdit, defaultOpen, historyR
           </div>
 
           <div className="atg-gap-op__actions">
-            {canEdit ? (
+            {op.activeJob ? (
+              <button type="button" className="btn btn--primary btn--sm" onClick={() => onViewJob(op)}>
+                {t('atgGapViewProgress')}
+              </button>
+            ) : null}
+            {canEdit && !op.activeJob ? (
               <>
                 <button
                   type="button"
@@ -149,7 +159,7 @@ export default function AtgGapOperationCard({ op, canEdit, defaultOpen, historyR
                   </button>
                 ) : null}
               </>
-            ) : (
+            ) : op.activeJob ? null : (
               <span className="admin-ops-card__guidance">{t('atgGapNeedEdit')}</span>
             )}
             <Link to={`/loading/operation/${op.operationId}`} className="link">

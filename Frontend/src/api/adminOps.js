@@ -1,7 +1,5 @@
 import { apiGet, apiPost, apiPut } from './client'
 
-const RESYNC_TIMEOUT_MS = 180000
-
 /** @returns {Promise<{ checkedAt: string, overall: string, checks: Array<object>, emailAlertsEnabled?: boolean, emailAlertsActive?: boolean, alertEmail?: string, smtpConfigured?: boolean }>} */
 export function fetchAdminOpsStatus() {
   return apiGet('/admin-ops/status')
@@ -19,13 +17,25 @@ export function updateAdminOpsSettings(body) {
 
 const gapsPath = (operationId) => `/admin-ops/atg-cargo-gaps/${operationId}`
 
-/** Queries the Tankvision archive for the selected gaps without writing anything. */
-export function previewAtgCargoGapResync(operationId, gapKeys) {
-  return apiPost(`${gapsPath(operationId)}/resync`, { dryRun: true, gapKeys }, RESYNC_TIMEOUT_MS)
+/**
+ * Preview, simulate and resync run as background jobs: each start call answers at once with
+ * { jobId }, and fetchAtgCargoGapJob reports progress and the final result.
+ */
+export function startAtgCargoGapPreview(operationId, gapKeys) {
+  return apiPost(`${gapsPath(operationId)}/resync`, { dryRun: true, gapKeys })
 }
 
-export function runAtgCargoGapResync(operationId, gapKeys) {
-  return apiPost(`${gapsPath(operationId)}/resync`, { confirm: true, gapKeys }, RESYNC_TIMEOUT_MS)
+export function startAtgCargoGapResync(operationId, gapKeys) {
+  return apiPost(`${gapsPath(operationId)}/resync`, { confirm: true, gapKeys })
+}
+
+/** Runs the real resync in a rolled-back transaction; saves nothing. */
+export function startAtgCargoGapSimulation(operationId, gapKeys) {
+  return apiPost(`${gapsPath(operationId)}/simulate`, { gapKeys })
+}
+
+export function fetchAtgCargoGapJob(jobId) {
+  return apiGet(`/admin-ops/atg-cargo-gaps/jobs/${jobId}`)
 }
 
 export function acknowledgeAtgCargoGaps(operationId, gapKeys, reason) {
@@ -38,9 +48,4 @@ export function reopenAtgCargoGaps(operationId, gapKeys) {
 
 export function fetchAtgCargoGapHistory(operationId) {
   return apiGet(`${gapsPath(operationId)}/history`)
-}
-
-/** Runs the real resync in a rolled-back transaction and returns what it would change. Saves nothing. */
-export function simulateAtgCargoGapResync(operationId, gapKeys) {
-  return apiPost(`${gapsPath(operationId)}/simulate`, { gapKeys }, RESYNC_TIMEOUT_MS)
 }

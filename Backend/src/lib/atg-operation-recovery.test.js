@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { buildResyncAuditSummary, deriveResyncOutcome } from './atg-operation-recovery.js';
+import { buildResyncAuditSummary, deriveResyncOutcome, mapLimit } from './atg-operation-recovery.js';
 import { countNewArchivePoints, mergeArchiveParamRows } from './tankvision-archive.js';
 
 describe('atg-operation-recovery', () => {
@@ -79,5 +79,23 @@ describe('atg-operation-recovery', () => {
       deriveResyncOutcome({ targetTotal: 4, targetClosed: 4, targetPartial: 0, samplesInserted: 119, archiveErrors: [] }),
       'success'
     );
+  });
+
+  it('mapLimit keeps input order and never exceeds the limit', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const out = await mapLimit([1, 2, 3, 4, 5, 6], 3, async (n) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight -= 1;
+      return n * 2;
+    });
+    assert.deepEqual(out, [2, 4, 6, 8, 10, 12]);
+    assert.equal(peak, 3);
+  });
+
+  it('mapLimit handles an empty list', async () => {
+    assert.deepEqual(await mapLimit([], 3, async (n) => n), []);
   });
 });

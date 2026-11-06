@@ -16,6 +16,52 @@ import { classifyTargetGaps } from './atg-recovery-diff.js';
 import { aggregateAtgDailyProgressForOperation } from './operational-progress.js';
 import { aggregateHourlyProgressForOperation } from './atg-hourly-progress.js';
 
+/** Archive downloads running at the same time; Tankvision is slow but handles a few in parallel. */
+export const DOWNLOAD_CONCURRENCY = 3;
+
+/**
+ * Run fn over items with at most `limit` in flight; results keep the input order.
+ * @template T, R
+ * @param {T[]} items
+ * @param {number} limit
+ * @param {(item: T, index: number) => Promise<R>} fn
+ * @returns {Promise<R[]>}
+ */
+export async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+/** One entry per (gap, tank) pair: the unit of archive work and of progress. */
+function gapTankTasks(prep) {
+  const tasks = [];
+  for (const gap of prep.targetGaps) {
+    const window = padGapWindow(gap.startAt, gap.endAt);
+    for (const map of tankMapsForGap(prep.op, gap, prep.tankMaps)) tasks.push({ gap, map, window });
+  }
+  return tasks;
+}
+
+/** Run archive tasks in parallel and report "done of total" as each finishes. */
+async function runDownloads(tasks, onProgress, fn) {
+  let done = 0;
+  onProgress?.({ step: 'download', done, total: tasks.length });
+  return mapLimit(tasks, DOWNLOAD_CONCURRENCY, async (task) => {
+    const out = await fn(task);
+    done += 1;
+    onProgress?.({ step: 'download', done, total: tasks.length });
+    return out;
+  });
+}
+
 export const MAX_GAP_SPAN_MS = 7 * 24 * 60 * 60 * 1000;
 export const GAP_PAD_MS = 5 * 60 * 1000;
 
@@ -251,23 +297,20 @@ export async function prepareRecovery(db, operationId, opts = {}) {
 }
 
 /** Download archive points for the selected gaps. Reads Tankvision only; writes nothing. */
-export async function fetchRecoveryRows(prep) {
+export async function fetchRecoveryRows(prep, { onProgress } = {}) {
   const archiveErrors = [];
-  const paramRows = [];
-  for (const gap of prep.targetGaps) {
-    const window = padGapWindow(gap.startAt, gap.endAt);
-    for (const map of tankMapsForGap(prep.op, gap, prep.tankMaps)) {
-      paramRows.push(...(await fetchGapTankRows(gap, map, prep.authFor(map), window, archiveErrors)));
-    }
-  }
-  return { paramRows, archiveErrors };
+  const perTask = await runDownloads(gapTankTasks(prep), onProgress, ({ gap, map, window }) =>
+    fetchGapTankRows(gap, map, prep.authFor(map), window, archiveErrors)
+  );
+  return { paramRows: perTask.flat(), archiveErrors };
 }
 
 /**
  * Insert missing samples, recompute hourly/daily progress and re-scan gaps.
  * Pass a transaction client to make the whole thing undoable.
  */
-export async function applyRecoveryRows(db, prep, paramRows) {
+export async function applyRecoveryRows(db, prep, paramRows, { onProgress } = {}) {
+  onProgress?.({ step: 'import' });
   const tankIdByExternal = new Map(
     prep.tankMaps.map((m) => [`${trimBaseUrl(m.source_base_url)}|${m.external_tank_id}`, Number(m.tank_id)])
   );
@@ -277,7 +320,9 @@ export async function applyRecoveryRows(db, prep, paramRows) {
     if (tankId) samplesInserted += await insertSampleIfMissing(db, sample, tankId);
   }
 
+  onProgress?.({ step: 'aggregate' });
   const { dailyUpserted, hourlyUpserted } = await reaggregate(db, prep.operationId);
+  onProgress?.({ step: 'scan' });
   const scanAfter = await scanOperationGapsForRecovery(db, prep.operationId, prep.scanOpts);
   const gapsAfter = [...(scanAfter.operations[0]?.gaps || [])];
   return {
@@ -294,7 +339,7 @@ export async function applyRecoveryRows(db, prep, paramRows) {
  * Dry run queries the archive (one parameter) to report how many new points each gap would get.
  * @param {import('pg').Pool|import('pg').PoolClient} db
  * @param {number} operationId
- * @param {{ dryRun?: boolean, gapKeys?: string[], scanOpts?: object }} [opts]
+ * @param {{ dryRun?: boolean, gapKeys?: string[], scanOpts?: object, onProgress?: (p: object) => void }} [opts]
  */
 export async function runAtgOperationRecovery(db, operationId, opts = {}) {
   const started = Date.now();
@@ -317,13 +362,9 @@ export async function runAtgOperationRecovery(db, operationId, opts = {}) {
   }
 
   if (dryRun) {
-    const preview = [];
-    for (const gap of prep.targetGaps) {
-      const window = padGapWindow(gap.startAt, gap.endAt);
-      for (const map of tankMapsForGap(prep.op, gap, prep.tankMaps)) {
-        preview.push(await previewGapTank(db, gap, map, prep.authFor(map), window));
-      }
-    }
+    const preview = await runDownloads(gapTankTasks(prep), opts.onProgress, ({ gap, map, window }) =>
+      previewGapTank(db, gap, map, prep.authFor(map), window)
+    );
     return {
       ...base,
       gapsBefore: prep.gapsBefore,
@@ -335,8 +376,8 @@ export async function runAtgOperationRecovery(db, operationId, opts = {}) {
     };
   }
 
-  const { paramRows, archiveErrors } = await fetchRecoveryRows(prep);
-  const applied = await applyRecoveryRows(db, prep, paramRows);
+  const { paramRows, archiveErrors } = await fetchRecoveryRows(prep, { onProgress: opts.onProgress });
+  const applied = await applyRecoveryRows(db, prep, paramRows, { onProgress: opts.onProgress });
 
   const result = {
     ...base,

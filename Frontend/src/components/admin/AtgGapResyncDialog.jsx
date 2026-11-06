@@ -1,5 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
-import { previewAtgCargoGapResync, runAtgCargoGapResync, simulateAtgCargoGapResync } from '../../api/adminOps'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  fetchAtgCargoGapJob,
+  startAtgCargoGapPreview,
+  startAtgCargoGapResync,
+  startAtgCargoGapSimulation,
+} from '../../api/adminOps'
+import { jobErrorKey, waitForJob } from '../../utils/atgGapJob'
 import { formatWhen } from '../../utils/adminOpsDisplay'
 import {
   formatGapDuration,
@@ -49,36 +55,103 @@ function PreviewTable({ gaps, previewByGap, t }) {
 }
 
 /**
- * Preview (archive dry run) → explicit confirmation → run → result, all in one dialog.
+ * Preview (archive check) → optional simulate → explicit confirmation → run → result.
+ * Each server step is a background job the dialog polls, so a slow Tankvision never times out
+ * and the dialog can be closed (or reopened later with `resumeJob`) while a job runs.
  */
-export default function AtgGapResyncDialog({ operation, gaps, onClose, onAcknowledgeRemaining, t }) {
-  const [step, setStep] = useState('previewing')
+export default function AtgGapResyncDialog({ operation, gaps, resumeJob = null, onClose, onAcknowledgeRemaining, t }) {
+  const initialStep = { preview: 'previewing', resync: 'running' }[resumeJob?.kind] ?? (resumeJob ? 'confirm' : 'previewing')
+  const [step, setStep] = useState(initialStep)
   const [preview, setPreview] = useState(null)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
   const [confirmed, setConfirmed] = useState(false)
   const [sim, setSim] = useState(null)
-  const [simulating, setSimulating] = useState(false)
+  const [simulating, setSimulating] = useState(resumeJob?.kind === 'simulate')
   const [simError, setSimError] = useState(null)
+  const [progress, setProgress] = useState(null)
+  const cancelledRef = useRef(false)
+  const startedRef = useRef(false)
   const gapKeys = useMemo(() => gaps.map((g) => g.gapKey), [gaps])
+  const operationId = operation.operationId
 
-  useEffect(() => {
-    let cancelled = false
-    previewAtgCargoGapResync(operation.operationId, gapKeys)
-      .then((res) => {
-        if (cancelled) return
+  const errorText = (e, fallbackKey) => {
+    const key = jobErrorKey(e?.message)
+    return key ? t(key) : e?.message || t(fallbackKey)
+  }
+
+  const handlers = {
+    preview: {
+      before: () => setStep('previewing'),
+      done: (res) => {
         setPreview(res)
         setStep('confirm')
-      })
-      .catch((e) => {
-        if (cancelled) return
-        setError(e?.message || t('atgGapPreviewFailed'))
+      },
+      fail: (e) => {
+        setError(errorText(e, 'atgGapPreviewFailed'))
         setStep('confirm')
+      },
+    },
+    simulate: {
+      before: () => {
+        setSimError(null)
+        setSimulating(true)
+      },
+      done: setSim,
+      fail: (e) => setSimError(errorText(e, 'atgGapSimFailed')),
+      after: () => setSimulating(false),
+    },
+    resync: {
+      before: () => {
+        setError(null)
+        setStep('running')
+      },
+      done: (res) => {
+        setResult(res)
+        setStep('result')
+      },
+      fail: (e) => {
+        setResult({ outcome: 'failed', error: errorText(e, 'atgGapResyncFailed'), targetGapKeys: gapKeys })
+        setStep('result')
+      },
+    },
+  }
+
+  async function execute(kind, startJob) {
+    const h = handlers[kind]
+    h.before()
+    setProgress(null)
+    try {
+      const { jobId } = await startJob()
+      const res = await waitForJob(jobId, {
+        fetchJob: fetchAtgCargoGapJob,
+        onProgress: setProgress,
+        isCancelled: () => cancelledRef.current,
       })
-    return () => {
-      cancelled = true
+      if (!cancelledRef.current) h.done(res)
+    } catch (e) {
+      if (!cancelledRef.current) h.fail(e)
+    } finally {
+      if (!cancelledRef.current) {
+        h.after?.()
+        setProgress(null)
+      }
     }
-  }, [operation.operationId, gapKeys, t])
+  }
+
+  useEffect(() => {
+    cancelledRef.current = false
+    if (!startedRef.current) {
+      // Start once per dialog: React dev mode runs effects twice and the server allows one job per operation.
+      startedRef.current = true
+      const kind = resumeJob?.kind ?? 'preview'
+      execute(kind, resumeJob ? async () => ({ jobId: resumeJob.id }) : () => startAtgCargoGapPreview(operationId, gapKeys))
+    }
+    return () => {
+      cancelledRef.current = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [operationId, gapKeys, resumeJob?.id])
 
   const previewByGap = useMemo(() => summarizePreviewByGap(preview?.preview), [preview])
   const totalNew = useMemo(
@@ -87,34 +160,12 @@ export default function AtgGapResyncDialog({ operation, gaps, onClose, onAcknowl
   )
   const busy = step === 'previewing' || step === 'running' || simulating
 
-  const errorText = (e, fallbackKey) => (e?.message === 'another_resync_running' ? t('atgGapBusy') : e?.message || t(fallbackKey))
+  const simulate = () => execute('simulate', () => startAtgCargoGapSimulation(operationId, gapKeys))
+  const run = () => execute('resync', () => startAtgCargoGapResync(operationId, gapKeys))
 
-  async function simulate() {
-    setSimError(null)
-    setSimulating(true)
-    try {
-      setSim(await simulateAtgCargoGapResync(operation.operationId, gapKeys))
-    } catch (e) {
-      setSimError(errorText(e, 'atgGapSimFailed'))
-    } finally {
-      setSimulating(false)
-    }
-  }
-
-  async function run() {
-    setError(null)
-    setStep('running')
-    try {
-      setResult(await runAtgCargoGapResync(operation.operationId, gapKeys))
-    } catch (e) {
-      setResult({ outcome: 'failed', error: errorText(e, 'atgGapResyncFailed'), targetGapKeys: gapKeys })
-    }
-    setStep('result')
-  }
-
+  /** Closing while a job runs is fine: it keeps running and the card shows it. */
   function close() {
-    if (busy) return
-    onClose(step === 'result')
+    onClose(step === 'result' || busy)
   }
 
   const remaining = result ? remainingGaps(result) : []
@@ -146,7 +197,7 @@ export default function AtgGapResyncDialog({ operation, gaps, onClose, onAcknowl
               <li className={step === 'confirm' || step === 'running' ? 'is-active' : ''}>{t('atgGapStepConfirm')}</li>
             </ol>
             {step === 'previewing' ? (
-              <AtgGapProgress message={t('atgGapPreviewLoading', { count: gaps.length })} t={t} />
+              <AtgGapProgress message={t('atgGapPreviewLoading', { count: gaps.length })} progress={progress} t={t} />
             ) : (
               <>
                 <PreviewTable gaps={gaps} previewByGap={previewByGap} t={t} />
@@ -165,7 +216,7 @@ export default function AtgGapResyncDialog({ operation, gaps, onClose, onAcknowl
                 {simulating ? null : <span className="text-steel atg-gap-dialog__sub">{t('atgGapSimulateHint')}</span>}
               </div>
             ) : null}
-            {simulating ? <AtgGapProgress message={t('atgGapSimulating')} t={t} /> : null}
+            {simulating ? <AtgGapProgress message={t('atgGapSimulating')} progress={progress} t={t} /> : null}
             {simError ? <p className="admin-ops-error">{simError}</p> : null}
             {sim ? <AtgGapSimulationResult sim={sim} t={t} /> : null}
             <ul className="atg-gap-dialog__notes text-steel">
@@ -173,7 +224,7 @@ export default function AtgGapResyncDialog({ operation, gaps, onClose, onAcknowl
               <li>{t('atgGapNoteQty')}</li>
               <li>{t('atgGapNoteAudit')}</li>
             </ul>
-            {step === 'running' ? <AtgGapProgress message={t('atgGapRunning')} t={t} /> : null}
+            {step === 'running' ? <AtgGapProgress message={t('atgGapRunning')} progress={progress} t={t} /> : null}
             {error ? <p className="admin-ops-error">{error}</p> : null}
             <label className="atg-gap-dialog__confirm">
               <input
@@ -193,8 +244,8 @@ export default function AtgGapResyncDialog({ operation, gaps, onClose, onAcknowl
               {t('atgGapAckRemaining', { count: remaining.length })}
             </button>
           ) : null}
-          <button type="button" className="btn btn--ghost" onClick={close} disabled={busy}>
-            {step === 'result' ? t('atgGapClose') : t('atgGapCancel')}
+          <button type="button" className="btn btn--ghost" onClick={close}>
+            {step === 'result' ? t('atgGapClose') : busy ? t('atgGapCloseBackground') : t('atgGapCancel')}
           </button>
           {step !== 'result' ? (
             <button type="button" className="btn btn--primary" disabled={!confirmed || busy} onClick={run}>

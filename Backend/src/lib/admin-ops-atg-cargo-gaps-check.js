@@ -3,6 +3,7 @@
  */
 import { scanAtgCargoGaps } from './atg-cargo-gap-scan.js';
 import { loadLastResyncByOperation } from './atg-cargo-gap-store.js';
+import { loadActiveJobs } from './atg-gap-jobs.js';
 
 const CHECK_ID = 'atg_cargo_gaps';
 const CHECK_TITLE = 'ATG cargo coverage';
@@ -27,10 +28,9 @@ function buildSummary(scan, openOps) {
 export async function checkAtgCargoGaps(db) {
   try {
     const scan = await scanAtgCargoGaps(db);
-    const lastResync = await loadLastResyncByOperation(
-      db,
-      scan.operations.map((op) => op.operationId)
-    );
+    const operationIds = scan.operations.map((op) => op.operationId);
+    const lastResync = await loadLastResyncByOperation(db, operationIds);
+    const activeJobs = await loadActiveJobs(db, operationIds);
     const openOps = scan.operations.filter((op) => op.openGapCount > 0).length;
 
     return checkResult(scan.severity.status, buildSummary(scan, openOps), {
@@ -56,6 +56,7 @@ export async function checkAtgCargoGaps(db) {
         openGapCount: op.openGapCount,
         acknowledgedGapCount: op.acknowledgedGapCount,
         lastResync: lastResync.get(op.operationId) ?? null,
+        activeJob: activeJobs.get(op.operationId) ?? null,
         gaps: op.gaps,
       })),
     });

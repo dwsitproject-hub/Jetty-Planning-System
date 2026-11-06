@@ -7,10 +7,11 @@ import 'express-async-errors';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
+import { failInterruptedJobs } from './lib/atg-gap-jobs.js';
 import { datahubWebhookHandler } from './routes/datahub-webhook.js';
 import fs from 'fs';
 import http from 'http';
-import { verifyConnection } from './db.js';
+import { pool, verifyConnection } from './db.js';
 import { UPLOAD_ROOT } from './paths.js';
 import { castOffAllowsFuture } from './lib/validate-cast-off.js';
 import authRoutes from './routes/auth.js';
@@ -222,6 +223,9 @@ async function start() {
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`JPS API listening on http://0.0.0.0:${PORT} (map host port in Docker)`);
   });
+  failInterruptedJobs(pool)
+    .then((n) => n && console.log(`[atg-gap-jobs] marked ${n} interrupted job(s) as failed`))
+    .catch((err) => console.warn('[atg-gap-jobs] startup cleanup skipped:', err.message));
   startNotificationEmailWorker();
   startIntegrationWebhookWorker();
   startIntegrationLogRetention();
