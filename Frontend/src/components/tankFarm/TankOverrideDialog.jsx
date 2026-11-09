@@ -8,6 +8,7 @@ import {
   expiryFromDays,
   isOverrideOn,
 } from '../../utils/tankManualOverride'
+import StickyFormOverlay from '../StickyFormOverlay.jsx'
 import '../../styles/modal.css'
 import '../../styles/tank-override.css'
 
@@ -73,7 +74,7 @@ export default function TankOverrideDialog({ tank, onClose, onSaved, t }) {
   }
 
   return (
-    <div className="modal-overlay" role="presentation" onClick={() => !busy && onClose()}>
+    <StickyFormOverlay onClose={() => !busy && onClose()}>
       <div
         className="modal tank-override-dialog"
         role="dialog"
@@ -167,6 +168,6 @@ export default function TankOverrideDialog({ tank, onClose, onSaved, t }) {
           </button>
         </div>
       </div>
-    </div>
+    </StickyFormOverlay>
   )
 }
