@@ -59,3 +59,35 @@ test('viewModelFromOperationalEntries leaves commodityId null when API omits it'
   )
   assert.equal(activities[0].cargoLoadLines[0].commodityId, null)
 })
+
+test('viewModelFromOperationalEntries keeps a saved per-tank manual override on the cargo line', () => {
+  const { activities } = viewModelFromOperationalEntries(
+    [
+      {
+        id: '901',
+        entryType: 'activity',
+        milestoneKey: 'cargo_operations',
+        remark: 'unload',
+        startAt: '2026-08-23T19:00:00.000Z',
+        endAt: '2026-08-24T02:15:00.000Z',
+        cargoLoadLines: [
+          {
+            id: '285',
+            lineOrder: 1,
+            qty: 500,
+            startAt: '2026-08-23T19:00:00.000Z',
+            endAt: '2026-08-24T02:15:00.000Z',
+            tankIds: ['37'],
+            manualOverride: { note: 'Counted by shore tank dip', tanks: [{ tankId: 37, qty: 500 }] },
+          },
+        ],
+      },
+    ],
+    'Unloading'
+  )
+  const line = activities.find((a) => a.cargoLoadLines?.length)?.cargoLoadLines[0]
+  assert.deepEqual(line.manualOverride, {
+    note: 'Counted by shore tank dip',
+    tanks: [{ tankId: 37, qty: 500 }],
+  })
+})

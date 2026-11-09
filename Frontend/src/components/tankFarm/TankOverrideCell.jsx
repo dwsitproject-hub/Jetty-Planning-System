@@ -19,7 +19,7 @@ export default function TankOverrideCell({ tank, canEdit, onOpen, t }) {
       <div className="tank-override-cell__top">
         <span className={`tank-override-pill tank-override-pill--${state}`}>{label}</span>
         {canEdit ? (
-          <button type="button" className="btn btn--secondary btn--small" onClick={() => onOpen(tank)}>
+          <button type="button" className="btn btn--secondary btn--small tank-override-btn" onClick={() => onOpen(tank)}>
             {t('tankOverrideButton')}
           </button>
         ) : null}
