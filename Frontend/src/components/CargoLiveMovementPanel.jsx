@@ -7,6 +7,7 @@ import {
   fetchCargoManualCheckpoints,
 } from '../api/operations'
 import { partitionDraftTanks } from '../utils/cargoSessionHelpers'
+import { draftOverrideTankIds } from '../utils/cargoProgressResolvers'
 import { readAtgQtyFromRef } from '../utils/atgQty.js'
 import { formatDateTimeDisplay } from '../utils/formatDateTimeDisplay'
 import { buildClientHourlyRateSummary } from '../utils/hourlyCargoDisplay'
@@ -187,7 +188,7 @@ export default function CargoLiveMovementPanel({
 
   const { atgTankIds, manualTankIds } = useMemo(() => {
     const ids = openLine?.tankIds || []
-    return partitionDraftTanks(ids, tankMetaById)
+    return partitionDraftTanks(ids, tankMetaById, draftOverrideTankIds(openLine))
   }, [openLine, tankMetaById])
 
   const atgQty = readAtgQtyFromRef(atgRef)

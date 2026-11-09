@@ -11,7 +11,7 @@ import {
   rollupLineGaps,
   rollupOperationGaps,
 } from './atg-cargo-gap-detect.js';
-import { partitionLineTanks } from './operational-progress.js';
+import { overrideTankIdsFromJson, partitionLineTanks } from './operational-progress.js';
 import { DEFAULT_RECENT_GAP_MS, annotateAcknowledgedGaps, deriveGapCheckStatus } from './atg-cargo-gap-status.js';
 import { loadAcknowledgements } from './atg-cargo-gap-store.js';
 
@@ -45,6 +45,7 @@ const LINES_FOR_OPS_SQL = `
          l.ended_at,
          l.atg_qty_mode,
          l.atg_hourly_detail,
+         l.manual_override,
          oa.operation_id,
          sc.short_name AS commodity_short_name,
          sc.name AS commodity_name,
@@ -218,7 +219,7 @@ export async function scanAtgCargoGaps(db, opts = {}) {
       if (String(line.atg_qty_mode || 'auto') === 'manual') continue;
 
       const tankIds = (line.tank_ids || []).map(Number).filter((n) => n > 0);
-      const { atgTankIds } = await partitionLineTanks(db, tankIds);
+      const { atgTankIds } = await partitionLineTanks(db, tankIds, overrideTankIdsFromJson(line.manual_override));
       if (!atgTankIds.length) continue;
 
       const windowStart = new Date(line.started_at).toISOString();

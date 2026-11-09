@@ -26,15 +26,34 @@ function parsePositiveQtyValue(s) {
 }
 
 /** Partition selected tanks using master-tank hasAtg flags. */
-export function partitionDraftTanks(tankIds, tankMetaById) {
+export function partitionDraftTanks(tankIds, tankMetaById, overrideTankIds = []) {
+  const overridden = new Set((overrideTankIds || []).map(String))
   const atgTankIds = []
   const manualTankIds = []
   for (const id of tankIds || []) {
     const meta = tankMetaById?.get(String(id))
-    if (meta?.hasAtg) atgTankIds.push(String(id))
+    if (meta?.hasAtg && !overridden.has(String(id))) atgTankIds.push(String(id))
     else manualTankIds.push(String(id))
   }
   return { atgTankIds, manualTankIds }
+}
+
+/** Tanks of a draft cargo entry whose quantity the operator types by hand (per-tank manual override). */
+export function draftOverrideTankIds(draft) {
+  return draft?.overrideManual ? (draft.tankIds || []).map(String) : []
+}
+
+/**
+ * Keep a saved per-tank manual override when a line is sent back to the server, otherwise the
+ * server would recompute that tank from its (wrong) ATG and replace the quantity the operator entered.
+ */
+export function carryManualOverride(l) {
+  const tanks = l?.manualOverride?.tanks
+  if (!Array.isArray(tanks) || tanks.length === 0) return {}
+  return {
+    manualOverrides: tanks.map((t) => ({ tankId: String(t.tankId), qty: t.qty })),
+    manualOverrideNote: l.manualOverride.note ?? '',
+  }
 }
 
 /** Sum positive qty on all draft load lines. */
@@ -136,7 +155,7 @@ export function resolveOpenLineLiveQty({
 
   if (!openLineDraft) return null
 
-  const { atgTankIds, manualTankIds } = partitionDraftTanks(openLineDraft.tankIds, tankMetaById)
+  const { atgTankIds, manualTankIds } = partitionDraftTanks(openLineDraft.tankIds, tankMetaById, draftOverrideTankIds(openLineDraft))
   const atgQtyMode = openLineDraft.atgQtyMode === 'manual' ? 'manual' : 'auto'
 
   const atgQty = readAtgQtyFromRef(atgRef)
