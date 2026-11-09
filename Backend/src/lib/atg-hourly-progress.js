@@ -575,7 +575,7 @@ export async function computeHourlyBucketsForLine(db, line, ctx, opts = {}) {
   const endIso = line.endedAt || line.endAt || new Date().toISOString();
   if (!startIso) return [];
 
-  const { atgTankIds } = await partitionLineTanks(db, line.tankIds || []);
+  const { atgTankIds } = await partitionLineTanks(db, line.tankIds || [], line.manualOverrideTankIds);
   if (!atgTankIds.length) return [];
 
   const mode = resolveLineMode({
@@ -931,7 +931,7 @@ export async function getHourlyBucketsForLineEntry(db, ctx, line, opts = {}) {
   const startIso = line.startedAt || line.startAt;
   if (!startIso || !line.tankIds?.length) return [];
 
-  const { atgTankIds, manualTankIds } = await partitionLineTanks(db, line.tankIds);
+  const { atgTankIds, manualTankIds } = await partitionLineTanks(db, line.tankIds, line.manualOverrideTankIds);
   const mode = resolveLineMode({
     commodityType: ctx.commodityType,
     atgTankIds,

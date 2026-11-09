@@ -11,6 +11,10 @@ const BUILDERS = {
     { labelKey: 'adminOpsKeyOpenGapOps', value: formatCount(d.openOperations ?? d.totalWithGaps ?? 0) },
     { labelKey: 'adminOpsKeyLiveRecent', value: formatCount(d.liveWithRecentGap ?? 0) },
   ],
+  manual_override: (d) => [
+    { labelKey: 'adminOpsKeyOverrideTanks', value: formatCount(d.total ?? 0) },
+    { labelKey: 'adminOpsKeyOverrideNoExpiry', value: formatCount(d.noExpiry ?? 0) },
+  ],
   purge_job: (d) => [
     { labelKey: 'adminOpsKeyLastPurge', value: formatRelativeTime(d.lastBatch?.lastActedAt) },
   ],

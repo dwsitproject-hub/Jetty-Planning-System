@@ -9,7 +9,7 @@ export function CheckHeaderText({ check, t, as: Heading = 'h2' }) {
   const showGuidance =
     check.status === 'unknown' ||
     check.status === 'unhealthy' ||
-    (check.id === 'atg_cargo_gaps' && check.status === 'degraded')
+    ((check.id === 'atg_cargo_gaps' || check.id === 'manual_override') && check.status === 'degraded')
   const guidance = showGuidance ? t(`adminOpsGuidance_${check.id}`, { defaultValue: '' }) : ''
 
   return (

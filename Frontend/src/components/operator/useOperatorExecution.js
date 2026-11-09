@@ -31,6 +31,7 @@ import {
 } from '../../utils/cargoSiQtyMismatch.js'
 import {
   buildStoppedCargoLine,
+  carryManualOverride,
   mapExistingCargoLine,
   resolveLineTankIds,
 } from '../../utils/cargoSessionHelpers.js'
@@ -624,6 +625,7 @@ export function useOperatorExecution(operationId) {
             tankIds: resolveLineTankIds(l),
             atgQtyMode: l.atgQtyMode || 'auto',
             commodityId: l.commodityId != null ? String(l.commodityId) : undefined,
+            ...carryManualOverride(l),
           }
         }
         return buildStoppedCargoLine(l, endIso, {
@@ -751,6 +753,7 @@ export function useOperatorExecution(operationId) {
             qty: l.qty,
             tankIds: resolveLineTankIds(l),
             atgQtyMode: edited ? 'auto' : l.atgQtyMode || 'auto',
+            ...carryManualOverride(l),
           }
         })
         await updateOperationalEntry(

@@ -31,6 +31,7 @@ import { buildTankCommodityMismatchWarnings } from '../utils/tankCommodityMismat
 import { fetchTankGaugingMassDelta } from '../api/tankGauging'
 import { readAtgQtyFromRef } from '../utils/atgQty.js'
 import OperationActivityTimeline from './OperationActivityTimeline'
+import CargoOverrideBlock from './CargoOverrideBlock'
 import DropdownSearchSelect from './DropdownSearchSelect'
 import CargoEntryHourlyPanel from './CargoEntryHourlyPanel'
 import {
@@ -43,6 +44,7 @@ import {
   buildLiveCargoProgressSnapshot,
   findOpenCargoLoadLine,
   partitionDraftTanks,
+  draftOverrideTankIds,
   resolveCargoProgressTotalLoaded,
   resolveDefaultCargoOperationWindowStart,
   sumClosedPersistedLineQty,
@@ -166,6 +168,8 @@ function defaultCargoLineDraft(getEnd, activityStartLocal, tankIds = [], commodi
     qty: '',
     manualQty: '',
     atgQtyMode: 'auto',
+    overrideManual: false,
+    overrideNote: '',
     start: startVal,
     end: sameMinute ? '' : endVal,
     qtyTouched: false,
@@ -340,6 +344,8 @@ export default function OperationalMilestoneWorkspace({
                 l.manualQty != null && Number.isFinite(Number(l.manualQty)) ? String(l.manualQty) : '',
               atgQtyMode: l.atgQtyMode === 'manual' ? 'manual' : 'auto',
               loadedManual: l.atgQtyMode === 'manual',
+              overrideManual: Boolean(l.manualOverride?.tanks?.length),
+              overrideNote: l.manualOverride?.note ?? '',
               start: startLoc,
               end: endLoc,
               qtyTouched: true,
@@ -412,6 +418,7 @@ export default function OperationalMilestoneWorkspace({
           const hasAtg = tk.hasAtg === true
           meta.set(id, {
             hasAtg,
+            manualOverride: tk.manualOverride ?? null,
             code: tk.code,
             name: tk.name,
             productName: tk.productName ?? tk.product_name ?? null,
@@ -501,6 +508,8 @@ export default function OperationalMilestoneWorkspace({
                   : '',
               atgQtyMode: l.atgQtyMode === 'manual' ? 'manual' : 'auto',
               loadedManual: l.atgQtyMode === 'manual',
+              overrideManual: Boolean(l.manualOverride?.tanks?.length),
+              overrideNote: l.manualOverride?.note ?? '',
               start: l.startAt ? isoOrDatetimeToLocal(l.startAt) : '',
               end: l.endAt ? isoOrDatetimeToLocal(l.endAt) : '',
               qtyTouched: true,
@@ -765,7 +774,7 @@ export default function OperationalMilestoneWorkspace({
     if (!useCargoSessionMode || !formModalOpen || !operationId) return undefined
     const hasOpenAtg = cargoLoadLinesDraft.some((l) => {
       if (!l.start || l.end || l.atgQtyMode === 'manual') return false
-      const { atgTankIds } = partitionDraftTanks(l.tankIds, tankMetaById)
+      const { atgTankIds } = partitionDraftTanks(l.tankIds, tankMetaById, draftOverrideTankIds(l))
       return atgTankIds.length > 0
     })
     if (!hasOpenAtg && !openLineDraft) return undefined
@@ -895,7 +904,8 @@ export default function OperationalMilestoneWorkspace({
           Object.prototype.hasOwnProperty.call(patch, 'end') ||
           Object.prototype.hasOwnProperty.call(patch, 'tankIds') ||
           Object.prototype.hasOwnProperty.call(patch, 'manualQty') ||
-          Object.prototype.hasOwnProperty.call(patch, 'atgQtyMode')
+          Object.prototype.hasOwnProperty.call(patch, 'atgQtyMode') ||
+          Object.prototype.hasOwnProperty.call(patch, 'overrideManual')
         ) {
           if (!Object.prototype.hasOwnProperty.call(patch, 'qtyTouched')) {
             next.qtyTouched = false
@@ -905,6 +915,10 @@ export default function OperationalMilestoneWorkspace({
           (Object.prototype.hasOwnProperty.call(patch, 'start') && patch.start !== row.start) ||
           (Object.prototype.hasOwnProperty.call(patch, 'end') && patch.end !== row.end) ||
           Object.prototype.hasOwnProperty.call(patch, 'tankIds')
+        if (windowChanged && Object.prototype.hasOwnProperty.call(patch, 'tankIds')) {
+          next.overrideManual = false
+          next.overrideNote = ''
+        }
         if (windowChanged && row.loadedManual) {
           // The segment no longer covers the window that was stored as manual, so
           // it goes back to ATG; the operator can mark it unavailable again if the
@@ -923,7 +937,7 @@ export default function OperationalMilestoneWorkspace({
       cargoLoadLinesDraft
         .map(
           (r) =>
-            `${r.key}|${r.start}|${r.end}|${r.qtyTouched ? 1 : 0}|${r.atgQtyMode || 'auto'}|${(r.tankIds || []).join(',')}`
+            `${r.key}|${r.start}|${r.end}|${r.qtyTouched ? 1 : 0}|${r.atgQtyMode || 'auto'}|${r.overrideManual ? 'ov' : ''}|${(r.tankIds || []).join(',')}`
         )
         .join(';'),
     [cargoLoadLinesDraft, liveAtgTick]
@@ -939,7 +953,7 @@ export default function OperationalMilestoneWorkspace({
       const nextRefs = {}
       const qtyAuto = new Map()
       for (const row of cargoLoadLinesDraft) {
-        const { atgTankIds, manualTankIds } = partitionDraftTanks(row.tankIds, tankMetaById)
+        const { atgTankIds, manualTankIds } = partitionDraftTanks(row.tankIds, tankMetaById, draftOverrideTankIds(row))
         if (!row.start || atgTankIds.length === 0 || row.atgQtyMode === 'manual') {
           nextRefs[row.key] = {
             status: 'idle',
@@ -1129,7 +1143,7 @@ export default function OperationalMilestoneWorkspace({
               return { error: t('cargoOpsLineManualQtyInvalid', { n: i + 1 }) }
             }
           }
-          const { atgTankIds, manualTankIds } = partitionDraftTanks(li.tankIds, tankMetaById)
+          const { atgTankIds, manualTankIds } = partitionDraftTanks(li.tankIds, tankMetaById, draftOverrideTankIds(li))
           const isMixed = commodityType === 'Liquid' && atgTankIds.length > 0 && manualTankIds.length > 0
           const hasAtgTanks = commodityType === 'Liquid' && atgTankIds.length > 0
           const atgRef = atgRefByLineKey[li.key]
@@ -1146,6 +1160,11 @@ export default function OperationalMilestoneWorkspace({
             mq = null
           } else if (hasEnd && mq == null) {
             return { error: t('cargoOpsLineQtyRequiredWhenEnd', { n: i + 1 }) }
+          }
+          const overrideOn = Boolean(li.overrideManual) && hasEnd && commodityType === 'Liquid'
+          const overrideNote = String(li.overrideNote ?? '').trim()
+          if (overrideOn && overrideNote.length < 3) {
+            return { error: t('cargoOpsOverrideNoteRequired', { n: i + 1 }) }
           }
           const draftTanks = normalizeDraftTankIds(li.tankIds)
           if (commodityType === 'Liquid' && draftTanks.length === 0) {
@@ -1170,6 +1189,8 @@ export default function OperationalMilestoneWorkspace({
             _i: i,
             tankIds: draftTanks,
             commodityId: lineCommodityId || null,
+            overrideOn,
+            overrideNote,
           })
         }
         built.sort((a, b) => a._sort - b._sort || a._i - b._i)
@@ -1187,7 +1208,7 @@ export default function OperationalMilestoneWorkspace({
           }
         }
         const cargoLoadLines = built.map(
-          ({ qty, manualQty, atgQtyMode, startIso, endIso, tankIds, commodityId }) => {
+          ({ qty, manualQty, atgQtyMode, startIso, endIso, tankIds, commodityId, overrideOn, overrideNote }) => {
           const row = { startAt: startIso, atgQtyMode: atgQtyMode || 'auto' }
           if (endIso) row.endAt = endIso
           else row.endAt = null
@@ -1196,6 +1217,10 @@ export default function OperationalMilestoneWorkspace({
           if (commodityId) row.commodityId = commodityId
           if (commodityType === 'Liquid' && Array.isArray(tankIds) && tankIds.length > 0) {
             row.tankIds = tankIds
+          }
+          if (overrideOn && qty != null && Array.isArray(tankIds) && tankIds.length > 0) {
+            row.manualOverrides = tankIds.map((tankId) => ({ tankId, qty }))
+            row.manualOverrideNote = overrideNote
           }
           return row
         }
@@ -1705,7 +1730,7 @@ export default function OperationalMilestoneWorkspace({
                     const lineRows = cargoOpsFormDerived?.lineRows || []
                     const isLastLine = lineRows.length > 0 && lineRows[lineRows.length - 1].key === lr.key
                     const atgRef = atgRefByLineKey[lr.key]
-                    const { atgTankIds, manualTankIds } = partitionDraftTanks(row.tankIds, tankMetaById)
+                    const { atgTankIds, manualTankIds } = partitionDraftTanks(row.tankIds, tankMetaById, draftOverrideTankIds(row))
                     const isAllAtg =
                       commodityType === 'Liquid' && atgTankIds.length > 0 && manualTankIds.length === 0
                     const isMixed =
@@ -1960,6 +1985,14 @@ export default function OperationalMilestoneWorkspace({
                               </div>
                             ) : null}
                           </div>
+
+                          <CargoOverrideBlock
+                            row={row}
+                            tankMetaById={tankMetaById}
+                            hasEnd={Boolean(row.end)}
+                            t={t}
+                            onChange={(patch) => updateCargoLineDraft(lr.key, patch)}
+                          />
 
                           {hasAtgTanks ? (
                             <label

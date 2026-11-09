@@ -8,6 +8,7 @@ import { computeAtgSyncHealth, DEFAULT_ATG_STALE_MS } from './dashboard-atg-sync
 import { getDataHubConfigForAdmin } from './datahub-config.js';
 import { checkPartnerApi } from './admin-ops-partner-api-check.js';
 import { checkAtgCargoGaps } from './admin-ops-atg-cargo-gaps-check.js';
+import { checkManualOverride } from './admin-ops-manual-override-check.js';
 import { UPLOAD_ROOT } from '../paths.js';
 
 export const MOUNT_HEALTH_FILENAME = '.jps-mount-health.json';
@@ -300,6 +301,7 @@ export async function checkDataHub(db) {
 export const ADMIN_OPS_CHECK_REGISTRY = [
   checkAtgSync,
   checkAtgCargoGaps,
+  checkManualOverride,
   checkPurgeJob,
   (_db) => checkSynologyMount(),
   checkDataHub,

@@ -339,6 +339,31 @@ export function PartnerApiDetail({ details, t }) {
   )
 }
 
+function ManualOverrideDetail({ details, t }) {
+  const rows = (details.tanks ?? []).map((tk) => ({
+    key: tk.tankId,
+    tank: tk.code,
+    port: tk.portName || '—',
+    reason: tk.reason || '—',
+    setBy: tk.setBy || '—',
+    expires: tk.expiresAt ? formatWhen(tk.expiresAt) : t('adminOpsOverrideNoExpiry'),
+  }))
+  return (
+    <DetailTable
+      columns={[
+        { key: 'tank', label: t('adminOpsOverrideTank') },
+        { key: 'port', label: t('adminOpsOverridePort') },
+        { key: 'reason', label: t('adminOpsOverrideReason') },
+        { key: 'setBy', label: t('adminOpsOverrideSetBy') },
+        { key: 'expires', label: t('adminOpsOverrideExpires') },
+      ]}
+      rows={rows}
+      emptyMessage={t('adminOpsOverrideNone')}
+      noMatchLabel={t('tableNoFilterMatch')}
+    />
+  )
+}
+
 export function StructuredCheckDetail({ check, t, canResyncAtg, onAtgGapsChanged }) {
   const details = check.details ?? {}
   switch (check.id) {
@@ -361,6 +386,8 @@ export function StructuredCheckDetail({ check, t, canResyncAtg, onAtgGapsChanged
           t={t}
         />
       )
+    case 'manual_override':
+      return <ManualOverrideDetail details={details} t={t} />
     case 'synology_mount':
       return <SynologyMountDetail details={details} t={t} />
     case 'datahub':
