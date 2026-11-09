@@ -1448,6 +1448,9 @@ const POSTCHECK_RESULT_LABEL = {
 const POSTCHECK_SINGLE_TIME_SECTIONS = new Set(['closing'])
 const POSTCHECK_CLOSING_TIME_LABEL = 'Closing Date & Time'
 
+/** Closing method is derived from the SI commodity type, like Opening (Solid → Conveyor, Liquid → Hose). */
+const closingHandlingMethod = (commodityType) => (commodityType === 'Solid' ? 'Conveyor' : 'Hose')
+
 const POSTCHECK_START_LABEL = {
   finalInspection: 'Final Inspection Start Time',
   finalCargoChecking: 'Final Cargo Checking Start Time',
@@ -3806,7 +3809,9 @@ function PostCheckingSections({
                 ? { inspectionType: finalInspectionType }
                 : sectionKey === 'finalCargoChecking'
                   ? { cargoCheckingType: finalCargoCheckingType }
-                  : null,
+                  : sectionKey === 'closing'
+                    ? { cargoHandlingMethod: closingHandlingMethod(commodityType) }
+                    : null,
           },
           { scheduleIana: scheduleEntryTz }
         )
@@ -3884,6 +3889,7 @@ function PostCheckingSections({
     const startL = POSTCHECK_START_LABEL[sectionKey]
     const endL = POSTCHECK_END_LABEL[sectionKey]
     const isSingleTime = POSTCHECK_SINGLE_TIME_SECTIONS.has(sectionKey)
+    const closingMethodLabel = `${closingHandlingMethod(commodityType)} Off`
     return (
       <PreCheckSectionCard
         title={tab.label}
@@ -3906,6 +3912,23 @@ function PostCheckingSections({
               <div className="precheck-section__row">
                 <span className="precheck-section__label">Cargo Checking Type</span>
                 <span className="precheck-section__value">{commodityType === 'Solid' ? 'Draft Survey' : 'Sounding'}</span>
+              </div>
+            )}
+            {sectionKey === 'closing' && (
+              <div className="berthing-modal__field">
+                <label className="berthing-modal__label" htmlFor="post-closing-handling-method">
+                  Cargo handling method
+                </label>
+                <select
+                  id="post-closing-handling-method"
+                  className="berthing-modal__input"
+                  disabled
+                  value={closingMethodLabel}
+                  aria-readonly="true"
+                  title="Derived from shipping instruction commodity type (Solid → Conveyor Off, Liquid → Hose Off)"
+                >
+                  <option value={closingMethodLabel}>{closingMethodLabel}</option>
+                </select>
               </div>
             )}
             <div className="berthing-modal__field">
@@ -3963,6 +3986,12 @@ function PostCheckingSections({
                 <span className="precheck-section__value">
                   {data[sectionKey]?.cargoCheckingType || (commodityType === 'Solid' ? 'Draft Survey' : 'Sounding')}
                 </span>
+              </div>
+            )}
+            {sectionKey === 'closing' && (
+              <div className="precheck-section__row">
+                <span className="precheck-section__label">Cargo handling method</span>
+                <span className="precheck-section__value">{closingMethodLabel}</span>
               </div>
             )}
             <div className="precheck-section__row precheck-section__row--block">
