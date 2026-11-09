@@ -997,5 +997,7 @@
   "cargoOpsOverrideNote": "Catatan untuk kuantitas manual",
   "cargoOpsOverrideNotePlaceholder": "mis. Dihitung dengan dip tangki darat, 06:00 sampai 14:00",
   "cargoOpsOverrideNoteRequired": "Entri {{n}}: isi catatan untuk kuantitas manual.",
-  "cargoOpsOverrideAtEnd": "Isi kuantitas dan catatan saat entri ini selesai."
+  "cargoOpsOverrideAtEnd": "Isi kuantitas dan catatan saat entri ini selesai.",
+  "cargoHourlyOverrideTag": "Override",
+  "cargoHourlyOverrideTip": "Override manual: kuantitas diketik manual · {{note}}"
 }

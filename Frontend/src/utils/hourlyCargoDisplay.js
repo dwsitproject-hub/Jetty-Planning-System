@@ -239,6 +239,8 @@ export function expandHourlyBucketsForDisplay(hourlyBuckets, purpose = null) {
           ...bucket,
           rowKey: `${bucket.hourStart}-${tankCode}`,
           tankCode,
+          tankOverride: tk.manualOverride === true,
+          tankOverrideNote: tk.overrideNote ?? null,
           tankDisplayQtyMoved,
           rateTph,
         })

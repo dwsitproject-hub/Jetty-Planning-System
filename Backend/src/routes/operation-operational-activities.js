@@ -1606,6 +1606,8 @@ router.post('/operations/:operationId/cargo-segment-hourly', async (req, res) =>
       endedAt: endIso,
       tankIds,
       manualOverrideTankIds: draftOverrideIds.length ? draftOverrideIds : (dbLine?.manualOverrideTankIds ?? []),
+      manualOverrideNote: dbLine?.manualOverrideNote ?? null,
+      tankCodeById: Object.fromEntries(await loadTankCodes(pool, tankIds.map(Number).filter((n) => n > 0))),
       atgQtyMode,
       qty: dbLine?.qty ?? null,
       manualQty: dbLine?.manualQty ?? null,
