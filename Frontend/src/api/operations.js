@@ -27,7 +27,7 @@ export function resolveCargoLineTankIdsForApi(line) {
   return []
 }
 
-function mapCargoLoadLineForApi(l, tz) {
+export function mapCargoLoadLineForApi(l, tz) {
   const row = { startAt: normalizeOpActivityTs(l.startAt, tz) }
   if (l.endAt != null && l.endAt !== '') {
     row.endAt = normalizeOpActivityTs(l.endAt, tz)
@@ -49,6 +49,11 @@ function mapCargoLoadLineForApi(l, tz) {
   if (commodityRaw != null && commodityRaw !== '') {
     const cid = parseInt(String(commodityRaw).trim(), 10)
     if (Number.isFinite(cid) && cid > 0) row.commodityId = cid
+  }
+  // Per-tank manual override: quantities typed by hand for tanks whose ATG is overridden.
+  if (Array.isArray(l.manualOverrides) && l.manualOverrides.length > 0) {
+    row.manualOverrides = l.manualOverrides.map((o) => ({ tankId: o.tankId, qty: Number(o.qty) }))
+    row.manualOverrideNote = String(l.manualOverrideNote ?? '')
   }
   return row
 }
