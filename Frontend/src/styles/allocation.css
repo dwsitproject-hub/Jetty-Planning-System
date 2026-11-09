@@ -5955,6 +5955,23 @@ body:has(.clearance-page--embed) {
   overflow-x: auto;
 }
 
+.hourly-cargo-progress__row--override td {
+  background: #fffbf0;
+}
+
+.hourly-cargo-progress__override-tag {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0 0.45rem;
+  border: 1px solid #ffe082;
+  border-radius: 999px;
+  background: #fff8e1;
+  color: #8a3b00;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: help;
+}
+
 .hourly-cargo-progress__table {
   width: 100%;
   border-collapse: collapse;

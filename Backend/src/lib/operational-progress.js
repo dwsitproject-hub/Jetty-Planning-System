@@ -437,6 +437,13 @@ export async function loadOperationProgressContext(db, operationId) {
   const linesR = await db.query(
     `SELECT l.id, l.qty, l.manual_qty, l.atg_qty_mode, l.started_at, l.ended_at,
             l.atg_hourly_detail, l.commodity_id, l.manual_override,
+            COALESCE(
+              (SELECT jsonb_object_agg(mt.id::text, mt.code)
+               FROM operation_cargo_load_line_tanks clt2
+               JOIN master_tanks mt ON mt.id = clt2.tank_id
+               WHERE clt2.load_line_id = l.id),
+              '{}'::jsonb
+            ) AS tank_codes,
             sc.short_name AS commodity_short_name,
             sc.name AS commodity_name,
             sc.commodity_group AS commodity_group,
@@ -466,6 +473,8 @@ export async function loadOperationProgressContext(db, operationId) {
     atgHourlyDetail: Array.isArray(l.atg_hourly_detail) ? l.atg_hourly_detail : null,
     tankIds: (l.tank_ids || []).map(Number).filter((n) => n > 0),
     manualOverrideTankIds: overrideTankIdsFromJson(l.manual_override),
+    manualOverrideNote: l.manual_override?.note ?? null,
+    tankCodeById: l.tank_codes || {},
     commodityId: l.commodity_id != null ? Number(l.commodity_id) : null,
     commodityShortName: l.commodity_short_name ? String(l.commodity_short_name).trim() : null,
     commodityName: l.commodity_name ? String(l.commodity_name).trim() : null,

@@ -997,5 +997,7 @@
   "cargoOpsOverrideNote": "Note for the manual quantity",
   "cargoOpsOverrideNotePlaceholder": "e.g. Counted by shore tank dip, 06:00 to 14:00",
   "cargoOpsOverrideNoteRequired": "Entry {{n}}: enter a note for the manual quantity.",
-  "cargoOpsOverrideAtEnd": "Enter the quantity and note when this entry ends."
+  "cargoOpsOverrideAtEnd": "Enter the quantity and note when this entry ends.",
+  "cargoHourlyOverrideTag": "Override",
+  "cargoHourlyOverrideTip": "Manual override: quantity typed by hand · {{note}}"
 }

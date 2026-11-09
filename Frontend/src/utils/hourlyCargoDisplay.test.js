@@ -193,3 +193,41 @@ describe('bucketDisplayQty', () => {
     assert.equal(bucketDisplayQty({ displayQtyMoved: -100, qtyMoved: 0 }, 'Unloading'), -100)
   })
 })
+
+describe('expandHourlyBucketsForDisplay manual tank rows', () => {
+  const bucket = (tankDetail) => ({
+    hourStart: '2026-11-08T19:00:00.000Z',
+    hourEnd: '2026-11-08T20:00:00.000Z',
+    qtyMoved: 80.57,
+    displayQtyMoved: 80.57,
+    rateTph: 80.57,
+    displayRateTph: 80.57,
+    movementStatus: 'active',
+    source: 'manual',
+    tankDetail,
+  })
+
+  it('shows the tank for a manual hour and flags a manual override', () => {
+    const rows = expandHourlyBucketsForDisplay(
+      [bucket([{ tankId: '37', code: '5102', qtyMoved: 80.57, displayQtyMoved: 80.57, manual: true, manualOverride: true, overrideNote: 'dip' }])],
+      'Unloading'
+    )
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0].tankCode, '5102')
+    assert.equal(rows[0].tankOverride, true)
+    assert.equal(rows[0].tankOverrideNote, 'dip')
+  })
+
+  it('shows a plain manual tank without the override flag', () => {
+    const rows = expandHourlyBucketsForDisplay(
+      [bucket([{ tankId: '40', code: '3601', qtyMoved: 40, displayQtyMoved: 40, manual: true, manualOverride: false }])],
+      'Unloading'
+    )
+    assert.equal(rows[0].tankCode, '3601')
+    assert.equal(rows[0].tankOverride, false)
+  })
+
+  it('still shows a dash when a manual hour has no tank detail', () => {
+    assert.equal(expandHourlyBucketsForDisplay([bucket(null)], 'Unloading')[0].tankCode, '—')
+  })
+})
