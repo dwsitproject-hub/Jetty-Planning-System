@@ -69,10 +69,20 @@ export const CHART_METRICS = [
   },
   {
     key: 'avgRate',
-    title: 'Avg flow',
+    title: 'Achieved rate',
     tooltip: PRODUCT_COLUMN_TOOLTIPS.avgFlow,
     yTitle: 'MT/h',
     pick: (b) => b.avgRate,
+    formatValue: (v) => (v == null ? '—' : `${fmtNum(v, 1)} MT/h`),
+    formatPointLabel: (v) =>
+      v == null || !Number.isFinite(v) ? null : fmtNum(v, 1),
+  },
+  {
+    key: 'activeRate',
+    title: 'Active rate',
+    tooltip: PRODUCT_COLUMN_TOOLTIPS.activeFlow,
+    yTitle: 'MT/h',
+    pick: (b) => b.activeRate,
     formatValue: (v) => (v == null ? '—' : `${fmtNum(v, 1)} MT/h`),
     formatPointLabel: (v) =>
       v == null || !Number.isFinite(v) ? null : fmtNum(v, 1),
@@ -300,9 +310,15 @@ export default function ProductDetailModal({ detail, onClose }) {
             <span className="mgmt-modal-summary__val">{fmtMgmtDurationDays(productRow.avgWait)}</span>
           </div>
           <div className="mgmt-modal-summary__item">
-            <span className="mgmt-modal-summary__lbl">Avg flow</span>
+            <span className="mgmt-modal-summary__lbl">Achieved rate</span>
             <span className="mgmt-modal-summary__val">
               {productRow.avgRate == null ? '—' : `${fmtNum(productRow.avgRate, 1)} MT/h`}
+            </span>
+          </div>
+          <div className="mgmt-modal-summary__item">
+            <span className="mgmt-modal-summary__lbl">Active rate</span>
+            <span className="mgmt-modal-summary__val">
+              {productRow.activeRate == null ? '—' : `${fmtNum(productRow.activeRate, 1)} MT/h`}
             </span>
           </div>
         </div>

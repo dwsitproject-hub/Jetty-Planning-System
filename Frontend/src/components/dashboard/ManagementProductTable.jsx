@@ -11,7 +11,9 @@ export const PRODUCT_COLUMN_TOOLTIPS = {
   berthToStart:
     'Average time from alongside (TB) until the Cargo Operations operation window start.',
   avgFlow:
-    'Average tons moved per hour for this commodity group (moved qty ÷ logged cargo hours).',
+    'Achieved rate: total MT moved ÷ total operational hours (first cargo start → last cargo end, pauses included).',
+  activeFlow:
+    'Active flow rate: total MT moved ÷ hours a cargo segment was actually running (pauses between segments excluded).',
   cargoDoneToSail:
     'Average time from cargo finished until the vessel sailed',
 }
@@ -21,6 +23,7 @@ export const PRODUCT_COLUMN_CHART_METRIC = {
   avgWait: 'avgWait',
   berthToStart: 'avgPre',
   avgFlow: 'avgRate',
+  activeFlow: 'activeRate',
   cargoDoneToSail: 'avgCargoDoneToSail',
 }
 
@@ -90,7 +93,8 @@ const PRODUCT_TABLE_COLUMNS = [
     tooltip: PRODUCT_COLUMN_TOOLTIPS.berthToStart,
     sortValue: (r) => r.avgPre,
   },
-  { key: 'avgFlow', label: 'Avg flow', align: 'right', tooltip: PRODUCT_COLUMN_TOOLTIPS.avgFlow, sortValue: (r) => r.avgRate },
+  { key: 'avgFlow', label: 'Achieved rate', align: 'right', tooltip: PRODUCT_COLUMN_TOOLTIPS.avgFlow, sortValue: (r) => r.avgRate },
+  { key: 'activeFlow', label: 'Active rate', align: 'right', tooltip: PRODUCT_COLUMN_TOOLTIPS.activeFlow, sortValue: (r) => r.activeRate },
   {
     key: 'cargoDoneToSail',
     label: 'Cargo done → sailed off',
@@ -225,6 +229,14 @@ function ProductBlock({ title, chipClass, rows, onProductOpen }) {
                     onActivate={open}
                   >
                     {r.avgRate == null ? '—' : `${fmtNum(r.avgRate, 1)} MT/h`}
+                  </ClickableCell>
+                  <ClickableCell
+                    colKey="activeFlow"
+                    align="right"
+                    ariaLabel={`${r.label} — Active rate chart`}
+                    onActivate={open}
+                  >
+                    {r.activeRate == null ? '—' : `${fmtNum(r.activeRate, 1)} MT/h`}
                   </ClickableCell>
                   <ClickableCell
                     colKey="cargoDoneToSail"

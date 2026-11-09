@@ -222,7 +222,8 @@ function CargoDonePanel({ row, timelineEvents }) {
 const PANEL_TITLES = {
   wait: 'Wait',
   pre: 'Berth → start cargo',
-  flow: 'Avg flow',
+  flow: 'Achieved rate',
+  activeFlow: 'Active flow rate',
   cargoDoneToSail: 'Cargo done → sailed off',
 }
 
@@ -251,8 +252,13 @@ export default function ProductMetricEvidenceRow({
           {columnKey === 'pre' ? (
             <BerthToStartPanel row={row} prefetchedDetail={detail} />
           ) : null}
-          {columnKey === 'flow' ? (
-            <FlowEvidencePanel row={row} productKey={productKey} timelineEvents={timeline} />
+          {columnKey === 'flow' || columnKey === 'activeFlow' ? (
+            <FlowEvidencePanel
+              row={row}
+              productKey={productKey}
+              timelineEvents={timeline}
+              active={columnKey === 'activeFlow'}
+            />
           ) : null}
           {columnKey === 'cargoDoneToSail' ? (
             <CargoDonePanel row={row} timelineEvents={timeline} />
