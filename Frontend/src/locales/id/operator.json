@@ -54,7 +54,8 @@
   "post": {
     "finalInspection": "FINAL INSPECTION",
     "finalCargoChecking": "FINAL CARGO CHECKING",
-    "closing": "PENUTUPAN"
+    "closing": "PENUTUPAN",
+    "customClearance": "CUSTOM CLEARANCE"
   },
   "state": {
     "completed": "Selesai",
