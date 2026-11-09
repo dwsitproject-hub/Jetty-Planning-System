@@ -616,6 +616,7 @@ export const defaultPreCheckingSection = () => ({
 export const defaultPostCheckingSection = () => ({
   finalInspection: { result: '', startTime: '', endTime: '', documents: [], inspectionType: '' },
   finalCargoChecking: { result: '', startTime: '', endTime: '', documents: [], cargoCheckingType: '' },
+  closing: { result: '', startTime: '', documents: [] },
 })
 
 /** Initial loading operation data per vessel (detail activities only) */

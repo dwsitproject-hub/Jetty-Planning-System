@@ -91,6 +91,7 @@ const SUB_PROCESS_TITLE = {
   final_tank_inspection: 'FINAL INSPECTION',
   final_hold_inspection: 'FINAL INSPECTION',
   final_sounding: 'FINAL CARGO CHECKING',
+  closing: 'CLOSING',
 };
 
 function parseOperationId(raw) {
