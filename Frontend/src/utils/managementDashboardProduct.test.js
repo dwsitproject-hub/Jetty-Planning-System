@@ -183,7 +183,7 @@ describe('aggregateByProduct', () => {
     assert.equal(agg.outgoing[0].avgWait, 6)
     assert.equal(agg.outgoing[0].avgPre, 2)
     assert.equal(agg.outgoing[0].coverage.preLogged, 1)
-    assert.equal(agg.outgoing[0].avgRate, 75)
+    assert.equal(agg.outgoing[0].avgRate, 1000 / 12)
     assert.equal(agg.outgoing[0].avgCargoDoneToSail, 8)
 
     assert.equal(agg.incoming.length, 1)

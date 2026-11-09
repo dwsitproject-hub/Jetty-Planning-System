@@ -4,6 +4,7 @@
 import express from 'express';
 import { pool } from '../db.js';
 import { requirePageView } from '../middleware/permissions.js';
+import { PLAN_LABEL_PAGE_KEYS, enrichPlanLabelsOnActivityRows } from '../lib/activity-log-plan-labels.js';
 
 const router = express.Router();
 
@@ -48,7 +49,10 @@ router.get('/', ...requirePageView('activity-log'), async (req, res) => {
   const rows = r.rows || [];
   const hasMore = rows.length > limit;
   const sliced = hasMore ? rows.slice(0, limit) : rows;
-  const enriched = await enrichPortNamesOnActivityRows(sliced);
+  const withPorts = await enrichPortNamesOnActivityRows(sliced);
+  const enriched = PLAN_LABEL_PAGE_KEYS.has(pageKey)
+    ? await enrichPlanLabelsOnActivityRows(pool, withPorts, parseMetaJson)
+    : withPorts;
   const nextCursor = hasMore
     ? `${sliced[sliced.length - 1].created_at.toISOString()}|${sliced[sliced.length - 1].id}`
     : null;

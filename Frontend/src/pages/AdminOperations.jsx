@@ -2,12 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { fetchAdminOpsStatus, updateAdminOpsSettings } from '../api/adminOps'
+import { useRbac } from '../context/RbacContext.jsx'
+import { CheckSection } from '../components/admin/AdminOpsCheckCard.jsx'
+import AdminOpsCheckPopup from '../components/admin/AdminOpsCheckPopup.jsx'
 import {
-  StructuredCheckDetail,
-  TechnicalJsonDetails,
-} from '../components/admin/AdminOpsCheckDetails'
-import {
-  cardStatusClass,
   countChecksByStatus,
   formatRelativeTime,
   formatWhen,
@@ -19,7 +17,9 @@ import {
 import '../styles/allocation.css'
 import '../styles/admin.css'
 
-function StatusHero({ data, statusLabel, t }) {
+const HERO_STATUSES = ['unhealthy', 'degraded', 'unknown', 'healthy', 'disabled']
+
+function StatusHero({ data, statusLabel, statusFilter, onFilter, t }) {
   if (!data?.overall) return null
   const counts = countChecksByStatus(data.checks)
 
@@ -36,15 +36,27 @@ function StatusHero({ data, statusLabel, t }) {
             {statusLabel(data.overall)}
           </span>
         </p>
-        <p className="admin-ops-hero__counts">
-          {t('adminOpsHeroCounts', {
-            unhealthy: counts.unhealthy,
-            degraded: counts.degraded,
-            unknown: counts.unknown,
-            healthy: counts.healthy,
-            disabled: counts.disabled,
-          })}
-        </p>
+        <div className="admin-ops-hero__chips" role="group" aria-label={t('adminOpsHeroFilter')}>
+          <button
+            type="button"
+            className={`admin-ops-hero__chip${statusFilter ? '' : ' is-active'}`}
+            aria-pressed={!statusFilter}
+            onClick={() => onFilter(null)}
+          >
+            {t('adminOpsHeroAll')} <strong>{data.checks.length}</strong>
+          </button>
+          {HERO_STATUSES.filter((s) => counts[s] > 0).map((s) => (
+            <button
+              key={s}
+              type="button"
+              className={`admin-ops-hero__chip admin-ops-hero__chip--${s}${statusFilter === s ? ' is-active' : ''}`}
+              aria-pressed={statusFilter === s}
+              onClick={() => onFilter(statusFilter === s ? null : s)}
+            >
+              {statusLabel(s)} <strong>{counts[s]}</strong>
+            </button>
+          ))}
+        </div>
         {data.checkedAt ? (
           <p className="admin-ops-hero__checked">
             {t('adminOpsLastChecked')}: {formatRelativeTime(data.checkedAt)}
@@ -54,63 +66,6 @@ function StatusHero({ data, statusLabel, t }) {
             </span>
           </p>
         ) : null}
-      </div>
-    </section>
-  )
-}
-
-function CheckCard({ check, statusLabel, t }) {
-  const [techOpen, setTechOpen] = useState(false)
-  const guidanceKey = `adminOpsGuidance_${check.id}`
-  const guidance =
-    check.status === 'unknown' || check.status === 'unhealthy'
-      ? t(guidanceKey, { defaultValue: '' })
-      : ''
-
-  return (
-    <article className={`card admin-ops-card ${cardStatusClass(check.status)}`}>
-      <div className="card__header-row">
-        <div>
-          <h2 className="card__title">{check.title}</h2>
-          <p className="text-steel admin-ops-card__summary">{check.summary}</p>
-          {guidance ? <p className="admin-ops-card__guidance">{guidance}</p> : null}
-        </div>
-        <span className={statusBadgeClass(check.status)}>{statusLabel(check.status)}</span>
-      </div>
-
-      {check.details ? (
-        <div className="admin-ops-card__structured">
-          <StructuredCheckDetail check={check} t={t} />
-        </div>
-      ) : null}
-
-      {check.actionHref ? (
-        <p className="admin-ops-card__actions">
-          <Link to={check.actionHref} className="link">
-            {check.actionLabel || t('adminOpsOpen')}
-          </Link>
-        </p>
-      ) : null}
-
-      <TechnicalJsonDetails
-        details={check.details}
-        open={techOpen}
-        onToggle={() => setTechOpen((v) => !v)}
-        t={t}
-      />
-    </article>
-  )
-}
-
-function CheckSection({ title, checks, statusLabel, t }) {
-  if (!checks.length) return null
-  return (
-    <section className="admin-ops-section">
-      <h2 className="admin-ops-section__title">{title}</h2>
-      <div className="admin-ops-grid">
-        {checks.map((check) => (
-          <CheckCard key={check.id} check={check} statusLabel={statusLabel} t={t} />
-        ))}
       </div>
     </section>
   )
@@ -170,15 +125,19 @@ function EmailAlertsPanel({ data, loading, settingsSaving, settingsError, onTogg
 
 export default function AdminOperations() {
   const { t } = useTranslation('pages')
+  const { canEdit } = useRbac()
+  const canResyncAtg = canEdit('admin')
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settingsError, setSettingsError] = useState(null)
+  const [popupCheckId, setPopupCheckId] = useState(null)
+  const [statusFilter, setStatusFilter] = useState(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ silent = false } = {}) => {
     setError(null)
-    setLoading(true)
+    if (!silent) setLoading(true)
     try {
       setData(await fetchAdminOpsStatus())
     } catch (e) {
@@ -199,14 +158,26 @@ export default function AdminOperations() {
     load()
   }, [load])
 
+  const handleAtgGapsChanged = useCallback(() => load({ silent: true }), [load])
+
   const statusLabel = useCallback(
     (status) => t(`adminOpsStatus_${status}`, status),
     [t]
   )
 
+  const closePopup = useCallback(() => setPopupCheckId(null), [])
+
+  const checkCtx = useMemo(
+    () => ({ t, statusLabel, canResyncAtg, onAtgGapsChanged: handleAtgGapsChanged, onPopUp: setPopupCheckId }),
+    [t, statusLabel, canResyncAtg, handleAtgGapsChanged]
+  )
+
+  const popupCheck = popupCheckId ? (data?.checks ?? []).find((c) => c.id === popupCheckId) : null
+
   const sortedChecks = useMemo(
-    () => sortChecksBySeverity(data?.checks ?? []),
-    [data?.checks]
+    () =>
+      sortChecksBySeverity(data?.checks ?? []).filter((c) => !statusFilter || c.status === statusFilter),
+    [data?.checks, statusFilter]
   )
 
   const attentionChecks = useMemo(
@@ -254,7 +225,7 @@ export default function AdminOperations() {
           </p>
           <p className="text-steel admin-ops-page-header__intro">{t('adminOpsIntro')}</p>
         </div>
-        <button type="button" className="btn btn--secondary admin-ops-refresh-btn" onClick={load} disabled={loading}>
+        <button type="button" className="btn btn--secondary admin-ops-refresh-btn" onClick={() => load()} disabled={loading}>
           {loading ? t('adminOpsRefreshing') : t('adminOpsRefresh')}
         </button>
       </div>
@@ -264,20 +235,24 @@ export default function AdminOperations() {
 
       {data ? (
         <>
-          <StatusHero data={data} statusLabel={statusLabel} t={t} />
+          <StatusHero
+            data={data}
+            statusLabel={statusLabel}
+            statusFilter={statusFilter}
+            onFilter={setStatusFilter}
+            t={t}
+          />
 
           <CheckSection
             title={t('adminOpsSectionAttention')}
             checks={attentionChecks}
-            statusLabel={statusLabel}
-            t={t}
+            ctx={checkCtx}
           />
 
           <CheckSection
             title={t('adminOpsSectionOk')}
             checks={okChecks}
-            statusLabel={statusLabel}
-            t={t}
+            ctx={checkCtx}
           />
 
           <EmailAlertsPanel
@@ -288,6 +263,17 @@ export default function AdminOperations() {
             onToggle={handleEmailAlertsToggle}
             t={t}
           />
+
+          {popupCheck ? (
+            <AdminOpsCheckPopup
+              check={popupCheck}
+              checkedAt={data.checkedAt}
+              loading={loading}
+              onRefresh={() => load()}
+              onClose={closePopup}
+              ctx={checkCtx}
+            />
+          ) : null}
         </>
       ) : null}
     </div>

@@ -142,6 +142,11 @@ export function cargoDoneEvidence(row, timelineEvents) {
   }
 }
 
+function positiveOrNull(v) {
+  const n = Number(v)
+  return v != null && Number.isFinite(n) && n > 0 ? n : null
+}
+
 export const CARGO_DONE_EXCLUDE_LABELS = {
   not_sailed: 'Operation status is not SAILED.',
   no_cargo_finished_in_timeline: 'No cargo/post-check end time on activity timeline.',
@@ -164,8 +169,10 @@ export function flowEvidenceSummary(row, productKey) {
     return {
       productQtyMt: Number.isFinite(qtyNum) ? qtyNum : null,
       loggedCargoHours: Number.isFinite(hoursNum) ? hoursNum : null,
+      activeCargoHours: positiveOrNull(row?.voyageActiveHours),
       cargoOpsHours: row?.opsH ?? null,
       voyageRateMtH: Number.isFinite(rateNum) && rateNum > 0 ? rateNum : null,
+      activeRateMtH: positiveOrNull(row?.voyageActiveRateMtH),
       source: row?.cargoRateSource ?? null,
       atgPartial: Boolean(row?.cargoRateAtgPartial),
     }
@@ -185,8 +192,10 @@ export function flowEvidenceSummary(row, productKey) {
   return {
     productQtyMt: qty,
     loggedCargoHours: loggedHours,
+    activeCargoHours: positiveOrNull(rateEntry?.activeHours),
     cargoOpsHours: opsH,
     voyageRateMtH: rate,
+    activeRateMtH: positiveOrNull(rateEntry?.activeRateMtH),
     source: rateEntry?.source ?? null,
     atgPartial: rateEntry?.atgPartial ?? false,
   }

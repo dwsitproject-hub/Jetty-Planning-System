@@ -138,6 +138,10 @@ export function siDetailToPlanLinkedDraftForm(si, lookups, linkedPlan) {
     note: si?.note ?? '',
     companyId: si?.companyId != null ? String(si.companyId) : '',
     documents: [],
+    partnerName: si?.partnerName ?? null,
+    partnerSiDocumentUrl: si?.partnerSiDocumentUrl ?? null,
+    partnerContractDocumentUrl: si?.partnerContractDocumentUrl ?? null,
+    partnerBlDocumentUrl: si?.partnerBlDocumentUrl ?? null,
   }
 }
 

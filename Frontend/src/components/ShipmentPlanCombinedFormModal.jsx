@@ -23,6 +23,8 @@ import {
 import { filterJettiesForPort, jettySelectLabel } from '../utils/portScopedLookups'
 import ShippingInstructionSiLinkedFields from './ShippingInstructionSiLinkedFields'
 import ShippingInstructionDocumentUploadSection from './ShippingInstructionDocumentUploadSection'
+import PartnerDocumentsCue from './PartnerDocumentsCue'
+import SiPartnerDocsSection from './SiPartnerDocsSection'
 import {
   defaultSiDraftForPlanPreview,
   planEtaYmd,
@@ -1557,6 +1559,7 @@ export default function ShipmentPlanCombinedFormModal({
                               {collapsed ? '▾' : '▴'}
                             </span>
                           </button>
+                          {collapsed && <PartnerDocumentsCue si={block.form} />}
                           {showAddAnotherSi &&
                             siDrafts.length > 1 &&
                             !existingSiIdFromDraftKey(block.id) && (
@@ -1573,6 +1576,7 @@ export default function ShipmentPlanCombinedFormModal({
                           <p className="shipment-plan-form__field-error" role="alert">{siCardError.message}</p>
                         )}
                         <div hidden={collapsed}>
+                          <SiPartnerDocsSection si={block.form} />
                           {showSiUpload && (
                             <>
                               <ShippingInstructionDocumentUploadSection

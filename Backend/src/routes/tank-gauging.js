@@ -8,6 +8,13 @@ import { requirePortScope } from '../middleware/port-scope.js';
 import { requirePageEdit, requirePageView } from '../middleware/permissions.js';
 import { computeAtgWindowMassDelta, computeAtgWindowVolumeDelta } from '../lib/atg-window-rate.js';
 import { computeDirectionalMovedQtyForWindow } from '../lib/atg-hourly-progress.js';
+import { writeActivityLog } from '../lib/activity-log.js';
+import {
+  OVERRIDE_ENTITY_TYPE,
+  mapOverrideForClient,
+  setTankManualOverride,
+  validateOverrideRequest,
+} from '../lib/tank-manual-override.js';
 import {
   createSource,
   deleteSource,
@@ -72,6 +79,7 @@ function toReading(row) {
     fetchedAt: row.fetched_at ?? null,
     sourceBaseUrl: row.source_base_url ?? null,
     sourceUnitName: row.source_unit_name ?? null,
+    manualOverride: mapOverrideForClient(row),
   };
 }
 
@@ -106,11 +114,17 @@ router.get('/latest', ...requirePageView(PAGE_KEY), async (req, res) => {
        l.level_movement,
        l.gauge_ref_height_mm,
        l.recorded_at,
-       l.fetched_at
+       l.fetched_at,
+       t.manual_override_enabled,
+       t.manual_override_reason,
+       t.manual_override_set_at,
+       t.manual_override_expires_at,
+       ov.username AS manual_override_set_by_name
      FROM tank_gauging_tank_map m
      JOIN master_tanks t
        ON t.id = m.tank_id
       AND t.deleted_at IS NULL
+     LEFT JOIN users ov ON ov.id = t.manual_override_set_by
      LEFT JOIN tank_gauging_latest l ON l.tank_id = m.tank_id
      WHERE m.port_id = $1
        AND t.port_id = $1
@@ -119,6 +133,98 @@ router.get('/latest', ...requirePageView(PAGE_KEY), async (req, res) => {
   );
 
   res.json(r.rows.map(toReading));
+});
+
+function parseTankIdParam(req, res) {
+  const id = parseInt(String(req.params.tankId ?? ''), 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    res.status(400).json({ error: 'Invalid tankId' });
+    return null;
+  }
+  return id;
+}
+
+/** Tank on the Tank Farm page (mapped to ATG) in a port the user may use. */
+async function loadMappedTank(req, res, tankId) {
+  const r = await pool.query(
+    `SELECT t.id, t.port_id, t.code
+     FROM master_tanks t
+     WHERE t.id = $1 AND t.deleted_at IS NULL
+       AND EXISTS (SELECT 1 FROM tank_gauging_tank_map m WHERE m.tank_id = t.id)`,
+    [tankId]
+  );
+  const tank = r.rows[0];
+  if (!tank) {
+    res.status(404).json({ error: 'Tank not found or not connected to ATG' });
+    return null;
+  }
+  if (!assertPortAllowed(req, tank.port_id)) {
+    res.status(403).json({ error: 'Selected port is not assigned to this user' });
+    return null;
+  }
+  return tank;
+}
+
+/** PUT /tank-gauging/tanks/:tankId/manual-override — turn the per-tank manual override on or off */
+router.put('/tanks/:tankId/manual-override', ...requirePageEdit(PAGE_KEY), async (req, res) => {
+  const tankId = parseTankIdParam(req, res);
+  if (tankId == null) return;
+  const tank = await loadMappedTank(req, res, tankId);
+  if (!tank) return;
+
+  const checked = validateOverrideRequest(req.body);
+  if (!checked.ok) return res.status(400).json({ error: checked.error });
+  const { enabled, reason, expiresAt } = checked.value;
+
+  const change = await setTankManualOverride(pool, { tankId, enabled, reason, expiresAt, userId: req.userId ?? null });
+  const before = mapOverrideForClient(change.before);
+  const after = mapOverrideForClient(change.after);
+
+  writeActivityLog({
+    pageKey: PAGE_KEY,
+    action: 'update',
+    entityType: OVERRIDE_ENTITY_TYPE,
+    entityId: String(tankId),
+    entityLabel: `Tank ${tank.code}`,
+    summary: enabled
+      ? `Manual override turned ON for tank ${tank.code}${expiresAt ? ` until ${expiresAt}` : ' (no expiry)'}: ${reason}`
+      : `Manual override turned OFF for tank ${tank.code}${reason ? `: ${reason}` : ''}`,
+    meta: { kind: enabled ? 'tank_manual_override_on' : 'tank_manual_override_off', tankId, portId: Number(tank.port_id), reason, expiresAt, before, after },
+    actorUserId: req.userId ?? null,
+  }).catch((e) => console.error('tank manual override activity log failed:', e?.message || e));
+
+  res.json({ tankId: String(tankId), manualOverride: mapOverrideForClient(change.after) });
+});
+
+/** GET /tank-gauging/tanks/:tankId/manual-override/history — who turned it on/off, when and why */
+router.get('/tanks/:tankId/manual-override/history', ...requirePageView(PAGE_KEY), async (req, res) => {
+  const tankId = parseTankIdParam(req, res);
+  if (tankId == null) return;
+  const tank = await loadMappedTank(req, res, tankId);
+  if (!tank) return;
+
+  const r = await pool.query(
+    `SELECT id, summary, meta_json, actor_username, created_at
+     FROM activity_logs
+     WHERE deleted_at IS NULL AND entity_type = $1 AND entity_id = $2
+     ORDER BY created_at DESC, id DESC
+     LIMIT 30`,
+    [OVERRIDE_ENTITY_TYPE, String(tankId)]
+  );
+  res.json({
+    tankId: String(tankId),
+    items: r.rows.map((row) => {
+      const meta = row.meta_json || {};
+      return {
+        id: Number(row.id),
+        enabled: meta.kind === 'tank_manual_override_on',
+        reason: meta.reason ?? null,
+        expiresAt: meta.expiresAt ?? null,
+        by: row.actor_username ?? null,
+        at: new Date(row.created_at).toISOString(),
+      };
+    }),
+  });
 });
 
 /** GET /tank-gauging/mass-delta — segment mass Δ for cargo ops (no tank-farm page permission required) */

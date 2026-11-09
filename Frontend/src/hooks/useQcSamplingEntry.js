@@ -7,7 +7,7 @@ import {
   loadQcSamplingSection,
   saveQcSamplingSection,
 } from '../api/qc'
-import { recordsDiffer, validateSummaryFields } from '../utils/qcSampling'
+import { findEmptySamplingCards, recordsDiffer, validateSummaryFields } from '../utils/qcSampling'
 import { carryVisitOntoSingleCard, seedCommodityCards } from '../utils/samplingCommodity'
 import { useQcSamplingDraft } from './useQcSamplingDraft'
 import { useQcSamplingRecords } from './useQcSamplingRecords'
@@ -185,12 +185,16 @@ export function useQcSamplingEntry(operationId) {
   /**
    * @param {'draft'|'final'} mode
    * @param {{ force?: boolean }} [options] force skips the "someone else saved" check (overwrite)
-   * @returns {Promise<{ ok: boolean, errors?: object, message?: string, conflict?: boolean }>}
+   * @returns {Promise<{ ok: boolean, errors?: object, message?: string, conflict?: boolean, incomplete?: string[] }>}
    */
   const save = useCallback(
     async (mode, { force = false } = {}) => {
       const errors = validateSummaryFields(sampling)
       if (Object.keys(errors).length > 0) return { ok: false, errors }
+      if (mode === 'final') {
+        const incomplete = findEmptySamplingCards(sampling)
+        if (incomplete.length > 0) return { ok: false, incomplete }
+      }
       setSaving(true)
       setConflict(null)
       try {

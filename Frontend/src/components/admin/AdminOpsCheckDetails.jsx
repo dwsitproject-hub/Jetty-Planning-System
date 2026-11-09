@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import SortableFilterableTableHead from '../SortableFilterableTableHead.jsx'
 import { useSortableFilterableRows } from '../../hooks/useSortableFilterableRows.js'
 import { formatCount, formatRelativeTime, formatWhen, shortBatchId } from '../../utils/adminOpsDisplay'
+import { AtgCargoGapsDetail } from './AdminOpsAtgCargoGaps.jsx'
 
 function isoSortValue(iso) {
   const n = iso ? new Date(iso).getTime() : 0
@@ -338,11 +339,45 @@ export function PartnerApiDetail({ details, t }) {
   )
 }
 
-export function StructuredCheckDetail({ check, t }) {
+function ManualOverrideDetail({ details, t }) {
+  const rows = (details.tanks ?? []).map((tk) => ({
+    key: tk.tankId,
+    tank: tk.code,
+    port: tk.portName || '—',
+    reason: tk.reason || '—',
+    setBy: tk.setBy || '—',
+    expires: tk.expiresAt ? formatWhen(tk.expiresAt) : t('adminOpsOverrideNoExpiry'),
+  }))
+  return (
+    <DetailTable
+      columns={[
+        { key: 'tank', label: t('adminOpsOverrideTank') },
+        { key: 'port', label: t('adminOpsOverridePort') },
+        { key: 'reason', label: t('adminOpsOverrideReason') },
+        { key: 'setBy', label: t('adminOpsOverrideSetBy') },
+        { key: 'expires', label: t('adminOpsOverrideExpires') },
+      ]}
+      rows={rows}
+      emptyMessage={t('adminOpsOverrideNone')}
+      noMatchLabel={t('tableNoFilterMatch')}
+    />
+  )
+}
+
+export function StructuredCheckDetail({ check, t, canResyncAtg, onAtgGapsChanged }) {
   const details = check.details ?? {}
   switch (check.id) {
     case 'atg_sync':
       return <AtgSyncDetail details={details} t={t} />
+    case 'atg_cargo_gaps':
+      return (
+        <AtgCargoGapsDetail
+          details={details}
+          t={t}
+          canResync={canResyncAtg}
+          onGapsChanged={onAtgGapsChanged}
+        />
+      )
     case 'purge_job':
       return (
         <PurgeBatchTable
@@ -351,6 +386,8 @@ export function StructuredCheckDetail({ check, t }) {
           t={t}
         />
       )
+    case 'manual_override':
+      return <ManualOverrideDetail details={details} t={t} />
     case 'synology_mount':
       return <SynologyMountDetail details={details} t={t} />
     case 'datahub':

@@ -11,6 +11,13 @@ import { promoteDockedToInProgressIfDocked } from '../lib/operation-auto-status.
 import { loadOperationScheduleTimezone, parseScheduleInstantToIso } from '../lib/schedule-instant.js';
 import { computeAtgWindowMassDelta, computeAtgWindowVolumeDelta } from '../lib/atg-window-rate.js';
 import { resolveCargoLineQty } from '../lib/cargo-line-qty.js';
+import {
+  buildManualOverrideJson,
+  checkOverrideEntries,
+  parseOverrideEntries,
+  totalManualQty,
+} from '../lib/cargo-manual-override.js';
+import { loadActiveOverrideTankIds } from '../lib/tank-manual-override.js';
 import { readAtgQtyFromResult, resolveAtgMeasurementBasis } from '../lib/atg-measurement.js';
 import {
   aggregateAtgDailyProgressForOperation,
@@ -214,6 +221,42 @@ async function loadManualLineWindows(q, activityId) {
 }
 
 /**
+ * Tanks already stored with a hand-entered quantity on this activity, per segment window.
+ * Re-saving such a segment unchanged stays valid even after the tank's override was turned off.
+ * @returns {Promise<Map<string, Set<number>>>}
+ */
+async function loadStoredOverrideTanks(q, activityId) {
+  const out = new Map();
+  if (activityId == null) return out;
+  const r = await q.query(
+    `SELECT l.started_at, l.ended_at, l.manual_override,
+            COALESCE(
+              (SELECT array_agg(clt.tank_id ORDER BY clt.tank_id)
+               FROM operation_cargo_load_line_tanks clt
+               WHERE clt.load_line_id = l.id),
+              ARRAY[]::bigint[]
+            ) AS tank_ids
+     FROM operation_cargo_load_lines l
+     WHERE l.operational_activity_id = $1 AND l.manual_override IS NOT NULL`,
+    [activityId]
+  );
+  for (const row of r.rows) {
+    const tanks = Array.isArray(row.manual_override?.tanks) ? row.manual_override.tanks : [];
+    out.set(
+      manualLineWindowKey(row.started_at, row.ended_at, row.tank_ids || []),
+      new Set(tanks.map((t) => Number(t?.tankId)).filter((n) => n > 0))
+    );
+  }
+  return out;
+}
+
+async function loadTankCodes(q, tankIds) {
+  if (!tankIds.length) return new Map();
+  const r = await q.query(`SELECT id, code FROM master_tanks WHERE id = ANY($1::bigint[])`, [tankIds]);
+  return new Map(r.rows.map((row) => [Number(row.id), row.code]));
+}
+
+/**
  * @param {import('pg').PoolClient|import('pg').Pool} q
  * @param {number|null} excludeActivityId — null for POST
  */
@@ -330,6 +373,9 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
       atgQtyMode = m;
     }
 
+    const overrideParsed = parseOverrideEntries(row, i);
+    if (!overrideParsed.ok) return { ok: false, status: 400, error: overrideParsed.error };
+
     const rawTankIds = row.tankIds ?? row.tank_ids;
     let lineTankIds = [];
     if (rawTankIds !== undefined && rawTankIds !== null) {
@@ -383,10 +429,13 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
       _i: i,
       tankIds: lineTankIds,
       commodityId: normCommodity.commodityId,
+      overrideEntries: overrideParsed.entries,
+      overrideNote: overrideParsed.note,
     });
   }
 
   const grandfatheredManual = await loadManualLineWindows(q, excludeActivityId);
+  const storedOverrideTanks = await loadStoredOverrideTanks(q, excludeActivityId);
   const cargoAtgCtx = await loadOperationCargoAtgContext(q, operationId);
   const siLine = await loadPrimarySiCargoLine(q, operationId);
   const measurementBasis = resolveAtgMeasurementBasis(siLine?.metric_code);
@@ -396,8 +445,29 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
     let manualTankIds = [];
     let atg = null;
 
+    let nonAtgTankCount = 0;
     if (commodityType !== 'Solid' && p.tankIds.length > 0) {
       ({ atgTankIds, manualTankIds } = await partitionLineTanks(q, p.tankIds));
+      nonAtgTankCount = manualTankIds.length;
+
+      // Per-tank manual override: those tanks leave ATG and join the manual tanks of the segment.
+      if (p.overrideEntries.length > 0) {
+        const overrideIds = p.overrideEntries.map((e) => e.tankId);
+        const overrideError = checkOverrideEntries({
+          entries: p.overrideEntries,
+          note: p.overrideNote,
+          atgTankIds,
+          activeIds: await loadActiveOverrideTankIds(q, overrideIds),
+          grandfatheredIds: storedOverrideTanks.get(manualLineWindowKey(p.startIso, p.endIso, p.tankIds)) ?? new Set(),
+          hasEnd: p.hasEnd,
+          atgQtyMode: p.atgQtyMode,
+          codeById: await loadTankCodes(q, overrideIds),
+        });
+        if (overrideError) return { ok: false, status: 400, error: `cargoLoadLines[${p._i}]: ${overrideError}` };
+        atgTankIds = atgTankIds.filter((id) => !overrideIds.includes(id));
+        manualTankIds = [...manualTankIds, ...overrideIds];
+      }
+
       if (atgTankIds.length > 0 && p.hasEnd) {
         if (cargoAtgCtx?.purpose) {
           atg = await computeDirectionalMovedQtyForWindow(q, {
@@ -425,17 +495,31 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
       }
     }
 
-    const resolved = resolveCargoLineQty({
-      commodityType,
-      atgTankIds,
-      manualTankIds,
-      atgQtyMode: p.atgQtyMode,
-      hasEnd: p.hasEnd,
-      submittedQty: p.qty,
-      manualQty: p.manualQty,
-      atg,
-      grandfatheredManual: grandfatheredManual.has(manualLineWindowKey(p.startIso, p.endIso, p.tankIds)),
-    });
+    const hasOverride = p.overrideEntries.length > 0;
+    p.nonAtgManualQty = null;
+    if (hasOverride) {
+      // Manual share = shared quantity for non-ATG tanks + each overridden tank.
+      if (nonAtgTankCount > 0 && (p.manualQty == null || p.manualQty <= 0)) {
+        return { ok: false, status: 400, error: `cargoLoadLines[${p._i}]: manualQty is required for non-ATG tanks on this line` };
+      }
+      p.nonAtgManualQty = nonAtgTankCount > 0 ? p.manualQty : null;
+      p.manualQty = totalManualQty(p.nonAtgManualQty, p.overrideEntries);
+    }
+
+    const resolved =
+      hasOverride && atgTankIds.length === 0
+        ? { qty: p.manualQty, atgQtyMode: 'auto', coerced: null, error: null }
+        : resolveCargoLineQty({
+            commodityType,
+            atgTankIds,
+            manualTankIds,
+            atgQtyMode: p.atgQtyMode,
+            hasEnd: p.hasEnd,
+            submittedQty: p.qty,
+            manualQty: p.manualQty,
+            atg,
+            grandfatheredManual: grandfatheredManual.has(manualLineWindowKey(p.startIso, p.endIso, p.tankIds)),
+          });
 
     if (resolved.error) {
       return { ok: false, status: 400, error: `cargoLoadLines[${p._i}]: ${resolved.error}` };
@@ -445,6 +529,8 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
     p.atgQtyMode = resolved.atgQtyMode;
     p.atgResult = atg;
     if (manualTankIds.length === 0) p.manualQty = null;
+    p.manualOverride = buildManualOverrideJson(p.overrideEntries, p.overrideNote);
+    if (p.manualOverride) p.manualOverride.nonAtgManualQty = p.nonAtgManualQty;
   }
 
   parsed.sort((a, b) => {
@@ -489,6 +575,8 @@ async function parseValidateCargoLoadLines(q, body, milestoneKey, scheduleTz, pa
     tankIds: p.tankIds || [],
     atgResult: p.atgResult ?? null,
     commodityId: p.commodityId,
+    manualOverride: p.manualOverride ?? null,
+    manualOverrideTankIds: p.overrideEntries.map((e) => e.tankId),
   }));
   return { ok: true, lines, siCommodityOptions };
 }
@@ -531,7 +619,7 @@ async function attachAtgMassSnapshots(client, lines, { commodityType, measuremen
       out.push({ ...ln, atgMassDelta: null, atgMassDetail: null });
       continue;
     }
-    const { atgTankIds } = await partitionLineTanks(client, tankIds);
+    const { atgTankIds } = await partitionLineTanks(client, tankIds, ln.manualOverrideTankIds);
     if (atgTankIds.length === 0) {
       out.push({ ...ln, atgMassDelta: null, atgMassDetail: null });
       continue;
@@ -567,6 +655,7 @@ function mapCargoLoadLineRow(row, tanks = null) {
     atgMassComputedAt: row.atg_mass_computed_at ?? null,
     manualQty: row.manual_qty != null ? Number(row.manual_qty) : null,
     atgQtyMode: row.atg_qty_mode || 'auto',
+    manualOverride: row.manual_override ?? null,
     commodityId:
       row.commodity_id != null && row.commodity_id !== '' ? String(row.commodity_id) : null,
   };
@@ -636,12 +725,12 @@ async function insertCargoLoadLines(client, operationalActivityId, lines, opts =
       `INSERT INTO operation_cargo_load_lines (
          operational_activity_id, line_order, qty, manual_qty, atg_qty_mode,
          started_at, ended_at, commodity_id,
-         atg_mass_delta, atg_mass_detail, atg_mass_computed_at
+         atg_mass_delta, atg_mass_detail, atg_mass_computed_at, manual_override
        )
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::numeric, $10::jsonb,
-         CASE WHEN $9::numeric IS NULL THEN NULL::timestamptz ELSE NOW() END)
+         CASE WHEN $9::numeric IS NULL THEN NULL::timestamptz ELSE NOW() END, $11::jsonb)
        RETURNING id, line_order, qty, manual_qty, atg_qty_mode, started_at, ended_at, commodity_id,
-         atg_mass_delta, atg_mass_detail, atg_mass_computed_at`,
+         atg_mass_delta, atg_mass_detail, atg_mass_computed_at, manual_override`,
       [
         operationalActivityId,
         ln.lineOrder ?? i + 1,
@@ -653,6 +742,7 @@ async function insertCargoLoadLines(client, operationalActivityId, lines, opts =
         ln.commodityId != null ? Number(ln.commodityId) : null,
         ln.atgMassDelta,
         ln.atgMassDetail ? JSON.stringify(ln.atgMassDetail) : null,
+        ln.manualOverride ? JSON.stringify(ln.manualOverride) : null,
       ]
     );
     const loadLineId = Number(ins.rows[0].id);
@@ -799,7 +889,7 @@ async function fetchCargoLoadLinesForActivityIds(q, activityIds, optionsById = n
   const r = await q.query(
     `SELECT id, operational_activity_id, line_order, qty, manual_qty, atg_qty_mode,
             started_at, ended_at, commodity_id,
-            atg_mass_delta, atg_mass_detail, atg_mass_computed_at
+            atg_mass_delta, atg_mass_detail, atg_mass_computed_at, manual_override
      FROM operation_cargo_load_lines
      WHERE operational_activity_id = ANY($1::bigint[])
      ORDER BY operational_activity_id ASC, line_order ASC, id ASC`,
@@ -1468,6 +1558,7 @@ router.post('/operations/:operationId/cargo-segment-hourly', async (req, res) =>
     const draftStartRaw = seg.startAt ?? seg.start_at ?? null;
     const draftEndRaw = seg.endAt ?? seg.end_at ?? null;
     const draftTankIds = parseSegmentTankIds(seg.tankIds ?? seg.tank_ids);
+    const draftOverrideIds = parseSegmentTankIds(seg.manualOverrideTankIds ?? seg.manual_override_tank_ids);
 
     let startIso = null;
     if (draftStartRaw) {
@@ -1514,6 +1605,7 @@ router.post('/operations/:operationId/cargo-segment-hourly', async (req, res) =>
       startedAt: startIso,
       endedAt: endIso,
       tankIds,
+      manualOverrideTankIds: draftOverrideIds.length ? draftOverrideIds : (dbLine?.manualOverrideTankIds ?? []),
       atgQtyMode,
       qty: dbLine?.qty ?? null,
       manualQty: dbLine?.manualQty ?? null,
@@ -1743,6 +1835,7 @@ router.get('/operations/:operationId/activity-timeline', async (req, res) => {
                     'qty', l.qty,
                     'manualQty', l.manual_qty,
                     'atgQtyMode', l.atg_qty_mode,
+                    'manualOverride', l.manual_override,
                     'startedAt', l.started_at,
                     'endedAt', l.ended_at,
                     'atgMassDelta', l.atg_mass_delta,

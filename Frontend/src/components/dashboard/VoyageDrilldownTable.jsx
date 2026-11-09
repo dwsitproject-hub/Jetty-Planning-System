@@ -2,7 +2,7 @@
  * By Voyage: one row per call, grouped Incoming (unload) / Outgoing (load).
  */
 import { Fragment, useCallback, useMemo, useState } from 'react'
-import { voyageFlowRate } from '../../utils/managementDashboardFlow.js'
+import { voyageActiveFlowRate, voyageFlowRate } from '../../utils/managementDashboardFlow.js'
 import { voyageMovedQtyLines, voyageMovedQtySortValue } from '../../utils/managementDashboardProduct.js'
 import { sortModalRows } from '../../utils/widgetDetailSort.js'
 import {
@@ -12,8 +12,8 @@ import {
 import { fmtMgmtDurationDays, fmtMgmtDurationHours } from './ManagementProductTable.jsx'
 import ProductMetricEvidenceRow from './ProductMetricEvidenceRow.jsx'
 
-const METRIC_COLUMNS = ['wait', 'pre', 'flow', 'cargoDoneToSail']
-const COL_SPAN = 10
+const METRIC_COLUMNS = ['wait', 'pre', 'flow', 'activeFlow', 'cargoDoneToSail']
+const COL_SPAN = 11
 
 function fmtNum(n, d = 1) {
   return n == null ? '—' : n.toLocaleString('en-US', { maximumFractionDigits: d })
@@ -77,7 +77,8 @@ const VOYAGE_COLUMNS = [
   { key: 'moved', label: 'Moved (MT)', align: 'right', sortValue: voyageMovedQtySortValue },
   { key: 'wait', label: 'Wait', align: 'right', sortValue: (r) => r.wait },
   { key: 'pre', label: 'Berth → start cargo', align: 'right', sortValue: (r) => r.pre },
-  { key: 'flow', label: 'Avg flow', align: 'right', sortValue: (r) => voyageFlowRate(r) },
+  { key: 'flow', label: 'Achieved rate', align: 'right', sortValue: (r) => voyageFlowRate(r) },
+  { key: 'activeFlow', label: 'Active rate', align: 'right', sortValue: (r) => voyageActiveFlowRate(r) },
   { key: 'cargoDoneToSail', label: 'Cargo done → sailed off', align: 'right', sortValue: (r) => r.cargoDoneToSailH },
   {
     key: 'dateCompleted',
@@ -91,6 +92,7 @@ const VOYAGE_COLUMNS = [
 /** Tail-column layout: spacing + separators so durations/dates do not run together. */
 const VOYAGE_COLUMN_UI = {
   flow: { thClass: 'mgmt-voyage-th--flow', tdClass: 'mgmt-voyage-col--flow' },
+  activeFlow: { thClass: 'mgmt-voyage-th--flow', tdClass: 'mgmt-voyage-col--flow' },
   cargoDoneToSail: {
     thClass: 'mgmt-voyage-th--cargo-done',
     tdClass: 'mgmt-voyage-col--cargo-done',
@@ -219,6 +221,7 @@ function VoyageBlock({
             {sorted.map((r) => {
               const rk = String(r.id)
               const rate = voyageFlowRate(r)
+              const activeRate = voyageActiveFlowRate(r)
               const show = expanded?.rowKey === rk && METRIC_COLUMNS.includes(expanded.columnKey)
               return (
                 <Fragment key={rk}>
@@ -234,6 +237,7 @@ function VoyageBlock({
                     <td {...metricProps(rk, 'wait')}>{fmtMgmtDurationDays(r.wait)}</td>
                     <td {...metricProps(rk, 'pre')}>{fmtMgmtDurationDays(r.pre)}</td>
                     <td {...metricProps(rk, 'flow')}>{rate == null ? '—' : `${fmtNum(rate, 1)} MT/h`}</td>
+                    <td {...metricProps(rk, 'activeFlow')}>{activeRate == null ? '—' : `${fmtNum(activeRate, 1)} MT/h`}</td>
                     <td {...metricProps(rk, 'cargoDoneToSail')}>{fmtMgmtDurationHours(r.cargoDoneToSailH)}</td>
                     <td className={voyageTdClass('dateCompleted')}>{fmtMgmtCastOffDate(r.castOff)}</td>
                     <td>{statusChip(r)}</td>

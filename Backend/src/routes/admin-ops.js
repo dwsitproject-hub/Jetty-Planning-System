@@ -5,6 +5,7 @@
 import express from 'express';
 import { pool } from '../db.js';
 import { requireAdminPageView } from '../middleware/permissions.js';
+import atgGapsRoutes from './admin-ops-atg-gaps.js';
 import { runAdminOpsChecks } from '../lib/admin-ops-checks.js';
 import {
   computeEmailAlertsActive,
@@ -66,6 +67,8 @@ router.put('/settings', async (req, res) => {
     res.status(500).json({ error: err?.message || 'Failed to save operations alert settings' });
   }
 });
+
+router.use('/atg-cargo-gaps', atgGapsRoutes);
 
 router.get('/status', async (_req, res) => {
   try {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  activeCargoHours,
   buildCargoRateResult,
   computeCargoRateFromContext,
   lineMatchesProductKey,
@@ -289,5 +290,36 @@ describe('computeCargoRateFromContext', () => {
       ],
     };
     assert.equal(linesForProductRate(ctx, 'CPKO').length, 0);
+  });
+});
+
+describe('activeCargoHours', () => {
+  it('excludes pauses between segments and counts overlapping tanks once', () => {
+    const lines = [
+      { startedAt: '2026-08-04T08:00:00Z', endedAt: '2026-08-04T10:00:00Z' },
+      { startedAt: '2026-08-04T09:00:00Z', endedAt: '2026-08-04T11:00:00Z' },
+      { startedAt: '2026-08-04T14:00:00Z', endedAt: '2026-08-04T16:00:00Z' },
+    ];
+    assert.equal(activeCargoHours(lines), 5);
+  });
+
+  it('closes an open segment at the given end time', () => {
+    const lines = [{ startedAt: '2026-08-04T08:00:00Z', endedAt: null }];
+    assert.equal(activeCargoHours(lines, Date.parse('2026-08-04T11:00:00Z')), 3);
+  });
+});
+
+describe('buildCargoRateResult achieved vs active', () => {
+  it('returns operational-window rate and active-segment rate', () => {
+    const lines = [
+      { startedAt: '2026-08-04T08:00:00Z', endedAt: '2026-08-04T10:00:00Z' },
+      { startedAt: '2026-08-04T14:00:00Z', endedAt: '2026-08-04T16:00:00Z' },
+    ];
+    const summary = { movedQty: 800, source: 'atg', isLive: false, hasActiveCargo: false };
+    const r = buildCargoRateResult(summary, lines);
+    assert.equal(r.loggedHours, 8);
+    assert.equal(r.rateMtH, 100);
+    assert.equal(r.activeHours, 4);
+    assert.equal(r.activeRateMtH, 200);
   });
 });
