@@ -54,7 +54,8 @@
   "post": {
     "finalInspection": "FINAL INSPECTION",
     "finalCargoChecking": "FINAL CARGO CHECKING",
-    "closing": "CLOSING"
+    "closing": "CLOSING",
+    "customClearance": "CUSTOM CLEARANCE"
   },
   "state": {
     "completed": "Completed",

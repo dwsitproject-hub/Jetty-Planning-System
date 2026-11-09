@@ -18,6 +18,7 @@ export const ACTIVITY_LOG_POST_KEY_TO_SECTION = {
   final_hold_inspection: 'finalInspection',
   final_sounding: 'finalCargoChecking',
   closing: 'closing',
+  custom_clearance: 'customClearance',
 }
 
 /**

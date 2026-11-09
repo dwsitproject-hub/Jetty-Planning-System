@@ -67,7 +67,7 @@ import {
   POST_CHECK_SUB_TABS,
   POST_CHECK_STAGE_IDS,
   isoOrDatetimeToLocal,
-  mergeClosingHydration,
+  mergeSingleTimeHydration,
 } from '../utils/loadingHubProcessStagesFromApi'
 import { mergeDistinctLines } from '../utils/mergeHydrationLines.js'
 import '../styles/allocation.css'
@@ -588,6 +588,7 @@ function Loading() {
           finalInspection: { ...(current.finalInspection || {}) },
           finalCargoChecking: { ...(current.finalCargoChecking || {}) },
           closing: { ...(current.closing || {}) },
+          customClearance: { ...(current.customClearance || {}) },
           finalSounding: { ...(current.finalSounding || {}) }, // legacy fallback only
         }
         const commodityType = apiOp?.commodityType === 'Solid' ? 'Solid' : 'Liquid'
@@ -603,7 +604,11 @@ function Loading() {
             continue
           }
           if (key === 'closing') {
-            bySection.closing = mergeClosingHydration(bySection.closing || {}, row)
+            bySection.closing = mergeSingleTimeHydration(bySection.closing || {}, row)
+            continue
+          }
+          if (key === 'custom_clearance') {
+            bySection.customClearance = mergeSingleTimeHydration(bySection.customClearance || {}, row)
           }
         }
 
@@ -1421,12 +1426,14 @@ const POSTCHECK_SHORT_CODE = {
   finalInspection: 'FIN',
   finalCargoChecking: 'FCC',
   closing: 'CLS',
+  customClearance: 'CUS',
 }
 
 const POSTCHECK_SECTION_TO_KEY = {
   finalInspection: 'final_inspection',
   finalCargoChecking: 'final_sounding',
   closing: 'closing',
+  customClearance: 'custom_clearance',
 }
 
 const POSTCHECK_KEY_TO_SECTION = {
@@ -1435,6 +1442,7 @@ const POSTCHECK_KEY_TO_SECTION = {
   final_hold_inspection: 'finalInspection',
   final_sounding: 'finalCargoChecking',
   closing: 'closing',
+  custom_clearance: 'customClearance',
 }
 
 /** Edit-form labels per post-check section (read-only rows use simpler labels in situ). */
@@ -1442,11 +1450,14 @@ const POSTCHECK_RESULT_LABEL = {
   finalInspection: 'Final Inspection Result',
   finalCargoChecking: 'Final Cargo Checking Result',
   closing: 'Closing Remark',
+  customClearance: 'Custom Clearance Remark',
 }
 
-/** Closing is a one-time event: one date-time, no start/end range. */
-const POSTCHECK_SINGLE_TIME_SECTIONS = new Set(['closing'])
-const POSTCHECK_CLOSING_TIME_LABEL = 'Closing Date & Time'
+/** Closing and Custom Clearance are one-time events: one date-time, no start/end range. */
+const POSTCHECK_SINGLE_TIME_LABEL = {
+  closing: 'Closing Date & Time',
+  customClearance: 'Custom Clearance Date & Time',
+}
 
 /** Closing method is derived from the SI commodity type, like Opening (Solid → Conveyor, Liquid → Hose). */
 const closingHandlingMethod = (commodityType) => (commodityType === 'Solid' ? 'Conveyor' : 'Hose')
@@ -3601,7 +3612,7 @@ function PostCheckingSections({
           } else if (section === 'finalCargoChecking') {
             bySection[section] = mergeFinalCargoCheckingHydration(current, row, commodityType)
           } else {
-            bySection[section] = mergeClosingHydration(current, row)
+            bySection[section] = mergeSingleTimeHydration(current, row)
           }
           bySection[section].documents = [
             ...(bySection[section].documents || []),
@@ -3756,13 +3767,14 @@ function PostCheckingSections({
     const st = (sectionDraft?.startTime && String(sectionDraft.startTime).trim()) || ''
     const en = (sectionDraft?.endTime && String(sectionDraft.endTime).trim()) || ''
     const dt = (sectionDraft?.dateTime && String(sectionDraft.dateTime).trim()) || ''
-    const isSingleTime = POSTCHECK_SINGLE_TIME_SECTIONS.has(sectionKey)
+    const singleTimeLabel = POSTCHECK_SINGLE_TIME_LABEL[sectionKey]
+    const isSingleTime = Boolean(singleTimeLabel)
     let occurredAt = null
     let startAt = null
     let endAt = null
     if (isSingleTime) {
       if (!isDraft && !(st || dt)) {
-        setPersistError(`${POSTCHECK_CLOSING_TIME_LABEL} is required.`)
+        setPersistError(`${singleTimeLabel} is required.`)
         setSavingSection(null)
         return
       }
@@ -3888,7 +3900,8 @@ function PostCheckingSections({
     const resultL = POSTCHECK_RESULT_LABEL[sectionKey]
     const startL = POSTCHECK_START_LABEL[sectionKey]
     const endL = POSTCHECK_END_LABEL[sectionKey]
-    const isSingleTime = POSTCHECK_SINGLE_TIME_SECTIONS.has(sectionKey)
+    const singleTimeLabel = POSTCHECK_SINGLE_TIME_LABEL[sectionKey]
+    const isSingleTime = Boolean(singleTimeLabel)
     const closingMethodLabel = `${closingHandlingMethod(commodityType)} Off`
     return (
       <PreCheckSectionCard
@@ -3950,7 +3963,7 @@ function PostCheckingSections({
               removingKey={removingDoc}
             />
             <div className="berthing-modal__field">
-              <label className="berthing-modal__label">{isSingleTime ? POSTCHECK_CLOSING_TIME_LABEL : startL}</label>
+              <label className="berthing-modal__label">{isSingleTime ? singleTimeLabel : startL}</label>
               <input
                 type="datetime-local"
                 className="berthing-modal__input"
@@ -4000,7 +4013,7 @@ function PostCheckingSections({
             </div>
             <PrecheckDocumentsRead documents={data[sectionKey]?.documents} />
             <div className="precheck-section__row">
-              <span className="precheck-section__label">{isSingleTime ? POSTCHECK_CLOSING_TIME_LABEL : startL}</span>
+              <span className="precheck-section__label">{isSingleTime ? singleTimeLabel : startL}</span>
               <span className="precheck-section__value">
                 {data[sectionKey]?.startTime || data[sectionKey]?.dateTime
                   ? formatDateTimeDisplay(data[sectionKey]?.startTime || data[sectionKey]?.dateTime)

@@ -58,12 +58,14 @@ const POSTCHECK_KEY_TO_SECTION = {
   final_hold_inspection: 'finalInspection',
   final_sounding: 'finalCargoChecking',
   closing: 'closing',
+  custom_clearance: 'customClearance',
 }
 
 export const POST_CHECK_SUB_TABS = [
   { id: 'finalInspection', label: 'FINAL INSPECTION' },
   { id: 'finalCargoChecking', label: 'FINAL CARGO CHECKING' },
   { id: 'closing', label: 'CLOSING' },
+  { id: 'customClearance', label: 'CUSTOM CLEARANCE' },
 ]
 
 export const POST_CHECK_STAGE_IDS = POST_CHECK_SUB_TABS.map((t) => t.id)
@@ -186,8 +188,8 @@ function mergeFinalCargoCheckingHydration(
   return next
 }
 
-/** Closing is a one-time event: a single date-time kept in `startTime`. */
-export function mergeClosingHydration(current, row, scheduleIana = getScheduleEntryTimeZone()) {
+/** Closing / Custom Clearance are one-time events: a single date-time kept in `startTime`. */
+export function mergeSingleTimeHydration(current, row, scheduleIana = getScheduleEntryTimeZone()) {
   const next = {
     ...current,
     result: mergeDistinctLines(current.result, row.remark) || row.remark || current.result || '',
@@ -468,6 +470,7 @@ async function buildPostCheckingSnapshotFromApi(
     finalInspection: {},
     finalCargoChecking: {},
     closing: {},
+    customClearance: {},
   }
 
   const docLoads = rows
@@ -487,8 +490,8 @@ async function buildPostCheckingSnapshotFromApi(
       bySection[section] = mergeFinalInspectionHydration(current, row, commodityType, scheduleIana)
     } else if (section === 'finalCargoChecking') {
       bySection[section] = mergeFinalCargoCheckingHydration(current, row, commodityType, scheduleIana)
-    } else if (section === 'closing') {
-      bySection[section] = mergeClosingHydration(current, row, scheduleIana)
+    } else if (section === 'closing' || section === 'customClearance') {
+      bySection[section] = mergeSingleTimeHydration(current, row, scheduleIana)
     }
     bySection[section].documents = [
       ...(bySection[section].documents || []),

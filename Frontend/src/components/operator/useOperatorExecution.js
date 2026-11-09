@@ -40,6 +40,7 @@ const POST_STEPS = [
   { uiKey: 'finalInspection', apiKey: 'final_inspection', label: 'FINAL INSPECTION' },
   { uiKey: 'finalCargoChecking', apiKey: 'final_sounding', label: 'FINAL CARGO CHECKING' },
   { uiKey: 'closing', apiKey: 'closing', label: 'CLOSING' },
+  { uiKey: 'customClearance', apiKey: 'custom_clearance', label: 'CUSTOM CLEARANCE' },
 ]
 
 function haptic() {
