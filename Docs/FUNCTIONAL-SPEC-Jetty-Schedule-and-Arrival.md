@@ -992,6 +992,7 @@ The horizontal **Pre-Checking / Operational / Post-Checking** stage tabs show **
 - **Post-Checking merged sections (Loading):**
   - **Final Inspection** (merged from Final Tank Inspection + Final Hold Inspection). The UI shows **Inspection Type** auto-derived from SI commodity type (**Tank** for liquid, **Hold** for solid).
   - **Final Cargo Checking** (renamed from Final Sounding). The UI shows **Cargo Checking Type** auto-derived from SI commodity type (**Sounding** for liquid, **Draft Survey** for solid).
+  - **Closing** (third and last Post-Checking sub-step). A one-time event: a single **Closing Date & Time** (required on Save, optional on Save Draft), plus documents and a remark. Same actions as the other sub-steps (Save Draft, Save, Save & Next, Cancel). Post-Checking now counts **3/3**, and **Request operation sign-off** only appears once Closing is Done as well. Closing does not change operation status or the Cargo Done time.
   - Legacy persisted keys remain readable for compatibility; activity log labels use the merged names.
 
 Cross-ref: **TECH-SPEC §2.2.4**; plan **Docs/Plan/AT-BERTH-TWO-LEVEL-PHASE-AND-WORKSPACE-STAGE-PLAN.md** (Case A, Option A).

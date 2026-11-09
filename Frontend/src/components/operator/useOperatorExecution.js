@@ -38,6 +38,7 @@ import i18n from '../../i18n'
 const POST_STEPS = [
   { uiKey: 'finalInspection', apiKey: 'final_inspection', label: 'FINAL INSPECTION' },
   { uiKey: 'finalCargoChecking', apiKey: 'final_sounding', label: 'FINAL CARGO CHECKING' },
+  { uiKey: 'closing', apiKey: 'closing', label: 'CLOSING' },
 ]
 
 function haptic() {

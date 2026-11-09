@@ -143,6 +143,11 @@ export const VESSEL_ACTIVITIES_TIMELOG_TEMPLATE = [
     category: 'Post-Checking - Final Cargo Checking',
     subProcessKeys: ['final_sounding'],
   },
+  {
+    id: 'post_closing',
+    category: 'Post-Checking - Closing',
+    subProcessKeys: ['closing'],
+  },
 ]
 
 function eventSortTime(ev) {

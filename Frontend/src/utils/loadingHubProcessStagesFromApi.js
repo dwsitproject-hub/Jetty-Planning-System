@@ -57,11 +57,13 @@ const POSTCHECK_KEY_TO_SECTION = {
   final_tank_inspection: 'finalInspection',
   final_hold_inspection: 'finalInspection',
   final_sounding: 'finalCargoChecking',
+  closing: 'closing',
 }
 
 export const POST_CHECK_SUB_TABS = [
   { id: 'finalInspection', label: 'FINAL INSPECTION' },
   { id: 'finalCargoChecking', label: 'FINAL CARGO CHECKING' },
+  { id: 'closing', label: 'CLOSING' },
 ]
 
 export const POST_CHECK_STAGE_IDS = POST_CHECK_SUB_TABS.map((t) => t.id)
@@ -181,6 +183,20 @@ function mergeFinalCargoCheckingHydration(
     const en = isoOrDatetimeToLocal(row.endAt, scheduleIana)
     if (en) next.endTime = next.endTime || en
   }
+  return next
+}
+
+/** Closing is a one-time event: a single date-time kept in `startTime`. */
+export function mergeClosingHydration(current, row, scheduleIana = getScheduleEntryTimeZone()) {
+  const next = {
+    ...current,
+    result: mergeDistinctLines(current.result, row.remark) || row.remark || current.result || '',
+    status:
+      precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
+    lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
+  }
+  const at = isoOrDatetimeToLocal(row.occurredAt || row.startAt || row.endAt, scheduleIana)
+  if (at) next.startTime = next.startTime || at
   return next
 }
 
@@ -451,6 +467,7 @@ async function buildPostCheckingSnapshotFromApi(
   const bySection = {
     finalInspection: {},
     finalCargoChecking: {},
+    closing: {},
   }
 
   const docLoads = rows
@@ -470,6 +487,8 @@ async function buildPostCheckingSnapshotFromApi(
       bySection[section] = mergeFinalInspectionHydration(current, row, commodityType, scheduleIana)
     } else if (section === 'finalCargoChecking') {
       bySection[section] = mergeFinalCargoCheckingHydration(current, row, commodityType, scheduleIana)
+    } else if (section === 'closing') {
+      bySection[section] = mergeClosingHydration(current, row, scheduleIana)
     }
     bySection[section].documents = [
       ...(bySection[section].documents || []),

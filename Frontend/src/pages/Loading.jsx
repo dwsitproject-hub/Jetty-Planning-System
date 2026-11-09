@@ -67,6 +67,7 @@ import {
   POST_CHECK_SUB_TABS,
   POST_CHECK_STAGE_IDS,
   isoOrDatetimeToLocal,
+  mergeClosingHydration,
 } from '../utils/loadingHubProcessStagesFromApi'
 import { mergeDistinctLines } from '../utils/mergeHydrationLines.js'
 import '../styles/allocation.css'
@@ -586,6 +587,7 @@ function Loading() {
         const bySection = {
           finalInspection: { ...(current.finalInspection || {}) },
           finalCargoChecking: { ...(current.finalCargoChecking || {}) },
+          closing: { ...(current.closing || {}) },
           finalSounding: { ...(current.finalSounding || {}) }, // legacy fallback only
         }
         const commodityType = apiOp?.commodityType === 'Solid' ? 'Solid' : 'Liquid'
@@ -598,6 +600,10 @@ function Loading() {
           }
           if (key === 'final_sounding') {
             bySection.finalCargoChecking = mergeFinalCargoCheckingHydration(bySection.finalCargoChecking || {}, row, commodityType)
+            continue
+          }
+          if (key === 'closing') {
+            bySection.closing = mergeClosingHydration(bySection.closing || {}, row)
           }
         }
 
@@ -1414,11 +1420,13 @@ const POSTCHECK_RAIL_COLLAPSED_KEY = 'jps_postcheck_section_rail_collapsed'
 const POSTCHECK_SHORT_CODE = {
   finalInspection: 'FIN',
   finalCargoChecking: 'FCC',
+  closing: 'CLS',
 }
 
 const POSTCHECK_SECTION_TO_KEY = {
   finalInspection: 'final_inspection',
   finalCargoChecking: 'final_sounding',
+  closing: 'closing',
 }
 
 const POSTCHECK_KEY_TO_SECTION = {
@@ -1426,13 +1434,19 @@ const POSTCHECK_KEY_TO_SECTION = {
   final_tank_inspection: 'finalInspection',
   final_hold_inspection: 'finalInspection',
   final_sounding: 'finalCargoChecking',
+  closing: 'closing',
 }
 
 /** Edit-form labels per post-check section (read-only rows use simpler labels in situ). */
 const POSTCHECK_RESULT_LABEL = {
   finalInspection: 'Final Inspection Result',
   finalCargoChecking: 'Final Cargo Checking Result',
+  closing: 'Closing Remark',
 }
+
+/** Closing is a one-time event: one date-time, no start/end range. */
+const POSTCHECK_SINGLE_TIME_SECTIONS = new Set(['closing'])
+const POSTCHECK_CLOSING_TIME_LABEL = 'Closing Date & Time'
 
 const POSTCHECK_START_LABEL = {
   finalInspection: 'Final Inspection Start Time',
@@ -3584,15 +3598,7 @@ function PostCheckingSections({
           } else if (section === 'finalCargoChecking') {
             bySection[section] = mergeFinalCargoCheckingHydration(current, row, commodityType)
           } else {
-            bySection[section] = {
-              ...current,
-              result: mergeDistinctLines(current.result, row.remark) || row.remark || current.result || '',
-              status:
-                precheckStatusRank(row.status) >= precheckStatusRank(current.status) ? row.status || current.status : current.status,
-              lastSavedAt: laterIso(row.updatedAt, current.lastSavedAt),
-              ...(row.startAt || row.occurredAt ? { startTime: current.startTime || isoOrDatetimeToLocal(row.startAt || row.occurredAt) } : {}),
-              ...(row.endAt ? { endTime: current.endTime || isoOrDatetimeToLocal(row.endAt) } : {}),
-            }
+            bySection[section] = mergeClosingHydration(current, row)
           }
           bySection[section].documents = [
             ...(bySection[section].documents || []),
@@ -3747,15 +3753,25 @@ function PostCheckingSections({
     const st = (sectionDraft?.startTime && String(sectionDraft.startTime).trim()) || ''
     const en = (sectionDraft?.endTime && String(sectionDraft.endTime).trim()) || ''
     const dt = (sectionDraft?.dateTime && String(sectionDraft.dateTime).trim()) || ''
+    const isSingleTime = POSTCHECK_SINGLE_TIME_SECTIONS.has(sectionKey)
     let occurredAt = null
     let startAt = null
     let endAt = null
-    if (st || en || dt) {
+    if (isSingleTime) {
+      if (!isDraft && !(st || dt)) {
+        setPersistError(`${POSTCHECK_CLOSING_TIME_LABEL} is required.`)
+        setSavingSection(null)
+        return
+      }
+      startAt = st || dt || null
+      endAt = startAt
+      occurredAt = startAt
+    } else if (st || en || dt) {
       startAt = st || dt || null
       endAt = en || dt || null
       occurredAt = startAt
     }
-    if (startAt && endAt) {
+    if (startAt && endAt && !isSingleTime) {
       let t0
       let t1
       try {
@@ -3829,10 +3845,12 @@ function PostCheckingSections({
         ? `${tabLabel} draft saved on this device only. Open the vessel from At-Berth to sync to the server.`
         : `${tabLabel} saved on this device only. Open the vessel from At-Berth to sync to the server.`
     }
+    let advanced = false
     if (goNext) {
       const idx = POST_CHECK_SUB_TABS.findIndex((t) => t.id === sectionKey)
       const next = POST_CHECK_SUB_TABS[idx + 1]
       if (next) {
+        advanced = true
         setActiveSubTab(next.id)
         successMsg = operationId
           ? isDraft
@@ -3843,7 +3861,7 @@ function PostCheckingSections({
             : `${tabLabel} saved locally. Next: ${next.label}.`
       }
     }
-    if (!goNext) setFormModalOpen(false)
+    if (!advanced) setFormModalOpen(false)
     setSaveSuccessMessage(successMsg)
     if (operationId) onActivityLogRefresh?.()
   }
@@ -3865,6 +3883,7 @@ function PostCheckingSections({
     const resultL = POSTCHECK_RESULT_LABEL[sectionKey]
     const startL = POSTCHECK_START_LABEL[sectionKey]
     const endL = POSTCHECK_END_LABEL[sectionKey]
+    const isSingleTime = POSTCHECK_SINGLE_TIME_SECTIONS.has(sectionKey)
     return (
       <PreCheckSectionCard
         title={tab.label}
@@ -3908,7 +3927,7 @@ function PostCheckingSections({
               removingKey={removingDoc}
             />
             <div className="berthing-modal__field">
-              <label className="berthing-modal__label">{startL}</label>
+              <label className="berthing-modal__label">{isSingleTime ? POSTCHECK_CLOSING_TIME_LABEL : startL}</label>
               <input
                 type="datetime-local"
                 className="berthing-modal__input"
@@ -3916,15 +3935,17 @@ function PostCheckingSections({
                 onChange={(e) => updateDraft(sectionKey, 'startTime', e.target.value)}
               />
             </div>
-            <div className="berthing-modal__field">
-              <label className="berthing-modal__label">{endL}</label>
-              <input
-                type="datetime-local"
-                className="berthing-modal__input"
-                value={draft[sectionKey]?.endTime ?? ''}
-                onChange={(e) => updateDraft(sectionKey, 'endTime', e.target.value)}
-              />
-            </div>
+            {!isSingleTime && (
+              <div className="berthing-modal__field">
+                <label className="berthing-modal__label">{endL}</label>
+                <input
+                  type="datetime-local"
+                  className="berthing-modal__input"
+                  value={draft[sectionKey]?.endTime ?? ''}
+                  onChange={(e) => updateDraft(sectionKey, 'endTime', e.target.value)}
+                />
+              </div>
+            )}
           </>
         ) : (
           <>
@@ -3950,19 +3971,21 @@ function PostCheckingSections({
             </div>
             <PrecheckDocumentsRead documents={data[sectionKey]?.documents} />
             <div className="precheck-section__row">
-              <span className="precheck-section__label">{startL}</span>
+              <span className="precheck-section__label">{isSingleTime ? POSTCHECK_CLOSING_TIME_LABEL : startL}</span>
               <span className="precheck-section__value">
                 {data[sectionKey]?.startTime || data[sectionKey]?.dateTime
                   ? formatDateTimeDisplay(data[sectionKey]?.startTime || data[sectionKey]?.dateTime)
                   : '—'}
               </span>
             </div>
-            <div className="precheck-section__row">
-              <span className="precheck-section__label">{endL}</span>
-              <span className="precheck-section__value">
-                {data[sectionKey]?.endTime ? formatDateTimeDisplay(data[sectionKey].endTime) : '—'}
-              </span>
-            </div>
+            {!isSingleTime && (
+              <div className="precheck-section__row">
+                <span className="precheck-section__label">{endL}</span>
+                <span className="precheck-section__value">
+                  {data[sectionKey]?.endTime ? formatDateTimeDisplay(data[sectionKey].endTime) : '—'}
+                </span>
+              </div>
+            )}
           </>
         )}
       </PreCheckSectionCard>
